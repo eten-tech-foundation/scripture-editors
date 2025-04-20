@@ -1,3 +1,4 @@
+import { $applyUpdate } from "../collab/delta.utils";
 import OptionChangePlugin from "./OptionChangePlugin";
 import ScriptureReferencePlugin from "./ScriptureReferencePlugin";
 import TreeViewPlugin from "./TreeViewPlugin";
@@ -18,6 +19,7 @@ import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
 import { SerializedVerseRef } from "@sillsdev/scripture";
 import { deepEqual } from "fast-equals";
 import { $setSelection, EditorState, LexicalEditor } from "lexical";
+import { Op } from "quill-delta";
 import React, {
   JSX,
   PropsWithChildren,
@@ -57,7 +59,11 @@ import {
 import { getDefaultViewOptions, getViewClassList } from "shared-react/views/view-options.utils";
 import { LoggerBasic } from "shared/adaptors/logger-basic.model";
 import { TypedMarkNode } from "shared/nodes/features/TypedMarkNode";
-import { blackListedChangeTags, SELECTION_CHANGE_TAG } from "shared/nodes/usj/node-constants";
+import {
+  blackListedChangeTags,
+  DELTA_CHANGE_TAG,
+  SELECTION_CHANGE_TAG,
+} from "shared/nodes/usj/node-constants";
 
 /** Forward reference for the editor. */
 export type EditorRef = {
@@ -67,6 +73,8 @@ export type EditorRef = {
   getUsj(): Usj | undefined;
   /** Set the USJ Scripture data. */
   setUsj(usj: Usj): void;
+  /** Apply Operational Transform delta update */
+  applyUpdate(ops: Op[]): void;
   /**
    * Get the selection location or range.
    * @returns the selection location or range, or `undefined` if there is no selection. The
@@ -198,8 +206,11 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
         setUsj(incomingUsj);
       }
     },
+    applyUpdate(ops) {
+      editorRef.current?.update(() => $applyUpdate(ops, logger), { tag: DELTA_CHANGE_TAG });
+    },
     getSelection() {
-      return editorRef.current?.read(() => $getRangeFromEditor());
+      return editorRef.current?.read($getRangeFromEditor);
     },
     setSelection(selection) {
       editorRef.current?.update(

@@ -40,6 +40,7 @@
     "@sillsdev/scripture": "^2.0.2",
     "fast-equals": "^5.2.2",
     "lexical": "^0.31.1",
+    "quill-delta": "^5.1.0",
     "yjs": "^13.6.20"
   },
   "devDependencies": {

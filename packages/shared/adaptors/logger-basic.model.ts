@@ -1,5 +1,15 @@
+// Taken methods in common with Console from: import type { LogFunctions } from "electron-log";
+
 export type LoggerBasic = {
-  error(message: string): void;
-  warn(message: string): void;
-  info(message: string): void;
+  /** Log an error message */
+  error(...params: any[]): void;
+
+  /** Log a warning message */
+  warn(...params: any[]): void;
+
+  /** Log an informational message */
+  info(...params: any[]): void;
+
+  /** Log a debug message */
+  debug(...params: any[]): void;
 };
