@@ -31,7 +31,7 @@ import { $findFirstAncestorNoteNode, getNoteCallerPreviewText } from "shared/nod
  * This plugin is responsible for handling NoteNode and NoteNodeCaller interactions. It also
  * updates the counter style symbols for note callers when the node options change.
  * @param nodeOptions - Node options that includes the list of potential node callers.
- * @param viewOptions - View options that includes the list of potential node callers.
+ * @param viewOptions - View options of the editor.
  * @param logger - Logger to use, if any.
  * @returns
  */
@@ -72,7 +72,7 @@ function useNodeOptions(nodeOptions: UsjNodeOptions, logger?: LoggerBasic) {
 /**
  * This hook is responsible for handling NoteNode and NoteNodeCaller interactions.
  * @param editor - The LexicalEditor instance used to access the DOM.
- * @param viewOptions - View options that includes the list of potential node callers.
+ * @param viewOptions - View options of the editor.
  */
 function useNoteNode(editor: LexicalEditor, viewOptions: ViewOptions | undefined) {
   useEffect(() => {

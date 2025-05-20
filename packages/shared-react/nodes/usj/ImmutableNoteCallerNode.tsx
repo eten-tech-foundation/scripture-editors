@@ -70,9 +70,12 @@ export class ImmutableNoteCallerNode extends DecoratorNode<ReactNode> {
     };
   }
 
-  setCaller(caller: string): void {
+  setCaller(caller: string): this {
+    if (this.__caller === caller) return this;
+
     const self = this.getWritable();
     self.__caller = caller;
+    return self;
   }
 
   getCaller(): string {
@@ -80,9 +83,12 @@ export class ImmutableNoteCallerNode extends DecoratorNode<ReactNode> {
     return self.__caller;
   }
 
-  setPreviewText(previewText: string): void {
+  setPreviewText(previewText: string): this {
+    if (this.__previewText === previewText) return this;
+
     const self = this.getWritable();
     self.__previewText = previewText;
+    return self;
   }
 
   getPreviewText(): string {
@@ -90,9 +96,12 @@ export class ImmutableNoteCallerNode extends DecoratorNode<ReactNode> {
     return self.__previewText;
   }
 
-  setOnClick(onClick: OnClick): void {
+  setOnClick(onClick: OnClick): this {
+    if (this.__onClick === onClick) return this;
+
     const self = this.getWritable();
     self.__onClick = onClick;
+    return self;
   }
 
   getOnClick(): OnClick {

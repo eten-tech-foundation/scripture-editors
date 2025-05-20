@@ -52,7 +52,7 @@ export class BookNode extends ElementNode {
     return $createBookNode(code, unknownAttributes).updateFromJSON(serializedNode);
   }
 
-  static isValidBookCode(code: string): boolean {
+  static isValidBookCode(code: string): code is BookCode {
     return isValidBookCode(code);
   }
 

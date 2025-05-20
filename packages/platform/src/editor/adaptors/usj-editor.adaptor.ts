@@ -132,7 +132,7 @@ const callerData: CallerData = {
 /** Comment IDs in the USJ. */
 let commentIds: string[] = [];
 
-/** View options - view mode parameters. */
+/** View options of the editor. */
 let _viewOptions: ViewOptions | undefined;
 /** Options for each node. */
 let _nodeOptions: UsjNodeOptions | undefined;

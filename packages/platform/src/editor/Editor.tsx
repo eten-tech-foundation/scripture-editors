@@ -207,7 +207,9 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
       }
     },
     applyUpdate(ops) {
-      editorRef.current?.update(() => $applyUpdate(ops, logger), { tag: DELTA_CHANGE_TAG });
+      editorRef.current?.update(() => $applyUpdate(ops, viewOptions, logger), {
+        tag: DELTA_CHANGE_TAG,
+      });
     },
     getSelection() {
       return editorRef.current?.read($getRangeFromEditor);

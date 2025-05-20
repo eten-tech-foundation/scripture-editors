@@ -8,6 +8,7 @@ import {
   DecoratorNode,
   LexicalEditor,
   LexicalNode,
+  LexicalUpdateJSON,
   NodeKey,
   SerializedLexicalNode,
   Spread,
@@ -82,8 +83,7 @@ export class ImmutableVerseNode extends DecoratorNode<JSX.Element> {
   }
 
   static importJSON(serializedNode: SerializedImmutableVerseNode): ImmutableVerseNode {
-    const { marker, number, showMarker, sid, altnumber, pubnumber, unknownAttributes } =
-      serializedNode;
+    const { number, showMarker, sid, altnumber, pubnumber, unknownAttributes } = serializedNode;
     const node = $createImmutableVerseNode(
       number,
       showMarker,
@@ -91,8 +91,7 @@ export class ImmutableVerseNode extends DecoratorNode<JSX.Element> {
       altnumber,
       pubnumber,
       unknownAttributes,
-    );
-    node.setMarker(marker);
+    ).updateFromJSON(serializedNode);
     return node;
   }
 
@@ -109,9 +108,16 @@ export class ImmutableVerseNode extends DecoratorNode<JSX.Element> {
     };
   }
 
-  setMarker(marker: VerseMarker): void {
+  updateFromJSON(serializedNode: LexicalUpdateJSON<SerializedImmutableVerseNode>): this {
+    return super.updateFromJSON(serializedNode).setMarker(serializedNode.marker);
+  }
+
+  setMarker(marker: VerseMarker): this {
+    if (this.__marker === marker) return this;
+
     const self = this.getWritable();
     self.__marker = marker;
+    return self;
   }
 
   getMarker(): VerseMarker {
@@ -119,9 +125,12 @@ export class ImmutableVerseNode extends DecoratorNode<JSX.Element> {
     return self.__marker;
   }
 
-  setNumber(verseNumber: string): void {
+  setNumber(verseNumber: string): this {
+    if (this.__number === verseNumber) return this;
+
     const self = this.getWritable();
     self.__number = verseNumber;
+    return self;
   }
 
   getNumber(): string {
@@ -129,9 +138,12 @@ export class ImmutableVerseNode extends DecoratorNode<JSX.Element> {
     return self.__number;
   }
 
-  setShowMarker(showMarker = false): void {
+  setShowMarker(showMarker = false): this {
+    if (this.__showMarker === showMarker) return this;
+
     const self = this.getWritable();
     self.__showMarker = showMarker;
+    return self;
   }
 
   getShowMarker(): boolean | undefined {
@@ -139,9 +151,12 @@ export class ImmutableVerseNode extends DecoratorNode<JSX.Element> {
     return self.__showMarker;
   }
 
-  setSid(sid: string | undefined): void {
+  setSid(sid: string | undefined): this {
+    if (this.__sid === sid) return this;
+
     const self = this.getWritable();
     self.__sid = sid;
+    return self;
   }
 
   getSid(): string | undefined {
@@ -149,9 +164,12 @@ export class ImmutableVerseNode extends DecoratorNode<JSX.Element> {
     return self.__sid;
   }
 
-  setAltnumber(altnumber: string | undefined): void {
+  setAltnumber(altnumber: string | undefined): this {
+    if (this.__altnumber === altnumber) return this;
+
     const self = this.getWritable();
     self.__altnumber = altnumber;
+    return self;
   }
 
   getAltnumber(): string | undefined {
@@ -159,9 +177,12 @@ export class ImmutableVerseNode extends DecoratorNode<JSX.Element> {
     return self.__altnumber;
   }
 
-  setPubnumber(pubnumber: string | undefined): void {
+  setPubnumber(pubnumber: string | undefined): this {
+    if (this.__pubnumber === pubnumber) return this;
+
     const self = this.getWritable();
     self.__pubnumber = pubnumber;
+    return self;
   }
 
   getPubnumber(): string | undefined {
@@ -169,9 +190,10 @@ export class ImmutableVerseNode extends DecoratorNode<JSX.Element> {
     return self.__pubnumber;
   }
 
-  setUnknownAttributes(unknownAttributes: UnknownAttributes | undefined): void {
+  setUnknownAttributes(unknownAttributes: UnknownAttributes | undefined): this {
     const self = this.getWritable();
     self.__unknownAttributes = unknownAttributes;
+    return self;
   }
 
   getUnknownAttributes(): UnknownAttributes | undefined {

@@ -206,6 +206,24 @@ describe("Editor Node Utilities", () => {
 
       expect(unknownAttributes).toBeUndefined();
     });
+
+    it("should return properties for other types", () => {
+      const unknownAttributes = getUnknownAttributes({ style: "style", unknown: "unknown" }, [
+        "style",
+      ]);
+
+      expect(unknownAttributes).toEqual({ unknown: "unknown" });
+    });
+
+    it("should return unknown properties if the types don't match", () => {
+      const unknownAttributes = getUnknownAttributes({
+        marker: "marker",
+        style: "style",
+        unknown: "unknown",
+      });
+
+      expect(unknownAttributes).toEqual({ style: "style", unknown: "unknown" });
+    });
   });
 
   describe("getNextVerse()", () => {
