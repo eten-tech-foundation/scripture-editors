@@ -1,5 +1,5 @@
 import { replaceBrothersWithBrethren } from "./delta-utils-test.data";
-import { $applyUpdate } from "./delta.utils";
+import { $applyUpdate, LF } from "./delta.utils";
 import { LexicalComposer } from "@lexical/react/LexicalComposer";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { ContentEditable } from "@lexical/react/LexicalContentEditable";
@@ -11,16 +11,16 @@ import Delta, { Op } from "quill-delta";
 import { usjReactNodes } from "shared-react/nodes/usj";
 import { $createImmutableVerseNode } from "shared-react/nodes/usj/ImmutableVerseNode";
 import { $isSomeVerseNode } from "shared-react/nodes/usj/node-react.utils";
-import { getViewOptions, ViewOptions } from "shared-react/views/view-options.utils";
+import { getDefaultViewOptions, ViewOptions } from "shared-react/views/view-options.utils";
 import { TypedMarkNode } from "shared/nodes/features/TypedMarkNode";
 import { $isCharNode } from "shared/nodes/usj/CharNode";
 import { $createImmutableChapterNode } from "shared/nodes/usj/ImmutableChapterNode";
-import { $createImpliedParaNode } from "shared/nodes/usj/ImpliedParaNode";
+import { $createImpliedParaNode, $isImpliedParaNode } from "shared/nodes/usj/ImpliedParaNode";
 import { $isMilestoneNode } from "shared/nodes/usj/MilestoneNode";
 import { $isSomeChapterNode } from "shared/nodes/usj/node.utils";
 import { $createParaNode, $isParaNode } from "shared/nodes/usj/ParaNode";
 
-const defaultViewOptions = getViewOptions() as ViewOptions;
+const defaultViewOptions = getDefaultViewOptions();
 
 describe("Delta Utils $applyUpdate", () => {
   let consoleDebugSpy: jest.SpyInstance;
@@ -89,22 +89,24 @@ describe("Delta Utils $applyUpdate", () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append($createParaNode().append($createTextNode("Jesus wept.")));
       });
-      const ops: Op[] = [{ retain: 5, attributes: { bold: true } }];
+      const ops: Op[] = [{ retain: 4, attributes: { bold: true } }];
 
       await sutApplyUpdate(editor, ops);
 
-      expect(consoleDebugSpy).toHaveBeenNthCalledWith(1, "Retain: 5");
+      expect(consoleDebugSpy).toHaveBeenNthCalledWith(1, "Retain: 4");
       expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
       editor.getEditorState().read(() => {
         const p = $getRoot().getFirstChild();
-        if (!$isParaNode(p)) throw new Error("p is not a para node");
+        if (!$isParaNode(p)) throw new Error("p is not a ParaNode");
         expect(p.getChildrenSize()).toBe(2);
+
         const t1 = p.getFirstChild();
-        if (!$isTextNode(t1)) throw new Error("t1 is not a text node");
+        if (!$isTextNode(t1)) throw new Error("t1 is not a TextNode");
         expect(t1.getTextContent()).toBe("Jesu");
         expect(t1.hasFormat("bold")).toBe(true);
+
         const t2 = p.getChildAtIndex(1);
-        if (!$isTextNode(t2)) throw new Error("t2 is not a text node");
+        if (!$isTextNode(t2)) throw new Error("t2 is not a TextNode");
         expect(t2.getTextContent()).toBe("s wept.");
         expect(t2.hasFormat("bold")).toBe(false);
       });
@@ -114,22 +116,24 @@ describe("Delta Utils $applyUpdate", () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append($createParaNode().append($createTextNode("Jesus wept.")));
       });
-      const ops: Op[] = [{ retain: 1 }, { retain: 5, attributes: { bold: true } }];
+      const ops: Op[] = [{ retain: 5, attributes: { bold: true } }];
 
       await sutApplyUpdate(editor, ops);
 
-      expect(consoleDebugSpy).toHaveBeenNthCalledWith(2, "Retain: 5");
+      expect(consoleDebugSpy).toHaveBeenNthCalledWith(1, "Retain: 5");
       expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
       editor.getEditorState().read(() => {
         const p = $getRoot().getFirstChild();
-        if (!$isParaNode(p)) throw new Error("p is not a para node");
+        if (!$isParaNode(p)) throw new Error("p is not a ParaNode");
         expect(p.getChildrenSize()).toBe(2);
+
         const t1 = p.getFirstChild();
-        if (!$isTextNode(t1)) throw new Error("t1 is not a text node");
+        if (!$isTextNode(t1)) throw new Error("t1 is not a TextNode");
         expect(t1.getTextContent()).toBe("Jesus");
         expect(t1.hasFormat("bold")).toBe(true);
+
         const t2 = p.getChildAtIndex(1);
-        if (!$isTextNode(t2)) throw new Error("t2 is not a text node");
+        if (!$isTextNode(t2)) throw new Error("t2 is not a TextNode");
         expect(t2.getTextContent()).toBe(" wept.");
         expect(t2.hasFormat("bold")).toBe(false);
       });
@@ -139,25 +143,28 @@ describe("Delta Utils $applyUpdate", () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append($createParaNode().append($createTextNode("Jesus wept.")));
       });
-      const ops: Op[] = [{ retain: 7 }, { retain: 4, attributes: { bold: true } }];
+      const ops: Op[] = [{ retain: 6 }, { retain: 4, attributes: { bold: true } }];
 
       await sutApplyUpdate(editor, ops);
 
       expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
       editor.getEditorState().read(() => {
         const p = $getRoot().getFirstChild();
-        if (!$isParaNode(p)) throw new Error("p is not a para node");
+        if (!$isParaNode(p)) throw new Error("p is not a ParaNode");
         expect(p.getChildrenSize()).toBe(3);
+
         const t1 = p.getFirstChild();
-        if (!$isTextNode(t1)) throw new Error("t1 is not a text node");
+        if (!$isTextNode(t1)) throw new Error("t1 is not a TextNode");
         expect(t1.getTextContent()).toBe("Jesus ");
         expect(t1.hasFormat("bold")).toBe(false);
+
         const t2 = p.getChildAtIndex(1);
-        if (!$isTextNode(t2)) throw new Error("t2 is not a text node");
+        if (!$isTextNode(t2)) throw new Error("t2 is not a TextNode");
         expect(t2.getTextContent()).toBe("wept");
         expect(t2.hasFormat("bold")).toBe(true);
+
         const t3 = p.getChildAtIndex(2);
-        if (!$isTextNode(t3)) throw new Error("t2 is not a text node");
+        if (!$isTextNode(t3)) throw new Error("t2 is not a TextNode");
         expect(t3.getTextContent()).toBe(".");
         expect(t3.hasFormat("bold")).toBe(false);
       });
@@ -167,21 +174,23 @@ describe("Delta Utils $applyUpdate", () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append($createParaNode().append($createTextNode("Jesus wept.")));
       });
-      const ops: Op[] = [{ retain: 7 }, { retain: 5, attributes: { bold: true } }];
+      const ops: Op[] = [{ retain: 6 }, { retain: 5, attributes: { bold: true } }];
 
       await sutApplyUpdate(editor, ops);
 
       expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
       editor.getEditorState().read(() => {
         const p = $getRoot().getFirstChild();
-        if (!$isParaNode(p)) throw new Error("p is not a para node");
+        if (!$isParaNode(p)) throw new Error("p is not a ParaNode");
         expect(p.getChildrenSize()).toBe(2);
+
         const t1 = p.getFirstChild();
-        if (!$isTextNode(t1)) throw new Error("t1 is not a text node");
+        if (!$isTextNode(t1)) throw new Error("t1 is not a TextNode");
         expect(t1.getTextContent()).toBe("Jesus ");
         expect(t1.hasFormat("bold")).toBe(false);
+
         const t2 = p.getChildAtIndex(1);
-        if (!$isTextNode(t2)) throw new Error("t2 is not a text node");
+        if (!$isTextNode(t2)) throw new Error("t2 is not a TextNode");
         expect(t2.getTextContent()).toBe("wept.");
         expect(t2.hasFormat("bold")).toBe(true);
       });
@@ -198,7 +207,7 @@ describe("Delta Utils $applyUpdate", () => {
       expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
       editor.getEditorState().read(() => {
         const p = $getRoot().getFirstChild();
-        if (!$isParaNode(p)) throw new Error("p is not a para node");
+        if (!$isParaNode(p)) throw new Error("p is not a ParaNode");
         expect(p.getMarker()).toBe("q1");
       });
     });
@@ -213,9 +222,9 @@ describe("Delta Utils $applyUpdate", () => {
 
       expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
       editor.getEditorState().read(() => {
-        const c2 = $getRoot().getFirstChild();
-        if (!$isSomeChapterNode(c2)) throw new Error("c2 is not some chapter node");
-        expect(c2.getNumber()).toBe("2");
+        const ch2 = $getRoot().getFirstChild();
+        if (!$isSomeChapterNode(ch2)) throw new Error("ch2 is not SomeChapterNode");
+        expect(ch2.getNumber()).toBe("2");
       });
     });
 
@@ -223,17 +232,18 @@ describe("Delta Utils $applyUpdate", () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append($createParaNode().append($createImmutableVerseNode("1")));
       });
-      const ops: Op[] = [{ retain: 1 }, { retain: 1, attributes: { number: "1-2" } }];
+      const ops: Op[] = [{ retain: 1, attributes: { number: "1-2" } }];
 
       await sutApplyUpdate(editor, ops);
 
       expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
       editor.getEditorState().read(() => {
         const p = $getRoot().getFirstChild();
-        if (!$isParaNode(p)) throw new Error("p is not a para node");
+        if (!$isParaNode(p)) throw new Error("p is not a ParaNode");
         expect(p.getChildrenSize()).toBe(1);
+
         const v1 = p.getFirstChild();
-        if (!$isSomeVerseNode(v1)) throw new Error("v1 is not some verse node");
+        if (!$isSomeVerseNode(v1)) throw new Error("v1 is not SomeVerseNode");
         expect(v1.getNumber()).toBe("1-2");
       });
     });
@@ -247,20 +257,22 @@ describe("Delta Utils $applyUpdate", () => {
         segment: "verse_1_1",
         char: { style: "wj", cid: "afd886c6-2397-4e4c-8a94-696bf9f2e545" },
       };
-      const ops: Op[] = [{ retain: 12 }, { retain: wordsOfJesus.length, attributes }];
+      const ops: Op[] = [{ retain: 11 }, { retain: wordsOfJesus.length, attributes }];
 
       await sutApplyUpdate(editor, ops);
 
       expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
       editor.getEditorState().read(() => {
         const p = $getRoot().getFirstChild();
-        if (!$isParaNode(p)) throw new Error("p is not a para node");
+        if (!$isParaNode(p)) throw new Error("p is not a ParaNode");
         expect(p.getChildrenSize()).toBe(2);
+
         const t1 = p.getFirstChild();
-        if (!$isTextNode(t1)) throw new Error("t1 is not a text node");
+        if (!$isTextNode(t1)) throw new Error("t1 is not a TextNode");
         expect(t1.getTextContent()).toBe("Jesus said ");
+
         const char = p.getChildAtIndex(1);
-        if (!$isCharNode(char)) throw new Error("char is not a char node");
+        if (!$isCharNode(char)) throw new Error("char is not a CharNode");
         expect(char.getTextContent()).toBe(wordsOfJesus);
         expect(char.getMarker()).toBe("wj");
         expect(char.getUnknownAttributes()).toEqual({
@@ -279,7 +291,7 @@ describe("Delta Utils $applyUpdate", () => {
       });
       const cid = "char-id-1";
       const ops: Op[] = [
-        { retain: 1 + prefix.length }, // Retain 1 for the para node.
+        { retain: prefix.length },
         {
           retain: transformText.length,
           attributes: { char: { style: "xt", cid }, bold: true },
@@ -291,11 +303,11 @@ describe("Delta Utils $applyUpdate", () => {
       expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
       editor.getEditorState().read(() => {
         const p = $getRoot().getFirstChild();
-        if (!$isParaNode(p)) throw new Error("p is not a para node");
+        if (!$isParaNode(p)) throw new Error("p is not a ParaNode");
         expect(p.getChildrenSize()).toBe(3); // Prefix text, CharNode, Suffix text
 
         const prefixTextNode = p.getFirstChild();
-        if (!$isTextNode(prefixTextNode)) throw new Error("prefix is not a text node");
+        if (!$isTextNode(prefixTextNode)) throw new Error("prefix is not a TextNode");
         expect(prefixTextNode.getTextContent()).toBe(prefix);
 
         const charNode = p.getChildAtIndex(1);
@@ -309,7 +321,7 @@ describe("Delta Utils $applyUpdate", () => {
         expect(innerTextNode.hasFormat("bold")).toBe(true); // Verify inner text formatting
 
         const suffixTextNode = p.getChildAtIndex(2);
-        if (!$isTextNode(suffixTextNode)) throw new Error("suffix is not a text node");
+        if (!$isTextNode(suffixTextNode)) throw new Error("suffix is not a TextNode");
         expect(suffixTextNode.getTextContent()).toBe(suffix);
       });
     });
@@ -320,7 +332,6 @@ describe("Delta Utils $applyUpdate", () => {
         $getRoot().append($createParaNode().append($createTextNode(text)));
       });
       const ops: Op[] = [
-        { retain: 1 }, // Retain 1 for the para node.
         {
           retain: text.length,
           // 'char' object is present, but 'style' is missing. 'cid' might be for other purposes.
@@ -334,8 +345,9 @@ describe("Delta Utils $applyUpdate", () => {
       expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
       editor.getEditorState().read(() => {
         const p = $getRoot().getFirstChild();
-        if (!$isParaNode(p)) throw new Error("p is not a para node");
+        if (!$isParaNode(p)) throw new Error("p is not a ParaNode");
         expect(p.getChildrenSize()).toBe(1);
+
         const textNode = p.getFirstChild();
         if (!$isTextNode(textNode)) throw new Error("textNode is not a TextNode");
         expect(textNode.getTextContent()).toBe(text);
@@ -351,7 +363,6 @@ describe("Delta Utils $applyUpdate", () => {
       });
       const cid = "speaker-id";
       const ops: Op[] = [
-        { retain: 1 }, // Retain 1 for the para node.
         {
           retain: part1.length + part2.length,
           attributes: { char: { style: "sp", cid } },
@@ -359,7 +370,7 @@ describe("Delta Utils $applyUpdate", () => {
       ];
       editor.getEditorState().read(() => {
         const p = $getRoot().getFirstChild();
-        if (!$isParaNode(p)) throw new Error("p is not a para node");
+        if (!$isParaNode(p)) throw new Error("p is not a ParaNode");
         expect(p.getChildrenSize()).toBe(1); // Adjacent TextNodes are combined in Lexical.
       });
 
@@ -368,7 +379,7 @@ describe("Delta Utils $applyUpdate", () => {
       expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
       editor.getEditorState().read(() => {
         const p = $getRoot().getFirstChild();
-        if (!$isParaNode(p)) throw new Error("p is not a para node");
+        if (!$isParaNode(p)) throw new Error("p is not a ParaNode");
         expect(p.getChildrenSize()).toBe(1); // Original TextNodes should be replaced by one CharNode
 
         const charNode = p.getFirstChild();
@@ -391,7 +402,7 @@ describe("Delta Utils $applyUpdate", () => {
         );
       });
       const ops: Op[] = [
-        { retain: 1 + textBefore.length }, // Retain 1 for the para node.
+        { retain: textBefore.length },
         {
           retain: 1, // This targets the VerseNode
           attributes: { char: { style: "xt", cid: "verse-char-attr" }, customVerseAttr: "applied" },
@@ -403,15 +414,15 @@ describe("Delta Utils $applyUpdate", () => {
       expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
       editor.getEditorState().read(() => {
         const p = $getRoot().getFirstChild();
-        if (!$isParaNode(p)) throw new Error("p is not a para node");
+        if (!$isParaNode(p)) throw new Error("p is not a ParaNode");
         expect(p.getChildrenSize()).toBe(3);
 
-        const verseNode = p.getChildAtIndex(1);
+        const v1Node = p.getChildAtIndex(1);
         // Check that it's still a VerseNode, not transformed into a CharNode
-        if (!$isSomeVerseNode(verseNode)) throw new Error("verseNode is not a VerseNode");
+        if (!$isSomeVerseNode(v1Node)) throw new Error("verseNode is not SomeVerseNode");
 
         // Check if 'customVerseAttr' was applied
-        expect(verseNode.getUnknownAttributes()).toEqual(
+        expect(v1Node.getUnknownAttributes()).toEqual(
           expect.objectContaining({ customVerseAttr: "applied" }),
         );
       });
@@ -446,13 +457,12 @@ describe("Delta Utils $applyUpdate", () => {
           ),
         );
       });
-      const ops: Op[] = [{ retain: 1 }, { delete: 4 }];
+      const ops: Op[] = [{ delete: 4 }];
 
       await sutApplyUpdate(editor, ops);
 
-      expect(consoleDebugSpy).toHaveBeenNthCalledWith(1, "Retain: 1");
-      expect(consoleDebugSpy).toHaveBeenNthCalledWith(2, "Delete: 4");
-      expect(consoleDebugSpy).toHaveBeenCalledTimes(3);
+      expect(consoleDebugSpy).toHaveBeenNthCalledWith(1, "Delete: 4");
+      expect(consoleDebugSpy).toHaveBeenCalledTimes(2);
       editor.getEditorState().read(() => {
         expect($getRoot().getTextContent()).toBe(", an apostle—not from men nor through man, ");
       });
@@ -541,16 +551,15 @@ describe("Delta Utils $applyUpdate", () => {
 
     it("should insert a chapter embed into an empty editor", async () => {
       const { editor } = await testEnvironment();
-      const embedChapter = { chapter: { number: "1", style: "c" } };
-      const ops: Op[] = [{ insert: embedChapter }];
+      const ch1Embed = { chapter: { number: "1", style: "c" } };
+      const ops: Op[] = [{ insert: ch1Embed }];
 
       await sutApplyUpdate(editor, ops);
 
       editor.getEditorState().read(() => {
-        const c1 = $getRoot().getFirstChild();
-        if (!$isSomeChapterNode(c1)) throw new Error("c1 is not a chapter node");
-        expect(c1.getNumber()).toBe("1");
-        expect(c1.getMarker()).toBe("c");
+        const ch1 = $getRoot().getFirstChild();
+        if (!$isSomeChapterNode(ch1)) throw new Error("c1 is not SomeChapterNode");
+        expect(ch1.getNumber()).toBe("1");
       });
     });
 
@@ -559,9 +568,9 @@ describe("Delta Utils $applyUpdate", () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append($createParaNode().append($createTextNode(initialText)));
       });
-      const embedChapter = { chapter: { number: "1", style: "c" } };
+      const ch1Embed = { chapter: { number: "1", style: "c" } };
       // No retain, so insert happens at the current index 0 before the ParaNode.
-      const ops: Op[] = [{ insert: embedChapter }];
+      const ops: Op[] = [{ insert: ch1Embed }];
 
       await sutApplyUpdate(editor, ops);
 
@@ -569,14 +578,13 @@ describe("Delta Utils $applyUpdate", () => {
         const root = $getRoot();
         expect(root.getChildrenSize()).toBe(2);
 
-        const firstChild = root.getFirstChild();
-        if (!$isSomeChapterNode(firstChild)) throw new Error("First child is not a ChapterNode");
-        expect(firstChild.getNumber()).toBe("1");
-        expect(firstChild.getMarker()).toBe("c");
+        const ch1 = root.getFirstChild();
+        if (!$isSomeChapterNode(ch1)) throw new Error("First child is not SomeChapterNode");
+        expect(ch1.getNumber()).toBe("1");
 
-        const secondChild = root.getChildAtIndex(1);
-        if (!$isParaNode(secondChild)) throw new Error("Second child is not a ParaNode");
-        expect(secondChild.getTextContent()).toBe(initialText);
+        const existingPara = root.getChildAtIndex(1);
+        if (!$isParaNode(existingPara)) throw new Error("Second child is not a ParaNode");
+        expect(existingPara.getTextContent()).toBe(initialText);
       });
     });
 
@@ -585,25 +593,24 @@ describe("Delta Utils $applyUpdate", () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append($createParaNode().append($createTextNode(initialText)));
       });
-      const embedChapter = { chapter: { number: "2", style: "c" } };
-      // Retain past the initial text in the para node (length + 1 for the para itself)
-      const ops: Op[] = [{ retain: 1 + initialText.length }, { insert: embedChapter }];
+      const ch2Embed = { chapter: { number: "2", style: "c" } };
+      // Retain past the initial text in the ParaNode (length + 1 for the para itself)
+      const ops: Op[] = [{ retain: 1 + initialText.length }, { insert: ch2Embed }];
 
       await sutApplyUpdate(editor, ops);
 
       editor.getEditorState().read(() => {
         const root = $getRoot();
-        expect(root.getChildrenSize()).toBe(2); // ParaNode and ChapterNode
+        expect(root.getChildrenSize()).toBe(2); // ParaNode and chapter node
 
-        const firstChild = root.getFirstChild();
-        if (!$isParaNode(firstChild)) throw new Error("First child should be ParaNode");
-        expect(firstChild.getTextContent()).toBe(initialText);
-        expect(firstChild.getChildrenSize()).toBe(1); // Only the TextNode
+        const existingPara = root.getFirstChild();
+        if (!$isParaNode(existingPara)) throw new Error("First child should be a ParaNode");
+        expect(existingPara.getTextContent()).toBe(initialText);
+        expect(existingPara.getChildrenSize()).toBe(1); // Only the TextNode
 
-        const secondChild = root.getChildAtIndex(1);
-        if (!$isSomeChapterNode(secondChild)) throw new Error("Second child should be ChapterNode");
-        expect(secondChild.getNumber()).toBe("2");
-        expect(secondChild.getMarker()).toBe("c");
+        const ch2 = root.getChildAtIndex(1);
+        if (!$isSomeChapterNode(ch2)) throw new Error("Second child should be SomeChapterNode");
+        expect(ch2.getNumber()).toBe("2");
       });
     });
 
@@ -613,28 +620,26 @@ describe("Delta Utils $applyUpdate", () => {
         $getRoot().append($createParaNode().append($createTextNode(initialText)));
       });
       const embedVerse = { verse: { number: "1", style: "v" } };
-      // Retain past the initial text in the para node (length + 1 for the para itself)
-      const ops: Op[] = [{ retain: initialText.length + 1 }, { insert: embedVerse }];
+      // Retain past the initial text in the ParaNode
+      const ops: Op[] = [{ retain: initialText.length }, { insert: embedVerse }];
 
       await sutApplyUpdate(editor, ops);
 
       editor.getEditorState().read(() => {
         const root = $getRoot();
         expect(root.getChildrenSize()).toBe(1); // Root should still have one ParaNode
+
         const paraNode = root.getFirstChild();
         if (!$isParaNode(paraNode)) throw new Error("First child is not a ParaNode");
-
         expect(paraNode.getChildrenSize()).toBe(2); // TextNode and VerseNode
 
         const textNode = paraNode.getFirstChild();
         if (!$isTextNode(textNode)) throw new Error("First child of para is not a TextNode");
         expect(textNode.getTextContent()).toBe(initialText);
 
-        const verseNode = paraNode.getChildAtIndex(1);
-        if (!$isSomeVerseNode(verseNode))
-          throw new Error("Second child of para is not a VerseNode");
-        expect(verseNode.getNumber()).toBe("1");
-        expect(verseNode.getMarker()).toBe("v");
+        const v1Node = paraNode.getChildAtIndex(1);
+        if (!$isSomeVerseNode(v1Node)) throw new Error("Second child of para is not SomeVerseNode");
+        expect(v1Node.getNumber()).toBe("1");
       });
     });
 
@@ -643,23 +648,25 @@ describe("Delta Utils $applyUpdate", () => {
         $getRoot().append($createParaNode().append($createTextNode("Jesus wept.")));
       });
       const embedVerse = { verse: { number: "1", style: "v" } };
-      const ops: Op[] = [{ retain: 7 }, { insert: embedVerse }];
+      const ops: Op[] = [{ retain: 6 }, { insert: embedVerse }];
 
       await sutApplyUpdate(editor, ops);
 
       editor.getEditorState().read(() => {
         const p = $getRoot().getFirstChild();
-        if (!$isParaNode(p)) throw new Error("p is not a para node");
+        if (!$isParaNode(p)) throw new Error("p is not a ParaNode");
         expect(p.getChildrenSize()).toBe(3);
+
         const t1 = p.getFirstChild();
-        if (!$isTextNode(t1)) throw new Error("t1 is not a text node");
+        if (!$isTextNode(t1)) throw new Error("t1 is not a TextNode");
         expect(t1.getTextContent()).toBe("Jesus ");
+
         const v1 = p.getChildAtIndex(1);
-        if (!$isSomeVerseNode(v1)) throw new Error("v1 is not a verse node");
+        if (!$isSomeVerseNode(v1)) throw new Error("v1 is not SomeVerseNode");
         expect(v1.getNumber()).toBe("1");
-        expect(v1.getMarker()).toBe("v");
+
         const t2 = p.getChildAtIndex(2);
-        if (!$isTextNode(t2)) throw new Error("t2 is not a text node");
+        if (!$isTextNode(t2)) throw new Error("t2 is not a TextNode");
         expect(t2.getTextContent()).toBe("wept.");
       });
     });
@@ -670,7 +677,7 @@ describe("Delta Utils $applyUpdate", () => {
         $getRoot().append($createParaNode().append($createTextNode(initialText)));
       });
       const embedVerse = { verse: { number: "10", style: "v" } };
-      // Retain past the end of the text and the para node itself.
+      // Retain past the end of the text and the ParaNode itself.
       // initialText.length (11) + 1 (for ParaNode) = 12. Retain 20.
       const ops: Op[] = [{ retain: 20 }, { insert: embedVerse }];
 
@@ -678,15 +685,21 @@ describe("Delta Utils $applyUpdate", () => {
 
       editor.getEditorState().read(() => {
         const root = $getRoot();
-        expect(root.getChildrenSize()).toBe(1);
+        expect(root.getChildrenSize()).toBe(2); // Root should have ParaNode and ImpliedParaNode
+
         const paraNode = root.getFirstChild();
         if (!$isParaNode(paraNode)) throw new Error("First child is not a ParaNode");
-        expect(paraNode.getChildrenSize()).toBe(2); // Initial TextNode + VerseNode
+        expect(paraNode.getChildrenSize()).toBe(1); // Initial TextNode
 
-        const verseNode = paraNode.getLastChild();
-        if (!$isSomeVerseNode(verseNode)) throw new Error("Last child of para is not a VerseNode");
-        expect(verseNode.getNumber()).toBe("10");
-        expect(verseNode.getMarker()).toBe("v");
+        const impliedParaNode = root.getChildAtIndex(1);
+        if (!$isImpliedParaNode(impliedParaNode))
+          throw new Error("Second child is not an ImpliedParaNode");
+        expect(impliedParaNode.getChildrenSize()).toBe(1);
+
+        const v10Node = impliedParaNode.getFirstChild();
+        if (!$isSomeVerseNode(v10Node))
+          throw new Error("First child of implied para is not SomeVerseNode");
+        expect(v10Node.getNumber()).toBe("10");
       });
     });
 
@@ -696,9 +709,9 @@ describe("Delta Utils $applyUpdate", () => {
           $createParaNode().append($createImmutableVerseNode("1"), $createImmutableVerseNode("3")),
         );
       });
-      const embedVerseToInsert = { verse: { number: "2", style: "v" } };
-      // Retain past the ParaNode (1) and the first VerseNode (1)
-      const ops: Op[] = [{ retain: 1 + 1 }, { insert: embedVerseToInsert }];
+      const v2Embed = { verse: { number: "2", style: "v" } };
+      // Retain past the first VerseNode (1)
+      const ops: Op[] = [{ retain: 1 }, { insert: v2Embed }];
 
       await sutApplyUpdate(editor, ops);
 
@@ -710,17 +723,17 @@ describe("Delta Utils $applyUpdate", () => {
         if (!$isParaNode(paraNode)) throw new Error("First child is not a ParaNode");
         expect(paraNode.getChildrenSize()).toBe(3); // Verse1, VerseToInsert, Verse3
 
-        const verse1 = paraNode.getChildAtIndex(0);
-        if (!$isSomeVerseNode(verse1)) throw new Error("Child 0 of para is not VerseNode");
-        expect(verse1.getNumber()).toBe("1");
+        const v1 = paraNode.getChildAtIndex(0);
+        if (!$isSomeVerseNode(v1)) throw new Error("Child 0 of para is not SomeVerseNode");
+        expect(v1.getNumber()).toBe("1");
 
-        const verse2 = paraNode.getChildAtIndex(1);
-        if (!$isSomeVerseNode(verse2)) throw new Error("Child 1 of para is not VerseNode");
-        expect(verse2.getNumber()).toBe("2");
+        const v2 = paraNode.getChildAtIndex(1);
+        if (!$isSomeVerseNode(v2)) throw new Error("Child 1 of para is not SomeVerseNode");
+        expect(v2.getNumber()).toBe("2");
 
-        const verse3 = paraNode.getChildAtIndex(2);
-        if (!$isSomeVerseNode(verse3)) throw new Error("Child 2 of para is not VerseNode");
-        expect(verse3.getNumber()).toBe("3");
+        const v3 = paraNode.getChildAtIndex(2);
+        if (!$isSomeVerseNode(v3)) throw new Error("Child 2 of para is not SomeVerseNode");
+        expect(v3.getNumber()).toBe("3");
       });
     });
 
@@ -733,7 +746,7 @@ describe("Delta Utils $applyUpdate", () => {
       expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
       editor.getEditorState().read(() => {
         const p = $getRoot().getFirstChild();
-        if (!$isParaNode(p)) throw new Error("p is not a para node");
+        if (!$isParaNode(p)) throw new Error("p is not a ParaNode");
         expect(p.getMarker()).toBe("q1");
       });
     });
@@ -750,15 +763,20 @@ describe("Delta Utils $applyUpdate", () => {
           char: { style: "wj", cid: "afd886c6-2397-4e4c-8a94-696bf9f2e545" },
         },
       };
-      const ops: Op[] = [{ retain: 1 }, insertCharOp];
+      const ops: Op[] = [insertCharOp];
 
       await sutApplyUpdate(editor, ops);
 
       editor.getEditorState().read(() => {
-        const p = $getRoot().getFirstChild();
-        if (!$isParaNode(p)) throw new Error("p is not a para node");
+        const root = $getRoot();
+        expect(root.getChildrenSize()).toBe(1);
+
+        const p = root.getFirstChild();
+        if (!$isParaNode(p)) throw new Error("p is not a ParaNode");
+        expect(p.getChildrenSize()).toBe(1);
+
         const char = p.getFirstChild();
-        if (!$isCharNode(char)) throw new Error("char is not a char node");
+        if (!$isCharNode(char)) throw new Error("char is not a CharNode");
         expect(char.getTextContent()).toBe(wordsOfJesus);
         expect(char.getMarker()).toBe("wj");
         expect(char.getUnknownAttributes()).toEqual({
@@ -780,27 +798,31 @@ describe("Delta Utils $applyUpdate", () => {
         },
       };
       const attributes = { italic: true };
-      const ops: Op[] = [{ retain: 12 }, insertCharOp, { retain: 3 }, { retain: 4, attributes }];
+      const ops: Op[] = [{ retain: 11 }, insertCharOp, { retain: 3 }, { retain: 4, attributes }];
 
       await sutApplyUpdate(editor, ops);
 
       editor.getEditorState().read(() => {
         const p = $getRoot().getFirstChild();
-        if (!$isParaNode(p)) throw new Error("p is not a para node");
+        if (!$isParaNode(p)) throw new Error("p is not a ParaNode");
         expect(p.getChildrenSize()).toBe(4);
+
         const t1 = p.getFirstChild();
-        if (!$isTextNode(t1)) throw new Error("t1 is not a text node");
+        if (!$isTextNode(t1)) throw new Error("t1 is not a TextNode");
         expect(t1.getTextContent()).toBe("Jesus said ");
+
         const char = p.getChildAtIndex(1);
-        if (!$isCharNode(char)) throw new Error("char is not a char node");
+        if (!$isCharNode(char)) throw new Error("char is not a CharNode");
         expect(char.getTextContent()).toBe(wordsOfJesus);
         expect(char.getMarker()).toBe("wj");
+
         const t2 = p.getChildAtIndex(2);
-        if (!$isTextNode(t2)) throw new Error("t2 is not a text node");
+        if (!$isTextNode(t2)) throw new Error("t2 is not a TextNode");
         expect(t2.getTextContent()).toBe("to ");
         expect(t2.hasFormat("italic")).toBe(false);
+
         const t3 = p.getChildAtIndex(3);
-        if (!$isTextNode(t3)) throw new Error("t3 is not a text node");
+        if (!$isTextNode(t3)) throw new Error("t3 is not a TextNode");
         expect(t3.getTextContent()).toBe("them");
         expect(t3.hasFormat("italic")).toBe(true);
       });
@@ -810,18 +832,19 @@ describe("Delta Utils $applyUpdate", () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append($createParaNode());
       });
-      const embedStartMS = { ms: { style: "qt-s", status: "start", who: "Jesus" } };
-      const ops: Op[] = [{ retain: 1 }, { insert: embedStartMS }];
+      const msStartEmbed = { ms: { style: "qt-s", status: "start", who: "Jesus" } };
+      const ops: Op[] = [{ insert: msStartEmbed }];
 
       await sutApplyUpdate(editor, ops);
 
       editor.getEditorState().read(() => {
         const p = $getRoot().getFirstChild();
-        if (!$isParaNode(p)) throw new Error("p is not a para node");
+        if (!$isParaNode(p)) throw new Error("p is not a ParaNode");
         expect(p.getChildrenSize()).toBe(1);
+
         const startMilestone = p.getFirstChild();
         if (!$isMilestoneNode(startMilestone))
-          throw new Error("startMilestone is not a milestone node");
+          throw new Error("startMilestone is not a MilestoneNode");
         expect(startMilestone.getMarker()).toBe("qt-s");
         expect(startMilestone.getUnknownAttributes()).toEqual({ status: "start", who: "Jesus" });
       });
@@ -832,34 +855,722 @@ describe("Delta Utils $applyUpdate", () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append($createParaNode().append($createTextNode(text)));
       });
-      const embedStartMS = { ms: { style: "qt-s", status: "start", who: "Jesus" } };
-      const embedEndMS = { ms: { style: "qt-e", status: "end" } };
-      const ops: Op[] = [
-        { retain: 1 },
-        { insert: embedStartMS },
-        { retain: 13 },
-        { insert: embedEndMS },
-      ];
+      const msStartEmbed = { ms: { style: "qt-s", status: "start", who: "Jesus" } };
+      const msEndEmbed = { ms: { style: "qt-e", status: "end" } };
+      const ops: Op[] = [{ insert: msStartEmbed }, { retain: 13 }, { insert: msEndEmbed }];
 
       await sutApplyUpdate(editor, ops);
 
       editor.getEditorState().read(() => {
         const p = $getRoot().getFirstChild();
-        if (!$isParaNode(p)) throw new Error("p is not a para node");
+        if (!$isParaNode(p)) throw new Error("p is not a ParaNode");
         expect(p.getTextContent()).toBe(text);
         expect(p.getChildrenSize()).toBe(4);
+
         const msStart = p.getFirstChild();
-        if (!$isMilestoneNode(msStart)) throw new Error("msStart is not a milestone node");
-        expect(msStart.getMarker()).toBe(embedStartMS.ms.style);
+        if (!$isMilestoneNode(msStart)) throw new Error("msStart is not a MilestoneNode");
+        expect(msStart.getMarker()).toBe(msStartEmbed.ms.style);
+
         const t1 = p.getChildAtIndex(1);
-        if (!$isTextNode(t1)) throw new Error("t1 is not a text node");
+        if (!$isTextNode(t1)) throw new Error("t1 is not a TextNode");
         expect(t1.getTextContent()).toBe("“So you say,”");
+
         const msEnd = p.getChildAtIndex(2);
-        if (!$isMilestoneNode(msEnd)) throw new Error("msEnd is not a milestone node");
-        expect(msEnd.getMarker()).toBe(embedEndMS.ms.style);
+        if (!$isMilestoneNode(msEnd)) throw new Error("msEnd is not a MilestoneNode");
+        expect(msEnd.getMarker()).toBe(msEndEmbed.ms.style);
+
         const t2 = p.getChildAtIndex(3);
-        if (!$isTextNode(t2)) throw new Error("t2 is not a text node");
+        if (!$isTextNode(t2)) throw new Error("t2 is not a TextNode");
         expect(t2.getTextContent()).toBe(" answered Jesus.");
+      });
+    });
+
+    it("should sequentially insert multiple items into an empty document", async () => {
+      const { editor } = await testEnvironment();
+      const ch1Embed = { chapter: { number: "1", style: "c" } };
+      const v1Embed = { verse: { number: "1", style: "v" } };
+      const v1Text = "v1 text ";
+      const v1TextInsertOp = {
+        attributes: {
+          segment: "verse_1_1",
+        },
+        insert: v1Text,
+      };
+      const v2Embed = { verse: { number: "2", style: "v" } };
+      const v2Text = "v2 text ";
+      const v2TextInsertOp = {
+        attributes: {
+          segment: "verse_1_2",
+        },
+        insert: v2Text,
+      };
+      const milestoneEmbed = { ms: { style: "ts-s", sid: "TS1" } };
+      const ops: Op[] = [
+        // OT index: 0
+        { insert: ch1Embed }, // 1
+        { insert: v1Embed }, // 2
+        v1TextInsertOp, // 10
+        {
+          insert: LF, // 11
+        },
+        { insert: v2Embed }, // 12
+        v2TextInsertOp, // 20
+        { insert: milestoneEmbed }, // 21
+        {
+          insert: LF, // 22
+          attributes: {
+            para: {
+              style: "q1",
+            },
+          },
+        },
+      ];
+
+      await sutApplyUpdate(editor, ops);
+
+      editor.getEditorState().read(() => {
+        const root = $getRoot();
+        expect(root.getChildrenSize()).toBe(3); // ch1, existing implied-para, ParaNode
+
+        const ch1Node = root.getChildAtIndex(0);
+        if (!$isSomeChapterNode(ch1Node)) throw new Error("Child 0 is not SomeChapterNode");
+        expect(ch1Node.getNumber()).toBe("1");
+
+        const impliedParaNode = root.getChildAtIndex(1);
+        if (!$isImpliedParaNode(impliedParaNode))
+          throw new Error("Child 1 is not a ImpliedParaNode");
+        expect(impliedParaNode.getChildrenSize()).toBe(2);
+
+        const v1Node = impliedParaNode.getChildAtIndex(0);
+        if (!$isSomeVerseNode(v1Node))
+          throw new Error("Child of impliedParaNode is not SomeVerseNode");
+        expect(v1Node.getNumber()).toBe("1");
+
+        const v1TextNode = impliedParaNode.getChildAtIndex(1);
+        if (!$isTextNode(v1TextNode)) throw new Error("Child of impliedParaNode is not a TextNode");
+        expect(v1TextNode.getTextContent()).toBe(v1Text);
+
+        const paraNode = root.getChildAtIndex(2);
+        if (!$isParaNode(paraNode)) throw new Error("Child 1 is not a ParaNode");
+        expect(paraNode.getChildrenSize()).toBe(3);
+        expect(paraNode.getMarker()).toBe("q1");
+
+        const v2Node = paraNode.getChildAtIndex(0);
+        if (!$isSomeVerseNode(v2Node)) throw new Error("Child of paraNode is not SomeVerseNode");
+        expect(v2Node.getNumber()).toBe("2");
+
+        const v2TextNode = paraNode.getChildAtIndex(1);
+        if (!$isTextNode(v2TextNode)) throw new Error("Child of paraNode is not a TextNode");
+        expect(v2TextNode.getTextContent()).toBe(v2Text);
+
+        const milestoneNode = paraNode.getChildAtIndex(2);
+        if (!$isMilestoneNode(milestoneNode))
+          throw new Error("Child of paraNode is not a MilestoneNode");
+        expect(milestoneNode.getMarker()).toBe("ts-s");
+        expect(milestoneNode.getSid()).toBe("TS1");
+      });
+    });
+
+    describe("Line Break Handling", () => {
+      it("should insert a simple line break in empty editor", async () => {
+        const { editor } = await testEnvironment();
+        const ops: Op[] = [{ insert: LF }];
+
+        await sutApplyUpdate(editor, ops);
+
+        expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
+        editor.getEditorState().read(() => {
+          const root = $getRoot();
+          expect(root.getChildrenSize()).toBe(1);
+
+          const impliedPara = root.getFirstChild();
+          if (!$isImpliedParaNode(impliedPara))
+            throw new Error("impliedPara is not an ImpliedParaNode");
+          expect(impliedPara.getChildrenSize()).toBe(0); // Empty implied para
+        });
+      });
+
+      it("should insert line break with para attributes", async () => {
+        const { editor } = await testEnvironment();
+        const ops: Op[] = [{ insert: LF, attributes: { para: { style: "q1" } } }];
+
+        await sutApplyUpdate(editor, ops);
+
+        expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
+        editor.getEditorState().read(() => {
+          const root = $getRoot();
+          expect(root.getChildrenSize()).toBe(1);
+
+          const paraNode = root.getFirstChild();
+          if (!$isParaNode(paraNode)) throw new Error("paraNode is not a ParaNode");
+          expect(paraNode.getMarker()).toBe("q1");
+          expect(paraNode.getChildrenSize()).toBe(0); // Empty para
+        });
+      });
+
+      it("should handle line break insertion in regular ParaNode (no splitting)", async () => {
+        const { editor } = await testEnvironment(() => {
+          $getRoot().append($createParaNode().append($createTextNode("First line text")));
+        });
+        const ops: Op[] = [{ retain: 10 }, { insert: LF }];
+
+        await sutApplyUpdate(editor, ops);
+
+        expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
+        editor.getEditorState().read(() => {
+          const root = $getRoot();
+          // Line breaks in regular ParaNodes don't create new paragraphs
+          expect(root.getChildrenSize()).toBe(1);
+
+          const para = root.getFirstChild();
+          if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+          // The text remains unchanged since line breaks don't split regular ParaNodes
+          expect(para.getTextContent()).toBe("First line text");
+        });
+      });
+
+      it("should handle line break with para attributes in regular ParaNode (no splitting)", async () => {
+        const { editor } = await testEnvironment(() => {
+          $getRoot().append($createParaNode().append($createTextNode("Original paragraph text")));
+        });
+        const ops: Op[] = [
+          { retain: 9 }, // After "Original "
+          { insert: LF, attributes: { para: { style: "q2" } } },
+        ];
+
+        await sutApplyUpdate(editor, ops);
+
+        expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
+        editor.getEditorState().read(() => {
+          const root = $getRoot();
+          // Line breaks don't split regular ParaNodes, even with para attributes
+          expect(root.getChildrenSize()).toBe(1);
+
+          const para = root.getFirstChild();
+          if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+          // The text and marker remain unchanged
+          expect(para.getTextContent()).toBe("Original paragraph text");
+          expect(para.getMarker()).toBe("p"); // Original marker preserved
+        });
+      });
+
+      it("should handle line break at the beginning of regular ParaNode (no splitting)", async () => {
+        const { editor } = await testEnvironment(() => {
+          $getRoot().append($createParaNode().append($createTextNode("Content here")));
+        });
+        const ops: Op[] = [{ insert: LF, attributes: { para: { style: "q1" } } }];
+
+        await sutApplyUpdate(editor, ops);
+
+        expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
+        editor.getEditorState().read(() => {
+          const root = $getRoot();
+          // Line breaks at beginning of regular ParaNode don't create new paragraphs
+          expect(root.getChildrenSize()).toBe(1);
+
+          const para = root.getFirstChild();
+          if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+          expect(para.getTextContent()).toBe("Content here");
+          expect(para.getMarker()).toBe("p"); // Original marker preserved
+        });
+      });
+
+      it("should handle line break at the end of regular ParaNode (no splitting)", async () => {
+        const { editor } = await testEnvironment(() => {
+          $getRoot().append($createParaNode().append($createTextNode("Full content")));
+        });
+        const ops: Op[] = [{ retain: 12 }, { insert: LF, attributes: { para: { style: "b" } } }];
+
+        await sutApplyUpdate(editor, ops);
+
+        expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
+        editor.getEditorState().read(() => {
+          const root = $getRoot();
+          // Line breaks at end of regular ParaNode don't create new paragraphs
+          expect(root.getChildrenSize()).toBe(1);
+
+          const para = root.getFirstChild();
+          if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+          expect(para.getTextContent()).toBe("Full content");
+          expect(para.getMarker()).toBe("p"); // Original marker preserved
+        });
+      });
+
+      it("should handle multiple consecutive line breaks in regular ParaNode (no splitting)", async () => {
+        const { editor } = await testEnvironment(() => {
+          $getRoot().append($createParaNode().append($createTextNode("Base text")));
+        });
+        const ops: Op[] = [
+          { retain: 4 }, // After "Base"
+          { insert: LF, attributes: { para: { style: "q1" } } },
+          { insert: LF, attributes: { para: { style: "q2" } } },
+          { insert: LF }, // No attributes - should create ImpliedParaNode
+        ];
+
+        await sutApplyUpdate(editor, ops);
+
+        expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
+        editor.getEditorState().read(() => {
+          const root = $getRoot();
+          // Multiple line breaks in regular ParaNode don't create new paragraphs
+          expect(root.getChildrenSize()).toBe(1);
+
+          const para = root.getFirstChild();
+          if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+          expect(para.getTextContent()).toBe("Base text");
+          expect(para.getMarker()).toBe("p"); // Original marker preserved
+        });
+      });
+
+      it("should handle line break between embeds in regular ParaNode (no splitting)", async () => {
+        const { editor } = await testEnvironment(() => {
+          $getRoot().append(
+            $createParaNode().append(
+              $createImmutableVerseNode("1"),
+              $createTextNode("First verse text"),
+              $createImmutableVerseNode("2"),
+              $createTextNode("Second verse text"),
+            ),
+          );
+        });
+        const ops: Op[] = [
+          { retain: 2 + 16 }, // After verse 1 and "First verse text"
+          { insert: LF, attributes: { para: { style: "q1" } } },
+        ];
+
+        await sutApplyUpdate(editor, ops);
+
+        expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
+        editor.getEditorState().read(() => {
+          const root = $getRoot();
+          // Line break between embeds in regular ParaNode doesn't split the paragraph
+          expect(root.getChildrenSize()).toBe(1);
+
+          const para = root.getFirstChild();
+          if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+          expect(para.getChildrenSize()).toBe(4); // verse 1 + text + verse 2 + text
+          expect(para.getTextContent()).toBe("First verse textSecond verse text");
+          expect(para.getMarker()).toBe("p"); // Original marker preserved
+        });
+      });
+
+      it("should handle line break with text formatting preservation in regular ParaNode (no splitting)", async () => {
+        const { editor } = await testEnvironment(() => {
+          const para = $createParaNode();
+          const boldText = $createTextNode("Bold text ");
+          boldText.setFormat("bold");
+          const regularText = $createTextNode("regular text");
+          para.append(boldText, regularText);
+          $getRoot().append(para);
+        });
+        const ops: Op[] = [
+          { retain: 10 }, // After "Bold text "
+          { insert: LF, attributes: { para: { style: "q1" } } },
+        ];
+
+        await sutApplyUpdate(editor, ops);
+
+        expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
+        editor.getEditorState().read(() => {
+          const root = $getRoot();
+          // Line break in regular ParaNode doesn't split the paragraph
+          expect(root.getChildrenSize()).toBe(1);
+
+          const para = root.getFirstChild();
+          if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+          expect(para.getMarker()).toBe("p"); // Original marker preserved
+
+          // Text formatting should still be preserved
+          expect(para.getChildrenSize()).toBe(2);
+          const boldText = para.getFirstChild();
+          if (!$isTextNode(boldText)) throw new Error("boldText is not a TextNode");
+          expect(boldText.getTextContent()).toBe("Bold text ");
+          expect(boldText.hasFormat("bold")).toBe(true);
+
+          const regularText = para.getChildAtIndex(1);
+          if (!$isTextNode(regularText)) throw new Error("regularText is not a TextNode");
+          expect(regularText.getTextContent()).toBe("regular text");
+          expect(regularText.hasFormat("bold")).toBe(false);
+        });
+      });
+
+      it("should handle line break in complex document structure in regular ParaNode (no splitting)", async () => {
+        const { editor } = await testEnvironment(() => {
+          $getRoot().append(
+            $createImmutableChapterNode("1"),
+            $createParaNode().append(
+              $createImmutableVerseNode("1"),
+              $createTextNode("In the beginning God created the heavens and the earth."),
+            ),
+          );
+        });
+        const ops: Op[] = [
+          { retain: 1 + 1 + 17 }, // After chapter + verse + "In the beginning"
+          { insert: LF, attributes: { para: { style: "q1" } } },
+        ];
+
+        await sutApplyUpdate(editor, ops);
+
+        expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
+        editor.getEditorState().read(() => {
+          const root = $getRoot();
+          // Line break in regular ParaNode doesn't split it, even in complex structure
+          expect(root.getChildrenSize()).toBe(2); // chapter + 1 para
+
+          const chapter = root.getFirstChild();
+          if (!$isSomeChapterNode(chapter)) throw new Error("chapter is not SomeChapterNode");
+          expect(chapter.getNumber()).toBe("1");
+
+          const para = root.getChildAtIndex(1);
+          if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+          expect(para.getTextContent()).toBe(
+            "In the beginning God created the heavens and the earth.",
+          );
+          expect(para.getMarker()).toBe("p"); // Original marker preserved
+        });
+      });
+
+      it("should handle line break with invalid para style gracefully in regular ParaNode (no splitting)", async () => {
+        const { editor } = await testEnvironment(() => {
+          $getRoot().append($createParaNode().append($createTextNode("Test content")));
+        });
+        const ops: Op[] = [
+          { retain: 4 },
+          { insert: LF, attributes: { para: { style: "invalid-marker-xyz" } } },
+        ];
+
+        await sutApplyUpdate(editor, ops);
+
+        // Should not error even with invalid style
+        expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
+        editor.getEditorState().read(() => {
+          const root = $getRoot();
+          // Line break in regular ParaNode doesn't split it, even with invalid style
+          expect(root.getChildrenSize()).toBe(1);
+
+          const para = root.getFirstChild();
+          if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+          expect(para.getTextContent()).toBe("Test content");
+          expect(para.getMarker()).toBe("p"); // Original marker preserved
+        });
+      });
+
+      it("should handle line break with mixed attributes in regular ParaNode (no splitting)", async () => {
+        const { editor } = await testEnvironment(() => {
+          $getRoot().append($createParaNode().append($createTextNode("Mixed attributes test")));
+        });
+        const ops: Op[] = [
+          { retain: 5 },
+          {
+            insert: LF,
+            attributes: {
+              para: { style: "q1" },
+              segment: "verse_1_1",
+              customAttr: "value",
+            },
+          },
+        ];
+
+        await sutApplyUpdate(editor, ops);
+
+        expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
+        editor.getEditorState().read(() => {
+          const root = $getRoot();
+          // Line break in regular ParaNode doesn't split it, even with mixed attributes
+          expect(root.getChildrenSize()).toBe(1);
+
+          const para = root.getFirstChild();
+          if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+          expect(para.getMarker()).toBe("p"); // Original marker preserved
+          expect(para.getTextContent()).toBe("Mixed attributes test");
+          // Note: non-para attributes should be ignored for line breaks
+        });
+      });
+
+      // Tests for actual line break functionality with ImpliedParaNodes
+      it("should replace ImpliedParaNode with ParaNode when LF has para attributes", async () => {
+        const { editor } = await testEnvironment(() => {
+          // Start with an ImpliedParaNode containing text
+          $getRoot().append(
+            $createImpliedParaNode().append($createTextNode("Implied para content")),
+          );
+        });
+        const ops: Op[] = [
+          { retain: 20 }, // After "Implied para content" (at the ImpliedParaNode's closing marker)
+          { insert: LF, attributes: { para: { style: "q1" } } },
+        ];
+
+        await sutApplyUpdate(editor, ops);
+
+        expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
+        editor.getEditorState().read(() => {
+          const root = $getRoot();
+          expect(root.getChildrenSize()).toBe(1);
+
+          const para = root.getFirstChild();
+          if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+          expect(para.getMarker()).toBe("q1"); // ImpliedParaNode was replaced with ParaNode
+          expect(para.getTextContent()).toBe("Implied para content");
+        });
+      });
+
+      it("should do nothing when LF without attributes is inserted in ImpliedParaNode", async () => {
+        const { editor } = await testEnvironment(() => {
+          $getRoot().append(
+            $createImpliedParaNode().append($createTextNode("Implied para content")),
+          );
+        });
+        const ops: Op[] = [
+          { retain: 20 }, // After "Implied para content" (at the ImpliedParaNode's closing marker)
+          { insert: LF }, // No para attributes
+        ];
+
+        await sutApplyUpdate(editor, ops);
+
+        expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
+        editor.getEditorState().read(() => {
+          const root = $getRoot();
+          expect(root.getChildrenSize()).toBe(1);
+
+          const impliedPara = root.getFirstChild();
+          if (!$isImpliedParaNode(impliedPara))
+            throw new Error("impliedPara is not an ImpliedParaNode");
+          expect(impliedPara.getTextContent()).toBe("Implied para content");
+        });
+      });
+
+      it("should replace empty ImpliedParaNode with ParaNode when LF has para attributes", async () => {
+        const { editor } = await testEnvironment(() => {
+          $getRoot().append($createImpliedParaNode()); // Empty ImpliedParaNode
+        });
+        const ops: Op[] = [{ insert: LF, attributes: { para: { style: "p" } } }];
+
+        await sutApplyUpdate(editor, ops);
+
+        expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
+        editor.getEditorState().read(() => {
+          const root = $getRoot();
+          expect(root.getChildrenSize()).toBe(1);
+
+          const para = root.getFirstChild();
+          if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+          expect(para.getMarker()).toBe("p");
+          expect(para.getChildrenSize()).toBe(0); // Empty
+        });
+      });
+    });
+
+    describe("Error Handling", () => {
+      it("should handle invalid embed structure gracefully", async () => {
+        const { editor } = await testEnvironment();
+        const invalidEmbed = { invalidType: { data: "test" } };
+        const ops: Op[] = [{ insert: invalidEmbed }];
+
+        await sutApplyUpdate(editor, ops);
+
+        expect(consoleErrorSpy).toHaveBeenCalledTimes(2);
+        expect(consoleErrorSpy).toHaveBeenCalledWith(
+          expect.stringContaining("Cannot create LexicalNode for embed object"),
+        );
+      });
+
+      it("should handle missing required attributes in chapter embeds", async () => {
+        const { editor } = await testEnvironment();
+        const incompleteChapter = { chapter: {} }; // Missing number
+        const ops: Op[] = [{ insert: incompleteChapter }];
+
+        await sutApplyUpdate(editor, ops);
+
+        expect(consoleErrorSpy).toHaveBeenCalledTimes(2);
+        expect(consoleErrorSpy).toHaveBeenCalledWith(
+          expect.stringContaining("Cannot create LexicalNode for embed object"),
+        );
+      });
+
+      it("should handle missing required attributes in verse embeds", async () => {
+        const { editor } = await testEnvironment();
+        const incompleteVerse = { verse: { style: "v" } }; // Missing number
+        const ops: Op[] = [{ insert: incompleteVerse }];
+
+        await sutApplyUpdate(editor, ops);
+
+        expect(consoleErrorSpy).toHaveBeenCalledTimes(2);
+        expect(consoleErrorSpy).toHaveBeenCalledWith(
+          expect.stringContaining("Cannot create LexicalNode for embed object"),
+        );
+      });
+
+      it("should handle invalid para style gracefully", async () => {
+        const { editor } = await testEnvironment();
+        const invalidPara = { para: { style: "invalid-style-123" } };
+        const ops: Op[] = [{ insert: invalidPara }];
+
+        await sutApplyUpdate(editor, ops);
+
+        // Should not error but may log a warning
+        expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
+        editor.getEditorState().read(() => {
+          const p = $getRoot().getFirstChild();
+          if (!$isParaNode(p)) throw new Error("p is not a ParaNode");
+          expect(p.getMarker()).toBe("invalid-style-123"); // Should still create with invalid style
+        });
+      });
+
+      it("should handle malformed char embed attributes", async () => {
+        const { editor } = await testEnvironment(() => {
+          $getRoot().append($createParaNode().append($createTextNode("Test text")));
+        });
+        const malformedCharOp = {
+          insert: "char text",
+          attributes: {
+            char: { style: "wj" }, // Missing cid
+          },
+        };
+        const ops: Op[] = [malformedCharOp];
+
+        await sutApplyUpdate(editor, ops);
+
+        expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
+        editor.getEditorState().read(() => {
+          const p = $getRoot().getFirstChild();
+          if (!$isParaNode(p)) throw new Error("p is not a ParaNode");
+          expect(p.getChildrenSize()).toBe(2); // Should have 2 children: CharNode and TextNode
+
+          const firstChild = p.getFirstChild();
+          if (!$isCharNode(firstChild)) throw new Error("firstChild is not a CharNode");
+          expect(firstChild.getMarker()).toBe("wj");
+          expect(firstChild.getTextContent()).toBe("char text");
+
+          const secondChild = p.getChildAtIndex(1);
+          if (!$isTextNode(secondChild)) throw new Error("secondChild is not a TextNode");
+          expect(secondChild.getTextContent()).toBe("Test text");
+        });
+      });
+
+      it("should handle null or undefined insert values", async () => {
+        const { editor } = await testEnvironment();
+        const ops: Op[] = [{ insert: null } as unknown as Op, { insert: undefined }];
+
+        await sutApplyUpdate(editor, ops);
+
+        expect(consoleErrorSpy).toHaveBeenCalledTimes(2);
+      });
+
+      it("should handle empty embed objects", async () => {
+        const { editor } = await testEnvironment();
+        const ops: Op[] = [
+          { insert: {} },
+          { insert: { chapter: null } },
+          { insert: { verse: undefined } },
+        ];
+
+        await sutApplyUpdate(editor, ops);
+
+        expect(consoleErrorSpy).toHaveBeenCalledTimes(6);
+      });
+
+      it("should handle extremely large text insertions", async () => {
+        const { editor } = await testEnvironment();
+        const largeText = "a".repeat(100000); // 100k characters
+        const ops: Op[] = [{ insert: largeText }];
+
+        await sutApplyUpdate(editor, ops);
+
+        // Should handle large text without errors
+        expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
+        editor.getEditorState().read(() => {
+          expect($getRoot().getTextContent()).toBe(largeText);
+        });
+      });
+
+      it("should handle special characters and Unicode in inserts", async () => {
+        const { editor } = await testEnvironment();
+        const specialText = "Text with émojis 🙏 and UTF-8 characters ñ\u200B\u2028\u2029";
+        const ops: Op[] = [{ insert: specialText }];
+
+        await sutApplyUpdate(editor, ops);
+
+        expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
+        editor.getEditorState().read(() => {
+          expect($getRoot().getTextContent()).toBe(specialText);
+        });
+      });
+
+      it("should handle milestone with missing required style", async () => {
+        const { editor } = await testEnvironment(() => {
+          $getRoot().append($createParaNode());
+        });
+        const incompleteMilestone = { ms: { status: "start" } }; // Missing style
+        const ops: Op[] = [{ insert: incompleteMilestone }];
+
+        await sutApplyUpdate(editor, ops);
+
+        expect(consoleErrorSpy).toHaveBeenCalledTimes(2);
+        expect(consoleErrorSpy).toHaveBeenCalledWith(
+          expect.stringContaining("Cannot create LexicalNode for embed object"),
+        );
+      });
+
+      it("should handle deeply nested malformed objects", async () => {
+        const { editor } = await testEnvironment();
+        const deeplyMalformed = {
+          chapter: {
+            number: "1",
+            style: "c",
+            nested: {
+              invalid: {
+                structure: "test",
+                someProperty: "value",
+              },
+            },
+          },
+        };
+
+        const ops: Op[] = [{ insert: deeplyMalformed }];
+
+        await sutApplyUpdate(editor, ops);
+
+        // Should handle without crashing even with deeply nested objects
+        expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
+        editor.getEditorState().read(() => {
+          const ch = $getRoot().getFirstChild();
+          if (!$isSomeChapterNode(ch)) throw new Error("ch is not SomeChapterNode");
+          expect(ch.getNumber()).toBe("1");
+        });
+      });
+
+      it("should handle concurrent error operations", async () => {
+        const { editor } = await testEnvironment();
+        const ops: Op[] = [
+          { insert: { invalidType1: {} } },
+          { insert: "valid text" },
+          { insert: { invalidType2: { bad: "data" } } },
+          { insert: { chapter: { number: "1", style: "c" } } }, // Valid
+          { insert: null } as unknown as Op,
+        ];
+
+        await sutApplyUpdate(editor, ops);
+
+        // Should have 5 errors but still process valid operations
+        expect(consoleErrorSpy).toHaveBeenCalledTimes(5);
+        editor.getEditorState().read(() => {
+          const root = $getRoot();
+          expect(root.getTextContent()).toContain("valid text");
+          expect(root.getChildrenSize()).toBe(1);
+
+          const impliedParaNode = root.getFirstChild();
+          if (!$isImpliedParaNode(impliedParaNode))
+            throw new Error("First child is not an ImpliedParaNode");
+          expect(impliedParaNode.getChildrenSize()).toBe(2); // TextNode and SomeChapterNode
+
+          const t1 = impliedParaNode.getFirstChild();
+          if (!$isTextNode(t1)) throw new Error("First child of impliedParaNode is not a TextNode");
+          expect(t1.getTextContent()).toBe("valid text");
+
+          const ch1 = impliedParaNode.getChildAtIndex(1);
+          if (!$isSomeChapterNode(ch1)) throw new Error("Second child is not SomeChapterNode");
+          expect(ch1.getNumber()).toBe("1");
+        });
       });
     });
 
@@ -888,55 +1599,6 @@ describe("Delta Utils $applyUpdate", () => {
         {},
         0,
       );
-    });
-
-    xit("should sequentially insert multiple embeds into an empty document", async () => {
-      const { editor } = await testEnvironment();
-      const embedChapter1 = { chapter: { number: "1", style: "c" } };
-      const embedParaP = { para: { style: "p" } };
-      const embedChapter2 = { chapter: { number: "2", style: "c" } };
-      const embedParaQ1 = { para: { style: "q1" } };
-      const embedMilestone = { ms: { style: "ts-s", sid: "TS1" } };
-      const ops: Op[] = [
-        { insert: embedChapter1 },
-        { insert: embedParaP },
-        { insert: embedChapter2 },
-        { insert: embedParaQ1 },
-        { insert: embedMilestone },
-      ];
-
-      await sutApplyUpdate(editor, ops);
-
-      editor.getEditorState().read(() => {
-        const root = $getRoot();
-        expect(root.getChildrenSize()).toBe(3); // Chapter1, ParaP, Chapter2, ParaQ1, Milestone
-
-        const chapter1Node = root.getChildAtIndex(0);
-        if (!$isSomeChapterNode(chapter1Node)) throw new Error("Child 0 is not a ChapterNode");
-        expect(chapter1Node.getNumber()).toBe("1");
-        expect(chapter1Node.getMarker()).toBe("c");
-
-        const paraPNode = root.getChildAtIndex(1);
-        if (!$isParaNode(paraPNode)) throw new Error("Child 1 is not a ParaNode");
-        expect(paraPNode.getMarker()).toBe("p");
-        expect(paraPNode.getChildrenSize()).toBe(0); // ParaP should be empty
-
-        const chapter2Node = root.getChildAtIndex(2);
-        if (!$isSomeChapterNode(chapter2Node)) throw new Error("Child 2 is not a ChapterNode");
-        expect(chapter2Node.getNumber()).toBe("2");
-        expect(chapter2Node.getMarker()).toBe("c2");
-
-        const paraQ1Node = root.getChildAtIndex(3);
-        if (!$isParaNode(paraQ1Node)) throw new Error("Child 3 is not a ParaNode");
-        expect(paraQ1Node.getMarker()).toBe("q1");
-        expect(paraQ1Node.getChildrenSize()).toBe(0);
-
-        const milestoneNode = root.getChildAtIndex(4);
-        if (!$isMilestoneNode(milestoneNode))
-          throw new Error("Child of ParaQ1 is not a MilestoneNode");
-        expect(milestoneNode.getMarker()).toBe("ts-s");
-        expect(milestoneNode.getUnknownAttributes()).toEqual({ sid: "TS1" });
-      });
     });
   });
 });

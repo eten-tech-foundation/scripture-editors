@@ -33,7 +33,7 @@ import { $isBookNode, BookNode } from "shared/nodes/usj/BookNode";
 import { $createChapterNode } from "shared/nodes/usj/ChapterNode";
 import { $createCharNode, $isCharNode, CharNode } from "shared/nodes/usj/CharNode";
 import { $createImmutableChapterNode } from "shared/nodes/usj/ImmutableChapterNode";
-import { $isImpliedParaNode } from "shared/nodes/usj/ImpliedParaNode";
+import { $createImpliedParaNode, $isImpliedParaNode } from "shared/nodes/usj/ImpliedParaNode";
 import {
   $createMilestoneNode,
   $isMilestoneNode,
@@ -48,6 +48,18 @@ import {
 import { $isNoteNode, NoteNode } from "shared/nodes/usj/NoteNode";
 import { $createParaNode, $isParaNode, ParaNode } from "shared/nodes/usj/ParaNode";
 import { $createVerseNode } from "shared/nodes/usj/VerseNode";
+
+/*
+For implied paragraphs, we use the following logic:
+  - An ImpliedParaNode (or ParaNode) takes up OT index space 1 but only at the end of the block.
+  - An ImpliedParaNode is created when an inline node is inserted where there is no ParaNode.
+  - If an LF is inserted, it closes the ImpliedParaNode if there are no attributes or it is replaced
+    by a ParaNode specified by the attributes.
+  - Our empty Lexical editor defaults to an empty ImpliedParaNode, so the first inline insertion
+    should go inside it.
+*/
+
+export const LF = "\n";
 
 /**
  * Apply Operational Transform rich-text updates to the editor.
@@ -68,6 +80,7 @@ export function $applyUpdate(ops: Op[], viewOptions: ViewOptions, logger?: Logge
         logger?.error(`Invalid delete operation: ${JSON.stringify(op)}`);
         return; // Skip malformed operation
       }
+
       logger?.debug(`Delete: ${op.delete}`);
       $deleteTextAtCurrentIndex(currentIndex, op.delete, logger);
       // Delete operations do not advance the currentIndex in the OT Delta model
@@ -174,81 +187,136 @@ function $applyAttributes(
     `Applying standard attributes for range [${targetIndex}, ${targetIndex + retain - 1}] with attributes: ${JSON.stringify(attributes)}`,
   );
   let charsToFormat = retain;
-  let charWalkerOffset = 0;
+  let currentIndex = 0;
   const root = $getRoot();
 
-  function $traverseAndApplyAttributesOriginalLogic(node: LexicalNode): boolean {
+  function $traverseAndApplyAttributesRecursive(currentNode: LexicalNode): boolean {
     if (charsToFormat <= 0) return true;
 
-    if ($isTextNode(node)) {
-      const textLength = node.getTextContentSize();
-      if (
-        targetIndex < charWalkerOffset + textLength &&
-        charWalkerOffset < targetIndex + charsToFormat
-      ) {
-        const offsetInNode = Math.max(0, targetIndex - charWalkerOffset);
+    if ($isTextNode(currentNode)) {
+      const textLength = currentNode.getTextContentSize();
+      if (targetIndex < currentIndex + textLength && currentIndex < targetIndex + charsToFormat) {
+        const offsetInNode = Math.max(0, targetIndex - currentIndex);
         const charsAvailableInNodeAfterOffset = textLength - offsetInNode;
         const charsToApplyInThisNode = Math.min(charsToFormat, charsAvailableInNodeAfterOffset);
 
         if (charsToApplyInThisNode > 0) {
-          let targetNode = node;
+          let targetNode = currentNode;
           const needsSplitAtStart = offsetInNode > 0;
           const needsSplitAtEnd = charsToApplyInThisNode < textLength - offsetInNode;
 
           if (needsSplitAtStart && needsSplitAtEnd) {
             let middleNode;
-            [, middleNode] = node.splitText(offsetInNode);
+            [, middleNode] = currentNode.splitText(offsetInNode);
             [targetNode] = middleNode.splitText(charsToApplyInThisNode);
           } else if (needsSplitAtStart) {
-            [, targetNode] = node.splitText(offsetInNode);
+            [, targetNode] = currentNode.splitText(offsetInNode);
           } else if (needsSplitAtEnd) {
-            [targetNode] = node.splitText(charsToApplyInThisNode);
+            [targetNode] = currentNode.splitText(charsToApplyInThisNode);
           }
           applyTextAttributes(attributes, targetNode);
           charsToFormat -= charsToApplyInThisNode;
         }
       }
-      charWalkerOffset += textLength;
+      currentIndex += textLength;
     } else if (
-      $isBookNode(node) ||
-      $isSomeChapterNode(node) ||
-      $isSomeVerseNode(node) ||
-      $isMilestoneNode(node) ||
-      $isImmutableUnmatchedNode(node)
+      // Atomic Embeds: Book, Chapter, Verse, Milestone, ImmutableUnmatched
+      $isBookNode(currentNode) ||
+      $isSomeChapterNode(currentNode) ||
+      $isSomeVerseNode(currentNode) ||
+      $isMilestoneNode(currentNode) ||
+      $isImmutableUnmatchedNode(currentNode)
     ) {
-      if (targetIndex <= charWalkerOffset && charWalkerOffset < targetIndex + charsToFormat) {
-        $applyEmbedAttributes(node, attributes);
-        charsToFormat -= 1;
+      const atomicNodeOtLength = 1;
+      if (
+        targetIndex <= currentIndex &&
+        currentIndex < targetIndex + charsToFormat &&
+        charsToFormat > 0
+      ) {
+        // Apply attributes to the atomic node itself
+        $applyEmbedAttributes(currentNode, attributes);
+        charsToFormat -= atomicNodeOtLength;
       }
-      charWalkerOffset += 1;
-    } else if ($isElementNode(node)) {
-      let elementOtLength = 0;
-      if ($isCharNode(node) || $isNoteNode(node) || $isParaNode(node) || $isUnknownNode(node)) {
-        elementOtLength = 1;
-        if (targetIndex <= charWalkerOffset && charWalkerOffset < targetIndex + charsToFormat) {
-          $applyEmbedAttributes(node, attributes);
-          charsToFormat -= elementOtLength;
-        }
+      currentIndex += atomicNodeOtLength;
+    } else if (
+      // Container Embeds: CharNode, NoteNode, UnknownNode
+      // These have an OT length of 1 for their "tag", then their children are processed.
+      $isCharNode(currentNode) ||
+      $isNoteNode(currentNode) ||
+      $isUnknownNode(currentNode)
+    ) {
+      const containerEmbedOtLength = 1;
+      if (
+        targetIndex <= currentIndex &&
+        currentIndex < targetIndex + charsToFormat &&
+        charsToFormat > 0
+      ) {
+        // Apply attributes to the container node itself (its "tag")
+        $applyEmbedAttributes(currentNode, attributes);
+        charsToFormat -= containerEmbedOtLength;
       }
-      charWalkerOffset += elementOtLength;
+      currentIndex += containerEmbedOtLength;
 
-      if (charsToFormat > 0) {
-        const children = node.getChildren();
+      // Then, process children of these container embeds
+      if (charsToFormat > 0 && $isElementNode(currentNode)) {
+        const children = currentNode.getChildren();
         for (const child of children) {
           if (charsToFormat <= 0) break;
-          if ($traverseAndApplyAttributesOriginalLogic(child)) {
+          if ($traverseAndApplyAttributesRecursive(child)) {
             if (charsToFormat <= 0) return true;
           }
         }
       }
+    } else if ($isParaNode(currentNode) || $isImpliedParaNode(currentNode)) {
+      // Paragraph-like nodes: process children first, then account for the para's own closing OT length.
+      if ($isElementNode(currentNode)) {
+        // Should always be true for ParaNode/ImpliedParaNode
+        const children = currentNode.getChildren();
+        for (const child of children) {
+          if (charsToFormat <= 0) break;
+          if ($traverseAndApplyAttributesRecursive(child)) {
+            if (charsToFormat <= 0) return true; // Early exit if formatting complete
+          }
+        }
+      }
+
+      // After children, account for the ParaNode/ImpliedParaNode's closing marker (OT length 1)
+      const paraClosingOtLength = 1;
+      // currentIndex is now positioned after all children of this ParaNode.
+      // Check if the retain operation targets this closing marker.
+      if (
+        targetIndex <= currentIndex &&
+        currentIndex < targetIndex + charsToFormat &&
+        charsToFormat > 0
+      ) {
+        $applyEmbedAttributes(
+          currentNode as ParaNode /*or ImpliedParaNode, handled by $applyEmbedAttributes type*/,
+          attributes,
+        );
+        charsToFormat -= paraClosingOtLength;
+      }
+      currentIndex += paraClosingOtLength;
+    } else if ($isElementNode(currentNode)) {
+      // Other generic ElementNodes (like RootNode, or custom unhandled ones)
+      // Process children. These elements themselves usually have OT length 0.
+      const children = currentNode.getChildren();
+      for (const child of children) {
+        if (charsToFormat <= 0) break;
+        if ($traverseAndApplyAttributesRecursive(child)) {
+          if (charsToFormat <= 0) return true;
+        }
+      }
     }
+    // Else: Non-text, non-element, non-handled nodes (e.g. LineBreakNode, DecoratorNode if not explicitly handled)
+    // These typically don't contribute to OT length in this model or are handled by Lexical internally.
+
     return charsToFormat <= 0;
   }
 
-  $traverseAndApplyAttributesOriginalLogic(root);
+  $traverseAndApplyAttributesRecursive(root);
   if (charsToFormat > 0) {
     logger?.warn(
-      `$applyAttributes: Not all characters in the retain operation (length ${retain}) could be processed. Remaining: ${charsToFormat}. targetIndex: ${targetIndex}, final charWalkerOffset: ${charWalkerOffset}`,
+      `$applyAttributes: Not all characters in the retain operation (length ${retain}) could be processed. Remaining: ${charsToFormat}. targetIndex: ${targetIndex}, final currentIndex: ${currentIndex}`,
     );
   }
 }
@@ -267,7 +335,7 @@ function $extractTextFromRangeInternal(
   }
 
   const root = $getRoot();
-  let charWalkerOffset = 0;
+  let currentIndex = 0;
   let remainingToExtract = length;
   let extractedText = "";
   let scanStartIndex = targetIndex;
@@ -282,8 +350,8 @@ function $extractTextFromRangeInternal(
 
     if ($isTextNode(currentNode)) {
       const textLength = currentNode.getTextContentSize();
-      const nodeStartOffsetInDoc = charWalkerOffset; // Renamed for clarity
-      const nodeEndOffsetInDoc = charWalkerOffset + textLength;
+      const nodeStartOffsetInDoc = currentIndex;
+      const nodeEndOffsetInDoc = currentIndex + textLength;
       const effectiveStart = Math.max(scanStartIndex, nodeStartOffsetInDoc);
       const effectiveEnd = Math.min(scanEndIndex, nodeEndOffsetInDoc);
 
@@ -295,8 +363,9 @@ function $extractTextFromRangeInternal(
           .substring(offsetInNode, offsetInNode + countToExtractFromNode);
         remainingToExtract -= countToExtractFromNode;
       }
-      charWalkerOffset += textLength;
+      currentIndex += textLength;
     } else if (
+      // Atomic Embeds
       $isBookNode(currentNode) ||
       $isSomeChapterNode(currentNode) ||
       $isSomeVerseNode(currentNode) ||
@@ -304,33 +373,63 @@ function $extractTextFromRangeInternal(
       $isImmutableUnmatchedNode(currentNode)
     ) {
       const nodeOtLength = 1;
-      if (scanStartIndex < charWalkerOffset + nodeOtLength && scanEndIndex > charWalkerOffset) {
+      if (scanStartIndex < currentIndex + nodeOtLength && scanEndIndex > currentIndex) {
         logger?.warn(
-          `$extractTextFromRangeInternal: Range [${targetIndex}, ${targetIndex + length - 1}] includes non-text embed ${currentNode.getType()} at offset ${charWalkerOffset}. Text extraction might be partial or invalid for transformation.`,
+          `$extractTextFromRangeInternal: Range [${targetIndex}, ${targetIndex + length - 1}] includes atomic embed ${currentNode.getType()} at offset ${currentIndex}. Text extraction might be partial or invalid.`,
         );
       }
-      charWalkerOffset += nodeOtLength;
-    } else if ($isElementNode(currentNode)) {
-      let elementOtLength = 0;
-      if (
-        $isParaNode(currentNode) ||
-        $isCharNode(currentNode) ||
-        $isNoteNode(currentNode) ||
-        $isUnknownNode(currentNode)
-      ) {
-        elementOtLength = 1;
-      }
-      if (
-        elementOtLength > 0 &&
-        scanStartIndex < charWalkerOffset + elementOtLength &&
-        scanEndIndex > charWalkerOffset
-      ) {
+      currentIndex += nodeOtLength;
+    } else if (
+      // Container Embeds: CharNode, NoteNode, UnknownNode
+      $isCharNode(currentNode) ||
+      $isNoteNode(currentNode) ||
+      $isUnknownNode(currentNode)
+    ) {
+      const containerEmbedOtLength = 1;
+      if (scanStartIndex < currentIndex + containerEmbedOtLength && scanEndIndex > currentIndex) {
         logger?.warn(
-          `$extractTextFromRangeInternal: Range [${targetIndex}, ${targetIndex + length - 1}] includes element ${currentNode.getType()} (OT length ${elementOtLength}) at offset ${charWalkerOffset}. Text extraction might be partial or invalid for transformation.`,
+          `$extractTextFromRangeInternal: Range [${targetIndex}, ${targetIndex + length - 1}] includes container embed tag ${currentNode.getType()} (OT length ${containerEmbedOtLength}) at offset ${currentIndex}. Text extraction might be partial or invalid.`,
         );
       }
-      charWalkerOffset += elementOtLength;
+      currentIndex += containerEmbedOtLength;
 
+      if ($isElementNode(currentNode)) {
+        const children = currentNode.getChildren();
+        for (const child of children) {
+          if (remainingToExtract <= 0) break;
+          if ($traverseAndExtract(child)) {
+            if (remainingToExtract <= 0) return true;
+          }
+        }
+      }
+    } else if ($isParaNode(currentNode) || $isImpliedParaNode(currentNode)) {
+      // Paragraph-like nodes: process children first
+      if ($isElementNode(currentNode)) {
+        const children = currentNode.getChildren();
+        for (const child of children) {
+          if (remainingToExtract <= 0) break;
+          if ($traverseAndExtract(child)) {
+            if (remainingToExtract <= 0) return true;
+          }
+        }
+      }
+      // After children, account for the ParaNode/ImpliedParaNode's closing marker
+      const paraClosingOtLength = 1;
+      if (scanStartIndex < currentIndex + paraClosingOtLength && scanEndIndex > currentIndex) {
+        logger?.warn(
+          `$extractTextFromRangeInternal: Range [${targetIndex}, ${targetIndex + length - 1}] includes closing marker of ${currentNode.getType()} at offset ${currentIndex}. Text extraction might be partial or invalid.`,
+        );
+        // If extracting the newline character itself:
+        // const effectiveStartPara = Math.max(scanStartIndex, currentIndex);
+        // const effectiveEndPara = Math.min(scanEndIndex, currentIndex + paraClosingOtLength);
+        // if (effectiveStartPara < effectiveEndPara && remainingToExtract > 0) {
+        //   extractedText += '\n'; // Or some representation of the para break
+        //   remainingToExtract--;
+        // }
+      }
+      currentIndex += paraClosingOtLength;
+    } else if ($isElementNode(currentNode)) {
+      // Other generic ElementNodes (like RootNode)
       const children = currentNode.getChildren();
       for (const child of children) {
         if (remainingToExtract <= 0) break;
@@ -346,7 +445,7 @@ function $extractTextFromRangeInternal(
 
   if (remainingToExtract > 0) {
     logger?.warn(
-      `$extractTextFromRangeInternal: Could not extract all ${length} chars. Extracted: "${extractedText}" (${extractedText.length}). Target: ${targetIndex}. Remaining: ${remainingToExtract}. Final charWalkerOffset: ${charWalkerOffset}.`,
+      `$extractTextFromRangeInternal: Could not extract all ${length} chars. Extracted: "${extractedText}" (${extractedText.length}). Target: ${targetIndex}. Remaining: ${remainingToExtract}. Final currentIndex: ${currentIndex}.`,
     );
     return undefined;
   }
@@ -458,7 +557,7 @@ function $deleteTextAtCurrentIndex(
   if (count <= 0) return;
 
   const root = $getRoot();
-  let charWalkerOffset = 0; // Tracks characters traversed so far in the document's text content
+  let currentIndex = 0; // Tracks characters traversed so far in the document's text content
   let remainingToDelete = count;
 
   // Inner recursive function to find and delete text
@@ -469,9 +568,11 @@ function $deleteTextAtCurrentIndex(
 
     if ($isTextNode(currentNode)) {
       const textLength = currentNode.getTextContentSize();
-      // Check if the current text node is where the deletion should start or continue
-      if (targetIndex < charWalkerOffset + textLength) {
-        const offsetInNode = Math.max(0, targetIndex - charWalkerOffset);
+      if (
+        targetIndex < currentIndex + textLength &&
+        currentIndex < targetIndex + remainingToDelete
+      ) {
+        const offsetInNode = Math.max(0, targetIndex - currentIndex);
         const deletableCharsInNode = textLength - offsetInNode;
         const numCharsToDeleteFromThisNode = Math.min(remainingToDelete, deletableCharsInNode);
 
@@ -479,39 +580,57 @@ function $deleteTextAtCurrentIndex(
           currentNode.spliceText(offsetInNode, numCharsToDeleteFromThisNode, "");
           logger?.debug(
             `Deleted ${numCharsToDeleteFromThisNode} chars from TextNode (key: ${currentNode.getKey()}) ` +
-              `at nodeOffset ${offsetInNode}. Original targetIndex: ${targetIndex}, current charWalkerOffset: ${charWalkerOffset}.`,
+              `at nodeOffset ${offsetInNode}. Original targetIndex: ${targetIndex}, current currentIndex: ${currentIndex}.`,
           );
           remainingToDelete -= numCharsToDeleteFromThisNode;
         }
       }
-      charWalkerOffset += textLength;
+      currentIndex += textLength;
     } else if (
+      // Atomic Embeds - text deletion skips over them, just advance offset.
+      // Deleting the embed itself is a different operation (e.g. op.delete for an embed).
+      $isBookNode(currentNode) ||
       $isSomeChapterNode(currentNode) ||
       $isSomeVerseNode(currentNode) ||
-      $isMilestoneNode(currentNode)
+      $isMilestoneNode(currentNode) ||
+      $isImmutableUnmatchedNode(currentNode)
     ) {
-      charWalkerOffset += 1;
+      currentIndex += 1;
+    } else if (
+      // Container Embeds: CharNode, NoteNode, UnknownNode
+      // Advance past their tag, then recurse to delete text *inside* them.
+      $isCharNode(currentNode) ||
+      $isNoteNode(currentNode) ||
+      $isUnknownNode(currentNode)
+    ) {
+      currentIndex += 1; // For the container tag itself
+
+      if (remainingToDelete > 0 && $isElementNode(currentNode)) {
+        const children = currentNode.getChildren();
+        for (const child of children) {
+          if (remainingToDelete <= 0) break;
+          if ($traverseAndDelete(child)) {
+            if (remainingToDelete <= 0) return true;
+          }
+        }
+      }
+    } else if ($isParaNode(currentNode) || $isImpliedParaNode(currentNode)) {
+      // Paragraph-like nodes: process children first
+      if ($isElementNode(currentNode)) {
+        const children = currentNode.getChildren();
+        for (const child of children) {
+          if (remainingToDelete <= 0) break;
+          if ($traverseAndDelete(child)) {
+            if (remainingToDelete <= 0) return true;
+          }
+        }
+      }
+      // After children, account for the ParaNode/ImpliedParaNode's closing marker.
+      // Deleting this conceptual newline is complex (merge, unwrap) and typically
+      // handled by specific operations, not general text deletion. For now, just advance offset.
+      currentIndex += 1;
     } else if ($isElementNode(currentNode)) {
-      let elementEmbedLength = 0;
-      // Determine if this element node is treated as an embed with a specific length
-      // in the Delta model.
-      if (
-        $isParaNode(currentNode) ||
-        $isCharNode(currentNode) ||
-        $isNoteNode(currentNode) ||
-        $isUnknownNode(currentNode)
-      ) {
-        elementEmbedLength = 1; // Assume these embeds have a Delta length of 1
-      }
-
-      if (elementEmbedLength > 0) {
-        // If the deletion target is within this embed itself, this function (for text deletion)
-        // might not be the right place to handle it. For now, we assume deletion targets text
-        // that appears after such embeds.
-        // We advance charWalkerOffset past this embed.
-        charWalkerOffset += elementEmbedLength;
-      }
-
+      // Other generic ElementNodes (like RootNode)
       const children = currentNode.getChildren();
       for (const child of children) {
         if (remainingToDelete <= 0) break;
@@ -520,9 +639,7 @@ function $deleteTextAtCurrentIndex(
         }
       }
     }
-    // Other node types (LineBreakNode, DecoratorNode, Embeds) might need specific length handling for charWalkerOffset.
-
-    return remainingToDelete <= 0; // Return true if deletion is complete
+    return remainingToDelete <= 0;
   }
 
   $traverseAndDelete(root);
@@ -530,7 +647,7 @@ function $deleteTextAtCurrentIndex(
   if (remainingToDelete > 0) {
     logger?.warn(
       `Delete operation could not remove all requested characters. ` +
-        `Remaining to delete: ${remainingToDelete}. Original targetIndex: ${targetIndex}, count: ${count}. Final charWalkerOffset: ${charWalkerOffset}`,
+        `Remaining to delete: ${remainingToDelete}. Original targetIndex: ${targetIndex}, count: ${count}. Final currentIndex: ${currentIndex}`,
     );
   }
 }
@@ -551,7 +668,13 @@ function $insertTextAtCurrentIndex(
   attributes: AttributeMap | undefined,
   logger?: LoggerBasic,
 ): number {
-  if (typeof attributes?.char === "object") {
+  if (textToInsert === LF && !attributes) {
+    // Already in an ImpliedParaNode - nothing to insert.
+    return 1;
+  } else if (textToInsert === LF && attributes && typeof attributes.para === "object") {
+    // Handle LF with para attributes - replace current ImpliedParaNode with ParaNode
+    return $handleNewlineWithParaAttributes(targetIndex, attributes.para, logger);
+  } else if (textToInsert !== LF && typeof attributes?.char === "object") {
     // Handle CharNode insertion
     logger?.debug(
       `Attempting to insert CharNode with text "${textToInsert}" and attributes ${JSON.stringify(
@@ -618,7 +741,7 @@ function $insertPlainTextInternal(
   }
 
   const root = $getRoot();
-  let charWalkerOffset = 0;
+  let currentIndex = 0;
   let insertionPointFound = false;
 
   function $findAndInsertRecursive(currentNode: LexicalNode): boolean {
@@ -626,55 +749,105 @@ function $insertPlainTextInternal(
 
     if ($isTextNode(currentNode)) {
       const textLength = currentNode.getTextContentSize();
-      if (targetIndex >= charWalkerOffset && targetIndex <= charWalkerOffset + textLength) {
-        const offsetInNode = targetIndex - charWalkerOffset;
-
+      // Check if targetIndex is within this TextNode's range
+      if (targetIndex >= currentIndex && targetIndex <= currentIndex + textLength) {
+        const offsetInNode = targetIndex - currentIndex;
         const newTextNode = $createTextNode(textToInsert);
         applyTextAttributes(textAttributes, newTextNode);
 
-        // Splice and insert
         if (offsetInNode === 0) {
           currentNode.insertBefore(newTextNode);
         } else if (offsetInNode === textLength) {
           currentNode.insertAfter(newTextNode);
         } else {
           const [, tailNode] = currentNode.splitText(offsetInNode);
-          tailNode.insertBefore(newTextNode);
+          tailNode.insertBefore(newTextNode); // Insert before the tail part
         }
-
         logger?.debug(
           `Inserted text "${textToInsert}" in/around TextNode (key: ${currentNode.getKey()}) at nodeOffset ${offsetInNode}. ` +
-            `Original targetIndex: ${targetIndex}, charWalkerOffset at node start: ${charWalkerOffset}.`,
+            `Original targetIndex: ${targetIndex}, currentIndex at node start: ${currentIndex}.`,
         );
         insertionPointFound = true;
         return true;
       }
-      charWalkerOffset += textLength;
+      currentIndex += textLength;
     } else if (
+      // Atomic Embeds
       $isBookNode(currentNode) ||
       $isSomeChapterNode(currentNode) ||
       $isSomeVerseNode(currentNode) ||
       $isMilestoneNode(currentNode) ||
       $isImmutableUnmatchedNode(currentNode)
     ) {
-      charWalkerOffset += 1;
-    } else if ($isElementNode(currentNode)) {
-      let elementEmbedLength = 0;
-      if (
-        $isParaNode(currentNode) ||
-        $isCharNode(currentNode) ||
-        $isNoteNode(currentNode) ||
-        $isUnknownNode(currentNode)
-      ) {
-        elementEmbedLength = 1; // These elements count as 1 in OT length
+      // If targetIndex is exactly at currentIndex, means insert *before* this atomic node.
+      // This function is for plain text; inserting before/after atomic nodes usually involves
+      // $insertNodeAtCharacterOffset or ensuring a Para wrapper.
+      // For now, just advance offset.
+      if (targetIndex === currentIndex && !insertionPointFound) {
+        // Potentially insert into a new para before this node if context allows,
+        // or let caller handle creating appropriate structure.
+        // This function's primary goal is inserting into existing text-compatible locations.
       }
+      currentIndex += 1;
+    } else if (
+      // Container Embeds: CharNode, NoteNode, UnknownNode
+      $isCharNode(currentNode) ||
+      $isNoteNode(currentNode) ||
+      $isUnknownNode(currentNode)
+    ) {
+      const containerEmbedOtLength = 1;
+      const offsetAtContainerStart = currentIndex;
 
-      let isParaLikeContainer = false;
-      if ($isParaNode(currentNode) || $isImpliedParaNode(currentNode)) isParaLikeContainer = true;
+      // Try inserting at the beginning of the container's *content*
+      // (i.e., targetIndex matches after the container's opening tag)
+      if (
+        !insertionPointFound &&
+        targetIndex === offsetAtContainerStart + containerEmbedOtLength &&
+        $isElementNode(currentNode)
+      ) {
+        // This implies inserting as the first child inside the container
+        const newTextNode = $createTextNode(textToInsert);
+        applyTextAttributes(textAttributes, newTextNode);
+        const firstChild = currentNode.getFirstChild();
+        if (firstChild) {
+          firstChild.insertBefore(newTextNode);
+        } else {
+          currentNode.append(newTextNode);
+        }
+        logger?.debug(
+          `Inserted text "${textToInsert}" at beginning of container ${currentNode.getType()} (key: ${currentNode.getKey()}).`,
+        );
+        insertionPointFound = true;
+        return true;
+      }
+      currentIndex += containerEmbedOtLength; // Advance for the container tag
 
-      const offsetAtElementStart = charWalkerOffset;
-
-      if (isParaLikeContainer && targetIndex === offsetAtElementStart) {
+      if ($isElementNode(currentNode)) {
+        const children = currentNode.getChildren();
+        for (const child of children) {
+          if ($findAndInsertRecursive(child)) return true;
+          if (insertionPointFound) break;
+        }
+      }
+      // Try appending to the container if targetIndex matches after children
+      if (!insertionPointFound && targetIndex === currentIndex && $isElementNode(currentNode)) {
+        const newTextNode = $createTextNode(textToInsert);
+        applyTextAttributes(textAttributes, newTextNode);
+        currentNode.append(newTextNode);
+        logger?.debug(
+          `Appended text "${textToInsert}" to end of container ${currentNode.getType()} (key: ${currentNode.getKey()}).`,
+        );
+        insertionPointFound = true;
+        return true;
+      }
+    } else if ($isParaNode(currentNode) || $isImpliedParaNode(currentNode)) {
+      const offsetAtParaStart = currentIndex;
+      // Try inserting at the beginning of the ParaNode
+      if (
+        !insertionPointFound &&
+        targetIndex === offsetAtParaStart &&
+        $isElementNode(currentNode)
+      ) {
         const newTextNode = $createTextNode(textToInsert);
         applyTextAttributes(textAttributes, newTextNode);
         const firstChild = currentNode.getFirstChild();
@@ -690,16 +863,17 @@ function $insertPlainTextInternal(
         return true;
       }
 
-      charWalkerOffset += elementEmbedLength; // Advance by element's own length before traversing children
-
-      const children = currentNode.getChildren();
-      for (const child of children) {
-        if ($findAndInsertRecursive(child)) return true;
-        if (insertionPointFound) break;
+      if ($isElementNode(currentNode)) {
+        const children = currentNode.getChildren();
+        for (const child of children) {
+          if ($findAndInsertRecursive(child)) return true;
+          if (insertionPointFound) break;
+        }
       }
 
-      // After children, charWalkerOffset is at the end of this element's content for OT purposes
-      if (isParaLikeContainer && targetIndex === charWalkerOffset) {
+      // After children, currentIndex is at the end of the *content* of the ParaNode.
+      // Try appending text if targetIndex matches (before para's own closing marker)
+      if (!insertionPointFound && targetIndex === currentIndex && $isElementNode(currentNode)) {
         const newTextNode = $createTextNode(textToInsert);
         applyTextAttributes(textAttributes, newTextNode);
         currentNode.append(newTextNode);
@@ -709,19 +883,28 @@ function $insertPlainTextInternal(
         insertionPointFound = true;
         return true;
       }
+      // After children and potential append, account for ParaNode's closing marker.
+      currentIndex += 1;
+    } else if ($isElementNode(currentNode)) {
+      // Other ElementNodes (e.g. RootNode)
+      const children = currentNode.getChildren();
+      for (const child of children) {
+        if ($findAndInsertRecursive(child)) return true;
+        if (insertionPointFound) break;
+      }
     }
     return insertionPointFound;
   }
 
   $findAndInsertRecursive(root);
 
-  if (!insertionPointFound && targetIndex === charWalkerOffset) {
+  if (!insertionPointFound && targetIndex === currentIndex) {
     logger?.debug(
-      `Insertion point matches end of document (targetIndex: ${targetIndex}, final charWalkerOffset: ${charWalkerOffset}). Appending text to new ParaNode.`,
+      `Insertion point matches end of document (targetIndex: ${targetIndex}, final currentIndex: ${currentIndex}). Appending text to new ParaNode.`,
     );
     const newTextNode = $createTextNode(textToInsert);
     applyTextAttributes(textAttributes, newTextNode);
-    const newParaNode = $createParaNode().append(newTextNode);
+    const newParaNode = $createImpliedParaNode().append(newTextNode);
     root.append(newParaNode);
     insertionPointFound = true;
   }
@@ -729,7 +912,7 @@ function $insertPlainTextInternal(
   if (!insertionPointFound) {
     logger?.warn(
       `$insertPlainTextInternal: Could not find insertion point for text "${textToInsert}" at targetIndex ${targetIndex}. ` +
-        `Final charWalkerOffset: ${charWalkerOffset}. Text not inserted.`,
+        `Final currentIndex: ${currentIndex}. Text not inserted.`,
     );
     return 0; // Text not inserted
   }
@@ -750,177 +933,266 @@ function $insertNodeAtCharacterOffset(
   logger: LoggerBasic | undefined,
 ): boolean {
   const root = $getRoot();
-  let charWalkerOffset = 0;
+  /** Tracks the current OT position during traversal */
+  let currentIndex = 0;
   let wasInserted = false;
 
-  function $traverseAndInsertRecursive(parentElement: LexicalNode): boolean {
+  function $traverseAndInsertRecursive(currentNode: LexicalNode): boolean {
     if (wasInserted) return true;
 
-    // Case: Empty document or inserting at the very beginning (targetIndex 0)
-    // This specific block handles insertion into an empty root or right before the first actual content.
-    if (parentElement === root && targetIndex === 0) {
+    // Handle insertion at the beginning of the document or into an empty root.
+    if (currentNode === root && targetIndex === 0) {
       const firstChild = root.getFirstChild();
       if (!firstChild) {
-        // Empty root
-        logger?.debug(`Inserting node into empty root (targetIndex: ${targetIndex}).`);
-        if ($isElementNode(nodeToInsert) && nodeToInsert.isInline()) {
-          const para = $createParaNode().append(nodeToInsert);
+        // Root is empty
+        if (nodeToInsert.isInline()) {
+          logger?.debug(
+            `$insertNodeAtCharacterOffset: Inserting inline node ${nodeToInsert.getType()} into empty root, wrapped in ImpliedParaNode. targetIndex: ${targetIndex}`,
+          );
+          const para = $createImpliedParaNode().append(nodeToInsert);
           root.append(para);
         } else {
+          // Block node, insert directly into root
+          logger?.debug(
+            `$insertNodeAtCharacterOffset: Inserting block node ${nodeToInsert.getType()} directly into empty root. targetIndex: ${targetIndex}`,
+          );
           root.append(nodeToInsert);
         }
         wasInserted = true;
         return true;
       }
-      // If not empty root but targetIndex is 0, it means insert before the firstChild.
-      // This will be handled by the loop logic's "insertBefore" if firstChild is an Element,
-      // or by TextNode logic if firstChild is Text.
+      // If root is not empty, the loop below will handle inserting before the first child.
     }
 
-    if (!$isElementNode(parentElement)) {
+    if (!$isElementNode(currentNode)) {
       return false; // Should not happen if called with ElementNode initially
     }
 
-    const children = parentElement.getChildren();
+    const children = currentNode.getChildren();
     for (const child of children) {
+      // Case 1: Insert *before* the current child
+      if (targetIndex === currentIndex && !wasInserted) {
+        // Check if we're inserting an inline node directly into the root
+        if (currentNode === root && nodeToInsert.isInline()) {
+          // If the child we're inserting before is a para-like node, insert into it
+          if ($isImpliedParaNode(child) || $isParaNode(child)) {
+            logger?.debug(
+              `$insertNodeAtCharacterOffset: Inserting inline node ${nodeToInsert.getType()} into existing ${child.getType()} at beginning. targetIndex: ${targetIndex}`,
+            );
+            // Insert at the beginning of the para by appending to the beginning
+            const firstChildOfPara = child.getFirstChild();
+            if (firstChildOfPara) {
+              firstChildOfPara.insertBefore(nodeToInsert);
+            } else {
+              child.append(nodeToInsert);
+            }
+          } else {
+            logger?.debug(
+              `$insertNodeAtCharacterOffset: Inserting inline node ${nodeToInsert.getType()} into root before ${child.getType()}, wrapping in ImpliedParaNode. targetIndex: ${targetIndex}`,
+            );
+            const para = $createImpliedParaNode().append(nodeToInsert);
+            child.insertBefore(para);
+          }
+        } else {
+          child.insertBefore(nodeToInsert);
+          logger?.debug(
+            `$insertNodeAtCharacterOffset: Inserted node ${nodeToInsert.getType()} (key: ${nodeToInsert.getKey()}) before child ${child.getType()} (key: ${child.getKey()}) in ${currentNode.getType()} (key: ${currentNode.getKey()}). targetIndex: ${targetIndex}, currentIndex: ${currentIndex}`,
+          );
+        }
+        wasInserted = true;
+        return true;
+      }
+
+      // Case 2: Process current `child` to advance `currentIndex` or insert within/after it.
       if ($isTextNode(child)) {
         const textLength = child.getTextContentSize();
-        if (targetIndex >= charWalkerOffset && targetIndex <= charWalkerOffset + textLength) {
-          const offsetInNode = targetIndex - charWalkerOffset;
+        // Case 2a: Insert *within* this TextNode
+        if (!wasInserted && targetIndex > currentIndex && targetIndex < currentIndex + textLength) {
+          const splitOffset = targetIndex - currentIndex;
+          const splitNodes = child.splitText(splitOffset);
+          // Insert after the first part of the split text
+          splitNodes[0].insertAfter(nodeToInsert);
           logger?.debug(
-            `Found insertion point in TextNode (key: ${child.getKey()}) at offset ${offsetInNode}. targetIndex: ${targetIndex}, charWalkerOffset: ${charWalkerOffset}`,
+            `$insertNodeAtCharacterOffset: Inserted node ${nodeToInsert.getType()} (key: ${nodeToInsert.getKey()}) by splitting TextNode (key: ${child.getKey()}) at offset ${splitOffset}. targetIndex: ${targetIndex}, currentIndex at node start: ${currentIndex}`,
           );
-          if (offsetInNode === 0) {
-            child.insertBefore(nodeToInsert);
-          } else if (offsetInNode === textLength) {
-            child.insertAfter(nodeToInsert);
-          } else {
-            const [, tailNode] = child.splitText(offsetInNode);
-            tailNode.insertBefore(nodeToInsert);
-          }
           wasInserted = true;
           return true;
         }
-        charWalkerOffset += textLength;
-      } else {
-        // Element Node
-        let childOtItselfLength = 0;
-        if (
-          $isBookNode(child) ||
-          $isSomeChapterNode(child) ||
-          $isSomeVerseNode(child) ||
-          $isMilestoneNode(child) ||
-          $isCharNode(child) ||
-          $isNoteNode(child) ||
-          $isUnknownNode(child) ||
-          $isImmutableUnmatchedNode(child) ||
-          $isParaNode(child) // Ensure ParaNode is treated as a 1-length OT item
-        ) {
-          childOtItselfLength = 1;
+        currentIndex += textLength;
+      } else if (
+        $isBookNode(child) ||
+        $isSomeChapterNode(child) ||
+        $isSomeVerseNode(child) ||
+        $isMilestoneNode(child) ||
+        $isImmutableUnmatchedNode(child)
+      ) {
+        // Atomic Embeds
+        currentIndex += 1;
+      } else if ($isCharNode(child) || $isNoteNode(child) || $isUnknownNode(child)) {
+        // Container Embeds
+        currentIndex += 1; // For the container tag itself
+        if ($isElementNode(child)) {
+          if ($traverseAndInsertRecursive(child)) return true; // Recurse into children
         }
+        // currentIndex is now after child's content and its own recursive calls
+      } else if ($isParaNode(child) || $isImpliedParaNode(child)) {
+        const paraLikeChild = child;
+        // currentIndex is currently at the START of paraLikeChild's content area (or its embed point if empty)
 
-        // Try to insert *before* the current child if targetIndex is at its start
-        if (targetIndex === charWalkerOffset) {
+        let insertedInParaChildRecursion = false;
+        if ($isElementNode(paraLikeChild)) {
+          if ($traverseAndInsertRecursive(paraLikeChild)) {
+            // Insertion happened *inside* paraLikeChild
+            insertedInParaChildRecursion = true;
+          }
+        }
+        if (insertedInParaChildRecursion) return true;
+
+        // If not inserted inside, `currentIndex` is now at the end of `paraLikeChild`'s content.
+        const otIndexForParaChildClosingMarker = currentIndex;
+
+        // Check for replacement: if inserting a ParaNode at the closing marker of an ImpliedParaNode
+        if (
+          $isImpliedParaNode(paraLikeChild) &&
+          $isParaNode(nodeToInsert) && // The node we are trying to insert
+          targetIndex === otIndexForParaChildClosingMarker && // Target is at the ImpliedPara's implicit newline
+          !wasInserted // Ensure we haven't already inserted elsewhere
+        ) {
           logger?.debug(
-            `Inserting node ${nodeToInsert.getType()} before child ${child.getType()} (key: ${child.getKey()}) in ${parentElement.getType()} (key: ${parentElement.getKey()}). targetIndex: ${targetIndex}, charWalkerOffset: ${charWalkerOffset}`,
+            `$insertNodeAtCharacterOffset: Replacing ImpliedParaNode (key: ${paraLikeChild.getKey()}) with ParaNode ${nodeToInsert.getType()} (key: ${nodeToInsert.getKey()}) at OT index ${targetIndex}.`,
           );
-          child.insertBefore(nodeToInsert);
+          child.replace(nodeToInsert, true);
+
+          // The replacementNode (ParaNode) also has a closing marker.
+          // currentIndex was at otIndexForParaChildClosingMarker (end of content).
+          // Now, advance by 1 for the new ParaNode's closing marker.
+          currentIndex = otIndexForParaChildClosingMarker + 1;
           wasInserted = true;
           return true;
         }
+        // If not replaced, add 1 for the original paraLikeChild's closing marker.
+        currentIndex += 1;
+      } else if ($isElementNode(child)) {
+        // Other ElementNode children (e.g. custom, or nested root-like)
+        if ($traverseAndInsertRecursive(child)) return true; // Recurse
+      }
+      // Else: other node types (LineBreakNode, DecoratorNode) - typically 0 OT length or handled by Lexical.
 
-        // Advance charWalkerOffset by the child's own OT length.
-        // This must happen *before* a potential recursive call into a container,
-        // so that the recursive call uses the updated offset if its logic depends on it
-        // (e.g., for its own children or its append logic).
-        charWalkerOffset += childOtItselfLength;
+      if (wasInserted) return true;
+    } // End for loop over children
 
-        // If child is a container type we might recurse into, and we haven't inserted yet.
-        // Relevant containers: ParaNode, CharNode, NoteNode, ImpliedParaNode (though ImpliedPara has 0 OT length itself).
-        // RootNode is handled by the initial call.
-        if (
-          ($isParaNode(child) ||
-            $isCharNode(child) ||
-            $isNoteNode(child) ||
-            $isImpliedParaNode(child)) && // Check if it's a type that can have children we'd insert into
-          !wasInserted // And we haven't already inserted.
-        ) {
-          if ($traverseAndInsertRecursive(child)) {
-            // child becomes parentElement for the recursive call
-            // If insertion happened inside the child, wasInserted will be true.
-            return true;
-          }
+    // After iterating all children of `currentNode`, `currentIndex` reflects the OT position
+    // *after* `currentNode`'s content and its children's closing markers.
+    // This means `targetIndex === currentIndex` implies appending to `currentNode` or inserting after it if `currentNode` is not root.
+    // For out-of-bounds cases where `targetIndex > currentIndex`, we also handle appending to root.
+
+    if (
+      $isElementNode(currentNode) &&
+      !wasInserted &&
+      (targetIndex === currentIndex || (currentNode === root && targetIndex > currentIndex))
+    ) {
+      if (currentNode === root) {
+        // Appending to the root. currentIndex is total document OT length (or targetIndex is beyond document end).
+        if (nodeToInsert.isInline()) {
+          logger?.debug(
+            `$insertNodeAtCharacterOffset: Appending inline node ${nodeToInsert.getType()} to root. Wrapping in new ImpliedParaNode. targetIndex: ${targetIndex}, current document OT length: ${currentIndex}.`,
+          );
+          root.append($createImpliedParaNode().append(nodeToInsert));
+        } else {
+          // nodeToInsert is block
+          logger?.debug(
+            `$insertNodeAtCharacterOffset: Appending block node ${nodeToInsert.getType()} to root. targetIndex: ${targetIndex}, current document OT length: ${currentIndex}.`,
+          );
+          root.append(nodeToInsert);
         }
-        // If not a container we recursed into, or if recursion didn't lead to insertion,
-        // charWalkerOffset is now correctly positioned *after* this child.
-        // The loop continues to the next sibling.
-      }
-    } // End children loop
-
-    // After iterating all children of parentElement:
-    // If targetIndex matches charWalkerOffset, it means the insertion is at the end of parentElement's content.
-    if (targetIndex === charWalkerOffset && $isElementNode(parentElement)) {
-      if (parentElement === root) {
-        // Append to root, wrapped in a ParaNode.
-        logger?.debug(
-          `Appending embed to root, wrapped in ParaNode. targetIndex: ${targetIndex}, charWalkerOffset: ${charWalkerOffset}`,
-        );
-        const para = $createParaNode().append(nodeToInsert);
-        parentElement.append(para);
-      } else if ($isParaNode(parentElement) /* || other suitable containers */) {
-        logger?.debug(
-          `Appending embed to ${parentElement.getType()} (key: ${parentElement.getKey()}). targetIndex: ${targetIndex}, charWalkerOffset: ${charWalkerOffset}`,
-        );
-        parentElement.append(nodeToInsert);
+        wasInserted = true;
+        return true;
+      } else if (
+        // Appending to an existing container (ParaNode, ImpliedParaNode, CharNode, etc.)
+        // currentNode here is the container itself.
+        // currentIndex is at the point of currentNode's closing marker.
+        // targetIndex === currentIndex means we are inserting at the conceptual end of this container.
+        $isParaNode(currentNode) ||
+        $isImpliedParaNode(currentNode) ||
+        $isCharNode(currentNode) ||
+        $isNoteNode(currentNode) ||
+        $isUnknownNode(currentNode)
+      ) {
+        // If trying to insert a ParaNode at the closing marker of an ImpliedParaNode (this container)
+        if (
+          $isImpliedParaNode(currentNode) &&
+          $isParaNode(nodeToInsert) &&
+          targetIndex === currentIndex
+        ) {
+          logger?.debug(
+            `$insertNodeAtCharacterOffset: Replacing ImpliedParaNode container (key: ${currentNode.getKey()}) with ParaNode ${nodeToInsert.getType()} (key: ${nodeToInsert.getKey()}) via append logic. targetIndex: ${targetIndex}`,
+          );
+          currentNode.replace(nodeToInsert, true);
+          // currentIndex remains correct relative to the start of this operation for the calling $applyUpdate
+          wasInserted = true;
+          return true;
+        } else if (
+          nodeToInsert.isInline() ||
+          (!$isParaNode(nodeToInsert) && !$isImpliedParaNode(nodeToInsert))
+        ) {
+          // Append inline content, or non-para block content, into the container
+          logger?.debug(
+            `$insertNodeAtCharacterOffset: Appending node ${nodeToInsert.getType()} to existing container ${currentNode.getType()} (key: ${currentNode.getKey()}). targetIndex: ${targetIndex}, container end OT index: ${currentIndex}.`,
+          );
+          currentNode.append(nodeToInsert);
+          wasInserted = true;
+          return true;
+        } else {
+          // Block node trying to append to a non-root container, insert *after* the container
+          logger?.debug(
+            `$insertNodeAtCharacterOffset: Inserting block node ${nodeToInsert.getType()} after container ${currentNode.getType()} (key: ${currentNode.getKey()}). targetIndex: ${targetIndex}, container end OT index: ${currentIndex}.`,
+          );
+          currentNode.insertAfter(nodeToInsert);
+          wasInserted = true;
+          return true;
+        }
       } else {
-        // Fallback for other element types, may need refinement based on desired structure.
-        logger?.warn(
-          `Appending embed to a generic ElementNode ${parentElement.getType()} (key: ${parentElement.getKey()}) that might not be an ideal container. Review structure if issues arise. targetIndex: ${targetIndex}`,
-        );
-        parentElement.append(nodeToInsert);
+        // Generic element, try to append, or insert after if block
+        if (
+          nodeToInsert.isInline() ||
+          (!$isParaNode(nodeToInsert) && !$isImpliedParaNode(nodeToInsert))
+        ) {
+          logger?.debug(
+            `$insertNodeAtCharacterOffset: Appending node ${nodeToInsert.getType()} to generic element ${currentNode.getType()} (key: ${currentNode.getKey()}). targetIndex: ${targetIndex}, element end OT index: ${currentIndex}.`,
+          );
+          currentNode.append(nodeToInsert);
+        } else {
+          logger?.debug(
+            `$insertNodeAtCharacterOffset: Inserting block node ${nodeToInsert.getType()} after generic element ${currentNode.getType()} (key: ${currentNode.getKey()}). targetIndex: ${targetIndex}, element end OT index: ${currentIndex}.`,
+          );
+          currentNode.insertAfter(nodeToInsert);
+        }
+        wasInserted = true;
+        return true;
       }
-      wasInserted = true;
-      return true;
     }
-
-    return wasInserted; // Should be false if no insertion happened in this path
+    return wasInserted;
   }
 
   $traverseAndInsertRecursive(root);
 
-  // Fallback: If insertion point wasn't found by traversal (e.g., empty doc or append at very end of document)
-  // This condition might be redundant if the main traversal logic correctly handles appending to root/para.
-  if (!wasInserted && targetIndex === charWalkerOffset && root.getChildrenSize() === 0) {
-    logger?.debug(
-      `Fallback: Inserting node into empty root (targetIndex: ${targetIndex}, charWalkerOffset: ${charWalkerOffset}).`,
-    );
-    if ($isElementNode(nodeToInsert) && nodeToInsert.isInline()) {
-      const para = $createParaNode().append(nodeToInsert);
-      root.append(para);
-    } else {
-      root.append(nodeToInsert);
-    }
-    wasInserted = true;
-  }
-
   if (!wasInserted) {
     logger?.warn(
-      `$insertNodeAtCharacterOffset: Could not find insertion point for node ${nodeToInsert.getType()} at targetIndex ${targetIndex}. ` +
-        `Final charWalkerOffset: ${charWalkerOffset}. Node not inserted.`,
+      `$insertNodeAtCharacterOffset: Could not find insertion point for node ${nodeToInsert.getType()} (key: ${nodeToInsert.getKey()}) at targetIndex ${targetIndex}. ` +
+        `Final currentIndex: ${currentIndex}. Node not inserted.`,
     );
   }
   return wasInserted;
 }
 
-/**
- * Inserts an embed (LexicalNode) at a given flat index in the document.
- * @param targetIndex - The index in the document's flat representation where the embed
- *   should be inserted.
- * @param embedObject - The object defining the embed, e.g., `{ chapter: { ... } }`.
- * @param viewOptions - View options of the editor.
- * @param logger - Logger to use, if any.
- * @returns `true` if the embed was successfully inserted, `false` otherwise.
- */
+// Make sure $insertEmbedAtCurrentIndex correctly calls $insertNodeAtCharacterOffset
+// with the created node. The logic for creating nodeToInsert from embedObject remains the same.
+// The $traverseAndInsertRecursive helper within $insertEmbedAtCurrentIndex can be removed
+// if $insertNodeAtCharacterOffset is now the canonical implementation for node insertion.
+// Or, ensure $insertEmbedAtCurrentIndex's helper mirrors this refined logic.
+// For simplicity and to avoid duplication, $insertEmbedAtCurrentIndex should ideally
+// just create the node and then call $insertNodeAtCharacterOffset.
+
 function $insertEmbedAtCurrentIndex(
   targetIndex: number,
   embedObject: object,
@@ -942,137 +1214,110 @@ function $insertEmbedAtCurrentIndex(
   // TODO: Add other embed types here as needed (e.g., BookNode, NoteNode, ImmutableUnmatchedNode)
 
   if (!newNodeToInsert) {
-    logger?.error(`Cannot create LexicalNode for embed object: ${JSON.stringify(embedObject)}`);
+    logger?.error(
+      `$insertEmbedAtCurrentIndex: Cannot create LexicalNode for embed object: ${JSON.stringify(embedObject)}`,
+    );
     return false;
   }
 
-  const nodeToInsert: LexicalNode = newNodeToInsert;
+  // Delegate the actual insertion to the refined $insertNodeAtCharacterOffset
+  return $insertNodeAtCharacterOffset(targetIndex, newNodeToInsert, logger);
+}
+
+/**
+ * Handles inserting a newline (LF) character with para attributes.
+ * This should replace the current ImpliedParaNode with a ParaNode created from the para attributes.
+ * @param targetIndex - The index in the document's flat representation.
+ * @param paraAttributes - The para attributes to use for creating the ParaNode.
+ * @param logger - Logger to use, if any.
+ * @returns Always returns 1 (the LF character's OT length).
+ */
+function $handleNewlineWithParaAttributes(
+  targetIndex: number,
+  paraAttributes: any,
+  logger?: LoggerBasic,
+): number {
   const root = $getRoot();
-  let currentOffset = 0;
-  let wasInserted = false;
+  let currentIndex = 0;
+  let foundTargetPara = false;
 
-  // Recursive function to traverse the document and find the insertion point.
-  function $traverseAndInsertRecursive(parentNode: LexicalNode): boolean {
-    if (wasInserted) return true;
+  function $traverseAndReplaceImpliedPara(currentNode: LexicalNode): boolean {
+    if (foundTargetPara) return true;
 
-    // Handle insertion at the beginning of the document or into an empty root.
-    if (parentNode === root && targetIndex === 0) {
-      const firstChild = root.getFirstChild();
-      if (!firstChild) {
-        // Root is empty
-        logger?.debug(
-          `Inserting embed into empty root, wrapped in ParaNode. targetIndex: ${targetIndex}`,
-        );
-        const para = $createParaNode().append(nodeToInsert);
-        root.append(para);
-        wasInserted = true;
-        return true;
+    if ($isTextNode(currentNode)) {
+      const textLength = currentNode.getTextContentSize();
+      currentIndex += textLength;
+    } else if (
+      $isBookNode(currentNode) ||
+      $isSomeChapterNode(currentNode) ||
+      $isSomeVerseNode(currentNode) ||
+      $isMilestoneNode(currentNode) ||
+      $isImmutableUnmatchedNode(currentNode)
+    ) {
+      currentIndex += 1;
+    } else if (
+      $isCharNode(currentNode) ||
+      $isNoteNode(currentNode) ||
+      $isUnknownNode(currentNode)
+    ) {
+      currentIndex += 1; // For the container tag itself
+      if ($isElementNode(currentNode)) {
+        const children = currentNode.getChildren();
+        for (const child of children) {
+          if ($traverseAndReplaceImpliedPara(child)) return true;
+          if (foundTargetPara) break;
+        }
       }
-      // If root is not empty, the loop below will handle inserting before the first child.
-    }
-
-    if (!$isElementNode(parentNode)) {
-      // Should not happen if called correctly, as we only recurse on ElementNodes.
-      return false;
-    }
-
-    const children = parentNode.getChildren();
-    for (const child of children) {
-      // Case 1: Insert *before* the current child
-      if (targetIndex === currentOffset) {
-        child.insertBefore(nodeToInsert);
-        logger?.debug(
-          `Inserted embed ${nodeToInsert.getType()} before child ${child.getType()} (key: ${child.getKey()}) in ${parentNode.getType()} (key: ${parentNode.getKey()}). targetIndex: ${targetIndex}, currentOffset: ${currentOffset}`,
-        );
-        wasInserted = true;
-        return true;
+    } else if ($isParaNode(currentNode) || $isImpliedParaNode(currentNode)) {
+      // First, process children to find current position
+      if ($isElementNode(currentNode)) {
+        const children = currentNode.getChildren();
+        for (const child of children) {
+          if ($traverseAndReplaceImpliedPara(child)) return true;
+          if (foundTargetPara) break;
+        }
       }
 
-      // Case 2: Process current `child`
-      if ($isTextNode(child)) {
-        const textLength = child.getTextContentSize();
-        // Case 2a: Insert *within* this TextNode
-        if (targetIndex > currentOffset && targetIndex < currentOffset + textLength) {
-          const splitOffset = targetIndex - currentOffset;
-          const splitNodes = child.splitText(splitOffset);
-          splitNodes[0].insertAfter(nodeToInsert);
-          logger?.debug(
-            `Inserted embed ${nodeToInsert.getType()} by splitting TextNode at offset ${splitOffset}. targetIndex: ${targetIndex}, currentOffset at node start: ${currentOffset}`,
-          );
-          wasInserted = true;
+      // currentIndex is now at the end of this para's content
+      // Check if targetIndex matches the para's closing marker position
+      if (targetIndex === currentIndex && $isImpliedParaNode(currentNode)) {
+        logger?.debug(
+          `Replacing ImpliedParaNode (key: ${currentNode.getKey()}) with ParaNode at targetIndex ${targetIndex}`,
+        );
+        const newParaNode = $createPara(paraAttributes);
+
+        // Replace the ImpliedParaNode with the new ParaNode
+        if (newParaNode) {
+          currentNode.replace(newParaNode, true);
+          foundTargetPara = true;
           return true;
         }
-        // If not inserted within, advance offset by full length of text node
-        currentOffset += textLength;
-      } else if ($isSomeChapterNode(child) || $isSomeVerseNode(child) || $isMilestoneNode(child)) {
-        currentOffset += 1;
-      } else if ($isElementNode(child)) {
-        let childOtLength = 0;
-        let isAtomicEmbed = false;
-
-        if ($isCharNode(child) || $isNoteNode(child) || $isUnknownNode(child)) {
-          childOtLength = 1;
-          isAtomicEmbed = true; // These are generally atomic and don't contain further indexed content for OT
-        } else if ($isParaNode(child)) {
-          childOtLength = 1; // ParaNode itself counts as 1 for its tag
-        }
-        // else: ImpliedParaNode, RootNode (parentElement) - their OT length is 0, content is traversed.
-
-        // Advance currentOffset by the OT length of the element itself
-        currentOffset += childOtLength;
-
-        // Recurse if it's not an atomic embed (i.e., it's a container like ParaNode or ImpliedParaNode)
-        if (!isAtomicEmbed) {
-          if ($traverseAndInsertRecursive(child)) return true;
-        }
       }
-      // Else: other node types (LineBreakNode, DecoratorNode) - assume 0 OT length for now.
-    } // End for loop over children
 
-    // After iterating all children of parentElement, if targetIndex matches currentOffset,
-    // it means the insertion point is at the end of parentElement's content.
-    if (targetIndex >= currentOffset && $isElementNode(parentNode)) {
-      if (parentNode === root) {
-        // Append to root, potentially wrapped in a ParaNode if inline.
-        logger?.debug(
-          `Appending embed to root. targetIndex: ${targetIndex}, currentOffset: ${currentOffset}`,
-        );
-        if ($isElementNode(nodeToInsert) && nodeToInsert.isInline()) {
-          const para = $createParaNode().append(nodeToInsert);
-          parentNode.append(para);
-        } else {
-          parentNode.append(nodeToInsert);
-        }
-      } else if (targetIndex === currentOffset && !nodeToInsert.isInline()) {
-        parentNode.insertAfter(nodeToInsert);
-      } else if ($isParaNode(parentNode) /* || other suitable containers */) {
-        logger?.debug(
-          `Appending embed to ${parentNode.getType()} (key: ${parentNode.getKey()}). targetIndex: ${targetIndex}, currentOffset: ${currentOffset}`,
-        );
-        parentNode.append(nodeToInsert);
-      } else {
-        // Fallback for other element types, may need refinement based on desired structure.
-        logger?.warn(
-          `Appending embed to a generic ElementNode ${parentNode.getType()} (key: ${parentNode.getKey()}) that might not be an ideal container. Review structure if issues arise. targetIndex: ${targetIndex}`,
-        );
-        parentNode.append(nodeToInsert);
+      // Advance by 1 for the para's closing marker
+      currentIndex += 1;
+    } else if ($isElementNode(currentNode)) {
+      // Other ElementNodes (like RootNode)
+      const children = currentNode.getChildren();
+      for (const child of children) {
+        if ($traverseAndReplaceImpliedPara(child)) return true;
+        if (foundTargetPara) break;
       }
-      wasInserted = true;
-      return true;
     }
 
-    return wasInserted;
+    return foundTargetPara;
   }
 
-  $traverseAndInsertRecursive(root);
+  $traverseAndReplaceImpliedPara(root);
 
-  if (!wasInserted) {
+  if (!foundTargetPara) {
     logger?.warn(
-      `$insertEmbedAtCurrentIndex: Could not find insertion point for embed at targetIndex ${targetIndex}. ` +
-        `Final currentOffset: ${currentOffset}. Embed not inserted.`,
+      `Could not find ImpliedParaNode to replace with ParaNode at targetIndex ${targetIndex}. ` +
+        `Final currentIndex: ${currentIndex}.`,
     );
   }
-  return wasInserted;
+
+  return 1; // LF always contributes 1 to the OT index
 }
 
 function $createChapter(chapterData: OTEmbedChapter, viewOptions: ViewOptions) {
