@@ -1008,33 +1008,41 @@ describe("Delta Utils $applyUpdate", () => {
         });
       });
 
-      it("should handle line break insertion in regular ParaNode (no splitting)", async () => {
+      it("should handle line break insertion in regular ParaNode", async () => {
+        const firstLine = "First line";
+        const text = " text";
         const { editor } = await testEnvironment(() => {
-          $getRoot().append($createParaNode().append($createTextNode("First line text")));
+          $getRoot().append($createParaNode().append($createTextNode(`${firstLine}${text}`)));
         });
-        const ops: Op[] = [{ retain: 10 }, { insert: LF }];
+        const ops: Op[] = [{ retain: firstLine.length }, { insert: LF }];
 
         await sutApplyUpdate(editor, ops);
 
         expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
         editor.getEditorState().read(() => {
           const root = $getRoot();
-          // Line breaks in regular ParaNodes don't create new paragraphs
-          expect(root.getChildrenSize()).toBe(1);
+          expect(root.getChildrenSize()).toBe(2);
 
-          const para = root.getFirstChild();
-          if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
-          // The text remains unchanged since line breaks don't split regular ParaNodes
-          expect(para.getTextContent()).toBe("First line text");
+          const p1 = root.getFirstChild();
+          if (!$isImpliedParaNode(p1)) throw new Error("p1 is not a ImpliedParaNode");
+          expect(p1.getTextContent()).toBe(firstLine);
+
+          const p2 = root.getChildAtIndex(1);
+          if (!$isParaNode(p2)) throw new Error("p2 is not a ParaNode");
+          expect(p2.getTextContent()).toBe(text);
         });
       });
 
-      it("should handle line break with para attributes in regular ParaNode (no splitting)", async () => {
+      it("should split regular ParaNode when LF has different para attributes", async () => {
+        const original = "Original ";
+        const paragraphText = "paragraph text";
         const { editor } = await testEnvironment(() => {
-          $getRoot().append($createParaNode().append($createTextNode("Original paragraph text")));
+          $getRoot().append(
+            $createParaNode().append($createTextNode(`${original}${paragraphText}`)),
+          );
         });
         const ops: Op[] = [
-          { retain: 9 }, // After "Original "
+          { retain: original.length }, // After original
           { insert: LF, attributes: { para: { style: "q2" } } },
         ];
 
@@ -1043,18 +1051,22 @@ describe("Delta Utils $applyUpdate", () => {
         expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
         editor.getEditorState().read(() => {
           const root = $getRoot();
-          // Line breaks don't split regular ParaNodes, even with para attributes
-          expect(root.getChildrenSize()).toBe(1);
+          // Line breaks split regular ParaNodes when para attributes differ
+          expect(root.getChildrenSize()).toBe(2);
 
-          const para = root.getFirstChild();
-          if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
-          // The text and marker remain unchanged
-          expect(para.getTextContent()).toBe("Original paragraph text");
-          expect(para.getMarker()).toBe("p"); // Original marker preserved
+          const firstPara = root.getFirstChild();
+          if (!$isParaNode(firstPara)) throw new Error("firstPara is not a ParaNode");
+          expect(firstPara.getTextContent()).toBe(original);
+          expect(firstPara.getMarker()).toBe("q2"); // LF attributes go to FIRST paragraph
+
+          const secondPara = root.getChildAtIndex(1);
+          if (!$isParaNode(secondPara)) throw new Error("secondPara is not a ParaNode");
+          expect(secondPara.getTextContent()).toBe(paragraphText);
+          expect(secondPara.getMarker()).toBe("p"); // Original attributes stay on SECOND paragraph
         });
       });
 
-      it("should handle line break at the beginning of regular ParaNode (no splitting)", async () => {
+      it("should insert new ParaNode before existing ParaNode when LF has different para attributes at beginning", async () => {
         const { editor } = await testEnvironment(() => {
           $getRoot().append($createParaNode().append($createTextNode("Content here")));
         });
@@ -1065,46 +1077,29 @@ describe("Delta Utils $applyUpdate", () => {
         expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
         editor.getEditorState().read(() => {
           const root = $getRoot();
-          // Line breaks at beginning of regular ParaNode don't create new paragraphs
-          expect(root.getChildrenSize()).toBe(1);
+          // Line breaks at beginning of document create new paragraphs when para attributes are present
+          expect(root.getChildrenSize()).toBe(2);
 
-          const para = root.getFirstChild();
-          if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
-          expect(para.getTextContent()).toBe("Content here");
-          expect(para.getMarker()).toBe("p"); // Original marker preserved
+          const firstPara = root.getFirstChild();
+          if (!$isParaNode(firstPara)) throw new Error("firstPara is not a ParaNode");
+          expect(firstPara.getTextContent()).toBe(""); // Empty paragraph from LF
+          expect(firstPara.getMarker()).toBe("q1"); // LF attributes go to first paragraph
+
+          const secondPara = root.getChildAtIndex(1);
+          if (!$isParaNode(secondPara)) throw new Error("secondPara is not a ParaNode");
+          expect(secondPara.getTextContent()).toBe("Content here");
+          expect(secondPara.getMarker()).toBe("p"); // Original attributes stay on second paragraph
         });
       });
 
-      it("should handle line break at the end of regular ParaNode (no splitting)", async () => {
+      it("should create new ParaNode after existing ParaNode when LF has different para attributes at end", async () => {
+        const t1 = "Full content";
         const { editor } = await testEnvironment(() => {
-          $getRoot().append($createParaNode().append($createTextNode("Full content")));
-        });
-        const ops: Op[] = [{ retain: 12 }, { insert: LF, attributes: { para: { style: "b" } } }];
-
-        await sutApplyUpdate(editor, ops);
-
-        expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
-        editor.getEditorState().read(() => {
-          const root = $getRoot();
-          // Line breaks at end of regular ParaNode don't create new paragraphs
-          expect(root.getChildrenSize()).toBe(1);
-
-          const para = root.getFirstChild();
-          if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
-          expect(para.getTextContent()).toBe("Full content");
-          expect(para.getMarker()).toBe("p"); // Original marker preserved
-        });
-      });
-
-      it("should handle multiple consecutive line breaks in regular ParaNode (no splitting)", async () => {
-        const { editor } = await testEnvironment(() => {
-          $getRoot().append($createParaNode().append($createTextNode("Base text")));
+          $getRoot().append($createParaNode().append($createTextNode(t1)));
         });
         const ops: Op[] = [
-          { retain: 4 }, // After "Base"
-          { insert: LF, attributes: { para: { style: "q1" } } },
-          { insert: LF, attributes: { para: { style: "q2" } } },
-          { insert: LF }, // No attributes - should create ImpliedParaNode
+          { retain: t1.length + 1 }, // +1 for the end of ParaNode (symbolically closed by LF)
+          { insert: LF, attributes: { para: { style: "b" } } },
         ];
 
         await sutApplyUpdate(editor, ops);
@@ -1112,29 +1107,80 @@ describe("Delta Utils $applyUpdate", () => {
         expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
         editor.getEditorState().read(() => {
           const root = $getRoot();
-          // Multiple line breaks in regular ParaNode don't create new paragraphs
-          expect(root.getChildrenSize()).toBe(1);
+          // Line breaks at end of regular ParaNode create new paragraphs when para attributes differ
+          expect(root.getChildrenSize()).toBe(2);
 
-          const para = root.getFirstChild();
-          if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
-          expect(para.getTextContent()).toBe("Base text");
-          expect(para.getMarker()).toBe("p"); // Original marker preserved
+          const firstPara = root.getFirstChild();
+          if (!$isParaNode(firstPara)) throw new Error("firstPara is not a ParaNode");
+          expect(firstPara.getTextContent()).toBe(t1);
+          expect(firstPara.getMarker()).toBe("p"); // Original marker preserved
+
+          const secondPara = root.getChildAtIndex(1);
+          if (!$isParaNode(secondPara)) throw new Error("secondPara is not a ParaNode");
+          expect(secondPara.getTextContent()).toBe(""); // Empty new paragraph
+          expect(secondPara.getMarker()).toBe("b"); // New marker from attributes
         });
       });
 
-      it("should handle line break between embeds in regular ParaNode (no splitting)", async () => {
+      it("should create multiple ParaNodes with consecutive line breaks having different para attributes", async () => {
+        const base = "Base";
+        const text = " text";
+        const { editor } = await testEnvironment(() => {
+          $getRoot().append($createParaNode().append($createTextNode(`${base}${text}`)));
+        });
+        const ops: Op[] = [
+          { retain: base.length }, // After base
+          { insert: LF, attributes: { para: { style: "q1" } } },
+          { insert: LF, attributes: { para: { style: "q2" } } },
+          { insert: LF }, // No attributes - should create ImpliedParaNode
+          // TODO: revise inserting ImpliedParaNode after a ParaNode - while this is technically possible here I don't think USFM allows it.
+        ];
+
+        await sutApplyUpdate(editor, ops);
+
+        expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
+        editor.getEditorState().read(() => {
+          const root = $getRoot();
+          // Multiple line breaks in regular ParaNode create multiple new paragraphs
+          expect(root.getChildrenSize()).toBe(4);
+
+          const firstPara = root.getFirstChild();
+          if (!$isParaNode(firstPara)) throw new Error("firstPara is not a ParaNode");
+          expect(firstPara.getTextContent()).toBe(base);
+          expect(firstPara.getMarker()).toBe("q1"); // First LF attributes go to first paragraph
+
+          const secondPara = root.getChildAtIndex(1);
+          if (!$isParaNode(secondPara)) throw new Error("secondPara is not a ParaNode");
+          expect(secondPara.getTextContent()).toBe("");
+          expect(secondPara.getMarker()).toBe("q2"); // Second LF attributes go to new first paragraph
+
+          const thirdPara = root.getChildAtIndex(2);
+          if (!$isImpliedParaNode(thirdPara))
+            throw new Error("thirdPara is not an ImpliedParaNode");
+          expect(thirdPara.getTextContent()).toBe("");
+
+          const forthPara = root.getChildAtIndex(3);
+          if (!$isParaNode(forthPara)) throw new Error("forthPara is not a ParaNode");
+          expect(forthPara.getTextContent()).toBe(text);
+          expect(forthPara.getMarker()).toBe("p"); // Original attributes end up on final paragraph
+        });
+      });
+
+      it("should split ParaNode between embeds when LF has different para attributes", async () => {
+        const v1Text = "First verse text";
+        const v2Text = "Second verse text";
         const { editor } = await testEnvironment(() => {
           $getRoot().append(
             $createParaNode().append(
               $createImmutableVerseNode("1"),
-              $createTextNode("First verse text"),
+              $createTextNode(v1Text),
               $createImmutableVerseNode("2"),
-              $createTextNode("Second verse text"),
+              $createTextNode(v2Text),
             ),
           );
         });
         const ops: Op[] = [
-          { retain: 2 + 16 }, // After verse 1 and "First verse text"
+          { retain: 1 + v1Text.length }, // After v1 and v1Text
           { insert: LF, attributes: { para: { style: "q1" } } },
         ];
 
@@ -1143,28 +1189,36 @@ describe("Delta Utils $applyUpdate", () => {
         expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
         editor.getEditorState().read(() => {
           const root = $getRoot();
-          // Line break between embeds in regular ParaNode doesn't split the paragraph
-          expect(root.getChildrenSize()).toBe(1);
+          // Line break between embeds in regular ParaNode splits the paragraph when para attributes differ
+          expect(root.getChildrenSize()).toBe(2);
 
-          const para = root.getFirstChild();
-          if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
-          expect(para.getChildrenSize()).toBe(4); // verse 1 + text + verse 2 + text
-          expect(para.getTextContent()).toBe("First verse textSecond verse text");
-          expect(para.getMarker()).toBe("p"); // Original marker preserved
+          const firstPara = root.getFirstChild();
+          if (!$isParaNode(firstPara)) throw new Error("firstPara is not a ParaNode");
+          expect(firstPara.getChildrenSize()).toBe(2); // v1 + v1Text
+          expect(firstPara.getTextContent()).toBe(v1Text);
+          expect(firstPara.getMarker()).toBe("q1"); // LF attributes go to first paragraph
+
+          const secondPara = root.getChildAtIndex(1);
+          if (!$isParaNode(secondPara)) throw new Error("secondPara is not a ParaNode");
+          expect(secondPara.getChildrenSize()).toBe(2); // v2 + v2Text
+          expect(secondPara.getTextContent()).toBe(v2Text);
+          expect(secondPara.getMarker()).toBe("p"); // Original attributes stay on second paragraph
         });
       });
 
-      it("should handle line break with text formatting preservation in regular ParaNode (no splitting)", async () => {
+      it("should split ParaNode with text formatting preservation when LF has different para attributes", async () => {
+        const boldText = "Bold text ";
+        const regularText = "regular text";
         const { editor } = await testEnvironment(() => {
-          const para = $createParaNode();
-          const boldText = $createTextNode("Bold text ");
-          boldText.setFormat("bold");
-          const regularText = $createTextNode("regular text");
-          para.append(boldText, regularText);
-          $getRoot().append(para);
+          $getRoot().append(
+            $createParaNode().append(
+              $createTextNode(boldText).setFormat("bold"),
+              $createTextNode(regularText),
+            ),
+          );
         });
         const ops: Op[] = [
-          { retain: 10 }, // After "Bold text "
+          { retain: boldText.length }, // After boldText
           { insert: LF, attributes: { para: { style: "q1" } } },
         ];
 
@@ -1173,39 +1227,45 @@ describe("Delta Utils $applyUpdate", () => {
         expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
         editor.getEditorState().read(() => {
           const root = $getRoot();
-          // Line break in regular ParaNode doesn't split the paragraph
-          expect(root.getChildrenSize()).toBe(1);
+          // Line break in regular ParaNode splits the paragraph when para attributes differ
+          expect(root.getChildrenSize()).toBe(2);
 
-          const para = root.getFirstChild();
-          if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
-          expect(para.getMarker()).toBe("p"); // Original marker preserved
+          const firstPara = root.getFirstChild();
+          if (!$isParaNode(firstPara)) throw new Error("firstPara is not a ParaNode");
+          expect(firstPara.getTextContent()).toBe(boldText);
+          expect(firstPara.getMarker()).toBe("q1"); // LF attributes go to first paragraph
+          expect(firstPara.getChildrenSize()).toBe(1); // Only the bold text
+          // Check that bold formatting is preserved
+          const firstText = firstPara.getFirstChild();
+          if (!$isTextNode(firstText)) throw new Error("firstText is not a TextNode");
+          expect(firstText.hasFormat("bold")).toBe(true);
 
-          // Text formatting should still be preserved
-          expect(para.getChildrenSize()).toBe(2);
-          const boldText = para.getFirstChild();
-          if (!$isTextNode(boldText)) throw new Error("boldText is not a TextNode");
-          expect(boldText.getTextContent()).toBe("Bold text ");
-          expect(boldText.hasFormat("bold")).toBe(true);
-
-          const regularText = para.getChildAtIndex(1);
-          if (!$isTextNode(regularText)) throw new Error("regularText is not a TextNode");
-          expect(regularText.getTextContent()).toBe("regular text");
-          expect(regularText.hasFormat("bold")).toBe(false);
+          const secondPara = root.getChildAtIndex(1);
+          if (!$isParaNode(secondPara)) throw new Error("secondPara is not a ParaNode");
+          expect(secondPara.getTextContent()).toBe(regularText);
+          expect(secondPara.getMarker()).toBe("p"); // Original attributes stay on second paragraph
+          expect(secondPara.getChildrenSize()).toBe(1); // Only the regular text
+          // Check that regular formatting is preserved
+          const secondText = secondPara.getFirstChild();
+          if (!$isTextNode(secondText)) throw new Error("secondText is not a TextNode");
+          expect(secondText.hasFormat("bold")).toBe(false);
         });
       });
 
-      it("should handle line break in complex document structure in regular ParaNode (no splitting)", async () => {
+      it("should split ParaNode in complex document structure when LF has different para attributes", async () => {
+        const inTheBeginning = "In the beginning ";
+        const godCreated = "God created the heavens and the earth.";
         const { editor } = await testEnvironment(() => {
           $getRoot().append(
             $createImmutableChapterNode("1"),
             $createParaNode().append(
               $createImmutableVerseNode("1"),
-              $createTextNode("In the beginning God created the heavens and the earth."),
+              $createTextNode(`${inTheBeginning}${godCreated}`),
             ),
           );
         });
         const ops: Op[] = [
-          { retain: 1 + 1 + 17 }, // After chapter + verse + "In the beginning"
+          { retain: 1 + 1 + inTheBeginning.length }, // After ch1 + v1 + inTheBeginning
           { insert: LF, attributes: { para: { style: "q1" } } },
         ];
 
@@ -1214,28 +1274,35 @@ describe("Delta Utils $applyUpdate", () => {
         expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
         editor.getEditorState().read(() => {
           const root = $getRoot();
-          // Line break in regular ParaNode doesn't split it, even in complex structure
-          expect(root.getChildrenSize()).toBe(2); // chapter + 1 para
+          // Line break in regular ParaNode splits it when para attributes differ, even in complex structure
+          expect(root.getChildrenSize()).toBe(3); // ch1 + 2 paras
 
-          const chapter = root.getFirstChild();
-          if (!$isSomeChapterNode(chapter)) throw new Error("chapter is not SomeChapterNode");
-          expect(chapter.getNumber()).toBe("1");
+          const ch1 = root.getFirstChild();
+          if (!$isSomeChapterNode(ch1)) throw new Error("ch1 is not SomeChapterNode");
+          expect(ch1.getNumber()).toBe("1");
 
-          const para = root.getChildAtIndex(1);
-          if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
-          expect(para.getTextContent()).toBe(
-            "In the beginning God created the heavens and the earth.",
-          );
-          expect(para.getMarker()).toBe("p"); // Original marker preserved
+          const firstPara = root.getChildAtIndex(1);
+          if (!$isParaNode(firstPara)) throw new Error("firstPara is not a ParaNode");
+          expect(firstPara.getTextContent()).toBe(inTheBeginning);
+          expect(firstPara.getMarker()).toBe("q1"); // LF attributes go to first paragraph
+          expect(firstPara.getChildrenSize()).toBe(2); // v1 + inTheBeginning text
+
+          const secondPara = root.getChildAtIndex(2);
+          if (!$isParaNode(secondPara)) throw new Error("secondPara is not a ParaNode");
+          expect(secondPara.getTextContent()).toBe(godCreated);
+          expect(secondPara.getMarker()).toBe("p"); // Original attributes stay on second paragraph
+          expect(secondPara.getChildrenSize()).toBe(1); // Only the godCreated text
         });
       });
 
-      it("should handle line break with invalid para style gracefully in regular ParaNode (no splitting)", async () => {
+      it("should split ParaNode gracefully even with invalid para style", async () => {
+        const test = "Test";
+        const content = " content";
         const { editor } = await testEnvironment(() => {
-          $getRoot().append($createParaNode().append($createTextNode("Test content")));
+          $getRoot().append($createParaNode().append($createTextNode(`${test}${content}`)));
         });
         const ops: Op[] = [
-          { retain: 4 },
+          { retain: test.length },
           { insert: LF, attributes: { para: { style: "invalid-marker-xyz" } } },
         ];
 
@@ -1245,22 +1312,29 @@ describe("Delta Utils $applyUpdate", () => {
         expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
         editor.getEditorState().read(() => {
           const root = $getRoot();
-          // Line break in regular ParaNode doesn't split it, even with invalid style
-          expect(root.getChildrenSize()).toBe(1);
+          // Line break in regular ParaNode splits it even with invalid style
+          expect(root.getChildrenSize()).toBe(2);
 
-          const para = root.getFirstChild();
-          if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
-          expect(para.getTextContent()).toBe("Test content");
-          expect(para.getMarker()).toBe("p"); // Original marker preserved
+          const firstPara = root.getFirstChild();
+          if (!$isParaNode(firstPara)) throw new Error("firstPara is not a ParaNode");
+          expect(firstPara.getTextContent()).toBe(test);
+          expect(firstPara.getMarker()).toBe("invalid-marker-xyz"); // LF attributes (even invalid) go to first paragraph
+
+          const secondPara = root.getChildAtIndex(1);
+          if (!$isParaNode(secondPara)) throw new Error("secondPara is not a ParaNode");
+          expect(secondPara.getTextContent()).toBe(content);
+          expect(secondPara.getMarker()).toBe("p"); // Original attributes stay on second paragraph
         });
       });
 
-      it("should handle line break with mixed attributes in regular ParaNode (no splitting)", async () => {
+      it("should split ParaNode with mixed attributes when para attributes differ", async () => {
+        const mixed = "Mixed";
+        const attributesTest = " attributes test";
         const { editor } = await testEnvironment(() => {
-          $getRoot().append($createParaNode().append($createTextNode("Mixed attributes test")));
+          $getRoot().append($createParaNode().append($createTextNode(`${mixed}${attributesTest}`)));
         });
         const ops: Op[] = [
-          { retain: 5 },
+          { retain: mixed.length },
           {
             insert: LF,
             attributes: {
@@ -1276,27 +1350,29 @@ describe("Delta Utils $applyUpdate", () => {
         expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
         editor.getEditorState().read(() => {
           const root = $getRoot();
-          // Line break in regular ParaNode doesn't split it, even with mixed attributes
-          expect(root.getChildrenSize()).toBe(1);
+          // Line break in regular ParaNode splits it when para attributes differ, even with mixed attributes
+          expect(root.getChildrenSize()).toBe(2);
 
-          const para = root.getFirstChild();
-          if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
-          expect(para.getMarker()).toBe("p"); // Original marker preserved
-          expect(para.getTextContent()).toBe("Mixed attributes test");
-          // Note: non-para attributes should be ignored for line breaks
+          const firstPara = root.getFirstChild();
+          if (!$isParaNode(firstPara)) throw new Error("firstPara is not a ParaNode");
+          expect(firstPara.getTextContent()).toBe(mixed);
+          expect(firstPara.getMarker()).toBe("q1"); // LF attributes go to first paragraph
+
+          const secondPara = root.getChildAtIndex(1);
+          if (!$isParaNode(secondPara)) throw new Error("secondPara is not a ParaNode");
+          expect(secondPara.getTextContent()).toBe(attributesTest);
+          expect(secondPara.getMarker()).toBe("p"); // Original attributes stay on second paragraph
+          // Note: non-para attributes should be ignored for line breaks???
         });
       });
 
-      // Tests for actual line break functionality with ImpliedParaNodes
       it("should replace ImpliedParaNode with ParaNode when LF has para attributes", async () => {
+        const impliedParaContent = "Implied para content";
         const { editor } = await testEnvironment(() => {
-          // Start with an ImpliedParaNode containing text
-          $getRoot().append(
-            $createImpliedParaNode().append($createTextNode("Implied para content")),
-          );
+          $getRoot().append($createImpliedParaNode().append($createTextNode(impliedParaContent)));
         });
         const ops: Op[] = [
-          { retain: 20 }, // After "Implied para content" (at the ImpliedParaNode's closing marker)
+          { retain: impliedParaContent.length }, // After impliedParaContent" (at the ImpliedParaNode's closing marker)
           { insert: LF, attributes: { para: { style: "q1" } } },
         ];
 
@@ -1310,18 +1386,17 @@ describe("Delta Utils $applyUpdate", () => {
           const para = root.getFirstChild();
           if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
           expect(para.getMarker()).toBe("q1"); // ImpliedParaNode was replaced with ParaNode
-          expect(para.getTextContent()).toBe("Implied para content");
+          expect(para.getTextContent()).toBe(impliedParaContent);
         });
       });
 
       it("should do nothing when LF without attributes is inserted in ImpliedParaNode", async () => {
+        const impliedParaContent = "Implied para content";
         const { editor } = await testEnvironment(() => {
-          $getRoot().append(
-            $createImpliedParaNode().append($createTextNode("Implied para content")),
-          );
+          $getRoot().append($createImpliedParaNode().append($createTextNode(impliedParaContent)));
         });
         const ops: Op[] = [
-          { retain: 20 }, // After "Implied para content" (at the ImpliedParaNode's closing marker)
+          { retain: impliedParaContent.length }, // After impliedParaContent (at the ImpliedParaNode's closing marker)
           { insert: LF }, // No para attributes
         ];
 
@@ -1335,7 +1410,8 @@ describe("Delta Utils $applyUpdate", () => {
           const impliedPara = root.getFirstChild();
           if (!$isImpliedParaNode(impliedPara))
             throw new Error("impliedPara is not an ImpliedParaNode");
-          expect(impliedPara.getTextContent()).toBe("Implied para content");
+          expect(impliedPara.getTextContent()).toBe(impliedParaContent);
+          expect(impliedPara.getChildrenSize()).toBe(1); // Still has only the text node
         });
       });
 

@@ -669,11 +669,11 @@ function $insertTextAtCurrentIndex(
   logger?: LoggerBasic,
 ): number {
   if (textToInsert === LF && !attributes) {
-    // Already in an ImpliedParaNode - nothing to insert.
-    return 1;
+    // Handle LF without attributes - split ParaNode into ImpliedParaNode + ParaNode
+    return $handleNewlineWithoutAttributes(targetIndex, logger);
   } else if (textToInsert === LF && attributes && typeof attributes.para === "object") {
     // Handle LF with para attributes - replace current ImpliedParaNode with ParaNode
-    return $handleNewlineWithParaAttributes(targetIndex, attributes.para, logger);
+    return $handleNewlineWithParaAttributes(targetIndex, attributes.para as OTEmbedPara, logger);
   } else if (textToInsert !== LF && typeof attributes?.char === "object") {
     // Handle CharNode insertion
     logger?.debug(
@@ -1226,7 +1226,8 @@ function $insertEmbedAtCurrentIndex(
 
 /**
  * Handles inserting a newline (LF) character with para attributes.
- * This should replace the current ImpliedParaNode with a ParaNode created from the para attributes.
+ * This can replace an ImpliedParaNode with a ParaNode, or split a regular ParaNode
+ * if the para attributes differ from the containing paragraph.
  * @param targetIndex - The index in the document's flat representation.
  * @param paraAttributes - The para attributes to use for creating the ParaNode.
  * @param logger - Logger to use, if any.
@@ -1234,18 +1235,117 @@ function $insertEmbedAtCurrentIndex(
  */
 function $handleNewlineWithParaAttributes(
   targetIndex: number,
-  paraAttributes: any,
+  paraAttributes: OTEmbedPara,
   logger?: LoggerBasic,
 ): number {
   const root = $getRoot();
   let currentIndex = 0;
   let foundTargetPara = false;
 
-  function $traverseAndReplaceImpliedPara(currentNode: LexicalNode): boolean {
+  function $traverseAndHandleNewline(currentNode: LexicalNode): boolean {
     if (foundTargetPara) return true;
 
     if ($isTextNode(currentNode)) {
       const textLength = currentNode.getTextContentSize();
+      // Check if targetIndex is within this text node
+      if (targetIndex >= currentIndex && targetIndex < currentIndex + textLength) {
+        // Split is happening within a text node - need to check if we're in a ParaNode
+        const parentPara = currentNode.getParent();
+        if ($isParaNode(parentPara)) {
+          // LF with attributes should ALWAYS split a regular ParaNode
+          logger?.debug(
+            `Splitting ParaNode (marker: ${parentPara.getMarker()}) with LF attributes at targetIndex ${targetIndex}`,
+          );
+
+          // Split the text node at the target position
+          const splitOffset = targetIndex - currentIndex;
+          const beforeText = currentNode.getTextContent().slice(0, splitOffset);
+          const afterText = currentNode.getTextContent().slice(splitOffset);
+
+          // Create new ParaNode with LF attributes (for the FIRST paragraph)
+          const newFirstParaNode = $createPara(paraAttributes);
+          if (newFirstParaNode) {
+            // Create new ParaNode with original attributes (for the SECOND paragraph)
+            const secondParaNode = $createParaNode(
+              parentPara.getMarker(),
+              parentPara.getUnknownAttributes(),
+            );
+
+            // Set the current text node to contain only the before text
+            currentNode.setTextContent(beforeText);
+
+            // Move all content after the split to the second paragraph
+            const afterTextNode = afterText ? $createTextNode(afterText) : null;
+            if (afterTextNode) {
+              secondParaNode.append(afterTextNode);
+            }
+
+            // Move subsequent siblings to the second paragraph
+            let nextSibling = currentNode.getNextSibling();
+            while (nextSibling) {
+              const siblingToMove = nextSibling;
+              nextSibling = nextSibling.getNextSibling();
+              secondParaNode.append(siblingToMove);
+            }
+
+            // Apply LF attributes to the FIRST paragraph (current one)
+            if (newFirstParaNode.getMarker() !== parentPara.getMarker()) {
+              parentPara.setMarker(newFirstParaNode.getMarker());
+            }
+            if (newFirstParaNode.getUnknownAttributes()) {
+              parentPara.setUnknownAttributes(newFirstParaNode.getUnknownAttributes());
+            }
+
+            // Insert the second paragraph after the first one
+            parentPara.insertAfter(secondParaNode);
+
+            foundTargetPara = true;
+            return true;
+          }
+        }
+      }
+      // Check if targetIndex is exactly at the end of this text node (between siblings)
+      if (targetIndex === currentIndex + textLength) {
+        const parentPara = currentNode.getParent();
+        if ($isParaNode(parentPara)) {
+          // Split is happening between this text node and the next sibling
+          logger?.debug(
+            `Splitting ParaNode (marker: ${parentPara.getMarker()}) between siblings at targetIndex ${targetIndex}`,
+          );
+
+          // Create new ParaNode with LF attributes (for the FIRST paragraph)
+          const newFirstParaNode = $createPara(paraAttributes);
+          if (newFirstParaNode) {
+            // Create new ParaNode with original attributes (for the SECOND paragraph)
+            const secondParaNode = $createParaNode(
+              parentPara.getMarker(),
+              parentPara.getUnknownAttributes(),
+            );
+
+            // Move subsequent siblings to the second paragraph
+            let nextSibling = currentNode.getNextSibling();
+            while (nextSibling) {
+              const siblingToMove = nextSibling;
+              nextSibling = nextSibling.getNextSibling();
+              secondParaNode.append(siblingToMove);
+            }
+
+            // Apply LF attributes to the FIRST paragraph (current one)
+            if (newFirstParaNode.getMarker() !== parentPara.getMarker()) {
+              parentPara.setMarker(newFirstParaNode.getMarker());
+            }
+            if (newFirstParaNode.getUnknownAttributes()) {
+              parentPara.setUnknownAttributes(newFirstParaNode.getUnknownAttributes());
+            }
+
+            // Insert the second paragraph after the first one
+            parentPara.insertAfter(secondParaNode);
+
+            foundTargetPara = true;
+            return true;
+          }
+        }
+      }
       currentIndex += textLength;
     } else if (
       $isBookNode(currentNode) ||
@@ -1264,7 +1364,7 @@ function $handleNewlineWithParaAttributes(
       if ($isElementNode(currentNode)) {
         const children = currentNode.getChildren();
         for (const child of children) {
-          if ($traverseAndReplaceImpliedPara(child)) return true;
+          if ($traverseAndHandleNewline(child)) return true;
           if (foundTargetPara) break;
         }
       }
@@ -1273,22 +1373,267 @@ function $handleNewlineWithParaAttributes(
       if ($isElementNode(currentNode)) {
         const children = currentNode.getChildren();
         for (const child of children) {
-          if ($traverseAndReplaceImpliedPara(child)) return true;
+          if ($traverseAndHandleNewline(child)) return true;
           if (foundTargetPara) break;
         }
       }
 
       // currentIndex is now at the end of this para's content
       // Check if targetIndex matches the para's closing marker position
-      if (targetIndex === currentIndex && $isImpliedParaNode(currentNode)) {
-        logger?.debug(
-          `Replacing ImpliedParaNode (key: ${currentNode.getKey()}) with ParaNode at targetIndex ${targetIndex}`,
-        );
-        const newParaNode = $createPara(paraAttributes);
+      if (targetIndex === currentIndex) {
+        if ($isImpliedParaNode(currentNode)) {
+          logger?.debug(
+            `Replacing ImpliedParaNode (key: ${currentNode.getKey()}) with ParaNode at targetIndex ${targetIndex}`,
+          );
+          const newParaNode = $createPara(paraAttributes);
 
-        // Replace the ImpliedParaNode with the new ParaNode
-        if (newParaNode) {
-          currentNode.replace(newParaNode, true);
+          // Replace the ImpliedParaNode with the new ParaNode
+          if (newParaNode) {
+            currentNode.replace(newParaNode, true);
+            foundTargetPara = true;
+            return true;
+          }
+        } else if ($isParaNode(currentNode)) {
+          const paraNode: ParaNode = currentNode;
+          // LF with attributes should ALWAYS create a new paragraph after regular ParaNode
+          logger?.debug(
+            `Creating new ParaNode with LF attributes after existing ParaNode (marker: ${paraNode.getMarker()}) at targetIndex ${targetIndex}`,
+          );
+
+          const newParaNode = $createPara(paraAttributes);
+          if (newParaNode) {
+            // Insert the new paragraph with LF attributes after the current one
+            paraNode.insertAfter(newParaNode);
+
+            foundTargetPara = true;
+            return true;
+          }
+        }
+      }
+
+      // Advance by 1 for the para's closing marker
+      currentIndex += 1;
+
+      // Check if targetIndex matches the position after this para (for inserting after the para)
+      if (targetIndex === currentIndex) {
+        if ($isParaNode(currentNode)) {
+          // LF with attributes should create a new paragraph after this ParaNode
+          logger?.debug(
+            `Creating new ParaNode after existing ParaNode (marker: ${currentNode.getMarker()}) at targetIndex ${targetIndex}`,
+          );
+
+          const newParaNode = $createPara(paraAttributes);
+          if (newParaNode) {
+            // Insert the new paragraph with LF attributes after the current one
+            currentNode.insertAfter(newParaNode);
+
+            foundTargetPara = true;
+            return true;
+          }
+        }
+      }
+    } else if ($isElementNode(currentNode)) {
+      // Other ElementNodes (like RootNode)
+      const children = currentNode.getChildren();
+      for (const child of children) {
+        if ($traverseAndHandleNewline(child)) return true;
+        if (foundTargetPara) break;
+      }
+    }
+
+    return foundTargetPara;
+  }
+
+  $traverseAndHandleNewline(root);
+
+  if (!foundTargetPara) {
+    logger?.warn(
+      `Could not find location to handle newline with para attributes at targetIndex ${targetIndex}. ` +
+        `Final currentIndex: ${currentIndex}.`,
+    );
+  }
+
+  return 1; // LF always contributes 1 to the OT index
+}
+
+/**
+ * Handles inserting a newline (LF) character without attributes.
+ * This splits a regular ParaNode into an ImpliedParaNode for the first part
+ * and keeps the second part as a ParaNode.
+ * @param targetIndex - The index in the document's flat representation.
+ * @param logger - Logger to use, if any.
+ * @returns Always returns 1 (the LF character's OT length).
+ */
+function $handleNewlineWithoutAttributes(targetIndex: number, logger?: LoggerBasic): number {
+  const root = $getRoot();
+  let currentIndex = 0;
+  let foundTargetPara = false;
+
+  function $traverseAndHandleNewline(currentNode: LexicalNode): boolean {
+    if (foundTargetPara) return true;
+
+    if ($isTextNode(currentNode)) {
+      const textLength = currentNode.getTextContentSize();
+      // Check if targetIndex is within this text node
+      if (targetIndex >= currentIndex && targetIndex < currentIndex + textLength) {
+        // Split is happening within a text node - check if we're in a ParaNode
+        const parentPara = currentNode.getParent();
+        if ($isParaNode(parentPara)) {
+          // LF without attributes should split ParaNode into ImpliedParaNode + ParaNode
+          logger?.debug(
+            `Splitting ParaNode (marker: ${parentPara.getMarker()}) without attributes at targetIndex ${targetIndex}`,
+          );
+
+          // Split the text node at the target position
+          const splitOffset = targetIndex - currentIndex;
+          const beforeText = currentNode.getTextContent().slice(0, splitOffset);
+          const afterText = currentNode.getTextContent().slice(splitOffset);
+
+          // Create ImpliedParaNode for the first part
+          const firstImpliedParaNode = $createImpliedParaNode();
+
+          // Create ParaNode with original attributes for the second part
+          const secondParaNode = $createParaNode(
+            parentPara.getMarker(),
+            parentPara.getUnknownAttributes(),
+          );
+
+          // Add before text to the first ImpliedParaNode if it exists
+          if (beforeText) {
+            firstImpliedParaNode.append($createTextNode(beforeText));
+          }
+
+          // Move all content before the split to the first ImpliedParaNode
+          let prevSibling = currentNode.getPreviousSibling();
+          while (prevSibling) {
+            const siblingToMove = prevSibling;
+            prevSibling = prevSibling.getPreviousSibling();
+            const firstChild = firstImpliedParaNode.getFirstChild();
+            if (firstChild) {
+              firstChild.insertBefore(siblingToMove);
+            } else {
+              firstImpliedParaNode.append(siblingToMove);
+            }
+          }
+
+          // Add after text to the second ParaNode if it exists
+          if (afterText) {
+            secondParaNode.append($createTextNode(afterText));
+          }
+
+          // Move subsequent siblings to the second ParaNode
+          let nextSibling = currentNode.getNextSibling();
+          while (nextSibling) {
+            const siblingToMove = nextSibling;
+            nextSibling = nextSibling.getNextSibling();
+            secondParaNode.append(siblingToMove);
+          }
+
+          // Replace the original ParaNode with the first ImpliedParaNode
+          parentPara.replace(firstImpliedParaNode);
+
+          // Insert the second ParaNode after the first one
+          firstImpliedParaNode.insertAfter(secondParaNode);
+
+          foundTargetPara = true;
+          return true;
+        }
+      }
+      // Check if targetIndex is exactly at the end of this text node (between siblings)
+      if (targetIndex === currentIndex + textLength) {
+        const parentPara = currentNode.getParent();
+        if ($isParaNode(parentPara)) {
+          // Split is happening between this text node and the next sibling
+          logger?.debug(
+            `Splitting ParaNode (marker: ${parentPara.getMarker()}) between siblings without attributes at targetIndex ${targetIndex}`,
+          );
+
+          // Create ImpliedParaNode for the first part
+          const firstImpliedParaNode = $createImpliedParaNode();
+
+          // Create ParaNode with original attributes for the second part
+          const secondParaNode = $createParaNode(
+            parentPara.getMarker(),
+            parentPara.getUnknownAttributes(),
+          );
+
+          // Move all content up to and including the current text node to the first ImpliedParaNode
+          let currentChild = parentPara.getFirstChild();
+          while (currentChild && currentChild !== currentNode.getNextSibling()) {
+            const childToMove = currentChild;
+            currentChild = currentChild.getNextSibling();
+            firstImpliedParaNode.append(childToMove);
+          }
+
+          // Move subsequent siblings to the second ParaNode
+          let nextSibling = currentNode.getNextSibling();
+          while (nextSibling) {
+            const siblingToMove = nextSibling;
+            nextSibling = nextSibling.getNextSibling();
+            secondParaNode.append(siblingToMove);
+          }
+
+          // Replace the original ParaNode with the first ImpliedParaNode
+          parentPara.replace(firstImpliedParaNode);
+
+          // Insert the second ParaNode after the first one
+          firstImpliedParaNode.insertAfter(secondParaNode);
+
+          foundTargetPara = true;
+          return true;
+        }
+      }
+      currentIndex += textLength;
+    } else if (
+      $isBookNode(currentNode) ||
+      $isSomeChapterNode(currentNode) ||
+      $isSomeVerseNode(currentNode) ||
+      $isMilestoneNode(currentNode) ||
+      $isImmutableUnmatchedNode(currentNode)
+    ) {
+      currentIndex += 1;
+    } else if (
+      $isCharNode(currentNode) ||
+      $isNoteNode(currentNode) ||
+      $isUnknownNode(currentNode)
+    ) {
+      currentIndex += 1; // For the container tag itself
+      if ($isElementNode(currentNode)) {
+        const children = currentNode.getChildren();
+        for (const child of children) {
+          if ($traverseAndHandleNewline(child)) return true;
+          if (foundTargetPara) break;
+        }
+      }
+    } else if ($isParaNode(currentNode) || $isImpliedParaNode(currentNode)) {
+      // First, process children to find current position
+      if ($isElementNode(currentNode)) {
+        const children = currentNode.getChildren();
+        for (const child of children) {
+          if ($traverseAndHandleNewline(child)) return true;
+          if (foundTargetPara) break;
+        }
+      }
+
+      // currentIndex is now at the end of this para's content
+      // Check if targetIndex matches the para's closing marker position
+      if (targetIndex === currentIndex && !foundTargetPara) {
+        // This handles the case where we're inserting at the very end of a ParaNode
+        // For LF without attributes, we only split if we're in a regular ParaNode (not ImpliedParaNode)
+        if ($isParaNode(currentNode)) {
+          logger?.debug(
+            `Splitting ParaNode (marker: ${currentNode.getMarker()}) at end without attributes at targetIndex ${targetIndex}`,
+          );
+
+          // Create a new empty ParaNode for the second part
+          const newParaNode = $createParaNode(
+            currentNode.getMarker(),
+            currentNode.getUnknownAttributes(),
+          );
+
+          // Insert the new paragraph after the current one
+          currentNode.insertAfter(newParaNode);
+
           foundTargetPara = true;
           return true;
         }
@@ -1300,7 +1645,7 @@ function $handleNewlineWithParaAttributes(
       // Other ElementNodes (like RootNode)
       const children = currentNode.getChildren();
       for (const child of children) {
-        if ($traverseAndReplaceImpliedPara(child)) return true;
+        if ($traverseAndHandleNewline(child)) return true;
         if (foundTargetPara) break;
       }
     }
@@ -1308,11 +1653,11 @@ function $handleNewlineWithParaAttributes(
     return foundTargetPara;
   }
 
-  $traverseAndReplaceImpliedPara(root);
+  $traverseAndHandleNewline(root);
 
   if (!foundTargetPara) {
     logger?.warn(
-      `Could not find ImpliedParaNode to replace with ParaNode at targetIndex ${targetIndex}. ` +
+      `Could not find location to handle newline without attributes at targetIndex ${targetIndex}. ` +
         `Final currentIndex: ${currentIndex}.`,
     );
   }
