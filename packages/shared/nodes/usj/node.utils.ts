@@ -48,6 +48,7 @@ export type NodesWithMarker =
 
 // If you want use these utils with your own chapter node, add it to this list of types.
 export type SomeChapterNode = ChapterNode | ImmutableChapterNode;
+export type SomeParaNode = ParaNode | ImpliedParaNode;
 
 /** RegEx to test for a string only containing digits. */
 const ONLY_DIGITS_TEST = /^\d+$/;
@@ -208,6 +209,15 @@ export function $getPreviousNode(selection: RangeSelection): LexicalNode | null 
 
   const anchorNode = selection.anchor.getNode();
   return anchorNode.getPreviousSibling() ?? anchorNode.getParent()?.getPreviousSibling() ?? null;
+}
+
+/**
+ * Checks if the given node is a ParaNode or ImpliedParaNode.
+ * @param node - The node to check.
+ * @returns `true` if the node is a ParaNode or ImpliedParaNode, `false` otherwise.
+ */
+export function $isSomeParaNode(node: LexicalNode | null | undefined): node is SomeParaNode {
+  return $isParaNode(node) || $isImpliedParaNode(node);
 }
 
 /**
