@@ -15,11 +15,11 @@
   },
   "dependencies": {
     "@eten-tech-foundation/scripture-utilities": "workspace:*",
-    "@lexical/mark": "^0.31.1",
-    "@lexical/utils": "^0.31.1",
+    "@lexical/mark": "^0.32.1",
+    "@lexical/utils": "^0.32.1",
     "@sillsdev/scripture": "^2.0.2",
     "epitelete": "^0.2.20",
-    "lexical": "^0.31.1",
+    "lexical": "^0.32.1",
     "open-patcher": "1.0.0-beta.1"
   },
   "devDependencies": {

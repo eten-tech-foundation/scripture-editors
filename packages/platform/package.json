@@ -32,14 +32,14 @@
   },
   "dependencies": {
     "@eten-tech-foundation/scripture-utilities": "workspace:~",
-    "@lexical/react": "^0.31.1",
-    "@lexical/selection": "^0.31.1",
-    "@lexical/text": "^0.31.1",
-    "@lexical/utils": "^0.31.1",
-    "@lexical/yjs": "^0.31.1",
+    "@lexical/react": "^0.32.1",
+    "@lexical/selection": "^0.32.1",
+    "@lexical/text": "^0.32.1",
+    "@lexical/utils": "^0.32.1",
+    "@lexical/yjs": "^0.32.1",
     "@sillsdev/scripture": "^2.0.2",
     "fast-equals": "^5.2.2",
-    "lexical": "^0.31.1",
+    "lexical": "^0.32.1",
     "yjs": "^13.6.20"
   },
   "devDependencies": {
