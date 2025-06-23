@@ -9,7 +9,7 @@ import { LexicalEditor } from "lexical";
 import { ReactNode } from "react";
 
 export async function baseTestEnvironment(
-  $initialEditorState: () => void,
+  $initialEditorState?: () => void,
   children?: ReactNode | undefined,
 ): Promise<{ editor: LexicalEditor }> {
   let editor: LexicalEditor;
