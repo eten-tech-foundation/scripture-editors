@@ -23,7 +23,7 @@ graph TB
 ## Install
 
 ```sh
-npm install @biblionexus-foundation/platform-editor
+npm install @eten-tech-foundation/platform-editor
 ```
 
 ## Usage
@@ -37,7 +37,7 @@ npm install @biblionexus-foundation/platform-editor
 > - Use the `<Marginal />` component for an editor with comments (comments appear in the margin).
 
 ```typescript
-import { EditorOptions, immutableNoteCallerNodeName, Marginal, MarginalRef, usxStringToUsj, UsjNodeOptions } from '@biblionexus-foundation/platform-editor';
+import { EditorOptions, immutableNoteCallerNodeName, Marginal, MarginalRef, usxStringToUsj, UsjNodeOptions } from '@eten-tech-foundation/platform-editor';
 import { BookChapterControl } from 'platform-bible-react';
 
 const emptyUsx = '<usx version="3.1" />';
@@ -281,7 +281,7 @@ export type MarginalRef = EditorRef & {
 
 ## Demo and Collaborative Web Development Environment
 
-Thanks to [CodeSandbox](https://codesandbox.io/) for the instant dev environment: https://codesandbox.io/p/github/BiblioNexus-Foundation/scripture-editors/main
+Thanks to [CodeSandbox](https://codesandbox.io/) for the instant dev environment: https://codesandbox.io/p/github/eten-tech-foundation/scripture-editors/main
 
 This package is the third tab (`dev:platform:5175`).
 
@@ -303,24 +303,24 @@ To develop an editor in a target application you can use [yalc](https://www.npmj
    ```
 2. In the target application repo, link from `yalc`:
    ```bash
-   yalc link @biblionexus-foundation/platform-editor
+   yalc link @eten-tech-foundation/platform-editor
    ```
 3. In this monorepo, make changes and re-publish the editor (see step 1).
 4. When you have finished developing in the target application repo, unlink from `yalc`:
    ```bash
-   yalc remove @biblionexus-foundation/platform-editor && npm i
+   yalc remove @eten-tech-foundation/platform-editor && npm i
    ```
 
 ## License
 
-[MIT][github-license] © [BiblioNexus Foundation](https://biblionexus.org/)
+[MIT][github-license] © [ETEN Tech Foundation](https://missionmutual.org)
 
 <!-- define variables used above -->
 
-[github-actions-status]: https://github.com/BiblioNexus-Foundation/scripture-editors/actions/workflows/test-publish.yml/badge.svg
-[github-actions-url]: https://github.com/BiblioNexus-Foundation/scripture-editors/actions
-[gitghub-codeql-status]: https://github.com/BiblioNexus-Foundation/scripture-editors/actions/workflows/codeql.yml/badge.svg
-[gitghub-codeql-url]: https://github.com/BiblioNexus-Foundation/scripture-editors/actions/workflows/codeql.yml
-[npm-version-image]: https://img.shields.io/npm/v/@biblionexus-foundation/platform-editor
-[npm-version-url]: https://github.com/BiblioNexus-Foundation/scripture-editors/releases
-[github-license]: https://github.com/BiblioNexus-Foundation/scripture-editors/blob/main/packages/platform/LICENSE
+[github-actions-status]: https://github.com/eten-tech-foundation/scripture-editors/actions/workflows/test-publish.yml/badge.svg
+[github-actions-url]: https://github.com/eten-tech-foundation/scripture-editors/actions
+[gitghub-codeql-status]: https://github.com/eten-tech-foundation/scripture-editors/actions/workflows/codeql.yml/badge.svg
+[gitghub-codeql-url]: https://github.com/eten-tech-foundation/scripture-editors/actions/workflows/codeql.yml
+[npm-version-image]: https://img.shields.io/npm/v/@eten-tech-foundation/platform-editor
+[npm-version-url]: https://github.com/eten-tech-foundation/scripture-editors/releases
+[github-license]: https://github.com/eten-tech-foundation/scripture-editors/blob/main/packages/platform/LICENSE

@@ -25,7 +25,7 @@
     /* Workspace */
     "baseUrl": "./packages/",
     "paths": {
-      "@biblionexus-foundation/scripture-utilities": ["./utilities/src"]
+      "@eten-tech-foundation/scripture-utilities": ["./utilities/src"]
     }
   },
   "include": ["packages"]

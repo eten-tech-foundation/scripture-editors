@@ -1,15 +1,15 @@
 {
-  "name": "@biblionexus-foundation/scripture-utilities",
+  "name": "@eten-tech-foundation/scripture-utilities",
   "version": "0.1.0",
   "description": "Utilities for working with Scripture data.",
   "license": "MIT",
-  "homepage": "https://github.com/BiblioNexus-Foundation/scripture-editors/tree/main/packages/utilities#readme",
+  "homepage": "https://github.com/eten-tech-foundation/scripture-editors/tree/main/packages/utilities#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/BiblioNexus-Foundation/scripture-editors.git"
+    "url": "git+https://github.com/eten-tech-foundation/scripture-editors.git"
   },
   "bugs": {
-    "url": "https://github.com/BiblioNexus-Foundation/scripture-editors/issues"
+    "url": "https://github.com/eten-tech-foundation/scripture-editors/issues"
   },
   "type": "module",
   "main": "dist/index.cjs",

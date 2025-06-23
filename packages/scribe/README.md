@@ -24,7 +24,7 @@ graph TB
 ## Install
 
 ```sh
-npm install @biblionexus-foundation/scribe-editor
+npm install @eten-tech-foundation/scribe-editor
 ```
 
 ## Usage
@@ -34,13 +34,13 @@ npm install @biblionexus-foundation/scribe-editor
 
 ```typescript
 import { useState, useMemo, SyntheticEvent, useRef, useEffect } from "react";
-import { Usj, USJ_TYPE, USJ_VERSION } from "@biblionexus-foundation/scripture-utilities";
+import { Usj, USJ_TYPE, USJ_VERSION } from "@eten-tech-foundation/scripture-utilities";
 import { ScriptureReference } from "shared/utils/get-marker-action.model";
 import { UsjNodeOptions } from "shared-react/nodes/usj/usj-node-options.model";
 import { immutableNoteCallerNodeName } from "shared-react/nodes/usj/ImmutableNoteCallerNode";
 import { getViewOptions, getDefaultViewMode } from "shared-react/views/view-options.utils";
 import { SelectionRange } from "shared-react/plugins/usj/annotation/selection.model";
-import Editor, { EditorRef } from "@biblionexus-foundation/scribe-editor";
+import Editor, { EditorRef } from "@eten-tech-foundation/scribe-editor";
 
 const defaultUsj: Usj = {
   type: USJ_TYPE,
@@ -211,24 +211,24 @@ To develop the editor in a target application you can use [yalc](https://www.npm
    ```
 2. In the target application repo, link from `yalc`:
    ```bash
-   yalc link @biblionexus-foundation/scribe-editor
+   yalc link @eten-tech-foundation/scribe-editor
    ```
 3. In this monorepo, make changes and re-publish the editor (repeat step 1).
 4. When finished developing, unlink from `yalc` in the target application:
    ```bash
-   yalc remove @biblionexus-foundation/scribe-editor && npm i
+   yalc remove @eten-tech-foundation/scribe-editor && npm i
    ```
 
 ## License
 
-[MIT][github-license] © [BiblioNexus Foundation](https://biblionexus.org/)
+[MIT][github-license] © [ETEN Tech Foundation](https://missionmutual.org)
 
 <!-- define variables used above -->
 
-[github-actions-status]: https://github.com/BiblioNexus-Foundation/scripture-editors/actions/workflows/test-publish.yml/badge.svg
-[github-actions-url]: https://github.com/BiblioNexus-Foundation/scripture-editors/actions
-[gitghub-codeql-status]: https://github.com/BiblioNexus-Foundation/scripture-editors/actions/workflows/codeql.yml/badge.svg
-[gitghub-codeql-url]: https://github.com/BiblioNexus-Foundation/scripture-editors/actions/workflows/codeql.yml
-[npm-version-image]: https://img.shields.io/npm/v/@biblionexus-foundation/scribe-editor
-[npm-version-url]: https://github.com/BiblioNexus-Foundation/scripture-editors/releases
-[github-license]: https://github.com/BiblioNexus-Foundation/scripture-editors/blob/main/packages/scribe/LICENSE
+[github-actions-status]: https://github.com/eten-tech-foundation/scripture-editors/actions/workflows/test-publish.yml/badge.svg
+[github-actions-url]: https://github.com/eten-tech-foundation/scripture-editors/actions
+[gitghub-codeql-status]: https://github.com/eten-tech-foundation/scripture-editors/actions/workflows/codeql.yml/badge.svg
+[gitghub-codeql-url]: https://github.com/eten-tech-foundation/scripture-editors/actions/workflows/codeql.yml
+[npm-version-image]: https://img.shields.io/npm/v/@eten-tech-foundation/scribe-editor
+[npm-version-url]: https://github.com/eten-tech-foundation/scripture-editors/releases
+[github-license]: https://github.com/eten-tech-foundation/scripture-editors/blob/main/packages/scribe/LICENSE

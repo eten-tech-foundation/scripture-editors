@@ -5,7 +5,7 @@ import { Comments } from "./marginal/comments/commenting";
 import Marginal, { MarginalRef } from "./marginal/Marginal";
 import TextDirectionDropDown from "./TextDirectionDropDown";
 import ViewModeDropDown from "./ViewModeDropDown";
-import { Usj, usxStringToUsj } from "@biblionexus-foundation/scripture-utilities";
+import { Usj, usxStringToUsj } from "@eten-tech-foundation/scripture-utilities";
 import { SerializedVerseRef } from "@sillsdev/scripture";
 import { BookChapterControl } from "platform-bible-react";
 import { MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";

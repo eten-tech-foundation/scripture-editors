@@ -5,7 +5,7 @@ import {
   USJ_TYPE,
   USJ_VERSION,
   Usj,
-} from "@biblionexus-foundation/scripture-utilities";
+} from "@eten-tech-foundation/scripture-utilities";
 import { MarkNode, SerializedMarkNode } from "@lexical/mark";
 import {
   LineBreakNode,

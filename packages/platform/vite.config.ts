@@ -11,7 +11,7 @@ export default defineConfig({
     dts({
       rollupTypes: true,
       exclude: ["src/App.tsx", "src/main.tsx"],
-      aliasesExclude: ["@biblionexus-foundation/scripture-utilities"],
+      aliasesExclude: ["@eten-tech-foundation/scripture-utilities"],
     }),
   ],
   build: {

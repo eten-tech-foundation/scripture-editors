@@ -1,7 +1,7 @@
 import {
   indexesFromUsjJsonPath,
   usjJsonPathFromIndexes,
-} from "@biblionexus-foundation/scripture-utilities";
+} from "@eten-tech-foundation/scripture-utilities";
 import {
   $createPoint,
   $createRangeSelection,

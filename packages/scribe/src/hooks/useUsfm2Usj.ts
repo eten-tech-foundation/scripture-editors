@@ -1,4 +1,4 @@
-import { Usj } from "@biblionexus-foundation/scripture-utilities";
+import { Usj } from "@eten-tech-foundation/scripture-utilities";
 import { useEffect, useState } from "react";
 import USFMParser from "sj-usfm-grammar";
 

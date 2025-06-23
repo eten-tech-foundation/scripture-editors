@@ -3,7 +3,7 @@ import {
   Usj,
   USJ_TYPE,
   USJ_VERSION,
-} from "@biblionexus-foundation/scripture-utilities";
+} from "@eten-tech-foundation/scripture-utilities";
 import { EditorAdaptor } from "../../adaptors/editor-adaptor.model";
 import { isSerializedImpliedParaNode } from "../../nodes/usj/ImpliedParaNode";
 

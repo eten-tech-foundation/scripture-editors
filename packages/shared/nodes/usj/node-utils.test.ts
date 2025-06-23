@@ -10,7 +10,7 @@ import {
 } from "./node.utils";
 import { $createParaNode } from "./ParaNode";
 import { createBasicTestEnvironment } from "./test.utils";
-import { MarkerObject } from "@biblionexus-foundation/scripture-utilities";
+import { MarkerObject } from "@eten-tech-foundation/scripture-utilities";
 import { $getRoot, NodeKey, $getNodeByKey } from "lexical";
 
 describe("Editor Node Utilities", () => {

@@ -1,4 +1,4 @@
-import { Usj } from "@biblionexus-foundation/scripture-utilities";
+import { Usj } from "@eten-tech-foundation/scripture-utilities";
 import USFMParser from "sj-usfm-grammar";
 
 export const Usj2Usfm = async (usj: Usj): Promise<string> => {

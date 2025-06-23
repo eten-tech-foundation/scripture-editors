@@ -5,7 +5,7 @@ import { LexicalErrorBoundary } from "@lexical/react/LexicalErrorBoundary";
 import { HistoryPlugin } from "@lexical/react/LexicalHistoryPlugin";
 import { OnChangePlugin } from "@lexical/react/LexicalOnChangePlugin";
 import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
-import { Usj } from "@biblionexus-foundation/scripture-utilities";
+import { Usj } from "@eten-tech-foundation/scripture-utilities";
 import { deepEqual } from "fast-equals";
 import { EditorState, LexicalEditor } from "lexical";
 import { forwardRef, useCallback, useImperativeHandle, useRef, useState } from "react";

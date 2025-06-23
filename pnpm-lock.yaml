@@ -232,7 +232,7 @@ importers:
 
   packages/platform:
     dependencies:
-      '@biblionexus-foundation/scripture-utilities':
+      '@eten-tech-foundation/scripture-utilities':
         specifier: workspace:~
         version: link:../utilities
       '@lexical/react':
@@ -296,7 +296,7 @@ importers:
 
   packages/scribe:
     dependencies:
-      '@biblionexus-foundation/scripture-utilities':
+      '@eten-tech-foundation/scripture-utilities':
         specifier: workspace:~
         version: link:../utilities
       '@floating-ui/dom':
@@ -354,7 +354,7 @@ importers:
 
   packages/shared:
     dependencies:
-      '@biblionexus-foundation/scripture-utilities':
+      '@eten-tech-foundation/scripture-utilities':
         specifier: workspace:*
         version: link:../utilities
       '@lexical/mark':
@@ -388,7 +388,7 @@ importers:
 
   packages/shared-react:
     dependencies:
-      '@biblionexus-foundation/scripture-utilities':
+      '@eten-tech-foundation/scripture-utilities':
         specifier: workspace:*
         version: link:../utilities
       '@floating-ui/dom':

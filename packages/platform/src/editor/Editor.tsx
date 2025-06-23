@@ -7,7 +7,7 @@ import { getUsjMarkerAction } from "./adaptors/usj-marker-action.utils";
 import { EditorOptions } from "./editor.model";
 import editorTheme from "./editor.theme";
 import ToolbarPlugin from "./toolbar/ToolbarPlugin";
-import { Usj } from "@biblionexus-foundation/scripture-utilities";
+import { Usj } from "@eten-tech-foundation/scripture-utilities";
 import { InitialConfigType, LexicalComposer } from "@lexical/react/LexicalComposer";
 import { ContentEditable } from "@lexical/react/LexicalContentEditable";
 import { EditorRefPlugin } from "@lexical/react/LexicalEditorRefPlugin";

@@ -1,6 +1,6 @@
 /** Utility functions for editor nodes */
 
-import { MARKER_OBJECT_PROPS, MarkerObject } from "@biblionexus-foundation/scripture-utilities";
+import { MARKER_OBJECT_PROPS, MarkerObject } from "@eten-tech-foundation/scripture-utilities";
 import {
   $getCommonAncestor,
   $isElementNode,

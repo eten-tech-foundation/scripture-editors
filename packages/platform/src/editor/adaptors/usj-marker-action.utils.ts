@@ -1,4 +1,4 @@
-import { MarkerContent } from "@biblionexus-foundation/scripture-utilities";
+import { MarkerContent } from "@eten-tech-foundation/scripture-utilities";
 import { SerializedVerseRef } from "@sillsdev/scripture";
 import {
   $createTextNode,

@@ -23,7 +23,7 @@ import {
 } from "../../../../utilities/src/converters/usj/converter-test.data";
 import editorUsjAdaptor from "./editor-usj.adaptor";
 import usjEditorAdaptor from "./usj-editor.adaptor";
-import { MarkerObject } from "@biblionexus-foundation/scripture-utilities";
+import { MarkerObject } from "@eten-tech-foundation/scripture-utilities";
 import { deepEqual } from "fast-equals";
 import { SerializedTextNode } from "lexical";
 import { usjReactNodes } from "shared-react/nodes/usj";

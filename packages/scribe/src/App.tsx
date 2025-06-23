@@ -1,4 +1,4 @@
-import { Usj, USJ_TYPE, USJ_VERSION } from "@biblionexus-foundation/scripture-utilities";
+import { Usj, USJ_TYPE, USJ_VERSION } from "@eten-tech-foundation/scripture-utilities";
 import { useState, useMemo, SyntheticEvent, useRef, useEffect } from "react";
 import { ScriptureReference } from "shared/utils/get-marker-action.model";
 import { UsjNodeOptions } from "shared-react/nodes/usj/usj-node-options.model";

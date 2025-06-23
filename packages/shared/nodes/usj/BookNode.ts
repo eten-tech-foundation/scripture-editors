@@ -1,6 +1,6 @@
 /** Conforms with USJ v3.1 @see https://docs.usfm.bible/usfm/3.1/doc/id.html */
 
-import { BookCode, isValidBookCode } from "@biblionexus-foundation/scripture-utilities";
+import { BookCode, isValidBookCode } from "@eten-tech-foundation/scripture-utilities";
 import {
   $applyNodeReplacement,
   ElementNode,

@@ -1,7 +1,7 @@
 import editorUsjAdaptor from "./adaptors/editor-usj.adaptor";
 import usjNoteEditorAdapter from "./adaptors/note-usj-editor.adaptor";
 import editorTheme from "./themes/editor-theme";
-import { Usj } from "@biblionexus-foundation/scripture-utilities";
+import { Usj } from "@eten-tech-foundation/scripture-utilities";
 import { AutoFocusPlugin } from "@lexical/react/LexicalAutoFocusPlugin";
 import { LexicalComposer } from "@lexical/react/LexicalComposer";
 import { ContentEditable } from "@lexical/react/LexicalContentEditable";

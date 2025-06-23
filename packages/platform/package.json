@@ -1,15 +1,15 @@
 {
-  "name": "@biblionexus-foundation/platform-editor",
+  "name": "@eten-tech-foundation/platform-editor",
   "version": "0.7.12",
   "description": "Scripture editor used in Platform. See https://platform.bible",
   "license": "MIT",
-  "homepage": "https://github.com/BiblioNexus-Foundation/scripture-editors/tree/main/packages/platform#readme",
+  "homepage": "https://github.com/eten-tech-foundation/scripture-editors/tree/main/packages/platform#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/BiblioNexus-Foundation/scripture-editors.git"
+    "url": "git+https://github.com/eten-tech-foundation/scripture-editors.git"
   },
   "bugs": {
-    "url": "https://github.com/BiblioNexus-Foundation/scripture-editors/issues"
+    "url": "https://github.com/eten-tech-foundation/scripture-editors/issues"
   },
   "type": "module",
   "module": "dist/index.js",
@@ -31,7 +31,7 @@
     "react-dom": ">=18.3.1"
   },
   "dependencies": {
-    "@biblionexus-foundation/scripture-utilities": "workspace:~",
+    "@eten-tech-foundation/scripture-utilities": "workspace:~",
     "@lexical/react": "^0.31.1",
     "@lexical/selection": "^0.31.1",
     "@lexical/text": "^0.31.1",

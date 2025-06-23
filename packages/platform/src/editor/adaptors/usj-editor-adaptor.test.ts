@@ -1,4 +1,4 @@
-import { MarkerObject } from "@biblionexus-foundation/scripture-utilities";
+import { MarkerObject } from "@eten-tech-foundation/scripture-utilities";
 import { SerializedEditorState } from "lexical";
 import { typedMarkNodeName } from "shared/nodes/features/TypedMarkNode";
 import { SerializedParaNode } from "shared/nodes/usj/ParaNode";

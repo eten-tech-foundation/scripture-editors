@@ -20,13 +20,13 @@ For data that conforms to [USX/USJ v3.1](https://docs.usfm.bible/usfm/3.1/):
 ## Install
 
 ```sh
-npm install @biblionexus-foundation/scripture-utilities
+npm install @eten-tech-foundation/scripture-utilities
 ```
 
 ## Usage
 
 ```ts
-import { usxStringToUsj, usjToUsxString } from "@biblionexus-foundation/scripture-utilities";
+import { usxStringToUsj, usjToUsxString } from "@eten-tech-foundation/scripture-utilities";
 
 const emptyUsx = '<usx version="3.1" />';
 const usx = `
@@ -66,24 +66,24 @@ To develop these utilities in a target application you can use [yalc](https://ww
    ```
 2. In the target application repo, link from `yalc`:
    ```bash
-   yalc link @biblionexus-foundation/scripture-utilities
+   yalc link @eten-tech-foundation/scripture-utilities
    ```
 3. In this monorepo, make changes and re-publish the editor (see step 1).
 4. When you have finished developing in the target application repo, unlink from `yalc`:
    ```bash
-   yalc remove @biblionexus-foundation/scripture-utilities && npm i
+   yalc remove @eten-tech-foundation/scripture-utilities && npm i
    ```
 
 ## License
 
-[MIT][github-license] © [BiblioNexus Foundation](https://biblionexus.org/)
+[MIT][github-license] © [ETEN Tech Foundation](https://missionmutual.org)
 
 <!-- define variables used above -->
 
-[github-actions-status]: https://github.com/BiblioNexus-Foundation/scripture-editors/actions/workflows/test-publish.yml/badge.svg
-[github-actions-url]: https://github.com/BiblioNexus-Foundation/scripture-editors/actions
-[gitghub-codeql-status]: https://github.com/BiblioNexus-Foundation/scripture-editors/actions/workflows/codeql.yml/badge.svg
-[gitghub-codeql-url]: https://github.com/BiblioNexus-Foundation/scripture-editors/actions/workflows/codeql.yml
-[npm-version-image]: https://img.shields.io/npm/v/@biblionexus-foundation/scripture-utilities
-[npm-version-url]: https://github.com/BiblioNexus-Foundation/scripture-editors/releases
-[github-license]: https://github.com/BiblioNexus-Foundation/scripture-editors/blob/main/packages/utilities/LICENSE
+[github-actions-status]: https://github.com/eten-tech-foundation/scripture-editors/actions/workflows/test-publish.yml/badge.svg
+[github-actions-url]: https://github.com/eten-tech-foundation/scripture-editors/actions
+[gitghub-codeql-status]: https://github.com/eten-tech-foundation/scripture-editors/actions/workflows/codeql.yml/badge.svg
+[gitghub-codeql-url]: https://github.com/eten-tech-foundation/scripture-editors/actions/workflows/codeql.yml
+[npm-version-image]: https://img.shields.io/npm/v/@eten-tech-foundation/scripture-utilities
+[npm-version-url]: https://github.com/eten-tech-foundation/scripture-editors/releases
+[github-license]: https://github.com/eten-tech-foundation/scripture-editors/blob/main/packages/utilities/LICENSE

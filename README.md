@@ -17,7 +17,7 @@ Sharing in this monorepo is a commitment to maintain and organize it. Each appli
 1. Install [Volta](https://docs.volta.sh/guide/getting-started).
 2. Clone the monorepo:
    ```bash
-   git clone https://github.com/BiblioNexus-Foundation/scripture-editors.git
+   git clone https://github.com/eten-tech-foundation/scripture-editors.git
    cd scripture-editors
    pnpm install
    ```
@@ -174,7 +174,7 @@ nx run-many -t typecheck # to check types
 
 ## Collaborative Web Development Environment
 
-Thanks to [CodeSandbox](https://codesandbox.io/) for the instant dev environment: https://codesandbox.io/p/github/BiblioNexus-Foundation/scripture-editors/main
+Thanks to [CodeSandbox](https://codesandbox.io/) for the instant dev environment: https://codesandbox.io/p/github/eten-tech-foundation/scripture-editors/main
 
 ## Plain Vanilla JS and React
 
@@ -184,14 +184,14 @@ If you are using a framework other than React and need to wrap a plain-vanilla J
 
 ## License
 
-[MIT][github-license] © [BiblioNexus Foundation](https://biblionexus.org/)
+[MIT][github-license] © [ETEN Tech Foundation](https://missionmutual.org)
 
 <!-- define variables used above -->
 
-[npm-platform-version-image]: https://img.shields.io/npm/v/@biblionexus-foundation/platform-editor
-[npm-platform-version-url]: https://www.npmjs.com/package/@biblionexus-foundation/platform-editor
-[npm-scribe-version-image]: https://img.shields.io/npm/v/@biblionexus-foundation/scribe-editor
-[npm-scribe-version-url]: https://www.npmjs.com/package/@biblionexus-foundation/scribe-editor
-[npm-utilities-version-image]: https://img.shields.io/npm/v/@biblionexus-foundation/scripture-utilities
-[npm-utilities-version-url]: https://www.npmjs.com/package/@biblionexus-foundation/scripture-utilities
-[github-license]: https://github.com/BiblioNexus-Foundation/scripture-editors/blob/main/LICENSE
+[npm-platform-version-image]: https://img.shields.io/npm/v/@eten-tech-foundation/platform-editor
+[npm-platform-version-url]: https://www.npmjs.com/package/@eten-tech-foundation/platform-editor
+[npm-scribe-version-image]: https://img.shields.io/npm/v/@eten-tech-foundation/scribe-editor
+[npm-scribe-version-url]: https://www.npmjs.com/package/@eten-tech-foundation/scribe-editor
+[npm-utilities-version-image]: https://img.shields.io/npm/v/@eten-tech-foundation/scripture-utilities
+[npm-utilities-version-url]: https://www.npmjs.com/package/@eten-tech-foundation/scripture-utilities
+[github-license]: https://github.com/eten-tech-foundation/scripture-editors/blob/main/LICENSE
