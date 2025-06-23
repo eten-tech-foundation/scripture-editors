@@ -40,8 +40,8 @@ export type OTEmbedMilestone = OTEmbed & {
 };
 export const OT_MILESTONE_PROPS: Array<keyof OTEmbedMilestone> = ["style", "sid", "eid"];
 
-export type OTEmbedPara = OTEmbed;
-export const OT_PARA_PROPS: Array<keyof OTEmbedPara> = ["style"];
+export type OTParaAttribute = OTEmbed;
+export const OT_PARA_PROPS: Array<keyof OTParaAttribute> = ["style"];
 
 export type OTEmbedChar = OTEmbed;
 export const OT_CHAR_PROPS: Array<keyof OTEmbedChar> = ["style"];

@@ -1,18 +1,20 @@
-import { replaceBrothersWithBrethren } from "./delta-utils-test.data";
 import { $applyUpdate, LF } from "./delta.utils";
-import { LexicalComposer } from "@lexical/react/LexicalComposer";
-import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
-import { ContentEditable } from "@lexical/react/LexicalContentEditable";
-import { LexicalErrorBoundary } from "@lexical/react/LexicalErrorBoundary";
-import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
-import { render, act } from "@testing-library/react";
-import { $createTextNode, $getRoot, $isTextNode, LexicalEditor } from "lexical";
+import { act } from "@testing-library/react";
+import {
+  $createTextNode,
+  $getRoot,
+  $getState,
+  $isTextNode,
+  $setState,
+  LexicalEditor,
+} from "lexical";
 import Delta, { Op } from "quill-delta";
-import { usjReactNodes } from "shared-react/nodes/usj";
 import { $createImmutableVerseNode } from "shared-react/nodes/usj/ImmutableVerseNode";
 import { $isSomeVerseNode } from "shared-react/nodes/usj/node-react.utils";
+import { CharNodePlugin } from "shared-react/plugins/usj/CharNodePlugin";
+import { baseTestEnvironment } from "shared-react/plugins/usj/react-test.utils";
 import { getDefaultViewOptions, ViewOptions } from "shared-react/views/view-options.utils";
-import { TypedMarkNode } from "shared/nodes/features/TypedMarkNode";
+import { segmentState } from "shared/nodes/collab/delta.state";
 import { $isCharNode, $createCharNode } from "shared/nodes/usj/CharNode";
 import { $createImmutableChapterNode } from "shared/nodes/usj/ImmutableChapterNode";
 import { $createImpliedParaNode, $isImpliedParaNode } from "shared/nodes/usj/ImpliedParaNode";
@@ -286,16 +288,7 @@ describe("Delta Utils $applyUpdate", () => {
       });
     });
 
-    it("Delta Check 36 for the following test", () => {
-      const initialDoc = new Delta([{ insert: { chapter: { number: "1" } } }]);
-      const ops = new Delta([{ retain: 1, attributes: { number: "2" } }]);
-      const result = initialDoc.compose(ops);
-      expect(result.ops).toEqual([
-        { insert: { chapter: { number: "1" } }, attributes: { number: "2" } },
-      ]);
-    });
-
-    it("should retain embedded chapter with attributes", async () => {
+    it("(dc) should retain embedded chapter with attributes", async () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append($createImmutableChapterNode("1"));
       });
@@ -305,27 +298,15 @@ describe("Delta Utils $applyUpdate", () => {
 
       expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
       editor.getEditorState().read(() => {
-        // TODO: can't modify embed. Must delete and insert a new one.
+        // Note: shouldn't modify embed. Must delete and insert a new one.
         const ch2 = $getRoot().getFirstChild();
         if (!$isSomeChapterNode(ch2)) throw new Error("ch2 is not SomeChapterNode");
-        expect(ch2.getNumber()).toBe("2");
+        expect(ch2.getNumber()).toBe("1");
+        expect(ch2.getUnknownAttributes()).toEqual({ number: "2" });
       });
     });
 
-    it("Delta Check 37 for the following test", () => {
-      const initialDoc = new Delta([
-        { insert: { verse: { number: "1" } } },
-        { insert: LF, attributes: { style: "p" } },
-      ]);
-      const ops = new Delta([{ retain: 1, attributes: { number: "1-2" } }]);
-      const result = initialDoc.compose(ops);
-      expect(result.ops).toEqual([
-        { insert: { verse: { number: "1" } }, attributes: { number: "1-2" } },
-        { insert: LF, attributes: { style: "p" } },
-      ]);
-    });
-
-    it("should retain embedded verse with attributes", async () => {
+    it("(dc) should retain embedded verse with attributes", async () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append($createParaNode().append($createImmutableVerseNode("1")));
       });
@@ -335,14 +316,15 @@ describe("Delta Utils $applyUpdate", () => {
 
       expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
       editor.getEditorState().read(() => {
-        // TODO: can't modify embed. Must delete and insert a new one.
         const p = $getRoot().getFirstChild();
         if (!$isParaNode(p)) throw new Error("p is not a ParaNode");
         expect(p.getChildrenSize()).toBe(1);
 
+        // Note: shouldn't modify embed. Must delete and insert a new one.
         const v1 = p.getFirstChild();
         if (!$isSomeVerseNode(v1)) throw new Error("v1 is not SomeVerseNode");
-        expect(v1.getNumber()).toBe("1-2");
+        expect(v1.getNumber()).toBe("1");
+        expect(v1.getUnknownAttributes()).toEqual({ number: "1-2" });
       });
     });
 
@@ -376,6 +358,7 @@ describe("Delta Utils $applyUpdate", () => {
         expect(char.getUnknownAttributes()).toEqual({
           cid: "afd886c6-2397-4e4c-8a94-696bf9f2e545",
         });
+        expect($getState(char, segmentState)).toBe("verse_1_1");
       });
     });
 
@@ -411,7 +394,7 @@ describe("Delta Utils $applyUpdate", () => {
         const charNode = p.getChildAtIndex(1);
         if (!$isCharNode(charNode)) throw new Error("charNode is not a CharNode");
         expect(charNode.getMarker()).toBe("xt");
-        expect(charNode.getUnknownAttributes()).toEqual({ cid });
+        expect(charNode.getUnknownAttributes()).toEqual({ cid, bold: "true" });
 
         const innerTextNode = charNode.getFirstChild();
         if (!$isTextNode(innerTextNode)) throw new Error("innerTextNode is not a TextNode");
@@ -490,44 +473,25 @@ describe("Delta Utils $applyUpdate", () => {
         if (!$isCharNode(char1)) throw new Error("char1 is not a CharNode");
         expect(char1.getMarker()).toBe("sp");
         expect(char1.getTextContent()).toBe(part1);
-        expect(char1.getUnknownAttributes()).toEqual({ cid });
+        expect(char1.getUnknownAttributes()).toEqual({ cid, bold: "true" });
+
+        const t1 = char1.getFirstChild();
+        if (!$isTextNode(t1)) throw new Error("t1 is not a TextNode");
+        expect(t1.hasFormat("bold")).toBe(true);
 
         const char2 = p.getChildAtIndex(1);
         if (!$isCharNode(char2)) throw new Error("char2 is not a CharNode");
         expect(char2.getMarker()).toBe("sp");
         expect(char2.getTextContent()).toBe(part2);
         expect(char2.getUnknownAttributes()).toEqual({ cid });
+
+        const t2 = char2.getFirstChild();
+        if (!$isTextNode(t2)) throw new Error("t2 is not a TextNode");
+        expect(t2.hasFormat("bold")).toBe(false);
       });
     });
 
-    it("Delta Check 42 for the following test", () => {
-      const textBefore = "TextBefore ";
-      const initialDoc = new Delta([
-        { insert: textBefore },
-        { insert: { verse: { number: "1" } } },
-        { insert: " TextAfter" },
-        { insert: LF, attributes: { style: "p" } },
-      ]);
-      const ops = new Delta([
-        { retain: textBefore.length },
-        {
-          retain: 1,
-          attributes: { char: { style: "xt", cid: "verse-char-attr" }, customVerseAttr: "applied" },
-        },
-      ]);
-      const result = initialDoc.compose(ops);
-      expect(result.ops).toEqual([
-        { insert: textBefore },
-        {
-          insert: { verse: { number: "1" } },
-          attributes: { char: { style: "xt", cid: "verse-char-attr" }, customVerseAttr: "applied" },
-        },
-        { insert: " TextAfter" },
-        { insert: LF, attributes: { style: "p" } },
-      ]);
-    });
-
-    it("should fallback to standard attribute application when retain targets an existing embed for char transformation", async () => {
+    it("(dc) should fallback to standard attribute application when retain targets an existing embed for char transformation", async () => {
       const textBefore = "TextBefore ";
       const { editor } = await testEnvironment(() => {
         $getRoot().append(
@@ -558,7 +522,8 @@ describe("Delta Utils $applyUpdate", () => {
         // Check that it's still a VerseNode, not transformed into a CharNode
         if (!$isSomeVerseNode(v1)) throw new Error("v1 is not SomeVerseNode");
         // Check if 'customVerseAttr' was applied
-        // TODO: missing `char` attribute.
+        // Note: in a delta the `char` attribute also would be applied but we don't want that in the
+        // editor.
         expect(v1.getUnknownAttributes()).toEqual(
           expect.objectContaining({ customVerseAttr: "applied" }),
         );
@@ -580,7 +545,6 @@ describe("Delta Utils $applyUpdate", () => {
             bold: true,
           },
         },
-        { retain: 11 },
       ];
 
       await sutApplyUpdate(editor, ops);
@@ -593,9 +557,7 @@ describe("Delta Utils $applyUpdate", () => {
         const charNode = p.getChildAtIndex(1);
         if (!$isCharNode(charNode)) throw new Error("charNode is not a CharNode");
         expect(charNode.getMarker()).toBe("bd");
-        expect(charNode.getUnknownAttributes()).toEqual(
-          expect.objectContaining({ cid: "test-id" }),
-        );
+        expect(charNode.getUnknownAttributes()).toEqual({ cid: "test-id", bold: "true" });
 
         // Check that inner text has bold formatting
         const innerText = charNode.getFirstChild();
@@ -604,30 +566,7 @@ describe("Delta Utils $applyUpdate", () => {
       });
     });
 
-    it("Delta Check 43 for the following test", () => {
-      const initialDoc = new Delta([
-        { insert: "bold text", attributes: { char: { style: "bd" }, highlight: true } },
-        { insert: " normal text" },
-        { insert: LF, attributes: { style: "p" } },
-      ]);
-      const ops = new Delta([
-        {
-          retain: 1 + 9,
-          attributes: {
-            char: false,
-            highlight: false,
-          },
-        },
-      ]);
-      const result = initialDoc.compose(ops);
-      expect(result.ops).toEqual([
-        { insert: "bold text ", attributes: { char: false, highlight: false } },
-        { insert: "normal text" },
-        { insert: LF, attributes: { style: "p" } },
-      ]);
-    });
-
-    it("should handle format removal with false attribute values", async () => {
+    it("(dc) should handle attribute removal with null values", async () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append(
           $createParaNode().append(
@@ -636,22 +575,12 @@ describe("Delta Utils $applyUpdate", () => {
           ),
         );
       });
-      editor.getEditorState().read(() => {
-        const p = $getRoot().getFirstChild();
-        if (!$isParaNode(p)) throw new Error("p is not a ParaNode");
-        const charNode = p.getFirstChild();
-        if (!$isCharNode(charNode)) throw new Error("charNode is not a CharNode");
-        const t1 = charNode.getFirstChild();
-        if (!$isTextNode(t1)) throw new Error("t1 is not a TextNode");
-        expect(t1.getTextContent()).toBe("bold text");
-        expect(t1.hasFormat("highlight")).toBe(true);
-      });
       const ops: Op[] = [
         {
-          retain: 1 + 9, // 1 (CharNode) + "bold text" length
+          retain: 9, // "bold text"
           attributes: {
-            char: false,
-            highlight: false,
+            char: null,
+            highlight: null,
           },
         },
       ];
@@ -662,16 +591,11 @@ describe("Delta Utils $applyUpdate", () => {
       editor.getEditorState().read(() => {
         const p = $getRoot().getFirstChild();
         if (!$isParaNode(p)) throw new Error("p is not a ParaNode");
-        expect(p.getTextContent()).toBe("bold text normal text");
+        expect(p.getChildrenSize()).toBe(1);
 
-        const charNode = p.getFirstChild();
-        if (!$isCharNode(charNode)) throw new Error("charNode is not a CharNode");
-        // TODO: depends on fixing DC43 first.
-        // expect(charNode.getUnknownAttributes()).toEqual(expect.objectContaining({ char: false }));
-
-        const t1 = charNode.getFirstChild();
+        const t1 = p.getFirstChild();
         if (!$isTextNode(t1)) throw new Error("t1 is not a TextNode");
-        expect(t1.getTextContent()).toBe("bold text");
+        expect(t1.getTextContent()).toBe("bold text normal text");
         expect(t1.hasFormat("highlight")).toBe(false);
       });
     });
@@ -707,30 +631,7 @@ describe("Delta Utils $applyUpdate", () => {
       });
     });
 
-    it("Delta Check 45 for the following test", () => {
-      const initialDoc = new Delta([
-        { insert: "Start " },
-        { insert: "bold", attributes: { char: { style: "bd" } } },
-        { insert: " end" },
-        { insert: LF, attributes: { style: "p" } },
-      ]);
-      const ops = new Delta([
-        { retain: 3 },
-        {
-          retain: 3 + 4 + 2,
-          attributes: { char: { style: "it" } },
-        },
-      ]);
-      const result = initialDoc.compose(ops);
-      expect(result.ops).toEqual([
-        { insert: "Sta" },
-        { insert: "rt bold e", attributes: { char: { style: "it" } } },
-        { insert: "nd" },
-        { insert: LF, attributes: { style: "p" } },
-      ]);
-    });
-
-    it("should handle retain spanning multiple elements", async () => {
+    it("(dc) should handle retain spanning multiple elements", async () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append(
           $createParaNode().append(
@@ -750,13 +651,12 @@ describe("Delta Utils $applyUpdate", () => {
 
       await sutApplyUpdate(editor, ops);
 
-      // TODO: Need to combine adjacent CharNodes with the same attributes in Lexical.
       expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
       editor.getEditorState().read(() => {
         const p = $getRoot().getFirstChild();
         if (!$isParaNode(p)) throw new Error("p is not a ParaNode");
         expect(p.getTextContent()).toBe("Start bold end");
-        expect(p.getChildrenSize()).toBe(5);
+        expect(p.getChildrenSize()).toBe(3);
 
         const t1 = p.getFirstChild();
         if (!$isTextNode(t1)) throw new Error("t1 is not a TextNode");
@@ -765,30 +665,11 @@ describe("Delta Utils $applyUpdate", () => {
         const char1 = p.getChildAtIndex(1);
         if (!$isCharNode(char1)) throw new Error("char1 is not a CharNode");
         expect(char1.getMarker()).toBe("it");
+        expect(char1.getTextContent()).toBe("rt bold e");
 
-        const t2 = char1.getChildAtIndex(0);
-        if (!$isTextNode(t2)) throw new Error("t2 is not a TextNode");
-        expect(t2.getTextContent()).toBe("rt ");
-
-        const char2 = p.getChildAtIndex(2);
-        if (!$isCharNode(char2)) throw new Error("char2 is not a CharNode");
-        expect(char2.getMarker()).toBe("it");
-
-        const t3 = char2.getChildAtIndex(0);
+        const t3 = p.getChildAtIndex(2);
         if (!$isTextNode(t3)) throw new Error("t3 is not a TextNode");
-        expect(t3.getTextContent()).toBe("bold");
-
-        const char3 = p.getChildAtIndex(3);
-        if (!$isCharNode(char3)) throw new Error("char3 is not a CharNode");
-        expect(char3.getMarker()).toBe("it");
-
-        const t4 = char3.getChildAtIndex(0);
-        if (!$isTextNode(t4)) throw new Error("t4 is not a TextNode");
-        expect(t4.getTextContent()).toBe(" e");
-
-        const t5 = p.getChildAtIndex(4);
-        if (!$isTextNode(t5)) throw new Error("t5 is not a TextNode");
-        expect(t5.getTextContent()).toBe("nd");
+        expect(t3.getTextContent()).toBe("nd");
       });
     });
 
@@ -931,88 +812,91 @@ describe("Delta Utils $applyUpdate", () => {
     });
 
     xit("Delta Check 53 for the following test", async () => {
-      const doc = new Delta()
-        .insert({ chapter: { number: "1", style: "c" } })
-        .insert({ verse: { number: "1", style: "v" } })
-        .insert("God", { char: [{ style: "qt" }, { style: "w" }] })
-        .insert(" so ", { char: { style: "qt" } })
-        .insert("loved", { char: [{ style: "qt" }, { style: "w" }] })
-        .insert(" the world", { char: { style: "qt" } })
-        .insert(" that he ")
-        .insert("gave", { char: { style: "w" } })
-        .insert(" his son")
-        .insert(LF, { para: { style: "p" } });
-      const ops = new Delta([
-        {
-          retain: 1, // Chapter node at root level
-          attributes: {
-            chapter: {
-              pubnumber: "3a",
-              altnumber: "Three",
-            },
-          },
-        } /*
-        {
-          retain: 1, // Verse node inside para
-          attributes: {
-            number: "16",
-            altnumber: "sixteen",
-          },
-        },
-        {
-          retain: 1, // First CharNode (qt) - speaker attributes
-          attributes: {
-            who: "Jesus",
-            context: "teaching",
-          },
-        },
-        {
-          retain: 1, // First nested CharNode (w for "God") - lexical data
-          attributes: {
-            strong: "G2316",
-            lemma: "θεός",
-          },
-        },
-        {
-          // Skip "God", " so " text, next w node text, and " the world" text
-          retain: 3 + 4 + 5 + 10,
-        },
-        {
-          retain: 9, // Text " that he "
-        },
-        {
-          retain: 1, // Last CharNode (w for "gave") - verb analysis
-          attributes: {
-            strong: "G1325",
-            lemma: "δίδωμι",
-          },
-        },*/,
+      const doc = new Delta([
+        { insert: { chapter: { number: "3", style: "c" } } },
+        { insert: { verse: { number: "16", style: "v" } } },
+        { insert: "God", attributes: { char: [{ style: "qt" }, { style: "w" }] } },
+        { insert: " so ", attributes: { char: { style: "qt" } } },
+        { insert: "loved", attributes: { char: [{ style: "qt" }, { style: "w" }] } },
+        { insert: " the world", attributes: { char: { style: "qt" } } },
+        { insert: " that he " },
+        { insert: "gave", attributes: { char: { style: "w" } } },
+        { insert: " his son" },
+        { insert: LF, attributes: { para: { style: "p" } } },
       ]);
+      const ops: Op[] = [
+        { retain: 2 }, // ch3, v16
+        {
+          retain: 3, // "God"
+          attributes: {
+            char: [
+              { style: "qt", who: "Jesus", context: "teaching" },
+              { style: "w", who: "Jesus", context: "teaching", strong: "G2316", lemma: "θεός" },
+            ],
+          },
+        },
+        {
+          retain: 4, // " so "
+          attributes: { char: { style: "qt", who: "Jesus", context: "teaching" } },
+        },
+        {
+          retain: 5, // "loved"
+          attributes: {
+            char: [
+              { style: "qt", who: "Jesus", context: "teaching" },
+              { style: "w", who: "Jesus", context: "teaching" },
+            ],
+          },
+        },
+        {
+          retain: 10, // " the world"
+          attributes: { char: { style: "qt", who: "Jesus", context: "teaching" } },
+        },
+        {
+          retain: 9, // " that he "
+        },
+        {
+          retain: 4, // "gave"
+          attributes: { char: { style: "w", strong: "G1325", lemma: "δίδωμι" } },
+        },
+      ];
 
-      const transformed = doc.compose(ops);
+      const updatedDoc = doc.compose(new Delta(ops));
 
-      expect(transformed.ops.length).toBe(10);
-      expect(transformed.ops[0]).toEqual({
-        insert: { chapter: { number: "1", style: "c", pubnumber: "3a", altnumber: "Three" } },
-      });
-      expect(transformed.ops[1]).toEqual({ insert: { verse: { number: "1", style: "v" } } });
-      expect(transformed.ops[2]).toEqual({
-        insert: "God",
-        attributes: { char: [{ style: "qt" }, { style: "w" }] },
-      });
-      expect(transformed.ops[3]).toEqual({ insert: " so ", attributes: { char: { style: "qt" } } });
-      expect(transformed.ops[4]).toEqual({
-        insert: "loved",
-        attributes: { char: [{ style: "qt" }, { style: "w" }] },
-      });
-      expect(transformed.ops[5]).toEqual({
-        insert: " the world",
-        attributes: { char: { style: "qt" } },
-      });
-      expect(transformed.ops[6]).toEqual({ insert: " that he " });
-      expect(transformed.ops[7]).toEqual({ insert: "gave", attributes: { char: { style: "w" } } });
-      expect(transformed.ops[8]).toEqual({ insert: " his son" });
-      expect(transformed.ops[9]).toEqual({ insert: LF, attributes: { para: { style: "p" } } });
+      expect(updatedDoc.ops).toEqual([
+        { insert: { chapter: { number: "3", style: "c" } } },
+        { insert: { verse: { number: "16", style: "v" } } },
+        {
+          insert: "God",
+          attributes: {
+            char: [
+              { style: "qt", who: "Jesus", context: "teaching" },
+              { style: "w", who: "Jesus", context: "teaching", strong: "G2316", lemma: "θεός" },
+            ],
+          },
+        },
+        {
+          insert: " so ",
+          attributes: { char: { style: "qt", who: "Jesus", context: "teaching" } },
+        },
+        {
+          insert: "loved",
+          attributes: {
+            char: [
+              { style: "qt", who: "Jesus", context: "teaching" },
+              { style: "w", who: "Jesus", context: "teaching" },
+            ],
+          },
+        },
+        {
+          insert: " the world",
+          attributes: { char: { style: "qt", who: "Jesus", context: "teaching" } },
+        },
+        { insert: " that he " },
+        { insert: "gave", attributes: { char: { style: "w", strong: "G1325", lemma: "δίδωμι" } } },
+        { insert: " his son" },
+        { insert: LF, attributes: { para: { style: "p" } } },
+      ]);
     });
 
     xit("should handle complex nested container attributes with deep nesting with cross references", async () => {
@@ -1034,47 +918,39 @@ describe("Delta Utils $applyUpdate", () => {
         );
       });
       const ops: Op[] = [
+        { retain: 2 }, // ch3, v16
         {
-          retain: 1, // Chapter node at root level
+          retain: 3, // "God"
           attributes: {
-            pubnumber: "3a",
-            altnumber: "Three",
+            char: [
+              { style: "qt", who: "Jesus", context: "teaching" },
+              { style: "w", who: "Jesus", context: "teaching", strong: "G2316", lemma: "θεός" },
+            ],
           },
         },
         {
-          retain: 1, // Verse node inside para
+          retain: 4, // " so "
+          attributes: { char: { style: "qt", who: "Jesus", context: "teaching" } },
+        },
+        {
+          retain: 5, // "loved"
           attributes: {
-            number: "16",
-            altnumber: "sixteen",
+            char: [
+              { style: "qt", who: "Jesus", context: "teaching" },
+              { style: "w", who: "Jesus", context: "teaching" },
+            ],
           },
         },
         {
-          retain: 1, // First CharNode (qt) - speaker attributes
-          attributes: {
-            who: "Jesus",
-            context: "teaching",
-          },
+          retain: 10, // " the world"
+          attributes: { char: { style: "qt", who: "Jesus", context: "teaching" } },
         },
         {
-          retain: 1, // First nested CharNode (w for "God") - lexical data
-          attributes: {
-            strong: "G2316",
-            lemma: "θεός",
-          },
+          retain: 9, // " that he "
         },
         {
-          // Skip "God", " so " text, next w node text, and " the world" text
-          retain: 3 + 4 + 5 + 10,
-        },
-        {
-          retain: 9, // Text " that he "
-        },
-        {
-          retain: 1, // Last CharNode (w for "gave") - verb analysis
-          attributes: {
-            strong: "G1325",
-            lemma: "δίδωμι",
-          },
+          retain: 4, // "gave"
+          attributes: { char: { style: "w", strong: "G1325", lemma: "δίδωμι" } },
         },
       ];
 
@@ -1087,8 +963,6 @@ describe("Delta Utils $applyUpdate", () => {
         const ch3 = root.getFirstChild();
         if (!$isSomeChapterNode(ch3)) throw new Error("ch3 is not SomeChapterNode");
         expect(ch3.getNumber()).toBe("3");
-        expect(ch3.getPubnumber()).toBe("3a");
-        expect(ch3.getAltnumber()).toBe("Three");
 
         const p = root.getChildAtIndex(1);
         if (!$isParaNode(p)) throw new Error("p is not a ParaNode");
@@ -1098,7 +972,6 @@ describe("Delta Utils $applyUpdate", () => {
         const v16 = children[0];
         if (!$isSomeVerseNode(v16)) throw new Error("v16 is not SomeVerseNode");
         expect(v16.getNumber()).toBe("16");
-        expect(v16.getAltnumber()).toBe("sixteen");
 
         const qtCharNode = children[1];
         if (!$isCharNode(qtCharNode)) throw new Error("qtCharNode is not CharNode");
@@ -1207,32 +1080,30 @@ describe("Delta Utils $applyUpdate", () => {
       });
     });
 
-    it("Delta Check 28 for the following test", () => {
+    it("(dci) should handle delete larger than document length", async () => {
+      const text = "Short text.";
       const doc = new Delta([
-        { insert: "Short text." },
+        { insert: text },
         { insert: LF, attributes: { para: { style: "p" } } },
       ]);
-      const ops = new Delta([{ delete: 100 }]);
-
-      const updatedDoc = doc.compose(ops);
-
-      expect(updatedDoc.ops).toEqual([{ delete: 88 }]);
-    });
-
-    it("should handle delete larger than document length", async () => {
-      const text = "Short text.";
       const { editor } = await testEnvironment(() => {
         $getRoot().append($createParaNode().append($createTextNode(text)));
       });
       const ops: Op[] = [{ delete: 100 }]; // Much larger than document
 
+      const updatedDoc = doc.compose(new Delta(ops));
       await sutApplyUpdate(editor, ops);
 
+      expect(updatedDoc.ops).toEqual([{ delete: 88 }]);
       expect(consoleDebugSpy).toHaveBeenCalledWith("Delete: 100");
       expect(consoleErrorSpy).toHaveBeenCalledTimes(0); // Should warn, not error
       editor.getEditorState().read(() => {
         expect($getRoot().getTextContent()).toBe(""); // All text deleted
-        // TODO: expect($getRoot().getChildrenSize()).toBe(0); // No children left or default para created
+        expect($getRoot().getChildrenSize()).toBe(1); // No children left or default para created
+
+        const para = $getRoot().getFirstChild();
+        if (!$isImpliedParaNode(para)) throw new Error("Expected ImpliedParaNode");
+        expect(para.getChildrenSize()).toBe(0);
       });
     });
 
@@ -1501,31 +1372,13 @@ describe("Delta Utils $applyUpdate", () => {
       });
     });
 
-    it("Delta Check 1 for the following test", async () => {
-      const doc = new Delta([
-        { insert: "First paragraph text" },
-        { insert: LF, attributes: { para: { style: "p" } } },
-        { insert: "Second paragraph text" },
-        { insert: LF, attributes: { para: { style: "p" } } },
-      ]);
-      const ops = new Delta([{ retain: 10 }, { delete: 22 }]);
-
-      const updatedDoc = doc.compose(ops);
-
-      expect(updatedDoc.ops).toEqual([
-        { insert: "First paragraph text" },
-        { insert: LF, attributes: { para: { style: "p" } } },
-      ]);
-    });
-
-    it("should delete across multiple paragraphs", async () => {
+    it("(dc) should delete across multiple paragraphs", async () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append(
           $createParaNode().append($createTextNode("First paragraph text")),
           $createParaNode().append($createTextNode("Second paragraph text")),
         );
       });
-
       // In rich-text doc: "First paragraph text" (20) + LF (1) + "Second paragraph text" (21) = 42 chars
       // Retain 10: should position after "First para"
       // Delete 22: should delete "graph text" (10) + LF (1) + "Second para" (11) = 22 chars
@@ -1536,10 +1389,11 @@ describe("Delta Utils $applyUpdate", () => {
       expect(consoleDebugSpy).toHaveBeenCalledWith("Delete: 22");
       expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
       editor.getEditorState().read(() => {
-        // Current implementation doesn't merge paragraphs, and has off-by-one issue
-        // Result: "First para" + "\n\n" + "raph text" (missing the "g" due to off-by-one)
-        // TODO: Fix off-by-one error and implement paragraph merging
-        expect($getRoot().getTextContent()).toBe("First para\n\nraph text");
+        expect($getRoot().getChildrenSize()).toBe(1);
+        const para = $getRoot().getChildAtIndex(0);
+        if (!$isParaNode(para)) throw new Error("Expected ParaNode");
+        expect(para.getChildrenSize()).toBe(1);
+        expect(para.getTextContent()).toBe("First paragraph text");
       });
     });
 
@@ -1679,19 +1533,7 @@ describe("Delta Utils $applyUpdate", () => {
       });
     });
 
-    it("Delta Check 9 for the following test", async () => {
-      const doc = new Delta([
-        { insert: "Hello world" },
-        { insert: LF, attributes: { para: { style: "p" } } },
-      ]);
-      const ops = new Delta([{ retain: 11 }, { delete: 1 }]);
-
-      const updatedDoc = doc.compose(ops);
-
-      expect(updatedDoc.ops).toEqual([{ insert: "Hello world" }]);
-    });
-
-    it("should handle delete at very end of document", async () => {
+    it("(dc) should handle delete at very end of document", async () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append($createParaNode().append($createTextNode("Hello world")));
       });
@@ -1702,18 +1544,13 @@ describe("Delta Utils $applyUpdate", () => {
 
       expect(consoleDebugSpy).toHaveBeenCalledWith("Retain: 11");
       expect(consoleDebugSpy).toHaveBeenCalledWith("Delete: 1");
-      // Should warn since there's nothing to delete at end
-      expect(consoleWarnSpy).toHaveBeenCalledWith(
-        expect.stringMatching(/Delete operation could not remove all requested characters/),
-      );
+      expect(consoleWarnSpy).toHaveBeenCalledTimes(0);
       expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
       editor.getEditorState().read(() => {
-        const root = $getRoot();
-        expect(root.getTextContent()).toBe("Hello world");
-
-        const para = root.getChildAtIndex(0);
-        if (!$isParaNode(para)) throw new Error("Expected ParaNode");
+        const para = $getRoot().getChildAtIndex(0);
+        if (!$isImpliedParaNode(para)) throw new Error("Expected ImpliedParaNode");
         expect(para.getChildrenSize()).toBe(1);
+        expect(para.getTextContent()).toBe("Hello world");
       });
     });
 
@@ -1859,67 +1696,7 @@ describe("Delta Utils $applyUpdate", () => {
       });
     });
 
-    it("Delta Check 29 for the following test", () => {
-      const doc = new Delta([
-        { insert: "First paragraph" },
-        { insert: LF, attributes: { para: { style: "p" } } },
-        { insert: "Second paragraph" },
-        { insert: LF, attributes: { para: { style: "p" } } },
-      ]);
-      const ops = new Delta([{ retain: 10 }, { delete: 15 }]);
-
-      const updatedDoc = doc.compose(ops);
-
-      expect(updatedDoc.ops).toEqual([
-        { insert: "First pararagraph" },
-        { insert: LF, attributes: { para: { style: "p" } } },
-      ]);
-    });
-
-    xit("should handle delete across paragraph boundaries correctly", async () => {
-      const { editor } = await testEnvironment(() => {
-        $getRoot().append(
-          $createParaNode().append($createTextNode("First paragraph")),
-          $createParaNode().append($createTextNode("Second paragraph")),
-        );
-      });
-
-      // Delete text that spans across paragraph boundary
-      // This should handle the implied newline correctly
-      const ops: Op[] = [{ retain: 10 }, { delete: 15 }]; // Delete "paragraph\nSecond"
-      await sutApplyUpdate(editor, ops);
-
-      expect(consoleDebugSpy).toHaveBeenCalledWith("Retain: 10");
-      expect(consoleDebugSpy).toHaveBeenCalledWith("Delete: 15");
-      expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
-      editor.getEditorState().read(() => {
-        // Should merge paragraphs after deletion
-        expect($getRoot().getTextContent()).toBe("First para paragraph");
-      });
-    });
-
-    it("Delta Check 33 for the following test", () => {
-      const doc = new Delta([
-        { insert: "First" },
-        { insert: LF, attributes: { para: { style: "p" } } },
-        { insert: "Second" },
-        { insert: LF, attributes: { para: { style: "p" } } },
-        { insert: "Third" },
-        { insert: LF, attributes: { para: { style: "p" } } },
-      ]);
-      const ops = new Delta([{ retain: 6 }, { delete: 7 }]);
-
-      const updatedDoc = doc.compose(ops);
-
-      expect(updatedDoc.ops).toEqual([
-        { insert: "First" },
-        { insert: LF, attributes: { para: { style: "p" } } },
-        { insert: "Third" },
-        { insert: LF, attributes: { para: { style: "p" } } },
-      ]);
-    });
-
-    xit("should handle delete that removes entire paragraphs", async () => {
+    it("(dc) should handle delete that removes entire paragraphs", async () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append(
           $createParaNode().append($createTextNode("First")),
@@ -1927,16 +1704,17 @@ describe("Delta Utils $applyUpdate", () => {
           $createParaNode().append($createTextNode("Third")),
         );
       });
-
       // Delete the entire middle paragraph and its boundaries
-      const ops: Op[] = [{ retain: 6 }, { delete: 7 }]; // Delete "\nSecond\n"
+      const ops: Op[] = [{ retain: 6 }, { delete: 7 }]; // Delete "Second\n"
+
       await sutApplyUpdate(editor, ops);
 
       expect(consoleDebugSpy).toHaveBeenCalledWith("Retain: 6");
       expect(consoleDebugSpy).toHaveBeenCalledWith("Delete: 7");
       expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
       editor.getEditorState().read(() => {
-        expect($getRoot().getTextContent()).toBe("FirstThird");
+        expect($getRoot().getChildrenSize()).toBe(2); // Two paragraphs remain
+        expect($getRoot().getTextContent()).toBe("First\n\nThird");
       });
     });
 
@@ -2057,80 +1835,55 @@ describe("Delta Utils $applyUpdate", () => {
       });
     });
 
-    it("Delta Check 46 for the following test", () => {
-      const brothers = "brothers";
-      const initialDoc = new Delta([
-        { insert: { chapter: { number: "1" } } },
-        { insert: { verse: { number: "1" } } },
-        {
-          insert:
-            "Paul, an apostle—not from men nor through man, but through Jesus Christ and God the Father, who raised him from the dead— ",
-        },
-        { insert: { verse: { number: "2" } } },
-        { insert: `and all the ${brothers} who are with me, To the churches of Galatia: ` },
-        { insert: LF },
-      ]);
-      const ops: Op[] = [
-        { retain: 139 },
-        { insert: "e" },
-        { delete: 1 },
-        { retain: 2 },
-        { insert: "ren" },
-        { delete: 3 },
-      ];
-      const result = initialDoc.compose(new Delta(ops));
-      expect(result.ops).toEqual([
-        { insert: { chapter: { number: "1" } } },
-        { insert: { verse: { number: "1" } } },
-        {
-          insert:
-            "Paul, an apostle—not from men nor through man, but through Jesus Christ and God the Father, who raised him from the dead— ",
-        },
-        { insert: { verse: { number: "2" } } },
-        { insert: "and all the brethren who are with me, To the churches of Galatia: " + LF },
-      ]);
-    });
-
-    it("should replace 'brothers' with 'brethren'", async () => {
+    it("(dc) should replace 'brothers' with 'brethren'", async () => {
+      // Doc and Ops from `initialDoc.ops` and `replaceBrothersWithBrethren.op.ops` in "./delta-utils-test.data".
       const brothers = "brothers";
       const { editor } = await testEnvironment(() => {
+        const t1 = $createTextNode(
+          // length: 122
+          "Paul, an apostle—not from men nor through man, but through Jesus Christ and God the Father, who raised him from the dead— ",
+        );
+        $setState(t1, segmentState, "verse_1_1");
+        const t2 = $createTextNode(
+          // lengths: 12, 8, 46
+          `and all the ${brothers} who are with me, To the churches of Galatia: `,
+        );
+        $setState(t2, segmentState, "verse_1_2");
         $getRoot().append(
           $createImmutableChapterNode("1"),
           $createImpliedParaNode().append(
             $createImmutableVerseNode("1"),
-            $createTextNode(
-              // length: 122
-              "Paul, an apostle—not from men nor through man, but through Jesus Christ and God the Father, who raised him from the dead— ",
-            ),
+            t1,
             $createImmutableVerseNode("2"),
-            $createTextNode(
-              // lengths: 12, 8, 46
-              `and all the ${brothers} who are with me, To the churches of Galatia: `,
-            ),
+            t2,
           ),
         );
       });
-      // TODO: deal with `segment` attributes.
-      const ops: Op[] = replaceBrothersWithBrethren.op.ops;
-      // retain - 2("br") - (c1(1(embed)) + v1 + v2)
-      const textIndex = 139 - 2 - 3;
-      editor.getEditorState().read(() => {
-        expect(
-          $getRoot()
-            .getTextContent()
-            .slice(textIndex, textIndex + brothers.length),
-        ).toBe(brothers);
-      });
+      const ops: Op[] = [
+        { retain: 139 },
+        { insert: "e", attributes: { segment: "verse_1_2" } },
+        { delete: 1 },
+        { retain: 2 },
+        { insert: "ren", attributes: { segment: "verse_1_2" } },
+        { delete: 3 },
+      ];
 
       await sutApplyUpdate(editor, ops);
 
       const brethren = "brethren";
       editor.getEditorState().read(() => {
-        const textContent = $getRoot().getTextContent();
-        expect(textContent.slice(textIndex, textIndex + brethren.length)).toBe(brethren);
-        expect(textContent.slice(textIndex + brethren.length).startsWith(" who are with me")).toBe(
-          true,
+        expect($getRoot().getChildrenSize()).toBe(2); // Chapter, ImpliedParaNode
+
+        const impliedPara = $getRoot().getChildAtIndex(1);
+        if (!$isImpliedParaNode(impliedPara)) throw new Error("Expected ImpliedParaNode");
+        expect(impliedPara.getChildrenSize()).toBe(4); // VerseNode, TextNode, VerseNode, TextNode
+
+        const t2 = impliedPara.getChildAtIndex(3);
+        if (!$isTextNode(t2)) throw new Error("Expected TextNode");
+        expect(t2.getTextContent()).toBe(
+          `and all the ${brethren} who are with me, To the churches of Galatia: `,
         );
+        expect($getState(t2, segmentState)).toBe("verse_1_2");
       });
     });
 
@@ -2339,40 +2092,7 @@ describe("Delta Utils $applyUpdate", () => {
       });
     });
 
-    it("(dc) should insert para with attributes", async () => {
-      const { editor } = await testEnvironment();
-      const ops: Op[] = [{ insert: { para: { style: "q1" } } }];
-
-      await sutApplyUpdate(editor, ops);
-
-      expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
-      editor.getEditorState().read(() => {
-        expect($getRoot().getChildrenSize()).toBe(2);
-        const p = $getRoot().getFirstChild();
-        if (!$isParaNode(p)) throw new Error("p is not a ParaNode");
-        expect(p.getMarker()).toBe("q1");
-      });
-    });
-
-    it("Delta Check 59 for the following test", () => {
-      const initialDoc = new Delta([{ insert: LF, attributes: { para: { style: "p" } } }]);
-      const wordsOfJesus = "It is finished.";
-      const insertCharOp = {
-        insert: wordsOfJesus,
-        attributes: {
-          segment: "verse_1_1",
-          char: { style: "wj", cid: "afd886c6-2397-4e4c-8a94-696bf9f2e545" },
-        },
-      };
-      const ops = new Delta([insertCharOp]);
-      const result = initialDoc.compose(ops);
-      expect(result.ops).toEqual([
-        insertCharOp,
-        { insert: LF, attributes: { para: { style: "p" } } },
-      ]);
-    });
-
-    it("should insert a char embed in empty para", async () => {
+    it("(dc) should insert a char embed in empty para", async () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append($createParaNode());
       });
@@ -2401,10 +2121,14 @@ describe("Delta Utils $applyUpdate", () => {
         if (!$isCharNode(char)) throw new Error("char is not a CharNode");
         expect(char.getTextContent()).toBe(wordsOfJesus);
         expect(char.getMarker()).toBe("wj");
-        // TODO: deal with `segment` attributes.
         expect(char.getUnknownAttributes()).toEqual({
           cid: "afd886c6-2397-4e4c-8a94-696bf9f2e545",
         });
+        expect($getState(char, segmentState)).toBe("verse_1_1");
+
+        const t1 = char.getFirstChild();
+        if (!$isTextNode(t1)) throw new Error("t1 is not a TextNode");
+        expect($getState(t1, segmentState)).toBe("verse_1_1");
       });
     });
 
@@ -2438,6 +2162,7 @@ describe("Delta Utils $applyUpdate", () => {
         if (!$isCharNode(char)) throw new Error("char is not a CharNode");
         expect(char.getTextContent()).toBe(wordsOfJesus);
         expect(char.getMarker()).toBe("wj");
+        expect($getState(char, segmentState)).toBe("verse_1_1");
 
         const t2 = p.getChildAtIndex(2);
         if (!$isTextNode(t2)) throw new Error("t2 is not a TextNode");
@@ -2575,6 +2300,7 @@ describe("Delta Utils $applyUpdate", () => {
         const v1TextNode = impliedParaNode.getChildAtIndex(1);
         if (!$isTextNode(v1TextNode)) throw new Error("Child of impliedParaNode is not a TextNode");
         expect(v1TextNode.getTextContent()).toBe(v1Text);
+        expect($getState(v1TextNode, segmentState)).toBe("verse_1_1");
 
         const paraNode = root.getChildAtIndex(2);
         if (!$isParaNode(paraNode)) throw new Error("Child 1 is not a ParaNode");
@@ -2588,6 +2314,7 @@ describe("Delta Utils $applyUpdate", () => {
         const v2TextNode = paraNode.getChildAtIndex(1);
         if (!$isTextNode(v2TextNode)) throw new Error("Child of paraNode is not a TextNode");
         expect(v2TextNode.getTextContent()).toBe(v2Text);
+        expect($getState(v2TextNode, segmentState)).toBe("verse_1_2");
 
         const milestoneNode = paraNode.getChildAtIndex(2);
         if (!$isMilestoneNode(milestoneNode))
@@ -2953,41 +2680,7 @@ describe("Delta Utils $applyUpdate", () => {
         });
       });
 
-      it("Delta Check 75 for the following test", () => {
-        const mixed = "Mixed";
-        const attributesTest = " attributes test";
-        const initialDoc = new Delta([
-          { insert: `${mixed}${attributesTest}` },
-          { insert: LF, attributes: { para: { style: "p" } } },
-        ]);
-        const ops = new Delta([
-          { retain: mixed.length },
-          {
-            insert: LF,
-            attributes: {
-              para: { style: "q1" },
-              segment: "verse_1_1",
-              customAttr: "value",
-            },
-          },
-        ]);
-        const result = initialDoc.compose(ops);
-        expect(result.ops).toEqual([
-          { insert: mixed },
-          {
-            insert: LF,
-            attributes: {
-              para: { style: "q1" },
-              segment: "verse_1_1",
-              customAttr: "value",
-            },
-          },
-          { insert: attributesTest },
-          { insert: LF, attributes: { para: { style: "p" } } },
-        ]);
-      });
-
-      it("should split ParaNode with mixed attributes when para attributes differ", async () => {
+      it("(dc) should split ParaNode with mixed attributes when para attributes differ", async () => {
         const mixed = "Mixed";
         const attributesTest = " attributes test";
         const { editor } = await testEnvironment(() => {
@@ -2999,7 +2692,6 @@ describe("Delta Utils $applyUpdate", () => {
             insert: LF,
             attributes: {
               para: { style: "q1" },
-              segment: "verse_1_1",
               customAttr: "value",
             },
           },
@@ -3017,7 +2709,7 @@ describe("Delta Utils $applyUpdate", () => {
           if (!$isParaNode(firstPara)) throw new Error("firstPara is not a ParaNode");
           expect(firstPara.getTextContent()).toBe(mixed);
           expect(firstPara.getMarker()).toBe("q1"); // LF attributes go to first paragraph
-          // TODO: non-para attributes shouldn't be ignored for line breaks???
+          expect(firstPara.getUnknownAttributes()).toEqual({ customAttr: "value" });
 
           const secondPara = root.getChildAtIndex(1);
           if (!$isParaNode(secondPara)) throw new Error("secondPara is not a ParaNode");
@@ -3149,7 +2841,7 @@ describe("Delta Utils $applyUpdate", () => {
       it("(dc) should handle invalid para style gracefully", async () => {
         const { editor } = await testEnvironment();
         const invalidPara = { para: { style: "invalid-style-123" } };
-        const ops: Op[] = [{ insert: invalidPara }];
+        const ops: Op[] = [{ insert: LF, attributes: invalidPara }];
 
         await sutApplyUpdate(editor, ops);
 
@@ -3347,43 +3039,7 @@ describe("Delta Utils $applyUpdate", () => {
 });
 
 async function testEnvironment($initialEditorState?: () => void) {
-  let editor: LexicalEditor;
-
-  function GrabEditor() {
-    [editor] = useLexicalComposerContext();
-    return null;
-  }
-
-  function App() {
-    return (
-      <LexicalComposer
-        initialConfig={{
-          editorState: $initialEditorState,
-          namespace: "TestEditor",
-          nodes: [TypedMarkNode, ...usjReactNodes],
-          onError: (error) => {
-            throw error;
-          },
-          theme: {},
-        }}
-      >
-        <GrabEditor />
-        <RichTextPlugin
-          contentEditable={<ContentEditable />}
-          placeholder={null}
-          ErrorBoundary={LexicalErrorBoundary}
-        />
-      </LexicalComposer>
-    );
-  }
-
-  await act(async () => {
-    render(<App />);
-  });
-
-  // `editor` is defined on React render.
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-  return { editor: editor! };
+  return baseTestEnvironment($initialEditorState, <CharNodePlugin />);
 }
 
 /** SUT (Software Under Test) to apply an OT update. */
