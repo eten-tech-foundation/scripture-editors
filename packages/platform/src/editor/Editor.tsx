@@ -30,6 +30,7 @@ import React, {
 import { usjReactNodes } from "shared-react/nodes/usj";
 import { UsjNodeOptions } from "shared-react/nodes/usj/usj-node-options.model";
 import { ArrowNavigationPlugin } from "shared-react/plugins/usj/ArrowNavigationPlugin";
+import { CharNodePlugin } from "shared-react/plugins/usj/CharNodePlugin";
 import { ClipboardPlugin } from "shared-react/plugins/usj/ClipboardPlugin";
 import { CommandMenuPlugin } from "shared-react/plugins/usj/CommandMenuPlugin";
 import { ContextMenuPlugin } from "shared-react/plugins/usj/ContextMenuPlugin";
@@ -287,6 +288,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
           />
           <AnnotationPlugin ref={annotationRef} logger={logger} />
           <ArrowNavigationPlugin />
+          <CharNodePlugin />
           <ClipboardPlugin />
           <CommandMenuPlugin logger={logger} />
           <ContextMenuPlugin />

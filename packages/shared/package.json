@@ -23,8 +23,6 @@
     "open-patcher": "1.0.0-beta.1"
   },
   "devDependencies": {
-    "@types/deep-equal": "^1.0.4",
-    "deep-equal": "^2.2.3",
     "json-difference": "^1.16.1",
     "proskomma-core": "^0.10.10",
     "proskomma-json-tools": "^0.8.21"

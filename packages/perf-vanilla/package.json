@@ -14,8 +14,6 @@
     "open-patcher": "1.0.0-beta.1"
   },
   "devDependencies": {
-    "@types/deep-equal": "^1.0.4",
-    "deep-equal": "^2.2.3",
     "shared": "link:../shared"
   },
   "volta": {

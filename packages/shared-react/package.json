@@ -20,6 +20,7 @@
     "@floating-ui/dom": "^1.6.13",
     "@lexical/react": "^0.31.1",
     "@lexical/utils": "^0.31.1",
+    "fast-equals": "^5.2.2",
     "lexical": "^0.31.1"
   },
   "devDependencies": {
