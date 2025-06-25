@@ -1,15 +1,9 @@
-import { usjReactNodes } from "../../nodes/usj";
 import { $createImmutableNoteCallerNode } from "../../nodes/usj/ImmutableNoteCallerNode";
 import { $createImmutableVerseNode } from "../../nodes/usj/ImmutableVerseNode";
 import { ArrowNavigationPlugin } from "./ArrowNavigationPlugin";
 import { TextDirectionPlugin } from "./TextDirectionPlugin";
-import { LexicalComposer } from "@lexical/react/LexicalComposer";
-import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
-import { ContentEditable } from "@lexical/react/LexicalContentEditable";
-import { LexicalErrorBoundary } from "@lexical/react/LexicalErrorBoundary";
-import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
-import { render, act } from "@testing-library/react";
-import { $createTextNode, $getRoot, LexicalEditor, TextNode } from "lexical";
+import { baseTestEnvironment } from "./react-test.utils";
+import { $createTextNode, $getRoot, TextNode } from "lexical";
 import { $createCharNode } from "shared/nodes/usj/CharNode";
 import { $createImmutableChapterNode } from "shared/nodes/usj/ImmutableChapterNode";
 import { $createImpliedParaNode, ImpliedParaNode } from "shared/nodes/usj/ImpliedParaNode";
@@ -243,43 +237,11 @@ async function testEnvironment(
   $initialEditorState: () => void = $defaultInitialEditorState,
   textDirection: "ltr" | "rtl" = "ltr",
 ) {
-  let editor: LexicalEditor;
-
-  function GrabEditor() {
-    [editor] = useLexicalComposerContext();
-    return null;
-  }
-
-  function App() {
-    return (
-      <LexicalComposer
-        initialConfig={{
-          editorState: $initialEditorState,
-          namespace: "TestEditor",
-          nodes: usjReactNodes,
-          onError: (error) => {
-            throw error;
-          },
-          theme: {},
-        }}
-      >
-        <GrabEditor />
-        <RichTextPlugin
-          contentEditable={<ContentEditable />}
-          placeholder={null}
-          ErrorBoundary={LexicalErrorBoundary}
-        />
-        <ArrowNavigationPlugin />
-        <TextDirectionPlugin textDirection={textDirection} />
-      </LexicalComposer>
-    );
-  }
-
-  await act(async () => {
-    render(<App />);
-  });
-
-  // `editor` is defined on React render.
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-  return { editor: editor! };
+  return baseTestEnvironment(
+    $initialEditorState,
+    <>
+      <ArrowNavigationPlugin />
+      <TextDirectionPlugin textDirection={textDirection} />
+    </>,
+  );
 }

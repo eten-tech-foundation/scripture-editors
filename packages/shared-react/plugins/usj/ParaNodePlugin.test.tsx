@@ -1,12 +1,6 @@
-import { usjReactNodes } from "../../nodes/usj";
 import { ParaNodePlugin } from "./ParaNodePlugin";
-import { LexicalComposer } from "@lexical/react/LexicalComposer";
-import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
-import { ContentEditable } from "@lexical/react/LexicalContentEditable";
-import { LexicalErrorBoundary } from "@lexical/react/LexicalErrorBoundary";
-import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
-import { render, act } from "@testing-library/react";
-import { $getRoot, $createTextNode, LexicalEditor, TextNode } from "lexical";
+import { baseTestEnvironment } from "./react-test.utils";
+import { $getRoot, $createTextNode, TextNode } from "lexical";
 import {
   $createImmutableChapterNode,
   $isImmutableChapterNode,
@@ -15,6 +9,16 @@ import { $createParaNode, $isParaNode } from "shared/nodes/usj/ParaNode";
 import { pressEnterAtSelection } from "shared/nodes/usj/test.utils";
 
 let firstVerseTextNode: TextNode;
+
+function $defaultInitialEditorState() {
+  const secondVerseTextNode = $createTextNode("second verse text ");
+  firstVerseTextNode = $createTextNode("first verse text ");
+  $getRoot().append(
+    $createImmutableChapterNode("1"),
+    $createParaNode().append(firstVerseTextNode),
+    $createParaNode().append(secondVerseTextNode),
+  );
+}
 
 describe("ParaNodePlugin", () => {
   it("should load default initialEditorState (sanity check)", async () => {
@@ -69,55 +73,6 @@ describe("ParaNodePlugin", () => {
   });
 });
 
-function $defaultInitialEditorState() {
-  const secondVerseTextNode = $createTextNode("second verse text ");
-
-  firstVerseTextNode = $createTextNode("first verse text ");
-
-  $getRoot().append(
-    $createImmutableChapterNode("1"),
-    $createParaNode().append(firstVerseTextNode),
-    $createParaNode().append(secondVerseTextNode),
-  );
-}
-
 async function testEnvironment($initialEditorState: () => void = $defaultInitialEditorState) {
-  let editor: LexicalEditor;
-
-  function GrabEditor() {
-    [editor] = useLexicalComposerContext();
-    return null;
-  }
-
-  function App() {
-    return (
-      <LexicalComposer
-        initialConfig={{
-          editorState: $initialEditorState,
-          namespace: "TestEditor",
-          nodes: usjReactNodes,
-          onError: (error) => {
-            throw error;
-          },
-          theme: {},
-        }}
-      >
-        <GrabEditor />
-        <RichTextPlugin
-          contentEditable={<ContentEditable />}
-          placeholder={null}
-          ErrorBoundary={LexicalErrorBoundary}
-        />
-        <ParaNodePlugin />
-      </LexicalComposer>
-    );
-  }
-
-  await act(async () => {
-    render(<App />);
-  });
-
-  // `editor` is defined on React render.
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-  return { editor: editor! };
+  return baseTestEnvironment($initialEditorState, <ParaNodePlugin />);
 }

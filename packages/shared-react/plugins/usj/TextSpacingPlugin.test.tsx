@@ -1,21 +1,9 @@
-import { usjReactNodes } from "../../nodes/usj";
 import { ImmutableVerseNode, $createImmutableVerseNode } from "../../nodes/usj/ImmutableVerseNode";
 import { $isSomeVerseNode } from "../../nodes/usj/node-react.utils";
 import { TextSpacingPlugin } from "./TextSpacingPlugin";
-import { LexicalComposer } from "@lexical/react/LexicalComposer";
-import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
-import { ContentEditable } from "@lexical/react/LexicalContentEditable";
-import { LexicalErrorBoundary } from "@lexical/react/LexicalErrorBoundary";
-import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
-import { render, act } from "@testing-library/react";
-import {
-  $createTextNode,
-  $getRoot,
-  $isTextNode,
-  LexicalEditor,
-  TextNode,
-  $setSelection,
-} from "lexical";
+import { baseTestEnvironment } from "./react-test.utils";
+import { act } from "@testing-library/react";
+import { $createTextNode, $getRoot, $isTextNode, TextNode, $setSelection } from "lexical";
 import { $createUnknownNode, $isUnknownNode, UnknownNode } from "shared/nodes/features/UnknownNode";
 import { $createCharNode, $isCharNode } from "shared/nodes/usj/CharNode";
 import { $createImmutableChapterNode } from "shared/nodes/usj/ImmutableChapterNode";
@@ -322,42 +310,5 @@ describe("TextSpacingPlugin", () => {
 });
 
 async function testEnvironment($initialEditorState: () => void = $defaultInitialEditorState) {
-  let editor: LexicalEditor;
-
-  function GrabEditor() {
-    [editor] = useLexicalComposerContext();
-    return null;
-  }
-
-  function App() {
-    return (
-      <LexicalComposer
-        initialConfig={{
-          editorState: $initialEditorState,
-          namespace: "TestEditor",
-          nodes: usjReactNodes,
-          onError: (error) => {
-            throw error;
-          },
-          theme: {},
-        }}
-      >
-        <GrabEditor />
-        <RichTextPlugin
-          contentEditable={<ContentEditable />}
-          placeholder={null}
-          ErrorBoundary={LexicalErrorBoundary}
-        />
-        <TextSpacingPlugin />
-      </LexicalComposer>
-    );
-  }
-
-  await act(async () => {
-    render(<App />);
-  });
-
-  // `editor` is defined on React render.
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-  return { editor: editor! };
+  return baseTestEnvironment($initialEditorState, <TextSpacingPlugin />);
 }

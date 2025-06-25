@@ -1,13 +1,8 @@
-import { usjReactNodes } from "../../nodes/usj";
 import { $createImmutableVerseNode, ImmutableVerseNode } from "../../nodes/usj/ImmutableVerseNode";
 import { $isReactNodeWithMarker } from "../../nodes/usj/node-react.utils";
 import { UsjNodesMenuPlugin } from "./UsjNodesMenuPlugin";
-import { LexicalComposer } from "@lexical/react/LexicalComposer";
-import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
-import { ContentEditable } from "@lexical/react/LexicalContentEditable";
-import { LexicalErrorBoundary } from "@lexical/react/LexicalErrorBoundary";
-import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
-import { render, act } from "@testing-library/react";
+import { baseTestEnvironment } from "./react-test.utils";
+import { act } from "@testing-library/react";
 import {
   $getRoot,
   $createTextNode,
@@ -33,6 +28,21 @@ let secondVerseNode: ImmutableVerseNode;
 let secondVerseTextNode: TextNode;
 let thirdVerseNode: ImmutableVerseNode;
 let thirdVerseTextNode: TextNode;
+
+function $defaultInitialEditorState() {
+  firstVerseNode = $createImmutableVerseNode("1-2");
+  firstVerseTextNode = $createTextNode("first verse text ");
+  secondVerseNode = $createImmutableVerseNode("3a");
+  secondVerseTextNode = $createTextNode("second verse text ");
+  thirdVerseNode = $createImmutableVerseNode("4-5a");
+  thirdVerseTextNode = $createTextNode("third verse text ");
+  $getRoot().append(
+    $createImmutableChapterNode("1"),
+    $createParaNode().append(firstVerseNode, firstVerseTextNode),
+    $createParaNode().append(secondVerseNode, secondVerseTextNode),
+    $createParaNode().append(thirdVerseNode, thirdVerseTextNode),
+  );
+}
 
 describe("UsjNodesMenuPlugin", () => {
   it("should load default initialEditorState (sanity check)", async () => {
@@ -74,13 +84,12 @@ describe("UsjNodesMenuPlugin", () => {
     });
 
     it("should insert verse 2 before 2 and renumber to 3 (with normal verse numbers)", async () => {
-      function $initialEditorState() {
+      const { editor } = await testEnvironment(() => {
         $defaultInitialEditorState();
         firstVerseNode.setNumber("1");
         secondVerseNode.setNumber("2");
         thirdVerseNode.setNumber("3");
-      }
-      const { editor } = await testEnvironment($initialEditorState);
+      });
       editor.getEditorState().read(() => {
         expect(firstVerseNode.getNumber()).toBe("1");
         expect(secondVerseNode.getNumber()).toBe("2");
@@ -99,7 +108,7 @@ describe("UsjNodesMenuPlugin", () => {
     it("should insert verse 2 before 2 and renumber to 3 but only in chapter 1 (with normal verse numbers)", async () => {
       let ch2FirstVerseNode: ImmutableVerseNode;
       let ch2SecondVerseNode: ImmutableVerseNode;
-      function $initialEditorState() {
+      const { editor } = await testEnvironment(() => {
         $defaultInitialEditorState();
         firstVerseNode.setNumber("1");
         secondVerseNode.setNumber("2");
@@ -111,8 +120,7 @@ describe("UsjNodesMenuPlugin", () => {
           $createParaNode().append(ch2FirstVerseNode, $createTextNode("first verse text ")),
           $createParaNode().append(ch2SecondVerseNode, $createTextNode("second verse text ")),
         );
-      }
-      const { editor } = await testEnvironment($initialEditorState);
+      });
       editor.getEditorState().read(() => {
         expect(firstVerseNode.getNumber()).toBe("1");
         expect(secondVerseNode.getNumber()).toBe("2");
@@ -134,11 +142,10 @@ describe("UsjNodesMenuPlugin", () => {
 
     it("should get 'p' marker from implied para to enable menu there", async () => {
       let impliedPara: ImpliedParaNode;
-      function $initialEditorState() {
+      const { editor } = await testEnvironment(() => {
         impliedPara = $createImpliedParaNode();
         $getRoot().append($createImmutableChapterNode("1"), impliedPara);
-      }
-      const { editor } = await testEnvironment($initialEditorState);
+      });
 
       editor.getEditorState().read(() => {
         if (!$isImpliedParaNode(impliedPara))
@@ -150,7 +157,7 @@ describe("UsjNodesMenuPlugin", () => {
     });
 
     it("should insert a verse when the paragraph is implied", async () => {
-      function $initialEditorState() {
+      const { editor } = await testEnvironment(() => {
         firstVerseNode = $createImmutableVerseNode("1");
         firstVerseTextNode = $createTextNode("first verse text ");
         secondVerseNode = $createImmutableVerseNode("2");
@@ -164,8 +171,7 @@ describe("UsjNodesMenuPlugin", () => {
             secondVerseTextNode,
           ),
         );
-      }
-      const { editor } = await testEnvironment($initialEditorState);
+      });
 
       await insertVerseNodeAtSelection(editor, "2", firstVerseTextNode);
 
@@ -177,33 +183,9 @@ describe("UsjNodesMenuPlugin", () => {
   });
 });
 
-function $defaultInitialEditorState() {
-  firstVerseNode = $createImmutableVerseNode("1-2");
-  firstVerseTextNode = $createTextNode("first verse text ");
-  secondVerseNode = $createImmutableVerseNode("3a");
-  secondVerseTextNode = $createTextNode("second verse text ");
-  thirdVerseNode = $createImmutableVerseNode("4-5a");
-  thirdVerseTextNode = $createTextNode("third verse text ");
-  $getRoot().append(
-    $createImmutableChapterNode("1"),
-    $createParaNode().append(firstVerseNode, firstVerseTextNode),
-    $createParaNode().append(secondVerseNode, secondVerseTextNode),
-    $createParaNode().append(thirdVerseNode, thirdVerseTextNode),
-  );
-}
-
 async function testEnvironment($initialEditorState: () => void = $defaultInitialEditorState) {
   const scriptureReference = { book: "GEN", chapterNum: 1, verseNum: 1 };
-  // Can be changed by a test as it is returned by this function.
-  // eslint-disable-next-line prefer-const
-  let verseToInsert = "3";
-
-  let editor: LexicalEditor;
-
-  function GrabEditor() {
-    [editor] = useLexicalComposerContext();
-    return null;
-  }
+  const verseToInsert = "3";
 
   function getMarkerAction(marker: string) {
     return {
@@ -219,41 +201,14 @@ async function testEnvironment($initialEditorState: () => void = $defaultInitial
     };
   }
 
-  function App() {
-    return (
-      <LexicalComposer
-        initialConfig={{
-          editorState: $initialEditorState,
-          namespace: "TestEditor",
-          nodes: usjReactNodes,
-          onError: (error) => {
-            throw error;
-          },
-          theme: {},
-        }}
-      >
-        <GrabEditor />
-        <RichTextPlugin
-          contentEditable={<ContentEditable />}
-          placeholder={null}
-          ErrorBoundary={LexicalErrorBoundary}
-        />
-        <UsjNodesMenuPlugin
-          trigger="\\"
-          scrRef={scriptureReference}
-          getMarkerAction={getMarkerAction}
-        />
-      </LexicalComposer>
-    );
-  }
-
-  await act(async () => {
-    render(<App />);
-  });
-
-  // `editor` is defined on React render.
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-  return { editor: editor!, verseToInsert };
+  return baseTestEnvironment(
+    $initialEditorState,
+    <UsjNodesMenuPlugin
+      trigger="\\"
+      scrRef={scriptureReference}
+      getMarkerAction={getMarkerAction}
+    />,
+  );
 }
 
 /**
