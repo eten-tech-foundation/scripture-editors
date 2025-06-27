@@ -14,7 +14,7 @@ import { $isSomeVerseNode } from "shared-react/nodes/usj/node-react.utils";
 import { CharNodePlugin } from "shared-react/plugins/usj/CharNodePlugin";
 import { baseTestEnvironment } from "shared-react/plugins/usj/react-test.utils";
 import { getDefaultViewOptions, ViewOptions } from "shared-react/views/view-options.utils";
-import { segmentState } from "shared/nodes/collab/delta.state";
+import { charIdState, segmentState } from "shared/nodes/collab/delta.state";
 import { $isCharNode, $createCharNode } from "shared/nodes/usj/CharNode";
 import { $createImmutableChapterNode } from "shared/nodes/usj/ImmutableChapterNode";
 import { $createImpliedParaNode, $isImpliedParaNode } from "shared/nodes/usj/ImpliedParaNode";
@@ -355,10 +355,9 @@ describe("Delta Utils $applyUpdate", () => {
         if (!$isCharNode(char)) throw new Error("char is not a CharNode");
         expect(char.getTextContent()).toBe(wordsOfJesus);
         expect(char.getMarker()).toBe("wj");
-        expect(char.getUnknownAttributes()).toEqual({
-          cid: "afd886c6-2397-4e4c-8a94-696bf9f2e545",
-        });
+        expect(char.getUnknownAttributes()).toBeUndefined();
         expect($getState(char, segmentState)).toBe("verse_1_1");
+        expect($getState(char, charIdState)).toBe("afd886c6-2397-4e4c-8a94-696bf9f2e545");
       });
     });
 
@@ -394,7 +393,8 @@ describe("Delta Utils $applyUpdate", () => {
         const charNode = p.getChildAtIndex(1);
         if (!$isCharNode(charNode)) throw new Error("charNode is not a CharNode");
         expect(charNode.getMarker()).toBe("xt");
-        expect(charNode.getUnknownAttributes()).toEqual({ cid, bold: "true" });
+        expect(charNode.getUnknownAttributes()).toEqual({ bold: "true" });
+        expect($getState(charNode, charIdState)).toBe(cid);
 
         const innerTextNode = charNode.getFirstChild();
         if (!$isTextNode(innerTextNode)) throw new Error("innerTextNode is not a TextNode");
@@ -473,7 +473,8 @@ describe("Delta Utils $applyUpdate", () => {
         if (!$isCharNode(char1)) throw new Error("char1 is not a CharNode");
         expect(char1.getMarker()).toBe("sp");
         expect(char1.getTextContent()).toBe(part1);
-        expect(char1.getUnknownAttributes()).toEqual({ cid, bold: "true" });
+        expect(char1.getUnknownAttributes()).toEqual({ bold: "true" });
+        expect($getState(char1, charIdState)).toBe(cid);
 
         const t1 = char1.getFirstChild();
         if (!$isTextNode(t1)) throw new Error("t1 is not a TextNode");
@@ -483,7 +484,8 @@ describe("Delta Utils $applyUpdate", () => {
         if (!$isCharNode(char2)) throw new Error("char2 is not a CharNode");
         expect(char2.getMarker()).toBe("sp");
         expect(char2.getTextContent()).toBe(part2);
-        expect(char2.getUnknownAttributes()).toEqual({ cid });
+        expect(char2.getUnknownAttributes()).toBeUndefined();
+        expect($getState(char2, charIdState)).toBe(cid);
 
         const t2 = char2.getFirstChild();
         if (!$isTextNode(t2)) throw new Error("t2 is not a TextNode");
@@ -557,7 +559,8 @@ describe("Delta Utils $applyUpdate", () => {
         const charNode = p.getChildAtIndex(1);
         if (!$isCharNode(charNode)) throw new Error("charNode is not a CharNode");
         expect(charNode.getMarker()).toBe("bd");
-        expect(charNode.getUnknownAttributes()).toEqual({ cid: "test-id", bold: "true" });
+        expect(charNode.getUnknownAttributes()).toEqual({ bold: "true" });
+        expect($getState(charNode, charIdState)).toBe("test-id");
 
         // Check that inner text has bold formatting
         const innerText = charNode.getFirstChild();
@@ -631,12 +634,14 @@ describe("Delta Utils $applyUpdate", () => {
       });
     });
 
-    it("(dc) should handle retain spanning multiple elements", async () => {
+    it("(dc) should handle retain spanning multiple elements with cid", async () => {
       const { editor } = await testEnvironment(() => {
+        const char = $createCharNode("bd");
+        $setState(char, charIdState, "char-id-1");
         $getRoot().append(
           $createParaNode().append(
             $createTextNode("Start "),
-            $createCharNode("bd").append($createTextNode("bold")),
+            char.append($createTextNode("bold")),
             $createTextNode(" end"),
           ),
         );
@@ -645,7 +650,7 @@ describe("Delta Utils $applyUpdate", () => {
         { retain: 3 }, // "Sta"
         {
           retain: 3 + 4 + 2, // "rt bold e" - spans across text, CharNode text, and text
-          attributes: { char: { style: "it" } },
+          attributes: { char: { style: "it", cid: "char-id-1" } },
         },
       ];
 
@@ -666,8 +671,74 @@ describe("Delta Utils $applyUpdate", () => {
         if (!$isCharNode(char1)) throw new Error("char1 is not a CharNode");
         expect(char1.getMarker()).toBe("it");
         expect(char1.getTextContent()).toBe("rt bold e");
+        expect($getState(char1, charIdState)).toBe("char-id-1");
 
         const t3 = p.getChildAtIndex(2);
+        if (!$isTextNode(t3)) throw new Error("t3 is not a TextNode");
+        expect(t3.getTextContent()).toBe("nd");
+      });
+    });
+
+    it("(dc) should handle retaining multiple elements with different cids", async () => {
+      const { editor } = await testEnvironment(() => {
+        const char = $createCharNode("bd");
+        $setState(char, charIdState, "char-id-2");
+        $getRoot().append(
+          $createParaNode().append(
+            $createTextNode("Start "),
+            char.append($createTextNode("bold")),
+            $createTextNode(" end"),
+          ),
+        );
+      });
+      const ops: Op[] = [
+        { retain: 3 }, // "Sta"
+        {
+          retain: 3, // "rt "
+          attributes: { char: { style: "it", cid: "char-id-1" } },
+        },
+        {
+          retain: 4, // "bold"
+          attributes: { char: { style: "it", cid: "char-id-2" } },
+        },
+        {
+          retain: 2, // " e"
+          attributes: { char: { style: "it", cid: "char-id-3" } },
+        },
+      ];
+
+      await sutApplyUpdate(editor, ops);
+
+      expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
+      editor.getEditorState().read(() => {
+        const p = $getRoot().getFirstChild();
+        if (!$isParaNode(p)) throw new Error("p is not a ParaNode");
+        expect(p.getTextContent()).toBe("Start bold end");
+        expect(p.getChildrenSize()).toBe(5);
+
+        const t1 = p.getFirstChild();
+        if (!$isTextNode(t1)) throw new Error("t1 is not a TextNode");
+        expect(t1.getTextContent()).toBe("Sta");
+
+        const char1 = p.getChildAtIndex(1);
+        if (!$isCharNode(char1)) throw new Error("char1 is not a CharNode");
+        expect(char1.getMarker()).toBe("it");
+        expect(char1.getTextContent()).toBe("rt ");
+        expect($getState(char1, charIdState)).toBe("char-id-1");
+
+        const char2 = p.getChildAtIndex(2);
+        if (!$isCharNode(char2)) throw new Error("char2 is not a CharNode");
+        expect(char2.getMarker()).toBe("it");
+        expect(char2.getTextContent()).toBe("bold");
+        expect($getState(char2, charIdState)).toBe("char-id-2");
+
+        const char3 = p.getChildAtIndex(3);
+        if (!$isCharNode(char3)) throw new Error("char3 is not a CharNode");
+        expect(char3.getMarker()).toBe("it");
+        expect(char3.getTextContent()).toBe(" e");
+        expect($getState(char3, charIdState)).toBe("char-id-3");
+
+        const t3 = p.getChildAtIndex(4);
         if (!$isTextNode(t3)) throw new Error("t3 is not a TextNode");
         expect(t3.getTextContent()).toBe("nd");
       });
@@ -760,7 +831,7 @@ describe("Delta Utils $applyUpdate", () => {
       });
       const ops: Op[] = [
         {
-          retain: 14, // length of "formatted text"
+          retain: 14, // "formatted text"
           attributes: {
             // Keep same style but add new cid and change color
             char: { style: "bd", cid: "new-id", color: "blue" },
@@ -777,15 +848,10 @@ describe("Delta Utils $applyUpdate", () => {
 
         const charNode = p.getFirstChild();
         if (!$isCharNode(charNode)) throw new Error("charNode is not a CharNode");
-
         // Should maintain the style and apply new attributes
         expect(charNode.getMarker()).toBe("bd");
-        expect(charNode.getUnknownAttributes()).toEqual(
-          expect.objectContaining({
-            cid: "new-id",
-            color: "blue",
-          }),
-        );
+        expect(charNode.getUnknownAttributes()).toEqual({ color: "blue" });
+        expect($getState(charNode, charIdState)).toBe("new-id");
       });
     });
 
@@ -2121,10 +2187,9 @@ describe("Delta Utils $applyUpdate", () => {
         if (!$isCharNode(char)) throw new Error("char is not a CharNode");
         expect(char.getTextContent()).toBe(wordsOfJesus);
         expect(char.getMarker()).toBe("wj");
-        expect(char.getUnknownAttributes()).toEqual({
-          cid: "afd886c6-2397-4e4c-8a94-696bf9f2e545",
-        });
+        expect(char.getUnknownAttributes()).toBeUndefined();
         expect($getState(char, segmentState)).toBe("verse_1_1");
+        expect($getState(char, charIdState)).toBe("afd886c6-2397-4e4c-8a94-696bf9f2e545");
 
         const t1 = char.getFirstChild();
         if (!$isTextNode(t1)) throw new Error("t1 is not a TextNode");

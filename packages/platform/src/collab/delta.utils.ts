@@ -27,7 +27,7 @@ import { $createImmutableVerseNode } from "shared-react/nodes/usj/ImmutableVerse
 import { $isSomeVerseNode, SomeVerseNode } from "shared-react/nodes/usj/node-react.utils";
 import { ViewOptions } from "shared-react/views/view-options.utils";
 import { LoggerBasic } from "shared/adaptors/logger-basic.model";
-import { deltaStates, segmentState } from "shared/nodes/collab/delta.state";
+import { charIdState, deltaStates, segmentState } from "shared/nodes/collab/delta.state";
 import {
   $isImmutableUnmatchedNode,
   ImmutableUnmatchedNode,
@@ -171,12 +171,7 @@ function $applyAttributes(
           }
 
           // Check if we need to convert TextNode to CharNode
-          if (
-            attributes.char &&
-            typeof attributes.char === "object" &&
-            attributes.char !== null &&
-            "style" in attributes.char
-          ) {
+          if (hasCharAttributes(attributes)) {
             // Apply new non-char attributes to TextNode as well
             const textAttributes = { ...attributes };
             delete textAttributes.char;
@@ -185,12 +180,13 @@ function $applyAttributes(
             const parentNode = targetNode.getParent();
             if ($isCharNode(parentNode)) {
               // Don't create a new CharNode, just apply attributes
-              const charAttributes = attributes.char;
-              if (
-                typeof charAttributes.style === "string" &&
-                parentNode.getMarker() !== charAttributes.style
-              )
-                parentNode.setMarker(charAttributes.style);
+              const charAttributes = attributes.char as OTEmbedChar;
+              parentNode.setMarker(charAttributes.style);
+
+              if (typeof charAttributes.cid === "string") {
+                $setState(parentNode, charIdState, () => charAttributes.cid);
+              }
+
               const unknownAttributes = getUnknownAttributes(charAttributes, OT_CHAR_PROPS);
               if (unknownAttributes && Object.keys(unknownAttributes).length > 0) {
                 parentNode.setUnknownAttributes({
@@ -198,6 +194,7 @@ function $applyAttributes(
                   ...unknownAttributes,
                 });
               }
+
               applyTextAttributes(textAttributes, targetNode);
             } else {
               // Create new CharNode with the attributes
@@ -242,7 +239,7 @@ function $applyAttributes(
               } else {
                 logger?.error(
                   `Failed to create CharNode for text transformation. Style: ${
-                    attributes.char.style
+                    attributes.char?.style
                   }. Falling back to standard text attributes.`,
                 );
                 applyTextAttributes(attributes, targetNode);
@@ -275,15 +272,15 @@ function $applyAttributes(
         currentIndex < targetIndex + retain &&
         lengthToFormat > 0
       ) {
-        if (
-          attributes.char &&
-          typeof attributes.char === "object" &&
-          attributes.char !== null &&
-          "style" in attributes.char
-        ) {
+        if (hasCharAttributes(attributes)) {
           const charEmbedData = attributes.char as OTEmbedChar;
           // Update the CharNode's marker and attributes to match the retain attributes
           currentNode.setMarker(charEmbedData.style);
+
+          if (typeof charEmbedData.cid === "string") {
+            $setState(currentNode, charIdState, () => charEmbedData.cid);
+          }
+
           const unknownAttributes = getUnknownAttributes(charEmbedData, OT_CHAR_PROPS);
           if (unknownAttributes && Object.keys(unknownAttributes).length > 0) {
             currentNode.setUnknownAttributes({
@@ -402,12 +399,14 @@ function $applyEmbedAttributes(
     const value = attributes[key];
 
     // Special handling for char attributes on CharNodes
-    if (key === "char" && $isCharNode(node) && typeof value === "object" && value !== null) {
-      const charAttributes = value as Record<string, unknown>;
+    if (key === "char" && $isCharNode(node) && hasCharAttributes(attributes)) {
+      const charAttributes = value as OTEmbedChar;
+      node.setMarker(charAttributes.style);
 
-      // Update marker if style is provided
-      if ("style" in charAttributes && typeof charAttributes.style === "string") {
-        node.setMarker(charAttributes.style);
+      // Set charIdState if cid is present
+      if (typeof charAttributes.cid === "string") {
+        const cid = charAttributes.cid;
+        $setState(node, charIdState, () => cid);
       }
 
       // Apply other char attributes to unknownAttributes
@@ -1810,11 +1809,12 @@ function $createPara(attributes: AttributeMap) {
 function $createChar(attributes: AttributeMap) {
   const charData = attributes.char as OTEmbedChar;
   const { style } = charData;
-  if (!style) return;
+  if (!style || !hasCharAttributes(attributes)) return;
 
   const unknownAttributes = getUnknownAttributes(charData, OT_CHAR_PROPS);
   const charNode = $createCharNode(style, unknownAttributes);
   if (typeof attributes.segment === "string") $setState(charNode, segmentState, attributes.segment);
+  if (typeof charData.cid === "string") $setState(charNode, charIdState, charData.cid);
   return charNode;
 }
 
@@ -1841,13 +1841,27 @@ function isEmbedOfType<T extends object, K extends PropertyKey>(
   return typeof value === "object" && value !== null;
 }
 
+/** Type guard for Char attributes. */
+function hasCharAttributes(
+  attributes: AttributeMap,
+): attributes is AttributeMap & { char?: OTEmbedChar } {
+  return (
+    !!attributes.char &&
+    typeof attributes.char === "object" &&
+    attributes.char !== null &&
+    "style" in attributes.char &&
+    typeof (attributes.char as any).style === "string"
+  );
+}
+
 function applyTextAttributes(attributes: AttributeMap | undefined, textNode: TextNode) {
   if (!attributes) return;
 
   for (const key of Object.keys(attributes)) {
-    // Handle segment attribute using $setState
+    // Handle segment attribute
     if (key === "segment" && typeof attributes[key] === "string") {
-      $setState(textNode, segmentState, attributes[key]);
+      const segment = attributes[key];
+      $setState(textNode, segmentState, () => segment);
       continue;
     }
 
