@@ -1,7 +1,8 @@
 import { CharNodePlugin } from "./CharNodePlugin";
 import { baseTestEnvironment } from "./react-test.utils";
 import { act } from "@testing-library/react";
-import { $getRoot, $createTextNode, $isTextNode } from "lexical";
+import { $getRoot, $createTextNode, $isTextNode, $setState } from "lexical";
+import { charIdState } from "shared/nodes/collab/delta.state";
 import { $createCharNode, $isCharNode, CharNode } from "shared/nodes/usj/CharNode";
 import { $createParaNode, $isParaNode } from "shared/nodes/usj/ParaNode";
 
@@ -74,8 +75,8 @@ describe("CharNodePlugin", () => {
     const { editor } = await testEnvironment(() => {
       $getRoot().append(
         $createParaNode().append(
-          $createCharNode("add", { cid: "char-id" }).append($createTextNode("add text1 ")),
-          $createCharNode("add", { cid: "char-id" }).append($createTextNode("add text2 ")),
+          $createCharNode("add", { customAttr: "value" }).append($createTextNode("add text1 ")),
+          $createCharNode("add", { customAttr: "value" }).append($createTextNode("add text2 ")),
         ),
       );
     });
@@ -95,8 +96,181 @@ describe("CharNodePlugin", () => {
     const { editor } = await testEnvironment(() => {
       $getRoot().append(
         $createParaNode().append(
-          $createCharNode("add", { cid: "char1-id" }).append($createTextNode("add text1 ")),
-          $createCharNode("add", { cid: "char2-id" }).append($createTextNode("add text2 ")),
+          $createCharNode("add", { customAttr: "value1" }).append($createTextNode("add text1 ")),
+          $createCharNode("add", { customAttr: "value2" }).append($createTextNode("add text2 ")),
+        ),
+      );
+    });
+
+    editor.getEditorState().read(() => {
+      const p = $getRoot().getFirstChild();
+      if (!$isParaNode(p)) throw new Error("Expected a ParaNode");
+      expect(p.getChildrenSize()).toBe(2);
+
+      const add = p.getFirstChild();
+      if (!$isCharNode(add)) throw new Error("Expected a CharNode");
+      expect(add.getMarker()).toBe("add");
+    });
+  });
+
+  it("should combine adjacent CharNodes with same marker and cid", async () => {
+    const { editor } = await testEnvironment(() => {
+      const char1 = $createCharNode("add");
+      $setState(char1, charIdState, "char-id");
+      const char2 = $createCharNode("add");
+      $setState(char2, charIdState, "char-id");
+      $getRoot().append(
+        $createParaNode().append(
+          char1.append($createTextNode("add text1 ")),
+          char2.append($createTextNode("add text2 ")),
+        ),
+      );
+    });
+
+    editor.getEditorState().read(() => {
+      const p = $getRoot().getFirstChild();
+      if (!$isParaNode(p)) throw new Error("Expected a ParaNode");
+      expect(p.getChildrenSize()).toBe(1);
+
+      const add = p.getFirstChild();
+      if (!$isCharNode(add)) throw new Error("Expected a CharNode");
+      expect(add.getMarker()).toBe("add");
+    });
+  });
+
+  it("should combine adjacent CharNodes with same marker and empty cids", async () => {
+    const { editor } = await testEnvironment(() => {
+      const char1 = $createCharNode("add");
+      $setState(char1, charIdState, "");
+      const char2 = $createCharNode("add");
+      $setState(char2, charIdState, "");
+      $getRoot().append(
+        $createParaNode().append(
+          char1.append($createTextNode("add text1 ")),
+          char2.append($createTextNode("add text2 ")),
+        ),
+      );
+    });
+
+    editor.getEditorState().read(() => {
+      const p = $getRoot().getFirstChild();
+      if (!$isParaNode(p)) throw new Error("Expected a ParaNode");
+      expect(p.getChildrenSize()).toBe(1);
+
+      const add = p.getFirstChild();
+      if (!$isCharNode(add)) throw new Error("Expected a CharNode");
+      expect(add.getMarker()).toBe("add");
+    });
+  });
+
+  it("should not combine adjacent CharNodes with same marker but different cids", async () => {
+    const { editor } = await testEnvironment(() => {
+      const char1 = $createCharNode("add");
+      $setState(char1, charIdState, "char-id1");
+      const char2 = $createCharNode("add");
+      $setState(char2, charIdState, "char-id2");
+      $getRoot().append(
+        $createParaNode().append(
+          char1.append($createTextNode("add text1 ")),
+          char2.append($createTextNode("add text2 ")),
+        ),
+      );
+    });
+
+    editor.getEditorState().read(() => {
+      const p = $getRoot().getFirstChild();
+      if (!$isParaNode(p)) throw new Error("Expected a ParaNode");
+      expect(p.getChildrenSize()).toBe(2);
+
+      const add = p.getFirstChild();
+      if (!$isCharNode(add)) throw new Error("Expected a CharNode");
+      expect(add.getMarker()).toBe("add");
+    });
+  });
+
+  it("should combine adjacent CharNodes with same marker, attributes and cid", async () => {
+    const { editor } = await testEnvironment(() => {
+      const char1 = $createCharNode("add", { customAttr: "value" });
+      $setState(char1, charIdState, "char-id");
+      const char2 = $createCharNode("add", { customAttr: "value" });
+      $setState(char2, charIdState, "char-id");
+      $getRoot().append(
+        $createParaNode().append(
+          char1.append($createTextNode("add text1 ")),
+          char2.append($createTextNode("add text2 ")),
+        ),
+      );
+    });
+
+    editor.getEditorState().read(() => {
+      const p = $getRoot().getFirstChild();
+      if (!$isParaNode(p)) throw new Error("Expected a ParaNode");
+      expect(p.getChildrenSize()).toBe(1);
+
+      const add = p.getFirstChild();
+      if (!$isCharNode(add)) throw new Error("Expected a CharNode");
+      expect(add.getMarker()).toBe("add");
+    });
+  });
+
+  it("should not combine adjacent CharNodes with same marker and cids but different attributes", async () => {
+    const { editor } = await testEnvironment(() => {
+      const char1 = $createCharNode("add", { customAttr: "value1" });
+      $setState(char1, charIdState, "char-id");
+      const char2 = $createCharNode("add", { customAttr: "value2" });
+      $setState(char2, charIdState, "char-id");
+      $getRoot().append(
+        $createParaNode().append(
+          char1.append($createTextNode("add text1 ")),
+          char2.append($createTextNode("add text2 ")),
+        ),
+      );
+    });
+
+    editor.getEditorState().read(() => {
+      const p = $getRoot().getFirstChild();
+      if (!$isParaNode(p)) throw new Error("Expected a ParaNode");
+      expect(p.getChildrenSize()).toBe(2);
+
+      const add = p.getFirstChild();
+      if (!$isCharNode(add)) throw new Error("Expected a CharNode");
+      expect(add.getMarker()).toBe("add");
+    });
+  });
+
+  it("should not combine adjacent CharNodes with same marker and attributes but different cids", async () => {
+    const { editor } = await testEnvironment(() => {
+      const char1 = $createCharNode("add", { customAttr: "value" });
+      $setState(char1, charIdState, "char-id1");
+      const char2 = $createCharNode("add", { customAttr: "value" });
+      $setState(char2, charIdState, "char-id2");
+      $getRoot().append(
+        $createParaNode().append(
+          char1.append($createTextNode("add text1 ")),
+          char2.append($createTextNode("add text2 ")),
+        ),
+      );
+    });
+
+    editor.getEditorState().read(() => {
+      const p = $getRoot().getFirstChild();
+      if (!$isParaNode(p)) throw new Error("Expected a ParaNode");
+      expect(p.getChildrenSize()).toBe(2);
+
+      const add = p.getFirstChild();
+      if (!$isCharNode(add)) throw new Error("Expected a CharNode");
+      expect(add.getMarker()).toBe("add");
+    });
+  });
+
+  it("should not combine adjacent CharNodes with same marker but only one cid", async () => {
+    const { editor } = await testEnvironment(() => {
+      const char1 = $createCharNode("add");
+      $setState(char1, charIdState, "char-id1");
+      $getRoot().append(
+        $createParaNode().append(
+          char1.append($createTextNode("add text1 ")),
+          $createCharNode("add").append($createTextNode("add text2 ")),
         ),
       );
     });
