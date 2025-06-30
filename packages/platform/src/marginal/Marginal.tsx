@@ -74,6 +74,9 @@ const Marginal = forwardRef(function Marginal<TLogger extends LoggerBasic>(
     setUsj(usj) {
       editorRef.current?.setUsj(usj);
     },
+    applyUpdate(ops) {
+      editorRef.current?.applyUpdate(ops);
+    },
     getSelection() {
       return editorRef.current?.getSelection();
     },

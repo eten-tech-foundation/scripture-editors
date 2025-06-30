@@ -1,16 +1,17 @@
 import {
-  OTEmbedChapter,
-  OTEmbedVerse,
-  OTEmbedMilestone,
+  OTChapterEmbed,
+  OTVerseEmbed,
+  OTMilestoneEmbed,
   OT_CHAPTER_PROPS,
   OT_VERSE_PROPS,
   OT_MILESTONE_PROPS,
   OTParaAttribute,
   OT_PARA_PROPS,
-  OTEmbedChar,
+  OTCharItem,
+  OTCharAttribute,
   OT_CHAR_PROPS,
 } from "./rich-text-ot.model";
-import { $unwrapNode, $wrapNodeInElement } from "@lexical/utils";
+import { $unwrapNode } from "@lexical/utils";
 import {
   $getRoot,
   $createTextNode,
@@ -44,6 +45,7 @@ import {
   MilestoneNode,
 } from "shared/nodes/usj/MilestoneNode";
 import {
+  $hasSameCharAttributes,
   $isSomeChapterNode,
   $isSomeParaNode,
   getUnknownAttributes,
@@ -54,6 +56,14 @@ import { $isNoteNode, NoteNode } from "shared/nodes/usj/NoteNode";
 import { $createParaNode, $isParaNode, ParaNode } from "shared/nodes/usj/ParaNode";
 import { $createVerseNode } from "shared/nodes/usj/VerseNode";
 
+type AttributeMapWithPara = AttributeMap & {
+  para: OTParaAttribute;
+};
+
+type AttributeMapWithChar = AttributeMap & {
+  char: OTCharAttribute;
+};
+
 /*
 For implied paragraphs, we use the following logic:
   - An ImpliedParaNode (or ParaNode) takes up OT index space 1 but only at the end of the block.
@@ -62,6 +72,18 @@ For implied paragraphs, we use the following logic:
     by a ParaNode specified by the attributes.
   - Our empty Lexical editor defaults to an empty ImpliedParaNode, so the first inline insertion
     should go inside it.
+
+For CharNodes, we use the following logic:
+  - CharNodes are created when attributes.char is present in a text insert operation.
+  - CharNodes are inserted at the current index, and they can contain TextNodes with additional
+    formatting attributes.
+  - CharNodes have no OT length contribution themselves, but their text content does.
+  - CharNodes can be nested inside SomeParaNode or other CharNodes.
+  - CharNodes use the attributes style and cid to uniquely identify themselves.
+  - A single CharNode can use an attributes object `{ char: { style: "bd", cid: "456" } }`.
+  - A nested CharNode will use attributes.char object
+      `{ char: [{ style: "it", cid: "123" }, { style: "bd", cid: "456" }] }`
+    where "it" is the parent CharNode and "bd" is the child CharNode.
 */
 
 export const LF = "\n";
@@ -143,6 +165,8 @@ function $applyAttributes(
   );
   let lengthToFormat = retain;
   let currentIndex = 0;
+  /** The nested CharNode depth */
+  let nestedCharCount = -1;
   const root = $getRoot();
 
   function $traverseAndApplyAttributesRecursive(currentNode: LexicalNode): boolean {
@@ -161,8 +185,7 @@ function $applyAttributes(
           const needsSplitAtEnd = lengthToApplyInThisNode < textLength - offsetInNode;
 
           if (needsSplitAtStart && needsSplitAtEnd) {
-            let middleNode;
-            [, middleNode] = $splitTextWithDeltaStates(currentNode, offsetInNode);
+            const [, middleNode] = $splitTextWithDeltaStates(currentNode, offsetInNode);
             [targetNode] = $splitTextWithDeltaStates(middleNode, lengthToApplyInThisNode);
           } else if (needsSplitAtStart) {
             [, targetNode] = $splitTextWithDeltaStates(currentNode, offsetInNode);
@@ -173,80 +196,54 @@ function $applyAttributes(
           // Check if we need to convert TextNode to CharNode
           if (hasCharAttributes(attributes)) {
             // Apply new non-char attributes to TextNode as well
-            const textAttributes = { ...attributes };
-            delete textAttributes.char;
 
             // Check if this text node is already inside a CharNode
             const parentNode = targetNode.getParent();
             if ($isCharNode(parentNode)) {
-              // Don't create a new CharNode, just apply attributes
-              const charAttributes = attributes.char as OTEmbedChar;
-              parentNode.setMarker(charAttributes.style);
-
-              if (typeof charAttributes.cid === "string") {
-                $setState(parentNode, charIdState, () => charAttributes.cid);
-              }
-
-              const unknownAttributes = getUnknownAttributes(charAttributes, OT_CHAR_PROPS);
-              if (unknownAttributes && Object.keys(unknownAttributes).length > 0) {
-                parentNode.setUnknownAttributes({
-                  ...(parentNode.getUnknownAttributes() ?? {}),
-                  ...unknownAttributes,
-                });
-              }
-
-              applyTextAttributes(textAttributes, targetNode);
-            } else {
-              // Create new CharNode with the attributes
-              const newCharNode = $createChar(attributes);
-              if ($isCharNode(newCharNode)) {
-                // Copy original text formatting to CharNode's unknownAttributes
-                const textFormatAttributes: Record<string, string> = {};
-                TEXT_FORMAT_TYPES.forEach((format) => {
-                  if (targetNode.hasFormat(format)) {
-                    textFormatAttributes[format] = "true";
-                  }
-                });
-
-                // Convert textAttributes to string values for unknownAttributes
-                const stringifiedTextAttributes: Record<string, string> = {};
-                Object.entries(textAttributes).forEach(([key, value]) => {
-                  if (key === "segment") return;
-
-                  if (typeof value === "string") {
-                    stringifiedTextAttributes[key] = value;
-                  } else if (value === true) {
-                    stringifiedTextAttributes[key] = "true";
-                  } else if (value === false) {
-                    stringifiedTextAttributes[key] = "false";
-                  }
-                  // Skip other types that can't be serialized to string
-                });
-
-                // Combine all attributes for the CharNode
-                const combinedUnknownAttributes = {
-                  ...(newCharNode.getUnknownAttributes() ?? {}),
-                  ...textFormatAttributes,
-                  ...stringifiedTextAttributes,
-                };
-
-                if (Object.keys(combinedUnknownAttributes).length > 0) {
-                  newCharNode.setUnknownAttributes(combinedUnknownAttributes);
+              const charAttr = attributes.char;
+              let charAttrItem: OTCharItem | undefined;
+              if (Array.isArray(charAttr)) {
+                if (nestedCharCount >= 0 && nestedCharCount <= charAttr.length - 1) {
+                  charAttrItem = charAttr[nestedCharCount];
                 }
-
-                applyTextAttributes(textAttributes, targetNode);
-                $wrapNodeInElement(targetNode, () => newCharNode);
-              } else {
-                logger?.error(
-                  `Failed to create CharNode for text transformation. Style: ${
-                    attributes.char?.style
-                  }. Falling back to standard text attributes.`,
-                );
-                applyTextAttributes(attributes, targetNode);
+              } else if (nestedCharCount === 0) {
+                // Single char attribute
+                charAttrItem = charAttr;
               }
+              const hasSameCharAttributes = charAttrItem
+                ? $hasSameCharAttributes(charAttrItem, parentNode)
+                : false;
+
+              if (hasSameCharAttributes && Array.isArray(charAttr) && charAttr.length > 1) {
+                const placeholderNode = $createTextNode("");
+                targetNode.replace(placeholderNode);
+                const segment =
+                  typeof attributes.segment === "string" ? attributes.segment : undefined;
+                const nestedCharNode = $createNestedChars(charAttr.slice(1), targetNode, segment);
+                placeholderNode.replace(nestedCharNode);
+                // Apply text attributes to the innermost node
+                $applyTextAttributes(attributes, targetNode);
+                // No need to update parent marker/cid, as it already matches
+              } else if (!hasSameCharAttributes) {
+                // If parent does not match, wrap the targetNode in new nested CharNode(s)
+                const placeholderNode = $createTextNode("");
+                targetNode.replace(placeholderNode);
+                const char = $wrapInNestedCharNodes(targetNode, attributes, logger);
+                if (char) parentNode.insertAfter(char);
+                else placeholderNode.replace(targetNode);
+              } else {
+                // Parent CharNode matches and no further nesting needed, just apply attributes
+                $applyTextAttributes(attributes, targetNode);
+              }
+            } else {
+              const placeholderNode = $createTextNode("");
+              targetNode.replace(placeholderNode);
+              const char = $wrapInNestedCharNodes(targetNode, attributes, logger);
+              if (char) placeholderNode.replace(char);
+              else placeholderNode.replace(targetNode);
             }
           } else {
-            applyTextAttributes(attributes, targetNode);
+            $applyTextAttributes(attributes, targetNode);
           }
           lengthToFormat -= lengthToApplyInThisNode;
         }
@@ -266,6 +263,7 @@ function $applyAttributes(
       currentIndex += atomicNodeOtLength;
     } else if ($isCharNode(currentNode)) {
       // CharNodes don't contribute to OT length, they're just formatted text containers
+      nestedCharCount += 1;
       let shouldRemoveCharNode = false;
       if (
         targetIndex <= currentIndex &&
@@ -273,22 +271,41 @@ function $applyAttributes(
         lengthToFormat > 0
       ) {
         if (hasCharAttributes(attributes)) {
-          const charEmbedData = attributes.char as OTEmbedChar;
-          // Update the CharNode's marker and attributes to match the retain attributes
-          currentNode.setMarker(charEmbedData.style);
-
-          if (typeof charEmbedData.cid === "string") {
-            $setState(currentNode, charIdState, () => charEmbedData.cid);
+          // Support nested char arrays for deep char attribute application
+          const charAttr = attributes.char;
+          let charAttrItem: OTCharItem | undefined;
+          if (Array.isArray(charAttr)) {
+            if (nestedCharCount >= 0 && nestedCharCount <= charAttr.length - 1) {
+              charAttrItem = charAttr[nestedCharCount];
+            }
+          } else if (nestedCharCount === 0) {
+            // Single char attribute
+            charAttrItem = charAttr;
           }
-
-          const unknownAttributes = getUnknownAttributes(charEmbedData, OT_CHAR_PROPS);
-          if (unknownAttributes && Object.keys(unknownAttributes).length > 0) {
-            currentNode.setUnknownAttributes({
-              ...(currentNode.getUnknownAttributes() ?? {}),
-              ...unknownAttributes,
-            });
+          // Only set attributes if needed
+          if (charAttrItem) {
+            // Update the CharNode's marker and attributes to match the retain attributes
+            currentNode.setMarker(charAttrItem.style);
+            if (typeof charAttrItem.cid === "string") {
+              $setState(currentNode, charIdState, () => charAttrItem.cid);
+            }
+            const unknownAttributes = getUnknownAttributes(charAttrItem, OT_CHAR_PROPS);
+            if (unknownAttributes && Object.keys(unknownAttributes).length > 0) {
+              currentNode.setUnknownAttributes({
+                ...(currentNode.getUnknownAttributes() ?? {}),
+                ...unknownAttributes,
+              });
+            } else {
+              // If no unknown attributes, clear them
+              // TODO: this was added - review if this is right and add elsewhere?
+              currentNode.setUnknownAttributes(undefined);
+            }
           }
-        } else if (attributes.char === false || attributes.char === null) {
+        } else if (
+          attributes.char === false ||
+          attributes.char === null ||
+          isEmptyObject(attributes.char)
+        ) {
           shouldRemoveCharNode = true;
         }
       }
@@ -310,6 +327,7 @@ function $applyAttributes(
       if (shouldRemoveCharNode) {
         $unwrapNode(currentNode);
       }
+      nestedCharCount -= 1;
     } else if ($isContainerEmbedNode(currentNode)) {
       // True container embeds have an OT length of 1 for their "tag", then their children are processed.
       const containerEmbedOtLength = 1;
@@ -390,6 +408,69 @@ function $applyAttributes(
   }
 }
 
+/**
+ * Applies the given attributes to the specified text node wrapped in nested CharNodes.
+ * @param textNode - The text node to wrap and to which attributes should be applied.
+ * @param attributes - The attributes to apply.
+ * @param textAttributes - The text attributes to apply.
+ * @param logger - The logger to use for logging, if any.
+ * @returns A CharNode if the operation was successful, otherwise undefined.
+ */
+function $wrapInNestedCharNodes(
+  textNode: TextNode,
+  attributes: AttributeMapWithChar,
+  logger?: LoggerBasic,
+): CharNode | undefined {
+  // Create new CharNode(s) with the attributes, supporting nested char arrays
+  const segment = typeof attributes.segment === "string" ? attributes.segment : undefined;
+  const newCharNode = $createNestedChars(attributes.char, textNode, segment);
+  if ($isCharNode(newCharNode)) {
+    // Copy original text formatting to CharNode's unknownAttributes
+    const textFormatAttributes: Record<string, string> = {};
+    TEXT_FORMAT_TYPES.forEach((format) => {
+      if (textNode.hasFormat(format)) {
+        textFormatAttributes[format] = "true";
+      }
+    });
+
+    // Convert attributes to string values for unknownAttributes
+    const stringifiedAttributes: Record<string, string> = {};
+    Object.entries(attributes).forEach(([key, value]) => {
+      if (key === "segment" || key === "char") return;
+
+      if (typeof value === "string") {
+        stringifiedAttributes[key] = value;
+      } else if (value === true) {
+        stringifiedAttributes[key] = "true";
+      } else if (value === false) {
+        stringifiedAttributes[key] = "false";
+      }
+      // Skip other types that can't be serialized to string
+    });
+
+    // Combine all attributes for the CharNode
+    const combinedUnknownAttributes = {
+      ...(newCharNode.getUnknownAttributes() ?? {}),
+      ...textFormatAttributes,
+      ...stringifiedAttributes,
+    };
+
+    if (Object.keys(combinedUnknownAttributes).length > 0) {
+      newCharNode.setUnknownAttributes(combinedUnknownAttributes);
+    }
+
+    $applyTextAttributes(attributes, textNode);
+    return newCharNode;
+  } else {
+    logger?.error(
+      `Failed to create CharNode for text transformation. Style: ${
+        Array.isArray(attributes.char) ? attributes.char[0].style : attributes.char?.style
+      }. Falling back to standard text attributes.`,
+    );
+    $applyTextAttributes(attributes, textNode);
+  }
+}
+
 // Apply attributes to the given embed node
 function $applyEmbedAttributes(
   node: AtomicEmbedNode | CharNode | NoteNode | UnknownNode | ParaNode,
@@ -400,7 +481,7 @@ function $applyEmbedAttributes(
 
     // Special handling for char attributes on CharNodes
     if (key === "char" && $isCharNode(node) && hasCharAttributes(attributes)) {
-      const charAttributes = value as OTEmbedChar;
+      const charAttributes = value as OTCharItem;
       node.setMarker(charAttributes.style);
 
       // Set charIdState if cid is present
@@ -669,48 +750,11 @@ function $insertTextAtCurrentIndex(
   if (textToInsert === LF && !attributes) {
     // Handle LF without attributes - split ParaNode into ImpliedParaNode + ParaNode
     return $handleNewlineWithoutAttributes(targetIndex, logger);
-  } else if (textToInsert === LF && attributes && typeof attributes.para === "object") {
+  } else if (textToInsert === LF && hasParaAttributes(attributes)) {
     // Handle LF with para attributes - replace current ImpliedParaNode with ParaNode
     return $handleNewlineWithParaAttributes(targetIndex, attributes, logger);
-  } else if (textToInsert !== LF && typeof attributes?.char === "object") {
-    // Handle CharNode insertion
-    logger?.debug(
-      `Attempting to insert CharNode with text "${textToInsert}" and attributes ${JSON.stringify(
-        attributes.char,
-      )} at index ${targetIndex}`,
-    );
-
-    const charNode = $createChar(attributes);
-    if (!$isCharNode(charNode)) {
-      logger?.error(
-        `CharNode style is missing for text "${textToInsert}". Attributes: ${JSON.stringify(
-          attributes.char,
-        )}. Falling back to rich text insertion.`,
-      );
-      // Fallback to rich text insertion
-      return $insertRichText(targetIndex, textToInsert, undefined, logger);
-    }
-
-    const textNode = $createTextNode(textToInsert);
-    // Apply other non-char attributes (e.g. bold) to the TextNode inside the CharNode if necessary.
-    if (attributes) {
-      const textAttributes = { ...attributes };
-      delete textAttributes.char; // Remove char attribute as it's handled by CharNode
-      applyTextAttributes(textAttributes, textNode);
-    }
-    charNode.append(textNode);
-
-    if ($insertNodeAtCharacterOffset(targetIndex, charNode, logger)) {
-      return textToInsert.length; // CharNode itself has no OT length, just its text content
-    } else {
-      logger?.error(
-        `Failed to insert CharNode with text "${textToInsert}" at index ${
-          targetIndex
-        }. Falling back to rich text.`,
-      );
-      // Fallback to rich text insertion if CharNode insertion fails
-      return $insertRichText(targetIndex, textToInsert, undefined, logger);
-    }
+  } else if (textToInsert !== LF && hasCharAttributes(attributes)) {
+    return $handleCharText(targetIndex, textToInsert, attributes, logger);
   } else {
     // Handle rich text insertion (possibly with formatting like bold, italic)
     logger?.debug(
@@ -722,6 +766,108 @@ function $insertTextAtCurrentIndex(
   }
 }
 
+function $handleCharText(
+  targetIndex: number,
+  textToInsert: string,
+  attributes: AttributeMapWithChar,
+  logger?: LoggerBasic,
+): number {
+  logger?.debug(
+    `Attempting to insert CharNode with text "${textToInsert}" and attributes ${JSON.stringify(
+      attributes.char,
+    )} at index ${targetIndex}`,
+  );
+
+  const textNode = $createTextNode(textToInsert);
+  // Apply other non-char attributes to the TextNode inside the CharNode if necessary.
+  $applyTextAttributes(attributes, textNode);
+
+  // Find parent CharNode at insertion point, if any
+  let parentCharNode: CharNode | undefined;
+  {
+    // Traverse to find the parent node at the insertion point
+    const root = $getRoot();
+    let currentIndex = 0;
+    function findParentCharNode(node: LexicalNode): boolean {
+      if ($isTextNode(node)) {
+        const textLength = node.getTextContentSize();
+        if (targetIndex >= currentIndex && targetIndex <= currentIndex + textLength) {
+          const parent = node.getParent();
+          if ($isCharNode(parent)) {
+            parentCharNode = parent;
+          }
+          return true;
+        }
+        currentIndex += textLength;
+      } else if ($isAtomicEmbedNode(node)) {
+        currentIndex += 1;
+      } else if ($isCharNode(node)) {
+        // CharNodes don't contribute to OT length, but may contain text
+        const children = node.getChildren();
+        for (const child of children) {
+          if (findParentCharNode(child)) return true;
+        }
+      } else if ($isContainerEmbedNode(node) || $isSomeParaNode(node) || $isElementNode(node)) {
+        const children = node.getChildren();
+        for (const child of children) {
+          if (findParentCharNode(child)) return true;
+        }
+        if ($isContainerEmbedNode(node) || $isSomeParaNode(node)) currentIndex += 1;
+      }
+      return false;
+    }
+    findParentCharNode(root);
+  }
+
+  // If inserting a nested char array, and parent matches the first char, skip nesting that one
+  let charAttr = attributes.char;
+  if (Array.isArray(charAttr) && parentCharNode) {
+    const parentStyle = parentCharNode.getMarker();
+    const parentCid = $getState(parentCharNode, charIdState);
+    const first = charAttr[0];
+    if (first && first.style === parentStyle && first.cid === parentCid) {
+      // Only nest the remaining char attributes
+      charAttr = charAttr.slice(1);
+      // If only one left, treat as single
+      if (charAttr.length === 1) charAttr = charAttr[0];
+    }
+  }
+  const segment = typeof attributes.segment === "string" ? attributes.segment : undefined;
+  const charNode = $createNestedChars(charAttr, textNode, segment);
+  if (!$isCharNode(charNode)) {
+    logger?.error(
+      `CharNode style is missing for text "${textToInsert}". Attributes: ${JSON.stringify(
+        attributes.char,
+      )}. Falling back to rich text insertion.`,
+    );
+    // Fallback to rich text insertion
+    return $insertRichText(targetIndex, textToInsert, undefined, logger);
+  }
+
+  // Set unknownAttributes for non-char, non-segment attributes
+  const unknownAttributes: Record<string, string> = {};
+  for (const [key, value] of Object.entries(attributes)) {
+    if (key !== "char" && key !== "segment" && typeof value === "string") {
+      unknownAttributes[key] = value;
+    }
+  }
+  if (Object.keys(unknownAttributes).length > 0) {
+    charNode.setUnknownAttributes(unknownAttributes);
+  }
+
+  if ($insertNodeAtCharacterOffset(targetIndex, charNode, logger)) {
+    return textToInsert.length; // CharNode itself has no OT length, just its text content
+  } else {
+    logger?.error(
+      `Failed to insert CharNode with text "${textToInsert}" at index ${
+        targetIndex
+      }. Falling back to rich text.`,
+    );
+    // Fallback to rich text insertion if CharNode insertion fails
+    return $insertRichText(targetIndex, textToInsert, undefined, logger);
+  }
+}
+
 /**
  * Helper to insert rich text, i.e. potentially with formatting or other attributes.
  * This function contains the core logic for text node insertion and splitting.
@@ -730,7 +876,7 @@ function $insertTextAtCurrentIndex(
 function $insertRichText(
   targetIndex: number,
   textToInsert: string,
-  textAttributes: AttributeMap | undefined,
+  attributes: AttributeMap | undefined,
   logger?: LoggerBasic,
 ): number {
   if (textToInsert.length <= 0) {
@@ -751,7 +897,7 @@ function $insertRichText(
       if (targetIndex >= currentIndex && targetIndex <= currentIndex + textLength) {
         const offsetInNode = targetIndex - currentIndex;
         const newTextNode = $createTextNode(textToInsert);
-        applyTextAttributes(textAttributes, newTextNode);
+        $applyTextAttributes(attributes, newTextNode);
 
         if (offsetInNode === 0) {
           currentNode.insertBefore(newTextNode);
@@ -790,7 +936,7 @@ function $insertRichText(
       if (!insertionPointFound && targetIndex === offsetAtCharNodeStart) {
         // This implies inserting as the first child inside the CharNode
         const newTextNode = $createTextNode(textToInsert);
-        applyTextAttributes(textAttributes, newTextNode);
+        $applyTextAttributes(attributes, newTextNode);
         const firstChild = currentNode.getFirstChild();
         if (firstChild) {
           firstChild.insertBefore(newTextNode);
@@ -814,7 +960,7 @@ function $insertRichText(
       // Try appending to the CharNode if targetIndex matches after children
       if (!insertionPointFound && targetIndex === currentIndex) {
         const newTextNode = $createTextNode(textToInsert);
-        applyTextAttributes(textAttributes, newTextNode);
+        $applyTextAttributes(attributes, newTextNode);
         currentNode.append(newTextNode);
         logger?.debug(
           `Appended text "${textToInsert}" to end of CharNode ` +
@@ -833,7 +979,7 @@ function $insertRichText(
       if (!insertionPointFound && targetIndex === offsetAtContainerStart + containerEmbedOtLength) {
         // This implies inserting as the first child inside the container
         const newTextNode = $createTextNode(textToInsert);
-        applyTextAttributes(textAttributes, newTextNode);
+        $applyTextAttributes(attributes, newTextNode);
         const firstChild = currentNode.getFirstChild();
         if (firstChild) {
           firstChild.insertBefore(newTextNode);
@@ -857,7 +1003,7 @@ function $insertRichText(
       // Try appending to the container if targetIndex matches after children
       if (!insertionPointFound && targetIndex === currentIndex) {
         const newTextNode = $createTextNode(textToInsert);
-        applyTextAttributes(textAttributes, newTextNode);
+        $applyTextAttributes(attributes, newTextNode);
         currentNode.append(newTextNode);
         logger?.debug(
           `Appended text "${textToInsert}" to end of container ` +
@@ -871,7 +1017,7 @@ function $insertRichText(
       // Try inserting at the beginning of the ParaNode
       if (!insertionPointFound && targetIndex === offsetAtParaStart) {
         const newTextNode = $createTextNode(textToInsert);
-        applyTextAttributes(textAttributes, newTextNode);
+        $applyTextAttributes(attributes, newTextNode);
         const firstChild = currentNode.getFirstChild();
         if (firstChild) {
           firstChild.insertBefore(newTextNode);
@@ -896,7 +1042,7 @@ function $insertRichText(
       // Try appending text if targetIndex matches (before para's own closing marker)
       if (!insertionPointFound && targetIndex === currentIndex) {
         const newTextNode = $createTextNode(textToInsert);
-        applyTextAttributes(textAttributes, newTextNode);
+        $applyTextAttributes(attributes, newTextNode);
         currentNode.append(newTextNode);
         logger?.debug(
           `Appended text "${textToInsert}" to end of container ` +
@@ -927,7 +1073,7 @@ function $insertRichText(
       }, final currentIndex: ${currentIndex}). Appending text to new ParaNode.`,
     );
     const newTextNode = $createTextNode(textToInsert);
-    applyTextAttributes(textAttributes, newTextNode);
+    $applyTextAttributes(attributes, newTextNode);
     const newParaNode = $createImpliedParaNode().append(newTextNode);
     root.append(newParaNode);
     insertionPointFound = true;
@@ -1241,11 +1387,11 @@ function $insertEmbedAtCurrentIndex(
 
   // Determine the LexicalNode to create based on the embedObject structure
   if (isEmbedOfType("chapter", embedObject)) {
-    newNodeToInsert = $createChapter(embedObject.chapter as OTEmbedChapter, viewOptions);
+    newNodeToInsert = $createChapter(embedObject.chapter as OTChapterEmbed, viewOptions);
   } else if (isEmbedOfType("verse", embedObject)) {
-    newNodeToInsert = $createVerse(embedObject.verse as OTEmbedVerse, viewOptions);
+    newNodeToInsert = $createVerse(embedObject.verse as OTVerseEmbed, viewOptions);
   } else if (isEmbedOfType("ms", embedObject)) {
-    newNodeToInsert = $createMilestone(embedObject.ms as OTEmbedMilestone);
+    newNodeToInsert = $createMilestone(embedObject.ms as OTMilestoneEmbed);
   }
   // TODO: Add other embed types here as needed (e.g. NoteNode?, ImmutableUnmatchedNode?)
   // While it would be technically and structurally possible to add a ParaNode here, it's not the
@@ -1276,7 +1422,7 @@ function $insertEmbedAtCurrentIndex(
  */
 function $handleNewlineWithParaAttributes(
   targetIndex: number,
-  attributes: AttributeMap,
+  attributes: AttributeMapWithPara,
   logger?: LoggerBasic,
 ): number {
   const root = $getRoot();
@@ -1720,7 +1866,7 @@ function $isContainerEmbedNode(node: LexicalNode): node is NoteNode | UnknownNod
   return $isNoteNode(node) || $isUnknownNode(node);
 }
 
-function $createChapter(chapterData: OTEmbedChapter, viewOptions: ViewOptions) {
+function $createChapter(chapterData: OTChapterEmbed, viewOptions: ViewOptions) {
   const { number, sid, altnumber, pubnumber } = chapterData;
   if (!number) return;
 
@@ -1742,7 +1888,7 @@ function $createChapter(chapterData: OTEmbedChapter, viewOptions: ViewOptions) {
   return newNodeToInsert;
 }
 
-function $createVerse(verseData: OTEmbedVerse, viewOptions: ViewOptions) {
+function $createVerse(verseData: OTVerseEmbed, viewOptions: ViewOptions) {
   const { style, number, sid, altnumber, pubnumber } = verseData;
   if (!number) return;
 
@@ -1767,7 +1913,7 @@ function $createVerse(verseData: OTEmbedVerse, viewOptions: ViewOptions) {
   return newNodeToInsert;
 }
 
-function $createMilestone(msData: OTEmbedMilestone) {
+function $createMilestone(msData: OTMilestoneEmbed) {
   const { style, sid, eid } = msData;
   if (!style) return;
 
@@ -1775,8 +1921,8 @@ function $createMilestone(msData: OTEmbedMilestone) {
   return $createMilestoneNode(style, sid, eid, unknownAttributes);
 }
 
-function $createPara(attributes: AttributeMap) {
-  const paraData = attributes.para as OTParaAttribute;
+function $createPara(attributes: AttributeMapWithPara) {
+  const paraData = attributes.para;
   const { style } = paraData;
   if (!style) return;
 
@@ -1806,26 +1952,38 @@ function $createPara(attributes: AttributeMap) {
   return $createParaNode(style, unknownAttributes);
 }
 
-function $createChar(attributes: AttributeMap) {
-  const charData = attributes.char as OTEmbedChar;
-  const { style } = charData;
-  if (!style || !hasCharAttributes(attributes)) return;
-
-  const unknownAttributes = getUnknownAttributes(charData, OT_CHAR_PROPS);
-  const charNode = $createCharNode(style, unknownAttributes);
-  if (typeof attributes.segment === "string") $setState(charNode, segmentState, attributes.segment);
-  if (typeof charData.cid === "string") $setState(charNode, charIdState, charData.cid);
-  return charNode;
+// Helper to create nested CharNodes from OTCharAttribute (array or single)
+function $createNestedChars(
+  charAttr: OTCharAttribute,
+  innerNode?: LexicalNode,
+  segment?: string,
+): CharNode {
+  if (Array.isArray(charAttr)) {
+    if (charAttr.length === 0) throw new Error("Empty charAttr array");
+    return charAttr.reduceRight((child, attr, idx) => {
+      const charNode = $createCharNode(attr.style, getUnknownAttributes(attr, OT_CHAR_PROPS));
+      if (typeof attr.cid === "string") $setState(charNode, charIdState, attr.cid);
+      if (segment && idx === charAttr.length - 1) $setState(charNode, segmentState, segment);
+      if (child) charNode.append(child);
+      return charNode;
+    }, innerNode) as CharNode;
+  } else {
+    const charNode = $createCharNode(charAttr.style, getUnknownAttributes(charAttr, OT_CHAR_PROPS));
+    if (typeof charAttr.cid === "string") $setState(charNode, charIdState, charAttr.cid);
+    if (segment) $setState(charNode, segmentState, segment);
+    if (innerNode) charNode.append(innerNode);
+    return charNode;
+  }
 }
 
 /**
  * Type guard to check if an object has a specific property that is a non-null object.
- * @param embedObj The object to check.
- * @param embedType The property key to check for.
+ * @param embedObj - The object to check.
+ * @param embedType - The property key to check for.
  * @returns `true` if `embedObj` has a property `embedType` and `embedObj[embedType]` is a non-null
  *   object, `false` otherwise.
- * @template T The type of the object.
- * @template K The type of the property key.
+ * @template T - The type of the object.
+ * @template K - The type of the property key.
  */
 function isEmbedOfType<T extends object, K extends PropertyKey>(
   embedType: K,
@@ -1841,20 +1999,46 @@ function isEmbedOfType<T extends object, K extends PropertyKey>(
   return typeof value === "object" && value !== null;
 }
 
-/** Type guard for Char attributes. */
-function hasCharAttributes(
-  attributes: AttributeMap,
-): attributes is AttributeMap & { char?: OTEmbedChar } {
+/** Type guard for Para attributes. */
+function hasParaAttributes(
+  attributes: AttributeMap | undefined,
+): attributes is AttributeMapWithPara {
   return (
-    !!attributes.char &&
-    typeof attributes.char === "object" &&
-    attributes.char !== null &&
-    "style" in attributes.char &&
-    typeof (attributes.char as any).style === "string"
+    !!attributes &&
+    !!attributes.para &&
+    typeof attributes.para === "object" &&
+    attributes.para !== null &&
+    "style" in attributes.para &&
+    typeof attributes.para.style === "string"
   );
 }
 
-function applyTextAttributes(attributes: AttributeMap | undefined, textNode: TextNode) {
+/** Type guard for Char attributes. */
+function hasCharAttributes(
+  attributes: AttributeMap | undefined,
+): attributes is AttributeMapWithChar {
+  return (
+    !!attributes &&
+    !!attributes.char &&
+    typeof attributes.char === "object" &&
+    attributes.char !== null &&
+    ((!Array.isArray(attributes.char) &&
+      "style" in attributes.char &&
+      typeof attributes.char.style === "string") ||
+      (Array.isArray(attributes.char) &&
+        attributes.char.length > 0 &&
+        "style" in attributes.char[0] &&
+        typeof attributes.char[0].style === "string"))
+  );
+}
+
+function isEmptyObject(obj: unknown): boolean {
+  return (
+    typeof obj === "object" && obj !== null && !Array.isArray(obj) && Object.keys(obj).length === 0
+  );
+}
+
+function $applyTextAttributes(attributes: AttributeMap | undefined, textNode: TextNode) {
   if (!attributes) return;
 
   for (const key of Object.keys(attributes)) {

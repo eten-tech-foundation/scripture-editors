@@ -3,6 +3,7 @@
 import { MARKER_OBJECT_PROPS, MarkerObject } from "@eten-tech-foundation/scripture-utilities";
 import {
   $getCommonAncestor,
+  $getState,
   $isElementNode,
   BaseSelection,
   LexicalEditor,
@@ -12,6 +13,7 @@ import {
   SerializedTextNode,
   TextNode,
 } from "lexical";
+import { charIdState } from "../collab/delta.state";
 import { $isUnknownNode, UnknownNode } from "../features/UnknownNode";
 import { $isBookNode, BookNode } from "./BookNode";
 import {
@@ -30,9 +32,9 @@ import {
 import { $isImpliedParaNode, ImpliedParaNode } from "./ImpliedParaNode";
 import { $isMilestoneNode, MilestoneNode } from "./MilestoneNode";
 import { $isNoteNode, NoteNode } from "./NoteNode";
-import { NBSP, UnknownAttributes } from "./node-constants";
 import { $isParaNode, ParaNode } from "./ParaNode";
 import { $isVerseNode, VerseNode } from "./VerseNode";
+import { NBSP, UnknownAttributes } from "./node-constants";
 
 export type NodesWithMarker =
   | BookNode
@@ -218,6 +220,25 @@ export function $getPreviousNode(selection: RangeSelection): LexicalNode | null 
  */
 export function $isSomeParaNode(node: LexicalNode | null | undefined): node is SomeParaNode {
   return $isParaNode(node) || $isImpliedParaNode(node);
+}
+
+/**
+ * Check if the given char attributes are the same as the ones in the CharNode.
+ * @param charAttributes - The char attributes to compare.
+ * @param charNode - The character node to compare against.
+ * @returns `true` if the attributes are the same, `false` otherwise.
+ */
+export function $hasSameCharAttributes(
+  charAttributes: { style: string; cid?: string },
+  charNode: CharNode,
+): boolean {
+  const charNodeCid = $getState(charNode, charIdState);
+  const bothHaveCid = !!(charAttributes.cid && charNodeCid);
+  const bothHaveNoCid = !charAttributes.cid && !charNodeCid;
+  return (
+    charAttributes.style === charNode.getMarker() &&
+    (bothHaveNoCid || (bothHaveCid && charAttributes.cid === charNodeCid))
+  );
 }
 
 /**

@@ -37,9 +37,9 @@ describe("Delta Utils $applyUpdate", () => {
 
   beforeEach(() => {
     // Spy on console methods before each test and provide mock implementations
-    consoleDebugSpy = jest.spyOn(console, "debug").mockImplementation(() => {});
-    consoleErrorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
-    consoleWarnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
+    consoleDebugSpy = jest.spyOn(console, "debug").mockImplementation(() => undefined);
+    consoleErrorSpy = jest.spyOn(console, "error").mockImplementation(() => undefined);
+    consoleWarnSpy = jest.spyOn(console, "warn").mockImplementation(() => undefined);
   });
 
   afterEach(() => {
@@ -272,7 +272,7 @@ describe("Delta Utils $applyUpdate", () => {
       });
     });
 
-    it("(dc) should retain embedded para with attributes", async () => {
+    it("(dc) should retain para with attributes", async () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append($createParaNode());
       });
@@ -328,7 +328,7 @@ describe("Delta Utils $applyUpdate", () => {
       });
     });
 
-    it("(dc) should retain embedded char", async () => {
+    it("(dc) should retain char text with attributes", async () => {
       const wordsOfJesus = "It is finished.";
       const { editor } = await testEnvironment(() => {
         $getRoot().append($createParaNode().append($createTextNode(`Jesus said ${wordsOfJesus}`)));
@@ -358,6 +358,294 @@ describe("Delta Utils $applyUpdate", () => {
         expect(char.getUnknownAttributes()).toBeUndefined();
         expect($getState(char, segmentState)).toBe("verse_1_1");
         expect($getState(char, charIdState)).toBe("afd886c6-2397-4e4c-8a94-696bf9f2e545");
+      });
+    });
+
+    it("(dc) should retain nested char with attributes", async () => {
+      const wordsOfJesus = "It is finished.";
+      const { editor } = await testEnvironment(() => {
+        $getRoot().append($createParaNode().append($createTextNode(wordsOfJesus)));
+      });
+      const ops: Op[] = [
+        {
+          retain: wordsOfJesus.length,
+          attributes: {
+            char: [
+              { style: "add", cid: "char-id1" },
+              { style: "wj", cid: "char-id2" },
+            ],
+          },
+        },
+      ];
+
+      await sutApplyUpdate(editor, ops);
+
+      editor.getEditorState().read(() => {
+        const root = $getRoot();
+        expect(root.getChildrenSize()).toBe(1);
+
+        const p = root.getFirstChild();
+        if (!$isParaNode(p)) throw new Error("p is not a ParaNode");
+        expect(p.getChildrenSize()).toBe(1);
+
+        const char1 = p.getFirstChild();
+        if (!$isCharNode(char1)) throw new Error("char1 is not a CharNode");
+        expect(char1.getMarker()).toBe("add");
+        expect($getState(char1, charIdState)).toBe("char-id1");
+        expect(char1.getChildrenSize()).toBe(1);
+
+        const char2 = char1.getFirstChild();
+        if (!$isCharNode(char2)) throw new Error("char2 is not a CharNode");
+        expect(char2.getMarker()).toBe("wj");
+        expect($getState(char2, charIdState)).toBe("char-id2");
+        expect(char2.getChildrenSize()).toBe(1);
+
+        const t1 = char2.getFirstChild();
+        if (!$isTextNode(t1)) throw new Error("t1 is not a TextNode");
+        expect(t1.getTextContent()).toBe(wordsOfJesus);
+      });
+    });
+
+    it("(dc) should retain nested char with attributes in existing char", async () => {
+      const jesusSaid = "Jesus said, ";
+      const wordsOfJesus = "It is finished.";
+      const { editor } = await testEnvironment(() => {
+        const char1 = $createCharNode("add").append($createTextNode(jesusSaid + wordsOfJesus));
+        $setState(char1, charIdState, "char-id1");
+        $getRoot().append($createParaNode().append(char1));
+      });
+      const ops: Op[] = [
+        { retain: jesusSaid.length },
+        {
+          retain: wordsOfJesus.length,
+          attributes: {
+            char: [
+              { style: "add", cid: "char-id1" },
+              { style: "wj", cid: "char-id2" },
+            ],
+          },
+        },
+      ];
+
+      await sutApplyUpdate(editor, ops);
+
+      editor.getEditorState().read(() => {
+        const root = $getRoot();
+        expect(root.getChildrenSize()).toBe(1);
+
+        const p = root.getFirstChild();
+        if (!$isParaNode(p)) throw new Error("p is not a ParaNode");
+        expect(p.getChildrenSize()).toBe(1);
+
+        const char1 = p.getFirstChild();
+        if (!$isCharNode(char1)) throw new Error("char1 is not a CharNode");
+        expect(char1.getMarker()).toBe("add");
+        expect($getState(char1, charIdState)).toBe("char-id1");
+        expect(char1.getChildrenSize()).toBe(2);
+
+        const t1 = char1.getFirstChild();
+        if (!$isTextNode(t1)) throw new Error("t1 is not a TextNode");
+        expect(t1.getTextContent()).toBe(jesusSaid);
+
+        const char2 = char1.getChildAtIndex(1);
+        if (!$isCharNode(char2)) throw new Error("char2 is not a CharNode");
+        expect(char2.getMarker()).toBe("wj");
+        expect($getState(char2, charIdState)).toBe("char-id2");
+        expect(char2.getChildrenSize()).toBe(1);
+
+        const t2 = char2.getFirstChild();
+        if (!$isTextNode(t2)) throw new Error("t2 is not a TextNode");
+        expect(t2.getTextContent()).toBe(wordsOfJesus);
+      });
+    });
+
+    it("(dc) should retain nested char with attributes in existing but different char", async () => {
+      const jesusSaid = "Jesus said, ";
+      const wordsOfJesus = "It is finished.";
+      const { editor } = await testEnvironment(() => {
+        const char1 = $createCharNode("it").append($createTextNode(jesusSaid + wordsOfJesus));
+        $setState(char1, charIdState, "char-id1");
+        $getRoot().append($createParaNode().append(char1));
+      });
+      const ops: Op[] = [
+        { retain: jesusSaid.length },
+        {
+          retain: wordsOfJesus.length,
+          attributes: {
+            char: [
+              { style: "add", cid: "char-id1" },
+              { style: "wj", cid: "char-id2" },
+            ],
+          },
+        },
+      ];
+
+      await sutApplyUpdate(editor, ops);
+
+      editor.getEditorState().read(() => {
+        const root = $getRoot();
+        expect(root.getChildrenSize()).toBe(1);
+
+        const p = root.getFirstChild();
+        if (!$isParaNode(p)) throw new Error("p is not a ParaNode");
+        expect(p.getChildrenSize()).toBe(2);
+
+        const char1 = p.getFirstChild();
+        if (!$isCharNode(char1)) throw new Error("char1 is not a CharNode");
+        expect(char1.getMarker()).toBe("it");
+        expect($getState(char1, charIdState)).toBe("char-id1");
+        expect(char1.getChildrenSize()).toBe(1);
+
+        const t1 = char1.getFirstChild();
+        if (!$isTextNode(t1)) throw new Error("t1 is not a TextNode");
+        expect(t1.getTextContent()).toBe(jesusSaid);
+
+        const char2 = p.getChildAtIndex(1);
+        if (!$isCharNode(char2)) throw new Error("char2 is not a CharNode");
+        expect(char2.getMarker()).toBe("add");
+        expect($getState(char2, charIdState)).toBe("char-id1");
+        expect(char2.getChildrenSize()).toBe(1);
+
+        const char3 = char2.getFirstChild();
+        if (!$isCharNode(char3)) throw new Error("char3 is not a CharNode");
+        expect(char3.getMarker()).toBe("wj");
+        expect($getState(char3, charIdState)).toBe("char-id2");
+        expect(char3.getChildrenSize()).toBe(1);
+
+        const t2 = char3.getFirstChild();
+        if (!$isTextNode(t2)) throw new Error("t2 is not a TextNode");
+        expect(t2.getTextContent()).toBe(wordsOfJesus);
+      });
+    });
+
+    it("(dc) should handle complex nested container attributes with deep nesting with cross references", async () => {
+      const { editor } = await testEnvironment(() => {
+        const qtChar = $createCharNode("qt");
+        $setState(qtChar, charIdState, "1");
+        const godChar = $createCharNode("w");
+        $setState(godChar, charIdState, "2");
+        const lovedChar = $createCharNode("w");
+        $setState(lovedChar, charIdState, "3");
+        const gaveChar = $createCharNode("w");
+        $setState(gaveChar, charIdState, "4");
+        $getRoot().append(
+          $createImmutableChapterNode("3"),
+          $createParaNode().append(
+            $createImmutableVerseNode("16"),
+            qtChar.append(
+              godChar.append($createTextNode("God")),
+              $createTextNode(" so "),
+              lovedChar.append($createTextNode("loved")),
+              $createTextNode(" the world"),
+            ),
+            $createTextNode(" that he "),
+            gaveChar.append($createTextNode("gave")),
+            $createTextNode(" his son"),
+          ),
+        );
+      });
+      const ops: Op[] = [
+        { retain: 2 }, // ch3, v16
+        {
+          retain: 3, // "God"
+          attributes: {
+            char: [
+              { style: "qt", cid: "1", who: "Jesus", context: "teaching" },
+              {
+                style: "w",
+                cid: "2",
+                who: "Jesus",
+                context: "teaching",
+                strong: "G2316",
+                lemma: "θεός",
+              },
+            ],
+          },
+        },
+        {
+          retain: 4, // " so "
+          attributes: { char: { style: "qt", cid: "1", who: "Jesus", context: "teaching" } },
+        },
+        {
+          retain: 5, // "loved"
+          attributes: {
+            char: [
+              { style: "qt", cid: "1", who: "Jesus", context: "teaching" },
+              { style: "w", cid: "3", who: "Jesus", context: "teaching" },
+            ],
+          },
+        },
+        {
+          retain: 10, // " the world"
+          attributes: { char: { style: "qt", cid: "1", who: "Jesus", context: "teaching" } },
+        },
+        { retain: 9 }, // " that he "
+        {
+          retain: 4, // "gave"
+          attributes: { char: { style: "w", cid: "4", strong: "G1325", lemma: "δίδωμι" } },
+        },
+      ];
+
+      await sutApplyUpdate(editor, ops);
+
+      editor.getEditorState().read(() => {
+        const root = $getRoot();
+        expect(root.getChildrenSize()).toBe(2); // Chapter and ParaNode at root level
+
+        const ch3 = root.getFirstChild();
+        if (!$isSomeChapterNode(ch3)) throw new Error("ch3 is not SomeChapterNode");
+        expect(ch3.getNumber()).toBe("3");
+
+        const p = root.getChildAtIndex(1);
+        if (!$isParaNode(p)) throw new Error("p is not a ParaNode");
+        const children = p.getChildren();
+        expect(children.length).toBe(5); // v16, qt CharNode, text, last w node, text
+
+        const v16 = children[0];
+        if (!$isSomeVerseNode(v16)) throw new Error("v16 is not SomeVerseNode");
+        expect(v16.getNumber()).toBe("16");
+
+        const qtCharNode = children[1];
+        if (!$isCharNode(qtCharNode)) throw new Error("qtCharNode is not CharNode");
+        expect(qtCharNode.getMarker()).toBe("qt");
+        expect(qtCharNode.getUnknownAttributes()).toEqual({
+          who: "Jesus",
+          context: "teaching",
+        });
+        const qtChildren = qtCharNode.getChildren();
+        expect(qtChildren.length).toBe(4); // 2 nested w nodes and 2 text nodes
+
+        const godCharNode = qtChildren[0];
+        if (!$isCharNode(godCharNode)) throw new Error("godCharNode is not CharNode");
+        expect(godCharNode.getMarker()).toBe("w");
+        expect(godCharNode.getUnknownAttributes()).toEqual({
+          who: "Jesus",
+          context: "teaching",
+          strong: "G2316",
+          lemma: "θεός",
+        });
+
+        const soTextNode = qtChildren[1];
+        if (!$isTextNode(soTextNode)) throw new Error("soTextNode is not TextNode");
+
+        const lovedCharNode = qtChildren[2];
+        if (!$isCharNode(lovedCharNode)) throw new Error("lovedCharNode is not CharNode");
+        expect(lovedCharNode.getMarker()).toBe("w");
+        expect(lovedCharNode.getUnknownAttributes()).toEqual({
+          who: "Jesus",
+          context: "teaching",
+        });
+
+        const theWorldTextNode = qtChildren[3];
+        if (!$isTextNode(theWorldTextNode)) throw new Error("theWorldTextNode is not TextNode");
+
+        const gaveCharNode = children[3];
+        if (!$isCharNode(gaveCharNode)) throw new Error("gaveCharNode is not CharNode");
+        expect(gaveCharNode.getMarker()).toBe("w");
+        expect(gaveCharNode.getUnknownAttributes()).toEqual({
+          strong: "G1325",
+          lemma: "δίδωμι",
+        });
       });
     });
 
@@ -874,203 +1162,6 @@ describe("Delta Utils $applyUpdate", () => {
         if (!$isParaNode(p)) throw new Error("p is not a ParaNode");
         expect(p.getTextContent()).toBe("Test text");
         expect(p.getChildrenSize()).toBe(1);
-      });
-    });
-
-    xit("Delta Check 53 for the following test", async () => {
-      const doc = new Delta([
-        { insert: { chapter: { number: "3", style: "c" } } },
-        { insert: { verse: { number: "16", style: "v" } } },
-        { insert: "God", attributes: { char: [{ style: "qt" }, { style: "w" }] } },
-        { insert: " so ", attributes: { char: { style: "qt" } } },
-        { insert: "loved", attributes: { char: [{ style: "qt" }, { style: "w" }] } },
-        { insert: " the world", attributes: { char: { style: "qt" } } },
-        { insert: " that he " },
-        { insert: "gave", attributes: { char: { style: "w" } } },
-        { insert: " his son" },
-        { insert: LF, attributes: { para: { style: "p" } } },
-      ]);
-      const ops: Op[] = [
-        { retain: 2 }, // ch3, v16
-        {
-          retain: 3, // "God"
-          attributes: {
-            char: [
-              { style: "qt", who: "Jesus", context: "teaching" },
-              { style: "w", who: "Jesus", context: "teaching", strong: "G2316", lemma: "θεός" },
-            ],
-          },
-        },
-        {
-          retain: 4, // " so "
-          attributes: { char: { style: "qt", who: "Jesus", context: "teaching" } },
-        },
-        {
-          retain: 5, // "loved"
-          attributes: {
-            char: [
-              { style: "qt", who: "Jesus", context: "teaching" },
-              { style: "w", who: "Jesus", context: "teaching" },
-            ],
-          },
-        },
-        {
-          retain: 10, // " the world"
-          attributes: { char: { style: "qt", who: "Jesus", context: "teaching" } },
-        },
-        {
-          retain: 9, // " that he "
-        },
-        {
-          retain: 4, // "gave"
-          attributes: { char: { style: "w", strong: "G1325", lemma: "δίδωμι" } },
-        },
-      ];
-
-      const updatedDoc = doc.compose(new Delta(ops));
-
-      expect(updatedDoc.ops).toEqual([
-        { insert: { chapter: { number: "3", style: "c" } } },
-        { insert: { verse: { number: "16", style: "v" } } },
-        {
-          insert: "God",
-          attributes: {
-            char: [
-              { style: "qt", who: "Jesus", context: "teaching" },
-              { style: "w", who: "Jesus", context: "teaching", strong: "G2316", lemma: "θεός" },
-            ],
-          },
-        },
-        {
-          insert: " so ",
-          attributes: { char: { style: "qt", who: "Jesus", context: "teaching" } },
-        },
-        {
-          insert: "loved",
-          attributes: {
-            char: [
-              { style: "qt", who: "Jesus", context: "teaching" },
-              { style: "w", who: "Jesus", context: "teaching" },
-            ],
-          },
-        },
-        {
-          insert: " the world",
-          attributes: { char: { style: "qt", who: "Jesus", context: "teaching" } },
-        },
-        { insert: " that he " },
-        { insert: "gave", attributes: { char: { style: "w", strong: "G1325", lemma: "δίδωμι" } } },
-        { insert: " his son" },
-        { insert: LF, attributes: { para: { style: "p" } } },
-      ]);
-    });
-
-    xit("should handle complex nested container attributes with deep nesting with cross references", async () => {
-      const { editor } = await testEnvironment(() => {
-        $getRoot().append(
-          $createImmutableChapterNode("3"),
-          $createParaNode().append(
-            $createImmutableVerseNode("16"),
-            $createCharNode("qt").append(
-              $createCharNode("w").append($createTextNode("God")),
-              $createTextNode(" so "),
-              $createCharNode("w").append($createTextNode("loved")),
-              $createTextNode(" the world"),
-            ),
-            $createTextNode(" that he "),
-            $createCharNode("w").append($createTextNode("gave")),
-            $createTextNode(" his son"),
-          ),
-        );
-      });
-      const ops: Op[] = [
-        { retain: 2 }, // ch3, v16
-        {
-          retain: 3, // "God"
-          attributes: {
-            char: [
-              { style: "qt", who: "Jesus", context: "teaching" },
-              { style: "w", who: "Jesus", context: "teaching", strong: "G2316", lemma: "θεός" },
-            ],
-          },
-        },
-        {
-          retain: 4, // " so "
-          attributes: { char: { style: "qt", who: "Jesus", context: "teaching" } },
-        },
-        {
-          retain: 5, // "loved"
-          attributes: {
-            char: [
-              { style: "qt", who: "Jesus", context: "teaching" },
-              { style: "w", who: "Jesus", context: "teaching" },
-            ],
-          },
-        },
-        {
-          retain: 10, // " the world"
-          attributes: { char: { style: "qt", who: "Jesus", context: "teaching" } },
-        },
-        {
-          retain: 9, // " that he "
-        },
-        {
-          retain: 4, // "gave"
-          attributes: { char: { style: "w", strong: "G1325", lemma: "δίδωμι" } },
-        },
-      ];
-
-      await sutApplyUpdate(editor, ops);
-
-      editor.getEditorState().read(() => {
-        const root = $getRoot();
-        expect(root.getChildrenSize()).toBe(2); // Chapter and ParaNode at root level
-
-        const ch3 = root.getFirstChild();
-        if (!$isSomeChapterNode(ch3)) throw new Error("ch3 is not SomeChapterNode");
-        expect(ch3.getNumber()).toBe("3");
-
-        const p = root.getChildAtIndex(1);
-        if (!$isParaNode(p)) throw new Error("p is not a ParaNode");
-        const children = p.getChildren();
-        expect(children.length).toBe(5); // v16, qt CharNode, text, last w node, text
-
-        const v16 = children[0];
-        if (!$isSomeVerseNode(v16)) throw new Error("v16 is not SomeVerseNode");
-        expect(v16.getNumber()).toBe("16");
-
-        const qtCharNode = children[1];
-        if (!$isCharNode(qtCharNode)) throw new Error("qtCharNode is not CharNode");
-        expect(qtCharNode.getMarker()).toBe("qt");
-        expect(qtCharNode.getUnknownAttributes()).toEqual({
-          who: "Jesus",
-          context: "teaching",
-        });
-        const qtChildren = qtCharNode.getChildren();
-        expect(qtChildren.length).toBe(4); // 2 nested w nodes and 2 text nodes
-
-        const godCharNode = qtChildren[0];
-        if (!$isCharNode(godCharNode)) throw new Error("godCharNode is not CharNode");
-        expect(godCharNode.getMarker()).toBe("w");
-        expect(godCharNode.getUnknownAttributes()).toEqual({
-          strong: "G2316",
-          lemma: "θεός",
-        });
-
-        // Check second nested w node (loved)
-        const lovedCharNode = qtChildren[2];
-        if (!$isCharNode(lovedCharNode)) throw new Error("lovedCharNode is not CharNode");
-        expect(lovedCharNode.getMarker()).toBe("w");
-        expect(lovedCharNode.getUnknownAttributes()).toBeUndefined();
-
-        // Verify final w node (gave) received verb analysis
-        const gaveCharNode = children[3];
-        if (!$isCharNode(gaveCharNode)) throw new Error("gaveCharNode is not CharNode");
-        expect(gaveCharNode.getMarker()).toBe("w");
-        expect(gaveCharNode.getUnknownAttributes()).toEqual({
-          strong: "G1325",
-          lemma: "δίδωμι",
-        });
       });
     });
   });
@@ -2158,7 +2249,7 @@ describe("Delta Utils $applyUpdate", () => {
       });
     });
 
-    it("(dc) should insert a char embed in empty para", async () => {
+    it("(dc) should insert char text in empty para", async () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append($createParaNode());
       });
@@ -2169,6 +2260,7 @@ describe("Delta Utils $applyUpdate", () => {
           attributes: {
             segment: "verse_1_1",
             char: { style: "wj", cid: "afd886c6-2397-4e4c-8a94-696bf9f2e545" },
+            who: "Jesus",
           },
         },
       ];
@@ -2187,7 +2279,7 @@ describe("Delta Utils $applyUpdate", () => {
         if (!$isCharNode(char)) throw new Error("char is not a CharNode");
         expect(char.getTextContent()).toBe(wordsOfJesus);
         expect(char.getMarker()).toBe("wj");
-        expect(char.getUnknownAttributes()).toBeUndefined();
+        expect(char.getUnknownAttributes()).toEqual({ who: "Jesus" });
         expect($getState(char, segmentState)).toBe("verse_1_1");
         expect($getState(char, charIdState)).toBe("afd886c6-2397-4e4c-8a94-696bf9f2e545");
 
@@ -2197,7 +2289,7 @@ describe("Delta Utils $applyUpdate", () => {
       });
     });
 
-    it("(dc) should insert a char embed inside text and apply attributes after", async () => {
+    it("(dc) should insert char text inside text and apply attributes after", async () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append($createParaNode().append($createTextNode("Jesus said to them")));
       });
@@ -2238,6 +2330,104 @@ describe("Delta Utils $applyUpdate", () => {
         if (!$isTextNode(t3)) throw new Error("t3 is not a TextNode");
         expect(t3.getTextContent()).toBe("them");
         expect(t3.hasFormat("italic")).toBe(true);
+      });
+    });
+
+    it("(dc) should insert nested char text", async () => {
+      const { editor } = await testEnvironment(() => {
+        $getRoot().append($createParaNode());
+      });
+      const wordsOfJesus = "It is finished.";
+      const ops: Op[] = [
+        {
+          insert: wordsOfJesus,
+          attributes: {
+            char: [
+              { style: "add", cid: "char-id1" },
+              { style: "wj", cid: "char-id2" },
+            ],
+          },
+        },
+      ];
+
+      await sutApplyUpdate(editor, ops);
+
+      editor.getEditorState().read(() => {
+        const root = $getRoot();
+        expect(root.getChildrenSize()).toBe(1);
+
+        const p = root.getFirstChild();
+        if (!$isParaNode(p)) throw new Error("p is not a ParaNode");
+        expect(p.getChildrenSize()).toBe(1);
+
+        const char1 = p.getFirstChild();
+        if (!$isCharNode(char1)) throw new Error("char1 is not a CharNode");
+        expect(char1.getMarker()).toBe("add");
+        expect($getState(char1, charIdState)).toBe("char-id1");
+        expect(char1.getChildrenSize()).toBe(1);
+
+        const char2 = char1.getFirstChild();
+        if (!$isCharNode(char2)) throw new Error("char2 is not a CharNode");
+        expect(char2.getMarker()).toBe("wj");
+        expect($getState(char2, charIdState)).toBe("char-id2");
+        expect(char2.getChildrenSize()).toBe(1);
+
+        const t1 = char2.getFirstChild();
+        if (!$isTextNode(t1)) throw new Error("t1 is not a TextNode");
+        expect(t1.getTextContent()).toBe(wordsOfJesus);
+      });
+    });
+
+    it("(dc) should insert nested char text into existing char text", async () => {
+      const jesusSaid = "Jesus said, ";
+      const { editor } = await testEnvironment(() => {
+        const char1 = $createCharNode("add").append($createTextNode(jesusSaid));
+        $setState(char1, charIdState, "char-id1");
+        $getRoot().append($createParaNode().append(char1));
+      });
+      const wordsOfJesus = "It is finished.";
+      const ops: Op[] = [
+        { retain: jesusSaid.length },
+        {
+          insert: wordsOfJesus,
+          attributes: {
+            char: [
+              { style: "add", cid: "char-id1" },
+              { style: "wj", cid: "char-id2" },
+            ],
+          },
+        },
+      ];
+
+      await sutApplyUpdate(editor, ops);
+
+      editor.getEditorState().read(() => {
+        const root = $getRoot();
+        expect(root.getChildrenSize()).toBe(1);
+
+        const p = root.getFirstChild();
+        if (!$isParaNode(p)) throw new Error("p is not a ParaNode");
+        expect(p.getChildrenSize()).toBe(1);
+
+        const char1 = p.getFirstChild();
+        if (!$isCharNode(char1)) throw new Error("char1 is not a CharNode");
+        expect(char1.getMarker()).toBe("add");
+        expect($getState(char1, charIdState)).toBe("char-id1");
+        expect(char1.getChildrenSize()).toBe(2);
+
+        const t1 = char1.getFirstChild();
+        if (!$isTextNode(t1)) throw new Error("t1 is not a TextNode");
+        expect(t1.getTextContent()).toBe(jesusSaid);
+
+        const char2 = char1.getChildAtIndex(1);
+        if (!$isCharNode(char2)) throw new Error("char2 is not a CharNode");
+        expect(char2.getMarker()).toBe("wj");
+        expect($getState(char2, charIdState)).toBe("char-id2");
+        expect(char2.getChildrenSize()).toBe(1);
+
+        const t2 = char2.getFirstChild();
+        if (!$isTextNode(t2)) throw new Error("t2 is not a TextNode");
+        expect(t2.getTextContent()).toBe(wordsOfJesus);
       });
     });
 
