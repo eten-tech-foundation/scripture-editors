@@ -15,6 +15,7 @@ import { CharNodePlugin } from "shared-react/plugins/usj/CharNodePlugin";
 import { baseTestEnvironment } from "shared-react/plugins/usj/react-test.utils";
 import { getDefaultViewOptions, ViewOptions } from "shared-react/views/view-options.utils";
 import { charIdState, segmentState } from "shared/nodes/collab/delta.state";
+import { $createBookNode, $isBookNode } from "shared/nodes/usj/BookNode";
 import { $isCharNode, $createCharNode } from "shared/nodes/usj/CharNode";
 import { $createImmutableChapterNode } from "shared/nodes/usj/ImmutableChapterNode";
 import { $createImpliedParaNode, $isImpliedParaNode } from "shared/nodes/usj/ImpliedParaNode";
@@ -285,6 +286,57 @@ describe("Delta Utils $applyUpdate", () => {
         const q1 = $getRoot().getFirstChild();
         if (!$isParaNode(q1)) throw new Error("q1 is not a ParaNode");
         expect(q1.getMarker()).toBe("q1");
+      });
+    });
+
+    it("(dc) should retain book with attributes", async () => {
+      const bookText = "Exodus";
+      const { editor } = await testEnvironment(() => {
+        $getRoot().append($createBookNode("GEN").append($createTextNode(bookText)));
+      });
+      const ops: Op[] = [
+        { retain: bookText.length },
+        { retain: 1, attributes: { style: "id", code: "EXO" } },
+      ];
+
+      await sutApplyUpdate(editor, ops);
+
+      expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
+      editor.getEditorState().read(() => {
+        const book = $getRoot().getFirstChild();
+        if (!$isBookNode(book)) throw new Error("book is not a BookNode");
+        expect(book.getMarker()).toBe("id");
+        expect(book.getCode()).toBe("EXO");
+      });
+    });
+
+    it("(dc) should retain past book", async () => {
+      const bookText = "Genesis";
+      const { editor } = await testEnvironment(() => {
+        $getRoot().append(
+          $createBookNode("GEN").append($createTextNode(bookText)),
+          $createImpliedParaNode(),
+        );
+      });
+      const ops: Op[] = [
+        { retain: bookText.length + 1 },
+        { retain: 1, attributes: { para: { style: "q1" } } },
+      ];
+
+      await sutApplyUpdate(editor, ops);
+
+      expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
+      editor.getEditorState().read(() => {
+        const root = $getRoot();
+        expect(root.getChildrenSize()).toBe(2);
+
+        const book = root.getFirstChild();
+        if (!$isBookNode(book)) throw new Error("book is not a BookNode");
+        expect(book.getCode()).toBe("GEN");
+
+        const para = root.getChildAtIndex(1);
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        expect(para.getMarker()).toBe("q1");
       });
     });
 
@@ -1465,6 +1517,65 @@ describe("Delta Utils $applyUpdate", () => {
       });
     });
 
+    it("(dc) should delete book at very beginning of document", async () => {
+      const { editor } = await testEnvironment(() => {
+        $getRoot().append($createBookNode("GEN"), $createImmutableChapterNode("1"));
+      });
+      const ops: Op[] = [{ delete: 1 }];
+
+      await sutApplyUpdate(editor, ops);
+
+      expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
+      editor.getEditorState().read(() => {
+        expect($getRoot().getChildrenSize()).toBe(1);
+
+        const ch1 = $getRoot().getFirstChild();
+        if (!$isSomeChapterNode(ch1)) throw new Error("Expected SomeChapterNode");
+      });
+    });
+
+    it("(dc) should delete book with text at very beginning of document", async () => {
+      const bookText = "Delete from start";
+      const { editor } = await testEnvironment(() => {
+        $getRoot().append(
+          $createBookNode("GEN").append($createTextNode(bookText)),
+          $createImmutableChapterNode("1"),
+        );
+      });
+      const ops: Op[] = [{ delete: bookText.length + 1 }];
+
+      await sutApplyUpdate(editor, ops);
+
+      expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
+      editor.getEditorState().read(() => {
+        expect($getRoot().getChildrenSize()).toBe(1);
+
+        const ch1 = $getRoot().getFirstChild();
+        if (!$isSomeChapterNode(ch1)) throw new Error("Expected SomeChapterNode");
+      });
+    });
+
+    it("(dc) should delete past a book with text", async () => {
+      const bookText = "Delete from start";
+      const { editor } = await testEnvironment(() => {
+        $getRoot().append(
+          $createBookNode("GEN").append($createTextNode(bookText)),
+          $createImmutableChapterNode("1"),
+        );
+      });
+      const ops: Op[] = [{ retain: bookText.length + 1 }, { delete: 1 }];
+
+      await sutApplyUpdate(editor, ops);
+
+      expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
+      editor.getEditorState().read(() => {
+        expect($getRoot().getChildrenSize()).toBe(1);
+
+        const book = $getRoot().getFirstChild();
+        if (!$isBookNode(book)) throw new Error("Expected a BookNode");
+      });
+    });
+
     it("(dc) should delete in complex operation sequence", async () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append($createParaNode().append($createTextNode("Initial text content here")));
@@ -2495,35 +2606,31 @@ describe("Delta Utils $applyUpdate", () => {
 
     it("(dc) should sequentially insert multiple items into an empty document", async () => {
       const { editor } = await testEnvironment();
-      const ch1Embed = { chapter: { number: "1", style: "c" } };
-      const v1Embed = { verse: { number: "1", style: "v" } };
-      const v1Text = "v1 text ";
-      const v1TextInsertOp = {
-        attributes: {
-          segment: "verse_1_1",
-        },
-        insert: v1Text,
-      };
-      const v2Embed = { verse: { number: "2", style: "v" } };
-      const v2Text = "v2 text ";
-      const v2TextInsertOp = {
-        attributes: {
-          segment: "verse_1_2",
-        },
-        insert: v2Text,
-      };
-      const milestoneEmbed = { ms: { style: "ts-s", sid: "TS1" } };
+      const v1Text = "v1 text "; // 8
+      const v2Text = "v2 text "; // 8
       const ops: Op[] = [
         // OT index: 0
-        { insert: ch1Embed }, // 1
-        { insert: v1Embed }, // 2
-        v1TextInsertOp, // 10
-        { insert: LF }, // 11
-        { insert: v2Embed }, // 12
-        v2TextInsertOp, // 20
-        { insert: milestoneEmbed }, // 21
+        { insert: "- My Project" }, // 12
+        { insert: LF, attributes: { book: { style: "id", code: "GEN" } } }, // 13
+        { insert: { chapter: { number: "1", style: "c" } } }, // 14
+        { insert: { verse: { number: "1", style: "v" } } }, // 15
         {
-          insert: LF, // 22
+          insert: v1Text, // 23
+          attributes: {
+            segment: "verse_1_1",
+          },
+        },
+        { insert: LF }, // 24
+        { insert: { verse: { number: "2", style: "v" } } }, // 25
+        {
+          insert: v2Text, // 33
+          attributes: {
+            segment: "verse_1_2",
+          },
+        },
+        { insert: { ms: { style: "ts-s", sid: "TS1" } } }, // 34
+        {
+          insert: LF, // 35
           attributes: {
             para: {
               style: "q1",
@@ -2536,15 +2643,22 @@ describe("Delta Utils $applyUpdate", () => {
 
       editor.getEditorState().read(() => {
         const root = $getRoot();
-        expect(root.getChildrenSize()).toBe(3); // ch1, existing implied-para, ParaNode
+        expect(root.getChildrenSize()).toBe(4); // book, ch1, implied-para, q1 para
 
-        const ch1Node = root.getChildAtIndex(0);
-        if (!$isSomeChapterNode(ch1Node)) throw new Error("Child 0 is not SomeChapterNode");
+        const book = root.getFirstChild();
+        if (!$isBookNode(book)) throw new Error("First child is not a BookNode");
+        expect(book.getMarker()).toBe("id");
+        expect(book.getCode()).toBe("GEN");
+        expect(book.getChildrenSize()).toBe(1);
+        expect(book.getTextContent()).toBe("- My Project");
+
+        const ch1Node = root.getChildAtIndex(1);
+        if (!$isSomeChapterNode(ch1Node)) throw new Error("Child 1 is not SomeChapterNode");
         expect(ch1Node.getNumber()).toBe("1");
 
-        const impliedParaNode = root.getChildAtIndex(1);
+        const impliedParaNode = root.getChildAtIndex(2);
         if (!$isImpliedParaNode(impliedParaNode))
-          throw new Error("Child 1 is not a ImpliedParaNode");
+          throw new Error("Child 2 is not a ImpliedParaNode");
         expect(impliedParaNode.getChildrenSize()).toBe(2);
 
         const v1Node = impliedParaNode.getChildAtIndex(0);
@@ -2557,7 +2671,7 @@ describe("Delta Utils $applyUpdate", () => {
         expect(v1TextNode.getTextContent()).toBe(v1Text);
         expect($getState(v1TextNode, segmentState)).toBe("verse_1_1");
 
-        const paraNode = root.getChildAtIndex(2);
+        const paraNode = root.getChildAtIndex(3);
         if (!$isParaNode(paraNode)) throw new Error("Child 1 is not a ParaNode");
         expect(paraNode.getChildrenSize()).toBe(3);
         expect(paraNode.getMarker()).toBe("q1");
@@ -2595,6 +2709,52 @@ describe("Delta Utils $applyUpdate", () => {
           if (!$isImpliedParaNode(impliedPara))
             throw new Error("impliedPara is not an ImpliedParaNode");
           expect(impliedPara.getChildrenSize()).toBe(0); // Empty implied para
+        });
+      });
+
+      it("(dc) should insert line break with book attributes", async () => {
+        const { editor } = await testEnvironment();
+        const ops: Op[] = [{ insert: LF, attributes: { book: { style: "id", code: "GEN" } } }];
+
+        await sutApplyUpdate(editor, ops);
+
+        expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
+        editor.getEditorState().read(() => {
+          const root = $getRoot();
+          expect(root.getChildrenSize()).toBe(1);
+
+          const book = root.getFirstChild();
+          if (!$isBookNode(book)) throw new Error("book is not a BookNode");
+          expect(book.getMarker()).toBe("id");
+          expect(book.getCode()).toBe("GEN");
+          expect(book.getChildrenSize()).toBe(0); // Empty book
+        });
+      });
+
+      it("(dc) should insert line break with book attributes and text", async () => {
+        const { editor } = await testEnvironment();
+        const ops: Op[] = [
+          { insert: "- My Test Project", attributes: { segment: "id_1" } },
+          { insert: LF, attributes: { book: { style: "id", code: "GEN" } } },
+        ];
+
+        await sutApplyUpdate(editor, ops);
+
+        expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
+        editor.getEditorState().read(() => {
+          const root = $getRoot();
+          expect(root.getChildrenSize()).toBe(1);
+
+          const book = root.getFirstChild();
+          if (!$isBookNode(book)) throw new Error("book is not a BookNode");
+          expect(book.getMarker()).toBe("id");
+          expect(book.getCode()).toBe("GEN");
+          expect(book.getChildrenSize()).toBe(1);
+
+          const t1 = book.getFirstChild();
+          if (!$isTextNode(t1)) throw new Error("t1 is not a TextNode");
+          expect(t1.getTextContent()).toBe("- My Test Project");
+          expect($getState(t1, segmentState)).toBe("id_1");
         });
       });
 

@@ -5,6 +5,11 @@ export type OTParaAttribute = {
 };
 export const OT_PARA_PROPS: Array<keyof OTParaAttribute> = ["style"];
 
+export type OTBookAttribute = OTParaAttribute & {
+  code: string;
+};
+export const OT_BOOK_PROPS: Array<keyof OTBookAttribute> = ["style", "code"];
+
 export type OTCharItem = OTParaAttribute & {
   cid?: string;
 };
