@@ -30,14 +30,14 @@
   },
   "dependencies": {
     "@eten-tech-foundation/scripture-utilities": "workspace:~",
-    "@floating-ui/dom": "^1.7.1",
-    "@lexical/mark": "^0.32.1",
-    "@lexical/react": "^0.32.1",
-    "@lexical/selection": "^0.32.1",
-    "@lexical/utils": "^0.32.1",
+    "@floating-ui/dom": "^1.7.2",
+    "@lexical/mark": "^0.33.0",
+    "@lexical/react": "^0.33.0",
+    "@lexical/selection": "^0.33.0",
+    "@lexical/utils": "^0.33.0",
     "autoprefixer": "^10.4.21",
     "fast-equals": "^5.2.2",
-    "lexical": "^0.32.1"
+    "lexical": "^0.33.0"
   },
   "devDependencies": {
     "@types/react": "^18.3.18",
@@ -47,7 +47,7 @@
     "react-dom": "^18.3.1",
     "shared": "link:../shared",
     "shared-react": "link:../shared-react",
-    "sj-usfm-grammar": "^3.0.0",
+    "sj-usfm-grammar": "^3.0.8",
     "tailwindcss": "^3.4.17"
   },
   "volta": {

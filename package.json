@@ -8,7 +8,7 @@
     "prepare": "husky"
   },
   "devDependencies": {
-    "@lexical/eslint-plugin": "^0.32.1",
+    "@lexical/eslint-plugin": "^0.33.0",
     "@nx/devkit": "19.8.14",
     "@nx/eslint": "19.8.14",
     "@nx/eslint-plugin": "19.8.14",
