@@ -207,7 +207,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
       }
     },
     applyUpdate(ops) {
-      editorRef.current?.update(() => $applyUpdate(ops, viewOptions, logger), {
+      editorRef.current?.update(() => $applyUpdate(ops, viewOptions, nodeOptions, logger), {
         tag: DELTA_CHANGE_TAG,
       });
     },

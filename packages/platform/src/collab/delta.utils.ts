@@ -3,6 +3,7 @@ import {
   OT_CHAPTER_PROPS,
   OT_CHAR_PROPS,
   OT_MILESTONE_PROPS,
+  OT_NOTE_PROPS,
   OT_PARA_PROPS,
   OT_VERSE_PROPS,
   OTBookAttribute,
@@ -10,6 +11,7 @@ import {
   OTCharAttribute,
   OTCharItem,
   OTMilestoneEmbed,
+  OTNoteEmbed,
   OTParaAttribute,
   OTVerseEmbed,
 } from "./rich-text-ot.model";
@@ -27,8 +29,15 @@ import {
   TextNode,
 } from "lexical";
 import { AttributeMap, Op } from "quill-delta";
+import {
+  $createImmutableNoteCallerNode,
+  ImmutableNoteCallerNode,
+  immutableNoteCallerNodeName,
+  OnClick,
+} from "shared-react/nodes/usj/ImmutableNoteCallerNode";
 import { $createImmutableVerseNode } from "shared-react/nodes/usj/ImmutableVerseNode";
 import { $isSomeVerseNode, SomeVerseNode } from "shared-react/nodes/usj/node-react.utils";
+import { UsjNodeOptions } from "shared-react/nodes/usj/usj-node-options.model";
 import { ViewOptions } from "shared-react/views/view-options.utils";
 import { LoggerBasic } from "shared/adaptors/logger-basic.model";
 import { charIdState, deltaStates, segmentState } from "shared/nodes/collab/delta.state";
@@ -36,6 +45,7 @@ import {
   $isImmutableUnmatchedNode,
   ImmutableUnmatchedNode,
 } from "shared/nodes/features/ImmutableUnmatchedNode";
+import { $createMarkerNode, MarkerNode } from "shared/nodes/features/MarkerNode";
 import { $isUnknownNode, UnknownNode } from "shared/nodes/features/UnknownNode";
 import { $createBookNode, $isBookNode, BOOK_MARKER, BookNode } from "shared/nodes/usj/BookNode";
 import { $createChapterNode } from "shared/nodes/usj/ChapterNode";
@@ -51,11 +61,13 @@ import {
   $hasSameCharAttributes,
   $isSomeChapterNode,
   $isSomeParaNode,
+  getEditableCallerText,
+  getNoteCallerPreviewText,
   getUnknownAttributes,
   getVisibleOpenMarkerText,
   SomeChapterNode,
 } from "shared/nodes/usj/node.utils";
-import { $isNoteNode, NoteNode } from "shared/nodes/usj/NoteNode";
+import { $createNoteNode, $isNoteNode, NoteNode } from "shared/nodes/usj/NoteNode";
 import { $createParaNode, $isParaNode, ParaNode } from "shared/nodes/usj/ParaNode";
 import { $createVerseNode } from "shared/nodes/usj/VerseNode";
 
@@ -99,11 +111,17 @@ export const LF = "\n";
  * Apply Operational Transform rich-text updates to the editor.
  * @param ops - Operations array.
  * @param viewOptions - View options of the editor.
+ * @param nodeOptions - Node options for USJ nodes.
  * @param logger - Logger to use, if any.
  *
  * @see https://github.com/ottypes/rich-text
  */
-export function $applyUpdate(ops: Op[], viewOptions: ViewOptions, logger?: LoggerBasic) {
+export function $applyUpdate(
+  ops: Op[],
+  viewOptions: ViewOptions,
+  nodeOptions: UsjNodeOptions,
+  logger?: LoggerBasic,
+) {
   /** Tracks the current position in the OT document */
   let currentIndex = 0;
   ops.forEach((op) => {
@@ -124,7 +142,7 @@ export function $applyUpdate(ops: Op[], viewOptions: ViewOptions, logger?: Logge
         currentIndex += $insertTextAtCurrentIndex(currentIndex, op.insert, op.attributes, logger);
       } else if (typeof op.insert === "object" && op.insert !== null) {
         logger?.debug(`Insert embed: ${JSON.stringify(op.insert)}`);
-        if ($insertEmbedAtCurrentIndex(currentIndex, op.insert, viewOptions, logger)) {
+        if ($insertEmbedAtCurrentIndex(currentIndex, op, viewOptions, nodeOptions, logger)) {
           currentIndex += 1;
         } else {
           // If embed insertion fails, currentIndex is not advanced to prevent de-sync.
@@ -536,6 +554,10 @@ function $applyEmbedAttributes(
           [key]: value,
         });
       }
+    }
+
+    if (key === "segment") {
+      $setState(node, segmentState, () => value);
     }
   }
 }
@@ -1391,10 +1413,12 @@ function $insertNodeAtCharacterOffset(
 
 function $insertEmbedAtCurrentIndex(
   targetIndex: number,
-  embedObject: object,
+  op: Op,
   viewOptions: ViewOptions,
+  nodeOptions: UsjNodeOptions,
   logger?: LoggerBasic,
 ): boolean {
+  const embedObject = op.insert as object;
   let newNodeToInsert: LexicalNode | undefined;
 
   // Determine the LexicalNode to create based on the embedObject structure
@@ -1404,8 +1428,10 @@ function $insertEmbedAtCurrentIndex(
     newNodeToInsert = $createVerse(embedObject.verse as OTVerseEmbed, viewOptions);
   } else if (isEmbedOfType("ms", embedObject)) {
     newNodeToInsert = $createMilestone(embedObject.ms as OTMilestoneEmbed);
+  } else if (isEmbedOfType("note", embedObject)) {
+    newNodeToInsert = $createNote(op, viewOptions, nodeOptions);
   }
-  // TODO: Add other embed types here as needed (e.g. NoteNode?, ImmutableUnmatchedNode?)
+  // TODO: Add other embed types here as needed (e.g. ImmutableUnmatchedNode?)
   // While it would be technically and structurally possible to add a ParaNode here, it's not the
   // way Quill handles paragraphs which is always by inserting a newline (LF) character with a
   // `para` attribute.
@@ -1846,6 +1872,7 @@ function $isAtomicEmbedNode(node: LexicalNode): node is AtomicEmbedNode {
     $isSomeChapterNode(node) ||
     $isSomeVerseNode(node) ||
     $isMilestoneNode(node) ||
+    $isNoteNode(node) ||
     $isImmutableUnmatchedNode(node)
   );
 }
@@ -1911,6 +1938,53 @@ function $createMilestone(msData: OTMilestoneEmbed) {
 
   const unknownAttributes = getUnknownAttributes(msData, OT_MILESTONE_PROPS);
   return $createMilestoneNode(style, sid, eid, unknownAttributes);
+}
+
+function $createNote(op: Op, viewOptions: ViewOptions, nodeOptions: UsjNodeOptions) {
+  const noteEmbed = op.insert as { note: OTNoteEmbed };
+  const { style, caller, category, contents } = noteEmbed.note;
+  if (!style || !caller) return;
+
+  const unknownAttributes = getUnknownAttributes(noteEmbed.note, OT_NOTE_PROPS);
+  const note = $createNoteNode(style, caller, category, unknownAttributes);
+
+  const segment = op.attributes?.segment;
+  if (segment && typeof segment === "string") $setState(note, segmentState, () => segment);
+
+  const contentNodes: LexicalNode[] = [];
+  for (const op of contents?.ops ?? []) {
+    if (typeof op.insert !== "string") continue;
+    if (hasCharAttributes(op.attributes)) {
+      contentNodes.push($createNestedChars(op.attributes.char, $createTextNode(op.insert)));
+    } else {
+      contentNodes.push($createTextNode(op.insert));
+    }
+  }
+
+  let callerNode: ImmutableNoteCallerNode | TextNode;
+  if (viewOptions?.markerMode === "editable") {
+    callerNode = $createTextNode(getEditableCallerText(caller));
+  } else {
+    const previewText = getNoteCallerPreviewText(contentNodes);
+    let onClick: OnClick = () => undefined;
+    if (nodeOptions?.[immutableNoteCallerNodeName]?.onClick) {
+      onClick = nodeOptions[immutableNoteCallerNodeName].onClick;
+    }
+    callerNode = $createImmutableNoteCallerNode(caller, previewText, onClick);
+  }
+
+  let openingMarkerNode: MarkerNode | undefined;
+  let closingMarkerNode: MarkerNode | undefined;
+  if (viewOptions?.markerMode === "visible" || viewOptions?.markerMode === "editable") {
+    openingMarkerNode = $createMarkerNode(style);
+    closingMarkerNode = $createMarkerNode(style, false);
+  }
+
+  if (openingMarkerNode) note.append(openingMarkerNode);
+  note.append(callerNode, ...contentNodes);
+  if (closingMarkerNode) note.append(closingMarkerNode);
+
+  return note;
 }
 
 function $createBook(attributes: AttributeMapWithBook) {
@@ -1983,15 +2057,15 @@ function $createNestedChars(
     if (charAttr.length === 0) throw new Error("Empty charAttr array");
     return charAttr.reduceRight((child, attr, idx) => {
       const charNode = $createCharNode(attr.style, getUnknownAttributes(attr, OT_CHAR_PROPS));
-      if (typeof attr.cid === "string") $setState(charNode, charIdState, attr.cid);
-      if (segment && idx === charAttr.length - 1) $setState(charNode, segmentState, segment);
+      if (typeof attr.cid === "string") $setState(charNode, charIdState, () => attr.cid);
+      if (segment && idx === charAttr.length - 1) $setState(charNode, segmentState, () => segment);
       if (child) charNode.append(child);
       return charNode;
     }, innerNode) as CharNode;
   } else {
     const charNode = $createCharNode(charAttr.style, getUnknownAttributes(charAttr, OT_CHAR_PROPS));
-    if (typeof charAttr.cid === "string") $setState(charNode, charIdState, charAttr.cid);
-    if (segment) $setState(charNode, segmentState, segment);
+    if (typeof charAttr.cid === "string") $setState(charNode, charIdState, () => charAttr.cid);
+    if (segment) $setState(charNode, segmentState, () => segment);
     if (innerNode) charNode.append(innerNode);
     return charNode;
   }
@@ -2130,7 +2204,7 @@ function $splitTextWithDeltaStates(textNode: TextNode, offset: number): [TextNod
   for (const state of deltaStates) {
     const stateValue = $getState(textNode, state);
     if (stateValue !== undefined) {
-      $setState(tailNode, state, stateValue);
+      $setState(tailNode, state, () => stateValue);
     }
   }
 

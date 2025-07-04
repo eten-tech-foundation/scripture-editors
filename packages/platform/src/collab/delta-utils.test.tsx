@@ -9,8 +9,14 @@ import {
   LexicalEditor,
 } from "lexical";
 import Delta, { Op } from "quill-delta";
+import {
+  $createImmutableNoteCallerNode,
+  $isImmutableNoteCallerNode,
+  GENERATOR_NOTE_CALLER,
+} from "shared-react/nodes/usj/ImmutableNoteCallerNode";
 import { $createImmutableVerseNode } from "shared-react/nodes/usj/ImmutableVerseNode";
 import { $isSomeVerseNode } from "shared-react/nodes/usj/node-react.utils";
+import { UsjNodeOptions } from "shared-react/nodes/usj/usj-node-options.model";
 import { CharNodePlugin } from "shared-react/plugins/usj/CharNodePlugin";
 import { baseTestEnvironment } from "shared-react/plugins/usj/react-test.utils";
 import { getDefaultViewOptions, ViewOptions } from "shared-react/views/view-options.utils";
@@ -21,6 +27,7 @@ import { $createImmutableChapterNode } from "shared/nodes/usj/ImmutableChapterNo
 import { $createImpliedParaNode, $isImpliedParaNode } from "shared/nodes/usj/ImpliedParaNode";
 import { $isMilestoneNode } from "shared/nodes/usj/MilestoneNode";
 import { $isSomeChapterNode } from "shared/nodes/usj/node.utils";
+import { $createNoteNode, $isNoteNode } from "shared/nodes/usj/NoteNode";
 import { $createParaNode, $isParaNode } from "shared/nodes/usj/ParaNode";
 
 const defaultViewOptions = getDefaultViewOptions();
@@ -567,6 +574,39 @@ describe("Delta Utils $applyUpdate", () => {
         const t2 = char3.getFirstChild();
         if (!$isTextNode(t2)) throw new Error("t2 is not a TextNode");
         expect(t2.getTextContent()).toBe(wordsOfJesus);
+      });
+    });
+
+    it("(dc) should retain note with attributes", async () => {
+      const { editor } = await testEnvironment(() => {
+        $getRoot().append(
+          $createParaNode().append(
+            $createTextNode("Before"),
+            $createNoteNode("nd", GENERATOR_NOTE_CALLER).append(
+              $createImmutableNoteCallerNode(GENERATOR_NOTE_CALLER, "preview text"),
+              $createCharNode("fr").append($createTextNode("2:1 ")),
+              $createCharNode("ft").append($createTextNode("earlier in time.")),
+            ),
+          ),
+        );
+      });
+      const ops: Op[] = [{ retain: 6 }, { retain: 1, attributes: { segment: "verse_2_1" } }];
+
+      await sutApplyUpdate(editor, ops);
+
+      expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
+      editor.getEditorState().read(() => {
+        const root = $getRoot();
+        expect(root.getChildrenSize()).toBe(1);
+
+        const para = root.getFirstChild();
+        if (!$isParaNode(para)) throw new Error("Expected ParaNode");
+        expect(para.getChildrenSize()).toBe(2);
+
+        const note = para.getChildAtIndex(1);
+        if (!$isNoteNode(note)) throw new Error("Expected NoteNode");
+        expect(note.getChildrenSize()).toBe(3);
+        expect($getState(note, segmentState)).toBe("verse_2_1");
       });
     });
 
@@ -1738,6 +1778,35 @@ describe("Delta Utils $applyUpdate", () => {
       });
     });
 
+    it("(dc) should delete note node", async () => {
+      const { editor } = await testEnvironment(() => {
+        $getRoot().append(
+          $createParaNode().append(
+            $createTextNode("Before"),
+            $createNoteNode("nd", GENERATOR_NOTE_CALLER).append(
+              $createImmutableNoteCallerNode(GENERATOR_NOTE_CALLER, "preview text"),
+              $createCharNode("fr").append($createTextNode("2:1 ")),
+              $createCharNode("ft").append($createTextNode("earlier in time.")),
+            ),
+          ),
+        );
+      });
+      const ops: Op[] = [{ retain: 6 }, { delete: 1 }]; // Delete note
+
+      await sutApplyUpdate(editor, ops);
+
+      expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
+      editor.getEditorState().read(() => {
+        const root = $getRoot();
+        expect(root.getChildrenSize()).toBe(1);
+
+        const para = root.getFirstChild();
+        if (!$isParaNode(para)) throw new Error("Expected ParaNode");
+        expect(para.getTextContent()).toBe("Before");
+        expect(para.getChildrenSize()).toBe(1);
+      });
+    });
+
     it("(dc) should handle delete in document with mixed content types", async () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append(
@@ -2604,6 +2673,90 @@ describe("Delta Utils $applyUpdate", () => {
       });
     });
 
+    it("(dc) should insert a note", async () => {
+      const { editor } = await testEnvironment();
+      const ops: Op[] = [
+        { insert: "When", attributes: { segment: "verse_2_1" } },
+        {
+          attributes: { segment: "verse_2_1" },
+          insert: {
+            note: {
+              style: "f",
+              caller: GENERATOR_NOTE_CALLER,
+              contents: {
+                ops: [
+                  {
+                    insert: "2.1 ",
+                    attributes: {
+                      char: {
+                        style: "fr",
+                        closed: "false",
+                        cid: "a4f30846-b45c-4bc0-aebe-103dd36a9af3",
+                      },
+                    },
+                  },
+                  {
+                    insert: "in time.",
+                    attributes: {
+                      char: {
+                        style: "ft",
+                        closed: "false",
+                        cid: "6b911d54-dd6f-41a8-948e-52c7bd03aeb6",
+                      },
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        },
+      ];
+
+      await sutApplyUpdate(editor, ops);
+
+      editor.getEditorState().read(() => {
+        const p = $getRoot().getFirstChild();
+        if (!$isImpliedParaNode(p)) throw new Error("p is not an ImpliedParaNode");
+        expect(p.getChildrenSize()).toBe(2);
+
+        const whenText = p.getFirstChild();
+        if (!$isTextNode(whenText)) throw new Error("whenText is not a TextNode");
+        expect(whenText.getTextContent()).toBe("When");
+        expect($getState(whenText, segmentState)).toBe("verse_2_1");
+
+        const note = p.getChildAtIndex(1);
+        if (!$isNoteNode(note)) throw new Error("note is not a NoteNode");
+        expect(note.getMarker()).toBe("f");
+        expect(note.getCaller()).toBe(GENERATOR_NOTE_CALLER);
+        expect($getState(note, segmentState)).toBe("verse_2_1");
+        expect(note.getChildrenSize()).toBe(3);
+
+        const caller = note.getFirstChild();
+        if (!$isImmutableNoteCallerNode(caller))
+          throw new Error("Expected a ImmutableNoteCallerNode");
+        expect(caller.getCaller()).toBe(GENERATOR_NOTE_CALLER);
+        expect(caller.getPreviewText()).toBe("2.1  in time.");
+
+        const char1 = note.getChildAtIndex(1);
+        if (!$isCharNode(char1)) throw new Error("char1 is not a CharNode");
+        expect(char1.getMarker()).toBe("fr");
+        expect(char1.getTextContent()).toBe("2.1 ");
+        expect($getState(char1, charIdState)).toBe("a4f30846-b45c-4bc0-aebe-103dd36a9af3");
+        expect(char1.getUnknownAttributes()).toEqual({
+          closed: "false",
+        });
+
+        const char2 = note.getChildAtIndex(2);
+        if (!$isCharNode(char2)) throw new Error("char2 is not a CharNode");
+        expect(char2.getMarker()).toBe("ft");
+        expect(char2.getTextContent()).toBe("in time.");
+        expect($getState(char2, charIdState)).toBe("6b911d54-dd6f-41a8-948e-52c7bd03aeb6");
+        expect(char1.getUnknownAttributes()).toEqual({
+          closed: "false",
+        });
+      });
+    });
+
     it("(dc) should sequentially insert multiple items into an empty document", async () => {
       const { editor } = await testEnvironment();
       const v1Text = "v1 text "; // 8
@@ -3457,15 +3610,18 @@ async function testEnvironment($initialEditorState?: () => void) {
   return baseTestEnvironment($initialEditorState, <CharNodePlugin />);
 }
 
+const defaultNodeOptions: UsjNodeOptions = {};
+
 /** SUT (Software Under Test) to apply an OT update. */
 async function sutApplyUpdate(
   editor: LexicalEditor,
   ops: Op[],
   viewOptions: ViewOptions = defaultViewOptions,
+  nodeOptions: UsjNodeOptions = defaultNodeOptions,
 ) {
   await act(async () => {
     editor.update(() => {
-      $applyUpdate(ops, viewOptions, console);
+      $applyUpdate(ops, viewOptions, nodeOptions, console);
     });
   });
 }

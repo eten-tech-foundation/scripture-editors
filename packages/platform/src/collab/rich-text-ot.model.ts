@@ -1,4 +1,10 @@
-/** Models for the rich-text Operational Transform documents used in Scripture Forge */
+/**
+ * Models for the rich-text Operational Transform documents used in Scripture Forge.
+ * `OT_???_PROPS` are the properties that can be set on the corresponding Lexical node. The rest go
+ *   into unknownAttributes.
+ */
+
+import { Op } from "quill-delta";
 
 export type OTParaAttribute = {
   style: string;
@@ -51,3 +57,11 @@ export type OTMilestoneEmbed = OTParaAttribute & {
   status?: "start" | "end";
 };
 export const OT_MILESTONE_PROPS: Array<keyof OTMilestoneEmbed> = ["style", "sid", "eid"];
+
+export type OTNoteEmbed = OTParaAttribute & {
+  caller: string;
+  category?: string;
+  contents?: { ops?: Op[] };
+};
+// Note that `contents` is not a property of a NoteNode, but we don't want it in unknownAttributes.
+export const OT_NOTE_PROPS: Array<keyof OTNoteEmbed> = ["style", "caller", "category", "contents"];
