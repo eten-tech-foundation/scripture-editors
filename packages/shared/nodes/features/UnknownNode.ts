@@ -1,6 +1,8 @@
 import { UnknownAttributes } from "../usj/node-constants";
 import {
   $applyNodeReplacement,
+  DOMConversionMap,
+  DOMConversionOutput,
   DOMExportOutput,
   ElementNode,
   LexicalNode,
@@ -19,6 +21,7 @@ export type SerializedUnknownNode = Spread<
   SerializedElementNode
 >;
 
+export const UNKNOWN_TAG_NAME = "unknown";
 export const UNKNOWN_VERSION = 1;
 
 export class UnknownNode extends ElementNode {
@@ -45,6 +48,19 @@ export class UnknownNode extends ElementNode {
   static importJSON(serializedNode: SerializedUnknownNode): UnknownNode {
     const { tag, marker, unknownAttributes } = serializedNode;
     return $createUnknownNode(tag, marker, unknownAttributes).updateFromJSON(serializedNode);
+  }
+
+  static importDOM(): DOMConversionMap | null {
+    return {
+      [UNKNOWN_TAG_NAME]: (node: HTMLElement) => {
+        if (!isUnknownElement(node)) return null;
+
+        return {
+          conversion: $convertUnknownElement,
+          priority: 1,
+        };
+      },
+    };
   }
 
   setTag(tag: string): this {
@@ -85,7 +101,7 @@ export class UnknownNode extends ElementNode {
   }
 
   createDOM(): HTMLElement {
-    const dom = document.createElement("unknown");
+    const dom = document.createElement(UNKNOWN_TAG_NAME);
     dom.style.display = "none";
     return dom;
   }
@@ -130,12 +146,23 @@ export class UnknownNode extends ElementNode {
   }
 }
 
+function $convertUnknownElement(element: HTMLElement): DOMConversionOutput {
+  const tag = element.getAttribute("data-tag") ?? "";
+  const marker = element.getAttribute("data-marker") ?? "";
+  const node = $createUnknownNode(tag, marker);
+  return { node };
+}
+
 export function $createUnknownNode(
   tag: string,
   marker: string,
   unknownAttributes?: UnknownAttributes,
 ): UnknownNode {
   return $applyNodeReplacement(new UnknownNode(tag, marker, unknownAttributes));
+}
+
+function isUnknownElement(node: HTMLElement | null | undefined): boolean {
+  return node?.tagName === UNKNOWN_TAG_NAME;
 }
 
 export function $isUnknownNode(node: LexicalNode | null | undefined): node is UnknownNode {
