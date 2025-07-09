@@ -8,7 +8,7 @@ import {
 import { $createImmutableVerseNode } from "../../nodes/usj/ImmutableVerseNode";
 import { UsjNodeOptions } from "../../nodes/usj/usj-node-options.model";
 import { ViewOptions } from "../../views/view-options.utils";
-import { NoteNodePlugin } from "./NoteNodePlugin";
+import { CounterStyleRuleLike, NoteNodePlugin } from "./NoteNodePlugin";
 import { baseTestEnvironment } from "./react-test.utils";
 import { act } from "@testing-library/react";
 import {
@@ -25,6 +25,7 @@ import { NBSP } from "shared/nodes/usj/node-constants";
 import { $createNoteNode, NoteNode } from "shared/nodes/usj/NoteNode";
 import { $createParaNode } from "shared/nodes/usj/ParaNode";
 
+let styleSheetsSpy: jest.SpyInstance;
 let firstVerseTextNode: TextNode;
 let firstNoteNode: NoteNode;
 let secondNoteNode: NoteNode;
@@ -59,6 +60,28 @@ function $defaultInitialEditorState() {
     $createParaNode().append(thirdVerseNode, thirdNoteNode, thirdVerseTextNode),
   );
 }
+
+beforeAll(() => {
+  const fakeRule: CounterStyleRuleLike = {
+    name: "note-callers",
+    symbols:
+      '"a" "b" "c" "d" "e" "f" "g" "h" "i" "j" "k" "l" "m" "n" "o" "p" "q" "r" "s" "t" "u" "v" "w" "x" "y" "z"',
+    type: 11, // CSSRule.COUNTER_STYLE_RULE
+  };
+  const fakeStyleSheet = {
+    cssRules: [fakeRule],
+    rules: [fakeRule],
+  };
+  styleSheetsSpy = jest
+    .spyOn(document, "styleSheets", "get")
+    .mockImplementation(() => [fakeStyleSheet] as any);
+});
+
+afterAll(() => {
+  if (styleSheetsSpy) {
+    styleSheetsSpy.mockRestore();
+  }
+});
 
 describe("NoteNodePlugin", () => {
   it("should load default initialEditorState (sanity check)", async () => {

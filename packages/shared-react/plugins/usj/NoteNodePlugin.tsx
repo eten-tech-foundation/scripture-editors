@@ -27,6 +27,12 @@ import { $isCharNode, CharNode } from "shared/nodes/usj/CharNode";
 import { $isNoteNode, NoteNode } from "shared/nodes/usj/NoteNode";
 import { $findFirstAncestorNoteNode, getNoteCallerPreviewText } from "shared/nodes/usj/node.utils";
 
+export interface CounterStyleRuleLike {
+  name: string;
+  symbols: string;
+  type?: number;
+}
+
 /**
  * This plugin is responsible for handling NoteNode and NoteNodeCaller interactions. It also
  * updates the counter style symbols for note callers when the node options change.
@@ -224,8 +230,7 @@ function updateCounterStyleSymbols(
 
       // Loop through all CSS rules in the current stylesheet
       for (const rule of cssRules) {
-        // Check if the rule is a counter-style rule with the matching name
-        if (rule instanceof CSSCounterStyleRule && rule.name === counterStyleName) {
+        if (isCounterStyleRuleLike(rule, counterStyleName)) {
           // Create the symbols string (space-separated symbols)
           const symbolsValue = newSymbols.map((symbol) => `"${symbol}"`).join(" ");
 
@@ -242,4 +247,19 @@ function updateCounterStyleSymbols(
 
   // If the counter-style wasn't found, you could create it
   logger?.warn(`Editor: counter style "${counterStyleName}" not found.`);
+}
+
+function isCounterStyleRuleLike(
+  rule: unknown,
+  counterStyleName: string,
+): rule is CSSCounterStyleRule | CounterStyleRuleLike {
+  return (
+    // This check could be simpler but as is also works for test mocks.
+    typeof rule === "object" &&
+    rule !== null &&
+    "name" in rule &&
+    rule.name === counterStyleName &&
+    "symbols" in rule &&
+    typeof rule.symbols === "string"
+  );
 }
