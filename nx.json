@@ -49,7 +49,7 @@
       "options": {
         "jestConfig": "{projectRoot}/jest.config.ts",
         "passWithNoTests": true,
-        "silent": true
+        "silent": false
       },
       "configurations": {
         "ci": {

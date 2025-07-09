@@ -35,24 +35,19 @@ import {
 } from "../../../../utilities/src/converters/usj/converter-test.data";
 import { serializeEditorState, reset, initialize } from "./usj-editor.adaptor";
 
-/**
- * Remove the `onClick` function because it can't be compared since it's anonymous.
- * @param serializedEditorState
- */
-function removeOnClick(
-  serializedEditorState: SerializedEditorState,
-  noteParaIndex = NOTE_PARA_INDEX,
-  noteIndex = NOTE_INDEX,
-  noteCallerIndex = NOTE_CALLER_INDEX,
-) {
-  const note = (serializedEditorState.root.children[noteParaIndex] as SerializedParaNode).children[
-    noteIndex
-  ] as SerializedNoteNode;
-  const noteCaller = note.children[noteCallerIndex] as SerializedImmutableNoteCallerNode;
-  delete noteCaller.onClick;
-}
-
 describe("USJ Editor Adaptor", () => {
+  let consoleWarnSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    // Spy on console methods before each test and provide mock implementations
+    consoleWarnSpy = jest.spyOn(console, "warn").mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    // Restore console methods after each test to their original implementations
+    consoleWarnSpy.mockRestore();
+  });
+
   it("should convert from undefined USJ to Lexical editor state JSON", () => {
     const serializedEditorState = serializeEditorState(undefined);
 
@@ -153,5 +148,32 @@ describe("USJ Editor Adaptor", () => {
 
     removeOnClick(serializedEditorState, NOTE_PARA_WITH_UNKNOWN_ITEMS_INDEX);
     expect(serializedEditorState).toEqual(editorStateWithUnknownItems);
+    expect(consoleWarnSpy).toHaveBeenCalledTimes(9);
+    expect(consoleWarnSpy).toHaveBeenNthCalledWith(1, "Unknown type-marker 'wat-z'!");
+    expect(consoleWarnSpy).toHaveBeenNthCalledWith(2, "Unknown type-marker 'optbreak-undefined'!");
+    expect(consoleWarnSpy).toHaveBeenNthCalledWith(3, "Unknown type-marker 'ref-undefined'!");
+    expect(consoleWarnSpy).toHaveBeenNthCalledWith(4, "Unknown type-marker 'sidebar-esb'!");
+    expect(consoleWarnSpy).toHaveBeenNthCalledWith(5, "Unknown type-marker 'periph-undefined'!");
+    expect(consoleWarnSpy).toHaveBeenNthCalledWith(6, "Unknown type-marker 'figure-fig'!");
+    expect(consoleWarnSpy).toHaveBeenNthCalledWith(7, "Unknown type-marker 'table-undefined'!");
+    expect(consoleWarnSpy).toHaveBeenNthCalledWith(8, "Unknown type-marker 'table:row-tr'!");
+    expect(consoleWarnSpy).toHaveBeenNthCalledWith(9, "Unknown type-marker 'table:cell-tc1'!");
   });
 });
+
+/**
+ * Remove the `onClick` function because it can't be compared since it's anonymous.
+ * @param serializedEditorState
+ */
+function removeOnClick(
+  serializedEditorState: SerializedEditorState,
+  noteParaIndex = NOTE_PARA_INDEX,
+  noteIndex = NOTE_INDEX,
+  noteCallerIndex = NOTE_CALLER_INDEX,
+) {
+  const note = (serializedEditorState.root.children[noteParaIndex] as SerializedParaNode).children[
+    noteIndex
+  ] as SerializedNoteNode;
+  const noteCaller = note.children[noteCallerIndex] as SerializedImmutableNoteCallerNode;
+  delete noteCaller.onClick;
+}
