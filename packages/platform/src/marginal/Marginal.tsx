@@ -1,3 +1,8 @@
+import Editor, { EditorProps, EditorRef } from "../editor/Editor";
+import { Comments } from "./comments/commenting";
+import CommentPlugin from "./comments/CommentPlugin";
+import useCommentStoreRef from "./comments/use-comment-store-ref.hook";
+import useMissingCommentsProps from "./comments/use-missing-comments-props.hook";
 import { Usj } from "@eten-tech-foundation/scripture-utilities";
 import React, {
   JSX,
@@ -9,12 +14,8 @@ import React, {
   useRef,
   useState,
 } from "react";
+import { Op } from "shared-react/plugins/usj/collab/delta-apply-update.utils";
 import { LoggerBasic } from "shared/adaptors/logger-basic.model";
-import { Comments } from "./comments/commenting";
-import CommentPlugin from "./comments/CommentPlugin";
-import useCommentStoreRef from "./comments/use-comment-store-ref.hook";
-import useMissingCommentsProps from "./comments/use-missing-comments-props.hook";
-import Editor, { EditorProps, EditorRef } from "../editor/Editor";
 
 /** Forward reference for the editor. */
 export type MarginalRef = EditorRef & {
@@ -29,7 +30,7 @@ export type MarginalProps<TLogger extends LoggerBasic> = Omit<
   /** Callback function when comments have changed. */
   onCommentChange?: (comments: Comments | undefined) => void;
   /** Callback function when USJ Scripture data has changed. */
-  onUsjChange?: (usj: Usj, comments: Comments | undefined) => void;
+  onUsjChange?: (usj: Usj, comments: Comments | undefined, ops?: Op[]) => void;
 };
 
 /**
@@ -99,11 +100,11 @@ const Marginal = forwardRef(function Marginal<TLogger extends LoggerBasic>(
   }));
 
   const handleUsjChange = useCallback(
-    (usj: Usj) => {
+    (usj: Usj, ops?: Op[]) => {
       if (!onUsjChange) return;
 
       const comments = commentStoreRef.current?.getComments();
-      onUsjChange(usj, comments);
+      onUsjChange(usj, comments, ops);
     },
     [commentStoreRef, onUsjChange],
   );

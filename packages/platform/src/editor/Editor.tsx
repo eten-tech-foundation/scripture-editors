@@ -13,7 +13,6 @@ import { ContentEditable } from "@lexical/react/LexicalContentEditable";
 import { EditorRefPlugin } from "@lexical/react/LexicalEditorRefPlugin";
 import { LexicalErrorBoundary } from "@lexical/react/LexicalErrorBoundary";
 import { HistoryPlugin } from "@lexical/react/LexicalHistoryPlugin";
-import { OnChangePlugin } from "@lexical/react/LexicalOnChangePlugin";
 import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
 import { SerializedVerseRef } from "@sillsdev/scripture";
 import { deepEqual } from "fast-equals";
@@ -28,6 +27,7 @@ import React, {
   useState,
 } from "react";
 import { usjReactNodes } from "shared-react/nodes/usj";
+import { OnChangePlugin } from "shared-react/plugins/usj/collab/DeltaOnChangePlugin";
 import { $applyUpdate, Op } from "shared-react/plugins/usj/collab/delta-apply-update.utils";
 import { UsjNodeOptions } from "shared-react/nodes/usj/usj-node-options.model";
 import { ArrowNavigationPlugin } from "shared-react/plugins/usj/ArrowNavigationPlugin";
@@ -114,7 +114,7 @@ export type EditorProps<TLogger extends LoggerBasic> = {
   /** Callback function when the cursor selection changes. */
   onSelectionChange?: (selection: SelectionRange | undefined) => void;
   /** Callback function when USJ Scripture data has changed. */
-  onUsjChange?: (usj: Usj) => void;
+  onUsjChange?: (usj: Usj, ops?: Op[]) => void;
   /** Options to configure the editor. */
   options?: EditorOptions;
   /** Logger instance. */
@@ -217,7 +217,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
       if (newUsj) {
         const isEdited = !deepEqual(editedUsjRef.current, newUsj);
         if (isEdited) editedUsjRef.current = newUsj;
-        if (isEdited || !deepEqual(usj, newUsj)) onUsjChange?.(newUsj);
+        if (isEdited || !deepEqual(usj, newUsj)) onUsjChange?.(newUsj, ops);
       }
     },
     getSelection() {
@@ -244,14 +244,14 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
   }));
 
   const handleChange = useCallback(
-    (editorState: EditorState, _editor: LexicalEditor, tags: Set<string>) => {
+    (editorState: EditorState, _editor: LexicalEditor, tags: Set<string>, ops: Op[]) => {
       if (blackListedChangeTags.some((tag) => tags.has(tag))) return;
 
       const newUsj = editorUsjAdaptor.deserializeEditorState(editorState);
       if (newUsj) {
         const isEdited = !deepEqual(editedUsjRef.current, newUsj);
         if (isEdited) editedUsjRef.current = newUsj;
-        if (isEdited || !deepEqual(usj, newUsj)) onUsjChange?.(newUsj);
+        if (isEdited || !deepEqual(usj, newUsj)) onUsjChange?.(newUsj, ops);
       }
     },
     [usj, onUsjChange],
