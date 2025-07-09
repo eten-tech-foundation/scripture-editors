@@ -1,4 +1,5 @@
 // Taken methods in common with Console from: import type { LogFunctions } from "electron-log";
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 export type LoggerBasic = {
   /** Log an error message */

@@ -74,6 +74,8 @@ beforeAll(() => {
   };
   styleSheetsSpy = jest
     .spyOn(document, "styleSheets", "get")
+    // Simplify testing.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     .mockImplementation(() => [fakeStyleSheet] as any);
 });
 
