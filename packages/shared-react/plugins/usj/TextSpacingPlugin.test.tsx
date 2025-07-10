@@ -11,6 +11,7 @@ import { $createNoteNode } from "shared/nodes/usj/NoteNode";
 import { $createParaNode, $isParaNode, ParaNode } from "shared/nodes/usj/ParaNode";
 import {
   $expectSelectionToBe,
+  createTextAtSelection,
   deleteTextAtSelection,
   typeTextAfterNode,
   typeTextAtSelection,
@@ -20,14 +21,12 @@ let v1Node: ImmutableVerseNode;
 let textNode: TextNode;
 let v4ParaNode: ParaNode;
 let v4Node: ImmutableVerseNode;
-let unknownTextNode: TextNode;
 
 function $defaultInitialEditorState() {
   v1Node = $createImmutableVerseNode("1");
   textNode = $createTextNode("b ");
   v4ParaNode = $createParaNode();
   v4Node = $createImmutableVerseNode("1");
-  unknownTextNode = $createTextNode("wat-z");
   $getRoot().append(
     $createImmutableChapterNode("1"),
     $createParaNode().append(v1Node, $createImmutableVerseNode("2")),
@@ -37,11 +36,6 @@ function $defaultInitialEditorState() {
       $createImmutableVerseNode("5"),
       $createCharNode("wj").append($createTextNode("e")),
     ),
-    $createParaNode().append(
-      $createUnknownNode("wat", "z").append(unknownTextNode),
-      $createImmutableVerseNode("6"),
-      $createTextNode("f"),
-    ),
   );
 }
 
@@ -50,7 +44,7 @@ describe("TextSpacingPlugin", () => {
     const { editor } = await testEnvironment();
 
     editor.getEditorState().read(() => {
-      expect($getRoot().getTextContent()).toBe("\n\nb \n\n\n\ne\n\nwat-zf ");
+      expect($getRoot().getTextContent()).toBe("\n\nb \n\n\n\ne");
     });
   });
 
@@ -135,12 +129,24 @@ describe("TextSpacingPlugin", () => {
   });
 
   it("should add a space if typing before a verse in a para starting with an UnknownNode", async () => {
-    const { editor } = await testEnvironment();
+    let unknownTextNode: TextNode;
+    const { editor } = await testEnvironment(() => {
+      unknownTextNode = $createTextNode("wat-z");
+      $getRoot().append(
+        $createParaNode().append(
+          $createUnknownNode("wat", "z").append(unknownTextNode),
+          $createImmutableVerseNode("6"),
+          $createTextNode("f"),
+        ),
+      );
+    });
 
-    await typeTextAtSelection(editor, "d", unknownTextNode, 0);
+    // Defined by the test environment.
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    await createTextAtSelection(editor, "d", unknownTextNode!, 0);
 
     editor.getEditorState().read(() => {
-      const para = $getRoot().getChildren()[5];
+      const para = $getRoot().getFirstChild();
       if (!$isParaNode(para)) throw new Error("Expected a ParaNode");
       expect(para.getChildren()).toHaveLength(4);
       const textNode = para.getChildAtIndex(0);
@@ -189,7 +195,7 @@ describe("TextSpacingPlugin", () => {
 
     // Select within the inner text node and type. `innerTextNode` defined by the test environment.
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    await typeTextAtSelection(editor, "d", innerTextNode!, 1); // Select after 'a'
+    await createTextAtSelection(editor, "d", innerTextNode!, 1); // Select after 'a'
 
     editor.getEditorState().read(() => {
       const para = $getRoot().getFirstChild();

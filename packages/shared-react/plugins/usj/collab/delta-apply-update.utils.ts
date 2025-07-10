@@ -8,6 +8,7 @@ import { $createImmutableVerseNode } from "../../../nodes/usj/ImmutableVerseNode
 import { $isSomeVerseNode, SomeVerseNode } from "../../../nodes/usj/node-react.utils";
 import { UsjNodeOptions } from "../../../nodes/usj/usj-node-options.model";
 import { ViewOptions } from "../../../views/view-options.utils";
+import { $isEmbedNode, $isParaLikeNode, EmbedNode } from "./delta-common.utils";
 import {
   OT_BOOK_PROPS,
   OT_CHAPTER_PROPS,
@@ -41,10 +42,6 @@ import {
 import { AttributeMap, Op } from "quill-delta";
 import { LoggerBasic } from "shared/adaptors/logger-basic.model";
 import { charIdState, segmentState } from "shared/nodes/collab/delta.state";
-import {
-  $isImmutableUnmatchedNode,
-  ImmutableUnmatchedNode,
-} from "shared/nodes/features/ImmutableUnmatchedNode";
 import { $createMarkerNode, MarkerNode } from "shared/nodes/features/MarkerNode";
 import { $isUnknownNode, UnknownNode } from "shared/nodes/features/UnknownNode";
 import { $createBookNode, $isBookNode, BOOK_MARKER, BookNode } from "shared/nodes/usj/BookNode";
@@ -56,11 +53,7 @@ import {
   $isImpliedParaNode,
   ImpliedParaNode,
 } from "shared/nodes/usj/ImpliedParaNode";
-import {
-  $createMilestoneNode,
-  $isMilestoneNode,
-  MilestoneNode,
-} from "shared/nodes/usj/MilestoneNode";
+import { $createMilestoneNode, $isMilestoneNode } from "shared/nodes/usj/MilestoneNode";
 import {
   $hasSameCharAttributes,
   $isSomeChapterNode,
@@ -358,9 +351,8 @@ function $applyAttributes(
         $unwrapNode(currentNode);
       }
       nestedCharCount -= 1;
-    } else if ($isSomeParaNode(currentNode) || $isBookNode(currentNode)) {
-      // Paragraph-like nodes: process children first, then account for the block's own closing OT
-      // length.
+    } else if ($isParaLikeNode(currentNode)) {
+      // Process children first, then account for the block's own closing OT length.
       const children = currentNode.getChildren();
       for (const child of children) {
         if (lengthToFormat <= 0) break;
@@ -600,8 +592,8 @@ function $delete(targetIndex: number, otLength: number, logger: LoggerBasic | un
         // Deletion doesn't affect this embed, just advance past it
         currentIndex += 1;
       }
-    } else if ($isSomeParaNode(currentNode) || $isBookNode(currentNode)) {
-      // Paragraph-like nodes: process children first, then handle the symbolic close
+    } else if ($isParaLikeNode(currentNode)) {
+      // Process children first, then handle the symbolic close.
       const childrenBefore = currentNode.getChildren().slice(); // Save original children
 
       // Process children
@@ -617,7 +609,7 @@ function $delete(targetIndex: number, otLength: number, logger: LoggerBasic | un
       if (
         targetIndex <= currentIndex &&
         currentIndex < targetIndex + remainingToDelete &&
-        ($isParaNode(currentNode) || $isBookNode(currentNode))
+        $isParaLikeNode(currentNode)
       ) {
         // Deleting the symbolic close of a block node
         remainingToDelete -= 1;
@@ -807,7 +799,7 @@ function $handleCharText(
         for (const child of children) {
           if (findParentCharNode(child)) return true;
         }
-        if ($isSomeParaNode(node) || $isBookNode(node)) {
+        if ($isParaLikeNode(node)) {
           currentIndex += 1;
         }
       }
@@ -966,7 +958,7 @@ function $insertRichText(
         insertionPointFound = true;
         return true;
       }
-    } else if ($isSomeParaNode(currentNode) || $isBookNode(currentNode)) {
+    } else if ($isParaLikeNode(currentNode)) {
       const offsetAtParaStart = currentIndex;
       // Try inserting at the beginning of the block node
       if (!insertionPointFound && targetIndex === offsetAtParaStart) {
@@ -1164,7 +1156,7 @@ function $insertNodeAtCharacterOffset(
         // No OT length contribution for the CharNode itself
         if ($traverseAndInsertRecursive(child)) return true;
         // currentIndex is now after child's content and its own recursive calls
-      } else if ($isSomeParaNode(child) || $isBookNode(child)) {
+      } else if ($isParaLikeNode(child)) {
         const paraLikeChild = child;
         // currentIndex is currently at the START of paraLikeChild's content area (or its embed
         // point if empty)
@@ -1177,7 +1169,7 @@ function $insertNodeAtCharacterOffset(
         // ImpliedParaNode
         if (
           $isImpliedParaNode(paraLikeChild) &&
-          ($isParaNode(nodeToInsert) || $isBookNode(nodeToInsert)) &&
+          $isParaLikeNode(nodeToInsert) &&
           // Target is at the ImpliedPara's implicit newline
           targetIndex === otIndexForParaChildClosingMarker &&
           !wasInserted // Ensure we haven't already inserted elsewhere
@@ -1437,7 +1429,7 @@ function $handleNewline(
       currentIndex += textLength;
     } else if ($isEmbedNode(currentNode)) {
       currentIndex += 1;
-    } else if ($isSomeParaNode(currentNode) || $isBookNode(currentNode)) {
+    } else if ($isParaLikeNode(currentNode)) {
       // First, process children to find current position
       const children = currentNode.getChildren();
       for (const child of children) {
@@ -1516,22 +1508,6 @@ function $handleNewline(
   }
 
   return 1; // LF always contributes 1 to the OT index
-}
-
-type EmbedNode = SomeChapterNode | SomeVerseNode | MilestoneNode | ImmutableUnmatchedNode;
-
-/**
- * Type guard to check if a node is an embed. Embeds have an OT length of 1 and are self-contained
- * (no children to process).
- */
-function $isEmbedNode(node: LexicalNode): node is EmbedNode {
-  return (
-    $isSomeChapterNode(node) ||
-    $isSomeVerseNode(node) ||
-    $isMilestoneNode(node) ||
-    $isNoteNode(node) ||
-    $isImmutableUnmatchedNode(node)
-  );
 }
 
 function $createChapter(chapterData: OTChapterEmbed, viewOptions: ViewOptions) {

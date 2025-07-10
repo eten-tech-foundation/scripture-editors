@@ -234,8 +234,49 @@ export async function typeTextAfterNode(
  * @param startNode - The starting LexicalNode of the selection.
  * @param startOffset - The offset within the startNode where the selection begins. Defaults to the
  *   end of the startNode's text content.
+ * @param endNode - The ending LexicalNode of the selection to delete. Defaults to the startNode.
+ * @param endOffset - The offset within the endNode where the deletion ends. Defaults to the
+ *   end of the endNode's text content.
  */
 export async function typeTextAtSelection(
+  editor: LexicalEditor,
+  text: string,
+  startNode: LexicalNode,
+  startOffset?: number,
+  endNode?: LexicalNode,
+  endOffset?: number,
+) {
+  await act(async () => {
+    editor.update(() => {
+      startOffset ??= startNode.getTextContentSize();
+      endOffset ??= endNode ? endNode.getTextContentSize() : startOffset;
+      endNode ??= startNode;
+      const rangeSelection = $createRangeSelection();
+      rangeSelection.anchor = $createPoint(
+        startNode.getKey(),
+        startOffset,
+        $isElementNode(startNode) ? "element" : "text",
+      );
+      rangeSelection.focus = $createPoint(
+        endNode.getKey(),
+        endOffset,
+        $isElementNode(endNode) ? "element" : "text",
+      );
+      $setSelection(rangeSelection);
+      rangeSelection.insertText(text);
+    });
+  });
+}
+
+/**
+ * Creates text at the selection point in the LexicalEditor.
+ *
+ * @param editor - The LexicalEditor instance where the selection will be set.
+ * @param startNode - The starting LexicalNode of the selection.
+ * @param startOffset - The offset within the startNode where the selection begins. Defaults to the
+ *   end of the startNode's text content.
+ */
+export async function createTextAtSelection(
   editor: LexicalEditor,
   text: string,
   startNode: LexicalNode,
