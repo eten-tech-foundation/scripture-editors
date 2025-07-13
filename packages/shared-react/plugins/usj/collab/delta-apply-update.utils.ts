@@ -8,7 +8,7 @@ import { $createImmutableVerseNode } from "../../../nodes/usj/ImmutableVerseNode
 import { $isSomeVerseNode, SomeVerseNode } from "../../../nodes/usj/node-react.utils";
 import { UsjNodeOptions } from "../../../nodes/usj/usj-node-options.model";
 import { ViewOptions } from "../../../views/view-options.utils";
-import { $isEmbedNode, $isParaLikeNode, EmbedNode } from "./delta-common.utils";
+import { $isEmbedNode, $isParaLikeNode, EmbedNode, LF } from "./delta-common.utils";
 import {
   OT_BOOK_PROPS,
   OT_CHAPTER_PROPS,
@@ -103,8 +103,6 @@ For CharNodes, we use the following logic:
       `{ char: [{ style: "it", cid: "123" }, { style: "bd", cid: "456" }] }`
     where "it" is the parent CharNode and "bd" is the child CharNode.
 */
-
-export const LF = "\n";
 
 /**
  * Apply Operational Transform rich-text updates to the editor.

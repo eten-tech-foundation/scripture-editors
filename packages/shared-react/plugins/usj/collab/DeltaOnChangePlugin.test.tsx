@@ -10,7 +10,7 @@ import {
   $setState,
 } from "lexical";
 import { Op } from "quill-delta";
-import { charIdState } from "shared/nodes/collab/delta.state";
+import { charIdState, segmentState } from "shared/nodes/collab/delta.state";
 import { $createBookNode } from "shared/nodes/usj/BookNode";
 import { $createCharNode } from "shared/nodes/usj/CharNode";
 import { $createImmutableChapterNode } from "shared/nodes/usj/ImmutableChapterNode";
@@ -49,9 +49,9 @@ describe("OnChangePlugin", () => {
 
       // Defined by the test environment.
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      await typeTextAtSelection(editor, "a", impliedPara!, 0);
+      await typeTextAtSelection(editor, "a", impliedPara!, 0, undefined, undefined, "verse_3_16");
 
-      expect(updateOps).toEqual([{ insert: "a" }]);
+      expect(updateOps).toEqual([{ insert: "a", attributes: { segment: "verse_3_16" } }]);
       editor.getEditorState().read(() => {
         const root = $getRoot();
         expect(root.getChildrenSize()).toBe(1);
@@ -70,6 +70,7 @@ describe("OnChangePlugin", () => {
       let textNode: TextNode;
       const { editor } = await testEnvironment(() => {
         textNode = $createTextNode("a");
+        $setState(textNode, segmentState, "verse_3_16");
         $getRoot().append($createImpliedParaNode().append(textNode));
       });
 
@@ -77,7 +78,10 @@ describe("OnChangePlugin", () => {
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       await typeTextAtSelection(editor, "b", textNode!, 1);
 
-      expect(updateOps).toEqual([{ retain: 1 }, { insert: "b" }]);
+      expect(updateOps).toEqual([
+        { retain: 1 },
+        { insert: "b", attributes: { segment: "verse_3_16" } },
+      ]);
       editor.getEditorState().read(() => {
         const root = $getRoot();
         expect(root.getChildrenSize()).toBe(1);

@@ -9,7 +9,8 @@ import { UsjNodeOptions } from "../../../nodes/usj/usj-node-options.model";
 import { CharNodePlugin } from "../../../plugins/usj/CharNodePlugin";
 import { baseTestEnvironment } from "../../../plugins/usj/react-test.utils";
 import { getDefaultViewOptions, ViewOptions } from "../../../views/view-options.utils";
-import { $applyUpdate, LF } from "./delta-apply-update.utils";
+import { $applyUpdate } from "./delta-apply-update.utils";
+import { LF } from "./delta-common.utils";
 import { act } from "@testing-library/react";
 import {
   $createTextNode,
@@ -582,7 +583,7 @@ describe("Delta Utils $applyUpdate", () => {
         $getRoot().append(
           $createParaNode().append(
             $createTextNode("Before"),
-            $createNoteNode("nd", GENERATOR_NOTE_CALLER).append(
+            $createNoteNode("f", GENERATOR_NOTE_CALLER).append(
               $createImmutableNoteCallerNode(GENERATOR_NOTE_CALLER, "preview text"),
               $createCharNode("fr").append($createTextNode("2:1 ")),
               $createCharNode("ft").append($createTextNode("earlier in time.")),

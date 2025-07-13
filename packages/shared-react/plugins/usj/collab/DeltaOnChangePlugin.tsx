@@ -8,6 +8,7 @@ import {
   $isParaLikeNode,
   ParaLikeNode,
 } from "./delta-common.utils";
+import { $getTextOp, getEditorDelta } from "./editor-delta.adaptor";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { $dfs, DFSNode } from "@lexical/utils";
 import type { EditorState, LexicalEditor, LexicalNode, UpdateListenerPayload } from "lexical";
@@ -53,16 +54,27 @@ function $getUpdateOps(
 ): Op[] {
   let update = new Delta();
   editor.getEditorState().read(() => {
-    for (const nodeKey of dirtyLeaves) {
-      const prevNode = $getNodeByKey(nodeKey, prevEditorState);
-      const node = $getNodeByKey(nodeKey);
-      const retain = $getNodeOTPosition(node);
-      if ($isTextNode(node)) {
-        const prevTextDoc = new Delta([{ insert: $isTextNode(prevNode) ? prevNode.__text : "" }]);
-        const textDoc = new Delta([{ insert: node.__text }]);
-        const nodePositionRetain = new Delta(retain > 0 ? [{ retain }] : []);
-        update = update.concat(nodePositionRetain).concat(prevTextDoc.diff(textDoc));
+    if (
+      dirtyLeaves.size === 1 &&
+      $isTextNode($getNodeByKey(dirtyLeaves.values().next().value ?? ""))
+    ) {
+      for (const nodeKey of dirtyLeaves) {
+        const node = $getNodeByKey(nodeKey);
+        const retain = $getNodeOTPosition(node);
+        if ($isTextNode(node)) {
+          const prevTextDoc = prevEditorState.read(() => {
+            const prevNode = $getNodeByKey(nodeKey);
+            return new Delta([$isTextNode(prevNode) ? $getTextOp(prevNode) : { insert: "" }]);
+          });
+          const textDoc = new Delta([$getTextOp(node)]);
+          const nodePositionRetain = new Delta(retain > 0 ? [{ retain }] : []);
+          update = update.concat(nodePositionRetain).concat(prevTextDoc.diff(textDoc));
+        }
       }
+    } else {
+      const prevDoc = getEditorDelta(prevEditorState);
+      const currentDoc = getEditorDelta(editor.getEditorState());
+      update = prevDoc.diff(currentDoc);
     }
   });
   return update.ops;

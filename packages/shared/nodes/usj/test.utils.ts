@@ -1,3 +1,4 @@
+import { segmentState } from "../collab/delta.state";
 import { usjBaseNodes } from ".";
 import { act } from "@testing-library/react";
 import {
@@ -9,6 +10,7 @@ import {
   $isElementNode,
   $isRangeSelection,
   $setSelection,
+  $setState,
   CreateEditorArgs,
   KEY_DOWN_COMMAND,
   KEY_ENTER_COMMAND,
@@ -237,6 +239,7 @@ export async function typeTextAfterNode(
  * @param endNode - The ending LexicalNode of the selection to delete. Defaults to the startNode.
  * @param endOffset - The offset within the endNode where the deletion ends. Defaults to the
  *   end of the endNode's text content.
+ * @param segment - Optional segment attribute to set on the inserted text.
  */
 export async function typeTextAtSelection(
   editor: LexicalEditor,
@@ -245,6 +248,7 @@ export async function typeTextAtSelection(
   startOffset?: number,
   endNode?: LexicalNode,
   endOffset?: number,
+  segment?: string,
 ) {
   await act(async () => {
     editor.update(() => {
@@ -264,6 +268,11 @@ export async function typeTextAtSelection(
       );
       $setSelection(rangeSelection);
       rangeSelection.insertText(text);
+      if (segment !== undefined) {
+        rangeSelection.getNodes().forEach((node) => {
+          $setState(node, segmentState, segment);
+        });
+      }
     });
   });
 }

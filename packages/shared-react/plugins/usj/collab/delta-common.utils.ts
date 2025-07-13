@@ -26,6 +26,9 @@ export type EmbedNode =
 
 export type ParaLikeNode = SomeParaNode | BookNode;
 
+/** Line Feed character used to close para-like nodes.*/
+export const LF = "\n";
+
 /**
  * Type guard to check if a node is an embed. Embeds have an OT length of 1 and are self-contained
  * (no children to process).
@@ -61,7 +64,7 @@ export function $isClosingParaLikeNode(
   // Look at the next node
   const nextDfsNode = dfsNodes[currentIndex + 1];
 
-  if (!nextDfsNode) {
+  if (!nextDfsNode || !nextDfsNode.node.isInline()) {
     // End of traversal, so this node is closing
     return true;
   }
