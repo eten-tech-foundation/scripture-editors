@@ -1,4 +1,4 @@
-import React, { JSX, PropsWithChildren, forwardRef } from "react";
+import { PropsWithChildren, forwardRef, ReactElement } from "react";
 import { LoggerBasic } from "shared/adaptors/logger-basic.model";
 import Editor, { EditorRef, EditorProps } from "./editor/Editor";
 
@@ -21,7 +21,7 @@ import Editor, { EditorRef, EditorProps } from "./editor/Editor";
 const Editorial = forwardRef(function Editorial<TLogger extends LoggerBasic>(
   props: EditorProps<TLogger>,
   ref: React.ForwardedRef<EditorRef | null>,
-): JSX.Element {
+): ReactElement {
   const { children, ...propsWithoutChildren } = props as PropsWithChildren<EditorProps<TLogger>>;
   return <Editor ref={ref} {...propsWithoutChildren} />;
 });

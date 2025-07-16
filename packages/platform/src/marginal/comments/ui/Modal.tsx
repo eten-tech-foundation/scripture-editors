@@ -2,7 +2,7 @@
  * Adapted from https://github.com/facebook/lexical/blob/93cf85e12033b114ad347dcccf508c846a833731/packages/lexical-playground/src/ui/Modal.tsx
  */
 
-import { ReactNode, useEffect, useRef } from "react";
+import { ReactNode, useEffect, useRef, ReactElement } from "react";
 import { createPortal } from "react-dom";
 import "./Modal.css";
 
@@ -88,7 +88,7 @@ export default function Modal({
   closeOnClickOutside?: boolean;
   onClose: () => void;
   title: string;
-}): JSX.Element {
+}): ReactElement {
   return createPortal(
     <PortalImpl onClose={onClose} title={title} closeOnClickOutside={closeOnClickOutside}>
       {children}

@@ -62,7 +62,7 @@ export function NoteNodePlugin<TLogger extends LoggerBasic>({
  * @param logger - Logger to use, if any.
  */
 function useNodeOptions(nodeOptions: UsjNodeOptions, logger?: LoggerBasic) {
-  const previousNoteCallersRef = useRef<string[]>();
+  const previousNoteCallersRef = useRef<string[] | undefined>(undefined);
   const nodeOptionsNoteCallers = nodeOptions[immutableNoteCallerNodeName]?.noteCallers;
 
   useEffect(() => {

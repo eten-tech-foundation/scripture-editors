@@ -1,4 +1,4 @@
-import { JSX } from "react";
+import { ReactElement } from "react";
 import { viewModeToViewNames, ViewMode } from "shared-react/views/view-mode.model";
 import DropDown, { DropDownItem } from "./editor/toolbar/DropDown";
 
@@ -22,7 +22,7 @@ export default function ViewModeDropDown({
   viewMode: string;
   handleSelect: (viewMode: string) => void;
   disabled?: boolean;
-}): JSX.Element {
+}): ReactElement {
   return (
     <DropDown
       disabled={disabled}

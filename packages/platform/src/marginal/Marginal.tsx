@@ -1,6 +1,5 @@
 import { Usj } from "@eten-tech-foundation/scripture-utilities";
-import React, {
-  JSX,
+import {
   PropsWithChildren,
   forwardRef,
   useCallback,
@@ -8,6 +7,7 @@ import React, {
   useImperativeHandle,
   useRef,
   useState,
+  ReactElement,
 } from "react";
 import { LoggerBasic } from "shared/adaptors/logger-basic.model";
 import { Comments } from "./comments/commenting";
@@ -52,11 +52,13 @@ export type MarginalProps<TLogger extends LoggerBasic> = Omit<
 const Marginal = forwardRef(function Marginal<TLogger extends LoggerBasic>(
   props: MarginalProps<TLogger>,
   ref: React.ForwardedRef<MarginalRef>,
-): JSX.Element {
+): ReactElement {
   const editorRef = useRef<EditorRef>(null);
   const hasCommentsBeenSetRef = useRef(true);
   const commentContainerRef = useRef<HTMLDivElement>(null);
-  const [toolbarEndRef, setToolbarEndRef] = useState<React.RefObject<HTMLElement> | null>(null);
+  const [toolbarEndRef, setToolbarEndRef] = useState<React.RefObject<HTMLElement | null> | null>(
+    null,
+  );
   const { children, onCommentChange, onUsjChange, ...editorProps } = props as PropsWithChildren<
     MarginalProps<TLogger>
   >;

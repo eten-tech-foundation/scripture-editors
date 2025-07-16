@@ -7,7 +7,7 @@ type UseCommentStoreRef = [
 ];
 
 export default function useCommentStoreRef(): UseCommentStoreRef {
-  const commentStoreRef = useRef<CommentStore>();
+  const commentStoreRef = useRef<CommentStore | undefined>(undefined);
 
   const setCommentStoreRef = useCallback((cs: CommentStore) => {
     commentStoreRef.current = cs;

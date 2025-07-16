@@ -53,8 +53,8 @@ function App() {
   }, [scrRef]);
 
   return (
-    <div className="flex-center m-2 flex h-editor justify-center p-8">
-      <div className="relative w-2/3 overflow-hidden rounded-md border-2 border-secondary">
+    <div className="flex-center h-editor m-2 flex justify-center p-8">
+      <div className="border-secondary relative w-2/3 overflow-hidden rounded-md border-2">
         <div className="h-editor overflow-y-auto p-2">
           <Editor
             usjInput={defaultUsj}

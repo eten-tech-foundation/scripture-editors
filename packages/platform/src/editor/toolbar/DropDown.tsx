@@ -8,11 +8,11 @@
  */
 
 import * as React from "react";
-import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ReactElement, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 type DropDownContextType = {
-  registerItem: (ref: React.RefObject<HTMLButtonElement>) => void;
+  registerItem: (ref: React.RefObject<HTMLButtonElement | null>) => void;
 };
 
 const DropDownContext = React.createContext<DropDownContextType | null>(null);
@@ -62,11 +62,12 @@ function DropDownItems({
   dropDownRef: React.Ref<HTMLDivElement>;
   onClose: () => void;
 }) {
-  const [items, setItems] = useState<React.RefObject<HTMLButtonElement>[]>();
-  const [highlightedItem, setHighlightedItem] = useState<React.RefObject<HTMLButtonElement>>();
+  const [items, setItems] = useState<React.RefObject<HTMLButtonElement | null>[]>();
+  const [highlightedItem, setHighlightedItem] =
+    useState<React.RefObject<HTMLButtonElement | null>>();
 
   const registerItem = useCallback(
-    (itemRef: React.RefObject<HTMLButtonElement>) => {
+    (itemRef: React.RefObject<HTMLButtonElement | null>) => {
       setItems((prev) => (prev ? [...prev, itemRef] : [itemRef]));
     },
     [setItems],
@@ -139,7 +140,7 @@ export default function DropDown({
   buttonLabel?: string;
   children: ReactNode;
   stopCloseOnClickSelf?: boolean;
-}): JSX.Element {
+}): ReactElement {
   const dropDownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const [showDropDown, setShowDropDown] = useState(false);

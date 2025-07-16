@@ -18,14 +18,14 @@ import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
 import { SerializedVerseRef } from "@sillsdev/scripture";
 import { deepEqual } from "fast-equals";
 import { $setSelection, EditorState, LexicalEditor } from "lexical";
-import React, {
-  JSX,
+import {
   PropsWithChildren,
   forwardRef,
   useCallback,
   useImperativeHandle,
   useRef,
   useState,
+  ReactElement,
 } from "react";
 import { usjReactNodes } from "shared-react/nodes/usj";
 import { $applyUpdate, Op } from "shared-react/plugins/usj/collab/delta-apply-update.utils";
@@ -101,7 +101,7 @@ export type EditorRef = {
    */
   removeAnnotation(type: string, id: string): void;
   /** Ref to the end of the toolbar - INTERNAL USE ONLY to dynamically add controls in the toolbar. */
-  toolbarEndRef: React.RefObject<HTMLElement> | null;
+  toolbarEndRef: React.RefObject<HTMLElement | null> | null;
 };
 
 export type EditorProps<TLogger extends LoggerBasic> = {
@@ -141,7 +141,7 @@ const defaultViewOptions = getDefaultViewOptions();
 const defaultNodeOptions: UsjNodeOptions = {};
 const defaultOptions: EditorOptions = {};
 
-function Placeholder(): JSX.Element {
+function Placeholder(): ReactElement {
   return <div className="editor-placeholder">Enter some Scripture...</div>;
 }
 
@@ -172,7 +172,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
     children,
   }: PropsWithChildren<EditorProps<TLogger>>,
   ref: React.ForwardedRef<EditorRef>,
-): JSX.Element {
+): ReactElement {
   const editorRef = useRef<LexicalEditor | null>(null);
   const annotationRef = useRef<AnnotationRef | null>(null);
   const toolbarEndRef = useRef<HTMLDivElement>(null);

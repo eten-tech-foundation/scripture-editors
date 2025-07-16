@@ -8,7 +8,14 @@ import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
 import { Usj } from "@eten-tech-foundation/scripture-utilities";
 import { deepEqual } from "fast-equals";
 import { EditorState, LexicalEditor } from "lexical";
-import { forwardRef, useCallback, useImperativeHandle, useRef, useState } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useImperativeHandle,
+  useRef,
+  useState,
+  ReactElement,
+} from "react";
 import { usjReactNodes } from "shared-react/nodes/usj";
 import { UsjNodeOptions } from "shared-react/nodes/usj/usj-node-options.model";
 import { ClipboardPlugin } from "shared-react/plugins/usj/ClipboardPlugin";
@@ -97,9 +104,9 @@ const Editor = forwardRef(function Editor(
     onScrRefChange,
   }: EditorProps,
   ref: React.ForwardedRef<EditorRef>,
-): JSX.Element {
+): ReactElement {
   const editorRef = useRef<LexicalEditor>(null);
-  const editedUsjRef = useRef<Usj>();
+  const editedUsjRef = useRef<Usj | undefined>(undefined);
   const [usj, setUsj] = useState(usjInput);
   const [loadedUsj] = useDeferredState(usj);
   const autoNumbering = false;

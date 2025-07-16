@@ -1,5 +1,5 @@
 import DropDown, { DropDownItem } from "./editor/toolbar/DropDown";
-import { JSX } from "react";
+import { ReactElement } from "react";
 import {
   directionToNames,
   type TextDirection,
@@ -21,7 +21,7 @@ export default function TextDirectionDropDown({
   textDirection: TextDirection;
   handleSelect: (textDirection: TextDirection) => void;
   disabled?: boolean;
-}): JSX.Element {
+}): ReactElement {
   return (
     <DropDown
       disabled={disabled}

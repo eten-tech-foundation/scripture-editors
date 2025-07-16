@@ -6,7 +6,7 @@ import { pasteSelection, pasteSelectionAsPlainText } from "./clipboard.utils";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { LexicalContextMenuPlugin, MenuOption } from "@lexical/react/LexicalContextMenuPlugin";
 import { type LexicalNode, COPY_COMMAND, CUT_COMMAND } from "lexical";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ReactElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as ReactDOM from "react-dom";
 import { isImmutableChapterElement } from "shared/nodes/usj/ImmutableChapterNode";
 
@@ -111,12 +111,12 @@ function isEditorInput(
   return element.classList.contains(editorInputClassName);
 }
 
-export function ContextMenuPlugin(): JSX.Element {
+export function ContextMenuPlugin(): ReactElement {
   const [editor] = useLexicalComposerContext();
   const [isReadonly, setIsReadonly] = useState(() => !editor.isEditable());
-  const targetRef = useRef<HTMLElement>();
-  const editorInputClassNameRef = useRef<string>();
-  const closeMenuFnRef = useRef<() => void>();
+  const targetRef = useRef<HTMLElement | undefined>(undefined);
+  const editorInputClassNameRef = useRef<string | undefined>(undefined);
+  const closeMenuFnRef = useRef<(() => void) | undefined>(undefined);
 
   const options = useMemo(() => {
     return [

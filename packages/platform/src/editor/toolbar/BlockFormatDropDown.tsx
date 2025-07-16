@@ -1,5 +1,6 @@
 import { $setBlocksType } from "@lexical/selection";
 import { $getSelection, $isRangeSelection, LexicalEditor } from "lexical";
+import { ReactElement } from "react";
 import { $createParaNode } from "shared/nodes/usj/ParaNode";
 import DropDown, { DropDownItem } from "./DropDown";
 
@@ -62,7 +63,7 @@ export default function BlockFormatDropDown({
   editor: LexicalEditor;
   blockMarker: string;
   disabled?: boolean;
-}): JSX.Element {
+}): ReactElement {
   const formatPara = (selectedBlockMarker: string) => {
     editor.update(() => {
       const selection = $getSelection();

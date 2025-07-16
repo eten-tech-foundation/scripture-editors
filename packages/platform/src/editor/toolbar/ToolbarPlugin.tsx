@@ -20,17 +20,17 @@ import {
   SELECTION_CHANGE_COMMAND,
   UNDO_COMMAND,
 } from "lexical";
-import { forwardRef, useCallback, useEffect, useState } from "react";
+import { forwardRef, useCallback, useEffect, useState, ReactElement } from "react";
 import { $isBookNode } from "shared/nodes/usj/BookNode";
 import { $isImmutableChapterNode } from "shared/nodes/usj/ImmutableChapterNode";
 import { $isParaNode } from "shared/nodes/usj/ParaNode";
 import BlockFormatDropDown from "./BlockFormatDropDown";
 
-function Divider(): JSX.Element {
+function Divider(): ReactElement {
   return <div className="divider" />;
 }
 
-const ToolbarPlugin = forwardRef<HTMLDivElement>(function ToolbarPlugin(_props, ref): JSX.Element {
+const ToolbarPlugin = forwardRef<HTMLDivElement>(function ToolbarPlugin(_props, ref): ReactElement {
   const [editor] = useLexicalComposerContext();
   const [activeEditor, setActiveEditor] = useState(editor);
   const [blockMarker, setBlockMarker] = useState("");

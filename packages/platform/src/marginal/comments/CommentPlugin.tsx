@@ -30,7 +30,15 @@ import {
   createCommand,
   KEY_ESCAPE_COMMAND,
 } from "lexical";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  ReactElement,
+} from "react";
 import { createPortal } from "react-dom";
 
 import {
@@ -72,7 +80,7 @@ function AddCommentBox({
   editor: LexicalEditor;
   showComments: boolean;
   onAddComment: () => void;
-}): JSX.Element {
+}): ReactElement {
   const boxRef = useRef<HTMLDivElement>(null);
 
   const updatePosition = useCallback(() => {
@@ -407,7 +415,7 @@ function ShowDeleteCommentOrThreadDialog({
   ) => void;
   onClose: () => void;
   thread?: Thread;
-}): JSX.Element {
+}): ReactElement {
   return (
     <>
       Are you sure you want to delete this {commentOrThread.type}?
@@ -446,7 +454,7 @@ function CommentsPanelListComment({
   ) => void;
   rtf: Intl.RelativeTimeFormat;
   thread?: Thread;
-}): JSX.Element {
+}): ReactElement {
   const seconds = Math.round(
     (comment.timeStamp - (performance.timeOrigin + performance.now())) / 1000,
   );
@@ -506,7 +514,7 @@ function CommentsPanelList({
     isInlineComment: boolean,
     thread?: Thread,
   ) => void;
-}): JSX.Element {
+}): ReactElement {
   const [editor] = useLexicalComposerContext();
   const [counter, setCounter] = useState(0);
   const [modal, showModal] = useModal();
@@ -646,7 +654,7 @@ function CommentsPanel({
     isInlineComment: boolean,
     thread?: Thread,
   ) => void;
-}): JSX.Element {
+}): ReactElement {
   const listRef = useRef<HTMLUListElement>(null);
   const isEmpty = comments.length === 0;
 
@@ -686,10 +694,10 @@ export default function CommentPlugin<TLogger extends LoggerBasic>({
   providerFactory?: (id: string, yjsDocMap: Map<string, Doc>) => Provider;
   setCommentStore?: (commentStore: CommentStore) => void;
   onChange?: () => void;
-  showCommentsContainerRef?: React.RefObject<HTMLElement> | null;
-  commentContainerRef?: React.RefObject<HTMLElement>;
+  showCommentsContainerRef?: React.RefObject<HTMLElement | null> | null;
+  commentContainerRef?: React.RefObject<HTMLElement | null>;
   logger?: TLogger;
-}): JSX.Element {
+}): ReactElement {
   const collabContext = useCollaborationContext();
   const [editor] = useLexicalComposerContext();
   const commentStore = useMemo(() => {

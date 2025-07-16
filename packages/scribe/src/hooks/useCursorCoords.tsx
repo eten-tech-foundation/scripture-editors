@@ -6,7 +6,7 @@ export default function useCursorCoords({
   floatingBoxRef,
 }: {
   isOpen: boolean;
-  floatingBoxRef: React.RefObject<HTMLDivElement>;
+  floatingBoxRef: React.RefObject<HTMLDivElement | null>;
 }) {
   const { coords, updatePosition, cleanup, placement } = useFloatingPosition();
 

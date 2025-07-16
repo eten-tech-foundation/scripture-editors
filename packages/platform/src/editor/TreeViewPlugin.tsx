@@ -5,6 +5,7 @@
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { TreeView } from "@lexical/react/LexicalTreeView";
 import { LexicalNode } from "lexical";
+import { ReactElement } from "react";
 import { $isImmutableNoteCallerNode } from "shared-react/nodes/usj/ImmutableNoteCallerNode";
 import { $isImmutableVerseNode } from "shared-react/nodes/usj/ImmutableVerseNode";
 import { $isTypedMarkNode } from "shared/nodes/features/TypedMarkNode";
@@ -30,7 +31,7 @@ function $customPrintNode(node: LexicalNode) {
   return "";
 }
 
-export default function TreeViewPlugin(): JSX.Element {
+export default function TreeViewPlugin(): ReactElement {
   const [editor] = useLexicalComposerContext();
   return (
     <TreeView

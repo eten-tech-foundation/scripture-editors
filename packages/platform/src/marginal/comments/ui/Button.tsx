@@ -2,7 +2,7 @@
  * Adapted from https://github.com/facebook/lexical/blob/93cf85e12033b114ad347dcccf508c846a833731/packages/lexical-playground/src/ui/Button.tsx
  */
 
-import { ReactNode } from "react";
+import { ReactNode, ReactElement } from "react";
 import joinClasses from "../join-classes.util";
 import "./Button.css";
 
@@ -22,7 +22,7 @@ export default function Button({
   onClick: () => void;
   small?: boolean;
   title?: string;
-}): JSX.Element {
+}): ReactElement {
   return (
     <button
       disabled={disabled}

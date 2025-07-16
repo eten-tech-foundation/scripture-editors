@@ -1,6 +1,17 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #FF5500;
+  --color-primary-50: #E4F2FF;
+  --color-secondary: #151515;
+  --color-success: #05C715;
+  --color-error: #FF1500;
+  --color-validation: #FFE5E5;
+  --color-light: #E4F1FF;
+  --color-dark: #333333;
+  --height-editor: 98vh;
+  --height-reference: calc((-9.5rem + 100vh)/2);
+}
 
 /* Editor */
 

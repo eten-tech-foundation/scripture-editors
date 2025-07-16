@@ -13,7 +13,7 @@ import {
   SerializedLexicalNode,
   Spread,
 } from "lexical";
-import { JSX, ReactNode, SyntheticEvent } from "react";
+import { ReactNode, SyntheticEvent, ReactElement } from "react";
 
 export type OnClick = (event: SyntheticEvent) => void;
 
@@ -134,7 +134,7 @@ export class ImmutableNoteCallerNode extends DecoratorNode<ReactNode> {
     return { element };
   }
 
-  decorate(): JSX.Element {
+  decorate(): ReactElement {
     const callerId = `${this.__caller}_${this.__previewText}}`.replace(/\s+/g, "").substring(0, 25);
     return (
       <button onClick={this.__onClick} title={this.__previewText} data-caller-id={callerId}>

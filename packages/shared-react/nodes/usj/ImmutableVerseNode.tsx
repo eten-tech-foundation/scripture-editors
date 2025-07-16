@@ -14,7 +14,7 @@ import {
   Spread,
   isHTMLElement,
 } from "lexical";
-import { JSX } from "react";
+import { ReactElement } from "react";
 import { UnknownAttributes, VERSE_CLASS_NAME, ZWSP } from "shared/nodes/usj/node-constants";
 import { getVisibleOpenMarkerText } from "shared/nodes/usj/node.utils";
 
@@ -36,7 +36,7 @@ export type SerializedImmutableVerseNode = Spread<
   SerializedLexicalNode
 >;
 
-export class ImmutableVerseNode extends DecoratorNode<JSX.Element> {
+export class ImmutableVerseNode extends DecoratorNode<ReactElement> {
   __marker: VerseMarker;
   __number: string;
   __showMarker?: boolean;
@@ -226,7 +226,7 @@ export class ImmutableVerseNode extends DecoratorNode<JSX.Element> {
     return { element };
   }
 
-  decorate(): JSX.Element {
+  decorate(): ReactElement {
     return (
       <span>
         {this.getShowMarker()

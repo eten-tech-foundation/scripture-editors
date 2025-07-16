@@ -2,16 +2,16 @@
  * Adapted from https://github.com/facebook/lexical/blob/93cf85e12033b114ad347dcccf508c846a833731/packages/lexical-playground/src/hooks/useModal.tsx
  */
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState, ReactElement } from "react";
 import Modal from "./ui/Modal";
 
 export default function useModal(): [
-  JSX.Element | null,
-  (title: string, showModal: (onClose: () => void) => JSX.Element) => void,
+  ReactElement | null,
+  (title: string, showModal: (onClose: () => void) => ReactElement) => void,
 ] {
   const [modalContent, setModalContent] = useState<null | {
     closeOnClickOutside: boolean;
-    content: JSX.Element;
+    content: ReactElement;
     title: string;
   }>(null);
 
@@ -35,7 +35,7 @@ export default function useModal(): [
     (
       title: string,
       // eslint-disable-next-line no-shadow
-      getContent: (onClose: () => void) => JSX.Element,
+      getContent: (onClose: () => void) => ReactElement,
       closeOnClickOutside = false,
     ) => {
       setModalContent({

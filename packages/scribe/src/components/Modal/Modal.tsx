@@ -1,5 +1,5 @@
 import "./Modal.css";
-import { ReactNode, useEffect, useRef } from "react";
+import { ReactNode, useEffect, useRef, ReactElement } from "react";
 import { createPortal } from "react-dom";
 
 function PortalImpl({
@@ -84,7 +84,7 @@ export default function Modal({
   closeOnClickOutside?: boolean;
   onClose: () => void;
   title: string;
-}): JSX.Element {
+}): ReactElement {
   return createPortal(
     <PortalImpl onClose={onClose} title={title} closeOnClickOutside={closeOnClickOutside}>
       {children}
