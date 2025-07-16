@@ -21,7 +21,7 @@ export const serverMap: ServerMap = {
       en: {
         ult: {
           psa: {
-            file: import("../../data/psa.usfm").then((data) => data.default),
+            file: import("../../../data/psa.usfm").then((data) => data.default),
           },
         },
       },
@@ -30,10 +30,10 @@ export const serverMap: ServerMap = {
       "es-419": {
         tpl: {
           jon: {
-            file: import("../../data/jon.glt.usfm").then((data) => data.default),
+            file: import("../../../data/jon.glt.usfm").then((data) => data.default),
           },
           rev: {
-            file: import("../../data/blank.usfm").then((data) => data.default),
+            file: import("../../../data/blank.usfm").then((data) => data.default),
           },
         },
       },
@@ -44,10 +44,10 @@ export const serverMap: ServerMap = {
       fra: {
         lsg: {
           tit: {
-            file: import("../../data/tit.usfm").then((data) => data.default),
+            file: import("../../../data/tit.usfm").then((data) => data.default),
           },
           rev: {
-            file: import("../../data/rev.usfm").then((data) => data.default),
+            file: import("../../../data/rev.usfm").then((data) => data.default),
           },
         },
       },
@@ -58,7 +58,7 @@ export const serverMap: ServerMap = {
       en: {
         web: {
           psa: {
-            file: import("../../data/psa.usfm").then((data) => data.default),
+            file: import("../../../data/psa.usfm").then((data) => data.default),
           },
         },
       },

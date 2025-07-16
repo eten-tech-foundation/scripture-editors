@@ -6,15 +6,12 @@
   "tags": [],
   "targets": {
     "build": {
-      "executor": "nx:run-commands",
+      "executor": "@nx/vite:build",
+      "outputs": ["{options.outputPath}"],
       "options": {
-        "commands": [
-          {
-            "command": "tsc -p tsconfig.json",
-            "forwardAllArgs": false
-          }
-        ],
-        "cwd": "{projectRoot}"
+        "outputPath": "{projectRoot}/dist",
+        "main": "{projectRoot}/src/index.ts",
+        "tsConfig": "{projectRoot}/tsconfig.lib.json"
       }
     },
     "typecheck": {},

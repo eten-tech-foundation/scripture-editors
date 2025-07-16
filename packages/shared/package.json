@@ -9,6 +9,117 @@
   "license": "MIT",
   "version": "0.13.1",
   "type": "module",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./adaptors": {
+      "types": "./dist/adaptors/index.d.ts",
+      "import": "./dist/adaptors/index.js",
+      "require": "./dist/adaptors/index.cjs"
+    },
+    "./nodes": {
+      "types": "./dist/nodes/index.d.ts",
+      "import": "./dist/nodes/index.js",
+      "require": "./dist/nodes/index.cjs"
+    },
+    "./nodes/usj": {
+      "types": "./dist/nodes/usj/index.d.ts",
+      "import": "./dist/nodes/usj/index.js",
+      "require": "./dist/nodes/usj/index.cjs"
+    },
+    "./nodes/features": {
+      "types": "./dist/nodes/features/index.d.ts",
+      "import": "./dist/nodes/features/index.js",
+      "require": "./dist/nodes/features/index.cjs"
+    },
+    "./nodes/usfm": {
+      "types": "./dist/nodes/usfm/index.d.ts",
+      "import": "./dist/nodes/usfm/index.js",
+      "require": "./dist/nodes/usfm/index.cjs"
+    },
+    "./nodes/collab": {
+      "types": "./dist/nodes/collab/index.d.ts",
+      "import": "./dist/nodes/collab/index.js",
+      "require": "./dist/nodes/collab/index.cjs"
+    },
+    "./plugins": {
+      "types": "./dist/plugins/index.d.ts",
+      "import": "./dist/plugins/index.js",
+      "require": "./dist/plugins/index.cjs"
+    },
+    "./plugins/CursorHandler": {
+      "types": "./dist/plugins/CursorHandler/index.d.ts",
+      "import": "./dist/plugins/CursorHandler/index.js",
+      "require": "./dist/plugins/CursorHandler/index.cjs"
+    },
+    "./plugins/History": {
+      "types": "./dist/plugins/History/index.d.ts",
+      "import": "./dist/plugins/History/index.js",
+      "require": "./dist/plugins/History/index.cjs"
+    },
+    "./plugins/PerfHandlers": {
+      "types": "./dist/plugins/PerfHandlers/index.d.ts",
+      "import": "./dist/plugins/PerfHandlers/index.js",
+      "require": "./dist/plugins/PerfHandlers/index.cjs"
+    },
+    "./plugins/PerfOperations": {
+      "types": "./dist/plugins/PerfOperations/index.d.ts",
+      "import": "./dist/plugins/PerfOperations/index.js",
+      "require": "./dist/plugins/PerfOperations/index.cjs"
+    },
+    "./plugins/Typeahead": {
+      "types": "./dist/plugins/Typeahead/index.d.ts",
+      "import": "./dist/plugins/Typeahead/index.js",
+      "require": "./dist/plugins/Typeahead/index.cjs"
+    },
+    "./utils": {
+      "types": "./dist/utils/index.d.ts",
+      "import": "./dist/utils/index.js",
+      "require": "./dist/utils/index.cjs"
+    },
+    "./utils/usfm": {
+      "types": "./dist/utils/usfm/index.d.ts",
+      "import": "./dist/utils/usfm/index.js",
+      "require": "./dist/utils/usfm/index.cjs"
+    },
+    "./utils/usj": {
+      "types": "./dist/utils/usj/index.d.ts",
+      "import": "./dist/utils/usj/index.js",
+      "require": "./dist/utils/usj/index.cjs"
+    },
+    "./converters": {
+      "types": "./dist/converters/index.d.ts",
+      "import": "./dist/converters/index.js",
+      "require": "./dist/converters/index.cjs"
+    },
+    "./converters/perf": {
+      "types": "./dist/converters/perf/index.d.ts",
+      "import": "./dist/converters/perf/index.js",
+      "require": "./dist/converters/perf/index.cjs"
+    },
+    "./converters/usfm": {
+      "types": "./dist/converters/usfm/index.d.ts",
+      "import": "./dist/converters/usfm/index.js",
+      "require": "./dist/converters/usfm/index.cjs"
+    },
+    "./localLexical": {
+      "types": "./dist/localLexical/index.d.ts",
+      "import": "./dist/localLexical/index.js",
+      "require": "./dist/localLexical/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "!src/**/*.test.ts",
+    "!src/**/*.data.ts"
+  ],
   "scripts": {},
   "peerDependencies": {
     "proskomma-core": ">=0.10.4"

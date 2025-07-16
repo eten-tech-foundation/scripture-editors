@@ -30,7 +30,6 @@ function Editor() {
 The CursorHandlerPlugin accepts the following optional props:
 
 - `canContainPlaceHolder`: A function that returns boolean value indicating whether a node can contain a cursor placeholder.
-
   - Type: `(node: LexicalNode) => boolean`
   - Default: `undefined`
 

@@ -10,6 +10,15 @@
   "license": "MIT",
   "version": "0.0.1",
   "type": "module",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "src",
+    "!src/**/*.test.ts",
+    "!src/**/*.test.tsx"
+  ],
   "scripts": {},
   "peerDependencies": {
     "react": ">=18.3.1",
