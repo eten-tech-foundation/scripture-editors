@@ -1,9 +1,5 @@
 {
-  "pluginsConfig": {
-    "@nx/js": {
-      "analyzeSourceFiles": true
-    }
-  },
+  "pluginsConfig": { "@nx/js": { "analyzeSourceFiles": true } },
   "extends": "nx/presets/npm.json",
   "$schema": "./node_modules/nx/schemas/nx-schema.json",
   "defaultBase": "main",
@@ -13,31 +9,15 @@
       "inputs": ["production", "^production"],
       "dependsOn": ["^build"]
     },
-    "dev": {
-      "cache": true,
-      "dependsOn": ["^build"]
-    },
-    "devpub": {
-      "dependsOn": ["build", "^build"]
-    },
-    "preview": {
-      "cache": true,
-      "dependsOn": ["^build"]
-    },
-    "serve": {
-      "cache": true,
-      "dependsOn": ["^build"]
-    },
+    "dev": { "cache": true, "dependsOn": ["^build"] },
+    "devpub": { "dependsOn": ["build", "^build"] },
+    "preview": { "cache": true, "dependsOn": ["^build"] },
+    "serve": { "cache": true, "dependsOn": ["^build"] },
     "typecheck": {
       "executor": "nx:run-commands",
       "cache": true,
       "options": {
-        "commands": [
-          {
-            "command": "tsc -p tsconfig.json",
-            "forwardAllArgs": false
-          }
-        ],
+        "commands": [{ "command": "tsc -p tsconfig.json", "forwardAllArgs": false }],
         "cwd": "{projectRoot}"
       }
     },
@@ -51,12 +31,7 @@
         "passWithNoTests": true,
         "silent": false
       },
-      "configurations": {
-        "ci": {
-          "ci": true,
-          "codeCoverage": true
-        }
-      }
+      "configurations": { "ci": { "ci": true, "codeCoverage": true } }
     },
     "lint": {
       "executor": "@nx/eslint:lint",
@@ -68,9 +43,7 @@
         "{workspaceRoot}/eslint.config.js"
       ],
       "outputs": ["{options.outputFile}"],
-      "options": {
-        "lintFilePatterns": ["{projectRoot}/**/*.{ts,tsx,js,jsx}"]
-      }
+      "options": { "lintFilePatterns": ["{projectRoot}/**/*.{ts,tsx,js,jsx}"] }
     },
     "@nx/vite:build": {
       "cache": true,
@@ -105,9 +78,7 @@
         "bundler": "vite",
         "babel": true
       },
-      "library": {
-        "unitTestRunner": "vitest"
-      }
+      "library": { "unitTestRunner": "vitest" }
     }
   },
   "plugins": [
@@ -129,5 +100,6 @@
       }
     }
   ],
-  "nxCloudAccessToken": "Mzk3MDg0NjAtMGMwMy00NWUxLTliMTQtN2Y0YTYxMjc3Njc1fHJlYWQ="
+  "nxCloudAccessToken": "Mzk3MDg0NjAtMGMwMy00NWUxLTliMTQtN2Y0YTYxMjc3Njc1fHJlYWQ=",
+  "nxCloudId": "66a2e268e3adf95b524754c9"
 }
