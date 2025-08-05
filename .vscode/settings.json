@@ -18,6 +18,7 @@
       "url": "http://json.schemastore.org/tsconfig"
     }
   ],
+  "nxConsole.generateAiAgentRules": true,
   "search.exclude": {
     ".git": true,
     "node_modules": true,
