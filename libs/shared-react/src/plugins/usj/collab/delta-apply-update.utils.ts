@@ -441,7 +441,7 @@ function $wrapInNestedCharNodes(
   }
 
   // Copy original text formatting to CharNode's unknownAttributes
-  const textFormatAttributes: Record<string, string> = {};
+  const textFormatAttributes: { [attributeName: string]: string } = {};
   TEXT_FORMAT_TYPES.forEach((format) => {
     if (textNode.hasFormat(format)) {
       textFormatAttributes[format] = "true";
@@ -449,7 +449,7 @@ function $wrapInNestedCharNodes(
   });
 
   // Convert attributes to string values for unknownAttributes
-  const stringifiedAttributes: Record<string, string> = {};
+  const stringifiedAttributes: { [attributeName: string]: string } = {};
   Object.entries(attributes).forEach(([key, value]) => {
     if (key === "segment" || key === "char") return;
 
@@ -842,7 +842,7 @@ function $handleCharText(
   }
 
   // Set unknownAttributes for non-char, non-segment attributes
-  const unknownAttributes: Record<string, string> = {};
+  const unknownAttributes: { [attributeName: string]: string } = {};
   for (const [key, value] of Object.entries(attributes)) {
     if (key !== "char" && key !== "segment" && typeof value === "string") {
       unknownAttributes[key] = value;
@@ -1678,9 +1678,9 @@ function isEmbedOfType<T extends object, K extends PropertyKey>(
     return false;
   }
   // After the 'embedType in embedObj' check, TypeScript knows that 'embedObj' has the property
-  // 'embedType'. The type of 'embedObj' is narrowed to 'T & Record<K, unknown>'. So, we can safely
-  // access embedObj[embedType], and its type will be 'unknown'.
-  const value = (embedObj as T & Record<K, unknown>)[embedType];
+  // 'embedType'. The type of 'embedObj' is narrowed to 'T & { [P in K]: unknown }'. So, we can
+  // safely access embedObj[embedType], and its type will be 'unknown'.
+  const value = (embedObj as T & { [P in K]: unknown })[embedType];
   return typeof value === "object" && value !== null;
 }
 

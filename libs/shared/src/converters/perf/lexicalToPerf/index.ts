@@ -21,7 +21,11 @@ type ResultingPerf = Pick<PerfDocument, "sequences"> & {
   result?: Sequence | Block | ContentElement | SubtypedSequence;
 };
 
-type PerfMetadata = { kind?: PerfKind; type?: string };
+interface PerfMetadata {
+  kind?: PerfKind;
+  type?: string;
+  [key: string]: unknown;
+}
 
 type PerfNodeBuilderArgs<T> = NodeBuilderArgs<SerializedUsfmElementNode, T, PerfMetadata>;
 
@@ -123,14 +127,14 @@ type PropsMap<K> = K extends PerfKind.Sequence
     ? Props<Block>
     : Props<ContentElement>;
 
-type MapLexicalProps<K = PerfKind> = {
+interface MapLexicalProps<K = PerfKind> {
   perfKind: K;
   perfChildren: PerfNodeBuilderArgs<ChildrenMap<K>>["children"];
   perfProps: PropsMap<K>;
   lexicalNode: SerializedUsfmElementNode;
   lexicalMap: LexicalMap;
   metadata: PerfNodeBuilderArgs<ChildrenMap<K>>["metadata"];
-}; // Replace with actual type
+} // Replace with actual type
 
 type PerfLexicalMap<Key> = Key extends PerfKind.Sequence
   ? SerializedUsfmElementNode

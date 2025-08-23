@@ -70,12 +70,12 @@ export const getPerfHistoryUpdater: (
 
     try {
       if (!tags.has("history-merge")) {
-        const extendedOperations: Array<{
+        const extendedOperations: {
           lexicalNode: LexicalNode;
           operationType: OperationType;
-          perfPath: Array<string>;
+          perfPath: string[];
           perfKind: PerfKind;
-        }> = [];
+        }[] = [];
         const sideSequences = {};
         const extraData = { sequences: sideSequences, extendedOperations };
 

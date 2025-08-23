@@ -45,9 +45,9 @@ export function insertChapterNode({
   inputValues: { chapter: string };
 }): void {
   console.log({ chapter });
-  const sid: string = "xx",
-    altnumber: string = "xx",
-    pubnumber: string = "xx",
+  const sid = "xx",
+    altnumber = "xx",
+    pubnumber = "xx",
     text: string = chapter;
   editor.update(() => {
     const selection = $getSelection();
@@ -69,9 +69,9 @@ export function insertVerseNode({
   editor: LexicalEditor;
   inputValues: { verse: string };
 }): void {
-  const sid: string = "xx",
-    altnumber: string = "xx",
-    pubnumber: string = "xx",
+  const sid = "xx",
+    altnumber = "xx",
+    pubnumber = "xx",
     text: string = verse;
   editor.update(() => {
     const selection = $getSelection();

@@ -1,12 +1,12 @@
 import { useState, useCallback, useMemo } from "react";
 import type { OptionItem } from "./types";
 
-type State = {
+export interface State {
   menuItems: OptionItem[];
   activeIndex: number;
   selectedIndex: number;
   onSelectOption: (option: OptionItem) => void;
-};
+}
 
 export function useMenuCore(
   initialMenuItems?: OptionItem[],

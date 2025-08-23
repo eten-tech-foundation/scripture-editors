@@ -43,7 +43,7 @@ export enum TextProperty {
   Level_4 = "level_4",
 }
 
-export type MarkersDictionary = {
+export interface MarkersDictionary {
   [marker: string]: {
     marker: string;
     name: string;
@@ -72,11 +72,11 @@ export type MarkersDictionary = {
     };
     category: CategoryType;
   };
-};
+}
 
-export type MarkersChildrenMap = {
+export interface MarkersChildrenMap {
   [marker: string]: Partial<{ [key in CategoryType]: string[] }>;
-};
+}
 
 /**
  * Creates a markers dictionary object from a string.
@@ -122,7 +122,7 @@ export const createMarkersDictionaryFromUsfmSty = (markersString: string): Marke
         case "OccursUnder":
           currentMarkerData.occursUnder = value.split(" ");
           // Add this marker as a child to its parent markers
-          // eslint-disable-next-line no-loop-func
+
           value.split(" ").forEach((parent) => {
             if (markers[parent] && currentMarker) {
               markers[parent].childrenMarkers ??= [];

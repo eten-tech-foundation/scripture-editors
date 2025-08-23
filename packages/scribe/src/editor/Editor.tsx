@@ -47,7 +47,7 @@ import LoadingSpinner from "@/components/LoadingSpinner";
 import { Toolbar } from "./Toolbar";
 
 /** Forward reference for the editor. */
-export type EditorRef = {
+export interface EditorRef {
   /** Method to focus the editor. */
   focus(): void;
   /** Method to get the USJ Scripture data. */
@@ -64,10 +64,10 @@ export type EditorRef = {
    * @param selection - A selection location or range.
    */
   setSelection(selection: SelectionRange): void;
-};
+}
 
 /** Options to configure the editor. */
-export type EditorOptions = {
+export interface EditorOptions {
   /** Is the editor readonly or editable. */
   isReadonly?: boolean;
   /** Is the editor enabled for spell checking. */
@@ -80,9 +80,9 @@ export type EditorOptions = {
    * @param nodes[].onClick - Click handler method for ImmutableNoteCallerNode.
    */
   nodes?: UsjNodeOptions;
-};
+}
 
-type EditorProps = {
+interface EditorProps {
   /** Scripture data in USJ form */
   usjInput?: Usj;
   onChange?: (usj: Usj) => void;
@@ -92,7 +92,7 @@ type EditorProps = {
   nodeOptions?: UsjNodeOptions;
   scrRef: ScriptureReference;
   onScrRefChange: (scrRef: ScriptureReference) => void;
-};
+}
 // const NODE_MENU_TRIGGER = "//";
 
 const Editor = forwardRef(function Editor(

@@ -14,23 +14,23 @@ export type TypeKey = NonNullable<
 
 export type SubtypeKey = NonNullable<"sequence" | Block["subtype"] | ContentElement["subtype"]>;
 
-export type SequenceBuildSource<T> = {
+export interface SequenceBuildSource<T> {
   metadata: { kind: PerfKind.Sequence; path: string; sequenceId: string };
   node: Sequence & { subtype: "sequence" };
   children?: T[];
-};
+}
 
-export type BlockBuildSource<T, BlockType extends Block = Block> = {
+export interface BlockBuildSource<T, BlockType extends Block = Block> {
   metadata: { kind: PerfKind.Block; path: string; direction: { value: "ltr" | "rtl" | null } };
   node: BlockType;
   metaChildren: T[];
   children?: T[];
-};
+}
 
-export type ContentElementBuildSource<
+export interface ContentElementBuildSource<
   T,
   ContentElementType extends ContentElement = ContentElement,
-> = {
+> {
   metadata: {
     kind: PerfKind.ContentElement;
     path: string;
@@ -39,9 +39,9 @@ export type ContentElementBuildSource<
   node: ContentElementType;
   metaChildren: T[];
   children?: T[];
-};
+}
 
-export type ContentTextBuildSource = {
+export interface ContentTextBuildSource {
   metadata: {
     kind: PerfKind.ContentText;
     path: string;
@@ -51,7 +51,7 @@ export type ContentTextBuildSource = {
     type: "text";
     text: string;
   };
-};
+}
 
 export type NodeBuildSource<
   SourceType extends PerfKind,

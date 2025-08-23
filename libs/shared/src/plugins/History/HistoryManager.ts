@@ -1,15 +1,15 @@
 import { CAN_REDO_COMMAND, CAN_UNDO_COMMAND, EditorState, LexicalEditor } from "lexical";
 
-export type HistoryStateEntry<T = Record<string, unknown>> = {
+export type HistoryStateEntry<T = { [key: string]: unknown }> = {
   editor: LexicalEditor;
   editorState: EditorState;
 } & T;
 
-export type HistoryState = {
+export interface HistoryState {
   current: null | HistoryStateEntry;
-  redoStack: Array<HistoryStateEntry>;
-  undoStack: Array<HistoryStateEntry>;
-};
+  redoStack: HistoryStateEntry[];
+  undoStack: HistoryStateEntry[];
+}
 
 export class LexicalHistoryManager {
   private state: HistoryState;

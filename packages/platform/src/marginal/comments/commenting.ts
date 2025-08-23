@@ -8,23 +8,23 @@ import { useEffect, useState } from "react";
 import { Array as YArray, Map as YMap, Transaction, YArrayEvent, YEvent } from "yjs";
 import { LoggerBasic } from "shared";
 
-export type Comment = {
+export interface Comment {
   author: string;
   content: string;
   deleted: boolean;
   id: string;
   timeStamp: number;
   type: "comment";
-};
+}
 
-export type Thread = {
-  comments: Array<Comment>;
+export interface Thread {
+  comments: Comment[];
   id: string;
   quote: string;
   type: "thread";
-};
+}
 
-export type Comments = Array<Thread | Comment>;
+export type Comments = (Thread | Comment)[];
 
 function createUID(): string {
   return Math.random()
@@ -50,7 +50,7 @@ export function createComment(
   };
 }
 
-export function createThread(quote: string, comments: Array<Comment>, id?: string): Thread {
+export function createThread(quote: string, comments: Comment[], id?: string): Thread {
   return {
     comments,
     id: id === undefined ? createUID() : id,
@@ -305,20 +305,17 @@ export class CommentStore<TLogger extends LoggerBasic = LoggerBasic> {
     const onSharedCommentChanges = (
       // The YJS types explicitly use `any` as well.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      events: Array<YEvent<any>>,
+      events: YEvent<any>[],
       transaction: Transaction,
     ) => {
       if (transaction.origin !== this) {
-        for (let i = 0; i < events.length; i++) {
-          const event = events[i];
-
+        for (const event of events) {
           if (event instanceof YArrayEvent) {
             const target = event.target;
             const deltas = event.delta;
             let offset = 0;
 
-            for (let s = 0; s < deltas.length; s++) {
-              const delta = deltas[s];
+            for (const delta of deltas) {
               const insert = delta.insert;
               const retain = delta.retain;
               const del = delta.delete;

@@ -1,8 +1,8 @@
 import { useState, ChangeEvent } from "react";
 
-type SelectProps = {
+interface SelectProps {
   onChange: (selectedValue: string) => void;
-};
+}
 
 export default function AnnotationTypeSelect({ onChange }: SelectProps) {
   const [selectedValue, setSelectedValue] = useState("spelling");

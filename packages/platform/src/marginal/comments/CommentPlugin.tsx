@@ -247,7 +247,7 @@ function CommentInputBox({
           }px`;
           const selectionRectsLength = selectionRects.length;
           const { container } = selectionState;
-          const elements: Array<HTMLSpanElement> = selectionState.elements;
+          const elements: HTMLSpanElement[] = selectionState.elements;
           const elementsLength = elements.length;
 
           for (let i = 0; i < selectionRectsLength; i++) {
@@ -356,7 +356,7 @@ function CommentsComposer({
   submitAddComment: (
     commentOrThread: Comment,
     isInlineComment: boolean,
-    // eslint-disable-next-line no-shadow
+
     thread?: Thread,
   ) => void;
   thread?: Thread;
@@ -411,7 +411,7 @@ function ShowDeleteCommentOrThreadDialog({
 
   deleteCommentOrThread: (
     comment: Comment | Thread,
-    // eslint-disable-next-line no-shadow
+
     thread?: Thread,
   ) => void;
   onClose: () => void;
@@ -450,7 +450,7 @@ function CommentsPanelListComment({
   comment: Comment;
   deleteComment: (
     commentOrThread: Comment | Thread,
-    // eslint-disable-next-line no-shadow
+
     thread?: Thread,
   ) => void;
   rtf: Intl.RelativeTimeFormat;
@@ -505,7 +505,7 @@ function CommentsPanelList({
   submitAddComment,
   markNodeMap,
 }: {
-  activeIDs: Array<string>;
+  activeIDs: string[];
   comments: Comments;
   deleteCommentOrThread: (commentOrThread: Comment | Thread, thread?: Thread) => void;
   listRef: { current: null | HTMLUListElement };
@@ -575,7 +575,6 @@ function CommentsPanelList({
           };
 
           return (
-            // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
             <li
               key={id}
               onClick={handleClickThread}
@@ -646,7 +645,7 @@ function CommentsPanel({
   submitAddComment,
   markNodeMap,
 }: {
-  activeIDs: Array<string>;
+  activeIDs: string[];
   comments: Comments;
   deleteCommentOrThread: (commentOrThread: Comment | Thread, thread?: Thread) => void;
   markNodeMap: Map<string, Set<NodeKey>>;
@@ -712,7 +711,7 @@ export default function CommentPlugin<TLogger extends LoggerBasic>({
     return new Map();
   }, []);
   const [activeAnchorKey, setActiveAnchorKey] = useState<NodeKey | null>();
-  const [activeIDs, setActiveIDs] = useState<Array<string>>([]);
+  const [activeIDs, setActiveIDs] = useState<string[]>([]);
   const [showCommentInput, setShowCommentInput] = useState(false);
   const [showComments, setShowComments] = useState(false);
   const { yjsDocMap } = collabContext;
@@ -792,7 +791,7 @@ export default function CommentPlugin<TLogger extends LoggerBasic>({
   );
 
   useEffect(() => {
-    const changedElems: Array<HTMLElement> = [];
+    const changedElems: HTMLElement[] = [];
     for (const id of activeIDs) {
       const keys = markNodeMap.get(id);
       if (keys !== undefined) {
@@ -817,7 +816,7 @@ export default function CommentPlugin<TLogger extends LoggerBasic>({
     if (!editor.hasNodes([TypedMarkNode]))
       throw new Error("CommentPlugin: TypedMarkNode not registered on editor!");
 
-    const markNodeKeysToIDs: Map<NodeKey, Array<string>> = new Map();
+    const markNodeKeysToIDs = new Map<NodeKey, string[]>();
 
     return mergeRegister(
       registerNestedElementResolver<TypedMarkNode>(

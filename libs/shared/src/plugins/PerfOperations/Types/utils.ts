@@ -17,7 +17,9 @@ export function isChapterVerse(value: any): value is ChapterVerse {
   return typeof value === "string" && /^(\d+|\d+-\d+)$/.test(value);
 }
 
-export type PerfProps = Record<string, string | Atts>;
+export interface PerfProps {
+  [key: string]: string | Atts;
+}
 
 export function isPerfProp(value: unknown): value is PerfProps[""] {
   return typeof value === "string" || isAtts(value);

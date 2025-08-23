@@ -421,7 +421,9 @@ export function getUnknownAttributes<T extends object = MarkerObject>(
   markerObjectProps: (keyof T)[] = MARKER_OBJECT_PROPS as (keyof T)[],
 ): UnknownAttributes | undefined {
   const attributes: Partial<T> = { ...markerObject };
-  markerObjectProps.forEach((property) => delete attributes[property]);
+  markerObjectProps.forEach((property) => {
+    Reflect.deleteProperty(attributes, property);
+  });
   return Object.keys(attributes).length === 0 ? undefined : (attributes as UnknownAttributes);
 }
 

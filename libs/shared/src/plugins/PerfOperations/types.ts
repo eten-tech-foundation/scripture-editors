@@ -10,9 +10,9 @@ export const enum PerfKind {
   ContentText = "contentText",
 }
 
-export type PerfKindMap = {
+export interface PerfKindMap {
   document: PerfDocument;
   sequence: Sequence;
   block: Block;
   contentElement: ContentElement;
-};
+}

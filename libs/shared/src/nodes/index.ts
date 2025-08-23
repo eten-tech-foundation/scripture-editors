@@ -24,6 +24,7 @@ export const scriptureNodes = [
   UsfmParagraphNode,
 ];
 
-export const scripturePerfNodes = <Array<Klass<LexicalNode> | LexicalNodeReplacement>>[
-  ...scriptureNodes,
-];
+export const scripturePerfNodes = [...scriptureNodes] as (
+  | Klass<LexicalNode>
+  | LexicalNodeReplacement
+)[];

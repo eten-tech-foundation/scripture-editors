@@ -1,7 +1,7 @@
-type Context<T = unknown> = {
+interface Context<T = unknown> {
   Provider: (value: T, callback: () => void) => void;
   Consumer: () => T;
-};
+}
 
 export function createContext<T = unknown>(): Context<T> {
   let contextValue: T;

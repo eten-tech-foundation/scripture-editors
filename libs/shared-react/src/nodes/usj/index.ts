@@ -8,7 +8,7 @@ export * from "./ImmutableVerseNode";
 export * from "./node-react.utils";
 export * from "./usj-node-options.model";
 
-export const usjReactNodes: ReadonlyArray<Klass<LexicalNode> | LexicalNodeReplacement> = [
+export const usjReactNodes: readonly (Klass<LexicalNode> | LexicalNodeReplacement)[] = [
   ImmutableNoteCallerNode,
   ImmutableVerseNode,
   ...usjBaseNodes,

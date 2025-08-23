@@ -6,21 +6,21 @@ import { Operation, OperationType } from "./types.js";
 
 export * from "./types.js";
 
-export type Path = Array<string | number>;
+export type Path = (string | number)[];
 
-type StateHistory = {
+interface StateHistory {
   editorState: EditorState;
   prevEditorState: EditorState;
-};
+}
 
 type OperationsSource = {
   dirtyNodes: Set<NodeKey> | Map<NodeKey, boolean>;
 } & StateHistory;
 
-type OperationCallback = {
+interface OperationCallback {
   operationBuilder?: Mapper;
   pathBuilder?: PathBuilder;
-};
+}
 
 type GetOperationsParams = OperationsSource & OperationCallback;
 

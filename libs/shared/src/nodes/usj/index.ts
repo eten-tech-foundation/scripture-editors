@@ -24,7 +24,7 @@ export * from "./NoteNode.js";
 export * from "./ParaNode.js";
 export * from "./VerseNode.js";
 
-export const usjBaseNodes: ReadonlyArray<Klass<LexicalNode> | LexicalNodeReplacement> = [
+export const usjBaseNodes: readonly (Klass<LexicalNode> | LexicalNodeReplacement)[] = [
   BookNode,
   ImmutableChapterNode,
   ChapterNode,

@@ -5,11 +5,11 @@ import { executeSelectedItem } from "./executeSelectedItem";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { OptionItem } from "../NodesMenu/Menu";
 
-type TypeaheadPluginProps = {
+interface TypeaheadPluginProps {
   /** the string that will trigger the floatingMenu */
   trigger: string;
-  items?: Array<OptionItem>;
-};
+  items?: OptionItem[];
+}
 
 /**
  * A plugin that renders an autocomplete floating menu when the user triggers it

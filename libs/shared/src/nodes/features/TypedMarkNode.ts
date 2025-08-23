@@ -24,9 +24,9 @@ import {
   ElementNode,
 } from "lexical";
 
-export type TypedIDs = {
+export interface TypedIDs {
   [type: string]: string[];
-};
+}
 
 export type SerializedTypedMarkNode = Spread<
   {
@@ -119,8 +119,8 @@ export class TypedMarkNode extends ElementNode {
     const ids = typedIDs[type];
     if (!ids) return false;
 
-    for (let i = 0; i < ids.length; i++) {
-      if (id === ids[i]) {
+    for (const existingId of ids) {
+      if (id === existingId) {
         return true;
       }
     }
@@ -138,9 +138,9 @@ export class TypedMarkNode extends ElementNode {
 
     const ids = self.__typedIDs[type] ?? [];
     self.__typedIDs[type] = ids;
-    for (let i = 0; i < ids.length; i++) {
+    for (const existingId of ids) {
       // If we already have it, don't add again
-      if (id === ids[i]) {
+      if (id === existingId) {
         return;
       }
     }
@@ -239,8 +239,7 @@ export function isSerializedTypedMarkNode(
 export function $unwrapTypedMarkNode(node: TypedMarkNode): void {
   const children = node.getChildren();
   let target: LexicalNode | null = null;
-  for (let i = 0; i < children.length; i++) {
-    const child = children[i];
+  for (const child of children) {
     if (target === null) {
       node.insertBefore(child);
     } else {

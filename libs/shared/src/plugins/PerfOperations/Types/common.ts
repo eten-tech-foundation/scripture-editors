@@ -1,9 +1,9 @@
 export type UsfmSubtype = `usfm:${string}`;
 export type XSubtype = `x-${string}`;
 export type NameSpacedSubtype = `${string}:${string}`;
-export type Atts = {
+export interface Atts {
   [k: string]: string[] | string | boolean | number;
-};
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function isAtts(obj: any): obj is Atts {

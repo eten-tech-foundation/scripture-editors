@@ -2,10 +2,10 @@ import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext
 import { useCallback, useEffect, useState } from "react";
 import { registerTypeAheadListener, SuggestionsTextMatch, TriggerFn } from "shared";
 
-export type TypeaheadData = {
+export interface TypeaheadData {
   match: SuggestionsTextMatch;
   range: Range;
-};
+}
 
 export function useTypeaheadData(trigger?: string | TriggerFn) {
   const [editor] = useLexicalComposerContext();

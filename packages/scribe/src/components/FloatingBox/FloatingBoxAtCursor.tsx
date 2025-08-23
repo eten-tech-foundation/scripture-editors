@@ -10,12 +10,12 @@ const MemoizedFloatingBox = memo(FloatingBox);
 
 export type FloatingMenuCoords = { x: number; y: number } | undefined;
 
-type CursorFloatingBox = {
+interface CursorFloatingBox {
   isOpen?: boolean;
   children:
     | ReactNode
     | ((props: { isOpen: boolean | undefined; placement?: Placement }) => ReactNode);
-};
+}
 
 /**
  * FloatingBoxAtCursor component is responsible for rendering a floating menu

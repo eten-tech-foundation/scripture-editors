@@ -46,8 +46,8 @@ interface OnChangeArgs extends Omit<UpdateListenerArgs, "normalizedNodes"> {
   history: {
     canRedo: boolean;
     canUndo: boolean;
-    mergeHistory: <T extends Record<string, unknown>>(mergeableData: T) => void;
-    currentEntry: Record<string, unknown> | null;
+    mergeHistory: <T extends { [key: string]: unknown }>(mergeableData: T) => void;
+    currentEntry: { [key: string]: unknown } | null;
   };
 }
 
@@ -67,7 +67,7 @@ function getDirtyNodes(
   editorState: EditorState,
   dirtyLeaves: Set<NodeKey>,
   dirtyElements: Map<NodeKey, IntentionallyMarkedAsDirtyElement>,
-): Array<LexicalNode> {
+): LexicalNode[] {
   const nodeMap = editorState._nodeMap;
   const nodes = [];
 

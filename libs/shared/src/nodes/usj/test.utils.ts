@@ -14,10 +14,10 @@ import {
   createEditor,
 } from "lexical";
 
-export type TestEnv = {
+export interface TestEnv {
   editor: LexicalEditor;
   container?: HTMLElement;
-};
+}
 
 /**
  * Create basic Lexical test environment.
@@ -27,7 +27,7 @@ export type TestEnv = {
  * @returns a test environment.
  */
 export function createBasicTestEnvironment(
-  nodes: ReadonlyArray<Klass<LexicalNode> | LexicalNodeReplacement> = usjBaseNodes,
+  nodes: readonly (Klass<LexicalNode> | LexicalNodeReplacement)[] = usjBaseNodes,
   $initialEditorState?: () => void,
 ): TestEnv {
   const container = document.createElement("div");

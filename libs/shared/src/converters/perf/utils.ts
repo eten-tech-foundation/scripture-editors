@@ -40,7 +40,7 @@ export const getPerfProps = <T extends Sequence | Block | ContentElement>(node: 
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function perfPropsAdapter(obj: Record<string, any>): PerfProps {
+export function perfPropsAdapter(obj: { [key: string]: any }): PerfProps {
   const result: PerfProps = {};
   for (const key in obj) {
     if (typeof key === "string") {
@@ -55,7 +55,9 @@ export function perfPropsAdapter(obj: Record<string, any>): PerfProps {
 }
 
 export type AttributeKey = `${typeof DATA_PREFIX}-${string}` | `${string}-${string}`;
-export type Attributes = { [key: AttributeKey]: string };
+export interface Attributes {
+  [key: AttributeKey]: string;
+}
 
 const handleNestedAttributes = (key: string, att: Atts, atts: Attributes) => {
   Object.entries(att).forEach(([subKey, nestedAtt]) => {
@@ -113,7 +115,7 @@ export const getTagFromPerfSubtype = ({
   replacementMap,
 }: {
   subtype?: string;
-  replacementMap: Record<string, string>;
+  replacementMap: { [key: string]: string };
 }) => {
   if (!subtype) return undefined;
   // Try to find a direct replacement for the subtype

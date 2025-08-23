@@ -6,38 +6,38 @@ export type PerfDocument = FlatDocument | NestedDocument;
 
 export default PerfDocument;
 
-type Metadata = {
+export interface Metadata {
   tags?: string[];
-  properties?: Record<string, string>;
-  selectors?: Record<string, string>;
-};
+  properties?: { [key: string]: string };
+  selectors?: { [key: string]: string };
+}
 
-type DocumentMetadata = {
+export interface DocumentMetadata {
   tags?: string[];
-  properties?: Record<string, string>;
+  properties?: { [key: string]: string };
   chapters?: ChapterVerse;
-};
+}
 
-type Schema = {
+export interface Schema {
   structure: "flat" | "nested";
   structure_version: SemVer;
   constraints: {
     name: "perf" | "sofria";
     version: SemVer;
   }[];
-};
+}
 
-type CommonDocument = {
+interface CommonDocument {
   schema: Schema;
   metadata: {
-    translation?: Metadata | Record<string, string>;
-    document?: DocumentMetadata | Record<string, string>;
+    translation?: Metadata | { [key: string]: string };
+    document?: DocumentMetadata | { [key: string]: string };
   };
   hooks?: Hooks;
-};
+}
 
 export type FlatDocument = CommonDocument & {
-  sequences: Record<string, Sequence>;
+  sequences: { [key: string]: Sequence };
   main_sequence_id: string;
 };
 

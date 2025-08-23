@@ -20,14 +20,14 @@ import {
   ViewOptions,
 } from "shared-react";
 
-type NoteEditorProps = {
+interface NoteEditorProps {
   /** Scripture data in USJ form */
   usj?: Usj;
   onChange?: (usj: Usj) => void;
   viewOptions?: ViewOptions;
   nodeOptions?: UsjNodeOptions;
   scrollId?: string;
-};
+}
 
 export const NoteEditor = ({
   usj,
@@ -68,26 +68,24 @@ export const NoteEditor = ({
   }, [scrollId]);
 
   return (
-    <>
-      <LexicalComposer initialConfig={initialConfig}>
-        <RichTextPlugin
-          contentEditable={<ContentEditable className="outline-none" />}
-          placeholder={<div>Enter some text...</div>}
-          ErrorBoundary={LexicalErrorBoundary}
-        />
-        <LoadStatePlugin
-          scripture={usj}
-          nodeOptions={nodeOptions}
-          editorAdaptor={usjNoteEditorAdapter}
-          viewOptions={viewOptions}
-          // logger={logger}
-        />
-        <OnChangePlugin onChange={handleChange} ignoreSelectionChange={true} />
-        <NoteNodePlugin nodeOptions={nodeOptions} viewOptions={viewOptions} />
-        <HistoryPlugin />
-        <AutoFocusPlugin />
-        {/* <TreeViewPlugin /> */}
-      </LexicalComposer>
-    </>
+    <LexicalComposer initialConfig={initialConfig}>
+      <RichTextPlugin
+        contentEditable={<ContentEditable className="outline-none" />}
+        placeholder={<div>Enter some text...</div>}
+        ErrorBoundary={LexicalErrorBoundary}
+      />
+      <LoadStatePlugin
+        scripture={usj}
+        nodeOptions={nodeOptions}
+        editorAdaptor={usjNoteEditorAdapter}
+        viewOptions={viewOptions}
+        // logger={logger}
+      />
+      <OnChangePlugin onChange={handleChange} ignoreSelectionChange={true} />
+      <NoteNodePlugin nodeOptions={nodeOptions} viewOptions={viewOptions} />
+      <HistoryPlugin />
+      <AutoFocusPlugin />
+      {/* <TreeViewPlugin /> */}
+    </LexicalComposer>
   );
 };

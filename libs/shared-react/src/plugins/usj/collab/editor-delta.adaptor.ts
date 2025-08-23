@@ -34,10 +34,10 @@ import {
   VERSE_MARKER,
 } from "shared";
 
-type OpenNote = {
+interface OpenNote {
   children: LexicalNode[];
   contentsOps?: Op[];
-};
+}
 
 export function $getTextOp(node: TextNode, openCharNodes?: CharNode[]): Op {
   const op: Op = { insert: node.__text };

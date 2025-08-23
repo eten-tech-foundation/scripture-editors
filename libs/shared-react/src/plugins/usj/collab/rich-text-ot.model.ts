@@ -6,21 +6,21 @@
 
 import { Op } from "quill-delta";
 
-export type OTParaAttribute = {
+export interface OTParaAttribute {
   style: string;
-};
-export const OT_PARA_PROPS: Array<keyof OTParaAttribute> = ["style"];
+}
+export const OT_PARA_PROPS: (keyof OTParaAttribute)[] = ["style"];
 
 export type OTBookAttribute = OTParaAttribute & {
   code: string;
 };
-export const OT_BOOK_PROPS: Array<keyof OTBookAttribute> = ["style", "code"];
+export const OT_BOOK_PROPS: (keyof OTBookAttribute)[] = ["style", "code"];
 
 export type OTCharItem = OTParaAttribute & {
   cid?: string;
 };
 export type OTCharAttribute = OTCharItem | OTCharItem[];
-export const OT_CHAR_PROPS: Array<keyof OTCharItem> = ["style", "cid"];
+export const OT_CHAR_PROPS: (keyof OTCharItem)[] = ["style", "cid"];
 
 export type OTChapterEmbed = OTParaAttribute & {
   number: string;
@@ -28,7 +28,7 @@ export type OTChapterEmbed = OTParaAttribute & {
   altnumber?: string;
   pubnumber?: string;
 };
-export const OT_CHAPTER_PROPS: Array<keyof OTChapterEmbed> = [
+export const OT_CHAPTER_PROPS: (keyof OTChapterEmbed)[] = [
   "style",
   "number",
   "sid",
@@ -42,7 +42,7 @@ export type OTVerseEmbed = OTParaAttribute & {
   altnumber?: string;
   pubnumber?: string;
 };
-export const OT_VERSE_PROPS: Array<keyof OTVerseEmbed> = [
+export const OT_VERSE_PROPS: (keyof OTVerseEmbed)[] = [
   "style",
   "number",
   "sid",
@@ -56,7 +56,7 @@ export type OTMilestoneEmbed = OTParaAttribute & {
   who?: string;
   status?: "start" | "end";
 };
-export const OT_MILESTONE_PROPS: Array<keyof OTMilestoneEmbed> = ["style", "sid", "eid"];
+export const OT_MILESTONE_PROPS: (keyof OTMilestoneEmbed)[] = ["style", "sid", "eid"];
 
 export type OTNoteEmbed = OTParaAttribute & {
   caller: string;
@@ -64,4 +64,4 @@ export type OTNoteEmbed = OTParaAttribute & {
   contents?: { ops?: Op[] };
 };
 // Note that `contents` is not a property of a NoteNode, but we don't want it in unknownAttributes.
-export const OT_NOTE_PROPS: Array<keyof OTNoteEmbed> = ["style", "caller", "category", "contents"];
+export const OT_NOTE_PROPS: (keyof OTNoteEmbed)[] = ["style", "caller", "category", "contents"];

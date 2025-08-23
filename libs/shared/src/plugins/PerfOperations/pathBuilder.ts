@@ -4,7 +4,7 @@ import { PerfKind } from "./types.js";
 import { UsfmElementNode } from "../../nodes/UsfmElementNode.js";
 
 export const getPathBuilder = (MainSequenceId: string) => (node: UsfmElementNode | LexicalNode) => {
-  const pathArray: Array<string | number> = [];
+  const pathArray: (string | number)[] = [];
   let currentNode: typeof node | null = node;
 
   while (currentNode) {

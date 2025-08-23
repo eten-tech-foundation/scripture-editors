@@ -36,5 +36,5 @@ export interface Marker {
   type: MarkerType;
   description: string;
   hasEndMarker: boolean;
-  children?: Partial<Record<CategoryType, string[]>>;
+  children?: Partial<{ [K in CategoryType]: string[] }>;
 }

@@ -64,7 +64,7 @@ import {
 } from "shared";
 
 /** Forward reference for the editor. */
-export type EditorRef = {
+export interface EditorRef {
   /** Focus the editor. */
   focus(): void;
   /** Get USJ Scripture data. */
@@ -101,9 +101,9 @@ export type EditorRef = {
   removeAnnotation(type: string, id: string): void;
   /** Ref to the end of the toolbar - INTERNAL USE ONLY to dynamically add controls in the toolbar. */
   toolbarEndRef: React.RefObject<HTMLElement | null> | null;
-};
+}
 
-export type EditorProps<TLogger extends LoggerBasic> = {
+export interface EditorProps<TLogger extends LoggerBasic> {
   /** Initial Scripture data in USJ format. */
   defaultUsj?: Usj;
   /** Scripture reference that controls the general cursor location of the Scripture. */
@@ -118,7 +118,7 @@ export type EditorProps<TLogger extends LoggerBasic> = {
   options?: EditorOptions;
   /** Logger instance. */
   logger?: TLogger;
-};
+}
 
 type Mutable<T> = {
   -readonly [P in keyof T]: T[P];

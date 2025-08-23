@@ -30,8 +30,12 @@ import {
   VerseNode,
 } from "shared";
 
-type NodeKeysByChapter = { [chapter: string]: NodeKey[] };
-type ChapterByNodeKey = { [nodeKey: string]: string };
+interface NodeKeysByChapter {
+  [chapter: string]: NodeKey[];
+}
+interface ChapterByNodeKey {
+  [nodeKey: string]: string;
+}
 
 export function UsjNodesMenuPlugin({
   trigger,
@@ -241,7 +245,7 @@ function $trackMutatedVerses(
         if (index === -1) continue;
 
         verseNodeKeys.splice(index, 1);
-        delete chapterByNodeKey[nodeKey];
+        Reflect.deleteProperty(chapterByNodeKey, nodeKey);
       }
     }
   });

@@ -26,8 +26,7 @@ export function exportNodeToJSON<SerializedNode extends SerializedLexicalNode>(
 
     const children = node.getChildren();
 
-    for (let i = 0; i < children.length; i++) {
-      const child = children[i];
+    for (const child of children) {
       const serializedChildNode = exportNodeToJSON(child);
       serializedChildren.push(serializedChildNode);
     }

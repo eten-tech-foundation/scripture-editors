@@ -1,3 +1,5 @@
+/* eslint-disable no-console */
+
 // Reaching inside only for app css.
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import "../../../libs/shared/src/styles/nodes-menu.css";

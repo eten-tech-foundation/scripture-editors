@@ -1,7 +1,7 @@
 // Taken methods in common with Console from: import type { LogFunctions } from "electron-log";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-export type LoggerBasic = {
+export interface LoggerBasic {
   /** Log an error message */
   error(...params: any[]): void;
 
@@ -13,4 +13,4 @@ export type LoggerBasic = {
 
   /** Log a debug message */
   debug(...params: any[]): void;
-};
+}

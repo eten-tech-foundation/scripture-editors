@@ -36,13 +36,12 @@ npm install @eten-tech-foundation/platform-editor
 > - Use the `<Editorial />` component for an editor without commenting features.
 > - Use the `<Marginal />` component for an editor with comments (comments appear in the margin).
 
-```typescript
-import { EditorOptions, immutableNoteCallerNodeName, Marginal, MarginalRef, usxStringToUsj, UsjNodeOptions } from '@eten-tech-foundation/platform-editor';
-import { BookChapterControl } from 'platform-bible-react';
+```ts
+import { EditorOptions, immutableNoteCallerNodeName, Marginal, MarginalRef, usxStringToUsj, UsjNodeOptions } from "@eten-tech-foundation/platform-editor";
+import { BookChapterControl } from "platform-bible-react";
 
 const emptyUsx = '<usx version="3.1" />';
-const usx = `
-<?xml version="1.0" encoding="utf-8"?>
+const usx = `<?xml version="1.0" encoding="utf-8"?>
 <usx version="3.1">
   <book code="PSA" style="id">World English Bible (WEB)</book>
   <para style="mt1">The Psalms</para>
@@ -55,7 +54,7 @@ const usx = `
 `;
 const defaultUsj = usxStringToUsj(emptyUsx);
 const defaultScrRef = { book: "PSA", chapterNum: 1, verseNum: 1 };
-const nodeOptions: UsjNodeOptions = { [immutableNoteCallerNodeName]: { onClick: () => console.log('Note was clicked!') } };
+const nodeOptions: UsjNodeOptions = { [immutableNoteCallerNodeName]: { onClick: () => console.log("Note was clicked!") } };
 const options: EditorOptions = { isReadonly: false, textDirection: "ltr", nodes: nodeOptions };
 // Word "man" inside first q1 of PSA 1:1.
 const annotationRange1 = {
@@ -185,7 +184,7 @@ For example, if an annotation of type _"grammar"_ is overlapping it will have bo
 
 ```ts
 /** Forward reference for the editor. */
-export type EditorRef = {
+export interface EditorRef {
   /** Focus the editor. */
   focus(): void;
   /** Get USJ Scripture data. */
@@ -220,14 +219,14 @@ export type EditorRef = {
   removeAnnotation(type: string, id: string): void;
   /** Ref to the end of the toolbar - INTERNAL USE ONLY to dynamically add controls in the toolbar. */
   toolbarEndRef: React.RefObject<HTMLElement> | null;
-};
+}
 ```
 
 ### Editorial Options
 
 ```ts
 /** Options to configure the editor. */
-export type EditorOptions = {
+export interface EditorOptions {
   /** Is the editor readonly or editable. */
   isReadonly?: boolean;
   /** Is the editor enabled for spell checking. */
@@ -244,8 +243,25 @@ export type EditorOptions = {
    * @param nodes.ImmutableNoteCallerNode.onClick - Click handler method.
    */
   nodes?: UsjNodeOptions;
-};
+}
 ```
+
+In `EditorOptions.nodes`, the note callers option defaults to:
+
+```ts
+import {
+  EditorOptions,
+  immutableNoteCallerNodeName,
+  UsjNodeOptions,
+} from "@eten-tech-foundation/platform-editor";
+
+const nodes: UsjNodeOptions = {
+  [immutableNoteCallerNodeName]: { noteCallers: ["a", "b", "c", ... , "x", "y", "z"] },
+};
+const options: EditorOptions = { nodes };
+```
+
+You can set this to what ever you need for the vernacular language being edited.
 
 ## `<Marginal />` API
 
@@ -256,15 +272,13 @@ These are the same as Editorial except where noted below. See [Editorial API](#e
 Inherits from the [Editorial Properties](#editorial-properties).
 
 ```ts
-export type MarginalProps<TLogger extends LoggerBasic> = Omit<
-  EditorProps<TLogger>,
-  "onUsjChange"
-> & {
+export interface MarginalProps<TLogger extends LoggerBasic>
+  extends Omit<EditorProps<TLogger>, "onUsjChange"> {
   /** Callback function when comments have changed. */
   onCommentChange?: (comments: Comments | undefined) => void;
   /** Callback function when USJ Scripture data has changed. */
   onUsjChange?: (usj: Usj, comments: Comments | undefined) => void;
-};
+}
 ```
 
 ### Marginal Ref
@@ -273,10 +287,10 @@ Inherits from the [Editorial Ref](#editorial-ref).
 
 ```ts
 /** Forward reference for the editor. */
-export type MarginalRef = EditorRef & {
+export interface MarginalRef extends EditorRef {
   /** Set the comments to accompany USJ Scripture. */
   setComments?(comments: Comments): void;
-};
+}
 ```
 
 ## Demo and Collaborative Web Development Environment

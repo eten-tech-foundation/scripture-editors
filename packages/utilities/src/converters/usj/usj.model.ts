@@ -28,7 +28,7 @@ export const MARKER_OBJECT_PROPS: (keyof MarkerObject)[] = [
 export type MarkerContent = string | MarkerObject;
 
 /** A Scripture Marker and its contents */
-export type MarkerObject = {
+export interface MarkerObject {
   /**
    * The kind/category of node or element this is, corresponding the USFM marker and USX node
    * @example `para`, `verse`, `char`
@@ -59,17 +59,17 @@ export type MarkerObject = {
   align?: string;
   /** Category of extended study bible sections */
   category?: string;
-};
+}
 
 /** Scripture data represented in JSON format. Data compatible transformation from USX/USFM */
-export type Usj = {
+export interface Usj {
   /** The USJ spec type */
   type: typeof USJ_TYPE;
   /** The USJ spec version */
   version: typeof USJ_VERSION;
   /** The JSON representation of scripture contents from USFM/USX */
   content: MarkerContent[];
-};
+}
 
 export function isValidBookCode(code: string): boolean {
   return VALID_BOOK_CODES.includes(code as BookCode);

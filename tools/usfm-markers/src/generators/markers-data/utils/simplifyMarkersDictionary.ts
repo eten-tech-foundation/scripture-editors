@@ -6,10 +6,12 @@ export interface SimplifiedMarker {
   type?: StyleType;
   description?: string;
   hasEndMarker?: boolean;
-  children?: Partial<Record<CategoryType, string[]>>;
+  children?: Partial<{ [categoryType in CategoryType]: string[] }>;
 }
 
-type SimplifiedDictionary = { [marker: string]: SimplifiedMarker };
+interface SimplifiedDictionary {
+  [marker: string]: SimplifiedMarker;
+}
 
 export function simplifyMarkersDictionary(
   markersDictionary: MarkersDictionary,

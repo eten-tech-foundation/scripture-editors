@@ -6,7 +6,7 @@ import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext
 import LexicalMenuNavigation from "./LexicalMenuNavigation";
 
 interface NodeSelectionMenuProps {
-  options: Array<OptionItem>;
+  options: OptionItem[];
   onSelectOption?: (option: OptionItem) => void;
   onClose?: () => void;
   inverse?: boolean;

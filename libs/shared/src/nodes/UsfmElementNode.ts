@@ -1,6 +1,8 @@
 import { ElementNode, LexicalNode, NodeKey, SerializedElementNode, Spread } from "lexical";
 
-export type Attributes = { [key: string]: string };
+export interface Attributes {
+  [key: string]: string;
+}
 
 export type SerializedUsfmElementNode = Spread<
   {
@@ -11,9 +13,9 @@ export type SerializedUsfmElementNode = Spread<
   SerializedElementNode
 >;
 
-export type NodeProps = {
+export interface NodeProps {
   isInline?: boolean;
-};
+}
 
 export class UsfmElementNode extends ElementNode {
   __attributes: Attributes;
@@ -51,7 +53,7 @@ export class UsfmElementNode extends ElementNode {
 
   removeAttribute(key: string) {
     const writable = this.getWritable();
-    delete writable.__attributes[key];
+    Reflect.deleteProperty(writable.__attributes, key);
   }
 
   setUIAttribute(key: string, value: string): this {

@@ -72,10 +72,10 @@ importers:
         specifier: ^18.3.7
         version: 18.3.7(@types/react@18.3.23)
       '@typescript-eslint/eslint-plugin':
-        specifier: ^8.39.1
+        specifier: ^8.40.0
         version: 8.40.0(@typescript-eslint/parser@8.40.0(eslint@9.32.0(jiti@2.4.2))(typescript@5.8.3))(eslint@9.32.0(jiti@2.4.2))(typescript@5.8.3)
       '@typescript-eslint/parser':
-        specifier: ^8.39.1
+        specifier: ^8.40.0
         version: 8.40.0(eslint@9.32.0(jiti@2.4.2))(typescript@5.8.3)
       '@vitejs/plugin-react-swc':
         specifier: ^3.11.0
@@ -156,7 +156,7 @@ importers:
         specifier: ~5.8.3
         version: 5.8.3
       typescript-eslint:
-        specifier: ^8.29.0
+        specifier: ^8.40.0
         version: 8.40.0(eslint@9.32.0(jiti@2.4.2))(typescript@5.8.3)
       vite:
         specifier: ^6.3.5
@@ -3420,12 +3420,6 @@ packages:
     peerDependencies:
       typescript: '>=4.8.4 <5.9.0'
 
-  '@typescript-eslint/tsconfig-utils@8.39.0':
-    resolution: {integrity: sha512-Fd3/QjmFV2sKmvv3Mrj8r6N8CryYiCS8Wdb/6/rgOXAWGcFuc+VkQuG28uk/4kVNVZBQuuDHEDUpo/pQ32zsIQ==}
-    engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
-    peerDependencies:
-      typescript: '>=4.8.4 <6.0.0'
-
   '@typescript-eslint/tsconfig-utils@8.40.0':
     resolution: {integrity: sha512-jtMytmUaG9d/9kqSl/W3E3xaWESo4hFDxAIHGVW/WKKtQhesnRIJSAJO6XckluuJ6KDB5woD1EiqknriCtAmcw==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
@@ -3448,10 +3442,6 @@ packages:
 
   '@typescript-eslint/types@8.37.0':
     resolution: {integrity: sha512-ax0nv7PUF9NOVPs+lmQ7yIE7IQmAf8LGcXbMvHX5Gm+YJUYNAl340XkGnrimxZ0elXyoQJuN5sbg6C4evKA4SQ==}
-    engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
-
-  '@typescript-eslint/types@8.39.0':
-    resolution: {integrity: sha512-ArDdaOllnCj3yn/lzKn9s0pBQYmmyme/v1HbGIGB0GB/knFI3fWMHloC+oYTJW46tVbYnGKTMDK4ah1sC2v0Kg==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
 
   '@typescript-eslint/types@8.40.0':
@@ -11210,8 +11200,8 @@ snapshots:
 
   '@typescript-eslint/project-service@8.37.0(typescript@5.8.3)':
     dependencies:
-      '@typescript-eslint/tsconfig-utils': 8.39.0(typescript@5.8.3)
-      '@typescript-eslint/types': 8.39.0
+      '@typescript-eslint/tsconfig-utils': 8.40.0(typescript@5.8.3)
+      '@typescript-eslint/types': 8.40.0
       debug: 4.4.1
       typescript: 5.8.3
     transitivePeerDependencies:
@@ -11237,10 +11227,6 @@ snapshots:
       '@typescript-eslint/visitor-keys': 8.40.0
 
   '@typescript-eslint/tsconfig-utils@8.37.0(typescript@5.8.3)':
-    dependencies:
-      typescript: 5.8.3
-
-  '@typescript-eslint/tsconfig-utils@8.39.0(typescript@5.8.3)':
     dependencies:
       typescript: 5.8.3
 
@@ -11273,8 +11259,6 @@ snapshots:
       - supports-color
 
   '@typescript-eslint/types@8.37.0': {}
-
-  '@typescript-eslint/types@8.39.0': {}
 
   '@typescript-eslint/types@8.40.0': {}
 

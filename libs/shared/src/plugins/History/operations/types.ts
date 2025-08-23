@@ -7,14 +7,9 @@ export enum OperationType {
   Move = "move",
 }
 
-type PlainObject<T> = Record<string | number, T>;
-type ArrayKey<T> = keyof T[];
-type PlainObjectKey<T> = keyof PlainObject<T>;
-type ObjectOrArrayKey<T> = ArrayKey<T> | PlainObjectKey<T>;
-
 export interface OperationBase {
   type: OperationType;
-  path: string | ObjectOrArrayKey<any>[];
+  path: string | (string | number)[];
   value: any;
 }
 

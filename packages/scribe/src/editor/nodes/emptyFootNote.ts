@@ -1,4 +1,4 @@
-export type Note = {
+export interface Note {
   type: "note";
   marker: string;
   caller: string;
@@ -7,16 +7,16 @@ export type Note = {
   indent: number;
   version: number;
   children: (ImmutableNoteCaller | Char | Text)[];
-};
+}
 
-export type ImmutableNoteCaller = {
+export interface ImmutableNoteCaller {
   type: "immutable-note-caller";
   caller: string;
   previewText: string;
   version: number;
-};
+}
 
-export type Char = {
+export interface Char {
   type: "char";
   marker: string;
   text: string;
@@ -25,9 +25,9 @@ export type Char = {
   mode: string;
   style: string;
   version: number;
-};
+}
 
-type Text = {
+interface Text {
   type: "text";
   text: string;
   detail: number;
@@ -35,7 +35,7 @@ type Text = {
   mode: string;
   style: string;
   version: number;
-};
+}
 export interface Para {
   direction: null;
   format: string;

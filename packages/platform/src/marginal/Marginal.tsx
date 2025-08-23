@@ -18,20 +18,18 @@ import { Op, OpsSource } from "shared-react";
 import { LoggerBasic } from "shared";
 
 /** Forward reference for the editor. */
-export type MarginalRef = EditorRef & {
+export interface MarginalRef extends EditorRef {
   /** Set the comments to accompany USJ Scripture. */
   setComments?(comments: Comments): void;
-};
+}
 
-export type MarginalProps<TLogger extends LoggerBasic> = Omit<
-  EditorProps<TLogger>,
-  "onUsjChange"
-> & {
+export interface MarginalProps<TLogger extends LoggerBasic>
+  extends Omit<EditorProps<TLogger>, "onUsjChange"> {
   /** Callback function when comments have changed. */
   onCommentChange?: (comments: Comments | undefined) => void;
   /** Callback function when USJ Scripture data has changed. */
   onUsjChange?: (usj: Usj, comments: Comments | undefined, ops?: Op[], source?: OpsSource) => void;
-};
+}
 
 /**
  * Scripture Editor for USJ with comments in the margin. Created for use in [Platform](https://platform.bible).

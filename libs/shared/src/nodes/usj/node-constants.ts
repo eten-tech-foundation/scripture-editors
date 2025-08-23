@@ -1,6 +1,8 @@
 /** This file avoids a circular dependency between `CharNode.ts` and `node.utils.ts`. */
 
-export type UnknownAttributes = { [name: string]: string | undefined };
+export interface UnknownAttributes {
+  [name: string]: string | undefined;
+}
 
 export const PARA_MARKER_DEFAULT = "p";
 

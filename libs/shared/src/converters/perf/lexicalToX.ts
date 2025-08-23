@@ -1,18 +1,22 @@
 import { SerializedLexicalNode } from "lexical";
 import { isTruthy } from "./utils.js";
 
-type BaseMetadata = { relativePath: (string | number)[] };
-type OptionalMetadata = { [key: string]: unknown };
+interface BaseMetadata {
+  relativePath: (string | number)[];
+}
+interface OptionalMetadata {
+  [key: string]: unknown;
+}
 
-export type NodeBuilderArgs<
+export interface NodeBuilderArgs<
   SourceNode extends SerializedLexicalNode,
   ChildrenNodeType,
   Metadata = OptionalMetadata,
-> = {
+> {
   node: SourceNode;
   metadata: BaseMetadata & Metadata;
   children?: ChildrenNodeType[];
-};
+}
 
 export type NodeBuilder<
   LexicalNodeType extends SerializedLexicalNode,
@@ -28,16 +32,16 @@ export type MetadataBuilder<Metadata = OptionalMetadata> = <
   metadata: BaseMetadata & Metadata;
 }) => BaseMetadata & Metadata;
 
-type NodeData<
+interface NodeData<
   LexicalNodeType extends SerializedLexicalNode,
   NewNodeType,
   ChildrenNodeType,
   Metadata = OptionalMetadata,
-> = {
+> {
   node: LexicalNodeType;
   nodeBuilder?: NodeBuilder<LexicalNodeType, NewNodeType, ChildrenNodeType, Metadata>;
   metadataBuilder?: MetadataBuilder<Metadata>;
-};
+}
 
 export const convertLexicalStateNode = <
   LexicalNodeType extends SerializedLexicalNode,

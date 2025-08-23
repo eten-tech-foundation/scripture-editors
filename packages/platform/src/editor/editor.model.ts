@@ -1,7 +1,7 @@
 import { TextDirection, UsjNodeOptions, ViewOptions } from "shared-react";
 
 /** Options to configure the editor. */
-export type EditorOptions = {
+export interface EditorOptions {
   /** Is the editor readonly or editable. */
   isReadonly?: boolean;
   /** Is the editor enabled for spell checking. */
@@ -23,4 +23,4 @@ export type EditorOptions = {
   nodes?: UsjNodeOptions;
   /** EXPERIMENTAL: Is the editor being debugged using the TreeView */
   debug?: boolean;
-};
+}

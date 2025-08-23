@@ -1,6 +1,6 @@
-export type Item = {
+export interface Item {
   [key: string]: unknown;
-};
+}
 
 // Default filter function
 const defaultFilter = <T extends Item>(item: T, query: string, filterBy: string): boolean => {
@@ -33,23 +33,15 @@ export interface FilterAndRankItems<T extends Item> {
 }
 
 export function filterAndRankItems<T extends Item>(
-  options: Omit<FilterAndRankItems<T>, "filter"> & { filterBy: keyof Pick<T, string> },
-): T[];
-export function filterAndRankItems<T extends Item>(
-  options: Omit<FilterAndRankItems<T>, "filterBy"> & {
-    filter: (item: T, query: string) => boolean;
-  },
-): T[];
-export function filterAndRankItems<T extends Item>(options: FilterAndRankItems<T>): T[];
-
-export function filterAndRankItems<T extends Item>({
-  query,
-  items,
-  filterBy,
-  filter,
-  sortBy,
-  sortingOptions,
-}: FilterAndRankItems<T>): T[] {
+  options:
+    | (Omit<FilterAndRankItems<T>, "filter"> & { filterBy: keyof Pick<T, string> })
+    | (Omit<FilterAndRankItems<T>, "filterBy"> & {
+        filter: (item: T, query: string) => boolean;
+      })
+    | FilterAndRankItems<T>,
+): T[] {
+  const { query, items, filterBy, filter, sortBy, sortingOptions } =
+    options as FilterAndRankItems<T>;
   const { caseSensitive = false, priorityOrder = ["exact", "startsWith", "contains"] } =
     sortingOptions || {};
 

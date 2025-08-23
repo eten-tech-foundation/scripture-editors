@@ -2,7 +2,7 @@
 
 import { CategoryType, MarkerType, Marker } from "./usfmTypes.js";
 
-export const usfmMarkers: Record<string, Marker> = {
+export const usfmMarkers: { [marker: string]: Marker } = {
   id: {
     category: CategoryType.FileIdentification,
     type: MarkerType.Paragraph,

@@ -2,7 +2,7 @@ import { CategoryType, Marker, MarkerType } from "./usfmTypes.js";
 
 export type MarkerOverwrite = Partial<
   Omit<Marker, "children"> & {
-    children?: Partial<Record<CategoryType, { add: string[]; remove: string[] }>> | null;
+    children?: Partial<{ [K in CategoryType]: { add: string[]; remove: string[] } }> | null;
   }
 >;
 
@@ -35,7 +35,7 @@ const paragraphChildren = {
   },
 };
 
-const usfmMarkersOverwrites: Record<string, MarkerOverwrite> = {
+const usfmMarkersOverwrites: { [marker: string]: MarkerOverwrite } = {
   p: { children: paragraphChildren },
   q: { children: paragraphChildren },
   q1: { children: paragraphChildren },

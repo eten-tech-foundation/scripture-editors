@@ -7,14 +7,14 @@ import {
 import { ImmutableVerseNode } from "../nodes/usj/ImmutableVerseNode";
 import { ViewMode, FORMATTED_VIEW_MODE, UNFORMATTED_VIEW_MODE } from "./view-mode.model";
 
-export type ViewOptions = {
+export interface ViewOptions {
   /** USFM markers are visible, editable or hidden */
   markerMode: "visible" | "editable" | "hidden";
   /** does the text have spacing including indenting */
   hasSpacing: boolean;
   /** is the text in a formatted font */
   isFormattedFont: boolean;
-};
+}
 
 let defaultViewMode: ViewMode;
 let defaultViewOptions: ViewOptions;

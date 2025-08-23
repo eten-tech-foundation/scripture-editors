@@ -1,11 +1,11 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 declare module "epitelete" {
-  type Options = {
+  interface Options {
     readPipeline?: string;
     writePipeline?: string;
     cloning?: boolean;
-  };
+  }
 
   export default class Epitelete {
     constructor(options: { docSetId: string });

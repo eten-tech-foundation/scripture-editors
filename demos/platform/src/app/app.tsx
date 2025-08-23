@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 import AnnotationTypeSelect from "./AnnotationTypeSelect";
 import TextDirectionDropDown from "./TextDirectionDropDown";
 import ViewModeDropDown from "./ViewModeDropDown";
@@ -21,12 +22,12 @@ import { MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "r
 import { WEB_PSA_CH1_USX as usx, WEB_PSA_COMMENTS as comments } from "shared";
 import { Op, OpsSource } from "shared-react";
 
-type Annotations = {
+interface Annotations {
   [buttonId: string]: {
     selection: AnnotationRange;
     types: { [annotationType: string]: { isSet: boolean; id: string } };
   };
-};
+}
 
 const defaultUsj = usxStringToUsj('<usx version="3.1" />');
 const defaultScrRef: SerializedVerseRef = { book: "PSA", chapterNum: 1, verseNum: 1 };

@@ -1,14 +1,14 @@
-export type UsjLocation = {
+export interface UsjLocation {
   jsonPath: string;
   offset: number;
-};
+}
 
-export type SelectionRange = {
+export interface SelectionRange {
   start: UsjLocation;
   end?: UsjLocation;
-};
+}
 
-export type AnnotationRange = {
+export interface AnnotationRange {
   start: UsjLocation;
   end: UsjLocation;
-};
+}

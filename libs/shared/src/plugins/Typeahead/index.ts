@@ -16,11 +16,11 @@ import { $getSelection, $isRangeSelection, $isTextNode } from "lexical";
 //TODO: This list is very language specific and probably should be externally supplied perhaps by the UI language setting.
 export const PUNCTUATION = "\\.,\\+\\*\\?\\$\\@\\|#{}\\(\\)\\^\\-\\[\\]\\\\/!%'\"~=<>_:;";
 
-export type SuggestionsTextMatch = {
+export interface SuggestionsTextMatch {
   leadOffset: number;
   matchingString: string;
   replaceableString: string;
-};
+}
 
 export type TriggerFn = (text: string, editor: LexicalEditor) => SuggestionsTextMatch | null;
 

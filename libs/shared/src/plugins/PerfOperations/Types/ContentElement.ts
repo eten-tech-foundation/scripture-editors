@@ -83,12 +83,12 @@ type WrapperType = "wrapper";
 
 type WrapperSubtype = "meta_content";
 
-export type Wrapper = {
+export interface Wrapper {
   type: WrapperType;
   subtype: WrapperSubtype | XSubtype | NameSpacedSubtype;
   atts?: Atts;
   content?: Content;
-};
+}
 
 // MILESTONE -----------------------------------
 

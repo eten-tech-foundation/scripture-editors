@@ -1,12 +1,24 @@
 import lexicalPlugin from "@lexical/eslint-plugin";
 import nx from "@nx/eslint-plugin";
+import tseslint from "typescript-eslint";
 
 export default [
   ...nx.configs["flat/base"],
   ...nx.configs["flat/typescript"],
   ...nx.configs["flat/javascript"],
+  ...tseslint.configs.strict,
+  ...tseslint.configs.stylistic,
   {
-    ignores: ["**/dist", "**/vite.config.*.timestamp*", "**/vitest.config.*.timestamp*"],
+    ignores: [
+      "**/build",
+      "**/dist",
+      "**/out-tsc",
+      "**/temp",
+      "**/tmp",
+      "**/coverage",
+      "**/vite.config.*.timestamp*",
+      "**/vitest.config.*.timestamp*",
+    ],
   },
   {
     files: ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx"],
@@ -26,6 +38,15 @@ export default [
           ],
         },
       ],
+      // Add a few key rules from other standards:
+      eqeqeq: ["error", "always", { null: "ignore" }], // We added `null: "ignore"`.
+      "prefer-const": "error",
+      "no-var": "error",
+      "no-console": "warn",
+      // Our custom overrides:
+      // Prefer index-signature `{ [projectId: string]: number }` over `Record<string, number>`
+      // since the additional information of the key name gives a hint to its usage.
+      "@typescript-eslint/consistent-indexed-object-style": ["error", "index-signature"],
     },
   },
   {

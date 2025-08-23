@@ -24,12 +24,12 @@ export type SequenceType =
   | "fig"
   | "temp";
 
-export type Sequence = {
+export interface Sequence {
   type: SequenceType;
   preview_text?: string;
   blocks?: Block[];
   hooks?: Hooks;
-};
+}
 
 export type SequenceProps = Props<Sequence>;
 

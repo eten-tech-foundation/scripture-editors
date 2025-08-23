@@ -17,7 +17,7 @@ interface PlaceholdersData {
   count: number;
 }
 
-export type CursorData = {
+export interface CursorData {
   offset: number;
   /**
    * Some browsers have different cursor behavior around the edges of the node.
@@ -53,7 +53,7 @@ export type CursorData = {
   isMovingToNextNode: boolean;
   isMovingToPreviousNode: boolean;
   isMovingOutwards: boolean;
-};
+}
 
 interface LazyProcessedSelection {
   selection: RangeSelection;

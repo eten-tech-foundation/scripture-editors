@@ -2,14 +2,14 @@ import "./Input.css";
 import { LexicalEditor } from "lexical";
 import React, { ReactNode, useEffect, useState } from "react";
 
-type TextInputProps = {
+interface TextInputProps {
   "data-test-id"?: string;
   label: string;
   onChange: (val: string) => void;
   placeholder?: string;
   value: string;
   type?: React.HTMLInputTypeAttribute;
-};
+}
 
 const TextInput: React.FC<TextInputProps> = ({
   label,
@@ -32,13 +32,13 @@ const TextInput: React.FC<TextInputProps> = ({
   </div>
 );
 
-type InsertDialogProps = {
+interface InsertDialogProps {
   activeEditor: LexicalEditor;
   onClose: () => void;
   insertFunction: (editor: LexicalEditor, value?: string, noteText?: string) => void;
   label: string;
   placeholder?: string;
-};
+}
 
 export const InsertDialog: React.FC<InsertDialogProps> = ({
   activeEditor,
@@ -68,15 +68,13 @@ export const InsertDialog: React.FC<InsertDialogProps> = ({
     <>
       {label === "Footnote" ? (
         // For footnote with multiple fields
-        <>
-          <TextInput
-            placeholder="Text"
-            label="Text"
-            onChange={(val) => setInputValue(val)}
-            value={inputValue}
-            data-test-id="note-ft"
-          />
-        </>
+        <TextInput
+          placeholder="Text"
+          label="Text"
+          onChange={(val) => setInputValue(val)}
+          value={inputValue}
+          data-test-id="note-ft"
+        />
       ) : (
         // For simple inputs like verse/chapter numbers
         <TextInput

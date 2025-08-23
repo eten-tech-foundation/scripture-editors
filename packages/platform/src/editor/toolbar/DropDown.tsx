@@ -6,9 +6,9 @@ import * as React from "react";
 import { ReactElement, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-type DropDownContextType = {
+interface DropDownContextType {
   registerItem: (ref: React.RefObject<HTMLButtonElement | null>) => void;
-};
+}
 
 const DropDownContext = React.createContext<DropDownContextType | null>(null);
 

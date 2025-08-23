@@ -181,9 +181,9 @@ async function testEnvironment(
     );
   }
 
-  async function setScrRef(scrRef: SerializedVerseRef) {
+  async function setScrRef(newScrRef: SerializedVerseRef) {
     await act(async () => {
-      _setScrRef(scrRef);
+      _setScrRef(newScrRef);
     });
   }
 

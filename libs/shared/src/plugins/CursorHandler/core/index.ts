@@ -1,4 +1,3 @@
-/* eslint-disable no-debugger */
 import { $addUpdateTag, LexicalEditor, LexicalNode } from "lexical";
 import { mergeRegister } from "@lexical/utils";
 import { registerCursorInsertion } from "./insertionHandlers/index.js";

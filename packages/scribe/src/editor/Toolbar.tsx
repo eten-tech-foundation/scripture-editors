@@ -24,12 +24,12 @@ export const Toolbar = ({
   const [editor] = useLexicalComposerContext();
   const [isEditable, setIsEditable] = useState(true);
 
-  type InsertOption = {
+  interface InsertOption {
     title: string;
     marker: string;
     requiresValue: boolean;
     placeholder?: string; // Optional since not all items have it
-  };
+  }
 
   const insertOptions: InsertOption[] = [
     {

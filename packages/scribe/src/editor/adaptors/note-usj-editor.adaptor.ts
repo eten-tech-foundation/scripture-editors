@@ -122,9 +122,9 @@ export function reset(callerCountValue = 0) {
 
 function getNotesFromUsj(usjContent: MarkerContent[]) {
   const notes: MarkerObject[] = [];
-  usjContent.map((content) => {
+  usjContent.forEach((content) => {
     if (typeof content !== "string") {
-      content.content?.map((note) => {
+      content.content?.forEach((note) => {
         if (typeof note !== "string" && note.type === "note") {
           notes.push(note);
         }
@@ -613,9 +613,9 @@ function insertImpliedNotes(nodes: SerializedLexicalNode[]): SerializedLexicalNo
   return impliedNoteNodes;
 }
 
-const UsjNoteEditorAdapter: UsjNoteEditorAdapter = {
+const usjNoteEditorAdapter: UsjNoteEditorAdapter = {
   initialize,
   reset,
   serializeEditorState,
 };
-export default UsjNoteEditorAdapter;
+export default usjNoteEditorAdapter;

@@ -57,7 +57,7 @@ function ContextMenu({
   selectedItemIndex: number | null;
   onOptionClick: (option: ContextMenuOption, index: number) => void;
   onOptionMouseEnter: (index: number) => void;
-  options: Array<ContextMenuOption>;
+  options: ContextMenuOption[];
 }) {
   return (
     <div className="typeahead-popover">
@@ -189,7 +189,6 @@ export function ContextMenuPlugin(): ReactElement {
       }}
       menuRenderFn={(
         anchorElementRef,
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
         { selectedIndex, options: _options, selectOptionAndCleanUp, setHighlightedIndex },
         { setMenuRef },
       ) => {

@@ -2,12 +2,12 @@ import { ElementNode, LexicalNode } from "lexical";
 import { Path } from "./index.js";
 import { OperationType, Operation } from "./types.js";
 
-export type MapperArgs = {
+export interface MapperArgs {
   node: LexicalNode;
   path: Path;
   from?: Path;
   operationType: OperationType;
-};
+}
 
 export type Mapper = (args: MapperArgs) => Operation | undefined;
 
@@ -46,10 +46,10 @@ export const buildOperation: Mapper = ({ node, path, operationType }) => {
 export type PathBuilder = <T extends LexicalNode>(
   node: T,
   rootNode?: T | null,
-) => Array<string | number> | false;
+) => (string | number)[] | false;
 
 export const getNodePath: PathBuilder = (node, rootNode = null) => {
-  const pathArray: Array<string | number> = [];
+  const pathArray: (string | number)[] = [];
   let currentNode: ElementNode | LexicalNode | null = node;
 
   while (currentNode) {

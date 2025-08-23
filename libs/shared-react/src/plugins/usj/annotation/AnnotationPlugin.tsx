@@ -16,10 +16,10 @@ import {
 } from "shared";
 
 /** Forward reference for annotations. */
-export type AnnotationRef = {
+export interface AnnotationRef {
   addAnnotation(selection: AnnotationRange, type: string, id: string): void;
   removeAnnotation(type: string, id: string): void;
-};
+}
 
 function getTypeIDMapKey(type: string, id: string): string {
   return `${type}:${id}`;
@@ -31,7 +31,7 @@ function useAnnotations(editor: LexicalEditor, markNodeMap: Map<string, Set<Node
       throw new Error("AnnotationPlugin: TypedMarkNode not registered on editor!");
     }
 
-    const markNodeKeysToTypedIDs: Map<NodeKey, TypedIDs> = new Map();
+    const markNodeKeysToTypedIDs = new Map<NodeKey, TypedIDs>();
 
     return mergeRegister(
       registerNestedElementResolver<TypedMarkNode>(

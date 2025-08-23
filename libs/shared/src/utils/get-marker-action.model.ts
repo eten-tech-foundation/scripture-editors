@@ -4,7 +4,7 @@ import { Marker } from "./usfm/usfmTypes.js";
 
 export type ScriptureReference = SerializedVerseRef;
 
-export type MarkerAction = {
+export interface MarkerAction {
   action: (currentEditor: {
     editor: LexicalEditor;
     reference: ScriptureReference;
@@ -13,6 +13,6 @@ export type MarkerAction = {
     noteText?: string;
   }) => void;
   label: string | undefined;
-};
+}
 
 export type GetMarkerAction = (marker: string, markerData?: Marker) => MarkerAction;

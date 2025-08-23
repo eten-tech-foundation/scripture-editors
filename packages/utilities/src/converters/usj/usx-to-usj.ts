@@ -9,7 +9,9 @@ import { MarkerContent, MarkerObject, USJ_TYPE, USJ_VERSION, Usj } from "./usj.m
 import { USX_TYPE } from "./usx.model.js";
 
 type Action = "append" | "merge" | "ignore";
-type Attribs = { [name: string]: string };
+interface Attribs {
+  [name: string]: string;
+}
 
 export function usxStringToUsj(usxString: string): Usj {
   const parser = new DOMParser();

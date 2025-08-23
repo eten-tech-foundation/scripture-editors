@@ -28,9 +28,9 @@ import {
 } from "shared";
 
 /** Caller count is in an object so it can be manipulated by passing the object. */
-export type CallerData = {
+export interface CallerData {
   count: number;
-};
+}
 
 // If you want use these utils with your own verse node, add it to this list of types, then modify
 // all the functions where this type is used in this file.

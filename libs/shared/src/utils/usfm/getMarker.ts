@@ -27,7 +27,7 @@ function getMarker(marker: string): Marker | undefined {
       const categoryType = category as CategoryType;
       if (modification === null) {
         // Remove the entire category if it exists
-        delete mergedChildren[categoryType];
+        Reflect.deleteProperty(mergedChildren, categoryType);
       } else {
         // Update children for this category
         let currentChildren = mergedChildren[categoryType] || [];
@@ -40,7 +40,7 @@ function getMarker(marker: string): Marker | undefined {
         if (currentChildren.length > 0) {
           mergedChildren[categoryType] = currentChildren;
         } else {
-          delete mergedChildren[categoryType];
+          Reflect.deleteProperty(mergedChildren, categoryType);
         }
       }
     }

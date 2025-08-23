@@ -26,8 +26,8 @@ const validator = epi.validator;
 export const getOperationBuilder =
   (
     extraData: {
-      sequences: Record<string, Sequence>;
-      extendedOperations: Array<Record<string, unknown>>;
+      sequences: { [key: string]: Sequence };
+      extendedOperations: { [key: string]: unknown }[];
     } = { sequences: {}, extendedOperations: [] },
   ): Mapper =>
   ({ node, operationType, path }) => {
@@ -82,7 +82,7 @@ export const getOperationBuilder =
             sequences[sequenceKey] = { ...sequence, blocks: [] };
             return sequences;
           },
-          {} as Record<string, Sequence>,
+          {} as { [key: string]: Sequence },
         ),
         ...sideSequences,
       };
