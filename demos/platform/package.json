@@ -15,7 +15,7 @@
     "platform-bible-utils": "file:./lib/platform-bible-utils",
     "shared": "workspace:~",
     "shared-react": "workspace:~",
-    "tailwindcss": "4.1.11",
+    "tailwindcss": "4.1.12",
     "tailwindcss-animate": "1.0.7"
   },
   "volta": {

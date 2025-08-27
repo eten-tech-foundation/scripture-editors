@@ -25,13 +25,12 @@
   },
   "files": [
     "dist",
-    "src/index.ts",
-    "src/Editorial.tsx",
-    "src/editor",
-    "src/marginal"
+    "src",
+    "!src/**/*.test.ts",
+    "!src/**/*.test.tsx"
   ],
   "scripts": {
-    "prepublish": "cd ../.. && nx build platform"
+    "prepublish": "cd ../.. && nx build platform-editor"
   },
   "peerDependencies": {
     "react": ">=18.3.1",
@@ -39,15 +38,15 @@
   },
   "dependencies": {
     "@eten-tech-foundation/scripture-utilities": "workspace:~",
-    "@floating-ui/dom": "^1.7.3",
-    "@lexical/react": "^0.33.1",
-    "@lexical/selection": "^0.33.1",
-    "@lexical/text": "^0.33.1",
-    "@lexical/utils": "^0.33.1",
-    "@lexical/yjs": "^0.33.1",
+    "@floating-ui/dom": "^1.7.4",
+    "@lexical/react": "^0.34.0",
+    "@lexical/selection": "^0.34.0",
+    "@lexical/text": "^0.34.0",
+    "@lexical/utils": "^0.34.0",
+    "@lexical/yjs": "^0.34.0",
     "@sillsdev/scripture": "^2.0.2",
     "fast-equals": "^5.2.2",
-    "lexical": "^0.33.1",
+    "lexical": "^0.34.0",
     "yjs": "^13.6.27"
   },
   "devDependencies": {

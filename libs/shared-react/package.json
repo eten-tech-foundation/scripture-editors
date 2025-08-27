@@ -35,11 +35,11 @@
   },
   "dependencies": {
     "@eten-tech-foundation/scripture-utilities": "workspace:~",
-    "@floating-ui/dom": "^1.7.3",
-    "@lexical/react": "^0.33.1",
-    "@lexical/utils": "^0.33.1",
+    "@floating-ui/dom": "^1.7.4",
+    "@lexical/react": "^0.34.0",
+    "@lexical/utils": "^0.34.0",
     "fast-equals": "^5.2.2",
-    "lexical": "^0.33.1",
+    "lexical": "^0.34.0",
     "quill-delta": "^5.1.0",
     "tslib": "^2.8.1"
   },

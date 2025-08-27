@@ -7,8 +7,8 @@
     "dev": "vite"
   },
   "dependencies": {
-    "@lexical/rich-text": "^0.33.1",
-    "lexical": "^0.33.1"
+    "@lexical/rich-text": "^0.34.0",
+    "lexical": "^0.34.0"
   },
   "devDependencies": {
     "shared": "workspace:~"

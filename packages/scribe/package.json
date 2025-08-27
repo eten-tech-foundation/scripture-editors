@@ -38,23 +38,23 @@
   },
   "dependencies": {
     "@eten-tech-foundation/scripture-utilities": "workspace:~",
-    "@floating-ui/dom": "^1.7.3",
-    "@lexical/mark": "^0.33.1",
-    "@lexical/react": "^0.33.1",
-    "@lexical/selection": "^0.33.1",
-    "@lexical/utils": "^0.33.1",
+    "@floating-ui/dom": "^1.7.4",
+    "@lexical/mark": "^0.34.0",
+    "@lexical/react": "^0.34.0",
+    "@lexical/selection": "^0.34.0",
+    "@lexical/utils": "^0.34.0",
     "fast-equals": "^5.2.2",
-    "lexical": "^0.33.1"
+    "lexical": "^0.34.0"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4.1.11",
+    "@tailwindcss/postcss": "^4.1.12",
     "postcss": "^8.5.6",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "shared": "workspace:~",
     "shared-react": "workspace:~",
     "sj-usfm-grammar": "^3.0.8",
-    "tailwindcss": "^4.1.11"
+    "tailwindcss": "^4.1.12"
   },
   "volta": {
     "extends": "../../package.json"
