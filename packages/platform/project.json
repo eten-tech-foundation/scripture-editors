@@ -7,10 +7,25 @@
   "targets": {
     "devpub": {
       "executor": "nx:run-commands",
-      "dependsOn": ["build"],
+      "dependsOn": ["extract-api"],
       "options": {
         "command": "yalc push",
         "cwd": "{projectRoot}"
+      }
+    },
+    "extract-api": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build"],
+      "cache": true,
+      "inputs": ["production", "^production", "{projectRoot}/config/api-extractor.json"],
+      "outputs": ["{projectRoot}/dist", "{projectRoot}/etc", "{projectRoot}/temp"],
+      "options": {
+        "commands": [
+          "api-extractor run --local --verbose",
+          "npx prettier --write \"dist/**/*.d.ts\""
+        ],
+        "cwd": "{projectRoot}",
+        "parallel": false
       }
     }
   }

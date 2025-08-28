@@ -30,7 +30,7 @@
     "!src/**/*.test.tsx"
   ],
   "scripts": {
-    "prepublish": "cd ../.. && nx build platform-editor"
+    "prepublish": "cd ../.. && nx extract-api platform-editor"
   },
   "peerDependencies": {
     "react": ">=18.3.1",

@@ -4,6 +4,7 @@
 **/tsconfig*.json
 pnpm-lock.yaml
 .nxignore
+etc
 
 # items below are copied from `.gitignore`
 
