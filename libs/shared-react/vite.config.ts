@@ -2,6 +2,7 @@
 import { nxViteTsPaths } from "@nx/vite/plugins/nx-tsconfig-paths.plugin";
 import react from "@vitejs/plugin-react-swc";
 import * as path from "path";
+import { visualizer } from "rollup-plugin-visualizer";
 import { defineConfig } from "vite";
 import dts from "vite-plugin-dts";
 
@@ -42,16 +43,28 @@ export default defineConfig({
     rollupOptions: {
       // External packages that should not be bundled into your library.
       external: [
+        // peerDependencies
+        "react/jsx-runtime",
         "react",
         "react-dom",
-        "lexical",
+        // dependencies
+        "@eten-tech-foundation/scripture-utilities",
+        "@floating-ui/dom",
         "@lexical/react",
         "@lexical/utils",
-        "@floating-ui/dom",
         "fast-equals",
+        "lexical",
         "quill-delta",
-        "@eten-tech-foundation/scripture-utilities",
+        // unwanted `libs/shared` dependencies
+        "epitelete",
+        "json-difference",
+        "open-patcher",
+        "proskomma-core",
+        "test-data",
+        "tslib",
       ],
+      // open the HTML file manually or  set `open` to true
+      plugins: [visualizer({ filename: "dist/bundle-analysis.html", open: false })],
     },
   },
   test: {

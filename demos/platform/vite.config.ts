@@ -3,7 +3,7 @@ import { nxViteTsPaths } from "@nx/vite/plugins/nx-tsconfig-paths.plugin";
 import react from "@vitejs/plugin-react-swc";
 import { defineConfig } from "vite";
 
-export default defineConfig(() => ({
+export default defineConfig({
   root: __dirname,
   cacheDir: "../../node_modules/.vite/demos/platform",
   plugins: [react(), nxViteTsPaths()],
@@ -18,6 +18,17 @@ export default defineConfig(() => ({
     commonjsOptions: {
       transformMixedEsModules: true,
     },
+    rollupOptions: {
+      external: [
+        // unwanted `libs/shared` dependencies
+        "epitelete",
+        "json-difference",
+        "open-patcher",
+        "proskomma-core",
+        "test-data",
+        "tslib",
+      ],
+    },
   },
   test: {
     watch: false,
@@ -30,4 +41,4 @@ export default defineConfig(() => ({
       provider: "v8" as const,
     },
   },
-}));
+});

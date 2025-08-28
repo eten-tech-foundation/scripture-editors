@@ -1,15 +1,17 @@
 /// <reference types='vitest' />
 import * as path from "path";
-import dts from "vite-plugin-dts";
 import { defineConfig } from "vite";
+import dts from "vite-plugin-dts";
 
-export default defineConfig(() => ({
+// https://vitejs.dev/config/
+export default defineConfig({
   root: __dirname,
   cacheDir: "../../node_modules/.vite/packages/utilities",
   plugins: [
     dts({
       entryRoot: "src",
       rollupTypes: true,
+      exclude: ["src/**/*.test.ts", "src/**/*.data.ts"],
       tsconfigPath: path.join(__dirname, "tsconfig.lib.json"),
     }),
   ],
@@ -52,4 +54,4 @@ export default defineConfig(() => ({
       provider: "v8" as const,
     },
   },
-}));
+});

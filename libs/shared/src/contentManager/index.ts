@@ -3,8 +3,6 @@ import transformPerfDocumentToSerializedLexicalState from "../converters/perf/pe
 import { FlatDocument as PerfDocument } from "../plugins/PerfOperations/Types/Document.js";
 import Epitelete from "epitelete";
 
-export * from "./mockup/index.js";
-
 const readOptions = { readPipeline: "stripAlignmentPipeline" };
 const writeOptions = { writePipeline: "mergeAlignmentPipeline", ...readOptions };
 

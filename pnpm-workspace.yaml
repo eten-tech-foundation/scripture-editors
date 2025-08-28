@@ -1,14 +1,19 @@
 packages:
-  - "demos/*"
-  - "libs/*"
-  - "packages/*"
-  - "tools/*"
+  - demos/*
+  - libs/*
+  - packages/*
+  - tools/*
+
+ignoredBuiltDependencies:
+  - oxc-resolver
+
 onlyBuiltDependencies:
   - "@swc/core"
   - "@tailwindcss/oxide"
-  - "core-js-pure"
-  - "esbuild"
-  - "nx"
-  - "unrs-resolver"
+  - core-js-pure
+  - esbuild
+  - nx
+  - unrs-resolver
+
 overrides:
   koa@>=2.0.0 <2.16.2: ">=2.16.2 <3.0.0"
