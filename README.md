@@ -47,7 +47,7 @@ NOTE: there is a [known limitation using PNPM with Volta](https://docs.volta.sh/
 | [platform](/demos/platform)         | `nx dev platform`      |
 | [scribe-editor](/packages/scribe)\* | `nx dev scribe-editor` |
 
-\* This item appears in 2 lists as it has both Demo App and Package in the same source folder.
+\* This item appears in 2 lists as it has both the Demo App and Package in the same source folder.
 
 | Source                                | Package                                                                 |
 | ------------------------------------- | ----------------------------------------------------------------------- |
@@ -61,26 +61,31 @@ NOTE: there is a [known limitation using PNPM with Volta](https://docs.volta.sh/
 | ---------------------------------- | ---------------------- |
 | [shared-react](/libs/shared-react) | internal non-published |
 | [shared](/libs/shared)             | internal non-published |
+| [test-data](/libs/test-data)       | internal non-published |
 
 ```mermaid
 ---
 title: Nx Graph
 ---
 graph TB
-  V(perf-vanilla) --> S(shared)
-  R(perf-react) --> S
-  SB(scribe-editor) --> SR
-  P(platform) --> PE
-  PE(platform-editor) --> SR
-  SR(shared-react) --> S
-  R --> SR
-  P --data-only--> S
-  PE --> S
-  SB --> S
+  V(perf-vanilla) --> T(test-data)
+  V --> S(shared)
+  S --> T
   S --> U(utilities)
-  P --> U
-  PE --> U
+  R(perf-react) --> T
+  R --> S
+  R --> SR(shared-react)
+  SR --> S
+  SR --> U
+  SB(scribe-editor) --> SR
+  SB --> S
   SB --> U
+  P(platform) --> PE(platform-editor)
+  P --> T
+  P --> U
+  PE --> SR
+  PE --> S
+  PE --> U
 ```
 
 <a alt="Nx logo" href="https://nx.dev" target="_blank" rel="noreferrer"><img src="https://raw.githubusercontent.com/nrwl/nx/master/images/nx-logo.png" width="45"></a>

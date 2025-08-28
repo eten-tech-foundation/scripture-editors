@@ -11,6 +11,8 @@ import {
   immutableNoteCallerNodeName,
   Marginal,
   MarginalRef,
+  Op,
+  OpsSource,
   TextDirection,
   UsjNodeOptions,
   ViewOptions,
@@ -19,8 +21,7 @@ import { Usj, usxStringToUsj } from "@eten-tech-foundation/scripture-utilities";
 import { SerializedVerseRef } from "@sillsdev/scripture";
 import { BookChapterControl } from "platform-bible-react";
 import { MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { WEB_PSA_CH1_USX as usx, WEB_PSA_COMMENTS as comments } from "shared";
-import { Op, OpsSource } from "shared-react";
+import { WEB_PSA_CH1_USX as usx, WEB_PSA_COMMENTS as comments } from "test-data";
 
 interface Annotations {
   [buttonId: string]: {

@@ -6,10 +6,10 @@
     "outDir": "dist",
     "tsBuildInfoFile": "dist/tsconfig.lib.tsbuildinfo",
     "emitDeclarationOnly": false,
-    "forceConsistentCasingInFileNames": true,
     "types": ["node"]
   },
   "include": ["src/**/*.ts"],
+  "references": [],
   "exclude": [
     "vite.config.ts",
     "vite.config.mts",
@@ -22,15 +22,6 @@
     "src/**/*.test.js",
     "src/**/*.spec.js",
     "src/**/*.test.jsx",
-    "src/**/*.spec.jsx",
-    "src/**/test.utils.ts"
-  ],
-  "references": [
-    {
-      "path": "../../packages/utilities/tsconfig.lib.json"
-    },
-    {
-      "path": "../test-data/tsconfig.lib.json"
-    }
+    "src/**/*.spec.jsx"
   ]
 }

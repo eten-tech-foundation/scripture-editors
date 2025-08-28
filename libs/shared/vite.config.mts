@@ -1,6 +1,6 @@
 import { defineConfig } from "vite";
 
-export default defineConfig(() => ({
+export default defineConfig({
   root: __dirname,
   cacheDir: "../../node_modules/.vite/libs/shared",
   plugins: [],
@@ -19,4 +19,4 @@ export default defineConfig(() => ({
       provider: "v8" as const,
     },
   },
-}));
+});

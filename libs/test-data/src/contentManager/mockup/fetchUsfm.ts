@@ -1,7 +1,7 @@
 import { serverMap } from "./server.js";
 
 /** a mockup function for fetching usfm */
-export function fetchUsfm({
+export async function fetchUsfm({
   serverName = "unknown",
   organizationId = "unknown",
   languageCode = "unknown",

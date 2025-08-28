@@ -36,13 +36,16 @@
   ],
   "references": [
     {
-      "path": "../../packages/platform/tsconfig.lib.json"
-    },
-    {
       "path": "../../libs/shared-react/tsconfig.lib.json"
     },
     {
       "path": "../../libs/shared/tsconfig.lib.json"
+    },
+    {
+      "path": "../../libs/test-data/tsconfig.lib.json"
+    },
+    {
+      "path": "../../packages/platform/tsconfig.lib.json"
     },
     {
       "path": "../../packages/utilities/tsconfig.lib.json"

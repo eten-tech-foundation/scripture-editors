@@ -1,16 +1,25 @@
 /// <reference types='vitest' />
+import packageData from "./package.json" with { type: "json" };
+import { nxViteTsPaths } from "@nx/vite/plugins/nx-tsconfig-paths.plugin";
+import react from "@vitejs/plugin-react-swc";
 import * as path from "path";
-import dts from "vite-plugin-dts";
+import { visualizer } from "rollup-plugin-visualizer";
 import { defineConfig } from "vite";
+import dts from "vite-plugin-dts";
 
-export default defineConfig(() => ({
+// https://vitejs.dev/config/
+export default defineConfig({
   root: __dirname,
-  cacheDir: "../../node_modules/.vite/packages/utilities",
+  cacheDir: "../../node_modules/.vite/packages/platform",
   plugins: [
+    react(),
+    nxViteTsPaths(),
     dts({
       entryRoot: "src",
       rollupTypes: true,
       tsconfigPath: path.join(__dirname, "tsconfig.lib.json"),
+      exclude: ["src/**/*.test.ts", "src/**/*.test.tsx"],
+      aliasesExclude: ["@eten-tech-foundation/scripture-utilities"],
     }),
   ],
   // Uncomment this if you are using workers.
@@ -30,21 +39,26 @@ export default defineConfig(() => ({
     lib: {
       // Could also be a dictionary or array of multiple entry points.
       entry: "src/index.ts",
-      name: "@eten-tech-foundation/scripture-utilities",
+      name: "@eten-tech-foundation/platform-editor",
       fileName: "index",
       // Change this to the formats you want to support.
       // Don't forget to update your package.json as well.
-      formats: ["es" as const, "cjs" as const],
+      formats: ["es" as const],
     },
     rollupOptions: {
-      // External packages that should not be bundled into your library.
-      external: ["@xmldom/xmldom"],
+      external: [
+        "react/jsx-runtime",
+        ...Object.keys(packageData.peerDependencies ?? {}),
+        ...Object.keys(packageData.dependencies ?? {}),
+      ],
+      // open the HTML file manually or  set `open` to true
+      plugins: [visualizer({ filename: "dist/bundle-analysis.html", open: false })],
     },
   },
   test: {
     watch: false,
     globals: true,
-    environment: "node",
+    environment: "jsdom",
     include: ["{src,tests}/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}"],
     reporters: ["default"],
     coverage: {
@@ -52,4 +66,4 @@ export default defineConfig(() => ({
       provider: "v8" as const,
     },
   },
-}));
+});

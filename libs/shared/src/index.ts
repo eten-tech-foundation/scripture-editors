@@ -1,5 +1,4 @@
 export * from "./adaptors/index.js";
-export * from "./data/index.js";
 export * from "./contentManager/index.js";
 export * from "./converters/index.js";
 export * from "./localLexical/index.js";

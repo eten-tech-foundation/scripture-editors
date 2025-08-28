@@ -8,8 +8,7 @@
     "**/data/*.usx.ts",
     "**/dist/**",
     "node_modules/**",
-    "packages/platform/lib/**",
-    "packages/platform/scripts/project_files.md",
+    "demos/platform/lib/**",
     "libs/shared/plugins/PerfOperations/Types/__test__.ts",
     "pnpm-lock.yaml",
     "**/*.svg"

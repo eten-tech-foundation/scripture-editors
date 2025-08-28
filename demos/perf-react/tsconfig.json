@@ -10,6 +10,9 @@
       "path": "../../libs/shared"
     },
     {
+      "path": "../../libs/test-data"
+    },
+    {
       "path": "./tsconfig.app.json"
     },
     {

@@ -16,7 +16,8 @@
     "shared": "workspace:~",
     "shared-react": "workspace:~",
     "tailwindcss": "4.1.12",
-    "tailwindcss-animate": "1.0.7"
+    "tailwindcss-animate": "1.0.7",
+    "test-data": "workspace:~"
   },
   "volta": {
     "extends": "../../package.json"

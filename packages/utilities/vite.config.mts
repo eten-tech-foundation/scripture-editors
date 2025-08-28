@@ -1,7 +1,4 @@
 /// <reference types='vitest' />
-import packageData from "./package.json" with { type: "json" };
-import { nxViteTsPaths } from "@nx/vite/plugins/nx-tsconfig-paths.plugin";
-import react from "@vitejs/plugin-react-swc";
 import * as path from "path";
 import { defineConfig } from "vite";
 import dts from "vite-plugin-dts";
@@ -9,16 +6,13 @@ import dts from "vite-plugin-dts";
 // https://vitejs.dev/config/
 export default defineConfig({
   root: __dirname,
-  cacheDir: "../../node_modules/.vite/packages/platform",
+  cacheDir: "../../node_modules/.vite/packages/utilities",
   plugins: [
-    react(),
-    nxViteTsPaths(),
     dts({
       entryRoot: "src",
       rollupTypes: true,
+      exclude: ["src/**/*.test.ts", "src/**/*.data.ts"],
       tsconfigPath: path.join(__dirname, "tsconfig.lib.json"),
-      exclude: ["src/App.tsx", "src/main.tsx"],
-      aliasesExclude: ["@eten-tech-foundation/scripture-utilities"],
     }),
   ],
   // Uncomment this if you are using workers.
@@ -30,6 +24,7 @@ export default defineConfig({
   build: {
     outDir: "./dist",
     emptyOutDir: true,
+    sourcemap: true,
     reportCompressedSize: true,
     commonjsOptions: {
       transformMixedEsModules: true,
@@ -37,24 +32,21 @@ export default defineConfig({
     lib: {
       // Could also be a dictionary or array of multiple entry points.
       entry: "src/index.ts",
-      name: "@eten-tech-foundation/platform-editor",
+      name: "@eten-tech-foundation/scripture-utilities",
       fileName: "index",
       // Change this to the formats you want to support.
       // Don't forget to update your package.json as well.
-      formats: ["es" as const],
+      formats: ["es" as const, "cjs" as const],
     },
     rollupOptions: {
-      external: [
-        "react/jsx-runtime",
-        ...Object.keys(packageData.peerDependencies ?? {}),
-        ...Object.keys(packageData.dependencies ?? {}),
-      ],
+      // External packages that should not be bundled into your library.
+      external: ["@xmldom/xmldom"],
     },
   },
   test: {
     watch: false,
     globals: true,
-    environment: "jsdom",
+    environment: "node",
     include: ["{src,tests}/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}"],
     reporters: ["default"],
     coverage: {

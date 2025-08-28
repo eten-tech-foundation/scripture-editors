@@ -16,7 +16,7 @@ export default defineConfig({
       entryRoot: "src",
       rollupTypes: true,
       tsconfigPath: path.join(__dirname, "tsconfig.lib.json"),
-      exclude: ["src/App.tsx", "src/main.tsx"],
+      exclude: ["src/App.tsx", "src/main.tsx", "src/**/*.test.ts", "src/**/*.test.tsx"],
       aliasesExclude: ["@eten-tech-foundation/scripture-utilities"],
     }),
   ],
@@ -28,6 +28,7 @@ export default defineConfig({
   build: {
     outDir: "./dist",
     emptyOutDir: true,
+    sourcemap: true,
     reportCompressedSize: true,
     commonjsOptions: {
       transformMixedEsModules: true,
@@ -35,14 +36,26 @@ export default defineConfig({
     lib: {
       // Could also be a dictionary or array of multiple entry points.
       entry: "src/index.ts",
-      name: "@eten-tech-foundation/platform-editor",
+      name: "@eten-tech-foundation/scribe-editor",
       fileName: "index",
       // Change this to the formats you want to support.
       // Don't forget to update your package.json as well.
       formats: ["es" as const],
     },
     rollupOptions: {
-      external: ["react", "react-dom", "react/jsx-runtime"],
+      external: [
+        // peerDependencies
+        "react",
+        "react-dom",
+        "react/jsx-runtime",
+        // unwanted `libs/shared` dependencies
+        "epitelete",
+        "json-difference",
+        "open-patcher",
+        "proskomma-core",
+        "test-data",
+        "tslib",
+      ],
       output: {
         globals: {
           react: "React",

@@ -7,7 +7,6 @@ import { registerRichText } from "@lexical/rich-text";
 import { createEditor } from "lexical";
 import {
   createEmptyHistoryState,
-  fetchUsfm,
   getBookHandler,
   getLexicalState,
   getPerfHistoryUpdater,
@@ -15,6 +14,7 @@ import {
   registerHistory,
   scriptureNodes,
 } from "shared";
+import { fetchUsfm } from "test-data";
 
 (async () => {
   // Configuration for the editor

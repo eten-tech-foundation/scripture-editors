@@ -11,7 +11,8 @@
     "lexical": "^0.34.0"
   },
   "devDependencies": {
-    "shared": "workspace:~"
+    "shared": "workspace:~",
+    "test-data": "workspace:~"
   },
   "volta": {
     "extends": "../../package.json"

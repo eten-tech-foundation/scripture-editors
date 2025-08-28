@@ -4,13 +4,16 @@
   "include": [],
   "references": [
     {
-      "path": "../../packages/platform"
-    },
-    {
       "path": "../../libs/shared-react"
     },
     {
       "path": "../../libs/shared"
+    },
+    {
+      "path": "../../libs/test-data"
+    },
+    {
+      "path": "../../packages/platform"
     },
     {
       "path": "../../packages/utilities"

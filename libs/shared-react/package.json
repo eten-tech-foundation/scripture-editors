@@ -10,6 +10,7 @@
     "rich-text"
   ],
   "type": "module",
+  "sideEffects": false,
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -40,8 +41,7 @@
     "@lexical/utils": "^0.34.0",
     "fast-equals": "^5.2.2",
     "lexical": "^0.34.0",
-    "quill-delta": "^5.1.0",
-    "tslib": "^2.8.1"
+    "quill-delta": "^5.1.0"
   },
   "devDependencies": {
     "shared": "workspace:~"
