@@ -8,7 +8,7 @@ import {
   EditorState,
   SELECTION_CHANGE_COMMAND,
 } from "lexical";
-import { useEffect, useRef } from "react";
+import { MutableRefObject, useEffect, useRef } from "react";
 import {
   $findChapter,
   $findNextChapter,
@@ -28,8 +28,8 @@ import { $findThisVerse, $findVerseOrPara } from "shared-react";
 
 /**
  * A component (plugin) that keeps the Scripture reference updated.
- * @param props.scrRef - Scripture reference.
- * @param props.onScrRefChange - Callback function when the Scripture reference has changed.
+ * @param scrRef - Scripture reference.
+ * @param onScrRefChange - Callback function when the Scripture reference has changed.
  * @returns null, i.e. no DOM elements.
  */
 export function ScriptureReferencePlugin({
@@ -112,7 +112,7 @@ export function ScriptureReferencePlugin({
 function $moveCursorToVerseStart(
   chapterNum: number,
   verseNum: number,
-  hasCursorMovedRef: React.MutableRefObject<boolean>,
+  hasCursorMovedRef: MutableRefObject<boolean>,
 ) {
   const startNode = getSelectionStartNode($getSelection());
   const selectedVerse = $findThisVerse(startNode)?.getNumber();
@@ -141,7 +141,7 @@ function $findAndSetChapterAndVerse(
   chapterNum: number,
   verseNum: number,
   onScrRefChange: (scrRef: ScriptureReference) => void,
-  hasSelectionChangedRef: React.MutableRefObject<boolean>,
+  hasSelectionChangedRef: MutableRefObject<boolean>,
 ) {
   const startNode = getSelectionStartNode($getSelection());
   if (!startNode) return;

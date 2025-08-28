@@ -8,22 +8,47 @@ import { useEffect, useState } from "react";
 import { Array as YArray, Map as YMap, Transaction, YArrayEvent, YEvent } from "yjs";
 import { LoggerBasic } from "shared";
 
+/**
+ * Represents a single comment in a thread.
+ *
+ * @public
+ */
 export interface Comment {
+  /** The author of the comment. */
   author: string;
+  /** The content of the comment. */
   content: string;
+  /** Whether the comment has been deleted. */
   deleted: boolean;
+  /** Unique identifier for the comment. */
   id: string;
+  /** Timestamp when the comment was created. */
   timeStamp: number;
+  /** The type of this object, always "comment". */
   type: "comment";
 }
 
+/**
+ * Represents a thread of comments, typically attached to a quote.
+ *
+ * @public
+ */
 export interface Thread {
+  /** Array of comments in the thread. */
   comments: Comment[];
+  /** Unique identifier for the thread. */
   id: string;
+  /** The quoted text to which the thread is attached. */
   quote: string;
+  /** The type of this object, always "thread". */
   type: "thread";
 }
 
+/**
+ * Represents a list of comments and threads.
+ *
+ * @public
+ */
 export type Comments = (Thread | Comment)[];
 
 function createUID(): string {
@@ -33,6 +58,16 @@ function createUID(): string {
     .substr(0, 5);
 }
 
+/**
+ * Creates a new comment object.
+ *
+ * @param content - The content of the comment.
+ * @param author - The author of the comment.
+ * @param id - Optional unique identifier for the comment.
+ * @param timeStamp - Optional timestamp for the comment.
+ * @param deleted - Optional flag indicating if the comment is deleted.
+ * @returns A new Comment object.
+ */
 export function createComment(
   content: string,
   author: string,
@@ -50,6 +85,14 @@ export function createComment(
   };
 }
 
+/**
+ * Creates a new thread object.
+ *
+ * @param quote - The quoted text for the thread.
+ * @param comments - Array of comments in the thread.
+ * @param id - Optional unique identifier for the thread.
+ * @returns A new Thread object.
+ */
 export function createThread(quote: string, comments: Comment[], id?: string): Thread {
   return {
     comments,
@@ -86,6 +129,11 @@ function triggerOnChange(commentStore: CommentStore): void {
   }
 }
 
+/**
+ * Stores and manages comments and threads, including collaborative editing support.
+ *
+ * @typeParam TLogger - Logger type, defaults to LoggerBasic.
+ */
 export class CommentStore<TLogger extends LoggerBasic = LoggerBasic> {
   _editor: LexicalEditor;
   _comments: Comments;
@@ -93,6 +141,12 @@ export class CommentStore<TLogger extends LoggerBasic = LoggerBasic> {
   _collabProvider: null | Provider;
   private logger: TLogger | undefined;
 
+  /**
+   * Creates a new CommentStore instance.
+   *
+   * @param editor - The LexicalEditor instance.
+   * @param logger - Optional logger instance.
+   */
   constructor(editor: LexicalEditor, logger?: TLogger) {
     this._comments = [];
     this._editor = editor;
@@ -101,19 +155,41 @@ export class CommentStore<TLogger extends LoggerBasic = LoggerBasic> {
     this._changeListeners = new Set();
   }
 
+  /**
+   * Checks if collaborative editing is enabled.
+   *
+   * @returns True if collaborative editing is enabled, false otherwise.
+   */
   isCollaborative(): boolean {
     return this._collabProvider !== null;
   }
 
+  /**
+   * Gets the current list of comments and threads.
+   *
+   * @returns The Comments array.
+   */
   getComments(): Comments {
     return this._comments;
   }
 
+  /**
+   * Sets the list of comments and threads.
+   *
+   * @param comments - The new Comments array.
+   */
   setComments(comments: Comments) {
     this._comments = comments;
     triggerOnChange(this);
   }
 
+  /**
+   * Adds a comment or thread to the store.
+   *
+   * @param commentOrThread - The comment or thread to add.
+   * @param thread - Optional parent thread to add the comment to.
+   * @param offset - Optional offset for insertion.
+   */
   addComment(commentOrThread: Comment | Thread, thread?: Thread, offset?: number): void {
     const nextComments = Array.from(this._comments);
     // The YJS types explicitly use `any` as well.
@@ -152,6 +228,13 @@ export class CommentStore<TLogger extends LoggerBasic = LoggerBasic> {
     triggerOnChange(this);
   }
 
+  /**
+   * Deletes a comment or thread from the store.
+   *
+   * @param commentOrThread - The comment or thread to delete.
+   * @param thread - Optional parent thread if deleting a comment within a thread.
+   * @returns An object containing the marked comment and its index, or null.
+   */
   deleteCommentOrThread(
     commentOrThread: Comment | Thread,
     thread?: Thread,
@@ -203,6 +286,12 @@ export class CommentStore<TLogger extends LoggerBasic = LoggerBasic> {
     return null;
   }
 
+  /**
+   * Registers a callback to be called when the comments change.
+   *
+   * @param onChange - The callback function.
+   * @returns A function to unregister the callback.
+   */
   registerOnChange(onChange: () => void): () => void {
     const changeListeners = this._changeListeners;
     changeListeners.add(onChange);
@@ -266,6 +355,12 @@ export class CommentStore<TLogger extends LoggerBasic = LoggerBasic> {
     return sharedMap;
   }
 
+  /**
+   * Registers collaborative editing support using a Yjs provider.
+   *
+   * @param provider - The Yjs Provider instance.
+   * @returns A function to unregister collaboration and cleanup.
+   */
   registerCollaboration(provider: Provider): () => void {
     this._collabProvider = provider;
     const sharedCommentsArray = this._getCollabComments();
@@ -401,6 +496,12 @@ export class CommentStore<TLogger extends LoggerBasic = LoggerBasic> {
   }
 }
 
+/**
+ * React hook for subscribing to comment store changes.
+ *
+ * @param commentStore - The CommentStore instance.
+ * @returns The current Comments array.
+ */
 export function useCommentStore(commentStore: CommentStore): Comments {
   const [comments, setComments] = useState<Comments>(commentStore.getComments());
 

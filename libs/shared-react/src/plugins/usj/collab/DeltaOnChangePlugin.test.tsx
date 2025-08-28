@@ -9,6 +9,7 @@ import {
   sutUpdate,
   typeTextAtSelection,
 } from "../react-test.utils";
+import { DeltaOp } from "./delta-common.utils";
 import { DeltaOnChangePlugin } from "./DeltaOnChangePlugin";
 import {
   $createTextNode,
@@ -20,7 +21,6 @@ import {
   $setState,
   $getState,
 } from "lexical";
-import { Op } from "quill-delta";
 import {
   $createBookNode,
   $createCharNode,
@@ -34,7 +34,7 @@ import {
   segmentState,
 } from "shared";
 
-let updateOps: Op[];
+let updateOps: DeltaOp[];
 
 describe("OnChangePlugin", () => {
   it("should load an initialEditorState (sanity check)", async () => {
@@ -333,7 +333,7 @@ function handleChange(
   _editorState: EditorState,
   _editor: LexicalEditor,
   _tags: Set<string>,
-  ops: Op[],
+  ops: DeltaOp[],
 ) {
   updateOps = ops;
 }

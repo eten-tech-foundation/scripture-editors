@@ -445,7 +445,6 @@ export function getNodeElementTagName(
 /**
  * Removes properties with undefined values from an object.
  *
- * @template T - The type of the input object.
  * @param obj - The object to remove undefined properties from.
  * @returns A new object with the same type as the input, but with undefined properties removed.
  *

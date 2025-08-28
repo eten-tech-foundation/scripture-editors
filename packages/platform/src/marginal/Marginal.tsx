@@ -5,59 +5,76 @@ import useCommentStoreRef from "./comments/use-comment-store-ref.hook";
 import useMissingCommentsProps from "./comments/use-missing-comments-props.hook";
 import { Usj } from "@eten-tech-foundation/scripture-utilities";
 import {
-  PropsWithChildren,
+  ForwardedRef,
   forwardRef,
+  PropsWithChildren,
+  ReactElement,
+  RefObject,
   useCallback,
   useEffect,
   useImperativeHandle,
   useRef,
   useState,
-  ReactElement,
 } from "react";
-import { Op, OpsSource } from "shared-react";
+import { DeltaOp, DeltaSource } from "shared-react";
 import { LoggerBasic } from "shared";
 
-/** Forward reference for the editor. */
+/**
+ * Forward reference for the editor.
+ *
+ * @public
+ */
 export interface MarginalRef extends EditorRef {
   /** Set the comments to accompany USJ Scripture. */
   setComments?(comments: Comments): void;
 }
 
+/**
+ * Props for the Marginal component that extends EditorProps with additional functionality for
+ * handling comments and USJ Scripture data changes.
+ *
+ * @public
+ */
 export interface MarginalProps<TLogger extends LoggerBasic>
   extends Omit<EditorProps<TLogger>, "onUsjChange"> {
   /** Callback function when comments have changed. */
   onCommentChange?: (comments: Comments | undefined) => void;
   /** Callback function when USJ Scripture data has changed. */
-  onUsjChange?: (usj: Usj, comments: Comments | undefined, ops?: Op[], source?: OpsSource) => void;
+  onUsjChange?: (
+    usj: Usj,
+    comments: Comments | undefined,
+    ops?: DeltaOp[],
+    source?: DeltaSource,
+  ) => void;
 }
 
 /**
  * Scripture Editor for USJ with comments in the margin. Created for use in [Platform](https://platform.bible).
  * @see https://github.com/usfm-bible/tcdocs/blob/usj/grammar/usj.js
  *
- * @param props.ref - Forward reference for the editor.
- * @param props.defaultUsj - Initial Scripture data in USJ format.
- * @param props.scrRef - Scripture reference that links the general cursor location in the
+ * @param ref - Forward reference for the editor.
+ * @param defaultUsj - Initial Scripture data in USJ format.
+ * @param scrRef - Scripture reference that links the general cursor location in the
  *   Scripture.
- * @param props.onScrRefChange - Callback function when the Scripture reference changes in the
+ * @param onScrRefChange - Callback function when the Scripture reference changes in the
  *   editor as the cursor moves.
- * @param props.onSelectionChange - Callback function when the cursor selection changes.
- * @param props.onCommentChange - Callback function when comments have changed.
- * @param props.onUsjChange - Callback function when USJ Scripture data has changed.
- * @param props.options - Options to configure the editor.
- * @param props.logger - Logger instance.
+ * @param onSelectionChange - Callback function when the cursor selection changes.
+ * @param onCommentChange - Callback function when comments have changed.
+ * @param onUsjChange - Callback function when USJ Scripture data has changed.
+ * @param options - Options to configure the editor.
+ * @param logger - Logger instance.
  * @returns the editor element.
+ *
+ * @public
  */
 const Marginal = forwardRef(function Marginal<TLogger extends LoggerBasic>(
   props: MarginalProps<TLogger>,
-  ref: React.ForwardedRef<MarginalRef>,
+  ref: ForwardedRef<MarginalRef>,
 ): ReactElement {
   const editorRef = useRef<EditorRef>(null);
   const hasCommentsBeenSetRef = useRef(true);
   const commentContainerRef = useRef<HTMLDivElement>(null);
-  const [toolbarEndRef, setToolbarEndRef] = useState<React.RefObject<HTMLElement | null> | null>(
-    null,
-  );
+  const [toolbarEndRef, setToolbarEndRef] = useState<RefObject<HTMLElement | null> | null>(null);
   const { children, onCommentChange, onUsjChange, ...editorProps } = props as PropsWithChildren<
     MarginalProps<TLogger>
   >;
@@ -100,7 +117,7 @@ const Marginal = forwardRef(function Marginal<TLogger extends LoggerBasic>(
   }));
 
   const handleUsjChange = useCallback(
-    (usj: Usj, ops?: Op[], source?: OpsSource) => {
+    (usj: Usj, ops?: DeltaOp[], source?: DeltaSource) => {
       if (!onUsjChange) return;
 
       const comments = commentStoreRef.current?.getComments();

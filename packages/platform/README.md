@@ -131,6 +131,7 @@ export default function App() {
 - Nodes supported `<book>`, `<chapter>`, `<verse>`, `<para>`, `<char>`, `<note>`, `<ms>`
 - Nodes not yet supported `<table>`, `<row>`, `<cell>`, `<sidebar>`, `<periph>`, `<figure>`, `<optbreak>`, `<ref>`
 - Node options - callback for when a `<note>` link is clicked
+- Apply [Delta Operation](https://github.com/slab/delta) changes to the editor and see Delta Operations when changes are made in the editor. For use with realtime collaborative editing.
 
 ## Styling
 
@@ -164,20 +165,23 @@ For example, if an annotation of type _"grammar"_ is overlapping it will have bo
 ### Editorial Properties
 
 ```ts
-/**
- * Scripture Editor for USJ. Created for use in [Platform](https://platform.bible).
- * @see https://github.com/usfm-bible/tcdocs/blob/usj/grammar/usj.js
- *
- * @param props.ref - Forward reference for the editor.
- * @param props.defaultUsj - Initial Scripture data in USJ format.
- * @param props.scrRef - Scripture reference that links the general cursor location of the Scripture.
- * @param props.onScrRefChange - Callback function when the Scripture reference changes in the editor as the cursor moves.
- * @param props.onSelectionChange - Callback function when the cursor selection changes.
- * @param props.onUsjChange - Callback function when USJ Scripture data has changed.
- * @param props.options - Options to configure the editor.
- * @param props.logger - Logger instance.
- * @returns the editor element.
- */
+/** Props for the Editor component that provides Scripture editing functionality. */
+export interface EditorProps<TLogger extends LoggerBasic> {
+  /** Initial Scripture data in USJ format. */
+  defaultUsj?: Usj;
+  /** Scripture reference that controls the general cursor location of the Scripture. */
+  scrRef?: SerializedVerseRef;
+  /** Callback function when the Scripture reference has changed. */
+  onScrRefChange?: (scrRef: SerializedVerseRef) => void;
+  /** Callback function when the cursor selection changes. */
+  onSelectionChange?: (selection: SelectionRange | undefined) => void;
+  /** Callback function when USJ Scripture data has changed. */
+  onUsjChange?: (usj: Usj, ops?: DeltaOp[], source?: DeltaSource) => void;
+  /** Options to configure the editor. */
+  options?: EditorOptions;
+  /** Logger instance. */
+  logger?: TLogger;
+}
 ```
 
 ### Editorial Ref
@@ -191,6 +195,8 @@ export interface EditorRef {
   getUsj(): Usj | undefined;
   /** Set the USJ Scripture data. */
   setUsj(usj: Usj): void;
+  /** EXPERIMENTAL: Apply Operational Transform delta update */
+  applyUpdate(ops: DeltaOp[], source?: DeltaSource): void;
   /**
    * Get the selection location or range.
    * @returns the selection location or range, or `undefined` if there is no selection. The
@@ -218,7 +224,7 @@ export interface EditorRef {
    */
   removeAnnotation(type: string, id: string): void;
   /** Ref to the end of the toolbar - INTERNAL USE ONLY to dynamically add controls in the toolbar. */
-  toolbarEndRef: React.RefObject<HTMLElement> | null;
+  toolbarEndRef: RefObject<HTMLElement> | null;
 }
 ```
 
@@ -235,14 +241,12 @@ export interface EditorOptions {
   textDirection?: TextDirection;
   /** Key to trigger the marker menu. Defaults to '\'. */
   markerMenuTrigger?: string;
-  /** View options - EXPERIMENTAL. Defaults to the formatted view mode which is currently the only functional option. */
-  view?: ViewOptions;
-  /** Options for each editor node:
-   * @param nodes.ImmutableNoteCallerNode.noteCallers - Possible note callers to use when caller is
-   *   '+'. Defaults to Latin lower case letters.
-   * @param nodes.ImmutableNoteCallerNode.onClick - Click handler method.
-   */
+  /** Options for some editor nodes. */
   nodes?: UsjNodeOptions;
+  /** EXPERIMENTAL: View options. Defaults to the formatted view mode which is currently the only functional option. */
+  view?: ViewOptions;
+  /** EXPERIMENTAL: Is the editor being debugged using the TreeView. */
+  debug?: boolean;
 }
 ```
 
@@ -277,7 +281,12 @@ export interface MarginalProps<TLogger extends LoggerBasic>
   /** Callback function when comments have changed. */
   onCommentChange?: (comments: Comments | undefined) => void;
   /** Callback function when USJ Scripture data has changed. */
-  onUsjChange?: (usj: Usj, comments: Comments | undefined) => void;
+  onUsjChange?: (
+    usj: Usj,
+    comments: Comments | undefined,
+    ops?: DeltaOp[],
+    source?: DeltaSource,
+  ) => void;
 }
 ```
 

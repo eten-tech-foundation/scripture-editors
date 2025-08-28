@@ -3,7 +3,7 @@ import { $getRangeFromSelection } from "./selection.utils";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { mergeRegister, registerNestedElementResolver } from "@lexical/utils";
 import { $getNodeByKey, LexicalEditor, NodeKey } from "lexical";
-import { forwardRef, useEffect, useImperativeHandle, useMemo } from "react";
+import { ForwardedRef, forwardRef, useEffect, useImperativeHandle, useMemo } from "react";
 import {
   $createTypedMarkNode,
   $isTypedMarkNode,
@@ -102,7 +102,7 @@ function useAnnotations(editor: LexicalEditor, markNodeMap: Map<string, Set<Node
 
 export const AnnotationPlugin = forwardRef(function AnnotationPlugin<TLogger extends LoggerBasic>(
   { logger }: { logger?: TLogger },
-  ref: React.ForwardedRef<AnnotationRef>,
+  ref: ForwardedRef<AnnotationRef>,
 ) {
   const [editor] = useLexicalComposerContext();
   const markNodeMap = useMemo<Map<string, Set<NodeKey>>>(() => {

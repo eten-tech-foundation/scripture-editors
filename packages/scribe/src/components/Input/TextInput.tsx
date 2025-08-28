@@ -1,6 +1,6 @@
 import "./Input.css";
 import { LexicalEditor } from "lexical";
-import React, { ReactNode, useEffect, useState } from "react";
+import { FC, HTMLInputTypeAttribute, ReactNode, useEffect, useState } from "react";
 
 interface TextInputProps {
   "data-test-id"?: string;
@@ -8,10 +8,10 @@ interface TextInputProps {
   onChange: (val: string) => void;
   placeholder?: string;
   value: string;
-  type?: React.HTMLInputTypeAttribute;
+  type?: HTMLInputTypeAttribute;
 }
 
-const TextInput: React.FC<TextInputProps> = ({
+const TextInput: FC<TextInputProps> = ({
   label,
   value,
   onChange,
@@ -40,7 +40,7 @@ interface InsertDialogProps {
   placeholder?: string;
 }
 
-export const InsertDialog: React.FC<InsertDialogProps> = ({
+export const InsertDialog: FC<InsertDialogProps> = ({
   activeEditor,
   onClose,
   insertFunction,
@@ -93,7 +93,7 @@ export const InsertDialog: React.FC<InsertDialogProps> = ({
   );
 };
 
-export const Button: React.FC<{
+export const Button: FC<{
   "data-test-id"?: string;
   children: ReactNode;
   className?: string;

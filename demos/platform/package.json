@@ -13,8 +13,6 @@
   "devDependencies": {
     "platform-bible-react": "file:./lib/platform-bible-react",
     "platform-bible-utils": "file:./lib/platform-bible-utils",
-    "shared": "workspace:~",
-    "shared-react": "workspace:~",
     "test-data": "workspace:~",
     "tailwindcss": "4.1.12",
     "tailwindcss-animate": "1.0.7"

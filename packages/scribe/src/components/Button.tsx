@@ -1,13 +1,13 @@
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { LexicalEditor } from "lexical";
-import React from "react";
+import { ButtonHTMLAttributes, MouseEvent } from "react";
 
 export default function Button({
   onClick,
   children,
   ...props
-}: Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, "onClick"> & {
-  onClick?: (e: React.MouseEvent<HTMLButtonElement>, editor: LexicalEditor) => void;
+}: Omit<ButtonHTMLAttributes<HTMLButtonElement>, "onClick"> & {
+  onClick?: (e: MouseEvent<HTMLButtonElement>, editor: LexicalEditor) => void;
 }) {
   const [editor] = useLexicalComposerContext();
 

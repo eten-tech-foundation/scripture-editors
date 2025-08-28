@@ -7,6 +7,20 @@ import {
 import { ImmutableVerseNode } from "../nodes/usj/ImmutableVerseNode";
 import { ViewMode, FORMATTED_VIEW_MODE, UNFORMATTED_VIEW_MODE } from "./view-mode.model";
 
+/**
+ * Configuration options for controlling the display and behavior of Scripture text views.
+ *
+ * @example
+ * ```typescript
+ * const viewOptions: ViewOptions = {
+ *   markerMode: "hidden",
+ *   hasSpacing: true,
+ *   isFormattedFont: true
+ * };
+ * ```
+ *
+ * @public
+ */
 export interface ViewOptions {
   /** USFM markers are visible, editable or hidden */
   markerMode: "visible" | "editable" | "hidden";
@@ -21,7 +35,10 @@ let defaultViewOptions: ViewOptions;
 
 /**
  * Sets the default view mode and options.
+ *
  * @param viewMode - View mode of the editor.
+ *
+ * @public
  */
 export function setDefaultView(viewMode: ViewMode) {
   const _viewOptions = getViewOptions(viewMode);
@@ -34,21 +51,30 @@ setDefaultView(FORMATTED_VIEW_MODE);
 
 /**
  * Gets the default view mode.
+ *
  * @returns the default view mode.
+ *
+ * @public
  */
 export const getDefaultViewMode = () => defaultViewMode;
 
 /**
  * Gets the default view options.
+ *
  * @returns the default view options.
+ *
+ * @public
  */
 export const getDefaultViewOptions = () => defaultViewOptions;
 
 /**
  * Get view option properties based on the view mode.
+ *
  * @param viewMode - View mode of the editor.
  * @returns the view options if the view exists, the default options if the viewMode is undefined,
  *   `undefined` otherwise.
+ *
+ * @public
  */
 export function getViewOptions(viewMode?: string | undefined): ViewOptions | undefined {
   let viewOptions: ViewOptions | undefined;
@@ -75,8 +101,11 @@ export function getViewOptions(viewMode?: string | undefined): ViewOptions | und
 
 /**
  * Convert view options to view mode if the view exists.
+ *
  * @param viewOptions - View options of the editor.
  * @returns the view mode if the view is defined, `undefined` otherwise.
+ *
+ * @public
  */
 export function getViewMode(viewOptions: ViewOptions | undefined): ViewMode | undefined {
   if (!viewOptions) return undefined;
@@ -89,8 +118,11 @@ export function getViewMode(viewOptions: ViewOptions | undefined): ViewMode | un
 
 /**
  * Get the verse node class for the given view options.
+ *
  * @param viewOptions - View options of the editor.
  * @returns the verse node class if the view is defined, `undefined` otherwise.
+ *
+ * @public
  */
 export function getVerseNodeClass(viewOptions: ViewOptions | undefined) {
   if (!viewOptions) return;
@@ -99,9 +131,12 @@ export function getVerseNodeClass(viewOptions: ViewOptions | undefined) {
 }
 
 /**
- * Get the class list for an element node.
+ * Get the class name list for the given view options.
+ *
  * @param viewOptions - View options of the editor.
- * @returns the element class list based on view options.
+ * @returns the element class name list based on view options.
+ *
+ * @public
  */
 export function getViewClassList(viewOptions: ViewOptions | undefined) {
   const classList: string[] = [];

@@ -1,19 +1,21 @@
-import React, {
-  useEffect,
-  useMemo,
+import {
   Children,
   cloneElement,
+  ComponentProps,
+  HTMLAttributes,
   isValidElement,
   ReactElement,
+  useEffect,
+  useMemo,
   useRef,
 } from "react";
 import { useMenuContext } from "./useMenuContext";
 import { MenuOption } from "./Option";
 import { OptionItem } from "./types";
 
-type OptionElement = ReactElement<React.ComponentProps<typeof MenuOption>, typeof MenuOption>;
+type OptionElement = ReactElement<ComponentProps<typeof MenuOption>, typeof MenuOption>;
 
-type MenuOptionsProps = Omit<React.HTMLAttributes<HTMLDivElement>, "children"> & {
+type MenuOptionsProps = Omit<HTMLAttributes<HTMLDivElement>, "children"> & {
   children:
     | OptionElement
     | OptionElement[]
@@ -38,7 +40,7 @@ export function MenuOptions({ children, autoIndex = true, ...divProps }: MenuOpt
 
     return Children.map(children, (child, index) => {
       if (
-        isValidElement<React.ComponentProps<typeof MenuOption>>(child) &&
+        isValidElement<ComponentProps<typeof MenuOption>>(child) &&
         child.type === MenuOption &&
         child.props.index === undefined
       ) {

@@ -1,11 +1,11 @@
-import { useEffect } from "react";
+import { RefObject, useEffect } from "react";
 import { LoggerBasic, typedMarkNodeName } from "shared";
 import { CommentStore, Comments } from "./commenting";
 import { EditorProps } from "../../editor/Editor";
 
 function addMissingComments(
   usjCommentIds: string[],
-  commentStoreRef: React.RefObject<CommentStore | undefined>,
+  commentStoreRef: RefObject<CommentStore | undefined>,
 ) {
   const comments = commentStoreRef.current?.getComments() ?? [];
   const commentIds = comments?.map((comment) => comment.id);
@@ -50,7 +50,7 @@ function addMissingComments(
  */
 export default function useMissingCommentsProps<TLogger extends LoggerBasic>(
   editorProps: EditorProps<TLogger>,
-  commentStoreRef: React.RefObject<CommentStore | undefined>,
+  commentStoreRef: RefObject<CommentStore | undefined>,
 ) {
   useEffect(() => {
     editorProps.options ??= {};

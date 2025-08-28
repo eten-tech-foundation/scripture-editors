@@ -31,13 +31,14 @@ import {
   KEY_ESCAPE_COMMAND,
 } from "lexical";
 import {
+  ReactElement,
+  RefObject,
   useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
-  ReactElement,
 } from "react";
 import { createPortal } from "react-dom";
 
@@ -694,8 +695,8 @@ export default function CommentPlugin<TLogger extends LoggerBasic>({
   providerFactory?: (id: string, yjsDocMap: Map<string, Doc>) => Provider;
   setCommentStore?: (commentStore: CommentStore) => void;
   onChange?: () => void;
-  showCommentsContainerRef?: React.RefObject<HTMLElement | null> | null;
-  commentContainerRef?: React.RefObject<HTMLElement | null>;
+  showCommentsContainerRef?: RefObject<HTMLElement | null> | null;
+  commentContainerRef?: RefObject<HTMLElement | null>;
   logger?: TLogger;
 }): ReactElement {
   const collabContext = useCollaborationContext();

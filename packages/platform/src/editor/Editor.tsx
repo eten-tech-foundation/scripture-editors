@@ -17,14 +17,16 @@ import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
 import { SerializedVerseRef } from "@sillsdev/scripture";
 import { deepEqual } from "fast-equals";
 import { $addUpdateTag, $setSelection, EditorState, LexicalEditor } from "lexical";
-import React, {
-  PropsWithChildren,
+import {
+  ForwardedRef,
   forwardRef,
+  PropsWithChildren,
+  ReactElement,
+  RefObject,
   useCallback,
   useImperativeHandle,
   useRef,
   useState,
-  ReactElement,
 } from "react";
 import {
   $applyUpdate,
@@ -39,14 +41,14 @@ import {
   CommandMenuPlugin,
   ContextMenuPlugin,
   DeltaOnChangePlugin,
+  DeltaOp,
+  DeltaSource,
   EditablePlugin,
   getDefaultViewOptions,
   getViewClassList,
   LoadStatePlugin,
   NoteNodePlugin,
   OnSelectionChangePlugin,
-  Op,
-  OpsSource,
   ParaNodePlugin,
   SelectionRange,
   TextDirectionPlugin,
@@ -63,7 +65,11 @@ import {
   TypedMarkNode,
 } from "shared";
 
-/** Forward reference for the editor. */
+/**
+ * Forward reference for the editor.
+ *
+ * @public
+ */
 export interface EditorRef {
   /** Focus the editor. */
   focus(): void;
@@ -71,8 +77,8 @@ export interface EditorRef {
   getUsj(): Usj | undefined;
   /** Set the USJ Scripture data. */
   setUsj(usj: Usj): void;
-  /** Apply Operational Transform delta update */
-  applyUpdate(ops: Op[], source?: OpsSource): void;
+  /** EXPERIMENTAL: Apply Operational Transform delta update */
+  applyUpdate(ops: DeltaOp[], source?: DeltaSource): void;
   /**
    * Get the selection location or range.
    * @returns the selection location or range, or `undefined` if there is no selection. The
@@ -100,9 +106,14 @@ export interface EditorRef {
    */
   removeAnnotation(type: string, id: string): void;
   /** Ref to the end of the toolbar - INTERNAL USE ONLY to dynamically add controls in the toolbar. */
-  toolbarEndRef: React.RefObject<HTMLElement | null> | null;
+  toolbarEndRef: RefObject<HTMLElement | null> | null;
 }
 
+/**
+ * Props for the Editor component that provides Scripture editing functionality.
+ *
+ * @public
+ */
 export interface EditorProps<TLogger extends LoggerBasic> {
   /** Initial Scripture data in USJ format. */
   defaultUsj?: Usj;
@@ -113,7 +124,7 @@ export interface EditorProps<TLogger extends LoggerBasic> {
   /** Callback function when the cursor selection changes. */
   onSelectionChange?: (selection: SelectionRange | undefined) => void;
   /** Callback function when USJ Scripture data has changed. */
-  onUsjChange?: (usj: Usj, ops?: Op[], source?: OpsSource) => void;
+  onUsjChange?: (usj: Usj, ops?: DeltaOp[], source?: DeltaSource) => void;
   /** Options to configure the editor. */
   options?: EditorOptions;
   /** Logger instance. */
@@ -148,15 +159,15 @@ function Placeholder(): ReactElement {
  * Scripture Editor for USJ. Created for use in [Platform](https://platform.bible).
  * @see https://github.com/usfm-bible/tcdocs/blob/usj/grammar/usj.js
  *
- * @param props.ref - Forward reference for the editor.
- * @param props.defaultUsj - Default USJ Scripture data.
- * @param props.scrRef - Scripture reference that controls the cursor in the Scripture.
- * @param props.onScrRefChange - Scripture reference set callback function when the reference
+ * @param ref - Forward reference for the editor.
+ * @param defaultUsj - Default USJ Scripture data.
+ * @param scrRef - Scripture reference that controls the cursor in the Scripture.
+ * @param onScrRefChange - Scripture reference set callback function when the reference
  *   changes in the editor as the cursor moves.
- * @param props.onSelectionChange - Callback function when the cursor selection changes.
- * @param props.onUsjChange - Callback function when USJ Scripture data has changed.
- * @param props.options - Options to configure the editor.
- * @param props.logger - Logger instance.
+ * @param onSelectionChange - Callback function when the cursor selection changes.
+ * @param onUsjChange - Callback function when USJ Scripture data has changed.
+ * @param options - Options to configure the editor.
+ * @param logger - Logger instance.
  * @returns the editor element.
  */
 const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
@@ -170,7 +181,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
     logger,
     children,
   }: PropsWithChildren<EditorProps<TLogger>>,
-  ref: React.ForwardedRef<EditorRef>,
+  ref: ForwardedRef<EditorRef>,
 ): ReactElement {
   const editorRef = useRef<LexicalEditor | null>(null);
   const annotationRef = useRef<AnnotationRef | null>(null);
@@ -246,7 +257,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
   }));
 
   const handleChange = useCallback(
-    (editorState: EditorState, _editor: LexicalEditor, tags: Set<string>, ops: Op[]) => {
+    (editorState: EditorState, _editor: LexicalEditor, tags: Set<string>, ops: DeltaOp[]) => {
       if (blackListedChangeTags.some((tag) => tags.has(tag))) return;
 
       const newUsj = editorUsjAdaptor.deserializeEditorState(editorState);

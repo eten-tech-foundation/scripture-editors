@@ -5,11 +5,11 @@ import { EditorAdaptor, EXTERNAL_USJ_MUTATION_TAG, LoggerBasic, NodeOptions } fr
 
 /**
  * A plugin component that updates the state of the lexical editor when incoming Scripture changes.
- * @param props.scripture - Scripture data.
- * @param props.nodeOptions - Options for each node.
- * @param props.editorAdaptor - Editor adaptor.
- * @param props.viewOptions - View options of the editor.
- * @param props.logger - Logger instance.
+ * @param scripture - Scripture data.
+ * @param nodeOptions - Options for each node.
+ * @param editorAdaptor - Editor adaptor.
+ * @param viewOptions - View options of the editor.
+ * @param logger - Logger instance.
  * @returns null, i.e. no DOM elements.
  */
 export function LoadStatePlugin<TLogger extends LoggerBasic>({

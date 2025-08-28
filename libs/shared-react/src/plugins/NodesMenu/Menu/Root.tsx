@@ -1,14 +1,14 @@
-import React from "react";
+import { HTMLAttributes, ReactNode } from "react";
 import { MenuContext } from "./MenuContext";
 import { useMenuCore } from "./useMenuCore";
 import type { OptionItem } from "./types";
 
 type MenuRootProps = {
-  children: React.ReactNode;
+  children: ReactNode;
   menuItems?: OptionItem[];
   onSelectOption?: (option: OptionItem) => void;
   autoIndex?: boolean;
-} & React.HTMLAttributes<HTMLDivElement>;
+} & HTMLAttributes<HTMLDivElement>;
 
 export function MenuRoot({ children, menuItems, onSelectOption, ...divProps }: MenuRootProps) {
   const menuContext = useMenuCore(menuItems, onSelectOption);

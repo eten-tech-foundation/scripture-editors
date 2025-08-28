@@ -1,8 +1,13 @@
 import { SerializedEditorState } from "lexical";
 import { LoggerBasic } from "./logger-basic.model.js";
 
-/** Option properties to use with each node. */
+/**
+ * Option properties to use with each node.
+ *
+ * @public
+ */
 export interface NodeOptions {
+  /** Configuration options for any node. */
   [nodeClassName: string]: { [prop: string]: unknown } | undefined;
 }
 

@@ -3,6 +3,7 @@
 import { $isSomeVerseNode, SomeVerseNode } from "../../../nodes/usj/node-react.utils";
 import { DFSNode } from "@lexical/utils";
 import { ElementNode, LexicalNode } from "lexical";
+import { Op } from "quill-delta";
 import {
   ImmutableUnmatchedNode,
   $isImmutableUnmatchedNode,
@@ -18,7 +19,28 @@ import {
   SomeParaNode,
 } from "shared";
 
-export type { Op } from "quill-delta";
+/**
+ * Represents a Delta Operation in a collaborative editing environment.
+ *
+ * @remarks
+ * This type is used for collaborative editing operations in the USJ (Unified Scripture JSON)
+ * format for Scripture editing functionality. It can also be used to make a change to the editor
+ * without reloading the editor (which would happen if the change was made by modifying the USJ).
+ *
+ * @public
+ */
+export type DeltaOp = Op;
+
+/**
+ * Represents the source of Delta Operations in a collaborative editing environment.
+ *
+ * @remarks
+ * This type is used to distinguish between operations that originate from the local client
+ * versus those that come from remote collaborators in a real-time editing session.
+ *
+ * @public
+ */
+export type DeltaSource = "local" | "remote";
 
 export type EmbedNode =
   | SomeChapterNode
@@ -28,8 +50,6 @@ export type EmbedNode =
   | ImmutableUnmatchedNode;
 
 export type ParaLikeNode = SomeParaNode | BookNode;
-
-export type OpsSource = "local" | "remote";
 
 /** Line Feed character used to close para-like nodes.*/
 export const LF = "\n";

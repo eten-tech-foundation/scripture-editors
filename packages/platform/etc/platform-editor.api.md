@@ -4,32 +4,48 @@
 
 ```ts
 
-import { default as default_2 } from 'react';
 import { ForwardRefExoticComponent } from 'react';
 import { Op } from 'quill-delta';
 import { RefAttributes } from 'react';
+import { RefObject } from 'react';
 import { SerializedVerseRef } from '@sillsdev/scripture';
 import { SyntheticEvent } from 'react';
 import { Usj } from '@eten-tech-foundation/scripture-utilities';
 
-// @public (undocumented)
+// @public
+export type AddMissingComments = (usjCommentIds: string[]) => void;
+
+// @public
 export interface AnnotationRange {
-    // (undocumented)
     end: UsjLocation;
-    // Warning: (ae-forgotten-export) The symbol "UsjLocation" needs to be exported by the entry point index.d.ts
-    //
-    // (undocumented)
     start: UsjLocation;
 }
 
-// Warning: (ae-forgotten-export) The symbol "Thread" needs to be exported by the entry point index.d.ts
-// Warning: (ae-forgotten-export) The symbol "Comment_2" needs to be exported by the entry point index.d.ts
-//
-// @public (undocumented)
+// @public
+interface Comment_2 {
+    author: string;
+    content: string;
+    deleted: boolean;
+    id: string;
+    timeStamp: number;
+    type: "comment";
+}
+export { Comment_2 as Comment }
+
+// @public
 export type Comments = (Thread | Comment_2)[];
 
-// Warning: (ae-forgotten-export) The symbol "EditorProps" needs to be exported by the entry point index.d.ts
-//
+// @public
+export type DeltaOp = Op;
+
+// @public
+export type DeltaSource = "local" | "remote";
+
+// @public
+export const directionToNames: {
+    [textDirection in TextDirection]: string;
+};
+
 // @public
 export const Editorial: ForwardRefExoticComponent<EditorProps<LoggerBasic> & RefAttributes<EditorRef | null>>;
 
@@ -45,16 +61,27 @@ export interface EditorOptions {
 }
 
 // @public
+export interface EditorProps<TLogger extends LoggerBasic> {
+    defaultUsj?: Usj;
+    logger?: TLogger;
+    onScrRefChange?: (scrRef: SerializedVerseRef) => void;
+    onSelectionChange?: (selection: SelectionRange | undefined) => void;
+    onUsjChange?: (usj: Usj, ops?: DeltaOp[], source?: DeltaSource) => void;
+    options?: EditorOptions;
+    scrRef?: SerializedVerseRef;
+}
+
+// @public
 export interface EditorRef {
     addAnnotation(selection: AnnotationRange, type: string, id: string): void;
-    applyUpdate(ops: Op[], source?: OpsSource): void;
+    applyUpdate(ops: DeltaOp[], source?: DeltaSource): void;
     focus(): void;
     getSelection(): SelectionRange | undefined;
     getUsj(): Usj | undefined;
     removeAnnotation(type: string, id: string): void;
     setSelection(selection: SelectionRange): void;
     setUsj(usj: Usj): void;
-    toolbarEndRef: default_2.RefObject<HTMLElement | null> | null;
+    toolbarEndRef: RefObject<HTMLElement | null> | null;
 }
 
 // @public
@@ -69,10 +96,10 @@ export function getViewMode(viewOptions: ViewOptions | undefined): ViewMode | un
 // @public
 export function getViewOptions(viewMode?: string | undefined): ViewOptions | undefined;
 
-// @public (undocumented)
+// @public
 export const immutableNoteCallerNodeName = "ImmutableNoteCallerNode";
 
-// @public (undocumented)
+// @public
 export interface LoggerBasic {
     debug(...params: any[]): void;
     error(...params: any[]): void;
@@ -80,66 +107,81 @@ export interface LoggerBasic {
     warn(...params: any[]): void;
 }
 
-// Warning: (ae-forgotten-export) The symbol "MarginalProps" needs to be exported by the entry point index.d.ts
-//
 // @public
 export const Marginal: ForwardRefExoticComponent<MarginalProps<LoggerBasic> & RefAttributes<MarginalRef>>;
+
+// @public
+export interface MarginalProps<TLogger extends LoggerBasic> extends Omit<EditorProps<TLogger>, "onUsjChange"> {
+    onCommentChange?: (comments: Comments | undefined) => void;
+    onUsjChange?: (usj: Usj, comments: Comments | undefined, ops?: DeltaOp[], source?: DeltaSource) => void;
+}
 
 // @public
 export interface MarginalRef extends EditorRef {
     setComments?(comments: Comments): void;
 }
 
-export { Op }
+// @public
+export interface NodeOptions {
+    [nodeClassName: string]: {
+        [prop: string]: unknown;
+    } | undefined;
+}
 
-// @public (undocumented)
-export type OpsSource = "local" | "remote";
+// @public
+export type OnClick = (event: SyntheticEvent) => void;
 
-// @public (undocumented)
+// @public
 export interface SelectionRange {
-    // (undocumented)
     end?: UsjLocation;
-    // (undocumented)
     start: UsjLocation;
 }
 
 // @public
 export type TextDirection = "ltr" | "rtl" | "auto";
 
-// Warning: (ae-forgotten-export) The symbol "NodeOptions" needs to be exported by the entry point index.d.ts
-//
+// @public
+export interface Thread {
+    comments: Comment_2[];
+    id: string;
+    quote: string;
+    type: "thread";
+}
+
+// @public
+export const typedMarkNodeName = "TypedMarkNode";
+
+// @public
+export interface UsjLocation {
+    jsonPath: string;
+    offset: number;
+}
+
 // @public
 export interface UsjNodeOptions extends NodeOptions {
-    // (undocumented)
     [immutableNoteCallerNodeName]?: {
         noteCallers?: string[];
         onClick?: OnClick;
     };
-    // Warning: (ae-forgotten-export) The symbol "typedMarkNodeName" needs to be exported by the entry point index.d.ts
-    //
-    // (undocumented)
     [typedMarkNodeName]?: {
         addMissingComments?: AddMissingComments;
     };
 }
 
-// Warning: (ae-forgotten-export) The symbol "viewModeToViewNames" needs to be exported by the entry point index.d.ts
-//
-// @public (undocumented)
+// @public
 export type ViewMode = keyof typeof viewModeToViewNames;
 
-// @public (undocumented)
+// @public
+export const viewModeToViewNames: {
+    formatted: string;
+    unformatted: string;
+};
+
+// @public
 export interface ViewOptions {
     hasSpacing: boolean;
     isFormattedFont: boolean;
     markerMode: "visible" | "editable" | "hidden";
 }
-
-// Warnings were encountered during analysis:
-//
-// C:/Users/Ira/src/scripture-editors/libs/shared-react/dist/index.d.ts:617:9 - (ae-forgotten-export) The symbol "OnClick" needs to be exported by the entry point index.d.ts
-// C:/Users/Ira/src/scripture-editors/libs/shared-react/dist/index.d.ts:621:9 - (ae-forgotten-export) The symbol "AddMissingComments" needs to be exported by the entry point index.d.ts
-
-// (No @packageDocumentation comment for this package)
 
 ```

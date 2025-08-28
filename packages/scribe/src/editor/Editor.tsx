@@ -9,12 +9,13 @@ import { Usj } from "@eten-tech-foundation/scripture-utilities";
 import { deepEqual } from "fast-equals";
 import { EditorState, LexicalEditor } from "lexical";
 import {
+  ForwardedRef,
   forwardRef,
+  ReactElement,
   useCallback,
   useImperativeHandle,
   useRef,
   useState,
-  ReactElement,
 } from "react";
 import { ScriptureReference, blackListedChangeTags } from "shared";
 import {
@@ -105,7 +106,7 @@ const Editor = forwardRef(function Editor(
     scrRef,
     onScrRefChange,
   }: EditorProps,
-  ref: React.ForwardedRef<EditorRef>,
+  ref: ForwardedRef<EditorRef>,
 ): ReactElement {
   const editorRef = useRef<LexicalEditor>(null);
   const editedUsjRef = useRef<Usj | undefined>(undefined);

@@ -10,7 +10,7 @@ import { CharNodePlugin } from "../CharNodePlugin";
 import { baseTestEnvironment } from "../react-test.utils";
 import { getDefaultViewOptions, ViewOptions } from "../../../views/view-options.utils";
 import { $applyUpdate } from "./delta-apply-update.utils";
-import { LF } from "./delta-common.utils";
+import { DeltaOp, LF } from "./delta-common.utils";
 import { act } from "@testing-library/react";
 import {
   $createTextNode,
@@ -20,7 +20,7 @@ import {
   $setState,
   LexicalEditor,
 } from "lexical";
-import Delta, { Op } from "quill-delta";
+import Delta from "quill-delta";
 import {
   $createBookNode,
   $createCharNode,
@@ -69,7 +69,7 @@ describe("Delta Utils $applyUpdate", () => {
 
   it("(dc) should handle an empty operations array (sanity check)", async () => {
     const { editor } = await testEnvironment();
-    const ops: Op[] = [];
+    const ops: DeltaOp[] = [];
     editor.getEditorState().read(() => {
       expect($getRoot().getTextContent()).toBe("");
       const para = $getRoot().getFirstChild();
@@ -92,7 +92,7 @@ describe("Delta Utils $applyUpdate", () => {
   it("(dci) should handle an empty operation in ops array", async () => {
     const doc = new Delta([{ insert: LF }]);
     const { editor } = await testEnvironment();
-    const ops: Op[] = [{}];
+    const ops: DeltaOp[] = [{}];
 
     const updatedDoc = doc.compose(new Delta(ops));
     await sutApplyUpdate(editor, ops);
@@ -111,7 +111,7 @@ describe("Delta Utils $applyUpdate", () => {
   describe("Retain Operations", () => {
     it("(dc)should correctly log a retain operation with a positive value", async () => {
       const { editor } = await testEnvironment();
-      const ops: Op[] = [{ retain: 5 }];
+      const ops: DeltaOp[] = [{ retain: 5 }];
 
       await sutApplyUpdate(editor, ops);
 
@@ -128,7 +128,7 @@ describe("Delta Utils $applyUpdate", () => {
     it("(dci) should correctly log a retain operation with value 0", async () => {
       const doc = new Delta([{ insert: LF }]);
       const { editor } = await testEnvironment();
-      const ops: Op[] = [{ retain: 0 }];
+      const ops: DeltaOp[] = [{ retain: 0 }];
 
       const updatedDoc = doc.compose(new Delta(ops));
       await sutApplyUpdate(editor, ops);
@@ -146,7 +146,7 @@ describe("Delta Utils $applyUpdate", () => {
 
     it("(dc) should handle retain with negative value", async () => {
       const { editor } = await testEnvironment();
-      const ops: Op[] = [{ retain: -5 }];
+      const ops: DeltaOp[] = [{ retain: -5 }];
 
       await sutApplyUpdate(editor, ops);
 
@@ -165,7 +165,7 @@ describe("Delta Utils $applyUpdate", () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append($createParaNode().append($createTextNode("Short text")));
       });
-      const ops: Op[] = [{ retain: 1000 }]; // Much larger than document
+      const ops: DeltaOp[] = [{ retain: 1000 }]; // Much larger than document
 
       await sutApplyUpdate(editor, ops);
 
@@ -183,7 +183,7 @@ describe("Delta Utils $applyUpdate", () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append($createParaNode().append($createTextNode("Jesus wept.")));
       });
-      const ops: Op[] = [{ retain: 4, attributes: { bold: true } }];
+      const ops: DeltaOp[] = [{ retain: 4, attributes: { bold: true } }];
 
       await sutApplyUpdate(editor, ops);
 
@@ -210,7 +210,7 @@ describe("Delta Utils $applyUpdate", () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append($createParaNode().append($createTextNode("Jesus wept.")));
       });
-      const ops: Op[] = [{ retain: 5, attributes: { bold: true } }];
+      const ops: DeltaOp[] = [{ retain: 5, attributes: { bold: true } }];
 
       await sutApplyUpdate(editor, ops);
 
@@ -237,7 +237,7 @@ describe("Delta Utils $applyUpdate", () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append($createParaNode().append($createTextNode("Jesus wept.")));
       });
-      const ops: Op[] = [{ retain: 6 }, { retain: 4, attributes: { bold: true } }];
+      const ops: DeltaOp[] = [{ retain: 6 }, { retain: 4, attributes: { bold: true } }];
 
       await sutApplyUpdate(editor, ops);
 
@@ -268,7 +268,7 @@ describe("Delta Utils $applyUpdate", () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append($createParaNode().append($createTextNode("Jesus wept.")));
       });
-      const ops: Op[] = [{ retain: 6 }, { retain: 5, attributes: { bold: true } }];
+      const ops: DeltaOp[] = [{ retain: 6 }, { retain: 5, attributes: { bold: true } }];
 
       await sutApplyUpdate(editor, ops);
 
@@ -294,7 +294,7 @@ describe("Delta Utils $applyUpdate", () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append($createParaNode());
       });
-      const ops: Op[] = [{ retain: 1, attributes: { style: "q1" } }];
+      const ops: DeltaOp[] = [{ retain: 1, attributes: { style: "q1" } }];
 
       await sutApplyUpdate(editor, ops);
 
@@ -311,7 +311,7 @@ describe("Delta Utils $applyUpdate", () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append($createBookNode("GEN").append($createTextNode(bookText)));
       });
-      const ops: Op[] = [
+      const ops: DeltaOp[] = [
         { retain: bookText.length },
         { retain: 1, attributes: { style: "id", code: "EXO" } },
       ];
@@ -335,7 +335,7 @@ describe("Delta Utils $applyUpdate", () => {
           $createImpliedParaNode(),
         );
       });
-      const ops: Op[] = [
+      const ops: DeltaOp[] = [
         { retain: bookText.length + 1 },
         { retain: 1, attributes: { para: { style: "q1" } } },
       ];
@@ -361,7 +361,7 @@ describe("Delta Utils $applyUpdate", () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append($createImmutableChapterNode("1"));
       });
-      const ops: Op[] = [{ retain: 1, attributes: { number: "2" } }];
+      const ops: DeltaOp[] = [{ retain: 1, attributes: { number: "2" } }];
 
       await sutApplyUpdate(editor, ops);
 
@@ -379,7 +379,7 @@ describe("Delta Utils $applyUpdate", () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append($createParaNode().append($createImmutableVerseNode("1")));
       });
-      const ops: Op[] = [{ retain: 1, attributes: { number: "1-2" } }];
+      const ops: DeltaOp[] = [{ retain: 1, attributes: { number: "1-2" } }];
 
       await sutApplyUpdate(editor, ops);
 
@@ -406,7 +406,7 @@ describe("Delta Utils $applyUpdate", () => {
         segment: "verse_1_1",
         char: { style: "wj", cid: "afd886c6-2397-4e4c-8a94-696bf9f2e545" },
       };
-      const ops: Op[] = [{ retain: 11 }, { retain: wordsOfJesus.length, attributes }];
+      const ops: DeltaOp[] = [{ retain: 11 }, { retain: wordsOfJesus.length, attributes }];
 
       await sutApplyUpdate(editor, ops);
 
@@ -435,7 +435,7 @@ describe("Delta Utils $applyUpdate", () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append($createParaNode().append($createTextNode(wordsOfJesus)));
       });
-      const ops: Op[] = [
+      const ops: DeltaOp[] = [
         {
           retain: wordsOfJesus.length,
           attributes: {
@@ -483,7 +483,7 @@ describe("Delta Utils $applyUpdate", () => {
         $setState(char1, charIdState, "char-id1");
         $getRoot().append($createParaNode().append(char1));
       });
-      const ops: Op[] = [
+      const ops: DeltaOp[] = [
         { retain: jesusSaid.length },
         {
           retain: wordsOfJesus.length,
@@ -536,7 +536,7 @@ describe("Delta Utils $applyUpdate", () => {
         $setState(char1, charIdState, "char-id1");
         $getRoot().append($createParaNode().append(char1));
       });
-      const ops: Op[] = [
+      const ops: DeltaOp[] = [
         { retain: jesusSaid.length },
         {
           retain: wordsOfJesus.length,
@@ -600,7 +600,7 @@ describe("Delta Utils $applyUpdate", () => {
           ),
         );
       });
-      const ops: Op[] = [{ retain: 6 }, { retain: 1, attributes: { segment: "verse_2_1" } }];
+      const ops: DeltaOp[] = [{ retain: 6 }, { retain: 1, attributes: { segment: "verse_2_1" } }];
 
       await sutApplyUpdate(editor, ops);
 
@@ -646,7 +646,7 @@ describe("Delta Utils $applyUpdate", () => {
           ),
         );
       });
-      const ops: Op[] = [
+      const ops: DeltaOp[] = [
         { retain: 2 }, // ch3, v16
         {
           retain: 3, // "God"
@@ -760,7 +760,7 @@ describe("Delta Utils $applyUpdate", () => {
         $getRoot().append($createParaNode().append($createTextNode(initialText)));
       });
       const cid = "char-id-1";
-      const ops: Op[] = [
+      const ops: DeltaOp[] = [
         { retain: prefix.length },
         {
           retain: transformText.length,
@@ -802,7 +802,7 @@ describe("Delta Utils $applyUpdate", () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append($createParaNode().append($createTextNode(text)));
       });
-      const ops: Op[] = [
+      const ops: DeltaOp[] = [
         {
           retain: text.length,
           // 'char' object is present, but 'style' is missing. 'cid' might be for other purposes.
@@ -839,7 +839,7 @@ describe("Delta Utils $applyUpdate", () => {
         );
       });
       const cid = "speaker-id";
-      const ops: Op[] = [
+      const ops: DeltaOp[] = [
         {
           retain: part1.length + part2.length,
           attributes: { char: { style: "sp", cid } },
@@ -894,7 +894,7 @@ describe("Delta Utils $applyUpdate", () => {
           ),
         );
       });
-      const ops: Op[] = [
+      const ops: DeltaOp[] = [
         { retain: textBefore.length },
         {
           retain: 1, // This targets the VerseNode
@@ -928,7 +928,7 @@ describe("Delta Utils $applyUpdate", () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append($createParaNode().append($createTextNode("This is a test text.")));
       });
-      const ops: Op[] = [
+      const ops: DeltaOp[] = [
         { retain: 5 }, // "This "
         {
           retain: 4, // "is a"
@@ -968,7 +968,7 @@ describe("Delta Utils $applyUpdate", () => {
           ),
         );
       });
-      const ops: Op[] = [
+      const ops: DeltaOp[] = [
         {
           retain: 9, // "bold text"
           attributes: {
@@ -1004,7 +1004,7 @@ describe("Delta Utils $applyUpdate", () => {
           ),
         );
       });
-      const ops: Op[] = [
+      const ops: DeltaOp[] = [
         { retain: 5 }, // Exactly at end of "First"
         { retain: 7, attributes: { char: { style: "it" } } }, // Exactly " Second"
       ];
@@ -1036,7 +1036,7 @@ describe("Delta Utils $applyUpdate", () => {
           ),
         );
       });
-      const ops: Op[] = [
+      const ops: DeltaOp[] = [
         { retain: 3 }, // "Sta"
         {
           retain: 3 + 4 + 2, // "rt bold e" - spans across text, CharNode text, and text
@@ -1081,7 +1081,7 @@ describe("Delta Utils $applyUpdate", () => {
           ),
         );
       });
-      const ops: Op[] = [
+      const ops: DeltaOp[] = [
         { retain: 3 }, // "Sta"
         {
           retain: 3, // "rt "
@@ -1138,7 +1138,7 @@ describe("Delta Utils $applyUpdate", () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append($createParaNode().append($createTextNode("Test text")));
       });
-      const ops: Op[] = [
+      const ops: DeltaOp[] = [
         { retain: 4 },
         {
           retain: 4,
@@ -1187,7 +1187,7 @@ describe("Delta Utils $applyUpdate", () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append($createParaNode().append($createTextNode("Initial text for testing")));
       });
-      const ops: Op[] = [
+      const ops: DeltaOp[] = [
         { retain: 8 }, // "Initial "
         { delete: 4 }, // Delete "text"
         { insert: "content" },
@@ -1219,7 +1219,7 @@ describe("Delta Utils $applyUpdate", () => {
           ),
         );
       });
-      const ops: Op[] = [
+      const ops: DeltaOp[] = [
         {
           retain: 14, // "formatted text"
           attributes: {
@@ -1250,7 +1250,7 @@ describe("Delta Utils $applyUpdate", () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append($createParaNode().append($createTextNode("Test text")));
       });
-      const ops: Op[] = [{ retain: 0, attributes: { char: { style: "bd" } } }];
+      const ops: DeltaOp[] = [{ retain: 0, attributes: { char: { style: "bd" } } }];
 
       const updatedDoc = doc.compose(new Delta(ops));
       await sutApplyUpdate(editor, ops);
@@ -1277,7 +1277,7 @@ describe("Delta Utils $applyUpdate", () => {
           ),
         );
       });
-      const ops: Op[] = [{ delete: 4 }];
+      const ops: DeltaOp[] = [{ delete: 4 }];
 
       await sutApplyUpdate(editor, ops);
 
@@ -1296,7 +1296,7 @@ describe("Delta Utils $applyUpdate", () => {
           ),
         );
       });
-      const ops: Op[] = [{ delete: 4 }];
+      const ops: DeltaOp[] = [{ delete: 4 }];
 
       await sutApplyUpdate(editor, ops);
 
@@ -1311,7 +1311,7 @@ describe("Delta Utils $applyUpdate", () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append($createParaNode().append($createTextNode("Some text here")));
       });
-      const ops: Op[] = [{ delete: -5 }];
+      const ops: DeltaOp[] = [{ delete: -5 }];
 
       await sutApplyUpdate(editor, ops);
 
@@ -1327,7 +1327,7 @@ describe("Delta Utils $applyUpdate", () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append($createParaNode().append($createTextNode("Some text here")));
       });
-      const ops: Op[] = [{ delete: 0 }];
+      const ops: DeltaOp[] = [{ delete: 0 }];
 
       await sutApplyUpdate(editor, ops);
 
@@ -1348,7 +1348,7 @@ describe("Delta Utils $applyUpdate", () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append($createParaNode().append($createTextNode(text)));
       });
-      const ops: Op[] = [{ delete: 100 }]; // Much larger than document
+      const ops: DeltaOp[] = [{ delete: 100 }]; // Much larger than document
 
       const updatedDoc = doc.compose(new Delta(ops));
       await sutApplyUpdate(editor, ops);
@@ -1370,7 +1370,7 @@ describe("Delta Utils $applyUpdate", () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append($createParaNode().append($createTextNode("Jesus wept softly.")));
       });
-      const ops: Op[] = [{ retain: 6 }, { delete: 5 }]; // Delete "wept "
+      const ops: DeltaOp[] = [{ retain: 6 }, { delete: 5 }]; // Delete "wept "
 
       await sutApplyUpdate(editor, ops);
 
@@ -1385,7 +1385,7 @@ describe("Delta Utils $applyUpdate", () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append($createParaNode().append($createTextNode("Jesus wept.")));
       });
-      const ops: Op[] = [{ retain: 6 }, { delete: 5 }]; // Delete "wept."
+      const ops: DeltaOp[] = [{ retain: 6 }, { delete: 5 }]; // Delete "wept."
 
       await sutApplyUpdate(editor, ops);
 
@@ -1405,7 +1405,7 @@ describe("Delta Utils $applyUpdate", () => {
           ),
         );
       });
-      const ops: Op[] = [{ retain: 7 }, { delete: 9 }]; // Delete "part Second"
+      const ops: DeltaOp[] = [{ retain: 7 }, { delete: 9 }]; // Delete "part Second"
 
       await sutApplyUpdate(editor, ops);
 
@@ -1433,7 +1433,7 @@ describe("Delta Utils $applyUpdate", () => {
         );
       });
 
-      const ops: Op[] = [{ retain: 7 }, { delete: 5 }]; // Delete "fore "
+      const ops: DeltaOp[] = [{ retain: 7 }, { delete: 5 }]; // Delete "fore "
 
       await sutApplyUpdate(editor, ops);
 
@@ -1460,7 +1460,7 @@ describe("Delta Utils $applyUpdate", () => {
           ),
         );
       });
-      const ops: Op[] = [{ retain: 13 }, { delete: 5 }]; // Delete " text"
+      const ops: DeltaOp[] = [{ retain: 13 }, { delete: 5 }]; // Delete " text"
 
       await sutApplyUpdate(editor, ops);
 
@@ -1488,7 +1488,7 @@ describe("Delta Utils $applyUpdate", () => {
         );
       });
 
-      const ops: Op[] = [{ retain: 1 }, { delete: 8 }]; // Delete " middle "
+      const ops: DeltaOp[] = [{ retain: 1 }, { delete: 8 }]; // Delete " middle "
 
       await sutApplyUpdate(editor, ops);
 
@@ -1517,7 +1517,7 @@ describe("Delta Utils $applyUpdate", () => {
       });
       // Initial text content: "Text  more text" (ImmutableVerseNode doesn't contribute text content)
       // After retain: 2, we're at "Te|xt  more text"
-      const ops: Op[] = [{ retain: 2 }, { delete: 9 }]; // Delete "xt  more" (8 chars + 1 for verse node)
+      const ops: DeltaOp[] = [{ retain: 2 }, { delete: 9 }]; // Delete "xt  more" (8 chars + 1 for verse node)
 
       await sutApplyUpdate(editor, ops);
 
@@ -1538,7 +1538,7 @@ describe("Delta Utils $applyUpdate", () => {
     it("(dc) should delete in 'empty' document", async () => {
       // Empty editor always has default paragraph (ImpliedParaNode)
       const { editor } = await testEnvironment();
-      const ops: Op[] = [{ delete: 5 }];
+      const ops: DeltaOp[] = [{ delete: 5 }];
 
       await sutApplyUpdate(editor, ops);
 
@@ -1556,7 +1556,7 @@ describe("Delta Utils $applyUpdate", () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append($createParaNode().append($createTextNode("Delete from start")));
       });
-      const ops: Op[] = [{ delete: 7 }]; // Delete "Delete "
+      const ops: DeltaOp[] = [{ delete: 7 }]; // Delete "Delete "
 
       await sutApplyUpdate(editor, ops);
 
@@ -1571,7 +1571,7 @@ describe("Delta Utils $applyUpdate", () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append($createBookNode("GEN"), $createImmutableChapterNode("1"));
       });
-      const ops: Op[] = [{ delete: 1 }];
+      const ops: DeltaOp[] = [{ delete: 1 }];
 
       await sutApplyUpdate(editor, ops);
 
@@ -1592,7 +1592,7 @@ describe("Delta Utils $applyUpdate", () => {
           $createImmutableChapterNode("1"),
         );
       });
-      const ops: Op[] = [{ delete: bookText.length + 1 }];
+      const ops: DeltaOp[] = [{ delete: bookText.length + 1 }];
 
       await sutApplyUpdate(editor, ops);
 
@@ -1613,7 +1613,7 @@ describe("Delta Utils $applyUpdate", () => {
           $createImmutableChapterNode("1"),
         );
       });
-      const ops: Op[] = [{ retain: bookText.length + 1 }, { delete: 1 }];
+      const ops: DeltaOp[] = [{ retain: bookText.length + 1 }, { delete: 1 }];
 
       await sutApplyUpdate(editor, ops);
 
@@ -1630,7 +1630,7 @@ describe("Delta Utils $applyUpdate", () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append($createParaNode().append($createTextNode("Initial text content here")));
       });
-      const ops: Op[] = [
+      const ops: DeltaOp[] = [
         { retain: 8 }, // Move to "text"
         { delete: 4 }, // Delete "text"
         { insert: "new" }, // Insert "new"
@@ -1652,7 +1652,7 @@ describe("Delta Utils $applyUpdate", () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append($createParaNode().append($createTextNode("One Two Three Four")));
       });
-      const ops: Op[] = [
+      const ops: DeltaOp[] = [
         { delete: 4 }, // Delete "One "
         { retain: 4 }, // Skip "Two "
         { delete: 6 }, // Delete "Three "
@@ -1679,7 +1679,7 @@ describe("Delta Utils $applyUpdate", () => {
         );
       });
       // Delete "said " from inside the CharNode
-      const ops: Op[] = [{ retain: 7 + 6 }, { delete: 5 }]; // "Prefix " + "Jesus " = 13
+      const ops: DeltaOp[] = [{ retain: 7 + 6 }, { delete: 5 }]; // "Prefix " + "Jesus " = 13
 
       await sutApplyUpdate(editor, ops);
 
@@ -1700,7 +1700,7 @@ describe("Delta Utils $applyUpdate", () => {
       // In rich-text doc: "First paragraph text" (20) + LF (1) + "Second paragraph text" (21) = 42 chars
       // Retain 10: should position after "First para"
       // Delete 22: should delete "graph text" (10) + LF (1) + "Second para" (11) = 22 chars
-      const ops: Op[] = [{ retain: 10 }, { delete: 22 }]; // Delete "graph text" + LF + "Second para"
+      const ops: DeltaOp[] = [{ retain: 10 }, { delete: 22 }]; // Delete "graph text" + LF + "Second para"
 
       await sutApplyUpdate(editor, ops);
 
@@ -1719,7 +1719,7 @@ describe("Delta Utils $applyUpdate", () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append($createParaNode().append($createTextNode("Short")));
       });
-      const ops: Op[] = [{ retain: 100 }, { delete: 5 }]; // Retain beyond document end
+      const ops: DeltaOp[] = [{ retain: 100 }, { delete: 5 }]; // Retain beyond document end
 
       await sutApplyUpdate(editor, ops);
 
@@ -1741,7 +1741,7 @@ describe("Delta Utils $applyUpdate", () => {
         );
       });
       // Delete part of bold text and some normal text
-      const ops: Op[] = [{ retain: 8 }, { delete: 8 }]; // Delete "ld text "
+      const ops: DeltaOp[] = [{ retain: 8 }, { delete: 8 }]; // Delete "ld text "
 
       await sutApplyUpdate(editor, ops);
 
@@ -1771,7 +1771,7 @@ describe("Delta Utils $applyUpdate", () => {
         );
       });
       // This should test if deleting across embeds removes the embeds or skips them
-      const ops: Op[] = [{ retain: 5 }, { delete: 15 }]; // Delete "re ", v1", " between ", v2, " a"
+      const ops: DeltaOp[] = [{ retain: 5 }, { delete: 15 }]; // Delete "re ", v1", " between ", v2, " a"
 
       await sutApplyUpdate(editor, ops);
 
@@ -1801,7 +1801,7 @@ describe("Delta Utils $applyUpdate", () => {
           ),
         );
       });
-      const ops: Op[] = [{ retain: 6 }, { delete: 1 }]; // Delete note
+      const ops: DeltaOp[] = [{ retain: 6 }, { delete: 1 }]; // Delete note
 
       await sutApplyUpdate(editor, ops);
 
@@ -1829,7 +1829,7 @@ describe("Delta Utils $applyUpdate", () => {
       });
       // Retain 17: skip Chapter(1) + Verse(1) + "In the beginnin" (15 text chars) = OT position 17
       // Delete 10: delete "g was the " from the text content
-      const ops: Op[] = [{ retain: 17 }, { delete: 10 }];
+      const ops: DeltaOp[] = [{ retain: 17 }, { delete: 10 }];
 
       await sutApplyUpdate(editor, ops);
 
@@ -1854,7 +1854,7 @@ describe("Delta Utils $applyUpdate", () => {
           ),
         );
       });
-      const ops: Op[] = [{ retain: 15 }, { delete: 12 }];
+      const ops: DeltaOp[] = [{ retain: 15 }, { delete: 12 }];
 
       await sutApplyUpdate(editor, ops);
 
@@ -1870,7 +1870,7 @@ describe("Delta Utils $applyUpdate", () => {
         $getRoot().append($createParaNode().append($createTextNode("Hello world")));
       });
 
-      const ops: Op[] = [{ delete: 6 }]; // Delete "Hello "
+      const ops: DeltaOp[] = [{ delete: 6 }]; // Delete "Hello "
       await sutApplyUpdate(editor, ops);
 
       expect(consoleDebugSpy).toHaveBeenCalledWith("Delete: 6");
@@ -1885,7 +1885,7 @@ describe("Delta Utils $applyUpdate", () => {
         $getRoot().append($createParaNode().append($createTextNode("Hello world")));
       });
       // Position at the very end (after "world")
-      const ops: Op[] = [{ retain: 11 }, { delete: 1 }];
+      const ops: DeltaOp[] = [{ retain: 11 }, { delete: 1 }];
 
       await sutApplyUpdate(editor, ops);
 
@@ -1914,7 +1914,7 @@ describe("Delta Utils $applyUpdate", () => {
       });
 
       // Delete "st second th" (12 chars) starting from position 3
-      const ops: Op[] = [{ retain: 3 }, { delete: 12 }];
+      const ops: DeltaOp[] = [{ retain: 3 }, { delete: 12 }];
       await sutApplyUpdate(editor, ops);
 
       expect(consoleDebugSpy).toHaveBeenCalledWith("Retain: 3");
@@ -1944,7 +1944,7 @@ describe("Delta Utils $applyUpdate", () => {
       });
 
       // Delete the entire middle text node "Second" (6 chars) starting from position 5
-      const ops: Op[] = [{ retain: 5 }, { delete: 6 }];
+      const ops: DeltaOp[] = [{ retain: 5 }, { delete: 6 }];
       await sutApplyUpdate(editor, ops);
 
       expect(consoleDebugSpy).toHaveBeenCalledWith("Retain: 5");
@@ -1974,7 +1974,7 @@ describe("Delta Utils $applyUpdate", () => {
       });
 
       // Delete part of the char node content: "ed text Jesus" (13 chars) starting from position 10
-      const ops: Op[] = [{ retain: 10 }, { delete: 13 }];
+      const ops: DeltaOp[] = [{ retain: 10 }, { delete: 13 }];
       await sutApplyUpdate(editor, ops);
 
       expect(consoleDebugSpy).toHaveBeenCalledWith("Retain: 10");
@@ -1996,7 +1996,7 @@ describe("Delta Utils $applyUpdate", () => {
       });
 
       // Multiple deletes in one delta: delete "quick " then "fox "
-      const ops: Op[] = [
+      const ops: DeltaOp[] = [
         { retain: 4 }, // "The "
         { delete: 6 }, // delete "quick "
         { retain: 6 }, // "brown "
@@ -2027,7 +2027,7 @@ describe("Delta Utils $applyUpdate", () => {
 
       // Delete text that spans before, inside, and after the CharNode
       // Delete "re inserted te" (14 chars) starting from position 4
-      const ops: Op[] = [{ retain: 4 }, { delete: 14 }];
+      const ops: DeltaOp[] = [{ retain: 4 }, { delete: 14 }];
       await sutApplyUpdate(editor, ops);
 
       expect(consoleDebugSpy).toHaveBeenCalledWith("Retain: 4");
@@ -2052,7 +2052,7 @@ describe("Delta Utils $applyUpdate", () => {
         );
       });
       // Delete the entire middle paragraph and its boundaries
-      const ops: Op[] = [{ retain: 6 }, { delete: 7 }]; // Delete "Second\n"
+      const ops: DeltaOp[] = [{ retain: 6 }, { delete: 7 }]; // Delete "Second\n"
 
       await sutApplyUpdate(editor, ops);
 
@@ -2071,7 +2071,7 @@ describe("Delta Utils $applyUpdate", () => {
       });
 
       // Delete the double newline
-      const ops: Op[] = [{ retain: 8 }, { delete: 2 }]; // Delete "\n\n"
+      const ops: DeltaOp[] = [{ retain: 8 }, { delete: 2 }]; // Delete "\n\n"
       await sutApplyUpdate(editor, ops);
 
       expect(consoleDebugSpy).toHaveBeenCalledWith("Retain: 8");
@@ -2086,7 +2086,7 @@ describe("Delta Utils $applyUpdate", () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append($createParaNode().append($createTextNode("ABCDEFGHIJKLMNOP")));
       });
-      const ops: Op[] = [
+      const ops: DeltaOp[] = [
         { delete: 3 }, // Delete "ABC"
         { delete: 2 }, // Delete "DE"
         { delete: 1 }, // Delete "F"
@@ -2108,7 +2108,7 @@ describe("Delta Utils $applyUpdate", () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append($createParaNode().append($createTextNode(text)));
       });
-      const ops: Op[] = [{ delete: text.length }]; // Delete all text
+      const ops: DeltaOp[] = [{ delete: text.length }]; // Delete all text
 
       await sutApplyUpdate(editor, ops);
 
@@ -2127,7 +2127,7 @@ describe("Delta Utils $applyUpdate", () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append($createParaNode().append($createTextNode("Short")));
       });
-      const ops: Op[] = [{ delete: 100 }]; // Request deletion of more than available
+      const ops: DeltaOp[] = [{ delete: 100 }]; // Request deletion of more than available
 
       await sutApplyUpdate(editor, ops);
 
@@ -2144,7 +2144,7 @@ describe("Delta Utils $applyUpdate", () => {
   describe("Insert Operations", () => {
     it("(dc) should correctly log an insert operation with an empty string", async () => {
       const { editor } = await testEnvironment();
-      const ops: Op[] = [{ insert: "" }];
+      const ops: DeltaOp[] = [{ insert: "" }];
 
       await sutApplyUpdate(editor, ops);
 
@@ -2158,7 +2158,7 @@ describe("Delta Utils $applyUpdate", () => {
 
     it("(dc) should insert text into an 'empty' editor", async () => {
       const { editor } = await testEnvironment();
-      const ops: Op[] = [{ insert: "Jesus wept." }];
+      const ops: DeltaOp[] = [{ insert: "Jesus wept." }];
 
       await sutApplyUpdate(editor, ops);
 
@@ -2172,7 +2172,7 @@ describe("Delta Utils $applyUpdate", () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append($createParaNode());
       });
-      const ops: Op[] = [{ insert: "Jesus wept." }];
+      const ops: DeltaOp[] = [{ insert: "Jesus wept." }];
 
       await sutApplyUpdate(editor, ops);
 
@@ -2206,7 +2206,7 @@ describe("Delta Utils $applyUpdate", () => {
           ),
         );
       });
-      const ops: Op[] = [
+      const ops: DeltaOp[] = [
         { retain: 139 },
         { insert: "e", attributes: { segment: "verse_1_2" } },
         { delete: 1 },
@@ -2237,7 +2237,7 @@ describe("Delta Utils $applyUpdate", () => {
     it("(dc) should insert a chapter embed into an empty editor", async () => {
       const { editor } = await testEnvironment();
       const ch1Embed = { chapter: { number: "1", style: "c" } };
-      const ops: Op[] = [{ insert: ch1Embed }];
+      const ops: DeltaOp[] = [{ insert: ch1Embed }];
 
       await sutApplyUpdate(editor, ops);
 
@@ -2261,7 +2261,7 @@ describe("Delta Utils $applyUpdate", () => {
       });
       const ch1Embed = { chapter: { number: "1", style: "c" } };
       // No retain, so insert happens at the current index 0 before the ParaNode.
-      const ops: Op[] = [{ insert: ch1Embed }];
+      const ops: DeltaOp[] = [{ insert: ch1Embed }];
 
       await sutApplyUpdate(editor, ops);
 
@@ -2286,7 +2286,7 @@ describe("Delta Utils $applyUpdate", () => {
       });
       const ch2Embed = { chapter: { number: "2", style: "c" } };
       // Retain past the initial text in the ParaNode (length + 1 for the para itself)
-      const ops: Op[] = [{ retain: 1 + initialText.length }, { insert: ch2Embed }];
+      const ops: DeltaOp[] = [{ retain: 1 + initialText.length }, { insert: ch2Embed }];
 
       await sutApplyUpdate(editor, ops);
 
@@ -2312,7 +2312,7 @@ describe("Delta Utils $applyUpdate", () => {
       });
       const embedVerse = { verse: { number: "1", style: "v" } };
       // Retain past the initial text in the ParaNode
-      const ops: Op[] = [{ retain: initialText.length }, { insert: embedVerse }];
+      const ops: DeltaOp[] = [{ retain: initialText.length }, { insert: embedVerse }];
 
       await sutApplyUpdate(editor, ops);
 
@@ -2339,7 +2339,7 @@ describe("Delta Utils $applyUpdate", () => {
         $getRoot().append($createParaNode().append($createTextNode("Jesus wept.")));
       });
       const v1Embed = { verse: { number: "1", style: "v" } };
-      const ops: Op[] = [{ retain: 6 }, { insert: v1Embed }];
+      const ops: DeltaOp[] = [{ retain: 6 }, { insert: v1Embed }];
 
       await sutApplyUpdate(editor, ops);
 
@@ -2374,7 +2374,7 @@ describe("Delta Utils $applyUpdate", () => {
       const v10Embed = { verse: { number: "10", style: "v" } };
       // Retain past the end of the text and the ParaNode itself.
       // initialText.length (11) + 1 (for ParaNode) = 12. Retain 20.
-      const ops: Op[] = [{ retain: 20 }, { insert: v10Embed }];
+      const ops: DeltaOp[] = [{ retain: 20 }, { insert: v10Embed }];
 
       const updatedDoc = doc.compose(new Delta(ops));
       await sutApplyUpdate(editor, ops);
@@ -2413,7 +2413,7 @@ describe("Delta Utils $applyUpdate", () => {
       });
       const v2Embed = { verse: { number: "2", style: "v" } };
       // Retain past the first VerseNode (1)
-      const ops: Op[] = [{ retain: 1 }, { insert: v2Embed }];
+      const ops: DeltaOp[] = [{ retain: 1 }, { insert: v2Embed }];
 
       await sutApplyUpdate(editor, ops);
 
@@ -2444,7 +2444,7 @@ describe("Delta Utils $applyUpdate", () => {
         $getRoot().append($createParaNode());
       });
       const wordsOfJesus = "It is finished.";
-      const ops: Op[] = [
+      const ops: DeltaOp[] = [
         {
           insert: wordsOfJesus,
           attributes: {
@@ -2492,7 +2492,12 @@ describe("Delta Utils $applyUpdate", () => {
         },
       };
       const attributes = { italic: true };
-      const ops: Op[] = [{ retain: 11 }, insertCharOp, { retain: 3 }, { retain: 4, attributes }];
+      const ops: DeltaOp[] = [
+        { retain: 11 },
+        insertCharOp,
+        { retain: 3 },
+        { retain: 4, attributes },
+      ];
 
       await sutApplyUpdate(editor, ops);
 
@@ -2528,7 +2533,7 @@ describe("Delta Utils $applyUpdate", () => {
         $getRoot().append($createParaNode());
       });
       const wordsOfJesus = "It is finished.";
-      const ops: Op[] = [
+      const ops: DeltaOp[] = [
         {
           insert: wordsOfJesus,
           attributes: {
@@ -2576,7 +2581,7 @@ describe("Delta Utils $applyUpdate", () => {
         $getRoot().append($createParaNode().append(char1));
       });
       const wordsOfJesus = "It is finished.";
-      const ops: Op[] = [
+      const ops: DeltaOp[] = [
         { retain: jesusSaid.length },
         {
           insert: wordsOfJesus,
@@ -2626,7 +2631,7 @@ describe("Delta Utils $applyUpdate", () => {
         $getRoot().append($createParaNode());
       });
       const msStartEmbed = { ms: { style: "qt-s", status: "start", who: "Jesus" } };
-      const ops: Op[] = [{ insert: msStartEmbed }];
+      const ops: DeltaOp[] = [{ insert: msStartEmbed }];
 
       await sutApplyUpdate(editor, ops);
 
@@ -2650,7 +2655,7 @@ describe("Delta Utils $applyUpdate", () => {
       });
       const msStartEmbed = { ms: { style: "qt-s", status: "start", who: "Jesus" } };
       const msEndEmbed = { ms: { style: "qt-e", status: "end" } };
-      const ops: Op[] = [{ insert: msStartEmbed }, { retain: 13 }, { insert: msEndEmbed }];
+      const ops: DeltaOp[] = [{ insert: msStartEmbed }, { retain: 13 }, { insert: msEndEmbed }];
 
       await sutApplyUpdate(editor, ops);
 
@@ -2685,7 +2690,7 @@ describe("Delta Utils $applyUpdate", () => {
 
     it("(dc) should insert a note", async () => {
       const { editor } = await testEnvironment();
-      const ops: Op[] = [
+      const ops: DeltaOp[] = [
         { insert: "When", attributes: { segment: "verse_2_1" } },
         {
           attributes: { segment: "verse_2_1" },
@@ -2771,7 +2776,7 @@ describe("Delta Utils $applyUpdate", () => {
       const { editor } = await testEnvironment();
       const v1Text = "v1 text "; // 8
       const v2Text = "v2 text "; // 8
-      const ops: Op[] = [
+      const ops: DeltaOp[] = [
         // OT index: 0
         { insert: "- My Project" }, // 12
         { insert: LF, attributes: { book: { style: "id", code: "GEN" } } }, // 13
@@ -2859,7 +2864,7 @@ describe("Delta Utils $applyUpdate", () => {
     describe("Line Break Handling", () => {
       it("(dc) should insert a simple line break in 'empty' editor", async () => {
         const { editor } = await testEnvironment();
-        const ops: Op[] = [{ insert: LF }];
+        const ops: DeltaOp[] = [{ insert: LF }];
 
         await sutApplyUpdate(editor, ops);
 
@@ -2877,7 +2882,7 @@ describe("Delta Utils $applyUpdate", () => {
 
       it("(dc) should insert line break with book attributes", async () => {
         const { editor } = await testEnvironment();
-        const ops: Op[] = [{ insert: LF, attributes: { book: { style: "id", code: "GEN" } } }];
+        const ops: DeltaOp[] = [{ insert: LF, attributes: { book: { style: "id", code: "GEN" } } }];
 
         await sutApplyUpdate(editor, ops);
 
@@ -2896,7 +2901,7 @@ describe("Delta Utils $applyUpdate", () => {
 
       it("(dc) should insert line break with book attributes and text", async () => {
         const { editor } = await testEnvironment();
-        const ops: Op[] = [
+        const ops: DeltaOp[] = [
           { insert: "- My Test Project", attributes: { segment: "id_1" } },
           { insert: LF, attributes: { book: { style: "id", code: "GEN" } } },
         ];
@@ -2923,7 +2928,7 @@ describe("Delta Utils $applyUpdate", () => {
 
       it("(dc) should insert line break with para attributes", async () => {
         const { editor } = await testEnvironment();
-        const ops: Op[] = [{ insert: LF, attributes: { para: { style: "q1" } } }];
+        const ops: DeltaOp[] = [{ insert: LF, attributes: { para: { style: "q1" } } }];
 
         await sutApplyUpdate(editor, ops);
 
@@ -2945,7 +2950,7 @@ describe("Delta Utils $applyUpdate", () => {
         const { editor } = await testEnvironment(() => {
           $getRoot().append($createParaNode().append($createTextNode(`${firstLine}${text}`)));
         });
-        const ops: Op[] = [{ retain: firstLine.length }, { insert: LF }];
+        const ops: DeltaOp[] = [{ retain: firstLine.length }, { insert: LF }];
 
         await sutApplyUpdate(editor, ops);
 
@@ -2972,7 +2977,7 @@ describe("Delta Utils $applyUpdate", () => {
             $createParaNode().append($createTextNode(`${original}${paragraphText}`)),
           );
         });
-        const ops: Op[] = [
+        const ops: DeltaOp[] = [
           { retain: original.length }, // After original
           { insert: LF, attributes: { para: { style: "q2" } } },
         ];
@@ -3001,7 +3006,7 @@ describe("Delta Utils $applyUpdate", () => {
         const { editor } = await testEnvironment(() => {
           $getRoot().append($createParaNode().append($createTextNode("Content here")));
         });
-        const ops: Op[] = [{ insert: LF, attributes: { para: { style: "q1" } } }];
+        const ops: DeltaOp[] = [{ insert: LF, attributes: { para: { style: "q1" } } }];
 
         await sutApplyUpdate(editor, ops);
 
@@ -3028,7 +3033,7 @@ describe("Delta Utils $applyUpdate", () => {
         const { editor } = await testEnvironment(() => {
           $getRoot().append($createParaNode().append($createTextNode(t1)));
         });
-        const ops: Op[] = [
+        const ops: DeltaOp[] = [
           { retain: t1.length + 1 }, // +1 for the end of ParaNode (symbolically closed by LF)
           { insert: LF, attributes: { para: { style: "b" } } },
         ];
@@ -3059,7 +3064,7 @@ describe("Delta Utils $applyUpdate", () => {
         const { editor } = await testEnvironment(() => {
           $getRoot().append($createParaNode().append($createTextNode(`${base}${text}`)));
         });
-        const ops: Op[] = [
+        const ops: DeltaOp[] = [
           { retain: base.length }, // After base
           { insert: LF, attributes: { para: { style: "q1" } } },
           { insert: LF, attributes: { para: { style: "q2" } } },
@@ -3110,7 +3115,7 @@ describe("Delta Utils $applyUpdate", () => {
             ),
           );
         });
-        const ops: Op[] = [
+        const ops: DeltaOp[] = [
           { retain: 1 + v1Text.length }, // After v1 and v1Text
           { insert: LF, attributes: { para: { style: "q1" } } },
         ];
@@ -3148,7 +3153,7 @@ describe("Delta Utils $applyUpdate", () => {
             ),
           );
         });
-        const ops: Op[] = [
+        const ops: DeltaOp[] = [
           { retain: boldText.length }, // After boldText
           { insert: LF, attributes: { para: { style: "q1" } } },
         ];
@@ -3195,7 +3200,7 @@ describe("Delta Utils $applyUpdate", () => {
             ),
           );
         });
-        const ops: Op[] = [
+        const ops: DeltaOp[] = [
           { retain: 1 + 1 + inTheBeginning.length }, // After ch1 + v1 + inTheBeginning
           { insert: LF, attributes: { para: { style: "q1" } } },
         ];
@@ -3232,7 +3237,7 @@ describe("Delta Utils $applyUpdate", () => {
         const { editor } = await testEnvironment(() => {
           $getRoot().append($createParaNode().append($createTextNode(`${test}${content}`)));
         });
-        const ops: Op[] = [
+        const ops: DeltaOp[] = [
           { retain: test.length },
           { insert: LF, attributes: { para: { style: "invalid-marker-xyz" } } },
         ];
@@ -3264,7 +3269,7 @@ describe("Delta Utils $applyUpdate", () => {
         const { editor } = await testEnvironment(() => {
           $getRoot().append($createParaNode().append($createTextNode(`${mixed}${attributesTest}`)));
         });
-        const ops: Op[] = [
+        const ops: DeltaOp[] = [
           { retain: mixed.length },
           {
             insert: LF,
@@ -3300,7 +3305,7 @@ describe("Delta Utils $applyUpdate", () => {
         const { editor } = await testEnvironment(() => {
           $getRoot().append($createImpliedParaNode().append($createTextNode(impliedParaContent)));
         });
-        const ops: Op[] = [
+        const ops: DeltaOp[] = [
           { retain: impliedParaContent.length },
           // After impliedParaContent" (at the ImpliedParaNode's closing marker)
           { insert: LF, attributes: { para: { style: "q1" } } },
@@ -3325,7 +3330,7 @@ describe("Delta Utils $applyUpdate", () => {
         const { editor } = await testEnvironment(() => {
           $getRoot().append($createImpliedParaNode().append($createTextNode(impliedParaContent)));
         });
-        const ops: Op[] = [
+        const ops: DeltaOp[] = [
           { retain: impliedParaContent.length }, // After impliedParaContent (at the ImpliedParaNode's closing marker)
           { insert: LF }, // No para attributes
         ];
@@ -3349,7 +3354,7 @@ describe("Delta Utils $applyUpdate", () => {
         const { editor } = await testEnvironment(() => {
           $getRoot().append($createImpliedParaNode()); // Empty ImpliedParaNode
         });
-        const ops: Op[] = [{ insert: LF, attributes: { para: { style: "p" } } }];
+        const ops: DeltaOp[] = [{ insert: LF, attributes: { para: { style: "p" } } }];
 
         await sutApplyUpdate(editor, ops);
 
@@ -3371,7 +3376,7 @@ describe("Delta Utils $applyUpdate", () => {
         const doc = new Delta([]);
         const { editor } = await testEnvironment();
         const invalidEmbed = { invalidType: { data: "test" } };
-        const ops: Op[] = [{ insert: invalidEmbed }];
+        const ops: DeltaOp[] = [{ insert: invalidEmbed }];
 
         const updatedDoc = doc.compose(new Delta(ops));
         await sutApplyUpdate(editor, ops);
@@ -3387,7 +3392,7 @@ describe("Delta Utils $applyUpdate", () => {
         const initialDoc = new Delta([]);
         const { editor } = await testEnvironment();
         const incompleteChapter = { chapter: {} }; // Missing number
-        const ops: Op[] = [{ insert: incompleteChapter }];
+        const ops: DeltaOp[] = [{ insert: incompleteChapter }];
 
         const updatedDoc = initialDoc.compose(new Delta(ops));
         await sutApplyUpdate(editor, ops);
@@ -3403,7 +3408,7 @@ describe("Delta Utils $applyUpdate", () => {
         const doc = new Delta([]);
         const { editor } = await testEnvironment();
         const incompleteVerse = { verse: { style: "v" } }; // Missing number
-        const ops: Op[] = [{ insert: incompleteVerse }];
+        const ops: DeltaOp[] = [{ insert: incompleteVerse }];
 
         const updatedDoc = doc.compose(new Delta(ops));
         await sutApplyUpdate(editor, ops);
@@ -3418,7 +3423,7 @@ describe("Delta Utils $applyUpdate", () => {
       it("(dc) should handle invalid para style gracefully", async () => {
         const { editor } = await testEnvironment();
         const invalidPara = { para: { style: "invalid-style-123" } };
-        const ops: Op[] = [{ insert: LF, attributes: invalidPara }];
+        const ops: DeltaOp[] = [{ insert: LF, attributes: invalidPara }];
 
         await sutApplyUpdate(editor, ops);
 
@@ -3441,7 +3446,7 @@ describe("Delta Utils $applyUpdate", () => {
             char: { style: "wj" }, // Missing cid
           },
         };
-        const ops: Op[] = [malformedCharOp];
+        const ops: DeltaOp[] = [malformedCharOp];
 
         await sutApplyUpdate(editor, ops);
 
@@ -3466,7 +3471,7 @@ describe("Delta Utils $applyUpdate", () => {
       it("(dci) should handle null or undefined insert values", async () => {
         const doc = new Delta([]);
         const { editor } = await testEnvironment();
-        const ops: Op[] = [{ insert: null } as unknown as Op, { insert: undefined }];
+        const ops: DeltaOp[] = [{ insert: null } as unknown as DeltaOp, { insert: undefined }];
 
         const updatedDoc = doc.compose(new Delta(ops));
         await sutApplyUpdate(editor, ops);
@@ -3478,7 +3483,7 @@ describe("Delta Utils $applyUpdate", () => {
       it("(dci) should handle empty embed objects", async () => {
         const doc = new Delta([]);
         const { editor } = await testEnvironment();
-        const ops: Op[] = [
+        const ops: DeltaOp[] = [
           { insert: {} },
           { insert: { chapter: null } },
           { insert: { verse: undefined } },
@@ -3498,7 +3503,7 @@ describe("Delta Utils $applyUpdate", () => {
       it("(dc) should handle extremely large text insertions", async () => {
         const { editor } = await testEnvironment();
         const largeText = "a".repeat(100000); // 100k characters
-        const ops: Op[] = [{ insert: largeText }];
+        const ops: DeltaOp[] = [{ insert: largeText }];
 
         await sutApplyUpdate(editor, ops);
 
@@ -3512,7 +3517,7 @@ describe("Delta Utils $applyUpdate", () => {
       it("(dc) should handle special characters and Unicode in inserts", async () => {
         const { editor } = await testEnvironment();
         const specialText = "Text with émojis 🙏 and UTF-8 characters ñ\u200B\u2028\u2029";
-        const ops: Op[] = [{ insert: specialText }];
+        const ops: DeltaOp[] = [{ insert: specialText }];
 
         await sutApplyUpdate(editor, ops);
 
@@ -3528,7 +3533,7 @@ describe("Delta Utils $applyUpdate", () => {
           $getRoot().append($createParaNode());
         });
         const incompleteMilestone = { ms: { status: "start" } }; // Missing style
-        const ops: Op[] = [{ insert: incompleteMilestone }];
+        const ops: DeltaOp[] = [{ insert: incompleteMilestone }];
 
         const updatedDoc = doc.compose(new Delta(ops));
         await sutApplyUpdate(editor, ops);
@@ -3557,7 +3562,7 @@ describe("Delta Utils $applyUpdate", () => {
             },
           },
         };
-        const ops: Op[] = [{ insert: deeplyMalformed }];
+        const ops: DeltaOp[] = [{ insert: deeplyMalformed }];
 
         await sutApplyUpdate(editor, ops);
 
@@ -3580,12 +3585,12 @@ describe("Delta Utils $applyUpdate", () => {
 
       it("(dc) should handle concurrent error operations", async () => {
         const { editor } = await testEnvironment();
-        const ops: Op[] = [
+        const ops: DeltaOp[] = [
           { insert: { invalidType1: {} } },
           { insert: "valid text" },
           { insert: { invalidType2: { bad: "data" } } },
           { insert: { chapter: { number: "1", style: "c" } } }, // Valid
-          { insert: null } as unknown as Op,
+          { insert: null } as unknown as DeltaOp,
         ];
 
         await sutApplyUpdate(editor, ops);
@@ -3624,7 +3629,7 @@ const defaultNodeOptions: UsjNodeOptions = {};
 /** SUT (Software Under Test) to apply an OT update. */
 async function sutApplyUpdate(
   editor: LexicalEditor,
-  ops: Op[],
+  ops: DeltaOp[],
   viewOptions: ViewOptions = defaultViewOptions,
   nodeOptions: UsjNodeOptions = defaultNodeOptions,
 ) {

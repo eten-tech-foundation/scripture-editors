@@ -36,12 +36,6 @@
   ],
   "references": [
     {
-      "path": "../../libs/shared-react/tsconfig.lib.json"
-    },
-    {
-      "path": "../../libs/shared/tsconfig.lib.json"
-    },
-    {
       "path": "../../libs/test-data/tsconfig.lib.json"
     },
     {

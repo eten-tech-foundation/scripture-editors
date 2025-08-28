@@ -6,6 +6,7 @@ import {
   $isElementNodeClosing,
   $isEmbedNode,
   $isParaLikeNode,
+  DeltaOp,
   ParaLikeNode,
 } from "./delta-common.utils";
 import { $getTextOp, getEditorDelta } from "./editor-delta.adaptor";
@@ -13,7 +14,7 @@ import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext
 import { $dfs, DFSNode } from "@lexical/utils";
 import type { EditorState, LexicalEditor, LexicalNode, UpdateListenerPayload } from "lexical";
 import { $getNodeByKey, $isTextNode, HISTORY_MERGE_TAG } from "lexical";
-import Delta, { Op } from "quill-delta";
+import Delta from "quill-delta";
 import { useLayoutEffect } from "react";
 
 /** Adapted from the LexicalOnChangePlugin to include collaborative editing operations. */
@@ -24,7 +25,12 @@ export function DeltaOnChangePlugin({
 }: {
   ignoreHistoryMergeTagChange?: boolean;
   ignoreSelectionChange?: boolean;
-  onChange: (editorState: EditorState, editor: LexicalEditor, tags: Set<string>, ops: Op[]) => void;
+  onChange: (
+    editorState: EditorState,
+    editor: LexicalEditor,
+    tags: Set<string>,
+    ops: DeltaOp[],
+  ) => void;
 }): null {
   const [editor] = useLexicalComposerContext();
 
@@ -52,7 +58,7 @@ export function DeltaOnChangePlugin({
 function $getUpdateOps(
   editor: LexicalEditor,
   { dirtyLeaves, prevEditorState }: UpdateListenerPayload,
-): Op[] {
+): DeltaOp[] {
   let update = new Delta();
   editor.getEditorState().read(() => {
     const nodeKey = dirtyLeaves.values().next().value ?? "";

@@ -1,8 +1,8 @@
-import { useCallback, useRef } from "react";
+import { RefObject, useCallback, useRef } from "react";
 import { CommentStore } from "./commenting";
 
 type UseCommentStoreRef = [
-  commentStoreRef: React.RefObject<CommentStore | undefined>,
+  commentStoreRef: RefObject<CommentStore | undefined>,
   setCommentStoreRef: (cs: CommentStore) => void,
 ];
 

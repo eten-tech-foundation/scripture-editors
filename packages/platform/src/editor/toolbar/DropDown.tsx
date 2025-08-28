@@ -2,15 +2,28 @@
  * Copied from @see https://github.com/facebook/lexical/blob/main/packages/lexical-playground/src/ui/DropDown.tsx
  */
 
-import * as React from "react";
-import { ReactElement, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  createContext,
+  KeyboardEvent,
+  MouseEvent,
+  ReactElement,
+  ReactNode,
+  Ref,
+  RefObject,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
 
 interface DropDownContextType {
-  registerItem: (ref: React.RefObject<HTMLButtonElement | null>) => void;
+  registerItem: (ref: RefObject<HTMLButtonElement | null>) => void;
 }
 
-const DropDownContext = React.createContext<DropDownContextType | null>(null);
+const DropDownContext = createContext<DropDownContextType | null>(null);
 
 const dropDownPadding = 4;
 
@@ -20,14 +33,14 @@ export function DropDownItem({
   onClick,
   title,
 }: {
-  children: React.ReactNode;
+  children: ReactNode;
   className: string;
-  onClick: (event: React.MouseEvent<HTMLButtonElement>) => void;
+  onClick: (event: MouseEvent<HTMLButtonElement>) => void;
   title?: string;
 }) {
   const ref = useRef<HTMLButtonElement>(null);
 
-  const dropDownContext = React.useContext(DropDownContext);
+  const dropDownContext = useContext(DropDownContext);
 
   if (dropDownContext === null) {
     throw new Error("DropDownItem must be used within a DropDown");
@@ -53,22 +66,21 @@ function DropDownItems({
   dropDownRef,
   onClose,
 }: {
-  children: React.ReactNode;
-  dropDownRef: React.Ref<HTMLDivElement>;
+  children: ReactNode;
+  dropDownRef: Ref<HTMLDivElement>;
   onClose: () => void;
 }) {
-  const [items, setItems] = useState<React.RefObject<HTMLButtonElement | null>[]>();
-  const [highlightedItem, setHighlightedItem] =
-    useState<React.RefObject<HTMLButtonElement | null>>();
+  const [items, setItems] = useState<RefObject<HTMLButtonElement | null>[]>();
+  const [highlightedItem, setHighlightedItem] = useState<RefObject<HTMLButtonElement | null>>();
 
   const registerItem = useCallback(
-    (itemRef: React.RefObject<HTMLButtonElement | null>) => {
+    (itemRef: RefObject<HTMLButtonElement | null>) => {
       setItems((prev) => (prev ? [...prev, itemRef] : [itemRef]));
     },
     [setItems],
   );
 
-  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (!items) return;
 
     const key = event.key;
@@ -162,7 +174,7 @@ export default function DropDown({
     const button = buttonRef.current;
 
     if (button !== null && showDropDown) {
-      const handle = (event: MouseEvent) => {
+      const handle = (event: Event) => {
         const target = event.target;
         if (stopCloseOnClickSelf) {
           if (dropDownRef.current && dropDownRef.current.contains(target as Node)) return;

@@ -1,11 +1,11 @@
-import { forwardRef, ReactNode } from "react";
+import { forwardRef, HTMLAttributes, ReactNode } from "react";
 
 export type FloatingBoxCoords = { x: number; y: number } | undefined;
 
 type FloatingBoxProps = {
   coords: FloatingBoxCoords;
   children?: ReactNode;
-} & React.HTMLAttributes<HTMLDivElement>;
+} & HTMLAttributes<HTMLDivElement>;
 
 export const FloatingBox = forwardRef<HTMLDivElement, FloatingBoxProps>((props, ref) => {
   const { coords, children, style, ...extraProps } = props;

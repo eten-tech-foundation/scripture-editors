@@ -8,7 +8,7 @@ import { $createImmutableVerseNode } from "../../../nodes/usj/ImmutableVerseNode
 import { $isSomeVerseNode, SomeVerseNode } from "../../../nodes/usj/node-react.utils";
 import { UsjNodeOptions } from "../../../nodes/usj/usj-node-options.model";
 import { ViewOptions } from "../../../views/view-options.utils";
-import { $isEmbedNode, $isParaLikeNode, EmbedNode, LF } from "./delta-common.utils";
+import { $isEmbedNode, $isParaLikeNode, DeltaOp, EmbedNode, LF } from "./delta-common.utils";
 import {
   OT_BOOK_PROPS,
   OT_CHAPTER_PROPS,
@@ -39,7 +39,7 @@ import {
   TextFormatType,
   TextNode,
 } from "lexical";
-import { AttributeMap, Op } from "quill-delta";
+import { AttributeMap } from "quill-delta";
 import {
   $createBookNode,
   $createChapterNode,
@@ -123,7 +123,7 @@ For CharNodes, we use the following logic:
  * @see https://github.com/ottypes/rich-text
  */
 export function $applyUpdate(
-  ops: Op[],
+  ops: DeltaOp[],
   viewOptions: ViewOptions,
   nodeOptions: UsjNodeOptions,
   logger?: LoggerBasic,
@@ -167,7 +167,7 @@ export function $applyUpdate(
   });
 }
 
-function $retain(op: Op, currentIndex: number, logger: LoggerBasic | undefined): number {
+function $retain(op: DeltaOp, currentIndex: number, logger: LoggerBasic | undefined): number {
   if (typeof op.retain !== "number" || op.retain < 0) {
     logger?.error(`Invalid retain operation: ${JSON.stringify(op)}`);
     return 0;
@@ -1327,7 +1327,7 @@ function $insertNodeAtCharacterOffset(
 
 function $insertEmbedAtCurrentIndex(
   targetIndex: number,
-  op: Op,
+  op: DeltaOp,
   viewOptions: ViewOptions,
   nodeOptions: UsjNodeOptions,
   logger?: LoggerBasic,
@@ -1574,7 +1574,7 @@ function $createMilestone(msData: OTMilestoneEmbed) {
   return $createMilestoneNode(style, sid, eid, unknownAttributes);
 }
 
-function $createNote(op: Op, viewOptions: ViewOptions, nodeOptions: UsjNodeOptions) {
+function $createNote(op: DeltaOp, viewOptions: ViewOptions, nodeOptions: UsjNodeOptions) {
   const noteEmbed = op.insert as { note: OTNoteEmbed };
   const { style, caller, category, contents } = noteEmbed.note;
   if (!style || !caller) return;
@@ -1667,8 +1667,6 @@ function $createNestedChars(
  * @param embedType - The property key to check for.
  * @returns `true` if `embedObj` has a property `embedType` and `embedObj[embedType]` is a non-null
  *   object, `false` otherwise.
- * @template T - The type of the object.
- * @template K - The type of the property key.
  */
 function isEmbedOfType<T extends object, K extends PropertyKey>(
   embedType: K,

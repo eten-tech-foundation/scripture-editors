@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import { RefObject, useEffect } from "react";
 import { useFloatingPosition } from "./useFloatingPosition";
 
 export default function useCursorCoords({
@@ -6,7 +6,7 @@ export default function useCursorCoords({
   floatingBoxRef,
 }: {
   isOpen: boolean;
-  floatingBoxRef: React.RefObject<HTMLDivElement | null>;
+  floatingBoxRef: RefObject<HTMLDivElement | null>;
 }) {
   const { coords, updatePosition, cleanup, placement } = useFloatingPosition();
 

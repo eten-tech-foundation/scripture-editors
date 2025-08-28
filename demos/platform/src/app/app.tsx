@@ -5,14 +5,14 @@ import ViewModeDropDown from "./ViewModeDropDown";
 import {
   AnnotationRange,
   Comments,
+  DeltaOp,
+  DeltaSource,
   EditorOptions,
   getDefaultViewMode,
   getViewOptions,
   immutableNoteCallerNodeName,
   Marginal,
   MarginalRef,
-  Op,
-  OpsSource,
   TextDirection,
   UsjNodeOptions,
   ViewOptions,
@@ -105,7 +105,7 @@ export default function App() {
   );
 
   const handleUsjChange = useCallback(
-    (usj: Usj, comments: Comments | undefined, ops?: Op[], source?: OpsSource) => {
+    (usj: Usj, comments: Comments | undefined, ops?: DeltaOp[], source?: DeltaSource) => {
       console.log({ usj, comments, ops, source });
       marginalRef.current?.setUsj(usj);
     },

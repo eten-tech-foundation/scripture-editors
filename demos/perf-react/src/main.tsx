@@ -1,7 +1,7 @@
 // Reaching inside only for app css.
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import "../../../libs/shared/src/styles/perf-editor.css";
-import React from "react";
+import { StrictMode } from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 
@@ -11,7 +11,7 @@ if (!container) {
 }
 
 ReactDOM.createRoot(container).render(
-  <React.StrictMode>
+  <StrictMode>
     <App />
-  </React.StrictMode>,
+  </StrictMode>,
 );

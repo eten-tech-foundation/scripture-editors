@@ -1,6 +1,10 @@
 import { TextDirection, UsjNodeOptions, ViewOptions } from "shared-react";
 
-/** Options to configure the editor. */
+/**
+ * Options to configure the editor.
+ *
+ * @public
+ */
 export interface EditorOptions {
   /** Is the editor readonly or editable. */
   isReadonly?: boolean;
@@ -10,17 +14,13 @@ export interface EditorOptions {
   textDirection?: TextDirection;
   /** Key to trigger the marker menu. Defaults to '\'. */
   markerMenuTrigger?: string;
+  /** Options for some editor nodes. */
+  nodes?: UsjNodeOptions;
   /**
-   * View options - EXPERIMENTAL. Defaults to the formatted view mode which is currently the only
+   * EXPERIMENTAL: View options. Defaults to the formatted view mode which is currently the only
    * functional option.
    */
   view?: ViewOptions;
-  /** Options for each editor node:
-   * @param nodes.ImmutableNoteCallerNode.noteCallers - Possible note callers to use when caller is
-   *   '+'. Defaults to Latin lower case letters.
-   * @param nodes.ImmutableNoteCallerNode.onClick - Click handler method.
-   */
-  nodes?: UsjNodeOptions;
-  /** EXPERIMENTAL: Is the editor being debugged using the TreeView */
+  /** EXPERIMENTAL: Is the editor being debugged using the TreeView. */
   debug?: boolean;
 }

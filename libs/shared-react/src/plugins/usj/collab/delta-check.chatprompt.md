@@ -27,7 +27,7 @@ it("Delta Check 46 for the following test", () => {
     { insert: "and all the brothers who are with me" },
     { insert: LF, attributes: { para: { style: "p" } } },
   ]);
-  const ops: Op[] = [
+  const ops: DeltaOp[] = [
     { retain: 15 + 12 },
     { insert: "e" },
     { delete: 1 },
@@ -73,7 +73,7 @@ it("should replace 'brothers' with 'brethren'", async () => {
       ),
     );
   });
-  const ops: Op[] = [
+  const ops: DeltaOp[] = [
     { retain: 15 + 12 },
     { insert: "e" },
     { delete: 1 },

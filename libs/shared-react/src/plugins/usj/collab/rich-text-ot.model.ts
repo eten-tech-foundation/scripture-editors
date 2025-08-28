@@ -4,7 +4,7 @@
  *   into unknownAttributes.
  */
 
-import { Op } from "quill-delta";
+import { DeltaOp } from "./delta-common.utils";
 
 export interface OTParaAttribute {
   style: string;
@@ -61,7 +61,7 @@ export const OT_MILESTONE_PROPS: (keyof OTMilestoneEmbed)[] = ["style", "sid", "
 export type OTNoteEmbed = OTParaAttribute & {
   caller: string;
   category?: string;
-  contents?: { ops?: Op[] };
+  contents?: { ops?: DeltaOp[] };
 };
 // Note that `contents` is not a property of a NoteNode, but we don't want it in unknownAttributes.
 export const OT_NOTE_PROPS: (keyof OTNoteEmbed)[] = ["style", "caller", "category", "contents"];

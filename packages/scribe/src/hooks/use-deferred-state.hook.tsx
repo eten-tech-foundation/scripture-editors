@@ -1,7 +1,7 @@
 import { deepEqual } from "fast-equals";
-import { useEffect, useState } from "react";
+import { Dispatch, SetStateAction, useEffect, useState } from "react";
 
-type UseDeferredStateReturn<T> = [T, T, React.Dispatch<React.SetStateAction<T>>];
+type UseDeferredStateReturn<T> = [T, T, Dispatch<SetStateAction<T>>];
 
 /**
  * `useDeferredState` is a custom hook that lets you defer updating part of the UI.

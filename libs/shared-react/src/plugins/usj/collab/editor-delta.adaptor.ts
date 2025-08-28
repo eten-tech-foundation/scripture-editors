@@ -1,5 +1,11 @@
 import { $isSomeVerseNode, SomeVerseNode } from "../../../nodes/usj/node-react.utils";
-import { $isElementNodeClosing, $isParaLikeNode, LF, ParaLikeNode } from "./delta-common.utils";
+import {
+  $isElementNodeClosing,
+  $isParaLikeNode,
+  DeltaOp,
+  LF,
+  ParaLikeNode,
+} from "./delta-common.utils";
 import {
   OTBookAttribute,
   OTChapterEmbed,
@@ -12,7 +18,7 @@ import {
 } from "./rich-text-ot.model";
 import { $dfs, DFSNode } from "@lexical/utils";
 import { $getRoot, $getState, $isTextNode, EditorState, LexicalNode, TextNode } from "lexical";
-import Delta, { Op } from "quill-delta";
+import Delta from "quill-delta";
 import {
   $isBookNode,
   $isCharNode,
@@ -36,11 +42,11 @@ import {
 
 interface OpenNote {
   children: LexicalNode[];
-  contentsOps?: Op[];
+  contentsOps?: DeltaOp[];
 }
 
-export function $getTextOp(node: TextNode, openCharNodes?: CharNode[]): Op {
-  const op: Op = { insert: node.__text };
+export function $getTextOp(node: TextNode, openCharNodes?: CharNode[]): DeltaOp {
+  const op: DeltaOp = { insert: node.__text };
   const segment = $getState(node, segmentState);
   if (segment) op.attributes = { segment };
   if (openCharNodes && openCharNodes.length > 0) {
@@ -87,7 +93,7 @@ export function getEditorDelta(editorState: EditorState): Delta {
 }
 
 function $getAllNodeOps() {
-  const ops: Op[] = [];
+  const ops: DeltaOp[] = [];
   const dfsNodes = $dfs();
   const openParaLikeNodes: ParaLikeNode[] = [];
   const openCharNodes: CharNode[] = [];
@@ -118,10 +124,10 @@ function $getNodeOps(
   openParaLikeNodes: ParaLikeNode[],
   openCharNodes: CharNode[],
   openNote: OpenNote,
-): Op[] {
+): DeltaOp[] {
   if (!currentNode) return [];
 
-  const ops: Op[] = [];
+  const ops: DeltaOp[] = [];
   $handleBlockNodes(currentNode, ops, openParaLikeNodes);
 
   $handleTextNodes(currentNode, ops, openCharNodes, openNote);
@@ -137,7 +143,11 @@ function $getNodeOps(
   return ops;
 }
 
-function $handleBlockNodes(currentNode: LexicalNode, ops: Op[], openParaLikeNodes: ParaLikeNode[]) {
+function $handleBlockNodes(
+  currentNode: LexicalNode,
+  ops: DeltaOp[],
+  openParaLikeNodes: ParaLikeNode[],
+) {
   if (!currentNode.isInline()) {
     // Handle block nodes
     const openNode = openParaLikeNodes.pop();
@@ -156,7 +166,7 @@ function $handleBlockNodes(currentNode: LexicalNode, ops: Op[], openParaLikeNode
 
 function $handleTextNodes(
   currentNode: LexicalNode,
-  ops: Op[],
+  ops: DeltaOp[],
   openCharNodes: CharNode[],
   openNote: OpenNote,
 ) {
@@ -191,7 +201,7 @@ function $handleCharNodes(
   }
 }
 
-function $handleNoteNodes(currentNode: LexicalNode, ops: Op[], openNote: OpenNote) {
+function $handleNoteNodes(currentNode: LexicalNode, ops: DeltaOp[], openNote: OpenNote) {
   if (!$isNoteNode(currentNode)) return;
 
   $dfs(currentNode).forEach((n) => openNote.children.push(n.node));
@@ -200,12 +210,14 @@ function $handleNoteNodes(currentNode: LexicalNode, ops: Op[], openNote: OpenNot
   ops.push(noteOp);
 }
 
-function $getBookOp(currentNode: BookNode): Op & { attributes: { book: OTBookAttribute } } {
+function $getBookOp(currentNode: BookNode): DeltaOp & { attributes: { book: OTBookAttribute } } {
   const book: OTBookAttribute = { style: BOOK_MARKER, code: currentNode.__code };
   return { insert: LF, attributes: { book } };
 }
 
-function $getChapterOp(currentNode: SomeChapterNode): Op & { insert: { chapter: OTChapterEmbed } } {
+function $getChapterOp(
+  currentNode: SomeChapterNode,
+): DeltaOp & { insert: { chapter: OTChapterEmbed } } {
   const chapter: OTChapterEmbed = { style: CHAPTER_MARKER, number: currentNode.__number };
   if (currentNode.__sid) {
     chapter.sid = currentNode.__sid;
@@ -219,12 +231,12 @@ function $getChapterOp(currentNode: SomeChapterNode): Op & { insert: { chapter: 
   return { insert: { chapter } };
 }
 
-export function $getParaOp(node: ParaNode): Op & { attributes: { para: OTParaAttribute } } {
+export function $getParaOp(node: ParaNode): DeltaOp & { attributes: { para: OTParaAttribute } } {
   const para: OTParaAttribute = { style: node.__marker };
   return { insert: LF, attributes: { para } };
 }
 
-function $getVerseOp(currentNode: SomeVerseNode): Op & { insert: { verse: OTVerseEmbed } } {
+function $getVerseOp(currentNode: SomeVerseNode): DeltaOp & { insert: { verse: OTVerseEmbed } } {
   const verse: OTVerseEmbed = { style: VERSE_MARKER, number: currentNode.__number };
   if (currentNode.__sid) {
     verse.sid = currentNode.__sid;
@@ -240,7 +252,7 @@ function $getVerseOp(currentNode: SomeVerseNode): Op & { insert: { verse: OTVers
 
 function $getMilestoneOp(
   currentNode: MilestoneNode,
-): Op & { insert: { milestone: OTMilestoneEmbed } } {
+): DeltaOp & { insert: { milestone: OTMilestoneEmbed } } {
   const milestone: OTMilestoneEmbed = { style: currentNode.__marker };
   if (currentNode.__sid) {
     milestone.sid = currentNode.__sid;
@@ -251,7 +263,7 @@ function $getMilestoneOp(
   return { insert: { milestone } };
 }
 
-function $getNoteOp(currentNode: NoteNode): Op & { insert: { note: OTNoteEmbed } } {
+function $getNoteOp(currentNode: NoteNode): DeltaOp & { insert: { note: OTNoteEmbed } } {
   const note: OTNoteEmbed = {
     style: currentNode.__marker,
     caller: currentNode.__caller,

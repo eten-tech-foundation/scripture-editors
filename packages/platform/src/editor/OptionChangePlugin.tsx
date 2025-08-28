@@ -1,6 +1,6 @@
 import { Usj } from "@eten-tech-foundation/scripture-utilities";
 import { deepEqual } from "fast-equals";
-import { useEffect } from "react";
+import { RefObject, useEffect } from "react";
 import { EditorOptions } from "./editor.model";
 
 /** This plugin preserves USJ edits when the editor options change. */
@@ -11,7 +11,7 @@ export default function OptionChangePlugin({
   setUsj,
 }: {
   options: EditorOptions | undefined;
-  editedUsjRef: React.RefObject<Usj | undefined>;
+  editedUsjRef: RefObject<Usj | undefined>;
   usj: Usj | undefined;
   setUsj: (usj: Usj) => void;
 }): null {

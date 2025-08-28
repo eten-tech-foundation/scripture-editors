@@ -1,7 +1,6 @@
 import DropDown, { DropDownItem } from "./DropDown";
-import { TextDirection } from "@eten-tech-foundation/platform-editor";
+import { directionToNames, TextDirection } from "@eten-tech-foundation/platform-editor";
 import { ReactElement } from "react";
-import { directionToNames } from "shared-react";
 
 function directionLabel(textDirection: TextDirection): string {
   return textDirection in directionToNames ? directionToNames[textDirection] : "select...";

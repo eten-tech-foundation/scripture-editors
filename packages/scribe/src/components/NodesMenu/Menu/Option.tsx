@@ -1,12 +1,12 @@
-import React, { useCallback, forwardRef } from "react";
+import { ButtonHTMLAttributes, forwardRef, MouseEvent, ReactNode, useCallback } from "react";
 import { useMenuContext } from "./useMenuContext";
 
 type OptionProps = {
   index: number;
-  children: React.ReactNode;
-  onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void;
-  onMouseEnter?: (event: React.MouseEvent<HTMLButtonElement>) => void;
-} & React.ButtonHTMLAttributes<HTMLButtonElement>;
+  children: ReactNode;
+  onClick?: (event: MouseEvent<HTMLButtonElement>) => void;
+  onMouseEnter?: (event: MouseEvent<HTMLButtonElement>) => void;
+} & ButtonHTMLAttributes<HTMLButtonElement>;
 
 export const MenuOption = forwardRef<HTMLButtonElement, OptionProps>(
   ({ index, children, onMouseEnter, onClick, ...props }, ref) => {
@@ -18,7 +18,7 @@ export const MenuOption = forwardRef<HTMLButtonElement, OptionProps>(
     } = useMenuContext();
 
     const handleClick = useCallback(
-      (event: React.MouseEvent<HTMLButtonElement>) => {
+      (event: MouseEvent<HTMLButtonElement>) => {
         select();
         setSelectedIndex(-1);
         onClick?.(event);
@@ -27,7 +27,7 @@ export const MenuOption = forwardRef<HTMLButtonElement, OptionProps>(
     );
 
     const handleMouseEnter = useCallback(
-      (event: React.MouseEvent<HTMLButtonElement>) => {
+      (event: MouseEvent<HTMLButtonElement>) => {
         setActiveIndex(index);
         onMouseEnter?.(event);
       },
