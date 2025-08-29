@@ -53,7 +53,7 @@ import {
   TypedMarkNode,
 } from "shared";
 import {
-  Comment,
+  CommentBase,
   Comments,
   CommentStore,
   createComment,
@@ -200,7 +200,7 @@ function CommentInputBox({
   cancelAddComment: () => void;
   editor: LexicalEditor;
   submitAddComment: (
-    commentOrThread: Comment | Thread,
+    commentOrThread: CommentBase | Thread,
     isInlineComment: boolean,
     thread?: Thread,
     selection?: RangeSelection | null,
@@ -355,7 +355,7 @@ function CommentsComposer({
 }: {
   placeholder?: string;
   submitAddComment: (
-    commentOrThread: Comment,
+    commentOrThread: CommentBase,
     isInlineComment: boolean,
 
     thread?: Thread,
@@ -408,10 +408,10 @@ function ShowDeleteCommentOrThreadDialog({
   onClose,
   thread = undefined,
 }: {
-  commentOrThread: Comment | Thread;
+  commentOrThread: CommentBase | Thread;
 
   deleteCommentOrThread: (
-    comment: Comment | Thread,
+    comment: CommentBase | Thread,
 
     thread?: Thread,
   ) => void;
@@ -448,9 +448,9 @@ function CommentsPanelListComment({
   thread,
   rtf,
 }: {
-  comment: Comment;
+  comment: CommentBase;
   deleteComment: (
-    commentOrThread: Comment | Thread,
+    commentOrThread: CommentBase | Thread,
 
     thread?: Thread,
   ) => void;
@@ -508,11 +508,11 @@ function CommentsPanelList({
 }: {
   activeIDs: string[];
   comments: Comments;
-  deleteCommentOrThread: (commentOrThread: Comment | Thread, thread?: Thread) => void;
+  deleteCommentOrThread: (commentOrThread: CommentBase | Thread, thread?: Thread) => void;
   listRef: { current: null | HTMLUListElement };
   markNodeMap: Map<string, Set<NodeKey>>;
   submitAddComment: (
-    commentOrThread: Comment | Thread,
+    commentOrThread: CommentBase | Thread,
     isInlineComment: boolean,
     thread?: Thread,
   ) => void;
@@ -648,10 +648,10 @@ function CommentsPanel({
 }: {
   activeIDs: string[];
   comments: Comments;
-  deleteCommentOrThread: (commentOrThread: Comment | Thread, thread?: Thread) => void;
+  deleteCommentOrThread: (commentOrThread: CommentBase | Thread, thread?: Thread) => void;
   markNodeMap: Map<string, Set<NodeKey>>;
   submitAddComment: (
-    commentOrThread: Comment | Thread,
+    commentOrThread: CommentBase | Thread,
     isInlineComment: boolean,
     thread?: Thread,
   ) => void;
@@ -737,7 +737,7 @@ export default function CommentPlugin<TLogger extends LoggerBasic>({
   }, [editor]);
 
   const deleteCommentOrThread = useCallback(
-    (comment: Comment | Thread, thread?: Thread) => {
+    (comment: CommentBase | Thread, thread?: Thread) => {
       if (comment.type === "comment") {
         const deletionInfo = commentStore.deleteCommentOrThread(comment, thread);
         if (!deletionInfo) {
@@ -773,7 +773,7 @@ export default function CommentPlugin<TLogger extends LoggerBasic>({
 
   const submitAddComment = useCallback(
     (
-      commentOrThread: Comment | Thread,
+      commentOrThread: CommentBase | Thread,
       isInlineComment: boolean,
       thread?: Thread,
       selection?: RangeSelection | null,

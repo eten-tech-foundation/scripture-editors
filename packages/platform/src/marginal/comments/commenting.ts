@@ -13,7 +13,7 @@ import { LoggerBasic } from "shared";
  *
  * @public
  */
-export interface Comment {
+export interface CommentBase {
   /** The author of the comment. */
   author: string;
   /** The content of the comment. */
@@ -35,7 +35,7 @@ export interface Comment {
  */
 export interface Thread {
   /** Array of comments in the thread. */
-  comments: Comment[];
+  comments: CommentBase[];
   /** Unique identifier for the thread. */
   id: string;
   /** The quoted text to which the thread is attached. */
@@ -49,7 +49,7 @@ export interface Thread {
  *
  * @public
  */
-export type Comments = (Thread | Comment)[];
+export type Comments = (Thread | CommentBase)[];
 
 function createUID(): string {
   return Math.random()
@@ -74,7 +74,7 @@ export function createComment(
   id?: string,
   timeStamp?: number,
   deleted?: boolean,
-): Comment {
+): CommentBase {
   return {
     author,
     content,
@@ -93,7 +93,7 @@ export function createComment(
  * @param id - Optional unique identifier for the thread.
  * @returns A new Thread object.
  */
-export function createThread(quote: string, comments: Comment[], id?: string): Thread {
+export function createThread(quote: string, comments: CommentBase[], id?: string): Thread {
   return {
     comments,
     id: id === undefined ? createUID() : id,
@@ -111,7 +111,7 @@ function cloneThread(thread: Thread): Thread {
   };
 }
 
-function markDeleted(comment: Comment): Comment {
+function markDeleted(comment: CommentBase): CommentBase {
   return {
     author: comment.author,
     content: "[Deleted Comment]",
@@ -190,7 +190,7 @@ export class CommentStore<TLogger extends LoggerBasic = LoggerBasic> {
    * @param thread - Optional parent thread to add the comment to.
    * @param offset - Optional offset for insertion.
    */
-  addComment(commentOrThread: Comment | Thread, thread?: Thread, offset?: number): void {
+  addComment(commentOrThread: CommentBase | Thread, thread?: Thread, offset?: number): void {
     const nextComments = Array.from(this._comments);
     // The YJS types explicitly use `any` as well.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -236,9 +236,9 @@ export class CommentStore<TLogger extends LoggerBasic = LoggerBasic> {
    * @returns An object containing the marked comment and its index, or null.
    */
   deleteCommentOrThread(
-    commentOrThread: Comment | Thread,
+    commentOrThread: CommentBase | Thread,
     thread?: Thread,
-  ): { markedComment: Comment; index: number } | null {
+  ): { markedComment: CommentBase; index: number } | null {
     const nextComments = Array.from(this._comments);
     // The YJS types explicitly use `any` as well.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -252,7 +252,7 @@ export class CommentStore<TLogger extends LoggerBasic = LoggerBasic> {
           const newThread = cloneThread(nextComment);
           nextComments.splice(i, 1, newThread);
           const threadComments = newThread.comments;
-          commentIndex = threadComments.indexOf(commentOrThread as Comment);
+          commentIndex = threadComments.indexOf(commentOrThread as CommentBase);
           if (this.isCollaborative() && sharedCommentsArray !== null) {
             const parentSharedArray = sharedCommentsArray.get(i).get("comments");
             const deleteIndex = commentIndex;
@@ -279,7 +279,7 @@ export class CommentStore<TLogger extends LoggerBasic = LoggerBasic> {
     if (commentOrThread.type === "comment") {
       return {
         index: commentIndex as number,
-        markedComment: markDeleted(commentOrThread as Comment),
+        markedComment: markDeleted(commentOrThread as CommentBase),
       };
     }
 
@@ -332,7 +332,7 @@ export class CommentStore<TLogger extends LoggerBasic = LoggerBasic> {
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  _createCollabSharedMap(commentOrThread: Comment | Thread): YMap<any> {
+  _createCollabSharedMap(commentOrThread: CommentBase | Thread): YMap<any> {
     const sharedMap = new YMap();
     const type = commentOrThread.type;
     const id = commentOrThread.id;

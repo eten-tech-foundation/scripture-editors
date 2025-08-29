@@ -44,7 +44,7 @@ export {
 
 export type { EditorProps, EditorRef } from "./editor/Editor";
 export type { EditorOptions } from "./editor/editor.model";
-export type { Comment, Comments, Thread } from "./marginal/comments/commenting";
+export type { CommentBase, Comments, Thread } from "./marginal/comments/commenting";
 export type { MarginalRef, MarginalProps } from "./marginal/Marginal";
 export type { LoggerBasic, NodeOptions } from "shared";
 export type {

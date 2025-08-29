@@ -22,7 +22,7 @@ export interface AnnotationRange {
 }
 
 // @public
-interface Comment_2 {
+export interface CommentBase {
     author: string;
     content: string;
     deleted: boolean;
@@ -30,10 +30,9 @@ interface Comment_2 {
     timeStamp: number;
     type: "comment";
 }
-export { Comment_2 as Comment }
 
 // @public
-export type Comments = (Thread | Comment_2)[];
+export type Comments = (Thread | CommentBase)[];
 
 // @public
 export type DeltaOp = Op;
@@ -142,7 +141,7 @@ export type TextDirection = "ltr" | "rtl" | "auto";
 
 // @public
 export interface Thread {
-    comments: Comment_2[];
+    comments: CommentBase[];
     id: string;
     quote: string;
     type: "thread";
