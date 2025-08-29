@@ -39,14 +39,14 @@
   "dependencies": {
     "@eten-tech-foundation/scripture-utilities": "workspace:~",
     "@floating-ui/dom": "^1.7.4",
-    "@lexical/react": "^0.34.0",
-    "@lexical/selection": "^0.34.0",
-    "@lexical/text": "^0.34.0",
-    "@lexical/utils": "^0.34.0",
-    "@lexical/yjs": "^0.34.0",
+    "@lexical/react": "0.33.0",
+    "@lexical/selection": "0.33.0",
+    "@lexical/text": "0.33.0",
+    "@lexical/utils": "0.33.0",
+    "@lexical/yjs": "0.33.0",
     "@sillsdev/scripture": "^2.0.2",
     "fast-equals": "^5.2.2",
-    "lexical": "^0.34.0",
+    "lexical": "0.33.0",
     "yjs": "^13.6.27"
   },
   "devDependencies": {
