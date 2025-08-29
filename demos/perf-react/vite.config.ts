@@ -18,6 +18,15 @@ export default defineConfig({
     },
     rollupOptions: {
       input: path.resolve(__dirname, "index.html"),
+      external: [
+        // unwanted `libs/shared` dependencies
+        "epitelete",
+        "json-difference",
+        "open-patcher",
+        "proskomma-core",
+        "test-data",
+        "tslib",
+      ],
     },
   },
   test: {

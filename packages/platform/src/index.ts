@@ -3,6 +3,8 @@ export { default as Marginal, type MarginalRef } from "./marginal/Marginal";
 export type { LoggerBasic } from "shared";
 export type {
   AnnotationRange,
+  Op,
+  OpsSource,
   SelectionRange,
   TextDirection,
   UsjNodeOptions,

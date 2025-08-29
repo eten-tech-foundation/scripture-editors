@@ -3,6 +3,7 @@ import packageData from "./package.json" with { type: "json" };
 import { nxViteTsPaths } from "@nx/vite/plugins/nx-tsconfig-paths.plugin";
 import react from "@vitejs/plugin-react-swc";
 import * as path from "path";
+import { visualizer } from "rollup-plugin-visualizer";
 import { defineConfig } from "vite";
 import dts from "vite-plugin-dts";
 
@@ -17,7 +18,7 @@ export default defineConfig({
       entryRoot: "src",
       rollupTypes: true,
       tsconfigPath: path.join(__dirname, "tsconfig.lib.json"),
-      exclude: ["src/App.tsx", "src/main.tsx"],
+      exclude: ["src/**/*.test.ts", "src/**/*.test.tsx"],
       aliasesExclude: ["@eten-tech-foundation/scripture-utilities"],
     }),
   ],
@@ -30,6 +31,7 @@ export default defineConfig({
   build: {
     outDir: "./dist",
     emptyOutDir: true,
+    sourcemap: true,
     reportCompressedSize: true,
     commonjsOptions: {
       transformMixedEsModules: true,
@@ -48,7 +50,16 @@ export default defineConfig({
         "react/jsx-runtime",
         ...Object.keys(packageData.peerDependencies ?? {}),
         ...Object.keys(packageData.dependencies ?? {}),
+        // unwanted `libs/shared` dependencies
+        "epitelete",
+        "json-difference",
+        "open-patcher",
+        "proskomma-core",
+        "test-data",
+        "tslib",
       ],
+      // open the HTML file manually or  set `open` to true
+      plugins: [visualizer({ filename: "dist/bundle-analysis.html", open: false })],
     },
   },
   test: {

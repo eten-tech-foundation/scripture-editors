@@ -22,7 +22,7 @@
   "search.exclude": {
     ".git": true,
     "node_modules": true,
-    "packages/platform/lib": true
+    "demos/platform/lib": true
   },
   "typescript.tsdk": "node_modules/typescript/lib",
   "[javascript]": {
