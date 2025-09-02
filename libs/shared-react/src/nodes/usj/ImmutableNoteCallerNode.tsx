@@ -36,23 +36,6 @@ export type SerializedImmutableNoteCallerNode = Spread<
 export const GENERATOR_NOTE_CALLER = "+";
 export const IMMUTABLE_NOTE_CALLER_VERSION = 1;
 
-/**
- * The name identifier for the immutable note caller node class.
- *
- * @remarks
- * This constant is used to identify and reference options for an ImmutableNoteCallerNode instance.
- *
- * @example
- * ```tsx
- * const nodeOptions: UsjNodeOptions = {
- *  [immutableNoteCallerNodeName]: { onClick: () => console.log("note node clicked") },
- * };
- * ```
- *
- * @public
- */
-export const immutableNoteCallerNodeName = "ImmutableNoteCallerNode";
-
 export class ImmutableNoteCallerNode extends DecoratorNode<ReactNode> {
   __caller: string;
   __previewText: string;

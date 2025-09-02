@@ -37,7 +37,7 @@ npm install @eten-tech-foundation/platform-editor
 > - Use the `<Marginal />` component for an editor with comments (comments appear in the margin).
 
 ```ts
-import { EditorOptions, immutableNoteCallerNodeName, Marginal, MarginalRef, usxStringToUsj, UsjNodeOptions } from "@eten-tech-foundation/platform-editor";
+import { EditorOptions, Marginal, MarginalRef, usxStringToUsj, UsjNodeOptions } from "@eten-tech-foundation/platform-editor";
 import { BookChapterControl } from "platform-bible-react";
 
 const emptyUsx = '<usx version="3.1" />';
@@ -54,7 +54,7 @@ const usx = `<?xml version="1.0" encoding="utf-8"?>
 `;
 const defaultUsj = usxStringToUsj(emptyUsx);
 const defaultScrRef = { book: "PSA", chapterNum: 1, verseNum: 1 };
-const nodeOptions: UsjNodeOptions = { [immutableNoteCallerNodeName]: { onClick: () => console.log("Note was clicked!") } };
+const nodeOptions: UsjNodeOptions = { noteCallerOnClick: () => console.log("Note was clicked!") };
 const options: EditorOptions = { isReadonly: false, textDirection: "ltr", nodes: nodeOptions };
 // Word "man" inside first q1 of PSA 1:1.
 const annotationRange1 = {
@@ -257,15 +257,9 @@ export interface EditorOptions {
 In `EditorOptions.nodes`, the note callers option defaults to:
 
 ```ts
-import {
-  EditorOptions,
-  immutableNoteCallerNodeName,
-  UsjNodeOptions,
-} from "@eten-tech-foundation/platform-editor";
+import { EditorOptions, UsjNodeOptions } from "@eten-tech-foundation/platform-editor";
 
-const nodes: UsjNodeOptions = {
-  [immutableNoteCallerNodeName]: { noteCallers: ["a", "b", "c", ... , "x", "y", "z"] },
-};
+const nodes: UsjNodeOptions = { noteCallers: ["a", "b", "c", ... , "x", "y", "z"] };
 const options: EditorOptions = { nodes };
 ```
 

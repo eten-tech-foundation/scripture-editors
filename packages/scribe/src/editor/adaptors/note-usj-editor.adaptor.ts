@@ -76,7 +76,6 @@ import {
   IMMUTABLE_NOTE_CALLER_VERSION,
   IMMUTABLE_VERSE_VERSION,
   ImmutableNoteCallerNode,
-  immutableNoteCallerNodeName,
   ImmutableVerseNode,
   OnClick,
   SerializedImmutableNoteCallerNode,
@@ -362,8 +361,7 @@ function createNoteCaller(
 ): SerializedImmutableNoteCallerNode {
   const previewText = getPreviewTextFromSerializedNodes(childNodes);
   let onClick: OnClick = () => undefined;
-  if (_nodeOptions?.[immutableNoteCallerNodeName]?.onClick)
-    onClick = _nodeOptions[immutableNoteCallerNodeName].onClick;
+  if (_nodeOptions?.noteCallerOnClick) onClick = _nodeOptions.noteCallerOnClick;
 
   return removeUndefinedProperties({
     type: ImmutableNoteCallerNode.getType(),

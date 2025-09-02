@@ -31,14 +31,12 @@
 
 export { default as Editorial } from "./Editorial";
 export { default as Marginal } from "./marginal/Marginal";
-export { typedMarkNodeName } from "shared";
 export {
   directionToNames,
   getDefaultViewMode,
   getDefaultViewOptions,
   getViewMode,
   getViewOptions,
-  immutableNoteCallerNodeName,
   viewModeToViewNames,
 } from "shared-react";
 

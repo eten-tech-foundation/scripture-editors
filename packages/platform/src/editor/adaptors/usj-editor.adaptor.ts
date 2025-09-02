@@ -69,7 +69,6 @@ import {
   SerializedVerseNode,
   STARTING_MS_COMMENT_MARKER,
   TypedMarkNode,
-  typedMarkNodeName,
   UNKNOWN_VERSION,
   UnknownNode,
   VERSE_MARKER,
@@ -91,7 +90,6 @@ import {
   ViewOptions,
   getDefaultViewOptions,
   getVerseNodeClass,
-  immutableNoteCallerNodeName,
   isSomeSerializedVerseNode,
 } from "shared-react";
 
@@ -180,8 +178,8 @@ function setNodeOptions(nodeOptions: UsjNodeOptions | undefined) {
   if (nodeOptions) _nodeOptions = nodeOptions;
 
   // Set the `addMissingComments` method.
-  if (nodeOptions?.[typedMarkNodeName]?.addMissingComments) {
-    addMissingComments = nodeOptions[typedMarkNodeName].addMissingComments;
+  if (nodeOptions?.addMissingComments) {
+    addMissingComments = nodeOptions.addMissingComments;
   }
 }
 
@@ -366,8 +364,7 @@ function createNoteCaller(
 ): SerializedImmutableNoteCallerNode {
   const previewText = getPreviewTextFromSerializedNodes(childNodes);
   let onClick: OnClick = () => undefined;
-  if (_nodeOptions?.[immutableNoteCallerNodeName]?.onClick)
-    onClick = _nodeOptions[immutableNoteCallerNodeName].onClick;
+  if (_nodeOptions?.noteCallerOnClick) onClick = _nodeOptions.noteCallerOnClick;
 
   return removeUndefinedProperties({
     type: ImmutableNoteCallerNode.getType(),

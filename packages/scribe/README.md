@@ -42,7 +42,6 @@ import {
   UsjNodeOptions,
   getViewOptions,
   getDefaultViewMode,
-  immutableNoteCallerNodeName,
 } from "shared";
 
 const defaultUsj: Usj = {
@@ -54,10 +53,8 @@ const defaultUsj: Usj = {
 const defaultScrRef: ScriptureReference = { book: "PSA", chapterNum: 1, verseNum: 1 };
 
 const nodeOptions: UsjNodeOptions = {
-  [immutableNoteCallerNodeName]: {
-    onClick: (e: SyntheticEvent) => {
-      console.log("note node clicked", e);
-    },
+  noteCallerOnClick: (e: SyntheticEvent) => {
+    console.log("note node clicked", e);
   },
 };
 

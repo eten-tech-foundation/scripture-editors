@@ -39,7 +39,6 @@ export type SerializedNoteNode = Spread<
 
 export const NOTE_VERSION = 1;
 
-export const noteNodeName = "NoteNode";
 export class NoteNode extends ElementNode {
   __marker: string;
   __caller: string;

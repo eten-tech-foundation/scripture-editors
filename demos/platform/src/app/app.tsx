@@ -10,7 +10,6 @@ import {
   EditorOptions,
   getDefaultViewMode,
   getViewOptions,
-  immutableNoteCallerNodeName,
   Marginal,
   MarginalRef,
   TextDirection,
@@ -33,7 +32,8 @@ interface Annotations {
 const defaultUsj = usxStringToUsj('<usx version="3.1" />');
 const defaultScrRef: SerializedVerseRef = { book: "PSA", chapterNum: 1, verseNum: 1 };
 const nodeOptions: UsjNodeOptions = {
-  [immutableNoteCallerNodeName]: { onClick: () => console.log("note node clicked") },
+  noteCallerOnClick: () => console.log("note node clicked"),
+  noteCallers: ["n1", "n2", "n3", "n4", "n5", "n6"],
 };
 // Word "man" inside first q1 of PSA 1:1.
 const annotationRange1 = {

@@ -1,7 +1,6 @@
 import {
   $createImmutableNoteCallerNode,
   ImmutableNoteCallerNode,
-  immutableNoteCallerNodeName,
   OnClick,
 } from "../../../nodes/usj/ImmutableNoteCallerNode";
 import { $createImmutableVerseNode } from "../../../nodes/usj/ImmutableVerseNode";
@@ -1601,8 +1600,8 @@ function $createNote(op: DeltaOp, viewOptions: ViewOptions, nodeOptions: UsjNode
   } else {
     const previewText = getNoteCallerPreviewText(contentNodes);
     let onClick: OnClick = () => undefined;
-    if (nodeOptions?.[immutableNoteCallerNodeName]?.onClick) {
-      onClick = nodeOptions[immutableNoteCallerNodeName].onClick;
+    if (nodeOptions?.noteCallerOnClick) {
+      onClick = nodeOptions.noteCallerOnClick;
     }
     callerNode = $createImmutableNoteCallerNode(caller, previewText, onClick);
   }

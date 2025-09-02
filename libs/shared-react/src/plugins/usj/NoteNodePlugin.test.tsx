@@ -3,7 +3,6 @@ import {
   defaultNoteCallers,
   GENERATOR_NOTE_CALLER,
   ImmutableNoteCallerNode,
-  immutableNoteCallerNodeName,
 } from "../../nodes/usj/ImmutableNoteCallerNode";
 import { $createImmutableVerseNode } from "../../nodes/usj/ImmutableVerseNode";
 import { UsjNodeOptions } from "../../nodes/usj/usj-node-options.model";
@@ -172,9 +171,7 @@ describe("NoteNodePlugin", () => {
 });
 
 async function testEnvironment(
-  nodeOptions: UsjNodeOptions = {
-    [immutableNoteCallerNodeName]: { noteCallers: defaultNoteCallers },
-  },
+  nodeOptions: UsjNodeOptions = { noteCallers: defaultNoteCallers },
   viewOptions: ViewOptions = { markerMode: "hidden", hasSpacing: true, isFormattedFont: true },
   $initialEditorState: () => void = $defaultInitialEditorState,
 ) {

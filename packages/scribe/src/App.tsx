@@ -6,13 +6,7 @@ import "../../../libs/shared/src/styles/nodes-menu.css";
 import { Usj, USJ_TYPE, USJ_VERSION } from "@eten-tech-foundation/scripture-utilities";
 import { useState, useMemo, SyntheticEvent, useRef, useEffect } from "react";
 import { ScriptureReference } from "shared";
-import {
-  getDefaultViewMode,
-  getViewOptions,
-  immutableNoteCallerNodeName,
-  SelectionRange,
-  UsjNodeOptions,
-} from "shared-react";
+import { getDefaultViewMode, getViewOptions, SelectionRange, UsjNodeOptions } from "shared-react";
 // import { Usj2Usfm } from "@/hooks/usj2Usfm";
 import "@/styles/App.css";
 import Editor, { EditorRef } from "@/editor/Editor";
@@ -25,10 +19,8 @@ const defaultUsj: Usj = {
 };
 const defaultScrRef: ScriptureReference = { book: "PSA", chapterNum: 1, verseNum: 1 };
 const nodeOptions: UsjNodeOptions = {
-  [immutableNoteCallerNodeName]: {
-    onClick: (e: SyntheticEvent) => {
-      console.log("note node clicked", e);
-    },
+  noteCallerOnClick: (e: SyntheticEvent) => {
+    console.log("note node clicked", e);
   },
 };
 

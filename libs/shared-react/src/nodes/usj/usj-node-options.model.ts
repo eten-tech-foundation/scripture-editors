@@ -1,5 +1,5 @@
-import { NodeOptions, typedMarkNodeName } from "shared";
-import { OnClick, immutableNoteCallerNodeName } from "./ImmutableNoteCallerNode";
+import { NodeOptions } from "shared";
+import { OnClick } from "./ImmutableNoteCallerNode";
 
 /**
  * A function type that adds missing comments to a USJ document.
@@ -16,16 +16,10 @@ export type AddMissingComments = (usjCommentIds: string[]) => void;
  * @public
  */
 export interface UsjNodeOptions extends NodeOptions {
-  /** Configuration options for immutable note caller nodes. */
-  [immutableNoteCallerNodeName]?: {
-    /** Possible note callers to use when caller is '+'. Defaults to lowercase Latin characters. */
-    noteCallers?: string[];
-    /** Click handler method. */
-    onClick?: OnClick;
-  };
-  /** Configuration options for typed mark nodes. */
-  [typedMarkNodeName]?: {
-    /** Method to add missing comments. */
-    addMissingComments?: AddMissingComments;
-  };
+  /** Possible note callers to use when caller is '+'. Defaults to lowercase Latin characters. */
+  noteCallers?: string[];
+  /** Note caller click handler method. */
+  noteCallerOnClick?: OnClick;
+  /** Method to add missing comments. */
+  addMissingComments?: AddMissingComments;
 }

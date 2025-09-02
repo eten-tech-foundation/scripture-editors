@@ -1,10 +1,9 @@
 import { MarkerObject } from "@eten-tech-foundation/scripture-utilities";
 import { SerializedEditorState } from "lexical";
-import { SerializedNoteNode, SerializedParaNode, typedMarkNodeName } from "shared";
+import { SerializedNoteNode, SerializedParaNode } from "shared";
 import {
   defaultNoteCallers,
   getViewOptions,
-  immutableNoteCallerNodeName,
   SerializedImmutableNoteCallerNode,
   UNFORMATTED_VIEW_MODE,
 } from "shared-react";
@@ -60,7 +59,7 @@ describe("USJ Editor Adaptor", () => {
   });
 
   it("should convert from USJ to Lexical editor state JSON", () => {
-    const nodeOptions = { [immutableNoteCallerNodeName]: { noteCallers: defaultNoteCallers } };
+    const nodeOptions = { noteCallers: defaultNoteCallers };
     initialize(nodeOptions, console);
 
     const serializedEditorState = serializeEditorState(usjGen1v1);
@@ -127,7 +126,7 @@ describe("USJ Editor Adaptor", () => {
 
   it("should call `addMissingComments` if it's set", () => {
     const mockAddMissingComments = vi.fn();
-    const nodeOptions = { [typedMarkNodeName]: { addMissingComments: mockAddMissingComments } };
+    const nodeOptions = { addMissingComments: mockAddMissingComments };
     initialize(nodeOptions, console);
 
     const serializedEditorState = serializeEditorState(usjMarks);
@@ -139,7 +138,7 @@ describe("USJ Editor Adaptor", () => {
   });
 
   it("should convert from USJ with unknown items to Lexical editor state JSON", () => {
-    const nodeOptions = { [immutableNoteCallerNodeName]: { noteCallers: defaultNoteCallers } };
+    const nodeOptions = { noteCallers: defaultNoteCallers };
     initialize(nodeOptions, console);
     reset();
 

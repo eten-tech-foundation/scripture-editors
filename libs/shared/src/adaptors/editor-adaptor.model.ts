@@ -8,7 +8,7 @@ import { LoggerBasic } from "./logger-basic.model.js";
  */
 export interface NodeOptions {
   /** Configuration options for any node. */
-  [nodeClassName: string]: { [prop: string]: unknown } | undefined;
+  [prop: string]: unknown;
 }
 
 export interface EditorAdaptor {

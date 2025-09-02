@@ -5,5 +5,4 @@ export {
   getDefaultViewOptions,
   getViewMode,
   getViewOptions,
-  immutableNoteCallerNodeName,
 } from "shared-react";

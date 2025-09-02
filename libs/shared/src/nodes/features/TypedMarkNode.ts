@@ -38,23 +38,6 @@ export type SerializedTypedMarkNode = Spread<
 /** Reserved mark type for CommentPlugin. */
 export const COMMENT_MARK_TYPE = "internal-comment";
 
-/**
- * The name identifier for the typed mark node class.
- *
- * @remarks
- * This constant is used to identify and reference options for a TypedMarkNode instance.
- *
- * @example
- * ```tsx
- * const nodeOptions: UsjNodeOptions = {
- *  [typedMarkNodeName]: { addMissingComments: () => console.log("added missing comments") },
- * };
- * ```
- *
- * @public
- */
-export const typedMarkNodeName = "TypedMarkNode";
-
 const reservedTypes = [COMMENT_MARK_TYPE];
 const TYPED_MARK_VERSION = 1;
 

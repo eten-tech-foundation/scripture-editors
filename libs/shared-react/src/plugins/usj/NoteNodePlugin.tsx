@@ -3,7 +3,6 @@ import {
   defaultNoteCallers,
   GENERATOR_NOTE_CALLER,
   ImmutableNoteCallerNode,
-  immutableNoteCallerNodeName,
 } from "../../nodes/usj/ImmutableNoteCallerNode";
 import { UsjNodeOptions } from "../../nodes/usj/usj-node-options.model";
 import { ViewOptions } from "../../views/view-options.utils";
@@ -68,7 +67,7 @@ export function NoteNodePlugin<TLogger extends LoggerBasic>({
  */
 function useNodeOptions(nodeOptions: UsjNodeOptions, logger?: LoggerBasic) {
   const previousNoteCallersRef = useRef<string[] | undefined>(undefined);
-  const nodeOptionsNoteCallers = nodeOptions[immutableNoteCallerNodeName]?.noteCallers;
+  const nodeOptionsNoteCallers = nodeOptions.noteCallers;
 
   useEffect(() => {
     let noteCallers = nodeOptionsNoteCallers;

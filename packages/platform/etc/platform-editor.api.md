@@ -96,9 +96,6 @@ export function getViewMode(viewOptions: ViewOptions | undefined): ViewMode | un
 export function getViewOptions(viewMode?: string | undefined): ViewOptions | undefined;
 
 // @public
-export const immutableNoteCallerNodeName = "ImmutableNoteCallerNode";
-
-// @public
 export interface LoggerBasic {
     debug(...params: any[]): void;
     error(...params: any[]): void;
@@ -122,9 +119,7 @@ export interface MarginalRef extends EditorRef {
 
 // @public
 export interface NodeOptions {
-    [nodeClassName: string]: {
-        [prop: string]: unknown;
-    } | undefined;
+    [prop: string]: unknown;
 }
 
 // @public
@@ -148,9 +143,6 @@ export interface Thread {
 }
 
 // @public
-export const typedMarkNodeName = "TypedMarkNode";
-
-// @public
 export interface UsjLocation {
     jsonPath: string;
     offset: number;
@@ -158,13 +150,9 @@ export interface UsjLocation {
 
 // @public
 export interface UsjNodeOptions extends NodeOptions {
-    [immutableNoteCallerNodeName]?: {
-        noteCallers?: string[];
-        onClick?: OnClick;
-    };
-    [typedMarkNodeName]?: {
-        addMissingComments?: AddMissingComments;
-    };
+    addMissingComments?: AddMissingComments;
+    noteCallerOnClick?: OnClick;
+    noteCallers?: string[];
 }
 
 // @public
