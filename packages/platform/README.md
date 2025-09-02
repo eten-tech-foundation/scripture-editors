@@ -156,9 +156,13 @@ If using the **commenting features** in the `<Marginal />` component:
 
 ### Annotation Styles
 
-Annotations are added with a specific `type` via the editor's reference API (see [Editorial Ref](#editorial-ref)). This `type` can then be used to apply custom CSS styles (e.g., a green squiggly underline for a _"grammar"_ type annotation). The CSS classname for an annotation takes the form of `.${annotationPrefix}-${type}`, where `type` is the string you pass to the `addAnnotation()` method and `annotationPrefix` is set by `config.theme.typedMark` (defaults to _"editor-typed-mark"_). If annotations overlap with each other an additional CSS classname is added where `annotationPrefix` is set by `config.theme.typedMarkOverlap` (defaults to _"editor-typed-markOverlap"_).
+Annotations are added with a specific `type` via the editor's reference API (see [Editorial Ref](#editorial-ref)). This `type` can then be used to apply custom CSS styles (e.g., a green squiggly underline for a _"grammar"_ type annotation). The CSS classname for an annotation takes the form of `.${annotationPrefix}-external-${type}`, where `type` is the string you pass to the `addAnnotation()` method and `annotationPrefix` is set by `config.theme.typedMark` (defaults to _"editor-typed-mark"_). If annotations overlap with each other an additional CSS classname is added where `annotationPrefix` is set by `config.theme.typedMarkOverlap` (defaults to _"editor-typed-markOverlap"_).
 
-For example, if an annotation of type _"grammar"_ is overlapping it will have both CSS classnames `editor-typed-mark-grammar` and `editor-typed-markOverlap-grammar`. If it's not overlapping it still has the first classname.
+For example, if an annotation of type _"grammar"_ is overlapping it will have both CSS classnames `editor-typed-mark-external-grammar` and `editor-typed-markOverlap-external-grammar`. If it's not overlapping it still has the first classname. Annotations and comments are the same when considering if it's overlapping.
+
+### Comment Styles
+
+These follow a similar patter to [Annotation Styles](#annotation-styles). If a comment is overlapping it will have both CSS classnames `editor-typed-mark-internal-comment` and `editor-typed-markOverlap-internal-comment`. If it's not overlapping it still has the first classname. Annotations and comments are the same when considering if it's overlapping.
 
 ## `<Editorial />` API
 

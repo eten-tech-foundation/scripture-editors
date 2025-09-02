@@ -35,8 +35,8 @@ export type SerializedTypedMarkNode = Spread<
   SerializedElementNode
 >;
 
-/** Reserved type for CommentPlugin. */
-export const COMMENT_MARK_TYPE = "comment";
+/** Reserved mark type for CommentPlugin. */
+export const COMMENT_MARK_TYPE = "internal-comment";
 
 /**
  * The name identifier for the typed mark node class.
@@ -376,4 +376,15 @@ export function $getMarkIDs(node: TextNode, type: string, offset: number): strin
     currentNode = currentNode.getParent();
   }
   return undefined;
+}
+
+/**
+ * Gets the external typed mark type.
+ *
+ * @remarks
+ * This is used to ensure unique identification of external typed marks. Along with reserved types
+ * prefaced with 'internal-' for internal typed marks @see {@link COMMENT_MARK_TYPE}.
+ */
+export function externalTypedMarkType(type: string): string {
+  return `external-${type}`;
 }

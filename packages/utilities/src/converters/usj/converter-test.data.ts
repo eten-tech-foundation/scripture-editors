@@ -1202,7 +1202,7 @@ export const editorStateMarks = {
           },
           {
             type: "typed-mark",
-            typedIDs: { comment: [] },
+            typedIDs: { "internal-comment": [] },
             direction: null,
             format: "",
             indent: 0,
@@ -1251,7 +1251,7 @@ export const editorStateMarks = {
           },
           {
             type: "typed-mark",
-            typedIDs: { comment: ["1"] },
+            typedIDs: { "internal-comment": ["1"] },
             direction: null,
             format: "",
             indent: 0,
@@ -1300,7 +1300,7 @@ export const editorStateMarks = {
           },
           {
             type: "typed-mark",
-            typedIDs: { comment: ["1"] },
+            typedIDs: { "internal-comment": ["1"] },
             direction: null,
             format: "",
             indent: 0,
@@ -1319,7 +1319,7 @@ export const editorStateMarks = {
           },
           {
             type: "typed-mark",
-            typedIDs: { comment: ["2"] },
+            typedIDs: { "internal-comment": ["2"] },
             direction: null,
             format: "",
             indent: 0,
@@ -1368,7 +1368,7 @@ export const editorStateMarks = {
           },
           {
             type: "typed-mark",
-            typedIDs: { comment: ["1"] },
+            typedIDs: { "internal-comment": ["1"] },
             direction: null,
             format: "",
             indent: 0,
@@ -1387,7 +1387,7 @@ export const editorStateMarks = {
           },
           {
             type: "typed-mark",
-            typedIDs: { comment: ["1", "2"] },
+            typedIDs: { "internal-comment": ["1", "2"] },
             direction: null,
             format: "",
             indent: 0,
@@ -1406,7 +1406,7 @@ export const editorStateMarks = {
           },
           {
             type: "typed-mark",
-            typedIDs: { comment: ["2"] },
+            typedIDs: { "internal-comment": ["2"] },
             direction: null,
             format: "",
             indent: 0,
@@ -1446,7 +1446,7 @@ export const editorStateMarks = {
           },
           {
             type: "typed-mark",
-            typedIDs: { comment: ["1"] },
+            typedIDs: { "internal-comment": ["1"] },
             direction: null,
             format: "",
             indent: 0,
@@ -1465,7 +1465,7 @@ export const editorStateMarks = {
           },
           {
             type: "typed-mark",
-            typedIDs: { comment: ["1", "2"] },
+            typedIDs: { "internal-comment": ["1", "2"] },
             direction: null,
             format: "",
             indent: 0,
@@ -1484,7 +1484,7 @@ export const editorStateMarks = {
           },
           {
             type: "typed-mark",
-            typedIDs: { comment: ["1"] },
+            typedIDs: { "internal-comment": ["1"] },
             direction: null,
             format: "",
             indent: 0,

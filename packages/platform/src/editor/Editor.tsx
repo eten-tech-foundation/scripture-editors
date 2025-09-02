@@ -60,6 +60,7 @@ import {
 import {
   blackListedChangeTags,
   DELTA_CHANGE_TAG,
+  externalTypedMarkType,
   LoggerBasic,
   SELECTION_CHANGE_TAG,
   TypedMarkNode,
@@ -246,10 +247,10 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
       );
     },
     addAnnotation(selection, type, id) {
-      annotationRef.current?.addAnnotation(selection, type, id);
+      annotationRef.current?.addAnnotation(selection, externalTypedMarkType(type), id);
     },
     removeAnnotation(type, id) {
-      annotationRef.current?.removeAnnotation(type, id);
+      annotationRef.current?.removeAnnotation(externalTypedMarkType(type), id);
     },
     get toolbarEndRef() {
       return toolbarEndRef;
