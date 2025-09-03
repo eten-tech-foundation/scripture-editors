@@ -3,7 +3,10 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
-    "dev": "vite"
+    "dev": "vite",
+    "preprod": "cd ../../packages/platform && npm run prepublishOnly",
+    "prod": "npm run dev",
+    "postprod": "cd ../../packages/platform && npm run postpublish"
   },
   "dependencies": {
     "@eten-tech-foundation/platform-editor": "workspace:~",

@@ -17,6 +17,7 @@
   "exports": {
     "./package.json": "./package.json",
     ".": {
+      "development": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
@@ -29,7 +30,8 @@
     "!src/**/*.test.tsx"
   ],
   "scripts": {
-    "prepublish": "cd ../.. && nx extract-api platform-editor"
+    "prepublishOnly": "tsx scripts/prepare-publish.ts && cd ../.. && nx extract-api platform-editor",
+    "postpublish": "git restore package.json"
   },
   "peerDependencies": {
     "react": ">=18.3.1",

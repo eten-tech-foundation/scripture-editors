@@ -32,7 +32,7 @@
     "!src/**/*.data.ts"
   ],
   "scripts": {
-    "prepublish": "cd ../.. && nx build utilities"
+    "prepublishOnly": "cd ../.. && nx build utilities"
   },
   "dependencies": {
     "@xmldom/xmldom": "^0.9.8"
