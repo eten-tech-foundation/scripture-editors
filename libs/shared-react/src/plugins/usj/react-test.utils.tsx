@@ -19,7 +19,7 @@ import {
   LexicalNode,
 } from "lexical";
 import { ReactNode } from "react";
-import { segmentState } from "shared";
+import { segmentState, TypedMarkNode } from "shared";
 
 export async function baseTestEnvironment(
   $initialEditorState?: () => void,
@@ -38,7 +38,7 @@ export async function baseTestEnvironment(
         initialConfig={{
           editorState: $initialEditorState,
           namespace: "TestEditor",
-          nodes: usjReactNodes,
+          nodes: [TypedMarkNode, ...usjReactNodes],
           onError: (error) => {
             throw error;
           },

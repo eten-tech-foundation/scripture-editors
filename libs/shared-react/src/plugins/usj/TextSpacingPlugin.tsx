@@ -9,7 +9,15 @@ import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext
 import { mergeRegister } from "@lexical/utils";
 import { $createTextNode, $isTextNode, LexicalEditor, TextNode } from "lexical";
 import { useEffect } from "react";
-import { $isCharNode, $isNoteNode, $isUnknownNode, CharNode, NoteNode, VerseNode } from "shared";
+import {
+  $isCharNode,
+  $isNoteNode,
+  $isTypedMarkNode,
+  $isUnknownNode,
+  CharNode,
+  NoteNode,
+  VerseNode,
+} from "shared";
 
 /** This plugin ensures that there is a space following a text node including before verse nodes. */
 export function TextSpacingPlugin() {
@@ -41,9 +49,9 @@ function useTextSpacing(editor: LexicalEditor) {
 }
 
 /**
- * Adds a space to the end of a TextNode if it doesn't precede a note or isn't inside a CharNode or
- * UnknownNode. It doesn't add a space if the text node is not editable. It removes a TextNode with
- * only a space if it is not followed by a verse node.
+ * Adds a space to the end of a TextNode if it doesn't precede a note or isn't inside a CharNode,
+ * TypedMarkNode, or UnknownNode. It doesn't add a space if the text node is not editable. It
+ * removes a TextNode with only a space if it is not followed by a verse node.
  * @param node - TextNode that might need updating.
  */
 function $textNodeTrailingSpaceTransform(node: TextNode): void {
@@ -57,6 +65,7 @@ function $textNodeTrailingSpaceTransform(node: TextNode): void {
     (text.endsWith(" ") && text.length > 1) ||
     $isNoteNode(nextSibling) ||
     $isCharNode(parent) ||
+    $isTypedMarkNode(parent) ||
     $isUnknownNode(parent)
   )
     return;

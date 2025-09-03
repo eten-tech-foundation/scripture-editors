@@ -18,9 +18,11 @@ import {
   $createImmutableChapterNode,
   $createNoteNode,
   $createParaNode,
+  $createTypedMarkNode,
   $createUnknownNode,
   $isCharNode,
   $isParaNode,
+  $isTypedMarkNode,
   $isUnknownNode,
   ParaNode,
   UnknownNode,
@@ -118,6 +120,30 @@ describe("TextSpacingPlugin", () => {
       const charNode = para.getChildAtIndex(1);
       if (!$isCharNode(charNode)) throw new Error("Expected a CharNode");
       expect(charNode.getTextContent()).toBe("e");
+    });
+  });
+
+  it("should not add a space inside a TypedMarkNode", async () => {
+    const { editor } = await testEnvironment(() => {
+      $getRoot().append(
+        $createParaNode().append(
+          $createTextNode("This is "),
+          $createTypedMarkNode({ testType1: ["testID1"] }).append(
+            $createTextNode("a TypedMarkNode"),
+          ),
+          $createTextNode("."),
+        ),
+      );
+    });
+
+    editor.getEditorState().read(() => {
+      const para = $getRoot().getFirstChild();
+      if (!$isParaNode(para)) throw new Error("Expected a ParaNode");
+      expect(para.getChildrenSize()).toBe(3);
+      const markNode = para.getChildAtIndex(1);
+      if (!$isTypedMarkNode(markNode)) throw new Error("Expected a TypedMarkNode");
+      // No extra space at the end.
+      expect(markNode.getTextContent()).toBe("a TypedMarkNode");
     });
   });
 
