@@ -1,4 +1,4 @@
-import { Usj, USJ_TYPE, USJ_VERSION } from "@biblionexus-foundation/scripture-utilities";
+import { Usj, USJ_TYPE, USJ_VERSION } from "@eten-tech-foundation/scripture-utilities";
 import { UsjReaderWriter } from "./usj-reader-writer";
 
 const usj: Usj = JSON.parse(`{
@@ -955,6 +955,31 @@ test("Correct USJ details are found using findUsjContentAndJsonPath", () => {
   }).toThrow("Could not find JHN chapter 1");
 });
 
+test("Correct USJ details are found using verseRefToNextTextLocation", () => {
+  const usjDoc = new UsjReaderWriter(usj);
+
+  // Start from a verse node
+  const result1 = usjDoc.verseRefToNextTextLocation({ book: "MAT", chapterNum: 1, verseNum: 2 });
+  if (typeof result1.node !== "string") throw new Error("Expected result1 to be a string");
+  expect(result1.jsonPath).toBe("$.content[10].content[1]");
+  expect(result1.offset).toBe(0);
+  expect(result1.node).toBe(
+    "Abraham became the father of Isaac. Isaac became the father of Jacob. Jacob became the father of Judah and his brothers.",
+  );
+
+  const result2 = usjDoc.verseRefToNextTextLocation({ book: "MAT", chapterNum: 2, verseNum: 19 });
+  if (typeof result2.node !== "string") throw new Error("Expected result2 to be a string");
+  expect(result2.jsonPath).toBe("$.content[36].content[1]");
+  expect(result2.offset).toBe(0);
+  expect(result2.node).toBe(
+    "But when Herod was dead, behold, an angel of the Lord appeared in a dream to Joseph in Egypt, saying,",
+  );
+
+  expect(() => {
+    usjDoc.verseRefToNextTextLocation({ book: "MAT", chapterNum: 3, verseNum: 1 });
+  }).toThrow("Verse 1 not found in MAT 3");
+});
+
 test("Correct USJ details are found using findNextLocationOfMatchingText", () => {
   const usjDoc = new UsjReaderWriter(usj);
 
@@ -963,35 +988,56 @@ test("Correct USJ details are found using findNextLocationOfMatchingText", () =>
     { book: "MAT", chapterNum: 1, verseNum: 2 },
     0,
   );
-  expect(typeof startingPoint1.node).toBe("object");
-  if (typeof startingPoint1.node !== "object") return;
+  if (typeof startingPoint1.node !== "object")
+    throw new Error("Expected startingPoint1 to be an object");
   expect(startingPoint1.jsonPath).toBe("$.content[10].content[0]");
   expect(startingPoint1.offset).toBe(0);
 
   const result1 = usjDoc.findNextLocationOfMatchingText(startingPoint1, "the father of Manasseh");
   expect(result1).toBeTruthy();
-  expect(typeof result1?.node).toBe("string");
-  if (typeof result1?.node !== "string") return;
+  if (typeof result1?.node !== "string") throw new Error("Expected result1 node to be a string");
   expect(result1.node).toBe(
     "Hezekiah became the father of Manasseh. Manasseh became the father of Amon. Amon became the father of Josiah.",
   );
   expect(result1.jsonPath).toBe("$.content[10].content[19]");
   expect(result1.offset).toBe(16);
 
+  // Match the text right after the verse ref
+  const result5 = usjDoc.findNextLocationOfMatchingText(
+    startingPoint1,
+    "Abraham became the father of Isaac.",
+  );
+  expect(result5).toBeTruthy();
+  if (typeof result5?.node !== "string") throw new Error("Expected result5 node to be a string");
+  expect(result5.node).toBe(
+    "Abraham became the father of Isaac. Isaac became the father of Jacob. Jacob became the father of Judah and his brothers.",
+  );
+  expect(result5.jsonPath).toBe("$.content[10].content[1]");
+  expect(result5.offset).toBe(0);
+
+  // Get the first text you can find after the requested location (in this case, a verse ref)
+  const result6 = usjDoc.findNextLocationOfMatchingText(startingPoint1, "");
+  expect(result6).toBeTruthy();
+  if (typeof result6?.node !== "string") throw new Error("Expected result6 node to be a string");
+  expect(result6.node).toBe(
+    "Abraham became the father of Isaac. Isaac became the father of Jacob. Jacob became the father of Judah and his brothers.",
+  );
+  expect(result6.jsonPath).toBe("$.content[10].content[1]");
+  expect(result6.offset).toBe(0);
+
   // Start from a string
   const startingPoint2 = usjDoc.verseRefToUsjContentLocation(
     { book: "MAT", chapterNum: 1, verseNum: 6 },
     3,
   );
-  expect(typeof startingPoint2.node).toBe("string");
-  if (typeof startingPoint2.node !== "string") return;
+  if (typeof startingPoint2.node !== "string")
+    throw new Error("Expected startingPoint2 to be a string");
   expect(startingPoint2.jsonPath).toBe("$.content[10].content[9]");
   expect(startingPoint2.offset).toBe(3);
 
   const result2 = usjDoc.findNextLocationOfMatchingText(startingPoint2, "the father of Manasseh");
   expect(result2).toBeTruthy();
-  expect(typeof result2?.node).toBe("string");
-  if (typeof result2?.node !== "string") return;
+  if (typeof result2?.node !== "string") throw new Error("Expected result2 node to be a string");
   expect(result2.node).toBe(
     "Hezekiah became the father of Manasseh. Manasseh became the father of Amon. Amon became the father of Josiah.",
   );
@@ -1004,11 +1050,167 @@ test("Correct USJ details are found using findNextLocationOfMatchingText", () =>
 
   const result4 = usjDoc.findNextLocationOfMatchingText(startingPoint2, "Josiah became");
   expect(result4).toBeTruthy();
-  expect(typeof result4?.node).toBe("string");
-  if (typeof result4?.node !== "string") return;
+  if (typeof result4?.node !== "string") throw new Error("Expected result4 node to be a string");
   expect(result4.node).toBe(
     "Josiah became the father of Jechoniah and his brothers at the time of the exile to Babylon.",
   );
   expect(result4.jsonPath).toBe("$.content[10].content[21]");
   expect(result4.offset).toBe(0);
+
+  // the search includes the text in the starting point location, so searching for something that
+  // matches the starting location should just return the same location
+  const result7 = usjDoc.findNextLocationOfMatchingText(startingPoint2, "");
+  expect(result7).toBeTruthy();
+  if (typeof result7?.node !== "string") throw new Error("Expected result7 node to be a string");
+  expect(result7.node).toBe("Jesse became the father of King David. David the king");
+  expect(result7.jsonPath).toBe("$.content[10].content[9]");
+  expect(result7.offset).toBe(3);
+
+  // Match something that is found before and after the start offset, but the match should be the
+  // occurrence after the offset
+  const result8 = usjDoc.findNextLocationOfMatchingText(startingPoint2, "e");
+  expect(result8).toBeTruthy();
+  if (typeof result8?.node !== "string") throw new Error("Expected result8 node to be a string");
+  expect(result8.node).toBe("Jesse became the father of King David. David the king");
+  expect(result8.jsonPath).toBe("$.content[10].content[9]");
+  expect(result8.offset).toBe(4);
+
+  // Make sure that the offset is not included in the max length of text to search
+  // NOTE: this max length parameter does not carefully check only the exact length specified;
+  // rather, it just doesn't look at any more text nodes after it exceeds the limit.
+  const startingPoint2RemainingTextLength =
+    "Jesse became the father of King David. David the king".length - startingPoint2.offset;
+  const stringToSearchForInTheNextLocation = "Solomon";
+  const result9 = usjDoc.findNextLocationOfMatchingText(
+    startingPoint2,
+    stringToSearchForInTheNextLocation,
+    // not long enough to get past the first text line
+    startingPoint2RemainingTextLength - 1,
+  );
+  expect(result9).toBe(undefined);
+
+  const result10 = usjDoc.findNextLocationOfMatchingText(
+    startingPoint2,
+    stringToSearchForInTheNextLocation,
+    startingPoint2RemainingTextLength,
+  ); // index of one character before "the" minus the offset
+  expect(result10).toBeTruthy();
+  if (typeof result10?.node !== "string") throw new Error("Expected result10 node to be a string");
+  expect(result10.node).toBe("became the father of Solomon by her who had been Uriah’s wife.");
+  expect(result10.jsonPath).toBe("$.content[10].content[11]");
+  expect(result10.offset).toBe(21);
+});
+
+test("Correct USJ details are found using search", () => {
+  const usjDoc = new UsjReaderWriter(usj);
+
+  // Test 1: Find all occurrences of "father" with global regex
+  const fatherRegex = /father/g;
+  const fatherMatches = usjDoc.search(fatherRegex);
+  expect(fatherMatches.length).toBe(40);
+
+  // Verify that all matches contain the text "father"
+  fatherMatches.forEach((match) => {
+    expect(match.text).toBe("father");
+    expect(typeof match.location.node).toBe("string");
+    expect(match.location.offset).toBeGreaterThanOrEqual(0);
+    expect(match.location.jsonPath).toMatch(/^\$\.content\[\d+\]\.content\[\d+\]$/);
+  });
+
+  // Test 2: Find all occurrences of "became" with case-insensitive global regex
+  const becameRegex = /became/gi;
+  const becameMatches = usjDoc.search(becameRegex);
+  expect(becameMatches.length).toBe(39);
+
+  // Verify that all matches contain "became" (case-insensitive)
+  becameMatches.forEach((match) => {
+    expect(match.text.toLowerCase()).toBe("became");
+    expect(typeof match.location.node).toBe("string");
+    expect(match.location.offset).toBeGreaterThanOrEqual(0);
+  });
+
+  // Test 3: Search for a pattern that should not exist
+  const nonExistentRegex = /xyz123notfound/g;
+  const noMatches = usjDoc.search(nonExistentRegex);
+  expect(noMatches).toEqual([]);
+
+  // Test 4: Find all occurrences of numbers with regex
+  const numberRegex = /\d+/g;
+  const numberMatches = usjDoc.search(numberRegex);
+  expect(numberMatches.length).toBeGreaterThan(0);
+
+  // Verify that all matches are numbers
+  numberMatches.forEach((match) => {
+    expect(match.text).toMatch(/^\d+$/);
+    expect(typeof match.location.node).toBe("string");
+  });
+
+  // Test 5: Test word boundaries
+  const theWordRegex = /\bthe\b/g;
+  const theWordMatches = usjDoc.search(theWordRegex);
+  expect(theWordMatches.length).toBeGreaterThan(0);
+
+  // Verify that matches are exactly "the" (not part of other words)
+  theWordMatches.forEach((match) => {
+    expect(match.text).toBe("the");
+  });
+
+  // Test 6: Test complex regex pattern
+  const namePatternRegex = /[A-Z][a-z]+(?:\s[A-Z][a-z]+)*/g;
+  const nameMatches = usjDoc.search(namePatternRegex);
+  expect(nameMatches.length).toBeGreaterThan(0);
+
+  // Verify that matches are capitalized names/phrases
+  nameMatches.forEach((match) => {
+    expect(match.text).toMatch(/^[A-Z]/);
+    expect(typeof match.location.node).toBe("string");
+  });
+
+  // Test 7: Regex without global flag should only return 1 match
+  const nonGlobalRegex = /father/;
+  const singleMatch = usjDoc.search(nonGlobalRegex);
+  expect(singleMatch.length).toBe(1);
+
+  // Test 8: Verify ordering of matches (should be in document order)
+  const davidRegex = /David/g;
+  const davidMatches = usjDoc.search(davidRegex);
+
+  // Compare JSON paths to ensure they're in document order
+  const firstPath = davidMatches[0].location.jsonPath;
+  const secondPath = davidMatches[1].location.jsonPath;
+
+  // Extract content indices for comparison
+  const firstPathMatch = firstPath.match(/content\[(\d+)\]\.content\[(\d+)\]/);
+  const secondPathMatch = secondPath.match(/content\[(\d+)\]\.content\[(\d+)\]/);
+
+  expect(firstPathMatch).toBeTruthy();
+  expect(secondPathMatch).toBeTruthy();
+
+  if (!firstPathMatch || !secondPathMatch)
+    throw new Error("Failed to match content indices in JSON paths");
+
+  const firstOuter = parseInt(firstPathMatch[1], 10);
+  const firstInner = parseInt(firstPathMatch[2], 10);
+  const secondOuter = parseInt(secondPathMatch[1], 10);
+  const secondInner = parseInt(secondPathMatch[2], 10);
+
+  // First match should come before second match in document order
+  expect(firstOuter <= secondOuter).toBe(true);
+  expect(firstInner <= secondInner).toBe(true);
+
+  // Test 9: Test with capturing groups
+  const captureRegex = /(father)\s+of\s+(\w+)/g;
+  const captureMatches = usjDoc.search(captureRegex);
+  expect(captureMatches.length).toBeGreaterThan(0);
+
+  // Verify that match.text contains the full match (not just capture groups)
+  captureMatches.forEach((match) => {
+    expect(match.text).toMatch(/father\s+of\s+\w+/);
+    expect(typeof match.location.node).toBe("string");
+  });
+
+  // Test 10: Search finds text within a note
+  const textWithinNoteRegex = /NU omits /g;
+  const noteMatches = usjDoc.search(textWithinNoteRegex);
+  expect(noteMatches.length).toBeGreaterThan(0);
 });

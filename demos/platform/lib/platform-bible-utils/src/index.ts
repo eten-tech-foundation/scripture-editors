@@ -10,6 +10,8 @@ export { NonValidatingDocumentCombiner } from "./non-validating-document-combine
 export { NumberFormat } from "./intl-number-format";
 export { PlatformEventEmitter } from "./platform-event-emitter.model";
 export { PromiseChainingMap } from "./promise-chaining-map";
+export { SortedNumberMap } from "./sorted-number-map";
+export { SortedSet } from "./sorted-set";
 export { UnsubscriberAsyncList } from "./unsubscriber-async-list";
 
 // Consts
@@ -29,6 +31,9 @@ export {
 } from "./scripture-util";
 export { aggregateUnsubscribers, aggregateUnsubscriberAsyncs } from "./unsubscriber";
 export { CHAPTER_TYPE, VERSE_TYPE } from "./usj-reader-writer.model";
+
+// Enums
+export { Section } from "./scripture-util";
 
 // Functions
 export {
@@ -50,6 +55,7 @@ export {
   compareScrRefs,
   formatScrRef,
   getLocalizedIdFromBookNumber,
+  getSectionForBook,
   normalizeScriptureSpaces,
   scrRefToBBBCCC,
   scrRefToBBBCCCVVV,
@@ -65,21 +71,21 @@ export {
   includes,
   indexOf,
   isLocalizeKey,
+  isWhiteSpace,
   lastIndexOf,
-  stringLength,
   normalize,
+  ordinalCompare,
   padEnd,
   padStart,
   slice,
   split,
   startsWith,
+  stringLength,
   substring,
   toArray,
   toKebabCase,
-  ordinalCompare,
-  transformAndEnsureRegExpRegExpArray,
   transformAndEnsureRegExpArray,
-  isWhiteSpace,
+  transformAndEnsureRegExpRegExpArray,
 } from "./string-util";
 export { newPlatformError, isPlatformError } from "./platform-error";
 export { default as deepEqual } from "./equality-checking";
@@ -89,6 +95,7 @@ export { default as getCurrentLocale } from "./intl-util";
 export { default as formatBytes } from "./number-utils";
 export { default as ensureArray } from "./array-util";
 export { default as formatTimeSpan } from "./date-time-format-util";
+export { MODIFIER_KEYS } from "./keyboard-util";
 
 // Types
 export type { DeepPartial, ReplaceType, UnionToIntersection } from "./util";
@@ -110,8 +117,10 @@ export type {
 export type { Unsubscriber, UnsubscriberAsync } from "./unsubscriber";
 export type { DocumentCombinerOptions, JsonDocumentLike } from "./document-combiner";
 export type {
+  DateYYYYMMDD,
   LanguageStrings,
   LocalizedStringDataContribution,
+  LocalizedStringDeprecationInfo,
   LocalizedStringValue,
   StringMetadata,
   StringsMetadata,
@@ -162,9 +171,12 @@ export type {
   UserStateContribution,
 } from "./settings.model";
 export { projectSettingsDocumentSchema, settingsDocumentSchema } from "./settings.model";
+export * from "./theme.model";
+export * from "./theme.util";
 export type {
   IUsjReaderWriter,
   UsjContentLocation,
+  UsjSearchResult,
   VerseRefOffset,
 } from "./usj-reader-writer.model";
 export { default as UsjReaderWriter } from "./usj-reader-writer";

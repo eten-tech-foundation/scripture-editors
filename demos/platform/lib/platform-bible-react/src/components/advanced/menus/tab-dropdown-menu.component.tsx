@@ -16,7 +16,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/shadcn-ui/tooltip";
-import { cn } from "@/utils/shadcn-ui.util";
 import { MenuIcon } from "lucide-react";
 import {
   GroupsInMultiColumnMenu,
@@ -26,15 +25,16 @@ import {
   MultiColumnMenu,
 } from "platform-bible-utils";
 import { Fragment, ReactNode } from "react";
+import { Button } from "@/components/shadcn-ui/button";
 import { getSubMenuGroupKeyForMenuItemId } from "./menu.util";
-import { CommandHandler } from "./platform-menubar.component";
+import { SelectMenuItemHandler } from "./platform-menubar.component";
 import MenuItemIcon from "./menu-icon.component";
 
 const getGroupContent = (
   groups: Localized<GroupsInMultiColumnMenu>,
   items: Localized<(MenuItemContainingCommand | MenuItemContainingSubmenu)[]>,
   columnOrSubMenuKey: string | undefined,
-  commandHandler: CommandHandler,
+  onSelectMenuItem: SelectMenuItemHandler,
 ) => {
   if (!columnOrSubMenuKey) return undefined;
 
@@ -57,7 +57,9 @@ const getGroupContent = (
                 <DropdownMenuItem
                   key={`dropdown-menu-item-${item.label}-${item.command}`}
                   onClick={() => {
-                    commandHandler(item);
+                    // Since the item has a command, we know it is a MenuItemContainingCommand.
+                    // eslint-disable-next-line no-type-assertion/no-type-assertion
+                    onSelectMenuItem(item as MenuItemContainingCommand);
                   }}
                 >
                   {item.iconPathBefore && (
@@ -78,7 +80,7 @@ const getGroupContent = (
                         groups,
                         items,
                         getSubMenuGroupKeyForMenuItemId(groups, item.id),
-                        commandHandler,
+                        onSelectMenuItem,
                       )}
                     </DropdownMenuSubContent>
                   </DropdownMenuPortal>
@@ -96,7 +98,7 @@ const getGroupContent = (
 
 export type TabDropdownMenuProps = {
   /** The handler to use for menu commands */
-  commandHandler: CommandHandler;
+  onSelectMenuItem: SelectMenuItemHandler;
 
   /** The menu data to show on the dropdown menu */
   menuData: Localized<MultiColumnMenu>;
@@ -113,6 +115,8 @@ export type TabDropdownMenuProps = {
   /** Style variant for the app menubar component. */
   variant?: "default" | "muted";
 
+  buttonVariant?: "default" | "ghost" | "outline" | "secondary";
+
   /** Optional unique identifier */
   id?: string;
 };
@@ -125,23 +129,21 @@ export type TabDropdownMenuProps = {
  * A child component can be passed in to show as an icon on the menu trigger button.
  */
 export default function TabDropdownMenu({
-  commandHandler,
+  onSelectMenuItem,
   menuData,
   tabLabel,
   icon,
   className,
   variant,
+  buttonVariant = "ghost",
   id,
 }: TabDropdownMenuProps) {
   return (
     <DropdownMenu variant={variant}>
-      <DropdownMenuTrigger
-        aria-label={tabLabel}
-        className={cn("tw-cursor-pointer", className)}
-        asChild
-        id={id}
-      >
-        {icon ?? <MenuIcon />}
+      <DropdownMenuTrigger aria-label={tabLabel} className={className} asChild id={id}>
+        <Button variant={buttonVariant} size="icon">
+          {icon ?? <MenuIcon />}
+        </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="tw-z-[250]">
         {Object.entries(menuData.columns)
@@ -154,7 +156,7 @@ export default function TabDropdownMenu({
             <Fragment key={columnKey}>
               <DropdownMenuGroup>
                 <TooltipProvider>
-                  {getGroupContent(menuData.groups, menuData.items, columnKey, commandHandler)}
+                  {getGroupContent(menuData.groups, menuData.items, columnKey, onSelectMenuItem)}
                 </TooltipProvider>
               </DropdownMenuGroup>
 

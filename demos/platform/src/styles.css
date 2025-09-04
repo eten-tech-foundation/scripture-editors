@@ -26,6 +26,26 @@ body {
   background: #eee;
 }
 
+#root {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 2rem;
+  text-align: center;
+
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 400;
+
+  color-scheme: light dark;
+  color: rgba(255, 255, 255, 0.87);
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
+}
+
 .controls {
   display: flex;
   justify-content: space-between;
@@ -36,6 +56,11 @@ body {
 
 .controls > .pr-twp.tw-flex {
   background-color: transparent;
+}
+
+.controls button[aria-label="book-chapter-trigger"] {
+  background-color: white;
+  border: 1px solid rgb(226, 232, 240);
 }
 
 .controls button {
@@ -91,24 +116,4 @@ label {
 
 .defined-options .toolbar-item:hover:not([disabled]) {
   background-color: #ddd;
-}
-
-#root {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
-
-  font-size: 16px;
-  line-height: 24px;
-  font-weight: 400;
-
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  -webkit-text-size-adjust: 100%;
 }

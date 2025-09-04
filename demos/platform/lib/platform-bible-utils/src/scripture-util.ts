@@ -4,7 +4,7 @@ import {
   MarkerObject,
   Usj,
   USJ_TYPE,
-} from "@biblionexus-foundation/scripture-utilities";
+} from "@eten-tech-foundation/scripture-utilities";
 import { BookInfo, ScrollGroupId } from "./scripture.model";
 import { at, isWhiteSpace, slice, split, startsWith } from "./string-util";
 import { LocalizeKey } from "./menus.model";
@@ -92,21 +92,42 @@ const scrBookData: BookInfo[] = [
   { shortName: "REV", fullNames: ["Revelation"], chapters: 22 },
 ];
 
+/** The first book number */
 export const FIRST_SCR_BOOK_NUM = 1;
+/** The last book number */
 export const LAST_SCR_BOOK_NUM = scrBookData.length - 1;
+/** The first chapter number */
 export const FIRST_SCR_CHAPTER_NUM = 1;
+/** The first verse number */
 export const FIRST_SCR_VERSE_NUM = 1;
 
+/** The default Scripture reference, representing the first chapter and verse of the first book. */
 export const defaultScrRef: SerializedVerseRef = {
   book: "GEN",
   chapterNum: 1,
   verseNum: 1,
 };
 
+/**
+ * Retrieves the number of chapters for a given book number.
+ *
+ * @param bookNum The number representing the book.
+ * @returns The number of chapters in the book, or -1 if the book number is invalid.
+ */
 export const getChaptersForBook = (bookNum: number): number => {
   return scrBookData[bookNum]?.chapters ?? -1;
 };
 
+/**
+ * Adjusts the book of a Scripture reference by a specified offset.
+ *
+ * @param scrRef The Scripture reference whose book is to be adjusted.
+ * @param offset The number of books to offset the current book by. Positive values move forward,
+ *   negative values move backward.
+ * @returns A new Scripture reference with the adjusted book. The chapter and verse numbers are
+ *   reset to 1. If the resulting book number exceeds the bounds of available books, it is clamped
+ *   to the nearest valid book.
+ */
 export const offsetBook = (scrRef: SerializedVerseRef, offset: number): SerializedVerseRef => ({
   book: Canon.bookNumberToId(
     Math.max(
@@ -118,6 +139,15 @@ export const offsetBook = (scrRef: SerializedVerseRef, offset: number): Serializ
   verseNum: 1,
 });
 
+/**
+ * Adjusts the chapter of a Scripture reference by a specified offset.
+ *
+ * @param scrRef The Scripture reference whose chapter is to be adjusted.
+ * @param offset The number of chapters to offset the current chapter by. Positive values move
+ *   forward, negative values move backward.
+ * @returns A new Scripture reference with the adjusted chapter. The verse number is reset to 1. The
+ *   chapter number is clamped to stay within valid bounds for the book.
+ */
 export const offsetChapter = (scrRef: SerializedVerseRef, offset: number): SerializedVerseRef => ({
   ...scrRef,
   chapterNum: Math.min(
@@ -127,6 +157,15 @@ export const offsetChapter = (scrRef: SerializedVerseRef, offset: number): Seria
   verseNum: 1,
 });
 
+/**
+ * Adjusts the verse of a Scripture reference by a specified offset.
+ *
+ * @param scrRef The Scripture reference whose verse is to be adjusted.
+ * @param offset The number of verses to offset the current verse by. Positive values move forward,
+ *   negative values move backward.
+ * @returns A new Scripture reference with the adjusted verse. The verse number is clamped to stay
+ *   within valid bounds for the chapter.
+ */
 export const offsetVerse = (scrRef: SerializedVerseRef, offset: number): SerializedVerseRef => ({
   ...scrRef,
   verseNum: Math.max(FIRST_SCR_VERSE_NUM, scrRef.verseNum + offset),
@@ -273,6 +312,37 @@ export function formatScrRef(
   }
   return `${book}${bookChapterSeparator ?? " "}${scrRef.chapterNum}${chapterVerseSeparator ?? ":"}${scrRef.verseNum}`;
 }
+
+/**
+ * Represents the major sections of the Bible and extra materials. Used for grouping and filtering
+ * books in the book selector.
+ */
+export enum Section {
+  /** Old Testament books (Genesis through Malachi) */
+  OT = "OT",
+  /** New Testament books (Matthew through Revelation) */
+  NT = "NT",
+  /** Deuterocanonical books (e.g. Tobit, Judith, 1-2 Maccabees) */
+  DC = "DC",
+  /** Additional materials not part of the biblical canon (e.g. XXA, XXB etc.) */
+  Extra = "Extra",
+}
+
+/**
+ * Determines which section a book belongs to based on its ID
+ *
+ * @param bookId The ID of the book (e.g., 'GEN', 'MAT')
+ * @returns The section (OT, NT, DC, or Extra) that the book belongs to
+ * @throws Error if the book ID is not recognized or cannot be categorized
+ */
+export const getSectionForBook = (bookId: string): Section => {
+  if (Canon.isBookOT(bookId)) return Section.OT;
+  if (Canon.isBookNT(bookId)) return Section.NT;
+  if (Canon.isBookDC(bookId)) return Section.DC;
+  if (Canon.isExtraMaterial(bookId)) return Section.Extra;
+
+  throw new Error(`Unknown section for book: ${bookId}`);
+};
 
 // #region white space functions
 

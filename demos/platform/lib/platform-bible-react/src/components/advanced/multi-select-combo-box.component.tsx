@@ -26,11 +26,30 @@ export interface MultiSelectComboBoxProps {
   placeholder: string;
   commandEmptyMessage?: string;
   customSelectedText?: string;
+  isDisabled?: boolean;
   sortSelected?: boolean;
   icon?: ReactNode;
   className?: string;
 }
 
+/**
+ * MultiSelectComboBox is a component that provides a UI for selecting multiple items from a list.
+ * It supports displaying a placeholder, custom selected text, and an optional icon. Users can
+ * search through options and view starred items prominently.
+ *
+ * @param {MultiSelectComboBoxProps} props
+ * @param {MultiSelectComboBoxEntry[]} props.entries - The list of entries to select from.
+ * @param {function} [props.getEntriesCount] - Optional function to get the count of entries.
+ * @param {string[]} props.selected - The currently selected values.
+ * @param {function} props.onChange - Callback function to handle changes in selection.
+ * @param {string} props.placeholder - Placeholder text when no items are selected.
+ * @param {string} [props.commandEmptyMessage] - Message displayed when no entries are found.
+ * @param {string} [props.customSelectedText] - Custom text to display when items are selected.
+ * @param {boolean} [props.isDisabled] - Flag to disable the component.
+ * @param {boolean} [props.sortSelected] - Flag to sort selected items.
+ * @param {ReactNode} [props.icon] - Optional icon to display in the button.
+ * @param {string} [props.className] - Additional class names for styling.
+ */
 export function MultiSelectComboBox({
   entries,
   getEntriesCount = undefined,
@@ -39,6 +58,7 @@ export function MultiSelectComboBox({
   placeholder,
   commandEmptyMessage = "No entries found",
   customSelectedText,
+  isDisabled = false,
   sortSelected = false,
   icon = undefined,
   className = undefined,
@@ -93,6 +113,7 @@ export function MultiSelectComboBox({
               selected.length > 0 && selected.length < entries.length && "tw-border-primary",
               "tw-group",
             )}
+            disabled={isDisabled}
           >
             <div className="tw-flex tw-items-center tw-gap-2">
               <div className="tw-ml-2 tw-h-4 tw-w-4 tw-shrink-0 tw-opacity-50">

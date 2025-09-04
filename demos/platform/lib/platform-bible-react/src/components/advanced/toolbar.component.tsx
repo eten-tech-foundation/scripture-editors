@@ -1,5 +1,5 @@
 import {
-  CommandHandler,
+  SelectMenuItemHandler,
   PlatformMenubar,
 } from "@/components/advanced/menus/platform-menubar.component";
 import { cn } from "@/utils/shadcn-ui.util";
@@ -8,7 +8,7 @@ import { PropsWithChildren, ReactNode, useRef } from "react";
 
 export type ToolbarProps = PropsWithChildren<{
   /** The handler to use for menu commands (and eventually toolbar commands). */
-  commandHandler: CommandHandler;
+  onSelectMenuItem: SelectMenuItemHandler;
 
   /**
    * Menu data that is used to populate the Menubar component. If empty object, no menus will be
@@ -72,10 +72,17 @@ export function getToolbarOSReservedSpaceClassName(
   }
 }
 
+/**
+ * A customizable toolbar component with a menubar, content area, and configure area.
+ *
+ * This component is designed to be used in the window title bar of an electron application.
+ *
+ * @param {ToolbarProps} props - The props for the component.
+ */
 export function Toolbar({
   menuData,
   onOpenChange,
-  commandHandler,
+  onSelectMenuItem,
   className,
   id,
   children,
@@ -113,7 +120,7 @@ export function Toolbar({
               <PlatformMenubar
                 menuData={menuData}
                 onOpenChange={onOpenChange}
-                commandHandler={commandHandler}
+                onSelectMenuItem={onSelectMenuItem}
                 variant={menubarVariant}
               />
             )}
@@ -130,9 +137,9 @@ export function Toolbar({
         </div>
 
         {/* Configure area */}
-        <div className="tw-flex tw-grow tw-basis-0 tw-justify-end">
+        <div className="tw-flex tw-min-w-0 tw-grow tw-basis-0 tw-justify-end">
           <div
-            className="tw-flex tw-items-center tw-gap-2 tw-pe-1"
+            className="tw-flex tw-min-w-0 tw-items-center tw-gap-2 tw-pe-1"
             /* @ts-ignore Electron-only property */
             style={shouldUseAsAppDragArea ? { WebkitAppRegion: "no-drag" } : undefined}
           >

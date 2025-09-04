@@ -2,12 +2,21 @@ import "./index.css";
 
 // Components and Types
 export { default as BookChapterControl } from "./components/advanced/book-chapter-control/book-chapter-control.component";
-export type { BookChapterControlProps } from "./components/advanced/book-chapter-control/book-chapter-control.component";
+export type { BookChapterControlProps } from "./components/advanced/book-chapter-control/book-chapter-control.types";
+export {
+  BOOK_CHAPTER_CONTROL_STRING_KEYS,
+  type BookChapterControlLocalizedStrings,
+} from "./components/advanced/book-chapter-control/book-chapter-control.types";
 export { default as BookSelector } from "./components/advanced/book-selector.component";
 export {
   BOOK_SELECTOR_STRING_KEYS,
   BookSelectionMode,
 } from "./components/advanced/book-selector.component";
+export {
+  default as RecentSearches,
+  useRecentSearches,
+} from "./components/advanced/recent-searches.component";
+export type { RecentSearchesProps } from "./components/advanced/recent-searches.component";
 export type { BookSelectorLocalizedStrings } from "./components/advanced/book-selector.component";
 export { default as DataTable } from "./components/advanced/data-table/data-table.component";
 export type {
@@ -16,35 +25,29 @@ export type {
   SortDirection,
   TableContents,
 } from "./components/advanced/data-table/data-table.component";
-
-export { default as InstallButton } from "./components/advanced/extension-marketplace/buttons/install-button.component";
-export { default as EnableButton } from "./components/advanced/extension-marketplace/buttons/enable-button.component";
-export { default as DisableButton } from "./components/advanced/extension-marketplace/buttons/disable-button.component";
-export { default as UpdateButton } from "./components/advanced/extension-marketplace/buttons/update-button.component";
 export { default as MarkdownRenderer } from "./components/advanced/extension-marketplace/markdown-renderer.component";
+export {
+  ErrorPopover,
+  ERROR_POPOVER_STRING_KEYS,
+} from "./components/advanced/error-popover.component";
+export type { ErrorPopoverLocalizedStrings } from "./components/advanced/error-popover.component";
 export {
   default as FilterDropdown,
   DropdownMenuItemType,
   type DropdownItem,
   type DropdownGroup,
 } from "./components/advanced/extension-marketplace/filter-dropdown.component";
-export { default as FilterButton } from "./components/advanced/extension-marketplace/buttons/filter-button.component";
-export { default as NoExtensionsFound } from "./components/advanced/extension-marketplace/no-extensions-found.component";
-export { default as MoreInfo } from "./components/advanced/extension-marketplace/more-info.component";
-export {
-  default as VersionHistory,
-  type VersionInformation,
-  type VersionHistoryType,
-} from "./components/advanced/extension-marketplace/version-history.component";
+export { MoreInfo } from "./components/advanced/extension-marketplace/more-info.component";
+export type { VersionHistoryType } from "./components/advanced/extension-marketplace/version-history.component";
 export { default as Footer } from "./components/advanced/extension-marketplace/footer.component";
 
 export { default as Filter } from "./components/advanced/filter.component";
-export { default as Inventory } from "./components/advanced/inventory/inventory.component";
-export { INVENTORY_STRING_KEYS } from "./components/advanced/inventory/inventory.component";
-export type {
-  InventoryLocalizedStrings,
-  Scope,
+export {
+  default as Inventory,
+  type InventoryItem,
 } from "./components/advanced/inventory/inventory.component";
+export { INVENTORY_STRING_KEYS } from "./components/advanced/inventory/inventory.component";
+export type { InventoryLocalizedStrings } from "./components/advanced/inventory/inventory.component";
 export {
   getLinesFromUSFM,
   getNumberFromUSFM,
@@ -64,10 +67,7 @@ export {
   default as MultiSelectComboBox,
   type MultiSelectComboBoxEntry,
 } from "./components/advanced/multi-select-combo-box.component";
-export type {
-  Command,
-  CommandHandler,
-} from "./components/advanced/menus/platform-menubar.component";
+export type { SelectMenuItemHandler } from "./components/advanced/menus/platform-menubar.component";
 export {
   default as SettingsSidebar,
   type SettingsSidebarProps,
@@ -84,6 +84,9 @@ export type {
   ScriptureResultsViewerProps,
   ScriptureSrcItemDetail,
 } from "./components/advanced/scripture-results-viewer/scripture-results-viewer.component";
+export { default as ScopeSelector } from "./components/advanced/scope-selector/scope-selector.component";
+export { SCOPE_SELECTOR_STRING_KEYS } from "./components/advanced/scope-selector/scope-selector.component";
+export type { ScopeSelectorLocalizedStrings } from "./components/advanced/scope-selector/scope-selector.component";
 export {
   default as ScrollGroupSelector,
   type ScrollGroupSelectorProps,
@@ -94,6 +97,9 @@ export {
   SettingsListItem,
 } from "./components/advanced/settings-components/settings-list.component";
 export { default as TabDropdownMenu } from "./components/advanced/menus/tab-dropdown-menu.component";
+export { default as TabToolbar } from "./components/advanced/tab-toolbar/tab-toolbar.component";
+export type { TabToolbarProps } from "./components/advanced/tab-toolbar/tab-toolbar.component";
+export { default as TabFloatingMenu } from "./components/advanced/tab-toolbar/tab-floating-menu.component";
 export {
   default as NavigationContentSearch,
   type TabKeyValueContent,
@@ -117,6 +123,9 @@ export type {
   ComboBoxOption,
 } from "./components/basics/combo-box.component";
 
+export { ErrorDump } from "./components/basics/error-dump.component";
+export { ERROR_DUMP_STRING_KEYS } from "./components/basics/error-dump.component";
+export type { ErrorDumpLocalizedStrings } from "./components/basics/error-dump.component";
 export { default as SearchBar } from "./components/basics/search-bar.component";
 export type { SearchBarProps } from "./components/basics/search-bar.component";
 export { default as Spinner } from "./components/basics/spinner.component";
@@ -137,14 +146,27 @@ export {
   CardContent,
 } from "./components/shadcn-ui/card";
 export { default as Checkbox } from "./components/shadcn-ui/checkbox";
+export {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "./components/shadcn-ui/command";
+export * from "./components/shadcn-ui/context-menu";
+export * from "./components/shadcn-ui/drawer";
 export * from "./components/shadcn-ui/dropdown-menu";
 export { Input } from "./components/shadcn-ui/input";
 export { Label } from "./components/shadcn-ui/label";
 export * from "./components/shadcn-ui/popover";
+export { Progress } from "./components/shadcn-ui/progress";
 export { RadioGroup, RadioGroupItem } from "./components/shadcn-ui/radio-group";
 export * from "./components/shadcn-ui/select";
 export { Separator } from "./components/shadcn-ui/separator";
+export * from "./components/shadcn-ui/sidebar";
 export * from "./components/shadcn-ui/sonner";
+export * from "./components/shadcn-ui/skeleton";
 export { Slider } from "./components/shadcn-ui/slider";
 export { Switch } from "./components/shadcn-ui/switch";
 export * from "./components/shadcn-ui/table";
@@ -155,6 +177,7 @@ export {
   VerticalTabsContent,
   VerticalTabsTrigger,
 } from "./components/basics/tabs-vertical";
+export { Textarea } from "./components/shadcn-ui/textarea";
 export { ToggleGroup, ToggleGroupItem } from "./components/shadcn-ui/toggle-group";
 export {
   Tooltip,
@@ -162,12 +185,18 @@ export {
   TooltipProvider,
   TooltipTrigger,
 } from "./components/shadcn-ui/tooltip";
+export type { Scope } from "./components/utils/scripture.util";
 
 // Hooks
 export { default as useEvent } from "./hooks/use-event.hook";
 export { default as useEventAsync } from "./hooks/use-event-async.hook";
 export { default as usePromise } from "./hooks/use-promise.hook";
 export type { UsePromiseOptions } from "./hooks/use-promise.hook";
+export {
+  useListbox,
+  type UseListboxProps,
+  type ListboxOption,
+} from "./hooks/listbox-keyboard-navigation.hook";
 
 // Utils
 export { cn } from "./utils/shadcn-ui.util";
