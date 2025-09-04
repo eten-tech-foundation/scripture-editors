@@ -2,6 +2,7 @@
 import { nxViteTsPaths } from "@nx/vite/plugins/nx-tsconfig-paths.plugin";
 import react from "@vitejs/plugin-react-swc";
 import * as path from "path";
+// import { visualizer } from "rollup-plugin-visualizer";
 import { defineConfig } from "vite";
 import dts from "vite-plugin-dts";
 
@@ -48,14 +49,16 @@ export default defineConfig({
         "react",
         "react-dom",
         "react/jsx-runtime",
-        // unwanted `libs/shared` dependencies
-        "epitelete",
-        "json-difference",
-        "open-patcher",
-        "proskomma-core",
-        "test-data",
-        "tslib",
+        // dependencies
+        "@eten-tech-foundation/scripture-utilities",
+        "@floating-ui/dom",
+        "fast-equals",
+        // Exclude all Lexical packages and their sub-modules
+        /^@lexical\/.*/,
+        /^lexical.*/,
       ],
+      // open the HTML file manually or  set `open` to true
+      // plugins: [visualizer({ filename: "dist/bundle-analysis.html", open: false })],
       output: {
         globals: {
           react: "React",

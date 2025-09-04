@@ -1,5 +1,6 @@
 /// <reference types='vitest' />
 import * as path from "path";
+// import { visualizer } from "rollup-plugin-visualizer";
 import { defineConfig } from "vite";
 import dts from "vite-plugin-dts";
 
@@ -41,6 +42,8 @@ export default defineConfig({
     rollupOptions: {
       // External packages that should not be bundled into your library.
       external: ["@xmldom/xmldom"],
+      // open the HTML file manually or  set `open` to true
+      // plugins: [visualizer({ filename: "dist/bundle-analysis.html", open: false })],
     },
   },
   test: {
