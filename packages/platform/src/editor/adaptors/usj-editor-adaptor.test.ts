@@ -1,19 +1,36 @@
 import { MarkerObject } from "@eten-tech-foundation/scripture-utilities";
-import { SerializedEditorState } from "lexical";
-import { SerializedNoteNode, SerializedParaNode } from "shared";
+import { SerializedEditorState, SerializedLexicalNode } from "lexical";
+import {
+  closingMarkerText,
+  getEditableCallerText,
+  isSerializedBookNode,
+  isSerializedImmutableChapterNode,
+  isSerializedImmutableTypedTextNode,
+  isSerializedNoteNode,
+  isSerializedParaNode,
+  isSerializedCharNode,
+  isSerializedTextNode,
+  NBSP,
+  openingMarkerText,
+  SerializedNoteNode,
+  SerializedParaNode,
+  isSerializedMarkerNode,
+} from "shared";
 import {
   defaultNoteCallers,
+  getDefaultViewOptions,
   getViewOptions,
   SerializedImmutableNoteCallerNode,
   UNFORMATTED_VIEW_MODE,
+  ViewOptions,
+  isSomeSerializedVerseNode,
+  isSerializedImmutableVerseNode,
+  isSerializedImmutableNoteCallerNode,
 } from "shared-react";
 // Reaching inside only for tests.
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import {
-  NOTE_CALLER_INDEX,
-  NOTE_INDEX,
-  NOTE_PARA_INDEX,
-  NOTE_PARA_WITH_UNKNOWN_ITEMS_INDEX,
+  CHAPTER_1_INDEX,
   editorStateEmpty,
   editorStateGen1v1,
   editorStateGen1v1Editable,
@@ -22,6 +39,10 @@ import {
   editorStateGen1v1Nonstandard,
   editorStateMarks,
   editorStateWithUnknownItems,
+  NOTE_CALLER_INDEX,
+  NOTE_INDEX,
+  NOTE_PARA_INDEX,
+  NOTE_PARA_WITH_UNKNOWN_ITEMS_INDEX,
   usjEmpty,
   usjGen1v1,
   usjGen1v1ImpliedPara,
@@ -29,6 +50,7 @@ import {
   usjGen1v1Nonstandard,
   usjMarks,
   usjWithUnknownItems,
+  VERSE_PARA_INDEX,
 } from "../../../../utilities/src/converters/usj/converter-test.data";
 import { serializeEditorState, reset, initialize } from "./usj-editor.adaptor";
 import { MockInstance } from "vitest";
@@ -90,7 +112,88 @@ describe("USJ Editor Adaptor", () => {
     expect(serializedEditorState).toEqual(editorStateGen1v1Nonstandard);
   });
 
-  it("should convert from USJ to Lexical editor state JSON with editable view", () => {
+  it("should convert from USJ to Lexical editor state JSON in visible marker mode", () => {
+    const visibleView: ViewOptions = { ...getDefaultViewOptions(), markerMode: "visible" };
+
+    const serializedEditorState = serializeEditorState(usjGen1v1, visibleView);
+
+    // Book marker rendered as typed-text marker with code and NBSP
+    const book = serializedEditorState.root.children[0];
+    if (!isSerializedBookNode(book)) throw new Error("No book node found");
+    const bookMarker = book.children?.[0];
+    if (!isSerializedImmutableTypedTextNode(bookMarker)) throw new Error("No book marker found");
+    expect(bookMarker.textType).toBe("marker");
+    expect(bookMarker.text).toBe(`${openingMarkerText("id")} GEN${NBSP}`);
+
+    // Chapter is immutable with showMarker flag
+    const chapter = serializedEditorState.root.children[CHAPTER_1_INDEX];
+    if (!isSerializedImmutableChapterNode(chapter)) throw new Error("No chapter node found");
+    expect(chapter.showMarker).toBe(true);
+
+    // Para 'p' begins with a typed-text marker and NBSP
+    const pPara = serializedEditorState.root.children[VERSE_PARA_INDEX];
+    if (!isSerializedParaNode(pPara)) throw new Error("No para node found");
+    const pFirst = pPara.children?.[0];
+    if (!isSerializedImmutableTypedTextNode(pFirst)) throw new Error("No para marker found");
+    expect(pFirst.textType).toBe("marker");
+    expect(pFirst.text).toBe(`${openingMarkerText("p")}${NBSP}`);
+
+    // Verse is immutable with showMarker flag
+    const verse2 = pPara.children.find(
+      (n: SerializedLexicalNode) => isSerializedImmutableVerseNode(n) && n.number === "2",
+    );
+    if (!isSerializedImmutableVerseNode(verse2)) throw new Error("Verse 2 not found");
+    expect(verse2.showMarker).toBe(true);
+
+    // Note has typed-text markers for open/close and immutable caller
+    const notePara = serializedEditorState.root.children[NOTE_PARA_INDEX];
+    if (!isSerializedParaNode(notePara)) throw new Error("No note para node found");
+    const note = notePara.children.find((n) => isSerializedNoteNode(n));
+    if (!isSerializedNoteNode(note)) throw new Error("No note node found");
+    const noteChildren = note.children;
+    const noteOpening = noteChildren[0];
+    if (!isSerializedImmutableTypedTextNode(noteOpening)) throw new Error("No note opening marker");
+    expect(noteOpening.textType).toBe("marker");
+    expect(noteOpening.text).toBe(`${openingMarkerText("f")}${NBSP}`);
+    const noteCaller = noteChildren[1];
+    expect(isSerializedImmutableNoteCallerNode(noteCaller)).toBe(true);
+    // Closing marker at the end with NBSP
+    const noteClosing = noteChildren[noteChildren.length - 1];
+    if (!isSerializedImmutableTypedTextNode(noteClosing)) throw new Error("No note closing marker");
+    expect(noteClosing.textType).toBe("marker");
+    expect(noteClosing.text).toBe(`${closingMarkerText("f")}${NBSP}`);
+
+    // Note inner char 'fr' is preceded by a typed marker and its text is NBSP-prefixed
+    const frOpen = noteChildren.find(
+      (n) =>
+        isSerializedImmutableTypedTextNode(n) &&
+        n.textType === "marker" &&
+        n.text.startsWith(openingMarkerText("fr")),
+    );
+    expect(!!frOpen).toBe(true);
+    const frChar = noteChildren.find((n) => isSerializedCharNode(n) && n.marker === "fr");
+    const frFirst = isSerializedCharNode(frChar) ? frChar.children?.[0] : undefined;
+    expect(isSerializedTextNode(frFirst) && frFirst.text.startsWith(NBSP)).toBe(true);
+  });
+
+  it("should add line breaks before verses when visible mode has no spacing", () => {
+    const visibleCompact: ViewOptions = {
+      markerMode: "visible",
+      hasSpacing: false,
+      isFormattedFont: false,
+    };
+
+    const serializedEditorState = serializeEditorState(usjGen1v1, visibleCompact);
+
+    const pPara = serializedEditorState.root.children[VERSE_PARA_INDEX];
+    if (!isSerializedParaNode(pPara)) throw new Error("No para node found");
+    const pChildren: SerializedLexicalNode[] = pPara.children;
+    const idxVerse2 = pChildren.findIndex((n) => isSomeSerializedVerseNode(n) && n.number === "2");
+    expect(idxVerse2).toBeGreaterThan(0);
+    expect(pChildren[idxVerse2 - 1].type).toBe("linebreak");
+  });
+
+  it("should convert from USJ to Lexical editor state JSON in editable mode`", () => {
     const serializedEditorState = serializeEditorState(
       usjGen1v1,
       getViewOptions(UNFORMATTED_VIEW_MODE),
@@ -99,8 +202,35 @@ describe("USJ Editor Adaptor", () => {
     expect(serializedEditorState).toEqual(editorStateGen1v1Editable);
   });
 
+  it("should render editable caller text and markers in editable mode", () => {
+    const serializedEditorState = serializeEditorState(
+      usjGen1v1,
+      getViewOptions(UNFORMATTED_VIEW_MODE),
+    );
+
+    const editableNoteParaNode = serializedEditorState.root.children.find(
+      (n) => isSerializedParaNode(n) && n.marker === "q2",
+    );
+    if (!isSerializedParaNode(editableNoteParaNode)) throw new Error("Editable para not found");
+    const noteNode = editableNoteParaNode.children.find((n) => isSerializedNoteNode(n));
+    if (!isSerializedNoteNode(noteNode)) throw new Error("Editable note not found");
+    const noteChildren = noteNode.children;
+    // opening marker node for note
+    expect(isSerializedMarkerNode(noteChildren[0])).toBe(true);
+    // caller is editable text
+    const callerNode = noteChildren[1];
+    if (!isSerializedTextNode(callerNode)) throw new Error("Caller text not found");
+    expect(callerNode.text).toBe(getEditableCallerText("+"));
+    // closing marker node for note appears later
+    const hasClosingMarker = noteChildren.some(
+      (n) => isSerializedMarkerNode(n) && n.markerSyntax === "closing",
+    );
+    expect(hasClosingMarker).toBe(true);
+  });
+
   it("should convert from USJ to Lexical editor state JSON including the hidden caller", () => {
-    const usjGen1v1Updated = usjGen1v1;
+    // Clone USJ and ensure the note caller is '-'
+    const usjGen1v1Updated = JSON.parse(JSON.stringify(usjGen1v1));
     const usjNote = (
       (usjGen1v1Updated.content[NOTE_PARA_INDEX] as MarkerObject).content as MarkerObject[]
     )[NOTE_INDEX];

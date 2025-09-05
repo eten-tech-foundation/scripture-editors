@@ -1610,7 +1610,7 @@ function $createNote(op: DeltaOp, viewOptions: ViewOptions, nodeOptions: UsjNode
   let closingMarkerNode: MarkerNode | undefined;
   if (viewOptions?.markerMode === "visible" || viewOptions?.markerMode === "editable") {
     openingMarkerNode = $createMarkerNode(style);
-    closingMarkerNode = $createMarkerNode(style, false);
+    closingMarkerNode = $createMarkerNode(style, "closing");
   }
 
   if (openingMarkerNode) note.append(openingMarkerNode);

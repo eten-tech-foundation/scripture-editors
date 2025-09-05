@@ -9,6 +9,7 @@ import type {
   BaseSelection,
   EditorConfig,
   LexicalNode,
+  LexicalUpdateJSON,
   NodeKey,
   RangeSelection,
   SerializedElementNode,
@@ -39,15 +40,16 @@ export type SerializedTypedMarkNode = Spread<
 export const COMMENT_MARK_TYPE = "internal-comment";
 
 const reservedTypes = [COMMENT_MARK_TYPE];
+const NO_IDS: TypedIDs = {};
 const TYPED_MARK_VERSION = 1;
 
 export class TypedMarkNode extends ElementNode {
   /** @internal */
   __typedIDs: TypedIDs;
 
-  constructor(typedIds: TypedIDs, key?: NodeKey) {
+  constructor(typedIds: TypedIDs = NO_IDS, key?: NodeKey) {
     super(key);
-    this.__typedIDs = typedIds || {};
+    this.__typedIDs = typedIds;
   }
 
   static override getType(): string {
@@ -63,13 +65,12 @@ export class TypedMarkNode extends ElementNode {
     return reservedTypes.includes(type);
   }
 
-  static override importJSON(serializedNode: SerializedTypedMarkNode): TypedMarkNode {
-    const { typedIDs } = serializedNode;
-    return $createTypedMarkNode(typedIDs).updateFromJSON(serializedNode);
-  }
-
   static override importDOM(): null {
     return null;
+  }
+
+  static override importJSON(serializedNode: SerializedTypedMarkNode): TypedMarkNode {
+    return $createTypedMarkNode().updateFromJSON(serializedNode);
   }
 
   override exportJSON(): SerializedTypedMarkNode {
@@ -113,6 +114,10 @@ export class TypedMarkNode extends ElementNode {
     return false;
   }
 
+  override updateFromJSON(serializedNode: LexicalUpdateJSON<SerializedTypedMarkNode>): this {
+    return super.updateFromJSON(serializedNode).setTypedIDs(serializedNode.typedIDs);
+  }
+
   hasID(type: string, id: string): boolean {
     const typedIDs = this.getTypedIDs();
     const ids = typedIDs[type];
@@ -129,6 +134,12 @@ export class TypedMarkNode extends ElementNode {
   getTypedIDs(): TypedIDs {
     const self = this.getLatest();
     return $isTypedMarkNode(self) ? self.__typedIDs : {};
+  }
+
+  setTypedIDs(ids: TypedIDs): this {
+    const self = this.getWritable();
+    self.__typedIDs = ids;
+    return self;
   }
 
   addID(type: string, id: string): void {
@@ -217,7 +228,7 @@ function getTypedClassName(className: string, type: string): string {
   return `${className}-${type}`;
 }
 
-export function $createTypedMarkNode(typedIds: TypedIDs): TypedMarkNode {
+export function $createTypedMarkNode(typedIds?: TypedIDs): TypedMarkNode {
   return $applyNodeReplacement(new TypedMarkNode(typedIds));
 }
 

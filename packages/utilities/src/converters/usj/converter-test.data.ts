@@ -417,6 +417,12 @@ export const editorStateGen1v1Editable = {
         version: 1,
         children: [
           {
+            type: "typed-text",
+            text: `\\id GEN${NBSP}`,
+            textType: "marker",
+            version: 1,
+          },
+          {
             type: "text",
             text: "Some Scripture Version",
             detail: 0,
@@ -461,7 +467,7 @@ export const editorStateGen1v1Editable = {
           {
             type: "marker",
             marker: "p",
-            isOpening: true,
+            markerSyntax: "opening",
             detail: 0,
             format: 0,
             mode: "normal",
@@ -536,7 +542,7 @@ export const editorStateGen1v1Editable = {
           {
             type: "marker",
             marker: "nd",
-            isOpening: true,
+            markerSyntax: "opening",
             detail: 0,
             format: 0,
             mode: "normal",
@@ -568,7 +574,7 @@ export const editorStateGen1v1Editable = {
           {
             type: "marker",
             marker: "nd",
-            isOpening: false,
+            markerSyntax: "closing",
             detail: 0,
             format: 0,
             mode: "normal",
@@ -588,7 +594,7 @@ export const editorStateGen1v1Editable = {
           {
             type: "marker",
             marker: "va",
-            isOpening: true,
+            markerSyntax: "opening",
             detail: 0,
             format: 0,
             mode: "normal",
@@ -620,7 +626,7 @@ export const editorStateGen1v1Editable = {
           {
             type: "marker",
             marker: "va",
-            isOpening: false,
+            markerSyntax: "closing",
             detail: 0,
             format: 0,
             mode: "normal",
@@ -645,7 +651,7 @@ export const editorStateGen1v1Editable = {
             marker: "b",
             detail: 0,
             format: 0,
-            isOpening: true,
+            markerSyntax: "opening",
             mode: "normal",
             style: "",
             text: "",
@@ -675,7 +681,7 @@ export const editorStateGen1v1Editable = {
           {
             type: "marker",
             marker: "q2",
-            isOpening: true,
+            markerSyntax: "opening",
             detail: 0,
             format: 0,
             mode: "normal",
@@ -722,7 +728,7 @@ export const editorStateGen1v1Editable = {
               {
                 type: "marker",
                 marker: "f",
-                isOpening: true,
+                markerSyntax: "opening",
                 text: "",
                 detail: 0,
                 format: 0,
@@ -742,7 +748,7 @@ export const editorStateGen1v1Editable = {
               {
                 type: "marker",
                 marker: "fr",
-                isOpening: true,
+                markerSyntax: "opening",
                 detail: 0,
                 format: 0,
                 mode: "normal",
@@ -774,7 +780,7 @@ export const editorStateGen1v1Editable = {
               {
                 type: "marker",
                 marker: "ft",
-                isOpening: true,
+                markerSyntax: "opening",
                 detail: 0,
                 format: 0,
                 mode: "normal",
@@ -806,7 +812,7 @@ export const editorStateGen1v1Editable = {
               {
                 type: "marker",
                 marker: "f",
-                isOpening: false,
+                markerSyntax: "closing",
                 text: "",
                 detail: 0,
                 format: 0,
@@ -842,7 +848,7 @@ export const editorStateGen1v1Editable = {
           {
             type: "marker",
             marker: "qs",
-            isOpening: true,
+            markerSyntax: "opening",
             detail: 0,
             format: 0,
             mode: "normal",
@@ -874,7 +880,7 @@ export const editorStateGen1v1Editable = {
           {
             type: "marker",
             marker: "qs",
-            isOpening: false,
+            markerSyntax: "closing",
             detail: 0,
             format: 0,
             mode: "normal",

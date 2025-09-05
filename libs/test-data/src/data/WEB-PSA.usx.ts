@@ -1,6 +1,7 @@
 // Modified from original:
-//   unknown items (wat:z) added in first para:q1;
-//   custom annotation milestones in first para:q2.
+//   unknown items (wat:z) added in first para:q1 (v1).
+//   custom annotation milestones in first para:q2 (v2).
+//   ts milestones added in third para:q1 (v3).
 export const WEB_PSA_CH1_USX = `<?xml version="1.0" encoding="utf-8"?>
 <usx version="3.0">
   <book code="PSA" style="id">World English Bible (WEB)</book>
@@ -22,7 +23,7 @@ export const WEB_PSA_CH1_USX = `<?xml version="1.0" encoding="utf-8"?>
     <verse number="2" style="v" sid="PSA 1:2" />but his delight is in Yahweh’s<note caller="+" style="f"><char style="fr" closed="false">1:2 </char><char style="ft" closed="false">“Yahweh” is God’s proper Name, sometimes rendered “LORD” (all caps) in other translations.</char></note> law.</para>
   <para style="q2" vid="PSA 1:2">On his law he meditates day and night.<verse eid="PSA 1:2" /></para>
   <para style="q1">
-    <verse number="3" style="v" sid="PSA 1:3" />He will be like a tree planted by the streams of water,</para>
+    <verse number="3" style="v" sid="PSA 1:3" />He will be like a <ms style="ts-s" sid="ts.PSA.tree" />tree<ms style="ts-e" eid="ts.PSA.tree" /> planted by the streams of water,</para>
   <para style="q2" vid="PSA 1:3">that produces its fruit in its season,</para>
   <para style="q2" vid="PSA 1:3">whose leaf also does not wither.</para>
   <para style="q2" vid="PSA 1:3">Whatever he does shall prosper.<verse eid="PSA 1:3" /></para>

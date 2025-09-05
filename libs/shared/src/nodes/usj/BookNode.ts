@@ -20,20 +20,19 @@ export type BookMarker = typeof BOOK_MARKER;
 export type SerializedBookNode = Spread<
   {
     marker: BookMarker;
-    code: BookCode;
+    code: BookCode | "";
     unknownAttributes?: UnknownAttributes;
   },
   SerializedElementNode
 >;
 
 export class BookNode extends ElementNode {
-  __marker: BookMarker;
-  __code: BookCode;
+  __marker: BookMarker = BOOK_MARKER;
+  __code: BookCode | "";
   __unknownAttributes?: UnknownAttributes;
 
-  constructor(code: BookCode, unknownAttributes?: UnknownAttributes, key?: NodeKey) {
+  constructor(code: BookCode | "" = "", unknownAttributes?: UnknownAttributes, key?: NodeKey) {
     super(key);
-    this.__marker = BOOK_MARKER;
     this.__code = code;
     this.__unknownAttributes = unknownAttributes;
   }
@@ -48,8 +47,8 @@ export class BookNode extends ElementNode {
   }
 
   static override importJSON(serializedNode: SerializedBookNode): BookNode {
-    const { code, unknownAttributes } = serializedNode;
-    return $createBookNode(code, unknownAttributes).updateFromJSON(serializedNode);
+    const { code } = serializedNode;
+    return $createBookNode(code).updateFromJSON(serializedNode);
   }
 
   static isValidBookCode(code: string): code is BookCode {
@@ -57,15 +56,10 @@ export class BookNode extends ElementNode {
   }
 
   override updateFromJSON(serializedNode: LexicalUpdateJSON<SerializedBookNode>): this {
-    return super.updateFromJSON(serializedNode).setMarker(serializedNode.marker);
-  }
-
-  setMarker(marker: BookMarker): this {
-    if (this.__marker === marker) return this;
-
-    const self = this.getWritable();
-    self.__marker = marker;
-    return self;
+    return super
+      .updateFromJSON(serializedNode)
+      .setCode(serializedNode.code)
+      .setUnknownAttributes(serializedNode.unknownAttributes);
   }
 
   getMarker(): BookMarker {
@@ -73,7 +67,7 @@ export class BookNode extends ElementNode {
     return self.__marker;
   }
 
-  setCode(code: BookCode): this {
+  setCode(code: BookCode | ""): this {
     if (this.__code === code) return this;
 
     const self = this.getWritable();
@@ -85,7 +79,7 @@ export class BookNode extends ElementNode {
    * Get the book code (ID).
    * @returns the book code (ID).
    */
-  getCode(): BookCode {
+  getCode(): BookCode | "" {
     const self = this.getLatest();
     return self.__code;
   }
@@ -127,7 +121,10 @@ export class BookNode extends ElementNode {
   }
 }
 
-export function $createBookNode(code: BookCode, unknownAttributes?: UnknownAttributes): BookNode {
+export function $createBookNode(
+  code?: BookCode | "",
+  unknownAttributes?: UnknownAttributes,
+): BookNode {
   return $applyNodeReplacement(new BookNode(code, unknownAttributes));
 }
 

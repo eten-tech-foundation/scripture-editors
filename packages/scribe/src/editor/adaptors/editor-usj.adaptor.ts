@@ -1,4 +1,5 @@
 import {
+  BookCode,
   MarkerContent,
   MarkerObject,
   USJ_TYPE,
@@ -20,6 +21,7 @@ import {
   ENDING_MS_COMMENT_MARKER,
   getEditableCallerText,
   ImmutableChapterNode,
+  ImmutableTypedTextNode,
   ImmutableUnmatchedNode,
   isSerializedImpliedParaNode,
   isSerializedTypedMarkNode,
@@ -97,7 +99,9 @@ function createBookMarker(
   node: SerializedBookNode,
   content: MarkerContent[] | undefined,
 ): MarkerObject {
-  const { type, marker, code, unknownAttributes } = node;
+  const { type, marker, unknownAttributes } = node;
+  let code: BookCode | undefined;
+  if (node.code !== "") code = node.code;
   return removeUndefinedProperties({
     type,
     marker,
@@ -374,6 +378,7 @@ export function recurseNodes(
           ),
         );
         break;
+      case ImmutableTypedTextNode.getType():
       case ImmutableNoteCallerNode.getType():
       case LineBreakNode.getType():
       case MarkerNode.getType():

@@ -4,6 +4,7 @@ import {
   $applyNodeReplacement,
   DecoratorNode,
   LexicalNode,
+  LexicalUpdateJSON,
   NodeKey,
   SerializedLexicalNode,
   Spread,
@@ -59,7 +60,7 @@ export class MilestoneNode extends DecoratorNode<void> {
   __unknownAttributes?: UnknownAttributes;
 
   constructor(
-    marker: string,
+    marker = "",
     sid?: string,
     eid?: string,
     unknownAttributes?: UnknownAttributes,
@@ -82,8 +83,7 @@ export class MilestoneNode extends DecoratorNode<void> {
   }
 
   static override importJSON(serializedNode: SerializedMilestoneNode): MilestoneNode {
-    const { marker, sid, eid, unknownAttributes } = serializedNode;
-    return $createMilestoneNode(marker, sid, eid, unknownAttributes);
+    return $createMilestoneNode().updateFromJSON(serializedNode);
   }
 
   static isValidMarker(marker: string | undefined): boolean {
@@ -92,6 +92,15 @@ export class MilestoneNode extends DecoratorNode<void> {
       (VALID_MILESTONE_MARKERS.includes(marker as (typeof VALID_MILESTONE_MARKERS)[number]) ||
         marker.startsWith("z"))
     );
+  }
+
+  override updateFromJSON(serializedNode: LexicalUpdateJSON<SerializedMilestoneNode>): this {
+    return super
+      .updateFromJSON(serializedNode)
+      .setMarker(serializedNode.marker)
+      .setSid(serializedNode.sid)
+      .setEid(serializedNode.eid)
+      .setUnknownAttributes(serializedNode.unknownAttributes);
   }
 
   setMarker(marker: string): this {
@@ -184,7 +193,7 @@ export function isMilestoneCommentMarker(marker: string) {
 }
 
 export function $createMilestoneNode(
-  marker: string,
+  marker?: string,
   sid?: string,
   eid?: string,
   unknownAttributes?: UnknownAttributes,

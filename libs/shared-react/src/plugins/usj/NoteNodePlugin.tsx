@@ -1,7 +1,6 @@
 import {
   $isImmutableNoteCallerNode,
   defaultNoteCallers,
-  GENERATOR_NOTE_CALLER,
   ImmutableNoteCallerNode,
 } from "../../nodes/usj/ImmutableNoteCallerNode";
 import { UsjNodeOptions } from "../../nodes/usj/usj-node-options.model";
@@ -26,6 +25,7 @@ import {
   $isCharNode,
   $isNoteNode,
   CharNode,
+  GENERATOR_NOTE_CALLER,
   getNoteCallerPreviewText,
   LoggerBasic,
   NoteNode,

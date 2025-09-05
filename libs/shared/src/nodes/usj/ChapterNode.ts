@@ -37,7 +37,7 @@ export class ChapterNode extends ElementNode {
   __unknownAttributes?: UnknownAttributes;
 
   constructor(
-    chapterNumber: string,
+    chapterNumber = "",
     sid?: string,
     altnumber?: string,
     pubnumber?: string,
@@ -63,14 +63,18 @@ export class ChapterNode extends ElementNode {
   }
 
   static override importJSON(serializedNode: SerializedChapterNode): ChapterNode {
-    const { number, sid, altnumber, pubnumber, unknownAttributes } = serializedNode;
-    return $createChapterNode(number, sid, altnumber, pubnumber, unknownAttributes).updateFromJSON(
-      serializedNode,
-    );
+    return $createChapterNode().updateFromJSON(serializedNode);
   }
 
   override updateFromJSON(serializedNode: LexicalUpdateJSON<SerializedChapterNode>): this {
-    return super.updateFromJSON(serializedNode).setMarker(serializedNode.marker);
+    return super
+      .updateFromJSON(serializedNode)
+      .setMarker(serializedNode.marker)
+      .setNumber(serializedNode.number)
+      .setSid(serializedNode.sid)
+      .setAltnumber(serializedNode.altnumber)
+      .setPubnumber(serializedNode.pubnumber)
+      .setUnknownAttributes(serializedNode.unknownAttributes);
   }
 
   setMarker(marker: ChapterMarker): this {
@@ -179,7 +183,7 @@ export class ChapterNode extends ElementNode {
 }
 
 export function $createChapterNode(
-  chapterNumber: string,
+  chapterNumber?: string,
   sid?: string,
   altnumber?: string,
   pubnumber?: string,

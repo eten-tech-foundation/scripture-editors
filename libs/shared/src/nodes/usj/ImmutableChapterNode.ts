@@ -47,7 +47,7 @@ export class ImmutableChapterNode extends DecoratorNode<void> {
   __unknownAttributes?: UnknownAttributes;
 
   constructor(
-    chapterNumber: string,
+    chapterNumber = "",
     showMarker = false,
     sid?: string,
     altnumber?: string,
@@ -83,18 +83,6 @@ export class ImmutableChapterNode extends DecoratorNode<void> {
     );
   }
 
-  static override importJSON(serializedNode: SerializedImmutableChapterNode): ImmutableChapterNode {
-    const { number, showMarker, sid, altnumber, pubnumber, unknownAttributes } = serializedNode;
-    return $createImmutableChapterNode(
-      number,
-      showMarker,
-      sid,
-      altnumber,
-      pubnumber,
-      unknownAttributes,
-    ).updateFromJSON(serializedNode);
-  }
-
   static override importDOM(): DOMConversionMap | null {
     return {
       span: (node: HTMLElement) => {
@@ -108,8 +96,20 @@ export class ImmutableChapterNode extends DecoratorNode<void> {
     };
   }
 
+  static override importJSON(serializedNode: SerializedImmutableChapterNode): ImmutableChapterNode {
+    return $createImmutableChapterNode().updateFromJSON(serializedNode);
+  }
+
   override updateFromJSON(serializedNode: LexicalUpdateJSON<SerializedImmutableChapterNode>): this {
-    return super.updateFromJSON(serializedNode).setMarker(serializedNode.marker);
+    return super
+      .updateFromJSON(serializedNode)
+      .setMarker(serializedNode.marker)
+      .setNumber(serializedNode.number)
+      .setShowMarker(serializedNode.showMarker)
+      .setSid(serializedNode.sid)
+      .setAltnumber(serializedNode.altnumber)
+      .setPubnumber(serializedNode.pubnumber)
+      .setUnknownAttributes(serializedNode.unknownAttributes);
   }
 
   setMarker(marker: ChapterMarker): this {
@@ -205,6 +205,7 @@ export class ImmutableChapterNode extends DecoratorNode<void> {
     const dom = document.createElement(IMMUTABLE_CHAPTER_TAG_NAME);
     dom.setAttribute("data-marker", this.__marker);
     dom.classList.add(CHAPTER_CLASS_NAME, `usfm_${this.__marker}`);
+    if (this.__showMarker) dom.classList.add("marker");
     dom.setAttribute("data-number", this.__number);
     return dom;
   }
@@ -264,7 +265,7 @@ function $convertImmutableChapterElement(element: HTMLElement): DOMConversionOut
 }
 
 export function $createImmutableChapterNode(
-  chapterNumber: string,
+  chapterNumber?: string,
   showMarker?: boolean,
   sid?: string,
   altnumber?: string,

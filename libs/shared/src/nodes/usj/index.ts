@@ -1,3 +1,4 @@
+import { ImmutableTypedTextNode } from "../features/ImmutableTypedTextNode.js";
 import { ImmutableUnmatchedNode } from "../features/ImmutableUnmatchedNode.js";
 import { MarkerNode } from "../features/MarkerNode.js";
 import { UnknownNode } from "../features/UnknownNode.js";
@@ -34,6 +35,7 @@ export const usjBaseNodes: readonly (Klass<LexicalNode> | LexicalNodeReplacement
   MilestoneNode,
   MarkerNode,
   UnknownNode,
+  ImmutableTypedTextNode,
   ImmutableUnmatchedNode,
   ParaNode,
   ImpliedParaNode,

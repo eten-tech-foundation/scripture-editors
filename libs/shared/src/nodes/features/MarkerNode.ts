@@ -5,6 +5,7 @@ import {
   $applyNodeReplacement,
   EditorConfig,
   LexicalNode,
+  LexicalUpdateJSON,
   NodeKey,
   SerializedLexicalNode,
   SerializedTextNode,
@@ -14,23 +15,23 @@ import {
 
 export const MARKER_VERSION = 1;
 
+export type MarkerSyntax = "opening" | "closing" | "selfClosing";
 export type SerializedMarkerNode = Spread<
   {
     marker: string;
-    isOpening?: boolean;
+    markerSyntax?: MarkerSyntax;
   },
   SerializedTextNode
 >;
 
 export class MarkerNode extends TextNode {
   __marker: string;
-  __isOpening: boolean;
+  __markerSyntax: MarkerSyntax;
 
-  constructor(marker: string, isOpening = true, key?: NodeKey) {
-    const text = isOpening ? openingMarkerText(marker) : closingMarkerText(marker);
-    super(text, key);
+  constructor(marker = "", markerSyntax: MarkerSyntax = "opening", key?: NodeKey) {
+    super(getMarkerText(marker, markerSyntax), key);
     this.__marker = marker;
-    this.__isOpening = isOpening;
+    this.__markerSyntax = markerSyntax;
   }
 
   static override getType(): string {
@@ -38,12 +39,16 @@ export class MarkerNode extends TextNode {
   }
 
   static override clone(node: MarkerNode): MarkerNode {
-    return new MarkerNode(node.__marker, node.__isOpening, node.__key);
+    return new MarkerNode(node.__marker, node.__markerSyntax, node.__key);
   }
 
   static override importJSON(serializedNode: SerializedMarkerNode): MarkerNode {
-    const { marker, isOpening } = serializedNode;
-    return $createMarkerNode(marker, isOpening).updateFromJSON(serializedNode);
+    return $createMarkerNode().updateFromJSON(serializedNode);
+  }
+
+  override updateFromJSON(serializedNode: LexicalUpdateJSON<SerializedMarkerNode>): this {
+    const { marker, markerSyntax = "opening" } = serializedNode;
+    return super.updateFromJSON(serializedNode).setMarker(marker).setMarkerSyntax(markerSyntax);
   }
 
   setMarker(marker: string): this {
@@ -51,6 +56,7 @@ export class MarkerNode extends TextNode {
 
     const self = this.getWritable();
     self.__marker = marker;
+    self.__text = getMarkerText(marker, self.__markerSyntax);
     return self;
   }
 
@@ -59,23 +65,24 @@ export class MarkerNode extends TextNode {
     return self.__marker;
   }
 
-  setIsOpening(isOpening: boolean): this {
-    if (this.__isOpening === isOpening) return this;
+  setMarkerSyntax(markerSyntax: MarkerSyntax): this {
+    if (this.__markerSyntax === markerSyntax) return this;
 
     const self = this.getWritable();
-    self.__isOpening = isOpening;
+    self.__markerSyntax = markerSyntax;
+    self.__text = getMarkerText(self.__marker, markerSyntax);
     return self;
   }
 
-  getIsOpening(): boolean {
+  getMarkerSyntax(): MarkerSyntax {
     const self = this.getLatest();
-    return self.__isOpening;
+    return self.__markerSyntax;
   }
 
   override createDOM(config: EditorConfig): HTMLElement {
     const dom = super.createDOM(config);
     dom.setAttribute("data-marker", this.__marker);
-    dom.classList.add(this.__type, this.__isOpening ? "opening" : "closing");
+    dom.classList.add(this.__markerSyntax);
     return dom;
   }
 
@@ -85,14 +92,14 @@ export class MarkerNode extends TextNode {
       type: this.getType(),
       text: this.getTextContent(),
       marker: this.getMarker(),
-      isOpening: this.getIsOpening(),
+      markerSyntax: this.getMarkerSyntax(),
       version: MARKER_VERSION,
     };
   }
 }
 
-export function $createMarkerNode(marker: string, isOpening?: boolean): MarkerNode {
-  return $applyNodeReplacement(new MarkerNode(marker, isOpening));
+export function $createMarkerNode(marker?: string, markerSyntax?: MarkerSyntax): MarkerNode {
+  return $applyNodeReplacement(new MarkerNode(marker, markerSyntax));
 }
 
 export function $isMarkerNode(node: LexicalNode | null | undefined): node is MarkerNode {
@@ -103,4 +110,10 @@ export function isSerializedMarkerNode(
   node: SerializedLexicalNode | null | undefined,
 ): node is SerializedMarkerNode {
   return node?.type === MarkerNode.getType();
+}
+
+function getMarkerText(marker: string, markerSyntax: MarkerSyntax) {
+  if (markerSyntax === "closing") return closingMarkerText(marker);
+  if (markerSyntax === "selfClosing") return closingMarkerText("");
+  return openingMarkerText(marker);
 }

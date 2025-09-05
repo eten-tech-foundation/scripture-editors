@@ -1,7 +1,4 @@
-import {
-  $createImmutableNoteCallerNode,
-  GENERATOR_NOTE_CALLER,
-} from "../../../nodes/usj/ImmutableNoteCallerNode";
+import { $createImmutableNoteCallerNode } from "../../../nodes/usj/ImmutableNoteCallerNode";
 import { $createImmutableVerseNode } from "../../../nodes/usj/ImmutableVerseNode";
 import { baseTestEnvironment } from "../react-test.utils";
 import { LF } from "./delta-common.utils";
@@ -16,6 +13,7 @@ import {
   $createNoteNode,
   $createParaNode,
   charIdState,
+  GENERATOR_NOTE_CALLER,
   getEditableCallerText,
   segmentState,
 } from "shared";

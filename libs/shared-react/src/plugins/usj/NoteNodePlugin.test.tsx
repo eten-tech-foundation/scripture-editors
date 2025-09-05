@@ -1,7 +1,6 @@
 import {
   $createImmutableNoteCallerNode,
   defaultNoteCallers,
-  GENERATOR_NOTE_CALLER,
   ImmutableNoteCallerNode,
 } from "../../nodes/usj/ImmutableNoteCallerNode";
 import { $createImmutableVerseNode } from "../../nodes/usj/ImmutableVerseNode";
@@ -24,6 +23,7 @@ import {
   $createNoteNode,
   $createParaNode,
   $isCharNode,
+  GENERATOR_NOTE_CALLER,
   NBSP,
   NoteNode,
 } from "shared";

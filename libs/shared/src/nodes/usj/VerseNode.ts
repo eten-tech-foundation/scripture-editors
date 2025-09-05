@@ -1,5 +1,6 @@
 /** Conforms with USJ v3.1 @see https://docs.usfm.bible/usfm/3.1/cv/v.html */
 
+import { UnknownAttributes, VERSE_CLASS_NAME } from "./node-constants.js";
 import {
   $applyNodeReplacement,
   EditorConfig,
@@ -11,7 +12,6 @@ import {
   Spread,
   TextNode,
 } from "lexical";
-import { UnknownAttributes, VERSE_CLASS_NAME } from "./node-constants.js";
 
 export const VERSE_MARKER = "v";
 export const VERSE_VERSION = 1;
@@ -38,7 +38,7 @@ export class VerseNode extends TextNode {
   __unknownAttributes?: UnknownAttributes;
 
   constructor(
-    verseNumber: string,
+    verseNumber = "",
     text?: string,
     sid?: string,
     altnumber?: string,
@@ -73,19 +73,18 @@ export class VerseNode extends TextNode {
   }
 
   static override importJSON(serializedNode: SerializedVerseNode): VerseNode {
-    const { number, text, sid, altnumber, pubnumber, unknownAttributes } = serializedNode;
-    return $createVerseNode(
-      number,
-      text,
-      sid,
-      altnumber,
-      pubnumber,
-      unknownAttributes,
-    ).updateFromJSON(serializedNode);
+    return $createVerseNode().updateFromJSON(serializedNode);
   }
 
   override updateFromJSON(serializedNode: LexicalUpdateJSON<SerializedVerseNode>): this {
-    return super.updateFromJSON(serializedNode).setMarker(serializedNode.marker);
+    return super
+      .updateFromJSON(serializedNode)
+      .setMarker(serializedNode.marker)
+      .setNumber(serializedNode.number)
+      .setSid(serializedNode.sid)
+      .setAltnumber(serializedNode.altnumber)
+      .setPubnumber(serializedNode.pubnumber)
+      .setUnknownAttributes(serializedNode.unknownAttributes);
   }
 
   setMarker(marker: VerseMarker): this {
@@ -188,7 +187,7 @@ export class VerseNode extends TextNode {
 }
 
 export function $createVerseNode(
-  verseNumber: string,
+  verseNumber?: string,
   text?: string,
   sid?: string,
   altnumber?: string,

@@ -1,7 +1,6 @@
 import {
   $createImmutableNoteCallerNode,
   $isImmutableNoteCallerNode,
-  GENERATOR_NOTE_CALLER,
 } from "../../../nodes/usj/ImmutableNoteCallerNode";
 import { $createImmutableVerseNode } from "../../../nodes/usj/ImmutableVerseNode";
 import { $isSomeVerseNode } from "../../../nodes/usj/node-react.utils";
@@ -36,6 +35,7 @@ import {
   $isParaNode,
   $isSomeChapterNode,
   charIdState,
+  GENERATOR_NOTE_CALLER,
   segmentState,
 } from "shared";
 import { MockInstance } from "vitest";

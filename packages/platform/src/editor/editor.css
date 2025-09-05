@@ -195,6 +195,11 @@
   border-bottom: 2px solid rgba(255, 212, 0, 0.7);
 }
 
+.marker-editable [class^="editor-typed-mark"] {
+  background: none;
+  border-bottom: none;
+}
+
 .editor-paragraph {
   margin: 0;
   margin-bottom: 8px;

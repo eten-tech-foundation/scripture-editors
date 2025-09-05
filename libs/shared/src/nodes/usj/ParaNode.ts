@@ -8,6 +8,7 @@ import {
   ElementFormatType,
   LexicalEditor,
   LexicalNode,
+  LexicalUpdateJSON,
   NodeKey,
   ParagraphNode,
   RangeSelection,
@@ -161,11 +162,7 @@ export class ParaNode extends ParagraphNode {
   __marker: string;
   __unknownAttributes?: UnknownAttributes;
 
-  constructor(
-    marker: string = PARA_MARKER_DEFAULT,
-    unknownAttributes?: UnknownAttributes,
-    key?: NodeKey,
-  ) {
+  constructor(marker = PARA_MARKER_DEFAULT, unknownAttributes?: UnknownAttributes, key?: NodeKey) {
     super(key);
     this.__marker = marker;
     this.__unknownAttributes = unknownAttributes;
@@ -180,11 +177,6 @@ export class ParaNode extends ParagraphNode {
     return new ParaNode(__marker, __unknownAttributes, __key);
   }
 
-  static override importJSON(serializedNode: SerializedParaNode): ParaNode {
-    const { marker, unknownAttributes } = serializedNode;
-    return $createParaNode(marker, unknownAttributes).updateFromJSON(serializedNode);
-  }
-
   static override importDOM(): DOMConversionMap | null {
     return {
       p: () => ({
@@ -194,11 +186,22 @@ export class ParaNode extends ParagraphNode {
     };
   }
 
+  static override importJSON(serializedNode: SerializedParaNode): ParaNode {
+    return $createParaNode().updateFromJSON(serializedNode);
+  }
+
   static isValidMarker(marker: string | undefined): boolean {
     return (
       marker !== undefined &&
       VALID_PARA_MARKERS.includes(marker as (typeof VALID_PARA_MARKERS)[number])
     );
+  }
+
+  override updateFromJSON(serializedNode: LexicalUpdateJSON<SerializedParaNode>): this {
+    return super
+      .updateFromJSON(serializedNode)
+      .setMarker(serializedNode.marker)
+      .setUnknownAttributes(serializedNode.unknownAttributes);
   }
 
   setMarker(marker: string): this {

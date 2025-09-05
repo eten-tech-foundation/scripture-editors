@@ -1,4 +1,5 @@
 import {
+  BookCode,
   MarkerContent,
   MarkerObject,
   USJ_TYPE,
@@ -20,6 +21,7 @@ import {
   ENDING_MS_COMMENT_MARKER,
   getEditableCallerText,
   ImmutableChapterNode,
+  ImmutableTypedTextNode,
   ImmutableUnmatchedNode,
   isSerializedImpliedParaNode,
   isSerializedTypedMarkNode,
@@ -28,6 +30,7 @@ import {
   MILESTONE_VERSION,
   MilestoneNode,
   NBSP,
+  NODE_ATTRIBUTE_PREFIX,
   NoteNode,
   ParaNode,
   parseNumberFromMarkerText,
@@ -97,7 +100,9 @@ function createBookMarker(
   node: SerializedBookNode,
   content: MarkerContent[] | undefined,
 ): MarkerObject {
-  const { type, marker, code, unknownAttributes } = node;
+  const { type, marker, unknownAttributes } = node;
+  let code: BookCode | undefined;
+  if (node.code !== "") code = node.code;
   return removeUndefinedProperties({
     type,
     marker,
@@ -374,6 +379,7 @@ function recurseNodes(
           ),
         );
         break;
+      case ImmutableTypedTextNode.getType():
       case ImmutableNoteCallerNode.getType():
       case LineBreakNode.getType():
       case MarkerNode.getType():
@@ -404,6 +410,7 @@ function recurseNodes(
         if (
           serializedTextNode.text &&
           serializedTextNode.text !== NBSP &&
+          !serializedTextNode.text.startsWith(NODE_ATTRIBUTE_PREFIX) &&
           (!noteCaller || serializedTextNode.text !== getEditableCallerText(noteCaller))
         ) {
           combineTextContentOrAdd(markers, createTextMarker(serializedTextNode));

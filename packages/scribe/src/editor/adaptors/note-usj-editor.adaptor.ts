@@ -41,6 +41,7 @@ import {
   isSerializedTextNode,
   LoggerBasic,
   MarkerNode,
+  MarkerSyntax,
   MILESTONE_VERSION,
   MilestoneNode,
   NBSP,
@@ -391,7 +392,7 @@ function createNote(
   let closingMarkerNode: SerializedTextNode | undefined;
   if (_viewOptions?.markerMode === "visible" || _viewOptions?.markerMode === "editable") {
     openingMarkerNode = createMarker(marker);
-    closingMarkerNode = createMarker(marker, false);
+    closingMarkerNode = createMarker(marker, "closing");
   }
   const children: SerializedLexicalNode[] = [];
   if (openingMarkerNode) children.push(openingMarkerNode);
@@ -462,11 +463,14 @@ function createUnknown(
   });
 }
 
-function createMarker(marker: string, isOpening = true): SerializedMarkerNode {
+function createMarker(
+  marker: string,
+  markerSyntax: MarkerSyntax = "opening",
+): SerializedMarkerNode {
   return {
     type: MarkerNode.getType(),
     marker,
-    isOpening,
+    markerSyntax,
     text: "",
     detail: 0,
     format: 0,
@@ -499,7 +503,7 @@ function addClosingMarker(marker: string, nodes: SerializedLexicalNode[]) {
     (_viewOptions?.markerMode === "visible" || _viewOptions?.markerMode === "editable") &&
     !(CharNode.isValidFootnoteMarker(marker) || CharNode.isValidCrossReferenceMarker(marker))
   ) {
-    nodes.push(createMarker(marker, false));
+    nodes.push(createMarker(marker, "closing"));
   }
 }
 

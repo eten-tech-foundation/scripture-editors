@@ -8,6 +8,7 @@ import {
   ElementNode,
   LexicalEditor,
   LexicalNode,
+  LexicalUpdateJSON,
   NodeKey,
   SerializedElementNode,
   SerializedLexicalNode,
@@ -119,7 +120,7 @@ export class CharNode extends ElementNode {
   __marker: string;
   __unknownAttributes?: UnknownAttributes;
 
-  constructor(marker: string, unknownAttributes?: UnknownAttributes, key?: NodeKey) {
+  constructor(marker = "", unknownAttributes?: UnknownAttributes, key?: NodeKey) {
     super(key);
     this.__marker = marker;
     this.__unknownAttributes = unknownAttributes;
@@ -132,11 +133,6 @@ export class CharNode extends ElementNode {
   static override clone(node: CharNode): CharNode {
     const { __marker, __unknownAttributes, __key } = node;
     return new CharNode(__marker, __unknownAttributes, __key);
-  }
-
-  static override importJSON(serializedNode: SerializedCharNode): CharNode {
-    const { marker, unknownAttributes } = serializedNode;
-    return $createCharNode(marker, unknownAttributes).updateFromJSON(serializedNode);
   }
 
   static override importDOM(): DOMConversionMap | null {
@@ -152,6 +148,10 @@ export class CharNode extends ElementNode {
     };
   }
 
+  static override importJSON(serializedNode: SerializedCharNode): CharNode {
+    return $createCharNode().updateFromJSON(serializedNode);
+  }
+
   static isValidMarker(marker: string | undefined): boolean {
     return marker !== undefined && VALID_CHAR_MARKERS.includes(marker);
   }
@@ -162,6 +162,13 @@ export class CharNode extends ElementNode {
 
   static isValidCrossReferenceMarker(marker: string | undefined): boolean {
     return marker !== undefined && VALID_CHAR_CROSS_REFERENCE_MARKERS.includes(marker);
+  }
+
+  override updateFromJSON(serializedNode: LexicalUpdateJSON<SerializedCharNode>): this {
+    return super
+      .updateFromJSON(serializedNode)
+      .setMarker(serializedNode.marker)
+      .setUnknownAttributes(serializedNode.unknownAttributes);
   }
 
   setMarker(marker: string): this {
@@ -238,7 +245,7 @@ function $convertCharElement(element: HTMLElement): DOMConversionOutput {
   return { node };
 }
 
-export function $createCharNode(marker: string, unknownAttributes?: UnknownAttributes): CharNode {
+export function $createCharNode(marker?: string, unknownAttributes?: UnknownAttributes): CharNode {
   return $applyNodeReplacement(new CharNode(marker, unknownAttributes));
 }
 

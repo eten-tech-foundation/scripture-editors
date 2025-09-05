@@ -6,6 +6,7 @@ import {
   DOMExportOutput,
   ElementNode,
   LexicalNode,
+  LexicalUpdateJSON,
   NodeKey,
   SerializedElementNode,
   SerializedLexicalNode,
@@ -29,7 +30,7 @@ export class UnknownNode extends ElementNode {
   __marker: string;
   __unknownAttributes?: UnknownAttributes;
 
-  constructor(tag: string, marker: string, unknownAttributes?: UnknownAttributes, key?: NodeKey) {
+  constructor(tag = "", marker = "", unknownAttributes?: UnknownAttributes, key?: NodeKey) {
     super(key);
     this.__tag = tag;
     this.__marker = marker;
@@ -45,11 +46,6 @@ export class UnknownNode extends ElementNode {
     return new UnknownNode(__tag, __marker, __unknownAttributes, __key);
   }
 
-  static override importJSON(serializedNode: SerializedUnknownNode): UnknownNode {
-    const { tag, marker, unknownAttributes } = serializedNode;
-    return $createUnknownNode(tag, marker, unknownAttributes).updateFromJSON(serializedNode);
-  }
-
   static override importDOM(): DOMConversionMap | null {
     return {
       [UNKNOWN_TAG_NAME]: (node: HTMLElement) => {
@@ -61,6 +57,18 @@ export class UnknownNode extends ElementNode {
         };
       },
     };
+  }
+
+  static override importJSON(serializedNode: SerializedUnknownNode): UnknownNode {
+    return $createUnknownNode().updateFromJSON(serializedNode);
+  }
+
+  override updateFromJSON(serializedNode: LexicalUpdateJSON<SerializedUnknownNode>): this {
+    return super
+      .updateFromJSON(serializedNode)
+      .setTag(serializedNode.tag)
+      .setMarker(serializedNode.marker)
+      .setUnknownAttributes(serializedNode.unknownAttributes);
   }
 
   setTag(tag: string): this {
@@ -154,8 +162,8 @@ function $convertUnknownElement(element: HTMLElement): DOMConversionOutput {
 }
 
 export function $createUnknownNode(
-  tag: string,
-  marker: string,
+  tag?: string,
+  marker?: string,
   unknownAttributes?: UnknownAttributes,
 ): UnknownNode {
   return $applyNodeReplacement(new UnknownNode(tag, marker, unknownAttributes));

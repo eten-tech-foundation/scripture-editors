@@ -26,6 +26,7 @@ import {
   ChapterNode,
   CHAR_VERSION,
   CharNode,
+  closingMarkerText,
   COMMENT_MARK_TYPE,
   EditorAdaptor,
   ENDING_MS_COMMENT_MARKER,
@@ -34,8 +35,10 @@ import {
   getUnknownAttributes,
   getVisibleOpenMarkerText,
   IMMUTABLE_CHAPTER_VERSION,
+  IMMUTABLE_TYPED_TEXT_VERSION,
   IMMUTABLE_UNMATCHED_VERSION,
   ImmutableChapterNode,
+  ImmutableTypedTextNode,
   ImmutableUnmatchedNode,
   IMPLIED_PARA_VERSION,
   ImpliedParaNode,
@@ -46,11 +49,14 @@ import {
   isSomeSerializedChapterNode,
   LoggerBasic,
   MarkerNode,
+  MarkerSyntax,
   MILESTONE_VERSION,
   MilestoneNode,
   NBSP,
+  NODE_ATTRIBUTE_PREFIX,
   NOTE_VERSION,
   NoteNode,
+  openingMarkerText,
   PARA_VERSION,
   ParaNode,
   removeUndefinedProperties,
@@ -58,6 +64,7 @@ import {
   SerializedChapterNode,
   SerializedCharNode,
   SerializedImmutableChapterNode,
+  SerializedImmutableTypedTextNode,
   SerializedImmutableUnmatchedNode,
   SerializedImpliedParaNode,
   SerializedMarkerNode,
@@ -205,6 +212,13 @@ function createBook(markerObject: MarkerObject): SerializedBookNode {
   if (!code || !BookNode.isValidBookCode(code)) {
     _logger?.warn(`Unexpected book code '${code}'!`);
   }
+  const children: SerializedLexicalNode[] = [];
+  if (_viewOptions?.markerMode === "editable" || _viewOptions?.markerMode === "visible") {
+    children.push(
+      createImmutableTypedText("marker", openingMarkerText(marker) + " " + code + NBSP),
+    );
+  }
+  children.push(createText(getTextContent(markerObject.content)));
   const unknownAttributes = getUnknownAttributes(markerObject);
 
   return removeUndefinedProperties({
@@ -212,7 +226,7 @@ function createBook(markerObject: MarkerObject): SerializedBookNode {
     marker: marker as BookMarker,
     code: code ?? ("" as BookCode),
     unknownAttributes,
-    children: [createText(getTextContent(markerObject.content))],
+    children,
     direction: null,
     format: "",
     indent: 0,
@@ -341,6 +355,8 @@ function createPara(
   const children: SerializedLexicalNode[] = [];
   if (_viewOptions?.markerMode === "editable")
     children.push(createMarker(marker), createText(NBSP));
+  else if (_viewOptions?.markerMode === "visible")
+    children.push(createImmutableTypedText("marker", openingMarkerText(marker) + NBSP));
   children.push(...childNodes);
   const unknownAttributes = getUnknownAttributes(markerObject);
 
@@ -390,11 +406,14 @@ function createNote(
   }
   const unknownAttributes = getUnknownAttributes(markerObject);
 
-  let openingMarkerNode: SerializedTextNode | undefined;
-  let closingMarkerNode: SerializedTextNode | undefined;
-  if (_viewOptions?.markerMode === "visible" || _viewOptions?.markerMode === "editable") {
+  let openingMarkerNode: SerializedTextNode | SerializedImmutableTypedTextNode | undefined;
+  let closingMarkerNode: SerializedTextNode | SerializedImmutableTypedTextNode | undefined;
+  if (_viewOptions?.markerMode === "editable") {
     openingMarkerNode = createMarker(marker);
-    closingMarkerNode = createMarker(marker, false);
+    closingMarkerNode = createMarker(marker, "closing");
+  } else if (_viewOptions?.markerMode === "visible") {
+    openingMarkerNode = createImmutableTypedText("marker", openingMarkerText(marker) + NBSP);
+    closingMarkerNode = createImmutableTypedText("marker", closingMarkerText(marker) + NBSP);
   }
   const children: SerializedLexicalNode[] = [];
   if (openingMarkerNode) children.push(openingMarkerNode);
@@ -479,11 +498,14 @@ function createUnmatched(marker: string): SerializedImmutableUnmatchedNode {
   };
 }
 
-function createMarker(marker: string, isOpening = true): SerializedMarkerNode {
+function createMarker(
+  marker: string,
+  markerSyntax: MarkerSyntax = "opening",
+): SerializedMarkerNode {
   return {
     type: MarkerNode.getType(),
     marker,
-    isOpening,
+    markerSyntax,
     text: "",
     detail: 0,
     format: 0,
@@ -505,18 +527,51 @@ function createText(text: string, mode: TextModeType = "normal"): SerializedText
   };
 }
 
+function createImmutableTypedText(
+  textType: string,
+  text: string,
+): SerializedImmutableTypedTextNode {
+  return {
+    type: ImmutableTypedTextNode.getType(),
+    text,
+    textType,
+    version: IMMUTABLE_TYPED_TEXT_VERSION,
+  };
+}
+
 function addOpeningMarker(marker: string, nodes: SerializedLexicalNode[]) {
-  if (_viewOptions?.markerMode === "visible" || _viewOptions?.markerMode === "editable") {
+  if (_viewOptions?.markerMode === "editable") {
     nodes.push(createMarker(marker));
+  } else if (_viewOptions?.markerMode === "visible") {
+    nodes.push(createImmutableTypedText("marker", openingMarkerText(marker)));
   }
 }
 
-function addClosingMarker(marker: string, nodes: SerializedLexicalNode[]) {
-  if (
-    (_viewOptions?.markerMode === "visible" || _viewOptions?.markerMode === "editable") &&
-    !(CharNode.isValidFootnoteMarker(marker) || CharNode.isValidCrossReferenceMarker(marker))
-  ) {
-    nodes.push(createMarker(marker, false));
+function addClosingMarker(marker: string, nodes: SerializedLexicalNode[], isSelfClosing = false) {
+  if (CharNode.isValidFootnoteMarker(marker) || CharNode.isValidCrossReferenceMarker(marker))
+    return;
+
+  if (_viewOptions?.markerMode === "editable") {
+    if (isSelfClosing) nodes.push(createMarker("", "selfClosing"));
+    else nodes.push(createMarker(marker, "closing"));
+  } else if (_viewOptions?.markerMode === "visible") {
+    nodes.push(createImmutableTypedText("marker", closingMarkerText(isSelfClosing ? "" : marker)));
+  }
+}
+
+function addAttributes(markerObject: MarkerObject, nodes: SerializedLexicalNode[]) {
+  if (markerObject.type !== "ms") return;
+
+  const attributes: string[] = [];
+  if (markerObject.sid) attributes.push(`sid="${markerObject.sid}"`);
+  if (markerObject.eid) attributes.push(`eid="${markerObject.eid}"`);
+  if (attributes.length <= 0) return;
+
+  const attributesText = NODE_ATTRIBUTE_PREFIX + attributes.join(" ");
+  if (_viewOptions?.markerMode === "editable") {
+    nodes.push(createText(attributesText));
+  } else if (_viewOptions?.markerMode === "visible") {
+    nodes.push(createImmutableTypedText("attribute", attributesText));
   }
 }
 
@@ -622,6 +677,10 @@ function recurseNodes(markers: MarkerContent[] | undefined): SerializedLexicalNo
             if (markerContent.sid !== undefined) commentIds?.push(markerContent.sid);
           }
           nodes.push(createMilestone(markerContent));
+          // Must be after the milestone because of the way `replaceMilestonesWithMarkRecurse` works.
+          addOpeningMarker(markerContent.marker, nodes);
+          addAttributes(markerContent, nodes);
+          addClosingMarker(markerContent.marker, nodes, true);
           break;
         case ImmutableUnmatchedNode.getType():
           nodes.push(createUnmatched(markerContent.marker));

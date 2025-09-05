@@ -4,10 +4,13 @@ export interface UnknownAttributes {
   [name: string]: string | undefined;
 }
 
-export const PARA_MARKER_DEFAULT = "p";
-
 export const NBSP = "\u00A0";
 export const ZWSP = "\u200B";
+
+export const NODE_ATTRIBUTE_PREFIX = `${NBSP}|`;
+
+export const PARA_MARKER_DEFAULT = "p";
+export const GENERATOR_NOTE_CALLER = "+";
 
 export const CHAPTER_CLASS_NAME = "chapter";
 export const VERSE_CLASS_NAME = "verse";

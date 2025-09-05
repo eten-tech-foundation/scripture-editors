@@ -8,6 +8,7 @@ import {
   isHTMLElement,
   LexicalEditor,
   LexicalNode,
+  LexicalUpdateJSON,
   NodeKey,
   SerializedLexicalNode,
   Spread,
@@ -26,7 +27,7 @@ export type SerializedImmutableUnmatchedNode = Spread<
 export class ImmutableUnmatchedNode extends DecoratorNode<void> {
   __marker: string;
 
-  constructor(marker: string, key?: NodeKey) {
+  constructor(marker = "", key?: NodeKey) {
     super(key);
     this.__marker = marker;
   }
@@ -40,14 +41,6 @@ export class ImmutableUnmatchedNode extends DecoratorNode<void> {
     return new ImmutableUnmatchedNode(__marker, __key);
   }
 
-  static override importJSON(
-    serializedNode: SerializedImmutableUnmatchedNode,
-  ): ImmutableUnmatchedNode {
-    const { marker } = serializedNode;
-    const node = $createImmutableUnmatchedNode(marker);
-    return node;
-  }
-
   static override importDOM(): DOMConversionMap | null {
     return {
       [UNMATCHED_TAG_NAME]: (node: HTMLElement) => {
@@ -59,6 +52,18 @@ export class ImmutableUnmatchedNode extends DecoratorNode<void> {
         };
       },
     };
+  }
+
+  static override importJSON(
+    serializedNode: SerializedImmutableUnmatchedNode,
+  ): ImmutableUnmatchedNode {
+    return $createImmutableUnmatchedNode().updateFromJSON(serializedNode);
+  }
+
+  override updateFromJSON(
+    serializedNode: LexicalUpdateJSON<SerializedImmutableUnmatchedNode>,
+  ): this {
+    return super.updateFromJSON(serializedNode).setMarker(serializedNode.marker);
   }
 
   setMarker(marker: string): this {
@@ -126,7 +131,7 @@ function $convertImmutableUnmatchedElement(element: HTMLElement): DOMConversionO
   return { node };
 }
 
-export function $createImmutableUnmatchedNode(marker: string): ImmutableUnmatchedNode {
+export function $createImmutableUnmatchedNode(marker?: string): ImmutableUnmatchedNode {
   return $applyNodeReplacement(new ImmutableUnmatchedNode(marker));
 }
 

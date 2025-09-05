@@ -45,7 +45,7 @@ export class ImmutableVerseNode extends DecoratorNode<ReactElement> {
   __unknownAttributes?: UnknownAttributes;
 
   constructor(
-    verseNumber: string,
+    verseNumber = "",
     showMarker = false,
     sid?: string,
     altnumber?: string,
@@ -81,19 +81,6 @@ export class ImmutableVerseNode extends DecoratorNode<ReactElement> {
     );
   }
 
-  static override importJSON(serializedNode: SerializedImmutableVerseNode): ImmutableVerseNode {
-    const { number, showMarker, sid, altnumber, pubnumber, unknownAttributes } = serializedNode;
-    const node = $createImmutableVerseNode(
-      number,
-      showMarker,
-      sid,
-      altnumber,
-      pubnumber,
-      unknownAttributes,
-    ).updateFromJSON(serializedNode);
-    return node;
-  }
-
   static override importDOM(): DOMConversionMap | null {
     return {
       span: (node: HTMLElement) => {
@@ -107,8 +94,20 @@ export class ImmutableVerseNode extends DecoratorNode<ReactElement> {
     };
   }
 
+  static override importJSON(serializedNode: SerializedImmutableVerseNode): ImmutableVerseNode {
+    return $createImmutableVerseNode().updateFromJSON(serializedNode);
+  }
+
   override updateFromJSON(serializedNode: LexicalUpdateJSON<SerializedImmutableVerseNode>): this {
-    return super.updateFromJSON(serializedNode).setMarker(serializedNode.marker);
+    return super
+      .updateFromJSON(serializedNode)
+      .setMarker(serializedNode.marker)
+      .setNumber(serializedNode.number)
+      .setShowMarker(serializedNode.showMarker)
+      .setSid(serializedNode.sid)
+      .setAltnumber(serializedNode.altnumber)
+      .setPubnumber(serializedNode.pubnumber)
+      .setUnknownAttributes(serializedNode.unknownAttributes);
   }
 
   setMarker(marker: VerseMarker): this {
@@ -204,6 +203,7 @@ export class ImmutableVerseNode extends DecoratorNode<ReactElement> {
     const dom = document.createElement("span");
     dom.setAttribute("data-marker", this.__marker);
     dom.classList.add(VERSE_CLASS_NAME, `usfm_${this.__marker}`);
+    if (this.__showMarker) dom.classList.add("marker");
     dom.setAttribute("data-number", this.__number);
     return dom;
   }
@@ -264,7 +264,7 @@ function $convertImmutableVerseElement(element: HTMLElement): DOMConversionOutpu
 }
 
 export function $createImmutableVerseNode(
-  verseNumber: string,
+  verseNumber?: string,
   showMarker?: boolean,
   sid?: string,
   altnumber?: string,

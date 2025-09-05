@@ -2,12 +2,15 @@ import DropDown, { DropDownItem } from "./DropDown";
 import { ViewMode, viewModeToViewNames } from "@eten-tech-foundation/platform-editor";
 import { ReactElement } from "react";
 
+export const CUSTOM_VIEW_MODE = "custom";
+const customViewModeNames = { ...viewModeToViewNames, [CUSTOM_VIEW_MODE]: "Custom" };
+
 function viewModeToClassName(viewMode: string): string {
-  return viewMode in viewModeToViewNames ? viewMode : "";
+  return viewMode in customViewModeNames ? viewMode : "";
 }
 
 function viewModeLabel(viewMode: string): string {
-  return viewMode in viewModeToViewNames ? viewModeToViewNames[viewMode as ViewMode] : "select...";
+  return viewMode in customViewModeNames ? customViewModeNames[viewMode as ViewMode] : "select...";
 }
 
 function dropDownActiveClass(isActive: boolean): string {
@@ -31,14 +34,14 @@ export default function ViewModeDropDown({
       buttonLabel={viewModeLabel(viewMode)}
       buttonAriaLabel="Selection options for view mode"
     >
-      {Object.keys(viewModeToViewNames).map((itemViewMode) => (
+      {Object.keys(customViewModeNames).map((itemViewMode) => (
         <DropDownItem
           key={itemViewMode}
           className={"item view-mode " + dropDownActiveClass(viewMode === itemViewMode)}
           onClick={() => handleSelect(itemViewMode)}
         >
           <i className={"icon view-mode " + viewModeToClassName(itemViewMode)} />
-          {viewModeToViewNames[itemViewMode as ViewMode]}
+          {customViewModeNames[itemViewMode as ViewMode]}
         </DropDownItem>
       ))}
     </DropDown>

@@ -1,7 +1,7 @@
 /* eslint-disable no-console */
 import AnnotationTypeSelect from "./AnnotationTypeSelect";
 import TextDirectionDropDown from "./TextDirectionDropDown";
-import ViewModeDropDown from "./ViewModeDropDown";
+import ViewModeDropDown, { CUSTOM_VIEW_MODE } from "./ViewModeDropDown";
 import {
   AnnotationRange,
   Comments,
@@ -84,13 +84,25 @@ export default function App() {
   const [hasSpellCheck, setHasSpellCheck] = useState(false);
   const [textDirection, setTextDirection] = useState<TextDirection>("ltr");
   const [viewMode, setViewMode] = useState<string>(getDefaultViewMode);
+  const [markerMode, setMarkerMode] = useState<"visible" | "editable" | "hidden">("hidden");
+  const [hasSpacing, setHasSpacing] = useState(true);
+  const [isFormattedFont, setIsFormattedFont] = useState(true);
   const [debug, setDebug] = useState(true);
   const [scrRef, setScrRef] = useState(defaultScrRef);
   const [annotations, setAnnotations] = useState(defaultAnnotations);
   const [annotationType, setAnnotationType] = useState("spelling");
   const [opsInput, setOpsInput] = useState("");
 
-  const viewOptions = useMemo<ViewOptions | undefined>(() => getViewOptions(viewMode), [viewMode]);
+  const viewOptions = useMemo<ViewOptions | undefined>(() => {
+    if (viewMode === CUSTOM_VIEW_MODE) {
+      return { markerMode, hasSpacing, isFormattedFont };
+    }
+    const viewOptions = getViewOptions(viewMode);
+    setMarkerMode(viewOptions?.markerMode ?? "hidden");
+    setHasSpacing(viewOptions?.hasSpacing ?? true);
+    setIsFormattedFont(viewOptions?.isFormattedFont ?? true);
+    return viewOptions;
+  }, [viewMode, markerMode, hasSpacing, isFormattedFont]);
 
   const options = useMemo<EditorOptions | undefined>(
     () => ({
@@ -259,6 +271,40 @@ export default function App() {
             </div>
             <TextDirectionDropDown textDirection={textDirection} handleSelect={setTextDirection} />
             <ViewModeDropDown viewMode={viewMode} handleSelect={setViewMode} />
+          </div>
+        )}
+        {viewMode === CUSTOM_VIEW_MODE && (
+          <div className="custom-view-options">
+            <div className="control">
+              <label htmlFor="markerModeSelect">Marker Mode</label>
+              <select
+                id="markerModeSelect"
+                value={markerMode}
+                onChange={(e) => setMarkerMode(e.target.value as "visible" | "editable" | "hidden")}
+              >
+                <option value="hidden">Hidden</option>
+                <option value="visible">Visible</option>
+                <option value="editable">Editable</option>
+              </select>
+            </div>
+            <div className="control">
+              <input
+                type="checkbox"
+                id="hasSpacingCheckBox"
+                checked={hasSpacing}
+                onChange={(e) => setHasSpacing(e.target.checked)}
+              />
+              <label htmlFor="hasSpacingCheckBox">Has Spacing</label>
+            </div>
+            <div className="control">
+              <input
+                type="checkbox"
+                id="isFormattedFontCheckBox"
+                checked={isFormattedFont}
+                onChange={(e) => setIsFormattedFont(e.target.checked)}
+              />
+              <label htmlFor="isFormattedFontCheckBox">Is Formatted Font</label>
+            </div>
           </div>
         )}
         <Marginal

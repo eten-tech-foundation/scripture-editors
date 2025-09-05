@@ -306,7 +306,7 @@ export function removeNodesBeforeNode(
 
 /**
  * Gets the opening marker text.
- * @param marker - Verse marker.
+ * @param marker - The USFM marker.
  * @returns the opening marker text.
  */
 export function openingMarkerText(marker: string): string {
@@ -315,7 +315,7 @@ export function openingMarkerText(marker: string): string {
 
 /**
  * Gets the closing marker text.
- * @param marker - Verse marker.
+ * @param marker - The USFM marker.
  * @returns the closing marker text.
  */
 export function closingMarkerText(marker: string): string {

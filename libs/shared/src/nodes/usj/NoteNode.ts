@@ -1,5 +1,6 @@
 /** Conforms with USJ v3.1 @see https://docs.usfm.bible/usfm/3.1/note/index.html */
 
+import { GENERATOR_NOTE_CALLER, UnknownAttributes } from "./node-constants.js";
 import {
   $applyNodeReplacement,
   DOMConversionMap,
@@ -9,12 +10,12 @@ import {
   isHTMLElement,
   LexicalEditor,
   LexicalNode,
+  LexicalUpdateJSON,
   NodeKey,
   SerializedElementNode,
   SerializedLexicalNode,
   Spread,
 } from "lexical";
-import { UnknownAttributes } from "./node-constants.js";
 
 /** @see https://docs.usfm.bible/usfm/3.1/note/index.html */
 const VALID_NOTE_MARKERS = [
@@ -46,8 +47,8 @@ export class NoteNode extends ElementNode {
   __unknownAttributes?: UnknownAttributes;
 
   constructor(
-    marker: string,
-    caller: string,
+    marker = "",
+    caller = GENERATOR_NOTE_CALLER,
     category?: string,
     unknownAttributes?: UnknownAttributes,
     key?: NodeKey,
@@ -68,13 +69,6 @@ export class NoteNode extends ElementNode {
     return new NoteNode(__marker, __caller, __category, __unknownAttributes, __key);
   }
 
-  static override importJSON(serializedNode: SerializedNoteNode): NoteNode {
-    const { marker, caller, category, unknownAttributes } = serializedNode;
-    return $createNoteNode(marker, caller, category, unknownAttributes).updateFromJSON(
-      serializedNode,
-    );
-  }
-
   static override importDOM(): DOMConversionMap | null {
     return {
       span: (node: HTMLElement) => {
@@ -88,11 +82,24 @@ export class NoteNode extends ElementNode {
     };
   }
 
+  static override importJSON(serializedNode: SerializedNoteNode): NoteNode {
+    return $createNoteNode().updateFromJSON(serializedNode);
+  }
+
   static isValidMarker(marker: string | undefined): boolean {
     return (
       marker !== undefined &&
       VALID_NOTE_MARKERS.includes(marker as (typeof VALID_NOTE_MARKERS)[number])
     );
+  }
+
+  override updateFromJSON(serializedNode: LexicalUpdateJSON<SerializedNoteNode>): this {
+    return super
+      .updateFromJSON(serializedNode)
+      .setMarker(serializedNode.marker)
+      .setCaller(serializedNode.caller)
+      .setCategory(serializedNode.category)
+      .setUnknownAttributes(serializedNode.unknownAttributes);
   }
 
   setMarker(marker: string): this {
@@ -201,8 +208,8 @@ function $convertNoteElement(element: HTMLElement): DOMConversionOutput {
 }
 
 export function $createNoteNode(
-  marker: string,
-  caller: string,
+  marker?: string,
+  caller: string = GENERATOR_NOTE_CALLER,
   category?: string,
   unknownAttributes?: UnknownAttributes,
 ): NoteNode {

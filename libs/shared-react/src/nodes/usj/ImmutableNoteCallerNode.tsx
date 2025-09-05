@@ -9,11 +9,13 @@ import {
   isHTMLElement,
   LexicalEditor,
   LexicalNode,
+  LexicalUpdateJSON,
   NodeKey,
   SerializedLexicalNode,
   Spread,
 } from "lexical";
 import { ReactNode, SyntheticEvent, ReactElement } from "react";
+import { GENERATOR_NOTE_CALLER } from "shared";
 
 /**
  * A callback function type for handling click events.
@@ -33,15 +35,14 @@ export type SerializedImmutableNoteCallerNode = Spread<
   SerializedLexicalNode
 >;
 
-export const GENERATOR_NOTE_CALLER = "+";
 export const IMMUTABLE_NOTE_CALLER_VERSION = 1;
 
 export class ImmutableNoteCallerNode extends DecoratorNode<ReactNode> {
   __caller: string;
   __previewText: string;
-  __onClick: OnClick;
+  __onClick: OnClick | undefined;
 
-  constructor(caller: string, previewText: string, onClick?: OnClick, key?: NodeKey) {
+  constructor(caller = GENERATOR_NOTE_CALLER, previewText = "", onClick?: OnClick, key?: NodeKey) {
     super(key);
     this.__caller = caller;
     this.__previewText = previewText;
@@ -57,14 +58,6 @@ export class ImmutableNoteCallerNode extends DecoratorNode<ReactNode> {
     return new ImmutableNoteCallerNode(__caller, __previewText, __onClick, __key);
   }
 
-  static override importJSON(
-    serializedNode: SerializedImmutableNoteCallerNode,
-  ): ImmutableNoteCallerNode {
-    const { caller, previewText, onClick } = serializedNode;
-    const node = $createImmutableNoteCallerNode(caller, previewText, onClick);
-    return node;
-  }
-
   static override importDOM(): DOMConversionMap | null {
     return {
       span: (node: HTMLElement) => {
@@ -76,6 +69,22 @@ export class ImmutableNoteCallerNode extends DecoratorNode<ReactNode> {
         };
       },
     };
+  }
+
+  static override importJSON(
+    serializedNode: SerializedImmutableNoteCallerNode,
+  ): ImmutableNoteCallerNode {
+    return $createImmutableNoteCallerNode().updateFromJSON(serializedNode);
+  }
+
+  override updateFromJSON(
+    serializedNode: LexicalUpdateJSON<SerializedImmutableNoteCallerNode>,
+  ): this {
+    return super
+      .updateFromJSON(serializedNode)
+      .setCaller(serializedNode.caller)
+      .setPreviewText(serializedNode.previewText)
+      .setOnClick(serializedNode.onClick);
   }
 
   setCaller(caller: string): this {
@@ -104,7 +113,7 @@ export class ImmutableNoteCallerNode extends DecoratorNode<ReactNode> {
     return self.__previewText;
   }
 
-  setOnClick(onClick: OnClick): this {
+  setOnClick(onClick: OnClick | undefined): this {
     if (this.__onClick === onClick) return this;
 
     const self = this.getWritable();
@@ -112,7 +121,7 @@ export class ImmutableNoteCallerNode extends DecoratorNode<ReactNode> {
     return self;
   }
 
-  getOnClick(): OnClick {
+  getOnClick(): OnClick | undefined {
     const self = this.getLatest();
     return self.__onClick;
   }
@@ -179,8 +188,8 @@ function $convertNoteCallerElement(element: HTMLElement): DOMConversionOutput {
 }
 
 export function $createImmutableNoteCallerNode(
-  caller: string,
-  previewText: string,
+  caller?: string,
+  previewText?: string,
   onClick?: OnClick,
 ): ImmutableNoteCallerNode {
   return $applyNodeReplacement(new ImmutableNoteCallerNode(caller, previewText, onClick));

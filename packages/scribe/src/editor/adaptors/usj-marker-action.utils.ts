@@ -17,6 +17,7 @@ import {
   $isTypedMarkNode,
   CharNode,
   createLexicalUsjNode,
+  GENERATOR_NOTE_CALLER,
   getNextVerse,
   Marker,
   MarkerAction,
@@ -27,7 +28,6 @@ import {
   $addTrailingSpace,
   $isSomeVerseNode,
   $removeLeadingSpace,
-  GENERATOR_NOTE_CALLER,
   ViewOptions,
 } from "shared-react";
 import usjEditorAdaptor from "./usj-editor.adaptor";
