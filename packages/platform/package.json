@@ -60,6 +60,10 @@
     "shared": "workspace:~",
     "shared-react": "workspace:~"
   },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "volta": {
     "extends": "../../package.json"
   }

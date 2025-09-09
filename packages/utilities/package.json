@@ -40,6 +40,10 @@
   "devDependencies": {
     "lexical": "^0.34.0"
   },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "volta": {
     "extends": "../../package.json"
   }
