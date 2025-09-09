@@ -31,7 +31,10 @@
   ],
   "scripts": {
     "prepublishOnly": "tsx scripts/prepare-publish.ts && cd ../.. && nx extract-api platform-editor",
-    "postpublish": "git restore package.json"
+    "postpublish": "git restore package.json",
+    "predevpub": "npm run prepublishOnly",
+    "devpub": "yalc push",
+    "postdevpub": "npm run postpublish"
   },
   "peerDependencies": {
     "react": ">=18.3.1",
