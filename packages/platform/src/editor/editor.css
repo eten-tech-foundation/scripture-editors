@@ -197,7 +197,7 @@
 
 .marker-editable [class^="editor-typed-mark"] {
   background: none;
-  border-bottom: none;
+  border-bottom: 0;
 }
 
 .editor-paragraph {
