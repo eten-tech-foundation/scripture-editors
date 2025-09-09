@@ -54,9 +54,17 @@ jobs:
       - name: Install Node.js and npm
         uses: actions/setup-node@v4
         with:
-          registry-url: "https://registry.npmjs.org/"
+          registry-url: "https://registry.npmjs.org"
           node-version: ${{ matrix.node_version }}
           cache: pnpm
+
+      - name: Verify and upgrade npm (Trusted Publishing requires npm >= 11.5.1)
+        run: |
+          echo "npm before upgrade:"
+          npm --version
+          npm i -g npm@^11.5.1
+          echo "npm after upgrade:"
+          npm --version
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
