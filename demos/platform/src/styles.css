@@ -104,6 +104,13 @@ body {
   }
 }
 
+.custom-node-options {
+  text-align: right;
+  margin-bottom: 10px;
+  font-size: 13px;
+  color: black;
+}
+
 .debug {
   display: flex;
 }

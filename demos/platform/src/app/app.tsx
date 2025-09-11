@@ -1,7 +1,12 @@
 /* eslint-disable no-console */
 import AnnotationTypeSelect from "./AnnotationTypeSelect";
+import NodeOptionsDropDown, {
+  CUSTOM_NODES_MODE,
+  NodesMode,
+  UNDEFINED_NODES_MODE,
+} from "./NodeOptionsDropDown";
 import TextDirectionDropDown from "./TextDirectionDropDown";
-import ViewModeDropDown, { CUSTOM_VIEW_MODE } from "./ViewModeDropDown";
+import ViewModeDropDown, { CUSTOM_VIEW_MODE, UNDEFINED_VIEW_MODE } from "./ViewModeDropDown";
 import {
   AnnotationRange,
   Comments,
@@ -31,9 +36,9 @@ interface Annotations {
 
 const defaultUsj = usxStringToUsj('<usx version="3.1" />');
 const defaultScrRef: SerializedVerseRef = { book: "PSA", chapterNum: 1, verseNum: 1 };
-const nodeOptions: UsjNodeOptions = {
+const customNodeOptions: UsjNodeOptions = {
   noteCallerOnClick: () => console.log("note node clicked"),
-  noteCallers: ["n1", "n2", "n3", "n4", "n5", "n6"],
+  noteCallers: ["①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨"],
 };
 // Word "man" inside first q1 of PSA 1:1.
 const annotationRange1 = {
@@ -87,6 +92,7 @@ export default function App() {
   const [markerMode, setMarkerMode] = useState<"visible" | "editable" | "hidden">("hidden");
   const [hasSpacing, setHasSpacing] = useState(true);
   const [isFormattedFont, setIsFormattedFont] = useState(true);
+  const [nodesMode, setNodesMode] = useState<NodesMode>(CUSTOM_NODES_MODE);
   const [debug, setDebug] = useState(true);
   const [scrRef, setScrRef] = useState(defaultScrRef);
   const [annotations, setAnnotations] = useState(defaultAnnotations);
@@ -94,26 +100,36 @@ export default function App() {
   const [opsInput, setOpsInput] = useState("");
 
   const viewOptions = useMemo<ViewOptions | undefined>(() => {
-    if (viewMode === CUSTOM_VIEW_MODE) {
-      return { markerMode, hasSpacing, isFormattedFont };
-    }
-    const viewOptions = getViewOptions(viewMode);
-    setMarkerMode(viewOptions?.markerMode ?? "hidden");
-    setHasSpacing(viewOptions?.hasSpacing ?? true);
-    setIsFormattedFont(viewOptions?.isFormattedFont ?? true);
-    return viewOptions;
+    if (viewMode === UNDEFINED_VIEW_MODE) return undefined;
+    if (viewMode === CUSTOM_VIEW_MODE) return { markerMode, hasSpacing, isFormattedFont };
+
+    const _viewOptions = getViewOptions(viewMode);
+    setMarkerMode(_viewOptions?.markerMode ?? "hidden");
+    setHasSpacing(_viewOptions?.hasSpacing ?? true);
+    setIsFormattedFont(_viewOptions?.isFormattedFont ?? true);
+    return _viewOptions;
   }, [viewMode, markerMode, hasSpacing, isFormattedFont]);
 
+  const nodeOptions = useMemo<UsjNodeOptions | undefined>(() => {
+    if (nodesMode === UNDEFINED_NODES_MODE) return undefined;
+
+    const _nodeOptions = { ...customNodeOptions };
+    return _nodeOptions;
+  }, [nodesMode]);
+
   const options = useMemo<EditorOptions | undefined>(
-    () => ({
-      isReadonly,
-      hasSpellCheck,
-      textDirection,
-      view: viewOptions,
-      nodes: nodeOptions,
-      debug,
-    }),
-    [isReadonly, hasSpellCheck, textDirection, viewOptions, debug],
+    () =>
+      isOptionsDefined
+        ? {
+            isReadonly,
+            hasSpellCheck,
+            textDirection,
+            view: viewOptions,
+            nodes: nodeOptions,
+            debug,
+          }
+        : { debug },
+    [isOptionsDefined, isReadonly, hasSpellCheck, textDirection, viewOptions, nodeOptions, debug],
   );
 
   const handleUsjChange = useCallback(
@@ -250,62 +266,75 @@ export default function App() {
           </button>
         </div>
         {isOptionsDefined && (
-          <div className="defined-options">
-            <div className="checkbox">
-              <input
-                type="checkbox"
-                id="isReadonlyCheckBox"
-                checked={isReadonly}
-                onChange={(e) => setIsReadonly(e.target.checked)}
+          <>
+            <div className="defined-options">
+              <div className="checkbox">
+                <input
+                  type="checkbox"
+                  id="isReadonlyCheckBox"
+                  checked={isReadonly}
+                  onChange={(e) => setIsReadonly(e.target.checked)}
+                />
+                <label htmlFor="isReadonlyCheckBox">Is Readonly</label>
+              </div>
+              <div className="checkbox">
+                <input
+                  type="checkbox"
+                  id="hasSpellCheckBox"
+                  checked={hasSpellCheck}
+                  onChange={(e) => setHasSpellCheck(e.target.checked)}
+                />
+                <label htmlFor="hasSpellCheckBox">Has Spell Check</label>
+              </div>
+              <TextDirectionDropDown
+                textDirection={textDirection}
+                handleSelect={setTextDirection}
               />
-              <label htmlFor="isReadonlyCheckBox">Is Readonly</label>
+              <ViewModeDropDown viewMode={viewMode} handleSelect={setViewMode} />
+              <NodeOptionsDropDown nodesMode={nodesMode} handleSelect={setNodesMode} />
             </div>
-            <div className="checkbox">
-              <input
-                type="checkbox"
-                id="hasSpellCheckBox"
-                checked={hasSpellCheck}
-                onChange={(e) => setHasSpellCheck(e.target.checked)}
-              />
-              <label htmlFor="hasSpellCheckBox">Has Spell Check</label>
-            </div>
-            <TextDirectionDropDown textDirection={textDirection} handleSelect={setTextDirection} />
-            <ViewModeDropDown viewMode={viewMode} handleSelect={setViewMode} />
-          </div>
-        )}
-        {viewMode === CUSTOM_VIEW_MODE && (
-          <div className="custom-view-options">
-            <div className="control">
-              <label htmlFor="markerModeSelect">Marker Mode</label>
-              <select
-                id="markerModeSelect"
-                value={markerMode}
-                onChange={(e) => setMarkerMode(e.target.value as "visible" | "editable" | "hidden")}
-              >
-                <option value="hidden">Hidden</option>
-                <option value="visible">Visible</option>
-                <option value="editable">Editable</option>
-              </select>
-            </div>
-            <div className="control">
-              <input
-                type="checkbox"
-                id="hasSpacingCheckBox"
-                checked={hasSpacing}
-                onChange={(e) => setHasSpacing(e.target.checked)}
-              />
-              <label htmlFor="hasSpacingCheckBox">Has Spacing</label>
-            </div>
-            <div className="control">
-              <input
-                type="checkbox"
-                id="isFormattedFontCheckBox"
-                checked={isFormattedFont}
-                onChange={(e) => setIsFormattedFont(e.target.checked)}
-              />
-              <label htmlFor="isFormattedFontCheckBox">Is Formatted Font</label>
-            </div>
-          </div>
+            {viewMode === CUSTOM_VIEW_MODE && (
+              <div className="custom-view-options">
+                <div className="control">
+                  <label htmlFor="markerModeSelect">Marker Mode</label>
+                  <select
+                    id="markerModeSelect"
+                    value={markerMode}
+                    onChange={(e) =>
+                      setMarkerMode(e.target.value as "visible" | "editable" | "hidden")
+                    }
+                  >
+                    <option value="hidden">Hidden</option>
+                    <option value="visible">Visible</option>
+                    <option value="editable">Editable</option>
+                  </select>
+                </div>
+                <div className="control">
+                  <input
+                    type="checkbox"
+                    id="hasSpacingCheckBox"
+                    checked={hasSpacing}
+                    onChange={(e) => setHasSpacing(e.target.checked)}
+                  />
+                  <label htmlFor="hasSpacingCheckBox">Has Spacing</label>
+                </div>
+                <div className="control">
+                  <input
+                    type="checkbox"
+                    id="isFormattedFontCheckBox"
+                    checked={isFormattedFont}
+                    onChange={(e) => setIsFormattedFont(e.target.checked)}
+                  />
+                  <label htmlFor="isFormattedFontCheckBox">Is Formatted Font</label>
+                </div>
+              </div>
+            )}
+            {nodesMode === CUSTOM_NODES_MODE && (
+              <div className="custom-node-options">
+                <pre>"nodeOptions": {JSON.stringify(nodeOptions)}</pre>
+              </div>
+            )}
+          </>
         )}
         <Marginal
           ref={marginalRef}
@@ -315,7 +344,7 @@ export default function App() {
           onSelectionChange={(selection) => console.log({ selection })}
           onCommentChange={(comments) => console.log({ comments })}
           onUsjChange={handleUsjChange}
-          options={isOptionsDefined ? options : { debug }}
+          options={options}
           logger={console}
         />
       </div>
