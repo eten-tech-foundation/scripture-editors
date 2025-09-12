@@ -173,7 +173,7 @@ describe("USJ Editor Adaptor", () => {
     expect(!!frOpen).toBe(true);
     const frChar = noteChildren.find((n) => isSerializedCharNode(n) && n.marker === "fr");
     const frFirst = isSerializedCharNode(frChar) ? frChar.children?.[0] : undefined;
-    expect(isSerializedTextNode(frFirst) && frFirst.text.startsWith(NBSP)).toBe(true);
+    expect(isSerializedTextNode(frFirst) && frFirst.text.startsWith(NBSP)).toBe(false);
   });
 
   it("should add line breaks before verses when visible mode has no spacing", () => {
@@ -193,7 +193,7 @@ describe("USJ Editor Adaptor", () => {
     expect(pChildren[idxVerse2 - 1].type).toBe("linebreak");
   });
 
-  it("should convert from USJ to Lexical editor state JSON in editable mode`", () => {
+  it("should convert from USJ to Lexical editor state JSON in editable mode", () => {
     const serializedEditorState = serializeEditorState(
       usjGen1v1,
       getViewOptions(UNFORMATTED_VIEW_MODE),

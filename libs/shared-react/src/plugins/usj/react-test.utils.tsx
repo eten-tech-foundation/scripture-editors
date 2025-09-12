@@ -110,14 +110,27 @@ export async function pressEnterAtSelection(
  *
  * @param editor - The Lexical editor instance.
  * @param key - The key name (e.g., "ArrowRight", "ArrowLeft").
+ * @param domUpdateDelayMS - Optional delay in milliseconds to wait for DOM updates after the key
+ *   press. Defaults to -1 (no wait). If set to 0 or a positive number, the function will wait for the
+ *   specified time before resolving.
+ * @returns A promise that resolves after the key press and optional delay.
  */
-export async function pressKey(editor: LexicalEditor, key: string): Promise<void> {
+export async function pressKey(
+  editor: LexicalEditor,
+  key: string,
+  domUpdateDelayMS = -1,
+): Promise<void> {
   await act(async () => {
     editor.dispatchCommand(
       KEY_DOWN_COMMAND,
       new KeyboardEvent("keydown", { key: key, bubbles: true, cancelable: true }),
     );
   });
+
+  if (domUpdateDelayMS >= 0) {
+    // Wait for DOM updates to complete
+    await new Promise((resolve) => setTimeout(resolve, domUpdateDelayMS));
+  }
 }
 
 /**

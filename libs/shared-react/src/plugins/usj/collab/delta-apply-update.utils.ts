@@ -1,7 +1,7 @@
 import {
   $createImmutableNoteCallerNode,
   ImmutableNoteCallerNode,
-  OnClick,
+  NoteCallerOnClick,
 } from "../../../nodes/usj/ImmutableNoteCallerNode";
 import { $createImmutableVerseNode } from "../../../nodes/usj/ImmutableVerseNode";
 import { $isSomeVerseNode, SomeVerseNode } from "../../../nodes/usj/node-react.utils";
@@ -50,6 +50,7 @@ import {
   $createNoteNode,
   $createParaNode,
   $createVerseNode,
+  $getNoteCallerPreviewText,
   $hasSameCharAttributes,
   $isBookNode,
   $isCharNode,
@@ -65,7 +66,6 @@ import {
   charIdState,
   CharNode,
   getEditableCallerText,
-  getNoteCallerPreviewText,
   getUnknownAttributes,
   getVisibleOpenMarkerText,
   ImpliedParaNode,
@@ -1578,8 +1578,9 @@ function $createNote(op: DeltaOp, viewOptions: ViewOptions, nodeOptions: UsjNode
   const { style, caller, category, contents } = noteEmbed.note;
   if (!style || !caller) return;
 
+  const isCollapsed = viewOptions?.noteMode !== "expanded";
   const unknownAttributes = getUnknownAttributes(noteEmbed.note, OT_NOTE_PROPS);
-  const note = $createNoteNode(style, caller, category, unknownAttributes);
+  const note = $createNoteNode(style, caller, isCollapsed, category, unknownAttributes);
 
   const segment = op.attributes?.segment;
   if (segment && typeof segment === "string") $setState(note, segmentState, () => segment);
@@ -1598,8 +1599,8 @@ function $createNote(op: DeltaOp, viewOptions: ViewOptions, nodeOptions: UsjNode
   if (viewOptions?.markerMode === "editable") {
     callerNode = $createTextNode(getEditableCallerText(caller));
   } else {
-    const previewText = getNoteCallerPreviewText(contentNodes);
-    let onClick: OnClick = () => undefined;
+    const previewText = $getNoteCallerPreviewText(contentNodes);
+    let onClick: NoteCallerOnClick = () => undefined;
     if (nodeOptions?.noteCallerOnClick) {
       onClick = nodeOptions.noteCallerOnClick;
     }

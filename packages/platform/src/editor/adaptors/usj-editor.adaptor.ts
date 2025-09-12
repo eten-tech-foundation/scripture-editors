@@ -44,6 +44,7 @@ import {
   ImpliedParaNode,
   isMilestoneCommentMarker,
   isSerializedBookNode,
+  isSerializedImmutableTypedTextNode,
   isSerializedParaNode,
   isSerializedTextNode,
   isSomeSerializedChapterNode,
@@ -90,7 +91,7 @@ import {
   IMMUTABLE_VERSE_VERSION,
   ImmutableNoteCallerNode,
   ImmutableVerseNode,
-  OnClick,
+  NoteCallerOnClick,
   SerializedImmutableNoteCallerNode,
   SerializedImmutableVerseNode,
   UsjNodeOptions,
@@ -311,7 +312,7 @@ function createChar(
   if (!CharNode.isValidMarker(marker)) {
     _logger?.warn(`Unexpected char marker '${marker}'!`);
   }
-  if (_viewOptions?.markerMode === "visible" || _viewOptions?.markerMode === "editable")
+  if (_viewOptions?.markerMode === "editable")
     childNodes.forEach((node) => {
       if (isSerializedTextNode(node)) node.text = NBSP + node.text;
     });
@@ -379,7 +380,7 @@ function createNoteCaller(
   childNodes: SerializedLexicalNode[],
 ): SerializedImmutableNoteCallerNode {
   const previewText = getPreviewTextFromSerializedNodes(childNodes);
-  let onClick: OnClick = () => undefined;
+  let onClick: NoteCallerOnClick = () => undefined;
   if (_nodeOptions?.noteCallerOnClick) onClick = _nodeOptions.noteCallerOnClick;
 
   return removeUndefinedProperties({
@@ -398,12 +399,7 @@ function createNote(
   const { marker, category } = markerObject;
   if (!NoteNode.isValidMarker(marker)) _logger?.warn(`Unexpected note marker '${marker}'!`);
   const caller = markerObject.caller ?? "*";
-  let callerNode: SerializedImmutableNoteCallerNode | SerializedTextNode;
-  if (_viewOptions?.markerMode === "editable") {
-    callerNode = createText(getEditableCallerText(caller));
-  } else {
-    callerNode = createNoteCaller(caller, childNodes);
-  }
+  const isCollapsed = _viewOptions?.noteMode !== "expanded";
   const unknownAttributes = getUnknownAttributes(markerObject);
 
   let openingMarkerNode: SerializedTextNode | SerializedImmutableTypedTextNode | undefined;
@@ -416,14 +412,23 @@ function createNote(
     closingMarkerNode = createImmutableTypedText("marker", closingMarkerText(marker) + NBSP);
   }
   const children: SerializedLexicalNode[] = [];
+  let callerNode: SerializedImmutableNoteCallerNode | SerializedTextNode;
   if (openingMarkerNode) children.push(openingMarkerNode);
-  children.push(callerNode, ...childNodes);
+  if (_viewOptions?.markerMode === "editable") {
+    callerNode = createText(getEditableCallerText(caller));
+    children.push(callerNode, ...childNodes);
+  } else {
+    const spaceNode = createText(NBSP);
+    callerNode = createNoteCaller(caller, childNodes);
+    children.push(callerNode, spaceNode, ...childNodes.flatMap(addSpaceNodes(spaceNode)));
+  }
   if (closingMarkerNode) children.push(closingMarkerNode);
 
   return removeUndefinedProperties({
     type: NoteNode.getType(),
     marker,
     caller,
+    isCollapsed,
     category,
     unknownAttributes,
     children,
@@ -432,6 +437,21 @@ function createNote(
     indent: 0,
     version: NOTE_VERSION,
   });
+}
+
+/** Add the given space node after each child node */
+function addSpaceNodes(
+  spaceNode: SerializedTextNode,
+): (
+  this: undefined,
+  value: SerializedLexicalNode,
+  index: number,
+  array: SerializedLexicalNode[],
+) => SerializedLexicalNode | readonly SerializedLexicalNode[] {
+  return (node) => {
+    if (isSerializedImmutableTypedTextNode(node)) return [node];
+    return [node, spaceNode];
+  };
 }
 
 function createMilestone(markerObject: MarkerObject): SerializedMilestoneNode {

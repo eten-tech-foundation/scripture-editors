@@ -12,7 +12,7 @@ import {
 import { $createParaNode } from "./ParaNode.js";
 import { createBasicTestEnvironment } from "./test.utils.js";
 import { MarkerObject } from "@eten-tech-foundation/scripture-utilities";
-import { $getRoot, NodeKey, $getNodeByKey } from "lexical";
+import { $getNodeByKey, $getRoot, NodeKey } from "lexical";
 
 describe("Editor Node Utilities", () => {
   describe("isValidNumberedMarker()", () => {

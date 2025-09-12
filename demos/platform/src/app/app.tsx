@@ -17,6 +17,8 @@ import {
   getViewOptions,
   Marginal,
   MarginalRef,
+  MarkerMode,
+  NoteMode,
   TextDirection,
   UsjNodeOptions,
   ViewOptions,
@@ -39,7 +41,7 @@ const emptyUsj = usxStringToUsj('<usx version="3.1" />');
 const webUsj = usxStringToUsj(isTesting ? WEB_PSA_USX : WEB_PSA_CH1_USX);
 const defaultScrRef: SerializedVerseRef = { book: "PSA", chapterNum: 1, verseNum: 1 };
 const customNodeOptions: UsjNodeOptions = {
-  noteCallerOnClick: () => console.log("note node clicked"),
+  noteCallerOnClick: (...args) => console.log("note node clicked", args),
   noteCallers: ["①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨"],
 };
 // Word "man" inside first q1 of PSA 1:1.
@@ -91,7 +93,8 @@ export default function App() {
   const [hasSpellCheck, setHasSpellCheck] = useState(false);
   const [textDirection, setTextDirection] = useState<TextDirection>("ltr");
   const [viewMode, setViewMode] = useState<string>(getDefaultViewMode);
-  const [markerMode, setMarkerMode] = useState<"visible" | "editable" | "hidden">("hidden");
+  const [markerMode, setMarkerMode] = useState<MarkerMode>("hidden");
+  const [noteMode, setNoteMode] = useState<NoteMode>("expandInline");
   const [hasSpacing, setHasSpacing] = useState(true);
   const [isFormattedFont, setIsFormattedFont] = useState(true);
   const [nodesMode, setNodesMode] = useState<NodesMode>(CUSTOM_NODES_MODE);
@@ -103,14 +106,15 @@ export default function App() {
 
   const viewOptions = useMemo<ViewOptions | undefined>(() => {
     if (viewMode === UNDEFINED_VIEW_MODE) return undefined;
-    if (viewMode === CUSTOM_VIEW_MODE) return { markerMode, hasSpacing, isFormattedFont };
+    if (viewMode === CUSTOM_VIEW_MODE) return { markerMode, noteMode, hasSpacing, isFormattedFont };
 
     const _viewOptions = getViewOptions(viewMode);
     setMarkerMode(_viewOptions?.markerMode ?? "hidden");
+    setNoteMode(_viewOptions?.noteMode ?? "collapsed");
     setHasSpacing(_viewOptions?.hasSpacing ?? true);
     setIsFormattedFont(_viewOptions?.isFormattedFont ?? true);
     return _viewOptions;
-  }, [viewMode, markerMode, hasSpacing, isFormattedFont]);
+  }, [viewMode, markerMode, noteMode, hasSpacing, isFormattedFont]);
 
   const nodeOptions = useMemo<UsjNodeOptions | undefined>(() => {
     if (nodesMode === UNDEFINED_NODES_MODE) return undefined;
@@ -302,13 +306,23 @@ export default function App() {
                   <select
                     id="markerModeSelect"
                     value={markerMode}
-                    onChange={(e) =>
-                      setMarkerMode(e.target.value as "visible" | "editable" | "hidden")
-                    }
+                    onChange={(e) => setMarkerMode(e.target.value as MarkerMode)}
                   >
                     <option value="hidden">Hidden</option>
                     <option value="visible">Visible</option>
                     <option value="editable">Editable</option>
+                  </select>
+                </div>
+                <div className="control">
+                  <label htmlFor="noteModeSelect">Note Mode</label>
+                  <select
+                    id="noteModeSelect"
+                    value={noteMode}
+                    onChange={(e) => setNoteMode(e.target.value as NoteMode)}
+                  >
+                    <option value="collapsed">Collapsed</option>
+                    <option value="expandInline">Expand Inline</option>
+                    <option value="expanded">Expanded</option>
                   </select>
                 </div>
                 <div className="control">

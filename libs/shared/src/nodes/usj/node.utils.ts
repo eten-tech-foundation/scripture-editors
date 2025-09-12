@@ -403,7 +403,7 @@ export function getEditableCallerText(noteCaller: string): string {
  * @param childNodes - Child nodes of the NoteNode.
  * @returns the preview text.
  */
-export function getNoteCallerPreviewText(childNodes: LexicalNode[]): string {
+export function $getNoteCallerPreviewText(childNodes: LexicalNode[]): string {
   const previewText = childNodes
     .reduce((text, node) => text + ($isCharNode(node) ? ` ${node.getTextContent()}` : ""), "")
     .trim();

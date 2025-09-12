@@ -1,3 +1,5 @@
+// Should only be used on nodes that are initialized in the test environment.
+/* eslint-disable @typescript-eslint/no-non-null-assertion */
 // Reaching inside only for tests.
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import {
@@ -12,7 +14,6 @@ import { baseTestEnvironment, pressKey } from "./react-test.utils";
 import { $createTextNode, $getRoot, TextNode } from "lexical";
 import {
   $createCharNode,
-  $createImmutableChapterNode,
   $createImpliedParaNode,
   $createNoteNode,
   $createParaNode,
@@ -20,230 +21,417 @@ import {
   ParaNode,
 } from "shared";
 
-let paraNode: ParaNode | ImpliedParaNode;
-let v1TextNode: TextNode;
-let v2TextNode: TextNode;
-
-function $defaultInitialEditorState() {
-  paraNode = $createParaNode();
-  $initialEditorState();
-}
-
-function $impliedParaInitialEditorState() {
-  paraNode = $createImpliedParaNode();
-  $initialEditorState();
-}
-
-function $initialEditorState() {
-  v1TextNode = $createTextNode("verse1 text ");
-  v2TextNode = $createTextNode("verse2 text ");
-  $getRoot().append(
-    $createImmutableChapterNode("1"),
-    paraNode.append(
-      $createImmutableVerseNode("1"),
-      $createNoteNode("f", "+").append(
-        $createImmutableNoteCallerNode("+", "note1 preview"),
-        $createCharNode("ft").append($createTextNode("note1 text")),
-      ),
-      v1TextNode,
-      $createImmutableVerseNode("2"),
-      $createNoteNode("f", "+").append(
-        $createImmutableNoteCallerNode("+", "note2 preview"),
-        $createCharNode("ft").append($createTextNode("note2 text")),
-      ),
-      v2TextNode,
-    ),
-  );
-}
-
-describe("ArrowNavigationPlugin", () => {
-  describe("LTR Direction ArrowRight", () => {
-    it("should skip over ImmutableVerseNode and following NoteNode when moving forward from para start", async () => {
-      const { editor } = await testEnvironment();
-      updateSelection(editor, paraNode, 0);
+describe("Note collapsed", () => {
+  describe("LTR forward direction", () => {
+    it("should move over note when moving forward from note start", async () => {
+      let para: ParaNode;
+      let v1Text: TextNode;
+      const { editor } = await testEnvironment(() => {
+        para = $createParaNode();
+        v1Text = $createTextNode("verse1 text ");
+        $getRoot().append(
+          para.append(
+            $createImmutableVerseNode("1"),
+            $createNoteNode("f", "+").append(
+              $createImmutableNoteCallerNode("+", "note1 preview"),
+              $createCharNode("ft").append($createTextNode("note1 text")),
+            ),
+            v1Text,
+          ),
+        );
+      });
+      updateSelection(editor, para!, 1);
 
       await pressKey(editor, "ArrowRight");
 
       editor.getEditorState().read(() => {
-        $expectSelectionToBe(v1TextNode, 0);
+        $expectSelectionToBe(v1Text!, 0);
       });
     });
 
-    it("should skip over ImmutableVerseNode and following NoteNode when moving forward inline", async () => {
-      const { editor } = await testEnvironment();
-      updateSelection(editor, v1TextNode);
+    it("should move over note when moving forward from note start in implied para", async () => {
+      let para: ImpliedParaNode;
+      let v1Text: TextNode;
+      const { editor } = await testEnvironment(() => {
+        para = $createImpliedParaNode();
+        v1Text = $createTextNode("verse1 text ");
+        $getRoot().append(
+          para.append(
+            $createImmutableVerseNode("1"),
+            $createNoteNode("f", "+").append(
+              $createImmutableNoteCallerNode("+", "note1 preview"),
+              $createCharNode("ft").append($createTextNode("note1 text")),
+            ),
+            v1Text,
+          ),
+        );
+      });
+      updateSelection(editor, para!, 1);
 
       await pressKey(editor, "ArrowRight");
 
       editor.getEditorState().read(() => {
-        $expectSelectionToBe(v2TextNode, 0);
+        $expectSelectionToBe(v1Text!, 0);
       });
     });
 
-    it("should skip over ImmutableVerseNode and following NoteNode when moving forward from implied para start", async () => {
-      const { editor } = await testEnvironment($impliedParaInitialEditorState);
-      updateSelection(editor, paraNode, 0);
-
-      await pressKey(editor, "ArrowRight");
-
-      editor.getEditorState().read(() => {
-        $expectSelectionToBe(v1TextNode, 0);
+    it("should move over note when moving forward from note start when nothing is after note", async () => {
+      let para: ParaNode;
+      let note1LastText: TextNode;
+      const { editor } = await testEnvironment(() => {
+        para = $createParaNode();
+        note1LastText = $createTextNode("note1 text");
+        $getRoot().append(
+          para.append(
+            $createImmutableVerseNode("1"),
+            $createNoteNode("f", "+").append(
+              $createImmutableNoteCallerNode("+", "note1 preview"),
+              $createCharNode("ft").append(note1LastText),
+            ),
+          ),
+        );
       });
-    });
-
-    it("should skip over ImmutableVerseNode and following NoteNode when moving forward inline in implied para", async () => {
-      const { editor } = await testEnvironment($impliedParaInitialEditorState);
-      updateSelection(editor, v1TextNode);
+      updateSelection(editor, para!, 1);
 
       await pressKey(editor, "ArrowRight");
 
       editor.getEditorState().read(() => {
-        $expectSelectionToBe(v2TextNode, 0);
+        $expectSelectionToBe(note1LastText!);
       });
     });
   });
 
-  describe("LTR Direction ArrowLeft", () => {
-    it("should skip over NoteNode and preceding ImmutableVerseNode when moving backward to para start", async () => {
-      const { editor } = await testEnvironment();
-      updateSelection(editor, v1TextNode, 0);
+  describe("RTL forward direction", () => {
+    it("should move over note when moving forward from note start", async () => {
+      let para: ParaNode;
+      let v1Text: TextNode;
+      const { editor } = await testEnvironment(() => {
+        para = $createParaNode();
+        v1Text = $createTextNode("verse1 text ");
+        $getRoot().append(
+          para.append(
+            $createImmutableVerseNode("1"),
+            $createNoteNode("f", "+").append(
+              $createImmutableNoteCallerNode("+", "note1 preview"),
+              $createCharNode("ft").append($createTextNode("note1 text")),
+            ),
+            v1Text,
+          ),
+        );
+      }, "rtl");
+      updateSelection(editor, para!, 1);
 
       await pressKey(editor, "ArrowLeft");
 
       editor.getEditorState().read(() => {
-        $expectSelectionToBe(paraNode, 0);
+        $expectSelectionToBe(v1Text!, 0);
       });
     });
 
-    it("should skip over NoteNode and preceding ImmutableVerseNode when moving backward inline", async () => {
-      const { editor } = await testEnvironment();
-      updateSelection(editor, v2TextNode, 0);
+    it("should move over note when moving forward from note start in implied para", async () => {
+      let para: ImpliedParaNode;
+      let v1Text: TextNode;
+      const { editor } = await testEnvironment(() => {
+        para = $createImpliedParaNode();
+        v1Text = $createTextNode("verse1 text ");
+        $getRoot().append(
+          para.append(
+            $createImmutableVerseNode("1"),
+            $createNoteNode("f", "+").append(
+              $createImmutableNoteCallerNode("+", "note1 preview"),
+              $createCharNode("ft").append($createTextNode("note1 text")),
+            ),
+            v1Text,
+          ),
+        );
+      }, "rtl");
+      updateSelection(editor, para!, 1);
 
       await pressKey(editor, "ArrowLeft");
 
       editor.getEditorState().read(() => {
-        $expectSelectionToBe(v1TextNode);
+        $expectSelectionToBe(v1Text!, 0);
       });
     });
 
-    it("should skip over NoteNode and preceding ImmutableVerseNode when moving backward to implied para start", async () => {
-      const { editor } = await testEnvironment($impliedParaInitialEditorState);
-      updateSelection(editor, v1TextNode, 0);
+    it("should move over note when moving forward from note start when nothing is after note", async () => {
+      let para: ParaNode;
+      let note1LastText: TextNode;
+      const { editor } = await testEnvironment(() => {
+        para = $createParaNode();
+        note1LastText = $createTextNode("note1 text");
+        $getRoot().append(
+          para.append(
+            $createImmutableVerseNode("1"),
+            $createNoteNode("f", "+").append(
+              $createImmutableNoteCallerNode("+", "note1 preview"),
+              $createCharNode("ft").append(note1LastText),
+            ),
+          ),
+        );
+      }, "rtl");
+      updateSelection(editor, para!, 1);
 
       await pressKey(editor, "ArrowLeft");
 
       editor.getEditorState().read(() => {
-        $expectSelectionToBe(paraNode, 0);
-      });
-    });
-
-    it("should skip over NoteNode and preceding ImmutableVerseNode when moving backward inline in implied para", async () => {
-      const { editor } = await testEnvironment($impliedParaInitialEditorState);
-      updateSelection(editor, v2TextNode, 0);
-
-      await pressKey(editor, "ArrowLeft");
-
-      editor.getEditorState().read(() => {
-        $expectSelectionToBe(v1TextNode);
+        $expectSelectionToBe(note1LastText!);
       });
     });
   });
 
-  describe("RTL Direction ArrowLeft (Forward)", () => {
-    it("should skip over ImmutableVerseNode and following NoteNode when moving forward (RTL) from para start", async () => {
-      const { editor } = await testEnvironment(undefined, "rtl");
-      updateSelection(editor, paraNode, 0);
-
-      await pressKey(editor, "ArrowLeft");
-
-      editor.getEditorState().read(() => {
-        $expectSelectionToBe(v1TextNode, 0);
+  describe("LTR backward direction", () => {
+    it("should move to start of note when moving backward from text after note", async () => {
+      let para: ParaNode;
+      let v1Text: TextNode;
+      const { editor } = await testEnvironment(() => {
+        para = $createParaNode();
+        v1Text = $createTextNode("verse1 text ");
+        $getRoot().append(
+          para.append(
+            $createImmutableVerseNode("1"),
+            $createNoteNode("f", "+").append(
+              $createImmutableNoteCallerNode("+", "note1 preview"),
+              $createCharNode("ft").append($createTextNode("note1 text")),
+            ),
+            v1Text,
+          ),
+        );
       });
-    });
-
-    it("should skip over ImmutableVerseNode and following NoteNode when moving forward (RTL) inline", async () => {
-      const { editor } = await testEnvironment(undefined, "rtl");
-      updateSelection(editor, v1TextNode);
+      updateSelection(editor, v1Text!, 0);
 
       await pressKey(editor, "ArrowLeft");
 
       editor.getEditorState().read(() => {
-        $expectSelectionToBe(v2TextNode, 0);
-      });
-    });
-
-    it("should skip over ImmutableVerseNode and following NoteNode when moving forward (RTL) from implied para start", async () => {
-      const { editor } = await testEnvironment($impliedParaInitialEditorState, "rtl");
-      updateSelection(editor, paraNode, 0);
-
-      await pressKey(editor, "ArrowLeft");
-
-      editor.getEditorState().read(() => {
-        $expectSelectionToBe(v1TextNode, 0);
-      });
-    });
-
-    it("should skip over ImmutableVerseNode and following NoteNode when moving forward (RTL) inline in implied para", async () => {
-      const { editor } = await testEnvironment($impliedParaInitialEditorState, "rtl");
-      updateSelection(editor, v1TextNode);
-
-      await pressKey(editor, "ArrowLeft");
-
-      editor.getEditorState().read(() => {
-        $expectSelectionToBe(v2TextNode, 0);
+        $expectSelectionToBe(para!, 1);
       });
     });
   });
 
-  describe("RTL DirectionArrowRight (Backward)", () => {
-    it("should skip over NoteNode and preceding ImmutableVerseNode when moving backward (RTL) to para start", async () => {
-      const { editor } = await testEnvironment(undefined, "rtl");
-      updateSelection(editor, v1TextNode, 0);
+  describe("RTL backward direction", () => {
+    it("should move to start of note when moving backward from text after note", async () => {
+      let para: ParaNode;
+      let v1Text: TextNode;
+      const { editor } = await testEnvironment(() => {
+        para = $createParaNode();
+        v1Text = $createTextNode("verse1 text ");
+        $getRoot().append(
+          para.append(
+            $createImmutableVerseNode("1"),
+            $createNoteNode("f", "+").append(
+              $createImmutableNoteCallerNode("+", "note1 preview"),
+              $createCharNode("ft").append($createTextNode("note1 text")),
+            ),
+            v1Text,
+          ),
+        );
+      }, "rtl");
+      updateSelection(editor, v1Text!, 0);
 
       await pressKey(editor, "ArrowRight");
 
       editor.getEditorState().read(() => {
-        $expectSelectionToBe(paraNode, 0);
+        $expectSelectionToBe(para!, 1);
+      });
+    });
+  });
+});
+
+// These tests are skipped because they are flaky. Running together several fail (but which ones
+// fail varies) but just about always pass when run individually.
+describe("Note expanded", () => {
+  const isCollapsed = false;
+  // Wait for DOM updates to complete for expanded notes
+  const domUpdateDelayMS = 0;
+
+  describe("LTR forward direction", () => {
+    it("should move into note when moving forward from note start", async () => {
+      let para: ParaNode;
+      let note1FirstText: TextNode;
+      const { editor } = await testEnvironment(() => {
+        para = $createParaNode();
+        note1FirstText = $createTextNode("note1 text");
+        $getRoot().append(
+          para.append(
+            $createImmutableVerseNode("1"),
+            $createNoteNode("f", "+", isCollapsed).append(
+              $createImmutableNoteCallerNode("+", "note1 preview"),
+              $createCharNode("ft").append(note1FirstText),
+            ),
+          ),
+        );
+      });
+      updateSelection(editor, para!, 1);
+
+      await pressKey(editor, "ArrowRight", domUpdateDelayMS);
+
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(note1FirstText!, 0);
       });
     });
 
-    it("should skip over NoteNode and preceding ImmutableVerseNode when moving backward (RTL) inline", async () => {
-      const { editor } = await testEnvironment(undefined, "rtl");
-      updateSelection(editor, v2TextNode, 0);
+    it("should move into note when moving forward from node before note", async () => {
+      let para: ParaNode;
+      let v1Text: TextNode;
+      let note1FirstText: TextNode;
+      const { editor } = await testEnvironment(() => {
+        para = $createParaNode();
+        v1Text = $createTextNode("verse1 text ");
+        note1FirstText = $createTextNode("note1 text");
+        $getRoot().append(
+          para.append(
+            v1Text,
+            $createNoteNode("f", "+", isCollapsed).append(
+              $createImmutableNoteCallerNode("+", "note1 preview"),
+              $createCharNode("ft").append(note1FirstText),
+            ),
+          ),
+        );
+      });
+      updateSelection(editor, v1Text!);
 
-      await pressKey(editor, "ArrowRight");
+      await pressKey(editor, "ArrowRight", domUpdateDelayMS);
 
       editor.getEditorState().read(() => {
-        $expectSelectionToBe(v1TextNode);
+        $expectSelectionToBe(note1FirstText!, 0);
       });
     });
 
-    it("should skip over NoteNode and preceding ImmutableVerseNode when moving backward (RTL) to implied para start", async () => {
-      const { editor } = await testEnvironment($impliedParaInitialEditorState, "rtl");
-      updateSelection(editor, v1TextNode, 0);
+    it("should move into note when moving forward from note start in implied para", async () => {
+      let para: ImpliedParaNode;
+      let note1FirstText: TextNode;
+      const { editor } = await testEnvironment(() => {
+        para = $createImpliedParaNode();
+        note1FirstText = $createTextNode("note1 text");
+        $getRoot().append(
+          para.append(
+            $createImmutableVerseNode("1"),
+            $createNoteNode("f", "+", isCollapsed).append(
+              $createImmutableNoteCallerNode("+", "note1 preview"),
+              $createCharNode("ft").append(note1FirstText),
+            ),
+          ),
+        );
+      });
+      updateSelection(editor, para!, 1);
 
-      await pressKey(editor, "ArrowRight");
+      await pressKey(editor, "ArrowRight", domUpdateDelayMS);
 
       editor.getEditorState().read(() => {
-        $expectSelectionToBe(paraNode, 0);
+        $expectSelectionToBe(note1FirstText!, 0);
       });
     });
 
-    it("should skip over NoteNode and preceding ImmutableVerseNode when moving backward (RTL) inline in implied para", async () => {
-      const { editor } = await testEnvironment($impliedParaInitialEditorState, "rtl");
-      updateSelection(editor, v2TextNode, 0);
+    it("should move into note when moving forward from node before note", async () => {
+      let para: ParaNode;
+      let v1Text: TextNode;
+      let note1FirstText: TextNode;
+      const { editor } = await testEnvironment(() => {
+        para = $createParaNode();
+        v1Text = $createTextNode("verse1 text ");
+        note1FirstText = $createTextNode("note1 text");
+        $getRoot().append(
+          para.append(
+            v1Text,
+            $createNoteNode("f", "+", isCollapsed).append(
+              $createImmutableNoteCallerNode("+", "note1 preview"),
+              $createCharNode("ft").append(note1FirstText),
+            ),
+          ),
+        );
+      });
+      updateSelection(editor, v1Text!);
 
-      await pressKey(editor, "ArrowRight");
+      await pressKey(editor, "ArrowRight", domUpdateDelayMS);
 
       editor.getEditorState().read(() => {
-        $expectSelectionToBe(v1TextNode);
+        $expectSelectionToBe(note1FirstText!, 0);
+      });
+    });
+  });
+
+  describe("RTL forward direction", () => {
+    it("should move into note when moving forward from note start", async () => {
+      let para: ParaNode;
+      let note1FirstText: TextNode;
+      const { editor } = await testEnvironment(() => {
+        para = $createParaNode();
+        note1FirstText = $createTextNode("note1 text");
+        $getRoot().append(
+          para.append(
+            $createImmutableVerseNode("1"),
+            $createNoteNode("f", "+", isCollapsed).append(
+              $createImmutableNoteCallerNode("+", "note1 preview"),
+              $createCharNode("ft").append(note1FirstText),
+            ),
+          ),
+        );
+      }, "rtl");
+      updateSelection(editor, para!, 1);
+
+      await pressKey(editor, "ArrowLeft", domUpdateDelayMS);
+
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(note1FirstText!, 0);
+      });
+    });
+
+    it("should move into note when moving forward from note start in implied para", async () => {
+      let para: ImpliedParaNode;
+      let note1FirstText: TextNode;
+      const { editor } = await testEnvironment(() => {
+        para = $createImpliedParaNode();
+        note1FirstText = $createTextNode("note1 text");
+        $getRoot().append(
+          para.append(
+            $createImmutableVerseNode("1"),
+            $createNoteNode("f", "+", isCollapsed).append(
+              $createImmutableNoteCallerNode("+", "note1 preview"),
+              $createCharNode("ft").append(note1FirstText),
+            ),
+          ),
+        );
+      }, "rtl");
+      updateSelection(editor, para!, 1);
+
+      await pressKey(editor, "ArrowLeft", domUpdateDelayMS);
+
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(note1FirstText!, 0);
+      });
+    });
+
+    it("should move into note when moving forward from node before note", async () => {
+      let para: ParaNode;
+      let v1Text: TextNode;
+      let note1FirstText: TextNode;
+      const { editor } = await testEnvironment(() => {
+        para = $createParaNode();
+        v1Text = $createTextNode("verse1 text ");
+        note1FirstText = $createTextNode("note1 text");
+        $getRoot().append(
+          para.append(
+            v1Text,
+            $createNoteNode("f", "+", isCollapsed).append(
+              $createImmutableNoteCallerNode("+", "note1 preview"),
+              $createCharNode("ft").append(note1FirstText),
+            ),
+          ),
+        );
+      }, "rtl");
+      updateSelection(editor, v1Text!);
+
+      await pressKey(editor, "ArrowLeft", domUpdateDelayMS);
+
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(note1FirstText!, 0);
       });
     });
   });
 });
 
 async function testEnvironment(
-  $initialEditorState: () => void = $defaultInitialEditorState,
+  $initialEditorState: () => void,
   textDirection: "ltr" | "rtl" = "ltr",
 ) {
   return baseTestEnvironment(
