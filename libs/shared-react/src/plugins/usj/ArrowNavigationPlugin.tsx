@@ -12,6 +12,7 @@ import { useEffect } from "react";
 import {
   $getNextNode,
   $getPreviousNode,
+  $isBookNode,
   $isImmutableChapterNode,
   $isImpliedParaNode,
   $isNoteNode,
@@ -112,9 +113,12 @@ function $handleBackwardNavigation(selection: RangeSelection): boolean {
   // If a chapter node is the only thing at the beginning then don't move.
   if ($isImmutableChapterNode(prevNode) && !prevNode.getPreviousSibling()) return true;
 
+  // If at the beginning of book node text then don't move.
+  const isSelectionAtNodeStart = selection.anchor.offset === 0;
+  if (isSelectionAtNodeStart && $isBookNode(selection.anchor.getNode().getParent())) return true;
+
   if (!$isNoteNode(prevNode)) return false;
 
-  const isSelectionAtNodeStart = selection.anchor.offset === 0;
   const nodeBeforeNote = prevNode.getPreviousSibling();
   if (!$isImmutableVerseNode(nodeBeforeNote) || !isSelectionAtNodeStart) return false;
 

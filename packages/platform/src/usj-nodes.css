@@ -1612,9 +1612,9 @@
 
 /* TextNode in NoteNode */
 
-.marker-hidden .usfm_f span[data-lexical-text="true"],
-.marker-hidden .usfm_fe span[data-lexical-text="true"],
-.marker-hidden .usfm_x span[data-lexical-text="true"] {
+.usfm_f.collapsed span[data-lexical-text="true"],
+.usfm_fe.collapsed span[data-lexical-text="true"],
+.usfm_x.collapsed span[data-lexical-text="true"] {
   display: none;
 }
 

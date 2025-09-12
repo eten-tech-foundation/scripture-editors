@@ -393,6 +393,7 @@ function createNote(
   } else {
     callerNode = createNoteCaller(caller, childNodes);
   }
+  const isCollapsed = _viewOptions?.noteMode !== "expanded";
   const unknownAttributes = getUnknownAttributes(markerObject);
 
   let openingMarkerNode: SerializedTextNode | undefined;
@@ -410,6 +411,7 @@ function createNote(
     type: NoteNode.getType(),
     marker,
     caller,
+    isCollapsed,
     category,
     unknownAttributes,
     children,

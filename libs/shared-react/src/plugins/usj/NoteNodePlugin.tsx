@@ -14,9 +14,11 @@ import {
   $isRangeSelection,
   $isTextNode,
   $setSelection,
+  COMMAND_PRIORITY_LOW,
   EditorState,
   LexicalEditor,
   NodeMutation,
+  SELECTION_CHANGE_COMMAND,
   TextNode,
 } from "lexical";
 import { useEffect, useRef } from "react";
@@ -56,7 +58,7 @@ export function NoteNodePlugin<TLogger extends LoggerBasic>({
 }): null {
   const [editor] = useLexicalComposerContext();
   useNodeOptions(nodeOptions, logger);
-  useNoteNode(editor, viewOptions);
+  useNoteNode(editor, viewOptions, logger);
   return null;
 }
 
@@ -84,7 +86,11 @@ function useNodeOptions(nodeOptions: UsjNodeOptions, logger?: LoggerBasic) {
  * @param editor - The LexicalEditor instance used to access the DOM.
  * @param viewOptions - View options of the editor.
  */
-function useNoteNode(editor: LexicalEditor, viewOptions: ViewOptions | undefined) {
+function useNoteNode(
+  editor: LexicalEditor,
+  viewOptions: ViewOptions | undefined,
+  logger?: LoggerBasic,
+) {
   useEffect(() => {
     if (!editor.hasNodes([CharNode, NoteNode, ImmutableNoteCallerNode])) {
       throw new Error(
@@ -110,6 +116,14 @@ function useNoteNode(editor: LexicalEditor, viewOptions: ViewOptions | undefined
           generateNoteCallersOnDestroy(nodeMutations, prevEditorState),
       ),
 
+      // Handle the cursor moving next to a NoteNode.
+      // NoteNode arrow key navigation is handled in the ArrowNavigationPlugin.
+      editor.registerCommand(
+        SELECTION_CHANGE_COMMAND,
+        () => $handleCursorNextToNoteNode(viewOptions, logger),
+        COMMAND_PRIORITY_LOW,
+      ),
+
       // Handle double-click of a word immediately following a NoteNode (no space between).
       editor.registerRootListener(
         (rootElement: HTMLElement | null, prevRootElement: HTMLElement | null) => {
@@ -122,7 +136,7 @@ function useNoteNode(editor: LexicalEditor, viewOptions: ViewOptions | undefined
         },
       ),
     );
-  }, [editor, viewOptions]);
+  }, [editor, logger, viewOptions]);
 }
 
 /**
@@ -195,6 +209,43 @@ function generateNoteCallersOnDestroy(
 
     editorElement.classList.remove("reset-counters");
   }
+}
+
+function $handleCursorNextToNoteNode(
+  viewOptions: ViewOptions | undefined,
+  logger?: LoggerBasic,
+): false {
+  if (viewOptions?.noteMode !== "expandInline") return false;
+
+  const selection = $getSelection();
+  if (!$isRangeSelection(selection) || !selection.isCollapsed()) return false;
+
+  const anchor = selection.anchor;
+  const node = anchor.getNode();
+
+  // Case 1: caret at start of a text node, check prev sibling
+  if (anchor.offset === 0) {
+    const prev = node.getPreviousSibling();
+    if ($isNoteNode(prev)) {
+      logger?.debug("Cursor is just after a NoteNode");
+      prev.toggleIsCollapsed();
+    }
+  }
+
+  // Case 2: caret at end of a text node, check next sibling
+  if (anchor.offset === node.getTextContentSize()) {
+    const next = node.getNextSibling();
+    if ($isNoteNode(next)) {
+      logger?.debug("Cursor is just before a NoteNode");
+      next.toggleIsCollapsed();
+    }
+  }
+
+  // Case 3: the anchor itself *is* a NoteNode (cursor inside or around it)
+  if ($isNoteNode(node)) {
+    logger?.debug("Cursor is directly in/around a NoteNode");
+  }
+  return false;
 }
 
 /**

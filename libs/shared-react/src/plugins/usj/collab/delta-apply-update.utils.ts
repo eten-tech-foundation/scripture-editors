@@ -1578,8 +1578,9 @@ function $createNote(op: DeltaOp, viewOptions: ViewOptions, nodeOptions: UsjNode
   const { style, caller, category, contents } = noteEmbed.note;
   if (!style || !caller) return;
 
+  const isCollapsed = viewOptions?.noteMode !== "expanded";
   const unknownAttributes = getUnknownAttributes(noteEmbed.note, OT_NOTE_PROPS);
-  const note = $createNoteNode(style, caller, category, unknownAttributes);
+  const note = $createNoteNode(style, caller, isCollapsed, category, unknownAttributes);
 
   const segment = op.attributes?.segment;
   if (segment && typeof segment === "string") $setState(note, segmentState, () => segment);

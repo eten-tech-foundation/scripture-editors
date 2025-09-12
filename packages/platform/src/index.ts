@@ -51,6 +51,8 @@ export type {
   DeltaOp,
   DeltaSource,
   OnClick,
+  MarkerMode,
+  NoteMode,
   SelectionRange,
   TextDirection,
   UsjLocation,
