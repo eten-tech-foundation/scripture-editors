@@ -1,33 +1,40 @@
 import {
   $isImmutableNoteCallerNode,
+  $isImmutableVerseNode,
   defaultNoteCallers,
   ImmutableNoteCallerNode,
-} from "../../nodes/usj/ImmutableNoteCallerNode";
-import { UsjNodeOptions } from "../../nodes/usj/usj-node-options.model";
+  UsjNodeOptions,
+} from "../../nodes/usj";
 import { ViewOptions } from "../../views/view-options.utils";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
-import { mergeRegister } from "@lexical/utils";
+import { $findMatchingParent, mergeRegister } from "@lexical/utils";
 import {
   $createRangeSelection,
+  $createTextNode,
   $getNodeByKey,
   $getSelection,
   $isRangeSelection,
   $isTextNode,
   $setSelection,
+  COMMAND_PRIORITY_LOW,
   EditorState,
   LexicalEditor,
   NodeMutation,
+  SELECTION_CHANGE_COMMAND,
   TextNode,
 } from "lexical";
 import { useEffect, useRef } from "react";
 import {
   $findFirstAncestorNoteNode,
+  $getNoteCallerPreviewText,
   $isCharNode,
+  $isMarkerNode,
   $isNoteNode,
+  $isSomeParaNode,
   CharNode,
   GENERATOR_NOTE_CALLER,
-  getNoteCallerPreviewText,
   LoggerBasic,
+  NBSP,
   NoteNode,
 } from "shared";
 
@@ -56,7 +63,7 @@ export function NoteNodePlugin<TLogger extends LoggerBasic>({
 }): null {
   const [editor] = useLexicalComposerContext();
   useNodeOptions(nodeOptions, logger);
-  useNoteNode(editor, viewOptions);
+  useNoteNode(editor, viewOptions, logger);
   return null;
 }
 
@@ -84,7 +91,13 @@ function useNodeOptions(nodeOptions: UsjNodeOptions, logger?: LoggerBasic) {
  * @param editor - The LexicalEditor instance used to access the DOM.
  * @param viewOptions - View options of the editor.
  */
-function useNoteNode(editor: LexicalEditor, viewOptions: ViewOptions | undefined) {
+function useNoteNode(
+  editor: LexicalEditor,
+  viewOptions: ViewOptions | undefined,
+  logger: LoggerBasic | undefined,
+) {
+  const noteKeyRef = useRef<string | undefined>();
+
   useEffect(() => {
     if (!editor.hasNodes([CharNode, NoteNode, ImmutableNoteCallerNode])) {
       throw new Error(
@@ -96,18 +109,29 @@ function useNoteNode(editor: LexicalEditor, viewOptions: ViewOptions | undefined
       editor.update(() => $handleDoubleClick(event));
 
     return mergeRegister(
-      // Remove NoteNode if it doesn't contain a caller node.
+      // Remove NoteNode if it doesn't contain a caller node and ensure typed text goes before it.
       editor.registerNodeTransform(NoteNode, (node) => $noteNodeTransform(node, viewOptions)),
 
       // Update NoteNodeCaller preview text when NoteNode children text is changed.
       editor.registerNodeTransform(CharNode, $noteCharNodeTransform),
       editor.registerNodeTransform(TextNode, $noteTextNodeTransform),
 
+      // Ensure NBSP after caller.
+      editor.registerNodeTransform(ImmutableNoteCallerNode, $noteCallerNodeTransform),
+
       // Re-generate all note callers when a note is removed.
       editor.registerMutationListener(
         ImmutableNoteCallerNode,
         (nodeMutations, { prevEditorState }) =>
           generateNoteCallersOnDestroy(nodeMutations, prevEditorState),
+      ),
+
+      // Handle the cursor moving next to a NoteNode. NoteNode arrow key navigation when note is
+      // after a verse node is handled in the ArrowNavigationPlugin.
+      editor.registerCommand(
+        SELECTION_CHANGE_COMMAND,
+        () => $handleCursorNextToNoteNode(editor, viewOptions, noteKeyRef, logger),
+        COMMAND_PRIORITY_LOW,
       ),
 
       // Handle double-click of a word immediately following a NoteNode (no space between).
@@ -122,22 +146,35 @@ function useNoteNode(editor: LexicalEditor, viewOptions: ViewOptions | undefined
         },
       ),
     );
-  }, [editor, viewOptions]);
+  }, [editor, logger, viewOptions]);
 }
 
 /**
- * Removes a NoteNode if it does not contain an ImmutableNoteCallerNode child when `markerMode` is
- * not 'editable'. This can happen during certain editing operations or data inconsistencies.
+ * Cleans up a NoteNode to ensure it is valid.
+ *
+ * @remarks Removes a NoteNode if it does not contain an ImmutableNoteCallerNode child when
+ * `markerMode` is not 'editable'. This can happen during certain editing operations or data
+ * inconsistencies. Also if the first node is a TextNode move it before the NoteNode, i.e. the user
+ * typed when the selection was at the beginning of a NoteNode.
  * @param node - The NoteNode to check.
  * @param viewOptions - The view options that includes the marker mode.
  */
 function $noteNodeTransform(node: NoteNode, viewOptions: ViewOptions | undefined): void {
-  const hasNoteCaller = node.getChildren().some((child) => $isImmutableNoteCallerNode(child));
+  const nodeChildren = node.getChildren();
+  const hasNoteCaller = nodeChildren.some((child) => $isImmutableNoteCallerNode(child));
   if (!hasNoteCaller && viewOptions?.markerMode !== "editable") node.remove();
+
+  if (nodeChildren.length > 0) {
+    const firstChild = nodeChildren[0];
+    if ($isTextNode(firstChild) && !$isMarkerNode(firstChild)) {
+      node.insertBefore(firstChild);
+    }
+  }
 }
 
 /**
  * Changes in NoteNode children text are updated in the NoteNodeCaller preview text.
+ * Also ensure NBSP after each note top-level node.
  * @param node - CharNode thats needs its preview text updated.
  */
 function $noteCharNodeTransform(node: CharNode): void {
@@ -146,12 +183,18 @@ function $noteCharNodeTransform(node: CharNode): void {
   const noteCaller = children.find((child) => $isImmutableNoteCallerNode(child));
   if (!$isCharNode(node) || !$isNoteNode(parent) || !noteCaller) return;
 
-  const previewText = getNoteCallerPreviewText(children);
+  const previewText = $getNoteCallerPreviewText(children);
   if (noteCaller.getPreviewText() !== previewText) noteCaller.setPreviewText(previewText);
+
+  // Ensure NBSP after each note top-level CharNode
+  const nextSibling = node.getNextSibling();
+  if (!$isTextNode(nextSibling)) node.insertAfter($createTextNode(NBSP));
+  else if (nextSibling.getTextContent() !== NBSP) nextSibling.setTextContent(NBSP);
 }
 
 /**
  * Changes in NoteNode children text are updated in the NoteNodeCaller preview text.
+ * Also ensure NBSP after each note top-level CharNode isn't modified.
  * @param node - TextNode thats needs its preview text updated.
  */
 function $noteTextNodeTransform(node: TextNode): void {
@@ -160,8 +203,28 @@ function $noteTextNodeTransform(node: TextNode): void {
   const noteCaller = children?.find((child) => $isImmutableNoteCallerNode(child));
   if (!$isTextNode(node) || !$isNoteNode(noteNode) || !noteCaller || !children) return;
 
-  const previewText = getNoteCallerPreviewText(children);
+  const previewText = $getNoteCallerPreviewText(children);
   if (noteCaller.getPreviewText() !== previewText) noteCaller.setPreviewText(previewText);
+
+  if ($isMarkerNode(node) || !$isNoteNode(node.getParent())) return;
+
+  if (node.getTextContent() !== NBSP) {
+    node.setTextContent(NBSP);
+    node.selectEnd();
+  }
+}
+
+/**
+ * Ensure NBSP after caller.
+ * @param node - TextNode thats needs its preview text updated.
+ */
+function $noteCallerNodeTransform(node: ImmutableNoteCallerNode): void {
+  if (!$isImmutableNoteCallerNode(node)) return;
+
+  const nextSibling = node.getNextSibling();
+  if (!$isTextNode(nextSibling) || $isMarkerNode(nextSibling))
+    node.insertAfter($createTextNode(NBSP));
+  else if (nextSibling.getTextContent() !== NBSP) nextSibling.setTextContent(NBSP);
 }
 
 /**
@@ -194,6 +257,123 @@ function generateNoteCallersOnDestroy(
     void editorElement.offsetHeight;
 
     editorElement.classList.remove("reset-counters");
+  }
+}
+
+function $handleCursorNextToNoteNode(
+  editor: LexicalEditor,
+  viewOptions: ViewOptions | undefined,
+  noteKeyRef: React.MutableRefObject<string | undefined>,
+  logger: LoggerBasic | undefined,
+): false {
+  if (viewOptions?.noteMode !== "expandInline") return false;
+
+  const selection = $getSelection();
+  if (!$isRangeSelection(selection) || !selection.isCollapsed()) return false;
+
+  const anchor = selection.anchor;
+  const node = anchor.getNode();
+
+  // Case 1: caret moved away from a NoteNode → collapse it
+  if (noteKeyRef.current) {
+    const noteAncestor = $findMatchingParent(node, (n) => $isNoteNode(n));
+    if (!noteAncestor) {
+      const note = $getNodeByKey<NoteNode>(noteKeyRef.current);
+      if (note && !note.getIsCollapsed()) {
+        logger?.debug("Cursor moved away from NoteNode, collapsing it");
+        $toggleNoteCollapseWithFallback(editor, noteKeyRef.current, logger);
+      }
+      noteKeyRef.current = undefined;
+    } else {
+      // Still inside a NoteNode → keep tracking it.
+      if (noteKeyRef.current !== noteAncestor.getKey()) {
+        // Update key since we moved to a different note.
+        noteKeyRef.current = noteAncestor.getKey();
+      }
+    }
+  }
+
+  // Case 2: caret at start of a text node → check prev sibling
+  if (anchor.offset === 0) {
+    const prev = node.getPreviousSibling();
+    if ($isNoteNode(prev)) {
+      logger?.debug("Cursor is just after a NoteNode");
+      const noteKey = prev.getKey();
+      if (prev.getIsCollapsed()) noteKeyRef.current = noteKey;
+      else noteKeyRef.current = undefined;
+      $toggleNoteCollapseWithFallback(editor, noteKey, logger);
+    }
+  }
+
+  // Case 3: caret at end of a text node → check next sibling
+  if (anchor.offset === node.getTextContentSize()) {
+    const next = node.getNextSibling();
+    if ($isNoteNode(next)) {
+      logger?.debug("Cursor is just before a NoteNode");
+      const noteKey = next.getKey();
+      if (next.getIsCollapsed()) noteKeyRef.current = noteKey;
+      else noteKeyRef.current = undefined;
+      $toggleNoteCollapseWithFallback(editor, noteKey, logger);
+    } else if (!next) {
+      const noteAncestor = $findMatchingParent(node, (n) => $isNoteNode(n));
+      if (
+        noteAncestor &&
+        noteAncestor.getIsCollapsed() &&
+        $isSomeParaNode(noteAncestor.getParent()) &&
+        noteAncestor.is(noteAncestor.getParent()?.getLastChild())
+      ) {
+        logger?.debug("Cursor is at end of note at end of para");
+        const noteKey = noteAncestor.getKey();
+        noteKeyRef.current = noteKey;
+        $toggleNoteCollapseWithFallback(editor, noteKey, logger);
+      }
+    }
+  }
+
+  // Case 4: caret between verse and note → toggle note
+  if ($isSomeParaNode(node)) {
+    const child = node.getChildAtIndex(anchor.offset);
+    const prevChild = child?.getPreviousSibling();
+    if ($isImmutableVerseNode(prevChild) && $isNoteNode(child)) {
+      logger?.debug("Cursor is between verse and NoteNode");
+      const noteKey = child.getKey();
+      if (child.getIsCollapsed()) noteKeyRef.current = noteKey;
+      else noteKeyRef.current = undefined;
+      $toggleNoteCollapseWithFallback(editor, noteKey, logger);
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Toggle the collapse state of a NoteNode, with fallback to deferred update if read-only error
+ * occurs. This handles the edge case where clicking next to a note immediately after editor load
+ * triggers a read-only selection context.
+ * @param editor - The LexicalEditor instance used to access the DOM.
+ * @param noteKey - The key of the NoteNode to toggle.
+ */
+function $toggleNoteCollapseWithFallback(
+  editor: LexicalEditor,
+  noteKey: string,
+  logger: LoggerBasic | undefined,
+) {
+  const noteNode = $getNodeByKey<NoteNode>(noteKey);
+  try {
+    // Try immediate update first (works in most cases)
+    noteNode?.toggleIsCollapsed();
+  } catch (error) {
+    // If we get a read-only error, defer the update
+    if (error instanceof Error && error.message.includes("read only")) {
+      logger?.warn("Fallback triggered after stabilization - edge case");
+      setTimeout(() => {
+        editor.update(() => {
+          noteNode?.toggleIsCollapsed();
+        });
+      }, 0);
+    } else {
+      throw error; // Re-throw if it's not the expected read-only error
+    }
   }
 }
 

@@ -25,7 +25,10 @@ function $customPrintNode(node: LexicalNode) {
   if ($isImmutableChapterNode(node)) return `${node.__marker} "${node.__number}"`;
   if ($isImmutableNoteCallerNode(node)) return `${node.__caller}`;
   if ($isImmutableVerseNode(node)) return `${node.__marker} "${node.__number}"`;
-  if ($isNoteNode(node)) return `${node.__marker}`;
+  if ($isNoteNode(node))
+    return (
+      `${node.__marker} "${node.__caller}"` + (node.__isCollapsed ? " (collapsed)" : " (expanded)")
+    );
   if ($isParaNode(node)) return `${node.__marker}`;
   if ($isTypedMarkNode(node)) return `ids: [ ${JSON.stringify(node.getTypedIDs())} ]`;
   if ($isVerseNode(node)) return `${node.__marker} "${node.__number}"`;

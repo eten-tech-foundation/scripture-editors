@@ -8,6 +8,32 @@ import { ImmutableVerseNode } from "../nodes/usj/ImmutableVerseNode";
 import { ViewMode, FORMATTED_VIEW_MODE, UNFORMATTED_VIEW_MODE } from "./view-mode.model";
 
 /**
+ * How USFM markers are displayed.
+ *
+ * @public
+ */
+export type MarkerMode =
+  /** USFM markers are visible. */
+  | "visible"
+  /** USFM markers are editable. */
+  | "editable"
+  /** USFM markers are hidden. */
+  | "hidden";
+
+/**
+ * How notes are displayed.
+ *
+ * @public
+ */
+export type NoteMode =
+  /** All notes are always collapsed. Only the callers are displayed. */
+  | "collapsed"
+  /** A note is expanded inline when the cursor enters it via the caller and collapses on exit. */
+  | "expandInline"
+  /** All notes are always expanded. */
+  | "expanded";
+
+/**
  * Configuration options for controlling the display and behavior of Scripture text views.
  *
  * @example
@@ -22,11 +48,13 @@ import { ViewMode, FORMATTED_VIEW_MODE, UNFORMATTED_VIEW_MODE } from "./view-mod
  * @public
  */
 export interface ViewOptions {
-  /** USFM markers are visible, editable or hidden */
-  markerMode: "visible" | "editable" | "hidden";
-  /** does the text have spacing including indenting */
+  /** How USFM markers are displayed */
+  markerMode: MarkerMode;
+  /** How notes are displayed. */
+  noteMode?: NoteMode;
+  /** Does the text have spacing including indenting. */
   hasSpacing: boolean;
-  /** is the text in a formatted font */
+  /** Is the text in a formatted font. */
   isFormattedFont: boolean;
 }
 
@@ -82,6 +110,7 @@ export function getViewOptions(viewMode?: string | undefined): ViewOptions | und
     case FORMATTED_VIEW_MODE:
       viewOptions = {
         markerMode: "hidden",
+        noteMode: "collapsed",
         hasSpacing: true,
         isFormattedFont: true,
       };
@@ -89,6 +118,7 @@ export function getViewOptions(viewMode?: string | undefined): ViewOptions | und
     case UNFORMATTED_VIEW_MODE:
       viewOptions = {
         markerMode: "editable",
+        noteMode: "expanded",
         hasSpacing: false,
         isFormattedFont: false,
       };

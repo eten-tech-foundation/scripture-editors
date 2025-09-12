@@ -198,7 +198,7 @@ const Editor = forwardRef(function Editor(
       <KeyboardShortcutPlugin />
       <ClipboardPlugin />
       <ScriptureReferencePlugin scrRef={scrRef} onScrRefChange={onScrRefChange} />
-      <ArrowNavigationPlugin />
+      <ArrowNavigationPlugin viewOptions={viewOptions} />
       <CommandMenuPlugin />
       <OnSelectionChangePlugin onChange={onSelectionChange} />
       <ParaNodePlugin />

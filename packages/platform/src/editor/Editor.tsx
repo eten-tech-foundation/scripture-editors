@@ -324,7 +324,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
             ignoreHistoryMergeTagChange
           />
           <AnnotationPlugin ref={annotationRef} logger={logger} />
-          <ArrowNavigationPlugin />
+          <ArrowNavigationPlugin viewOptions={viewOptions} />
           <CharNodePlugin />
           <ClipboardPlugin />
           <CommandMenuPlugin logger={logger} />

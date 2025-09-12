@@ -256,7 +256,9 @@ export interface EditorOptions {
 }
 ```
 
-In `EditorOptions.nodes`, the note callers option defaults to:
+### Node Options
+
+In `EditorOptions.nodes`, you can set the list of possible note callers to what ever you need for the vernacular language being edited. The note callers option defaults to:
 
 ```ts
 import { EditorOptions, UsjNodeOptions } from "@eten-tech-foundation/platform-editor";
@@ -265,7 +267,24 @@ const nodes: UsjNodeOptions = { noteCallers: ["a", "b", "c", ... , "x", "y", "z"
 const options: EditorOptions = { nodes };
 ```
 
-You can set this to what ever you need for the vernacular language being edited.
+You can also set an onClick handler:
+
+```ts
+import { EditorOptions, GENERATOR_NOTE_CALLER, HIDDEN_NOTE_CALLER, UsjNodeOptions } from "@eten-tech-foundation/platform-editor";
+
+const nodes: UsjNodeOptions = {
+  {
+    noteCallerOnClick: (_event, _noteNodeKey, isCollapsed, getCaller, setCaller) => {
+      if (isCollapsed) return;
+
+      console.log("expanded note node clicked - toggle caller");
+      const caller = getCaller();
+      if (caller === GENERATOR_NOTE_CALLER) setCaller(HIDDEN_NOTE_CALLER);
+      else setCaller(GENERATOR_NOTE_CALLER);
+    }
+  };
+const options: EditorOptions = { nodes };
+```
 
 ## `<Marginal />` API
 

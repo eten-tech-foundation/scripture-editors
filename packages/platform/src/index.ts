@@ -31,6 +31,7 @@
 
 export { default as Editorial } from "./Editorial";
 export { default as Marginal } from "./marginal/Marginal";
+export { GENERATOR_NOTE_CALLER, HIDDEN_NOTE_CALLER } from "shared";
 export {
   directionToNames,
   getDefaultViewMode,
@@ -50,7 +51,9 @@ export type {
   AnnotationRange,
   DeltaOp,
   DeltaSource,
-  OnClick,
+  MarkerMode,
+  NoteCallerOnClick,
+  NoteMode,
   SelectionRange,
   TextDirection,
   UsjLocation,

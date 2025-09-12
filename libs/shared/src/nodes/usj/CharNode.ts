@@ -198,6 +198,7 @@ export class CharNode extends ElementNode {
   override createDOM(): HTMLElement {
     const dom = document.createElement("span");
     dom.setAttribute("data-marker", this.__marker);
+    dom.setAttribute("title", this.__marker);
     dom.classList.add(this.__type, `usfm_${this.__marker}`);
     return dom;
   }

@@ -48,6 +48,10 @@ export function DeltaOnChangePlugin({
       }
 
       const ops = $getUpdateOps(editor, payload);
+      // TODO: this may have been added because nodes are made dirty when they shouldn't be as a
+      // result of NoteNode collapsing/expanding. If so, we should fix that instead.
+      if (ops.length === 0) return;
+
       onChange(editorState, editor, tags, ops);
     });
   }, [editor, ignoreHistoryMergeTagChange, ignoreSelectionChange, onChange]);

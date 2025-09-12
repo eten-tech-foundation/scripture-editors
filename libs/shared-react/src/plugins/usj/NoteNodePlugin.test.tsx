@@ -95,7 +95,9 @@ describe("NoteNodePlugin", () => {
 
     editor.getEditorState().read(() => {
       expect($getRoot().getTextContent()).toBe(
-        "1:1 First footnote text first verse text \n\n1:2 Second footnote text second verse text \n\n1:3 Third footnote text third verse text ",
+        `${NBSP}1:1 ${NBSP}First footnote text ${NBSP}first verse text \n\n` +
+          `${NBSP}1:2 ${NBSP}Second footnote text ${NBSP}second verse text \n\n` +
+          `${NBSP}1:3 ${NBSP}Third footnote text ${NBSP}third verse text `,
       );
       expect(getNoteCaller(firstNoteNode)).toBe("a");
       expect(getNoteCaller(secondNoteNode)).toBe("b");
@@ -110,7 +112,7 @@ describe("NoteNodePlugin", () => {
         expect(getPreviewText(firstNoteNode)).toBe("1:1  First footnote text");
       });
 
-      await updateNoteNodeText(editor, firstNoteNode, 1, 0, "1:1a ");
+      await updateNoteNodeText(editor, firstNoteNode, 2, 0, "1:1a ");
 
       editor.getEditorState().read(() => {
         expect(getPreviewText(firstNoteNode)).toBe("1:1a  First footnote text");
@@ -201,12 +203,12 @@ async function updateNoteNodeText(
   await act(async () => {
     editor.update(() => {
       const noteNodeChild = noteNode.getChildAtIndex(charNodeIndex);
-      if ($isCharNode(noteNodeChild)) {
-        const charNodeChild = noteNodeChild.getChildAtIndex(textNodeIndex);
-        if ($isTextNode(charNodeChild)) {
-          charNodeChild.setTextContent(text);
-        }
-      }
+      if (!$isCharNode(noteNodeChild)) throw new Error("Expected CharNode");
+
+      const charNodeChild = noteNodeChild.getChildAtIndex(textNodeIndex);
+      if (!$isTextNode(charNodeChild)) throw new Error("Expected TextNode");
+
+      charNodeChild.setTextContent(text);
     });
   });
 }

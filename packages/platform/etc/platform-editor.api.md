@@ -84,6 +84,9 @@ export interface EditorRef {
 }
 
 // @public
+export const GENERATOR_NOTE_CALLER = "+";
+
+// @public
 export const getDefaultViewMode: () => "formatted" | "unformatted";
 
 // @public
@@ -94,6 +97,9 @@ export function getViewMode(viewOptions: ViewOptions | undefined): ViewMode | un
 
 // @public
 export function getViewOptions(viewMode?: string | undefined): ViewOptions | undefined;
+
+// @public
+export const HIDDEN_NOTE_CALLER = "-";
 
 // @public
 export interface LoggerBasic {
@@ -118,12 +124,30 @@ export interface MarginalRef extends EditorRef {
 }
 
 // @public
+export type MarkerMode =
+/** USFM markers are visible. */
+"visible"
+/** USFM markers are editable. */
+| "editable"
+/** USFM markers are hidden. */
+| "hidden";
+
+// @public
 export interface NodeOptions {
     [prop: string]: unknown;
 }
 
 // @public
-export type OnClick = (event: SyntheticEvent) => void;
+export type NoteCallerOnClick = (event: SyntheticEvent, noteNodeKey: string, isCollapsed: boolean | undefined, getCaller: () => string, setCaller: (caller: string) => void) => void;
+
+// @public
+export type NoteMode =
+/** All notes are always collapsed. Only the callers are displayed. */
+"collapsed"
+/** A note is expanded inline when the cursor enters it via the caller and collapses on exit. */
+| "expandInline"
+/** All notes are always expanded. */
+| "expanded";
 
 // @public
 export interface SelectionRange {
@@ -151,7 +175,7 @@ export interface UsjLocation {
 // @public
 export interface UsjNodeOptions extends NodeOptions {
     addMissingComments?: AddMissingComments;
-    noteCallerOnClick?: OnClick;
+    noteCallerOnClick?: NoteCallerOnClick;
     noteCallers?: string[];
 }
 
@@ -168,7 +192,8 @@ export const viewModeToViewNames: {
 export interface ViewOptions {
     hasSpacing: boolean;
     isFormattedFont: boolean;
-    markerMode: "visible" | "editable" | "hidden";
+    markerMode: MarkerMode;
+    noteMode?: NoteMode;
 }
 
 ```

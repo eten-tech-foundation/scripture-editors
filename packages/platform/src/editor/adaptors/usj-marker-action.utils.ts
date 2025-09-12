@@ -14,6 +14,8 @@ import {
 } from "lexical";
 import {
   $createNodeFromSerializedNode,
+  $isImmutableTypedTextNode,
+  $isMarkerNode,
   $isNoteNode,
   $isTypedMarkNode,
   CharNode,
@@ -22,12 +24,14 @@ import {
   getNextVerse,
   Marker,
   MarkerAction,
+  NBSP,
   ParaNode,
 } from "shared";
 import {
   $addTrailingSpace,
   $isSomeVerseNode,
   $removeLeadingSpace,
+  getDefaultViewOptions,
   ViewOptions,
 } from "shared-react";
 import usjEditorAdaptor from "./usj-editor.adaptor";
@@ -124,6 +128,7 @@ export function getUsjMarkerAction(
 
       const selection = $getSelection();
       if ($isRangeSelection(selection)) {
+        const node = selection.anchor.getNode();
         // If the selection has text content, wrap the text selection in an inline node
         if (selection.getTextContent().length > 0) {
           $wrapTextSelectionInInlineNode(selection, () =>
@@ -139,6 +144,30 @@ export function getUsjMarkerAction(
             paragraph.replace(nodeToInsert);
             nodeToInsert.selectStart();
           }
+        } else if (
+          $isTextNode(node) &&
+          !$isMarkerNode(node) &&
+          $isNoteNode(node.getParent()) &&
+          selection.isCollapsed()
+        ) {
+          // Inserting into NoteNode
+          let lastInsertedNode: LexicalNode = node.insertAfter(nodeToInsert);
+          if ($isImmutableTypedTextNode(nodeToInsert)) {
+            // We are using visible marker mode so the `nodeToInsert` is just the marker. Get the
+            // CharNode with content to insert after it.
+            const _viewOptions: ViewOptions = {
+              ...(viewOptions || getDefaultViewOptions()),
+              markerMode: "hidden",
+            };
+            const serializedLexicalNode = createLexicalUsjNode(
+              content,
+              usjEditorAdaptor,
+              _viewOptions,
+            );
+            const charNodeToInsert = $createNodeFromSerializedNode(serializedLexicalNode);
+            lastInsertedNode = lastInsertedNode.insertAfter(charNodeToInsert);
+          }
+          lastInsertedNode.insertAfter($createTextNode(NBSP));
         } else {
           selection.insertNodes([nodeToInsert]);
           $moveVerseFollowingSpaceToPreviousNode(nodeToInsert);

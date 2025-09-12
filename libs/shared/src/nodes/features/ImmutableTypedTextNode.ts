@@ -34,7 +34,7 @@ export class ImmutableTypedTextNode extends DecoratorNode<void> {
   }
 
   static override getType(): string {
-    return "typed-text";
+    return "immutable-typed-text";
   }
 
   static override clone(node: ImmutableTypedTextNode): ImmutableTypedTextNode {

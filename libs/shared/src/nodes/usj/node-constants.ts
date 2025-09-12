@@ -10,7 +10,17 @@ export const ZWSP = "\u200B";
 export const NODE_ATTRIBUTE_PREFIX = `${NBSP}|`;
 
 export const PARA_MARKER_DEFAULT = "p";
+
+/**
+ * Note caller will be auto-generated.
+ * @public
+ */
 export const GENERATOR_NOTE_CALLER = "+";
+/**
+ * Hidden note caller will not be auto-generated, and will not be displayed in some views.
+ * @public
+ */
+export const HIDDEN_NOTE_CALLER = "-";
 
 export const CHAPTER_CLASS_NAME = "chapter";
 export const VERSE_CLASS_NAME = "verse";

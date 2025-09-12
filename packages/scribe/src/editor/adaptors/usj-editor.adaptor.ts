@@ -85,7 +85,7 @@ import {
   IMMUTABLE_VERSE_VERSION,
   ImmutableNoteCallerNode,
   ImmutableVerseNode,
-  OnClick,
+  NoteCallerOnClick,
   SerializedImmutableNoteCallerNode,
   SerializedImmutableVerseNode,
   UsjNodeOptions,
@@ -368,7 +368,7 @@ function createNoteCaller(
   childNodes: SerializedLexicalNode[],
 ): SerializedImmutableNoteCallerNode {
   const previewText = getPreviewTextFromSerializedNodes(childNodes);
-  let onClick: OnClick = () => undefined;
+  let onClick: NoteCallerOnClick = () => undefined;
   if (_nodeOptions?.noteCallerOnClick) onClick = _nodeOptions.noteCallerOnClick;
 
   return removeUndefinedProperties({
@@ -393,6 +393,7 @@ function createNote(
   } else {
     callerNode = createNoteCaller(caller, childNodes);
   }
+  const isCollapsed = _viewOptions?.noteMode !== "expanded";
   const unknownAttributes = getUnknownAttributes(markerObject);
 
   let openingMarkerNode: SerializedTextNode | undefined;
@@ -410,6 +411,7 @@ function createNote(
     type: NoteNode.getType(),
     marker,
     caller,
+    isCollapsed,
     category,
     unknownAttributes,
     children,

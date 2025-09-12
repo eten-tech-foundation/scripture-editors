@@ -2744,7 +2744,7 @@ describe("Delta Utils $applyUpdate", () => {
         expect(note.getMarker()).toBe("f");
         expect(note.getCaller()).toBe(GENERATOR_NOTE_CALLER);
         expect($getState(note, segmentState)).toBe("verse_2_1");
-        expect(note.getChildrenSize()).toBe(3);
+        expect(note.getChildrenSize()).toBe(6);
 
         const caller = note.getFirstChild();
         if (!$isImmutableNoteCallerNode(caller))
@@ -2752,7 +2752,10 @@ describe("Delta Utils $applyUpdate", () => {
         expect(caller.getCaller()).toBe(GENERATOR_NOTE_CALLER);
         expect(caller.getPreviewText()).toBe("2.1  in time.");
 
-        const char1 = note.getChildAtIndex(1);
+        const spaceNode1 = note.getChildAtIndex(1);
+        expect($isTextNode(spaceNode1)).toBe(true);
+
+        const char1 = note.getChildAtIndex(2);
         if (!$isCharNode(char1)) throw new Error("char1 is not a CharNode");
         expect(char1.getMarker()).toBe("fr");
         expect(char1.getTextContent()).toBe("2.1 ");
@@ -2761,7 +2764,10 @@ describe("Delta Utils $applyUpdate", () => {
           closed: "false",
         });
 
-        const char2 = note.getChildAtIndex(2);
+        const spaceNode2 = note.getChildAtIndex(3);
+        expect($isTextNode(spaceNode2)).toBe(true);
+
+        const char2 = note.getChildAtIndex(4);
         if (!$isCharNode(char2)) throw new Error("char2 is not a CharNode");
         expect(char2.getMarker()).toBe("ft");
         expect(char2.getTextContent()).toBe("in time.");
@@ -2769,6 +2775,9 @@ describe("Delta Utils $applyUpdate", () => {
         expect(char1.getUnknownAttributes()).toEqual({
           closed: "false",
         });
+
+        const spaceNode3 = note.getChildAtIndex(5);
+        expect($isTextNode(spaceNode3)).toBe(true);
       });
     });
 

@@ -1,7 +1,7 @@
 import {
   $createImmutableNoteCallerNode,
   ImmutableNoteCallerNode,
-  OnClick,
+  NoteCallerOnClick,
 } from "../../../nodes/usj/ImmutableNoteCallerNode";
 import { $createImmutableVerseNode } from "../../../nodes/usj/ImmutableVerseNode";
 import { $isSomeVerseNode, SomeVerseNode } from "../../../nodes/usj/node-react.utils";
@@ -44,15 +44,18 @@ import {
   $createChapterNode,
   $createCharNode,
   $createImmutableChapterNode,
+  $createImmutableTypedTextNode,
   $createImpliedParaNode,
   $createMarkerNode,
   $createMilestoneNode,
   $createNoteNode,
   $createParaNode,
   $createVerseNode,
+  $getNoteCallerPreviewText,
   $hasSameCharAttributes,
   $isBookNode,
   $isCharNode,
+  $isImmutableTypedTextNode,
   $isImpliedParaNode,
   $isMilestoneNode,
   $isNoteNode,
@@ -64,14 +67,17 @@ import {
   BookNode,
   charIdState,
   CharNode,
+  closingMarkerText,
   getEditableCallerText,
-  getNoteCallerPreviewText,
   getUnknownAttributes,
   getVisibleOpenMarkerText,
+  ImmutableTypedTextNode,
   ImpliedParaNode,
   LoggerBasic,
   MarkerNode,
+  NBSP,
   NoteNode,
+  openingMarkerText,
   ParaNode,
   segmentState,
   SomeChapterNode,
@@ -1578,8 +1584,9 @@ function $createNote(op: DeltaOp, viewOptions: ViewOptions, nodeOptions: UsjNode
   const { style, caller, category, contents } = noteEmbed.note;
   if (!style || !caller) return;
 
+  const isCollapsed = viewOptions?.noteMode !== "expanded";
   const unknownAttributes = getUnknownAttributes(noteEmbed.note, OT_NOTE_PROPS);
-  const note = $createNoteNode(style, caller, category, unknownAttributes);
+  const note = $createNoteNode(style, caller, isCollapsed, category, unknownAttributes);
 
   const segment = op.attributes?.segment;
   if (segment && typeof segment === "string") $setState(note, segmentState, () => segment);
@@ -1594,30 +1601,50 @@ function $createNote(op: DeltaOp, viewOptions: ViewOptions, nodeOptions: UsjNode
     }
   }
 
+  let openingMarkerNode: MarkerNode | ImmutableTypedTextNode | undefined;
+  let closingMarkerNode: MarkerNode | ImmutableTypedTextNode | undefined;
+  if (viewOptions?.markerMode === "editable") {
+    openingMarkerNode = $createMarkerNode(style);
+    closingMarkerNode = $createMarkerNode(style, "closing");
+  } else if (viewOptions?.markerMode === "visible") {
+    openingMarkerNode = $createImmutableTypedTextNode("marker", openingMarkerText(style) + NBSP);
+    closingMarkerNode = $createImmutableTypedTextNode("marker", closingMarkerText(style) + NBSP);
+  }
+
   let callerNode: ImmutableNoteCallerNode | TextNode;
+  if (openingMarkerNode) note.append(openingMarkerNode);
   if (viewOptions?.markerMode === "editable") {
     callerNode = $createTextNode(getEditableCallerText(caller));
+    note.append(callerNode, ...contentNodes);
   } else {
-    const previewText = getNoteCallerPreviewText(contentNodes);
-    let onClick: OnClick = () => undefined;
+    const $createSpaceNodeFn = () => $createTextNode(NBSP);
+    const previewText = $getNoteCallerPreviewText(contentNodes);
+    let onClick: NoteCallerOnClick = () => undefined;
     if (nodeOptions?.noteCallerOnClick) {
       onClick = nodeOptions.noteCallerOnClick;
     }
     callerNode = $createImmutableNoteCallerNode(caller, previewText, onClick);
+    const spacedContentNodes = contentNodes.flatMap($addSpaceNodes($createSpaceNodeFn));
+    note.append(callerNode, $createSpaceNodeFn(), ...spacedContentNodes);
   }
-
-  let openingMarkerNode: MarkerNode | undefined;
-  let closingMarkerNode: MarkerNode | undefined;
-  if (viewOptions?.markerMode === "visible" || viewOptions?.markerMode === "editable") {
-    openingMarkerNode = $createMarkerNode(style);
-    closingMarkerNode = $createMarkerNode(style, "closing");
-  }
-
-  if (openingMarkerNode) note.append(openingMarkerNode);
-  note.append(callerNode, ...contentNodes);
   if (closingMarkerNode) note.append(closingMarkerNode);
 
   return note;
+}
+
+/** Add the given space node after each child node */
+function $addSpaceNodes(
+  $createSpaceNodeFn: () => TextNode,
+): (
+  this: undefined,
+  value: LexicalNode,
+  index: number,
+  array: LexicalNode[],
+) => LexicalNode | readonly LexicalNode[] {
+  return (node) => {
+    if ($isImmutableTypedTextNode(node)) return [node];
+    return [node, $createSpaceNodeFn()];
+  };
 }
 
 function $createBook(bookAttributes: OTBookAttribute) {
