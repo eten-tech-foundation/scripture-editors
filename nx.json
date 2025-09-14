@@ -66,6 +66,9 @@
     "test": {
       "dependsOn": ["^build"]
     },
+    "typecheck": {
+      "dependsOn": ["^typecheck"]
+    },
     "@nx/js:tsc": {
       "cache": true,
       "dependsOn": ["^build"],
