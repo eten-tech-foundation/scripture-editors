@@ -16,7 +16,7 @@
   "devDependencies": {
     "platform-bible-react": "file:./lib/platform-bible-react",
     "platform-bible-utils": "file:./lib/platform-bible-utils",
-    "tailwindcss": "4.1.12",
+    "tailwindcss": "4.1.13",
     "tailwindcss-animate": "1.0.7",
     "test-data": "workspace:~"
   },
