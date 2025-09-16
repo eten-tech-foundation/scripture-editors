@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "vite",
+    "dev:test": "cross-env NODE_ENV=testing vite",
     "preprod": "cd ../../packages/platform && npm run prepublishOnly",
     "prod": "npm run dev",
     "postprod": "cd ../../packages/platform && npm run postpublish"

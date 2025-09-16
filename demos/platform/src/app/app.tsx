@@ -25,7 +25,7 @@ import { Usj, usxStringToUsj } from "@eten-tech-foundation/scripture-utilities";
 import { SerializedVerseRef } from "@sillsdev/scripture";
 import { BookChapterControl } from "platform-bible-react";
 import { MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { WEB_PSA_CH1_USX as usx, WEB_PSA_COMMENTS as comments } from "test-data";
+import { WEB_PSA_CH1_USX, WEB_PSA_USX, WEB_PSA_COMMENTS as comments } from "test-data";
 
 interface Annotations {
   [buttonId: string]: {
@@ -34,7 +34,9 @@ interface Annotations {
   };
 }
 
-const defaultUsj = usxStringToUsj('<usx version="3.1" />');
+const isTesting = process.env.NODE_ENV === "testing";
+const emptyUsj = usxStringToUsj('<usx version="3.1" />');
+const webUsj = usxStringToUsj(isTesting ? WEB_PSA_USX : WEB_PSA_CH1_USX);
 const defaultScrRef: SerializedVerseRef = { book: "PSA", chapterNum: 1, verseNum: 1 };
 const customNodeOptions: UsjNodeOptions = {
   noteCallerOnClick: () => console.log("note node clicked"),
@@ -93,7 +95,7 @@ export default function App() {
   const [hasSpacing, setHasSpacing] = useState(true);
   const [isFormattedFont, setIsFormattedFont] = useState(true);
   const [nodesMode, setNodesMode] = useState<NodesMode>(CUSTOM_NODES_MODE);
-  const [debug, setDebug] = useState(true);
+  const [debug, setDebug] = useState(!isTesting);
   const [scrRef, setScrRef] = useState(defaultScrRef);
   const [annotations, setAnnotations] = useState(defaultAnnotations);
   const [annotationType, setAnnotationType] = useState("spelling");
@@ -180,7 +182,7 @@ export default function App() {
   useEffect(() => {
     const timeoutId = setTimeout(() => {
       marginalRef.current?.setComments?.(comments as Comments);
-      marginalRef.current?.setUsj(usxStringToUsj(usx));
+      marginalRef.current?.setUsj(webUsj);
     }, 0);
     return () => clearTimeout(timeoutId);
   }, []);
@@ -338,7 +340,7 @@ export default function App() {
         )}
         <Marginal
           ref={marginalRef}
-          defaultUsj={defaultUsj}
+          defaultUsj={emptyUsj}
           scrRef={scrRef}
           onScrRefChange={setScrRef}
           onSelectionChange={(selection) => console.log({ selection })}
