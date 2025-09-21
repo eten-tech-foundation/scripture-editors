@@ -10,6 +10,7 @@ import {
   LexicalNode,
   LexicalUpdateJSON,
   NodeKey,
+  RangeSelection,
   SerializedElementNode,
   SerializedLexicalNode,
   Spread,
@@ -135,6 +136,18 @@ export class CharNode extends ElementNode {
     return new CharNode(__marker, __unknownAttributes, __key);
   }
 
+  static isValidMarker(marker: string | undefined): boolean {
+    return marker !== undefined && VALID_CHAR_MARKERS.includes(marker);
+  }
+
+  static isValidFootnoteMarker(marker: string | undefined): boolean {
+    return marker !== undefined && VALID_CHAR_FOOTNOTE_MARKERS.includes(marker);
+  }
+
+  static isValidCrossReferenceMarker(marker: string | undefined): boolean {
+    return marker !== undefined && VALID_CHAR_CROSS_REFERENCE_MARKERS.includes(marker);
+  }
+
   static override importDOM(): DOMConversionMap | null {
     return {
       span: (node: HTMLElement) => {
@@ -150,18 +163,6 @@ export class CharNode extends ElementNode {
 
   static override importJSON(serializedNode: SerializedCharNode): CharNode {
     return $createCharNode().updateFromJSON(serializedNode);
-  }
-
-  static isValidMarker(marker: string | undefined): boolean {
-    return marker !== undefined && VALID_CHAR_MARKERS.includes(marker);
-  }
-
-  static isValidFootnoteMarker(marker: string | undefined): boolean {
-    return marker !== undefined && VALID_CHAR_FOOTNOTE_MARKERS.includes(marker);
-  }
-
-  static isValidCrossReferenceMarker(marker: string | undefined): boolean {
-    return marker !== undefined && VALID_CHAR_CROSS_REFERENCE_MARKERS.includes(marker);
   }
 
   override updateFromJSON(serializedNode: LexicalUpdateJSON<SerializedCharNode>): this {
@@ -230,6 +231,17 @@ export class CharNode extends ElementNode {
   }
 
   // Mutation
+
+  override insertNewAfter(rangeSelection: RangeSelection, restoreSelection: boolean): CharNode {
+    const newElement = $createCharNode(this.getMarker());
+    newElement.setTextFormat(rangeSelection.format);
+    newElement.setTextStyle(rangeSelection.style);
+    newElement.setDirection(this.getDirection());
+    newElement.setFormat(this.getFormatType());
+    newElement.setStyle(this.getTextStyle());
+    this.insertAfter(newElement, restoreSelection);
+    return newElement;
+  }
 
   override canBeEmpty(): false {
     return false;

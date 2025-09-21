@@ -1,3 +1,20 @@
+// Reaching inside only for tests.
+// eslint-disable-next-line @nx/enforce-module-boundaries
+import {
+  editorStateEmpty,
+  editorStateGen1v1,
+  editorStateGen1v1Editable,
+  editorStateGen1v1ImpliedPara,
+  editorStateGen1v1ImpliedParaEmpty,
+  editorStateGen1v1Nonstandard,
+  editorStateWithUnknownItems,
+  opsGen1v1,
+  opsGen1v1Editable,
+  opsGen1v1ImpliedPara,
+  opsGen1v1ImpliedParaEmpty,
+  opsGen1v1Nonstandard,
+  opsWithUnknownItems,
+} from "../../../../../../packages/utilities/src/converters/usj/converter-test.data";
 import { $createImmutableNoteCallerNode } from "../../../nodes/usj/ImmutableNoteCallerNode";
 import { $createImmutableVerseNode } from "../../../nodes/usj/ImmutableVerseNode";
 import { baseTestEnvironment } from "../react-test.utils";
@@ -295,6 +312,72 @@ describe("getEditorDelta", () => {
       { insert: { milestone: { style: "ts-s", sid: "TS1" } } },
       { insert: LF, attributes: { para: { style: "q1" } } },
     ]);
+  });
+
+  // Paired with the same tests in `./delta-apply-update.utils.test.tsx`.
+  describe("Adaptor Roundtrip", () => {
+    it("should roundtrip the empty editor state", async () => {
+      const { editor } = await testEnvironment();
+      const editorState = editor.parseEditorState(editorStateEmpty);
+
+      const delta = getEditorDelta(editorState);
+
+      expect(delta.ops).toEqual([]);
+    });
+
+    it("should roundtrip the editor state", async () => {
+      const { editor } = await testEnvironment();
+      const editorState = editor.parseEditorState(editorStateGen1v1);
+
+      const delta = getEditorDelta(editorState);
+
+      expect(delta.ops).toEqual(opsGen1v1);
+    });
+
+    it("should roundtrip the editor state with empty implied para", async () => {
+      const { editor } = await testEnvironment();
+      const editorState = editor.parseEditorState(editorStateGen1v1ImpliedParaEmpty);
+
+      const delta = getEditorDelta(editorState);
+
+      expect(delta.ops).toEqual(opsGen1v1ImpliedParaEmpty);
+    });
+
+    it("should roundtrip the editor state with implied para", async () => {
+      const { editor } = await testEnvironment();
+      const editorState = editor.parseEditorState(editorStateGen1v1ImpliedPara);
+
+      const delta = getEditorDelta(editorState);
+
+      expect(delta.ops).toEqual(opsGen1v1ImpliedPara);
+    });
+
+    it.skip("should roundtrip the editor state with unknown items", async () => {
+      const { editor } = await testEnvironment();
+      const editorState = editor.parseEditorState(editorStateWithUnknownItems);
+
+      const delta = getEditorDelta(editorState);
+
+      expect(delta.ops).toEqual(opsWithUnknownItems);
+    });
+
+    it.skip("should roundtrip the editor state with nonstandard features", async () => {
+      const { editor } = await testEnvironment();
+      const editorState = editor.parseEditorState(editorStateGen1v1Nonstandard);
+
+      const delta = getEditorDelta(editorState);
+
+      expect(delta.ops).toEqual(opsGen1v1Nonstandard);
+    });
+
+    it.skip("should roundtrip the editor state in editable mode", async () => {
+      const { editor } = await testEnvironment();
+      const editorState = editor.parseEditorState(editorStateGen1v1Editable);
+
+      const delta = getEditorDelta(editorState);
+
+      expect(delta.ops).toEqual(opsGen1v1Editable);
+    });
   });
 });
 

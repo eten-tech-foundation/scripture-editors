@@ -58,6 +58,11 @@ export type OTMilestoneEmbed = OTParaAttribute & {
 };
 export const OT_MILESTONE_PROPS: (keyof OTMilestoneEmbed)[] = ["style", "sid", "eid"];
 
+export type OTUnmatchedEmbed = {
+  marker: string;
+};
+// Ignore any unknown properties on an OTUnmatchedEmbed.
+
 export type OTNoteEmbed = OTParaAttribute & {
   caller: string;
   category?: string;
