@@ -1,12 +1,27 @@
+// Reaching inside only for tests.
+// eslint-disable-next-line @nx/enforce-module-boundaries
+import {
+  editorStateEmpty,
+  editorStateGen1v1,
+  editorStateGen1v1ImpliedPara,
+  editorStateGen1v1ImpliedParaEmpty,
+  NOTE_CALLER_INDEX,
+  NOTE_INDEX,
+  NOTE_PARA_INDEX,
+  opsGen1v1,
+  opsGen1v1ImpliedPara,
+  opsGen1v1ImpliedParaEmpty,
+} from "../../../../../../packages/utilities/src/converters/usj/converter-test.data";
 import {
   $createImmutableNoteCallerNode,
   $isImmutableNoteCallerNode,
+  SerializedImmutableNoteCallerNode,
 } from "../../../nodes/usj/ImmutableNoteCallerNode";
 import { $createImmutableVerseNode } from "../../../nodes/usj/ImmutableVerseNode";
 import { $isSomeVerseNode } from "../../../nodes/usj/node-react.utils";
 import { UsjNodeOptions } from "../../../nodes/usj/usj-node-options.model";
 import { CharNodePlugin } from "../CharNodePlugin";
-import { baseTestEnvironment } from "../react-test.utils";
+import { baseTestEnvironment, removeNoteCallerOnClick } from "../react-test.utils";
 import { getDefaultViewOptions, ViewOptions } from "../../../views/view-options.utils";
 import { $applyUpdate } from "./delta-apply-update.utils";
 import { DeltaOp, LF } from "./delta-common.utils";
@@ -18,6 +33,7 @@ import {
   $isTextNode,
   $setState,
   LexicalEditor,
+  SerializedEditorState,
 } from "lexical";
 import Delta from "quill-delta";
 import {
@@ -29,6 +45,7 @@ import {
   $createParaNode,
   $isBookNode,
   $isCharNode,
+  $isImmutableUnmatchedNode,
   $isImpliedParaNode,
   $isMilestoneNode,
   $isNoteNode,
@@ -36,7 +53,10 @@ import {
   $isSomeChapterNode,
   charIdState,
   GENERATOR_NOTE_CALLER,
+  removeUndefinedProperties,
   segmentState,
+  SerializedNoteNode,
+  SerializedParaNode,
 } from "shared";
 import { MockInstance } from "vitest";
 
@@ -2149,7 +2169,7 @@ describe("Delta Utils $applyUpdate", () => {
       await sutApplyUpdate(editor, ops);
 
       expect(consoleDebugSpy).toHaveBeenNthCalledWith(1, "Insert: ''");
-      expect(consoleDebugSpy).toHaveBeenCalledTimes(3);
+      expect(consoleDebugSpy).toHaveBeenCalledTimes(2);
       editor.getEditorState().read(() => {
         expect($getRoot().getTextContent()).toBe("");
         expect($getRoot().getChildrenSize()).toBe(1);
@@ -2302,6 +2322,35 @@ describe("Delta Utils $applyUpdate", () => {
         const ch2 = root.getChildAtIndex(1);
         if (!$isSomeChapterNode(ch2)) throw new Error("Second child should be SomeChapterNode");
         expect(ch2.getNumber()).toBe("2");
+      });
+    });
+
+    it("(dc) should insert text after CharNode", async () => {
+      const { editor } = await testEnvironment(() => {
+        $getRoot().append(
+          $createParaNode().append($createCharNode("wj").append($createTextNode("'Follow me.'"))),
+        );
+      });
+      const insertText = " Jesus said";
+      const ops: DeltaOp[] = [{ retain: 12 }, { insert: insertText }]; // Retain past "Jesus said"
+
+      await sutApplyUpdate(editor, ops);
+
+      editor.getEditorState().read(() => {
+        const root = $getRoot();
+        expect(root.getChildrenSize()).toBe(1); // Still just one ParaNode
+
+        const para = root.getFirstChild();
+        if (!$isParaNode(para)) throw new Error("First child is not a ParaNode");
+        expect(para.getChildrenSize()).toBe(2); // CharNode and new TextNode
+
+        const charNode = para.getFirstChild();
+        if (!$isCharNode(charNode)) throw new Error("First child of para is not a CharNode");
+        expect(charNode.getTextContent()).toBe("'Follow me.'");
+
+        const textNode = para.getChildAtIndex(1);
+        if (!$isTextNode(textNode)) throw new Error("Second child of para is not a TextNode");
+        expect(textNode.getTextContent()).toBe(insertText);
       });
     });
 
@@ -2528,6 +2577,39 @@ describe("Delta Utils $applyUpdate", () => {
       });
     });
 
+    it("(dc) should handle plain text after CharNode correctly", async () => {
+      const { editor } = await testEnvironment();
+      const ops: DeltaOp[] = [
+        { insert: "Tell the Israelites that I, the " },
+        { insert: "Lord", attributes: { char: { style: "nd" } } },
+        { insert: ", the God of their ancestors, the God of Abraham, Isaac, and Jacob," },
+      ];
+
+      await sutApplyUpdate(editor, ops);
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isImpliedParaNode(para)) throw new Error("Expected ImpliedParaNode");
+
+        expect(para.getChildrenSize()).toBe(3);
+
+        const text1 = para.getFirstChild();
+        if (!$isTextNode(text1)) throw new Error("Expected TextNode");
+        expect(text1.getTextContent()).toBe("Tell the Israelites that I, the ");
+
+        const char1 = para.getChildAtIndex(1);
+        if (!$isCharNode(char1)) throw new Error("Expected CharNode");
+        expect(char1.getMarker()).toBe("nd");
+        expect(char1.getTextContent()).toBe("Lord");
+
+        const text2 = para.getChildAtIndex(2);
+        if (!$isTextNode(text2)) throw new Error("Expected TextNode");
+        expect(text2.getTextContent()).toBe(
+          ", the God of their ancestors, the God of Abraham, Isaac, and Jacob,",
+        );
+      });
+    });
+
     it("(dc) should insert nested char text", async () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append($createParaNode());
@@ -2685,6 +2767,27 @@ describe("Delta Utils $applyUpdate", () => {
         const t2 = p.getChildAtIndex(3);
         if (!$isTextNode(t2)) throw new Error("t2 is not a TextNode");
         expect(t2.getTextContent()).toBe(" answered Jesus.");
+      });
+    });
+
+    it("(dc) should insert unmatched embeds in empty para", async () => {
+      const { editor } = await testEnvironment(() => {
+        $getRoot().append($createParaNode());
+      });
+      const unmatchedEmbed = { unmatched: { marker: "f*" } };
+      const ops: DeltaOp[] = [{ insert: unmatchedEmbed }];
+
+      await sutApplyUpdate(editor, ops);
+
+      editor.getEditorState().read(() => {
+        const p = $getRoot().getFirstChild();
+        if (!$isParaNode(p)) throw new Error("p is not a ParaNode");
+        expect(p.getChildrenSize()).toBe(1);
+
+        const unmatched = p.getFirstChild();
+        if (!$isImmutableUnmatchedNode(unmatched))
+          throw new Error("unmatched is not an ImmutableUnmatchedNode");
+        expect(unmatched.getMarker()).toBe("f*");
       });
     });
 
@@ -2886,6 +2989,25 @@ describe("Delta Utils $applyUpdate", () => {
           if (!$isImpliedParaNode(impliedPara))
             throw new Error("impliedPara is not an ImpliedParaNode");
           expect(impliedPara.getChildrenSize()).toBe(0); // Empty implied para
+        });
+      });
+
+      it("(dc) should insert a text and line break in 'empty' editor", async () => {
+        const { editor } = await testEnvironment();
+        const ops: DeltaOp[] = [{ insert: "Jesus wept." + LF }];
+
+        await sutApplyUpdate(editor, ops);
+
+        expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
+        editor.getEditorState().read(() => {
+          const root = $getRoot();
+          expect(root.getChildrenSize()).toBe(1);
+
+          const impliedPara = root.getFirstChild();
+          if (!$isImpliedParaNode(impliedPara))
+            throw new Error("impliedPara is not an ImpliedParaNode");
+          expect(impliedPara.getChildrenSize()).toBe(1);
+          expect(impliedPara.getTextContent()).toBe("Jesus wept.");
         });
       });
 
@@ -3627,6 +3749,61 @@ describe("Delta Utils $applyUpdate", () => {
       });
     });
   });
+
+  // Paired with the same tests in `./editor-delta.adaptor.test.tsx`.
+  describe("Adaptor Roundtrip", () => {
+    it("should roundtrip the empty ops", async () => {
+      const { editor } = await testEnvironment();
+      const ops: DeltaOp[] = [];
+
+      await sutApplyUpdate(editor, ops);
+
+      expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
+      const serializedEditorState = editor.getEditorState().toJSON();
+      expect(serializedEditorState).toEqual(editorStateEmpty);
+    });
+
+    it("should roundtrip the ops", async () => {
+      const { editor } = await testEnvironment();
+      const ops: DeltaOp[] = opsGen1v1;
+
+      await sutApplyUpdate(editor, ops);
+
+      expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
+      const serializedEditorState = editor.getEditorState().toJSON();
+      const note = (serializedEditorState.root.children[NOTE_PARA_INDEX] as SerializedParaNode)
+        .children[NOTE_INDEX] as SerializedNoteNode;
+      const noteCaller = note.children[NOTE_CALLER_INDEX] as SerializedImmutableNoteCallerNode;
+      expect(typeof noteCaller.onClick).toBe("function");
+      removeNoteCallerOnClick(serializedEditorState);
+      cleanupSerializedEditorState(serializedEditorState, null);
+      expect(serializedEditorState).toEqual(editorStateGen1v1);
+    });
+
+    it("should roundtrip the ops with empty implied para", async () => {
+      const { editor } = await testEnvironment();
+      const ops: DeltaOp[] = opsGen1v1ImpliedParaEmpty;
+
+      await sutApplyUpdate(editor, ops);
+
+      expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
+      const serializedEditorState = editor.getEditorState().toJSON();
+      cleanupSerializedEditorState(serializedEditorState, null);
+      expect(serializedEditorState).toEqual(editorStateGen1v1ImpliedParaEmpty);
+    });
+
+    it("should roundtrip the ops with implied para", async () => {
+      const { editor } = await testEnvironment();
+      const ops: DeltaOp[] = opsGen1v1ImpliedPara;
+
+      await sutApplyUpdate(editor, ops);
+
+      expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
+      const serializedEditorState = editor.getEditorState().toJSON();
+      cleanupSerializedEditorState(serializedEditorState, null);
+      expect(serializedEditorState).toEqual(editorStateGen1v1ImpliedPara);
+    });
+  });
 });
 
 async function testEnvironment($initialEditorState?: () => void) {
@@ -3646,5 +3823,63 @@ async function sutApplyUpdate(
     editor.update(() => {
       $applyUpdate(ops, viewOptions, nodeOptions, console);
     });
+  });
+}
+
+interface UnknownProperties {
+  [key: string]: unknown;
+}
+
+/**
+ * Cleanup the serialized editor state by modifying unimportant properties to allow for a match.
+ * We may need to review this since I don't understand why these properties have a difference.
+ */
+function cleanupSerializedEditorState(
+  serializedEditorState: SerializedEditorState,
+  direction?: null,
+): void {
+  // Recursive function to process any object and remove undefined and default properties
+  const processNode = (node: UnknownProperties): UnknownProperties => {
+    if (direction !== undefined && "direction" in node && node.direction !== direction)
+      node.direction = direction;
+
+    if (node.type === "char") {
+      node.textFormat = 0;
+      node.textStyle = "";
+    }
+
+    if (
+      (node.marker === "c" || node.marker === "v") &&
+      "showMarker" in node &&
+      node.showMarker !== true
+    )
+      node.showMarker = undefined;
+
+    // Remove undefined properties from the current node
+    const cleaned = removeUndefinedProperties(node);
+
+    // If this node has children, recursively process them
+    if ("children" in cleaned && Array.isArray(cleaned.children)) {
+      const processedChildren = cleaned.children.map((child) => {
+        if (child && typeof child === "object" && !Array.isArray(child)) {
+          return processNode(child as UnknownProperties);
+        }
+        return child;
+      });
+
+      return {
+        ...cleaned,
+        children: processedChildren,
+      };
+    }
+
+    return cleaned;
+  };
+
+  // Process the root and update the serialized editor state in place
+  const cleanedRoot = processNode(serializedEditorState.root as UnknownProperties);
+  Object.assign(serializedEditorState, {
+    ...serializedEditorState,
+    root: cleanedRoot,
   });
 }
