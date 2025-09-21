@@ -5,6 +5,8 @@ const NBSP = "\u00A0";
 const IDEOGRAPHIC_SPACE = "\u3000";
 const THIN_SPACE = "\u2009";
 
+/* Empty */
+
 export const usxEmpty = '<usx version="3.1" />';
 
 export const usjEmpty: Usj = { type: "USJ", version: "3.1", content: [] };
@@ -30,6 +32,8 @@ export const editorStateEmpty = {
     ],
   },
 } as unknown as SerializedEditorState;
+
+/* Gen 1:1 */
 
 /**
  * Reformatted from:
@@ -425,6 +429,47 @@ export const editorStateGen1v1 = {
     ],
   },
 } as unknown as SerializedEditorState;
+
+export const opsGen1v1 = [
+  { insert: "Some Scripture Version" },
+  { insert: "\n", attributes: { book: { style: "id", code: "GEN" } } },
+  { insert: { chapter: { style: "c", number: "1", sid: "GEN 1" } } },
+  { insert: { verse: { style: "v", number: "1", sid: "GEN 1:1" } } },
+  { insert: "the first verse " },
+  { insert: { verse: { style: "v", number: "2", sid: "GEN 1:2" } } },
+  { insert: "the second verse " },
+  { insert: { verse: { style: "v", number: "15", sid: "GEN 1:15", altnumber: "3" } } },
+  { insert: "Tell the Israelites that I, the " },
+  { insert: "Lord", attributes: { char: { style: "nd" } } },
+  { insert: ", the God of their ancestors, the God of Abraham, Isaac, and Jacob," },
+  { insert: "4", attributes: { char: { style: "va" } } },
+  { insert: "\n", attributes: { para: { style: "p" } } },
+  { insert: "\n", attributes: { para: { style: "b" } } },
+  { insert: { verse: { style: "v", number: "16", sid: "GEN 1:16" } } },
+  { insert: "“There is no help for him in God.”" },
+  {
+    insert: {
+      note: {
+        style: "f",
+        caller: "+",
+        contents: {
+          ops: [
+            { insert: "3:2 ", attributes: { char: { style: "fr" } } },
+            {
+              insert: "The Hebrew word rendered “God” is “אֱלֹהִ֑ים” (Elohim).",
+              attributes: { char: { style: "ft" } },
+            },
+          ],
+        },
+      },
+    },
+  },
+  { insert: " " },
+  { insert: { unmatched: { marker: "f*" } } },
+  { insert: " " },
+  { insert: "Selah.", attributes: { char: { style: "qs" } } },
+  { insert: "\n", attributes: { para: { style: "q2" } } },
+];
 
 /** Lexical editor state JSON (depends on nodes used). */
 export const editorStateGen1v1Editable = {
@@ -923,6 +968,8 @@ export const editorStateGen1v1Editable = {
   },
 } as unknown as SerializedEditorState;
 
+/* Gen 1:1 Implied Para with empty content */
+
 export const usxGen1v1ImpliedParaEmpty = `
 <usx version="3.1">
   <book style="id" code="GEN" />
@@ -962,17 +1009,7 @@ export const editorStateGen1v1ImpliedParaEmpty = {
         format: "",
         indent: 0,
         version: 1,
-        children: [
-          {
-            type: "text",
-            text: "",
-            detail: 0,
-            format: 0,
-            mode: "normal",
-            style: "",
-            version: 1,
-          },
-        ],
+        children: [],
       },
       {
         type: "immutable-chapter",
@@ -998,6 +1035,17 @@ export const editorStateGen1v1ImpliedParaEmpty = {
     ],
   },
 } as unknown as SerializedEditorState;
+
+export const opsGen1v1ImpliedParaEmpty = [
+  { insert: "\n", attributes: { book: { style: "id", code: "GEN" } } },
+  { insert: { chapter: { style: "c", number: "1", sid: "GEN 1" } } },
+  { insert: { verse: { style: "v", number: "1", sid: "GEN 1:1" } } },
+  { insert: { verse: { style: "v", number: "2", sid: "GEN 1:2" } } },
+  { insert: { verse: { style: "v", number: "15", sid: "GEN 1:15" } } },
+  { insert: "\n" },
+];
+
+/* Gen 1:1 Implied Para */
 
 export const usxGen1v1ImpliedPara = `
 <usx version="3.1">
@@ -1043,17 +1091,7 @@ export const editorStateGen1v1ImpliedPara = {
         format: "",
         indent: 0,
         version: 1,
-        children: [
-          {
-            type: "text",
-            text: "",
-            detail: 0,
-            format: 0,
-            mode: "normal",
-            style: "",
-            version: 1,
-          },
-        ],
+        children: [],
       },
       {
         type: "immutable-chapter",
@@ -1136,6 +1174,8 @@ export const editorStateGen1v1ImpliedPara = {
     ],
   },
 } as unknown as SerializedEditorState;
+
+/* Comment marks */
 
 export const usjMarks: Usj = {
   type: "USJ",
@@ -1542,6 +1582,8 @@ export const editorStateMarks = {
   },
 } as unknown as SerializedEditorState;
 
+/* Unknown items */
+
 /** para index where the note exists */
 export const NOTE_PARA_WITH_UNKNOWN_ITEMS_INDEX = 2;
 
@@ -1619,17 +1661,7 @@ export const editorStateWithUnknownItems = {
         format: "",
         indent: 0,
         version: 1,
-        children: [
-          {
-            type: "text",
-            text: "",
-            detail: 0,
-            format: 0,
-            mode: "normal",
-            style: "",
-            version: 1,
-          },
-        ],
+        children: [],
       },
       {
         type: "immutable-chapter",
@@ -1888,6 +1920,8 @@ export const editorStateWithUnknownItems = {
   },
 } as unknown as SerializedEditorState;
 
+/* Gen 1:1 whitespace */
+
 /**
  * Tests removing structural whitespace (see https://docs.usfm.bible/usfm/latest/whitespace.html) in
  * USX while preserving content whitespace.
@@ -1930,6 +1964,8 @@ export const usjGen1v1Whitespace: Usj = {
     { type: "char", marker: "wj", content: ["stay"] },
   ],
 };
+
+/* Gen 1:1 non-standard */
 
 /**
  * Includes various nonstandard features we want to support in the

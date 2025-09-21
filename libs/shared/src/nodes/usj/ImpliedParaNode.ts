@@ -44,14 +44,13 @@ export class ImpliedParaNode extends ParagraphNode {
   override insertNewAfter(
     rangeSelection: RangeSelection,
     restoreSelection: boolean,
-  ): ParagraphNode {
+  ): ImpliedParaNode {
     const newElement = $createImpliedParaNode();
     newElement.setTextFormat(rangeSelection.format);
     newElement.setTextStyle(rangeSelection.style);
     newElement.setDirection(this.getDirection());
     newElement.setFormat(this.getFormatType());
     newElement.setStyle(this.getTextStyle());
-    newElement.setIndent(this.getIndent());
     this.insertAfter(newElement, restoreSelection);
     return newElement;
   }

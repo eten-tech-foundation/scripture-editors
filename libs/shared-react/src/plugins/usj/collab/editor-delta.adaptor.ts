@@ -14,6 +14,7 @@ import {
   OTMilestoneEmbed,
   OTNoteEmbed,
   OTParaAttribute,
+  OTUnmatchedEmbed,
   OTVerseEmbed,
 } from "./rich-text-ot.model";
 import { $dfs, DFSNode } from "@lexical/utils";
@@ -22,6 +23,7 @@ import Delta from "quill-delta";
 import {
   $isBookNode,
   $isCharNode,
+  $isImmutableUnmatchedNode,
   $isImpliedParaNode,
   $isMilestoneNode,
   $isNoteNode,
@@ -32,7 +34,10 @@ import {
   CHAPTER_MARKER,
   charIdState,
   CharNode,
+  ImmutableUnmatchedNode,
   MilestoneNode,
+  NBSP,
+  NODE_ATTRIBUTE_PREFIX,
   NoteNode,
   ParaNode,
   segmentState,
@@ -102,6 +107,7 @@ function $getAllNodeOps() {
     const currentNode = dfsNodes[i].node;
     ops.push(...$getNodeOps(currentNode, i, dfsNodes, openParaLikeNodes, openCharNodes, openNote));
   }
+  // Close any remaining open nodes
   for (const openNode of openParaLikeNodes) {
     ops.push(
       ...$getNodeOps(
@@ -138,6 +144,7 @@ function $getNodeOps(
   if ($isSomeChapterNode(currentNode)) ops.push($getChapterOp(currentNode));
   if ($isSomeVerseNode(currentNode)) ops.push($getVerseOp(currentNode));
   if ($isMilestoneNode(currentNode)) ops.push($getMilestoneOp(currentNode));
+  if ($isImmutableUnmatchedNode(currentNode)) ops.push($getImmutableUnmatchedOp(currentNode));
   $handleNoteNodes(currentNode, ops, openNote);
 
   return ops;
@@ -177,6 +184,8 @@ function $handleTextNodes(
 
   const textOp = $getTextOp(currentNode, openCharNodes);
   if (openNote.children.includes(currentNode)) {
+    const text = currentNode.getTextContent();
+    if (!text || text === NBSP || text.startsWith(NODE_ATTRIBUTE_PREFIX)) return;
     openNote.contentsOps?.push(textOp);
   } else {
     ops.push(textOp);
@@ -261,6 +270,12 @@ function $getMilestoneOp(
     milestone.eid = currentNode.__eid;
   }
   return { insert: { milestone } };
+}
+
+function $getImmutableUnmatchedOp(
+  currentNode: ImmutableUnmatchedNode,
+): DeltaOp & { insert: { unmatched: OTUnmatchedEmbed } } {
+  return { insert: { unmatched: { marker: currentNode.__marker } } };
 }
 
 function $getNoteOp(currentNode: NoteNode): DeltaOp & { insert: { note: OTNoteEmbed } } {

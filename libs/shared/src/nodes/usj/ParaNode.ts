@@ -177,6 +177,13 @@ export class ParaNode extends ParagraphNode {
     return new ParaNode(__marker, __unknownAttributes, __key);
   }
 
+  static isValidMarker(marker: string | undefined): boolean {
+    return (
+      marker !== undefined &&
+      VALID_PARA_MARKERS.includes(marker as (typeof VALID_PARA_MARKERS)[number])
+    );
+  }
+
   static override importDOM(): DOMConversionMap | null {
     return {
       p: () => ({
@@ -188,13 +195,6 @@ export class ParaNode extends ParagraphNode {
 
   static override importJSON(serializedNode: SerializedParaNode): ParaNode {
     return $createParaNode().updateFromJSON(serializedNode);
-  }
-
-  static isValidMarker(marker: string | undefined): boolean {
-    return (
-      marker !== undefined &&
-      VALID_PARA_MARKERS.includes(marker as (typeof VALID_PARA_MARKERS)[number])
-    );
   }
 
   override updateFromJSON(serializedNode: LexicalUpdateJSON<SerializedParaNode>): this {
@@ -258,17 +258,13 @@ export class ParaNode extends ParagraphNode {
 
   // Mutation
 
-  override insertNewAfter(
-    rangeSelection: RangeSelection,
-    restoreSelection: boolean,
-  ): ParagraphNode {
+  override insertNewAfter(rangeSelection: RangeSelection, restoreSelection: boolean): ParaNode {
     const newElement = $createParaNode(this.getMarker());
     newElement.setTextFormat(rangeSelection.format);
     newElement.setTextStyle(rangeSelection.style);
     newElement.setDirection(this.getDirection());
     newElement.setFormat(this.getFormatType());
     newElement.setStyle(this.getTextStyle());
-    newElement.setIndent(this.getIndent());
     this.insertAfter(newElement, restoreSelection);
     return newElement;
   }
