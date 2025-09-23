@@ -47,23 +47,26 @@ export interface CounterStyleRuleLike {
 /**
  * This plugin is responsible for handling NoteNode and NoteNodeCaller interactions. It also
  * updates the counter style symbols for note callers when the node options change.
+ * @param expandedNoteKeyRef - Ref to track the currently expanded note key, if any.
  * @param nodeOptions - Node options that includes the list of potential node callers.
  * @param viewOptions - View options of the editor.
  * @param logger - Logger to use, if any.
  * @returns
  */
 export function NoteNodePlugin<TLogger extends LoggerBasic>({
+  expandedNoteKeyRef,
   nodeOptions,
   viewOptions,
   logger,
 }: {
+  expandedNoteKeyRef: React.MutableRefObject<string | undefined>;
   nodeOptions: UsjNodeOptions;
   viewOptions: ViewOptions | undefined;
   logger?: TLogger;
 }): null {
   const [editor] = useLexicalComposerContext();
   useNodeOptions(nodeOptions, logger);
-  useNoteNode(editor, viewOptions, logger);
+  useNoteNode(editor, expandedNoteKeyRef, viewOptions, logger);
   return null;
 }
 
@@ -89,15 +92,16 @@ function useNodeOptions(nodeOptions: UsjNodeOptions, logger?: LoggerBasic) {
 /**
  * This hook is responsible for handling NoteNode and NoteNodeCaller interactions.
  * @param editor - The LexicalEditor instance used to access the DOM.
+ * @param expandedNoteKeyRef - Ref to track the currently expanded note key, if any.
  * @param viewOptions - View options of the editor.
+ * @param logger - Logger to use, if any.
  */
 function useNoteNode(
   editor: LexicalEditor,
+  expandedNoteKeyRef: React.MutableRefObject<string | undefined>,
   viewOptions: ViewOptions | undefined,
   logger: LoggerBasic | undefined,
 ) {
-  const noteKeyRef = useRef<string | undefined>();
-
   useEffect(() => {
     if (!editor.hasNodes([CharNode, NoteNode, ImmutableNoteCallerNode])) {
       throw new Error(
@@ -130,7 +134,7 @@ function useNoteNode(
       // after a verse node is handled in the ArrowNavigationPlugin.
       editor.registerCommand(
         SELECTION_CHANGE_COMMAND,
-        () => $handleCursorNextToNoteNode(editor, viewOptions, noteKeyRef, logger),
+        () => $handleCursorNextToNoteNode(editor, expandedNoteKeyRef, viewOptions, logger),
         COMMAND_PRIORITY_LOW,
       ),
 
@@ -146,7 +150,7 @@ function useNoteNode(
         },
       ),
     );
-  }, [editor, logger, viewOptions]);
+  }, [editor, expandedNoteKeyRef, logger, viewOptions]);
 }
 
 /**
@@ -262,8 +266,8 @@ function generateNoteCallersOnDestroy(
 
 function $handleCursorNextToNoteNode(
   editor: LexicalEditor,
+  expandedNoteKeyRef: React.MutableRefObject<string | undefined>,
   viewOptions: ViewOptions | undefined,
-  noteKeyRef: React.MutableRefObject<string | undefined>,
   logger: LoggerBasic | undefined,
 ): false {
   if (viewOptions?.noteMode !== "expandInline") return false;
@@ -275,20 +279,20 @@ function $handleCursorNextToNoteNode(
   const node = anchor.getNode();
 
   // Case 1: caret moved away from a NoteNode → collapse it
-  if (noteKeyRef.current) {
+  if (expandedNoteKeyRef.current) {
     const noteAncestor = $findMatchingParent(node, (n) => $isNoteNode(n));
     if (!noteAncestor) {
-      const note = $getNodeByKey<NoteNode>(noteKeyRef.current);
+      const note = $getNodeByKey<NoteNode>(expandedNoteKeyRef.current);
       if (note && !note.getIsCollapsed()) {
         logger?.debug("Cursor moved away from NoteNode, collapsing it");
-        $toggleNoteCollapseWithFallback(editor, noteKeyRef.current, logger);
+        $toggleNoteCollapseWithFallback(editor, expandedNoteKeyRef.current, logger);
       }
-      noteKeyRef.current = undefined;
+      expandedNoteKeyRef.current = undefined;
     } else {
       // Still inside a NoteNode → keep tracking it.
-      if (noteKeyRef.current !== noteAncestor.getKey()) {
+      if (expandedNoteKeyRef.current !== noteAncestor.getKey()) {
         // Update key since we moved to a different note.
-        noteKeyRef.current = noteAncestor.getKey();
+        expandedNoteKeyRef.current = noteAncestor.getKey();
       }
     }
   }
@@ -299,8 +303,8 @@ function $handleCursorNextToNoteNode(
     if ($isNoteNode(prev)) {
       logger?.debug("Cursor is just after a NoteNode");
       const noteKey = prev.getKey();
-      if (prev.getIsCollapsed()) noteKeyRef.current = noteKey;
-      else noteKeyRef.current = undefined;
+      if (prev.getIsCollapsed()) expandedNoteKeyRef.current = noteKey;
+      else expandedNoteKeyRef.current = undefined;
       $toggleNoteCollapseWithFallback(editor, noteKey, logger);
     }
   }
@@ -311,8 +315,8 @@ function $handleCursorNextToNoteNode(
     if ($isNoteNode(next)) {
       logger?.debug("Cursor is just before a NoteNode");
       const noteKey = next.getKey();
-      if (next.getIsCollapsed()) noteKeyRef.current = noteKey;
-      else noteKeyRef.current = undefined;
+      if (next.getIsCollapsed()) expandedNoteKeyRef.current = noteKey;
+      else expandedNoteKeyRef.current = undefined;
       $toggleNoteCollapseWithFallback(editor, noteKey, logger);
     } else if (!next) {
       const noteAncestor = $findMatchingParent(node, (n) => $isNoteNode(n));
@@ -324,7 +328,7 @@ function $handleCursorNextToNoteNode(
       ) {
         logger?.debug("Cursor is at end of note at end of para");
         const noteKey = noteAncestor.getKey();
-        noteKeyRef.current = noteKey;
+        expandedNoteKeyRef.current = noteKey;
         $toggleNoteCollapseWithFallback(editor, noteKey, logger);
       }
     }
@@ -337,8 +341,8 @@ function $handleCursorNextToNoteNode(
     if ($isImmutableVerseNode(prevChild) && $isNoteNode(child)) {
       logger?.debug("Cursor is between verse and NoteNode");
       const noteKey = child.getKey();
-      if (child.getIsCollapsed()) noteKeyRef.current = noteKey;
-      else noteKeyRef.current = undefined;
+      if (child.getIsCollapsed()) expandedNoteKeyRef.current = noteKey;
+      else expandedNoteKeyRef.current = undefined;
       $toggleNoteCollapseWithFallback(editor, noteKey, logger);
     }
   }

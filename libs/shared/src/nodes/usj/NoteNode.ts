@@ -1,6 +1,6 @@
 /** Conforms with USJ v3.1 @see https://docs.usfm.bible/usfm/3.1/note/index.html */
 
-import { GENERATOR_NOTE_CALLER, UnknownAttributes } from "./node-constants.js";
+import { GENERATOR_NOTE_CALLER, HIDDEN_NOTE_CALLER, UnknownAttributes } from "./node-constants.js";
 import {
   $applyNodeReplacement,
   DOMConversionMap,
@@ -17,10 +17,12 @@ import {
   Spread,
 } from "lexical";
 
+const DEFAULT_NOTE_MARKER = "f";
+
 /** @see https://docs.usfm.bible/usfm/3.1/note/index.html */
 const VALID_NOTE_MARKERS = [
   // Footnote
-  "f",
+  DEFAULT_NOTE_MARKER,
   "fe",
   "ef",
   // Cross Reference
@@ -49,8 +51,8 @@ export class NoteNode extends ElementNode {
   __unknownAttributes?: UnknownAttributes;
 
   constructor(
-    marker = "",
-    caller = GENERATOR_NOTE_CALLER,
+    marker = DEFAULT_NOTE_MARKER,
+    caller?: string,
     isCollapsed = true,
     category?: string,
     unknownAttributes?: UnknownAttributes,
@@ -58,7 +60,8 @@ export class NoteNode extends ElementNode {
   ) {
     super(key);
     this.__marker = marker;
-    this.__caller = caller;
+    this.__caller =
+      caller ?? (marker === "x" || marker === "ex" ? HIDDEN_NOTE_CALLER : GENERATOR_NOTE_CALLER);
     this.__isCollapsed = isCollapsed;
     this.__category = category;
     this.__unknownAttributes = unknownAttributes;
@@ -245,8 +248,8 @@ function $convertNoteElement(element: HTMLElement): DOMConversionOutput {
 
 export function $createNoteNode(
   marker?: string,
-  caller: string = GENERATOR_NOTE_CALLER,
-  isCollapsed = true,
+  caller?: string,
+  isCollapsed?: boolean,
   category?: string,
   unknownAttributes?: UnknownAttributes,
 ): NoteNode {

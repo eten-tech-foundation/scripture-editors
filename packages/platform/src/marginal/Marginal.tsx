@@ -107,6 +107,9 @@ const Marginal = forwardRef(function Marginal<TLogger extends LoggerBasic>(
     removeAnnotation(type, id) {
       editorRef.current?.removeAnnotation(type, id);
     },
+    insertNote(marker, caller, selection) {
+      editorRef.current?.insertNote(marker, caller, selection);
+    },
     setComments(comments) {
       commentStoreRef.current?.setComments(comments);
       hasCommentsBeenSetRef.current = true;

@@ -31,6 +31,9 @@ function $defaultInitialEditorState() {
 }
 
 describe("USJ Marker Action Utils", () => {
+  // Create a ref for expanded note key - using a simple object to simulate useRef behavior in tests
+  const expandedNoteKeyRef = { current: undefined as string | undefined };
+
   it("should load default initialEditorState and set selection (sanity check)", async () => {
     const { editor } = createBasicTestEnvironment(nodes, $defaultInitialEditorState);
     updateSelection(editor, secondVerseTextNode);
@@ -45,7 +48,9 @@ describe("USJ Marker Action Utils", () => {
 
   it("should insert a chapter", () => {
     const { editor } = createBasicTestEnvironment(nodes, $defaultInitialEditorState);
-    const markerAction = getUsjMarkerAction("c", undefined, undefined, { discrete: true });
+    const markerAction = getUsjMarkerAction("c", expandedNoteKeyRef, undefined, undefined, {
+      discrete: true,
+    });
     updateSelection(editor, secondVerseTextNode);
 
     markerAction.action({ editor, reference });
@@ -63,7 +68,9 @@ describe("USJ Marker Action Utils", () => {
   describe("should insert a verse", () => {
     it("with no leading space", () => {
       const { editor } = createBasicTestEnvironment(nodes, $defaultInitialEditorState);
-      const markerAction = getUsjMarkerAction("v", undefined, undefined, { discrete: true });
+      const markerAction = getUsjMarkerAction("v", expandedNoteKeyRef, undefined, undefined, {
+        discrete: true,
+      });
       updateSelection(editor, secondVerseTextNode, 7);
 
       markerAction.action({ editor, reference });
@@ -84,7 +91,9 @@ describe("USJ Marker Action Utils", () => {
 
     it("but move leading space to previous node", () => {
       const { editor } = createBasicTestEnvironment(nodes, $defaultInitialEditorState);
-      const markerAction = getUsjMarkerAction("v", undefined, undefined, { discrete: true });
+      const markerAction = getUsjMarkerAction("v", expandedNoteKeyRef, undefined, undefined, {
+        discrete: true,
+      });
       updateSelection(editor, secondVerseTextNode, 6);
 
       markerAction.action({ editor, reference });
@@ -107,7 +116,9 @@ describe("USJ Marker Action Utils", () => {
   describe("should insert a char", () => {
     it("with no leading space", () => {
       const { editor } = createBasicTestEnvironment(nodes, $defaultInitialEditorState);
-      const markerAction = getUsjMarkerAction("wj", undefined, undefined, { discrete: true });
+      const markerAction = getUsjMarkerAction("wj", expandedNoteKeyRef, undefined, undefined, {
+        discrete: true,
+      });
       updateSelection(editor, secondVerseTextNode, 7);
 
       markerAction.action({ editor, reference });
@@ -127,7 +138,9 @@ describe("USJ Marker Action Utils", () => {
 
     it("with leading space", () => {
       const { editor } = createBasicTestEnvironment(nodes, $defaultInitialEditorState);
-      const markerAction = getUsjMarkerAction("wj", undefined, undefined, { discrete: true });
+      const markerAction = getUsjMarkerAction("wj", expandedNoteKeyRef, undefined, undefined, {
+        discrete: true,
+      });
       updateSelection(editor, secondVerseTextNode, 6);
 
       markerAction.action({ editor, reference });
@@ -147,7 +160,9 @@ describe("USJ Marker Action Utils", () => {
 
     it("at end of para", () => {
       const { editor } = createBasicTestEnvironment(nodes, $defaultInitialEditorState);
-      const markerAction = getUsjMarkerAction("wj", undefined, undefined, { discrete: true });
+      const markerAction = getUsjMarkerAction("wj", expandedNoteKeyRef, undefined, undefined, {
+        discrete: true,
+      });
       updateSelection(editor, secondVerseTextNode);
 
       markerAction.action({ editor, reference });
@@ -169,7 +184,9 @@ describe("USJ Marker Action Utils", () => {
   describe("should wrap selection in char", () => {
     it("with no leading space", () => {
       const { editor } = createBasicTestEnvironment(nodes, $defaultInitialEditorState);
-      const markerAction = getUsjMarkerAction("wj", undefined, undefined, { discrete: true });
+      const markerAction = getUsjMarkerAction("wj", expandedNoteKeyRef, undefined, undefined, {
+        discrete: true,
+      });
       updateSelection(editor, secondVerseTextNode, 7, secondVerseTextNode, 12);
 
       markerAction.action({ editor, reference });
@@ -192,7 +209,9 @@ describe("USJ Marker Action Utils", () => {
 
     it("but move leading space to previous node", () => {
       const { editor } = createBasicTestEnvironment(nodes, $defaultInitialEditorState);
-      const markerAction = getUsjMarkerAction("wj", undefined, undefined, { discrete: true });
+      const markerAction = getUsjMarkerAction("wj", expandedNoteKeyRef, undefined, undefined, {
+        discrete: true,
+      });
       updateSelection(editor, secondVerseTextNode, 6, secondVerseTextNode, 12);
 
       markerAction.action({ editor, reference });

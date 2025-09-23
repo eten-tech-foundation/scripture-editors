@@ -265,6 +265,20 @@ export function $getCommonAncestorCompatible(
 }
 
 /**
+ * Moves the selection to the end of the current range, accounting for backward selections.
+ * @param selection - The range selection to move to the end.
+ */
+export function $moveSelectionToEnd(selection: RangeSelection) {
+  const startEndPoints = selection.getStartEndPoints();
+  if (!startEndPoints) return undefined;
+
+  const [start, end] = startEndPoints;
+  const actualEnd = selection.isBackward() ? start : end;
+  selection.focus.set(actualEnd.key, actualEnd.offset, actualEnd.type);
+  selection.anchor.set(actualEnd.key, actualEnd.offset, actualEnd.type);
+}
+
+/**
  * Checks if the given node is a SerializedTextNode.
  * @param node - The node to check.
  * @returns `true` if the node is a SerializedTextNode, `false` otherwise.

@@ -177,9 +177,17 @@ async function testEnvironment(
   viewOptions: ViewOptions = { markerMode: "hidden", hasSpacing: true, isFormattedFont: true },
   $initialEditorState: () => void = $defaultInitialEditorState,
 ) {
+  // Create a ref for expanded note key - using a simple object to simulate useRef behavior in tests
+  const expandedNoteKeyRef = { current: undefined as string | undefined };
+
   return baseTestEnvironment(
     $initialEditorState,
-    <NoteNodePlugin nodeOptions={nodeOptions} viewOptions={viewOptions} logger={console} />,
+    <NoteNodePlugin
+      expandedNoteKeyRef={expandedNoteKeyRef}
+      nodeOptions={nodeOptions}
+      viewOptions={viewOptions}
+      logger={console}
+    />,
   );
 }
 

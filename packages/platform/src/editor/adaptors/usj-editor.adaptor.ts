@@ -392,6 +392,8 @@ function createNoteCaller(
   });
 }
 
+// When this function is modified, also update the same logic in
+// `libs/shared-react/src/nodes/usj/node-react.utils.ts` > `$createWholeNote`
 function createNote(
   markerObject: MarkerObject,
   childNodes: SerializedLexicalNode[],

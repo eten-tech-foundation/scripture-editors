@@ -110,6 +110,7 @@ const Editor = forwardRef(function Editor(
 ): ReactElement {
   const editorRef = useRef<LexicalEditor>(null);
   const editedUsjRef = useRef<Usj | undefined>(undefined);
+  const expandedNoteKeyRef = useRef<string | undefined>();
   const [usj, setUsj] = useState(usjInput);
   const [loadedUsj] = useDeferredState(usj);
   const autoNumbering = false;
@@ -191,7 +192,11 @@ const Editor = forwardRef(function Editor(
         viewOptions={viewOptions}
       />
       <OnChangePlugin onChange={handleChange} ignoreSelectionChange={true} />
-      <NoteNodePlugin nodeOptions={nodeOptions} viewOptions={viewOptions} />
+      <NoteNodePlugin
+        expandedNoteKeyRef={expandedNoteKeyRef}
+        nodeOptions={nodeOptions}
+        viewOptions={viewOptions}
+      />
       <HistoryPlugin />
       <AutoFocusPlugin />
       <ContextMenuPlugin />

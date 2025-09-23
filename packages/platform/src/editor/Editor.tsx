@@ -32,6 +32,7 @@ import {
   $applyUpdate,
   $getRangeFromEditor,
   $getRangeFromSelection,
+  $insertNote,
   AnnotationPlugin,
   AnnotationRange,
   AnnotationRef,
@@ -106,6 +107,15 @@ export interface EditorRef {
    * @param id - ID of the annotation.
    */
   removeAnnotation(type: string, id: string): void;
+  /**
+   * Insert a note at the specified selection, e.g. footnote, cross-reference, endnote.
+   * @param marker - The marker type for the note.
+   * @param caller - Optional note caller to override the default for the given marker.
+   * @param selection - Optional selection range where the note should be inserted. By default it
+   *   will use the current selection in the editor.
+   * @throws Will throw an error if the marker is not a valid note marker.
+   */
+  insertNote(marker: string, caller?: string, selection?: SelectionRange): void;
   /** Ref to the end of the toolbar - INTERNAL USE ONLY to dynamically add controls in the toolbar. */
   toolbarEndRef: RefObject<HTMLElement | null> | null;
 }
@@ -188,6 +198,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
   const annotationRef = useRef<AnnotationRef | null>(null);
   const toolbarEndRef = useRef<HTMLDivElement>(null);
   const editedUsjRef = useRef(defaultUsj);
+  const expandedNoteKeyRef = useRef<string | undefined>();
   const [usj, setUsj] = useState(defaultUsj);
 
   const {
@@ -252,6 +263,12 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
     removeAnnotation(type, id) {
       annotationRef.current?.removeAnnotation(externalTypedMarkType(type), id);
     },
+    insertNote(marker, caller, selection) {
+      editorRef.current?.update(() => {
+        const noteNode = $insertNote(marker, caller, selection, scrRef, viewOptions, nodeOptions);
+        if (noteNode && !noteNode.getIsCollapsed()) expandedNoteKeyRef.current = noteNode.getKey();
+      });
+    },
     get toolbarEndRef() {
       return toolbarEndRef;
     },
@@ -300,7 +317,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
               trigger={markerMenuTrigger}
               scrRef={scrRef}
               getMarkerAction={(marker, markerData) =>
-                getUsjMarkerAction(marker, markerData, viewOptions)
+                getUsjMarkerAction(marker, expandedNoteKeyRef, markerData, viewOptions)
               }
             />
           )}
@@ -329,7 +346,12 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
           <ClipboardPlugin />
           <CommandMenuPlugin logger={logger} />
           <ContextMenuPlugin />
-          <NoteNodePlugin nodeOptions={nodeOptions} viewOptions={viewOptions} logger={logger} />
+          <NoteNodePlugin
+            expandedNoteKeyRef={expandedNoteKeyRef}
+            nodeOptions={nodeOptions}
+            viewOptions={viewOptions}
+            logger={logger}
+          />
           <ParaNodePlugin />
           <TextDirectionPlugin textDirection={textDirection} />
           <TextSpacingPlugin />

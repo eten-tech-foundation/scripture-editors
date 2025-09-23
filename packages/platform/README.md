@@ -127,6 +127,7 @@ export default function App() {
 - Add and remove different types of annotations. Style the different annotations types with CSS, e.g. style a spelling annotation with a red squiggly underline.
 - Get and set the cursor location or selection range.
 - Specify `textDirection` as `"ltr"`, `"rtl"`, or `"auto"` (`"auto"` is unlikely to be useful for minority languages).
+- Insert note at selection, e.g. footnote, cross-reference. If text is selected it will be used as the quote in a footnote.
 - BCV linkage - change the book/chapter/verse externally and the cursor moves; move the cursor and it updates the external book/chapter/verse
 - Nodes supported `<book>`, `<chapter>`, `<verse>`, `<para>`, `<char>`, `<note>`, `<ms>`
 - Nodes not yet supported `<table>`, `<row>`, `<cell>`, `<sidebar>`, `<periph>`, `<figure>`, `<optbreak>`, `<ref>`
@@ -229,6 +230,15 @@ export interface EditorRef {
    * @param id - ID of the annotation.
    */
   removeAnnotation(type: string, id: string): void;
+  /**
+   * Insert a note at the specified selection, e.g. footnote, cross-reference, endnote.
+   * @param marker - The marker type for the note.
+   * @param caller - Optional note caller to override the default for the given marker.
+   * @param selection - Optional selection range where the note should be inserted. By default it
+   *   will use the current selection in the editor.
+   * @throws Will throw an error if the marker is not a valid note marker.
+   */
+  insertNote(marker: string, caller?: string, selection?: SelectionRange): void;
   /** Ref to the end of the toolbar - INTERNAL USE ONLY to dynamically add controls in the toolbar. */
   toolbarEndRef: RefObject<HTMLElement> | null;
 }

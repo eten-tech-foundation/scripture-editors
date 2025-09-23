@@ -10,7 +10,7 @@ import { HistoryPlugin } from "@lexical/react/LexicalHistoryPlugin";
 import { OnChangePlugin } from "@lexical/react/LexicalOnChangePlugin";
 import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
 import { EditorState } from "lexical";
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { usjBaseNodes } from "shared";
 import {
   ImmutableNoteCallerNode,
@@ -36,6 +36,8 @@ export const NoteEditor = ({
   nodeOptions = {},
   scrollId,
 }: NoteEditorProps) => {
+  const expandedNoteKeyRef = useRef<string | undefined>();
+
   const initialConfig = {
     namespace: "ScribeNoteEditor",
     editable: true,
@@ -82,7 +84,11 @@ export const NoteEditor = ({
         // logger={logger}
       />
       <OnChangePlugin onChange={handleChange} ignoreSelectionChange={true} />
-      <NoteNodePlugin nodeOptions={nodeOptions} viewOptions={viewOptions} />
+      <NoteNodePlugin
+        expandedNoteKeyRef={expandedNoteKeyRef}
+        nodeOptions={nodeOptions}
+        viewOptions={viewOptions}
+      />
       <HistoryPlugin />
       <AutoFocusPlugin />
       {/* <TreeViewPlugin /> */}

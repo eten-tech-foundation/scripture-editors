@@ -1,5 +1,6 @@
 /* eslint-disable no-console */
 import AnnotationTypeSelect from "./AnnotationTypeSelect";
+import ExternalToolbar from "./ExternalToolbar";
 import NodeOptionsDropDown, {
   CUSTOM_NODES_MODE,
   NodesMode,
@@ -50,8 +51,7 @@ const customNodeOptions: UsjNodeOptions = {
     }
 
     console.log("expanded note node clicked - toggle caller");
-    const caller = getCaller();
-    if (caller === GENERATOR_NOTE_CALLER) setCaller(HIDDEN_NOTE_CALLER);
+    if (getCaller() === GENERATOR_NOTE_CALLER) setCaller(HIDDEN_NOTE_CALLER);
     else setCaller(GENERATOR_NOTE_CALLER);
   },
   noteCallers: ["①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨"],
@@ -362,6 +362,7 @@ export default function App() {
             )}
           </>
         )}
+        <ExternalToolbar marginalRef={marginalRef} />
         <Marginal
           ref={marginalRef}
           defaultUsj={emptyUsj}
