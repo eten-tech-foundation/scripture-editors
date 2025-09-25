@@ -1,6 +1,7 @@
 import { ForwardedRef, forwardRef, PropsWithChildren, ReactElement } from "react";
 import { LoggerBasic } from "shared";
-import Editor, { EditorRef, EditorProps } from "./editor/Editor";
+import Editor from "./editor/Editor";
+import { EditorProps, EditorRef } from "./editor/editor.model";
 
 /**
  * Scripture Editor for USJ. Created for use in [Platform](https://platform.bible).

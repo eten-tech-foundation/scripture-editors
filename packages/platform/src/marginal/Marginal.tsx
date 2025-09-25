@@ -1,4 +1,5 @@
-import Editor, { EditorProps, EditorRef } from "../editor/Editor";
+import Editor from "../editor/Editor";
+import { EditorProps, EditorRef } from "../editor/editor.model";
 import CommentPlugin from "./comments/CommentPlugin";
 import { Comments } from "./comments/commenting";
 import useCommentStoreRef from "./comments/use-comment-store-ref.hook";

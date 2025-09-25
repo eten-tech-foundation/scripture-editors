@@ -1,7 +1,7 @@
+import { EditorProps } from "../../editor/editor.model";
+import { CommentStore, Comments } from "./commenting";
 import { RefObject, useEffect } from "react";
 import { LoggerBasic } from "shared";
-import { CommentStore, Comments } from "./commenting";
-import { EditorProps } from "../../editor/Editor";
 
 function addMissingComments(
   usjCommentIds: string[],

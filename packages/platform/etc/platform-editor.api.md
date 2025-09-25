@@ -77,6 +77,7 @@ export interface EditorRef {
     focus(): void;
     getSelection(): SelectionRange | undefined;
     getUsj(): Usj | undefined;
+    insertNote(marker: string, caller?: string, selection?: SelectionRange): void;
     removeAnnotation(type: string, id: string): void;
     setSelection(selection: SelectionRange): void;
     setUsj(usj: Usj): void;
