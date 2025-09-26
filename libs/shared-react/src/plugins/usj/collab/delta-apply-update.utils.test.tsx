@@ -3,11 +3,13 @@
 import {
   editorStateEmpty,
   editorStateGen1v1,
+  editorStateGen1v1ImpliedPara,
   editorStateGen1v1ImpliedParaEmpty,
   NOTE_CALLER_INDEX,
   NOTE_INDEX,
   NOTE_PARA_INDEX,
   opsGen1v1,
+  opsGen1v1ImpliedPara,
   opsGen1v1ImpliedParaEmpty,
 } from "../../../../../../packages/utilities/src/converters/usj/converter-test.data";
 import {
@@ -3708,7 +3710,6 @@ describe("Delta Utils $applyUpdate", () => {
 
       await sutApplyUpdate(editor, ops);
 
-      // The exported Delta should match the original exactly
       expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
       const serializedEditorState = editor.getEditorState().toJSON();
       expect(serializedEditorState).toEqual(editorStateEmpty);
@@ -3720,7 +3721,6 @@ describe("Delta Utils $applyUpdate", () => {
 
       await sutApplyUpdate(editor, ops);
 
-      // The exported Delta should match the original exactly
       expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
       const serializedEditorState = editor.getEditorState().toJSON();
       const note = (serializedEditorState.root.children[NOTE_PARA_INDEX] as SerializedParaNode)
@@ -3738,11 +3738,22 @@ describe("Delta Utils $applyUpdate", () => {
 
       await sutApplyUpdate(editor, ops);
 
-      // The exported Delta should match the original exactly
       expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
       const serializedEditorState = editor.getEditorState().toJSON();
       cleanupSerializedEditorState(serializedEditorState, null);
       expect(serializedEditorState).toEqual(editorStateGen1v1ImpliedParaEmpty);
+    });
+
+    it("should roundtrip the ops with implied para", async () => {
+      const { editor } = await testEnvironment();
+      const ops: DeltaOp[] = opsGen1v1ImpliedPara;
+
+      await sutApplyUpdate(editor, ops);
+
+      expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
+      const serializedEditorState = editor.getEditorState().toJSON();
+      cleanupSerializedEditorState(serializedEditorState, null);
+      expect(serializedEditorState).toEqual(editorStateGen1v1ImpliedPara);
     });
   });
 });

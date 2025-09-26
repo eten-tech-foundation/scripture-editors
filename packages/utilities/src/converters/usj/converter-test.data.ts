@@ -1175,6 +1175,19 @@ export const editorStateGen1v1ImpliedPara = {
   },
 } as unknown as SerializedEditorState;
 
+export const opsGen1v1ImpliedPara = [
+  { insert: "\n", attributes: { book: { style: "id", code: "GEN" } } },
+  { insert: { chapter: { style: "c", number: "1", sid: "GEN 1" } } },
+  { insert: { verse: { style: "v", number: "1", sid: "GEN 1:1" } } },
+  { insert: "the first verse " },
+  { insert: { verse: { style: "v", number: "2", sid: "GEN 1:2" } } },
+  { insert: "the second verse " },
+  { insert: { verse: { style: "v", number: "15", sid: "GEN 1:15" } } },
+  { insert: "Tell the Israelites that I, the " },
+  { insert: "Lord", attributes: { char: { style: "nd" } } },
+  { insert: ", the God of their ancestors, the God of Abraham, Isaac, and Jacob,\n" },
+];
+
 /* Comment marks */
 
 export const usjMarks: Usj = {

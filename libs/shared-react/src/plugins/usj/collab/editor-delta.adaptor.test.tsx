@@ -10,6 +10,7 @@ import {
   editorStateMarks,
   editorStateWithUnknownItems,
   opsGen1v1,
+  opsGen1v1ImpliedPara,
   opsGen1v1ImpliedParaEmpty,
 } from "../../../../../../packages/utilities/src/converters/usj/converter-test.data";
 import { $createImmutableNoteCallerNode } from "../../../nodes/usj/ImmutableNoteCallerNode";
@@ -338,6 +339,15 @@ describe("getEditorDelta", () => {
       const delta = getEditorDelta(editorState);
 
       expect(delta.ops).toEqual(opsGen1v1ImpliedParaEmpty);
+    });
+
+    it("should roundtrip the editor state with implied para", async () => {
+      const { editor } = await testEnvironment();
+      const editorState = editor.parseEditorState(editorStateGen1v1ImpliedPara);
+
+      const delta = getEditorDelta(editorState);
+
+      expect(delta.ops).toEqual(opsGen1v1ImpliedPara);
     });
   });
 });
