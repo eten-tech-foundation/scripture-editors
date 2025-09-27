@@ -117,6 +117,8 @@ export default function App() {
   const toolbarEndRef = useRef<HTMLDivElement>(null);
   const [showCommentsContainerRef, setShowCommentsContainerRef] =
     useState<RefObject<HTMLElement | null> | null>(null);
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
 
   const viewOptions = useMemo<ViewOptions | undefined>(() => {
     if (viewMode === UNDEFINED_VIEW_MODE) return undefined;
@@ -374,6 +376,8 @@ export default function App() {
           editorRef={marginalRef}
           scrRef={scrRef}
           onScrRefChange={setScrRef}
+          canUndo={canUndo}
+          canRedo={canRedo}
         />
         <Marginal
           ref={marginalRef}
@@ -383,6 +387,14 @@ export default function App() {
           onSelectionChange={(selection) => console.log({ selection })}
           onCommentChange={(comments) => console.log({ comments })}
           onUsjChange={handleUsjChange}
+          onUndoRedoStateChange={(newCanUndo, newCanRedo) => {
+            setCanUndo(newCanUndo);
+            setCanRedo(newCanRedo);
+            console.log("Editor undo/redo state changed:", {
+              canUndo: newCanUndo,
+              canRedo: newCanRedo,
+            });
+          }}
           options={options}
           logger={console}
           showCommentsContainerRef={showCommentsContainerRef}

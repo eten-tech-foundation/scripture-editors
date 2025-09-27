@@ -13,6 +13,8 @@ interface PlatformToolbarProps {
   editorRef: RefObject<MarginalRef | EditorRef | null>;
   scrRef: SerializedVerseRef;
   onScrRefChange: (scrRef: SerializedVerseRef) => void;
+  canUndo?: boolean;
+  canRedo?: boolean;
 }
 
 const projectMenuData = {
@@ -53,7 +55,7 @@ function Divider(): ReactElement {
 
 export const PlatformToolbar = forwardRef<HTMLDivElement, PlatformToolbarProps>(
   function PlatformToolbar(
-    { editorRef, scrRef, onScrRefChange }: PlatformToolbarProps,
+    { editorRef, scrRef, onScrRefChange, canUndo = false, canRedo = false }: PlatformToolbarProps,
     ref,
   ): ReactElement {
     const handleInsertFootnote = () => {
@@ -98,7 +100,7 @@ export const PlatformToolbar = forwardRef<HTMLDivElement, PlatformToolbarProps>(
               variant="ghost"
               size="icon"
               onClick={() => editorRef.current?.undo()}
-              disabled={!editorRef.current?.state.canUndo || !editorRef.current?.state.isEditable}
+              disabled={!canUndo || !editorRef.current?.state.isEditable}
             >
               <Undo />
             </Button>
@@ -108,7 +110,7 @@ export const PlatformToolbar = forwardRef<HTMLDivElement, PlatformToolbarProps>(
               variant="ghost"
               size="icon"
               onClick={() => editorRef.current?.redo()}
-              disabled={!editorRef.current?.state.canRedo || !editorRef.current?.state.isEditable}
+              disabled={!canRedo || !editorRef.current?.state.isEditable}
             >
               <Redo />
             </Button>

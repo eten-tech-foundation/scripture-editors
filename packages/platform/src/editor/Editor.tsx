@@ -104,11 +104,15 @@ function Placeholder(): ReactElement {
 function UndoRedoStatePlugin({
   setCanUndo,
   setCanRedo,
+  onUndoRedoStateChange,
 }: {
   setCanUndo: (canUndo: boolean) => void;
   setCanRedo: (canRedo: boolean) => void;
+  onUndoRedoStateChange?: (canUndo: boolean, canRedo: boolean) => void;
 }): null {
   const [editor] = useLexicalComposerContext();
+  const undoStateRef = useRef(false);
+  const redoStateRef = useRef(false);
 
   useEffect(() => {
     return mergeRegister(
@@ -116,6 +120,8 @@ function UndoRedoStatePlugin({
         CAN_UNDO_COMMAND,
         (payload) => {
           setCanUndo(payload);
+          undoStateRef.current = payload;
+          onUndoRedoStateChange?.(undoStateRef.current, redoStateRef.current);
           return false;
         },
         COMMAND_PRIORITY_CRITICAL,
@@ -124,12 +130,14 @@ function UndoRedoStatePlugin({
         CAN_REDO_COMMAND,
         (payload) => {
           setCanRedo(payload);
+          redoStateRef.current = payload;
+          onUndoRedoStateChange?.(undoStateRef.current, redoStateRef.current);
           return false;
         },
         COMMAND_PRIORITY_CRITICAL,
       ),
     );
-  }, [editor, setCanUndo, setCanRedo]);
+  }, [editor, setCanUndo, setCanRedo, onUndoRedoStateChange]);
 
   return null;
 }
@@ -156,6 +164,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
     onScrRefChange,
     onSelectionChange,
     onUsjChange,
+    onUndoRedoStateChange,
     options,
     logger,
     children,
@@ -296,7 +305,11 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
             ErrorBoundary={LexicalErrorBoundary}
           />
           <HistoryPlugin />
-          <UndoRedoStatePlugin setCanUndo={setCanUndo} setCanRedo={setCanRedo} />
+          <UndoRedoStatePlugin
+            setCanUndo={setCanUndo}
+            setCanRedo={setCanRedo}
+            onUndoRedoStateChange={onUndoRedoStateChange}
+          />
           {scrRef && onScrRefChange && (
             <ScriptureReferencePlugin scrRef={scrRef} onScrRefChange={onScrRefChange} />
           )}
