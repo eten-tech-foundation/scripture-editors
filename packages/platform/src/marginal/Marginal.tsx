@@ -47,6 +47,8 @@ export interface MarginalProps<TLogger extends LoggerBasic>
     ops?: DeltaOp[],
     source?: DeltaSource,
   ) => void;
+  /** Container ref for the show comments button - overrides internal toolbarEndRef if provided. */
+  showCommentsContainerRef?: RefObject<HTMLElement | null> | null;
 }
 
 /**
@@ -76,9 +78,8 @@ const Marginal = forwardRef(function Marginal<TLogger extends LoggerBasic>(
   const hasCommentsBeenSetRef = useRef(true);
   const commentContainerRef = useRef<HTMLDivElement>(null);
   const [toolbarEndRef, setToolbarEndRef] = useState<RefObject<HTMLElement | null> | null>(null);
-  const { children, onCommentChange, onUsjChange, ...editorProps } = props as PropsWithChildren<
-    MarginalProps<TLogger>
-  >;
+  const { children, onCommentChange, onUsjChange, showCommentsContainerRef, ...editorProps } =
+    props as PropsWithChildren<MarginalProps<TLogger>>;
   const { options: { isReadonly } = {} } = props;
   const [commentStoreRef, setCommentStoreRef] = useCommentStoreRef();
   useMissingCommentsProps(editorProps, commentStoreRef);
@@ -86,6 +87,24 @@ const Marginal = forwardRef(function Marginal<TLogger extends LoggerBasic>(
   useImperativeHandle(ref, () => ({
     focus() {
       editorRef.current?.focus();
+    },
+    undo() {
+      editorRef.current?.undo();
+    },
+    redo() {
+      editorRef.current?.redo();
+    },
+    cut() {
+      editorRef.current?.cut();
+    },
+    copy() {
+      editorRef.current?.copy();
+    },
+    paste() {
+      editorRef.current?.paste();
+    },
+    pastePlainText() {
+      editorRef.current?.pastePlainText();
     },
     getUsj() {
       return editorRef.current?.getUsj();
@@ -110,6 +129,9 @@ const Marginal = forwardRef(function Marginal<TLogger extends LoggerBasic>(
     },
     insertNote(marker, caller, selection) {
       editorRef.current?.insertNote(marker, caller, selection);
+    },
+    formatPara(selectedBlockMarker) {
+      editorRef.current?.formatPara(selectedBlockMarker);
     },
     setComments(comments) {
       commentStoreRef.current?.setComments(comments);
@@ -152,7 +174,7 @@ const Marginal = forwardRef(function Marginal<TLogger extends LoggerBasic>(
       <CommentPlugin
         setCommentStore={setCommentStoreRef}
         onChange={handleCommentChange}
-        showCommentsContainerRef={isReadonly ? null : toolbarEndRef}
+        showCommentsContainerRef={isReadonly ? null : (showCommentsContainerRef ?? toolbarEndRef)}
         commentContainerRef={commentContainerRef}
         logger={editorProps.logger}
       />

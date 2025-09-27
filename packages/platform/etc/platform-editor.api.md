@@ -51,6 +51,7 @@ export const Editorial: ForwardRefExoticComponent<EditorProps<LoggerBasic> & Ref
 // @public
 export interface EditorOptions {
     debug?: boolean;
+    hasExternalUI?: boolean;
     hasSpellCheck?: boolean;
     isReadonly?: boolean;
     markerMenuTrigger?: string;
@@ -65,6 +66,7 @@ export interface EditorProps<TLogger extends LoggerBasic> {
     logger?: TLogger;
     onScrRefChange?: (scrRef: SerializedVerseRef) => void;
     onSelectionChange?: (selection: SelectionRange | undefined) => void;
+    onStateChange?: (canUndo: boolean, canRedo: boolean, blockMarker: string | undefined) => void;
     onUsjChange?: (usj: Usj, ops?: DeltaOp[], source?: DeltaSource) => void;
     options?: EditorOptions;
     scrRef?: SerializedVerseRef;
@@ -74,14 +76,21 @@ export interface EditorProps<TLogger extends LoggerBasic> {
 export interface EditorRef {
     addAnnotation(selection: AnnotationRange, type: string, id: string): void;
     applyUpdate(ops: DeltaOp[], source?: DeltaSource): void;
+    copy(): void;
+    cut(): void;
     focus(): void;
+    formatPara(selectedBlockMarker: string): void;
     getSelection(): SelectionRange | undefined;
     getUsj(): Usj | undefined;
     insertNote(marker: string, caller?: string, selection?: SelectionRange): void;
+    paste(): void;
+    pastePlainText(): void;
+    redo(): void;
     removeAnnotation(type: string, id: string): void;
     setSelection(selection: SelectionRange): void;
     setUsj(usj: Usj): void;
     toolbarEndRef: RefObject<HTMLElement | null> | null;
+    undo(): void;
 }
 
 // @public
@@ -117,6 +126,7 @@ export const Marginal: ForwardRefExoticComponent<MarginalProps<LoggerBasic> & Re
 export interface MarginalProps<TLogger extends LoggerBasic> extends Omit<EditorProps<TLogger>, "onUsjChange"> {
     onCommentChange?: (comments: Comments | undefined) => void;
     onUsjChange?: (usj: Usj, comments: Comments | undefined, ops?: DeltaOp[], source?: DeltaSource) => void;
+    showCommentsContainerRef?: RefObject<HTMLElement | null> | null;
 }
 
 // @public
