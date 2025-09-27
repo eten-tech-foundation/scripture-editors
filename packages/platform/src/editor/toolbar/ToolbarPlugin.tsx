@@ -2,6 +2,8 @@
  * Adapted from @see https://github.com/facebook/lexical/blob/main/packages/lexical-playground/src/plugins/ToolbarPlugin/index.tsx
  */
 
+import { EditorRef } from "../editor.model";
+import { BlockFormatDropDown } from "./BlockFormatDropDown";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { $findMatchingParent, IS_APPLE, mergeRegister } from "@lexical/utils";
 import {
@@ -15,21 +17,34 @@ import {
   SELECTION_CHANGE_COMMAND,
   UNDO_COMMAND,
 } from "lexical";
-import { forwardRef, useCallback, useEffect, useState, ReactElement } from "react";
+import {
+  forwardRef,
+  MutableRefObject,
+  ReactElement,
+  useCallback,
+  useEffect,
+  useState,
+} from "react";
 import { $isBookNode, $isImmutableChapterNode, $isParaNode } from "shared";
-import BlockFormatDropDown from "./BlockFormatDropDown";
+
+interface ToolbarPluginProps {
+  editorRef: MutableRefObject<EditorRef | null>;
+  isReadonly?: boolean;
+}
 
 function Divider(): ReactElement {
   return <div className="divider" />;
 }
 
-const ToolbarPlugin = forwardRef<HTMLDivElement>(function ToolbarPlugin(_props, ref): ReactElement {
+export const ToolbarPlugin = forwardRef<HTMLDivElement, ToolbarPluginProps>(function ToolbarPlugin(
+  { editorRef, isReadonly = false },
+  ref,
+): ReactElement {
   const [editor] = useLexicalComposerContext();
   const [activeEditor, setActiveEditor] = useState(editor);
   const [blockMarker, setBlockMarker] = useState("");
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
-  const [isEditable, setIsEditable] = useState(() => editor.isEditable());
 
   const $updateToolbar = useCallback(() => {
     const selection = $getSelection();
@@ -72,9 +87,6 @@ const ToolbarPlugin = forwardRef<HTMLDivElement>(function ToolbarPlugin(_props, 
 
   useEffect(() => {
     return mergeRegister(
-      editor.registerEditableListener((editable) => {
-        setIsEditable(editable);
-      }),
       activeEditor.registerUpdateListener(({ editorState }) => {
         editorState.read(() => {
           $updateToolbar();
@@ -102,7 +114,7 @@ const ToolbarPlugin = forwardRef<HTMLDivElement>(function ToolbarPlugin(_props, 
   return (
     <div className="toolbar">
       <button
-        disabled={!canUndo || !isEditable}
+        disabled={!canUndo || isReadonly}
         onClick={() => {
           activeEditor.dispatchCommand(UNDO_COMMAND, undefined);
         }}
@@ -114,7 +126,7 @@ const ToolbarPlugin = forwardRef<HTMLDivElement>(function ToolbarPlugin(_props, 
         <i className="format undo" />
       </button>
       <button
-        disabled={!canRedo || !isEditable}
+        disabled={!canRedo || isReadonly}
         onClick={() => {
           activeEditor.dispatchCommand(REDO_COMMAND, undefined);
         }}
@@ -128,7 +140,11 @@ const ToolbarPlugin = forwardRef<HTMLDivElement>(function ToolbarPlugin(_props, 
       <Divider />
       {activeEditor === editor && (
         <>
-          <BlockFormatDropDown disabled={!isEditable} blockMarker={blockMarker} editor={editor} />
+          <BlockFormatDropDown
+            editorRef={editorRef}
+            blockMarker={blockMarker}
+            disabled={isReadonly}
+          />
           <Divider />
         </>
       )}
@@ -136,5 +152,3 @@ const ToolbarPlugin = forwardRef<HTMLDivElement>(function ToolbarPlugin(_props, 
     </div>
   );
 });
-
-export default ToolbarPlugin;

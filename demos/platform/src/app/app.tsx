@@ -101,6 +101,7 @@ export default function App() {
   const marginalRef = useRef<MarginalRef | null>(null);
   const [isOptionsDefined, setIsOptionsDefined] = useState(false);
   const [isReadonly, setIsReadonly] = useState(false);
+  const [hasExternalUI, setHasExternalUI] = useState(true);
   const [hasSpellCheck, setHasSpellCheck] = useState(false);
   const [textDirection, setTextDirection] = useState<TextDirection>("ltr");
   const [viewMode, setViewMode] = useState<string>(getDefaultViewMode);
@@ -117,6 +118,9 @@ export default function App() {
   const toolbarEndRef = useRef<HTMLDivElement>(null);
   const [showCommentsContainerRef, setShowCommentsContainerRef] =
     useState<RefObject<HTMLElement | null> | null>(null);
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+  const [blockMarker, setBlockMarker] = useState<string | undefined>();
 
   const viewOptions = useMemo<ViewOptions | undefined>(() => {
     if (viewMode === UNDEFINED_VIEW_MODE) return undefined;
@@ -140,14 +144,24 @@ export default function App() {
       isOptionsDefined
         ? {
             isReadonly,
+            hasExternalUI,
             hasSpellCheck,
             textDirection,
             view: viewOptions,
             nodes: nodeOptions,
             debug,
           }
-        : { debug },
-    [isOptionsDefined, isReadonly, hasSpellCheck, textDirection, viewOptions, nodeOptions, debug],
+        : { hasExternalUI, debug },
+    [
+      isOptionsDefined,
+      isReadonly,
+      hasExternalUI,
+      hasSpellCheck,
+      textDirection,
+      viewOptions,
+      nodeOptions,
+      debug,
+    ],
   );
 
   const handleUsjChange = useCallback(
@@ -234,10 +248,10 @@ export default function App() {
 
   return (
     <div style={{ display: "flex", flexDirection: "row", alignItems: "stretch", height: "80vh" }}>
-      <div style={{ flex: 1, minWidth: 0, maxWidth: 700, width: 700 }}>
+      <div style={{ flex: 1 }}>
         <div className="controls">
           <span>
-            <div>Cursor Location</div>
+            <div>Cursor location</div>
             <div>
               <button onClick={() => handleCursorClick(-3)}>-3</button>
               <button onClick={() => handleCursorClick(-1)}>-1</button>
@@ -285,7 +299,7 @@ export default function App() {
             </div>
           </div>
           <button onClick={toggleIsOptionsDefined}>
-            {isOptionsDefined ? "Undefine" : "Define"} Options
+            {isOptionsDefined ? "Undefine" : "Define"} options
           </button>
         </div>
         {isOptionsDefined && (
@@ -298,7 +312,16 @@ export default function App() {
                   checked={isReadonly}
                   onChange={(e) => setIsReadonly(e.target.checked)}
                 />
-                <label htmlFor="isReadonlyCheckBox">Is Readonly</label>
+                <label htmlFor="isReadonlyCheckBox">Is readonly</label>
+              </div>
+              <div className="checkbox">
+                <input
+                  type="checkbox"
+                  id="hasExternalUICheckBox"
+                  checked={hasExternalUI}
+                  onChange={(e) => setHasExternalUI(e.target.checked)}
+                />
+                <label htmlFor="hasExternalUICheckBox">Has external UI</label>
               </div>
               <div className="checkbox">
                 <input
@@ -307,7 +330,7 @@ export default function App() {
                   checked={hasSpellCheck}
                   onChange={(e) => setHasSpellCheck(e.target.checked)}
                 />
-                <label htmlFor="hasSpellCheckBox">Has Spell Check</label>
+                <label htmlFor="hasSpellCheckBox">Has spell check</label>
               </div>
               <TextDirectionDropDown
                 textDirection={textDirection}
@@ -319,7 +342,7 @@ export default function App() {
             {viewMode === CUSTOM_VIEW_MODE && (
               <div className="custom-view-options">
                 <div className="control">
-                  <label htmlFor="markerModeSelect">Marker Mode</label>
+                  <label htmlFor="markerModeSelect">Marker mode</label>
                   <select
                     id="markerModeSelect"
                     value={markerMode}
@@ -331,14 +354,14 @@ export default function App() {
                   </select>
                 </div>
                 <div className="control">
-                  <label htmlFor="noteModeSelect">Note Mode</label>
+                  <label htmlFor="noteModeSelect">Note mode</label>
                   <select
                     id="noteModeSelect"
                     value={noteMode}
                     onChange={(e) => setNoteMode(e.target.value as NoteMode)}
                   >
                     <option value="collapsed">Collapsed</option>
-                    <option value="expandInline">Expand Inline</option>
+                    <option value="expandInline">Expand inline</option>
                     <option value="expanded">Expanded</option>
                   </select>
                 </div>
@@ -349,7 +372,7 @@ export default function App() {
                     checked={hasSpacing}
                     onChange={(e) => setHasSpacing(e.target.checked)}
                   />
-                  <label htmlFor="hasSpacingCheckBox">Has Spacing</label>
+                  <label htmlFor="hasSpacingCheckBox">Has spacing</label>
                 </div>
                 <div className="control">
                   <input
@@ -358,7 +381,7 @@ export default function App() {
                     checked={isFormattedFont}
                     onChange={(e) => setIsFormattedFont(e.target.checked)}
                   />
-                  <label htmlFor="isFormattedFontCheckBox">Is Formatted Font</label>
+                  <label htmlFor="isFormattedFontCheckBox">Is formatted font</label>
                 </div>
               </div>
             )}
@@ -369,12 +392,18 @@ export default function App() {
             )}
           </>
         )}
-        <PlatformToolbar
-          ref={toolbarEndRef}
-          editorRef={marginalRef}
-          scrRef={scrRef}
-          onScrRefChange={setScrRef}
-        />
+        {hasExternalUI && (
+          <PlatformToolbar
+            ref={toolbarEndRef}
+            editorRef={marginalRef}
+            scrRef={scrRef}
+            onScrRefChange={setScrRef}
+            isReadonly={isReadonly}
+            canUndo={canUndo}
+            canRedo={canRedo}
+            blockMarker={blockMarker}
+          />
+        )}
         <Marginal
           ref={marginalRef}
           defaultUsj={emptyUsj}
@@ -383,6 +412,11 @@ export default function App() {
           onSelectionChange={(selection) => console.log({ selection })}
           onCommentChange={(comments) => console.log({ comments })}
           onUsjChange={handleUsjChange}
+          onStateChange={(newCanUndo, newCanRedo, newBlockMarker) => {
+            setCanUndo(newCanUndo);
+            setCanRedo(newCanRedo);
+            setBlockMarker(newBlockMarker);
+          }}
           options={options}
           logger={console}
           showCommentsContainerRef={showCommentsContainerRef}

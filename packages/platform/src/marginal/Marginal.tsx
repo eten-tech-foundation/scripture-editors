@@ -88,6 +88,24 @@ const Marginal = forwardRef(function Marginal<TLogger extends LoggerBasic>(
     focus() {
       editorRef.current?.focus();
     },
+    undo() {
+      editorRef.current?.undo();
+    },
+    redo() {
+      editorRef.current?.redo();
+    },
+    cut() {
+      editorRef.current?.cut();
+    },
+    copy() {
+      editorRef.current?.copy();
+    },
+    paste() {
+      editorRef.current?.paste();
+    },
+    pastePlainText() {
+      editorRef.current?.pastePlainText();
+    },
     getUsj() {
       return editorRef.current?.getUsj();
     },
@@ -111,6 +129,9 @@ const Marginal = forwardRef(function Marginal<TLogger extends LoggerBasic>(
     },
     insertNote(marker, caller, selection) {
       editorRef.current?.insertNote(marker, caller, selection);
+    },
+    formatPara(selectedBlockMarker) {
+      editorRef.current?.formatPara(selectedBlockMarker);
     },
     setComments(comments) {
       commentStoreRef.current?.setComments(comments);

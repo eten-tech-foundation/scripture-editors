@@ -1,5 +1,11 @@
 /* Platform Editor Demo image overrides */
 
+/* Tab Toolbar */
+
+div.tw-\@container\/tab-toolbar-end {
+  flex-grow: unset;
+}
+
 /* CommentPlugin.css */
 
 button i.add-comment {
