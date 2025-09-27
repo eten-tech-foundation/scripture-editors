@@ -13,14 +13,27 @@ import { EditorRefPlugin } from "@lexical/react/LexicalEditorRefPlugin";
 import { LexicalErrorBoundary } from "@lexical/react/LexicalErrorBoundary";
 import { HistoryPlugin } from "@lexical/react/LexicalHistoryPlugin";
 import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
+import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
+import { mergeRegister } from "@lexical/utils";
 import { deepEqual } from "fast-equals";
-import { $addUpdateTag, $setSelection, EditorState, LexicalEditor } from "lexical";
+import {
+  $addUpdateTag,
+  $setSelection,
+  CAN_REDO_COMMAND,
+  CAN_UNDO_COMMAND,
+  COMMAND_PRIORITY_CRITICAL,
+  EditorState,
+  LexicalEditor,
+  REDO_COMMAND,
+  UNDO_COMMAND,
+} from "lexical";
 import {
   ForwardedRef,
   forwardRef,
   PropsWithChildren,
   ReactElement,
   useCallback,
+  useEffect,
   useImperativeHandle,
   useRef,
   useState,
@@ -86,6 +99,42 @@ function Placeholder(): ReactElement {
 }
 
 /**
+ * Plugin to track undo/redo state and update parent component state
+ */
+function UndoRedoStatePlugin({
+  setCanUndo,
+  setCanRedo,
+}: {
+  setCanUndo: (canUndo: boolean) => void;
+  setCanRedo: (canRedo: boolean) => void;
+}): null {
+  const [editor] = useLexicalComposerContext();
+
+  useEffect(() => {
+    return mergeRegister(
+      editor.registerCommand<boolean>(
+        CAN_UNDO_COMMAND,
+        (payload) => {
+          setCanUndo(payload);
+          return false;
+        },
+        COMMAND_PRIORITY_CRITICAL,
+      ),
+      editor.registerCommand<boolean>(
+        CAN_REDO_COMMAND,
+        (payload) => {
+          setCanRedo(payload);
+          return false;
+        },
+        COMMAND_PRIORITY_CRITICAL,
+      ),
+    );
+  }, [editor, setCanUndo, setCanRedo]);
+
+  return null;
+}
+
+/**
  * Scripture Editor for USJ. Created for use in [Platform](https://platform.bible).
  * @see https://github.com/usfm-bible/tcdocs/blob/usj/grammar/usj.js
  *
@@ -119,6 +168,8 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
   const editedUsjRef = useRef(defaultUsj);
   const expandedNoteKeyRef = useRef<string | undefined>();
   const [usj, setUsj] = useState(defaultUsj);
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
 
   const {
     isReadonly = false,
@@ -136,6 +187,12 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
   useImperativeHandle(ref, () => ({
     focus() {
       editorRef.current?.focus();
+    },
+    undo() {
+      editorRef.current?.dispatchCommand(UNDO_COMMAND, undefined);
+    },
+    redo() {
+      editorRef.current?.dispatchCommand(REDO_COMMAND, undefined);
     },
     getUsj() {
       return editedUsjRef.current;
@@ -188,6 +245,17 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
         if (noteNode && !noteNode.getIsCollapsed()) expandedNoteKeyRef.current = noteNode.getKey();
       });
     },
+    state: {
+      get isEditable() {
+        return editorRef.current?.isEditable() ?? false;
+      },
+      get canUndo() {
+        return canUndo;
+      },
+      get canRedo() {
+        return canRedo;
+      },
+    },
     get toolbarEndRef() {
       return toolbarEndRef;
     },
@@ -228,6 +296,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
             ErrorBoundary={LexicalErrorBoundary}
           />
           <HistoryPlugin />
+          <UndoRedoStatePlugin setCanUndo={setCanUndo} setCanRedo={setCanRedo} />
           {scrRef && onScrRefChange && (
             <ScriptureReferencePlugin scrRef={scrRef} onScrRefChange={onScrRefChange} />
           )}

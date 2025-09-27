@@ -88,6 +88,12 @@ const Marginal = forwardRef(function Marginal<TLogger extends LoggerBasic>(
     focus() {
       editorRef.current?.focus();
     },
+    undo() {
+      editorRef.current?.undo();
+    },
+    redo() {
+      editorRef.current?.redo();
+    },
     getUsj() {
       return editorRef.current?.getUsj();
     },
@@ -115,6 +121,17 @@ const Marginal = forwardRef(function Marginal<TLogger extends LoggerBasic>(
     setComments(comments) {
       commentStoreRef.current?.setComments(comments);
       hasCommentsBeenSetRef.current = true;
+    },
+    state: {
+      get isEditable() {
+        return editorRef.current?.state.isEditable ?? false;
+      },
+      get canUndo() {
+        return editorRef.current?.state.canUndo ?? false;
+      },
+      get canRedo() {
+        return editorRef.current?.state.canRedo ?? false;
+      },
     },
     get toolbarEndRef() {
       return toolbarEndRef;

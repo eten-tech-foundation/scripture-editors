@@ -1,6 +1,6 @@
 import { EditorRef, MarginalRef } from "@eten-tech-foundation/platform-editor";
 import { SerializedVerseRef } from "@sillsdev/scripture";
-import { ListEnd, Shuffle, Superscript } from "lucide-react";
+import { ListEnd, Redo, Shuffle, Superscript, Undo } from "lucide-react";
 import {
   BookChapterControl,
   Button,
@@ -88,9 +88,31 @@ export const PlatformToolbar = forwardRef<HTMLDivElement, PlatformToolbarProps>(
         projectMenuData={projectMenuData}
         className="toolbar"
         startAreaChildren={
-          <div className="tw-flex tw-h-full tw-items-center">
-            <BookChapterControl scrRef={scrRef} handleSubmit={onScrRefChange} />
-          </div>
+          <>
+            <div className="tw-flex tw-h-full tw-items-center">
+              <BookChapterControl scrRef={scrRef} handleSubmit={onScrRefChange} />
+            </div>
+            <Button
+              aria-label="Undo"
+              title="Undo"
+              variant="ghost"
+              size="icon"
+              onClick={() => editorRef.current?.undo()}
+              disabled={!editorRef.current?.state.canUndo || !editorRef.current?.state.isEditable}
+            >
+              <Undo />
+            </Button>
+            <Button
+              aria-label="Redo"
+              title="Redo"
+              variant="ghost"
+              size="icon"
+              onClick={() => editorRef.current?.redo()}
+              disabled={!editorRef.current?.state.canRedo || !editorRef.current?.state.isEditable}
+            >
+              <Redo />
+            </Button>
+          </>
         }
         endAreaChildren={
           <>

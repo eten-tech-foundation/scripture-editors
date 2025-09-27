@@ -21,6 +21,10 @@ import {
 export interface EditorRef {
   /** Focus the editor. */
   focus(): void;
+  /** Undo the last action. */
+  undo(): void;
+  /** Redo the last undone action. */
+  redo(): void;
   /** Get USJ Scripture data. */
   getUsj(): Usj | undefined;
   /** Set the USJ Scripture data. */
@@ -62,6 +66,14 @@ export interface EditorRef {
    * @throws Will throw an error if the marker is not a valid note marker.
    */
   insertNote(marker: string, caller?: string, selection?: SelectionRange): void;
+  state: {
+    /** Is the editor editable. */
+    isEditable: boolean;
+    /** Can the editor undo. */
+    canUndo: boolean;
+    /** Can the editor redo. */
+    canRedo: boolean;
+  };
   /** Ref to the end of the toolbar - INTERNAL USE ONLY to dynamically add controls in the toolbar. */
   toolbarEndRef: RefObject<HTMLElement | null> | null;
 }
