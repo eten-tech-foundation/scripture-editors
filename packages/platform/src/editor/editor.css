@@ -3,9 +3,8 @@
 /* Lexical */
 
 .editor-container {
-  margin: 0 auto 20px;
+  margin: 0 0 20px;
   border-radius: 2px;
-  max-width: 600px;
   color: #000;
   position: relative;
   line-height: 20px;
@@ -718,6 +717,7 @@ button.toolbar-item.active i {
 
 .toolbar .divider {
   width: 1px;
+  height: 100%;
   background-color: #eee;
   margin: 0 4px;
 }

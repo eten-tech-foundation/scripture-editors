@@ -12,7 +12,8 @@
   "dependencies": {
     "@eten-tech-foundation/platform-editor": "workspace:~",
     "@eten-tech-foundation/scripture-utilities": "workspace:~",
-    "@sillsdev/scripture": "^2.0.2"
+    "@sillsdev/scripture": "^2.0.2",
+    "lucide-react": "^0.475.0"
   },
   "devDependencies": {
     "platform-bible-react": "file:./lib/platform-bible-react",

@@ -259,6 +259,9 @@ importers:
       '@sillsdev/scripture':
         specifier: ^2.0.2
         version: 2.0.2
+      lucide-react:
+        specifier: ^0.475.0
+        version: 0.475.0(react@18.3.1)
     devDependencies:
       platform-bible-react:
         specifier: file:./lib/platform-bible-react

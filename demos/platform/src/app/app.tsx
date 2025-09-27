@@ -1,11 +1,11 @@
 /* eslint-disable no-console */
 import AnnotationTypeSelect from "./AnnotationTypeSelect";
-import ExternalToolbar from "./ExternalToolbar";
 import NodeOptionsDropDown, {
   CUSTOM_NODES_MODE,
   NodesMode,
   UNDEFINED_NODES_MODE,
 } from "./NodeOptionsDropDown";
+import { PlatformToolbar } from "./PlatformToolbar";
 import TextDirectionDropDown from "./TextDirectionDropDown";
 import ViewModeDropDown, { CUSTOM_VIEW_MODE, UNDEFINED_VIEW_MODE } from "./ViewModeDropDown";
 import {
@@ -28,8 +28,7 @@ import {
 } from "@eten-tech-foundation/platform-editor";
 import { Usj, usxStringToUsj } from "@eten-tech-foundation/scripture-utilities";
 import { SerializedVerseRef } from "@sillsdev/scripture";
-import { BookChapterControl } from "platform-bible-react";
-import { MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { MouseEvent, RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { WEB_PSA_CH1_USX, WEB_PSA_USX, WEB_PSA_COMMENTS as comments } from "test-data";
 
 interface Annotations {
@@ -115,6 +114,9 @@ export default function App() {
   const [annotations, setAnnotations] = useState(defaultAnnotations);
   const [annotationType, setAnnotationType] = useState("spelling");
   const [opsInput, setOpsInput] = useState("");
+  const toolbarEndRef = useRef<HTMLDivElement>(null);
+  const [showCommentsContainerRef, setShowCommentsContainerRef] =
+    useState<RefObject<HTMLElement | null> | null>(null);
 
   const viewOptions = useMemo<ViewOptions | undefined>(() => {
     if (viewMode === UNDEFINED_VIEW_MODE) return undefined;
@@ -201,6 +203,12 @@ export default function App() {
     return () => clearTimeout(timeoutId);
   }, []);
 
+  useEffect(() => {
+    // Set the showCommentsContainerRef to the PlatformToolbar's end container ref
+    // so the show comments button appears in the toolbar
+    setShowCommentsContainerRef(toolbarEndRef);
+  }, []);
+
   // Handler to clear the editor
   const handleEmptyEditor = useCallback(() => {
     marginalRef.current?.setUsj({
@@ -228,7 +236,6 @@ export default function App() {
     <div style={{ display: "flex", flexDirection: "row", alignItems: "stretch", height: "80vh" }}>
       <div style={{ flex: 1, minWidth: 0, maxWidth: 700, width: 700 }}>
         <div className="controls">
-          <BookChapterControl scrRef={scrRef} handleSubmit={setScrRef} />
           <span>
             <div>Cursor Location</div>
             <div>
@@ -362,7 +369,12 @@ export default function App() {
             )}
           </>
         )}
-        <ExternalToolbar marginalRef={marginalRef} />
+        <PlatformToolbar
+          ref={toolbarEndRef}
+          editorRef={marginalRef}
+          scrRef={scrRef}
+          onScrRefChange={setScrRef}
+        />
         <Marginal
           ref={marginalRef}
           defaultUsj={emptyUsj}
@@ -373,6 +385,7 @@ export default function App() {
           onUsjChange={handleUsjChange}
           options={options}
           logger={console}
+          showCommentsContainerRef={showCommentsContainerRef}
         />
       </div>
       {debug && (

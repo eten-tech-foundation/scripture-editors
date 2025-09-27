@@ -47,6 +47,8 @@ export interface MarginalProps<TLogger extends LoggerBasic>
     ops?: DeltaOp[],
     source?: DeltaSource,
   ) => void;
+  /** Container ref for the show comments button - overrides internal toolbarEndRef if provided. */
+  showCommentsContainerRef?: RefObject<HTMLElement | null> | null;
 }
 
 /**
@@ -76,9 +78,8 @@ const Marginal = forwardRef(function Marginal<TLogger extends LoggerBasic>(
   const hasCommentsBeenSetRef = useRef(true);
   const commentContainerRef = useRef<HTMLDivElement>(null);
   const [toolbarEndRef, setToolbarEndRef] = useState<RefObject<HTMLElement | null> | null>(null);
-  const { children, onCommentChange, onUsjChange, ...editorProps } = props as PropsWithChildren<
-    MarginalProps<TLogger>
-  >;
+  const { children, onCommentChange, onUsjChange, showCommentsContainerRef, ...editorProps } =
+    props as PropsWithChildren<MarginalProps<TLogger>>;
   const { options: { isReadonly } = {} } = props;
   const [commentStoreRef, setCommentStoreRef] = useCommentStoreRef();
   useMissingCommentsProps(editorProps, commentStoreRef);
@@ -152,7 +153,7 @@ const Marginal = forwardRef(function Marginal<TLogger extends LoggerBasic>(
       <CommentPlugin
         setCommentStore={setCommentStoreRef}
         onChange={handleCommentChange}
-        showCommentsContainerRef={isReadonly ? null : toolbarEndRef}
+        showCommentsContainerRef={isReadonly ? null : (showCommentsContainerRef ?? toolbarEndRef)}
         commentContainerRef={commentContainerRef}
         logger={editorProps.logger}
       />
