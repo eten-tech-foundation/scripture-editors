@@ -26,6 +26,7 @@ import {
   Marker,
   MarkerAction,
   NBSP,
+  NoteNode,
   ParaNode,
   ScriptureReference,
 } from "shared";
@@ -52,8 +53,10 @@ interface UsjMarkerAction {
 
 // Keep this function updated with logic from
 // `libs/shared-react/src/nodes/usj/node-react.utils.ts` > `$createNoteChildren`
-const footnoteMarkerAction: UsjMarkerAction = {
+const getFootnoteMarkerAction: (footnoteMarker: string) => UsjMarkerAction = (footnoteMarker) => ({
   action: (currentEditor) => {
+    if (!NoteNode.isValidMarker(footnoteMarker) || !footnoteMarker.includes("f")) return [];
+
     const { chapterNum, verseNum } = currentEditor.reference;
     const noteChildren: MarkerObject[] = [];
     if (chapterNum !== undefined && verseNum !== undefined)
@@ -71,18 +74,23 @@ const footnoteMarkerAction: UsjMarkerAction = {
     noteChildren.push({ type: "char", marker: "ft", content: ["-"] });
     const content: MarkerContent = {
       type: "note",
-      marker: "f",
+      marker: footnoteMarker,
       caller: GENERATOR_NOTE_CALLER,
       content: noteChildren,
     };
     return [content];
   },
-};
+});
 
 // Keep this function updated with logic from
 // `libs/shared-react/src/nodes/usj/node-react.utils.ts` > `$createNoteChildren`
-const crossReferenceMarkerAction: UsjMarkerAction = {
+const getCrossReferenceMarkerAction: (crossReferenceMarker: string) => UsjMarkerAction = (
+  crossReferenceMarker,
+) => ({
   action: (currentEditor) => {
+    if (!NoteNode.isValidMarker(crossReferenceMarker) || !crossReferenceMarker.includes("x"))
+      return [];
+
     const { chapterNum, verseNum } = currentEditor.reference;
     const noteChildren: MarkerObject[] = [];
     if (chapterNum !== undefined && verseNum !== undefined)
@@ -94,13 +102,13 @@ const crossReferenceMarkerAction: UsjMarkerAction = {
     noteChildren.push({ type: "char", marker: "xt", content: ["-"] });
     const content: MarkerContent = {
       type: "note",
-      marker: "x",
+      marker: crossReferenceMarker,
       caller: HIDDEN_NOTE_CALLER,
       content: noteChildren,
     };
     return [content];
   },
-};
+});
 
 const markerActions: { [marker: string]: UsjMarkerAction } = {
   c: {
@@ -127,11 +135,11 @@ const markerActions: { [marker: string]: UsjMarkerAction } = {
       return [content];
     },
   },
-  f: footnoteMarkerAction,
-  fe: footnoteMarkerAction,
-  ef: footnoteMarkerAction,
-  x: crossReferenceMarkerAction,
-  xe: crossReferenceMarkerAction,
+  f: getFootnoteMarkerAction("f"),
+  fe: getFootnoteMarkerAction("fe"),
+  ef: getFootnoteMarkerAction("ef"),
+  x: getCrossReferenceMarkerAction("x"),
+  xe: getCrossReferenceMarkerAction("xe"),
 };
 
 /** A function that returns a marker action for a given USJ marker */
