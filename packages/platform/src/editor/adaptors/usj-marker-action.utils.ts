@@ -53,62 +53,67 @@ interface UsjMarkerAction {
 
 // Keep this function updated with logic from
 // `libs/shared-react/src/nodes/usj/node-react.utils.ts` > `$createNoteChildren`
-const getFootnoteMarkerAction: (footnoteMarker: string) => UsjMarkerAction = (footnoteMarker) => ({
-  action: (currentEditor) => {
-    if (!NoteNode.isValidMarker(footnoteMarker) || !footnoteMarker.includes("f")) return [];
+const getFootnoteMarkerAction: (footnoteMarker: string) => UsjMarkerAction = (footnoteMarker) => {
+  if (!NoteNode.isValidMarker(footnoteMarker) || !footnoteMarker.includes("f"))
+    throw new Error(`Invalid footnote marker '${footnoteMarker}'`);
 
-    const { chapterNum, verseNum } = currentEditor.reference;
-    const noteChildren: MarkerObject[] = [];
-    if (chapterNum !== undefined && verseNum !== undefined)
-      noteChildren.push({
-        type: "char",
-        marker: "fr",
-        content: [`${chapterNum}:${verseNum}`],
-      });
-    if (currentEditor.noteText)
-      noteChildren.push({
-        type: "char",
-        marker: "fq",
-        content: [currentEditor.noteText],
-      });
-    noteChildren.push({ type: "char", marker: "ft", content: ["-"] });
-    const content: MarkerContent = {
-      type: "note",
-      marker: footnoteMarker,
-      caller: GENERATOR_NOTE_CALLER,
-      content: noteChildren,
-    };
-    return [content];
-  },
-});
+  return {
+    action: (currentEditor) => {
+      const { chapterNum, verseNum } = currentEditor.reference;
+      const noteChildren: MarkerObject[] = [];
+      if (chapterNum !== undefined && verseNum !== undefined)
+        noteChildren.push({
+          type: "char",
+          marker: "fr",
+          content: [`${chapterNum}:${verseNum}`],
+        });
+      if (currentEditor.noteText)
+        noteChildren.push({
+          type: "char",
+          marker: "fq",
+          content: [currentEditor.noteText],
+        });
+      noteChildren.push({ type: "char", marker: "ft", content: ["-"] });
+      const content: MarkerContent = {
+        type: "note",
+        marker: footnoteMarker,
+        caller: GENERATOR_NOTE_CALLER,
+        content: noteChildren,
+      };
+      return [content];
+    },
+  };
+};
 
 // Keep this function updated with logic from
 // `libs/shared-react/src/nodes/usj/node-react.utils.ts` > `$createNoteChildren`
 const getCrossReferenceMarkerAction: (crossReferenceMarker: string) => UsjMarkerAction = (
   crossReferenceMarker,
-) => ({
-  action: (currentEditor) => {
-    if (!NoteNode.isValidMarker(crossReferenceMarker) || !crossReferenceMarker.includes("x"))
-      return [];
+) => {
+  if (!NoteNode.isValidMarker(crossReferenceMarker) || !crossReferenceMarker.includes("x"))
+    throw new Error(`Invalid cross-reference marker '${crossReferenceMarker}'`);
 
-    const { chapterNum, verseNum } = currentEditor.reference;
-    const noteChildren: MarkerObject[] = [];
-    if (chapterNum !== undefined && verseNum !== undefined)
-      noteChildren.push({
-        type: "char",
-        marker: "xo",
-        content: [`${chapterNum}:${verseNum}`],
-      });
-    noteChildren.push({ type: "char", marker: "xt", content: ["-"] });
-    const content: MarkerContent = {
-      type: "note",
-      marker: crossReferenceMarker,
-      caller: HIDDEN_NOTE_CALLER,
-      content: noteChildren,
-    };
-    return [content];
-  },
-});
+  return {
+    action: (currentEditor) => {
+      const { chapterNum, verseNum } = currentEditor.reference;
+      const noteChildren: MarkerObject[] = [];
+      if (chapterNum !== undefined && verseNum !== undefined)
+        noteChildren.push({
+          type: "char",
+          marker: "xo",
+          content: [`${chapterNum}:${verseNum}`],
+        });
+      noteChildren.push({ type: "char", marker: "xt", content: ["-"] });
+      const content: MarkerContent = {
+        type: "note",
+        marker: crossReferenceMarker,
+        caller: HIDDEN_NOTE_CALLER,
+        content: noteChildren,
+      };
+      return [content];
+    },
+  };
+};
 
 const markerActions: { [marker: string]: UsjMarkerAction } = {
   c: {
@@ -139,7 +144,7 @@ const markerActions: { [marker: string]: UsjMarkerAction } = {
   fe: getFootnoteMarkerAction("fe"),
   ef: getFootnoteMarkerAction("ef"),
   x: getCrossReferenceMarkerAction("x"),
-  xe: getCrossReferenceMarkerAction("xe"),
+  ex: getCrossReferenceMarkerAction("ex"),
 };
 
 /** A function that returns a marker action for a given USJ marker */
