@@ -13,6 +13,7 @@ import {
   $createParaNode,
   $isCharNode,
   $isImmutableChapterNode,
+  $isNoteNode,
   $isParaNode,
 } from "shared";
 
@@ -229,6 +230,108 @@ describe("USJ Marker Action Utils", () => {
         if (!$isTextNode(charTextNode))
           throw new Error("Inserted char node does not have a text node");
         $expectSelectionToBe(charTextNode);
+      });
+    });
+  });
+
+  describe("should insert a note", () => {
+    it("of type footnote", () => {
+      const { editor } = createBasicTestEnvironment(nodes, $defaultInitialEditorState);
+      const markerAction = getUsjMarkerAction("f", expandedNoteKeyRef, undefined, undefined, {
+        discrete: true,
+      });
+      updateSelection(editor, secondVerseTextNode, 6);
+
+      markerAction.action({ editor, reference });
+
+      editor.getEditorState().read(() => {
+        expect(secondVerseTextNode.getTextContent()).toBe("second");
+        const insertedNode = secondVerseTextNode.getNextSibling();
+        if (!$isNoteNode(insertedNode)) throw new Error("Inserted node is not a note");
+        expect(insertedNode.getMarker()).toBe("f");
+        const tailTextNode = insertedNode.getNextSibling();
+        if (!$isTextNode(tailTextNode)) throw new Error("Tail node is not text");
+        expect(tailTextNode.getTextContent()).toBe(" verse text ");
+      });
+    });
+
+    it("of type endnote", () => {
+      const { editor } = createBasicTestEnvironment(nodes, $defaultInitialEditorState);
+      const markerAction = getUsjMarkerAction("fe", expandedNoteKeyRef, undefined, undefined, {
+        discrete: true,
+      });
+      updateSelection(editor, secondVerseTextNode, 6);
+
+      markerAction.action({ editor, reference });
+
+      editor.getEditorState().read(() => {
+        expect(secondVerseTextNode.getTextContent()).toBe("second");
+        const insertedNode = secondVerseTextNode.getNextSibling();
+        if (!$isNoteNode(insertedNode)) throw new Error("Inserted node is not a note");
+        expect(insertedNode.getMarker()).toBe("fe");
+        const tailTextNode = insertedNode.getNextSibling();
+        if (!$isTextNode(tailTextNode)) throw new Error("Tail node is not text");
+        expect(tailTextNode.getTextContent()).toBe(" verse text ");
+      });
+    });
+
+    it("of type extended note", () => {
+      const { editor } = createBasicTestEnvironment(nodes, $defaultInitialEditorState);
+      const markerAction = getUsjMarkerAction("ef", expandedNoteKeyRef, undefined, undefined, {
+        discrete: true,
+      });
+      updateSelection(editor, secondVerseTextNode, 6);
+
+      markerAction.action({ editor, reference });
+
+      editor.getEditorState().read(() => {
+        expect(secondVerseTextNode.getTextContent()).toBe("second");
+        const insertedNode = secondVerseTextNode.getNextSibling();
+        if (!$isNoteNode(insertedNode)) throw new Error("Inserted node is not a note");
+        expect(insertedNode.getMarker()).toBe("ef");
+        const tailTextNode = insertedNode.getNextSibling();
+        if (!$isTextNode(tailTextNode)) throw new Error("Tail node is not text");
+        expect(tailTextNode.getTextContent()).toBe(" verse text ");
+      });
+    });
+
+    it("of type cross reference", () => {
+      const { editor } = createBasicTestEnvironment(nodes, $defaultInitialEditorState);
+      const markerAction = getUsjMarkerAction("x", expandedNoteKeyRef, undefined, undefined, {
+        discrete: true,
+      });
+      updateSelection(editor, secondVerseTextNode, 6);
+
+      markerAction.action({ editor, reference });
+
+      editor.getEditorState().read(() => {
+        expect(secondVerseTextNode.getTextContent()).toBe("second");
+        const insertedNode = secondVerseTextNode.getNextSibling();
+        if (!$isNoteNode(insertedNode)) throw new Error("Inserted node is not a note");
+        expect(insertedNode.getMarker()).toBe("x");
+        const tailTextNode = insertedNode.getNextSibling();
+        if (!$isTextNode(tailTextNode)) throw new Error("Tail node is not text");
+        expect(tailTextNode.getTextContent()).toBe(" verse text ");
+      });
+    });
+
+    it("of type extended cross reference", () => {
+      const { editor } = createBasicTestEnvironment(nodes, $defaultInitialEditorState);
+      const markerAction = getUsjMarkerAction("ex", expandedNoteKeyRef, undefined, undefined, {
+        discrete: true,
+      });
+      updateSelection(editor, secondVerseTextNode, 6);
+
+      markerAction.action({ editor, reference });
+
+      editor.getEditorState().read(() => {
+        expect(secondVerseTextNode.getTextContent()).toBe("second");
+        const insertedNode = secondVerseTextNode.getNextSibling();
+        if (!$isNoteNode(insertedNode)) throw new Error("Inserted node is not a note");
+        expect(insertedNode.getMarker()).toBe("ex");
+        const tailTextNode = insertedNode.getNextSibling();
+        if (!$isTextNode(tailTextNode)) throw new Error("Tail node is not text");
+        expect(tailTextNode.getTextContent()).toBe(" verse text ");
       });
     });
   });
