@@ -1,6 +1,6 @@
 {
   "name": "@scriptural/react",
-  "version": "0.0.18",
+  "version": "0.0.22",
   "description": "A React-based Bible editor component library built on top of Lexical, providing components, hooks, and utilities for creating scripture editing applications",
   "main": "./index.js",
   "module": "./index.js",
