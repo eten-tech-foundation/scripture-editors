@@ -81,11 +81,48 @@ Props:
 #### Toolbar Buttons
 
 - `HistoryButtons`: Undo/Redo buttons
-- `SaveButton`: Save functionality
+- `SaveButton`: Save functionality with automatic change detection
 - `ViewButton`: Toggle verse blocks view
 - `FormatButton`: Toggle format markers
 - `EnhancedCursorToggleButton`: Toggle enhanced cursor positioning
 - `ContextMenuTriggerButton`: Configure context menu trigger key
+
+#### SaveButton
+
+The `SaveButton` provides built-in change detection and visual feedback for unsaved changes.
+
+```tsx
+import { SaveButton } from "@scriptural/react";
+
+<SaveButton onSave={(usj) => handleSave(usj)} showUnsavedIndicator={true} title="Save">
+  <SaveIcon />
+</SaveButton>;
+```
+
+**Props:**
+
+- `onSave?: (usj: UsjDocument | UsjNode | string) => void` - Callback when save is triggered
+- `showUnsavedIndicator?: boolean` - Show visual indicator for unsaved changes (default: true)
+- Extends all standard button HTML attributes
+
+**Features:**
+
+- **Automatic Change Detection**: Tracks changes at the USJ level (deterministic) rather than Lexical state (non-deterministic)
+- **Visual Indicator**: Shows a red dot when there are unsaved changes
+- **Smart Tracking**: Only detects actual content changes, not internal editor state changes
+- **Integrated with History**: Works seamlessly with `HistoryPlugin` for undo/redo support
+
+**How It Works:**
+
+The library uses `SaveStateContext` internally to track the last saved USJ and compare it with the current editor state. This solves the [checksum inconsistency problem](https://github.com/pankosmia/core-client-workspace/issues/114) where Lexical's internal state is non-deterministic.
+
+```typescript
+// The SaveButton automatically:
+// 1. Converts current editor state to USJ
+// 2. Compares with last saved USJ
+// 3. Shows indicator if different
+// 4. Marks as saved after successful onSave callback
+```
 
 ### Plugins
 

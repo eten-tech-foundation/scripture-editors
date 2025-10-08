@@ -498,6 +498,23 @@ p[data-marker="q2"] {
   background: #eee;
 }
 
+/* Unsaved changes indicator for save button */
+.toolbar button.has-unsaved-changes {
+  position: relative;
+}
+
+.toolbar button.has-unsaved-changes::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: #ff6b6b;
+  box-shadow: 0 0 3px rgba(255, 107, 107, 0.6);
+}
+
 .toolbar button i {
   text-decoration: none;
   font-style: normal;

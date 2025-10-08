@@ -1,4 +1,4 @@
-import { useMemo, useEffect } from "react";
+import { useMemo, useEffect, useState, useCallback, useRef } from "react";
 
 import {
   ScripturalEditorComposer,
@@ -21,6 +21,8 @@ import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext
 import { UsjDocument } from "@scriptural/react/internal-packages/shared/converters/usj/core/usj";
 import { EditorState, LexicalEditor } from "lexical";
 import { AppReferenceHandler } from "./utils/AppReferenceHandler";
+import { HistoryMergeListener } from "shared/plugins/History";
+import { useUnsavedChanges, useBeforeUnload } from "./hooks";
 
 function onError(error: any) {
   console.error(error);
@@ -104,10 +106,37 @@ function EditorPlugins({
   const [editor] = useLexicalComposerContext();
   const editable = useMemo(() => editor.isEditable(), [editor]);
 
+  const {
+    hasUnsavedChanges,
+    handleSave,
+    trackHistoryChanges,
+    reset: resetUnsavedChanges,
+    checkForChanges,
+  } = useUnsavedChanges(editor, onSave, onHistoryChange);
+
+  // Add beforeunload handler to warn about unsaved changes
+  useBeforeUnload(hasUnsavedChanges);
+
+  // Check for changes when the editor mode changes
+  useEffect(() => {
+    // Brief delay to ensure editor state is stable
+    const timer = setTimeout(() => {
+      checkForChanges();
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [editable, checkForChanges]);
+
+  // Reset tracking when editor changes
+  useEffect(() => {
+    if (editor) {
+      resetUnsavedChanges();
+    }
+  }, [editor, resetUnsavedChanges]);
+
   return (
     <>
       <MarkersMenuProvider>
-        <CustomToolbar onSave={onSave} />
+        <CustomToolbar onSave={handleSave} hasUnsavedChanges={hasUnsavedChanges} />
         {editable && (
           <>
             {enhancedCursorPosition && (
@@ -118,7 +147,7 @@ function EditorPlugins({
             )}
 
             <ScripturalNodesMenuPlugin trigger={contextMenuTriggerKey} />
-            <HistoryPlugin onChange={onHistoryChange} />
+            <HistoryPlugin onChange={trackHistoryChanges} />
           </>
         )}
 

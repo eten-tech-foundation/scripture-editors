@@ -29,6 +29,7 @@ import { ButtonExpandNotes } from "./plugins/ButtonExpandNotes";
 import { FindReplaceDialog } from "./components/FindReplaceDialog";
 import CustomMarkersToolbar from "./plugins/CustomMarkersToolbar";
 import { TriggerKeyDialog } from "./components/TriggerKeyDialog";
+import { CustomSaveButton } from "./components/CustomSaveButton";
 
 // Search button component accessing FindReplace context
 function SearchButton() {
@@ -67,7 +68,13 @@ function TriggerKeyButton({
   );
 }
 
-export function CustomToolbar({ onSave }: { onSave: any }) {
+export function CustomToolbar({
+  onSave,
+  hasUnsavedChanges,
+}: {
+  onSave: any;
+  hasUnsavedChanges?: boolean;
+}) {
   const [editor] = useLexicalComposerContext();
   const editable = useMemo(() => editor.isEditable(), [editor]);
   const [triggerKeyCombo, setTriggerKeyCombo] = useState("\\");
@@ -112,9 +119,13 @@ export function CustomToolbar({ onSave }: { onSave: any }) {
                   <MdOutlineRedo size={20} />
                 </RedoButton>
                 <hr />
-                <SaveButton onSave={onSave} title="save">
+                <CustomSaveButton
+                  onSave={onSave}
+                  title="save"
+                  hasUnsavedChanges={hasUnsavedChanges}
+                >
                   <MdSave size={20} />
-                </SaveButton>
+                </CustomSaveButton>
                 <hr />
                 <ViewButton title="toggle block view">
                   <MdViewAgenda size={16} />

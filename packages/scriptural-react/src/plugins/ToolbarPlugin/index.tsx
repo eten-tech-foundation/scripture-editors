@@ -11,6 +11,7 @@ import {
   getScripturalMarkerAction,
 } from "../../utils";
 import { serializedLexicalToUsjNode } from "shared/converters/usj";
+import { useSaveStateOptional } from "../../context/SaveStateContext";
 
 export function ToolbarContainer({
   children,
@@ -121,26 +122,46 @@ export function RedoButton({
 export function SaveButton({
   children,
   onSave,
+  showUnsavedIndicator = true,
   ...props
 }: {
   children: ReactNode;
   onSave?: ScripturalBaseSettings["onSave"];
+  showUnsavedIndicator?: boolean;
 } & React.ButtonHTMLAttributes<HTMLButtonElement>) {
   const [editor] = useLexicalComposerContext();
+  const saveState = useSaveStateOptional();
+
   const getCurrentUsj = useCallback(() => {
     const serializedEditorState = editor.getEditorState().toJSON();
     const { result: usj } = serializedLexicalToUsjNode(serializedEditorState.root);
     return usj;
   }, [editor]);
 
-  const handleSave = useCallback(() => {
+  const handleSave = useCallback(async () => {
     const usj = getCurrentUsj();
     if (!usj) return;
-    onSave?.(usj);
-  }, [onSave, getCurrentUsj]);
+
+    try {
+      // Call the onSave callback
+      await onSave?.(usj);
+
+      // Mark as saved in the save state context
+      saveState?.markAsSaved(usj);
+    } catch (error) {
+      console.error("Error in SaveButton:", error);
+      throw error; // Re-throw so consumer can handle it
+    }
+  }, [onSave, getCurrentUsj, saveState]);
+
+  const hasUnsavedChanges = saveState?.hasUnsavedChanges ?? false;
 
   return (
-    <ToolbarButton onClick={handleSave} {...props}>
+    <ToolbarButton
+      onClick={handleSave}
+      className={hasUnsavedChanges && showUnsavedIndicator ? "has-unsaved-changes" : ""}
+      {...props}
+    >
       {children}
     </ToolbarButton>
   );

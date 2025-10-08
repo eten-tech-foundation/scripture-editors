@@ -36,6 +36,8 @@ function App() {
     [],
   );
 
+  console.log({ usj });
+
   return (
     <div className="flex flex-col max-h-screen">
       <AppBar referenceHandler={referenceHandler} />

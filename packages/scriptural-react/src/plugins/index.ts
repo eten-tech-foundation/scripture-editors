@@ -41,3 +41,6 @@ export {
 } from "./ToolbarPlugin";
 
 export { MarkersToolbar, MarkersToolbarWithProvider } from "./ToolbarPlugin/MarkersToolbar";
+
+// Export save state tracking
+export { useSaveStateTracking } from "./SaveStatePlugin";

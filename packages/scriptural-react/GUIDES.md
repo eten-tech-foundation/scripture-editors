@@ -9,6 +9,10 @@ This document contains tutorials and best practices for using the `@scriptural/r
   - [Creating Settings Plugins](#creating-settings-plugins)
     - [Font Size Plugin Example](#font-size-plugin-example)
     - [Best Practices for Settings Plugins](#best-practices-for-settings-plugins)
+  - [Tracking Unsaved Changes](#tracking-unsaved-changes)
+    - [Basic Usage](#basic-usage)
+    - [Advanced: Custom Change Tracking](#advanced-custom-change-tracking)
+    - [Understanding the Problem](#understanding-the-problem)
 
 ## Creating Settings Plugins
 
@@ -264,3 +268,153 @@ function Editor() {
      // Apply settings changes
    }, [settingValue]);
    ```
+
+## Tracking Unsaved Changes
+
+The library provides built-in support for tracking unsaved changes using deterministic USJ comparison rather than non-deterministic Lexical state comparison.
+
+### Basic Usage
+
+The `SaveButton` component automatically tracks unsaved changes:
+
+```tsx
+import {
+  ScripturalEditorComposer,
+  SaveButton,
+  HistoryPlugin,
+  ToolbarContainer,
+  ToolbarSection,
+} from "@scriptural/react";
+
+function MyEditor() {
+  const handleSave = (usj) => {
+    // Save your USJ document
+    console.log("Saving:", usj);
+    // e.g., send to API, save to localStorage, etc.
+  };
+
+  return (
+    <ScripturalEditorComposer initialConfig={initialConfig}>
+      <ToolbarContainer>
+        <ToolbarSection>
+          <SaveButton onSave={handleSave}>
+            <SaveIcon />
+          </SaveButton>
+        </ToolbarSection>
+      </ToolbarContainer>
+
+      {/* Add HistoryPlugin for undo/redo and change tracking */}
+      <HistoryPlugin />
+
+      {/* Your other content */}
+    </ScripturalEditorComposer>
+  );
+}
+```
+
+**What you get automatically:**
+
+- ✅ Visual indicator (red dot) when there are unsaved changes
+- ✅ Automatic comparison at USJ level (deterministic)
+- ✅ Works with undo/redo operations
+- ✅ Only tracks actual content changes, not cursor movements
+
+### Advanced: Custom Change Tracking
+
+If you need custom logic when changes occur, use the `useSaveStateTracking` hook with `HistoryPlugin`:
+
+```tsx
+import {
+  ScripturalEditorComposer,
+  SaveButton,
+  HistoryPlugin,
+  useSaveStateTracking,
+  useSaveState,
+} from "@scriptural/react";
+
+function EditorWithCustomTracking() {
+  // Custom handler that runs on every change
+  const handleHistoryChange = useSaveStateTracking((args) => {
+    const { editorChanged, tags } = args;
+
+    if (editorChanged) {
+      console.log("Editor content changed!");
+      // Your custom logic here
+    }
+  });
+
+  return (
+    <ScripturalEditorComposer initialConfig={initialConfig}>
+      <EditorContent />
+
+      {/* Pass the enhanced onChange to HistoryPlugin */}
+      <HistoryPlugin onChange={handleHistoryChange} />
+    </ScripturalEditorComposer>
+  );
+}
+
+function EditorContent() {
+  // Access save state anywhere in your editor
+  const { hasUnsavedChanges, checkForChanges, markAsSaved } = useSaveState();
+
+  useEffect(() => {
+    if (hasUnsavedChanges) {
+      console.log("Warning: You have unsaved changes");
+      // Show a warning, update UI, etc.
+    }
+  }, [hasUnsavedChanges]);
+
+  const handleManualSave = () => {
+    // Your save logic
+    markAsSaved(); // Manually mark as saved
+  };
+
+  return (
+    <div>
+      {hasUnsavedChanges && <div className="warning">Unsaved changes!</div>}
+      <button onClick={handleManualSave}>Save</button>
+    </div>
+  );
+}
+```
+
+### Understanding the Problem
+
+**Why USJ comparison instead of Lexical state?**
+
+Lexical's internal editor state is **non-deterministic**. The same logical content can produce different JSON representations due to:
+
+1. **Internal "dirty nodes" tracking** - Lexical maintains metadata about which nodes have been modified
+2. **Selection state** - Cursor position affects the state structure
+3. **Undo/redo stack** - History operations don't perfectly restore the exact same internal structure
+
+This causes issues like those described in [this GitHub issue](https://github.com/pankosmia/core-client-workspace/issues/114) where:
+
+- Adding and then removing a character doesn't return to the original checksum
+- Clicking in the editor changes the state even without content changes
+- Comparing raw Lexical JSON produces false positives for "changes"
+
+**Our Solution:**
+
+We compare at the **USJ (Unified Scripture JSON) level** instead:
+
+```typescript
+// ❌ Don't do this (non-deterministic):
+const lexicalState1 = editor.getEditorState().toJSON();
+const lexicalState2 = editor.getEditorState().toJSON();
+// These might be different even with same content!
+
+// ✅ Do this instead (deterministic):
+const usj1 = serializedLexicalToUsjNode(lexicalState1.root);
+const usj2 = serializedLexicalToUsjNode(lexicalState2.root);
+// These will only differ if actual content changed
+```
+
+**Benefits:**
+
+- ✅ **Deterministic** - Same content always produces same USJ
+- ✅ **Content-focused** - Only tracks actual content changes
+- ✅ **Canonical** - USJ is your output format anyway
+- ✅ **Reliable** - No false positives from internal editor metadata
+
+This approach is automatically handled by the library when you use `SaveButton` or `useSaveState` hooks.

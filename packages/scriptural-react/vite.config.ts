@@ -79,6 +79,7 @@ export default defineConfig({
             "GUIDES.md",
             "CONTRIBUTING.md",
             "CODE_OF_CONDUCT.md",
+            "CHANGELOG.md",
           ],
           dest: ".",
         },

@@ -13,6 +13,7 @@ import {
   ScriptureReferenceHandler,
 } from "./context/ScripturalEditorContext";
 import { useScripturalComposerContext } from "./context/ScripturalEditorContext";
+import { SaveStateProvider } from "./context/SaveStateContext";
 
 type ScripturalComposerProps = {
   initialConfig: ScripturalInitialConfigType;
@@ -37,21 +38,23 @@ function ScripturalComposerContent({ children }: { children: React.ReactNode }) 
   return (
     initialLexicalState && (
       <LexicalComposer initialConfig={initialConfig}>
-        {children}
-        <ScriptureReferencePlugin
-          onChangeReference={(reference) => {
-            setScriptureReference(reference, "editor_content");
-          }}
-          book={scripturalInitialConfig.bookCode}
-          verseDepth={2}
-          chapterDepth={1}
-        />
-        <MarkerWatcherPlugin />
-        <ChapterVerseUpdatePlugin />
-        <div className={"scriptural-editor"}>
-          <ContentEditablePlugin ref={editorRef} />
-          <ScripturalHandlersPlugin />
-        </div>
+        <SaveStateProvider>
+          {children}
+          <ScriptureReferencePlugin
+            onChangeReference={(reference) => {
+              setScriptureReference(reference, "editor_content");
+            }}
+            book={scripturalInitialConfig.bookCode}
+            verseDepth={2}
+            chapterDepth={1}
+          />
+          <MarkerWatcherPlugin />
+          <ChapterVerseUpdatePlugin />
+          <div className={"scriptural-editor"}>
+            <ContentEditablePlugin ref={editorRef} />
+            <ScripturalHandlersPlugin />
+          </div>
+        </SaveStateProvider>
       </LexicalComposer>
     )
   );
