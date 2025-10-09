@@ -17,10 +17,9 @@
 }
 @font-face {
   font-family: "Charis SIL";
-  src:
-    local("Charis SIL"), local("Charis SIL Bold"), local("Charis SIL Bold Italic"),
-    local("Charis SIL Italic"), url("file:///C:/Windows/Fonts/CharisSIL-B.ttf");
+  src: local("Charis SIL"), local("CharisSIL-Regular");
   font-weight: normal;
+  font-display: swap;
 }
 @font-face {
   font-family: "Charis SIL";
@@ -39,8 +38,15 @@
   font-style: italic;
 }
 .formatted-font .usfm {
-  font-family: "Charis SIL", serif;
+  font-family: "Charis SIL", "Times New Roman", "Liberation Serif", "DejaVu Serif", Georgia, serif;
   font-size: 12pt;
+}
+
+/* Apply CharisSIL to all USFM elements and paragraphs in formatted-font containers */
+.formatted-font [class*="usfm_"],
+.formatted-font .para,
+.formatted-font p {
+  font-family: "Charis SIL", "Times New Roman", "Liberation Serif", "DejaVu Serif", Georgia, serif;
 }
 
 /* BookNode */
