@@ -274,7 +274,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
           <RichTextPlugin
             contentEditable={
               <ContentEditable
-                className={`editor-input ${getViewClassList(viewOptions).join(" ")}`}
+                className={`editor-input usfm ${getViewClassList(viewOptions).join(" ")}`}
                 spellCheck={hasSpellCheck}
               />
             }
