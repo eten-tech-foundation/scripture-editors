@@ -21,6 +21,18 @@ import {
 export interface EditorRef {
   /** Focus the editor. */
   focus(): void;
+  /** Undo the last action. */
+  undo(): void;
+  /** Redo the last undone action. */
+  redo(): void;
+  /** Cut the selected text. */
+  cut(): void;
+  /** Copy the selected text. */
+  copy(): void;
+  /** Paste text at the current cursor position. */
+  paste(): void;
+  /** Paste text as plain text at the current cursor position. */
+  pastePlainText(): void;
   /** Get USJ Scripture data. */
   getUsj(): Usj | undefined;
   /** Set the USJ Scripture data. */
@@ -53,6 +65,8 @@ export interface EditorRef {
    * @param id - ID of the annotation.
    */
   removeAnnotation(type: string, id: string): void;
+  /** Format the paragraph at the current cursor position with the given block marker. */
+  formatPara(selectedBlockMarker: string): void;
   /**
    * Insert a note at the specified selection, e.g. footnote, cross-reference, endnote.
    * @param marker - The marker type for the note.
@@ -83,6 +97,8 @@ export interface EditorProps<TLogger extends LoggerBasic> {
   onSelectionChange?: (selection: SelectionRange | undefined) => void;
   /** Callback function when USJ Scripture data has changed. */
   onUsjChange?: (usj: Usj, ops?: DeltaOp[], source?: DeltaSource) => void;
+  /** Callback function when state changes. */
+  onStateChange?: (canUndo: boolean, canRedo: boolean, blockMarker: string | undefined) => void;
   /** Options to configure the editor. */
   options?: EditorOptions;
   /** Logger instance. */
@@ -97,6 +113,8 @@ export interface EditorProps<TLogger extends LoggerBasic> {
 export interface EditorOptions {
   /** Is the editor readonly or editable. */
   isReadonly?: boolean;
+  /** Does the editor have external UI controls so disable the built-in toolbar and context menu. */
+  hasExternalUI?: boolean;
   /** Is the editor enabled for spell checking. */
   hasSpellCheck?: boolean;
   /** Text direction: "ltr" | "rtl" | "auto". */

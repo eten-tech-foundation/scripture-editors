@@ -1,23 +1,36 @@
-import OptionChangePlugin from "./OptionChangePlugin";
-import ScriptureReferencePlugin from "./ScriptureReferencePlugin";
-import TreeViewPlugin from "./TreeViewPlugin";
 import editorUsjAdaptor from "./adaptors/editor-usj.adaptor";
 import usjEditorAdaptor from "./adaptors/usj-editor.adaptor";
 import { getUsjMarkerAction } from "./adaptors/usj-marker-action.utils";
 import { EditorOptions, EditorProps, EditorRef } from "./editor.model";
 import editorTheme from "./editor.theme";
-import ToolbarPlugin from "./toolbar/ToolbarPlugin";
+import OptionChangePlugin from "./OptionChangePlugin";
+import ScriptureReferencePlugin from "./ScriptureReferencePlugin";
+import TreeViewPlugin from "./TreeViewPlugin";
+import { ToolbarPlugin } from "./toolbar/ToolbarPlugin";
 import { InitialConfigType, LexicalComposer } from "@lexical/react/LexicalComposer";
 import { ContentEditable } from "@lexical/react/LexicalContentEditable";
 import { EditorRefPlugin } from "@lexical/react/LexicalEditorRefPlugin";
 import { LexicalErrorBoundary } from "@lexical/react/LexicalErrorBoundary";
 import { HistoryPlugin } from "@lexical/react/LexicalHistoryPlugin";
 import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
+import { $setBlocksType } from "@lexical/selection";
 import { deepEqual } from "fast-equals";
-import { $addUpdateTag, $setSelection, EditorState, LexicalEditor } from "lexical";
+import {
+  $addUpdateTag,
+  $getSelection,
+  $isRangeSelection,
+  $setSelection,
+  COPY_COMMAND,
+  CUT_COMMAND,
+  EditorState,
+  LexicalEditor,
+  REDO_COMMAND,
+  UNDO_COMMAND,
+} from "lexical";
 import {
   ForwardedRef,
   forwardRef,
+  MutableRefObject,
   PropsWithChildren,
   ReactElement,
   useCallback,
@@ -25,6 +38,15 @@ import {
   useRef,
   useState,
 } from "react";
+import {
+  $createParaNode,
+  blackListedChangeTags,
+  DELTA_CHANGE_TAG,
+  externalTypedMarkType,
+  LoggerBasic,
+  SELECTION_CHANGE_TAG,
+  TypedMarkNode,
+} from "shared";
 import {
   $applyUpdate,
   $getRangeFromEditor,
@@ -46,20 +68,15 @@ import {
   NoteNodePlugin,
   OnSelectionChangePlugin,
   ParaNodePlugin,
+  pasteSelection,
+  pasteSelectionAsPlainText,
+  StateChangePlugin,
   TextDirectionPlugin,
   TextSpacingPlugin,
   UsjNodeOptions,
   UsjNodesMenuPlugin,
   usjReactNodes,
 } from "shared-react";
-import {
-  blackListedChangeTags,
-  DELTA_CHANGE_TAG,
-  externalTypedMarkType,
-  LoggerBasic,
-  SELECTION_CHANGE_TAG,
-  TypedMarkNode,
-} from "shared";
 
 type Mutable<T> = {
   -readonly [P in keyof T]: T[P];
@@ -107,6 +124,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
     onScrRefChange,
     onSelectionChange,
     onUsjChange,
+    onStateChange,
     options,
     logger,
     children,
@@ -122,6 +140,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
 
   const {
     isReadonly = false,
+    hasExternalUI = false,
     hasSpellCheck = false,
     textDirection = "ltr",
     markerMenuTrigger = "\\",
@@ -136,6 +155,24 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
   useImperativeHandle(ref, () => ({
     focus() {
       editorRef.current?.focus();
+    },
+    undo() {
+      editorRef.current?.dispatchCommand(UNDO_COMMAND, undefined);
+    },
+    redo() {
+      editorRef.current?.dispatchCommand(REDO_COMMAND, undefined);
+    },
+    cut() {
+      editorRef.current?.dispatchCommand(CUT_COMMAND, null);
+    },
+    copy() {
+      editorRef.current?.dispatchCommand(COPY_COMMAND, null);
+    },
+    paste() {
+      if (editorRef.current) pasteSelection(editorRef.current);
+    },
+    pastePlainText() {
+      if (editorRef.current) pasteSelectionAsPlainText(editorRef.current);
     },
     getUsj() {
       return editedUsjRef.current;
@@ -182,6 +219,14 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
     removeAnnotation(type, id) {
       annotationRef.current?.removeAnnotation(externalTypedMarkType(type), id);
     },
+    formatPara(selectedBlockMarker) {
+      editorRef.current?.update(() => {
+        const selection = $getSelection();
+        if ($isRangeSelection(selection)) {
+          $setBlocksType(selection, () => $createParaNode(selectedBlockMarker));
+        }
+      });
+    },
     insertNote(marker, caller, selection) {
       editorRef.current?.update(() => {
         const noteNode = $insertNote(marker, caller, selection, scrRef, viewOptions, nodeOptions);
@@ -212,9 +257,18 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
     <LexicalComposer initialConfig={editorConfig}>
       <EditablePlugin isEditable={!isReadonly} />
       <div className="editor-container">
-        <div className={"editor-toolbar-container" + (isReadonly ? "-readonly" : "-editable")}>
-          <ToolbarPlugin ref={toolbarEndRef} />
-        </div>
+        {hasExternalUI ? (
+          <StateChangePlugin onStateChange={onStateChange} />
+        ) : (
+          <div className={"editor-toolbar-container" + (isReadonly ? "-readonly" : "-editable")}>
+            <ToolbarPlugin
+              ref={toolbarEndRef}
+              editorRef={ref as MutableRefObject<EditorRef | null>}
+              isReadonly={isReadonly}
+              onStateChange={onStateChange}
+            />
+          </div>
+        )}
         <div className="editor-inner">
           <EditorRefPlugin editorRef={editorRef} />
           <RichTextPlugin

@@ -1,8 +1,6 @@
-import { $setBlocksType } from "@lexical/selection";
-import { $getSelection, $isRangeSelection, LexicalEditor } from "lexical";
-import { ReactElement } from "react";
-import { $createParaNode } from "shared";
+import { EditorRef } from "../editor.model";
 import DropDown, { DropDownItem } from "./DropDown";
+import { MutableRefObject, ReactElement } from "react";
 
 type BlockMarkerToBlockNames = typeof blockMarkerToBlockNames;
 
@@ -16,6 +14,7 @@ const commonBlockMarkerToBlockNames = {
   q2: "q2 - Poetry - Indent Level 2",
   r: "r - Heading - Parallel References",
   s: "s - Heading - Section Level 1",
+  // do not allow `b - Poetry - Stanza Break (Blank Line)` here to avoid a USFM validity issue.
 };
 
 // This list is incomplete.
@@ -41,38 +40,15 @@ const blockMarkerToBlockNames = {
   b: "b - Poetry - Stanza Break (Blank Line)",
 };
 
-function blockMarkerToClassName(blockMarker: string) {
-  return blockMarker in blockMarkerToBlockNames ? blockMarker : "ban";
-}
-
-function blockFormatLabel(blockMarker: string) {
-  return blockMarker in blockMarkerToBlockNames
-    ? blockMarkerToBlockNames[blockMarker as keyof BlockMarkerToBlockNames]
-    : "No Style";
-}
-
-function dropDownActiveClass(active: boolean) {
-  return active ? "active dropdown-item-active" : "";
-}
-
-export default function BlockFormatDropDown({
-  editor,
+export function BlockFormatDropDown({
+  editorRef,
   blockMarker,
   disabled = false,
 }: {
-  editor: LexicalEditor;
-  blockMarker: string;
+  editorRef: MutableRefObject<EditorRef | null>;
+  blockMarker: string | undefined;
   disabled?: boolean;
 }): ReactElement {
-  const formatPara = (selectedBlockMarker: string) => {
-    editor.update(() => {
-      const selection = $getSelection();
-      if ($isRangeSelection(selection)) {
-        $setBlocksType(selection, () => $createParaNode(selectedBlockMarker));
-      }
-    });
-  };
-
   return (
     <DropDown
       disabled={disabled}
@@ -85,7 +61,7 @@ export default function BlockFormatDropDown({
         <DropDownItem
           key={itemBlockMarker}
           className={"item block-marker " + dropDownActiveClass(blockMarker === itemBlockMarker)}
-          onClick={() => formatPara(itemBlockMarker)}
+          onClick={() => editorRef.current?.formatPara(itemBlockMarker)}
         >
           <i className={"icon block-marker " + itemBlockMarker} />
           <span className={"text usfm_" + itemBlockMarker}>
@@ -99,4 +75,18 @@ export default function BlockFormatDropDown({
       ))}
     </DropDown>
   );
+}
+
+function blockMarkerToClassName(blockMarker: string | undefined) {
+  return blockMarker && blockMarker in blockMarkerToBlockNames ? blockMarker : "ban";
+}
+
+function blockFormatLabel(blockMarker: string | undefined) {
+  return blockMarker && blockMarker in blockMarkerToBlockNames
+    ? blockMarkerToBlockNames[blockMarker as keyof BlockMarkerToBlockNames]
+    : "No Style";
+}
+
+function dropDownActiveClass(active: boolean) {
+  return active ? "active dropdown-item-active" : "";
 }
