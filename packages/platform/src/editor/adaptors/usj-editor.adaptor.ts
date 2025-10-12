@@ -219,7 +219,8 @@ function createBook(markerObject: MarkerObject): SerializedBookNode {
       createImmutableTypedText("marker", openingMarkerText(marker) + " " + code + NBSP),
     );
   }
-  children.push(createText(getTextContent(markerObject.content)));
+  const text = getTextContent(markerObject.content);
+  if (text) children.push(createText(text));
   const unknownAttributes = getUnknownAttributes(markerObject);
 
   return removeUndefinedProperties({
@@ -667,7 +668,7 @@ function recurseNodes(markers: MarkerContent[] | undefined): SerializedLexicalNo
   const nodes: SerializedLexicalNode[] = [];
   markers?.forEach((markerContent) => {
     if (typeof markerContent === "string") {
-      nodes.push(createText(markerContent));
+      if (markerContent) nodes.push(createText(markerContent));
     } else if (!markerContent.type) {
       _logger?.error(`Marker type is missing!`);
     } else {

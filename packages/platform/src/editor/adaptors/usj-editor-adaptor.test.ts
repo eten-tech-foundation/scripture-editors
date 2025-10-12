@@ -1,5 +1,33 @@
+// Reaching inside only for tests.
+// eslint-disable-next-line @nx/enforce-module-boundaries
+import { removeNoteCallerOnClick } from "../../../../../libs/shared-react/src/plugins/usj/react-test.utils";
+// eslint-disable-next-line @nx/enforce-module-boundaries
+import {
+  CHAPTER_1_INDEX,
+  editorStateEmpty,
+  editorStateGen1v1,
+  editorStateGen1v1Editable,
+  editorStateGen1v1ImpliedPara,
+  editorStateGen1v1ImpliedParaEmpty,
+  editorStateGen1v1Nonstandard,
+  editorStateMarks,
+  editorStateWithUnknownItems,
+  NOTE_CALLER_INDEX,
+  NOTE_INDEX,
+  NOTE_PARA_INDEX,
+  NOTE_PARA_WITH_UNKNOWN_ITEMS_INDEX,
+  usjEmpty,
+  usjGen1v1,
+  usjGen1v1ImpliedPara,
+  usjGen1v1ImpliedParaEmpty,
+  usjGen1v1Nonstandard,
+  usjMarks,
+  usjWithUnknownItems,
+  VERSE_PARA_INDEX,
+} from "../../../../utilities/src/converters/usj/converter-test.data";
+import { serializeEditorState, reset, initialize } from "./usj-editor.adaptor";
 import { MarkerObject } from "@eten-tech-foundation/scripture-utilities";
-import { SerializedEditorState, SerializedLexicalNode } from "lexical";
+import { SerializedLexicalNode } from "lexical";
 import {
   closingMarkerText,
   getEditableCallerText,
@@ -27,32 +55,6 @@ import {
   isSerializedImmutableVerseNode,
   isSerializedImmutableNoteCallerNode,
 } from "shared-react";
-// Reaching inside only for tests.
-// eslint-disable-next-line @nx/enforce-module-boundaries
-import {
-  CHAPTER_1_INDEX,
-  editorStateEmpty,
-  editorStateGen1v1,
-  editorStateGen1v1Editable,
-  editorStateGen1v1ImpliedPara,
-  editorStateGen1v1ImpliedParaEmpty,
-  editorStateGen1v1Nonstandard,
-  editorStateMarks,
-  editorStateWithUnknownItems,
-  NOTE_CALLER_INDEX,
-  NOTE_INDEX,
-  NOTE_PARA_INDEX,
-  NOTE_PARA_WITH_UNKNOWN_ITEMS_INDEX,
-  usjEmpty,
-  usjGen1v1,
-  usjGen1v1ImpliedPara,
-  usjGen1v1ImpliedParaEmpty,
-  usjGen1v1Nonstandard,
-  usjMarks,
-  usjWithUnknownItems,
-  VERSE_PARA_INDEX,
-} from "../../../../utilities/src/converters/usj/converter-test.data";
-import { serializeEditorState, reset, initialize } from "./usj-editor.adaptor";
 import { MockInstance } from "vitest";
 
 describe("USJ Editor Adaptor", () => {
@@ -90,7 +92,7 @@ describe("USJ Editor Adaptor", () => {
       .children[NOTE_INDEX] as SerializedNoteNode;
     const noteCaller = note.children[NOTE_CALLER_INDEX] as SerializedImmutableNoteCallerNode;
     expect(typeof noteCaller.onClick).toBe("function");
-    removeOnClick(serializedEditorState);
+    removeNoteCallerOnClick(serializedEditorState);
     expect(serializedEditorState).toEqual(editorStateGen1v1);
   });
 
@@ -244,7 +246,7 @@ describe("USJ Editor Adaptor", () => {
     note.caller = "-";
     const noteCaller = note.children[NOTE_CALLER_INDEX] as SerializedImmutableNoteCallerNode;
     noteCaller.caller = "-";
-    removeOnClick(serializedEditorState);
+    removeNoteCallerOnClick(serializedEditorState);
     expect(serializedEditorState).toEqual(editorStateCallerUpdated);
   });
 
@@ -274,7 +276,7 @@ describe("USJ Editor Adaptor", () => {
 
     const serializedEditorState = serializeEditorState(usjWithUnknownItems);
 
-    removeOnClick(serializedEditorState, NOTE_PARA_WITH_UNKNOWN_ITEMS_INDEX);
+    removeNoteCallerOnClick(serializedEditorState, NOTE_PARA_WITH_UNKNOWN_ITEMS_INDEX);
     expect(serializedEditorState).toEqual(editorStateWithUnknownItems);
     expect(consoleWarnSpy).toHaveBeenCalledTimes(9);
     expect(consoleWarnSpy).toHaveBeenNthCalledWith(1, "Unknown type-marker 'wat-z'!");
@@ -288,20 +290,3 @@ describe("USJ Editor Adaptor", () => {
     expect(consoleWarnSpy).toHaveBeenNthCalledWith(9, "Unknown type-marker 'table:cell-tc1'!");
   });
 });
-
-/**
- * Remove the `onClick` function because it can't be compared since it's anonymous.
- * @param serializedEditorState
- */
-function removeOnClick(
-  serializedEditorState: SerializedEditorState,
-  noteParaIndex = NOTE_PARA_INDEX,
-  noteIndex = NOTE_INDEX,
-  noteCallerIndex = NOTE_CALLER_INDEX,
-) {
-  const note = (serializedEditorState.root.children[noteParaIndex] as SerializedParaNode).children[
-    noteIndex
-  ] as SerializedNoteNode;
-  const noteCaller = note.children[noteCallerIndex] as SerializedImmutableNoteCallerNode;
-  delete noteCaller.onClick;
-}

@@ -1,5 +1,12 @@
-import { usjReactNodes } from "../../nodes/usj";
-import { LexicalComposer } from "@lexical/react/LexicalComposer";
+// Reaching inside only for tests.
+// eslint-disable-next-line @nx/enforce-module-boundaries
+import {
+  NOTE_PARA_INDEX,
+  NOTE_INDEX,
+  NOTE_CALLER_INDEX,
+} from "../../../../../packages/utilities/src/converters/usj/converter-test.data";
+import { SerializedImmutableNoteCallerNode, usjReactNodes } from "../../nodes/usj";
+import { InitialEditorStateType, LexicalComposer } from "@lexical/react/LexicalComposer";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { ContentEditable } from "@lexical/react/LexicalContentEditable";
 import { LexicalErrorBoundary } from "@lexical/react/LexicalErrorBoundary";
@@ -17,12 +24,13 @@ import {
   KEY_ENTER_COMMAND,
   LexicalEditor,
   LexicalNode,
+  SerializedEditorState,
 } from "lexical";
 import { ReactNode } from "react";
-import { segmentState, TypedMarkNode } from "shared";
+import { segmentState, SerializedNoteNode, SerializedParaNode, TypedMarkNode } from "shared";
 
 export async function baseTestEnvironment(
-  $initialEditorState?: () => void,
+  $initialEditorState?: InitialEditorStateType,
   children?: ReactNode | undefined,
 ): Promise<{ editor: LexicalEditor }> {
   let editor: LexicalEditor;
@@ -319,4 +327,21 @@ export async function sutUpdate(editor: LexicalEditor, $updateFn: () => void) {
       $updateFn();
     });
   });
+}
+
+/**
+ * Remove the note caller `onClick` function because it can't be compared since it's anonymous.
+ * @param serializedEditorState
+ */
+export function removeNoteCallerOnClick(
+  serializedEditorState: SerializedEditorState,
+  noteParaIndex = NOTE_PARA_INDEX,
+  noteIndex = NOTE_INDEX,
+  noteCallerIndex = NOTE_CALLER_INDEX,
+) {
+  const note = (serializedEditorState.root.children[noteParaIndex] as SerializedParaNode).children[
+    noteIndex
+  ] as SerializedNoteNode;
+  const noteCaller = note.children[noteCallerIndex] as SerializedImmutableNoteCallerNode;
+  delete noteCaller.onClick;
 }

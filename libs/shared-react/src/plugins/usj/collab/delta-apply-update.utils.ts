@@ -22,6 +22,7 @@ import {
   OTMilestoneEmbed,
   OTNoteEmbed,
   OTParaAttribute,
+  OTUnmatchedEmbed,
   OTVerseEmbed,
 } from "./rich-text-ot.model";
 import { BookCode } from "@eten-tech-foundation/scripture-utilities";
@@ -43,6 +44,7 @@ import {
   $createChapterNode,
   $createCharNode,
   $createImmutableChapterNode,
+  $createImmutableUnmatchedNode,
   $createImpliedParaNode,
   $createMilestoneNode,
   $createParaNode,
@@ -741,15 +743,21 @@ function $insertTextAtCurrentIndex(
 ): number {
   if (textToInsert === LF) {
     return $handleNewline(targetIndex, attributes, logger);
+  } else if (textToInsert.endsWith(LF) && !hasParaAttributes(attributes)) {
+    // Split the operation: insert text without LF, then handle the LF separately as an implied para
+    const textWithoutLF = textToInsert.slice(0, -1);
+    let deltaOTLength = 0;
+    if (textWithoutLF.length > 0) {
+      if (hasCharAttributes(attributes))
+        throw new Error("Text + LF should not have char attributes");
+
+      deltaOTLength += $insertRichText(targetIndex, textWithoutLF, attributes, logger);
+    }
+    deltaOTLength += $handleNewline(targetIndex + deltaOTLength, attributes, logger);
+    return deltaOTLength;
   } else if (hasCharAttributes(attributes)) {
     return $handleCharText(targetIndex, textToInsert, attributes, logger);
   } else {
-    // Handle rich text insertion (possibly with formatting like bold, italic)
-    logger?.debug(
-      `Attempting to insert text "${textToInsert}" with attributes ${JSON.stringify(
-        attributes,
-      )} at index ${targetIndex}`,
-    );
     return $insertRichText(targetIndex, textToInsert, attributes, logger);
   }
 }
@@ -892,7 +900,17 @@ function $insertRichText(
         if (offsetInNode === 0) {
           currentNode.insertBefore(newTextNode);
         } else if (offsetInNode === textLength) {
-          currentNode.insertAfter(newTextNode);
+          // Special case: if this TextNode is inside a CharNode and we're inserting plain text at the end,
+          // check if we should insert after the CharNode instead of inside it
+          const parent = currentNode.getParent();
+          if ($isCharNode(parent) && !hasCharAttributes(attributes)) {
+            // Plain text (no char attributes) should not be inserted inside CharNodes
+            // Instead, insert after the CharNode at the parent level
+            parent.insertAfter(newTextNode);
+          } else {
+            // Normal case: insert after this TextNode
+            currentNode.insertAfter(newTextNode);
+          }
         } else {
           const [, tailNode] = currentNode.splitText(offsetInNode);
           tailNode.insertBefore(newTextNode);
@@ -1335,6 +1353,8 @@ function $insertEmbedAtCurrentIndex(
     newNodeToInsert = $createVerse(embedObject.verse as OTVerseEmbed, viewOptions);
   } else if (isEmbedOfType("ms", embedObject)) {
     newNodeToInsert = $createMilestone(embedObject.ms as OTMilestoneEmbed);
+  } else if (isEmbedOfType("unmatched", embedObject)) {
+    newNodeToInsert = $createImmutableUnmatched(embedObject.unmatched as OTUnmatchedEmbed);
   } else if (isEmbedOfType("note", embedObject)) {
     newNodeToInsert = $createNote(op, viewOptions, nodeOptions);
   }
@@ -1565,6 +1585,13 @@ function $createMilestone(msData: OTMilestoneEmbed) {
 
   const unknownAttributes = getUnknownAttributes(msData, OT_MILESTONE_PROPS);
   return $createMilestoneNode(style, sid, eid, unknownAttributes);
+}
+
+function $createImmutableUnmatched(unmatchedData: OTUnmatchedEmbed) {
+  const { marker } = unmatchedData;
+  if (!marker) return;
+
+  return $createImmutableUnmatchedNode(marker);
 }
 
 function $createNote(op: DeltaOp, viewOptions: ViewOptions, nodeOptions: UsjNodeOptions) {
