@@ -198,6 +198,18 @@ export interface EditorProps<TLogger extends LoggerBasic> {
 export interface EditorRef {
   /** Focus the editor. */
   focus(): void;
+  /** Undo the last action. */
+  undo(): void;
+  /** Redo the last undone action. */
+  redo(): void;
+  /** Cut the selected text. */
+  cut(): void;
+  /** Copy the selected text. */
+  copy(): void;
+  /** Paste text at the current cursor position. */
+  paste(): void;
+  /** Paste text as plain text at the current cursor position. */
+  pastePlainText(): void;
   /** Get USJ Scripture data. */
   getUsj(): Usj | undefined;
   /** Set the USJ Scripture data. */
@@ -230,6 +242,8 @@ export interface EditorRef {
    * @param id - ID of the annotation.
    */
   removeAnnotation(type: string, id: string): void;
+  /** Format the paragraph at the current cursor position with the given block marker. */
+  formatPara(selectedBlockMarker: string): void;
   /**
    * Insert a note at the specified selection, e.g. footnote, cross-reference, endnote.
    * @param marker - The marker type for the note.
@@ -239,6 +253,12 @@ export interface EditorRef {
    * @throws Will throw an error if the marker is not a valid note marker.
    */
   insertNote(marker: string, caller?: string, selection?: SelectionRange): void;
+  /**
+   * EXPERIMENTAL: Select the note by editor key or at the given index in the editor, if any.
+   * @param noteKeyOrIndex - The note key or index, e.g. 1 would select the second note in the
+   *   editor.
+   */
+  selectNote(noteKeyOrIndex: string | number): void;
   /** Ref to the end of the toolbar - INTERNAL USE ONLY to dynamically add controls in the toolbar. */
   toolbarEndRef: RefObject<HTMLElement> | null;
 }

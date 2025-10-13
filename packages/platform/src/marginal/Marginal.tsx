@@ -127,11 +127,14 @@ const Marginal = forwardRef(function Marginal<TLogger extends LoggerBasic>(
     removeAnnotation(type, id) {
       editorRef.current?.removeAnnotation(type, id);
     },
+    formatPara(selectedBlockMarker) {
+      editorRef.current?.formatPara(selectedBlockMarker);
+    },
     insertNote(marker, caller, selection) {
       editorRef.current?.insertNote(marker, caller, selection);
     },
-    formatPara(selectedBlockMarker) {
-      editorRef.current?.formatPara(selectedBlockMarker);
+    selectNote(noteKeyOrIndex) {
+      editorRef.current?.selectNote(noteKeyOrIndex);
     },
     setComments(comments) {
       commentStoreRef.current?.setComments(comments);

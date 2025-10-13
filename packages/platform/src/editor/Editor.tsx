@@ -49,9 +49,11 @@ import {
 } from "shared";
 import {
   $applyUpdate,
+  $getNoteByKeyOrIndex,
   $getRangeFromEditor,
   $getRangeFromSelection,
   $insertNote,
+  $selectNote,
   AnnotationPlugin,
   AnnotationRef,
   ArrowNavigationPlugin,
@@ -231,6 +233,15 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
       editorRef.current?.update(() => {
         const noteNode = $insertNote(marker, caller, selection, scrRef, viewOptions, nodeOptions);
         if (noteNode && !noteNode.getIsCollapsed()) expandedNoteKeyRef.current = noteNode.getKey();
+      });
+    },
+    selectNote(noteKeyOrIndex) {
+      editorRef.current?.update(() => {
+        const noteNode = $getNoteByKeyOrIndex(noteKeyOrIndex);
+        if (noteNode) {
+          $selectNote(noteNode, viewOptions);
+          if (!noteNode.getIsCollapsed()) expandedNoteKeyRef.current = noteNode.getKey();
+        }
       });
     },
     get toolbarEndRef() {
