@@ -87,6 +87,7 @@ export interface EditorRef {
     pastePlainText(): void;
     redo(): void;
     removeAnnotation(type: string, id: string): void;
+    selectNote(noteKeyOrIndex: string | number): void;
     setSelection(selection: SelectionRange): void;
     setUsj(usj: Usj): void;
     toolbarEndRef: RefObject<HTMLElement | null> | null;

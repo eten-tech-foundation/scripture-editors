@@ -175,35 +175,35 @@ export const PlatformToolbar = forwardRef<HTMLDivElement, PlatformToolbarProps>(
                   <Redo />
                 </Button>
                 <BlockFormatDropDown editorRef={editorRef} blockMarker={blockMarker} />
+                <Button
+                  aria-label="Insert footnote"
+                  title="Insert footnote"
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleInsertFootnote}
+                >
+                  <Superscript />
+                </Button>
+                <Button
+                  aria-label="Insert cross-reference"
+                  title="Insert cross-reference"
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleInsertCrossReference}
+                >
+                  <Shuffle />
+                </Button>
+                <Button
+                  aria-label="Insert endnote"
+                  title="Insert endnote"
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleInsertEndnote}
+                >
+                  <ListEnd />
+                </Button>
               </>
             )}
-            <Button
-              aria-label="Insert footnote"
-              title="Insert footnote"
-              variant="ghost"
-              size="icon"
-              onClick={handleInsertFootnote}
-            >
-              <Superscript />
-            </Button>
-            <Button
-              aria-label="Insert cross-reference"
-              title="Insert cross-reference"
-              variant="ghost"
-              size="icon"
-              onClick={handleInsertCrossReference}
-            >
-              <Shuffle />
-            </Button>
-            <Button
-              aria-label="Insert endnote"
-              title="Insert endnote"
-              variant="ghost"
-              size="icon"
-              onClick={handleInsertEndnote}
-            >
-              <ListEnd />
-            </Button>
             {ref != null && <Divider />}
             <div ref={ref} className="end-container"></div>
           </>

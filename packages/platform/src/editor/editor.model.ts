@@ -76,6 +76,12 @@ export interface EditorRef {
    * @throws Will throw an error if the marker is not a valid note marker.
    */
   insertNote(marker: string, caller?: string, selection?: SelectionRange): void;
+  /**
+   * EXPERIMENTAL: Select the note by editor key or at the given index in the editor, if any.
+   * @param noteKeyOrIndex - The note key or index, e.g. 1 would select the second note in the
+   *   editor.
+   */
+  selectNote(noteKeyOrIndex: string | number): void;
   /** Ref to the end of the toolbar - INTERNAL USE ONLY to dynamically add controls in the toolbar. */
   toolbarEndRef: RefObject<HTMLElement | null> | null;
 }

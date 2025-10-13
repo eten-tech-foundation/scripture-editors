@@ -14,6 +14,7 @@ import {
   SerializedImmutableVerseNode,
 } from "./ImmutableVerseNode";
 import { UsjNodeOptions } from "./usj-node-options.model";
+import { $dfs } from "@lexical/utils";
 import {
   $createTextNode,
   $getNodeByKey,
@@ -37,6 +38,7 @@ import {
   $isCharNode,
   $isImmutableTypedTextNode,
   $isNodeWithMarker,
+  $isNoteNode,
   $isParaNode,
   $isSomeChapterNode,
   $isTypedMarkNode,
@@ -115,8 +117,8 @@ export function isSomeSerializedVerseNode(
  * @param selectionRange - Optional selection range where the note should be inserted. By default it will
  *   use the current selection in the editor.
  * @param scriptureReference - Scripture reference for the note.
- * @param viewOptions - The view options for the note.
- * @param nodeOptions - The node options for the note.
+ * @param viewOptions - The current editor view options.
+ * @param nodeOptions - The current editor node options.
  * @returns The inserted note node, or `undefined` if insertion failed.
  * @throws Will throw an error if the marker is not a valid note marker.
  */
@@ -140,6 +142,12 @@ export function $insertNote(
   return noteNode;
 }
 
+/**
+ * Insert note node at the given selection, and select the note content if expanded.
+ * @param noteNode - The note node to insert.
+ * @param selection - The selection where to insert the note.
+ * @param viewOptions - The current editor view options.
+ */
 export function $insertNoteWithSelect(
   noteNode: NoteNode,
   selection: RangeSelection,
@@ -251,6 +259,51 @@ export function $createWholeNote(
   if (closingMarkerNode) note.append(closingMarkerNode);
 
   return note;
+}
+
+/**
+ * Gets the note using the editor key or at the specified note index.
+ * @param noteKeyOrIndex - The note key or index, e.g. 1 would select the second note in the editor.
+ * @returns The note at the specified index, or `undefined` if not found.
+ */
+export function $getNoteByKeyOrIndex(noteKeyOrIndex: string | number): NoteNode | undefined {
+  if (typeof noteKeyOrIndex === "string") {
+    const node = $getNodeByKey(noteKeyOrIndex);
+    if (!$isNoteNode(node)) return;
+    return node;
+  }
+
+  const dfsNodes = $dfs();
+  if (dfsNodes.length <= 0) return;
+
+  const dfsNotes = dfsNodes.filter((dfsNode) => $isNoteNode(dfsNode.node));
+  const note = dfsNotes[noteKeyOrIndex]?.node;
+  if (!$isNoteNode(note)) return;
+
+  return note;
+}
+
+/**
+ * Selects the given note node, expanding or collapsing it based on the current view options.
+ * @param noteNode - The note node to select.
+ * @param viewOptions - The current editor view options.
+ */
+export function $selectNote(noteNode: NoteNode, viewOptions: ViewOptions | undefined) {
+  const isCollapsed = viewOptions?.noteMode === "collapsed";
+  noteNode.setIsCollapsed(isCollapsed);
+  if (isCollapsed) {
+    const nodeBefore = noteNode.getPreviousSibling();
+    if ($isImmutableVerseNode(nodeBefore) || !nodeBefore) {
+      const parent = noteNode.getParent();
+      if (parent) {
+        const nodeIndex = noteNode.getIndexWithinParent();
+        parent.select(nodeIndex, nodeIndex);
+      }
+    } else nodeBefore.selectEnd();
+  } else {
+    const lastCharChild = noteNode.getChildren().reverse().find($isCharNode);
+    lastCharChild?.selectEnd();
+  }
 }
 
 /** Add the given space node after each child node */
