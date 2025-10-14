@@ -25,6 +25,7 @@ const VALID_NOTE_MARKERS = [
   DEFAULT_NOTE_MARKER,
   "fe",
   "ef",
+  "efe",
   // Cross Reference
   "x",
   "ex",
