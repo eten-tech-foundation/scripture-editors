@@ -143,6 +143,7 @@ const markerActions: { [marker: string]: UsjMarkerAction } = {
   f: getFootnoteMarkerAction("f"),
   fe: getFootnoteMarkerAction("fe"),
   ef: getFootnoteMarkerAction("ef"),
+  efe: getFootnoteMarkerAction("efe"),
   x: getCrossReferenceMarkerAction("x"),
   ex: getCrossReferenceMarkerAction("ex"),
 };

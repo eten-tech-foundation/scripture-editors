@@ -49,6 +49,7 @@ import {
   ImmutableTypedTextNode,
   isSerializedVerseNode,
   isVerseInRange,
+  LoggerBasic,
   MarkerNode,
   NBSP,
   NodesWithMarker,
@@ -119,6 +120,7 @@ export function isSomeSerializedVerseNode(
  * @param scriptureReference - Scripture reference for the note.
  * @param viewOptions - The current editor view options.
  * @param nodeOptions - The current editor node options.
+ * @param logger - Logger instance.
  * @returns The inserted note node, or `undefined` if insertion failed.
  * @throws Will throw an error if the marker is not a valid note marker.
  */
@@ -129,6 +131,7 @@ export function $insertNote(
   scriptureReference: ScriptureReference | undefined,
   viewOptions: ViewOptions,
   nodeOptions: UsjNodeOptions,
+  logger: LoggerBasic | undefined,
 ): NoteNode | undefined {
   if (!NoteNode.isValidMarker(marker))
     throw new Error(`$insertNote: Invalid note marker '${marker}'`);
@@ -136,7 +139,9 @@ export function $insertNote(
   const selection = selectionRange ? $getRangeFromSelection(selectionRange) : $getSelection();
   if (!$isRangeSelection(selection)) return undefined;
 
-  const children = $createNoteChildren(selection, marker, scriptureReference);
+  const children = $createNoteChildren(selection, marker, scriptureReference, logger);
+  if (children === undefined) return undefined;
+
   const noteNode = $createWholeNote(marker, caller, children, viewOptions, nodeOptions);
   $insertNoteWithSelect(noteNode, selection, viewOptions);
   return noteNode;
@@ -172,13 +177,15 @@ export function $createNoteChildren(
   selection: RangeSelection,
   marker: string,
   scriptureReference: ScriptureReference | undefined,
-): LexicalNode[] {
+  logger: LoggerBasic | undefined,
+): LexicalNode[] | undefined {
   const children: LexicalNode[] = [];
   const { chapterNum, verseNum } = scriptureReference ?? {};
   switch (marker) {
     case "f":
     case "fe":
     case "ef":
+    case "efe":
       if (chapterNum !== undefined && verseNum !== undefined) {
         children.push($createCharNode("fr").append($createTextNode(`${chapterNum}:${verseNum}`)));
       }
@@ -200,7 +207,8 @@ export function $createNoteChildren(
       children.push($createCharNode("xt").append($createTextNode("-")));
       break;
     default:
-      break;
+      logger?.warn(`$createNoteChildren: Unsupported note marker '${marker}'`);
+      return undefined;
   }
 
   return children;

@@ -231,7 +231,15 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
     },
     insertNote(marker, caller, selection) {
       editorRef.current?.update(() => {
-        const noteNode = $insertNote(marker, caller, selection, scrRef, viewOptions, nodeOptions);
+        const noteNode = $insertNote(
+          marker,
+          caller,
+          selection,
+          scrRef,
+          viewOptions,
+          nodeOptions,
+          logger,
+        );
         if (noteNode && !noteNode.getIsCollapsed()) expandedNoteKeyRef.current = noteNode.getKey();
       });
     },
