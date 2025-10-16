@@ -97,9 +97,18 @@ export function getEditorDelta(editorState: EditorState): Delta {
   return update;
 }
 
-function $getAllNodeOps() {
+/**
+ * Get the operational transform (OT) delta operations for a specific node or range of nodes.
+ * Pass nothing to get all nodes.
+ *
+ * @param startNode - The node to start the search, if omitted, it will start at the root node.
+ * @param endNode - The node to end the search, if omitted, it will find all descendants of the
+ *   startingNode.
+ * @returns An array of DeltaOp objects representing the OT operations for the specified nodes.
+ */
+export function $getParticularNodeOps(startNode?: LexicalNode, endNode?: LexicalNode) {
   const ops: DeltaOp[] = [];
-  const dfsNodes = $dfs();
+  const dfsNodes = $dfs(startNode, endNode);
   const openParaLikeNodes: ParaLikeNode[] = [];
   const openCharNodes: CharNode[] = [];
   const openNote: OpenNote = { children: [], contentsOps: [] };
@@ -121,6 +130,10 @@ function $getAllNodeOps() {
     );
   }
   return ops;
+}
+
+function $getAllNodeOps() {
+  return $getParticularNodeOps();
 }
 
 function $getNodeOps(

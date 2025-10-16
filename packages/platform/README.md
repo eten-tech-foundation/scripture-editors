@@ -243,7 +243,7 @@ export interface EditorRef {
    */
   removeAnnotation(type: string, id: string): void;
   /** Format the paragraph at the current cursor position with the given block marker. */
-  formatPara(selectedBlockMarker: string): void;
+  formatPara(blockMarker: string): void;
   /**
    * Insert a note at the specified selection, e.g. footnote, cross-reference, endnote.
    * @param marker - The marker type for the note.
@@ -255,7 +255,7 @@ export interface EditorRef {
   insertNote(marker: string, caller?: string, selection?: SelectionRange): void;
   /**
    * EXPERIMENTAL: Select the note by editor key or at the given index in the editor, if any.
-   * @param noteKeyOrIndex - The note key or index, e.g. 1 would select the second note in the
+   * @param noteKeyOrIndex - The note key or index, e.g. index=1 would select the second note in the
    *   editor.
    */
   selectNote(noteKeyOrIndex: string | number): void;

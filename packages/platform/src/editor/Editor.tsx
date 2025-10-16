@@ -221,11 +221,11 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
     removeAnnotation(type, id) {
       annotationRef.current?.removeAnnotation(externalTypedMarkType(type), id);
     },
-    formatPara(selectedBlockMarker) {
+    formatPara(blockMarker) {
       editorRef.current?.update(() => {
         const selection = $getSelection();
         if ($isRangeSelection(selection)) {
-          $setBlocksType(selection, () => $createParaNode(selectedBlockMarker));
+          $setBlocksType(selection, () => $createParaNode(blockMarker));
         }
       });
     },
