@@ -50,6 +50,7 @@ import {
 import {
   $applyUpdate,
   $getNoteByKeyOrIndex,
+  $getParticularNodeOps,
   $getRangeFromEditor,
   $getRangeFromSelection,
   $insertNote,
@@ -139,6 +140,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
   const editedUsjRef = useRef(defaultUsj);
   const expandedNoteKeyRef = useRef<string | undefined>();
   const [usj, setUsj] = useState(defaultUsj);
+  const [loadTrigger, setLoadTrigger] = useState(0);
 
   const {
     isReadonly = false,
@@ -182,7 +184,10 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
     setUsj(incomingUsj) {
       if (!deepEqual(editedUsjRef.current, incomingUsj)) {
         editedUsjRef.current = incomingUsj;
+        // This can happen when using `applyUpdate` since `usj` won't change.
+        const shouldForceReload = deepEqual(usj, incomingUsj);
         setUsj(incomingUsj);
+        if (shouldForceReload) setLoadTrigger((prev) => prev + 1);
       }
     },
     applyUpdate(ops, source = "remote") {
@@ -250,6 +255,14 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
           $selectNote(noteNode, viewOptions);
           if (!noteNode.getIsCollapsed()) expandedNoteKeyRef.current = noteNode.getKey();
         }
+      });
+    },
+    getNoteOps(noteKeyOrIndex) {
+      return editorRef.current?.read(() => {
+        const noteNode = $getNoteByKeyOrIndex(noteKeyOrIndex);
+        if (!noteNode) return undefined;
+
+        return $getParticularNodeOps(noteNode);
       });
     },
     get toolbarEndRef() {
@@ -320,6 +333,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
             setUsj={setUsj}
           />
           <LoadStatePlugin
+            key={loadTrigger}
             scripture={usj}
             nodeOptions={nodeOptions}
             editorAdaptor={usjEditorAdaptor}

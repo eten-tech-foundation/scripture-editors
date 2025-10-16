@@ -105,10 +105,16 @@ body {
 }
 
 .custom-node-options {
-  text-align: right;
+  display: flex;
+  justify-content: flex-end;
   margin-bottom: 10px;
   font-size: 13px;
   color: black;
+}
+
+.custom-node-options pre {
+  text-align: left;
+  margin: 0;
 }
 
 .debug {

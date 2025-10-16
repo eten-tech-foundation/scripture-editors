@@ -82,6 +82,12 @@ export interface EditorRef {
    *   editor.
    */
   selectNote(noteKeyOrIndex: string | number): void;
+  /**
+   * EXPERIMENTAL: Get the note operations by editor key or at the given index in the editor, if any.
+   * @param noteKeyOrIndex - The note key or index, e.g. index=1 would get the second note in the
+   *   editor.
+   */
+  getNoteOps(noteKeyOrIndex: string | number): DeltaOp[] | undefined;
   /** Ref to the end of the toolbar - INTERNAL USE ONLY to dynamically add controls in the toolbar. */
   toolbarEndRef: RefObject<HTMLElement | null> | null;
 }
