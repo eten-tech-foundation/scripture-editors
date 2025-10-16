@@ -1,5 +1,7 @@
 /** Conforms with USJ v3.1 @see https://docs.usfm.bible/usfm/3.1/note/index.html */
 
+import { DeltaOp } from "../../plugins/usj/collab/delta-common.utils";
+import { $getParticularNodeOps } from "../../plugins/usj/collab/editor-delta.adaptor";
 import {
   $applyNodeReplacement,
   $getNodeByKey,
@@ -27,6 +29,7 @@ import { $isNoteNode, GENERATOR_NOTE_CALLER, NoteNode } from "shared";
  * @param getCaller - A function to retrieve the current caller string.
  * @param setCaller - A function to update the caller string. Valid callers are '+'
  *   (auto-generated caller), '-' (hidden caller), or a custom value.
+ * @param getNoteOps - A function to retrieve the Operational Transform delta ops of the note.
  *
  * @public
  */
@@ -36,6 +39,7 @@ export type NoteCallerOnClick = (
   isCollapsed: boolean | undefined,
   getCaller: () => string,
   setCaller: (caller: string) => void,
+  getNoteOps: () => DeltaOp[] | undefined,
 ) => void;
 
 export type SerializedImmutableNoteCallerNode = Spread<
@@ -182,6 +186,7 @@ export class ImmutableNoteCallerNode extends DecoratorNode<ReactNode> {
         noteIsCollapsed,
         () => getNoteCaller(editor, noteNodeKey),
         (caller) => setNoteCaller(editor, noteNodeKey, callerNodeKey, caller),
+        () => getNoteOps(editor, noteNodeKey),
       );
     const callerId = `${this.__caller}_${this.__previewText}}`.replace(/\s+/g, "").substring(0, 25);
     return (
@@ -247,7 +252,8 @@ export function isSerializedImmutableNoteCallerNode(
 function getNoteCaller(editor: LexicalEditor, noteNodeKey: NodeKey): string {
   return editor.read(() => {
     const noteNode = $getNodeByKey<NoteNode>(noteNodeKey);
-    if (!$isNoteNode(noteNode)) throw new Error(`getCaller: Note node not found: ${noteNodeKey}`);
+    if (!$isNoteNode(noteNode))
+      throw new Error(`getNoteCaller: Note node not found: ${noteNodeKey}`);
 
     return noteNode.getCaller();
   });
@@ -261,14 +267,24 @@ function setNoteCaller(
 ): void {
   editor.update(() => {
     const noteNode = $getNodeByKey<NoteNode>(noteNodeKey);
-    if (!$isNoteNode(noteNode)) throw new Error(`setCaller: Note node not found: ${noteNodeKey}`);
+    if (!$isNoteNode(noteNode))
+      throw new Error(`setNoteCaller: Note node not found: ${noteNodeKey}`);
 
     noteNode.setCaller(caller);
     const callerNode = $getNodeByKey<ImmutableNoteCallerNode>(callerNodeKey);
     if (!$isImmutableNoteCallerNode(callerNode))
-      throw new Error(`setCaller: Caller node not found: ${callerNodeKey}`);
+      throw new Error(`setNoteCaller: Caller node not found: ${callerNodeKey}`);
 
     callerNode.setCaller(caller);
+  });
+}
+
+function getNoteOps(editor: LexicalEditor, noteNodeKey: NodeKey): DeltaOp[] | undefined {
+  return editor.read(() => {
+    const noteNode = $getNodeByKey<NoteNode>(noteNodeKey);
+    if (!$isNoteNode(noteNode)) throw new Error(`getNoteOps: Note node not found: ${noteNodeKey}`);
+
+    return $getParticularNodeOps(noteNode);
   });
 }
 

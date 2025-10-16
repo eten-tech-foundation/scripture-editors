@@ -37,8 +37,18 @@ export interface EditorRef {
   getUsj(): Usj | undefined;
   /** Set the USJ Scripture data. */
   setUsj(usj: Usj): void;
-  /** EXPERIMENTAL: Apply Operational Transform delta update */
+  /** EXPERIMENTAL: Apply Operational Transform delta update. */
   applyUpdate(ops: DeltaOp[], source?: DeltaSource): void;
+  /**
+   * EXPERIMENTAL: Replace an embed Operational Transform delta.
+   *
+   * @remarks Embed nodes are treated as atomic units. These include chapter nodes, verse nodes,
+   *   milestone nodes, note nodes, and unmatched nodes.
+   *
+   * @param embedNodeKey - The editor key of the embed node to replace.
+   * @param insertEmbedOps - The delta operations that insert the new embed node.
+   */
+  replaceEmbedUpdate(embedNodeKey: string, insertEmbedOps: DeltaOp[]): void;
   /**
    * Get the selection location or range.
    * @returns the selection location or range, or `undefined` if there is no selection. The
@@ -66,7 +76,7 @@ export interface EditorRef {
    */
   removeAnnotation(type: string, id: string): void;
   /** Format the paragraph at the current cursor position with the given block marker. */
-  formatPara(selectedBlockMarker: string): void;
+  formatPara(blockMarker: string): void;
   /**
    * Insert a note at the specified selection, e.g. footnote, cross-reference, endnote.
    * @param marker - The marker type for the note.
@@ -78,10 +88,16 @@ export interface EditorRef {
   insertNote(marker: string, caller?: string, selection?: SelectionRange): void;
   /**
    * EXPERIMENTAL: Select the note by editor key or at the given index in the editor, if any.
-   * @param noteKeyOrIndex - The note key or index, e.g. 1 would select the second note in the
+   * @param noteKeyOrIndex - The note key or index, e.g. index=1 would select the second note in the
    *   editor.
    */
   selectNote(noteKeyOrIndex: string | number): void;
+  /**
+   * EXPERIMENTAL: Get the note operations by editor key or at the given index in the editor, if any.
+   * @param noteKeyOrIndex - The note key or index, e.g. index=1 would get the second note in the
+   *   editor.
+   */
+  getNoteOps(noteKeyOrIndex: string | number): DeltaOp[] | undefined;
   /** Ref to the end of the toolbar - INTERNAL USE ONLY to dynamically add controls in the toolbar. */
   toolbarEndRef: RefObject<HTMLElement | null> | null;
 }

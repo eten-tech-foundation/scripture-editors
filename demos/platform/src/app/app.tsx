@@ -13,9 +13,12 @@ import {
   Comments,
   DeltaOp,
   DeltaSource,
+  Editorial,
   EditorOptions,
+  EditorRef,
   GENERATOR_NOTE_CALLER,
   getDefaultViewMode,
+  getDefaultViewOptions,
   getViewOptions,
   HIDDEN_NOTE_CALLER,
   Marginal,
@@ -28,6 +31,7 @@ import {
 } from "@eten-tech-foundation/platform-editor";
 import { Usj, usxStringToUsj } from "@eten-tech-foundation/scripture-utilities";
 import { SerializedVerseRef } from "@sillsdev/scripture";
+import { Check, X } from "lucide-react";
 import { MouseEvent, RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { WEB_PSA_CH1_USX, WEB_PSA_USX, WEB_PSA_COMMENTS as comments } from "test-data";
 
@@ -42,18 +46,10 @@ const isTesting = process.env.NODE_ENV === "testing";
 const emptyUsj = usxStringToUsj('<usx version="3.1" />');
 const webUsj = usxStringToUsj(isTesting ? WEB_PSA_USX : WEB_PSA_CH1_USX);
 const defaultScrRef: SerializedVerseRef = { book: "PSA", chapterNum: 1, verseNum: 1 };
-const customNodeOptions: UsjNodeOptions = {
-  noteCallerOnClick: (_event, _noteNodeKey, isCollapsed, getCaller, setCaller) => {
-    if (isCollapsed) {
-      console.log("collapsed note node clicked - do nothing");
-      return;
-    }
-
-    console.log("expanded note node clicked - toggle caller");
-    if (getCaller() === GENERATOR_NOTE_CALLER) setCaller(HIDDEN_NOTE_CALLER);
-    else setCaller(GENERATOR_NOTE_CALLER);
-  },
-  noteCallers: ["①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨"],
+const noteEditorOptions: EditorOptions = {
+  hasExternalUI: false,
+  debug: false,
+  view: { ...getDefaultViewOptions(), noteMode: "expanded" },
 };
 // Word "man" inside first q1 of PSA 1:1.
 const annotationRange1 = {
@@ -99,6 +95,9 @@ const defaultAnnotations: Annotations = {
 
 export default function App() {
   const marginalRef = useRef<MarginalRef | null>(null);
+  const noteEditorRef = useRef<EditorRef | null>(null);
+  const noteNodeKeyRef = useRef<string | undefined>();
+  const [isNoteEditorVisible, setIsNoteEditorVisible] = useState(false);
   const [isOptionsDefined, setIsOptionsDefined] = useState(false);
   const [isReadonly, setIsReadonly] = useState(false);
   const [hasExternalUI, setHasExternalUI] = useState(true);
@@ -134,10 +133,33 @@ export default function App() {
     return _viewOptions;
   }, [viewMode, markerMode, noteMode, hasSpacing, isFormattedFont]);
 
+  const customNodeOptions = useMemo<UsjNodeOptions>(
+    () => ({
+      noteCallerOnClick: (_event, noteNodeKey, isCollapsed, getCaller, setCaller, getNoteOps) => {
+        if (isCollapsed) {
+          // If we are already editing a note node, don't select another one.
+          if (noteNodeKeyRef.current) return;
+
+          console.log("collapsed note node clicked - use note editor");
+          noteNodeKeyRef.current = noteNodeKey;
+          const noteOps = getNoteOps?.();
+          if (noteOps) noteEditorRef.current?.applyUpdate(noteOps);
+          setIsNoteEditorVisible(true);
+        } else {
+          console.log("expanded note node clicked - toggle caller");
+          if (getCaller() === GENERATOR_NOTE_CALLER) setCaller(HIDDEN_NOTE_CALLER);
+          else setCaller(GENERATOR_NOTE_CALLER);
+        }
+      },
+      noteCallers: ["①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨"],
+    }),
+    [],
+  );
+
   const nodeOptions = useMemo<UsjNodeOptions | undefined>(() => {
     if (nodesMode === UNDEFINED_NODES_MODE) return undefined;
     else return customNodeOptions;
-  }, [nodesMode]);
+  }, [customNodeOptions, nodesMode]);
 
   const options = useMemo<EditorOptions | undefined>(
     () =>
@@ -162,6 +184,21 @@ export default function App() {
       nodeOptions,
       debug,
     ],
+  );
+
+  const formattedNodeOptions = useMemo(
+    () =>
+      JSON.stringify(nodeOptions, (_key, value) =>
+        typeof value === "function" ? "<Function>" : value,
+      )
+        // Add newline and indent after commas that precede object properties (but not array
+        // elements)
+        ?.replace(/,(?="\w+":|$)/g, ",\n  ")
+        // Add newline and indent after opening brace
+        .replace(/^\{/, "{\n  ")
+        // Add newline before closing brace
+        .replace(/\}$/, "\n}"),
+    [nodeOptions],
   );
 
   const handleUsjChange = useCallback(
@@ -208,6 +245,45 @@ export default function App() {
 
   const toggleIsOptionsDefined = useCallback(() => setIsOptionsDefined((value) => !value), []);
 
+  const handleEmptyEditor = useCallback(() => {
+    marginalRef.current?.setUsj({
+      type: "USJ",
+      version: "3.1",
+      content: [],
+    });
+  }, []);
+
+  const handleApplyOps = useCallback(() => {
+    try {
+      const ops = JSON.parse(opsInput);
+      if (Array.isArray(ops)) {
+        marginalRef.current?.applyUpdate(ops);
+      } else {
+        alert("Input must be a JSON array of objects");
+      }
+    } catch (e) {
+      alert("Invalid JSON: " + e);
+    }
+  }, [opsInput]);
+
+  const handleNoteEditorCancel = useCallback(() => {
+    console.log("Note editor cancel");
+    noteNodeKeyRef.current = undefined;
+    noteEditorRef.current?.setUsj(emptyUsj);
+    setIsNoteEditorVisible(false);
+  }, []);
+
+  const handleNoteEditorSubmit = useCallback(() => {
+    console.log("Note editor submit");
+    const noteOps = noteEditorRef.current?.getNoteOps(0);
+    if (noteNodeKeyRef.current && noteOps) {
+      marginalRef.current?.replaceEmbedUpdate(noteNodeKeyRef.current, noteOps);
+      noteNodeKeyRef.current = undefined;
+    }
+    noteEditorRef.current?.setUsj(emptyUsj);
+    setIsNoteEditorVisible(false);
+  }, []);
+
   // Simulate USJ updating after the editor is loaded.
   useEffect(() => {
     const timeoutId = setTimeout(() => {
@@ -223,33 +299,24 @@ export default function App() {
     setShowCommentsContainerRef(toolbarEndRef);
   }, []);
 
-  // Handler to clear the editor
-  const handleEmptyEditor = useCallback(() => {
-    marginalRef.current?.setUsj({
-      type: "USJ",
-      version: "3.1",
-      content: [],
-    });
-  }, []);
-
-  // Handler to apply ops (expects JSON array of objects)
-  const handleApplyOps = useCallback(() => {
-    try {
-      const ops = JSON.parse(opsInput);
-      if (Array.isArray(ops)) {
-        marginalRef.current?.applyUpdate(ops);
-      } else {
-        alert("Input must be a JSON array of objects");
-      }
-    } catch (e) {
-      alert("Invalid JSON: " + e);
-    }
-  }, [opsInput]);
-
   return (
     <div style={{ display: "flex", flexDirection: "row", alignItems: "stretch", height: "80vh" }}>
       <div style={{ flex: 1 }}>
         <div className="controls">
+          <button onClick={toggleIsOptionsDefined}>
+            {isOptionsDefined ? "Undefine" : "Define"} options
+          </button>
+          <div className="debug">
+            <div className="checkbox">
+              <input
+                type="checkbox"
+                id="debugCheckBox"
+                checked={debug}
+                onChange={(e) => setDebug(e.target.checked)}
+              />
+              <label htmlFor="debugCheckBox">Debug</label>
+            </div>
+          </div>
           <span>
             <div>Cursor location</div>
             <div>
@@ -287,19 +354,8 @@ export default function App() {
               </button>
             </div>
           </span>
-          <div className="debug">
-            <div className="checkbox">
-              <input
-                type="checkbox"
-                id="debugCheckBox"
-                checked={debug}
-                onChange={(e) => setDebug(e.target.checked)}
-              />
-              <label htmlFor="debugCheckBox">Debug</label>
-            </div>
-          </div>
-          <button onClick={toggleIsOptionsDefined}>
-            {isOptionsDefined ? "Undefine" : "Define"} options
+          <button onClick={() => setIsNoteEditorVisible(!isNoteEditorVisible)}>
+            {isNoteEditorVisible ? "Hide" : "Show"} note editor
           </button>
         </div>
         {isOptionsDefined && (
@@ -387,7 +443,7 @@ export default function App() {
             )}
             {nodesMode === CUSTOM_NODES_MODE && (
               <div className="custom-node-options">
-                <pre>"nodeOptions": {JSON.stringify(nodeOptions)}</pre>
+                <pre>"nodeOptions": {formattedNodeOptions}</pre>
               </div>
             )}
           </>
@@ -422,63 +478,129 @@ export default function App() {
           showCommentsContainerRef={showCommentsContainerRef}
         />
       </div>
-      {debug && (
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          marginLeft: 24,
+          minWidth: 320,
+          maxWidth: 380,
+          gap: 16,
+          alignSelf: "stretch",
+        }}
+      >
         <div
           style={{
-            minWidth: 320,
-            maxWidth: 380,
-            marginLeft: 24,
             border: "1px solid #ccc",
             padding: 16,
             background: "#fafafa",
-            display: "flex",
+            display: isNoteEditorVisible ? "flex" : "none",
             flexDirection: "column",
-            flex: 1,
-            height: "100%",
           }}
         >
-          <h4 style={{ color: "#222" }}>OT Apply Updates</h4>
-          <button
-            onClick={handleEmptyEditor}
-            style={{
-              marginBottom: 8,
-              width: "auto",
-              alignSelf: "center",
-              minWidth: 0,
-              padding: "4px 12px",
-            }}
-          >
-            Empty Editor
-          </button>
           <div
             style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
               marginBottom: 8,
-              flex: 1,
+            }}
+          >
+            <h4 style={{ color: "#222", margin: 0 }}>Edit Note</h4>
+            <div style={{ display: "flex", gap: 4 }}>
+              <button
+                onClick={handleNoteEditorCancel}
+                style={{
+                  padding: "4px 8px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+                aria-label="Cancel"
+                title="Cancel"
+              >
+                <X size={16} />
+              </button>
+              <button
+                onClick={handleNoteEditorSubmit}
+                style={{
+                  padding: "4px 8px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+                aria-label="Submit"
+                title="Submit"
+              >
+                <Check size={16} />
+              </button>
+            </div>
+          </div>
+          <div style={{ height: "140px", border: "1px solid #ddd", overflow: "hidden" }}>
+            <Editorial
+              ref={noteEditorRef}
+              defaultUsj={emptyUsj}
+              scrRef={scrRef}
+              onScrRefChange={() => undefined}
+              options={noteEditorOptions}
+            />
+          </div>
+        </div>
+        {debug && (
+          <div
+            style={{
+              border: "1px solid #ccc",
+              padding: 16,
+              background: "#fafafa",
               display: "flex",
               flexDirection: "column",
+              flex: 1,
               minHeight: 0,
             }}
           >
-            <label htmlFor="opsInput">Delta Ops (JSON array):</label>
-            <textarea
-              id="opsInput"
-              value={opsInput}
-              onChange={(e) => setOpsInput(e.target.value)}
+            <h4 style={{ color: "#222" }}>OT Apply Updates</h4>
+            <button
+              onClick={handleEmptyEditor}
               style={{
-                width: "100%",
-                fontFamily: "monospace",
-                resize: "none",
+                marginBottom: 8,
+                width: "auto",
+                alignSelf: "center",
+                minWidth: 0,
+                padding: "4px 12px",
+              }}
+            >
+              Empty Editor
+            </button>
+            <div
+              style={{
+                marginBottom: 8,
+                display: "flex",
+                flexDirection: "column",
                 flex: 1,
                 minHeight: 0,
               }}
-              placeholder='[{"insert": "<text>"}, {"retain": 5}, {"delete": 2}]'
-            />
-            <button onClick={handleApplyOps} style={{ marginTop: 4, alignSelf: "flex-end" }}>
-              Apply Ops
-            </button>
+            >
+              <label htmlFor="opsInput">Delta Ops (JSON array):</label>
+              <textarea
+                id="opsInput"
+                value={opsInput}
+                onChange={(e) => setOpsInput(e.target.value)}
+                style={{
+                  width: "100%",
+                  fontFamily: "monospace",
+                  resize: "none",
+                  flex: 1,
+                  minHeight: 0,
+                }}
+                placeholder='[{"insert": "<text>"}, {"retain": 5}, {"delete": 2}]'
+              />
+              <button onClick={handleApplyOps} style={{ marginTop: 4, alignSelf: "flex-end" }}>
+                Apply Ops
+              </button>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

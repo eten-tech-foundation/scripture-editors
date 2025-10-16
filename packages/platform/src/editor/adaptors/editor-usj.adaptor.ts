@@ -9,6 +9,7 @@ import {
 import {
   EditorState,
   LineBreakNode,
+  SerializedEditorState,
   SerializedLexicalNode,
   SerializedTextNode,
   TextNode,
@@ -76,7 +77,12 @@ export function initialize(logger: LoggerBasic | undefined) {
 export function deserializeEditorState(editorState: EditorState): Usj | undefined {
   if (editorState.isEmpty()) return emptyUsj;
 
-  const serializedEditorState = editorState.toJSON();
+  return deserializeSerializedEditorState(editorState.toJSON());
+}
+
+export function deserializeSerializedEditorState(
+  serializedEditorState: SerializedEditorState,
+): Usj | undefined {
   if (!serializedEditorState.root || !serializedEditorState.root.children) return;
 
   const rootChildren = serializedEditorState.root.children;

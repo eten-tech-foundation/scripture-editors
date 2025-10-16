@@ -50,8 +50,10 @@ import {
 import {
   $applyUpdate,
   $getNoteByKeyOrIndex,
+  $getParticularNodeOps,
   $getRangeFromEditor,
   $getRangeFromSelection,
+  $getReplaceEmbedOps,
   $insertNote,
   $selectNote,
   AnnotationPlugin,
@@ -139,6 +141,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
   const editedUsjRef = useRef(defaultUsj);
   const expandedNoteKeyRef = useRef<string | undefined>();
   const [usj, setUsj] = useState(defaultUsj);
+  const [loadTrigger, setLoadTrigger] = useState(0);
 
   const {
     isReadonly = false,
@@ -182,7 +185,10 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
     setUsj(incomingUsj) {
       if (!deepEqual(editedUsjRef.current, incomingUsj)) {
         editedUsjRef.current = incomingUsj;
+        // This can happen when using `applyUpdate` since `usj` won't change.
+        const shouldForceReload = deepEqual(usj, incomingUsj);
         setUsj(incomingUsj);
+        if (shouldForceReload) setLoadTrigger((prev) => prev + 1);
       }
     },
     applyUpdate(ops, source = "remote") {
@@ -203,6 +209,10 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
         if (isEdited || !deepEqual(usj, newUsj)) onUsjChange?.(newUsj, ops, source);
       }
     },
+    replaceEmbedUpdate(embedNodeKey, insertEmbedOps) {
+      const ops = editorRef.current?.read(() => $getReplaceEmbedOps(embedNodeKey, insertEmbedOps));
+      if (ops) this.applyUpdate(ops);
+    },
     getSelection() {
       return editorRef.current?.read($getRangeFromEditor);
     },
@@ -221,11 +231,11 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
     removeAnnotation(type, id) {
       annotationRef.current?.removeAnnotation(externalTypedMarkType(type), id);
     },
-    formatPara(selectedBlockMarker) {
+    formatPara(blockMarker) {
       editorRef.current?.update(() => {
         const selection = $getSelection();
         if ($isRangeSelection(selection)) {
-          $setBlocksType(selection, () => $createParaNode(selectedBlockMarker));
+          $setBlocksType(selection, () => $createParaNode(blockMarker));
         }
       });
     },
@@ -250,6 +260,14 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
           $selectNote(noteNode, viewOptions);
           if (!noteNode.getIsCollapsed()) expandedNoteKeyRef.current = noteNode.getKey();
         }
+      });
+    },
+    getNoteOps(noteKeyOrIndex) {
+      return editorRef.current?.read(() => {
+        const noteNode = $getNoteByKeyOrIndex(noteKeyOrIndex);
+        if (!noteNode) return undefined;
+
+        return $getParticularNodeOps(noteNode);
       });
     },
     get toolbarEndRef() {
@@ -320,6 +338,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
             setUsj={setUsj}
           />
           <LoadStatePlugin
+            key={loadTrigger}
             scripture={usj}
             nodeOptions={nodeOptions}
             editorAdaptor={usjEditorAdaptor}
