@@ -43,13 +43,17 @@ export function LoadStatePlugin<TLogger extends LoggerBasic>({
 
     try {
       const editorState = editor.parseEditorState(serializedEditorState);
-      editor.update(
-        () => {
-          editor.setEditorState(editorState);
-          editor.dispatchCommand(CLEAR_HISTORY_COMMAND, undefined);
-        },
-        { tag: EXTERNAL_USJ_MUTATION_TAG },
-      );
+      // Use queueMicrotask to defer the editor update outside of React's lifecycle,
+      // preventing flushSync warnings when this is triggered by a parent component update
+      queueMicrotask(() => {
+        editor.update(
+          () => {
+            editor.setEditorState(editorState);
+            editor.dispatchCommand(CLEAR_HISTORY_COMMAND, undefined);
+          },
+          { tag: EXTERNAL_USJ_MUTATION_TAG },
+        );
+      });
     } catch {
       logger?.error("LoadStatePlugin: error parsing or setting editor state.");
     }

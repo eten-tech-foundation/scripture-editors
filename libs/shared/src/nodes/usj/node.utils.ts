@@ -8,6 +8,7 @@ import {
   BaseSelection,
   LexicalEditor,
   LexicalNode,
+  NodeKey,
   RangeSelection,
   SerializedLexicalNode,
   SerializedTextNode,
@@ -222,6 +223,23 @@ export function $getPreviousNode(selection: RangeSelection): LexicalNode | null 
  */
 export function $isSomeParaNode(node: LexicalNode | null | undefined): node is SomeParaNode {
   return $isParaNode(node) || $isImpliedParaNode(node);
+}
+
+/**
+ * Check if a node is a descendant of a potential ancestor node.
+ *
+ * @param node - The node to check.
+ * @param ancestorKey - The key of the potential ancestor node.
+ * @returns `true` if the node is a descendant of the ancestor, `false` otherwise.
+ */
+export function $isDescendantOf(node: LexicalNode, ancestorKey: NodeKey): boolean {
+  let parent = node.getParent();
+  while (parent) {
+    if (parent.getKey() === ancestorKey) return true;
+
+    parent = parent.getParent();
+  }
+  return false;
 }
 
 /**

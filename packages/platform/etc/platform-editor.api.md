@@ -79,7 +79,8 @@ export interface EditorRef {
     copy(): void;
     cut(): void;
     focus(): void;
-    formatPara(selectedBlockMarker: string): void;
+    formatPara(blockMarker: string): void;
+    getNoteOps(noteKeyOrIndex: string | number): DeltaOp[] | undefined;
     getSelection(): SelectionRange | undefined;
     getUsj(): Usj | undefined;
     insertNote(marker: string, caller?: string, selection?: SelectionRange): void;
@@ -87,6 +88,7 @@ export interface EditorRef {
     pastePlainText(): void;
     redo(): void;
     removeAnnotation(type: string, id: string): void;
+    replaceEmbedUpdate(embedNodeKey: string, insertEmbedOps: DeltaOp[]): void;
     selectNote(noteKeyOrIndex: string | number): void;
     setSelection(selection: SelectionRange): void;
     setUsj(usj: Usj): void;
@@ -150,7 +152,7 @@ export interface NodeOptions {
 }
 
 // @public
-export type NoteCallerOnClick = (event: SyntheticEvent, noteNodeKey: string, isCollapsed: boolean | undefined, getCaller: () => string, setCaller: (caller: string) => void) => void;
+export type NoteCallerOnClick = (event: SyntheticEvent, noteNodeKey: string, isCollapsed: boolean | undefined, getCaller: () => string, setCaller: (caller: string) => void, getNoteOps: () => DeltaOp[] | undefined) => void;
 
 // @public
 export type NoteMode =

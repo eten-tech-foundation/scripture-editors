@@ -115,6 +115,9 @@ const Marginal = forwardRef(function Marginal<TLogger extends LoggerBasic>(
     applyUpdate(ops, source) {
       editorRef.current?.applyUpdate(ops, source);
     },
+    replaceEmbedUpdate(embedNodeKey, insertEmbedOps) {
+      return editorRef.current?.replaceEmbedUpdate(embedNodeKey, insertEmbedOps);
+    },
     getSelection() {
       return editorRef.current?.getSelection();
     },
@@ -127,14 +130,17 @@ const Marginal = forwardRef(function Marginal<TLogger extends LoggerBasic>(
     removeAnnotation(type, id) {
       editorRef.current?.removeAnnotation(type, id);
     },
-    formatPara(selectedBlockMarker) {
-      editorRef.current?.formatPara(selectedBlockMarker);
+    formatPara(blockMarker) {
+      editorRef.current?.formatPara(blockMarker);
     },
     insertNote(marker, caller, selection) {
       editorRef.current?.insertNote(marker, caller, selection);
     },
     selectNote(noteKeyOrIndex) {
       editorRef.current?.selectNote(noteKeyOrIndex);
+    },
+    getNoteOps(noteKeyOrIndex) {
+      return editorRef.current?.getNoteOps(noteKeyOrIndex);
     },
     setComments(comments) {
       commentStoreRef.current?.setComments(comments);
