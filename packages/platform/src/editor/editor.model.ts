@@ -118,7 +118,7 @@ export interface EditorProps<TLogger extends LoggerBasic> {
   /** Callback function when the cursor selection changes. */
   onSelectionChange?: (selection: SelectionRange | undefined) => void;
   /** Callback function when USJ Scripture data has changed. */
-  onUsjChange?: (usj: Usj, ops?: DeltaOp[], source?: DeltaSource) => void;
+  onUsjChange?: (usj: Usj, ops?: DeltaOp[], source?: DeltaSource, insertedNodeKey?: string) => void;
   /** Callback function when state changes. */
   onStateChange?: (canUndo: boolean, canRedo: boolean, blockMarker: string | undefined) => void;
   /** Options to configure the editor. */

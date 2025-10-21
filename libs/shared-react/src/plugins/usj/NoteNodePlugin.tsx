@@ -158,15 +158,17 @@ function useNoteNode(
  *
  * @remarks Removes a NoteNode if it does not contain an ImmutableNoteCallerNode child when
  * `markerMode` is not 'editable'. This can happen during certain editing operations or data
- * inconsistencies. Also if the first node is a TextNode move it before the NoteNode, i.e. the user
- * typed when the selection was at the beginning of a NoteNode.
+ * inconsistencies. When editing notes we may intentionally exclude the caller by setting it empty.
+ * Also if the first node is a TextNode move it before the NoteNode, i.e. the user typed when the
+ * selection was at the beginning of a NoteNode.
  * @param node - The NoteNode to check.
  * @param viewOptions - The view options that includes the marker mode.
  */
 function $noteNodeTransform(node: NoteNode, viewOptions: ViewOptions | undefined): void {
   const nodeChildren = node.getChildren();
   const hasNoteCaller = nodeChildren.some((child) => $isImmutableNoteCallerNode(child));
-  if (!hasNoteCaller && viewOptions?.markerMode !== "editable") node.remove();
+  if (!hasNoteCaller && viewOptions?.markerMode !== "editable" && node.getCaller() !== "")
+    node.remove();
 
   if (nodeChildren.length > 0) {
     const firstChild = nodeChildren[0];

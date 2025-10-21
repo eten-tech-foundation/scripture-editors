@@ -46,6 +46,7 @@ export interface MarginalProps<TLogger extends LoggerBasic>
     comments: Comments | undefined,
     ops?: DeltaOp[],
     source?: DeltaSource,
+    insertedNodeKey?: string,
   ) => void;
   /** Container ref for the show comments button - overrides internal toolbarEndRef if provided. */
   showCommentsContainerRef?: RefObject<HTMLElement | null> | null;
@@ -152,11 +153,11 @@ const Marginal = forwardRef(function Marginal<TLogger extends LoggerBasic>(
   }));
 
   const handleUsjChange = useCallback(
-    (usj: Usj, ops?: DeltaOp[], source?: DeltaSource) => {
+    (usj: Usj, ops?: DeltaOp[], source?: DeltaSource, insertedNodeKey?: string) => {
       if (!onUsjChange) return;
 
       const comments = commentStoreRef.current?.getComments();
-      onUsjChange(usj, comments, ops, source);
+      onUsjChange(usj, comments, ops, source, insertedNodeKey);
     },
     [commentStoreRef, onUsjChange],
   );
