@@ -58,15 +58,37 @@ export interface OTMilestoneEmbed extends OTParaAttribute {
 }
 export const OT_MILESTONE_PROPS: (keyof OTMilestoneEmbed)[] = ["style", "sid", "eid"];
 
-export interface OTUnmatchedEmbed {
-  marker: string;
-}
-// Ignore any unknown properties on an OTUnmatchedEmbed.
-
 export interface OTNoteEmbed extends OTParaAttribute {
   caller: string;
   category?: string;
   contents?: { ops?: DeltaOp[] };
 }
+export interface DeltaOpInsertNoteEmbed extends DeltaOp {
+  insert: { note: OTNoteEmbed | null };
+}
 // Note that `contents` is not a property of a NoteNode, but we don't want it in unknownAttributes.
 export const OT_NOTE_PROPS: (keyof OTNoteEmbed)[] = ["style", "caller", "category", "contents"];
+
+export interface OTUnmatchedEmbed {
+  marker: string;
+}
+// Ignore any unknown properties on an OTUnmatchedEmbed.
+
+export interface embedTypes {
+  chapter: OTChapterEmbed;
+  "immutable-chapter": OTChapterEmbed;
+  verse: OTVerseEmbed;
+  "immutable-verse": OTVerseEmbed;
+  ms: OTMilestoneEmbed;
+  note: OTNoteEmbed;
+  unmatched: OTUnmatchedEmbed;
+}
+export const validEmbedTypes = [
+  "chapter",
+  "immutable-chapter",
+  "verse",
+  "immutable-verse",
+  "ms",
+  "note",
+  "unmatched",
+] as const satisfies readonly (keyof embedTypes)[];

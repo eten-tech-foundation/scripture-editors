@@ -2,7 +2,7 @@
  * Adapted from https://github.com/facebook/lexical/blob/d0456a81955bc6fef7cc7f87907f2a172d41bbf2/packages/lexical-react/src/LexicalOnChangePlugin.ts
  */
 
-import { $getNodeOTPosition, DeltaOp } from "./delta-common.utils";
+import { $getOTPositionOfNode, DeltaOp } from "./delta-common.utils";
 import { $getTextOp, getEditorDelta } from "./editor-delta.adaptor";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import type { EditorState, LexicalEditor, UpdateListenerPayload } from "lexical";
@@ -62,7 +62,7 @@ function $getUpdateOps(
     if (dirtyLeaves.size === 1 && $isTextNode($getNodeByKey(nodeKey))) {
       // Handle the most common case of text changing in a single text node.
       const node = $getNodeByKey(nodeKey);
-      const retain = $getNodeOTPosition(node);
+      const retain = $getOTPositionOfNode(node);
       if ($isTextNode(node) && retain !== undefined) {
         const prevTextDoc = prevEditorState.read(() => {
           const prevNode = $getNodeByKey(nodeKey);

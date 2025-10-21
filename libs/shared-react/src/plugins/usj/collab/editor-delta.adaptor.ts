@@ -7,6 +7,7 @@ import {
   ParaLikeNode,
 } from "./delta-common.utils";
 import {
+  DeltaOpInsertNoteEmbed,
   OTBookAttribute,
   OTChapterEmbed,
   OTCharAttribute,
@@ -59,6 +60,12 @@ export function $getTextOp(node: TextNode, openCharNodes?: CharNode[]): DeltaOp 
       const charItem: OTCharItem = { style: charNode.__marker };
       const cid = $getState(charNode, charIdState);
       if (cid) charItem.cid = cid;
+
+      const unknownAttrs = charNode.getUnknownAttributes();
+      if (unknownAttrs && Object.keys(unknownAttrs).length > 0) {
+        Object.assign(charItem, unknownAttrs);
+      }
+
       return charItem;
     });
     if (char.length === 1) {
@@ -228,7 +235,7 @@ function $handleNoteNodes(currentNode: LexicalNode, ops: DeltaOp[], openNote: Op
 
   $dfs(currentNode).forEach((n) => openNote.children.push(n.node));
   const noteOp = $getNoteOp(currentNode);
-  openNote.contentsOps = noteOp.insert.note.contents?.ops;
+  openNote.contentsOps = noteOp.insert.note?.contents?.ops;
   ops.push(noteOp);
 }
 
@@ -291,7 +298,7 @@ function $getImmutableUnmatchedOp(
   return { insert: { unmatched: { marker: currentNode.__marker } } };
 }
 
-function $getNoteOp(currentNode: NoteNode): DeltaOp & { insert: { note: OTNoteEmbed } } {
+function $getNoteOp(currentNode: NoteNode): DeltaOpInsertNoteEmbed {
   const note: OTNoteEmbed = {
     style: currentNode.__marker,
     caller: currentNode.__caller,
@@ -302,5 +309,10 @@ function $getNoteOp(currentNode: NoteNode): DeltaOp & { insert: { note: OTNoteEm
   if (currentNode.getChildrenSize() > 1) {
     note.contents = { ops: [] };
   }
-  return { insert: { note } };
+  const op: DeltaOpInsertNoteEmbed = { insert: { note } };
+  const segment = $getState(currentNode, segmentState);
+  if (segment) {
+    op.attributes = { segment };
+  }
+  return op;
 }

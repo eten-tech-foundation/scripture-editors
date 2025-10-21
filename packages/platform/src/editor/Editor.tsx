@@ -67,6 +67,7 @@ import {
   DeltaOp,
   EditablePlugin,
   getDefaultViewOptions,
+  getInsertedNodeKey,
   getViewClassList,
   LoadStatePlugin,
   NoteNodePlugin,
@@ -206,7 +207,10 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
       if (newUsj) {
         const isEdited = !deepEqual(editedUsjRef.current, newUsj);
         if (isEdited) editedUsjRef.current = newUsj;
-        if (isEdited || !deepEqual(usj, newUsj)) onUsjChange?.(newUsj, ops, source);
+        if (isEdited || !deepEqual(usj, newUsj)) {
+          const insertedNodeKey = getInsertedNodeKey(ops, editorState);
+          onUsjChange?.(newUsj, ops, source, insertedNodeKey);
+        }
       }
     },
     replaceEmbedUpdate(embedNodeKey, insertEmbedOps) {
@@ -283,8 +287,11 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
       if (newUsj) {
         const isEdited = !deepEqual(editedUsjRef.current, newUsj);
         if (isEdited) editedUsjRef.current = newUsj;
-        const source = tags.has(DELTA_CHANGE_TAG) ? "remote" : "local";
-        if (isEdited || !deepEqual(usj, newUsj)) onUsjChange?.(newUsj, ops, source);
+        if (isEdited || !deepEqual(usj, newUsj)) {
+          const source = tags.has(DELTA_CHANGE_TAG) ? "remote" : "local";
+          const insertedNodeKey = getInsertedNodeKey(ops, editorState);
+          onUsjChange?.(newUsj, ops, source, insertedNodeKey);
+        }
       }
     },
     [usj, onUsjChange],

@@ -1,7 +1,7 @@
 /** Conforms with USJ v3.1 @see https://docs.usfm.bible/usfm/3.1/note/index.html */
 
-import { DeltaOp } from "../../plugins/usj/collab/delta-common.utils";
 import { $getParticularNodeOps } from "../../plugins/usj/collab/editor-delta.adaptor";
+import { DeltaOpInsertNoteEmbed } from "../../plugins/usj/collab/rich-text-ot.model";
 import {
   $applyNodeReplacement,
   $getNodeByKey,
@@ -39,7 +39,7 @@ export type NoteCallerOnClick = (
   isCollapsed: boolean | undefined,
   getCaller: () => string,
   setCaller: (caller: string) => void,
-  getNoteOps: () => DeltaOp[] | undefined,
+  getNoteOps: () => DeltaOpInsertNoteEmbed[] | undefined,
 ) => void;
 
 export type SerializedImmutableNoteCallerNode = Spread<
@@ -279,12 +279,15 @@ function setNoteCaller(
   });
 }
 
-function getNoteOps(editor: LexicalEditor, noteNodeKey: NodeKey): DeltaOp[] | undefined {
+function getNoteOps(
+  editor: LexicalEditor,
+  noteNodeKey: NodeKey,
+): DeltaOpInsertNoteEmbed[] | undefined {
   return editor.read(() => {
     const noteNode = $getNodeByKey<NoteNode>(noteNodeKey);
     if (!$isNoteNode(noteNode)) throw new Error(`getNoteOps: Note node not found: ${noteNodeKey}`);
 
-    return $getParticularNodeOps(noteNode);
+    return $getParticularNodeOps(noteNode) as DeltaOpInsertNoteEmbed[];
   });
 }
 

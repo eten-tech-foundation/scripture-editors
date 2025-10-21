@@ -1,8 +1,16 @@
 /** Common utilities used for OT Delta realtime collaborative editing. */
 
 import { $isSomeVerseNode, SomeVerseNode } from "../../../nodes/usj/node-react.utils";
+import { embedTypes, validEmbedTypes } from "./rich-text-ot.model";
 import { $dfs, DFSNode } from "@lexical/utils";
-import { $getNodeByKey, $isTextNode, ElementNode, LexicalNode, NodeKey } from "lexical";
+import {
+  $getNodeByKey,
+  $isTextNode,
+  EditorState,
+  ElementNode,
+  LexicalNode,
+  NodeKey,
+} from "lexical";
 import { Op } from "quill-delta";
 import {
   $isBookNode,
@@ -68,53 +76,11 @@ export function $getReplaceEmbedOps(
   const node = $getNodeByKey(embedNodeKey);
   if (!$isEmbedNode(node)) return;
 
-  const retain = $getNodeOTPosition(node);
+  const retain = $getOTPositionOfNode(node);
   if (retain === undefined) return;
 
   const ops: DeltaOp[] = [{ retain }, ...insertEmbedOps, { delete: 1 }];
   return ops;
-}
-
-/**
- * Type guard to check if a node is an embed. Embeds have an OT length of 1 and are self-contained
- * (no children to process).
- */
-export function $isEmbedNode(node: LexicalNode | null | undefined): node is EmbedNode {
-  return (
-    $isSomeChapterNode(node) ||
-    $isSomeVerseNode(node) ||
-    $isMilestoneNode(node) ||
-    $isNoteNode(node) ||
-    $isImmutableUnmatchedNode(node)
-  );
-}
-
-/**
- * Type guard to check if a node is para-like. Para-like nodes have an OT length of 1 that is
- * counted on its close (rather than its open).
- */
-export function $isParaLikeNode(node: LexicalNode | null | undefined): node is ParaLikeNode {
-  return $isSomeParaNode(node) || $isBookNode(node);
-}
-
-/**
- * Check if an element node is being closed at this point in the DFS traversal.
- */
-export function $isElementNodeClosing(
-  node: ElementNode | undefined,
-  nextDfsNode: DFSNode | undefined,
-): boolean {
-  if (!node) return false;
-
-  // An element node is closing if the next node in DFS is not a descendant.
-  // In DFS, all descendants of a node appear consecutively after the node.
-  if (!nextDfsNode) {
-    // End of traversal, so this node is closing
-    return true;
-  }
-
-  // Check if the next node is a descendant of the current node
-  return !$isDescendantOf(nextDfsNode.node, node.getKey());
 }
 
 /**
@@ -129,7 +95,7 @@ export function $isElementNodeClosing(
  * @param node - The Lexical node to find the position for.
  * @returns The OT position of the node, or `undefined` if the node is not found.
  */
-export function $getNodeOTPosition(node: LexicalNode | null | undefined): number | undefined {
+export function $getOTPositionOfNode(node: LexicalNode | null | undefined): number | undefined {
   if (!node) return undefined;
 
   const dfsNodes = $dfs();
@@ -214,6 +180,202 @@ export function $getNodeOTPosition(node: LexicalNode | null | undefined): number
 
   // Node not found
   return undefined;
+}
+
+/**
+ * Get the key of the inserted node from the OT delta operations.
+ * @param ops - The OT delta operations with potential insertion.
+ * @param editorState - The current editor state.
+ * @returns The key of the inserted node if found, `undefined` otherwise.
+ */
+export function getInsertedNodeKey(ops: DeltaOp[], editorState: EditorState): NodeKey | undefined {
+  if (ops.length < 2 || !isRetainOp(ops[0]) || !isInsertEmbedOp(ops[1])) return undefined;
+
+  const retain = ops[0].retain;
+  return editorState.read(() => {
+    const node = $getNodeFromOTPosition(retain);
+    return node?.getKey();
+  });
+}
+
+/**
+ * Get the Lexical node at a specific OT delta position.
+ * @param otPosition - The OT delta position in the doc.
+ * @returns The Lexical node if found, `undefined` otherwise.
+ */
+export function $getNodeFromOTPosition(otPosition: number): LexicalNode | undefined {
+  const dfsNodes = $dfs();
+  let currentIndex = 0;
+  const openParaLikeNodes: ParaLikeNode[] = [];
+  let openNote: NoteNode | undefined;
+  let openNotePosition: number | undefined;
+
+  for (const dfsNode of dfsNodes) {
+    const currentNode = dfsNode.node;
+
+    // Before processing the current node, check if any previously opened para-like nodes are
+    // closing.
+    for (let j = openParaLikeNodes.length - 1; j >= 0; j--) {
+      if ($isElementNodeClosing(openParaLikeNodes[j], dfsNode)) {
+        const closingPara = openParaLikeNodes[j];
+        openParaLikeNodes.splice(j, 1);
+
+        // Check if this closing position matches our target
+        if (currentIndex === otPosition) {
+          return closingPara;
+        }
+        currentIndex += 1;
+      }
+    }
+
+    // Check if the current open note is closing
+    if (openNote && $isElementNodeClosing(openNote, dfsNode)) {
+      openNote = undefined;
+      openNotePosition = undefined;
+    }
+
+    // If we're inside a note, skip counting internal nodes
+    if (openNote) {
+      // If the target position is the note's position, return the note
+      if (openNotePosition === otPosition) {
+        return openNote;
+      }
+      continue; // Skip this node for position calculation
+    }
+
+    // Track opening of para-like nodes
+    if ($isParaLikeNode(currentNode)) {
+      if (!openParaLikeNodes.includes(currentNode)) {
+        openParaLikeNodes.push(currentNode);
+      }
+    }
+
+    // Track when we enter a note node
+    if ($isNoteNode(currentNode)) {
+      openNote = currentNode;
+      openNotePosition = currentIndex;
+
+      // If this position matches, return the note
+      if (currentIndex === otPosition) {
+        return currentNode;
+      }
+      currentIndex += 1;
+      continue;
+    }
+
+    // Calculate OT length contribution of current node
+    const contribution = $getNodeOTContribution(currentNode);
+
+    // For text nodes, check if the position falls within this node's range
+    if ($isTextNode(currentNode) && contribution > 0) {
+      if (otPosition >= currentIndex && otPosition < currentIndex + contribution) {
+        return currentNode;
+      }
+    }
+
+    // For embed nodes (contribution === 1), check exact position
+    if ($isEmbedNode(currentNode)) {
+      if (currentIndex === otPosition) {
+        return currentNode;
+      }
+    }
+
+    currentIndex += contribution;
+  }
+
+  // Check if any remaining open para-like nodes close at the final position
+  for (const paraNode of openParaLikeNodes) {
+    if (currentIndex === otPosition) {
+      return paraNode;
+    }
+    currentIndex += 1;
+  }
+
+  // Position not found or out of bounds
+  return undefined;
+}
+
+/**
+ * Check if an element node is being closed at this point in the DFS traversal.
+ */
+export function $isElementNodeClosing(
+  node: ElementNode | undefined,
+  nextDfsNode: DFSNode | undefined,
+): boolean {
+  if (!node) return false;
+
+  // An element node is closing if the next node in DFS is not a descendant.
+  // In DFS, all descendants of a node appear consecutively after the node.
+  if (!nextDfsNode) {
+    // End of traversal, so this node is closing
+    return true;
+  }
+
+  // Check if the next node is a descendant of the current node
+  return !$isDescendantOf(nextDfsNode.node, node.getKey());
+}
+
+/**
+ * Type guard to check if a node is an embed. Embeds have an OT length of 1 and are self-contained
+ * (no children to process).
+ */
+export function $isEmbedNode(node: LexicalNode | null | undefined): node is EmbedNode {
+  return (
+    $isSomeChapterNode(node) ||
+    $isSomeVerseNode(node) ||
+    $isMilestoneNode(node) ||
+    $isNoteNode(node) ||
+    $isImmutableUnmatchedNode(node)
+  );
+}
+
+/**
+ * Type guard to check if a node is para-like. Para-like nodes have an OT length of 1 that is
+ * counted on its close (rather than its open).
+ */
+export function $isParaLikeNode(node: LexicalNode | null | undefined): node is ParaLikeNode {
+  return $isSomeParaNode(node) || $isBookNode(node);
+}
+
+/**
+ * Type guard to check if the given insert embed operation is for the specified embed type.
+ * @param embedType - The type of embed to check for, e.g. "note".
+ * @param op - The OT delta operation to check.
+ * @returns `true` if the operation is for the specified embed type, `false` otherwise.
+ */
+export function isInsertEmbedOpOfType<T extends keyof embedTypes>(
+  embedType: T,
+  op: DeltaOp,
+): op is DeltaOp & { insert: { [K in T]: embedTypes[K] | null } } {
+  return op.insert != null && typeof op.insert === "object" && embedType in op.insert;
+}
+
+/**
+ * Type guard to check if the given insert embed operation is for an embed type.
+ * @param op - The OT delta operation to check.
+ * @returns `true` if the operation is for an embed type, `false` otherwise.
+ */
+function isInsertEmbedOp<T extends keyof embedTypes>(
+  op: DeltaOp,
+): op is DeltaOp & { insert: { [K in T]?: embedTypes[K] | null } } {
+  if (op.insert == null || typeof op.insert !== "object") return false;
+
+  const embedType = Object.keys(op.insert)[0] as T;
+  return (
+    op.insert != null &&
+    typeof op.insert === "object" &&
+    embedType in op.insert &&
+    validEmbedTypes.includes(embedType as keyof embedTypes)
+  );
+}
+
+/**
+ * Type guard to check if the given operation is a retain operation.
+ * @param op - The OT delta operation to check.
+ * @returns `true` if it is a retain operation, `false` otherwise.
+ */
+function isRetainOp(op: DeltaOp): op is { retain: number } {
+  return op.retain != null && typeof op.retain === "number";
 }
 
 /** Calculate the OT length contribution of a single node. */

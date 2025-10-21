@@ -5,6 +5,7 @@ import NodeOptionsDropDown, {
   NodesMode,
   UNDEFINED_NODES_MODE,
 } from "./NodeOptionsDropDown";
+import { NoteEditor } from "./NoteEditor";
 import { PlatformToolbar } from "./PlatformToolbar";
 import TextDirectionDropDown from "./TextDirectionDropDown";
 import ViewModeDropDown, { CUSTOM_VIEW_MODE, UNDEFINED_VIEW_MODE } from "./ViewModeDropDown";
@@ -13,15 +14,14 @@ import {
   Comments,
   DeltaOp,
   DeltaSource,
-  Editorial,
   EditorOptions,
   EditorRef,
   GENERATOR_NOTE_CALLER,
   getDefaultViewMode,
-  getDefaultViewOptions,
   getViewOptions,
   HIDDEN_NOTE_CALLER,
   Marginal,
+  MarginalProps,
   MarginalRef,
   MarkerMode,
   NoteMode,
@@ -29,9 +29,8 @@ import {
   UsjNodeOptions,
   ViewOptions,
 } from "@eten-tech-foundation/platform-editor";
-import { Usj, usxStringToUsj } from "@eten-tech-foundation/scripture-utilities";
+import { EMPTY_USJ, Usj, usxStringToUsj } from "@eten-tech-foundation/scripture-utilities";
 import { SerializedVerseRef } from "@sillsdev/scripture";
-import { Check, X } from "lucide-react";
 import { MouseEvent, RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { WEB_PSA_CH1_USX, WEB_PSA_USX, WEB_PSA_COMMENTS as comments } from "test-data";
 
@@ -43,14 +42,8 @@ interface Annotations {
 }
 
 const isTesting = process.env.NODE_ENV === "testing";
-const emptyUsj = usxStringToUsj('<usx version="3.1" />');
 const webUsj = usxStringToUsj(isTesting ? WEB_PSA_USX : WEB_PSA_CH1_USX);
 const defaultScrRef: SerializedVerseRef = { book: "PSA", chapterNum: 1, verseNum: 1 };
-const noteEditorOptions: EditorOptions = {
-  hasExternalUI: false,
-  debug: false,
-  view: { ...getDefaultViewOptions(), noteMode: "expanded" },
-};
 // Word "man" inside first q1 of PSA 1:1.
 const annotationRange1 = {
   start: { jsonPath: "$.content[10].content[2]", offset: 15 },
@@ -140,10 +133,12 @@ export default function App() {
           // If we are already editing a note node, don't select another one.
           if (noteNodeKeyRef.current) return;
 
+          const noteOps = getNoteOps?.();
+          if (!noteOps) return;
+
           console.log("collapsed note node clicked - use note editor");
           noteNodeKeyRef.current = noteNodeKey;
-          const noteOps = getNoteOps?.();
-          if (noteOps) noteEditorRef.current?.applyUpdate(noteOps);
+          noteEditorRef.current?.applyUpdate(noteOps);
           setIsNoteEditorVisible(true);
         } else {
           console.log("expanded note node clicked - toggle caller");
@@ -201,10 +196,29 @@ export default function App() {
     [nodeOptions],
   );
 
-  const handleUsjChange = useCallback(
-    (usj: Usj, comments: Comments | undefined, ops?: DeltaOp[], source?: DeltaSource) => {
-      console.log({ usj, comments, ops, source });
+  const handleUsjChange = useCallback<NonNullable<MarginalProps<Console>["onUsjChange"]>>(
+    (
+      usj: Usj,
+      comments: Comments | undefined,
+      ops?: DeltaOp[],
+      source?: DeltaSource,
+      insertedNodeKey?: string,
+    ) => {
+      console.log({ usj, comments, ops, source, insertedNodeKey });
       marginalRef.current?.setUsj(usj);
+
+      if (insertedNodeKey && ops) {
+        // If we are already editing a note node, don't select another one.
+        if (noteNodeKeyRef.current) return;
+
+        const noteOps = [ops[1]];
+        if (!noteOps) return;
+
+        console.log("note node inserted - use note editor");
+        noteNodeKeyRef.current = insertedNodeKey;
+        noteEditorRef.current?.applyUpdate(noteOps);
+        setIsNoteEditorVisible(true);
+      }
     },
     [],
   );
@@ -269,7 +283,7 @@ export default function App() {
   const handleNoteEditorCancel = useCallback(() => {
     console.log("Note editor cancel");
     noteNodeKeyRef.current = undefined;
-    noteEditorRef.current?.setUsj(emptyUsj);
+    noteEditorRef.current?.setUsj(EMPTY_USJ);
     setIsNoteEditorVisible(false);
   }, []);
 
@@ -280,7 +294,7 @@ export default function App() {
       marginalRef.current?.replaceEmbedUpdate(noteNodeKeyRef.current, noteOps);
       noteNodeKeyRef.current = undefined;
     }
-    noteEditorRef.current?.setUsj(emptyUsj);
+    noteEditorRef.current?.setUsj(EMPTY_USJ);
     setIsNoteEditorVisible(false);
   }, []);
 
@@ -462,7 +476,7 @@ export default function App() {
         )}
         <Marginal
           ref={marginalRef}
-          defaultUsj={emptyUsj}
+          defaultUsj={EMPTY_USJ}
           scrRef={scrRef}
           onScrRefChange={setScrRef}
           onSelectionChange={(selection) => console.log({ selection })}
@@ -489,63 +503,14 @@ export default function App() {
           alignSelf: "stretch",
         }}
       >
-        <div
-          style={{
-            border: "1px solid #ccc",
-            padding: 16,
-            background: "#fafafa",
-            display: isNoteEditorVisible ? "flex" : "none",
-            flexDirection: "column",
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              marginBottom: 8,
-            }}
-          >
-            <h4 style={{ color: "#222", margin: 0 }}>Edit Note</h4>
-            <div style={{ display: "flex", gap: 4 }}>
-              <button
-                onClick={handleNoteEditorCancel}
-                style={{
-                  padding: "4px 8px",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-                aria-label="Cancel"
-                title="Cancel"
-              >
-                <X size={16} />
-              </button>
-              <button
-                onClick={handleNoteEditorSubmit}
-                style={{
-                  padding: "4px 8px",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-                aria-label="Submit"
-                title="Submit"
-              >
-                <Check size={16} />
-              </button>
-            </div>
-          </div>
-          <div style={{ height: "140px", border: "1px solid #ddd", overflow: "hidden" }}>
-            <Editorial
-              ref={noteEditorRef}
-              defaultUsj={emptyUsj}
-              scrRef={scrRef}
-              onScrRefChange={() => undefined}
-              options={noteEditorOptions}
-            />
-          </div>
-        </div>
+        <NoteEditor
+          ref={noteEditorRef}
+          isVisible={isNoteEditorVisible}
+          scrRef={scrRef}
+          viewOptions={viewOptions}
+          onCancel={handleNoteEditorCancel}
+          onSubmit={handleNoteEditorSubmit}
+        />
         {debug && (
           <div
             style={{
