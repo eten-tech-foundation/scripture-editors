@@ -1,5 +1,6 @@
 import {
   BookCode,
+  EMPTY_USJ,
   MarkerContent,
   MarkerObject,
   USJ_TYPE,
@@ -65,8 +66,6 @@ interface EditorUsjAdaptor {
   deserializeEditorState: typeof deserializeEditorState;
 }
 
-const emptyUsj: Usj = { type: USJ_TYPE, version: USJ_VERSION, content: [] };
-
 /** Logger instance */
 let _logger: LoggerBasic;
 
@@ -75,7 +74,7 @@ export function initialize(logger: LoggerBasic | undefined) {
 }
 
 export function deserializeEditorState(editorState: EditorState): Usj | undefined {
-  if (editorState.isEmpty()) return emptyUsj;
+  if (editorState.isEmpty()) return EMPTY_USJ;
 
   return deserializeSerializedEditorState(editorState.toJSON());
 }
@@ -92,7 +91,7 @@ export function deserializeSerializedEditorState(
     isSerializedImpliedParaNode(rootChildren[0]) &&
     (!rootChildren[0].children || rootChildren[0].children.length === 0)
   )
-    return emptyUsj;
+    return EMPTY_USJ;
 
   const children = removeImpliedParasRecurse(rootChildren);
   const content = recurseNodes(children);

@@ -15,7 +15,6 @@ import {
   editorStateGen1v1Nonstandard,
   editorStateMarks,
   editorStateWithUnknownItems,
-  usjEmpty,
   usjGen1v1,
   usjGen1v1ImpliedPara,
   usjGen1v1ImpliedParaEmpty,
@@ -25,7 +24,7 @@ import {
 } from "../../../../utilities/src/converters/usj/converter-test.data";
 import editorUsjAdaptor from "./editor-usj.adaptor";
 import usjEditorAdaptor from "./usj-editor.adaptor";
-import { MarkerObject } from "@eten-tech-foundation/scripture-utilities";
+import { EMPTY_USJ, MarkerObject } from "@eten-tech-foundation/scripture-utilities";
 import { deepEqual } from "fast-equals";
 import { SerializedTextNode } from "lexical";
 import { usjReactNodes } from "shared-react";
@@ -48,7 +47,7 @@ describe("Editor USJ Adaptor", () => {
 
     const usj = editorUsjAdaptor.deserializeEditorState(editorState);
 
-    expect(usj).toEqual(usjEmpty);
+    expect(usj).toEqual(EMPTY_USJ);
   });
 
   it("should convert to USJ from Lexical editor state JSON", () => {

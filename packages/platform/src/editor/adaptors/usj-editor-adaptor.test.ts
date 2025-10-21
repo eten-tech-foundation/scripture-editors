@@ -16,7 +16,6 @@ import {
   NOTE_INDEX,
   NOTE_PARA_INDEX,
   NOTE_PARA_WITH_UNKNOWN_ITEMS_INDEX,
-  usjEmpty,
   usjGen1v1,
   usjGen1v1ImpliedPara,
   usjGen1v1ImpliedParaEmpty,
@@ -26,7 +25,7 @@ import {
   VERSE_PARA_INDEX,
 } from "../../../../utilities/src/converters/usj/converter-test.data";
 import { serializeEditorState, reset, initialize } from "./usj-editor.adaptor";
-import { MarkerObject } from "@eten-tech-foundation/scripture-utilities";
+import { EMPTY_USJ, MarkerObject } from "@eten-tech-foundation/scripture-utilities";
 import { SerializedLexicalNode } from "lexical";
 import {
   closingMarkerText,
@@ -77,7 +76,7 @@ describe("USJ Editor Adaptor", () => {
   });
 
   it("should convert from empty USJ to Lexical editor state JSON", () => {
-    const serializedEditorState = serializeEditorState(usjEmpty);
+    const serializedEditorState = serializeEditorState(EMPTY_USJ);
 
     expect(serializedEditorState).toEqual(editorStateEmpty);
   });
