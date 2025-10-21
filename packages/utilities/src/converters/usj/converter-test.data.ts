@@ -7,10 +7,6 @@ const THIN_SPACE = "\u2009";
 
 /* Empty */
 
-export const usxEmpty = '<usx version="3.1" />';
-
-export const usjEmpty: Usj = { type: "USJ", version: "3.1", content: [] };
-
 export const editorStateEmpty = {
   root: {
     type: "root",

@@ -6,8 +6,12 @@
 
 /** The USJ spec type */
 export const USJ_TYPE = "USJ";
+
 /** The USJ spec version */
 export const USJ_VERSION = "3.1";
+
+export const EMPTY_USJ = Object.freeze<Usj>({ type: USJ_TYPE, version: USJ_VERSION, content: [] });
+
 /** List of known properties of `MarkerObject` */
 export const MARKER_OBJECT_PROPS: (keyof MarkerObject)[] = [
   "type",
