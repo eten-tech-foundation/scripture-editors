@@ -42,7 +42,7 @@ export interface MarkerObject {
    * The corresponding marker in USFM or style in USX
    * @example `p`, `v`, `nd`
    */
-  marker: string;
+  marker?: string;
   /** This marker's contents laid out in order */
   content?: MarkerContent[];
   /** Indicates the Book-chapter-verse value in the paragraph based structure */
