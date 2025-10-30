@@ -6,7 +6,12 @@
 
 import { DeltaOp } from "./delta-common.utils";
 
+/**
+ * A Delta operation attribute for a Para-like node.
+ * @public
+ */
 export interface OTParaAttribute {
+  /** USX style (USJ marker) attribute. */
   style: string;
 }
 export const OT_PARA_PROPS: (keyof OTParaAttribute)[] = ["style"];
@@ -58,12 +63,24 @@ export interface OTMilestoneEmbed extends OTParaAttribute {
 }
 export const OT_MILESTONE_PROPS: (keyof OTMilestoneEmbed)[] = ["style", "sid", "eid"];
 
+/**
+ * A Delta operation embed for a Note node.
+ * @public
+ */
 export interface OTNoteEmbed extends OTParaAttribute {
+  /** Note caller */
   caller: string;
+  /** Note category */
   category?: string;
+  /** Character type note contents */
   contents?: { ops?: DeltaOp[] };
 }
+/**
+ * A Delta operation that inserts a Note embed.
+ * @public
+ */
 export interface DeltaOpInsertNoteEmbed extends DeltaOp {
+  /** note insert */
   insert: { note: OTNoteEmbed | null };
 }
 // Note that `contents` is not a property of a NoteNode, but we don't want it in unknownAttributes.
