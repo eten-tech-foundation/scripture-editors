@@ -38,6 +38,13 @@ export type Comments = (Thread | CommentBase)[];
 export type DeltaOp = Op;
 
 // @public
+export interface DeltaOpInsertNoteEmbed extends DeltaOp {
+    insert: {
+        note: OTNoteEmbed | null;
+    };
+}
+
+// @public
 export type DeltaSource = "local" | "remote";
 
 // @public
@@ -67,7 +74,7 @@ export interface EditorProps<TLogger extends LoggerBasic> {
     onScrRefChange?: (scrRef: SerializedVerseRef) => void;
     onSelectionChange?: (selection: SelectionRange | undefined) => void;
     onStateChange?: (canUndo: boolean, canRedo: boolean, blockMarker: string | undefined) => void;
-    onUsjChange?: (usj: Usj, ops?: DeltaOp[], source?: DeltaSource) => void;
+    onUsjChange?: (usj: Usj, ops?: DeltaOp[], source?: DeltaSource, insertedNodeKey?: string) => void;
     options?: EditorOptions;
     scrRef?: SerializedVerseRef;
 }
@@ -128,7 +135,7 @@ export const Marginal: ForwardRefExoticComponent<MarginalProps<LoggerBasic> & Re
 // @public
 export interface MarginalProps<TLogger extends LoggerBasic> extends Omit<EditorProps<TLogger>, "onUsjChange"> {
     onCommentChange?: (comments: Comments | undefined) => void;
-    onUsjChange?: (usj: Usj, comments: Comments | undefined, ops?: DeltaOp[], source?: DeltaSource) => void;
+    onUsjChange?: (usj: Usj, comments: Comments | undefined, ops?: DeltaOp[], source?: DeltaSource, insertedNodeKey?: string) => void;
     showCommentsContainerRef?: RefObject<HTMLElement | null> | null;
 }
 
@@ -152,7 +159,7 @@ export interface NodeOptions {
 }
 
 // @public
-export type NoteCallerOnClick = (event: SyntheticEvent, noteNodeKey: string, isCollapsed: boolean | undefined, getCaller: () => string, setCaller: (caller: string) => void, getNoteOps: () => DeltaOp[] | undefined) => void;
+export type NoteCallerOnClick = (event: SyntheticEvent, noteNodeKey: string, isCollapsed: boolean | undefined, getCaller: () => string, setCaller: (caller: string) => void, getNoteOps: () => DeltaOpInsertNoteEmbed[] | undefined) => void;
 
 // @public
 export type NoteMode =
@@ -162,6 +169,20 @@ export type NoteMode =
 | "expandInline"
 /** All notes are always expanded. */
 | "expanded";
+
+// @public
+export interface OTNoteEmbed extends OTParaAttribute {
+    caller: string;
+    category?: string;
+    contents?: {
+        ops?: DeltaOp[];
+    };
+}
+
+// @public
+export interface OTParaAttribute {
+    style: string;
+}
 
 // @public
 export interface SelectionRange {
