@@ -30,7 +30,7 @@
     "!src/**/*.test.tsx"
   ],
   "scripts": {
-    "prepublishOnly": "tsx scripts/prepare-publish.ts && cd ../.. && nx extract-api platform-editor",
+    "prepublishOnly": "tsx ../../scripts/prepare-publish.ts && cd ../.. && nx extract-api platform-editor",
     "postpublish": "git restore package.json",
     "predevpub": "npm run prepublishOnly",
     "devpub": "yalc push",

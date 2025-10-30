@@ -1,6 +1,6 @@
 {
   "name": "@eten-tech-foundation/scripture-utilities",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Utilities for working with Scripture data.",
   "license": "MIT",
   "homepage": "https://github.com/eten-tech-foundation/scripture-editors/tree/main/packages/utilities#readme",
@@ -32,7 +32,11 @@
     "!src/**/*.data.ts"
   ],
   "scripts": {
-    "prepublishOnly": "cd ../.. && nx build utilities"
+    "prepublishOnly": "tsx ../../scripts/prepare-publish.ts && cd ../.. && nx build utilities",
+    "postpublish": "git restore package.json",
+    "predevpub": "npm run prepublishOnly",
+    "devpub": "yalc push",
+    "postdevpub": "npm run postpublish"
   },
   "dependencies": {
     "@xmldom/xmldom": "^0.9.8"
