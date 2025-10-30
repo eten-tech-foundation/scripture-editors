@@ -251,18 +251,22 @@ export function $createWholeNote(
   let callerNode: ImmutableNoteCallerNode | TextNode;
   if (openingMarkerNode) note.append(openingMarkerNode);
   if (viewOptions?.markerMode === "editable") {
-    callerNode = $createTextNode(getEditableCallerText(note.__caller));
-    note.append(callerNode, ...contentNodes);
+    if (caller) {
+      callerNode = $createTextNode(getEditableCallerText(note.__caller));
+      note.append(callerNode, ...contentNodes);
+    } else note.append(...contentNodes);
   } else {
     const $createSpaceNodeFn = () => $createTextNode(NBSP);
-    const previewText = $getNoteCallerPreviewText(contentNodes);
-    let onClick: NoteCallerOnClick = () => undefined;
-    if (nodeOptions?.noteCallerOnClick) {
-      onClick = nodeOptions.noteCallerOnClick;
-    }
-    callerNode = $createImmutableNoteCallerNode(note.__caller, previewText, onClick);
     const spacedContentNodes = contentNodes.flatMap($addSpaceNodes($createSpaceNodeFn));
-    note.append(callerNode, $createSpaceNodeFn(), ...spacedContentNodes);
+    if (caller) {
+      const previewText = $getNoteCallerPreviewText(contentNodes);
+      let onClick: NoteCallerOnClick = () => undefined;
+      if (nodeOptions?.noteCallerOnClick) {
+        onClick = nodeOptions.noteCallerOnClick;
+      }
+      callerNode = $createImmutableNoteCallerNode(note.__caller, previewText, onClick);
+      note.append(callerNode, $createSpaceNodeFn(), ...spacedContentNodes);
+    } else note.append(...spacedContentNodes);
   }
   if (closingMarkerNode) note.append(closingMarkerNode);
 

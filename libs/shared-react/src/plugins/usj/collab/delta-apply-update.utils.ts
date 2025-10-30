@@ -6,8 +6,16 @@ import {
 } from "../../../nodes/usj/node-react.utils";
 import { UsjNodeOptions } from "../../../nodes/usj/usj-node-options.model";
 import { ViewOptions } from "../../../views/view-options.utils";
-import { $isEmbedNode, $isParaLikeNode, DeltaOp, EmbedNode, LF } from "./delta-common.utils";
 import {
+  $isEmbedNode,
+  $isParaLikeNode,
+  DeltaOp,
+  EmbedNode,
+  isInsertEmbedOpOfType,
+  LF,
+} from "./delta-common.utils";
+import {
+  DeltaOpInsertNoteEmbed,
   OT_BOOK_PROPS,
   OT_CHAPTER_PROPS,
   OT_CHAR_PROPS,
@@ -20,7 +28,6 @@ import {
   OTCharAttribute,
   OTCharItem,
   OTMilestoneEmbed,
-  OTNoteEmbed,
   OTParaAttribute,
   OTUnmatchedEmbed,
   OTVerseEmbed,
@@ -33,7 +40,6 @@ import {
   $isElementNode,
   $isTextNode,
   $setState,
-  $getState,
   LexicalNode,
   TextFormatType,
   TextNode,
@@ -44,8 +50,10 @@ import {
   $createChapterNode,
   $createCharNode,
   $createImmutableChapterNode,
+  $createImmutableTypedTextNode,
   $createImmutableUnmatchedNode,
   $createImpliedParaNode,
+  $createMarkerNode,
   $createMilestoneNode,
   $createParaNode,
   $createVerseNode,
@@ -63,11 +71,13 @@ import {
   BookNode,
   charIdState,
   CharNode,
+  closingMarkerText,
   getUnknownAttributes,
   getVisibleOpenMarkerText,
   ImpliedParaNode,
   LoggerBasic,
   NoteNode,
+  openingMarkerText,
   ParaNode,
   segmentState,
   SomeChapterNode,
@@ -127,7 +137,7 @@ export function $applyUpdate(
   let currentIndex = 0;
   ops.forEach((op) => {
     if ("retain" in op) {
-      currentIndex += $retain(op, currentIndex, logger);
+      currentIndex += $retain(op, currentIndex, viewOptions, logger);
     } else if ("delete" in op) {
       if (typeof op.delete !== "number" || op.delete <= 0) {
         logger?.error(`Invalid delete operation: ${JSON.stringify(op)}`);
@@ -140,7 +150,13 @@ export function $applyUpdate(
     } else if ("insert" in op) {
       if (typeof op.insert === "string") {
         logger?.debug(`Insert: '${op.insert}'`);
-        currentIndex += $insertTextAtCurrentIndex(currentIndex, op.insert, op.attributes, logger);
+        currentIndex += $insertTextAtCurrentIndex(
+          currentIndex,
+          op.insert,
+          op.attributes,
+          viewOptions,
+          logger,
+        );
       } else if (typeof op.insert === "object" && op.insert !== null) {
         logger?.debug(`Insert embed: ${JSON.stringify(op.insert)}`);
         if ($insertEmbedAtCurrentIndex(currentIndex, op, viewOptions, nodeOptions, logger)) {
@@ -162,7 +178,12 @@ export function $applyUpdate(
   });
 }
 
-function $retain(op: DeltaOp, currentIndex: number, logger: LoggerBasic | undefined): number {
+function $retain(
+  op: DeltaOp,
+  currentIndex: number,
+  viewOptions: ViewOptions,
+  logger: LoggerBasic | undefined,
+): number {
   if (typeof op.retain !== "number" || op.retain < 0) {
     logger?.error(`Invalid retain operation: ${JSON.stringify(op)}`);
     return 0;
@@ -171,7 +192,7 @@ function $retain(op: DeltaOp, currentIndex: number, logger: LoggerBasic | undefi
   logger?.debug(`Retain: ${op.retain}`);
   if (op.attributes) {
     logger?.debug(`Retain attributes: ${JSON.stringify(op.attributes)}`);
-    $applyAttributes(currentIndex, op.retain, op.attributes, logger);
+    $applyAttributes(currentIndex, op.retain, op.attributes, viewOptions, logger);
   }
   return op.retain;
 }
@@ -181,6 +202,7 @@ function $applyAttributes(
   targetIndex: number,
   retain: number,
   attributes: AttributeMap,
+  viewOptions: ViewOptions,
   logger: LoggerBasic | undefined,
 ) {
   // Apply attributes using standard traversal logic
@@ -245,18 +267,43 @@ function $applyAttributes(
                 targetNode.replace(placeholderNode);
                 const segment =
                   typeof attributes.segment === "string" ? attributes.segment : undefined;
-                const nestedCharNode = $createNestedChars(charAttr.slice(1), targetNode, segment);
-                placeholderNode.replace(nestedCharNode);
+                const nestedCharNodes = $createNestedChars(
+                  charAttr.slice(1),
+                  viewOptions,
+                  targetNode,
+                  segment,
+                );
+                // Insert all nodes (markers + CharNode) as siblings
+                let currentPlaceholder: LexicalNode = placeholderNode;
+                for (const node of nestedCharNodes) {
+                  currentPlaceholder.insertAfter(node);
+                  currentPlaceholder = node;
+                }
+                placeholderNode.remove();
                 // Apply text attributes to the innermost node
                 $applyTextAttributes(attributes, targetNode);
                 // No need to update parent marker/cid, as it already matches
               } else if (!hasSameCharAttributes) {
-                // If parent does not match, wrap the targetNode in new nested CharNode(s)
-                const placeholderNode = $createTextNode("");
-                targetNode.replace(placeholderNode);
-                const char = $wrapInNestedCharNodes(targetNode, attributes, logger);
-                if (char) parentNode.insertAfter(char);
-                else placeholderNode.replace(targetNode);
+                // If parent does not match, extract text and create new CharNode as sibling
+                // Remove the text node from inside the parent CharNode
+                targetNode.remove();
+
+                // Create new CharNode(s) with the text
+                const charNodes = $wrapInNestedCharNodes(
+                  targetNode,
+                  attributes,
+                  viewOptions,
+                  logger,
+                );
+
+                // Insert the new CharNodes as siblings to the parent CharNode
+                if (charNodes && charNodes.length > 0) {
+                  let currentNode: LexicalNode = parentNode;
+                  for (const node of charNodes) {
+                    currentNode.insertAfter(node);
+                    currentNode = node;
+                  }
+                }
               } else {
                 // Parent CharNode matches and no further nesting needed, just apply attributes
                 $applyTextAttributes(attributes, targetNode);
@@ -264,9 +311,17 @@ function $applyAttributes(
             } else {
               const placeholderNode = $createTextNode("");
               targetNode.replace(placeholderNode);
-              const char = $wrapInNestedCharNodes(targetNode, attributes, logger);
-              if (char) placeholderNode.replace(char);
-              else placeholderNode.replace(targetNode);
+              const charNodes = $wrapInNestedCharNodes(targetNode, attributes, viewOptions, logger);
+              if (charNodes && charNodes.length > 0) {
+                let currentNode: LexicalNode = placeholderNode;
+                for (const node of charNodes) {
+                  currentNode.insertAfter(node);
+                  currentNode = node;
+                }
+                placeholderNode.remove();
+              } else {
+                placeholderNode.replace(targetNode);
+              }
             }
           } else {
             $applyTextAttributes(attributes, targetNode);
@@ -420,12 +475,14 @@ function $applyAttributes(
 function $wrapInNestedCharNodes(
   textNode: TextNode,
   attributes: AttributeMapWithChar,
-  logger?: LoggerBasic,
-): CharNode | undefined {
+  viewOptions: ViewOptions,
+  logger: LoggerBasic | undefined,
+): LexicalNode[] | undefined {
   // Create new CharNode(s) with the attributes, supporting nested char arrays
   const segment = typeof attributes.segment === "string" ? attributes.segment : undefined;
-  const newCharNode = $createNestedChars(attributes.char, textNode, segment);
-  if (!$isCharNode(newCharNode)) {
+  const newCharNodes = $createNestedChars(attributes.char, viewOptions, textNode, segment);
+  const charNode = newCharNodes.find($isCharNode);
+  if (!charNode) {
     logger?.error(
       `Failed to create CharNode for text transformation. Style: ${
         Array.isArray(attributes.char) ? attributes.char[0].style : attributes.char?.style
@@ -460,17 +517,17 @@ function $wrapInNestedCharNodes(
 
   // Combine all attributes for the CharNode
   const combinedUnknownAttributes = {
-    ...(newCharNode.getUnknownAttributes() ?? {}),
+    ...(charNode.getUnknownAttributes() ?? {}),
     ...textFormatAttributes,
     ...stringifiedAttributes,
   };
 
   if (Object.keys(combinedUnknownAttributes).length > 0) {
-    newCharNode.setUnknownAttributes(combinedUnknownAttributes);
+    charNode.setUnknownAttributes(combinedUnknownAttributes);
   }
 
   $applyTextAttributes(attributes, textNode);
-  return newCharNode;
+  return newCharNodes;
 }
 
 // Apply attributes to the given embed node
@@ -739,7 +796,8 @@ function $insertTextAtCurrentIndex(
   targetIndex: number,
   textToInsert: string,
   attributes: AttributeMap | undefined,
-  logger?: LoggerBasic,
+  viewOptions: ViewOptions,
+  logger: LoggerBasic | undefined,
 ): number {
   if (textToInsert === LF) {
     return $handleNewline(targetIndex, attributes, logger);
@@ -756,7 +814,7 @@ function $insertTextAtCurrentIndex(
     deltaOTLength += $handleNewline(targetIndex + deltaOTLength, attributes, logger);
     return deltaOTLength;
   } else if (hasCharAttributes(attributes)) {
-    return $handleCharText(targetIndex, textToInsert, attributes, logger);
+    return $handleCharText(targetIndex, textToInsert, attributes, viewOptions, logger);
   } else {
     return $insertRichText(targetIndex, textToInsert, attributes, logger);
   }
@@ -766,7 +824,8 @@ function $handleCharText(
   targetIndex: number,
   textToInsert: string,
   attributes: AttributeMapWithChar,
-  logger?: LoggerBasic,
+  viewOptions: ViewOptions,
+  logger: LoggerBasic | undefined,
 ): number {
   logger?.debug(
     `Attempting to insert CharNode with text "${textToInsert}" and attributes ${JSON.stringify(
@@ -787,7 +846,7 @@ function $handleCharText(
     function findParentCharNode(node: LexicalNode): boolean {
       if ($isTextNode(node)) {
         const textLength = node.getTextContentSize();
-        if (targetIndex >= currentIndex && targetIndex <= currentIndex + textLength) {
+        if (targetIndex >= currentIndex && targetIndex < currentIndex + textLength) {
           const parent = node.getParent();
           if ($isCharNode(parent)) {
             parentCharNode = parent;
@@ -818,21 +877,40 @@ function $handleCharText(
   }
 
   // If inserting a nested char array, and parent matches the first char, skip nesting that one
+  // If parent doesn't match, clear it so we insert as sibling instead
   let charAttr = attributes.char;
-  if (Array.isArray(charAttr) && parentCharNode) {
-    const parentStyle = parentCharNode.getMarker();
-    const parentCid = $getState(parentCharNode, charIdState);
-    const first = charAttr[0];
-    if (first && first.style === parentStyle && first.cid === parentCid) {
-      // Only nest the remaining char attributes
-      charAttr = charAttr.slice(1);
-      // If only one left, treat as single
-      if (charAttr.length === 1) charAttr = charAttr[0];
+  if (Array.isArray(charAttr)) {
+    if (parentCharNode) {
+      const first = charAttr[0];
+      if (first && $hasSameCharAttributes(first, parentCharNode)) {
+        // Only nest the remaining char attributes
+        charAttr = charAttr.slice(1);
+        // If only one left, treat as single
+        if (charAttr.length === 1) charAttr = charAttr[0];
+        // Keep parentCharNode - we're nesting into it
+      } else {
+        // Parent doesn't match, don't use it
+        parentCharNode = undefined;
+      }
+    }
+  } else if (parentCharNode) {
+    // Single char attribute - check if it matches parent
+    if (!$hasSameCharAttributes(charAttr, parentCharNode)) {
+      // Parent doesn't match, don't use it
+      parentCharNode = undefined;
     }
   }
   const segment = typeof attributes.segment === "string" ? attributes.segment : undefined;
-  const charNode = $createNestedChars(charAttr, textNode, segment);
-  if (!$isCharNode(charNode)) {
+  const existingNodes = parentCharNode ? [parentCharNode] : undefined;
+  const charNodes = $createNestedChars(charAttr, viewOptions, textNode, segment, existingNodes);
+
+  // If charNodes is empty, it means we merged into existingNodes - no insertion needed
+  if (charNodes.length === 0) {
+    return textToInsert.length; // Successfully merged into existing CharNode
+  }
+
+  const charNode = charNodes.find($isCharNode);
+  if (!charNode) {
     logger?.error(
       `CharNode style is missing for text "${textToInsert}". Attributes: ${JSON.stringify(
         attributes.char,
@@ -853,7 +931,18 @@ function $handleCharText(
     charNode.setUnknownAttributes(unknownAttributes);
   }
 
-  if ($insertNodeAtCharacterOffset(targetIndex, charNode, logger)) {
+  // Insert all nodes (might include markers) at the target position
+  let allInserted = true;
+  for (const node of charNodes) {
+    if (!$insertNodeAtCharacterOffset(targetIndex, node, logger)) {
+      allInserted = false;
+      break;
+    }
+    // Only advance index for non-marker nodes (markers don't contribute to OT length)
+    // CharNodes themselves don't contribute, only their text content does
+  }
+
+  if (allInserted) {
     return textToInsert.length; // CharNode itself has no OT length, just its text content
   } else {
     logger?.error(
@@ -875,7 +964,7 @@ function $insertRichText(
   targetIndex: number,
   textToInsert: string,
   attributes: AttributeMap | undefined,
-  logger?: LoggerBasic,
+  logger: LoggerBasic | undefined,
 ): number {
   if (textToInsert.length <= 0) {
     logger?.debug("Attempted to insert empty string. No action taken.");
@@ -1300,7 +1389,17 @@ function $insertNodeAtCharacterOffset(
         }
       } else {
         // Generic element, try to append, or insert after if block
-        if (nodeToInsert.isInline() || !$isSomeParaNode(nodeToInsert)) {
+        // Special case: When at the end of a CharNode, insert after it as a sibling
+        // (nested CharNodes are handled elsewhere via $createNestedChars merging logic)
+        if ($isCharNode(currentNode)) {
+          logger?.debug(
+            `$insertNodeAtCharacterOffset: Inserting node ${nodeToInsert.getType()} after ` +
+              `CharNode (key: ${currentNode.getKey()}). targetIndex: ${
+                targetIndex
+              }, element end OT index: ${currentIndex}.`,
+          );
+          currentNode.insertAfter(nodeToInsert);
+        } else if (nodeToInsert.isInline() || !$isSomeParaNode(nodeToInsert)) {
           logger?.debug(
             `$insertNodeAtCharacterOffset: Appending node ${nodeToInsert.getType()} to generic ` +
               `element ${currentNode.getType()} (key: ${currentNode.getKey()}). targetIndex: ${
@@ -1341,24 +1440,22 @@ function $insertEmbedAtCurrentIndex(
   op: DeltaOp,
   viewOptions: ViewOptions,
   nodeOptions: UsjNodeOptions,
-  logger?: LoggerBasic,
+  logger: LoggerBasic | undefined,
 ): boolean {
-  const embedObject = op.insert as object;
   let newNodeToInsert: LexicalNode | undefined;
 
   // Determine the LexicalNode to create based on the embedObject structure
-  if (isEmbedOfType("chapter", embedObject)) {
-    newNodeToInsert = $createChapter(embedObject.chapter as OTChapterEmbed, viewOptions);
-  } else if (isEmbedOfType("verse", embedObject)) {
-    newNodeToInsert = $createVerse(embedObject.verse as OTVerseEmbed, viewOptions);
-  } else if (isEmbedOfType("ms", embedObject)) {
-    newNodeToInsert = $createMilestone(embedObject.ms as OTMilestoneEmbed);
-  } else if (isEmbedOfType("unmatched", embedObject)) {
-    newNodeToInsert = $createImmutableUnmatched(embedObject.unmatched as OTUnmatchedEmbed);
-  } else if (isEmbedOfType("note", embedObject)) {
-    newNodeToInsert = $createNote(op, viewOptions, nodeOptions);
+  if (isInsertEmbedOpOfType("chapter", op)) {
+    newNodeToInsert = $createChapter(op.insert.chapter, viewOptions);
+  } else if (isInsertEmbedOpOfType("verse", op)) {
+    newNodeToInsert = $createVerse(op.insert.verse, viewOptions);
+  } else if (isInsertEmbedOpOfType("ms", op)) {
+    newNodeToInsert = $createMilestone(op.insert.ms);
+  } else if (isInsertEmbedOpOfType("unmatched", op)) {
+    newNodeToInsert = $createImmutableUnmatched(op.insert.unmatched);
+  } else if (isInsertEmbedOpOfType("note", op)) {
+    newNodeToInsert = $createNote(op, viewOptions, nodeOptions, logger);
   }
-  // TODO: Add other embed types here as needed (e.g. ImmutableUnmatchedNode?)
   // While it would be technically and structurally possible to add a ParaNode here, it's not the
   // way Quill (and therefore flat rich-text docs) handles paragraphs which is always by inserting a
   // newline (LF) character with a `para` attribute.
@@ -1366,13 +1463,12 @@ function $insertEmbedAtCurrentIndex(
   if (!newNodeToInsert) {
     logger?.error(
       `$insertEmbedAtCurrentIndex: Cannot create LexicalNode for embed object: ${JSON.stringify(
-        embedObject,
+        op.insert,
       )}`,
     );
     return false;
   }
 
-  // Delegate the actual insertion to the refined $insertNodeAtCharacterOffset
   return $insertNodeAtCharacterOffset(targetIndex, newNodeToInsert, logger);
 }
 
@@ -1390,7 +1486,7 @@ function $insertEmbedAtCurrentIndex(
 function $handleNewline(
   targetIndex: number,
   attributes: AttributeMap | undefined,
-  logger?: LoggerBasic,
+  logger: LoggerBasic | undefined,
 ): number {
   let _newBlockNode: ParaNode | BookNode | ImpliedParaNode | undefined;
   if (hasParaAttributes(attributes)) {
@@ -1532,7 +1628,9 @@ function $handleNewline(
   return 1; // LF always contributes 1 to the OT index
 }
 
-function $createChapter(chapterData: OTChapterEmbed, viewOptions: ViewOptions) {
+function $createChapter(chapterData: OTChapterEmbed | null, viewOptions: ViewOptions) {
+  if (!chapterData) return;
+
   const { number, sid, altnumber, pubnumber } = chapterData;
   if (!number) return;
 
@@ -1554,7 +1652,9 @@ function $createChapter(chapterData: OTChapterEmbed, viewOptions: ViewOptions) {
   return newNodeToInsert;
 }
 
-function $createVerse(verseData: OTVerseEmbed, viewOptions: ViewOptions) {
+function $createVerse(verseData: OTVerseEmbed | null, viewOptions: ViewOptions) {
+  if (!verseData) return;
+
   const { style, number, sid, altnumber, pubnumber } = verseData;
   if (!number) return;
 
@@ -1579,7 +1679,9 @@ function $createVerse(verseData: OTVerseEmbed, viewOptions: ViewOptions) {
   return newNodeToInsert;
 }
 
-function $createMilestone(msData: OTMilestoneEmbed) {
+function $createMilestone(msData: OTMilestoneEmbed | null) {
+  if (!msData) return;
+
   const { style, sid, eid } = msData;
   if (!style) return;
 
@@ -1587,17 +1689,28 @@ function $createMilestone(msData: OTMilestoneEmbed) {
   return $createMilestoneNode(style, sid, eid, unknownAttributes);
 }
 
-function $createImmutableUnmatched(unmatchedData: OTUnmatchedEmbed) {
+function $createImmutableUnmatched(unmatchedData: OTUnmatchedEmbed | null) {
+  if (!unmatchedData) return;
+
   const { marker } = unmatchedData;
   if (!marker) return;
 
   return $createImmutableUnmatchedNode(marker);
 }
 
-function $createNote(op: DeltaOp, viewOptions: ViewOptions, nodeOptions: UsjNodeOptions) {
-  const noteEmbed = op.insert as { note: OTNoteEmbed };
+function $createNote(
+  op: DeltaOpInsertNoteEmbed,
+  viewOptions: ViewOptions,
+  nodeOptions: UsjNodeOptions,
+  logger: LoggerBasic | undefined,
+) {
+  const noteEmbed = op.insert;
+  if (!noteEmbed.note) return;
+
   const { style, caller, category, contents } = noteEmbed.note;
-  if (!style || !caller) return;
+  if (!style || caller == null) return;
+
+  if (caller === "") logger?.warn("Note has empty caller. Only use for note editing.");
 
   const unknownAttributes = getUnknownAttributes(noteEmbed.note, OT_NOTE_PROPS);
 
@@ -1606,12 +1719,19 @@ function $createNote(op: DeltaOp, viewOptions: ViewOptions, nodeOptions: UsjNode
   if (segment && typeof segment === "string") nodeSegment = segment;
 
   const contentNodes: LexicalNode[] = [];
-  for (const op of contents?.ops ?? []) {
-    if (typeof op.insert !== "string") continue;
-    if (hasCharAttributes(op.attributes)) {
-      contentNodes.push($createNestedChars(op.attributes.char, $createTextNode(op.insert)));
+  for (const childOp of contents?.ops ?? []) {
+    if (typeof childOp.insert !== "string") continue;
+    if (hasCharAttributes(childOp.attributes)) {
+      const charNodes = $createNestedChars(
+        childOp.attributes.char,
+        viewOptions,
+        $createTextNode(childOp.insert),
+        undefined,
+        contentNodes,
+      );
+      contentNodes.push(...charNodes);
     } else {
-      contentNodes.push($createTextNode(op.insert));
+      contentNodes.push($createTextNode(childOp.insert));
     }
   }
 
@@ -1639,48 +1759,122 @@ function $createPara(paraAttributes: OTParaAttribute) {
 }
 
 // Helper to create nested CharNodes from OTCharAttribute (array or single)
+// Returns an array of nodes: [opening marker?, CharNode, closing marker?]
+// If existingNodes is provided, will merge with the last CharNode if style/cid match
 function $createNestedChars(
   charAttr: OTCharAttribute,
+  viewOptions: ViewOptions,
   innerNode?: LexicalNode,
   segment?: string,
-): CharNode {
+  existingNodes?: LexicalNode[],
+): LexicalNode[] {
   if (Array.isArray(charAttr)) {
     if (charAttr.length === 0) throw new Error("Empty charAttr array");
-    return charAttr.reduceRight((child, attr, idx) => {
+
+    // Check if we can merge with existing CharNode
+    const outerAttr = charAttr[0];
+    const lastNode = existingNodes?.[existingNodes.length - 1];
+    if ($isCharNode(lastNode) && $hasSameCharAttributes(outerAttr, lastNode)) {
+      // Merge into existing CharNode by creating inner nodes only
+      if (charAttr.length > 1) {
+        const innerCharNodes = $createNestedChars(charAttr.slice(1), viewOptions, innerNode);
+        innerCharNodes.forEach((node) => lastNode.append(node));
+      } else {
+        // Just append the innerNode
+        if (innerNode) lastNode.append(innerNode);
+      }
+      return []; // Return empty array since we merged into existing node
+    }
+
+    // Build nested CharNodes from innermost to outermost using reduceRight
+    // At each level, we add markers as children if needed
+    const outermostCharNode = charAttr.reduceRight((child, attr, idx) => {
       const charNode = $createCharNode(attr.style, getUnknownAttributes(attr, OT_CHAR_PROPS));
       if (typeof attr.cid === "string") $setState(charNode, charIdState, () => attr.cid);
       if (segment && idx === charAttr.length - 1) $setState(charNode, segmentState, () => segment);
-      if (child) charNode.append(child);
+
+      // If there's a child, append it (with markers if it's a CharNode)
+      if (child) {
+        // If the child is a CharNode, it needs markers around it
+        if ($isCharNode(child)) {
+          // The child was created from attr at idx+1, so get its marker
+          const childMarker = child.getMarker();
+          const childMarkers: LexicalNode[] = [];
+          $addOpeningMarker(childMarker, childMarkers, viewOptions);
+          childMarkers.forEach((marker) => charNode.append(marker));
+
+          charNode.append(child);
+
+          const closingMarkers: LexicalNode[] = [];
+          $addClosingMarker(childMarker, closingMarkers, viewOptions);
+          closingMarkers.forEach((marker) => charNode.append(marker));
+        } else {
+          // Just append the child (it's the innermost text node)
+          charNode.append(child);
+        }
+      }
+
       return charNode;
     }, innerNode) as CharNode;
+
+    // Wrap the outermost CharNode with markers (as siblings, not children)
+    const nodes: LexicalNode[] = [];
+    const outermostAttr = charAttr[0];
+    $addOpeningMarker(outermostAttr.style, nodes, viewOptions);
+    nodes.push(outermostCharNode);
+    $addClosingMarker(outermostAttr.style, nodes, viewOptions);
+
+    return nodes;
   } else {
+    // Single char attribute
+    // Check if we can merge with existing CharNode
+    const lastNode = existingNodes?.[existingNodes.length - 1];
+    if ($isCharNode(lastNode) && $hasSameCharAttributes(charAttr, lastNode)) {
+      // Merge into existing CharNode
+      if (innerNode) lastNode.append(innerNode);
+      return []; // Return empty array since we merged into existing node
+    }
+
+    const nodes: LexicalNode[] = [];
+    $addOpeningMarker(charAttr.style, nodes, viewOptions);
+
     const charNode = $createCharNode(charAttr.style, getUnknownAttributes(charAttr, OT_CHAR_PROPS));
     if (typeof charAttr.cid === "string") $setState(charNode, charIdState, () => charAttr.cid);
     if (segment) $setState(charNode, segmentState, () => segment);
     if (innerNode) charNode.append(innerNode);
-    return charNode;
+
+    nodes.push(charNode);
+    $addClosingMarker(charAttr.style, nodes, viewOptions);
+
+    return nodes;
   }
 }
 
-/**
- * Type guard to check if an object has a specific property that is a non-null object.
- * @param embedObj - The object to check.
- * @param embedType - The property key to check for.
- * @returns `true` if `embedObj` has a property `embedType` and `embedObj[embedType]` is a non-null
- *   object, `false` otherwise.
- */
-function isEmbedOfType<T extends object, K extends PropertyKey>(
-  embedType: K,
-  embedObj: T,
-): embedObj is T & { [P in K]: object } {
-  if (!(embedType in embedObj)) {
-    return false;
+function $addOpeningMarker(marker: string, nodes: LexicalNode[], viewOptions: ViewOptions) {
+  if (viewOptions?.markerMode === "editable") {
+    nodes.push($createMarkerNode(marker));
+  } else if (viewOptions?.markerMode === "visible") {
+    nodes.push($createImmutableTypedTextNode("marker", openingMarkerText(marker)));
   }
-  // After the 'embedType in embedObj' check, TypeScript knows that 'embedObj' has the property
-  // 'embedType'. The type of 'embedObj' is narrowed to 'T & { [P in K]: unknown }'. So, we can
-  // safely access embedObj[embedType], and its type will be 'unknown'.
-  const value = (embedObj as T & { [P in K]: unknown })[embedType];
-  return typeof value === "object" && value !== null;
+}
+
+function $addClosingMarker(
+  marker: string,
+  nodes: LexicalNode[],
+  viewOptions: ViewOptions,
+  isSelfClosing = false,
+) {
+  if (CharNode.isValidFootnoteMarker(marker) || CharNode.isValidCrossReferenceMarker(marker))
+    return;
+
+  if (viewOptions?.markerMode === "editable") {
+    if (isSelfClosing) nodes.push($createMarkerNode("", "selfClosing"));
+    else nodes.push($createMarkerNode(marker, "closing"));
+  } else if (viewOptions?.markerMode === "visible") {
+    nodes.push(
+      $createImmutableTypedTextNode("marker", closingMarkerText(isSelfClosing ? "" : marker)),
+    );
+  }
 }
 
 /** Type guard for Book attributes. */

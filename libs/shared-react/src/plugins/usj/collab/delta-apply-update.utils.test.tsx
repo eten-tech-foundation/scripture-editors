@@ -45,6 +45,7 @@ import {
   $createParaNode,
   $isBookNode,
   $isCharNode,
+  $isImmutableTypedTextNode,
   $isImmutableUnmatchedNode,
   $isImpliedParaNode,
   $isMilestoneNode,
@@ -53,6 +54,7 @@ import {
   $isSomeChapterNode,
   charIdState,
   GENERATOR_NOTE_CALLER,
+  NBSP,
   removeUndefinedProperties,
   segmentState,
   SerializedNoteNode,
@@ -2881,6 +2883,420 @@ describe("Delta Utils $applyUpdate", () => {
 
         const spaceNode3 = note.getChildAtIndex(5);
         expect($isTextNode(spaceNode3)).toBe(true);
+      });
+    });
+
+    it("(dc) should insert a note with empty caller - only for note editing", async () => {
+      const { editor } = await testEnvironment();
+      const ops: DeltaOp[] = [
+        { insert: "When", attributes: { segment: "verse_2_1" } },
+        {
+          attributes: { segment: "verse_2_1" },
+          insert: {
+            note: {
+              style: "f",
+              caller: "",
+              contents: {
+                ops: [
+                  {
+                    insert: "2.1 ",
+                    attributes: {
+                      char: {
+                        style: "fr",
+                        closed: "false",
+                        cid: "a4f30846-b45c-4bc0-aebe-103dd36a9af3",
+                      },
+                    },
+                  },
+                  {
+                    insert: "in time.",
+                    attributes: {
+                      char: {
+                        style: "ft",
+                        closed: "false",
+                        cid: "6b911d54-dd6f-41a8-948e-52c7bd03aeb6",
+                      },
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        },
+      ];
+
+      await sutApplyUpdate(editor, ops);
+
+      editor.getEditorState().read(() => {
+        const p = $getRoot().getFirstChild();
+        if (!$isImpliedParaNode(p)) throw new Error("p is not an ImpliedParaNode");
+        expect(p.getChildrenSize()).toBe(2);
+
+        const whenText = p.getFirstChild();
+        if (!$isTextNode(whenText)) throw new Error("whenText is not a TextNode");
+        expect(whenText.getTextContent()).toBe("When");
+        expect($getState(whenText, segmentState)).toBe("verse_2_1");
+
+        const note = p.getChildAtIndex(1);
+        if (!$isNoteNode(note)) throw new Error("note is not a NoteNode");
+        expect(note.getMarker()).toBe("f");
+        expect(note.getCaller()).toBe("");
+        expect($getState(note, segmentState)).toBe("verse_2_1");
+        expect(note.getChildrenSize()).toBe(4);
+
+        // Note there is no caller node
+        const char1 = note.getFirstChild();
+        if (!$isCharNode(char1)) throw new Error("char1 is not a CharNode");
+        expect(char1.getMarker()).toBe("fr");
+        expect(char1.getTextContent()).toBe("2.1 ");
+        expect($getState(char1, charIdState)).toBe("a4f30846-b45c-4bc0-aebe-103dd36a9af3");
+        expect(char1.getUnknownAttributes()).toEqual({
+          closed: "false",
+        });
+
+        const spaceNode2 = note.getChildAtIndex(1);
+        expect($isTextNode(spaceNode2)).toBe(true);
+
+        const char2 = note.getChildAtIndex(2);
+        if (!$isCharNode(char2)) throw new Error("char2 is not a CharNode");
+        expect(char2.getMarker()).toBe("ft");
+        expect(char2.getTextContent()).toBe("in time.");
+        expect($getState(char2, charIdState)).toBe("6b911d54-dd6f-41a8-948e-52c7bd03aeb6");
+        expect(char1.getUnknownAttributes()).toEqual({
+          closed: "false",
+        });
+
+        const spaceNode3 = note.getChildAtIndex(3);
+        expect($isTextNode(spaceNode3)).toBe(true);
+      });
+    });
+
+    it("(dc) should insert a note with visible markers", async () => {
+      const { editor } = await testEnvironment();
+      const viewOptions: ViewOptions = {
+        ...defaultViewOptions,
+        markerMode: "visible",
+      };
+      const ops: DeltaOp[] = [
+        { insert: "When", attributes: { segment: "verse_2_1" } },
+        {
+          attributes: { segment: "verse_2_1" },
+          insert: {
+            note: {
+              style: "f",
+              caller: GENERATOR_NOTE_CALLER,
+              contents: {
+                ops: [
+                  {
+                    insert: "2.1 ",
+                    attributes: {
+                      char: {
+                        style: "fr",
+                        closed: "false",
+                        cid: "a4f30846-b45c-4bc0-aebe-103dd36a9af3",
+                      },
+                    },
+                  },
+                  {
+                    insert: "in time.",
+                    attributes: {
+                      char: {
+                        style: "ft",
+                        closed: "false",
+                        cid: "6b911d54-dd6f-41a8-948e-52c7bd03aeb6",
+                      },
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        },
+      ];
+
+      await sutApplyUpdate(editor, ops, viewOptions);
+
+      editor.getEditorState().read(() => {
+        const p = $getRoot().getFirstChild();
+        if (!$isImpliedParaNode(p)) throw new Error("p is not an ImpliedParaNode");
+        expect(p.getChildrenSize()).toBe(2);
+
+        const whenText = p.getFirstChild();
+        if (!$isTextNode(whenText)) throw new Error("whenText is not a TextNode");
+        expect(whenText.getTextContent()).toBe("When");
+        expect($getState(whenText, segmentState)).toBe("verse_2_1");
+
+        const note = p.getChildAtIndex(1);
+        if (!$isNoteNode(note)) throw new Error("note is not a NoteNode");
+        expect(note.getMarker()).toBe("f");
+        expect(note.getCaller()).toBe(GENERATOR_NOTE_CALLER);
+        expect($getState(note, segmentState)).toBe("verse_2_1");
+        expect(note.getChildrenSize()).toBe(10);
+
+        const openingMarker = note.getFirstChild();
+        if (!$isImmutableTypedTextNode(openingMarker))
+          throw new Error("Expected a ImmutableTypedTextNode");
+        expect(openingMarker.getTextType()).toBe("marker");
+        expect(openingMarker.getTextContent()).toBe(`\\f${NBSP}`);
+
+        const caller = note.getChildAtIndex(1);
+        if (!$isImmutableNoteCallerNode(caller))
+          throw new Error("Expected a ImmutableNoteCallerNode");
+        expect(caller.getCaller()).toBe(GENERATOR_NOTE_CALLER);
+        expect(caller.getPreviewText()).toBe("2.1  in time.");
+
+        const spaceNode1 = note.getChildAtIndex(2);
+        expect($isTextNode(spaceNode1)).toBe(true);
+
+        const frMarker = note.getChildAtIndex(3);
+        if (!$isImmutableTypedTextNode(frMarker))
+          throw new Error("Expected a ImmutableTypedTextNode");
+        expect(frMarker.getTextType()).toBe("marker");
+        expect(frMarker.getTextContent()).toBe("\\fr");
+
+        const char1 = note.getChildAtIndex(4);
+        if (!$isCharNode(char1)) throw new Error("char1 is not a CharNode");
+        expect(char1.getMarker()).toBe("fr");
+        expect(char1.getTextContent()).toBe("2.1 ");
+        expect($getState(char1, charIdState)).toBe("a4f30846-b45c-4bc0-aebe-103dd36a9af3");
+        expect(char1.getUnknownAttributes()).toEqual({
+          closed: "false",
+        });
+
+        const spaceNode2 = note.getChildAtIndex(5);
+        expect($isTextNode(spaceNode2)).toBe(true);
+
+        const ftMarker = note.getChildAtIndex(6);
+        if (!$isImmutableTypedTextNode(ftMarker))
+          throw new Error("Expected a ImmutableTypedTextNode");
+        expect(ftMarker.getTextType()).toBe("marker");
+        expect(ftMarker.getTextContent()).toBe("\\ft");
+
+        const char2 = note.getChildAtIndex(7);
+        if (!$isCharNode(char2)) throw new Error("char2 is not a CharNode");
+        expect(char2.getMarker()).toBe("ft");
+        expect(char2.getTextContent()).toBe("in time.");
+        expect($getState(char2, charIdState)).toBe("6b911d54-dd6f-41a8-948e-52c7bd03aeb6");
+        expect(char1.getUnknownAttributes()).toEqual({
+          closed: "false",
+        });
+
+        const spaceNode3 = note.getChildAtIndex(8);
+        expect($isTextNode(spaceNode3)).toBe(true);
+
+        const closingMarker = note.getChildAtIndex(9);
+        if (!$isImmutableTypedTextNode(closingMarker))
+          throw new Error("Expected a ImmutableTypedTextNode");
+        expect(closingMarker.getTextType()).toBe("marker");
+        expect(closingMarker.getTextContent()).toBe(`\\f*${NBSP}`);
+      });
+    });
+
+    it("(dc) should insert a note with nested chars & visible markers", async () => {
+      const { editor } = await testEnvironment();
+      const viewOptions: ViewOptions = {
+        ...defaultViewOptions,
+        markerMode: "visible",
+      };
+      const ops: DeltaOp[] = [
+        { insert: "When", attributes: { segment: "verse_2_1" } },
+        {
+          attributes: { segment: "verse_2_1" },
+          insert: {
+            note: {
+              style: "f",
+              caller: GENERATOR_NOTE_CALLER,
+              contents: {
+                ops: [
+                  { insert: "2.1 ", attributes: { char: { style: "fr", cid: "char-id1" } } },
+                  { insert: "in ", attributes: { char: { style: "ft", cid: "char-id2" } } },
+                  {
+                    insert: "time",
+                    attributes: {
+                      char: [
+                        { style: "ft", cid: "char-id2" },
+                        { style: "+bd", cid: "char-id3" },
+                      ],
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        },
+      ];
+
+      await sutApplyUpdate(editor, ops, viewOptions);
+
+      editor.getEditorState().read(() => {
+        const p = $getRoot().getFirstChild();
+        if (!$isImpliedParaNode(p)) throw new Error("p is not an ImpliedParaNode");
+        expect(p.getChildrenSize()).toBe(2);
+
+        const whenText = p.getFirstChild();
+        if (!$isTextNode(whenText)) throw new Error("whenText is not a TextNode");
+        expect(whenText.getTextContent()).toBe("When");
+        expect($getState(whenText, segmentState)).toBe("verse_2_1");
+
+        const note = p.getChildAtIndex(1);
+        if (!$isNoteNode(note)) throw new Error("note is not a NoteNode");
+        expect(note.getMarker()).toBe("f");
+        expect(note.getCaller()).toBe(GENERATOR_NOTE_CALLER);
+        expect($getState(note, segmentState)).toBe("verse_2_1");
+
+        expect(note.getChildrenSize()).toBe(10);
+
+        const openingMarker = note.getFirstChild();
+        if (!$isImmutableTypedTextNode(openingMarker))
+          throw new Error("Expected a ImmutableTypedTextNode");
+        expect(openingMarker.getTextType()).toBe("marker");
+        expect(openingMarker.getTextContent()).toBe(`\\f${NBSP}`);
+
+        const caller = note.getChildAtIndex(1);
+        if (!$isImmutableNoteCallerNode(caller))
+          throw new Error("Expected a ImmutableNoteCallerNode");
+        expect(caller.getCaller()).toBe(GENERATOR_NOTE_CALLER);
+        expect(caller.getPreviewText()).toBe("2.1  in \\+bdtime\\+bd*");
+
+        const spaceNode1 = note.getChildAtIndex(2);
+        expect($isTextNode(spaceNode1)).toBe(true);
+
+        const frMarker = note.getChildAtIndex(3);
+        if (!$isImmutableTypedTextNode(frMarker))
+          throw new Error("Expected a ImmutableTypedTextNode");
+        expect(frMarker.getTextType()).toBe("marker");
+        expect(frMarker.getTextContent()).toBe("\\fr");
+
+        const char1 = note.getChildAtIndex(4);
+        if (!$isCharNode(char1)) throw new Error("char1 is not a CharNode");
+        expect(char1.getMarker()).toBe("fr");
+        expect(char1.getTextContent()).toBe("2.1 ");
+        expect($getState(char1, charIdState)).toBe("char-id1");
+
+        const spaceNode2 = note.getChildAtIndex(5);
+        expect($isTextNode(spaceNode2)).toBe(true);
+
+        const ftMarker = note.getChildAtIndex(6);
+        if (!$isImmutableTypedTextNode(ftMarker))
+          throw new Error("Expected a ImmutableTypedTextNode");
+        expect(ftMarker.getTextType()).toBe("marker");
+        expect(ftMarker.getTextContent()).toBe("\\ft");
+
+        const char2 = note.getChildAtIndex(7);
+        if (!$isCharNode(char2)) throw new Error("char2 is not a CharNode");
+        expect(char2.getMarker()).toBe("ft");
+        expect(char2.getTextContent()).toBe("in \\+bdtime\\+bd*");
+        expect($getState(char2, charIdState)).toBe("char-id2");
+        expect(char2.getChildrenSize()).toBe(4);
+
+        const char2Text = char2.getFirstChild();
+        if (!$isTextNode(char2Text)) throw new Error("char2Text is not a TextNode");
+        expect(char2Text.getTextContent()).toBe("in ");
+
+        const bdOpeningMarker = char2.getChildAtIndex(1);
+        if (!$isImmutableTypedTextNode(bdOpeningMarker))
+          throw new Error("Expected a ImmutableTypedTextNode");
+        expect(bdOpeningMarker.getTextType()).toBe("marker");
+        expect(bdOpeningMarker.getTextContent()).toBe("\\+bd");
+
+        const char3 = char2.getChildAtIndex(2);
+        if (!$isCharNode(char3)) throw new Error("char3 is not a CharNode");
+        expect(char3.getMarker()).toBe("+bd");
+        expect(char3.getTextContent()).toBe("time");
+        expect($getState(char3, charIdState)).toBe("char-id3");
+
+        const bdClosingMarker = char2.getChildAtIndex(3);
+        if (!$isImmutableTypedTextNode(bdClosingMarker))
+          throw new Error("Expected a ImmutableTypedTextNode");
+        expect(bdClosingMarker.getTextType()).toBe("marker");
+        expect(bdClosingMarker.getTextContent()).toBe("\\+bd*");
+
+        const spaceNode3 = note.getChildAtIndex(8);
+        expect($isTextNode(spaceNode3)).toBe(true);
+
+        const closingMarker = note.getChildAtIndex(9);
+        if (!$isImmutableTypedTextNode(closingMarker))
+          throw new Error("Expected a ImmutableTypedTextNode");
+        expect(closingMarker.getTextType()).toBe("marker");
+        expect(closingMarker.getTextContent()).toBe(`\\f*${NBSP}`);
+      });
+    });
+
+    it("(dc) should insert adjacent chars with different markers", async () => {
+      const { editor } = await testEnvironment();
+      const ops: DeltaOp[] = [
+        { insert: "added text", attributes: { char: { style: "add", cid: "1" } } },
+        { insert: "words of Jesus", attributes: { char: { style: "wj", cid: "2" } } },
+      ];
+
+      await sutApplyUpdate(editor, ops);
+
+      editor.getEditorState().read(() => {
+        const root = $getRoot();
+        const para = root.getFirstChild();
+        if (!$isImpliedParaNode(para)) throw new Error("Expected an ImpliedParaNode");
+        expect(para.getChildrenSize()).toBe(2);
+
+        const addChar = para.getFirstChild();
+        if (!$isCharNode(addChar)) throw new Error("Expected a CharNode");
+        expect(addChar.getMarker()).toBe("add");
+        expect(addChar.getTextContent()).toBe("added text");
+        expect($getState(addChar, charIdState)).toBe("1");
+
+        const wjChar = para.getChildAtIndex(1);
+        if (!$isCharNode(wjChar)) throw new Error("Expected a CharNode");
+        expect(wjChar.getMarker()).toBe("wj");
+        expect(wjChar.getTextContent()).toBe("words of Jesus");
+        expect($getState(wjChar, charIdState)).toBe("2");
+      });
+    });
+
+    it("(dc) should insert adjacent chars where second has nested char", async () => {
+      const { editor } = await testEnvironment();
+      const ops: DeltaOp[] = [
+        { insert: "added text", attributes: { char: { style: "add", cid: "1" } } },
+        { insert: "words of ", attributes: { char: { style: "wj", cid: "2" } } },
+        {
+          insert: "Jesus",
+          attributes: {
+            char: [
+              { style: "wj", cid: "2" },
+              { style: "bd", cid: "3" },
+            ],
+          },
+        },
+      ];
+
+      await sutApplyUpdate(editor, ops);
+
+      editor.getEditorState().read(() => {
+        const root = $getRoot();
+        const para = root.getFirstChild();
+        if (!$isImpliedParaNode(para)) throw new Error("Expected an ImpliedParaNode");
+        expect(para.getChildrenSize()).toBe(2);
+
+        const addChar = para.getFirstChild();
+        if (!$isCharNode(addChar)) throw new Error("Expected a CharNode");
+        expect(addChar.getMarker()).toBe("add");
+        expect(addChar.getTextContent()).toBe("added text");
+        expect($getState(addChar, charIdState)).toBe("1");
+
+        const wjChar = para.getChildAtIndex(1);
+        if (!$isCharNode(wjChar)) throw new Error("Expected a CharNode");
+        expect(wjChar.getMarker()).toBe("wj");
+        expect(wjChar.getTextContent()).toBe("words of Jesus");
+        expect($getState(wjChar, charIdState)).toBe("2");
+        expect(wjChar.getChildrenSize()).toBe(2);
+
+        const textNode = wjChar.getFirstChild();
+        if (!$isTextNode(textNode)) throw new Error("Expected a TextNode");
+        expect(textNode.getTextContent()).toBe("words of ");
+
+        const bdChar = wjChar.getChildAtIndex(1);
+        if (!$isCharNode(bdChar)) throw new Error("Expected a CharNode");
+        expect(bdChar.getMarker()).toBe("bd");
+        expect(bdChar.getTextContent()).toBe("Jesus");
+        expect($getState(bdChar, charIdState)).toBe("3");
       });
     });
 

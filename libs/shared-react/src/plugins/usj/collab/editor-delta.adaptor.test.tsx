@@ -25,6 +25,7 @@ import {
   $createBookNode,
   $createCharNode,
   $createImmutableChapterNode,
+  $createImmutableTypedTextNode,
   $createImpliedParaNode,
   $createMilestoneNode,
   $createNoteNode,
@@ -32,6 +33,7 @@ import {
   charIdState,
   GENERATOR_NOTE_CALLER,
   getEditableCallerText,
+  NBSP,
   segmentState,
 } from "shared";
 
@@ -157,6 +159,63 @@ describe("getEditorDelta", () => {
     ]);
   });
 
+  it("should return the correct ops for adjacent chars with different markers", async () => {
+    const { editor } = await testEnvironment(() => {
+      const addChar = $createCharNode("add");
+      $setState(addChar, charIdState, "1");
+      const wjChar = $createCharNode("wj");
+      $setState(wjChar, charIdState, "2");
+      $getRoot().append(
+        $createImpliedParaNode().append(
+          addChar.append($createTextNode("added text")),
+          wjChar.append($createTextNode("words of Jesus")),
+        ),
+      );
+    });
+
+    const delta = getEditorDelta(editor.getEditorState());
+
+    expect(delta.ops).toEqual([
+      { insert: "added text", attributes: { char: { style: "add", cid: "1" } } },
+      { insert: "words of Jesus", attributes: { char: { style: "wj", cid: "2" } } },
+      { insert: LF },
+    ]);
+  });
+
+  it("should return the correct ops for adjacent chars where second has nested char", async () => {
+    const { editor } = await testEnvironment(() => {
+      const addChar = $createCharNode("add");
+      $setState(addChar, charIdState, "1");
+      const wjChar = $createCharNode("wj");
+      $setState(wjChar, charIdState, "2");
+      const bdChar = $createCharNode("bd");
+      $setState(bdChar, charIdState, "3");
+      $getRoot().append(
+        $createImpliedParaNode().append(
+          addChar.append($createTextNode("added text")),
+          wjChar.append($createTextNode("words of "), bdChar.append($createTextNode("Jesus"))),
+        ),
+      );
+    });
+
+    const delta = getEditorDelta(editor.getEditorState());
+
+    expect(delta.ops).toEqual([
+      { insert: "added text", attributes: { char: { style: "add", cid: "1" } } },
+      { insert: "words of ", attributes: { char: { style: "wj", cid: "2" } } },
+      {
+        insert: "Jesus",
+        attributes: {
+          char: [
+            { style: "wj", cid: "2" },
+            { style: "bd", cid: "3" },
+          ],
+        },
+      },
+      { insert: LF },
+    ]);
+  });
+
   it("should return the correct ops for a note and para", async () => {
     const reference = "3:16 ";
     const footnoteText = "Footnote text ";
@@ -230,6 +289,146 @@ describe("getEditorDelta", () => {
         },
       },
       { insert: LF, attributes: { para: { style: "q1" } } },
+    ]);
+  });
+
+  it("should return the correct ops for a note with visible markers", async () => {
+    const { editor } = await testEnvironment(() => {
+      const whenText = $createTextNode("When");
+      $setState(whenText, segmentState, "verse_2_1");
+      const note = $createNoteNode("f", GENERATOR_NOTE_CALLER);
+      $setState(note, segmentState, "verse_2_1");
+      const frChar = $createCharNode("fr");
+      $setState(frChar, charIdState, "a4f30846-b45c-4bc0-aebe-103dd36a9af3");
+      frChar.setUnknownAttributes({ closed: "false" });
+      const ftChar = $createCharNode("ft");
+      $setState(ftChar, charIdState, "6b911d54-dd6f-41a8-948e-52c7bd03aeb6");
+      ftChar.setUnknownAttributes({ closed: "false" });
+      $getRoot().append(
+        $createImpliedParaNode().append(
+          whenText,
+          note.append(
+            $createImmutableTypedTextNode("marker", `\\f${NBSP}`),
+            $createImmutableNoteCallerNode(GENERATOR_NOTE_CALLER, "2.1  in time."),
+            $createTextNode(NBSP),
+            $createImmutableTypedTextNode("marker", "\\fr"),
+            frChar.append($createTextNode("2.1 ")),
+            $createTextNode(NBSP),
+            $createImmutableTypedTextNode("marker", "\\ft"),
+            ftChar.append($createTextNode("in time.")),
+            $createTextNode(NBSP),
+            $createImmutableTypedTextNode("marker", `\\f*${NBSP}`),
+          ),
+        ),
+      );
+    });
+
+    const delta = getEditorDelta(editor.getEditorState());
+
+    expect(delta.ops).toEqual([
+      { insert: "When", attributes: { segment: "verse_2_1" } },
+      {
+        attributes: { segment: "verse_2_1" },
+        insert: {
+          note: {
+            style: "f",
+            caller: GENERATOR_NOTE_CALLER,
+            contents: {
+              ops: [
+                {
+                  insert: "2.1 ",
+                  attributes: {
+                    char: {
+                      style: "fr",
+                      closed: "false",
+                      cid: "a4f30846-b45c-4bc0-aebe-103dd36a9af3",
+                    },
+                  },
+                },
+                {
+                  insert: "in time.",
+                  attributes: {
+                    char: {
+                      style: "ft",
+                      closed: "false",
+                      cid: "6b911d54-dd6f-41a8-948e-52c7bd03aeb6",
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        },
+      },
+      { insert: LF },
+    ]);
+  });
+
+  it("should return the correct ops for a note with nested chars & visible markers", async () => {
+    const { editor } = await testEnvironment(() => {
+      const whenText = $createTextNode("When");
+      $setState(whenText, segmentState, "verse_2_1");
+      const note = $createNoteNode("f", GENERATOR_NOTE_CALLER);
+      $setState(note, segmentState, "verse_2_1");
+      const frChar = $createCharNode("fr");
+      $setState(frChar, charIdState, "char-id1");
+      const ftChar = $createCharNode("ft");
+      $setState(ftChar, charIdState, "char-id2");
+      const bdChar = $createCharNode("+bd");
+      $setState(bdChar, charIdState, "char-id3");
+      $getRoot().append(
+        $createImpliedParaNode().append(
+          whenText,
+          note.append(
+            $createImmutableTypedTextNode("marker", `\\f${NBSP}`),
+            $createImmutableNoteCallerNode(GENERATOR_NOTE_CALLER, "2.1  in \\+bdtime\\+bd*"),
+            $createTextNode(NBSP),
+            $createImmutableTypedTextNode("marker", "\\fr"),
+            frChar.append($createTextNode("2.1 ")),
+            $createTextNode(NBSP),
+            $createImmutableTypedTextNode("marker", "\\ft"),
+            ftChar.append(
+              $createTextNode("in "),
+              $createImmutableTypedTextNode("marker", "\\+bd"),
+              bdChar.append($createTextNode("time")),
+              $createImmutableTypedTextNode("marker", "\\+bd*"),
+            ),
+            $createTextNode(NBSP),
+            $createImmutableTypedTextNode("marker", `\\f*${NBSP}`),
+          ),
+        ),
+      );
+    });
+
+    const delta = getEditorDelta(editor.getEditorState());
+
+    expect(delta.ops).toEqual([
+      { insert: "When", attributes: { segment: "verse_2_1" } },
+      {
+        attributes: { segment: "verse_2_1" },
+        insert: {
+          note: {
+            style: "f",
+            caller: GENERATOR_NOTE_CALLER,
+            contents: {
+              ops: [
+                { insert: "2.1 ", attributes: { char: { style: "fr", cid: "char-id1" } } },
+                { insert: "in ", attributes: { char: { style: "ft", cid: "char-id2" } } },
+                {
+                  insert: "time",
+                  attributes: {
+                    char: [
+                      { style: "ft", cid: "char-id2" },
+                      { style: "+bd", cid: "char-id3" },
+                    ],
+                  },
+                },
+              ],
+            },
+          },
+        },
+      },
+      { insert: LF },
     ]);
   });
 
