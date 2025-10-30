@@ -251,14 +251,16 @@ export function $createWholeNote(
   let callerNode: ImmutableNoteCallerNode | TextNode;
   if (openingMarkerNode) note.append(openingMarkerNode);
   if (viewOptions?.markerMode === "editable") {
-    if (caller) {
+    if (caller === "") note.append(...contentNodes);
+    else {
       callerNode = $createTextNode(getEditableCallerText(note.__caller));
       note.append(callerNode, ...contentNodes);
-    } else note.append(...contentNodes);
+    }
   } else {
     const $createSpaceNodeFn = () => $createTextNode(NBSP);
     const spacedContentNodes = contentNodes.flatMap($addSpaceNodes($createSpaceNodeFn));
-    if (caller) {
+    if (caller === "") note.append(...spacedContentNodes);
+    else {
       const previewText = $getNoteCallerPreviewText(contentNodes);
       let onClick: NoteCallerOnClick = () => undefined;
       if (nodeOptions?.noteCallerOnClick) {
@@ -266,7 +268,7 @@ export function $createWholeNote(
       }
       callerNode = $createImmutableNoteCallerNode(note.__caller, previewText, onClick);
       note.append(callerNode, $createSpaceNodeFn(), ...spacedContentNodes);
-    } else note.append(...spacedContentNodes);
+    }
   }
   if (closingMarkerNode) note.append(closingMarkerNode);
 
