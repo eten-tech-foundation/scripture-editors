@@ -34,7 +34,7 @@ import { $isNoteNode, GENERATOR_NOTE_CALLER, NoteNode } from "shared";
  * @public
  */
 export type NoteCallerOnClick = (
-  event: SyntheticEvent,
+  event: SyntheticEvent<HTMLButtonElement, MouseEvent>,
   noteNodeKey: string,
   isCollapsed: boolean | undefined,
   getCaller: () => string,
@@ -179,7 +179,7 @@ export class ImmutableNoteCallerNode extends DecoratorNode<ReactNode> {
     const noteNodeKey = noteNode.getKey();
     const noteIsCollapsed = noteNode.getIsCollapsed();
     const callerNodeKey = this.__key;
-    const onClick = (event: SyntheticEvent) =>
+    const onClick = (event: SyntheticEvent<HTMLButtonElement, MouseEvent>) =>
       this.__onClick?.(
         event,
         noteNodeKey,
