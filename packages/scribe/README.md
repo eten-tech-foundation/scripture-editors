@@ -33,7 +33,7 @@ npm install @eten-tech-foundation/scribe-editor
 > This is an [uncontrolled React component](https://react.dev/learn/sharing-state-between-components#controlled-and-uncontrolled-components).
 
 ```typescript
-import { useState, useMemo, SyntheticEvent, useRef, useEffect } from "react";
+import { MouseEvent, useState, useMemo, useRef, useEffect } from "react";
 import Editor, { EditorRef } from "@eten-tech-foundation/scribe-editor";
 import { Usj, USJ_TYPE, USJ_VERSION } from "@eten-tech-foundation/scripture-utilities";
 import {
@@ -53,7 +53,7 @@ const defaultUsj: Usj = {
 const defaultScrRef: ScriptureReference = { book: "PSA", chapterNum: 1, verseNum: 1 };
 
 const nodeOptions: UsjNodeOptions = {
-  noteCallerOnClick: (e: SyntheticEvent) => {
+  noteCallerOnClick: (e: MouseEvent<HTMLButtonElement>) => {
     console.log("note node clicked", e);
   },
 };
