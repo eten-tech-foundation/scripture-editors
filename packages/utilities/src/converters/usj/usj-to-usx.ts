@@ -84,8 +84,10 @@ function convertUsjRecurse(
 }
 
 function setAttributes(element: Element, markerContent: MarkerObject) {
-  if (markerContent.type === "unmatched") element.setAttribute("marker", markerContent.marker);
-  else element.setAttribute("style", markerContent.marker);
+  if (markerContent.marker) {
+    if (markerContent.type === "unmatched") element.setAttribute("marker", markerContent.marker);
+    else element.setAttribute("style", markerContent.marker);
+  }
   for (const [key, value] of Object.entries(markerContent)) {
     if (value && !["type", "marker", "content"].includes(key)) {
       element.setAttribute(key, value as string);

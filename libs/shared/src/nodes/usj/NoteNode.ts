@@ -17,7 +17,7 @@ import {
   Spread,
 } from "lexical";
 
-const DEFAULT_NOTE_MARKER = "f";
+export const DEFAULT_NOTE_MARKER = "f";
 
 /** @see https://docs.usfm.bible/usfm/3.1/note/index.html */
 const VALID_NOTE_MARKERS = [
