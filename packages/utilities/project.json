@@ -5,12 +5,19 @@
   "projectType": "library",
   "tags": [],
   "targets": {
-    "devpub": {
+    "extract-api": {
       "executor": "nx:run-commands",
-      "defaultConfiguration": "production",
+      "dependsOn": ["build"],
+      "cache": true,
+      "inputs": ["production", "^production", "{projectRoot}/config/api-extractor.json"],
+      "outputs": ["{projectRoot}/dist", "{projectRoot}/etc", "{projectRoot}/temp"],
       "options": {
-        "command": "yalc push",
-        "cwd": "{projectRoot}"
+        "commands": [
+          "api-extractor run --local --verbose",
+          "npx prettier --write \"dist/**/*.d.ts\""
+        ],
+        "cwd": "{projectRoot}",
+        "parallel": false
       }
     }
   }

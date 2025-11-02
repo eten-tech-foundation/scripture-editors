@@ -11,6 +11,14 @@ import { USX_TYPE, USX_VERSION } from "./usx.model.js";
 let chapterEid: string | undefined;
 let verseEid: string | undefined;
 
+/**
+ * Converts a USJ object to a USX string.
+ *
+ * @param usj - The USJ object to convert
+ * @returns The converted USX string.
+ *
+ * @public
+ */
 export function usjToUsxString(usj: Usj): string {
   const usxDoc = new DOMImplementation().createDocument("", USX_TYPE);
   if (usxDoc.documentElement) {
