@@ -4,15 +4,28 @@
  * @see https://github.com/usfm-bible/tcdocs/blob/usj/grammar/usj.js
  */
 
-/** The USJ spec type */
+/**
+ * The USJ spec type
+ * @public
+ */
 export const USJ_TYPE = "USJ";
 
-/** The USJ spec version */
+/**
+ * The USJ spec version
+ * @public
+ */
 export const USJ_VERSION = "3.1";
 
+/**
+ * An empty USJ object
+ * @public
+ */
 export const EMPTY_USJ = Object.freeze<Usj>({ type: USJ_TYPE, version: USJ_VERSION, content: [] });
 
-/** List of known properties of `MarkerObject` */
+/**
+ * List of known properties of `MarkerObject`
+ * @public
+ */
 export const MARKER_OBJECT_PROPS: (keyof MarkerObject)[] = [
   "type",
   "marker",
@@ -28,10 +41,16 @@ export const MARKER_OBJECT_PROPS: (keyof MarkerObject)[] = [
   "category",
 ];
 
-/** Single piece of Scripture content */
+/**
+ * Single piece of Scripture content
+ * @public
+ */
 export type MarkerContent = string | MarkerObject;
 
-/** A Scripture Marker and its contents */
+/**
+ * A Scripture Marker and its contents
+ * @public
+ */
 export interface MarkerObject {
   /**
    * The kind/category of node or element this is, corresponding the USFM marker and USX node
@@ -65,7 +84,10 @@ export interface MarkerObject {
   category?: string;
 }
 
-/** Scripture data represented in JSON format. Data compatible transformation from USX/USFM */
+/**
+ * Scripture data represented in JSON format. Data compatible transformation from USX/USFM
+ * @public
+ */
 export interface Usj {
   /** The USJ spec type */
   type: typeof USJ_TYPE;
@@ -75,14 +97,25 @@ export interface Usj {
   content: MarkerContent[];
 }
 
+/**
+ * Check if the given code is a valid 3-letter Scripture book code.
+ * @public
+ */
 export function isValidBookCode(code: string): boolean {
   return VALID_BOOK_CODES.includes(code as BookCode);
 }
 
-/** 3-letter Scripture book code */
+/**
+ * 3-letter Scripture book code
+ * @public
+ */
 export type BookCode = (typeof VALID_BOOK_CODES)[number];
 
-const VALID_BOOK_CODES = [
+/**
+ * List of valid 3-letter Scripture book codes
+ * @public
+ */
+export const VALID_BOOK_CODES = [
   // Old Testament
   "GEN",
   "EXO",

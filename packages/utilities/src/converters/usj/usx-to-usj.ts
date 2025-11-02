@@ -13,6 +13,14 @@ interface Attribs {
   [name: string]: string;
 }
 
+/**
+ * Converts a USX string to a USJ object.
+ *
+ * @param usxString - The USX string to convert.
+ * @returns The converted USJ object.
+ *
+ * @public
+ */
 export function usxStringToUsj(usxString: string): Usj {
   const parser = new DOMParser();
   const inputUsxDom = parser.parseFromString(usxString, "text/xml");
