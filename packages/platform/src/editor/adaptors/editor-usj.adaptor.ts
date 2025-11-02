@@ -169,7 +169,8 @@ function createCharMarker(
   node: SerializedCharNode,
   content: MarkerContent[] | undefined,
 ): MarkerObject {
-  const { type, marker, unknownAttributes } = node;
+  const { type, marker: nodeMarker, unknownAttributes } = node;
+  const marker = nodeMarker === "" ? undefined : nodeMarker;
   // Remove NBSP at the start of the child text nodes.
   content?.forEach((c, i) => {
     if (typeof c === "string" && c.startsWith(NBSP)) {
@@ -213,7 +214,8 @@ function createNoteMarker(
 }
 
 function createMilestoneMarker(node: SerializedMilestoneNode): MarkerObject {
-  const { type, marker, sid, eid, unknownAttributes } = node;
+  const { type, marker: nodeMarker, sid, eid, unknownAttributes } = node;
+  const marker = nodeMarker === "" ? undefined : nodeMarker;
   return removeUndefinedProperties({
     type,
     marker,
@@ -241,7 +243,8 @@ function createUnknownMarker(
 }
 
 function createUnmatchedMarker(node: SerializedImmutableUnmatchedNode): MarkerObject {
-  const { marker } = node;
+  const { marker: nodeMarker } = node;
+  const marker = nodeMarker === "" ? undefined : nodeMarker;
   return {
     type: UNMATCHED_TAG_NAME,
     marker,

@@ -16,7 +16,7 @@ import {
 export type SerializedUnknownNode = Spread<
   {
     tag: string;
-    marker: string;
+    marker?: string;
     unknownAttributes?: UnknownAttributes;
   },
   SerializedElementNode
@@ -27,10 +27,10 @@ export const UNKNOWN_VERSION = 1;
 
 export class UnknownNode extends ElementNode {
   __tag: string;
-  __marker: string;
+  __marker?: string;
   __unknownAttributes?: UnknownAttributes;
 
-  constructor(tag = "", marker = "", unknownAttributes?: UnknownAttributes, key?: NodeKey) {
+  constructor(tag = "", marker?: string, unknownAttributes?: UnknownAttributes, key?: NodeKey) {
     super(key);
     this.__tag = tag;
     this.__marker = marker;
@@ -84,7 +84,7 @@ export class UnknownNode extends ElementNode {
     return self.__tag;
   }
 
-  setMarker(marker: string): this {
+  setMarker(marker: string | undefined): this {
     if (this.__marker === marker) return this;
 
     const self = this.getWritable();
@@ -92,7 +92,7 @@ export class UnknownNode extends ElementNode {
     return self;
   }
 
-  getMarker(): string {
+  getMarker(): string | undefined {
     const self = this.getLatest();
     return self.__marker;
   }

@@ -28,6 +28,7 @@ import {
   CharNode,
   closingMarkerText,
   COMMENT_MARK_TYPE,
+  DEFAULT_NOTE_MARKER,
   EditorAdaptor,
   ENDING_MS_COMMENT_MARKER,
   getEditableCallerText,
@@ -58,6 +59,7 @@ import {
   NOTE_VERSION,
   NoteNode,
   openingMarkerText,
+  PARA_MARKER_DEFAULT,
   PARA_VERSION,
   ParaNode,
   removeUndefinedProperties,
@@ -206,10 +208,12 @@ function getTextContent(markers: MarkerContent[] | undefined): string {
 }
 
 function createBook(markerObject: MarkerObject): SerializedBookNode {
-  const { marker, code } = markerObject;
+  let { marker } = markerObject;
   if (marker !== BOOK_MARKER) {
     _logger?.warn(`Unexpected book marker '${marker}'!`);
   }
+  marker = marker ?? BOOK_MARKER;
+  const { code } = markerObject;
   if (!code || !BookNode.isValidBookCode(code)) {
     _logger?.warn(`Unexpected book code '${code}'!`);
   }
@@ -239,10 +243,12 @@ function createBook(markerObject: MarkerObject): SerializedBookNode {
 function createChapter(
   markerObject: MarkerObject,
 ): SerializedChapterNode | SerializedImmutableChapterNode {
-  const { marker, number, sid, altnumber, pubnumber } = markerObject;
+  let { marker } = markerObject;
   if (marker !== CHAPTER_MARKER) {
     _logger?.warn(`Unexpected chapter marker '${marker}'!`);
   }
+  marker = marker ?? CHAPTER_MARKER;
+  const { number, sid, altnumber, pubnumber } = markerObject;
   const unknownAttributes = getUnknownAttributes(markerObject);
   let showMarker: boolean | undefined;
   if (_viewOptions?.markerMode === "visible") showMarker = true;
@@ -278,10 +284,12 @@ function createChapter(
 function createVerse(
   markerObject: MarkerObject,
 ): SerializedVerseNode | SerializedImmutableVerseNode {
-  const { marker, number, sid, altnumber, pubnumber } = markerObject;
+  let { marker } = markerObject;
   if (marker !== VERSE_MARKER) {
     _logger?.warn(`Unexpected verse marker '${marker}'!`);
   }
+  marker = marker ?? VERSE_MARKER;
+  const { number, sid, altnumber, pubnumber } = markerObject;
   const VerseNodeClass = getVerseNodeClass(_viewOptions) ?? ImmutableVerseNode;
   const type = VerseNodeClass.getType();
   const version = _viewOptions?.markerMode === "editable" ? VERSE_VERSION : IMMUTABLE_VERSE_VERSION;
@@ -309,10 +317,11 @@ function createChar(
   markerObject: MarkerObject,
   childNodes: SerializedLexicalNode[] = [],
 ): SerializedCharNode {
-  const { marker } = markerObject;
+  let { marker } = markerObject;
   if (!CharNode.isValidMarker(marker)) {
     _logger?.warn(`Unexpected char marker '${marker}'!`);
   }
+  marker = marker ?? "";
   if (_viewOptions?.markerMode === "editable")
     childNodes.forEach((node) => {
       if (isSerializedTextNode(node)) node.text = NBSP + node.text;
@@ -350,10 +359,11 @@ function createPara(
   markerObject: MarkerObject,
   childNodes: SerializedLexicalNode[] = [],
 ): SerializedParaNode {
-  const { marker } = markerObject;
+  let { marker } = markerObject;
   if (!ParaNode.isValidMarker(marker)) {
     _logger?.warn(`Unexpected para marker '${marker}'!`);
   }
+  marker = marker ?? PARA_MARKER_DEFAULT;
   const children: SerializedLexicalNode[] = [];
   if (_viewOptions?.markerMode === "editable")
     children.push(createMarker(marker), createText(NBSP));
@@ -399,8 +409,10 @@ function createNote(
   markerObject: MarkerObject,
   childNodes: SerializedLexicalNode[],
 ): SerializedNoteNode {
-  const { marker, category } = markerObject;
+  let { marker } = markerObject;
   if (!NoteNode.isValidMarker(marker)) _logger?.warn(`Unexpected note marker '${marker}'!`);
+  marker = marker ?? DEFAULT_NOTE_MARKER;
+  const { category } = markerObject;
   const caller = markerObject.caller ?? "*";
   const isCollapsed = _viewOptions?.noteMode !== "expanded";
   const unknownAttributes = getUnknownAttributes(markerObject);
@@ -458,10 +470,12 @@ function addSpaceNodes(
 }
 
 function createMilestone(markerObject: MarkerObject): SerializedMilestoneNode {
-  const { marker, sid, eid } = markerObject;
+  let { marker } = markerObject;
   if (!marker || !MilestoneNode.isValidMarker(marker)) {
     _logger?.warn(`Unexpected milestone marker '${marker}'!`);
   }
+  marker = marker ?? "";
+  const { sid, eid } = markerObject;
   const unknownAttributes = getUnknownAttributes(markerObject);
 
   return removeUndefinedProperties({
@@ -684,9 +698,9 @@ function recurseNodes(markers: MarkerContent[] | undefined): SerializedLexicalNo
           nodes.push(createVerse(markerContent));
           break;
         case CharNode.getType():
-          addOpeningMarker(markerContent.marker, nodes);
+          addOpeningMarker(markerContent.marker ?? "", nodes);
           nodes.push(createChar(markerContent, recurseNodes(markerContent.content)));
-          addClosingMarker(markerContent.marker, nodes);
+          addClosingMarker(markerContent.marker ?? "", nodes);
           break;
         case ParaNode.getType():
           nodes.push(createPara(markerContent, recurseNodes(markerContent.content)));
@@ -695,18 +709,18 @@ function recurseNodes(markers: MarkerContent[] | undefined): SerializedLexicalNo
           nodes.push(createNote(markerContent, recurseNodes(markerContent.content)));
           break;
         case MilestoneNode.getType():
-          if (isMilestoneCommentMarker(markerContent.marker)) {
+          if (isMilestoneCommentMarker(markerContent.marker ?? "")) {
             msCommentIndexes.push(nodes.length);
             if (markerContent.sid !== undefined) commentIds?.push(markerContent.sid);
           }
           nodes.push(createMilestone(markerContent));
           // Must be after the milestone because of the way `replaceMilestonesWithMarkRecurse` works.
-          addOpeningMarker(markerContent.marker, nodes);
+          addOpeningMarker(markerContent.marker ?? "", nodes);
           addAttributes(markerContent, nodes);
-          addClosingMarker(markerContent.marker, nodes, true);
+          addClosingMarker(markerContent.marker ?? "", nodes, true);
           break;
         case ImmutableUnmatchedNode.getType():
-          nodes.push(createUnmatched(markerContent.marker));
+          nodes.push(createUnmatched(markerContent.marker ?? ""));
           break;
         default:
           _logger?.warn(`Unknown type-marker '${markerContent.type}-${markerContent.marker}'!`);
