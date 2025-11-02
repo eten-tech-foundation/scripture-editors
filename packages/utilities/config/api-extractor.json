@@ -110,7 +110,7 @@
      * SUPPORTED TOKENS: <projectFolder>, <packageName>, <unscopedPackageName>
      * DEFAULT VALUE: "<projectFolder>/tsconfig.json"
      */
-    // "tsconfigFilePath": "<projectFolder>/tsconfig.json",
+    "tsconfigFilePath": "<projectFolder>/tsconfig.lib.json"
 
     /**
      * Provides a compiler configuration that will be used instead of reading the tsconfig.json file from disk.
@@ -121,31 +121,29 @@
      * If omitted, then the tsconfig.json file will be read from the "projectFolder".
      *
      * DEFAULT VALUE: no overrideTsconfig section
-     *
-     * Module Resolution Inconsistency: The main issue was a mismatch between the base TypeScript configuration (moduleResolution: "nodenext") and API Extractor's expectations. I configured API Extractor to use its own TypeScript compiler options with moduleResolution: "node" and module: "commonjs".
      */
-    "overrideTsconfig": {
-      "compilerOptions": {
-        "module": "commonjs",
-        "moduleResolution": "node"
-      },
-      "exclude": [
-        "out-tsc/**",
-        "vite.config.ts",
-        "vite.config.mts",
-        "vitest.config.ts",
-        "vitest.config.mts",
-        "src/**/*.test.ts",
-        "src/**/*.spec.ts",
-        "src/**/*.test.tsx",
-        "src/**/*.spec.tsx",
-        "src/**/*.test.js",
-        "src/**/*.spec.js",
-        "src/**/*.test.jsx",
-        "src/**/*.spec.jsx",
-        "src/**/*.data.ts"
-      ]
-    }
+    // "overrideTsconfig": {
+    //   "compilerOptions": {
+    //     "module": "commonjs",
+    //     "moduleResolution": "node"
+    //   },
+    //   "exclude": [
+    //     "out-tsc/**",
+    //     "vite.config.ts",
+    //     "vite.config.mts",
+    //     "vitest.config.ts",
+    //     "vitest.config.mts",
+    //     "src/**/*.test.ts",
+    //     "src/**/*.spec.ts",
+    //     "src/**/*.test.tsx",
+    //     "src/**/*.spec.tsx",
+    //     "src/**/*.test.js",
+    //     "src/**/*.spec.js",
+    //     "src/**/*.test.jsx",
+    //     "src/**/*.spec.jsx",
+    //     "src/**/*.data.ts"
+    //   ]
+    // }
 
     /**
      * This option causes the compiler to be invoked with the --skipLibCheck option. This option is not recommended
