@@ -3,7 +3,7 @@ import { baseTestEnvironment } from "../../plugins/usj/react-test.utils";
 import { $createImmutableNoteCallerNode, NoteCallerOnClick } from "./ImmutableNoteCallerNode";
 import { act } from "@testing-library/react";
 import { $createTextNode, $getRoot, LexicalEditor } from "lexical";
-import { SyntheticEvent } from "react";
+import { MouseEvent } from "react";
 import { $createCharNode, $createNoteNode, $createParaNode } from "shared";
 
 describe("getNoteOps via onClick callback", () => {
@@ -119,7 +119,7 @@ function createNoteOpsCapture() {
   let capturedGetNoteOps: (() => DeltaOp[] | undefined) | undefined;
 
   const mockOnClick: NoteCallerOnClick = (
-    _event: SyntheticEvent,
+    _event: MouseEvent<HTMLButtonElement>,
     _noteNodeKey: string,
     _isCollapsed: boolean | undefined,
     _getCaller: () => string,

@@ -17,7 +17,7 @@ import {
   SerializedLexicalNode,
   Spread,
 } from "lexical";
-import { ReactElement, ReactNode, SyntheticEvent } from "react";
+import { MouseEvent, ReactElement, ReactNode } from "react";
 import { $isNoteNode, GENERATOR_NOTE_CALLER, NoteNode } from "shared";
 
 /**
@@ -34,7 +34,7 @@ import { $isNoteNode, GENERATOR_NOTE_CALLER, NoteNode } from "shared";
  * @public
  */
 export type NoteCallerOnClick = (
-  event: SyntheticEvent,
+  event: MouseEvent<HTMLButtonElement>,
   noteNodeKey: string,
   isCollapsed: boolean | undefined,
   getCaller: () => string,
@@ -179,7 +179,7 @@ export class ImmutableNoteCallerNode extends DecoratorNode<ReactNode> {
     const noteNodeKey = noteNode.getKey();
     const noteIsCollapsed = noteNode.getIsCollapsed();
     const callerNodeKey = this.__key;
-    const onClick = (event: SyntheticEvent) =>
+    const onClick = (event: MouseEvent<HTMLButtonElement>) =>
       this.__onClick?.(
         event,
         noteNodeKey,

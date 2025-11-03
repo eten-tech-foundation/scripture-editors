@@ -4,7 +4,7 @@
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import "../../../libs/shared/src/styles/nodes-menu.css";
 import { Usj, USJ_TYPE, USJ_VERSION } from "@eten-tech-foundation/scripture-utilities";
-import { useState, useMemo, SyntheticEvent, useRef, useEffect } from "react";
+import { MouseEvent, useState, useMemo, useRef, useEffect } from "react";
 import { ScriptureReference } from "shared";
 import { getDefaultViewMode, getViewOptions, SelectionRange, UsjNodeOptions } from "shared-react";
 // import { Usj2Usfm } from "@/hooks/usj2Usfm";
@@ -19,7 +19,7 @@ const defaultUsj: Usj = {
 };
 const defaultScrRef: ScriptureReference = { book: "PSA", chapterNum: 1, verseNum: 1 };
 const nodeOptions: UsjNodeOptions = {
-  noteCallerOnClick: (e: SyntheticEvent) => {
+  noteCallerOnClick: (e: MouseEvent<HTMLButtonElement>) => {
     console.log("note node clicked", e);
   },
 };

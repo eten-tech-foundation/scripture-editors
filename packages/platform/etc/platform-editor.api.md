@@ -5,11 +5,11 @@
 ```ts
 
 import { ForwardRefExoticComponent } from 'react';
+import { MouseEvent as MouseEvent_2 } from 'react';
 import { Op } from 'quill-delta';
 import { RefAttributes } from 'react';
 import { RefObject } from 'react';
 import { SerializedVerseRef } from '@sillsdev/scripture';
-import { SyntheticEvent } from 'react';
 import { Usj } from '@eten-tech-foundation/scripture-utilities';
 
 // @public
@@ -159,7 +159,7 @@ export interface NodeOptions {
 }
 
 // @public
-export type NoteCallerOnClick = (event: SyntheticEvent, noteNodeKey: string, isCollapsed: boolean | undefined, getCaller: () => string, setCaller: (caller: string) => void, getNoteOps: () => DeltaOpInsertNoteEmbed[] | undefined) => void;
+export type NoteCallerOnClick = (event: MouseEvent_2<HTMLButtonElement>, noteNodeKey: string, isCollapsed: boolean | undefined, getCaller: () => string, setCaller: (caller: string) => void, getNoteOps: () => DeltaOpInsertNoteEmbed[] | undefined) => void;
 
 // @public
 export type NoteMode =
