@@ -136,7 +136,8 @@ export default function App() {
           const noteOps = getNoteOps?.();
           if (!noteOps) return;
 
-          console.log("collapsed note node clicked - use note editor");
+          const noteElement = marginalRef.current?.getElementByKey(noteNodeKey);
+          console.log("collapsed note node clicked - use note editor on", noteElement);
           noteNodeKeyRef.current = noteNodeKey;
           noteEditorRef.current?.applyUpdate(noteOps);
           setIsNoteEditorVisible(true);

@@ -243,6 +243,11 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
         }
       });
     },
+    getElementByKey(nodeKey: string): HTMLElement | undefined {
+      return editorRef.current?.read(
+        () => editorRef.current?.getElementByKey(nodeKey) ?? undefined,
+      );
+    },
     insertNote(marker, caller, selection) {
       editorRef.current?.update(() => {
         const noteNode = $insertNote(
