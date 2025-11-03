@@ -20,6 +20,7 @@ import {
   getDefaultViewMode,
   getViewOptions,
   HIDDEN_NOTE_CALLER,
+  isInsertEmbedOpOfType,
   Marginal,
   MarginalProps,
   MarginalRef,
@@ -213,9 +214,10 @@ export default function App() {
         if (noteNodeKeyRef.current) return;
 
         const noteOps = [ops[1]];
-        if (!noteOps) return;
+        if (!isInsertEmbedOpOfType("note", ops[1])) return;
 
-        console.log("note node inserted - use note editor");
+        const noteElement = marginalRef.current?.getElementByKey(insertedNodeKey);
+        console.log("note node inserted - use note editor on", noteElement);
         noteNodeKeyRef.current = insertedNodeKey;
         noteEditorRef.current?.applyUpdate(noteOps);
         setIsNoteEditorVisible(true);
