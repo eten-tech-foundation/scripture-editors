@@ -134,6 +134,9 @@ const Marginal = forwardRef(function Marginal<TLogger extends LoggerBasic>(
     formatPara(blockMarker) {
       editorRef.current?.formatPara(blockMarker);
     },
+    getElementByKey(nodeKey: string) {
+      return editorRef.current?.getElementByKey(nodeKey);
+    },
     insertNote(marker, caller, selection) {
       editorRef.current?.insertNote(marker, caller, selection);
     },

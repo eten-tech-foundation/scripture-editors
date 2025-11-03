@@ -183,7 +183,9 @@ export interface EditorProps<TLogger extends LoggerBasic> {
   /** Callback function when the cursor selection changes. */
   onSelectionChange?: (selection: SelectionRange | undefined) => void;
   /** Callback function when USJ Scripture data has changed. */
-  onUsjChange?: (usj: Usj, ops?: DeltaOp[], source?: DeltaSource) => void;
+  onUsjChange?: (usj: Usj, ops?: DeltaOp[], source?: DeltaSource, insertedNodeKey?: string) => void;
+  /** Callback function when state changes. */
+  onStateChange?: (canUndo: boolean, canRedo: boolean, blockMarker: string | undefined) => void;
   /** Options to configure the editor. */
   options?: EditorOptions;
   /** Logger instance. */
@@ -254,6 +256,8 @@ export interface EditorRef {
   removeAnnotation(type: string, id: string): void;
   /** Format the paragraph at the current cursor position with the given block marker. */
   formatPara(blockMarker: string): void;
+  /** Get the editor element for the given node key, if any. */
+  getElementByKey(nodeKey: string): HTMLElement | undefined;
   /**
    * Insert a note at the specified selection, e.g. footnote, cross-reference, endnote.
    * @param marker - The marker type for the note.
@@ -320,7 +324,7 @@ import { EditorOptions, GENERATOR_NOTE_CALLER, HIDDEN_NOTE_CALLER, UsjNodeOption
 
 const nodes: UsjNodeOptions = {
   {
-    noteCallerOnClick: (_event, _noteNodeKey, isCollapsed, getCaller, setCaller) => {
+    noteCallerOnClick: (event, noteNodeKey, isCollapsed, getCaller, setCaller, getNoteOps) => {
       if (isCollapsed) return;
 
       console.log("expanded note node clicked - toggle caller");
@@ -351,7 +355,10 @@ export interface MarginalProps<TLogger extends LoggerBasic>
     comments: Comments | undefined,
     ops?: DeltaOp[],
     source?: DeltaSource,
+    insertedNodeKey?: string,
   ) => void;
+  /** Container ref for the show comments button - overrides internal toolbarEndRef if provided. */
+  showCommentsContainerRef?: RefObject<HTMLElement | null> | null;
 }
 ```
 

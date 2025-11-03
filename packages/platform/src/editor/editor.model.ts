@@ -17,7 +17,6 @@ import {
  *
  * @public
  */
-
 export interface EditorRef {
   /** Focus the editor. */
   focus(): void;
@@ -77,6 +76,8 @@ export interface EditorRef {
   removeAnnotation(type: string, id: string): void;
   /** Format the paragraph at the current cursor position with the given block marker. */
   formatPara(blockMarker: string): void;
+  /** Get the editor element for the given node key, if any. */
+  getElementByKey(nodeKey: string): HTMLElement | undefined;
   /**
    * Insert a note at the specified selection, e.g. footnote, cross-reference, endnote.
    * @param marker - The marker type for the note.
@@ -107,7 +108,6 @@ export interface EditorRef {
  *
  * @public
  */
-
 export interface EditorProps<TLogger extends LoggerBasic> {
   /** Initial Scripture data in USJ format. */
   defaultUsj?: Usj;
