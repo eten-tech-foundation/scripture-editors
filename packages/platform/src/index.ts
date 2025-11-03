@@ -38,6 +38,7 @@ export {
   getDefaultViewOptions,
   getViewMode,
   getViewOptions,
+  isInsertEmbedOpOfType,
   viewModeToViewNames,
 } from "shared-react";
 
@@ -54,8 +55,13 @@ export type {
   MarkerMode,
   NoteCallerOnClick,
   NoteMode,
+  OTChapterEmbed,
+  OTEmbedTypes,
+  OTMilestoneEmbed,
   OTNoteEmbed,
   OTParaAttribute,
+  OTUnmatchedEmbed,
+  OTVerseEmbed,
   SelectionRange,
   TextDirection,
   UsjLocation,

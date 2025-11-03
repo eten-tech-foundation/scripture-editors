@@ -87,6 +87,7 @@ export interface EditorRef {
     cut(): void;
     focus(): void;
     formatPara(blockMarker: string): void;
+    getElementByKey(nodeKey: string): HTMLElement | undefined;
     getNoteOps(noteKeyOrIndex: string | number): DeltaOp[] | undefined;
     getSelection(): SelectionRange | undefined;
     getUsj(): Usj | undefined;
@@ -120,6 +121,13 @@ export function getViewOptions(viewMode?: string | undefined): ViewOptions | und
 
 // @public
 export const HIDDEN_NOTE_CALLER = "-";
+
+// @public
+export function isInsertEmbedOpOfType<T extends keyof OTEmbedTypes>(embedType: T, op: DeltaOp): op is DeltaOp & {
+    insert: {
+        [K in T]: OTEmbedTypes[K] | null;
+    };
+};
 
 // @public
 export interface LoggerBasic {
@@ -171,6 +179,33 @@ export type NoteMode =
 | "expanded";
 
 // @public
+export interface OTChapterEmbed extends OTParaAttribute {
+    altnumber?: string;
+    number: string;
+    pubnumber?: string;
+    sid?: string;
+}
+
+// @public
+export interface OTEmbedTypes {
+    "immutable-chapter": OTChapterEmbed;
+    "immutable-verse": OTVerseEmbed;
+    chapter: OTChapterEmbed;
+    ms: OTMilestoneEmbed;
+    note: OTNoteEmbed;
+    unmatched: OTUnmatchedEmbed;
+    verse: OTVerseEmbed;
+}
+
+// @public
+export interface OTMilestoneEmbed extends OTParaAttribute {
+    eid?: string;
+    sid?: string;
+    status?: "start" | "end";
+    who?: string;
+}
+
+// @public
 export interface OTNoteEmbed extends OTParaAttribute {
     caller: string;
     category?: string;
@@ -182,6 +217,19 @@ export interface OTNoteEmbed extends OTParaAttribute {
 // @public
 export interface OTParaAttribute {
     style: string;
+}
+
+// @public
+export interface OTUnmatchedEmbed {
+    marker: string;
+}
+
+// @public
+export interface OTVerseEmbed extends OTParaAttribute {
+    altnumber?: string;
+    number: string;
+    pubnumber?: string;
+    sid?: string;
 }
 
 // @public

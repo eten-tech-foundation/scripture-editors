@@ -1,7 +1,7 @@
 /** Common utilities used for OT Delta realtime collaborative editing. */
 
 import { $isSomeVerseNode, SomeVerseNode } from "../../../nodes/usj/node-react.utils";
-import { embedTypes, validEmbedTypes } from "./rich-text-ot.model";
+import { OTEmbedTypes, validOTEmbedTypes } from "./rich-text-ot.model";
 import { $dfs, DFSNode } from "@lexical/utils";
 import {
   $getNodeByKey,
@@ -339,14 +339,17 @@ export function $isParaLikeNode(node: LexicalNode | null | undefined): node is P
 
 /**
  * Type guard to check if the given insert embed operation is for the specified embed type.
+ *
  * @param embedType - The type of embed to check for, e.g. "note".
  * @param op - The OT delta operation to check.
  * @returns `true` if the operation is for the specified embed type, `false` otherwise.
+ *
+ * @public
  */
-export function isInsertEmbedOpOfType<T extends keyof embedTypes>(
+export function isInsertEmbedOpOfType<T extends keyof OTEmbedTypes>(
   embedType: T,
   op: DeltaOp,
-): op is DeltaOp & { insert: { [K in T]: embedTypes[K] | null } } {
+): op is DeltaOp & { insert: { [K in T]: OTEmbedTypes[K] | null } } {
   return op.insert != null && typeof op.insert === "object" && embedType in op.insert;
 }
 
@@ -355,9 +358,9 @@ export function isInsertEmbedOpOfType<T extends keyof embedTypes>(
  * @param op - The OT delta operation to check.
  * @returns `true` if the operation is for an embed type, `false` otherwise.
  */
-function isInsertEmbedOp<T extends keyof embedTypes>(
+function isInsertEmbedOp<T extends keyof OTEmbedTypes>(
   op: DeltaOp,
-): op is DeltaOp & { insert: { [K in T]?: embedTypes[K] | null } } {
+): op is DeltaOp & { insert: { [K in T]?: OTEmbedTypes[K] | null } } {
   if (op.insert == null || typeof op.insert !== "object") return false;
 
   const embedType = Object.keys(op.insert)[0] as T;
@@ -365,7 +368,7 @@ function isInsertEmbedOp<T extends keyof embedTypes>(
     op.insert != null &&
     typeof op.insert === "object" &&
     embedType in op.insert &&
-    validEmbedTypes.includes(embedType as keyof embedTypes)
+    validOTEmbedTypes.includes(embedType as keyof OTEmbedTypes)
   );
 }
 

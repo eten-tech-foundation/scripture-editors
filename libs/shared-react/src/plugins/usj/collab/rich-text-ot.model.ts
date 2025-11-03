@@ -27,10 +27,18 @@ export interface OTCharItem extends OTParaAttribute {
 export type OTCharAttribute = OTCharItem | OTCharItem[];
 export const OT_CHAR_PROPS: (keyof OTCharItem)[] = ["style", "cid"];
 
+/**
+ * Operational Transform Chapter Embed
+ * @public
+ */
 export interface OTChapterEmbed extends OTParaAttribute {
+  /** Chapter number */
   number: string;
+  /** Start ID */
   sid?: string;
+  /** Chapter number for an alternate versification scheme */
   altnumber?: string;
+  /** Published chapter character */
   pubnumber?: string;
 }
 export const OT_CHAPTER_PROPS: (keyof OTChapterEmbed)[] = [
@@ -41,10 +49,18 @@ export const OT_CHAPTER_PROPS: (keyof OTChapterEmbed)[] = [
   "pubnumber",
 ];
 
+/**
+ * Operational Transform Verse Embed
+ * @public
+ */
 export interface OTVerseEmbed extends OTParaAttribute {
+  /** Verse number */
   number: string;
+  /** Start ID */
   sid?: string;
+  /** Verse number for an alternate versification scheme */
   altnumber?: string;
+  /** Published verse character */
   pubnumber?: string;
 }
 export const OT_VERSE_PROPS: (keyof OTVerseEmbed)[] = [
@@ -55,16 +71,33 @@ export const OT_VERSE_PROPS: (keyof OTVerseEmbed)[] = [
   "pubnumber",
 ];
 
+/**
+ * Operational Transform Milestone Embed
+ * @public
+ */
 export interface OTMilestoneEmbed extends OTParaAttribute {
+  /**
+   * A unique identifier which can be used to unambiguously identify the starting milestone, and to
+   * clearly associate the starting milestone with the ending milestone (`eid`). The `sid` can be
+   * composed of any mixture of numbers, letters, and underscores.
+   */
   sid?: string;
+  /**
+   * A unique identifier which can be used to unambiguously identify the ending milestone, and to
+   * clearly associate the ending milestone with the starting milestone (`sid`). If an `sid`
+   * attribute is used for the starting milestone in a milestone pair, the ending milestone must
+   * include `eid`.
+   */
   eid?: string;
+  /** The speaker of the quotation. */
   who?: string;
+  /** Status */
   status?: "start" | "end";
 }
 export const OT_MILESTONE_PROPS: (keyof OTMilestoneEmbed)[] = ["style", "sid", "eid"];
 
 /**
- * A Delta operation embed for a Note node.
+ * Operational Transform Note Embed
  * @public
  */
 export interface OTNoteEmbed extends OTParaAttribute {
@@ -86,21 +119,37 @@ export interface DeltaOpInsertNoteEmbed extends DeltaOp {
 // Note that `contents` is not a property of a NoteNode, but we don't want it in unknownAttributes.
 export const OT_NOTE_PROPS: (keyof OTNoteEmbed)[] = ["style", "caller", "category", "contents"];
 
+/**
+ * Operational Transform Unmatched Embed
+ * @public
+ */
 export interface OTUnmatchedEmbed {
+  /** Marker that is unmatched */
   marker: string;
 }
 // Ignore any unknown properties on an OTUnmatchedEmbed.
 
-export interface embedTypes {
+/**
+ * All valid embed types for USJ Operational Transform docs.
+ * @public
+ */
+export interface OTEmbedTypes {
+  /** chapter embed */
   chapter: OTChapterEmbed;
+  /** immutable chapter embed */
   "immutable-chapter": OTChapterEmbed;
+  /** verse embed */
   verse: OTVerseEmbed;
+  /** immutable verse embed */
   "immutable-verse": OTVerseEmbed;
+  /** milestone embed */
   ms: OTMilestoneEmbed;
+  /** note embed */
   note: OTNoteEmbed;
+  /** unmatched embed */
   unmatched: OTUnmatchedEmbed;
 }
-export const validEmbedTypes = [
+export const validOTEmbedTypes = [
   "chapter",
   "immutable-chapter",
   "verse",
@@ -108,4 +157,4 @@ export const validEmbedTypes = [
   "ms",
   "note",
   "unmatched",
-] as const satisfies readonly (keyof embedTypes)[];
+] as const satisfies readonly (keyof OTEmbedTypes)[];
