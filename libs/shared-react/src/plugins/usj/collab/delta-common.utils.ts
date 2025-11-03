@@ -20,12 +20,14 @@ import {
   $isNoteNode,
   $isSomeChapterNode,
   $isSomeParaNode,
+  $isUnknownNode,
   BookNode,
   ImmutableUnmatchedNode,
   MilestoneNode,
   NoteNode,
   SomeChapterNode,
   SomeParaNode,
+  UnknownNode,
 } from "shared";
 
 /**
@@ -59,6 +61,11 @@ export type EmbedNode =
   | ImmutableUnmatchedNode;
 
 export type ParaLikeNode = SomeParaNode | BookNode;
+
+interface OpenContentEmbed {
+  node: NoteNode | UnknownNode;
+  position: number;
+}
 
 /** Line Feed character used to close para-like nodes.*/
 export const LF = "\n";
@@ -101,8 +108,7 @@ export function $getOTPositionOfNode(node: LexicalNode | null | undefined): numb
   const dfsNodes = $dfs();
   let currentIndex = 0;
   const openParaLikeNodes: ParaLikeNode[] = [];
-  let openNote: NoteNode | undefined;
-  let openNotePosition: number | undefined;
+  const openContentEmbeds: OpenContentEmbed[] = [];
   const targetKey = node.getKey();
   let targetParaLikeNode: ParaLikeNode | undefined;
 
@@ -124,19 +130,19 @@ export function $getOTPositionOfNode(node: LexicalNode | null | undefined): numb
       }
     }
 
-    // Check if the current open note is closing
-    if (openNote && $isElementNodeClosing(openNote, dfsNode)) {
-      openNote = undefined;
-      openNotePosition = undefined;
+    // Check if any open content embed nodes (note/unknown) are closing
+    for (let j = openContentEmbeds.length - 1; j >= 0; j--) {
+      if ($isElementNodeClosing(openContentEmbeds[j].node, dfsNode)) {
+        openContentEmbeds.splice(j, 1);
+      }
     }
 
-    // If we're inside a note, skip counting internal nodes (but check if target is inside)
-    if (openNote) {
+    const activeContentEmbed = openContentEmbeds[openContentEmbeds.length - 1];
+    if (activeContentEmbed) {
       if (currentNode.getKey() === targetKey) {
-        // Target is inside the note, return the note's position
-        return openNotePosition;
+        return activeContentEmbed.position;
       }
-      continue; // Skip this node for position calculation
+      continue;
     }
 
     // Check if we've found the target node
@@ -163,12 +169,13 @@ export function $getOTPositionOfNode(node: LexicalNode | null | undefined): numb
       }
     }
 
-    // Track when we enter a note node
-    if ($isNoteNode(currentNode)) {
-      openNote = currentNode;
-      openNotePosition = currentIndex;
-      currentIndex += 1; // Note contributes 1 to OT length
-      continue; // Skip normal OT contribution calculation for notes
+    // Track when we enter a note or unknown node (treat contents as opaque)
+    if ($isNoteNode(currentNode) || $isUnknownNode(currentNode)) {
+      if (currentNode.getKey() === targetKey) return currentIndex;
+
+      openContentEmbeds.push({ node: currentNode, position: currentIndex });
+      currentIndex += 1; // Embeds contribute 1 to OT length
+      continue; // Skip normal OT contribution calculation for embed contents
     }
 
     // Calculate OT length contribution of current node
@@ -207,8 +214,7 @@ export function $getNodeFromOTPosition(otPosition: number): LexicalNode | undefi
   const dfsNodes = $dfs();
   let currentIndex = 0;
   const openParaLikeNodes: ParaLikeNode[] = [];
-  let openNote: NoteNode | undefined;
-  let openNotePosition: number | undefined;
+  const openContentEmbeds: OpenContentEmbed[] = [];
 
   for (const dfsNode of dfsNodes) {
     const currentNode = dfsNode.node;
@@ -228,19 +234,19 @@ export function $getNodeFromOTPosition(otPosition: number): LexicalNode | undefi
       }
     }
 
-    // Check if the current open note is closing
-    if (openNote && $isElementNodeClosing(openNote, dfsNode)) {
-      openNote = undefined;
-      openNotePosition = undefined;
+    // Check if any open content embed nodes (note/unknown) are closing
+    for (let j = openContentEmbeds.length - 1; j >= 0; j--) {
+      if ($isElementNodeClosing(openContentEmbeds[j].node, dfsNode)) {
+        openContentEmbeds.splice(j, 1);
+      }
     }
 
-    // If we're inside a note, skip counting internal nodes
-    if (openNote) {
-      // If the target position is the note's position, return the note
-      if (openNotePosition === otPosition) {
-        return openNote;
+    const activeContentEmbed = openContentEmbeds[openContentEmbeds.length - 1];
+    if (activeContentEmbed) {
+      if (activeContentEmbed.position === otPosition) {
+        return activeContentEmbed.node;
       }
-      continue; // Skip this node for position calculation
+      continue;
     }
 
     // Track opening of para-like nodes
@@ -250,15 +256,12 @@ export function $getNodeFromOTPosition(otPosition: number): LexicalNode | undefi
       }
     }
 
-    // Track when we enter a note node
-    if ($isNoteNode(currentNode)) {
-      openNote = currentNode;
-      openNotePosition = currentIndex;
-
-      // If this position matches, return the note
+    // Track when we enter a note or unknown node (treat contents as opaque)
+    if ($isNoteNode(currentNode) || $isUnknownNode(currentNode)) {
       if (currentIndex === otPosition) {
         return currentNode;
       }
+      openContentEmbeds.push({ node: currentNode, position: currentIndex });
       currentIndex += 1;
       continue;
     }
@@ -325,6 +328,7 @@ export function $isEmbedNode(node: LexicalNode | null | undefined): node is Embe
     $isSomeVerseNode(node) ||
     $isMilestoneNode(node) ||
     $isNoteNode(node) ||
+    $isUnknownNode(node) ||
     $isImmutableUnmatchedNode(node)
   );
 }

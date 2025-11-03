@@ -14,6 +14,7 @@ import {
   $createMilestoneNode,
   $createNoteNode,
   $createParaNode,
+  $createUnknownNode,
   $isBookNode,
   $isImmutableChapterNode,
   $isImpliedParaNode,
@@ -994,6 +995,38 @@ describe("$getNodeFromOTPosition", () => {
       expect(node).toBeDefined();
       expect($isTextNode(node)).toBe(true);
       expect(node?.getTextContent()).toBe("First");
+    });
+  });
+
+  it("should return note node at its position in a complex document", async () => {
+    const { editor } = await testEnvironment(() => {
+      $getRoot().append(
+        $createBookNode("JHN").append($createTextNode("John ")),
+        $createParaNode("ide").append($createTextNode("UTF-8")),
+        $createImmutableChapterNode("3"),
+        $createParaNode("ms1").append($createTextNode("BOOK 1")),
+        $createParaNode("q1").append(
+          $createUnknownNode("wat", "z", { "attr-unknown": "watAttr" }).append(
+            $createTextNode("wat content?"),
+          ),
+          $createImmutableVerseNode("16"),
+          $createTextNode("When"),
+          $createNoteNode("f", GENERATOR_NOTE_CALLER).append(
+            $createImmutableNoteCallerNode(GENERATOR_NOTE_CALLER, "3:16 Footnote text"),
+            $createCharNode("fr").append($createTextNode("3:16 ")),
+            $createCharNode("ft").append($createTextNode("Footnote text ")),
+          ),
+        ),
+      );
+    });
+
+    editor.getEditorState().read(() => {
+      // "John " (5) + book close LF (1) + "UTF-8" (5) + para close LF (1) + c3 (1) +
+      // "BOOK 1" (6) + para close LF (1) + unknown (1) + v16 (1) + "When" (4) = 26
+      const node = $getNodeFromOTPosition(26);
+
+      expect(node).toBeDefined();
+      expect($isNoteNode(node)).toBe(true);
     });
   });
 

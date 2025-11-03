@@ -22,6 +22,7 @@ import {
   OT_MILESTONE_PROPS,
   OT_NOTE_PROPS,
   OT_PARA_PROPS,
+  OT_UNKNOWN_PROPS,
   OT_VERSE_PROPS,
   OTBookAttribute,
   OTChapterEmbed,
@@ -29,6 +30,7 @@ import {
   OTCharItem,
   OTMilestoneEmbed,
   OTParaAttribute,
+  OTUnknownEmbed,
   OTUnmatchedEmbed,
   OTVerseEmbed,
 } from "./rich-text-ot.model";
@@ -56,6 +58,7 @@ import {
   $createMarkerNode,
   $createMilestoneNode,
   $createParaNode,
+  $createUnknownNode,
   $createVerseNode,
   $hasSameCharAttributes,
   $isBookNode,
@@ -1454,10 +1457,12 @@ function $insertEmbedAtCurrentIndex(
     newNodeToInsert = $createVerse(op.insert.verse, viewOptions);
   } else if (isInsertEmbedOpOfType("ms", op)) {
     newNodeToInsert = $createMilestone(op.insert.ms);
-  } else if (isInsertEmbedOpOfType("unmatched", op)) {
-    newNodeToInsert = $createImmutableUnmatched(op.insert.unmatched);
   } else if (isInsertEmbedOpOfType("note", op)) {
     newNodeToInsert = $createNote(op, viewOptions, nodeOptions, logger);
+  } else if (isInsertEmbedOpOfType("unknown", op)) {
+    newNodeToInsert = $createUnknown(op, viewOptions, nodeOptions, logger);
+  } else if (isInsertEmbedOpOfType("unmatched", op)) {
+    newNodeToInsert = $createImmutableUnmatched(op.insert.unmatched);
   }
   // While it would be technically and structurally possible to add a ParaNode here, it's not the
   // way Quill (and therefore flat rich-text docs) handles paragraphs which is always by inserting a
@@ -1631,6 +1636,22 @@ function $handleNewline(
   return 1; // LF always contributes 1 to the OT index
 }
 
+function $createBook(bookAttributes: OTBookAttribute) {
+  const { style, code } = bookAttributes;
+  if (!style || style !== BOOK_MARKER || !code || !BookNode.isValidBookCode(code)) return;
+
+  const unknownAttributes = getUnknownAttributes(bookAttributes, OT_BOOK_PROPS);
+  return $createBookNode(code, unknownAttributes);
+}
+
+function $createPara(paraAttributes: OTParaAttribute) {
+  const { style } = paraAttributes;
+  if (!style) return;
+
+  const unknownAttributes = getUnknownAttributes(paraAttributes, OT_PARA_PROPS);
+  return $createParaNode(style, unknownAttributes);
+}
+
 function $createChapter(chapterData: OTChapterEmbed | null, viewOptions: ViewOptions) {
   if (!chapterData) return;
 
@@ -1692,15 +1713,6 @@ function $createMilestone(msData: OTMilestoneEmbed | null) {
   return $createMilestoneNode(style, sid, eid, unknownAttributes);
 }
 
-function $createImmutableUnmatched(unmatchedData: OTUnmatchedEmbed | null) {
-  if (!unmatchedData) return;
-
-  const { marker } = unmatchedData;
-  if (!marker) return;
-
-  return $createImmutableUnmatchedNode(marker);
-}
-
 function $createNote(
   op: DeltaOpInsertNoteEmbed,
   viewOptions: ViewOptions,
@@ -1745,20 +1757,90 @@ function $createNote(
   return note;
 }
 
-function $createBook(bookAttributes: OTBookAttribute) {
-  const { style, code } = bookAttributes;
-  if (!style || style !== BOOK_MARKER || !code || !BookNode.isValidBookCode(code)) return;
+function $createUnknown(
+  op: DeltaOp & { insert: { unknown: OTUnknownEmbed | null } },
+  viewOptions: ViewOptions,
+  nodeOptions: UsjNodeOptions,
+  logger: LoggerBasic | undefined,
+): LexicalNode | undefined {
+  const unknownData = op.insert.unknown;
+  if (!unknownData) return;
 
-  const unknownAttributes = getUnknownAttributes(bookAttributes, OT_BOOK_PROPS);
-  return $createBookNode(code, unknownAttributes);
+  const { tag, marker, contents } = unknownData;
+  if (!tag) return;
+
+  const unknownAttributes = getUnknownAttributes(unknownData, OT_UNKNOWN_PROPS);
+  const unknownNode = $createUnknownNode(tag, marker, unknownAttributes);
+
+  const childOps = contents?.ops ?? [];
+  if (childOps.length > 0) {
+    const childNodes = $createInlineNodesFromOps(childOps, viewOptions, nodeOptions, logger);
+    childNodes.forEach((child) => unknownNode.append(child));
+  }
+
+  const segment = op.attributes?.segment;
+  if (typeof segment === "string") $setState(unknownNode, segmentState, () => segment);
+
+  return unknownNode;
 }
 
-function $createPara(paraAttributes: OTParaAttribute) {
-  const { style } = paraAttributes;
-  if (!style) return;
+function $createInlineNodesFromOps(
+  ops: DeltaOp[],
+  viewOptions: ViewOptions,
+  nodeOptions: UsjNodeOptions,
+  logger: LoggerBasic | undefined,
+): LexicalNode[] {
+  const nodes: LexicalNode[] = [];
 
-  const unknownAttributes = getUnknownAttributes(paraAttributes, OT_PARA_PROPS);
-  return $createParaNode(style, unknownAttributes);
+  for (const childOp of ops) {
+    if (typeof childOp.insert === "string") {
+      if (hasCharAttributes(childOp.attributes)) {
+        const textNode = $createTextNode(childOp.insert);
+        const charNodes = $createNestedChars(
+          childOp.attributes.char,
+          viewOptions,
+          textNode,
+          undefined,
+          nodes,
+        );
+        nodes.push(...charNodes);
+      } else {
+        nodes.push($createTextNode(childOp.insert));
+      }
+      continue;
+    }
+
+    if (!childOp.insert || typeof childOp.insert !== "object") continue;
+
+    if (isInsertEmbedOpOfType("unknown", childOp)) {
+      const nestedUnknown = $createUnknown(childOp, viewOptions, nodeOptions, logger);
+      if (nestedUnknown) nodes.push(nestedUnknown);
+      continue;
+    }
+
+    if (isInsertEmbedOpOfType("note", childOp)) {
+      const nestedNote = $createNote(childOp, viewOptions, nodeOptions, logger);
+      if (nestedNote) nodes.push(nestedNote);
+      continue;
+    }
+
+    logger?.warn(
+      `$createInlineNodesFromOps: Unsupported embed inside unknown contents: ${JSON.stringify(
+        childOp.insert,
+      )}`,
+    );
+  }
+
+  return nodes;
+}
+
+function $createImmutableUnmatched(unmatchedData: OTUnmatchedEmbed | null) {
+  if (!unmatchedData) return;
+
+  const { marker } = unmatchedData;
+  if (!marker) return;
+
+  return $createImmutableUnmatchedNode(marker);
 }
 
 // Helper to create nested CharNodes from OTCharAttribute (array or single)
