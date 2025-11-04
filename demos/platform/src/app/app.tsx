@@ -213,13 +213,13 @@ export default function App() {
         // If we are already editing a note node, don't select another one.
         if (noteNodeKeyRef.current) return;
 
-        const noteOps = [ops[1]];
-        if (!isInsertEmbedOpOfType("note", ops[1])) return;
+        const noteOp = ops[1];
+        if (!isInsertEmbedOpOfType("note", noteOp)) return;
 
         const noteElement = marginalRef.current?.getElementByKey(insertedNodeKey);
         console.log("note node inserted - use note editor on", noteElement);
         noteNodeKeyRef.current = insertedNodeKey;
-        noteEditorRef.current?.applyUpdate(noteOps);
+        noteEditorRef.current?.applyUpdate([noteOp]);
         setIsNoteEditorVisible(true);
       }
     },
