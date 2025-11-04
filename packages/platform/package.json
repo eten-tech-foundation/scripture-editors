@@ -1,6 +1,6 @@
 {
   "name": "@eten-tech-foundation/platform-editor",
-  "version": "0.8.9",
+  "version": "0.8.10",
   "description": "Scripture editor used in Platform. See https://platform.bible",
   "license": "MIT",
   "homepage": "https://github.com/eten-tech-foundation/scripture-editors/tree/main/packages/platform#readme",
