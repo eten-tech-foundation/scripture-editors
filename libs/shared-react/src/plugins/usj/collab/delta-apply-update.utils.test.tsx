@@ -2530,6 +2530,34 @@ describe("Delta Utils $applyUpdate", () => {
       });
     });
 
+    it("(dc) should insert empty char", async () => {
+      const { editor } = await testEnvironment(() => {
+        $getRoot().append($createParaNode());
+      });
+      const ops: DeltaOp[] = [{ insert: "", attributes: { char: { style: "wj", cid: "1" } } }];
+
+      await sutApplyUpdate(editor, ops);
+
+      editor.getEditorState().read(() => {
+        const root = $getRoot();
+        expect(root.getChildrenSize()).toBe(1);
+
+        const p = root.getFirstChild();
+        if (!$isParaNode(p)) throw new Error("Expected a ParaNode");
+        expect(p.getChildrenSize()).toBe(1);
+
+        const char = p.getFirstChild();
+        if (!$isCharNode(char)) throw new Error("Expected a CharNode");
+        expect(char.getMarker()).toBe("wj");
+        expect($getState(char, charIdState)).toBe("1");
+        expect(char.getChildrenSize()).toBe(1);
+
+        const inner = char.getFirstChild();
+        if (!$isTextNode(inner)) throw new Error("Expected inner TextNode");
+        expect(inner.getTextContent()).toBe(NBSP);
+      });
+    });
+
     it("(dc) should insert char text inside text and apply attributes after", async () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append($createParaNode().append($createTextNode("Jesus said to them")));
@@ -2883,6 +2911,69 @@ describe("Delta Utils $applyUpdate", () => {
 
         const spaceNode3 = note.getChildAtIndex(5);
         expect($isTextNode(spaceNode3)).toBe(true);
+      });
+    });
+
+    it("(dc) should insert a note with empty char contents", async () => {
+      const { editor } = await testEnvironment();
+      const ops: DeltaOp[] = [
+        { insert: "Lead" },
+        {
+          insert: {
+            note: {
+              style: "f",
+              caller: GENERATOR_NOTE_CALLER,
+              contents: {
+                ops: [
+                  { insert: "ref ", attributes: { char: { style: "fr", cid: "1" } } },
+                  { insert: "", attributes: { char: { style: "ft", cid: "2" } } },
+                ],
+              },
+            },
+          },
+        },
+        { insert: LF, attributes: { para: { style: "q1" } } },
+      ];
+
+      await sutApplyUpdate(editor, ops);
+
+      editor.getEditorState().read(() => {
+        const root = $getRoot();
+        expect(root.getChildrenSize()).toBe(1);
+
+        const para = root.getFirstChild();
+        if (!$isParaNode(para)) throw new Error("Expected ParaNode");
+        expect(para.getMarker()).toBe("q1");
+        expect(para.getChildrenSize()).toBe(2);
+
+        const leadText = para.getFirstChild();
+        if (!$isTextNode(leadText)) throw new Error("Expected lead TextNode");
+        expect(leadText.getTextContent()).toBe("Lead");
+
+        const note = para.getChildAtIndex(1);
+        if (!$isNoteNode(note)) throw new Error("Expected NoteNode");
+        expect(note.getMarker()).toBe("f");
+        expect(note.getCaller()).toBe(GENERATOR_NOTE_CALLER);
+        expect(note.getChildrenSize()).toBe(6);
+
+        const caller = note.getFirstChild();
+        if (!$isImmutableNoteCallerNode(caller)) throw new Error("Expected ImmutableNoteCaller");
+
+        const charRef = note.getChildAtIndex(2);
+        if (!$isCharNode(charRef)) throw new Error("Expected ref CharNode");
+        expect(charRef.getMarker()).toBe("fr");
+        expect($getState(charRef, charIdState)).toBe("1");
+        expect(charRef.getTextContent()).toBe("ref ");
+
+        const charEmpty = note.getChildAtIndex(4);
+        if (!$isCharNode(charEmpty)) throw new Error("Expected empty CharNode");
+        expect(charEmpty.getMarker()).toBe("ft");
+        expect($getState(charEmpty, charIdState)).toBe("2");
+        expect(charEmpty.getChildrenSize()).toBe(1);
+
+        const inner = charEmpty.getFirstChild();
+        if (!$isTextNode(inner)) throw new Error("Expected inner TextNode");
+        expect(inner.getTextContent()).toBe(NBSP);
       });
     });
 

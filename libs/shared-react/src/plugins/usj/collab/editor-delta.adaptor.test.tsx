@@ -216,6 +216,69 @@ describe("getEditorDelta", () => {
     ]);
   });
 
+  it("should return the correct ops for an empty char", async () => {
+    const { editor } = await testEnvironment(() => {
+      const addChar = $createCharNode("add");
+      $setState(addChar, charIdState, "1");
+      const wjChar = $createCharNode("wj");
+      $setState(wjChar, charIdState, "2");
+      $getRoot().append(
+        $createImpliedParaNode().append(
+          addChar.append($createTextNode("added text")),
+          wjChar.append($createTextNode(NBSP)),
+        ),
+      );
+    });
+
+    const delta = getEditorDelta(editor.getEditorState());
+
+    expect(delta.ops).toEqual([
+      { insert: "added text", attributes: { char: { style: "add", cid: "1" } } },
+      { insert: "", attributes: { char: { style: "wj", cid: "2" } } },
+      { insert: LF },
+    ]);
+  });
+
+  it("should include empty chars inside note contents", async () => {
+    const { editor } = await testEnvironment(() => {
+      const frChar = $createCharNode("fr");
+      $setState(frChar, charIdState, "1");
+      const ftChar = $createCharNode("ft");
+      $setState(ftChar, charIdState, "2");
+      $getRoot().append(
+        $createParaNode("q1").append(
+          $createTextNode("Lead"),
+          $createNoteNode("f", GENERATOR_NOTE_CALLER).append(
+            $createImmutableNoteCallerNode(GENERATOR_NOTE_CALLER, "ref"),
+            frChar.append($createTextNode("ref ")),
+            ftChar.append($createTextNode(NBSP)),
+          ),
+        ),
+      );
+    });
+
+    const delta = getEditorDelta(editor.getEditorState());
+
+    expect(delta.ops).toEqual([
+      { insert: "Lead" },
+      {
+        insert: {
+          note: {
+            style: "f",
+            caller: GENERATOR_NOTE_CALLER,
+            contents: {
+              ops: [
+                { insert: "ref ", attributes: { char: { style: "fr", cid: "1" } } },
+                { insert: "", attributes: { char: { style: "ft", cid: "2" } } },
+              ],
+            },
+          },
+        },
+      },
+      { insert: LF, attributes: { para: { style: "q1" } } },
+    ]);
+  });
+
   it("should return the correct ops for a note and para", async () => {
     const reference = "3:16 ";
     const footnoteText = "Footnote text ";

@@ -25,6 +25,7 @@ import {
   GENERATOR_NOTE_CALLER,
   HIDDEN_NOTE_CALLER,
   ImmutableChapterNode,
+  NBSP,
   NoteNode,
   ParaNode,
   TypedMarkNode,
@@ -543,7 +544,7 @@ describe("$insertNote()", () => {
       // Last should be ft with placeholder
       const ftNode = charNodes.find((node) => node.getMarker() === "ft");
       expect(ftNode).toBeDefined();
-      expect(ftNode?.getTextContent()).toBe(HIDDEN_NOTE_CALLER);
+      expect(ftNode?.getTextContent()).toBe(NBSP);
     });
   });
 
@@ -627,7 +628,7 @@ describe("$insertNote()", () => {
 
       const xtNode = charNodes.find((node) => node.getMarker() === "xt");
       expect(xtNode).toBeDefined();
-      expect(xtNode?.getTextContent()).toBe(HIDDEN_NOTE_CALLER);
+      expect(xtNode?.getTextContent()).toBe(NBSP);
     });
   });
 

@@ -393,7 +393,7 @@ export function getVisibleOpenMarkerText(marker: string, content: string | undef
  * @returns The concatenated text content.
  */
 function extractTextFromNode(node: SerializedLexicalNode): string {
-  if (isSerializedTextNode(node)) return node.text;
+  if (isSerializedTextNode(node) && node.text !== NBSP) return node.text;
 
   if (isSerializedCharNode(node)) {
     // If it's an ElementNode, process its children recursively and join their text
@@ -415,6 +415,7 @@ function extractTextFromNode(node: SerializedLexicalNode): string {
 export function getPreviewTextFromSerializedNodes(childNodes: SerializedLexicalNode[]): string {
   const previewText = childNodes
     .map((node) => extractTextFromNode(node))
+    .filter((text) => text.length > 0)
     .join(" ")
     .trim();
 
@@ -436,10 +437,18 @@ export function getEditableCallerText(noteCaller: string): string {
  * @returns the preview text.
  */
 export function $getNoteCallerPreviewText(childNodes: LexicalNode[]): string {
-  const previewText = childNodes
-    .reduce((text, node) => text + ($isCharNode(node) ? ` ${node.getTextContent()}` : ""), "")
-    .trim();
-  return previewText;
+  const parts: string[] = [];
+
+  for (const node of childNodes) {
+    if (!$isCharNode(node)) continue;
+
+    const textContent = node.getTextContent();
+    if (textContent === NBSP) continue;
+
+    if (textContent.length > 0) parts.push(textContent);
+  }
+
+  return parts.join(" ").trim();
 }
 
 /**

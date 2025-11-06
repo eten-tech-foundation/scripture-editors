@@ -1,6 +1,10 @@
+const NBSP = "\u00A0";
+const ZWSP = "\u200B";
+
 // Modified from original:
 //   unknown items (wat:z) added in first para:q1 (v1).
-//   custom annotation milestones in first para:q2 (v2).
+//   custom annotation milestones in first para:q2 (v1).
+//   note modified in second para:q1 (v2).
 //   ts milestones added in third para:q1 (v3).
 export const WEB_PSA_CH1_USX = `<?xml version="1.0" encoding="utf-8"?>
 <usx version="3.0">
@@ -20,7 +24,7 @@ export const WEB_PSA_CH1_USX = `<?xml version="1.0" encoding="utf-8"?>
   <para style="q2" vid="PSA 1:1">nor <ms style="zmsc-s" sid="lysnx" />stand<ms style="zmsc-s" sid="dftak" /> on <ms style="zmsc-e" eid="lysnx" />the<ms style="zmsc-e" eid="dftak" /> path of sinners,</para>
   <para style="q2" vid="PSA 1:1">nor sit in the seat of scoffers;<verse eid="PSA 1:1" /></para>
   <para style="q1">
-    <verse number="2" style="v" sid="PSA 1:2" />but his delight is in Yahweh’s<note caller="+" style="f"><char style="fr" closed="false">1:2 </char><char style="ft" closed="false">“Yahweh” is God’s proper Name, sometimes rendered “LORD” (all caps) in other translations.</char></note> law.</para>
+    <verse number="2" style="v" sid="PSA 1:2" />but his delight is in Yahweh’s<note caller="+" style="f"><char style="qs" closed="false"> q${ZWSP}s${NBSP}’ </char><char style="fr" closed="false">1:2 </char><char style="fk" closed="false"></char><char style="ft" closed="false">“Yahweh” is God’s proper Name, sometimes rendered <char style="nd" closed="true">“LORD”</char> (all caps) in other translations.</char></note> law.</para>
   <para style="q2" vid="PSA 1:2">On his law he meditates day and night.<verse eid="PSA 1:2" /></para>
   <para style="q1">
     <verse number="3" style="v" sid="PSA 1:3" />He will be like a <ms style="ts-s" sid="ts.PSA.tree" />tree<ms style="ts-e" eid="ts.PSA.tree" /> planted by the streams of water,</para>
