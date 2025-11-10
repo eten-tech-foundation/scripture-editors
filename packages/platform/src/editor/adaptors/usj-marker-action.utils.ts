@@ -73,7 +73,7 @@ const getFootnoteMarkerAction: (footnoteMarker: string) => UsjMarkerAction = (fo
           marker: "fq",
           content: [currentEditor.noteText],
         });
-      noteChildren.push({ type: "char", marker: "ft", content: ["-"] });
+      noteChildren.push({ type: "char", marker: "ft" });
       const content: MarkerContent = {
         type: "note",
         marker: footnoteMarker,
@@ -103,7 +103,7 @@ const getCrossReferenceMarkerAction: (crossReferenceMarker: string) => UsjMarker
           marker: "xo",
           content: [`${chapterNum}:${verseNum}`],
         });
-      noteChildren.push({ type: "char", marker: "xt", content: ["-"] });
+      noteChildren.push({ type: "char", marker: "xt" });
       const content: MarkerContent = {
         type: "note",
         marker: crossReferenceMarker,
@@ -238,22 +238,14 @@ function getMarkerAction(marker: string): UsjMarkerAction | undefined {
     if (ParaNode.isValidMarker(marker)) {
       markerAction = {
         action: () => {
-          const content: MarkerContent = {
-            type: ParaNode.getType(),
-            marker,
-            content: [],
-          };
+          const content: MarkerContent = { type: ParaNode.getType(), marker, content: [] };
           return [content];
         },
       };
     } else if (CharNode.isValidMarker(marker)) {
       markerAction = {
         action: () => {
-          const content: MarkerContent = {
-            type: CharNode.getType(),
-            marker,
-            content: ["-"],
-          };
+          const content: MarkerContent = { type: CharNode.getType(), marker };
           return [content];
         },
       };

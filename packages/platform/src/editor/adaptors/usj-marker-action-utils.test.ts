@@ -15,6 +15,7 @@ import {
   $isImmutableChapterNode,
   $isNoteNode,
   $isParaNode,
+  NBSP,
 } from "shared";
 
 const nodes = usjReactNodes;
@@ -129,7 +130,7 @@ describe("USJ Marker Action Utils", () => {
         const insertedNode = secondVerseTextNode.getNextSibling();
         if (!$isCharNode(insertedNode)) throw new Error("Inserted node is not a char");
         expect(insertedNode.getMarker()).toBe("wj");
-        expect(insertedNode.getTextContent()).toBe("-");
+        expect(insertedNode.getTextContent()).toBe(NBSP);
         const tailTextNode = insertedNode.getNextSibling();
         if (!$isTextNode(tailTextNode)) throw new Error("Tail node is not text");
         expect(tailTextNode.getTextContent()).toBe("verse text ");
@@ -151,7 +152,7 @@ describe("USJ Marker Action Utils", () => {
         const insertedNode = secondVerseTextNode.getNextSibling();
         if (!$isCharNode(insertedNode)) throw new Error("Inserted node is not a char");
         expect(insertedNode.getMarker()).toBe("wj");
-        expect(insertedNode.getTextContent()).toBe("-");
+        expect(insertedNode.getTextContent()).toBe(NBSP);
         const tailTextNode = insertedNode.getNextSibling();
         if (!$isTextNode(tailTextNode)) throw new Error("Tail node is not text");
         expect(tailTextNode.getTextContent()).toBe(" verse text ");
@@ -173,7 +174,7 @@ describe("USJ Marker Action Utils", () => {
         const insertedNode = secondVerseTextNode.getNextSibling();
         if (!$isCharNode(insertedNode)) throw new Error("Inserted node is not a char");
         expect(insertedNode.getMarker()).toBe("wj");
-        expect(insertedNode.getTextContent()).toBe("-");
+        expect(insertedNode.getTextContent()).toBe(NBSP);
         const charTextNode = insertedNode.getChildAtIndex(0);
         if (!$isTextNode(charTextNode))
           throw new Error("Inserted char node does not have a text node");

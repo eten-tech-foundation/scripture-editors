@@ -197,14 +197,14 @@ export function $createNoteChildren(
           children.push(fq);
         }
       }
-      children.push($createCharNode("ft").append($createTextNode("-")));
+      children.push($createCharNode("ft").append($createTextNode(NBSP)));
       break;
     case "x":
     case "ex":
       if (chapterNum !== undefined && verseNum !== undefined) {
         children.push($createCharNode("xo").append($createTextNode(`${chapterNum}:${verseNum}`)));
       }
-      children.push($createCharNode("xt").append($createTextNode("-")));
+      children.push($createCharNode("xt").append($createTextNode(NBSP)));
       break;
     default:
       logger?.warn(`$createNoteChildren: Unsupported note marker '${marker}'`);

@@ -1,8 +1,9 @@
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
+import { mergeRegister } from "@lexical/utils";
 import { deepEqual } from "fast-equals";
-import { $getState, LexicalEditor } from "lexical";
+import { $getState, LexicalEditor, TextNode } from "lexical";
 import { useEffect } from "react";
-import { $hasSameCharAttributes, $isCharNode, charIdState, CharNode } from "shared";
+import { $hasSameCharAttributes, $isCharNode, charIdState, CharNode, NBSP } from "shared";
 
 /** Combine adjacent CharNodes with the same attributes. */
 export function CharNodePlugin(): null {
@@ -17,7 +18,10 @@ function useCharNode(editor: LexicalEditor) {
       throw new Error("CharNodePlugin: CharNode not registered on editor!");
     }
 
-    return editor.registerNodeTransform(CharNode, $charNodeTransform);
+    return mergeRegister(
+      editor.registerNodeTransform(CharNode, $charNodeTransform),
+      editor.registerNodeTransform(TextNode, $charTextNodeTransform),
+    );
   }, [editor]);
 }
 
@@ -57,5 +61,20 @@ function $charNodeTransform(node: CharNode): void {
     // Combine with previous CharNode since it has the same attributes.
     prevNode.append(...node.getChildren());
     node.remove();
+  }
+}
+
+/**
+ * Remove 'empty' placeholder in CharNode once other text content is added.
+ * @param node - TextNode that might be a placeholder.
+ */
+function $charTextNodeTransform(node: TextNode): void {
+  const parent = node.getParent();
+  if (!$isCharNode(parent) || parent.getChildrenSize() !== 1) return;
+
+  const text = node.getTextContent();
+  if (text.length > 1 && text.startsWith(NBSP)) {
+    node.setTextContent(text.slice(1));
+    node.selectEnd();
   }
 }

@@ -201,6 +201,7 @@ function $noteCharNodeTransform(node: CharNode): void {
 /**
  * Changes in NoteNode children text are updated in the NoteNodeCaller preview text.
  * Also ensure NBSP after each note top-level CharNode isn't modified.
+ * Also remove 'empty' placeholder in CharNode inside NoteNode once other text content is added.
  * @param node - TextNode thats needs its preview text updated.
  */
 function $noteTextNodeTransform(node: TextNode): void {
@@ -209,15 +210,24 @@ function $noteTextNodeTransform(node: TextNode): void {
   const noteCaller = children?.find((child) => $isImmutableNoteCallerNode(child));
   if (!$isTextNode(node) || !$isNoteNode(noteNode) || !noteCaller || !children) return;
 
+  const parent = node.getParent();
+  if (!$isMarkerNode(node) && $isNoteNode(parent)) {
+    if (node.getTextContent() !== NBSP) {
+      node.setTextContent(NBSP);
+      node.selectEnd();
+    }
+  }
+
+  if ($isCharNode(parent) && parent.getChildrenSize() === 1) {
+    const text = node.getTextContent();
+    if (text.length > 1 && text.startsWith(NBSP)) {
+      node.setTextContent(text.slice(1));
+      node.selectEnd();
+    }
+  }
+
   const previewText = $getNoteCallerPreviewText(children);
   if (noteCaller.getPreviewText() !== previewText) noteCaller.setPreviewText(previewText);
-
-  if ($isMarkerNode(node) || !$isNoteNode(node.getParent())) return;
-
-  if (node.getTextContent() !== NBSP) {
-    node.setTextContent(NBSP);
-    node.selectEnd();
-  }
 }
 
 /**

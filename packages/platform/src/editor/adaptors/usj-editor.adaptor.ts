@@ -326,6 +326,7 @@ function createChar(
     childNodes.forEach((node) => {
       if (isSerializedTextNode(node)) node.text = NBSP + node.text;
     });
+  if (childNodes.length === 0) childNodes.push(createText(NBSP));
   const unknownAttributes = getUnknownAttributes(markerObject);
 
   return removeUndefinedProperties({

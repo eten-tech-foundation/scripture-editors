@@ -56,26 +56,13 @@ export function $getTextOp(node: TextNode, openCharNodes?: CharNode[]): DeltaOp 
   const segment = $getState(node, segmentState);
   if (segment) op.attributes = { segment };
   if (openCharNodes && openCharNodes.length > 0) {
-    let char: OTCharAttribute = openCharNodes.map((charNode) => {
-      const charItem: OTCharItem = { style: charNode.__marker };
-      const cid = $getState(charNode, charIdState);
-      if (cid) charItem.cid = cid;
-
-      const unknownAttrs = charNode.getUnknownAttributes();
-      if (unknownAttrs && Object.keys(unknownAttrs).length > 0) {
-        Object.assign(charItem, unknownAttrs);
-      }
-
-      return charItem;
-    });
-    if (char.length === 1) {
-      char = char[0];
+    const char = $buildCharAttribute(openCharNodes);
+    if (char) {
+      op.attributes = {
+        ...op.attributes,
+        char,
+      };
     }
-
-    op.attributes = {
-      ...op.attributes,
-      char,
-    };
   }
   return op;
 }
@@ -119,9 +106,20 @@ export function $getParticularNodeOps(startNode?: LexicalNode, endNode?: Lexical
   const openParaLikeNodes: ParaLikeNode[] = [];
   const openCharNodes: CharNode[] = [];
   const openNote: OpenNote = { children: [], contentsOps: [] };
+  const charContentProduced = new Set<CharNode>();
   for (let i = 0; i < dfsNodes.length; i++) {
     const currentNode = dfsNodes[i].node;
-    ops.push(...$getNodeOps(currentNode, i, dfsNodes, openParaLikeNodes, openCharNodes, openNote));
+    ops.push(
+      ...$getNodeOps(
+        currentNode,
+        i,
+        dfsNodes,
+        openParaLikeNodes,
+        openCharNodes,
+        openNote,
+        charContentProduced,
+      ),
+    );
   }
   // Close any remaining open nodes
   for (const openNode of openParaLikeNodes) {
@@ -133,6 +131,7 @@ export function $getParticularNodeOps(startNode?: LexicalNode, endNode?: Lexical
         openParaLikeNodes,
         openCharNodes,
         openNote,
+        charContentProduced,
       ),
     );
   }
@@ -150,15 +149,24 @@ function $getNodeOps(
   openParaLikeNodes: ParaLikeNode[],
   openCharNodes: CharNode[],
   openNote: OpenNote,
+  charContentProduced: Set<CharNode>,
 ): DeltaOp[] {
   if (!currentNode) return [];
 
   const ops: DeltaOp[] = [];
   $handleBlockNodes(currentNode, ops, openParaLikeNodes);
 
-  $handleTextNodes(currentNode, ops, openCharNodes, openNote);
+  $handleTextNodes(currentNode, ops, openCharNodes, openNote, charContentProduced);
 
-  $handleCharNodes(currentNode, currentIndex, dfsNodes, openCharNodes);
+  $handleCharNodes(
+    currentNode,
+    currentIndex,
+    dfsNodes,
+    openCharNodes,
+    charContentProduced,
+    openNote,
+    ops,
+  );
 
   // is an EmbedNode
   if ($isSomeChapterNode(currentNode)) ops.push($getChapterOp(currentNode));
@@ -196,19 +204,36 @@ function $handleTextNodes(
   ops: DeltaOp[],
   openCharNodes: CharNode[],
   openNote: OpenNote,
+  charContentProduced: Set<CharNode>,
 ) {
   if (!$isTextNode(currentNode)) return;
   // Remove (skip) editable caller text from note nodes.
   const parent = currentNode.getParent();
   if ($isNoteNode(parent) && parent.getFirstChild() === currentNode) return;
 
+  const text = currentNode.getTextContent();
+  const isNodeAttributeText = text.startsWith(NODE_ATTRIBUTE_PREFIX);
+  const parentCharNode = $isCharNode(parent) ? parent : undefined;
+  const isPlaceholderText =
+    !!parentCharNode && text === NBSP && parentCharNode.getChildrenSize() === 1;
+
   const textOp = $getTextOp(currentNode, openCharNodes);
   if (openNote.children.includes(currentNode)) {
-    const text = currentNode.getTextContent();
-    if (!text || text === NBSP || text.startsWith(NODE_ATTRIBUTE_PREFIX)) return;
+    if (!text || text === NBSP || isNodeAttributeText) return;
     openNote.contentsOps?.push(textOp);
   } else {
-    ops.push(textOp);
+    const shouldSkipTextOp = isPlaceholderText || (isNodeAttributeText && !!parentCharNode);
+    if (!shouldSkipTextOp) {
+      ops.push(textOp);
+    }
+  }
+
+  const hasMeaningfulText =
+    text !== "" && !isPlaceholderText && !(isNodeAttributeText && !!parentCharNode);
+  if (openCharNodes.length > 0 && hasMeaningfulText) {
+    for (const charNode of openCharNodes) {
+      charContentProduced.add(charNode);
+    }
   }
 }
 
@@ -217,6 +242,9 @@ function $handleCharNodes(
   currentIndex: number,
   dfsNodes: DFSNode[],
   openCharNodes: CharNode[],
+  charContentProduced: Set<CharNode>,
+  openNote: OpenNote,
+  ops: DeltaOp[],
 ): void {
   if ($isCharNode(currentNode) && !openCharNodes.includes(currentNode)) {
     openCharNodes.push(currentNode);
@@ -226,6 +254,15 @@ function $handleCharNodes(
   for (const openCharNode of openCharNodes.toReversed()) {
     if ($isElementNodeClosing(openCharNode, nextDfsNode)) {
       openCharNodes.pop();
+      if (!charContentProduced.has(openCharNode)) {
+        const emptyCharOp = $getEmptyCharOp(openCharNode);
+        if (openNote.children.includes(openCharNode)) {
+          openNote.contentsOps?.push(emptyCharOp);
+        } else {
+          ops.push(emptyCharOp);
+        }
+      }
+      charContentProduced.delete(openCharNode);
     }
   }
 }
@@ -315,4 +352,32 @@ function $getNoteOp(currentNode: NoteNode): DeltaOpInsertNoteEmbed {
     op.attributes = { segment };
   }
   return op;
+}
+
+function $getEmptyCharOp(charNode: CharNode): DeltaOp {
+  const op: DeltaOp = { insert: "" };
+  const char = $buildCharAttribute([charNode]);
+  if (char) {
+    op.attributes = { char };
+  }
+  return op;
+}
+
+function $buildCharAttribute(charNodes: CharNode[]): OTCharAttribute | undefined {
+  if (charNodes.length === 0) return undefined;
+  const items = charNodes.map($buildCharItem);
+  return items.length === 1 ? items[0] : items;
+}
+
+function $buildCharItem(charNode: CharNode): OTCharItem {
+  const charItem: OTCharItem = { style: charNode.__marker };
+  const cid = $getState(charNode, charIdState);
+  if (cid) charItem.cid = cid;
+
+  const unknownAttrs = charNode.getUnknownAttributes();
+  if (unknownAttrs && Object.keys(unknownAttrs).length > 0) {
+    Object.assign(charItem, unknownAttrs);
+  }
+
+  return charItem;
 }

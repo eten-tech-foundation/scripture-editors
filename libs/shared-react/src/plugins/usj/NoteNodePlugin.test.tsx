@@ -23,6 +23,8 @@ import {
   $createNoteNode,
   $createParaNode,
   $isCharNode,
+  $isNoteNode,
+  $isParaNode,
   GENERATOR_NOTE_CALLER,
   NBSP,
   NoteNode,
@@ -116,6 +118,101 @@ describe("NoteNodePlugin", () => {
 
       editor.getEditorState().read(() => {
         expect(getPreviewText(firstNoteNode)).toBe("1:1a  First footnote text");
+      });
+    });
+
+    it("should update preview text when 'empty' placeholder text", async () => {
+      const { editor } = await testEnvironment(undefined, undefined, () => {
+        firstNoteNode = $createNoteNode("f", GENERATOR_NOTE_CALLER);
+        $getRoot().append(
+          $createParaNode().append(
+            firstNoteNode.append(
+              $createImmutableNoteCallerNode("a", ""),
+              $createCharNode("fr").append($createTextNode("1:1 ")),
+              $createCharNode("ft").append($createTextNode(NBSP)),
+            ),
+          ),
+        );
+      });
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("Expected a ParaNode");
+
+        const note = para.getFirstChild();
+        if (!$isNoteNode(note)) throw new Error("Expected a NoteNode");
+        expect(getPreviewText(note)).toBe("1:1");
+      });
+    });
+
+    it("should remove 'empty' placeholder text once content exists", async () => {
+      const { editor } = await testEnvironment(undefined, undefined, () => {
+        firstNoteNode = $createNoteNode("f", GENERATOR_NOTE_CALLER);
+        $getRoot().append(
+          $createParaNode().append(
+            firstNoteNode.append(
+              $createImmutableNoteCallerNode("a", ""),
+              $createCharNode("fr").append($createTextNode("1:1 ")),
+              $createCharNode("ft").append($createTextNode(NBSP)),
+            ),
+          ),
+        );
+      });
+
+      await updateNoteNodeText(editor, firstNoteNode, 4, 0, `${NBSP}Updated text`);
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("Expected a ParaNode");
+
+        const note = para.getFirstChild();
+        if (!$isNoteNode(note)) throw new Error("Expected a NoteNode");
+        expect(getPreviewText(note)).toBe("1:1  Updated text");
+
+        const ftChar = note.getChildAtIndex(4);
+        if (!$isCharNode(ftChar)) throw new Error("Expected a CharNode");
+        expect(ftChar.getMarker()).toBe("ft");
+
+        const textNode = ftChar.getFirstChild();
+        if (!$isTextNode(textNode)) throw new Error("Expected a TextNode");
+        expect(textNode.getTextContent()).toBe("Updated text");
+      });
+    });
+
+    it("should remove CharNode when content is cleared", async () => {
+      const { editor } = await testEnvironment(undefined, undefined, () => {
+        firstNoteNode = $createNoteNode("f", GENERATOR_NOTE_CALLER);
+        $getRoot().append(
+          $createParaNode().append(
+            firstNoteNode.append(
+              $createImmutableNoteCallerNode("a", ""),
+              $createCharNode("fr").append($createTextNode("1:1 ")),
+              $createCharNode("ft").append($createTextNode("Some content")),
+            ),
+          ),
+        );
+      });
+
+      await updateNoteNodeText(editor, firstNoteNode, 4, 0, "");
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("Expected a ParaNode");
+
+        const note = para.getFirstChild();
+        if (!$isNoteNode(note)) throw new Error("Expected a NoteNode");
+        expect(getPreviewText(note)).toBe("1:1");
+
+        const charNodes = note.getChildren().filter($isCharNode);
+        const markers = charNodes.map((child) => child.getMarker());
+        expect(markers, JSON.stringify(markers)).not.toContain("ft");
+
+        const frChar = charNodes.find((child) => child.getMarker() === "fr");
+        if (!$isCharNode(frChar)) throw new Error("Expected a CharNode");
+
+        const frText = frChar.getFirstChild();
+        if (!$isTextNode(frText)) throw new Error("Expected a TextNode");
+        expect(frText.getTextContent()).toBe("1:1 ");
       });
     });
   });

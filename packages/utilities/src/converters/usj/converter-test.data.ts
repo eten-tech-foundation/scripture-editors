@@ -45,7 +45,7 @@ export const usxGen1v1 = `
       <verse style="v" number="15" altnumber="3" sid="GEN 1:15"/>Tell the Israelites that I, the <char style="nd">Lord</char>, the God of their ancestors, the God of Abraham, Isaac, and Jacob,<char style="va">4</char><verse eid="GEN 1:15" />
     </para>
     <para style="b" />
-    <para style="q2"><verse style="v" number="16" sid="GEN 1:16"/>“There is no help for him in God.”<note style="f" caller="+"><char style="fr">3:2 </char><char style="ft">The Hebrew word rendered “God” is “אֱלֹהִ֑ים” (Elohim).</char></note> <unmatched marker="f*" /> <char style="qs">Selah.</char><verse eid="GEN 1:16" /></para>
+    <para style="q2"><verse style="v" number="16" sid="GEN 1:16"/>“There is no help for him in God.”<note style="f" caller="+"><char style="fr">3:2 </char><char style="fk" /><char style="ft">The Hebrew word rendered “God” is “אֱלֹהִ֑ים” (Elohim).</char></note> <unmatched marker="f*" /> <char style="qs">Selah.</char><verse eid="GEN 1:16" /></para>
   <chapter eid="GEN 1" />
 </usx>
 `;
@@ -106,6 +106,7 @@ export const usjGen1v1: Usj = {
           caller: "+",
           content: [
             { type: "char", marker: "fr", content: ["3:2 "] },
+            { type: "char", marker: "fk" },
             {
               type: "char",
               marker: "ft",
@@ -346,6 +347,36 @@ export const editorStateGen1v1 = {
               },
               {
                 type: "char",
+                marker: "fk",
+                direction: null,
+                format: "",
+                indent: 0,
+                textFormat: 0,
+                textStyle: "",
+                version: 1,
+                children: [
+                  {
+                    type: "text",
+                    text: NBSP,
+                    detail: 0,
+                    format: 0,
+                    mode: "normal",
+                    style: "",
+                    version: 1,
+                  },
+                ],
+              },
+              {
+                type: "text",
+                text: NBSP,
+                detail: 0,
+                format: 0,
+                mode: "normal",
+                style: "",
+                version: 1,
+              },
+              {
+                type: "char",
                 marker: "ft",
                 direction: null,
                 format: "",
@@ -451,6 +482,7 @@ export const opsGen1v1 = [
         contents: {
           ops: [
             { insert: "3:2 ", attributes: { char: { style: "fr" } } },
+            { insert: "", attributes: { char: { style: "fk" } } },
             {
               insert: "The Hebrew word rendered “God” is “אֱלֹהִ֑ים” (Elohim).",
               attributes: { char: { style: "ft" } },
@@ -839,6 +871,38 @@ export const editorStateGen1v1Editable = {
                   {
                     type: "text",
                     text: `${NBSP}3:2 `,
+                    detail: 0,
+                    format: 0,
+                    mode: "normal",
+                    style: "",
+                    version: 1,
+                  },
+                ],
+              },
+              {
+                type: "marker",
+                marker: "fk",
+                markerSyntax: "opening",
+                detail: 0,
+                format: 0,
+                mode: "normal",
+                style: "",
+                text: "",
+                version: 1,
+              },
+              {
+                type: "char",
+                marker: "fk",
+                direction: null,
+                format: "",
+                indent: 0,
+                textFormat: 0,
+                textStyle: "",
+                version: 1,
+                children: [
+                  {
+                    type: "text",
+                    text: NBSP,
                     detail: 0,
                     format: 0,
                     mode: "normal",

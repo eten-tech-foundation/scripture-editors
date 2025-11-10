@@ -209,7 +209,7 @@ export default function App() {
       console.log({ usj, comments, ops, source, insertedNodeKey });
       marginalRef.current?.setUsj(usj);
 
-      if (insertedNodeKey && ops) {
+      if (insertedNodeKey && ops && (!viewOptions || viewOptions.noteMode === "collapsed")) {
         // If we are already editing a note node, don't select another one.
         if (noteNodeKeyRef.current) return;
 
@@ -221,9 +221,10 @@ export default function App() {
         noteNodeKeyRef.current = insertedNodeKey;
         noteEditorRef.current?.applyUpdate([noteOp]);
         setIsNoteEditorVisible(true);
+        noteEditorRef.current?.focus();
       }
     },
-    [],
+    [viewOptions],
   );
 
   const handleTypeChange = useCallback((type: string) => setAnnotationType(type), []);
