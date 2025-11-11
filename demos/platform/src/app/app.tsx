@@ -114,6 +114,7 @@ export default function App() {
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
   const [blockMarker, setBlockMarker] = useState<string | undefined>();
+  const [contextMarker, setContextMarker] = useState<string | undefined>();
 
   const viewOptions = useMemo<ViewOptions | undefined>(() => {
     if (viewMode === UNDEFINED_VIEW_MODE) return undefined;
@@ -375,6 +376,7 @@ export default function App() {
           <button onClick={() => setIsNoteEditorVisible(!isNoteEditorVisible)}>
             {isNoteEditorVisible ? "Hide" : "Show"} note editor
           </button>
+          <pre style={{ color: "black" }}>{contextMarker}</pre>
         </div>
         {isOptionsDefined && (
           <>
@@ -486,10 +488,16 @@ export default function App() {
           onSelectionChange={(selection) => console.log({ selection })}
           onCommentChange={(comments) => console.log({ comments })}
           onUsjChange={handleUsjChange}
-          onStateChange={(newCanUndo, newCanRedo, newBlockMarker) => {
-            setCanUndo(newCanUndo);
-            setCanRedo(newCanRedo);
-            setBlockMarker(newBlockMarker);
+          onStateChange={({
+            canUndo: nextCanUndo,
+            canRedo: nextCanRedo,
+            blockMarker: nextBlockMarker,
+            contextMarker: nextContextMarker,
+          }) => {
+            setCanUndo(nextCanUndo);
+            setCanRedo(nextCanRedo);
+            setBlockMarker(nextBlockMarker);
+            setContextMarker(nextContextMarker);
           }}
           options={options}
           logger={console}
