@@ -45,6 +45,7 @@ import {
   $isVerseNode,
   $moveSelectionToEnd,
   closingMarkerText,
+  EMPTY_CHAR_PLACEHOLDER_TEXT,
   getEditableCallerText,
   ImmutableTypedTextNode,
   isSerializedVerseNode,
@@ -192,19 +193,25 @@ export function $createNoteChildren(
       if (!selection.isCollapsed()) {
         const selectedText = selection.getTextContent().trim();
         if (selectedText.length > 0) {
-          const fq = $createCharNode("fq");
-          fq.append($createTextNode(selectedText));
+          const fq = $createCharNode("fq").append($createTextNode(selectedText));
           children.push(fq);
         }
       }
-      children.push($createCharNode("ft").append($createTextNode(NBSP)));
+      children.push($createCharNode("ft").append($createTextNode(EMPTY_CHAR_PLACEHOLDER_TEXT)));
       break;
     case "x":
     case "ex":
       if (chapterNum !== undefined && verseNum !== undefined) {
         children.push($createCharNode("xo").append($createTextNode(`${chapterNum}:${verseNum}`)));
       }
-      children.push($createCharNode("xt").append($createTextNode(NBSP)));
+      if (!selection.isCollapsed()) {
+        const selectedText = selection.getTextContent().trim();
+        if (selectedText.length > 0) {
+          const xq = $createCharNode("xq").append($createTextNode(selectedText));
+          children.push(xq);
+        }
+      }
+      children.push($createCharNode("xt").append($createTextNode(EMPTY_CHAR_PLACEHOLDER_TEXT)));
       break;
     default:
       logger?.warn(`$createNoteChildren: Unsupported note marker '${marker}'`);

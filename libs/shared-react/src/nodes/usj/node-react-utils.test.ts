@@ -22,10 +22,10 @@ import {
   $isCharNode,
   $isNoteNode,
   CharNode,
+  EMPTY_CHAR_PLACEHOLDER_TEXT,
   GENERATOR_NOTE_CALLER,
   HIDDEN_NOTE_CALLER,
   ImmutableChapterNode,
-  NBSP,
   NoteNode,
   ParaNode,
   TypedMarkNode,
@@ -544,7 +544,7 @@ describe("$insertNote()", () => {
       // Last should be ft with placeholder
       const ftNode = charNodes.find((node) => node.getMarker() === "ft");
       expect(ftNode).toBeDefined();
-      expect(ftNode?.getTextContent()).toBe(NBSP);
+      expect(ftNode?.getTextContent()).toBe(EMPTY_CHAR_PLACEHOLDER_TEXT);
     });
   });
 
@@ -628,7 +628,7 @@ describe("$insertNote()", () => {
 
       const xtNode = charNodes.find((node) => node.getMarker() === "xt");
       expect(xtNode).toBeDefined();
-      expect(xtNode?.getTextContent()).toBe(NBSP);
+      expect(xtNode?.getTextContent()).toBe(EMPTY_CHAR_PLACEHOLDER_TEXT);
     });
   });
 

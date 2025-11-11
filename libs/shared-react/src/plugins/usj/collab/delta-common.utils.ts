@@ -348,9 +348,9 @@ export function $isParaLikeNode(node: LexicalNode | null | undefined): node is P
  */
 export function isInsertEmbedOpOfType<T extends keyof OTEmbedTypes>(
   embedType: T,
-  op: DeltaOp,
+  op: DeltaOp | undefined,
 ): op is DeltaOp & { insert: { [K in T]: OTEmbedTypes[K] | null } } {
-  return op.insert != null && typeof op.insert === "object" && embedType in op.insert;
+  return op?.insert != null && typeof op.insert === "object" && embedType in op.insert;
 }
 
 /**

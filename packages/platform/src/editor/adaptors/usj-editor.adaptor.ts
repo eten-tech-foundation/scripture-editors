@@ -30,6 +30,7 @@ import {
   COMMENT_MARK_TYPE,
   DEFAULT_NOTE_MARKER,
   EditorAdaptor,
+  EMPTY_CHAR_PLACEHOLDER_TEXT,
   ENDING_MS_COMMENT_MARKER,
   getEditableCallerText,
   getPreviewTextFromSerializedNodes,
@@ -326,7 +327,7 @@ function createChar(
     childNodes.forEach((node) => {
       if (isSerializedTextNode(node)) node.text = NBSP + node.text;
     });
-  if (childNodes.length === 0) childNodes.push(createText(NBSP));
+  if (childNodes.length === 0) childNodes.push(createText(EMPTY_CHAR_PLACEHOLDER_TEXT));
   const unknownAttributes = getUnknownAttributes(markerObject);
 
   return removeUndefinedProperties({

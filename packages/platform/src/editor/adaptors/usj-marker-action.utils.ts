@@ -103,6 +103,12 @@ const getCrossReferenceMarkerAction: (crossReferenceMarker: string) => UsjMarker
           marker: "xo",
           content: [`${chapterNum}:${verseNum}`],
         });
+      if (currentEditor.noteText)
+        noteChildren.push({
+          type: "char",
+          marker: "xq",
+          content: [currentEditor.noteText],
+        });
       noteChildren.push({ type: "char", marker: "xt" });
       const content: MarkerContent = {
         type: "note",

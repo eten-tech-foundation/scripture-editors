@@ -35,7 +35,7 @@ import { $isMilestoneNode, MilestoneNode } from "./MilestoneNode.js";
 import { $isNoteNode, NoteNode } from "./NoteNode.js";
 import { $isParaNode, ParaNode } from "./ParaNode.js";
 import { $isVerseNode, VerseNode } from "./VerseNode.js";
-import { NBSP, UnknownAttributes } from "./node-constants.js";
+import { EMPTY_CHAR_PLACEHOLDER_TEXT, NBSP, UnknownAttributes } from "./node-constants.js";
 
 export type NodesWithMarker =
   | BookNode
@@ -443,7 +443,7 @@ export function $getNoteCallerPreviewText(childNodes: LexicalNode[]): string {
     if (!$isCharNode(node)) continue;
 
     const textContent = node.getTextContent();
-    if (textContent === NBSP) continue;
+    if (textContent === EMPTY_CHAR_PLACEHOLDER_TEXT) continue;
 
     if (textContent.length > 0) parts.push(textContent);
   }

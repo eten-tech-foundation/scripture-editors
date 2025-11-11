@@ -3,7 +3,13 @@ import { mergeRegister } from "@lexical/utils";
 import { deepEqual } from "fast-equals";
 import { $getState, LexicalEditor, TextNode } from "lexical";
 import { useEffect } from "react";
-import { $hasSameCharAttributes, $isCharNode, charIdState, CharNode, NBSP } from "shared";
+import {
+  $hasSameCharAttributes,
+  $isCharNode,
+  charIdState,
+  CharNode,
+  EMPTY_CHAR_PLACEHOLDER_TEXT,
+} from "shared";
 
 /** Combine adjacent CharNodes with the same attributes. */
 export function CharNodePlugin(): null {
@@ -73,7 +79,7 @@ function $charTextNodeTransform(node: TextNode): void {
   if (!$isCharNode(parent) || parent.getChildrenSize() !== 1) return;
 
   const text = node.getTextContent();
-  if (text.length > 1 && text.startsWith(NBSP)) {
+  if (text.length > 1 && text.startsWith(EMPTY_CHAR_PLACEHOLDER_TEXT)) {
     node.setTextContent(text.slice(1));
     node.selectEnd();
   }

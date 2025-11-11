@@ -32,6 +32,7 @@ import {
   $isNoteNode,
   $isSomeParaNode,
   CharNode,
+  EMPTY_CHAR_PLACEHOLDER_TEXT,
   GENERATOR_NOTE_CALLER,
   LoggerBasic,
   NBSP,
@@ -220,7 +221,7 @@ function $noteTextNodeTransform(node: TextNode): void {
 
   if ($isCharNode(parent) && parent.getChildrenSize() === 1) {
     const text = node.getTextContent();
-    if (text.length > 1 && text.startsWith(NBSP)) {
+    if (text.length > 1 && text.startsWith(EMPTY_CHAR_PLACEHOLDER_TEXT)) {
       node.setTextContent(text.slice(1));
       node.selectEnd();
     }

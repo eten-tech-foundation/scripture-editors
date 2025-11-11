@@ -134,13 +134,13 @@ export default function App() {
           // If we are already editing a note node, don't select another one.
           if (noteNodeKeyRef.current) return;
 
-          const noteOps = getNoteOps?.();
-          if (!noteOps) return;
+          const noteOp = getNoteOps?.()?.[0];
+          if (!isInsertEmbedOpOfType("note", noteOp)) return;
 
           const noteElement = marginalRef.current?.getElementByKey(noteNodeKey);
           console.log("collapsed note node clicked - use note editor on", noteElement);
           noteNodeKeyRef.current = noteNodeKey;
-          noteEditorRef.current?.applyUpdate(noteOps);
+          noteEditorRef.current?.applyUpdate([noteOp]);
           setIsNoteEditorVisible(true);
         } else {
           console.log("expanded note node clicked - toggle caller");
