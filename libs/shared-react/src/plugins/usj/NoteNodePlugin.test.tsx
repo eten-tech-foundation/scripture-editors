@@ -25,6 +25,7 @@ import {
   $isCharNode,
   $isNoteNode,
   $isParaNode,
+  EMPTY_CHAR_PLACEHOLDER_TEXT,
   GENERATOR_NOTE_CALLER,
   NBSP,
   NoteNode,
@@ -129,7 +130,7 @@ describe("NoteNodePlugin", () => {
             firstNoteNode.append(
               $createImmutableNoteCallerNode("a", ""),
               $createCharNode("fr").append($createTextNode("1:1 ")),
-              $createCharNode("ft").append($createTextNode(NBSP)),
+              $createCharNode("ft").append($createTextNode(EMPTY_CHAR_PLACEHOLDER_TEXT)),
             ),
           ),
         );
@@ -153,13 +154,19 @@ describe("NoteNodePlugin", () => {
             firstNoteNode.append(
               $createImmutableNoteCallerNode("a", ""),
               $createCharNode("fr").append($createTextNode("1:1 ")),
-              $createCharNode("ft").append($createTextNode(NBSP)),
+              $createCharNode("ft").append($createTextNode(EMPTY_CHAR_PLACEHOLDER_TEXT)),
             ),
           ),
         );
       });
 
-      await updateNoteNodeText(editor, firstNoteNode, 4, 0, `${NBSP}Updated text`);
+      await updateNoteNodeText(
+        editor,
+        firstNoteNode,
+        4,
+        0,
+        `${EMPTY_CHAR_PLACEHOLDER_TEXT}Updated text`,
+      );
 
       editor.getEditorState().read(() => {
         const para = $getRoot().getFirstChild();

@@ -72,11 +72,11 @@ import {
   charIdState,
   CharNode,
   closingMarkerText,
+  EMPTY_CHAR_PLACEHOLDER_TEXT,
   getUnknownAttributes,
   getVisibleOpenMarkerText,
   ImpliedParaNode,
   LoggerBasic,
-  NBSP,
   NoteNode,
   openingMarkerText,
   ParaNode,
@@ -834,7 +834,9 @@ function $handleCharText(
     )} at index ${targetIndex}`,
   );
 
-  const textNode = $createTextNode(textToInsert === "" ? NBSP : textToInsert);
+  const textNode = $createTextNode(
+    textToInsert === "" ? EMPTY_CHAR_PLACEHOLDER_TEXT : textToInsert,
+  );
   // Apply other non-char attributes to the TextNode inside the CharNode if necessary.
   $applyTextAttributes(attributes, textNode);
 
@@ -1770,7 +1772,7 @@ function $createNestedChars(
   existingNodes?: LexicalNode[],
 ): LexicalNode[] {
   if ($isTextNode(innerNode) && innerNode.getTextContentSize() === 0) {
-    innerNode.setTextContent(NBSP);
+    innerNode.setTextContent(EMPTY_CHAR_PLACEHOLDER_TEXT);
   }
   if (Array.isArray(charAttr)) {
     if (charAttr.length === 0) throw new Error("Empty charAttr array");

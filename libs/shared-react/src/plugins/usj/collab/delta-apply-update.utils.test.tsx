@@ -53,6 +53,7 @@ import {
   $isParaNode,
   $isSomeChapterNode,
   charIdState,
+  EMPTY_CHAR_PLACEHOLDER_TEXT,
   GENERATOR_NOTE_CALLER,
   NBSP,
   removeUndefinedProperties,
@@ -2554,7 +2555,7 @@ describe("Delta Utils $applyUpdate", () => {
 
         const inner = char.getFirstChild();
         if (!$isTextNode(inner)) throw new Error("Expected inner TextNode");
-        expect(inner.getTextContent()).toBe(NBSP);
+        expect(inner.getTextContent()).toBe(EMPTY_CHAR_PLACEHOLDER_TEXT);
       });
     });
 
@@ -2973,7 +2974,7 @@ describe("Delta Utils $applyUpdate", () => {
 
         const inner = charEmpty.getFirstChild();
         if (!$isTextNode(inner)) throw new Error("Expected inner TextNode");
-        expect(inner.getTextContent()).toBe(NBSP);
+        expect(inner.getTextContent()).toBe(EMPTY_CHAR_PLACEHOLDER_TEXT);
       });
     });
 

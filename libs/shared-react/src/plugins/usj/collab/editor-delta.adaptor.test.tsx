@@ -31,6 +31,7 @@ import {
   $createNoteNode,
   $createParaNode,
   charIdState,
+  EMPTY_CHAR_PLACEHOLDER_TEXT,
   GENERATOR_NOTE_CALLER,
   getEditableCallerText,
   NBSP,
@@ -225,7 +226,7 @@ describe("getEditorDelta", () => {
       $getRoot().append(
         $createImpliedParaNode().append(
           addChar.append($createTextNode("added text")),
-          wjChar.append($createTextNode(NBSP)),
+          wjChar.append($createTextNode(EMPTY_CHAR_PLACEHOLDER_TEXT)),
         ),
       );
     });
@@ -251,7 +252,7 @@ describe("getEditorDelta", () => {
           $createNoteNode("f", GENERATOR_NOTE_CALLER).append(
             $createImmutableNoteCallerNode(GENERATOR_NOTE_CALLER, "ref"),
             frChar.append($createTextNode("ref ")),
-            ftChar.append($createTextNode(NBSP)),
+            ftChar.append($createTextNode(EMPTY_CHAR_PLACEHOLDER_TEXT)),
           ),
         ),
       );

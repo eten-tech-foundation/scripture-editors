@@ -35,6 +35,7 @@ import {
   CHAPTER_MARKER,
   charIdState,
   CharNode,
+  EMPTY_CHAR_PLACEHOLDER_TEXT,
   ImmutableUnmatchedNode,
   MilestoneNode,
   NBSP,
@@ -215,7 +216,9 @@ function $handleTextNodes(
   const isNodeAttributeText = text.startsWith(NODE_ATTRIBUTE_PREFIX);
   const parentCharNode = $isCharNode(parent) ? parent : undefined;
   const isPlaceholderText =
-    !!parentCharNode && text === NBSP && parentCharNode.getChildrenSize() === 1;
+    !!parentCharNode &&
+    text === EMPTY_CHAR_PLACEHOLDER_TEXT &&
+    parentCharNode.getChildrenSize() === 1;
 
   const textOp = $getTextOp(currentNode, openCharNodes);
   if (openNote.children.includes(currentNode)) {

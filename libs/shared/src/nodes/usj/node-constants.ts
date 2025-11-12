@@ -7,6 +7,8 @@ export interface UnknownAttributes {
 export const NBSP = "\u00A0";
 export const ZWSP = "\u200B";
 
+export const EMPTY_CHAR_PLACEHOLDER_TEXT = NBSP;
+
 export const NODE_ATTRIBUTE_PREFIX = `${NBSP}|`;
 
 export const PARA_MARKER_DEFAULT = "p";

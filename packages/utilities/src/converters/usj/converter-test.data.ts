@@ -2,6 +2,7 @@ import type { SerializedEditorState } from "lexical";
 import { MarkerContent, Usj } from "./usj.model.js";
 
 const NBSP = "\u00A0";
+const EMPTY_CHAR_PLACEHOLDER_TEXT = NBSP;
 const IDEOGRAPHIC_SPACE = "\u3000";
 const THIN_SPACE = "\u2009";
 
@@ -357,7 +358,7 @@ export const editorStateGen1v1 = {
                 children: [
                   {
                     type: "text",
-                    text: NBSP,
+                    text: EMPTY_CHAR_PLACEHOLDER_TEXT,
                     detail: 0,
                     format: 0,
                     mode: "normal",
@@ -902,7 +903,7 @@ export const editorStateGen1v1Editable = {
                 children: [
                   {
                     type: "text",
-                    text: NBSP,
+                    text: EMPTY_CHAR_PLACEHOLDER_TEXT,
                     detail: 0,
                     format: 0,
                     mode: "normal",
