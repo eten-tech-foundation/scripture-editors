@@ -1,5 +1,6 @@
 import { $createImmutableVerseNode, ImmutableVerseNode } from "../../nodes/usj/ImmutableVerseNode";
 import { $isReactNodeWithMarker } from "../../nodes/usj/node-react.utils";
+import * as useUsfmMarkersForMenuModule from "../PerfNodesItems/useUsfmMarkersForMenu";
 import { UsjNodesMenuPlugin } from "./UsjNodesMenuPlugin";
 import { baseTestEnvironment } from "./react-test.utils";
 import { act } from "@testing-library/react";
@@ -21,6 +22,7 @@ import {
   ImpliedParaNode,
   ScriptureReference,
 } from "shared";
+import { vi } from "vitest";
 
 let firstVerseNode: ImmutableVerseNode;
 let firstVerseTextNode: TextNode;
@@ -181,9 +183,34 @@ describe("UsjNodesMenuPlugin", () => {
       });
     });
   });
+
+  describe("context marker", () => {
+    it("forwards provided contextMarker prop", async () => {
+      const contextMarker = "p";
+      const spy = vi.spyOn(useUsfmMarkersForMenuModule, "default");
+
+      try {
+        await testEnvironment(undefined, contextMarker);
+
+        type UseUsfmMarkersArgs = Parameters<(typeof useUsfmMarkersForMenuModule)["default"]>[0];
+
+        const wasCalledWithProp = spy.mock.calls.some((call) => {
+          const [options] = call as [UseUsfmMarkersArgs | undefined];
+          return options?.contextMarker === contextMarker;
+        });
+
+        expect(wasCalledWithProp).toBe(true);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+  });
 });
 
-async function testEnvironment($initialEditorState: () => void = $defaultInitialEditorState) {
+async function testEnvironment(
+  $initialEditorState: () => void = $defaultInitialEditorState,
+  contextMarker?: string | undefined,
+) {
   const scriptureReference = { book: "GEN", chapterNum: 1, verseNum: 1 };
   const verseToInsert = "3";
 
@@ -206,6 +233,7 @@ async function testEnvironment($initialEditorState: () => void = $defaultInitial
     <UsjNodesMenuPlugin
       trigger="\\"
       scrRef={scriptureReference}
+      contextMarker={contextMarker}
       getMarkerAction={getMarkerAction}
     />,
   );

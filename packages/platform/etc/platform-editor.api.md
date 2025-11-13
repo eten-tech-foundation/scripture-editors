@@ -73,7 +73,7 @@ export interface EditorProps<TLogger extends LoggerBasic> {
     logger?: TLogger;
     onScrRefChange?: (scrRef: SerializedVerseRef) => void;
     onSelectionChange?: (selection: SelectionRange | undefined) => void;
-    onStateChange?: (canUndo: boolean, canRedo: boolean, blockMarker: string | undefined) => void;
+    onStateChange?: ({ canUndo, canRedo, blockMarker, contextMarker }: StateChangeSnapshot) => void;
     onUsjChange?: (usj: Usj, ops?: DeltaOp[], source?: DeltaSource, insertedNodeKey?: string) => void;
     options?: EditorOptions;
     scrRef?: SerializedVerseRef;
@@ -179,6 +179,9 @@ export type NoteMode =
 | "expanded";
 
 // @public
+export type OnStateChange = (snapshot: StateChangeSnapshot) => void;
+
+// @public
 export interface OTChapterEmbed extends OTParaAttribute {
     altnumber?: string;
     number: string;
@@ -236,6 +239,14 @@ export interface OTVerseEmbed extends OTParaAttribute {
 export interface SelectionRange {
     end?: UsjLocation;
     start: UsjLocation;
+}
+
+// @public
+export interface StateChangeSnapshot {
+    blockMarker: string | undefined;
+    canRedo: boolean;
+    canUndo: boolean;
+    contextMarker: string | undefined;
 }
 
 // @public

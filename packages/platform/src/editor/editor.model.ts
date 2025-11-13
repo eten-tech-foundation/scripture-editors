@@ -7,6 +7,7 @@ import {
   DeltaOp,
   DeltaSource,
   SelectionRange,
+  StateChangeSnapshot,
   TextDirection,
   UsjNodeOptions,
   ViewOptions,
@@ -120,7 +121,7 @@ export interface EditorProps<TLogger extends LoggerBasic> {
   /** Callback function when USJ Scripture data has changed. */
   onUsjChange?: (usj: Usj, ops?: DeltaOp[], source?: DeltaSource, insertedNodeKey?: string) => void;
   /** Callback function when state changes. */
-  onStateChange?: (canUndo: boolean, canRedo: boolean, blockMarker: string | undefined) => void;
+  onStateChange?: ({ canUndo, canRedo, blockMarker, contextMarker }: StateChangeSnapshot) => void;
   /** Options to configure the editor. */
   options?: EditorOptions;
   /** Logger instance. */

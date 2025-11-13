@@ -76,6 +76,7 @@ import {
   pasteSelection,
   pasteSelectionAsPlainText,
   StateChangePlugin,
+  StateChangeSnapshot,
   TextDirectionPlugin,
   TextSpacingPlugin,
   UsjNodeOptions,
@@ -143,6 +144,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
   const expandedNoteKeyRef = useRef<string | undefined>();
   const [usj, setUsj] = useState(defaultUsj);
   const [loadTrigger, setLoadTrigger] = useState(0);
+  const [contextMarker, setContextMarker] = useState<string | undefined>();
 
   const {
     isReadonly = false,
@@ -302,19 +304,27 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
     [usj, onUsjChange],
   );
 
+  const handleStateChange = useCallback(
+    (snapshot: StateChangeSnapshot) => {
+      setContextMarker(snapshot.contextMarker);
+      onStateChange?.(snapshot);
+    },
+    [onStateChange],
+  );
+
   return (
     <LexicalComposer initialConfig={editorConfig}>
       <EditablePlugin isEditable={!isReadonly} />
       <div className="editor-container">
         {hasExternalUI ? (
-          <StateChangePlugin onStateChange={onStateChange} />
+          <StateChangePlugin onStateChange={handleStateChange} />
         ) : (
           <div className={"editor-toolbar-container" + (isReadonly ? "-readonly" : "-editable")}>
             <ToolbarPlugin
               ref={toolbarEndRef}
               editorRef={ref as MutableRefObject<EditorRef | null>}
               isReadonly={isReadonly}
-              onStateChange={onStateChange}
+              onStateChange={handleStateChange}
             />
           </div>
         )}
@@ -338,6 +348,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
             <UsjNodesMenuPlugin
               trigger={markerMenuTrigger}
               scrRef={scrRef}
+              contextMarker={contextMarker}
               getMarkerAction={(marker, markerData) =>
                 getUsjMarkerAction(marker, expandedNoteKeyRef, markerData, viewOptions)
               }

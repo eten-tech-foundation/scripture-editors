@@ -43,11 +43,21 @@ export const ToolbarPlugin = forwardRef<HTMLDivElement, ToolbarPluginProps>(func
   const [canRedo, setCanRedo] = useState(false);
 
   const handleStateChange: OnStateChange = useCallback(
-    (newCanUndo, newCanRedo, newBlockMarker) => {
-      setCanUndo(newCanUndo);
-      setCanRedo(newCanRedo);
-      setBlockMarker(newBlockMarker);
-      onStateChange?.(newCanUndo, newCanRedo, newBlockMarker);
+    ({
+      canUndo: nextCanUndo,
+      canRedo: nextCanRedo,
+      blockMarker: nextBlockMarker,
+      contextMarker,
+    }) => {
+      setCanUndo(nextCanUndo);
+      setCanRedo(nextCanRedo);
+      setBlockMarker(nextBlockMarker);
+      onStateChange?.({
+        canUndo: nextCanUndo,
+        canRedo: nextCanRedo,
+        blockMarker: nextBlockMarker,
+        contextMarker,
+      });
     },
     [onStateChange],
   );

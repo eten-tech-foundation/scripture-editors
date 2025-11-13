@@ -1,28 +1,12 @@
 import { ImmutableVerseNode } from "../../nodes/usj/ImmutableVerseNode";
-import {
-  $isReactNodeWithMarker,
-  $isSomeVerseNode,
-  SomeVerseNode,
-  wasNodeCreated,
-} from "../../nodes/usj/node-react.utils";
+import { $isSomeVerseNode, SomeVerseNode, wasNodeCreated } from "../../nodes/usj/node-react.utils";
 import UsfmNodesMenuPlugin from "../UsfmNodesMenuPlugin";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { mergeRegister } from "@lexical/utils";
-import {
-  $getNodeByKey,
-  $getSelection,
-  $hasUpdateTag,
-  $isRangeSelection,
-  COMMAND_PRIORITY_LOW,
-  LexicalEditor,
-  NodeKey,
-  NodeMutation,
-  SELECTION_CHANGE_COMMAND,
-} from "lexical";
-import { useEffect, useMemo, useState } from "react";
+import { $getNodeByKey, $hasUpdateTag, LexicalEditor, NodeKey, NodeMutation } from "lexical";
+import { useEffect, useMemo } from "react";
 import {
   $findThisChapter,
-  $getCommonAncestorCompatible,
   EXTERNAL_USJ_MUTATION_TAG,
   GetMarkerAction,
   getNextVerse,
@@ -37,21 +21,27 @@ interface ChapterByNodeKey {
   [nodeKey: string]: string;
 }
 
+export interface UsjNodesMenuPluginProps {
+  trigger: string;
+  scrRef: ScriptureReference;
+  contextMarker: string | undefined;
+  getMarkerAction: GetMarkerAction;
+}
+
 export function UsjNodesMenuPlugin({
   trigger,
   scrRef,
+  contextMarker,
   getMarkerAction,
-}: {
-  trigger: string;
-  scrRef: ScriptureReference;
-  getMarkerAction: GetMarkerAction;
-}) {
-  const { book, chapterNum, verseNum, verse } = scrRef;
-  // This is intentionally missing the `scrRef` dependency to ensure property changes are updated.
-  const scriptureReference = useMemo(() => scrRef, [book, chapterNum, verseNum, verse]);
+}: UsjNodesMenuPluginProps) {
+  const { book, chapterNum, verseNum, verse, versificationStr } = scrRef;
+  // Recompute when individual fields change without relying on scrRef identity.
+  const scriptureReference = useMemo<ScriptureReference>(
+    () => ({ book, chapterNum, verseNum, verse, versificationStr }),
+    [book, chapterNum, verseNum, verse, versificationStr],
+  );
 
   const [editor] = useLexicalComposerContext();
-  const [contextMarker] = useContextMarker(editor);
   useVerseCreated(editor);
 
   return (
@@ -62,45 +52,6 @@ export function UsjNodesMenuPlugin({
       getMarkerAction={getMarkerAction}
     />
   );
-}
-
-function useContextMarker(editor: LexicalEditor) {
-  const [contextMarker, setContextMarker] = useState<string | undefined>();
-  useEffect(
-    () =>
-      editor.registerCommand(
-        SELECTION_CHANGE_COMMAND,
-        () => {
-          editor.read(() => {
-            const selection = $getSelection();
-            if (!$isRangeSelection(selection)) {
-              if (contextMarker) setContextMarker(undefined);
-              return;
-            }
-
-            const startNode = $getNodeByKey(selection.anchor.key);
-            const endNode = $getNodeByKey(selection.focus.key);
-            if (!startNode || !endNode) {
-              if (contextMarker) setContextMarker(undefined);
-              return;
-            }
-
-            const contextNode = $getCommonAncestorCompatible(startNode, endNode);
-            if (!contextNode || !$isReactNodeWithMarker(contextNode)) {
-              if (contextMarker) setContextMarker(undefined);
-              return;
-            }
-
-            const marker = contextNode.getMarker();
-            if (contextMarker !== marker) setContextMarker(marker);
-          });
-          return false;
-        },
-        COMMAND_PRIORITY_LOW,
-      ),
-    [contextMarker, editor],
-  );
-  return [contextMarker];
 }
 
 function useVerseCreated(editor: LexicalEditor) {
@@ -142,22 +93,6 @@ function $verseNodeInsertedTransform(
 
   const nodeWasCreated = wasNodeCreated(editor, node.getKey());
   if (nodeWasCreated) $renumberFollowingVerses(node, verseNodeKeysByChapter);
-}
-
-/**
- * Extracts the verse range and/or segments from a given verse string.
- *
- * The verse string can be in the format:
- * - "1" (single verse)
- * - "1a" (single verse segment)
- * - "1-2" (verse range)
- * - "1a-2b" (verse range with segments)
- *
- * @param verse - The verse string to extract the range from.
- * @returns An array containing the matched groups or null if no match is found.
- */
-function getVerseRangeSegment(verse: string) {
-  return RegExp(/(\d+)([a-zA-Z]+)?(-(\d+)([a-zA-Z]+)?)?/).exec(verse);
 }
 
 // See the Regex in the `getVerseRangeSegment` function.
@@ -215,6 +150,22 @@ function $renumberFollowingVerses(
     verseNum = parseInt(isRange ? nextEndVerse : nextStartVerse);
     verseSegment = isRange ? endVerseSegment : startVerseSegment;
   });
+}
+
+/**
+ * Extracts the verse range and/or segments from a given verse string.
+ *
+ * The verse string can be in the format:
+ * - "1" (single verse)
+ * - "1a" (single verse segment)
+ * - "1-2" (verse range)
+ * - "1a-2b" (verse range with segments)
+ *
+ * @param verse - The verse string to extract the range from.
+ * @returns An array containing the matched groups or null if no match is found.
+ */
+function getVerseRangeSegment(verse: string) {
+  return RegExp(/(\d+)([a-zA-Z]+)?(-(\d+)([a-zA-Z]+)?)?/).exec(verse);
 }
 
 function $trackMutatedVerses(
