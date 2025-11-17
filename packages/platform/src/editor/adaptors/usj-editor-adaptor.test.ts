@@ -30,29 +30,30 @@ import { SerializedLexicalNode } from "lexical";
 import {
   closingMarkerText,
   getEditableCallerText,
+  HIDDEN_NOTE_CALLER,
   isSerializedBookNode,
+  isSerializedCharNode,
   isSerializedImmutableChapterNode,
   isSerializedImmutableTypedTextNode,
+  isSerializedMarkerNode,
   isSerializedNoteNode,
   isSerializedParaNode,
-  isSerializedCharNode,
   isSerializedTextNode,
   NBSP,
   openingMarkerText,
   SerializedNoteNode,
   SerializedParaNode,
-  isSerializedMarkerNode,
 } from "shared";
 import {
   defaultNoteCallers,
   getDefaultViewOptions,
   getViewOptions,
+  isSerializedImmutableNoteCallerNode,
+  isSerializedImmutableVerseNode,
+  isSomeSerializedVerseNode,
   SerializedImmutableNoteCallerNode,
   UNFORMATTED_VIEW_MODE,
   ViewOptions,
-  isSomeSerializedVerseNode,
-  isSerializedImmutableVerseNode,
-  isSerializedImmutableNoteCallerNode,
 } from "shared-react";
 import { MockInstance } from "vitest";
 
@@ -235,16 +236,16 @@ describe("USJ Editor Adaptor", () => {
     const usjNote = (
       (usjGen1v1Updated.content[NOTE_PARA_INDEX] as MarkerObject).content as MarkerObject[]
     )[NOTE_INDEX];
-    usjNote.caller = "-";
+    usjNote.caller = HIDDEN_NOTE_CALLER;
 
     const serializedEditorState = serializeEditorState(usjGen1v1Updated);
 
     const editorStateCallerUpdated = editorStateGen1v1;
     const note = (editorStateCallerUpdated.root.children[NOTE_PARA_INDEX] as SerializedParaNode)
       .children[NOTE_INDEX] as SerializedNoteNode;
-    note.caller = "-";
+    note.caller = HIDDEN_NOTE_CALLER;
     const noteCaller = note.children[NOTE_CALLER_INDEX] as SerializedImmutableNoteCallerNode;
-    noteCaller.caller = "-";
+    noteCaller.caller = HIDDEN_NOTE_CALLER;
     removeNoteCallerOnClick(serializedEditorState);
     expect(serializedEditorState).toEqual(editorStateCallerUpdated);
   });

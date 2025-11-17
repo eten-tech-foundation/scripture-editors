@@ -188,6 +188,7 @@ When working with scripture data:
 # Code Style
 
 - Prefer `undefined` over `null` for absent values unless working with an API that mandates `null`.
+- Prefer chaining Lexical `append` calls inside the final `$getRoot().append(...)` when setting up document structure in tests so the hierarchy is readable at a glance.
 
 # CI Error Guidelines
 

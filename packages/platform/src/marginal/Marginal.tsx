@@ -125,8 +125,8 @@ const Marginal = forwardRef(function Marginal<TLogger extends LoggerBasic>(
     setSelection(selection) {
       editorRef.current?.setSelection(selection);
     },
-    addAnnotation(selection, type, id) {
-      editorRef.current?.addAnnotation(selection, type, id);
+    addAnnotation(selection, type, id, onClick, onRemove) {
+      editorRef.current?.addAnnotation(selection, type, id, onClick, onRemove);
     },
     removeAnnotation(type, id) {
       editorRef.current?.removeAnnotation(type, id);
