@@ -6,7 +6,9 @@
   "eslint.validate": ["html", "javascript", "javascriptreact", "json", "typescriptreact"],
   "files.associations": {
     ".eslintignore": "ignore",
-    ".prettierignore": "ignore"
+    ".prettierignore": "ignore",
+    "*.SFM": "usfm",
+    "*.sfm": "usfm"
   },
   "files.eol": "\n",
   "javascript.validate.enable": false,
@@ -18,14 +20,10 @@
       "url": "http://json.schemastore.org/tsconfig"
     }
   ],
-  "nxConsole.generateAiAgentRules": true,
   "search.exclude": {
     ".git": true,
     "node_modules": true,
     "demos/platform/lib": true
   },
-  "typescript.tsdk": "node_modules/typescript/lib",
-  "[javascript]": {
-    "editor.defaultFormatter": "esbenp.prettier-vscode"
-  }
+  "typescript.tsdk": "node_modules/typescript/lib"
 }
