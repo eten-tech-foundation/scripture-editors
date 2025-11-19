@@ -577,12 +577,3 @@ export function isVerseInRange(verseNum: number, verseRange: string | undefined)
 export function isVerseRange(verseRange: string | undefined): boolean {
   return !!verseRange && verseRange.includes("-");
 }
-
-const UNSAFE_KEYS = new Set(["__proto__", "prototype", "constructor"]);
-
-/** Avoid prototype pollution by disallowing unsafe keys. */
-export function assertSafeKey(key: string): void {
-  if (!UNSAFE_KEYS.has(key)) return;
-
-  throw new Error(`The key "${key}" is not allowed to avoid prototype pollution.`);
-}

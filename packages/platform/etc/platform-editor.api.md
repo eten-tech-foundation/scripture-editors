@@ -84,7 +84,6 @@ export interface EditorProps<TLogger extends LoggerBasic> {
 
 // @public
 export interface EditorRef {
-    addAnnotation(selection: AnnotationRange, type: string, id: string, onClick?: TypedMarkOnClick, onRemove?: TypedMarkOnRemove): void;
     applyUpdate(ops: DeltaOp[], source?: DeltaSource): void;
     copy(): void;
     cut(): void;
@@ -101,6 +100,7 @@ export interface EditorRef {
     removeAnnotation(type: string, id: string): void;
     replaceEmbedUpdate(embedNodeKey: string, insertEmbedOps: DeltaOp[]): void;
     selectNote(noteKeyOrIndex: string | number): void;
+    setAnnotation(selection: AnnotationRange, type: string, id: string, onClick?: TypedMarkOnClick, onRemove?: TypedMarkOnRemove): void;
     setSelection(selection: SelectionRange): void;
     setUsj(usj: Usj): void;
     toolbarEndRef: RefObject<HTMLElement | null> | null;
@@ -264,7 +264,7 @@ export interface Thread {
 }
 
 // @public
-export type TypedMarkOnClick = (event: DomMouseEvent, type: string, id: string) => void;
+export type TypedMarkOnClick = (event: DomMouseEvent, type: string, id: string, textContent: string) => void;
 
 // @public
 export type TypedMarkOnRemove = (type: string, id: string, cause: TypedMarkRemovalCause, textContent: string) => void;

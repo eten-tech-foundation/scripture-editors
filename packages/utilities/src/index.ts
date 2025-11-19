@@ -4,6 +4,8 @@
  */
 
 export type { Usj, BookCode, MarkerContent, MarkerObject } from "./converters/usj/usj.model.js";
+
+export { assertSafeKey } from "./converters/usj/converter.utils.js";
 export {
   EMPTY_USJ,
   MARKER_OBJECT_PROPS,

@@ -5,6 +5,9 @@
 ```ts
 
 // @public
+export function assertSafeKey(key: string): void;
+
+// @public
 export type BookCode = (typeof VALID_BOOK_CODES)[number];
 
 // @public

@@ -7,6 +7,7 @@
 import { DOMParser, Element } from "@xmldom/xmldom";
 import { MarkerContent, MarkerObject, USJ_TYPE, USJ_VERSION, Usj } from "./usj.model.js";
 import { USX_TYPE } from "./usx.model.js";
+import { assertSafeKey } from "./converter.utils.js";
 
 type Action = "append" | "merge" | "ignore";
 interface Attribs {
@@ -48,6 +49,7 @@ function convertUsxRecurse<T extends Usj | MarkerObject = Usj>(
   if (["row", "cell"].includes(type)) type = "table:" + type;
   if (inputUsxElement.attributes) {
     for (const attrib of Array.from(inputUsxElement.attributes)) {
+      assertSafeKey(attrib.name);
       attribs[attrib.name] = attrib.value;
     }
   }
