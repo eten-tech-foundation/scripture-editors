@@ -45,7 +45,14 @@ export {
 export type { EditorOptions, EditorProps, EditorRef } from "./editor/editor.model";
 export type { CommentBase, Comments, Thread } from "./marginal/comments/commenting";
 export type { MarginalRef, MarginalProps } from "./marginal/Marginal";
-export type { LoggerBasic, NodeOptions } from "shared";
+export type {
+  DomMouseEvent,
+  LoggerBasic,
+  NodeOptions,
+  TypedMarkOnClick,
+  TypedMarkOnRemove,
+  TypedMarkRemovalCause,
+} from "shared";
 export type {
   AddMissingComments,
   AnnotationRange,

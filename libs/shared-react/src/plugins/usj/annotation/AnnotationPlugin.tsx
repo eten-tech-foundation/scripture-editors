@@ -13,11 +13,19 @@ import {
   LoggerBasic,
   TypedIDs,
   TypedMarkNode,
+  TypedMarkOnClick,
+  TypedMarkOnRemove,
 } from "shared";
 
 /** Forward reference for annotations. */
 export interface AnnotationRef {
-  addAnnotation(selection: AnnotationRange, type: string, id: string): void;
+  addAnnotation(
+    selection: AnnotationRange,
+    type: string,
+    id: string,
+    onClick?: TypedMarkOnClick,
+    onRemove?: TypedMarkOnRemove,
+  ): void;
   removeAnnotation(type: string, id: string): void;
 }
 
@@ -38,15 +46,27 @@ function useAnnotations(editor: LexicalEditor, markNodeMap: Map<string, Set<Node
         editor,
         TypedMarkNode,
         (from: TypedMarkNode) => {
-          return $createTypedMarkNode(from.getTypedIDs());
+          return $createTypedMarkNode(
+            from.getTypedIDs(),
+            from.getTypedOnClicks(),
+            from.getTypedOnRemoves(),
+          );
         },
         (from: TypedMarkNode, to: TypedMarkNode) => {
           // Merge the IDs
+          const fromOnClicks = from.getTypedOnClicks();
+          const fromOnRemoves = from.getTypedOnRemoves();
           for (const [type, ids] of Object.entries(from.getTypedIDs())) {
             ids.forEach((id) => {
-              to.addID(type, id);
+              const onClick = fromOnClicks[type]?.[id];
+              const onRemove = fromOnRemoves[type]?.[id];
+              to.addID(type, id, onClick, onRemove);
             });
           }
+
+          // The resolver replaces the original node with a new one; suppress callbacks so the
+          // transferred IDs do not emit "destroyed" notifications during the teardown.
+          from.getWritable().__suppressOnRemoveCallbacks = true;
         },
       ),
       editor.registerMutationListener(
@@ -111,7 +131,7 @@ export const AnnotationPlugin = forwardRef(function AnnotationPlugin<TLogger ext
   useAnnotations(editor, markNodeMap);
 
   useImperativeHandle(ref, () => ({
-    addAnnotation(selection, type, id) {
+    addAnnotation(selection, type, id, onClick?: TypedMarkOnClick, onRemove?: TypedMarkOnRemove) {
       if (TypedMarkNode.isReservedType(type))
         throw new Error(
           `addAnnotation: Can't directly add this reserved annotation type '${type}'.` +
@@ -127,7 +147,19 @@ export const AnnotationPlugin = forwardRef(function AnnotationPlugin<TLogger ext
             return;
           }
 
-          $wrapSelectionInTypedMarkNode(rangeSelection, type, id);
+          if (onClick) {
+            const existingMarkNodeKeys = markNodeMap.get(getTypeIDMapKey(type, id));
+            if (existingMarkNodeKeys) {
+              for (const key of existingMarkNodeKeys) {
+                const existingNode = $getNodeByKey<TypedMarkNode>(key);
+                if ($isTypedMarkNode(existingNode)) {
+                  existingNode.addID(type, id, onClick, onRemove);
+                }
+              }
+            }
+          }
+
+          $wrapSelectionInTypedMarkNode(rangeSelection, type, id, onClick, onRemove);
         },
         { tag: ANNOTATION_CHANGE_TAG },
       );

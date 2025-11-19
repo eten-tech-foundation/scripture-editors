@@ -87,6 +87,14 @@ const defaultAnnotations: Annotations = {
   },
 };
 
+function handleAnnotationOnClick(event: globalThis.MouseEvent, type: string, id: string) {
+  console.log("handleAnnotationOnClick", { event, type, id });
+}
+
+function handleAnnotationOnRemove(type: string, id: string, cause: string, textContent: string) {
+  console.log("handleAnnotationOnRemove", { type, id, cause, textContent });
+}
+
 export default function App() {
   const marginalRef = useRef<MarginalRef | null>(null);
   const noteEditorRef = useRef<EditorRef | null>(null);
@@ -239,7 +247,7 @@ export default function App() {
     marginalRef.current?.setSelection(location);
   }, []);
 
-  const handleAnnotationClick = useCallback(
+  const handleAnnotationButtonClick = useCallback(
     (event: MouseEvent<HTMLButtonElement>) => {
       const buttonId = (event.target as HTMLButtonElement).id;
       const _annotations = { ...annotations };
@@ -247,7 +255,14 @@ export default function App() {
       const type = annotation.types[annotationType];
       const annotationId = type.id;
       if (type.isSet) marginalRef.current?.removeAnnotation(annotationType, annotationId);
-      else marginalRef.current?.addAnnotation(annotation.selection, annotationType, annotationId);
+      else
+        marginalRef.current?.addAnnotation(
+          annotation.selection,
+          annotationType,
+          annotationId,
+          handleAnnotationOnClick,
+          handleAnnotationOnRemove,
+        );
       type.isSet = !type.isSet;
       setAnnotations(_annotations);
     },
@@ -353,21 +368,21 @@ export default function App() {
               <button
                 id="annotation1"
                 className={annotateButtonClass("annotation1")}
-                onClick={handleAnnotationClick}
+                onClick={handleAnnotationButtonClick}
               >
                 man
               </button>
               <button
                 id="annotation2"
                 className={annotateButtonClass("annotation2")}
-                onClick={handleAnnotationClick}
+                onClick={handleAnnotationButtonClick}
               >
                 man who
               </button>
               <button
                 id="annotation3"
                 className={annotateButtonClass("annotation3")}
-                onClick={handleAnnotationClick}
+                onClick={handleAnnotationButtonClick}
               >
                 stand
               </button>

@@ -13,6 +13,7 @@
 # Code Style
 
 - Prefer using `undefined` over `null` when representing missing values unless an API explicitly requires `null`.
+- Prefer chaining Lexical `append` calls inside the final `$getRoot().append(...)` when setting up document structure in tests so the hierarchy is readable at a glance.
 
 # CI Error Guidelines
 

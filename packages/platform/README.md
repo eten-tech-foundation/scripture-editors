@@ -246,8 +246,16 @@ export interface EditorRef {
    *   an annotation location assumes no comment Milestone nodes are present in the USJ.
    * @param type - Type of the annotation.
    * @param id - ID of the annotation.
+   * @param onClick - Optional onClick handler.
+   * @param onRemove - Optional onRemove handler.
    */
-  addAnnotation(selection: AnnotationRange, type: string, id: string): void;
+  addAnnotation(
+    selection: AnnotationRange,
+    type: string,
+    id: string,
+    onClick?: TypedMarkOnClick,
+    onRemove?: TypedMarkOnRemove,
+  ): void;
   /**
    * Remove an ephemeral annotation.
    * @param type - Type of the annotation.

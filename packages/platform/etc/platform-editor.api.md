@@ -53,6 +53,9 @@ export const directionToNames: {
 };
 
 // @public
+export type DomMouseEvent = globalThis.MouseEvent;
+
+// @public
 export const Editorial: ForwardRefExoticComponent<EditorProps<LoggerBasic> & RefAttributes<EditorRef | null>>;
 
 // @public
@@ -81,7 +84,7 @@ export interface EditorProps<TLogger extends LoggerBasic> {
 
 // @public
 export interface EditorRef {
-    addAnnotation(selection: AnnotationRange, type: string, id: string): void;
+    addAnnotation(selection: AnnotationRange, type: string, id: string, onClick?: TypedMarkOnClick, onRemove?: TypedMarkOnRemove): void;
     applyUpdate(ops: DeltaOp[], source?: DeltaSource): void;
     copy(): void;
     cut(): void;
@@ -259,6 +262,15 @@ export interface Thread {
     quote: string;
     type: "thread";
 }
+
+// @public
+export type TypedMarkOnClick = (event: DomMouseEvent, type: string, id: string) => void;
+
+// @public
+export type TypedMarkOnRemove = (type: string, id: string, cause: TypedMarkRemovalCause, textContent: string) => void;
+
+// @public
+export type TypedMarkRemovalCause = "removed" | "destroyed";
 
 // @public
 export interface UsjLocation {
