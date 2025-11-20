@@ -140,17 +140,17 @@ export interface LoggerBasic {
     warn(...params: any[]): void;
 }
 
-// @public
+// @public @deprecated
 export const Marginal: ForwardRefExoticComponent<MarginalProps<LoggerBasic> & RefAttributes<MarginalRef>>;
 
-// @public
+// @public @deprecated
 export interface MarginalProps<TLogger extends LoggerBasic> extends Omit<EditorProps<TLogger>, "onUsjChange"> {
     onCommentChange?: (comments: Comments | undefined) => void;
     onUsjChange?: (usj: Usj, comments: Comments | undefined, ops?: DeltaOp[], source?: DeltaSource, insertedNodeKey?: string) => void;
     showCommentsContainerRef?: RefObject<HTMLElement | null> | null;
 }
 
-// @public
+// @public @deprecated
 export interface MarginalRef extends EditorRef {
     setComments?(comments: Comments): void;
 }

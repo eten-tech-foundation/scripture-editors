@@ -36,6 +36,14 @@ npm install @eten-tech-foundation/platform-editor
 > - Use the `<Editorial />` component for an editor without commenting features.
 > - Use the `<Marginal />` component for an editor with comments (comments appear in the margin).
 
+> [!IMPORTANT]
+> `<Marginal />` is deprecated and will be removed in a future release. Install the optional peer
+> dependency before using it:
+>
+> ```sh
+> npm install yjs
+> ```
+
 ```ts
 import { EditorOptions, Marginal, MarginalRef, usxStringToUsj, UsjNodeOptions } from "@eten-tech-foundation/platform-editor";
 import { BookChapterControl } from "platform-bible-react";
@@ -347,6 +355,18 @@ const options: EditorOptions = { nodes };
 ## `<Marginal />` API
 
 These are the same as Editorial except where noted below. See [Editorial API](#editorial--api).
+
+## Marginal deprecation and migration
+
+`<Marginal />` is in maintenance mode. The component continues to ship for backwards compatibility,
+but it will be removed in a future release. Prefer `<Editorial />` or an alternative commenting
+workflow if you can.
+
+If you must continue using `<Marginal />`:
+
+- Add the optional peer dependency manually: `npm install yjs`
+- Watch release notes for the removal timeline and plan a migration away from the margin-based
+  commenting experience.
 
 ### Marginal Properties
 
