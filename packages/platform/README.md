@@ -94,8 +94,8 @@ export default function App() {
   // Add and remove annotations after USJ is loaded, and set cursor location.
   useEffect(() => {
     const timeoutId = setTimeout(() => {
-      marginalRef.current?.addAnnotation(annotationRange1, "spelling", "annotationId");
-      marginalRef.current?.addAnnotation(annotationRange2, "grammar", "abc123");
+      marginalRef.current?.setAnnotation(annotationRange1, "spelling", "annotationId");
+      marginalRef.current?.setAnnotation(annotationRange2, "grammar", "abc123");
       marginalRef.current?.removeAnnotation("spelling", "annotationId");
       marginalRef.current?.setSelection(cursorLocation);
     }, 3000);
@@ -167,7 +167,7 @@ If using the **commenting features** in the `<Marginal />` component:
 
 ### Annotation Styles
 
-Annotations are added with a specific `type` via the editor's reference API (see [Editorial Ref](#editorial-ref)). This `type` can then be used to apply custom CSS styles (e.g., a green squiggly underline for a _"grammar"_ type annotation). The CSS classname for an annotation takes the form of `.${annotationPrefix}-external-${type}`, where `type` is the string you pass to the `addAnnotation()` method and `annotationPrefix` is set by `config.theme.typedMark` (defaults to _"editor-typed-mark"_). If annotations overlap with each other an additional CSS classname is added where `annotationPrefix` is set by `config.theme.typedMarkOverlap` (defaults to _"editor-typed-markOverlap"_).
+Annotations are added with a specific `type` via the editor's reference API (see [Editorial Ref](#editorial-ref)). This `type` can then be used to apply custom CSS styles (e.g., a green squiggly underline for a _"grammar"_ type annotation). The CSS classname for an annotation takes the form of `.${annotationPrefix}-external-${type}`, where `type` is the string you pass to the `setAnnotation()` method and `annotationPrefix` is set by `config.theme.typedMark` (defaults to _"editor-typed-mark"_). If annotations overlap with each other an additional CSS classname is added where `annotationPrefix` is set by `config.theme.typedMarkOverlap` (defaults to _"editor-typed-markOverlap"_).
 
 For example, if an annotation of type _"grammar"_ is overlapping it will have both CSS classnames `editor-typed-mark-external-grammar` and `editor-typed-markOverlap-external-grammar`. If it's not overlapping it still has the first classname. Annotations and comments are the same when considering if it's overlapping.
 
@@ -249,7 +249,7 @@ export interface EditorRef {
    */
   setSelection(selection: SelectionRange): void;
   /**
-   * Add an ephemeral annotation.
+   * Set an ephemeral annotation.
    * @param selection - An annotation range containing the start and end location. The json-path in
    *   an annotation location assumes no comment Milestone nodes are present in the USJ.
    * @param type - Type of the annotation.
@@ -257,7 +257,7 @@ export interface EditorRef {
    * @param onClick - Optional onClick handler.
    * @param onRemove - Optional onRemove handler.
    */
-  addAnnotation(
+  setAnnotation(
     selection: AnnotationRange,
     type: string,
     id: string,

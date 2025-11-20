@@ -273,11 +273,11 @@ describe("TypedMarkNode", () => {
         element.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
 
         expect(onClickA).toHaveBeenCalledTimes(1);
-        expect(onClickA).toHaveBeenCalledWith(expect.anything(), testType1, testID1);
+        expect(onClickA).toHaveBeenCalledWith(expect.anything(), testType1, testID1, "example");
         expect(onClickB).toHaveBeenCalledTimes(1);
-        expect(onClickB).toHaveBeenCalledWith(expect.anything(), testType1, testID2);
+        expect(onClickB).toHaveBeenCalledWith(expect.anything(), testType1, testID2, "example");
         expect(onClickC).toHaveBeenCalledTimes(1);
-        expect(onClickC).toHaveBeenCalledWith(expect.anything(), testType2, testID2);
+        expect(onClickC).toHaveBeenCalledWith(expect.anything(), testType2, testID2, "example");
       });
     });
 
@@ -466,7 +466,7 @@ describe("TypedMarkNode", () => {
         const next = $createTypedMarkNode({
           [testType1]: [],
         });
-        const element = previous.createDOM(mockEditorConfig);
+        const element = previous.createDOM(mockEditorConfig, editor);
         expect(element.classList.contains(`annotationId-${testID1}`)).toBe(true);
 
         next.updateDOM(previous, element, mockEditorConfig);
@@ -484,7 +484,7 @@ describe("TypedMarkNode", () => {
         const next = $createTypedMarkNode({
           [testType1]: [testID1],
         });
-        const element = previous.createDOM(mockEditorConfig);
+        const element = previous.createDOM(mockEditorConfig, editor);
         expect(element.classList.contains(`annotationId-${testID1}`)).toBe(false);
 
         next.updateDOM(previous, element, mockEditorConfig);

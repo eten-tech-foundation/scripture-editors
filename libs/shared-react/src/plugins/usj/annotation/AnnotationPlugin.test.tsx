@@ -23,7 +23,7 @@ describe("AnnotationPlugin", () => {
 
     // SUT: add overlapping grammar annotation (internal rewrap).
     await act(async () => {
-      annotationPlugin.addAnnotation(grammarRange, "grammar", "grammar-1");
+      annotationPlugin.setAnnotation(grammarRange, "grammar", "grammar-1");
     });
 
     // Check: spelling removal callback should not fire during internal rewrap.

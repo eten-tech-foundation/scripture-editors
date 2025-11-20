@@ -87,8 +87,13 @@ const defaultAnnotations: Annotations = {
   },
 };
 
-function handleAnnotationOnClick(event: globalThis.MouseEvent, type: string, id: string) {
-  console.log("handleAnnotationOnClick", { event, type, id });
+function handleAnnotationOnClick(
+  event: globalThis.MouseEvent,
+  type: string,
+  id: string,
+  textContent: string,
+) {
+  console.log("handleAnnotationOnClick", { event, type, id, textContent });
 }
 
 function handleAnnotationOnRemove(type: string, id: string, cause: string, textContent: string) {
@@ -256,7 +261,7 @@ export default function App() {
       const annotationId = type.id;
       if (type.isSet) marginalRef.current?.removeAnnotation(annotationType, annotationId);
       else
-        marginalRef.current?.addAnnotation(
+        marginalRef.current?.setAnnotation(
           annotation.selection,
           annotationType,
           annotationId,
