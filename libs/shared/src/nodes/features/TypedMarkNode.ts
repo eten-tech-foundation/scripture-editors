@@ -9,6 +9,7 @@ import { addClassNamesToElement, removeClassNamesFromElement } from "@lexical/ut
 import type {
   BaseSelection,
   EditorConfig,
+  LexicalEditor,
   LexicalNode,
   LexicalUpdateJSON,
   NodeKey,
@@ -42,10 +43,16 @@ export type DomMouseEvent = globalThis.MouseEvent;
  * @param event - The native DOM mouse event containing event details.
  * @param type - The type of the associated annotation.
  * @param id - The ID of the associated annotation.
+ * @param textContent - The text content that was annotated when the click occurred.
  *
  * @public
  */
-export type TypedMarkOnClick = (event: DomMouseEvent, type: string, id: string) => void;
+export type TypedMarkOnClick = (
+  event: DomMouseEvent,
+  type: string,
+  id: string,
+  textContent: string,
+) => void;
 
 export interface TypedOnClicks {
   [type: string]: { [id: string]: TypedMarkOnClick };
@@ -152,7 +159,7 @@ export class TypedMarkNode extends ElementNode {
     };
   }
 
-  override createDOM(config: EditorConfig): HTMLElement {
+  override createDOM(config: EditorConfig, editor: LexicalEditor): HTMLElement {
     const element = document.createElement("mark");
     for (const [type, ids] of Object.entries(this.__typedIDs)) {
       addClassNamesToElement(element, getTypedClassName(config.theme.typedMark, type));
@@ -163,7 +170,7 @@ export class TypedMarkNode extends ElementNode {
         addClassNamesToElement(element, getTypedClassName("annotationId", id));
       }
     }
-    const clickListener = this.getOrCreateDOMClickListener();
+    const clickListener = this.getOrCreateDOMClickListener(editor);
     element.addEventListener("click", clickListener);
     return element;
   }
@@ -400,16 +407,16 @@ export class TypedMarkNode extends ElementNode {
     super.remove.call(self, preserveEmptyParent);
   }
 
-  private getOrCreateDOMClickListener(): (event: DomMouseEvent) => void {
+  private getOrCreateDOMClickListener(editor: LexicalEditor): (event: DomMouseEvent) => void {
     if (!this.__domOnClickListener) {
       this.__domOnClickListener = (event: DomMouseEvent) => {
-        this.handleDOMClick(event);
+        this.handleDOMClick(event, editor);
       };
     }
     return this.__domOnClickListener;
   }
 
-  private handleDOMClick(event: DomMouseEvent): void {
+  private handleDOMClick(event: DomMouseEvent, editor: LexicalEditor): void {
     const typedOnClicks = typedOnClickRegistry.get(this.getKey());
     if (!typedOnClicks) return;
 
@@ -422,8 +429,9 @@ export class TypedMarkNode extends ElementNode {
 
     if (callbacks.length === 0) return;
 
+    const textContent = editor.read(() => this.getTextContent());
     for (const [callback, type, id] of callbacks) {
-      callback(event, type, id);
+      callback(event, type, id, textContent);
     }
   }
 

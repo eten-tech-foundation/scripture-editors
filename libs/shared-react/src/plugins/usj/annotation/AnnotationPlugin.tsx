@@ -19,7 +19,7 @@ import {
 
 /** Forward reference for annotations. */
 export interface AnnotationRef {
-  addAnnotation(
+  setAnnotation(
     selection: AnnotationRange,
     type: string,
     id: string,
@@ -130,11 +130,34 @@ export const AnnotationPlugin = forwardRef(function AnnotationPlugin<TLogger ext
   }, []);
   useAnnotations(editor, markNodeMap);
 
+  /**
+   * Removes all mark nodes associated with the given type/id pair.
+   *
+   * @param type - Annotation type to remove.
+   * @param id - Annotation ID to remove.
+   * @param nodeKeys - Optional set of known node keys for this type/id. When omitted, keys are
+   *   computed from the shared mark node map.
+   */
+  const $removeMarkNodesForTypeID = (type: string, id: string, nodeKeys?: Set<NodeKey>) => {
+    const keys = Array.from(nodeKeys ?? markNodeMap.get(getTypeIDMapKey(type, id)) ?? []);
+    if (keys.length === 0) return;
+
+    for (const key of keys) {
+      const node: TypedMarkNode | null = $getNodeByKey(key);
+      if ($isTypedMarkNode(node)) {
+        node.deleteID(type, id);
+        if (node.hasNoIDsForEveryType()) {
+          $unwrapTypedMarkNode(node);
+        }
+      }
+    }
+  };
+
   useImperativeHandle(ref, () => ({
-    addAnnotation(selection, type, id, onClick?: TypedMarkOnClick, onRemove?: TypedMarkOnRemove) {
+    setAnnotation(selection, type, id, onClick?: TypedMarkOnClick, onRemove?: TypedMarkOnRemove) {
       if (TypedMarkNode.isReservedType(type))
         throw new Error(
-          `addAnnotation: Can't directly add this reserved annotation type '${type}'.` +
+          `setAnnotation: Can't directly set this reserved annotation type '${type}'.` +
             " Use the appropriate plugin instead.",
         );
 
@@ -147,17 +170,7 @@ export const AnnotationPlugin = forwardRef(function AnnotationPlugin<TLogger ext
             return;
           }
 
-          if (onClick) {
-            const existingMarkNodeKeys = markNodeMap.get(getTypeIDMapKey(type, id));
-            if (existingMarkNodeKeys) {
-              for (const key of existingMarkNodeKeys) {
-                const existingNode = $getNodeByKey<TypedMarkNode>(key);
-                if ($isTypedMarkNode(existingNode)) {
-                  existingNode.addID(type, id, onClick, onRemove);
-                }
-              }
-            }
-          }
+          $removeMarkNodesForTypeID(type, id);
 
           $wrapSelectionInTypedMarkNode(rangeSelection, type, id, onClick, onRemove);
         },
@@ -173,25 +186,14 @@ export const AnnotationPlugin = forwardRef(function AnnotationPlugin<TLogger ext
         );
 
       const markNodeKeys = markNodeMap.get(getTypeIDMapKey(type, id));
-      if (markNodeKeys !== undefined) {
-        // Do async to avoid causing a React infinite loop
-        setTimeout(() => {
-          editor.update(
-            () => {
-              for (const key of markNodeKeys) {
-                const node: TypedMarkNode | null = $getNodeByKey(key);
-                if ($isTypedMarkNode(node)) {
-                  node.deleteID(type, id);
-                  if (node.hasNoIDsForEveryType()) {
-                    $unwrapTypedMarkNode(node);
-                  }
-                }
-              }
-            },
-            { tag: ANNOTATION_CHANGE_TAG },
-          );
-        });
-      }
+      if (markNodeKeys === undefined || markNodeKeys.size === 0) return;
+
+      editor.update(
+        () => {
+          $removeMarkNodesForTypeID(type, id, markNodeKeys);
+        },
+        { tag: ANNOTATION_CHANGE_TAG },
+      );
     },
   }));
 

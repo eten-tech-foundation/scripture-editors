@@ -231,8 +231,8 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
         { tag: SELECTION_CHANGE_TAG },
       );
     },
-    addAnnotation(selection, type, id, onClick, onRemove) {
-      annotationRef.current?.addAnnotation(
+    setAnnotation(selection, type, id, onClick, onRemove) {
+      annotationRef.current?.setAnnotation(
         selection,
         externalTypedMarkType(type),
         id,

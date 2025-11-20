@@ -62,7 +62,7 @@ export interface EditorRef {
    */
   setSelection(selection: SelectionRange): void;
   /**
-   * Add an ephemeral annotation.
+   * Set an ephemeral annotation.
    * @param selection - An annotation range containing the start and end location. The json-path in
    *   an annotation location assumes no comment Milestone nodes are present in the USJ.
    * @param type - Type of the annotation.
@@ -70,7 +70,7 @@ export interface EditorRef {
    * @param onClick - Optional onClick handler.
    * @param onRemove - Optional onRemove handler.
    */
-  addAnnotation(
+  setAnnotation(
     selection: AnnotationRange,
     type: string,
     id: string,
