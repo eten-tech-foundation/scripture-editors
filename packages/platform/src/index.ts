@@ -30,6 +30,10 @@
  */
 
 export { default as Editorial } from "./Editorial";
+/**
+ * @deprecated Marginal will be removed in a future release. Prefer {@link Editorial}. Install the
+ * optional `yjs` peer dependency if you continue using margin comments during the transition.
+ */
 export { default as Marginal } from "./marginal/Marginal";
 export { GENERATOR_NOTE_CALLER, HIDDEN_NOTE_CALLER } from "shared";
 export {

@@ -38,7 +38,13 @@
   },
   "peerDependencies": {
     "react": ">=18.3.1",
-    "react-dom": ">=18.3.1"
+    "react-dom": ">=18.3.1",
+    "yjs": ">=13.5.22"
+  },
+  "peerDependenciesMeta": {
+    "yjs": {
+      "optional": true
+    }
   },
   "dependencies": {
     "@eten-tech-foundation/scripture-utilities": "workspace:~",
@@ -51,14 +57,14 @@
     "@sillsdev/scripture": "^2.0.2",
     "fast-equals": "^5.2.2",
     "lexical": "^0.34.0",
-    "quill-delta": "^5.1.0",
-    "yjs": "^13.6.27"
+    "quill-delta": "^5.1.0"
   },
   "devDependencies": {
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "shared": "workspace:~",
-    "shared-react": "workspace:~"
+    "shared-react": "workspace:~",
+    "yjs": "^13.6.27"
   },
   "publishConfig": {
     "access": "public",

@@ -23,6 +23,9 @@ import { LoggerBasic } from "shared";
 /**
  * Forward reference for the editor.
  *
+ * @deprecated {@link Marginal} is deprecated. It will be removed in a future release.
+ *   Migrate to {@link Editorial} or install the optional `yjs` peer dependency if you must
+ *   continue using margin comments in the interim.
  * @public
  */
 export interface MarginalRef extends EditorRef {
@@ -34,6 +37,8 @@ export interface MarginalRef extends EditorRef {
  * Props for the Marginal component that extends EditorProps with additional functionality for
  * handling comments and USJ Scripture data changes.
  *
+ * @deprecated {@link Marginal} is deprecated. It will be removed in a future release.
+ *   Install the optional `yjs` peer dependency before upgrading if you continue using it.
  * @public
  */
 export interface MarginalProps<TLogger extends LoggerBasic>
@@ -69,6 +74,8 @@ export interface MarginalProps<TLogger extends LoggerBasic>
  * @param logger - Logger instance.
  * @returns the editor element.
  *
+ * @deprecated Marginal will be removed in a future release. Prefer {@link Editorial}. If you still
+ *   rely on Marginal, install the optional `yjs` peer dependency.
  * @public
  */
 const Marginal = forwardRef(function Marginal<TLogger extends LoggerBasic>(
@@ -81,9 +88,23 @@ const Marginal = forwardRef(function Marginal<TLogger extends LoggerBasic>(
   const [toolbarEndRef, setToolbarEndRef] = useState<RefObject<HTMLElement | null> | null>(null);
   const { children, onCommentChange, onUsjChange, showCommentsContainerRef, ...editorProps } =
     props as PropsWithChildren<MarginalProps<TLogger>>;
-  const { options: { isReadonly } = {} } = props;
+  const { logger, options: { isReadonly } = {} } = props;
   const [commentStoreRef, setCommentStoreRef] = useCommentStoreRef();
   useMissingCommentsProps(editorProps, commentStoreRef);
+
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "production") {
+      const message =
+        "@eten-tech-foundation/platform-editor: Marginal is deprecated and will be removed in a " +
+        "future release. Install the optional 'yjs' peer dependency to continue using margin " +
+        "comments.";
+      logger?.warn(message);
+      if (!logger) {
+        // eslint-disable-next-line no-console -- Intentional developer warning about deprecation.
+        console.warn(message);
+      }
+    }
+  }, [logger]);
 
   useImperativeHandle(ref, () => ({
     focus() {
