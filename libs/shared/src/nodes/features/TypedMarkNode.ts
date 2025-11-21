@@ -4,7 +4,7 @@
  * a selection.
  */
 
-import { assertSafeKey } from "../usj/node.utils.js";
+import { assertSafeKey } from "@eten-tech-foundation/scripture-utilities";
 import { addClassNamesToElement, removeClassNamesFromElement } from "@lexical/utils";
 import type {
   BaseSelection,
