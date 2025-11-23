@@ -12,7 +12,7 @@ import { RefObject } from 'react';
 import { SerializedVerseRef } from '@sillsdev/scripture';
 import { Usj } from '@eten-tech-foundation/scripture-utilities';
 
-// @public
+// @public @deprecated
 export type AddMissingComments = (usjCommentIds: string[]) => void;
 
 // @public
@@ -280,6 +280,7 @@ export interface UsjLocation {
 
 // @public
 export interface UsjNodeOptions extends NodeOptions {
+    // @deprecated
     addMissingComments?: AddMissingComments;
     noteCallerOnClick?: NoteCallerOnClick;
     noteCallers?: string[];

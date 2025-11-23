@@ -6,6 +6,8 @@ import { NoteCallerOnClick } from "./ImmutableNoteCallerNode";
  *
  * @param usjCommentIds - An array of comment IDs from the incoming USJ document.
  *
+ * @deprecated Use of this method is deprecated. Consider managing missing comments through
+ *   application state or other mechanisms instead.
  * @public
  */
 export type AddMissingComments = (usjCommentIds: string[]) => void;
@@ -20,6 +22,10 @@ export interface UsjNodeOptions extends NodeOptions {
   noteCallers?: string[];
   /** Note caller click handler method. */
   noteCallerOnClick?: NoteCallerOnClick;
-  /** Method to add missing comments. */
+  /**
+   * Method to add missing comments.
+   * @deprecated Use of this method is deprecated. Consider managing missing comments through
+   *   application state or other mechanisms instead.
+   */
   addMissingComments?: AddMissingComments;
 }
