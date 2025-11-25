@@ -40,7 +40,7 @@ npm install @eten-tech-foundation/platform-editor
 > `<Marginal />` is deprecated and will be removed in a future release.
 
 ```ts
-import { EditorOptions, Marginal, MarginalRef, usxStringToUsj, UsjNodeOptions } from "@eten-tech-foundation/platform-editor";
+import { EditorOptions, Editorial, EditorRef, usxStringToUsj, UsjNodeOptions } from "@eten-tech-foundation/platform-editor";
 import { BookChapterControl } from "platform-bible-react";
 
 const emptyUsx = '<usx version="3.1" />';
@@ -72,7 +72,7 @@ const annotationRange2 = {
 const cursorLocation = { start: { jsonPath: "$.content[3].content[1]", offset: 15 } };
 
 export default function App() {
-  const marginalRef = useRef<MarginalRef | null>(null);
+  const editorialRef = useRef<EditorRef | null>(null);
   const [scrRef, setScrRef] = useState(defaultScrRef);
 
   const handleUsjChange = useCallback((usj: Usj, comments: Comments | undefined) => console.log({ usj, comments }), []);
@@ -80,8 +80,7 @@ export default function App() {
   // Simulate USJ updating after the editor is loaded.
   useEffect(() => {
     const timeoutId = setTimeout(() => {
-      marginalRef.current?.setComments?.([]);
-      marginalRef.current?.setUsj(usxStringToUsj(usx));
+      editorialRef.current?.setUsj(usxStringToUsj(usx));
     }, 1000);
     return () => clearTimeout(timeoutId);
   }, []);
@@ -89,10 +88,10 @@ export default function App() {
   // Add and remove annotations after USJ is loaded, and set cursor location.
   useEffect(() => {
     const timeoutId = setTimeout(() => {
-      marginalRef.current?.setAnnotation(annotationRange1, "spelling", "annotationId");
-      marginalRef.current?.setAnnotation(annotationRange2, "grammar", "abc123");
-      marginalRef.current?.removeAnnotation("spelling", "annotationId");
-      marginalRef.current?.setSelection(cursorLocation);
+      editorialRef.current?.setAnnotation(annotationRange1, "spelling", "annotationId");
+      editorialRef.current?.setAnnotation(annotationRange2, "grammar", "abc123");
+      editorialRef.current?.removeAnnotation("spelling", "annotationId");
+      editorialRef.current?.setSelection(cursorLocation);
     }, 3000);
     return () => clearTimeout(timeoutId);
   }, []);
@@ -102,8 +101,8 @@ export default function App() {
       <div className="controls">
         <BookChapterControl scrRef={scrRef} handleSubmit={setScrRef} />
       </div>
-      <Marginal
-        ref={marginalRef}
+      <Editorial
+        ref={editorialRef}
         defaultUsj={defaultUsj}
         scrRef={scrRef}
         onScrRefChange={setScrRef}
@@ -124,7 +123,7 @@ export default function App() {
 - Cut, copy, paste, paste as plain text - context menu and keyboard shortcuts
 - Format block type - change `<para>` markers. The current implementation is a proof-of-concept and doesn't have all the markers available yet.
 - Insert markers - type '\\' (backslash - configurable to another key) for a marker menu. If text is selected first the marker will apply to the selection if possible, e.g. use '\\wj' to "red-letter" selected text.
-- Add comments to selected text, reply in comment threads, delete comments and threads.
+- Add comments to selected text, reply in comment threads, delete comments and threads (deprecated).
   - To enable comments use the `<Marginal />` editor component (comments appear in the margin).
   - To use the editor without comments use the `<Editorial />` component.
 - Add and remove different types of annotations. Style the different annotations types with CSS, e.g. style a spelling annotation with a red squiggly underline.
@@ -291,7 +290,7 @@ export interface EditorRef {
    */
   getNoteOps(noteKeyOrIndex: string | number): DeltaOp[] | undefined;
   /** Ref to the end of the toolbar - INTERNAL USE ONLY to dynamically add controls in the toolbar. */
-  toolbarEndRef: RefObject<HTMLElement> | null;
+  toolbarEndRef: RefObject<HTMLElement | null> | null;
 }
 ```
 
@@ -302,6 +301,8 @@ export interface EditorRef {
 export interface EditorOptions {
   /** Is the editor readonly or editable. */
   isReadonly?: boolean;
+  /** Does the editor have external UI controls so disable the built-in toolbar and context menu. */
+  hasExternalUI?: boolean;
   /** Is the editor enabled for spell checking. */
   hasSpellCheck?: boolean;
   /** Text direction: "ltr" | "rtl" | "auto". */
