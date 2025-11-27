@@ -1,5 +1,7 @@
 /** Conforms with USJ v3.1 @see https://docs.usfm.bible/usfm/3.1/ms/index.html */
 
+import { UnknownAttributes } from "./node-constants.js";
+import { MarkerObject } from "@eten-tech-foundation/scripture-utilities";
 import {
   $applyNodeReplacement,
   DecoratorNode,
@@ -9,7 +11,6 @@ import {
   SerializedLexicalNode,
   Spread,
 } from "lexical";
-import { UnknownAttributes } from "./node-constants.js";
 
 export const STARTING_MS_COMMENT_MARKER = "zmsc-s";
 export const ENDING_MS_COMMENT_MARKER = "zmsc-e";
@@ -52,6 +53,15 @@ export type SerializedMilestoneNode = Spread<
   },
   SerializedLexicalNode
 >;
+
+/** List of known properties of `MarkerObject` */
+export const MS_MARKER_OBJECT_PROPS: (keyof MarkerObject)[] = [
+  "type",
+  "marker",
+  "sid",
+  "eid",
+  "content",
+];
 
 export class MilestoneNode extends DecoratorNode<void> {
   __marker: string;

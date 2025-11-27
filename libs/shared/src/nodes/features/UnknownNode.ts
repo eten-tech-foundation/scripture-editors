@@ -1,4 +1,5 @@
 import { UnknownAttributes } from "../usj/node-constants.js";
+import { MarkerObject } from "@eten-tech-foundation/scripture-utilities";
 import {
   $applyNodeReplacement,
   DOMConversionMap,
@@ -21,6 +22,9 @@ export type SerializedUnknownNode = Spread<
   },
   SerializedElementNode
 >;
+
+/** List of known properties of `MarkerObject` */
+export const UNKNOWN_MARKER_OBJECT_PROPS: (keyof MarkerObject)[] = ["type", "marker", "content"];
 
 export const UNKNOWN_TAG_NAME = "unknown";
 export const UNKNOWN_VERSION = 1;

@@ -17,13 +17,16 @@ import {
 } from "lexical";
 import {
   BOOK_MARKER,
+  BOOK_MARKER_OBJECT_PROPS,
   BOOK_VERSION,
   BookMarker,
   BookNode,
   CHAPTER_MARKER,
+  CHAPTER_MARKER_OBJECT_PROPS,
   CHAPTER_VERSION,
   ChapterMarker,
   ChapterNode,
+  CHAR_MARKER_OBJECT_PROPS,
   CHAR_VERSION,
   CharNode,
   COMMENT_MARK_TYPE,
@@ -50,10 +53,13 @@ import {
   MarkerSyntax,
   MILESTONE_VERSION,
   MilestoneNode,
+  MS_MARKER_OBJECT_PROPS,
   NBSP,
+  NOTE_MARKER_OBJECT_PROPS,
   NOTE_VERSION,
   NoteNode,
   PARA_MARKER_DEFAULT,
+  PARA_MARKER_OBJECT_PROPS,
   PARA_VERSION,
   ParaNode,
   removeUndefinedProperties,
@@ -72,9 +78,11 @@ import {
   SerializedVerseNode,
   STARTING_MS_COMMENT_MARKER,
   TypedMarkNode,
+  UNKNOWN_MARKER_OBJECT_PROPS,
   UNKNOWN_VERSION,
   UnknownNode,
   VERSE_MARKER,
+  VERSE_MARKER_OBJECT_PROPS,
   VERSE_VERSION,
   VerseMarker,
   VerseNode,
@@ -213,7 +221,7 @@ function createBook(markerObject: MarkerObject): SerializedBookNode {
   if (!code || !BookNode.isValidBookCode(code)) {
     _logger?.warn(`Unexpected book code '${code}'!`);
   }
-  const unknownAttributes = getUnknownAttributes(markerObject);
+  const unknownAttributes = getUnknownAttributes(markerObject, BOOK_MARKER_OBJECT_PROPS);
 
   return removeUndefinedProperties({
     type: BookNode.getType(),
@@ -237,7 +245,7 @@ function createChapter(
   }
   marker = marker ?? CHAPTER_MARKER;
   const { number, sid, altnumber, pubnumber } = markerObject;
-  const unknownAttributes = getUnknownAttributes(markerObject);
+  const unknownAttributes = getUnknownAttributes(markerObject, CHAPTER_MARKER_OBJECT_PROPS);
   let showMarker: boolean | undefined;
   if (_viewOptions?.markerMode === "visible") showMarker = true;
 
@@ -285,7 +293,7 @@ function createVerse(
   let showMarker: boolean | undefined;
   if (_viewOptions?.markerMode === "editable") text = getVisibleOpenMarkerText(marker, number);
   else if (_viewOptions?.markerMode === "visible") showMarker = true;
-  const unknownAttributes = getUnknownAttributes(markerObject);
+  const unknownAttributes = getUnknownAttributes(markerObject, VERSE_MARKER_OBJECT_PROPS);
 
   return removeUndefinedProperties({
     type,
@@ -314,7 +322,7 @@ function createChar(
     childNodes.forEach((node) => {
       if (isSerializedTextNode(node)) node.text = NBSP + node.text;
     });
-  const unknownAttributes = getUnknownAttributes(markerObject);
+  const unknownAttributes = getUnknownAttributes(markerObject, CHAR_MARKER_OBJECT_PROPS);
 
   return removeUndefinedProperties({
     type: CharNode.getType(),
@@ -356,7 +364,7 @@ function createPara(
   if (_viewOptions?.markerMode === "editable")
     children.push(createMarker(marker), createText(NBSP));
   children.push(...childNodes);
-  const unknownAttributes = getUnknownAttributes(markerObject);
+  const unknownAttributes = getUnknownAttributes(markerObject, PARA_MARKER_OBJECT_PROPS);
 
   return removeUndefinedProperties({
     type: ParaNode.getType(),
@@ -405,7 +413,7 @@ function createNote(
     callerNode = createNoteCaller(caller, childNodes);
   }
   const isCollapsed = _viewOptions?.noteMode !== "expanded";
-  const unknownAttributes = getUnknownAttributes(markerObject);
+  const unknownAttributes = getUnknownAttributes(markerObject, NOTE_MARKER_OBJECT_PROPS);
 
   let openingMarkerNode: SerializedTextNode | undefined;
   let closingMarkerNode: SerializedTextNode | undefined;
@@ -440,7 +448,7 @@ function createMilestone(markerObject: MarkerObject): SerializedMilestoneNode {
   }
   marker = marker ?? "";
   const { sid, eid } = markerObject;
-  const unknownAttributes = getUnknownAttributes(markerObject);
+  const unknownAttributes = getUnknownAttributes(markerObject, MS_MARKER_OBJECT_PROPS);
 
   return removeUndefinedProperties({
     type: MilestoneNode.getType(),
@@ -473,7 +481,7 @@ function createUnknown(
 ): SerializedUnknownNode {
   const { marker } = markerObject;
   const tag = markerObject.type;
-  const unknownAttributes = getUnknownAttributes(markerObject);
+  const unknownAttributes = getUnknownAttributes(markerObject, UNKNOWN_MARKER_OBJECT_PROPS);
   const children: SerializedLexicalNode[] = [...childNodes];
   children.forEach((node) => {
     if (isSerializedTextNode(node)) node.mode = "token";

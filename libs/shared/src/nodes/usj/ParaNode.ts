@@ -1,5 +1,7 @@
 /** Conforms with USJ v3.1 @see https://docs.usfm.bible/usfm/3.1/para/index.html */
 
+import { PARA_MARKER_DEFAULT, UnknownAttributes } from "./node-constants.js";
+import { MarkerObject } from "@eten-tech-foundation/scripture-utilities";
 import {
   $applyNodeReplacement,
   DOMConversionMap,
@@ -17,7 +19,6 @@ import {
   Spread,
   isHTMLElement,
 } from "lexical";
-import { PARA_MARKER_DEFAULT, UnknownAttributes } from "./node-constants.js";
 
 /** @see https://docs.usfm.bible/usfm/3.1/para/index.html */
 const VALID_PARA_MARKERS = [
@@ -157,6 +158,9 @@ export type SerializedParaNode = Spread<
   },
   SerializedParagraphNode
 >;
+
+/** List of known properties of `MarkerObject` */
+export const PARA_MARKER_OBJECT_PROPS: (keyof MarkerObject)[] = ["type", "marker", "content"];
 
 export class ParaNode extends ParagraphNode {
   __marker: string;

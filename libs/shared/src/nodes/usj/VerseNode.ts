@@ -1,6 +1,7 @@
 /** Conforms with USJ v3.1 @see https://docs.usfm.bible/usfm/3.1/cv/v.html */
 
 import { UnknownAttributes, VERSE_CLASS_NAME } from "./node-constants.js";
+import { MarkerObject } from "@eten-tech-foundation/scripture-utilities";
 import {
   $applyNodeReplacement,
   EditorConfig,
@@ -28,6 +29,17 @@ export type SerializedVerseNode = Spread<
   },
   SerializedTextNode
 >;
+
+/** List of known properties of `MarkerObject` */
+export const VERSE_MARKER_OBJECT_PROPS: (keyof MarkerObject)[] = [
+  "type",
+  "marker",
+  "number",
+  "sid",
+  "altnumber",
+  "pubnumber",
+  "content",
+];
 
 export class VerseNode extends TextNode {
   __marker: VerseMarker;

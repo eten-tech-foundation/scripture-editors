@@ -44,6 +44,7 @@ interface Annotations {
 
 const isTesting = process.env.NODE_ENV === "testing";
 const webUsj = usxStringToUsj(isTesting ? WEB_PSA_USX : WEB_PSA_CH1_USX);
+const editorUsj = webUsj; // isTesting ? webUsj : TJ_USJ;
 const defaultScrRef: SerializedVerseRef = { book: "PSA", chapterNum: 1, verseNum: 1 };
 // Word "man" inside first q1 of PSA 1:1.
 const annotationRange1 = {
@@ -327,7 +328,7 @@ export default function App() {
   useEffect(() => {
     const timeoutId = setTimeout(() => {
       marginalRef.current?.setComments?.(comments as Comments);
-      marginalRef.current?.setUsj(webUsj);
+      marginalRef.current?.setUsj(editorUsj);
     }, 0);
     return () => clearTimeout(timeoutId);
   }, []);
@@ -340,7 +341,7 @@ export default function App() {
 
   return (
     <div style={{ display: "flex", flexDirection: "row", alignItems: "stretch", height: "80vh" }}>
-      <div style={{ flex: 1 }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
         <div className="controls">
           <button onClick={toggleIsOptionsDefined}>
             {isOptionsDefined ? "Undefine" : "Define"} options

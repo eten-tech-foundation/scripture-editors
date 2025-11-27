@@ -16,6 +16,7 @@
     }
   },
   "dependencies": {
+    "@eten-tech-foundation/scripture-utilities": "workspace:~",
     "tslib": "^2.8.1"
   }
 }

@@ -1,6 +1,7 @@
 /** Conforms with USJ v3.1 @see https://docs.usfm.bible/usfm/3.1/doc/id.html */
 
-import { BookCode, isValidBookCode } from "@eten-tech-foundation/scripture-utilities";
+import { UnknownAttributes } from "./node-constants.js";
+import { BookCode, isValidBookCode, MarkerObject } from "@eten-tech-foundation/scripture-utilities";
 import {
   $applyNodeReplacement,
   ElementNode,
@@ -11,7 +12,6 @@ import {
   SerializedLexicalNode,
   Spread,
 } from "lexical";
-import { UnknownAttributes } from "./node-constants.js";
 
 export const BOOK_MARKER = "id";
 export const BOOK_VERSION = 1;
@@ -25,6 +25,14 @@ export type SerializedBookNode = Spread<
   },
   SerializedElementNode
 >;
+
+/** List of known properties of `MarkerObject` */
+export const BOOK_MARKER_OBJECT_PROPS: (keyof MarkerObject)[] = [
+  "type",
+  "marker",
+  "code",
+  "content",
+];
 
 export class BookNode extends ElementNode {
   __marker: BookMarker = BOOK_MARKER;
