@@ -72,6 +72,7 @@ export type {
   OTMilestoneEmbed,
   OTNoteEmbed,
   OTParaAttribute,
+  OTUnknownEmbed,
   OTUnmatchedEmbed,
   OTVerseEmbed,
   SelectionRange,

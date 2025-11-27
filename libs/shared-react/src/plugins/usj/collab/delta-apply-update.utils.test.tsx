@@ -52,6 +52,7 @@ import {
   $isNoteNode,
   $isParaNode,
   $isSomeChapterNode,
+  $isUnknownNode,
   charIdState,
   EMPTY_CHAR_PLACEHOLDER_TEXT,
   GENERATOR_NOTE_CALLER,
@@ -2739,6 +2740,84 @@ describe("Delta Utils $applyUpdate", () => {
       });
     });
 
+    it("(dc) should insert adjacent chars with different markers", async () => {
+      const { editor } = await testEnvironment();
+      const ops: DeltaOp[] = [
+        { insert: "added text", attributes: { char: { style: "add", cid: "1" } } },
+        { insert: "words of Jesus", attributes: { char: { style: "wj", cid: "2" } } },
+      ];
+
+      await sutApplyUpdate(editor, ops);
+
+      editor.getEditorState().read(() => {
+        const root = $getRoot();
+        const para = root.getFirstChild();
+        if (!$isImpliedParaNode(para)) throw new Error("Expected an ImpliedParaNode");
+        expect(para.getChildrenSize()).toBe(2);
+
+        const addChar = para.getFirstChild();
+        if (!$isCharNode(addChar)) throw new Error("Expected a CharNode");
+        expect(addChar.getMarker()).toBe("add");
+        expect(addChar.getTextContent()).toBe("added text");
+        expect($getState(addChar, charIdState)).toBe("1");
+
+        const wjChar = para.getChildAtIndex(1);
+        if (!$isCharNode(wjChar)) throw new Error("Expected a CharNode");
+        expect(wjChar.getMarker()).toBe("wj");
+        expect(wjChar.getTextContent()).toBe("words of Jesus");
+        expect($getState(wjChar, charIdState)).toBe("2");
+      });
+    });
+
+    it("(dc) should insert adjacent chars where second has nested char", async () => {
+      const { editor } = await testEnvironment();
+      const ops: DeltaOp[] = [
+        { insert: "added text", attributes: { char: { style: "add", cid: "1" } } },
+        { insert: "words of ", attributes: { char: { style: "wj", cid: "2" } } },
+        {
+          insert: "Jesus",
+          attributes: {
+            char: [
+              { style: "wj", cid: "2" },
+              { style: "bd", cid: "3" },
+            ],
+          },
+        },
+      ];
+
+      await sutApplyUpdate(editor, ops);
+
+      editor.getEditorState().read(() => {
+        const root = $getRoot();
+        const para = root.getFirstChild();
+        if (!$isImpliedParaNode(para)) throw new Error("Expected an ImpliedParaNode");
+        expect(para.getChildrenSize()).toBe(2);
+
+        const addChar = para.getFirstChild();
+        if (!$isCharNode(addChar)) throw new Error("Expected a CharNode");
+        expect(addChar.getMarker()).toBe("add");
+        expect(addChar.getTextContent()).toBe("added text");
+        expect($getState(addChar, charIdState)).toBe("1");
+
+        const wjChar = para.getChildAtIndex(1);
+        if (!$isCharNode(wjChar)) throw new Error("Expected a CharNode");
+        expect(wjChar.getMarker()).toBe("wj");
+        expect(wjChar.getTextContent()).toBe("words of Jesus");
+        expect($getState(wjChar, charIdState)).toBe("2");
+        expect(wjChar.getChildrenSize()).toBe(2);
+
+        const textNode = wjChar.getFirstChild();
+        if (!$isTextNode(textNode)) throw new Error("Expected a TextNode");
+        expect(textNode.getTextContent()).toBe("words of ");
+
+        const bdChar = wjChar.getChildAtIndex(1);
+        if (!$isCharNode(bdChar)) throw new Error("Expected a CharNode");
+        expect(bdChar.getMarker()).toBe("bd");
+        expect(bdChar.getTextContent()).toBe("Jesus");
+        expect($getState(bdChar, charIdState)).toBe("3");
+      });
+    });
+
     it("(dc) should insert milestone embeds in empty para", async () => {
       const { editor } = await testEnvironment(() => {
         $getRoot().append($createParaNode());
@@ -2798,27 +2877,6 @@ describe("Delta Utils $applyUpdate", () => {
         const t2 = p.getChildAtIndex(3);
         if (!$isTextNode(t2)) throw new Error("t2 is not a TextNode");
         expect(t2.getTextContent()).toBe(" answered Jesus.");
-      });
-    });
-
-    it("(dc) should insert unmatched embeds in empty para", async () => {
-      const { editor } = await testEnvironment(() => {
-        $getRoot().append($createParaNode());
-      });
-      const unmatchedEmbed = { unmatched: { marker: "f*" } };
-      const ops: DeltaOp[] = [{ insert: unmatchedEmbed }];
-
-      await sutApplyUpdate(editor, ops);
-
-      editor.getEditorState().read(() => {
-        const p = $getRoot().getFirstChild();
-        if (!$isParaNode(p)) throw new Error("p is not a ParaNode");
-        expect(p.getChildrenSize()).toBe(1);
-
-        const unmatched = p.getFirstChild();
-        if (!$isImmutableUnmatchedNode(unmatched))
-          throw new Error("unmatched is not an ImmutableUnmatchedNode");
-        expect(unmatched.getMarker()).toBe("f*");
       });
     });
 
@@ -3314,47 +3372,43 @@ describe("Delta Utils $applyUpdate", () => {
       });
     });
 
-    it("(dc) should insert adjacent chars with different markers", async () => {
-      const { editor } = await testEnvironment();
-      const ops: DeltaOp[] = [
-        { insert: "added text", attributes: { char: { style: "add", cid: "1" } } },
-        { insert: "words of Jesus", attributes: { char: { style: "wj", cid: "2" } } },
-      ];
+    it("(dc) should insert unknown embed in empty para", async () => {
+      const { editor } = await testEnvironment(() => {
+        $getRoot().append($createParaNode());
+      });
+      const unknownEmbed = {
+        unknown: { tag: "wat", marker: "z", "attr-unknown": "watAttr" },
+      };
+      const ops: DeltaOp[] = [{ insert: unknownEmbed }];
 
       await sutApplyUpdate(editor, ops);
 
       editor.getEditorState().read(() => {
-        const root = $getRoot();
-        const para = root.getFirstChild();
-        if (!$isImpliedParaNode(para)) throw new Error("Expected an ImpliedParaNode");
-        expect(para.getChildrenSize()).toBe(2);
+        const p = $getRoot().getFirstChild();
+        if (!$isParaNode(p)) throw new Error("Expected a ParaNode");
+        expect(p.getChildrenSize()).toBe(1);
 
-        const addChar = para.getFirstChild();
-        if (!$isCharNode(addChar)) throw new Error("Expected a CharNode");
-        expect(addChar.getMarker()).toBe("add");
-        expect(addChar.getTextContent()).toBe("added text");
-        expect($getState(addChar, charIdState)).toBe("1");
-
-        const wjChar = para.getChildAtIndex(1);
-        if (!$isCharNode(wjChar)) throw new Error("Expected a CharNode");
-        expect(wjChar.getMarker()).toBe("wj");
-        expect(wjChar.getTextContent()).toBe("words of Jesus");
-        expect($getState(wjChar, charIdState)).toBe("2");
+        const unknown = p.getFirstChild();
+        if (!$isUnknownNode(unknown)) throw new Error("Expected an UnknownNode");
+        expect(unknown.getTag()).toBe("wat");
+        expect(unknown.getMarker()).toBe("z");
+        expect(unknown.getUnknownAttributes()).toEqual({ "attr-unknown": "watAttr" });
       });
     });
 
-    it("(dc) should insert adjacent chars where second has nested char", async () => {
-      const { editor } = await testEnvironment();
+    it("(dc) should insert unknown embed with text contents", async () => {
+      const { editor } = await testEnvironment(() => {
+        $getRoot().append($createParaNode());
+      });
       const ops: DeltaOp[] = [
-        { insert: "added text", attributes: { char: { style: "add", cid: "1" } } },
-        { insert: "words of ", attributes: { char: { style: "wj", cid: "2" } } },
         {
-          insert: "Jesus",
-          attributes: {
-            char: [
-              { style: "wj", cid: "2" },
-              { style: "bd", cid: "3" },
-            ],
+          insert: {
+            unknown: {
+              tag: "wat",
+              marker: "z",
+              "attr-unknown": "watAttr",
+              contents: { ops: [{ insert: "child text" }] },
+            },
           },
         },
       ];
@@ -3362,33 +3416,139 @@ describe("Delta Utils $applyUpdate", () => {
       await sutApplyUpdate(editor, ops);
 
       editor.getEditorState().read(() => {
-        const root = $getRoot();
-        const para = root.getFirstChild();
-        if (!$isImpliedParaNode(para)) throw new Error("Expected an ImpliedParaNode");
-        expect(para.getChildrenSize()).toBe(2);
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("Expected a ParaNode");
 
-        const addChar = para.getFirstChild();
-        if (!$isCharNode(addChar)) throw new Error("Expected a CharNode");
-        expect(addChar.getMarker()).toBe("add");
-        expect(addChar.getTextContent()).toBe("added text");
-        expect($getState(addChar, charIdState)).toBe("1");
+        const unknown = para?.getFirstChild();
+        if (!$isUnknownNode(unknown)) throw new Error("Expected an UnknownNode");
+        expect(unknown.getTag()).toBe("wat");
+        expect(unknown.getMarker()).toBe("z");
+        expect(unknown.getUnknownAttributes()).toEqual({ "attr-unknown": "watAttr" });
+        expect(unknown.getChildrenSize()).toBe(1);
 
-        const wjChar = para.getChildAtIndex(1);
-        if (!$isCharNode(wjChar)) throw new Error("Expected a CharNode");
-        expect(wjChar.getMarker()).toBe("wj");
-        expect(wjChar.getTextContent()).toBe("words of Jesus");
-        expect($getState(wjChar, charIdState)).toBe("2");
-        expect(wjChar.getChildrenSize()).toBe(2);
+        const child = unknown.getFirstChild();
+        if (!$isTextNode(child)) throw new Error("Expected a TextNode child");
+        expect(child.getTextContent()).toBe("child text");
+      });
+    });
 
-        const textNode = wjChar.getFirstChild();
-        if (!$isTextNode(textNode)) throw new Error("Expected a TextNode");
-        expect(textNode.getTextContent()).toBe("words of ");
+    it("(dc) should insert unknown embed with nested unknown contents", async () => {
+      const { editor } = await testEnvironment(() => {
+        $getRoot().append($createParaNode());
+      });
+      const ops: DeltaOp[] = [
+        {
+          insert: {
+            unknown: {
+              tag: "outer",
+              marker: "om",
+              "attr-outer": "outerAttr",
+              contents: {
+                ops: [
+                  {
+                    insert: {
+                      unknown: {
+                        tag: "inner",
+                        marker: "im",
+                        "attr-inner": "innerAttr",
+                      },
+                    },
+                  },
+                  { insert: "tail" },
+                ],
+              },
+            },
+          },
+        },
+      ];
 
-        const bdChar = wjChar.getChildAtIndex(1);
-        if (!$isCharNode(bdChar)) throw new Error("Expected a CharNode");
-        expect(bdChar.getMarker()).toBe("bd");
-        expect(bdChar.getTextContent()).toBe("Jesus");
-        expect($getState(bdChar, charIdState)).toBe("3");
+      await sutApplyUpdate(editor, ops);
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("Expected a ParaNode");
+
+        const unknown = para?.getFirstChild();
+        if (!$isUnknownNode(unknown)) throw new Error("Expected an UnknownNode");
+        expect(unknown.getTag()).toBe("outer");
+        expect(unknown.getMarker()).toBe("om");
+        expect(unknown.getUnknownAttributes()).toEqual({ "attr-outer": "outerAttr" });
+        expect(unknown.getChildrenSize()).toBe(2);
+
+        const innerUnknown = unknown.getFirstChild();
+        if (!$isUnknownNode(innerUnknown)) throw new Error("Expected nested UnknownNode");
+        expect(innerUnknown.getTag()).toBe("inner");
+        expect(innerUnknown.getMarker()).toBe("im");
+        expect(innerUnknown.getUnknownAttributes()).toEqual({ "attr-inner": "innerAttr" });
+
+        const tail = unknown.getChildAtIndex(1);
+        if (!$isTextNode(tail)) throw new Error("Expected trailing text in unknown contents");
+        expect(tail.getTextContent()).toBe("tail");
+      });
+    });
+
+    it("(dc) should insert unknown embed with char contents", async () => {
+      const { editor } = await testEnvironment(() => {
+        $getRoot().append($createParaNode());
+      });
+      const ops: DeltaOp[] = [
+        {
+          insert: {
+            unknown: {
+              tag: "wat",
+              contents: {
+                ops: [
+                  {
+                    insert: "bold",
+                    attributes: { char: { style: "bd", cid: "char-id-1" } },
+                  },
+                ],
+              },
+            },
+          },
+        },
+      ];
+
+      await sutApplyUpdate(editor, ops);
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("Expected a ParaNode");
+
+        const unknown = para?.getFirstChild();
+        if (!$isUnknownNode(unknown)) throw new Error("Expected an UnknownNode");
+        expect(unknown.getTag()).toBe("wat");
+        expect(unknown.getChildrenSize()).toBe(1);
+
+        const child = unknown.getFirstChild();
+        if (!$isCharNode(child)) throw new Error("Expected CharNode child");
+        expect(child.getMarker()).toBe("bd");
+        expect($getState(child, charIdState)).toBe("char-id-1");
+
+        const text = child.getFirstChild();
+        if (!$isTextNode(text)) throw new Error("Expected text within CharNode");
+        expect(text.getTextContent()).toBe("bold");
+      });
+    });
+
+    it("(dc) should insert unmatched embed in empty para", async () => {
+      const { editor } = await testEnvironment(() => {
+        $getRoot().append($createParaNode());
+      });
+      const unmatchedEmbed = { unmatched: { marker: "f*" } };
+      const ops: DeltaOp[] = [{ insert: unmatchedEmbed }];
+
+      await sutApplyUpdate(editor, ops);
+
+      editor.getEditorState().read(() => {
+        const p = $getRoot().getFirstChild();
+        if (!$isParaNode(p)) throw new Error("p is not a ParaNode");
+        expect(p.getChildrenSize()).toBe(1);
+
+        const unmatched = p.getFirstChild();
+        if (!$isImmutableUnmatchedNode(unmatched))
+          throw new Error("unmatched is not an ImmutableUnmatchedNode");
+        expect(unmatched.getMarker()).toBe("f*");
       });
     });
 

@@ -97,6 +97,14 @@ export interface OTMilestoneEmbed extends OTParaAttribute {
 export const OT_MILESTONE_PROPS: (keyof OTMilestoneEmbed)[] = ["style", "sid", "eid"];
 
 /**
+ * A Delta operation that inserts a Note embed.
+ * @public
+ */
+export interface DeltaOpInsertNoteEmbed extends DeltaOp {
+  /** note insert */
+  insert: { note: OTNoteEmbed | null };
+}
+/**
  * Operational Transform Note Embed
  * @public
  */
@@ -108,16 +116,23 @@ export interface OTNoteEmbed extends OTParaAttribute {
   /** Character type note contents */
   contents?: { ops?: DeltaOp[] };
 }
-/**
- * A Delta operation that inserts a Note embed.
- * @public
- */
-export interface DeltaOpInsertNoteEmbed extends DeltaOp {
-  /** note insert */
-  insert: { note: OTNoteEmbed | null };
-}
 // Note that `contents` is not a property of a NoteNode, but we don't want it in unknownAttributes.
 export const OT_NOTE_PROPS: (keyof OTNoteEmbed)[] = ["style", "caller", "category", "contents"];
+
+/**
+ * Operational Transform Unknown Embed - contains any unknown node and its children. It might be
+ * unknown because it isn't in the USJ spec or it is known but hasn't yet been implemented.
+ * @public
+ */
+export interface OTUnknownEmbed {
+  /** Tag name of the unknown node */
+  tag: string;
+  /** Marker of the unknown node */
+  marker?: string;
+  /** Children contents */
+  contents?: { ops?: DeltaOp[] };
+}
+export const OT_UNKNOWN_PROPS: (keyof OTUnknownEmbed)[] = ["tag", "marker", "contents"];
 
 /**
  * Operational Transform Unmatched Embed
@@ -146,6 +161,8 @@ export interface OTEmbedTypes {
   ms: OTMilestoneEmbed;
   /** note embed */
   note: OTNoteEmbed;
+  /** unknown embed */
+  unknown: OTUnknownEmbed;
   /** unmatched embed */
   unmatched: OTUnmatchedEmbed;
 }
@@ -156,5 +173,6 @@ export const validOTEmbedTypes = [
   "immutable-verse",
   "ms",
   "note",
+  "unknown",
   "unmatched",
 ] as const satisfies readonly (keyof OTEmbedTypes)[];

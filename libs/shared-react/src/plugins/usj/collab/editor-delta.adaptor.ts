@@ -16,6 +16,7 @@ import {
   OTNoteEmbed,
   OTParaAttribute,
   OTUnmatchedEmbed,
+  OTUnknownEmbed,
   OTVerseEmbed,
 } from "./rich-text-ot.model";
 import { $dfs, DFSNode } from "@lexical/utils";
@@ -30,6 +31,7 @@ import {
   $isNoteNode,
   $isParaNode,
   $isSomeChapterNode,
+  $isUnknownNode,
   BOOK_MARKER,
   BookNode,
   CHAPTER_MARKER,
@@ -44,10 +46,13 @@ import {
   ParaNode,
   segmentState,
   SomeChapterNode,
+  UnknownAttributes,
+  UnknownNode,
   VERSE_MARKER,
 } from "shared";
 
-interface OpenNote {
+interface OpenEmbedContext {
+  node: NoteNode | UnknownNode;
   children: LexicalNode[];
   contentsOps?: DeltaOp[];
 }
@@ -106,7 +111,7 @@ export function $getParticularNodeOps(startNode?: LexicalNode, endNode?: Lexical
   const dfsNodes = $dfs(startNode, endNode);
   const openParaLikeNodes: ParaLikeNode[] = [];
   const openCharNodes: CharNode[] = [];
-  const openNote: OpenNote = { children: [], contentsOps: [] };
+  const openEmbeds: OpenEmbedContext[] = [];
   const charContentProduced = new Set<CharNode>();
   for (let i = 0; i < dfsNodes.length; i++) {
     const currentNode = dfsNodes[i].node;
@@ -117,7 +122,7 @@ export function $getParticularNodeOps(startNode?: LexicalNode, endNode?: Lexical
         dfsNodes,
         openParaLikeNodes,
         openCharNodes,
-        openNote,
+        openEmbeds,
         charContentProduced,
       ),
     );
@@ -131,7 +136,7 @@ export function $getParticularNodeOps(startNode?: LexicalNode, endNode?: Lexical
         dfsNodes,
         openParaLikeNodes,
         openCharNodes,
-        openNote,
+        openEmbeds,
         charContentProduced,
       ),
     );
@@ -149,15 +154,16 @@ function $getNodeOps(
   dfsNodes: DFSNode[],
   openParaLikeNodes: ParaLikeNode[],
   openCharNodes: CharNode[],
-  openNote: OpenNote,
+  openEmbeds: OpenEmbedContext[],
   charContentProduced: Set<CharNode>,
 ): DeltaOp[] {
   if (!currentNode) return [];
 
   const ops: DeltaOp[] = [];
+  const nextDfsNode = dfsNodes[currentIndex + 1];
   $handleBlockNodes(currentNode, ops, openParaLikeNodes);
 
-  $handleTextNodes(currentNode, ops, openCharNodes, openNote, charContentProduced);
+  $handleTextNodes(currentNode, ops, openCharNodes, openEmbeds, charContentProduced);
 
   $handleCharNodes(
     currentNode,
@@ -165,7 +171,7 @@ function $getNodeOps(
     dfsNodes,
     openCharNodes,
     charContentProduced,
-    openNote,
+    openEmbeds,
     ops,
   );
 
@@ -174,7 +180,10 @@ function $getNodeOps(
   if ($isSomeVerseNode(currentNode)) ops.push($getVerseOp(currentNode));
   if ($isMilestoneNode(currentNode)) ops.push($getMilestoneOp(currentNode));
   if ($isImmutableUnmatchedNode(currentNode)) ops.push($getImmutableUnmatchedOp(currentNode));
-  $handleNoteNodes(currentNode, ops, openNote);
+  $handleUnknownNodes(currentNode, ops, openEmbeds);
+  $handleNoteNodes(currentNode, ops, openEmbeds);
+
+  $closeCompletedEmbeds(nextDfsNode, openEmbeds);
 
   return ops;
 }
@@ -204,7 +213,7 @@ function $handleTextNodes(
   currentNode: LexicalNode,
   ops: DeltaOp[],
   openCharNodes: CharNode[],
-  openNote: OpenNote,
+  openEmbeds: OpenEmbedContext[],
   charContentProduced: Set<CharNode>,
 ) {
   if (!$isTextNode(currentNode)) return;
@@ -221,9 +230,10 @@ function $handleTextNodes(
     parentCharNode.getChildrenSize() === 1;
 
   const textOp = $getTextOp(currentNode, openCharNodes);
-  if (openNote.children.includes(currentNode)) {
+  const activeEmbed = $getActiveEmbedContext(currentNode, openEmbeds);
+  if (activeEmbed) {
     if (!text || text === NBSP || isNodeAttributeText) return;
-    openNote.contentsOps?.push(textOp);
+    activeEmbed.contentsOps?.push(textOp);
   } else {
     const shouldSkipTextOp = isPlaceholderText || (isNodeAttributeText && !!parentCharNode);
     if (!shouldSkipTextOp) {
@@ -246,7 +256,7 @@ function $handleCharNodes(
   dfsNodes: DFSNode[],
   openCharNodes: CharNode[],
   charContentProduced: Set<CharNode>,
-  openNote: OpenNote,
+  openEmbeds: OpenEmbedContext[],
   ops: DeltaOp[],
 ): void {
   if ($isCharNode(currentNode) && !openCharNodes.includes(currentNode)) {
@@ -259,8 +269,9 @@ function $handleCharNodes(
       openCharNodes.pop();
       if (!charContentProduced.has(openCharNode)) {
         const emptyCharOp = $getEmptyCharOp(openCharNode);
-        if (openNote.children.includes(openCharNode)) {
-          openNote.contentsOps?.push(emptyCharOp);
+        const activeEmbed = $getActiveEmbedContext(openCharNode, openEmbeds);
+        if (activeEmbed) {
+          activeEmbed.contentsOps?.push(emptyCharOp);
         } else {
           ops.push(emptyCharOp);
         }
@@ -270,13 +281,42 @@ function $handleCharNodes(
   }
 }
 
-function $handleNoteNodes(currentNode: LexicalNode, ops: DeltaOp[], openNote: OpenNote) {
+function $handleNoteNodes(
+  currentNode: LexicalNode,
+  ops: DeltaOp[],
+  openEmbeds: OpenEmbedContext[],
+) {
   if (!$isNoteNode(currentNode)) return;
 
-  $dfs(currentNode).forEach((n) => openNote.children.push(n.node));
   const noteOp = $getNoteOp(currentNode);
-  openNote.contentsOps = noteOp.insert.note?.contents?.ops;
-  ops.push(noteOp);
+  const parentEmbed = $getActiveEmbedContext(currentNode, openEmbeds);
+  const embedContext: OpenEmbedContext = {
+    node: currentNode,
+    children: $dfs(currentNode).map((n) => n.node),
+    contentsOps: noteOp.insert.note?.contents?.ops,
+  };
+  openEmbeds.push(embedContext);
+  if (parentEmbed?.contentsOps) parentEmbed.contentsOps.push(noteOp);
+  else ops.push(noteOp);
+}
+
+function $handleUnknownNodes(
+  currentNode: LexicalNode,
+  ops: DeltaOp[],
+  openEmbeds: OpenEmbedContext[],
+) {
+  if (!$isUnknownNode(currentNode)) return;
+
+  const unknownOp = $getUnknownOp(currentNode);
+  const parentEmbed = $getActiveEmbedContext(currentNode, openEmbeds);
+  const embedContext: OpenEmbedContext = {
+    node: currentNode,
+    children: $dfs(currentNode).map((n) => n.node),
+    contentsOps: unknownOp.insert.unknown?.contents?.ops,
+  };
+  openEmbeds.push(embedContext);
+  if (parentEmbed?.contentsOps) parentEmbed.contentsOps.push(unknownOp);
+  else ops.push(unknownOp);
 }
 
 function $getBookOp(currentNode: BookNode): DeltaOp & { attributes: { book: OTBookAttribute } } {
@@ -364,6 +404,40 @@ function $getEmptyCharOp(charNode: CharNode): DeltaOp {
     op.attributes = { char };
   }
   return op;
+}
+
+function $getUnknownOp(
+  currentNode: UnknownNode,
+): DeltaOp & { insert: { unknown: OTUnknownEmbed } } {
+  const unknown: OTUnknownEmbed = { tag: currentNode.getTag() };
+  const marker = currentNode.getMarker();
+  if (marker) unknown.marker = marker;
+
+  const unknownAttributes = currentNode.getUnknownAttributes();
+  if (unknownAttributes) Object.assign(unknown as unknown as UnknownAttributes, unknownAttributes);
+
+  if (currentNode.getChildrenSize() > 0) unknown.contents = { ops: [] };
+
+  return { insert: { unknown } };
+}
+
+function $getActiveEmbedContext(
+  node: LexicalNode,
+  openEmbeds: OpenEmbedContext[],
+): OpenEmbedContext | undefined {
+  for (let i = openEmbeds.length - 1; i >= 0; i--) {
+    const embed = openEmbeds[i];
+    if (embed.children.includes(node)) return embed;
+  }
+  return undefined;
+}
+
+function $closeCompletedEmbeds(nextDfsNode: DFSNode | undefined, openEmbeds: OpenEmbedContext[]) {
+  for (let i = openEmbeds.length - 1; i >= 0; i--) {
+    if ($isElementNodeClosing(openEmbeds[i].node, nextDfsNode)) {
+      openEmbeds.splice(i, 1);
+    }
+  }
 }
 
 function $buildCharAttribute(charNodes: CharNode[]): OTCharAttribute | undefined {

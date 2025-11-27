@@ -199,6 +199,7 @@ export interface OTEmbedTypes {
     chapter: OTChapterEmbed;
     ms: OTMilestoneEmbed;
     note: OTNoteEmbed;
+    unknown: OTUnknownEmbed;
     unmatched: OTUnmatchedEmbed;
     verse: OTVerseEmbed;
 }
@@ -223,6 +224,15 @@ export interface OTNoteEmbed extends OTParaAttribute {
 // @public
 export interface OTParaAttribute {
     style: string;
+}
+
+// @public
+export interface OTUnknownEmbed {
+    contents?: {
+        ops?: DeltaOp[];
+    };
+    marker?: string;
+    tag: string;
 }
 
 // @public

@@ -30,6 +30,7 @@ import {
   $createMilestoneNode,
   $createNoteNode,
   $createParaNode,
+  $createUnknownNode,
   charIdState,
   EMPTY_CHAR_PLACEHOLDER_TEXT,
   GENERATOR_NOTE_CALLER,
@@ -486,6 +487,130 @@ describe("getEditorDelta", () => {
                       { style: "+bd", cid: "char-id3" },
                     ],
                   },
+                },
+              ],
+            },
+          },
+        },
+      },
+      { insert: LF },
+    ]);
+  });
+
+  it("should return the correct ops for an unknown node", async () => {
+    const { editor } = await testEnvironment(() => {
+      $getRoot().append(
+        $createImpliedParaNode().append(
+          $createUnknownNode("wat", "z", { "attr-unknown": "watAttr" }),
+        ),
+      );
+    });
+
+    const delta = getEditorDelta(editor.getEditorState());
+
+    expect(delta.ops).toEqual([
+      {
+        insert: {
+          unknown: { tag: "wat", marker: "z", "attr-unknown": "watAttr" },
+        },
+      },
+      { insert: LF },
+    ]);
+  });
+
+  it("should include child contents for an unknown node", async () => {
+    const { editor } = await testEnvironment(() => {
+      $getRoot().append(
+        $createImpliedParaNode().append(
+          $createUnknownNode("wat", "z", { "attr-unknown": "watAttr" }).append(
+            $createTextNode("child text"),
+          ),
+        ),
+      );
+    });
+
+    const delta = getEditorDelta(editor.getEditorState());
+
+    expect(delta.ops).toEqual([
+      {
+        insert: {
+          unknown: {
+            tag: "wat",
+            marker: "z",
+            "attr-unknown": "watAttr",
+            contents: { ops: [{ insert: "child text" }] },
+          },
+        },
+      },
+      { insert: LF },
+    ]);
+  });
+
+  it("should include nested unknown nodes inside contents", async () => {
+    const { editor } = await testEnvironment(() => {
+      $getRoot().append(
+        $createImpliedParaNode().append(
+          $createUnknownNode("outer", "om", { "attr-outer": "outerAttr" }).append(
+            $createUnknownNode("inner", "im", { "attr-inner": "innerAttr" }),
+            $createTextNode("tail"),
+          ),
+        ),
+      );
+    });
+
+    const delta = getEditorDelta(editor.getEditorState());
+
+    expect(delta.ops).toEqual([
+      {
+        insert: {
+          unknown: {
+            tag: "outer",
+            marker: "om",
+            "attr-outer": "outerAttr",
+            contents: {
+              ops: [
+                {
+                  insert: {
+                    unknown: {
+                      tag: "inner",
+                      marker: "im",
+                      "attr-inner": "innerAttr",
+                    },
+                  },
+                },
+                { insert: "tail" },
+              ],
+            },
+          },
+        },
+      },
+      { insert: LF },
+    ]);
+  });
+
+  it("should include char attributes within unknown contents", async () => {
+    const { editor } = await testEnvironment(() => {
+      const charNode = $createCharNode("bd");
+      $setState(charNode, charIdState, "char-id-1");
+      charNode.append($createTextNode("bold"));
+      $getRoot().append(
+        $createImpliedParaNode().append($createUnknownNode("wat", "z").append(charNode)),
+      );
+    });
+
+    const delta = getEditorDelta(editor.getEditorState());
+
+    expect(delta.ops).toEqual([
+      {
+        insert: {
+          unknown: {
+            tag: "wat",
+            marker: "z",
+            contents: {
+              ops: [
+                {
+                  insert: "bold",
+                  attributes: { char: { style: "bd", cid: "char-id-1" } },
                 },
               ],
             },
