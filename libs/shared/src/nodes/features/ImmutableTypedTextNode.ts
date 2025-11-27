@@ -23,7 +23,7 @@ export type SerializedImmutableTypedTextNode = Spread<
 
 export const IMMUTABLE_TYPED_TEXT_VERSION = 1;
 
-export class ImmutableTypedTextNode extends DecoratorNode<void> {
+export class ImmutableTypedTextNode extends DecoratorNode<string> {
   __textType: string;
   __text: string;
 

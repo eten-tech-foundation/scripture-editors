@@ -11,11 +11,11 @@ export type NodesMode = keyof typeof nodesModeNames;
 
 export default function NodeOptionsDropDown({
   nodesMode,
-  handleSelect,
+  onSelect,
   disabled = false,
 }: {
   nodesMode: NodesMode;
-  handleSelect: (nodesMode: NodesMode) => void;
+  onSelect: (nodesMode: NodesMode) => void;
   disabled?: boolean;
 }): ReactElement {
   return (
@@ -30,7 +30,7 @@ export default function NodeOptionsDropDown({
         <DropDownItem
           key={itemNodesMode}
           className={"item node-options " + dropDownActiveClass(nodesMode === itemNodesMode)}
-          onClick={() => handleSelect(itemNodesMode as NodesMode)}
+          onClick={() => onSelect(itemNodesMode as NodesMode)}
         >
           <i className={"icon node-options " + keyToClassName(itemNodesMode)} />
           {nodesModeNames[itemNodesMode as NodesMode]}

@@ -12,11 +12,11 @@ function dropDownActiveClass(active: boolean): string {
 
 export default function TextDirectionDropDown({
   textDirection,
-  handleSelect,
+  onSelect,
   disabled = false,
 }: {
   textDirection: TextDirection;
-  handleSelect: (textDirection: TextDirection) => void;
+  onSelect: (textDirection: TextDirection) => void;
   disabled?: boolean;
 }): ReactElement {
   return (
@@ -31,7 +31,7 @@ export default function TextDirectionDropDown({
         <DropDownItem
           key={item}
           className={"item view-mode " + dropDownActiveClass(textDirection === item)}
-          onClick={() => handleSelect(item as TextDirection)}
+          onClick={() => onSelect(item as TextDirection)}
         >
           <i className={"icon view-mode " + item} />
           {directionToNames[item as TextDirection]}

@@ -63,7 +63,7 @@ export const MS_MARKER_OBJECT_PROPS: (keyof MarkerObject)[] = [
   "content",
 ];
 
-export class MilestoneNode extends DecoratorNode<void> {
+export class MilestoneNode extends DecoratorNode<string> {
   __marker: string;
   __sid?: string;
   __eid?: string;
