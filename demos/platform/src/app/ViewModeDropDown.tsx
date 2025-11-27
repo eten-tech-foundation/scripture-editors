@@ -12,11 +12,11 @@ const customViewModeNames = {
 
 export default function ViewModeDropDown({
   viewMode,
-  handleSelect,
+  onSelect,
   disabled = false,
 }: {
   viewMode: string;
-  handleSelect: (viewMode: string) => void;
+  onSelect: (viewMode: string) => void;
   disabled?: boolean;
 }): ReactElement {
   return (
@@ -31,7 +31,7 @@ export default function ViewModeDropDown({
         <DropDownItem
           key={itemViewMode}
           className={"item view-mode " + dropDownActiveClass(viewMode === itemViewMode)}
-          onClick={() => handleSelect(itemViewMode)}
+          onClick={() => onSelect(itemViewMode)}
         >
           <i className={"icon view-mode " + viewModeToClassName(itemViewMode)} />
           {customViewModeNames[itemViewMode as ViewMode]}

@@ -3,7 +3,6 @@ import {
   EditorOptions,
   EditorRef,
   getDefaultViewOptions,
-  ViewOptions,
 } from "@eten-tech-foundation/platform-editor";
 import { EMPTY_USJ } from "@eten-tech-foundation/scripture-utilities";
 import { SerializedVerseRef } from "@sillsdev/scripture";
@@ -13,20 +12,21 @@ import { forwardRef, useMemo } from "react";
 interface NoteEditorProps {
   isVisible: boolean;
   scrRef: SerializedVerseRef;
-  viewOptions?: ViewOptions;
+  options?: EditorOptions;
   onCancel: () => void;
   onSubmit: () => void;
 }
 
 export const NoteEditor = forwardRef<EditorRef, NoteEditorProps>(
-  ({ isVisible, scrRef, viewOptions, onCancel, onSubmit }, ref) => {
-    const options = useMemo<EditorOptions>(() => {
+  ({ isVisible, scrRef, options, onCancel, onSubmit }, ref) => {
+    const noteEditorOptions = useMemo<EditorOptions>(() => {
       return {
+        ...options,
         hasExternalUI: true,
         debug: false,
-        view: { ...(viewOptions ?? getDefaultViewOptions()), noteMode: "expanded" },
+        view: { ...(options?.view ?? getDefaultViewOptions()), noteMode: "expanded" },
       };
-    }, [viewOptions]);
+    }, [options]);
 
     return (
       <div
@@ -82,7 +82,7 @@ export const NoteEditor = forwardRef<EditorRef, NoteEditorProps>(
             defaultUsj={EMPTY_USJ}
             scrRef={scrRef}
             onScrRefChange={() => undefined}
-            options={options}
+            options={noteEditorOptions}
           />
         </div>
       </div>

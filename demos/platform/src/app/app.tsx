@@ -429,12 +429,9 @@ export default function App() {
                 />
                 <label htmlFor="hasSpellCheckBox">Has spell check</label>
               </div>
-              <TextDirectionDropDown
-                textDirection={textDirection}
-                handleSelect={setTextDirection}
-              />
-              <ViewModeDropDown viewMode={viewMode} handleSelect={setViewMode} />
-              <NodeOptionsDropDown nodesMode={nodesMode} handleSelect={setNodesMode} />
+              <TextDirectionDropDown textDirection={textDirection} onSelect={setTextDirection} />
+              <ViewModeDropDown viewMode={viewMode} onSelect={setViewMode} />
+              <NodeOptionsDropDown nodesMode={nodesMode} onSelect={setNodesMode} />
             </div>
             {viewMode === CUSTOM_VIEW_MODE && (
               <div className="custom-view-options">
@@ -540,7 +537,7 @@ export default function App() {
           ref={noteEditorRef}
           isVisible={isNoteEditorVisible}
           scrRef={scrRef}
-          viewOptions={viewOptions}
+          options={options}
           onCancel={handleNoteEditorCancel}
           onSubmit={handleNoteEditorSubmit}
         />

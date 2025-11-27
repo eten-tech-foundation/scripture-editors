@@ -24,7 +24,7 @@ export type SerializedImmutableUnmatchedNode = Spread<
   SerializedLexicalNode
 >;
 
-export class ImmutableUnmatchedNode extends DecoratorNode<void> {
+export class ImmutableUnmatchedNode extends DecoratorNode<string> {
   __marker: string;
 
   constructor(marker = "", key?: NodeKey) {

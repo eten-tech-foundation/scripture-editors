@@ -5,6 +5,7 @@ import { Comments } from "./comments/commenting";
 import useCommentStoreRef from "./comments/use-comment-store-ref.hook";
 import useMissingCommentsProps from "./comments/use-missing-comments-props.hook";
 import { Usj } from "@eten-tech-foundation/scripture-utilities";
+import { LexicalCollaboration } from "@lexical/react/LexicalCollaborationContext";
 import {
   ForwardedRef,
   forwardRef,
@@ -200,16 +201,18 @@ const Marginal = forwardRef(function Marginal<TLogger extends LoggerBasic>(
   }, []);
 
   return (
-    <Editor ref={editorRef} onUsjChange={handleUsjChange} {...editorProps}>
-      <CommentPlugin
-        setCommentStore={setCommentStoreRef}
-        onChange={handleCommentChange}
-        showCommentsContainerRef={isReadonly ? null : (showCommentsContainerRef ?? toolbarEndRef)}
-        commentContainerRef={commentContainerRef}
-        logger={editorProps.logger}
-      />
-      <div ref={commentContainerRef} className="comment-container"></div>
-    </Editor>
+    <LexicalCollaboration>
+      <Editor ref={editorRef} onUsjChange={handleUsjChange} {...editorProps}>
+        <CommentPlugin
+          setCommentStore={setCommentStoreRef}
+          onChange={handleCommentChange}
+          showCommentsContainerRef={isReadonly ? null : (showCommentsContainerRef ?? toolbarEndRef)}
+          commentContainerRef={commentContainerRef}
+          logger={editorProps.logger}
+        />
+        <div ref={commentContainerRef} className="comment-container"></div>
+      </Editor>
+    </LexicalCollaboration>
   );
 });
 

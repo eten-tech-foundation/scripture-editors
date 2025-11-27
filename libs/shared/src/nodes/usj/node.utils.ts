@@ -474,6 +474,7 @@ export function getUnknownAttributes<T extends object = MarkerObject>(
  * @param editor - The LexicalEditor instance used to access the DOM.
  * @returns The lowercase tag name of the DOM element if found, or `undefined` if no corresponding
  *   DOM element exists.
+ * @deprecated Not used anymore.
  */
 export function getNodeElementTagName(
   node: LexicalNode,
