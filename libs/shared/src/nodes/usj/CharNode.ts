@@ -115,6 +115,7 @@ export const CHAR_VERSION = 1;
 export type SerializedCharNode = Spread<
   {
     marker: string;
+    closed?: boolean;
     unknownAttributes?: UnknownAttributes;
   },
   SerializedElementNode
@@ -125,11 +126,13 @@ export const CHAR_MARKER_OBJECT_PROPS: (keyof MarkerObject)[] = ["type", "marker
 
 export class CharNode extends ElementNode {
   __marker: string;
+  __closed?: boolean;
   __unknownAttributes?: UnknownAttributes;
 
-  constructor(marker = "", unknownAttributes?: UnknownAttributes, key?: NodeKey) {
+  constructor(marker = "", closed?: boolean, unknownAttributes?: UnknownAttributes, key?: NodeKey) {
     super(key);
     this.__marker = marker;
+    this.__closed = closed;
     this.__unknownAttributes = unknownAttributes;
   }
 
@@ -138,8 +141,8 @@ export class CharNode extends ElementNode {
   }
 
   static override clone(node: CharNode): CharNode {
-    const { __marker, __unknownAttributes, __key } = node;
-    return new CharNode(__marker, __unknownAttributes, __key);
+    const { __marker, __closed, __unknownAttributes, __key } = node;
+    return new CharNode(__marker, __closed, __unknownAttributes, __key);
   }
 
   static isValidMarker(marker: string | undefined, extraValidMarkers?: readonly string[]): boolean {
@@ -192,6 +195,19 @@ export class CharNode extends ElementNode {
   getMarker(): string {
     const self = this.getLatest();
     return self.__marker;
+  }
+
+  setClosed(closed: boolean | undefined): this {
+    if (this.__closed === closed) return this;
+
+    const self = this.getWritable();
+    self.__closed = closed;
+    return self;
+  }
+
+  getClosed(): boolean | undefined {
+    const self = this.getLatest();
+    return self.__closed;
   }
 
   setUnknownAttributes(unknownAttributes: UnknownAttributes | undefined): this {
@@ -271,8 +287,12 @@ function $convertCharElement(element: HTMLElement): DOMConversionOutput {
   return { node };
 }
 
-export function $createCharNode(marker?: string, unknownAttributes?: UnknownAttributes): CharNode {
-  return $applyNodeReplacement(new CharNode(marker, unknownAttributes));
+export function $createCharNode(
+  marker?: string,
+  closed?: boolean,
+  unknownAttributes?: UnknownAttributes,
+): CharNode {
+  return $applyNodeReplacement(new CharNode(marker, closed, unknownAttributes));
 }
 
 function isCharElement(node: HTMLElement | null | undefined): boolean {

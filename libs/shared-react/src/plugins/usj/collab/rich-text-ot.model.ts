@@ -23,9 +23,10 @@ export const OT_BOOK_PROPS: (keyof OTBookAttribute)[] = ["style", "code"];
 
 export interface OTCharItem extends OTParaAttribute {
   cid?: string;
+  closed?: boolean;
 }
 export type OTCharAttribute = OTCharItem | OTCharItem[];
-export const OT_CHAR_PROPS: (keyof OTCharItem)[] = ["style", "cid"];
+export const OT_CHAR_PROPS: (keyof OTCharItem)[] = ["style", "cid", "closed"];
 
 /**
  * Operational Transform Chapter Embed
