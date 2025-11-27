@@ -1,5 +1,7 @@
 /** Conforms with USJ v3.1 @see https://docs.usfm.bible/usfm/3.1/cv/c.html */
 
+import { CHAPTER_CLASS_NAME, UnknownAttributes } from "./node-constants.js";
+import { MarkerObject } from "@eten-tech-foundation/scripture-utilities";
 import {
   $applyNodeReplacement,
   ElementNode,
@@ -10,7 +12,6 @@ import {
   SerializedLexicalNode,
   Spread,
 } from "lexical";
-import { CHAPTER_CLASS_NAME, UnknownAttributes } from "./node-constants.js";
 
 export const CHAPTER_MARKER = "c";
 export const CHAPTER_VERSION = 1;
@@ -27,6 +28,17 @@ export type SerializedChapterNode = Spread<
   },
   SerializedElementNode
 >;
+
+/** List of known properties of `MarkerObject` */
+export const CHAPTER_MARKER_OBJECT_PROPS: (keyof MarkerObject)[] = [
+  "type",
+  "marker",
+  "number",
+  "sid",
+  "altnumber",
+  "pubnumber",
+  "content",
+];
 
 export class ChapterNode extends ElementNode {
   __marker: ChapterMarker;

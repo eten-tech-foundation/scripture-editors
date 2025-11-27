@@ -1,6 +1,7 @@
 /** Conforms with USJ v3.1 @see https://docs.usfm.bible/usfm/3.1/note/index.html */
 
 import { GENERATOR_NOTE_CALLER, HIDDEN_NOTE_CALLER, UnknownAttributes } from "./node-constants.js";
+import { MarkerObject } from "@eten-tech-foundation/scripture-utilities";
 import {
   $applyNodeReplacement,
   DOMConversionMap,
@@ -41,6 +42,15 @@ export type SerializedNoteNode = Spread<
   },
   SerializedElementNode
 >;
+
+/** List of known properties of `MarkerObject` */
+export const NOTE_MARKER_OBJECT_PROPS: (keyof MarkerObject)[] = [
+  "type",
+  "marker",
+  "caller",
+  "category",
+  "content",
+];
 
 export const NOTE_VERSION = 1;
 

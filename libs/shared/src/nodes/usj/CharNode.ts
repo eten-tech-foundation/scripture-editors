@@ -1,5 +1,7 @@
 /** Conforms with USJ v3.1 @see https://docs.usfm.bible/usfm/3.1/char/index.html */
 
+import { UnknownAttributes } from "./node-constants.js";
+import { MarkerObject } from "@eten-tech-foundation/scripture-utilities";
 import {
   $applyNodeReplacement,
   DOMConversionMap,
@@ -16,7 +18,6 @@ import {
   Spread,
   isHTMLElement,
 } from "lexical";
-import { UnknownAttributes } from "./node-constants.js";
 
 /** @see https://docs.usfm.bible/usfm/3.1/char/notes/footnote/index.html */
 const VALID_CHAR_FOOTNOTE_MARKERS = [
@@ -116,6 +117,9 @@ export type SerializedCharNode = Spread<
   },
   SerializedElementNode
 >;
+
+/** List of known properties of `MarkerObject` */
+export const CHAR_MARKER_OBJECT_PROPS: (keyof MarkerObject)[] = ["type", "marker", "content"];
 
 export class CharNode extends ElementNode {
   __marker: string;
