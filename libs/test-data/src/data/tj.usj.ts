@@ -1,5 +1,6 @@
 import type { Usj } from "@eten-tech-foundation/scripture-utilities";
 
+// Copied from the `Input USJ` of https://github.com/eten-tech-foundation/scripture-editors/issues/391
 export const TJ_USJ: Usj = {
   type: "USJ",
   version: "3.0",
