@@ -3,10 +3,14 @@ import {
   usjGen1v1ImpliedPara,
   usjGen1v1ImpliedParaEmpty,
   usjGen1v1Nonstandard,
+  usjWithUnknownItems,
+  usxEph1v1Whitespace,
   usxGen1v1,
   usxGen1v1ImpliedPara,
   usxGen1v1ImpliedParaEmpty,
   usxGen1v1Nonstandard,
+  usxGen1v1Whitespace,
+  usxWithUnknownItems,
 } from "./converter-test.data.js";
 import { usjToUsxString } from "./usj-to-usx.js";
 import { EMPTY_USJ } from "./usj.model.js";
@@ -46,6 +50,11 @@ describe("USJ to USX Converter", () => {
     expect(usx).toEqual(removeXmlWhitespace(usxGen1v1ImpliedPara));
   });
 
+  it("should convert from USJ with unknown items to USX", () => {
+    const usx = usjToUsxString(usjWithUnknownItems);
+    expect(usx).toEqual(removeXmlWhitespace(usxWithUnknownItems));
+  });
+
   it("should convert from USJ with nonstandard features to USX", () => {
     const usx = usjToUsxString(usjGen1v1Nonstandard);
     expect(usx).toEqual(removeXmlWhitespace(usxGen1v1Nonstandard));
@@ -55,5 +64,19 @@ describe("USJ to USX Converter", () => {
     const usx = usjToUsxString(usjGen1v1);
     const usj = usxStringToUsj(usx);
     expect(usj).toEqual(usjGen1v1);
+  });
+
+  it("should convert from USJ to USX and back with special whitespace", () => {
+    const usjGen1v1Whitespace = usxStringToUsj(usxGen1v1Whitespace);
+    const usx = usjToUsxString(usjGen1v1Whitespace);
+    const usj = usxStringToUsj(usx);
+    expect(usj).toEqual(usjGen1v1Whitespace);
+  });
+
+  it("should convert from USJ to USX and back with extended whitespace", () => {
+    const usjEph1v1Whitespace = usxStringToUsj(usxEph1v1Whitespace);
+    const usx = usjToUsxString(usjEph1v1Whitespace);
+    const usj = usxStringToUsj(usx);
+    expect(usj).toEqual(usjEph1v1Whitespace);
   });
 });

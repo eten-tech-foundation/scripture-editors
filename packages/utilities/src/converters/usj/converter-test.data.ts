@@ -1709,6 +1709,29 @@ export const editorStateMarks = {
 
 /* Unknown items */
 
+export const usxWithUnknownItems = `
+<usx version="3.1">
+  <book style="id" code="GEN" category="watCat" attr-unknown="watAttr" />
+  <chapter style="c" number="1" sid="GEN 1" category="watCat" attr-unknown="watAttr" />
+    <para style="p" category="watCat" attr-unknown="watAttr">
+      <verse style="v" number="1" category="watCat" attr-unknown="watAttr" />First part of the first verse <note style="f" caller="+" eid="watEid" attr-unknown="watAttr"><char style="fr" category="watCat" attr-unknown="watAttr">3:2 </char></note>
+        <ms style="ts" category="watCat" attr-unknown="watAttr"/>
+        <wat style="z" category="watCat" attr-unknown="watAttr">wat content?</wat>
+    </para>
+    <optbreak category="watCat"/>
+    <ref loc="MRK 9:50" gen="true" category="watCat">Mk 9.50</ref>
+    <sidebar style="esb" category="watCat">sidebar content</sidebar>
+    <periph alt="periph title" category="watCat">periph content</periph>
+    <figure style="fig" file="file.jpg" size="span" ref="1.18" category="watCat">figure content</figure>
+    <table category="watCat">
+      <row style="tr" category="watCat">
+        <cell style="tc1" category="watCat">cell1</cell>
+      </row>
+    </table>
+  <chapter eid="GEN 1" />
+</usx>
+`;
+
 /** para index where the note exists */
 export const NOTE_PARA_WITH_UNKNOWN_ITEMS_INDEX = 2;
 
@@ -1718,7 +1741,14 @@ export const usjWithUnknownItems = {
   content: [
     // unknown attributes
     { type: "book", marker: "id", code: "GEN", category: "watCat", "attr-unknown": "watAttr" },
-    { type: "chapter", marker: "c", number: "1", category: "watCat", "attr-unknown": "watAttr" },
+    {
+      type: "chapter",
+      marker: "c",
+      number: "1",
+      sid: "GEN 1",
+      category: "watCat",
+      "attr-unknown": "watAttr",
+    },
     {
       type: "para",
       marker: "p",
@@ -1819,6 +1849,7 @@ export const editorStateWithUnknownItems = {
         type: "immutable-chapter",
         marker: "c",
         number: "1",
+        sid: "GEN 1",
         unknownAttributes: { category: "watCat", "attr-unknown": "watAttr" },
         version: 1,
       },
@@ -2143,6 +2174,77 @@ export const usjGen1v1Whitespace: Usj = {
     { type: "char", marker: "wj", content: ["stay"] },
   ],
 };
+
+// Copied from test project `zzz127S` as is.
+/* eslint-disable no-irregular-whitespace */
+export const usxEph1v1Whitespace = `
+<usx version="3.1">
+  <book code="EPH" style="id" />
+  <para style="rem">Z Z Z Z Z Z Y Y Y Y Y X X X X W W W V V U　T zy​xw‌vu‍ts⁠rq‍po⁠nm‎lk‏ji</para>
+  <para style="sts">Z Z Z Z Z Z Y Y Y Y Y X X X X W W W V V U　T zy​xw‌vu‍ts⁠rq‍po⁠nm‎lk‏ji</para>
+  <para style="h">Efesios Z Z Z Z Z Z Y Y Y Y Y X X X X W W W V V U　T zy​xw‌vu‍ts⁠rq‍po⁠nm‎lk‏ji</para>
+  <para style="toc3">Z Z Z Z Z Z Y Y Y Y Y X X X X W W W V V U　T zy​xw‌vu‍ts⁠rq‍po⁠nm‎lk‏ji</para>
+  <para style="toc2">Z Z Z Z Z Z Y Y Y Y Y X X X X W W W V V U　T zy​xw‌vu‍ts⁠rq‍po⁠nm‎lk‏ji</para>
+  <para style="toc1">Z Z Z Z Z Z Y Y Y Y Y X X X X W W W V V U　T zy​xw‌vu‍ts⁠rq‍po⁠nm‎lk‏ji</para>
+  <para style="mt">EF ESIOS Z Z Z Z Z Z Y Y Y Y Y X X X X W W W V V U　T zy​xw‌vu‍ts⁠rq‍po⁠nm‎lk‏ji</para>
+  <para style="is">Efesiosdih jwĩ tʉ́i beh joyát pínah naáwát Z Z Z Z Z Z Y Y Y Y Y X X X X W W W V V U　T zy​xw‌vu‍ts⁠rq‍po⁠nm‎lk‏ji</para>
+  <para style="ip">
+    <char style="bd">¿Déhe tigaá daácniji?</char> Pablo, Dios ã jib bohéát tʉ́ʉtni nin nʉ́odih ãt daacáp wʉt jĩ. Pablo ded pah ã jʉmatdih chah jéihíhna, Romanosdih jwĩ tʉ́i beh joyát pínah naáwátdih ñi eneé. Z Z Z Z Z Z Y Y Y Y Y X X X X W W W V V U　T zy​xw‌vu‍ts⁠rq‍po⁠nm‎lk‏ji</para>
+  <para style="ip">
+    <char style="bd">¿Detdih ãt daácji?</char> Éfeso tʉ́tchidih moón Jesúíhwãdih ãt daacáp wʉt jĩ. Asia baácboó Éfeso tʉ́tchi chah tʉ́ini jẽ́lit ãt jʉmʉp wʉt jĩ. Dawá namánabʉt caán tʉ́tchina ãt jʉibínap wʉt jĩ. Pánihna, dawá jíib chãjnit cã́acwã caanná ĩpĩ́ jʉibínap wʉt jĩ. Éfesodih moón ĩ́ih dios wili, Artemisa wʉ̃t jʉmnidih ĩ weñat bʉ́dí mʉʉ́ ãt jʉmʉp wʉt jĩ. Dawá cã́acwã caánt pah jígohnidih pãpnit, jíib chãj wʉ̃hna, bʉ́dí dinerodih ĩt bíbohop wʉt jĩ. Pablo biíc peihcanni jópchi caán tʉ́tchidih moondíh Jesúíh doonádih ãtát bohénap wʉt jĩ.</para>
+  <para style="ip">
+    <char style="bd">¿Dedmant, débólih cah, ãt daácji?</char> Chah jéihnit “Pablo Roma tʉ́tchi nemat mʉʉ́boó jʉmnit, año 60 (Jesús ã wʉnat tʉ́ttimah 27 jópchi tʉ́ttimah) nin nʉ́odih ãt daác wahap wʉt jĩ”, ĩ niíj jenah joiná caá.</para>
+  <para style="ip">
+    <char style="bd">¿Dedé pínah tigaá ãt daácji?</char> Dios queétdih oinit, bʉ́dí ã teo wáacat pínah, ded pah queétdih ã náah yacatdihbʉt queét Éfesodih moón chah ĩ jéihyat pínah niijná, nin nʉ́odih ãt daác wahap wʉt jĩ.</para>
+  <para style="io">Efesios ded pah ã jʉmat: Z Z Z Z Z Z Y Y Y Y Y X X X X W W W V V U　T zy​xw‌vu‍ts⁠rq‍po⁠nm‎lk‏ji</para>
+  <para style="io2">1. Pablo ã tʉ́yat tʉ́ʉtat (1.1-2) Z Z Z Z Z Z Y Y Y Y Y X X X X W W W V V U　T zy​xw‌vu‍ts⁠rq‍po⁠nm‎lk‏ji</para>
+  <para style="io2">2. Ded pah Dios jwiít ã́ihwãdih ã tʉ́i ʉbat (1.3—3.21)</para>
+  <para style="io3">a. Jwiítdih ã tʉ́i ʉbatdih náhninit, caandíh Pablo ã wẽi naáwát (1.3-14)</para>
+  <para style="io3">b. Queét Jesúíhwãdih Pablo ã ʉʉ́bát (1.15-23)</para>
+  <para style="io3">c. Jesús ã wʉn wʉ̃hatjĩh Dios ã́ihwã wʉnnit panihnitdih ã booaat (2.1-10)</para>
+  <para style="io3">d. Nihat Jesúíhwã biíc poómp pah jwĩ jʉmat (2.11-22)</para>
+  <para style="io3">e. Pablodih Dios ded pah ã chãjat tʉ́ʉtat (3.1-13)</para>
+  <para style="io3">f. Diosdih Pablo ã ʉʉ́bát, ã wẽi naáwátbʉt (3.14-21)</para>
+  <para style="io2">3. Ded pah Jesúíhwã jwĩ tʉ́i jʉmat pínah (4.1—6.20)</para>
+  <para style="io3">a. Tʉ́i biícdih jwĩ jʉmat (4.1-16) Z Z Z Z Z Z Y Y Y Y Y X X X X W W W V V U　T zy​xw‌vu‍ts⁠rq‍po⁠nm‎lk‏ji</para>
+  <para style="io3">b. Jáap panihnit jwĩ jʉmat (4.17-24)</para>
+  <para style="io3">c. Ded pah Jesúíhwã jwĩ chãjat (4.25—5.5)</para>
+  <para style="io3">d. Jesús ã yeh iigát panihipboó jwiít ã́ihwã jwĩ jʉmat (5.6-20)</para>
+  <para style="io3">e. Ded pah jwĩ déewã panihnitdih jwĩ chãjat (5.21—6.9)</para>
+  <para style="io3">f. Jesúíhwã ded pah yéej chãjat jenah joyátdih jwĩ jéih yap yohat (6.10-20)</para>
+  <para style="io2">4. Pablo ã pée tʉ́yat tʉ́ʉtat (6.21-24)</para>
+  <chapter number="1" style="c" sid="EPH 1" />
+  <para style="s">Pablo queétdih ã tʉ́yat tʉ́ʉtat Z Z Z Z Z Z Y Y Y Y Y X X X X W W W V V U　T zy​xw‌vu‍ts⁠rq‍po⁠nm‎lk‏ji</para>
+  <para style="p">
+    <verse number="1" style="v" sid="EPH 1:1" />Weém, Pablo, biíhdih daacát tʉ́ʉtna, yeéb Éfeso tʉ́tchidih moón Jesúíhwãdih wã wahna caá. Dios ã náahat pah Jesucristo weemdíh ã́ih tʉ́ini doonádih ã naáwát tʉ́ʉtni caá. Yeéb Jesucristodih tʉ́i jenah joí cádahcannitdih wã daác wahna caá.<note caller="*" style="x"><char style="xo" closed="false">1.1 </char><char style="xt" closed="false">Hch 18.19-21; 19.1</char></note> <verse eid="EPH 1:1" /><verse number="2" style="v" sid="EPH 1:2" />Jwĩ íip Dios, jwĩ Maáh Jesucristobʉt, yeebdíh oinit, ĩ tʉ́i teo wáaca naáh, caán biícdih ñi tʉ́i jʉmat pínah niijná. Weembʉ́t yeebdíh bʉ́dí wã tʉ́yat tʉ́ʉtna caá. Z Z Z Z Z Z Y Y Y Y Y X X X X W W W V V U　T zy​xw‌vu‍ts⁠rq‍po⁠nm‎lk‏ji</para>
+  <para style="d" vid="EPH 1:2">Z Z Z Z Z Z Y Y Y Y Y X X X X W W W V V U　T zy​xw‌vu‍ts⁠rq‍po⁠nm‎lk‏ji<verse eid="EPH 1:2" /></para>
+  <para style="sp">Z Z Z Z Z Z Y Y Y Y Y X X X X W W W V V U　T zy​xw‌vu‍ts⁠rq‍po⁠nm‎lk‏ji</para>
+  <para style="s">Jwiít Cristoíhwãdih <optbreak /> Dios ã tʉ́i chãjat</para>
+  <para style="p">
+    <verse number="3" style="v" sid="EPH 1:3" />Z Z Z Z Z Z Y Y Y Y Y X X X X W W W V V U　T zy​xw‌vu‍ts⁠rq‍po⁠nm‎lk‏ji<note caller="-" style="x"><char style="xo" closed="false">1.3 </char><char style="xq" closed="false">Z Z Z Z Z Z Y Y Y Y Y X X X X W W W V V U　T zy​xw‌vu‍ts⁠rq‍po⁠nm‎lk‏ji </char><char style="xt" closed="false">Mt 2.9</char></note> Jwiít Cristoíhwã caán biícdih jwĩ jʉmʉchah, Dios, jwĩ Maáh Jesucristo íip, jwĩ́ih caolihdih bʉ́dí ã tʉ́i chãjna caá. Páant ã tʉ́i chãjachah jéihnit, caandíh bʉ́dí jwĩ wẽi naóhna caá. <verse eid="EPH 1:3" /><verse number="4" style="v" sid="EPH 1:4" />Jwiít<note caller="+" style="f"><char style="fr" closed="false">1.4 </char><char style="fq" closed="false">Jwiít </char><char style="ft" closed="false">BASE FN Z Z Z Z Z Z Y Y Y Y Y X X X X W W W V V U　T zy​xw‌vu‍ts⁠rq‍po⁠nm‎lk‏ji </char></note> ã́ihwãdih nin pah Dios ãt chãjap wʉt jĩ. Nin baácdih ã chãjat pínah jã́tih, Jesucristo biícdih jwĩ jʉmat pínah, yéejat wihcannit ã enechah jwĩ jʉmat pínahbʉt niijná, jwiítdih ãtát ñíojip taga. Pánihna, jwiít Jesúsdih jepahnitdih, “Ma yéejat jíib jʉmna caá”, jwiítdih ã niijcán niít. <verse eid="EPH 1:4" /><verse number="5" style="v" sid="EPH 1:5" />Ã náahat pahjeh<note caller="+" style="fe"><char style="fr" closed="false">1.5 </char><char style="fq" closed="false">náahat pahjeh </char><char style="ft" closed="false">BASE END NOTE Z Z Z Z Z Z Y Y Y Y Y X X X X W W W V V U　T zy​xw‌vu‍ts⁠rq‍po⁠nm‎lk‏ji </char></note> jwiítdih oinit, jon jã́tih nin pah Dios ãt niijíp wʉt jĩ: “Wã wʉ̃ʉ́h Cristo ã chãjatjĩh queét wã weh ĩ jʉmbipna caá”, ãt niijíp wʉt jĩ. <verse eid="EPH 1:5" /><verse number="6" style="v" sid="EPH 1:6" />Pánih oinit, jwiít ã wʉ̃ʉ́h ã oiniíhwã jwĩ jʉmʉchah, Dios jwiítdih bʉ́dí pohba ãt tʉ́i chãj wʉ̃hʉp taga. Páant ã chãjatdih jenah joinít, caandíh páantjeh bʉ́dí jwĩ wẽi naáwát caá náahap. <verse eid="EPH 1:6" /><verse number="7-8" style="v" sid="EPH 1:7-8" />Cristo jwĩ yéejat jíib bʉʉdáát panihnidih jíib chãjna, ã́ih meépdih yohnit, ãt wʉn wʉ̃hʉp wʉt jĩ.<note caller="*" style="x"><char style="xo" closed="false">1.7-8 </char><char style="xt" closed="false">Mr 10.45; 14.24; He 9.12-14</char></note> Pánih wʉn wʉ̃hna, jwiít iiguípna jwĩ bejat déedih tʉ́i ʉbnit, Satanás ã chéwat tõp panihnidih ãt watap wʉt jĩ. Pánihna, Cristo jwĩ yéejat jíib ã wʉ̃hatdih jéihnit, Diosboó jwĩ yéejatdih ãt yoh wʉ̃hʉp wʉt jĩ.<note caller="*" style="x"><char style="xo" closed="false">1.7-8 </char><char style="xt" closed="false">Col 1.14</char></note> Jwiítdih bʉ́dí oi jĩ́gah ennit, ã jéih beedáátjĩh ã wʉ̃ʉ́hdih páant ãt tʉ́i chãjat tʉ́ʉtʉp wʉt jĩ. Z Z Z Z Z Z Y Y Y Y Y X X X X W W W V V U　T zy​xw‌vu‍ts⁠rq‍po⁠nm‎lk‏ji <verse eid="EPH 1:7-8" /><verse number="9-10" style="v" sid="EPH 1:9-10" />Jon jã́tih ã jenah joyátjidih cã́acwãdih ã jéihya jwʉhcan yʉhna, bʉʉ jwʉhna Dios jwiít ã́ihwãboodíh ãt beh joyánap taga.</para>
+  <para style="q1" vid="EPH 1:9-10">Nin pahZ Z Z Z Z Z Y Y Y Y Y X X X X W W W V V U　T zy​xw‌vu‍ts⁠rq‍po⁠nm‎lk‏ji caá ã jenah joyátji: Cristo nihat ã chãjatjĩh, nihat japboó jʉmnit, nin baácboó jʉmnit, nʉmp bóo tólihboó jʉmnitdihbʉt Dios ã ñíoni yeó jáapdih Cristodih maáh ã waadábipna caá. Páant maáh ã jʉmʉchah, nihat ã́ih míic ã jʉmbipna caá. Dios páant ã chãjat pínahdih ãt wʉtʉp wʉt jĩ.<verse eid="EPH 1:9-10" /></para>
+  <para style="p">
+    <verse number="11-12" style="v" sid="EPH 1:11-12" />Dios ã náahat pahjeh nihatdih chãjnit, jwiít judíowã Cristodih jwíih jepah waóhnitboó jwĩ tʉ́i chãjat pínah niijná, bitabʉt Diosdih ĩ wẽi naáwát pínah niijná, jon jã́tih jwiítdih ãt ñíwip wʉt jĩ.</para>
+  <table>
+    <row style="tr">
+      <cell style="tc1" align="start">Z Z Z Z Z Z Y Y Y Y Y X X X X W W W V V U　T zy​xw‌vu‍ts⁠rq‍po⁠nm‎lk‏ji </cell>
+      <cell style="tcr2" align="end">Z Z Z Z Z Z Y Y Y Y Y X X X X W W W V V U　T zy​xw‌vu‍ts⁠rq‍po⁠nm‎lk‏ji</cell>
+    </row>
+    <row style="tr">
+      <cell style="tc1" align="start" />
+      <cell style="tc2" align="start" />
+    </row>
+  </table>
+  <para style="p" vid="EPH 1:11-12">
+    <verse eid="EPH 1:11-12" />
+    <verse number="13" style="v" sid="EPH 1:13" />Yéejat jíib iiguípna ñi bejat déedih Jesús ã wʉn wʉ̃hatji doonádih joinít, yeebbʉ́t ñitát jepahap taga. Pánih jepahnit, Jesúíhwã ñi jʉmʉchah, Diosboó ã naóhniji Tʉ́ini Espíritudih yeebdíh ãt wahap taga. Pánih wahnit, ã́ihwã ñi jʉmatdih ã jʉ́ʉtna caá.<note caller="*" style="x"><char style="xo" closed="false">1.13 </char><char style="xt" closed="false">Lc 24.49; Jn 14.26; 16.13-15; Hch 1.4; 2.33</char></note> <verse eid="EPH 1:13" /><verse number="14" style="v" sid="EPH 1:14" />Nin baácboó jwĩ jʉm jwʉhʉchah, Tʉ́ini Espíritu jwiítdih Dios ã jwíih wʉ̃hni caá. Pánihna, ã pebhboó jwĩ jʉibínachah, jwiít nihatdih tʉ́ʉt nʉʉ́m péanit, ã bíboh pã́inidih ã wʉ̃h beedábipna caá, ã wʉ̃t chah yáaat pínah niijná.<note caller="*" style="x"><char style="xo" closed="false">1.14 </char><char style="xt" closed="false">2Co 1.22</char></note><verse eid="EPH 1:14" /></para>
+  <para style="s">Pablo Jesúíhwãdih ã ʉʉ́bát</para>
+  <para style="p">
+    <verse number="15" style="v" sid="EPH 1:15" />Páant ã <char style="wj">chãjatdih Z Z Z Z Z Z Y Y Y Y Y X X X X W W W V V U　T zy​xw‌vu‍ts⁠rq‍po⁠nm‎lk‏ji jéihnit, </char>Jesúsdih ñi tʉ́i jenah joyát doonádih joinít, nihat bita Jesúíhwãdih ñi oyat doonádihbʉt joinít, <verse eid="EPH 1:15" /><verse number="16" style="v" sid="EPH 1:16" />Diosdih <char style="w" lemma="Z Z Z Z Z Z Y Y Y Y Y X X X X W W W V V U　T zy​xw‌vu‍ts⁠rq‍po⁠nm‎lk‏ji ">Z Z Z Z Z Z Y Y Y Y Y X X X X W W W V V U　T zy​xw‌vu‍ts⁠rq‍po⁠nm‎lk‏ji </char>ʉʉ́bh cádahcan, “Queétdih ma teo wáacat tʉ́ina caá”, wãpĩ́ niijná caá. <verse eid="EPH 1:16" /><verse number="17" style="v" sid="EPH 1:17" />Nin pahbʉt jwĩ Maáh Jesucristoíh Diosdih wãpĩ́ niíj ʉʉ́bhna caá: “Paá, meém chah wẽpni jʉmna, queétdih ded pah ma jʉmatdih ma jéihyanaá, meemdíh chah ĩ tʉ́i jéihyat pínah niijná”, wãpĩ́ niijná caá. <verse eid="EPH 1:17" /><verse number="18" style="v" sid="EPH 1:18" />Nin pahbʉt wãpĩ́ niíj ʉʉ́bhna caá: “Queétdih tʉ́ʉt nʉʉ́m jwíihna, ma pebhboó ĩ jʉibínachah, ma tʉ́ʉt nʉʉ́m péaat pínahdih ma tʉ́i beh joyánaá. Jwiít míihwã caanná jwĩ jʉibínachah, chah bʉ́dí ma tʉ́i chãjat pínahdihbʉt, ma jéihyanaá”, wãpĩ́ niijná caá. <verse eid="EPH 1:18" /><verse number="19-21" style="v" sid="EPH 1:19-21" />Nin pahbʉt wãpĩ́ niíj ʉʉ́bhna caá: “Ded pah bʉ́dí ma wẽpat ã jʉmatdih queétdih ma jéihyanaá. Caán wẽpatjĩh Jesucristodih booanit, ma jéihyepmant bóo bʉwámant chʉ́ʉdat tʉ́ʉtnit, maáh mat waadánap taga.<note caller="*" style="x"><char style="xo" closed="false">1.19-21</char><char style="xt" closed="false">Sal 110.1</char></note> Pánihna, caanjĩ́h chʉ́ʉdna, nihat maátadih maáh ã jʉmna caá. Bʉʉ láa, tʉ́ttimah bóo láabʉt páantjeh chah maáh ã jʉmbipna caá. Jwiít caandíh tʉ́i jenah joinítdih caán wẽpatjĩh ma teo wáacatdih queétdih ma tʉ́i beh joyánaá”, wãpĩ́ niijná caá. <verse eid="EPH 1:19-21" /><verse number="22-23" style="v" sid="EPH 1:22-23" />Páant chah wẽpni ã jʉmʉchah, Diosboó nihatdih Jesúsdih ãt wʉtat tʉ́ʉtʉp taga.<note caller="*" style="x"><char style="xo" closed="false">1.22-23 </char><char style="xt" closed="false">Sal 8.6</char></note> Pánih chãjnit, Jesúsdih wao dáh panihni, ã́ihwãdih ã́ih bácah panihnibʉt ãt chãjap taga.<note caller="*" style="x"><char style="xo" closed="false">1.22-23 </char><char style="xt" closed="false">Col 1.18</char></note> Pánihna, jwiít ã́ihwãjeéh jʉmni nihat pebhboó ã jʉmʉchah, ã́ih bácah panihni jʉmna, ã wẽpatdih jwiítbʉt jwĩ bíbohna caá.<verse eid="EPH 1:22-23" /></para>
+  <chapter eid="EPH 1" />
+</usx>
+`;
+/* eslint-enable */
 
 /* Gen 1:1 non-standard */
 
