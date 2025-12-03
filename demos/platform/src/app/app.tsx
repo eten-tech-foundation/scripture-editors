@@ -30,7 +30,12 @@ import {
   UsjNodeOptions,
   ViewOptions,
 } from "@eten-tech-foundation/platform-editor";
-import { EMPTY_USJ, Usj, usxStringToUsj } from "@eten-tech-foundation/scripture-utilities";
+import {
+  EMPTY_USJ,
+  isUsjTextContentLocation,
+  Usj,
+  usxStringToUsj,
+} from "@eten-tech-foundation/scripture-utilities";
 import { SerializedVerseRef } from "@sillsdev/scripture";
 import { MouseEvent, RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { WEB_PSA_CH1_USX, WEB_PSA_USX, WEB_PSA_COMMENTS as comments } from "test-data";
@@ -47,17 +52,17 @@ const webUsj = usxStringToUsj(isTesting ? WEB_PSA_USX : WEB_PSA_CH1_USX);
 const editorUsj = webUsj; // isTesting ? webUsj : TJ_USJ;
 const defaultScrRef: SerializedVerseRef = { book: "PSA", chapterNum: 1, verseNum: 1 };
 // Word "man" inside first q1 of PSA 1:1.
-const annotationRange1 = {
+const annotationRange1: AnnotationRange = {
   start: { jsonPath: "$.content[10].content[2]", offset: 15 },
   end: { jsonPath: "$.content[10].content[2]", offset: 18 },
 };
 // Phrase "man who" inside first q1 of PSA 1:1.
-const annotationRange2 = {
+const annotationRange2: AnnotationRange = {
   start: { jsonPath: "$.content[10].content[2]", offset: 15 },
   end: { jsonPath: "$.content[10].content[2]", offset: 22 },
 };
 // Word "stand" inside first q2 of PSA 1:1.
-const annotationRange3 = {
+const annotationRange3: AnnotationRange = {
   start: { jsonPath: "$.content[11].content[0]", offset: 4 },
   end: { jsonPath: "$.content[11].content[0]", offset: 9 },
 };
@@ -246,10 +251,10 @@ export default function App() {
 
   const handleCursorClick = useCallback((addition: number) => {
     const location = marginalRef.current?.getSelection();
-    if (!location) return;
+    if (!location || !isUsjTextContentLocation(location.start)) return;
 
     location.start.offset += addition;
-    if (location.end) location.end.offset += addition;
+    if (isUsjTextContentLocation(location.end)) location.end.offset += addition;
     marginalRef.current?.setSelection(location);
   }, []);
 
