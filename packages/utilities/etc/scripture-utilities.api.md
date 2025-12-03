@@ -11,13 +11,40 @@ export function assertSafeKey(key: string): void;
 export type BookCode = (typeof VALID_BOOK_CODES)[number];
 
 // @public
+export type ContentJsonPath = "" | `$` | `$.content[${number}]` | `$.content[${number}].content[${number}]` | `$.content[${number}].content[${number}].content[${number}]` | `$.content[${number}].content[${number}].content[${number}].content[${number}]`;
+
+// @public
 export const EMPTY_USJ: Readonly<Usj>;
 
 // @public
 export const EMPTY_USX = "<usx version=\"3.1\" />";
 
 // @public
+export function getUsjDocumentLocationTypeName(location: UsjDocumentLocation | undefined | null): string;
+
+// @public
 export function indexesFromUsjJsonPath(jsonPath: string): number[];
+
+// @public
+export function isUsjAttributeKeyLocation(location: UsjDocumentLocation | undefined | null): location is UsjAttributeKeyLocation;
+
+// @public
+export function isUsjAttributeMarkerLocation(location: UsjDocumentLocation | undefined | null): location is UsjAttributeMarkerLocation;
+
+// @public
+export function isUsjClosingAttributeMarkerLocation(location: UsjDocumentLocation | undefined | null): location is UsjClosingAttributeMarkerLocation;
+
+// @public
+export function isUsjClosingMarkerLocation(location: UsjDocumentLocation | undefined | null): location is UsjClosingMarkerLocation;
+
+// @public
+export function isUsjMarkerLocation(location: UsjDocumentLocation | undefined | null): location is UsjMarkerLocation;
+
+// @public
+export function isUsjPropertyValueLocation(location: UsjDocumentLocation | undefined | null): location is UsjPropertyValueLocation;
+
+// @public
+export function isUsjTextContentLocation(location: UsjDocumentLocation | undefined | null): location is UsjTextContentLocation;
 
 // @public
 export function isValidBookCode(code: string): boolean;
@@ -45,6 +72,9 @@ export interface MarkerObject {
 }
 
 // @public
+export type PropertyJsonPath = "" | `$.${string}` | `$['${string}']` | `$.content[${number}].${string}` | `$.content[${number}]['${string}']` | `$.content[${number}].content[${number}].${string}` | `$.content[${number}].content[${number}]['${string}']` | `$.content[${number}].content[${number}].content[${number}].${string}` | `$.content[${number}].content[${number}].content[${number}]['${string}']` | `$.content[${number}].content[${number}].content[${number}].content[${number}].${string}` | `$.content[${number}].content[${number}].content[${number}].content[${number}]['${string}']`;
+
+// @public
 export interface Usj {
     content: MarkerContent[];
     type: typeof USJ_TYPE;
@@ -58,7 +88,53 @@ export const USJ_TYPE = "USJ";
 export const USJ_VERSION = "3.1";
 
 // @public
-export function usjJsonPathFromIndexes(indexes: number[]): string;
+export interface UsjAttributeKeyLocation {
+    jsonPath: ContentJsonPath;
+    keyName: string;
+    keyOffset: number;
+}
+
+// @public
+export interface UsjAttributeMarkerLocation {
+    jsonPath: ContentJsonPath;
+    keyName: string;
+}
+
+// @public
+export interface UsjClosingAttributeMarkerLocation {
+    jsonPath: ContentJsonPath;
+    keyClosingMarkerOffset: number;
+    keyName: string;
+}
+
+// @public
+export interface UsjClosingMarkerLocation {
+    closingMarkerOffset: number;
+    jsonPath: ContentJsonPath;
+}
+
+// @public
+export type UsjDocumentLocation = UsjMarkerLocation | UsjClosingMarkerLocation | UsjTextContentLocation | UsjPropertyValueLocation | UsjAttributeKeyLocation | UsjAttributeMarkerLocation | UsjClosingAttributeMarkerLocation;
+
+// @public
+export function usjJsonPathFromIndexes(indexes: number[]): ContentJsonPath;
+
+// @public
+export interface UsjMarkerLocation {
+    jsonPath: ContentJsonPath;
+}
+
+// @public
+export interface UsjPropertyValueLocation {
+    jsonPath: PropertyJsonPath;
+    propertyOffset: number;
+}
+
+// @public
+export interface UsjTextContentLocation {
+    jsonPath: ContentJsonPath;
+    offset: number;
+}
 
 // @public
 export function usjToUsxString(usj: Usj): string;
