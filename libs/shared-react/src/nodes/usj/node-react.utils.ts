@@ -188,7 +188,7 @@ export function $createNoteChildren(
     case "ef":
     case "efe":
       if (chapterNum !== undefined && verseNum !== undefined) {
-        children.push($createCharNode("fr").append($createTextNode(`${chapterNum}:${verseNum}`)));
+        children.push($createCharNode("fr").append($createTextNode(`${chapterNum}:${verseNum} `)));
       }
       if (!selection.isCollapsed()) {
         const selectedText = selection.getTextContent().trim();
@@ -202,7 +202,7 @@ export function $createNoteChildren(
     case "x":
     case "ex":
       if (chapterNum !== undefined && verseNum !== undefined) {
-        children.push($createCharNode("xo").append($createTextNode(`${chapterNum}:${verseNum}`)));
+        children.push($createCharNode("xo").append($createTextNode(`${chapterNum}:${verseNum} `)));
       }
       if (!selection.isCollapsed()) {
         const selectedText = selection.getTextContent().trim();

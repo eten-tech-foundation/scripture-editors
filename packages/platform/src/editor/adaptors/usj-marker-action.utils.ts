@@ -65,7 +65,7 @@ const getFootnoteMarkerAction: (footnoteMarker: string) => UsjMarkerAction = (fo
         noteChildren.push({
           type: "char",
           marker: "fr",
-          content: [`${chapterNum}:${verseNum}`],
+          content: [`${chapterNum}:${verseNum} `],
         });
       if (currentEditor.noteText)
         noteChildren.push({
@@ -101,7 +101,7 @@ const getCrossReferenceMarkerAction: (crossReferenceMarker: string) => UsjMarker
         noteChildren.push({
           type: "char",
           marker: "xo",
-          content: [`${chapterNum}:${verseNum}`],
+          content: [`${chapterNum}:${verseNum} `],
         });
       if (currentEditor.noteText)
         noteChildren.push({

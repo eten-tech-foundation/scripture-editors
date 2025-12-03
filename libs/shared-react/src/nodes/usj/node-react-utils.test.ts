@@ -539,7 +539,7 @@ describe("$insertNote()", () => {
 
       // First should be fr with chapter:verse
       expect(charNodes[0].getMarker()).toBe("fr");
-      expect(charNodes[0].getTextContent()).toBe("1:5");
+      expect(charNodes[0].getTextContent()).toBe("1:5 ");
 
       // Last should be ft with placeholder
       const ftNode = charNodes.find((node) => node.getMarker() === "ft");
@@ -624,7 +624,7 @@ describe("$insertNote()", () => {
 
       const xoNode = charNodes.find((node) => node.getMarker() === "xo");
       expect(xoNode).toBeDefined();
-      expect(xoNode?.getTextContent()).toBe("3:16");
+      expect(xoNode?.getTextContent()).toBe("3:16 ");
 
       const xtNode = charNodes.find((node) => node.getMarker() === "xt");
       expect(xtNode).toBeDefined();
