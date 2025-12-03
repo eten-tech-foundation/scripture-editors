@@ -1,5 +1,5 @@
 import { AnnotationRange } from "./selection.model";
-import { $getRangeFromSelection } from "./selection.utils";
+import { $getRangeFromUsjSelection } from "./selection.utils";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { mergeRegister, registerNestedElementResolver } from "@lexical/utils";
 import { $getNodeByKey, LexicalEditor, NodeKey } from "lexical";
@@ -164,15 +164,15 @@ export const AnnotationPlugin = forwardRef(function AnnotationPlugin<TLogger ext
       editor.update(
         () => {
           // Apply the annotation to the selected range.
-          const rangeSelection = $getRangeFromSelection(selection);
-          if (rangeSelection === undefined) {
+          const editorSelection = $getRangeFromUsjSelection(selection);
+          if (editorSelection === undefined) {
             logger?.error("Failed to find start or end node of the annotation.");
             return;
           }
 
           $removeMarkNodesForTypeID(type, id);
 
-          $wrapSelectionInTypedMarkNode(rangeSelection, type, id, onClick, onRemove);
+          $wrapSelectionInTypedMarkNode(editorSelection, type, id, onClick, onRemove);
         },
         { tag: ANNOTATION_CHANGE_TAG },
       );

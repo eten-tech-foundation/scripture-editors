@@ -1,5 +1,5 @@
 import { SelectionRange } from "../../plugins/usj/annotation/selection.model";
-import { $getRangeFromSelection } from "../../plugins/usj/annotation/selection.utils";
+import { $getRangeFromUsjSelection } from "../../plugins/usj/annotation/selection.utils";
 import { ViewOptions } from "../../views/view-options.utils";
 import {
   $createImmutableNoteCallerNode,
@@ -137,7 +137,7 @@ export function $insertNote(
   if (!NoteNode.isValidMarker(marker))
     throw new Error(`$insertNote: Invalid note marker '${marker}'`);
 
-  const selection = selectionRange ? $getRangeFromSelection(selectionRange) : $getSelection();
+  const selection = selectionRange ? $getRangeFromUsjSelection(selectionRange) : $getSelection();
   if (!$isRangeSelection(selection)) return undefined;
 
   const children = $createNoteChildren(selection, marker, scriptureReference, logger);

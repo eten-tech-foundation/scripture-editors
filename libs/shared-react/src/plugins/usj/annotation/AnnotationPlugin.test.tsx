@@ -1,5 +1,6 @@
 import { baseTestEnvironment } from "../react-test.utils";
 import { AnnotationPlugin, AnnotationRef } from "./AnnotationPlugin";
+import { AnnotationRange } from "./selection.model";
 import { act } from "@testing-library/react";
 import { $createTextNode, $getRoot } from "lexical";
 import { createRef } from "react";
@@ -16,7 +17,7 @@ describe("AnnotationPlugin", () => {
       $getRoot().append($createParaNode().append(mark.append($createTextNode(text))));
     });
     const jsonPath = "$.content[0].content[0]";
-    const grammarRange = {
+    const grammarRange: AnnotationRange = {
       start: { jsonPath, offset: 0 },
       end: { jsonPath, offset: text.length },
     };

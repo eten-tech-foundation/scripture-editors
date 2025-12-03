@@ -11,14 +11,15 @@ import { RefAttributes } from 'react';
 import { RefObject } from 'react';
 import { SerializedVerseRef } from '@sillsdev/scripture';
 import { Usj } from '@eten-tech-foundation/scripture-utilities';
+import type { UsjDocumentLocation } from '@eten-tech-foundation/scripture-utilities';
 
 // @public @deprecated
 export type AddMissingComments = (usjCommentIds: string[]) => void;
 
 // @public
 export interface AnnotationRange {
-    end: UsjLocation;
-    start: UsjLocation;
+    end: UsjDocumentLocation;
+    start: UsjDocumentLocation;
 }
 
 // @public
@@ -250,8 +251,8 @@ export interface OTVerseEmbed extends OTParaAttribute {
 
 // @public
 export interface SelectionRange {
-    end?: UsjLocation;
-    start: UsjLocation;
+    end?: UsjDocumentLocation;
+    start: UsjDocumentLocation;
 }
 
 // @public
@@ -282,7 +283,7 @@ export type TypedMarkOnRemove = (type: string, id: string, cause: TypedMarkRemov
 // @public
 export type TypedMarkRemovalCause = "removed" | "destroyed";
 
-// @public
+// @public @deprecated
 export interface UsjLocation {
     jsonPath: string;
     offset: number;

@@ -10,4 +10,7 @@ export const segmentState = createState("segment", {
   parse: (v) => (typeof v === "string" ? v : undefined),
 });
 
-export const deltaStates = [charIdState, segmentState];
+/** Should be used with TextNodes. */
+export const textTypeState = createState("textType", {
+  parse: (v) => (typeof v === "string" ? v : undefined),
+});
