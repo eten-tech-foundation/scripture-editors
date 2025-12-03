@@ -236,11 +236,14 @@ describe("USJ Marker Action Utils", () => {
   });
 
   describe("should insert a note", () => {
+    const referenceCVText = `${reference.chapterNum}:${reference.verseNum} `;
+
     it("of type footnote", () => {
       const { editor } = createBasicTestEnvironment(nodes, $defaultInitialEditorState);
       const markerAction = getUsjMarkerAction("f", expandedNoteKeyRef, undefined, undefined, {
         discrete: true,
       });
+      // caret after the word "second"
       updateSelection(editor, secondVerseTextNode, 6);
 
       markerAction.action({ editor, reference });
@@ -248,10 +251,15 @@ describe("USJ Marker Action Utils", () => {
       editor.getEditorState().read(() => {
         expect(secondVerseTextNode.getTextContent()).toBe("second");
         const insertedNode = secondVerseTextNode.getNextSibling();
-        if (!$isNoteNode(insertedNode)) throw new Error("Inserted node is not a note");
+        if (!$isNoteNode(insertedNode)) throw new Error("Expected a NoteNode");
         expect(insertedNode.getMarker()).toBe("f");
+
+        const frChar = insertedNode.getChildAtIndex(2);
+        if (!$isCharNode(frChar)) throw new Error("Expected a CharNode");
+        expect(frChar.getTextContent()).toBe(referenceCVText);
+
         const tailTextNode = insertedNode.getNextSibling();
-        if (!$isTextNode(tailTextNode)) throw new Error("Tail node is not text");
+        if (!$isTextNode(tailTextNode)) throw new Error("Expected a TextNode");
         expect(tailTextNode.getTextContent()).toBe(" verse text ");
       });
     });
@@ -261,6 +269,7 @@ describe("USJ Marker Action Utils", () => {
       const markerAction = getUsjMarkerAction("fe", expandedNoteKeyRef, undefined, undefined, {
         discrete: true,
       });
+      // caret after the word "second"
       updateSelection(editor, secondVerseTextNode, 6);
 
       markerAction.action({ editor, reference });
@@ -281,6 +290,7 @@ describe("USJ Marker Action Utils", () => {
       const markerAction = getUsjMarkerAction("ef", expandedNoteKeyRef, undefined, undefined, {
         discrete: true,
       });
+      // caret after the word "second"
       updateSelection(editor, secondVerseTextNode, 6);
 
       markerAction.action({ editor, reference });
@@ -301,6 +311,7 @@ describe("USJ Marker Action Utils", () => {
       const markerAction = getUsjMarkerAction("x", expandedNoteKeyRef, undefined, undefined, {
         discrete: true,
       });
+      // caret after the word "second"
       updateSelection(editor, secondVerseTextNode, 6);
 
       markerAction.action({ editor, reference });
@@ -308,10 +319,15 @@ describe("USJ Marker Action Utils", () => {
       editor.getEditorState().read(() => {
         expect(secondVerseTextNode.getTextContent()).toBe("second");
         const insertedNode = secondVerseTextNode.getNextSibling();
-        if (!$isNoteNode(insertedNode)) throw new Error("Inserted node is not a note");
+        if (!$isNoteNode(insertedNode)) throw new Error("Expected a NoteNode");
         expect(insertedNode.getMarker()).toBe("x");
+
+        const xoChar = insertedNode.getChildAtIndex(2);
+        if (!$isCharNode(xoChar)) throw new Error("Expected a CharNode");
+        expect(xoChar.getTextContent()).toBe(referenceCVText);
+
         const tailTextNode = insertedNode.getNextSibling();
-        if (!$isTextNode(tailTextNode)) throw new Error("Tail node is not text");
+        if (!$isTextNode(tailTextNode)) throw new Error("Expected a TextNode");
         expect(tailTextNode.getTextContent()).toBe(" verse text ");
       });
     });
@@ -321,6 +337,7 @@ describe("USJ Marker Action Utils", () => {
       const markerAction = getUsjMarkerAction("ex", expandedNoteKeyRef, undefined, undefined, {
         discrete: true,
       });
+      // caret after the word "second"
       updateSelection(editor, secondVerseTextNode, 6);
 
       markerAction.action({ editor, reference });
