@@ -1,5 +1,8 @@
 import {
+  type UsjDocumentLocation,
+  getUsjDocumentLocationTypeName,
   indexesFromUsjJsonPath,
+  isUsjTextContentLocation,
   usjJsonPathFromIndexes,
 } from "@eten-tech-foundation/scripture-utilities";
 import {
@@ -15,7 +18,7 @@ import {
   RangeSelection,
   TextNode,
 } from "lexical";
-import { AnnotationRange, SelectionRange, UsjLocation } from "./selection.model";
+import { AnnotationRange, SelectionRange } from "./selection.model";
 import { $isTypedMarkNode } from "shared";
 
 /**
@@ -33,7 +36,7 @@ function $findTextNodeInMarks(
   if (!node || !$isTextNode(node)) return [undefined, undefined];
 
   const text = node.getTextContent();
-  if (offset >= 0 && offset < text.length) return [node, offset];
+  if (offset >= 0 && offset <= text.length) return [node, offset];
 
   let nextNode = node.getNextSibling();
   if (!nextNode) {
@@ -50,8 +53,16 @@ function $findTextNodeInMarks(
 }
 
 function $getNodeFromLocation(
-  location: UsjLocation,
+  location: UsjDocumentLocation,
 ): [LexicalNode | undefined, number | undefined] {
+  if (!isUsjTextContentLocation(location)) {
+    throw new Error(
+      `Unsupported UsjDocumentLocation type: ${getUsjDocumentLocationTypeName(location)}. ` +
+        `Currently only UsjTextContentLocation is supported. ` +
+        `Received: ${JSON.stringify(location)}`,
+    );
+  }
+
   const jsonPathIndexes = indexesFromUsjJsonPath(location.jsonPath);
   let currentNode: LexicalNode | undefined = $getRoot();
   for (const index of jsonPathIndexes) {
@@ -105,7 +116,7 @@ export function $getRangeFromSelection(
   return rangeSelection;
 }
 
-function getLocationFromNode(node: LexicalNode, offset: number): UsjLocation {
+function getLocationFromNode(node: LexicalNode, offset: number): UsjDocumentLocation {
   const jsonPathIndexes: number[] = [];
   let current: LexicalNode | null = node;
   while (current?.getParent()) {
