@@ -1,3 +1,5 @@
+import type { ContentJsonPath } from "./usj-document-location.model.js";
+
 const JSON_PATH_START = "$";
 const JSON_PATH_CONTENT = ".content[";
 
@@ -27,6 +29,9 @@ export function indexesFromUsjJsonPath(jsonPath: string): number[] {
  *
  * @public
  */
-export function usjJsonPathFromIndexes(indexes: number[]): string {
-  return indexes.reduce((path, index) => `${path}${JSON_PATH_CONTENT}${index}]`, JSON_PATH_START);
+export function usjJsonPathFromIndexes(indexes: number[]): ContentJsonPath {
+  return indexes.reduce<string>(
+    (path, index) => `${path}${JSON_PATH_CONTENT}${index}]`,
+    JSON_PATH_START,
+  ) as ContentJsonPath;
 }
