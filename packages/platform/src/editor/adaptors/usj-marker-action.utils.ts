@@ -14,10 +14,10 @@ import {
 } from "lexical";
 import {
   $createNodeFromSerializedNode,
-  $isImmutableTypedTextNode,
   $isMarkerNode,
   $isNoteNode,
   $isTypedMarkNode,
+  $isVisibleMarkerNode,
   CharNode,
   createLexicalUsjNode,
   GENERATOR_NOTE_CALLER,
@@ -206,7 +206,7 @@ export function getUsjMarkerAction(
         ) {
           // Inserting into NoteNode
           let lastInsertedNode: LexicalNode = node.insertAfter(nodeToInsert);
-          if ($isImmutableTypedTextNode(nodeToInsert)) {
+          if ($isVisibleMarkerNode(nodeToInsert)) {
             // We are using visible marker mode so the `nodeToInsert` is just the marker. Get the
             // CharNode with content to insert after it.
             const _viewOptions: ViewOptions = {

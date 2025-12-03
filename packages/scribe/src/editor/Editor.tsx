@@ -19,7 +19,7 @@ import {
 } from "react";
 import { ScriptureReference, blackListedChangeTags } from "shared";
 import {
-  $getRangeFromEditor,
+  $getUsjSelectionFromEditor,
   ArrowNavigationPlugin,
   ClipboardPlugin,
   CommandMenuPlugin,
@@ -139,7 +139,7 @@ const Editor = forwardRef(function Editor(
       }
     },
     getSelection() {
-      return editorRef.current?.read(() => $getRangeFromEditor());
+      return editorRef.current?.read(() => $getUsjSelectionFromEditor());
     },
     setSelection(_selection: SelectionRange) {
       // Implementation needed - will be added later

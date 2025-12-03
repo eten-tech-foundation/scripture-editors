@@ -3181,7 +3181,7 @@ describe("Delta Utils $applyUpdate", () => {
         expect(note.getMarker()).toBe("f");
         expect(note.getCaller()).toBe(GENERATOR_NOTE_CALLER);
         expect($getState(note, segmentState)).toBe("verse_2_1");
-        expect(note.getChildrenSize()).toBe(10);
+        expect(note.getChildrenSize()).toBe(8);
 
         const openingMarker = note.getFirstChild();
         if (!$isImmutableTypedTextNode(openingMarker))
@@ -3198,43 +3198,47 @@ describe("Delta Utils $applyUpdate", () => {
         const spaceNode1 = note.getChildAtIndex(2);
         expect($isTextNode(spaceNode1)).toBe(true);
 
-        const frMarker = note.getChildAtIndex(3);
-        if (!$isImmutableTypedTextNode(frMarker))
-          throw new Error("Expected a ImmutableTypedTextNode");
-        expect(frMarker.getTextType()).toBe("marker");
-        expect(frMarker.getTextContent()).toBe("\\fr");
-
-        const char1 = note.getChildAtIndex(4);
+        // fr marker is now inside char1
+        const char1 = note.getChildAtIndex(3);
         if (!$isCharNode(char1)) throw new Error("char1 is not a CharNode");
         expect(char1.getMarker()).toBe("fr");
-        expect(char1.getTextContent()).toBe("2.1 ");
+        expect(char1.getTextContent()).toBe("\\fr2.1 ");
         expect($getState(char1, charIdState)).toBe("a4f30846-b45c-4bc0-aebe-103dd36a9af3");
         expect(char1.getUnknownAttributes()).toEqual({
           closed: "false",
         });
 
-        const spaceNode2 = note.getChildAtIndex(5);
+        // Verify fr marker is first child of char1
+        const frMarker = char1.getFirstChild();
+        if (!$isImmutableTypedTextNode(frMarker))
+          throw new Error("Expected a ImmutableTypedTextNode");
+        expect(frMarker.getTextType()).toBe("marker");
+        expect(frMarker.getTextContent()).toBe("\\fr");
+
+        const spaceNode2 = note.getChildAtIndex(4);
         expect($isTextNode(spaceNode2)).toBe(true);
 
-        const ftMarker = note.getChildAtIndex(6);
-        if (!$isImmutableTypedTextNode(ftMarker))
-          throw new Error("Expected a ImmutableTypedTextNode");
-        expect(ftMarker.getTextType()).toBe("marker");
-        expect(ftMarker.getTextContent()).toBe("\\ft");
-
-        const char2 = note.getChildAtIndex(7);
+        // ft marker is now inside char2
+        const char2 = note.getChildAtIndex(5);
         if (!$isCharNode(char2)) throw new Error("char2 is not a CharNode");
         expect(char2.getMarker()).toBe("ft");
-        expect(char2.getTextContent()).toBe("in time.");
+        expect(char2.getTextContent()).toBe("\\ftin time.");
         expect($getState(char2, charIdState)).toBe("6b911d54-dd6f-41a8-948e-52c7bd03aeb6");
         expect(char1.getUnknownAttributes()).toEqual({
           closed: "false",
         });
 
-        const spaceNode3 = note.getChildAtIndex(8);
+        // Verify ft marker is first child of char2
+        const ftMarker = char2.getFirstChild();
+        if (!$isImmutableTypedTextNode(ftMarker))
+          throw new Error("Expected a ImmutableTypedTextNode");
+        expect(ftMarker.getTextType()).toBe("marker");
+        expect(ftMarker.getTextContent()).toBe("\\ft");
+
+        const spaceNode3 = note.getChildAtIndex(6);
         expect($isTextNode(spaceNode3)).toBe(true);
 
-        const closingMarker = note.getChildAtIndex(9);
+        const closingMarker = note.getChildAtIndex(7);
         if (!$isImmutableTypedTextNode(closingMarker))
           throw new Error("Expected a ImmutableTypedTextNode");
         expect(closingMarker.getTextType()).toBe("marker");
@@ -3294,7 +3298,7 @@ describe("Delta Utils $applyUpdate", () => {
         expect(note.getCaller()).toBe(GENERATOR_NOTE_CALLER);
         expect($getState(note, segmentState)).toBe("verse_2_1");
 
-        expect(note.getChildrenSize()).toBe(10);
+        expect(note.getChildrenSize()).toBe(8);
 
         const openingMarker = note.getFirstChild();
         if (!$isImmutableTypedTextNode(openingMarker))
@@ -3306,65 +3310,77 @@ describe("Delta Utils $applyUpdate", () => {
         if (!$isImmutableNoteCallerNode(caller))
           throw new Error("Expected a ImmutableNoteCallerNode");
         expect(caller.getCaller()).toBe(GENERATOR_NOTE_CALLER);
-        expect(caller.getPreviewText()).toBe("2.1  in \\+bdtime\\+bd*");
+        expect(caller.getPreviewText()).toBe("2.1  in time");
 
         const spaceNode1 = note.getChildAtIndex(2);
         expect($isTextNode(spaceNode1)).toBe(true);
 
-        const frMarker = note.getChildAtIndex(3);
+        // fr marker is now inside char1
+        const char1 = note.getChildAtIndex(3);
+        if (!$isCharNode(char1)) throw new Error("char1 is not a CharNode");
+        expect(char1.getMarker()).toBe("fr");
+        expect(char1.getTextContent()).toBe("\\fr2.1 ");
+        expect($getState(char1, charIdState)).toBe("char-id1");
+
+        // Verify fr marker is first child of char1
+        const frMarker = char1.getFirstChild();
         if (!$isImmutableTypedTextNode(frMarker))
           throw new Error("Expected a ImmutableTypedTextNode");
         expect(frMarker.getTextType()).toBe("marker");
         expect(frMarker.getTextContent()).toBe("\\fr");
 
-        const char1 = note.getChildAtIndex(4);
-        if (!$isCharNode(char1)) throw new Error("char1 is not a CharNode");
-        expect(char1.getMarker()).toBe("fr");
-        expect(char1.getTextContent()).toBe("2.1 ");
-        expect($getState(char1, charIdState)).toBe("char-id1");
-
-        const spaceNode2 = note.getChildAtIndex(5);
+        const spaceNode2 = note.getChildAtIndex(4);
         expect($isTextNode(spaceNode2)).toBe(true);
 
-        const ftMarker = note.getChildAtIndex(6);
+        // ft marker is now inside char2
+        const char2 = note.getChildAtIndex(5);
+        if (!$isCharNode(char2)) throw new Error("char2 is not a CharNode");
+        expect(char2.getMarker()).toBe("ft");
+        expect(char2.getTextContent()).toBe("\\ftin \\+bdtime\\+bd*");
+        expect($getState(char2, charIdState)).toBe("char-id2");
+        expect(char2.getChildrenSize()).toBe(3);
+
+        // Verify ft marker is first child of char2
+        const ftMarker = char2.getFirstChild();
         if (!$isImmutableTypedTextNode(ftMarker))
           throw new Error("Expected a ImmutableTypedTextNode");
         expect(ftMarker.getTextType()).toBe("marker");
         expect(ftMarker.getTextContent()).toBe("\\ft");
 
-        const char2 = note.getChildAtIndex(7);
-        if (!$isCharNode(char2)) throw new Error("char2 is not a CharNode");
-        expect(char2.getMarker()).toBe("ft");
-        expect(char2.getTextContent()).toBe("in \\+bdtime\\+bd*");
-        expect($getState(char2, charIdState)).toBe("char-id2");
-        expect(char2.getChildrenSize()).toBe(4);
-
-        const char2Text = char2.getFirstChild();
+        const char2Text = char2.getChildAtIndex(1);
         if (!$isTextNode(char2Text)) throw new Error("char2Text is not a TextNode");
         expect(char2Text.getTextContent()).toBe("in ");
 
-        const bdOpeningMarker = char2.getChildAtIndex(1);
+        // +bd CharNode now has its markers inside
+        const char3 = char2.getChildAtIndex(2);
+        if (!$isCharNode(char3)) throw new Error("char3 is not a CharNode");
+        expect(char3.getMarker()).toBe("+bd");
+        expect(char3.getTextContent()).toBe("\\+bdtime\\+bd*");
+        expect($getState(char3, charIdState)).toBe("char-id3");
+        expect(char3.getChildrenSize()).toBe(3);
+
+        // Verify +bd opening marker is first child of char3
+        const bdOpeningMarker = char3.getFirstChild();
         if (!$isImmutableTypedTextNode(bdOpeningMarker))
           throw new Error("Expected a ImmutableTypedTextNode");
         expect(bdOpeningMarker.getTextType()).toBe("marker");
         expect(bdOpeningMarker.getTextContent()).toBe("\\+bd");
 
-        const char3 = char2.getChildAtIndex(2);
-        if (!$isCharNode(char3)) throw new Error("char3 is not a CharNode");
-        expect(char3.getMarker()).toBe("+bd");
-        expect(char3.getTextContent()).toBe("time");
-        expect($getState(char3, charIdState)).toBe("char-id3");
+        const char3Text = char3.getChildAtIndex(1);
+        if (!$isTextNode(char3Text)) throw new Error("char3Text is not a TextNode");
+        expect(char3Text.getTextContent()).toBe("time");
 
-        const bdClosingMarker = char2.getChildAtIndex(3);
+        // Verify +bd closing marker is last child of char3
+        const bdClosingMarker = char3.getChildAtIndex(2);
         if (!$isImmutableTypedTextNode(bdClosingMarker))
           throw new Error("Expected a ImmutableTypedTextNode");
         expect(bdClosingMarker.getTextType()).toBe("marker");
         expect(bdClosingMarker.getTextContent()).toBe("\\+bd*");
 
-        const spaceNode3 = note.getChildAtIndex(8);
+        const spaceNode3 = note.getChildAtIndex(6);
         expect($isTextNode(spaceNode3)).toBe(true);
 
-        const closingMarker = note.getChildAtIndex(9);
+        const closingMarker = note.getChildAtIndex(7);
         if (!$isImmutableTypedTextNode(closingMarker))
           throw new Error("Expected a ImmutableTypedTextNode");
         expect(closingMarker.getTextType()).toBe("marker");

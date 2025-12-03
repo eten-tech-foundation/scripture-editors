@@ -4,7 +4,7 @@
 
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { TreeView } from "@lexical/react/LexicalTreeView";
-import { LexicalNode } from "lexical";
+import { $isTextNode, LexicalNode, NODE_STATE_KEY } from "lexical";
 import { ReactElement } from "react";
 import { $isImmutableNoteCallerNode, $isImmutableVerseNode } from "shared-react";
 import {
@@ -30,9 +30,14 @@ function $customPrintNode(node: LexicalNode) {
       `${node.__marker} "${node.__caller}"` + (node.__isCollapsed ? " (collapsed)" : " (expanded)")
     );
   if ($isParaNode(node)) return `${node.__marker}`;
+  if ($isTextNode(node)) return `"${node.__text}"${formatNodeState(node)}`;
   if ($isTypedMarkNode(node)) return `ids: [ ${JSON.stringify(node.getTypedIDs())} ]`;
   if ($isVerseNode(node)) return `${node.__marker} "${node.__number}"`;
   return "";
+}
+
+function formatNodeState(node: LexicalNode): string {
+  return node.__state ? " " + JSON.stringify(node.__state.toJSON()[NODE_STATE_KEY]) : "";
 }
 
 export default function TreeViewPlugin(): ReactElement {

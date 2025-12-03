@@ -1,5 +1,5 @@
 import { SelectionRange } from "./annotation/selection.model";
-import { $getRangeFromEditor } from "./annotation/selection.utils";
+import { $getUsjSelectionFromEditor } from "./annotation/selection.utils";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { COMMAND_PRIORITY_LOW, SELECTION_CHANGE_COMMAND } from "lexical";
 import { useEffect } from "react";
@@ -16,8 +16,8 @@ export function OnSelectionChangePlugin({
       editor.registerCommand(
         SELECTION_CHANGE_COMMAND,
         () => {
-          const selection = editor.read(() => $getRangeFromEditor());
-          onChange?.(selection);
+          const usjSelection = editor.read($getUsjSelectionFromEditor);
+          onChange?.(usjSelection);
           return false;
         },
         COMMAND_PRIORITY_LOW,
