@@ -156,14 +156,14 @@ describe("USJ Editor Adaptor", () => {
     const noteOpening = noteChildren[0];
     if (!isSerializedImmutableTypedTextNode(noteOpening)) throw new Error("No note opening marker");
     expect(noteOpening.textType).toBe("marker");
-    expect(noteOpening.text).toBe(`${openingMarkerText("f")}${NBSP}`);
+    expect(noteOpening.text).toBe(`${openingMarkerText("f")} `);
     const noteCaller = noteChildren[1];
     expect(isSerializedImmutableNoteCallerNode(noteCaller)).toBe(true);
     // Closing marker at the end with NBSP
     const noteClosing = noteChildren[noteChildren.length - 1];
     if (!isSerializedImmutableTypedTextNode(noteClosing)) throw new Error("No note closing marker");
     expect(noteClosing.textType).toBe("marker");
-    expect(noteClosing.text).toBe(`${closingMarkerText("f")}${NBSP}`);
+    expect(noteClosing.text).toBe(`${closingMarkerText("f")}`);
 
     // Note inner char 'fr' is preceded by a typed marker and its text is NBSP-prefixed
     const frOpen = noteChildren.find(

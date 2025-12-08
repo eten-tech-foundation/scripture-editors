@@ -428,7 +428,7 @@ export function getPreviewTextFromSerializedNodes(childNodes: SerializedLexicalN
  * @returns caller text.
  */
 export function getEditableCallerText(noteCaller: string): string {
-  return NBSP + noteCaller + " ";
+  return " " + noteCaller + NBSP;
 }
 
 /**
