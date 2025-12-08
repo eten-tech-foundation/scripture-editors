@@ -579,6 +579,7 @@ export const editorStateGen1v1Editable = {
           },
           {
             type: "text",
+            $: { textType: "marker-trailing-space" },
             text: NBSP,
             detail: 0,
             format: 0,
@@ -761,6 +762,7 @@ export const editorStateGen1v1Editable = {
           },
           {
             type: "text",
+            $: { textType: "marker-trailing-space" },
             text: NBSP,
             detail: 0,
             format: 0,
@@ -793,6 +795,7 @@ export const editorStateGen1v1Editable = {
           },
           {
             type: "text",
+            $: { textType: "marker-trailing-space" },
             text: NBSP,
             detail: 0,
             format: 0,
