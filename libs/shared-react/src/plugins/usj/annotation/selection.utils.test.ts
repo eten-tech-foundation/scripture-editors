@@ -25,6 +25,7 @@ import {
   $createParaNode,
   $createTypedMarkNode,
   $createVerseNode,
+  closingMarkerText,
   ImmutableTypedTextNode,
   MarkerNode,
   MilestoneNode,
@@ -177,14 +178,13 @@ describe("$getRangeFromSelection", () => {
       });
 
       editor.getEditorState().read(() => {
-        const selection: SelectionRange = {
-          start: { jsonPath: "$.content[0]" },
-        };
+        const selection: SelectionRange = { start: { jsonPath: "$.content[0]" } };
         const rangeSelection = $getRangeFromSelection(selection);
 
         if (!rangeSelection) throw new Error("Expected rangeSelection to be defined");
         expect(rangeSelection.anchor.key).toBe(markerNode.getKey());
         expect(rangeSelection.anchor.offset).toBe(0);
+        expect(rangeSelection.isCollapsed()).toBe(true);
       });
     });
 
@@ -196,15 +196,13 @@ describe("$getRangeFromSelection", () => {
       });
 
       editor.getEditorState().read(() => {
-        const selection: SelectionRange = {
-          start: { jsonPath: "$.content[0]" },
-        };
-
+        const selection: SelectionRange = { start: { jsonPath: "$.content[0]" } };
         const rangeSelection = $getRangeFromSelection(selection);
 
         if (!rangeSelection) throw new Error("Expected rangeSelection to be defined");
         expect(rangeSelection.anchor.key).toBe(t1.getKey());
         expect(rangeSelection.anchor.offset).toBe(0);
+        expect(rangeSelection.isCollapsed()).toBe(true);
       });
     });
 
@@ -214,12 +212,28 @@ describe("$getRangeFromSelection", () => {
       });
 
       editor.getEditorState().read(() => {
-        const selection: SelectionRange = {
-          start: { jsonPath: "$.content[0]" },
-        };
-
+        const selection: SelectionRange = { start: { jsonPath: "$.content[0]" } };
         const rangeSelection = $getRangeFromSelection(selection);
+
         expect(rangeSelection).toBeUndefined();
+      });
+    });
+
+    it("should position at opening ImmutableTypedTextNode marker when present (visible mode)", () => {
+      let markerNode: ImmutableTypedTextNode;
+      const { editor } = createBasicTestEnvironment([ParaNode, ImmutableTypedTextNode], () => {
+        markerNode = $createImmutableTypedTextNode("marker", openingMarkerText("p"));
+        $getRoot().append($createParaNode().append(markerNode, $createTextNode("Hello")));
+      });
+
+      editor.getEditorState().read(() => {
+        const selection: SelectionRange = { start: { jsonPath: "$.content[0]" } };
+        const rangeSelection = $getRangeFromSelection(selection);
+
+        if (!rangeSelection) throw new Error("Expected rangeSelection to be defined");
+        expect(rangeSelection.anchor.key).toBe(markerNode.getKey());
+        expect(rangeSelection.anchor.offset).toBe(0);
+        expect(rangeSelection.isCollapsed()).toBe(true);
       });
     });
   });
@@ -247,6 +261,7 @@ describe("$getRangeFromSelection", () => {
         if (!rangeSelection) throw new Error("Expected rangeSelection to be defined");
         expect(rangeSelection.anchor.key).toBe(closingMarker.getKey());
         expect(rangeSelection.anchor.offset).toBe(2);
+        expect(rangeSelection.isCollapsed()).toBe(true);
       });
     });
 
@@ -261,12 +276,38 @@ describe("$getRangeFromSelection", () => {
         const selection: SelectionRange = {
           start: { jsonPath: "$.content[0]", closingMarkerOffset: 2 },
         };
-
         const rangeSelection = $getRangeFromSelection(selection);
 
         if (!rangeSelection) throw new Error("Expected rangeSelection to be defined");
         expect(rangeSelection.anchor.key).toBe(t1.getKey());
         expect(rangeSelection.anchor.offset).toBe(5);
+        expect(rangeSelection.isCollapsed()).toBe(true);
+      });
+    });
+
+    it("should position within closing ImmutableTypedTextNode marker when present (visible mode)", () => {
+      let closingMarker: ImmutableTypedTextNode;
+      const { editor } = createBasicTestEnvironment([ParaNode, ImmutableTypedTextNode], () => {
+        closingMarker = $createImmutableTypedTextNode("marker", closingMarkerText("nd"));
+        $getRoot().append(
+          $createParaNode().append(
+            $createImmutableTypedTextNode("marker", openingMarkerText("nd") + " "),
+            $createTextNode("name"),
+            closingMarker,
+          ),
+        );
+      });
+
+      editor.getEditorState().read(() => {
+        const selection: SelectionRange = {
+          start: { jsonPath: "$.content[0]", closingMarkerOffset: 2 },
+        };
+        const rangeSelection = $getRangeFromSelection(selection);
+
+        if (!rangeSelection) throw new Error("Expected rangeSelection to be defined");
+        expect(rangeSelection.anchor.key).toBe(closingMarker.getKey());
+        expect(rangeSelection.anchor.offset).toBe(2);
+        expect(rangeSelection.isCollapsed()).toBe(true);
       });
     });
   });
@@ -288,6 +329,7 @@ describe("$getRangeFromSelection", () => {
         if (!rangeSelection) throw new Error("Expected rangeSelection to be defined");
         expect(rangeSelection.anchor.key).toBe(markerNode.getKey());
         expect(rangeSelection.anchor.offset).toBe(3);
+        expect(rangeSelection.isCollapsed()).toBe(true);
       });
     });
 
@@ -302,34 +344,158 @@ describe("$getRangeFromSelection", () => {
         const selection: SelectionRange = {
           start: { jsonPath: "$.content[0].marker", propertyOffset: 1 },
         };
-
         const rangeSelection = $getRangeFromSelection(selection);
 
         if (!rangeSelection) throw new Error("Expected rangeSelection to be defined");
         expect(rangeSelection.anchor.key).toBe(t1.getKey());
         expect(rangeSelection.anchor.offset).toBe(0);
+        expect(rangeSelection.isCollapsed()).toBe(true);
+      });
+    });
+
+    it("should position within opening ImmutableTypedTextNode marker when property is 'marker' (visible mode)", () => {
+      let markerNode: ImmutableTypedTextNode;
+      const { editor } = createBasicTestEnvironment([ParaNode, ImmutableTypedTextNode], () => {
+        // ImmutableTypedTextNode text is "\toc1" (backslash + marker name)
+        markerNode = $createImmutableTypedTextNode("marker", openingMarkerText("toc1"));
+        $getRoot().append($createParaNode().append(markerNode, $createTextNode("Hello")));
+      });
+
+      editor.getEditorState().read(() => {
+        const selection: SelectionRange = {
+          // propertyOffset 2 means offset 2 within the marker name itself ("toc1")
+          // The text is "\toc1", so offset 2 in marker name maps to offset 3 in the text
+          start: { jsonPath: "$.content[0].marker", propertyOffset: 2 },
+        };
+        const rangeSelection = $getRangeFromSelection(selection);
+
+        if (!rangeSelection) throw new Error("Expected rangeSelection to be defined");
+        expect(rangeSelection.anchor.key).toBe(markerNode.getKey());
+        // propertyOffset + 1 = 3 (after backslash)
+        expect(rangeSelection.anchor.offset).toBe(3);
+        expect(rangeSelection.isCollapsed()).toBe(true);
       });
     });
   });
 
-  describe("unsupported UsjDocumentLocation types", () => {
-    it("should throw error for UsjAttributeKeyLocation", () => {
-      const { editor } = createBasicTestEnvironment([ParaNode], () => {
-        $getRoot().append($createParaNode().append($createTextNode("Hello")));
+  describe("UsjAttributeKeyLocation", () => {
+    it("should position at opening MarkerNode when present (editable mode)", () => {
+      let markerNode: MarkerNode;
+      const { editor } = createBasicTestEnvironment([ParaNode, MarkerNode], () => {
+        markerNode = $createMarkerNode("p", "opening");
+        $getRoot().append($createParaNode().append(markerNode, $createTextNode("Hello")));
       });
 
       editor.getEditorState().read(() => {
-        const selection = {
+        const selection: SelectionRange = {
           start: {
             jsonPath: "$.content[0]",
             keyName: "someAttr",
             keyOffset: 0,
           },
         };
+        const rangeSelection = $getRangeFromSelection(selection);
 
-        expect(() => $getRangeFromSelection(selection as SelectionRange)).toThrow(
-          /Unsupported UsjDocumentLocation type/,
-        );
+        if (!rangeSelection) throw new Error("Expected rangeSelection to be defined");
+        expect(rangeSelection.anchor.key).toBe(markerNode.getKey());
+        expect(rangeSelection.anchor.offset).toBe(0);
+        expect(rangeSelection.isCollapsed()).toBe(true);
+      });
+    });
+
+    it("should position at opening ImmutableTypedTextNode marker when present (visible mode)", () => {
+      let markerNode: ImmutableTypedTextNode;
+      const { editor } = createBasicTestEnvironment([ParaNode, ImmutableTypedTextNode], () => {
+        markerNode = $createImmutableTypedTextNode("marker", openingMarkerText("p"));
+        $getRoot().append($createParaNode().append(markerNode, $createTextNode("Hello")));
+      });
+
+      editor.getEditorState().read(() => {
+        const selection: SelectionRange = {
+          start: {
+            jsonPath: "$.content[0]",
+            keyName: "someAttr",
+            keyOffset: 0,
+          },
+        };
+        const rangeSelection = $getRangeFromSelection(selection);
+
+        if (!rangeSelection) throw new Error("Expected rangeSelection to be defined");
+        expect(rangeSelection.anchor.key).toBe(markerNode.getKey());
+        expect(rangeSelection.anchor.offset).toBe(0);
+        expect(rangeSelection.isCollapsed()).toBe(true);
+      });
+    });
+
+    it("should fall back to first text node when no marker exists (hidden mode)", () => {
+      let t1: TextNode;
+      const { editor } = createBasicTestEnvironment([ParaNode], () => {
+        t1 = $createTextNode("Hello");
+        $getRoot().append($createParaNode().append(t1));
+      });
+
+      editor.getEditorState().read(() => {
+        const selection: SelectionRange = {
+          start: {
+            jsonPath: "$.content[0]",
+            keyName: "someAttr",
+            keyOffset: 0,
+          },
+        };
+        const rangeSelection = $getRangeFromSelection(selection);
+
+        if (!rangeSelection) throw new Error("Expected rangeSelection to be defined");
+        expect(rangeSelection.anchor.key).toBe(t1.getKey());
+        expect(rangeSelection.anchor.offset).toBe(0);
+        expect(rangeSelection.isCollapsed()).toBe(true);
+      });
+    });
+  });
+
+  describe("UsjAttributeMarkerLocation", () => {
+    it("should position at opening MarkerNode when present (editable mode)", () => {
+      let markerNode: MarkerNode;
+      const { editor } = createBasicTestEnvironment([ParaNode, MarkerNode], () => {
+        markerNode = $createMarkerNode("p", "opening");
+        $getRoot().append($createParaNode().append(markerNode, $createTextNode("Hello")));
+      });
+
+      editor.getEditorState().read(() => {
+        const selection: SelectionRange = {
+          start: {
+            jsonPath: "$.content[0]",
+            keyName: "someAttr",
+          },
+        };
+        const rangeSelection = $getRangeFromSelection(selection);
+
+        if (!rangeSelection) throw new Error("Expected rangeSelection to be defined");
+        expect(rangeSelection.anchor.key).toBe(markerNode.getKey());
+        expect(rangeSelection.anchor.offset).toBe(0);
+        expect(rangeSelection.isCollapsed()).toBe(true);
+      });
+    });
+
+    it("should fall back to first text node when no marker exists (hidden mode)", () => {
+      let t1: TextNode;
+      const { editor } = createBasicTestEnvironment([ParaNode], () => {
+        t1 = $createTextNode("Hello");
+        $getRoot().append($createParaNode().append(t1));
+      });
+
+      editor.getEditorState().read(() => {
+        const selection: SelectionRange = {
+          start: {
+            jsonPath: "$.content[0]",
+            keyName: "someAttr",
+          },
+        };
+        const rangeSelection = $getRangeFromSelection(selection);
+
+        if (!rangeSelection) throw new Error("Expected rangeSelection to be defined");
+        expect(rangeSelection.anchor.key).toBe(t1.getKey());
+        expect(rangeSelection.anchor.offset).toBe(0);
+        expect(rangeSelection.isCollapsed()).toBe(true);
       });
     });
   });

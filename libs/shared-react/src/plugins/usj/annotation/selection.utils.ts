@@ -8,6 +8,8 @@ import {
   type UsjPropertyValueLocation,
   getUsjDocumentLocationTypeName,
   indexesFromUsjJsonPath,
+  isUsjAttributeKeyLocation,
+  isUsjAttributeMarkerLocation,
   isUsjClosingMarkerLocation,
   isUsjMarkerLocation,
   isUsjPropertyValueLocation,
@@ -33,6 +35,7 @@ import {
   $isImmutableTypedTextNode,
   $isMarkerNode,
   $isTypedMarkNode,
+  ImmutableTypedTextNode,
   MarkerNode,
   textTypeState,
 } from "shared";
@@ -123,6 +126,24 @@ function $getNodeFromLocation(
     return $findTextNodeInMarks(currentNode, location.offset);
   }
 
+  // Handle UsjAttributeKeyLocation and UsjAttributeMarkerLocation BEFORE UsjMarkerLocation
+  // because UsjAttributeMarkerLocation has keyName but no offsets, similar to UsjMarkerLocation.
+  // Checking for keyName first ensures correct type narrowing.
+  if (isUsjAttributeKeyLocation(location) || isUsjAttributeMarkerLocation(location)) {
+    const node = $navigateToNode(location.jsonPath);
+    if (!node || !$isElementNode(node)) return [undefined, undefined];
+
+    // If marker node exists, position at offset 0
+    const markerNode = $findMarkerNode(node, "opening");
+    if (markerNode) return [markerNode, 0];
+
+    // Fallback: position at start of first content child
+    const firstChild = node.getFirstChild();
+    if (firstChild && $isTextNode(firstChild)) return [firstChild, 0];
+
+    return [undefined, undefined];
+  }
+
   // Handle UsjMarkerLocation - position at the beginning of the opening marker
   if (isUsjMarkerLocation(location)) {
     const node = $navigateToNode(location.jsonPath);
@@ -184,13 +205,12 @@ function $getNodeFromLocation(
     return [undefined, undefined];
   }
 
-  // Unsupported location types (attribute locations: UsjAttributeKeyLocation,
-  // UsjAttributeMarkerLocation, UsjClosingAttributeMarkerLocation)
+  // Unsupported location types (UsjClosingAttributeMarkerLocation)
   throw new Error(
     `Unsupported UsjDocumentLocation type: ${getUsjDocumentLocationTypeName(location)}. ` +
-      `Currently only UsjMarkerLocation, UsjClosingMarkerLocation, UsjTextContentLocation, ` +
-      `and UsjPropertyValueLocation are supported. ` +
-      `Received: ${JSON.stringify(location)}`,
+      "Currently only UsjMarkerLocation, UsjClosingMarkerLocation, UsjTextContentLocation, " +
+      "UsjPropertyValueLocation, UsjAttributeKeyLocation, and UsjAttributeMarkerLocation are " +
+      `supported. Received: ${JSON.stringify(location)}`,
   );
 }
 
@@ -230,22 +250,32 @@ function $findTextNodeInMarks(
 }
 
 /**
- * Finds a MarkerNode child with the specified syntax.
+ * Finds a MarkerNode or ImmutableTypedTextNode marker child with the specified syntax.
  * @param parent - The parent element node to search in.
  * @param syntax - The marker syntax to find ("opening" or "closing").
- * @returns The MarkerNode if found, undefined otherwise.
+ * @returns The MarkerNode or ImmutableTypedTextNode if found, undefined otherwise.
  */
 function $findMarkerNode(
   parent: ElementNode,
   syntax: "opening" | "closing",
-): MarkerNode | undefined {
+): MarkerNode | ImmutableTypedTextNode | undefined {
   const children = parent.getChildren();
   for (const child of children) {
+    // Check for editable MarkerNode
     if ($isMarkerNode(child) && child.getMarkerSyntax() === syntax) return child;
 
     // Also check for selfClosing when looking for closing
     if (syntax === "closing" && $isMarkerNode(child) && child.getMarkerSyntax() === "selfClosing") {
       return child;
+    }
+
+    // Check for visible marker (ImmutableTypedTextNode with textType "marker")
+    if ($isImmutableTypedTextNode(child) && child.getTextType() === "marker") {
+      const text = child.getTextContent();
+      const isClosing = text.endsWith("*");
+      if ((syntax === "opening" && !isClosing) || (syntax === "closing" && isClosing)) {
+        return child;
+      }
     }
   }
   return undefined;
