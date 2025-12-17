@@ -41,16 +41,16 @@ import {
 } from "shared";
 
 /**
- * Converts a SelectionRange or AnnotationRange to a RangeSelection.
+ * Converts a USJ SelectionRange or AnnotationRange to an editor RangeSelection.
  *
- * This function takes a selection object and creates a corresponding RangeSelection in the Lexical
- * editor. It determines the start and end nodes based on the provided selection range and creates
- * a new RangeSelection with appropriate anchor and focus points.
+ * This function takes a USJ selection object and creates a corresponding editor RangeSelection.
+ * It determines the start and end nodes based on the provided selection range and creates a new
+ * RangeSelection with appropriate anchor and focus points.
  *
- * @param selection - The selection range to convert. Can be either a SelectionRange or
+ * @param selection - The USJ selection range to convert. Can be either a SelectionRange or
  *   AnnotationRange.
- * @returns A new RangeSelection object if the conversion is successful, or `undefined` if the
- *   required nodes or offsets cannot be found.
+ * @returns A new editor RangeSelection object if the conversion is successful, or `undefined` if
+ *   the required nodes or offsets cannot be found.
  *
  * @remarks
  * - If the 'end' property of the selection is undefined (indicating this is a location rather than
@@ -58,7 +58,7 @@ import {
  * - If either the start or end node cannot be found, or if their offsets are undefined, the
  *   function returns undefined.
  */
-export function $getRangeFromSelection(
+export function $getRangeFromUsjSelection(
   selection: SelectionRange | AnnotationRange,
 ): RangeSelection | undefined {
   const { start } = selection;
@@ -72,22 +72,22 @@ export function $getRangeFromSelection(
     return undefined;
 
   // Create selection range.
-  const rangeSelection = $createRangeSelection();
-  rangeSelection.anchor = $createPoint(startNode.getKey(), startOffset, $getPointType(startNode));
-  rangeSelection.focus = $createPoint(endNode.getKey(), endOffset, $getPointType(endNode));
-  return rangeSelection;
+  const editorSelection = $createRangeSelection();
+  editorSelection.anchor = $createPoint(startNode.getKey(), startOffset, $getPointType(startNode));
+  editorSelection.focus = $createPoint(endNode.getKey(), endOffset, $getPointType(endNode));
+  return editorSelection;
 }
 
 /**
- * Retrieves the current selection range from the editor.
+ * Retrieves the current USJ selection range from the editor.
  *
  * This function extracts the selection range from the editor's current state. It handles both
  * forward and backward selections, as well as collapsed (single point) selections.
  *
- * @returns A `SelectionRange` object containing the start and end positions of the selection, or
- *   `undefined` if there is no valid range selection.
+ * @returns A USJ `SelectionRange` object containing the start and end positions of the selection,
+ *   or `undefined` if there is no valid range selection.
  */
-export function $getRangeFromEditor(): SelectionRange | undefined {
+export function $getUsjSelectionFromEditor(): SelectionRange | undefined {
   const editorSelection = $getSelection();
   if (!editorSelection || !$isRangeSelection(editorSelection)) return;
 

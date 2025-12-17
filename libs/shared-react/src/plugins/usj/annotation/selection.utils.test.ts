@@ -9,7 +9,7 @@ import {
   ImmutableVerseNode,
 } from "../../../nodes/usj/ImmutableVerseNode";
 import { SelectionRange, AnnotationRange } from "./selection.model";
-import { $getRangeFromSelection, $getRangeFromEditor } from "./selection.utils";
+import { $getRangeFromUsjSelection, $getUsjSelectionFromEditor } from "./selection.utils";
 import {
   $createLineBreakNode,
   $createTextNode,
@@ -37,9 +37,9 @@ import {
   VerseNode,
 } from "shared";
 
-describe("$getRangeFromSelection", () => {
+describe("$getRangeFromUsjSelection", () => {
   describe("UsjTextContentLocation", () => {
-    it("should convert a collapsed SelectionRange to a RangeSelection", () => {
+    it("should convert a collapsed USJ selection to an editor selection", () => {
       let t1: TextNode;
       const { editor } = createBasicTestEnvironment([ParaNode], () => {
         t1 = $createTextNode("Hello world");
@@ -48,20 +48,20 @@ describe("$getRangeFromSelection", () => {
 
       editor.getEditorState().read(() => {
         // caret at the end of "Hello"
-        const selection: SelectionRange = {
+        const usjSelection: SelectionRange = {
           start: { jsonPath: "$.content[0].content[0]", offset: 5 },
         };
-        const rangeSelection = $getRangeFromSelection(selection);
+        const editorSelection = $getRangeFromUsjSelection(usjSelection);
 
-        if (!rangeSelection) throw new Error("Expected rangeSelection to be defined");
-        expect(rangeSelection.anchor.key).toBe(t1.getKey());
-        expect(rangeSelection.anchor.offset).toBe(5);
-        expect(rangeSelection.focus.key).toBe(t1.getKey());
-        expect(rangeSelection.focus.offset).toBe(5);
+        if (!editorSelection) throw new Error("Expected editorSelection to be defined");
+        expect(editorSelection.anchor.key).toBe(t1.getKey());
+        expect(editorSelection.anchor.offset).toBe(5);
+        expect(editorSelection.focus.key).toBe(t1.getKey());
+        expect(editorSelection.focus.offset).toBe(5);
       });
     });
 
-    it("should convert a SelectionRange with start and end to a RangeSelection", () => {
+    it("should convert a USJ selection with start and end to an editor selection", () => {
       let t1: TextNode;
       const { editor } = createBasicTestEnvironment([ParaNode], () => {
         t1 = $createTextNode("Hello world");
@@ -70,21 +70,21 @@ describe("$getRangeFromSelection", () => {
 
       editor.getEditorState().read(() => {
         // select "Hello" from "Hello world"
-        const selection: SelectionRange = {
+        const usjSelection: SelectionRange = {
           start: { jsonPath: "$.content[0].content[0]", offset: 0 },
           end: { jsonPath: "$.content[0].content[0]", offset: 5 },
         };
-        const rangeSelection = $getRangeFromSelection(selection);
+        const editorSelection = $getRangeFromUsjSelection(usjSelection);
 
-        if (!rangeSelection) throw new Error("Expected rangeSelection to be defined");
-        expect(rangeSelection.anchor.key).toBe(t1.getKey());
-        expect(rangeSelection.anchor.offset).toBe(0);
-        expect(rangeSelection.focus.key).toBe(t1.getKey());
-        expect(rangeSelection.focus.offset).toBe(5);
+        if (!editorSelection) throw new Error("Expected editorSelection to be defined");
+        expect(editorSelection.anchor.key).toBe(t1.getKey());
+        expect(editorSelection.anchor.offset).toBe(0);
+        expect(editorSelection.focus.key).toBe(t1.getKey());
+        expect(editorSelection.focus.offset).toBe(5);
       });
     });
 
-    it("should convert a SelectionRange at end of para to a RangeSelection", () => {
+    it("should convert a USJ selection at end of para to an editor usjSelection", () => {
       let t1: TextNode;
       const { editor } = createBasicTestEnvironment([ParaNode], () => {
         t1 = $createTextNode("Hello world");
@@ -93,17 +93,17 @@ describe("$getRangeFromSelection", () => {
 
       editor.getEditorState().read(() => {
         // select "world" from "Hello world"
-        const selection: SelectionRange = {
+        const usjSelection: SelectionRange = {
           start: { jsonPath: "$.content[0].content[0]", offset: 6 },
           end: { jsonPath: "$.content[0].content[0]", offset: 11 },
         };
-        const rangeSelection = $getRangeFromSelection(selection);
+        const editorSelection = $getRangeFromUsjSelection(usjSelection);
 
-        if (!rangeSelection) throw new Error("Expected rangeSelection to be defined");
-        expect(rangeSelection.anchor.key).toBe(t1.getKey());
-        expect(rangeSelection.anchor.offset).toBe(6);
-        expect(rangeSelection.focus.key).toBe(t1.getKey());
-        expect(rangeSelection.focus.offset).toBe(11);
+        if (!editorSelection) throw new Error("Expected editorSelection to be defined");
+        expect(editorSelection.anchor.key).toBe(t1.getKey());
+        expect(editorSelection.anchor.offset).toBe(6);
+        expect(editorSelection.focus.key).toBe(t1.getKey());
+        expect(editorSelection.focus.offset).toBe(11);
       });
     });
 
@@ -121,13 +121,13 @@ describe("$getRangeFromSelection", () => {
           start: { jsonPath: "$.content[0].content[0]", offset: 5 },
           end: { jsonPath: "$.content[1].content[0]", offset: 6 },
         };
-        const rangeSelection = $getRangeFromSelection(annotation);
+        const editorSelection = $getRangeFromUsjSelection(annotation);
 
-        if (!rangeSelection) throw new Error("Expected rangeSelection to be defined");
-        expect(rangeSelection.anchor.key).toBe(t1.getKey());
-        expect(rangeSelection.anchor.offset).toBe(5);
-        expect(rangeSelection.focus.key).toBe(t2.getKey());
-        expect(rangeSelection.focus.offset).toBe(6);
+        if (!editorSelection) throw new Error("Expected editorSelection to be defined");
+        expect(editorSelection.anchor.key).toBe(t1.getKey());
+        expect(editorSelection.anchor.offset).toBe(5);
+        expect(editorSelection.focus.key).toBe(t2.getKey());
+        expect(editorSelection.focus.offset).toBe(6);
       });
     });
 
@@ -137,12 +137,12 @@ describe("$getRangeFromSelection", () => {
       });
 
       editor.getEditorState().read(() => {
-        const selection: SelectionRange = {
+        const usjSelection: SelectionRange = {
           start: { jsonPath: "$.content[99].content[0]", offset: 0 },
         };
-        const rangeSelection = $getRangeFromSelection(selection);
+        const editorSelection = $getRangeFromUsjSelection(usjSelection);
 
-        expect(rangeSelection).toBeUndefined();
+        expect(editorSelection).toBeUndefined();
       });
     });
 
@@ -156,15 +156,15 @@ describe("$getRangeFromSelection", () => {
       });
 
       editor.getEditorState().read(() => {
-        const selection: SelectionRange = {
+        const usjSelection: SelectionRange = {
           start: { jsonPath: "$.content[0].content[0].content[0]", offset: 7 },
         };
-        const rangeSelection = $getRangeFromSelection(selection);
+        const editorSelection = $getRangeFromUsjSelection(usjSelection);
 
-        if (!rangeSelection) throw new Error("Expected rangeSelection to be defined");
-        expect(rangeSelection.anchor.key).toBe(t1.getKey());
-        expect(rangeSelection.anchor.offset).toBe(7);
-        expect(rangeSelection.isCollapsed()).toBe(true);
+        if (!editorSelection) throw new Error("Expected editorSelection to be defined");
+        expect(editorSelection.anchor.key).toBe(t1.getKey());
+        expect(editorSelection.anchor.offset).toBe(7);
+        expect(editorSelection.isCollapsed()).toBe(true);
       });
     });
   });
@@ -178,13 +178,13 @@ describe("$getRangeFromSelection", () => {
       });
 
       editor.getEditorState().read(() => {
-        const selection: SelectionRange = { start: { jsonPath: "$.content[0]" } };
-        const rangeSelection = $getRangeFromSelection(selection);
+        const usjSelection: SelectionRange = { start: { jsonPath: "$.content[0]" } };
+        const editorSelection = $getRangeFromUsjSelection(usjSelection);
 
-        if (!rangeSelection) throw new Error("Expected rangeSelection to be defined");
-        expect(rangeSelection.anchor.key).toBe(markerNode.getKey());
-        expect(rangeSelection.anchor.offset).toBe(0);
-        expect(rangeSelection.isCollapsed()).toBe(true);
+        if (!editorSelection) throw new Error("Expected editorSelection to be defined");
+        expect(editorSelection.anchor.key).toBe(markerNode.getKey());
+        expect(editorSelection.anchor.offset).toBe(0);
+        expect(editorSelection.isCollapsed()).toBe(true);
       });
     });
 
@@ -196,13 +196,13 @@ describe("$getRangeFromSelection", () => {
       });
 
       editor.getEditorState().read(() => {
-        const selection: SelectionRange = { start: { jsonPath: "$.content[0]" } };
-        const rangeSelection = $getRangeFromSelection(selection);
+        const usjSelection: SelectionRange = { start: { jsonPath: "$.content[0]" } };
+        const editorSelection = $getRangeFromUsjSelection(usjSelection);
 
-        if (!rangeSelection) throw new Error("Expected rangeSelection to be defined");
-        expect(rangeSelection.anchor.key).toBe(t1.getKey());
-        expect(rangeSelection.anchor.offset).toBe(0);
-        expect(rangeSelection.isCollapsed()).toBe(true);
+        if (!editorSelection) throw new Error("Expected editorSelection to be defined");
+        expect(editorSelection.anchor.key).toBe(t1.getKey());
+        expect(editorSelection.anchor.offset).toBe(0);
+        expect(editorSelection.isCollapsed()).toBe(true);
       });
     });
 
@@ -212,10 +212,10 @@ describe("$getRangeFromSelection", () => {
       });
 
       editor.getEditorState().read(() => {
-        const selection: SelectionRange = { start: { jsonPath: "$.content[0]" } };
-        const rangeSelection = $getRangeFromSelection(selection);
+        const usjSelection: SelectionRange = { start: { jsonPath: "$.content[0]" } };
+        const editorSelection = $getRangeFromUsjSelection(usjSelection);
 
-        expect(rangeSelection).toBeUndefined();
+        expect(editorSelection).toBeUndefined();
       });
     });
 
@@ -227,13 +227,13 @@ describe("$getRangeFromSelection", () => {
       });
 
       editor.getEditorState().read(() => {
-        const selection: SelectionRange = { start: { jsonPath: "$.content[0]" } };
-        const rangeSelection = $getRangeFromSelection(selection);
+        const usjSelection: SelectionRange = { start: { jsonPath: "$.content[0]" } };
+        const editorSelection = $getRangeFromUsjSelection(usjSelection);
 
-        if (!rangeSelection) throw new Error("Expected rangeSelection to be defined");
-        expect(rangeSelection.anchor.key).toBe(markerNode.getKey());
-        expect(rangeSelection.anchor.offset).toBe(0);
-        expect(rangeSelection.isCollapsed()).toBe(true);
+        if (!editorSelection) throw new Error("Expected editorSelection to be defined");
+        expect(editorSelection.anchor.key).toBe(markerNode.getKey());
+        expect(editorSelection.anchor.offset).toBe(0);
+        expect(editorSelection.isCollapsed()).toBe(true);
       });
     });
   });
@@ -253,15 +253,15 @@ describe("$getRangeFromSelection", () => {
       });
 
       editor.getEditorState().read(() => {
-        const selection: SelectionRange = {
+        const usjSelection: SelectionRange = {
           start: { jsonPath: "$.content[0]", closingMarkerOffset: 2 },
         };
-        const rangeSelection = $getRangeFromSelection(selection);
+        const editorSelection = $getRangeFromUsjSelection(usjSelection);
 
-        if (!rangeSelection) throw new Error("Expected rangeSelection to be defined");
-        expect(rangeSelection.anchor.key).toBe(closingMarker.getKey());
-        expect(rangeSelection.anchor.offset).toBe(2);
-        expect(rangeSelection.isCollapsed()).toBe(true);
+        if (!editorSelection) throw new Error("Expected editorSelection to be defined");
+        expect(editorSelection.anchor.key).toBe(closingMarker.getKey());
+        expect(editorSelection.anchor.offset).toBe(2);
+        expect(editorSelection.isCollapsed()).toBe(true);
       });
     });
 
@@ -273,15 +273,15 @@ describe("$getRangeFromSelection", () => {
       });
 
       editor.getEditorState().read(() => {
-        const selection: SelectionRange = {
+        const usjSelection: SelectionRange = {
           start: { jsonPath: "$.content[0]", closingMarkerOffset: 2 },
         };
-        const rangeSelection = $getRangeFromSelection(selection);
+        const editorSelection = $getRangeFromUsjSelection(usjSelection);
 
-        if (!rangeSelection) throw new Error("Expected rangeSelection to be defined");
-        expect(rangeSelection.anchor.key).toBe(t1.getKey());
-        expect(rangeSelection.anchor.offset).toBe(5);
-        expect(rangeSelection.isCollapsed()).toBe(true);
+        if (!editorSelection) throw new Error("Expected editorSelection to be defined");
+        expect(editorSelection.anchor.key).toBe(t1.getKey());
+        expect(editorSelection.anchor.offset).toBe(5);
+        expect(editorSelection.isCollapsed()).toBe(true);
       });
     });
 
@@ -299,15 +299,15 @@ describe("$getRangeFromSelection", () => {
       });
 
       editor.getEditorState().read(() => {
-        const selection: SelectionRange = {
+        const usjSelection: SelectionRange = {
           start: { jsonPath: "$.content[0]", closingMarkerOffset: 2 },
         };
-        const rangeSelection = $getRangeFromSelection(selection);
+        const editorSelection = $getRangeFromUsjSelection(usjSelection);
 
-        if (!rangeSelection) throw new Error("Expected rangeSelection to be defined");
-        expect(rangeSelection.anchor.key).toBe(closingMarker.getKey());
-        expect(rangeSelection.anchor.offset).toBe(2);
-        expect(rangeSelection.isCollapsed()).toBe(true);
+        if (!editorSelection) throw new Error("Expected editorSelection to be defined");
+        expect(editorSelection.anchor.key).toBe(closingMarker.getKey());
+        expect(editorSelection.anchor.offset).toBe(2);
+        expect(editorSelection.isCollapsed()).toBe(true);
       });
     });
   });
@@ -321,15 +321,15 @@ describe("$getRangeFromSelection", () => {
       });
 
       editor.getEditorState().read(() => {
-        const selection: SelectionRange = {
+        const usjSelection: SelectionRange = {
           start: { jsonPath: "$.content[0].marker", propertyOffset: 2 },
         };
-        const rangeSelection = $getRangeFromSelection(selection);
+        const editorSelection = $getRangeFromUsjSelection(usjSelection);
 
-        if (!rangeSelection) throw new Error("Expected rangeSelection to be defined");
-        expect(rangeSelection.anchor.key).toBe(markerNode.getKey());
-        expect(rangeSelection.anchor.offset).toBe(3);
-        expect(rangeSelection.isCollapsed()).toBe(true);
+        if (!editorSelection) throw new Error("Expected editorSelection to be defined");
+        expect(editorSelection.anchor.key).toBe(markerNode.getKey());
+        expect(editorSelection.anchor.offset).toBe(3);
+        expect(editorSelection.isCollapsed()).toBe(true);
       });
     });
 
@@ -341,15 +341,15 @@ describe("$getRangeFromSelection", () => {
       });
 
       editor.getEditorState().read(() => {
-        const selection: SelectionRange = {
+        const usjSelection: SelectionRange = {
           start: { jsonPath: "$.content[0].marker", propertyOffset: 1 },
         };
-        const rangeSelection = $getRangeFromSelection(selection);
+        const editorSelection = $getRangeFromUsjSelection(usjSelection);
 
-        if (!rangeSelection) throw new Error("Expected rangeSelection to be defined");
-        expect(rangeSelection.anchor.key).toBe(t1.getKey());
-        expect(rangeSelection.anchor.offset).toBe(0);
-        expect(rangeSelection.isCollapsed()).toBe(true);
+        if (!editorSelection) throw new Error("Expected editorSelection to be defined");
+        expect(editorSelection.anchor.key).toBe(t1.getKey());
+        expect(editorSelection.anchor.offset).toBe(0);
+        expect(editorSelection.isCollapsed()).toBe(true);
       });
     });
 
@@ -362,18 +362,18 @@ describe("$getRangeFromSelection", () => {
       });
 
       editor.getEditorState().read(() => {
-        const selection: SelectionRange = {
+        const usjSelection: SelectionRange = {
           // propertyOffset 2 means offset 2 within the marker name itself ("toc1")
           // The text is "\toc1", so offset 2 in marker name maps to offset 3 in the text
           start: { jsonPath: "$.content[0].marker", propertyOffset: 2 },
         };
-        const rangeSelection = $getRangeFromSelection(selection);
+        const editorSelection = $getRangeFromUsjSelection(usjSelection);
 
-        if (!rangeSelection) throw new Error("Expected rangeSelection to be defined");
-        expect(rangeSelection.anchor.key).toBe(markerNode.getKey());
+        if (!editorSelection) throw new Error("Expected editorSelection to be defined");
+        expect(editorSelection.anchor.key).toBe(markerNode.getKey());
         // propertyOffset + 1 = 3 (after backslash)
-        expect(rangeSelection.anchor.offset).toBe(3);
-        expect(rangeSelection.isCollapsed()).toBe(true);
+        expect(editorSelection.anchor.offset).toBe(3);
+        expect(editorSelection.isCollapsed()).toBe(true);
       });
     });
   });
@@ -387,19 +387,19 @@ describe("$getRangeFromSelection", () => {
       });
 
       editor.getEditorState().read(() => {
-        const selection: SelectionRange = {
+        const usjSelection: SelectionRange = {
           start: {
             jsonPath: "$.content[0]",
             keyName: "someAttr",
             keyOffset: 0,
           },
         };
-        const rangeSelection = $getRangeFromSelection(selection);
+        const editorSelection = $getRangeFromUsjSelection(usjSelection);
 
-        if (!rangeSelection) throw new Error("Expected rangeSelection to be defined");
-        expect(rangeSelection.anchor.key).toBe(markerNode.getKey());
-        expect(rangeSelection.anchor.offset).toBe(0);
-        expect(rangeSelection.isCollapsed()).toBe(true);
+        if (!editorSelection) throw new Error("Expected editorSelection to be defined");
+        expect(editorSelection.anchor.key).toBe(markerNode.getKey());
+        expect(editorSelection.anchor.offset).toBe(0);
+        expect(editorSelection.isCollapsed()).toBe(true);
       });
     });
 
@@ -411,19 +411,19 @@ describe("$getRangeFromSelection", () => {
       });
 
       editor.getEditorState().read(() => {
-        const selection: SelectionRange = {
+        const usjSelection: SelectionRange = {
           start: {
             jsonPath: "$.content[0]",
             keyName: "someAttr",
             keyOffset: 0,
           },
         };
-        const rangeSelection = $getRangeFromSelection(selection);
+        const editorSelection = $getRangeFromUsjSelection(usjSelection);
 
-        if (!rangeSelection) throw new Error("Expected rangeSelection to be defined");
-        expect(rangeSelection.anchor.key).toBe(markerNode.getKey());
-        expect(rangeSelection.anchor.offset).toBe(0);
-        expect(rangeSelection.isCollapsed()).toBe(true);
+        if (!editorSelection) throw new Error("Expected editorSelection to be defined");
+        expect(editorSelection.anchor.key).toBe(markerNode.getKey());
+        expect(editorSelection.anchor.offset).toBe(0);
+        expect(editorSelection.isCollapsed()).toBe(true);
       });
     });
 
@@ -435,19 +435,19 @@ describe("$getRangeFromSelection", () => {
       });
 
       editor.getEditorState().read(() => {
-        const selection: SelectionRange = {
+        const usjSelection: SelectionRange = {
           start: {
             jsonPath: "$.content[0]",
             keyName: "someAttr",
             keyOffset: 0,
           },
         };
-        const rangeSelection = $getRangeFromSelection(selection);
+        const editorSelection = $getRangeFromUsjSelection(usjSelection);
 
-        if (!rangeSelection) throw new Error("Expected rangeSelection to be defined");
-        expect(rangeSelection.anchor.key).toBe(t1.getKey());
-        expect(rangeSelection.anchor.offset).toBe(0);
-        expect(rangeSelection.isCollapsed()).toBe(true);
+        if (!editorSelection) throw new Error("Expected editorSelection to be defined");
+        expect(editorSelection.anchor.key).toBe(t1.getKey());
+        expect(editorSelection.anchor.offset).toBe(0);
+        expect(editorSelection.isCollapsed()).toBe(true);
       });
     });
   });
@@ -461,18 +461,18 @@ describe("$getRangeFromSelection", () => {
       });
 
       editor.getEditorState().read(() => {
-        const selection: SelectionRange = {
+        const usjSelection: SelectionRange = {
           start: {
             jsonPath: "$.content[0]",
             keyName: "someAttr",
           },
         };
-        const rangeSelection = $getRangeFromSelection(selection);
+        const editorSelection = $getRangeFromUsjSelection(usjSelection);
 
-        if (!rangeSelection) throw new Error("Expected rangeSelection to be defined");
-        expect(rangeSelection.anchor.key).toBe(markerNode.getKey());
-        expect(rangeSelection.anchor.offset).toBe(0);
-        expect(rangeSelection.isCollapsed()).toBe(true);
+        if (!editorSelection) throw new Error("Expected editorSelection to be defined");
+        expect(editorSelection.anchor.key).toBe(markerNode.getKey());
+        expect(editorSelection.anchor.offset).toBe(0);
+        expect(editorSelection.isCollapsed()).toBe(true);
       });
     });
 
@@ -484,24 +484,24 @@ describe("$getRangeFromSelection", () => {
       });
 
       editor.getEditorState().read(() => {
-        const selection: SelectionRange = {
+        const usjSelection: SelectionRange = {
           start: {
             jsonPath: "$.content[0]",
             keyName: "someAttr",
           },
         };
-        const rangeSelection = $getRangeFromSelection(selection);
+        const editorSelection = $getRangeFromUsjSelection(usjSelection);
 
-        if (!rangeSelection) throw new Error("Expected rangeSelection to be defined");
-        expect(rangeSelection.anchor.key).toBe(t1.getKey());
-        expect(rangeSelection.anchor.offset).toBe(0);
-        expect(rangeSelection.isCollapsed()).toBe(true);
+        if (!editorSelection) throw new Error("Expected editorSelection to be defined");
+        expect(editorSelection.anchor.key).toBe(t1.getKey());
+        expect(editorSelection.anchor.offset).toBe(0);
+        expect(editorSelection.isCollapsed()).toBe(true);
       });
     });
   });
 });
 
-describe("$getRangeFromEditor", () => {
+describe("$getUsjSelectionFromEditor", () => {
   describe("UsjTextContentLocation", () => {
     it("should return undefined when there is no selection", () => {
       const { editor } = createBasicTestEnvironment([ParaNode], () => {
@@ -509,13 +509,13 @@ describe("$getRangeFromEditor", () => {
       });
 
       editor.getEditorState().read(() => {
-        const range = $getRangeFromEditor();
+        const usjSelection = $getUsjSelectionFromEditor();
 
-        expect(range).toBeUndefined();
+        expect(usjSelection).toBeUndefined();
       });
     });
 
-    it("should return SelectionRange with start only for collapsed selection", () => {
+    it("should return USJ selection with start only for collapsed editor selection", () => {
       let t1: TextNode;
       const { editor } = createBasicTestEnvironment([ParaNode], () => {
         t1 = $createTextNode("Hello world");
@@ -524,18 +524,18 @@ describe("$getRangeFromEditor", () => {
       updateSelection(editor, t1!, 5);
 
       editor.getEditorState().read(() => {
-        const range = $getRangeFromEditor();
+        const usjSelection = $getUsjSelectionFromEditor();
 
-        if (!range) throw new Error("Expected range to be defined");
-        expect(range.start).toEqual({
+        if (!usjSelection) throw new Error("Expected usjSelection to be defined");
+        expect(usjSelection.start).toEqual({
           jsonPath: "$.content[0].content[0]",
           offset: 5,
         });
-        expect(range.end).toBeUndefined();
+        expect(usjSelection.end).toBeUndefined();
       });
     });
 
-    it("should return SelectionRange with start only for collapsed selection after editable marker", () => {
+    it("should return USJ selection with start only for collapsed editor selection after editable marker", () => {
       let t1: TextNode;
       const { editor } = createBasicTestEnvironment([ParaNode, MarkerNode], () => {
         t1 = $createTextNode("Hello world");
@@ -548,18 +548,18 @@ describe("$getRangeFromEditor", () => {
       updateSelection(editor, t1!, 0);
 
       editor.getEditorState().read(() => {
-        const range = $getRangeFromEditor();
+        const usjSelection = $getUsjSelectionFromEditor();
 
-        if (!range) throw new Error("Expected range to be defined");
-        expect(range.start).toEqual({
+        if (!usjSelection) throw new Error("Expected usjSelection to be defined");
+        expect(usjSelection.start).toEqual({
           jsonPath: "$.content[0].content[0]",
           offset: 0,
         });
-        expect(range.end).toBeUndefined();
+        expect(usjSelection.end).toBeUndefined();
       });
     });
 
-    it("should return SelectionRange with start and end for forward range selection", () => {
+    it("should return USJ selection with start and end for forward editor selection", () => {
       let t1: TextNode;
       const { editor } = createBasicTestEnvironment([ParaNode], () => {
         t1 = $createTextNode("Hello world");
@@ -568,14 +568,14 @@ describe("$getRangeFromEditor", () => {
       updateSelection(editor, t1!, 0, t1!, 5);
 
       editor.getEditorState().read(() => {
-        const range = $getRangeFromEditor();
+        const usjSelection = $getUsjSelectionFromEditor();
 
-        if (!range) throw new Error("Expected range to be defined");
-        expect(range.start).toEqual({
+        if (!usjSelection) throw new Error("Expected usjSelection to be defined");
+        expect(usjSelection.start).toEqual({
           jsonPath: "$.content[0].content[0]",
           offset: 0,
         });
-        expect(range.end).toEqual({
+        expect(usjSelection.end).toEqual({
           jsonPath: "$.content[0].content[0]",
           offset: 5,
         });
@@ -604,14 +604,14 @@ describe("$getRangeFromEditor", () => {
       updateSelection(editor, verseText!, 0);
 
       editor.getEditorState().read(() => {
-        const range = $getRangeFromEditor();
+        const usjSelection = $getUsjSelectionFromEditor();
 
-        if (!range) throw new Error("Expected range to be defined");
-        expect(range.start).toEqual({
+        if (!usjSelection) throw new Error("Expected usjSelection to be defined");
+        expect(usjSelection.start).toEqual({
           jsonPath: "$.content[0].content[1]",
           offset: 0,
         });
-        expect(range.end).toBeUndefined();
+        expect(usjSelection.end).toBeUndefined();
       });
     });
 
@@ -639,18 +639,18 @@ describe("$getRangeFromEditor", () => {
       updateSelection(editor, milestoneText!, 0);
 
       editor.getEditorState().read(() => {
-        const range = $getRangeFromEditor();
+        const usjSelection = $getUsjSelectionFromEditor();
 
-        if (!range) throw new Error("Expected range to be defined");
-        expect(range.start).toEqual({
+        if (!usjSelection) throw new Error("Expected usjSelection to be defined");
+        expect(usjSelection.start).toEqual({
           jsonPath: "$.content[0].content[2]",
           offset: 0,
         });
-        expect(range.end).toBeUndefined();
+        expect(usjSelection.end).toBeUndefined();
       });
     });
 
-    it("should normalize backward selection to start before end", () => {
+    it("should normalize backward editor selection to start before end", () => {
       let t1: TextNode;
       const { editor } = createBasicTestEnvironment([ParaNode], () => {
         t1 = $createTextNode("Hello world");
@@ -659,21 +659,21 @@ describe("$getRangeFromEditor", () => {
       updateSelection(editor, t1!, 8, t1!, 3);
 
       editor.getEditorState().read(() => {
-        const range = $getRangeFromEditor();
+        const usjSelection = $getUsjSelectionFromEditor();
 
-        if (!range) throw new Error("Expected range to be defined");
-        expect(range.start).toEqual({
+        if (!usjSelection) throw new Error("Expected usjSelection to be defined");
+        expect(usjSelection.start).toEqual({
           jsonPath: "$.content[0].content[0]",
           offset: 3,
         });
-        expect(range.end).toEqual({
+        expect(usjSelection.end).toEqual({
           jsonPath: "$.content[0].content[0]",
           offset: 8,
         });
       });
     });
 
-    it("should return correct jsonPath for selection spanning multiple paragraphs", () => {
+    it("should return correct jsonPath for editor selection spanning multiple paragraphs", () => {
       let t1: TextNode;
       let t2: TextNode;
       const { editor } = createBasicTestEnvironment([ParaNode], () => {
@@ -684,21 +684,21 @@ describe("$getRangeFromEditor", () => {
       updateSelection(editor, t1!, 5, t2!, 6);
 
       editor.getEditorState().read(() => {
-        const range = $getRangeFromEditor();
+        const usjSelection = $getUsjSelectionFromEditor();
 
-        if (!range) throw new Error("Expected range to be defined");
-        expect(range.start).toEqual({
+        if (!usjSelection) throw new Error("Expected usjSelection to be defined");
+        expect(usjSelection.start).toEqual({
           jsonPath: "$.content[0].content[0]",
           offset: 5,
         });
-        expect(range.end).toEqual({
+        expect(usjSelection.end).toEqual({
           jsonPath: "$.content[1].content[0]",
           offset: 6,
         });
       });
     });
 
-    it("should return correct jsonPath for selection inside TypedMarkNode", () => {
+    it("should return correct jsonPath for editor selection inside TypedMarkNode", () => {
       let t1: TextNode;
       const { editor } = createBasicTestEnvironment([ParaNode, TypedMarkNode], () => {
         t1 = $createTextNode("Marked text");
@@ -709,21 +709,21 @@ describe("$getRangeFromEditor", () => {
       updateSelection(editor, t1!, 3, t1!, 9);
 
       editor.getEditorState().read(() => {
-        const range = $getRangeFromEditor();
+        const usjSelection = $getUsjSelectionFromEditor();
 
-        if (!range) throw new Error("Expected range to be defined");
-        expect(range.start).toEqual({
+        if (!usjSelection) throw new Error("Expected usjSelection to be defined");
+        expect(usjSelection.start).toEqual({
           jsonPath: "$.content[0].content[0].content[0]",
           offset: 3,
         });
-        expect(range.end).toEqual({
+        expect(usjSelection.end).toEqual({
           jsonPath: "$.content[0].content[0].content[0]",
           offset: 9,
         });
       });
     });
 
-    it("should return SelectionRange of ImmutableVerseNode as an atomic unit", () => {
+    it("should return USJ selection of ImmutableVerseNode as an atomic unit", () => {
       let paraNode: ParaNode;
       let textNode: TextNode;
       const { editor } = createBasicTestEnvironment([ParaNode, ImmutableVerseNode], () => {
@@ -731,26 +731,26 @@ describe("$getRangeFromEditor", () => {
         textNode = $createTextNode("In the beginning");
         $getRoot().append(paraNode.append($createImmutableVerseNode("16"), textNode));
       });
-      // Select the first child (verse node) using element-based selection on parent
+      // Select the first child (verse node) using element-based editor selection on parent
       // offset 0 = before first child, across the verse node to the start of the following text.
       updateSelection(editor, paraNode!, 0, textNode!, 0);
 
       editor.getEditorState().read(() => {
-        const range = $getRangeFromEditor();
+        const usjSelection = $getUsjSelectionFromEditor();
 
-        if (!range) throw new Error("Expected range to be defined");
-        expect(range.start).toEqual({
+        if (!usjSelection) throw new Error("Expected usjSelection to be defined");
+        expect(usjSelection.start).toEqual({
           jsonPath: "$.content[0]",
           offset: 0,
         });
-        expect(range.end).toEqual({
+        expect(usjSelection.end).toEqual({
           jsonPath: "$.content[0].content[1]",
           offset: 0,
         });
       });
     });
 
-    it("should return SelectionRange of ImmutableVerseNode as an atomic unit with visible markers", () => {
+    it("should return USJ selection of ImmutableVerseNode as an atomic unit with visible markers", () => {
       let paraNode: ParaNode;
       let textNode: TextNode;
       const { editor } = createBasicTestEnvironment(
@@ -767,19 +767,19 @@ describe("$getRangeFromEditor", () => {
           );
         },
       );
-      // Select the first child (verse node) using element-based selection on parent
+      // Select the first child (verse node) using element-based editor selection on parent
       // offset 0 = before first child, across the verse node to the start of the following text.
       updateSelection(editor, paraNode!, 1, textNode!, 0);
 
       editor.getEditorState().read(() => {
-        const range = $getRangeFromEditor();
+        const usjSelection = $getUsjSelectionFromEditor();
 
-        if (!range) throw new Error("Expected range to be defined");
-        expect(range.start).toEqual({
+        if (!usjSelection) throw new Error("Expected usjSelection to be defined");
+        expect(usjSelection.start).toEqual({
           jsonPath: "$.content[0]",
           offset: 0,
         });
-        expect(range.end).toEqual({
+        expect(usjSelection.end).toEqual({
           jsonPath: "$.content[0].content[1]",
           offset: 0,
         });
@@ -797,13 +797,13 @@ describe("$getRangeFromEditor", () => {
       updateSelection(editor, markerNode!, 0);
 
       editor.getEditorState().read(() => {
-        const range = $getRangeFromEditor();
+        const usjSelection = $getUsjSelectionFromEditor();
 
-        if (!range) throw new Error("Expected range to be defined");
-        expect(range.start).toEqual({
+        if (!usjSelection) throw new Error("Expected usjSelection to be defined");
+        expect(usjSelection.start).toEqual({
           jsonPath: "$.content[0]",
         });
-        expect(range.end).toBeUndefined();
+        expect(usjSelection.end).toBeUndefined();
       });
     });
 
@@ -831,13 +831,13 @@ describe("$getRangeFromEditor", () => {
       updateSelection(editor, msOpeningMarker!, 0);
 
       editor.getEditorState().read(() => {
-        const range = $getRangeFromEditor();
+        const usjSelection = $getUsjSelectionFromEditor();
 
-        if (!range) throw new Error("Expected range to be defined");
-        expect(range.start).toEqual({
+        if (!usjSelection) throw new Error("Expected usjSelection to be defined");
+        expect(usjSelection.start).toEqual({
           jsonPath: "$.content[0].content[1]",
         });
-        expect(range.end).toBeUndefined();
+        expect(usjSelection.end).toBeUndefined();
       });
     });
   });
@@ -852,14 +852,14 @@ describe("$getRangeFromEditor", () => {
       updateSelection(editor, markerNode!, 1);
 
       editor.getEditorState().read(() => {
-        const range = $getRangeFromEditor();
+        const usjSelection = $getUsjSelectionFromEditor();
 
-        if (!range) throw new Error("Expected range to be defined");
-        expect(range.start).toEqual({
+        if (!usjSelection) throw new Error("Expected usjSelection to be defined");
+        expect(usjSelection.start).toEqual({
           jsonPath: "$.content[0].marker",
           propertyOffset: 0,
         });
-        expect(range.end).toBeUndefined();
+        expect(usjSelection.end).toBeUndefined();
       });
     });
 
@@ -887,14 +887,14 @@ describe("$getRangeFromEditor", () => {
       updateSelection(editor, msOpeningMarker!, 1);
 
       editor.getEditorState().read(() => {
-        const range = $getRangeFromEditor();
+        const usjSelection = $getUsjSelectionFromEditor();
 
-        if (!range) throw new Error("Expected range to be defined");
-        expect(range.start).toEqual({
+        if (!usjSelection) throw new Error("Expected usjSelection to be defined");
+        expect(usjSelection.start).toEqual({
           jsonPath: "$.content[0].content[1].marker",
           propertyOffset: 0,
         });
-        expect(range.end).toBeUndefined();
+        expect(usjSelection.end).toBeUndefined();
       });
     });
   });
@@ -915,14 +915,14 @@ describe("$getRangeFromEditor", () => {
       updateSelection(editor, closingMarker!, 1);
 
       editor.getEditorState().read(() => {
-        const range = $getRangeFromEditor();
+        const usjSelection = $getUsjSelectionFromEditor();
 
-        if (!range) throw new Error("Expected range to be defined");
-        expect(range.start).toEqual({
+        if (!usjSelection) throw new Error("Expected usjSelection to be defined");
+        expect(usjSelection.start).toEqual({
           jsonPath: "$.content[0]",
           closingMarkerOffset: 1,
         });
-        expect(range.end).toBeUndefined();
+        expect(usjSelection.end).toBeUndefined();
       });
     });
 
@@ -950,14 +950,14 @@ describe("$getRangeFromEditor", () => {
       updateSelection(editor, msClosingMarker!, 1);
 
       editor.getEditorState().read(() => {
-        const range = $getRangeFromEditor();
+        const usjSelection = $getUsjSelectionFromEditor();
 
-        if (!range) throw new Error("Expected range to be defined");
-        expect(range.start).toEqual({
+        if (!usjSelection) throw new Error("Expected usjSelection to be defined");
+        expect(usjSelection.start).toEqual({
           jsonPath: "$.content[0].content[1]",
           closingMarkerOffset: 1,
         });
-        expect(range.end).toBeUndefined();
+        expect(usjSelection.end).toBeUndefined();
       });
     });
   });
@@ -973,19 +973,19 @@ describe("round-trip conversion", () => {
     updateSelection(editor, t1!, 2, t1!, 8);
 
     editor.getEditorState().read(() => {
-      // Get the selection range from the editor
-      const range = $getRangeFromEditor();
-      if (!range) throw new Error("Expected range to be defined");
+      // Get the USJ selection from the editor
+      const usjSelection = $getUsjSelectionFromEditor();
+      if (!usjSelection) throw new Error("Expected usjSelection to be defined");
 
-      // Convert back to RangeSelection
-      const rangeSelection = $getRangeFromSelection(range);
-      if (!rangeSelection) throw new Error("Expected rangeSelection to be defined");
+      // Convert back to an editor selection
+      const editorSelection = $getRangeFromUsjSelection(usjSelection);
+      if (!editorSelection) throw new Error("Expected editorSelection to be defined");
 
       // Verify it matches the original
-      expect(rangeSelection.anchor.key).toBe(t1.getKey());
-      expect(rangeSelection.anchor.offset).toBe(2);
-      expect(rangeSelection.focus.key).toBe(t1.getKey());
-      expect(rangeSelection.focus.offset).toBe(8);
+      expect(editorSelection.anchor.key).toBe(t1.getKey());
+      expect(editorSelection.anchor.offset).toBe(2);
+      expect(editorSelection.focus.key).toBe(t1.getKey());
+      expect(editorSelection.focus.offset).toBe(8);
     });
   });
 
@@ -998,14 +998,14 @@ describe("round-trip conversion", () => {
     updateSelection(editor, markerNode!, 0);
 
     editor.getEditorState().read(() => {
-      const range = $getRangeFromEditor();
-      if (!range) throw new Error("Expected range to be defined");
+      const usjSelection = $getUsjSelectionFromEditor();
+      if (!usjSelection) throw new Error("Expected usjSelection to be defined");
 
-      const rangeSelection = $getRangeFromSelection(range);
-      if (!rangeSelection) throw new Error("Expected rangeSelection to be defined");
+      const editorSelection = $getRangeFromUsjSelection(usjSelection);
+      if (!editorSelection) throw new Error("Expected editorSelection to be defined");
 
-      expect(rangeSelection.anchor.key).toBe(markerNode.getKey());
-      expect(rangeSelection.anchor.offset).toBe(0);
+      expect(editorSelection.anchor.key).toBe(markerNode.getKey());
+      expect(editorSelection.anchor.offset).toBe(0);
     });
   });
 
@@ -1024,14 +1024,14 @@ describe("round-trip conversion", () => {
     updateSelection(editor, closingMarker!, 2);
 
     editor.getEditorState().read(() => {
-      const range = $getRangeFromEditor();
-      if (!range) throw new Error("Expected range to be defined");
+      const usjSelection = $getUsjSelectionFromEditor();
+      if (!usjSelection) throw new Error("Expected usjSelection to be defined");
 
-      const rangeSelection = $getRangeFromSelection(range);
-      if (!rangeSelection) throw new Error("Expected rangeSelection to be defined");
+      const editorSelection = $getRangeFromUsjSelection(usjSelection);
+      if (!editorSelection) throw new Error("Expected editorSelection to be defined");
 
-      expect(rangeSelection.anchor.key).toBe(closingMarker.getKey());
-      expect(rangeSelection.anchor.offset).toBe(2);
+      expect(editorSelection.anchor.key).toBe(closingMarker.getKey());
+      expect(editorSelection.anchor.offset).toBe(2);
     });
   });
 });
