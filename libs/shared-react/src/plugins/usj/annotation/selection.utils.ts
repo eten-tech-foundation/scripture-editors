@@ -10,6 +10,7 @@ import {
   indexesFromUsjJsonPath,
   isUsjAttributeKeyLocation,
   isUsjAttributeMarkerLocation,
+  isUsjClosingAttributeMarkerLocation,
   isUsjClosingMarkerLocation,
   isUsjMarkerLocation,
   isUsjPropertyValueLocation,
@@ -129,17 +130,45 @@ function $getNodeFromLocation(
   // Handle UsjAttributeKeyLocation and UsjAttributeMarkerLocation BEFORE UsjMarkerLocation
   // because UsjAttributeMarkerLocation has keyName but no offsets, similar to UsjMarkerLocation.
   // Checking for keyName first ensures correct type narrowing.
+  // Note: Attribute markers are not yet represented in the editor, so we position at the closest
+  // available location (the end of the element's content, since attributes come after content).
   if (isUsjAttributeKeyLocation(location) || isUsjAttributeMarkerLocation(location)) {
     const node = $navigateToNode(location.jsonPath);
-    if (!node || !$isElementNode(node)) return [undefined, undefined];
+    if (!node) return [undefined, undefined];
 
-    // If marker node exists, position at offset 0
-    const markerNode = $findMarkerNode(node, "opening");
-    if (markerNode) return [markerNode, 0];
+    // For ElementNodes, position at end of last text child
+    if ($isElementNode(node)) {
+      const lastChild = node.getLastChild();
+      if (lastChild && $isTextNode(lastChild))
+        return [lastChild, lastChild.getTextContent().length];
+    }
 
-    // Fallback: position at start of first content child
-    const firstChild = node.getFirstChild();
-    if (firstChild && $isTextNode(firstChild)) return [firstChild, 0];
+    // For decorator nodes (e.g., ImmutableChapterNode) or elements with no children,
+    // position at the start of the next sibling
+    const nextSibling = node.getNextSibling();
+    if (nextSibling && $isElementNode(nextSibling)) return [nextSibling, 0];
+
+    return [undefined, undefined];
+  }
+
+  // Handle UsjClosingAttributeMarkerLocation BEFORE UsjMarkerLocation/UsjClosingMarkerLocation.
+  // Note: Attribute markers are not yet represented in the editor, so we position at the closest
+  // available location (the end of the element's content).
+  if (isUsjClosingAttributeMarkerLocation(location)) {
+    const node = $navigateToNode(location.jsonPath);
+    if (!node) return [undefined, undefined];
+
+    // For ElementNodes, position at end of last text child if it exists
+    if ($isElementNode(node)) {
+      const lastChild = node.getLastChild();
+      if (lastChild && $isTextNode(lastChild))
+        return [lastChild, lastChild.getTextContent().length];
+    }
+
+    // For decorator nodes (e.g., ImmutableChapterNode) or elements with no children,
+    // position at the start of the next sibling
+    const nextSibling = node.getNextSibling();
+    if (nextSibling && $isElementNode(nextSibling)) return [nextSibling, 0];
 
     return [undefined, undefined];
   }
@@ -205,12 +234,13 @@ function $getNodeFromLocation(
     return [undefined, undefined];
   }
 
-  // Unsupported location types (UsjClosingAttributeMarkerLocation)
+  // All UsjDocumentLocation subtypes should be handled above
   throw new Error(
     `Unsupported UsjDocumentLocation type: ${getUsjDocumentLocationTypeName(location)}. ` +
-      "Currently only UsjMarkerLocation, UsjClosingMarkerLocation, UsjTextContentLocation, " +
-      "UsjPropertyValueLocation, UsjAttributeKeyLocation, and UsjAttributeMarkerLocation are " +
-      `supported. Received: ${JSON.stringify(location)}`,
+      "All UsjDocumentLocation subtypes should be supported: UsjMarkerLocation, " +
+      "UsjClosingMarkerLocation, UsjTextContentLocation, UsjPropertyValueLocation, " +
+      "UsjAttributeKeyLocation, UsjAttributeMarkerLocation, and" +
+      `UsjClosingAttributeMarkerLocation. Received: ${JSON.stringify(location)}`,
   );
 }
 

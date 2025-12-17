@@ -19,13 +19,17 @@ import {
   TextNode,
 } from "lexical";
 import {
+  $createChapterNode,
+  $createImmutableChapterNode,
   $createImmutableTypedTextNode,
   $createMarkerNode,
   $createMilestoneNode,
   $createParaNode,
   $createTypedMarkNode,
   $createVerseNode,
+  ChapterNode,
   closingMarkerText,
+  ImmutableChapterNode,
   ImmutableTypedTextNode,
   MarkerNode,
   MilestoneNode,
@@ -313,10 +317,10 @@ describe("$getRangeFromUsjSelection", () => {
   });
 
   describe("UsjPropertyValueLocation", () => {
-    it("should position within opening MarkerNode when property is 'marker'", () => {
+    it("should position within para opening MarkerNode (editable mode)", () => {
       let markerNode: MarkerNode;
       const { editor } = createBasicTestEnvironment([ParaNode, MarkerNode], () => {
-        markerNode = $createMarkerNode("para", "opening");
+        markerNode = $createMarkerNode("toc1", "opening");
         $getRoot().append($createParaNode().append(markerNode, $createTextNode("Hello")));
       });
 
@@ -333,27 +337,7 @@ describe("$getRangeFromUsjSelection", () => {
       });
     });
 
-    it("should fall back to first text node when MarkerNode doesn't exist", () => {
-      let t1: TextNode;
-      const { editor } = createBasicTestEnvironment([ParaNode], () => {
-        t1 = $createTextNode("Hello");
-        $getRoot().append($createParaNode().append(t1));
-      });
-
-      editor.getEditorState().read(() => {
-        const usjSelection: SelectionRange = {
-          start: { jsonPath: "$.content[0].marker", propertyOffset: 1 },
-        };
-        const editorSelection = $getRangeFromUsjSelection(usjSelection);
-
-        if (!editorSelection) throw new Error("Expected editorSelection to be defined");
-        expect(editorSelection.anchor.key).toBe(t1.getKey());
-        expect(editorSelection.anchor.offset).toBe(0);
-        expect(editorSelection.isCollapsed()).toBe(true);
-      });
-    });
-
-    it("should position within opening ImmutableTypedTextNode marker when property is 'marker' (visible mode)", () => {
+    it("should position within para opening ImmutableTypedTextNode marker (visible mode)", () => {
       let markerNode: ImmutableTypedTextNode;
       const { editor } = createBasicTestEnvironment([ParaNode, ImmutableTypedTextNode], () => {
         // ImmutableTypedTextNode text is "\toc1" (backslash + marker name)
@@ -376,58 +360,8 @@ describe("$getRangeFromUsjSelection", () => {
         expect(editorSelection.isCollapsed()).toBe(true);
       });
     });
-  });
 
-  describe("UsjAttributeKeyLocation", () => {
-    it("should position at opening MarkerNode when present (editable mode)", () => {
-      let markerNode: MarkerNode;
-      const { editor } = createBasicTestEnvironment([ParaNode, MarkerNode], () => {
-        markerNode = $createMarkerNode("p", "opening");
-        $getRoot().append($createParaNode().append(markerNode, $createTextNode("Hello")));
-      });
-
-      editor.getEditorState().read(() => {
-        const usjSelection: SelectionRange = {
-          start: {
-            jsonPath: "$.content[0]",
-            keyName: "someAttr",
-            keyOffset: 0,
-          },
-        };
-        const editorSelection = $getRangeFromUsjSelection(usjSelection);
-
-        if (!editorSelection) throw new Error("Expected editorSelection to be defined");
-        expect(editorSelection.anchor.key).toBe(markerNode.getKey());
-        expect(editorSelection.anchor.offset).toBe(0);
-        expect(editorSelection.isCollapsed()).toBe(true);
-      });
-    });
-
-    it("should position at opening ImmutableTypedTextNode marker when present (visible mode)", () => {
-      let markerNode: ImmutableTypedTextNode;
-      const { editor } = createBasicTestEnvironment([ParaNode, ImmutableTypedTextNode], () => {
-        markerNode = $createImmutableTypedTextNode("marker", openingMarkerText("p"));
-        $getRoot().append($createParaNode().append(markerNode, $createTextNode("Hello")));
-      });
-
-      editor.getEditorState().read(() => {
-        const usjSelection: SelectionRange = {
-          start: {
-            jsonPath: "$.content[0]",
-            keyName: "someAttr",
-            keyOffset: 0,
-          },
-        };
-        const editorSelection = $getRangeFromUsjSelection(usjSelection);
-
-        if (!editorSelection) throw new Error("Expected editorSelection to be defined");
-        expect(editorSelection.anchor.key).toBe(markerNode.getKey());
-        expect(editorSelection.anchor.offset).toBe(0);
-        expect(editorSelection.isCollapsed()).toBe(true);
-      });
-    });
-
-    it("should fall back to first text node when no marker exists (hidden mode)", () => {
+    it("should fall back to start of para (hidden mode)", () => {
       let t1: TextNode;
       const { editor } = createBasicTestEnvironment([ParaNode], () => {
         t1 = $createTextNode("Hello");
@@ -436,16 +370,95 @@ describe("$getRangeFromUsjSelection", () => {
 
       editor.getEditorState().read(() => {
         const usjSelection: SelectionRange = {
+          start: { jsonPath: "$.content[0].marker", propertyOffset: 1 },
+        };
+        const editorSelection = $getRangeFromUsjSelection(usjSelection);
+
+        if (!editorSelection) throw new Error("Expected editorSelection to be defined");
+        expect(editorSelection.anchor.key).toBe(t1.getKey());
+        expect(editorSelection.anchor.offset).toBe(0);
+        expect(editorSelection.isCollapsed()).toBe(true);
+      });
+    });
+  });
+
+  describe("UsjAttributeKeyLocation", () => {
+    it("should position at end of chapter (since ca not yet rendered in editable mode)", () => {
+      let chText: TextNode;
+      const { editor } = createBasicTestEnvironment([ParaNode, ChapterNode], () => {
+        chText = $createTextNode(`\\c${NBSP}1 `);
+        $getRoot().append(
+          $createChapterNode("1", "2SA 1", "1 ca", "1 cp").append(chText),
+          $createParaNode().append($createTextNode("hello")),
+        );
+      });
+
+      editor.getEditorState().read(() => {
+        const usjSelection: SelectionRange = {
           start: {
             jsonPath: "$.content[0]",
-            keyName: "someAttr",
+            keyName: "altnumber",
             keyOffset: 0,
           },
         };
         const editorSelection = $getRangeFromUsjSelection(usjSelection);
 
         if (!editorSelection) throw new Error("Expected editorSelection to be defined");
-        expect(editorSelection.anchor.key).toBe(t1.getKey());
+        expect(editorSelection.anchor.key).toBe(chText.getKey());
+        expect(editorSelection.anchor.offset).toBe(5);
+        expect(editorSelection.isCollapsed()).toBe(true);
+      });
+    });
+
+    it("should position at end of chapter (since ca not yet rendered in visible mode)", () => {
+      let para: ParaNode;
+      const { editor } = createBasicTestEnvironment([ParaNode, ImmutableChapterNode], () => {
+        para = $createParaNode();
+        $getRoot().append(
+          $createImmutableChapterNode("1", true, "2SA 1", "1 ca", "1 cp"),
+          para.append($createTextNode("hello")),
+        );
+      });
+
+      editor.getEditorState().read(() => {
+        const usjSelection: SelectionRange = {
+          start: {
+            jsonPath: "$.content[0]",
+            keyName: "altnumber",
+            keyOffset: 0,
+          },
+        };
+        const editorSelection = $getRangeFromUsjSelection(usjSelection);
+
+        if (!editorSelection) throw new Error("Expected editorSelection to be defined");
+        expect(editorSelection.anchor.key).toBe(para.getKey());
+        expect(editorSelection.anchor.offset).toBe(0);
+        expect(editorSelection.isCollapsed()).toBe(true);
+      });
+    });
+
+    it("should position at end of chapter (since ca never visible in hidden mode)", () => {
+      let para: ParaNode;
+      const { editor } = createBasicTestEnvironment([ParaNode, ImmutableChapterNode], () => {
+        para = $createParaNode();
+        $getRoot().append(
+          $createImmutableChapterNode("1", false, "2SA 1", "1 ca", "1 cp"),
+          para.append($createTextNode("hello")),
+        );
+      });
+
+      editor.getEditorState().read(() => {
+        const usjSelection: SelectionRange = {
+          start: {
+            jsonPath: "$.content[0]",
+            keyName: "altnumber",
+            keyOffset: 0,
+          },
+        };
+        const editorSelection = $getRangeFromUsjSelection(usjSelection);
+
+        if (!editorSelection) throw new Error("Expected editorSelection to be defined");
+        expect(editorSelection.anchor.key).toBe(para.getKey());
         expect(editorSelection.anchor.offset).toBe(0);
         expect(editorSelection.isCollapsed()).toBe(true);
       });
@@ -453,47 +466,162 @@ describe("$getRangeFromUsjSelection", () => {
   });
 
   describe("UsjAttributeMarkerLocation", () => {
-    it("should position at opening MarkerNode when present (editable mode)", () => {
-      let markerNode: MarkerNode;
-      const { editor } = createBasicTestEnvironment([ParaNode, MarkerNode], () => {
-        markerNode = $createMarkerNode("p", "opening");
-        $getRoot().append($createParaNode().append(markerNode, $createTextNode("Hello")));
+    it("should position at end of chapter (since ca not yet rendered in editable mode)", () => {
+      let chText: TextNode;
+      const { editor } = createBasicTestEnvironment([ParaNode, ChapterNode], () => {
+        chText = $createTextNode(`\\c${NBSP}1 `);
+        $getRoot().append(
+          $createChapterNode("1", "2SA 1", "1 ca", "1 cp").append(chText),
+          $createParaNode().append($createTextNode("hello")),
+        );
       });
 
       editor.getEditorState().read(() => {
         const usjSelection: SelectionRange = {
           start: {
             jsonPath: "$.content[0]",
-            keyName: "someAttr",
+            keyName: "altnumber",
           },
         };
         const editorSelection = $getRangeFromUsjSelection(usjSelection);
 
         if (!editorSelection) throw new Error("Expected editorSelection to be defined");
-        expect(editorSelection.anchor.key).toBe(markerNode.getKey());
+        expect(editorSelection.anchor.key).toBe(chText.getKey());
+        expect(editorSelection.anchor.offset).toBe(5);
+        expect(editorSelection.isCollapsed()).toBe(true);
+      });
+    });
+
+    it("should position at end of chapter (since ca not yet rendered in visible mode)", () => {
+      let para: ParaNode;
+      const { editor } = createBasicTestEnvironment([ParaNode, ImmutableChapterNode], () => {
+        para = $createParaNode();
+        $getRoot().append(
+          $createImmutableChapterNode("1", true, "2SA 1", "1 ca", "1 cp"),
+          para.append($createTextNode("hello")),
+        );
+      });
+
+      editor.getEditorState().read(() => {
+        const usjSelection: SelectionRange = {
+          start: {
+            jsonPath: "$.content[0]",
+            keyName: "altnumber",
+          },
+        };
+        const editorSelection = $getRangeFromUsjSelection(usjSelection);
+
+        if (!editorSelection) throw new Error("Expected editorSelection to be defined");
+        expect(editorSelection.anchor.key).toBe(para.getKey());
         expect(editorSelection.anchor.offset).toBe(0);
         expect(editorSelection.isCollapsed()).toBe(true);
       });
     });
 
-    it("should fall back to first text node when no marker exists (hidden mode)", () => {
-      let t1: TextNode;
-      const { editor } = createBasicTestEnvironment([ParaNode], () => {
-        t1 = $createTextNode("Hello");
-        $getRoot().append($createParaNode().append(t1));
+    it("should position at end of chapter (since ca never visible in hidden mode)", () => {
+      let para: ParaNode;
+      const { editor } = createBasicTestEnvironment([ParaNode, ImmutableChapterNode], () => {
+        para = $createParaNode();
+        $getRoot().append(
+          $createImmutableChapterNode("1", false, "2SA 1", "1 ca", "1 cp"),
+          para.append($createTextNode("hello")),
+        );
       });
 
       editor.getEditorState().read(() => {
         const usjSelection: SelectionRange = {
           start: {
             jsonPath: "$.content[0]",
-            keyName: "someAttr",
+            keyName: "altnumber",
           },
         };
         const editorSelection = $getRangeFromUsjSelection(usjSelection);
 
         if (!editorSelection) throw new Error("Expected editorSelection to be defined");
-        expect(editorSelection.anchor.key).toBe(t1.getKey());
+        expect(editorSelection.anchor.key).toBe(para.getKey());
+        expect(editorSelection.anchor.offset).toBe(0);
+        expect(editorSelection.isCollapsed()).toBe(true);
+      });
+    });
+  });
+
+  describe("UsjClosingAttributeMarkerLocation", () => {
+    it("should position at end of chapter (since ca not yet rendered in editable mode)", () => {
+      let chText: TextNode;
+      const { editor } = createBasicTestEnvironment([ParaNode, ChapterNode], () => {
+        chText = $createTextNode(`\\c${NBSP}1 `);
+        $getRoot().append(
+          $createChapterNode("1", "2SA 1", "1 ca", "1 cp").append(chText),
+          $createParaNode().append($createTextNode("hello")),
+        );
+      });
+
+      editor.getEditorState().read(() => {
+        const usjSelection: SelectionRange = {
+          start: {
+            jsonPath: "$.content[0]",
+            keyName: "altnumber",
+            keyClosingMarkerOffset: 2,
+          },
+        };
+        const editorSelection = $getRangeFromUsjSelection(usjSelection);
+
+        if (!editorSelection) throw new Error("Expected editorSelection to be defined");
+        expect(editorSelection.anchor.key).toBe(chText.getKey());
+        expect(editorSelection.anchor.offset).toBe(5);
+        expect(editorSelection.isCollapsed()).toBe(true);
+      });
+    });
+
+    it("should position at end of chapter (since ca not yet rendered in visible mode)", () => {
+      let para: ParaNode;
+      const { editor } = createBasicTestEnvironment([ParaNode, ImmutableChapterNode], () => {
+        para = $createParaNode();
+        $getRoot().append(
+          $createImmutableChapterNode("1", true, "2SA 1", "1 ca", "1 cp"),
+          para.append($createTextNode("hello")),
+        );
+      });
+
+      editor.getEditorState().read(() => {
+        const usjSelection: SelectionRange = {
+          start: {
+            jsonPath: "$.content[0]",
+            keyName: "altnumber",
+            keyClosingMarkerOffset: 2,
+          },
+        };
+        const editorSelection = $getRangeFromUsjSelection(usjSelection);
+
+        if (!editorSelection) throw new Error("Expected editorSelection to be defined");
+        expect(editorSelection.anchor.key).toBe(para.getKey());
+        expect(editorSelection.anchor.offset).toBe(0);
+        expect(editorSelection.isCollapsed()).toBe(true);
+      });
+    });
+
+    it("should position at end of chapter (since ca never visible in hidden mode)", () => {
+      let para: ParaNode;
+      const { editor } = createBasicTestEnvironment([ParaNode, ImmutableChapterNode], () => {
+        para = $createParaNode();
+        $getRoot().append(
+          $createImmutableChapterNode("1", false, "2SA 1", "1 ca", "1 cp"),
+          para.append($createTextNode("hello")),
+        );
+      });
+
+      editor.getEditorState().read(() => {
+        const usjSelection: SelectionRange = {
+          start: {
+            jsonPath: "$.content[0]",
+            keyName: "altnumber",
+            keyClosingMarkerOffset: 2,
+          },
+        };
+        const editorSelection = $getRangeFromUsjSelection(usjSelection);
+
+        if (!editorSelection) throw new Error("Expected editorSelection to be defined");
+        expect(editorSelection.anchor.key).toBe(para.getKey());
         expect(editorSelection.anchor.offset).toBe(0);
         expect(editorSelection.isCollapsed()).toBe(true);
       });
