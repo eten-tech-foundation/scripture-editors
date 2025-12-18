@@ -26,8 +26,8 @@
   },
   "devDependencies": {
     "@types/base-64": "^1.0.2",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
     "shared": "workspace:~",
     "shared-react": "workspace:~",
     "test-data": "workspace:~"
