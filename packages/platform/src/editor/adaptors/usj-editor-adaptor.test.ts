@@ -165,17 +165,17 @@ describe("USJ Editor Adaptor", () => {
     expect(noteClosing.textType).toBe("marker");
     expect(noteClosing.text).toBe(`${closingMarkerText("f")}`);
 
-    // Note inner char 'fr' is preceded by a typed marker and its text is NBSP-prefixed
-    const frOpen = noteChildren.find(
-      (n) =>
-        isSerializedImmutableTypedTextNode(n) &&
-        n.textType === "marker" &&
-        n.text.startsWith(openingMarkerText("fr")),
-    );
-    expect(!!frOpen).toBe(true);
+    // Note inner char 'fr' contains a typed marker as first child and text without NBSP
     const frChar = noteChildren.find((n) => isSerializedCharNode(n) && n.marker === "fr");
-    const frFirst = isSerializedCharNode(frChar) ? frChar.children?.[0] : undefined;
-    expect(isSerializedTextNode(frFirst) && frFirst.text.startsWith(NBSP)).toBe(false);
+    if (!isSerializedCharNode(frChar)) throw new Error("No fr char found");
+    const frFirst = frChar.children?.[0];
+    expect(
+      isSerializedImmutableTypedTextNode(frFirst) &&
+        frFirst.textType === "marker" &&
+        frFirst.text.startsWith(openingMarkerText("fr")),
+    ).toBe(true);
+    const frText = frChar.children?.find((n) => isSerializedTextNode(n));
+    expect(isSerializedTextNode(frText) && frText.text.startsWith(NBSP)).toBe(false);
   });
 
   it("should add line breaks before verses when visible mode has no spacing", () => {

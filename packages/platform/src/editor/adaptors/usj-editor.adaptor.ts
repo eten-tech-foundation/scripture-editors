@@ -332,18 +332,22 @@ function createChar(
     _logger?.warn(`Unexpected char marker '${marker}'!`);
   }
   marker = marker ?? "";
+  const children: SerializedLexicalNode[] = [];
   if (_viewOptions?.markerMode === "editable")
     childNodes.forEach((node) => {
       if (isSerializedTextNode(node)) node.text = NBSP + node.text;
     });
   if (childNodes.length === 0) childNodes.push(createText(EMPTY_CHAR_PLACEHOLDER_TEXT));
+  addOpeningMarker(markerObject.marker ?? "", children);
+  children.push(...childNodes);
+  addClosingMarker(markerObject.marker ?? "", children);
   const unknownAttributes = getUnknownAttributes(markerObject, CHAR_MARKER_OBJECT_PROPS);
 
   return removeUndefinedProperties({
     type: CharNode.getType(),
     marker,
     unknownAttributes,
-    children: [...childNodes],
+    children,
     direction: null,
     format: "",
     indent: 0,
@@ -717,9 +721,7 @@ function recurseNodes(markers: MarkerContent[] | undefined): SerializedLexicalNo
           nodes.push(createVerse(markerContent));
           break;
         case CharNode.getType():
-          addOpeningMarker(markerContent.marker ?? "", nodes);
           nodes.push(createChar(markerContent, recurseNodes(markerContent.content)));
-          addClosingMarker(markerContent.marker ?? "", nodes);
           break;
         case ParaNode.getType():
           nodes.push(createPara(markerContent, recurseNodes(markerContent.content)));

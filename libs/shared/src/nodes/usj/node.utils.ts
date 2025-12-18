@@ -5,6 +5,7 @@ import {
   $getCommonAncestor,
   $getState,
   $isElementNode,
+  $isTextNode,
   BaseSelection,
   LexicalEditor,
   LexicalNode,
@@ -15,6 +16,11 @@ import {
   TextNode,
 } from "lexical";
 import { charIdState } from "../collab/delta.state.js";
+import {
+  $isImmutableTypedTextNode,
+  isSerializedImmutableTypedTextNode,
+} from "../features/ImmutableTypedTextNode.js";
+import { $isMarkerNode, isSerializedMarkerNode } from "../features/MarkerNode.js";
 import { $isUnknownNode, UnknownNode } from "../features/UnknownNode.js";
 import { $isBookNode, BookNode } from "./BookNode.js";
 import {
@@ -389,10 +395,16 @@ export function getVisibleOpenMarkerText(marker: string, content: string | undef
 
 /**
  * Recursively extracts text content from a serialized Lexical node and its descendants.
+ * Excludes marker nodes (both MarkerNode and ImmutableTypedTextNode with type "marker").
  * @param node - The serialized node to process.
  * @returns The concatenated text content.
  */
+// Keep this function in sync with `$getTextContentExcludingMarkers`.
 function extractTextFromNode(node: SerializedLexicalNode): string {
+  // Skip marker nodes - they're structural/formatting elements, not content
+  if (isSerializedMarkerNode(node)) return "";
+  if (isSerializedImmutableTypedTextNode(node) && node.textType === "marker") return "";
+
   if (isSerializedTextNode(node) && node.text !== NBSP) return node.text;
 
   if (isSerializedCharNode(node)) {
@@ -433,6 +445,7 @@ export function getEditableCallerText(noteCaller: string): string {
 
 /**
  * Gets the preview text for a note caller.
+ * Excludes marker nodes from the text content.
  * @param childNodes - Child nodes of the NoteNode.
  * @returns the preview text.
  */
@@ -442,13 +455,38 @@ export function $getNoteCallerPreviewText(childNodes: LexicalNode[]): string {
   for (const node of childNodes) {
     if (!$isCharNode(node)) continue;
 
-    const textContent = node.getTextContent();
+    const textContent = $getTextContentExcludingMarkers(node);
     if (textContent === EMPTY_CHAR_PLACEHOLDER_TEXT) continue;
 
     if (textContent.length > 0) parts.push(textContent);
   }
 
   return parts.join(" ").trim();
+}
+
+/**
+ * Recursively gets text content from a node, excluding marker nodes.
+ * @param node - The node to extract text from.
+ * @returns The text content without markers.
+ */
+// Keep this function in sync with `extractTextFromNode`.
+function $getTextContentExcludingMarkers(node: LexicalNode): string {
+  // Skip marker nodes
+  if ($isMarkerNode(node)) return "";
+  if ($isImmutableTypedTextNode(node) && node.getTextType() === "marker") return "";
+
+  // For text nodes, return the text
+  if ($isTextNode(node)) return node.getTextContent();
+
+  // For element nodes, recursively process children
+  if ($isElementNode(node)) {
+    return node
+      .getChildren()
+      .map((child) => $getTextContentExcludingMarkers(child))
+      .join("");
+  }
+
+  return "";
 }
 
 /**

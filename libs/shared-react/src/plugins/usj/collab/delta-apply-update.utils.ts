@@ -1905,14 +1905,12 @@ function $createNestedChars(
       return charNode;
     }, innerNode) as CharNode;
 
-    // Wrap the outermost CharNode with markers (as siblings, not children)
-    const nodes: LexicalNode[] = [];
+    // Add markers inside the outermost CharNode (as children)
     const outermostAttr = charAttr[0];
-    $addOpeningMarker(outermostAttr.style, nodes, viewOptions);
-    nodes.push(outermostCharNode);
-    $addClosingMarker(outermostAttr.style, nodes, viewOptions);
+    $addOpeningMarker(outermostAttr.style, outermostCharNode, viewOptions);
+    $addClosingMarker(outermostAttr.style, outermostCharNode, viewOptions);
 
-    return nodes;
+    return [outermostCharNode];
   } else {
     // Single char attribute
     // Check if we can merge with existing CharNode
@@ -1923,45 +1921,73 @@ function $createNestedChars(
       return []; // Return empty array since we merged into existing node
     }
 
-    const nodes: LexicalNode[] = [];
-    $addOpeningMarker(charAttr.style, nodes, viewOptions);
-
     const charNode = $createCharNode(charAttr.style, getUnknownAttributes(charAttr, OT_CHAR_PROPS));
     if (typeof charAttr.cid === "string") $setState(charNode, charIdState, () => charAttr.cid);
     if (segment) $setState(charNode, segmentState, () => segment);
     if (innerNode) charNode.append(innerNode);
 
-    nodes.push(charNode);
-    $addClosingMarker(charAttr.style, nodes, viewOptions);
+    // Add markers inside the CharNode (as children)
+    $addOpeningMarker(charAttr.style, charNode, viewOptions);
+    $addClosingMarker(charAttr.style, charNode, viewOptions);
 
-    return nodes;
+    return [charNode];
   }
 }
 
-function $addOpeningMarker(marker: string, nodes: LexicalNode[], viewOptions: ViewOptions) {
+function $addOpeningMarker(
+  marker: string,
+  target: LexicalNode[] | CharNode,
+  viewOptions: ViewOptions,
+) {
+  let markerNode: LexicalNode | undefined;
   if (viewOptions?.markerMode === "editable") {
-    nodes.push($createMarkerNode(marker));
+    markerNode = $createMarkerNode(marker);
   } else if (viewOptions?.markerMode === "visible") {
-    nodes.push($createImmutableTypedTextNode("marker", openingMarkerText(marker)));
+    markerNode = $createImmutableTypedTextNode("marker", openingMarkerText(marker));
+  }
+
+  if (markerNode) {
+    if (Array.isArray(target)) {
+      target.push(markerNode);
+    } else {
+      // Prepend to CharNode children
+      const firstChild = target.getFirstChild();
+      if (firstChild) {
+        firstChild.insertBefore(markerNode);
+      } else {
+        target.append(markerNode);
+      }
+    }
   }
 }
 
 function $addClosingMarker(
   marker: string,
-  nodes: LexicalNode[],
+  target: LexicalNode[] | CharNode,
   viewOptions: ViewOptions,
   isSelfClosing = false,
 ) {
   if (CharNode.isValidFootnoteMarker(marker) || CharNode.isValidCrossReferenceMarker(marker))
     return;
 
+  let markerNode: LexicalNode | undefined;
   if (viewOptions?.markerMode === "editable") {
-    if (isSelfClosing) nodes.push($createMarkerNode("", "selfClosing"));
-    else nodes.push($createMarkerNode(marker, "closing"));
+    if (isSelfClosing) markerNode = $createMarkerNode("", "selfClosing");
+    else markerNode = $createMarkerNode(marker, "closing");
   } else if (viewOptions?.markerMode === "visible") {
-    nodes.push(
-      $createImmutableTypedTextNode("marker", closingMarkerText(isSelfClosing ? "" : marker)),
+    markerNode = $createImmutableTypedTextNode(
+      "marker",
+      closingMarkerText(isSelfClosing ? "" : marker),
     );
+  }
+
+  if (markerNode) {
+    if (Array.isArray(target)) {
+      target.push(markerNode);
+    } else {
+      // Append to CharNode children
+      target.append(markerNode);
+    }
   }
 }
 
