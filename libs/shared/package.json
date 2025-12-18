@@ -47,7 +47,7 @@
     "epitelete": "^0.2.20",
     "json-difference": "^1.16.1",
     "open-patcher": "1.0.0-beta.1",
-    "proskomma-core": "^0.11.0",
+    "proskomma-core": "^0.11.3",
     "test-data": "workspace:~"
   },
   "repository": {

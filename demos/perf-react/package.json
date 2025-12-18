@@ -21,7 +21,7 @@
     "json-difference": "^1.16.1",
     "lexical": "^0.38.2",
     "open-patcher": "1.0.0-beta.1",
-    "proskomma-core": "^0.11.0",
+    "proskomma-core": "^0.11.3",
     "pure-uuid": "^1.8.1"
   },
   "devDependencies": {
