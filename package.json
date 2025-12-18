@@ -14,7 +14,7 @@
     "@lexical/eslint-plugin": "^0.38.2",
     "@microsoft/api-extractor": "^7.52.13",
     "@nx/eslint": "21.5.2",
-    "@nx/eslint-plugin": "21.5.2",
+    "@nx/eslint-plugin": "22.3.1",
     "@nx/js": "21.5.2",
     "@nx/plugin": "21.5.2",
     "@nx/react": "21.5.2",
