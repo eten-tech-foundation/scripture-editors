@@ -1,0 +1,10 @@
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    exclude-paths:
+      # Copied in from another repo and only used for testing when running the demo
+      - "demos/platform/lib/**"
