@@ -189,7 +189,7 @@ describe("$getRangeFromUsjSelection", () => {
       });
     });
 
-    it("should position at para opening MarkerNode (editable mode)", () => {
+    it("should position at para opening MarkerNode (editable markers)", () => {
       let markerNode: MarkerNode;
       const { editor } = createBasicTestEnvironment([ParaNode, MarkerNode], () => {
         markerNode = $createMarkerNode("p", "opening");
@@ -207,11 +207,16 @@ describe("$getRangeFromUsjSelection", () => {
       });
     });
 
-    it("should position at para opening ImmutableTypedTextNode marker (visible mode)", () => {
-      let markerNode: ImmutableTypedTextNode;
+    it("should position at para opening ImmutableTypedTextNode marker (visible markers)", () => {
+      let para: ParaNode;
       const { editor } = createBasicTestEnvironment([ParaNode, ImmutableTypedTextNode], () => {
-        markerNode = $createImmutableTypedTextNode("marker", openingMarkerText("p"));
-        $getRoot().append($createParaNode().append(markerNode, $createTextNode("Hello")));
+        para = $createParaNode();
+        $getRoot().append(
+          para.append(
+            $createImmutableTypedTextNode("marker", openingMarkerText("p")),
+            $createTextNode("Hello"),
+          ),
+        );
       });
 
       editor.getEditorState().read(() => {
@@ -219,13 +224,14 @@ describe("$getRangeFromUsjSelection", () => {
         const editorSelection = $getRangeFromUsjSelection(usjSelection);
 
         if (!editorSelection) throw new Error("Expected editorSelection to be defined");
-        expect(editorSelection.anchor.key).toBe(markerNode.getKey());
+        // Visible markers normalize to the parent element at the marker's index.
+        expect(editorSelection.anchor.key).toBe(para.getKey());
         expect(editorSelection.anchor.offset).toBe(0);
         expect(editorSelection.isCollapsed()).toBe(true);
       });
     });
 
-    it("should fall back to start of para (hidden mode)", () => {
+    it("should fall back to start of para (hidden markers)", () => {
       let t1: TextNode;
       const { editor } = createBasicTestEnvironment([ParaNode], () => {
         t1 = $createTextNode("Hello");
@@ -243,7 +249,7 @@ describe("$getRangeFromUsjSelection", () => {
       });
     });
 
-    it("should position at character opening MarkerNode (editable mode)", () => {
+    it("should position at character opening MarkerNode (editable markers)", () => {
       let markerNode: MarkerNode;
       const { editor } = createBasicTestEnvironment([ParaNode, CharNode, MarkerNode], () => {
         markerNode = $createMarkerNode("wj", "opening");
@@ -271,18 +277,18 @@ describe("$getRangeFromUsjSelection", () => {
       });
     });
 
-    it("should position at character opening ImmutableTypedTextNode marker (visible mode)", () => {
-      let markerNode: ImmutableTypedTextNode;
+    it("should position at character opening ImmutableTypedTextNode marker (visible markers)", () => {
+      let char: CharNode;
       const { editor } = createBasicTestEnvironment(
         [ParaNode, CharNode, ImmutableTypedTextNode, MarkerNode],
         () => {
-          markerNode = $createImmutableTypedTextNode("marker", openingMarkerText("wj"));
+          char = $createCharNode("wj");
           $getRoot().append(
             $createParaNode().append(
               $createMarkerNode("p", "opening"),
               $createTextNode("Jesus said "),
-              $createCharNode("wj").append(
-                markerNode,
+              char.append(
+                $createImmutableTypedTextNode("marker", openingMarkerText("wj")),
                 $createTextNode('"Follow me."'),
                 $createImmutableTypedTextNode("marker", closingMarkerText("wj")),
               ),
@@ -296,13 +302,14 @@ describe("$getRangeFromUsjSelection", () => {
         const editorSelection = $getRangeFromUsjSelection(usjSelection);
 
         if (!editorSelection) throw new Error("Expected editorSelection to be defined");
-        expect(editorSelection.anchor.key).toBe(markerNode.getKey());
+        // Visible markers normalize to the parent element at the marker's index.
+        expect(editorSelection.anchor.key).toBe(char.getKey());
         expect(editorSelection.anchor.offset).toBe(0);
         expect(editorSelection.isCollapsed()).toBe(true);
       });
     });
 
-    it("should fall back to start of character text (hidden mode)", () => {
+    it("should fall back to start of character text (hidden markers)", () => {
       let t2: TextNode;
       const { editor } = createBasicTestEnvironment([ParaNode, CharNode], () => {
         t2 = $createTextNode('"Follow me."');
@@ -327,7 +334,7 @@ describe("$getRangeFromUsjSelection", () => {
   });
 
   describe("UsjClosingMarkerLocation", () => {
-    it("should position within character closing MarkerNode (editable mode)", () => {
+    it("should position within character closing MarkerNode (editable markers)", () => {
       let closingMarker: MarkerNode;
       const { editor } = createBasicTestEnvironment([ParaNode, CharNode, MarkerNode], () => {
         closingMarker = $createMarkerNode("wj", "closing");
@@ -357,20 +364,20 @@ describe("$getRangeFromUsjSelection", () => {
       });
     });
 
-    it("should position within character closing ImmutableTypedTextNode marker (visible mode)", () => {
-      let closingMarker: ImmutableTypedTextNode;
+    it("should position within character closing ImmutableTypedTextNode marker (visible markers)", () => {
+      let char: CharNode;
       const { editor } = createBasicTestEnvironment(
         [ParaNode, CharNode, ImmutableTypedTextNode, MarkerNode],
         () => {
-          closingMarker = $createImmutableTypedTextNode("marker", closingMarkerText("wj"));
+          char = $createCharNode("wj");
           $getRoot().append(
             $createParaNode().append(
               $createMarkerNode("p", "opening"),
               $createTextNode("Jesus said "),
-              $createCharNode("wj").append(
+              char.append(
                 $createImmutableTypedTextNode("marker", openingMarkerText("wj")),
                 $createTextNode('"Follow me."'),
-                closingMarker,
+                $createImmutableTypedTextNode("marker", closingMarkerText("wj")),
               ),
             ),
           );
@@ -384,13 +391,14 @@ describe("$getRangeFromUsjSelection", () => {
         const editorSelection = $getRangeFromUsjSelection(usjSelection);
 
         if (!editorSelection) throw new Error("Expected editorSelection to be defined");
-        expect(editorSelection.anchor.key).toBe(closingMarker.getKey());
+        // Visible markers normalize to the parent element at the marker's index.
+        expect(editorSelection.anchor.key).toBe(char.getKey());
         expect(editorSelection.anchor.offset).toBe(2);
         expect(editorSelection.isCollapsed()).toBe(true);
       });
     });
 
-    it("should fall back to end of character text (hidden mode)", () => {
+    it("should fall back to end of character text (hidden markers)", () => {
       let t2: TextNode;
       const { editor } = createBasicTestEnvironment([ParaNode, CharNode], () => {
         t2 = $createTextNode('"Follow me."');
@@ -417,7 +425,7 @@ describe("$getRangeFromUsjSelection", () => {
   });
 
   describe("UsjPropertyValueLocation", () => {
-    it("should position within para opening MarkerNode (editable mode)", () => {
+    it("should position within para opening MarkerNode (editable markers)", () => {
       let markerNode: MarkerNode;
       const { editor } = createBasicTestEnvironment([ParaNode, MarkerNode], () => {
         markerNode = $createMarkerNode("toc1", "opening");
@@ -437,31 +445,34 @@ describe("$getRangeFromUsjSelection", () => {
       });
     });
 
-    it("should position within para opening ImmutableTypedTextNode marker (visible mode)", () => {
-      let markerNode: ImmutableTypedTextNode;
+    it("should position within para opening ImmutableTypedTextNode marker (visible markers)", () => {
+      let para: ParaNode;
       const { editor } = createBasicTestEnvironment([ParaNode, ImmutableTypedTextNode], () => {
-        // ImmutableTypedTextNode text is "\toc1" (backslash + marker name)
-        markerNode = $createImmutableTypedTextNode("marker", openingMarkerText("toc1"));
-        $getRoot().append($createParaNode().append(markerNode, $createTextNode("Hello")));
+        para = $createParaNode();
+        $getRoot().append(
+          para.append(
+            // ImmutableTypedTextNode text is "\toc1" (backslash + marker name)
+            $createImmutableTypedTextNode("marker", openingMarkerText("toc1")),
+            $createTextNode("Hello"),
+          ),
+        );
       });
 
       editor.getEditorState().read(() => {
         const usjSelection: SelectionRange = {
-          // propertyOffset 2 means offset 2 within the marker name itself ("toc1")
-          // The text is "\toc1", so offset 2 in marker name maps to offset 3 in the text
           start: { jsonPath: "$.content[0].marker", propertyOffset: 2 },
         };
         const editorSelection = $getRangeFromUsjSelection(usjSelection);
 
         if (!editorSelection) throw new Error("Expected editorSelection to be defined");
-        expect(editorSelection.anchor.key).toBe(markerNode.getKey());
-        // propertyOffset + 1 = 3 (after backslash)
-        expect(editorSelection.anchor.offset).toBe(3);
+        // Visible markers normalize to the parent element at the marker's index.
+        expect(editorSelection.anchor.key).toBe(para.getKey());
+        expect(editorSelection.anchor.offset).toBe(0);
         expect(editorSelection.isCollapsed()).toBe(true);
       });
     });
 
-    it("should fall back to start of para (hidden mode)", () => {
+    it("should fall back to start of para (hidden markers)", () => {
       let t1: TextNode;
       const { editor } = createBasicTestEnvironment([ParaNode], () => {
         t1 = $createTextNode("Hello");
@@ -483,10 +494,10 @@ describe("$getRangeFromUsjSelection", () => {
   });
 
   describe("UsjAttributeKeyLocation", () => {
-    it("should position at end of chapter (since ca not yet rendered in editable mode)", () => {
+    it("should position at end of chapter (since ca not yet rendered with editable markers)", () => {
       let chText: TextNode;
       const { editor } = createBasicTestEnvironment([ParaNode, ChapterNode], () => {
-        chText = $createTextNode(`\\c${NBSP}1 `);
+        chText = $createTextNode(String.raw`\c${NBSP}1 `);
         $getRoot().append(
           $createChapterNode("1", "2SA 1", "1 ca", "1 cp").append(chText),
           $createParaNode().append($createTextNode("hello")),
@@ -510,7 +521,7 @@ describe("$getRangeFromUsjSelection", () => {
       });
     });
 
-    it("should position at end of chapter (since ca not yet rendered in visible mode)", () => {
+    it("should position at end of chapter (since ca not yet rendered with visible markers)", () => {
       let para: ParaNode;
       const { editor } = createBasicTestEnvironment([ParaNode, ImmutableChapterNode], () => {
         para = $createParaNode();
@@ -537,7 +548,7 @@ describe("$getRangeFromUsjSelection", () => {
       });
     });
 
-    it("should position at end of chapter (since ca never visible in hidden mode)", () => {
+    it("should position at end of chapter (since ca never visible with hidden markers)", () => {
       let para: ParaNode;
       const { editor } = createBasicTestEnvironment([ParaNode, ImmutableChapterNode], () => {
         para = $createParaNode();
@@ -566,10 +577,10 @@ describe("$getRangeFromUsjSelection", () => {
   });
 
   describe("UsjAttributeMarkerLocation", () => {
-    it("should position at end of chapter (since ca not yet rendered in editable mode)", () => {
+    it("should position at end of chapter (since ca not yet rendered with editable markers)", () => {
       let chText: TextNode;
       const { editor } = createBasicTestEnvironment([ParaNode, ChapterNode], () => {
-        chText = $createTextNode(`\\c${NBSP}1 `);
+        chText = $createTextNode(String.raw`\c${NBSP}1 `);
         $getRoot().append(
           $createChapterNode("1", "2SA 1", "1 ca", "1 cp").append(chText),
           $createParaNode().append($createTextNode("hello")),
@@ -592,7 +603,7 @@ describe("$getRangeFromUsjSelection", () => {
       });
     });
 
-    it("should position at end of chapter (since ca not yet rendered in visible mode)", () => {
+    it("should position at end of chapter (since ca not yet rendered with visible markers)", () => {
       let para: ParaNode;
       const { editor } = createBasicTestEnvironment([ParaNode, ImmutableChapterNode], () => {
         para = $createParaNode();
@@ -618,7 +629,7 @@ describe("$getRangeFromUsjSelection", () => {
       });
     });
 
-    it("should position at end of chapter (since ca never visible in hidden mode)", () => {
+    it("should position at end of chapter (since ca never visible with hidden markers)", () => {
       let para: ParaNode;
       const { editor } = createBasicTestEnvironment([ParaNode, ImmutableChapterNode], () => {
         para = $createParaNode();
@@ -646,10 +657,10 @@ describe("$getRangeFromUsjSelection", () => {
   });
 
   describe("UsjClosingAttributeMarkerLocation", () => {
-    it("should position at end of chapter (since ca not yet rendered in editable mode)", () => {
+    it("should position at end of chapter (since ca not yet rendered with editable markers)", () => {
       let chText: TextNode;
       const { editor } = createBasicTestEnvironment([ParaNode, ChapterNode], () => {
-        chText = $createTextNode(`\\c${NBSP}1 `);
+        chText = $createTextNode(String.raw`\c${NBSP}1 `);
         $getRoot().append(
           $createChapterNode("1", "2SA 1", "1 ca", "1 cp").append(chText),
           $createParaNode().append($createTextNode("hello")),
@@ -673,7 +684,7 @@ describe("$getRangeFromUsjSelection", () => {
       });
     });
 
-    it("should position at end of chapter (since ca not yet rendered in visible mode)", () => {
+    it("should position at end of chapter (since ca not yet rendered with visible markers)", () => {
       let para: ParaNode;
       const { editor } = createBasicTestEnvironment([ParaNode, ImmutableChapterNode], () => {
         para = $createParaNode();
@@ -700,7 +711,7 @@ describe("$getRangeFromUsjSelection", () => {
       });
     });
 
-    it("should position at end of chapter (since ca never visible in hidden mode)", () => {
+    it("should position at end of chapter (since ca never visible with hidden markers)", () => {
       let para: ParaNode;
       const { editor } = createBasicTestEnvironment([ParaNode, ImmutableChapterNode], () => {
         para = $createParaNode();
@@ -724,6 +735,69 @@ describe("$getRangeFromUsjSelection", () => {
         expect(editorSelection.anchor.key).toBe(para.getKey());
         expect(editorSelection.anchor.offset).toBe(0);
         expect(editorSelection.isCollapsed()).toBe(true);
+      });
+    });
+  });
+
+  describe("Edge cases for annotation ranges", () => {
+    it("should handle selection spanning from marker to text (visible markers)", () => {
+      let t1: TextNode;
+      const { editor } = createBasicTestEnvironment([ParaNode, ImmutableTypedTextNode], () => {
+        t1 = $createTextNode("nor sit in the seat");
+        $getRoot().append(
+          $createParaNode().append(
+            $createImmutableTypedTextNode("marker", openingMarkerText("q2")),
+            t1,
+          ),
+        );
+      });
+
+      editor.getEditorState().read(() => {
+        // Selection from marker location to start of text content
+        const usjSelection: SelectionRange = {
+          start: { jsonPath: "$.content[0]" },
+          end: { jsonPath: "$.content[0].content[0]", offset: 0 },
+        };
+        const editorSelection = $getRangeFromUsjSelection(usjSelection);
+
+        if (!editorSelection) throw new Error("Expected editorSelection to be defined");
+        // Start with para jsonPath should position at beginning of paragraph
+        const para = t1.getParent();
+        expect(editorSelection.anchor.key).toBe(para?.getKey());
+        expect(editorSelection.anchor.offset).toBe(0);
+        expect(editorSelection.focus.key).toBe(t1.getKey());
+        expect(editorSelection.focus.offset).toBe(0);
+      });
+    });
+
+    it("should handle selection from inside the marker to text (visible markers)", () => {
+      let t1: TextNode;
+      const { editor } = createBasicTestEnvironment([ParaNode, ImmutableTypedTextNode], () => {
+        t1 = $createTextNode("nor sit in the seat");
+        $getRoot().append(
+          $createParaNode().append(
+            $createImmutableTypedTextNode("marker", openingMarkerText("q2")),
+            t1,
+          ),
+        );
+      });
+
+      editor.getEditorState().read(() => {
+        // Location with jsonPath pointing to para but with offset (from editor selection)
+        // This is what you get when selecting "\q2 " in the editor
+        const usjSelection: SelectionRange = {
+          start: { jsonPath: "$.content[0]", offset: 0 },
+          end: { jsonPath: "$.content[0].content[0]", offset: 0 },
+        };
+        const editorSelection = $getRangeFromUsjSelection(usjSelection);
+
+        if (!editorSelection) throw new Error("Expected editorSelection to be defined");
+        // Start with element jsonPath + offset should position at beginning of paragraph
+        const para = t1.getParent();
+        expect(editorSelection.anchor.key).toBe(para?.getKey());
+        expect(editorSelection.anchor.offset).toBe(0);
+        expect(editorSelection.focus.key).toBe(t1.getKey());
+        expect(editorSelection.focus.offset).toBe(0);
       });
     });
   });
@@ -1011,6 +1085,49 @@ describe("$getUsjSelectionFromEditor", () => {
           jsonPath: "$.content[0].content[1]",
           offset: 0,
         });
+      });
+    });
+
+    it("should emit element jsonPath + offset when cursor is at start of para with visible marker", () => {
+      let para: ParaNode;
+      const { editor } = createBasicTestEnvironment([ParaNode, ImmutableTypedTextNode], () => {
+        para = $createParaNode();
+        $getRoot().append(
+          para.append(
+            $createImmutableTypedTextNode("marker", openingMarkerText("q2")),
+            $createTextNode("nor sit in the seat"),
+          ),
+        );
+      });
+      updateSelection(editor, para!, 0);
+
+      editor.getEditorState().read(() => {
+        const usjSelection = $getUsjSelectionFromEditor();
+
+        if (!usjSelection) throw new Error("Expected usjSelection to be defined");
+        expect(usjSelection.start).toEqual({ jsonPath: "$.content[0]" });
+        expect(usjSelection.end).toBeUndefined();
+      });
+    });
+
+    it("should emit selection spanning from para start to text when para has visible marker", () => {
+      let para: ParaNode;
+      let t1: TextNode;
+      const { editor } = createBasicTestEnvironment([ParaNode, ImmutableTypedTextNode], () => {
+        para = $createParaNode();
+        t1 = $createTextNode("nor sit in the seat");
+        $getRoot().append(
+          para.append($createImmutableTypedTextNode("marker", openingMarkerText("q2")), t1),
+        );
+      });
+      updateSelection(editor, para!, 0, t1!, 0);
+
+      editor.getEditorState().read(() => {
+        const usjSelection = $getUsjSelectionFromEditor();
+
+        if (!usjSelection) throw new Error("Expected usjSelection to be defined");
+        expect(usjSelection.start).toEqual({ jsonPath: "$.content[0]" });
+        expect(usjSelection.end).toEqual({ jsonPath: "$.content[0].content[0]", offset: 0 });
       });
     });
   });

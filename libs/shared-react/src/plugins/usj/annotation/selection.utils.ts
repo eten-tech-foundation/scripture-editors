@@ -64,13 +64,16 @@ export function $getRangeFromUsjSelection(
 ): RangeSelection | undefined {
   const { start } = selection;
   let { end } = selection;
-  if (end === undefined) end = start;
+  end ??= start;
 
   // Find the start and end nodes with offsets based on the location.
-  const [startNode, startOffset] = $getNodeFromLocation(start);
-  const [endNode, endOffset] = $getNodeFromLocation(end);
+  let [startNode, startOffset] = $getNodeFromLocation(start);
+  let [endNode, endOffset] = $getNodeFromLocation(end);
   if (!startNode || !endNode || startOffset === undefined || endOffset === undefined)
     return undefined;
+
+  [startNode, startOffset] = normalizeVisibleMarkerPoint(startNode, startOffset);
+  [endNode, endOffset] = normalizeVisibleMarkerPoint(endNode, endOffset);
 
   // Create selection range.
   const editorSelection = $createRangeSelection();
@@ -124,6 +127,14 @@ function $getNodeFromLocation(
 
       currentNode = $getContentChildAtIndex(currentNode, index);
     }
+
+    // If the jsonPath resolves to an ElementNode (e.g. "$.content[0]"), interpret offset as a
+    // content-based child boundary offset (what the editor can emit), and return an element point.
+    if (currentNode && $isElementNode(currentNode)) {
+      const elementOffset = getElementOffsetFromContentOffset(currentNode, location.offset);
+      return [currentNode, elementOffset];
+    }
+
     return $findTextNodeInMarks(currentNode, location.offset);
   }
 
@@ -244,6 +255,39 @@ function $getNodeFromLocation(
   );
 }
 
+/**
+ * Converts a content-based offset (skipping ignored nodes) into an element-based child offset.
+ * This returns the earliest element offset that corresponds to the given content offset.
+ */
+function getElementOffsetFromContentOffset(parent: ElementNode, contentOffset: number): number {
+  const children = parent.getChildren();
+  let currentContentOffset = 0;
+  for (let elementOffset = 0; elementOffset <= children.length; elementOffset++) {
+    if (currentContentOffset === contentOffset) return elementOffset;
+    if (elementOffset >= children.length) break;
+    if (!shouldIgnoreNodeForContentIndexes(children[elementOffset])) currentContentOffset += 1;
+  }
+  return children.length;
+}
+
+function normalizeVisibleMarkerPoint(node: LexicalNode, offset: number): [LexicalNode, number] {
+  if (!$isImmutableTypedTextNode(node)) return [node, offset];
+  if (node.getTextType() !== "marker") return [node, offset];
+
+  const textLength = node.getTextContent().length;
+  // If selection resolves inside or at the beginning of a visible marker,
+  // normalize to a parent ElementNode point at the marker's child index.
+  if (offset < 0 || offset >= textLength) return [node, offset];
+
+  const parent = node.getParent();
+  if (!parent || !$isElementNode(parent)) return [node, offset];
+
+  const indexWithinParent = node.getIndexWithinParent();
+  if (indexWithinParent < 0) return [node, offset];
+
+  return [parent, indexWithinParent];
+}
+
 function $getPointType(node: LexicalNode | undefined): "text" | "element" {
   return $isElementNode(node) ? "element" : "text";
 }
@@ -318,7 +362,7 @@ function $findMarkerNode(
  */
 function $navigateToNode(jsonPath: string): LexicalNode | undefined {
   // Extract just the content path portion (strip property suffix if present)
-  const contentPathMatch = jsonPath.match(/^(\$(?:\.content\[\d+\])*)(?:\.|$|\[)/);
+  const contentPathMatch = new RegExp(/^(\$(?:\.content\[\d+\])*)(?:\.|$|\[)/).exec(jsonPath);
   const contentPath = contentPathMatch ? contentPathMatch[1] : jsonPath;
 
   const jsonPathIndexes = indexesFromUsjJsonPath(contentPath);
@@ -413,6 +457,17 @@ function getLocationFromNode(node: LexicalNode, offset: number): UsjDocumentLoca
 
   // Element selection - offset is a child index, convert to content-based offset
   if ($isElementNode(node)) {
+    const childAtOffset = node.getChildAtIndex(offset);
+    if (
+      childAtOffset &&
+      $isImmutableTypedTextNode(childAtOffset) &&
+      childAtOffset.getTextType() === "marker"
+    ) {
+      return {
+        jsonPath: usjJsonPathFromIndexes(getJsonPathIndexes(node)),
+      } satisfies UsjMarkerLocation;
+    }
+
     const contentOffset = getContentOffsetFromElementOffset(node, offset);
     return { jsonPath: usjJsonPathFromIndexes(getJsonPathIndexes(node)), offset: contentOffset };
   }
