@@ -413,7 +413,8 @@ To develop an editor in a target application you can use [yalc](https://www.npmj
 
 1. In this monorepo, publish the editor to `yalc`, e.g.:
    ```bash
-   nx devpub platform
+   cd packages/platform
+   pnpm run devpub
    ```
 2. In the target application repo, link from `yalc`:
    ```bash
