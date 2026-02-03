@@ -3,7 +3,6 @@ import usjEditorAdaptor from "./adaptors/usj-editor.adaptor";
 import { getUsjMarkerAction } from "./adaptors/usj-marker-action.utils";
 import { EditorOptions, EditorProps, EditorRef } from "./editor.model";
 import editorTheme from "./editor.theme";
-import OptionChangePlugin from "./OptionChangePlugin";
 import ScriptureReferencePlugin from "./ScriptureReferencePlugin";
 import TreeViewPlugin from "./TreeViewPlugin";
 import { ToolbarPlugin } from "./toolbar/ToolbarPlugin";
@@ -360,15 +359,10 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
               }
             />
           )}
-          <OptionChangePlugin
-            options={{ view: viewOptions, nodes: nodeOptions }}
-            editedUsjRef={editedUsjRef}
-            usj={usj}
-            setUsj={setUsj}
-          />
           <LoadStatePlugin
             key={loadTrigger}
             scripture={usj}
+            scriptureRef={editedUsjRef}
             nodeOptions={nodeOptions}
             editorAdaptor={usjEditorAdaptor}
             viewOptions={viewOptions}
