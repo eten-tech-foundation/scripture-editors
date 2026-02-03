@@ -8,6 +8,7 @@ import {
 } from "@eten-tech-foundation/scripture-utilities";
 import {
   LineBreakNode,
+  NODE_STATE_KEY,
   SerializedEditorState,
   SerializedLexicalNode,
   SerializedLineBreakNode,
@@ -331,18 +332,22 @@ function createChar(
     _logger?.warn(`Unexpected char marker '${marker}'!`);
   }
   marker = marker ?? "";
+  const children: SerializedLexicalNode[] = [];
   if (_viewOptions?.markerMode === "editable")
     childNodes.forEach((node) => {
       if (isSerializedTextNode(node)) node.text = NBSP + node.text;
     });
   if (childNodes.length === 0) childNodes.push(createText(EMPTY_CHAR_PLACEHOLDER_TEXT));
+  addOpeningMarker(markerObject.marker ?? "", children);
+  children.push(...childNodes);
+  addClosingMarker(markerObject.marker ?? "", children);
   const unknownAttributes = getUnknownAttributes(markerObject, CHAR_MARKER_OBJECT_PROPS);
 
   return removeUndefinedProperties({
     type: CharNode.getType(),
     marker,
     unknownAttributes,
-    children: [...childNodes],
+    children,
     direction: null,
     format: "",
     indent: 0,
@@ -376,7 +381,7 @@ function createPara(
   marker = marker ?? PARA_MARKER_DEFAULT;
   const children: SerializedLexicalNode[] = [];
   if (_viewOptions?.markerMode === "editable")
-    children.push(createMarker(marker), createText(NBSP));
+    children.push(createMarker(marker), createText(NBSP, "marker-trailing-space"));
   else if (_viewOptions?.markerMode === "visible")
     children.push(createImmutableTypedText("marker", openingMarkerText(marker) + NBSP));
   children.push(...childNodes);
@@ -433,8 +438,8 @@ function createNote(
     openingMarkerNode = createMarker(marker);
     closingMarkerNode = createMarker(marker, "closing");
   } else if (_viewOptions?.markerMode === "visible") {
-    openingMarkerNode = createImmutableTypedText("marker", openingMarkerText(marker) + NBSP);
-    closingMarkerNode = createImmutableTypedText("marker", closingMarkerText(marker) + NBSP);
+    openingMarkerNode = createImmutableTypedText("marker", openingMarkerText(marker) + " ");
+    closingMarkerNode = createImmutableTypedText("marker", closingMarkerText(marker));
   }
   const children: SerializedLexicalNode[] = [];
   let callerNode: SerializedImmutableNoteCallerNode | SerializedTextNode;
@@ -562,8 +567,12 @@ function createMarker(
   };
 }
 
-function createText(text: string, mode: TextModeType = "normal"): SerializedTextNode {
-  return {
+function createText(
+  text: string,
+  textType: string | undefined = undefined,
+  mode: TextModeType = "normal",
+): SerializedTextNode {
+  const serializedTextNode: SerializedTextNode = {
     type: TextNode.getType(),
     text,
     detail: 0,
@@ -572,6 +581,10 @@ function createText(text: string, mode: TextModeType = "normal"): SerializedText
     style: "",
     version: 1,
   };
+  if (textType !== undefined) {
+    serializedTextNode[NODE_STATE_KEY] = { textType };
+  }
+  return serializedTextNode;
 }
 
 function createImmutableTypedText(
@@ -616,7 +629,7 @@ function addAttributes(markerObject: MarkerObject, nodes: SerializedLexicalNode[
 
   const attributesText = NODE_ATTRIBUTE_PREFIX + attributes.join(" ");
   if (_viewOptions?.markerMode === "editable") {
-    nodes.push(createText(attributesText));
+    nodes.push(createText(attributesText, "attribute"));
   } else if (_viewOptions?.markerMode === "visible") {
     nodes.push(createImmutableTypedText("attribute", attributesText));
   }
@@ -708,9 +721,7 @@ function recurseNodes(markers: MarkerContent[] | undefined): SerializedLexicalNo
           nodes.push(createVerse(markerContent));
           break;
         case CharNode.getType():
-          addOpeningMarker(markerContent.marker ?? "", nodes);
           nodes.push(createChar(markerContent, recurseNodes(markerContent.content)));
-          addClosingMarker(markerContent.marker ?? "", nodes);
           break;
         case ParaNode.getType():
           nodes.push(createPara(markerContent, recurseNodes(markerContent.content)));

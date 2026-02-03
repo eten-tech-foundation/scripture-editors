@@ -1,3 +1,5 @@
+import type { UsjDocumentLocation } from "@eten-tech-foundation/scripture-utilities";
+
 /**
  * Represents a specific location within a USJ document.
  *
@@ -8,6 +10,7 @@
  * @param jsonPath - The JSONPath string that points to a specific element in the USJ structure.
  * @param offset - The character offset within the targeted element.
  *
+ * @deprecated Use {@link @eten-tech-foundation/scripture-utilities#UsjDocumentLocation} instead.
  * @public
  */
 export interface UsjLocation {
@@ -32,9 +35,9 @@ export interface UsjLocation {
  */
 export interface SelectionRange {
   /** The starting location of the selection range. */
-  start: UsjLocation;
+  start: UsjDocumentLocation;
   /** Optional ending location of the selection range. */
-  end?: UsjLocation;
+  end?: UsjDocumentLocation;
 }
 
 /**
@@ -50,7 +53,7 @@ export interface SelectionRange {
  */
 export interface AnnotationRange {
   /** The starting location of the annotation range. */
-  start: UsjLocation;
+  start: UsjDocumentLocation;
   /** The ending location of the annotation range. */
-  end: UsjLocation;
+  end: UsjDocumentLocation;
 }

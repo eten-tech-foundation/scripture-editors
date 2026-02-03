@@ -50,8 +50,8 @@ import {
   $applyUpdate,
   $getNoteByKeyOrIndex,
   $getParticularNodeOps,
-  $getRangeFromEditor,
-  $getRangeFromSelection,
+  $getUsjSelectionFromEditor,
+  $getRangeFromUsjSelection,
   $getReplaceEmbedOps,
   $insertNote,
   $selectNote,
@@ -219,16 +219,16 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
       if (ops) this.applyUpdate(ops);
     },
     getSelection() {
-      return editorRef.current?.read($getRangeFromEditor);
+      return editorRef.current?.read($getUsjSelectionFromEditor);
     },
     setSelection(selection) {
-      editorRef.current?.update(
-        () => {
-          const rangeSelection = $getRangeFromSelection(selection);
-          if (rangeSelection !== undefined) $setSelection(rangeSelection);
-        },
-        { tag: SELECTION_CHANGE_TAG },
-      );
+      editorRef.current?.update(() => {
+        const editorSelection = $getRangeFromUsjSelection(selection);
+        if (editorSelection !== undefined) {
+          $setSelection(editorSelection);
+          $addUpdateTag(SELECTION_CHANGE_TAG);
+        }
+      });
     },
     setAnnotation(selection, type, id, onClick, onRemove) {
       annotationRef.current?.setAnnotation(
