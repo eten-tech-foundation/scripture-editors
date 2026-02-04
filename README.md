@@ -1,3 +1,26 @@
+# `platform-yalc` branch
+
+This branch is a long-lived branch that is the target of Platform.Bible's build workflows. It is rebased onto `main` when appropriate. It is intended only to reflect `main` at various points with one commit on top that adds this message; please do not do anything to this branch other than to rebase it onto `main` when changes need to be reflected in Platform.Bible's editor.
+
+We build the editor into Platform.Bible from this branch instead of from specific npm releases to avoid the overhead of making releases for every little change we need to make to the editor.
+
+The only reason this branch exists as opposed to building the editor from `main` is to make it easier to sync breaking changes here with changes in Platform.Bible that depend on these changes to avoid breaking the Platform.Bible build with breaking changes there that have not yet had changes reflected in Platform.Bible. When you want to make changes in the editor, do the following:
+
+1. Locally develop the editor on a branch from `main`. Locally develop Platform.Bible on a branch as usual.
+2. Submit a PR here. Submit a PR in Platform.Bible. Get these PRs reviewed. Note: if there are breaking changes in the editor, Platform.Bible likely won't successfully build yet.
+3. Merge the PR here.
+4. Rebase `platform-yalc` onto `main` and force push:
+
+```bash
+git fetch origin
+git checkout platform-yalc
+git rebase origin/main
+git push --force-with-lease
+```
+
+5. Get the PR in Platform.Bible to rebuild (push something). The build should now succeed. Unfortunately, builds not on your branch may fail temporarily until you finish the next step.
+6. Once the build has succeeded, merge the PR.
+
 # Scripture Editors
 
 This monorepo contains packages for various Scripture editors.
