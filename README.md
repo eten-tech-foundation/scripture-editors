@@ -1,3 +1,26 @@
+# `release-prep` branch
+
+This branch is a long-lived branch that is the target of Platform.Bible's release staging and preparation workflows. It is rebased onto `main` at the start of a release cycle. After the beginning of the release cycle, it is intended to have only fixes cherry-picked onto it; please do not add new features or rebase this branch onto `main` again after the release cycle starts.
+
+Once Platform.Bible is ready for release, create a new release of this package from this branch, and update the package to this newly released version in Platform.Bible.
+
+When some changes to the editor have been approved within a release cycle, do the following:
+
+1. Locally develop the editor on a branch from `main`. Locally develop Platform.Bible on a branch as usual.
+2. Submit a PR here. Submit a PR in Platform.Bible. Get these PRs reviewed. Note: if there are breaking changes in the editor, Platform.Bible likely won't successfully build yet.
+3. Merge the PR into `main` here.
+4. Cherry-pick the change onto `release-prep`:
+
+```bash
+git fetch origin
+git checkout release-prep
+git cherry-pick <change-ref>
+git push
+```
+
+5. Get the PR in Platform.Bible to rebuild (push something). The build should now succeed. Unfortunately, builds not on your branch may fail temporarily until you finish the next step.
+6. Once the build has succeeded, merge the PR.
+
 # Scripture Editors
 
 This monorepo contains packages for various Scripture editors.
