@@ -42,7 +42,7 @@
     "@xmldom/xmldom": "^0.9.8"
   },
   "devDependencies": {
-    "lexical": "^0.38.2"
+    "lexical": "^0.40.0"
   },
   "publishConfig": {
     "access": "public",

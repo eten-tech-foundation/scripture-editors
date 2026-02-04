@@ -213,8 +213,6 @@ export const editorStateGen1v1 = {
             direction: null,
             format: "",
             indent: 0,
-            textFormat: 0,
-            textStyle: "",
             version: 1,
             children: [
               {
@@ -243,8 +241,6 @@ export const editorStateGen1v1 = {
             direction: null,
             format: "",
             indent: 0,
-            textFormat: 0,
-            textStyle: "",
             version: 1,
             children: [
               {
@@ -322,8 +318,6 @@ export const editorStateGen1v1 = {
                 direction: null,
                 format: "",
                 indent: 0,
-                textFormat: 0,
-                textStyle: "",
                 version: 1,
                 children: [
                   {
@@ -352,8 +346,6 @@ export const editorStateGen1v1 = {
                 direction: null,
                 format: "",
                 indent: 0,
-                textFormat: 0,
-                textStyle: "",
                 version: 1,
                 children: [
                   {
@@ -382,8 +374,6 @@ export const editorStateGen1v1 = {
                 direction: null,
                 format: "",
                 indent: 0,
-                textFormat: 0,
-                textStyle: "",
                 version: 1,
                 children: [
                   {
@@ -437,8 +427,6 @@ export const editorStateGen1v1 = {
             direction: null,
             format: "",
             indent: 0,
-            textFormat: 0,
-            textStyle: "",
             version: 1,
             children: [
               {
@@ -648,8 +636,6 @@ export const editorStateGen1v1Editable = {
             direction: null,
             format: "",
             indent: 0,
-            textFormat: 0,
-            textStyle: "",
             version: 1,
             children: [
               {
@@ -700,8 +686,6 @@ export const editorStateGen1v1Editable = {
             direction: null,
             format: "",
             indent: 0,
-            textFormat: 0,
-            textStyle: "",
             version: 1,
             children: [
               {
@@ -857,8 +841,6 @@ export const editorStateGen1v1Editable = {
                 direction: null,
                 format: "",
                 indent: 0,
-                textFormat: 0,
-                textStyle: "",
                 version: 1,
                 children: [
                   {
@@ -889,8 +871,6 @@ export const editorStateGen1v1Editable = {
                 direction: null,
                 format: "",
                 indent: 0,
-                textFormat: 0,
-                textStyle: "",
                 version: 1,
                 children: [
                   {
@@ -921,8 +901,6 @@ export const editorStateGen1v1Editable = {
                 direction: null,
                 format: "",
                 indent: 0,
-                textFormat: 0,
-                textStyle: "",
                 version: 1,
                 children: [
                   {
@@ -989,8 +967,6 @@ export const editorStateGen1v1Editable = {
             direction: null,
             format: "",
             indent: 0,
-            textFormat: 0,
-            textStyle: "",
             version: 1,
             children: [
               {
@@ -1260,8 +1236,6 @@ export const editorStateGen1v1ImpliedPara = {
             direction: null,
             format: "",
             indent: 0,
-            textFormat: 0,
-            textStyle: "",
             version: 1,
             children: [
               {
@@ -1916,8 +1890,6 @@ export const editorStateWithUnknownItems = {
                 direction: null,
                 format: "",
                 indent: 0,
-                textFormat: 0,
-                textStyle: "",
                 version: 1,
                 children: [
                   {
@@ -2369,8 +2341,6 @@ export const editorStateGen1v1Nonstandard = {
             direction: null,
             format: "",
             indent: 0,
-            textFormat: 0,
-            textStyle: "",
             version: 1,
             children: [
               {
@@ -2398,8 +2368,6 @@ export const editorStateGen1v1Nonstandard = {
                 direction: null,
                 format: "",
                 indent: 0,
-                textFormat: 0,
-                textStyle: "",
                 version: 1,
                 children: [
                   {

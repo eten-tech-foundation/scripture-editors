@@ -236,10 +236,8 @@ export class CharNode extends ElementNode {
 
   // Mutation
 
-  override insertNewAfter(rangeSelection: RangeSelection, restoreSelection: boolean): CharNode {
+  override insertNewAfter(_selection: RangeSelection, restoreSelection: boolean): CharNode {
     const newElement = $createCharNode(this.getMarker());
-    newElement.setTextFormat(rangeSelection.format);
-    newElement.setTextStyle(rangeSelection.style);
     newElement.setDirection(this.getDirection());
     newElement.setFormat(this.getFormatType());
     newElement.setStyle(this.getTextStyle());
