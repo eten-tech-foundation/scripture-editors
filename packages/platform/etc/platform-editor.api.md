@@ -77,7 +77,7 @@ export interface EditorProps<TLogger extends LoggerBasic> {
     logger?: TLogger;
     onScrRefChange?: (scrRef: SerializedVerseRef) => void;
     onSelectionChange?: (selection: SelectionRange | undefined) => void;
-    onStateChange?: ({ canUndo, canRedo, blockMarker, contextMarker }: StateChangeSnapshot) => void;
+    onStateChange?: (input: StateChangeSnapshot) => void;
     onUsjChange?: (usj: Usj, ops?: DeltaOp[], source?: DeltaSource, insertedNodeKey?: string) => void;
     options?: EditorOptions;
     scrRef?: SerializedVerseRef;
