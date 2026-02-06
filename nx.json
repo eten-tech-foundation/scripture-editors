@@ -19,6 +19,7 @@
   "plugins": [
     {
       "plugin": "@nx/js/typescript",
+      "exclude": ["tsconfig.json"],
       "options": {
         "typecheck": {
           "targetName": "typecheck"
@@ -33,9 +34,9 @@
     },
     {
       "plugin": "@nx/vite/plugin",
+      "exclude": ["vite.config.mts"],
       "options": {
         "buildTargetName": "build",
-        "testTargetName": "test",
         "serveTargetName": "serve",
         "devTargetName": "dev",
         "previewTargetName": "preview",
@@ -60,6 +61,13 @@
         "watchDepsTargetName": "watch-deps",
         "buildDepsTargetName": "build-deps",
         "typecheckTargetName": "typecheck"
+      }
+    },
+    {
+      "plugin": "@nx/vitest",
+      "exclude": ["vite.config.mts"],
+      "options": {
+        "testTargetName": "test"
       }
     }
   ],

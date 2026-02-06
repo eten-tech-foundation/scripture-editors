@@ -3,13 +3,11 @@
   "compilerOptions": {
     "outDir": "./out-tsc/vitest",
     "types": [
+      "vitest",
       "vitest/globals",
       "vitest/importMeta",
       "vite/client",
-      "node",
-      "vitest",
-      "@nx/react/typings/cssmodule.d.ts",
-      "@nx/react/typings/image.d.ts"
+      "node"
     ],
     "jsx": "react-jsx",
     "module": "esnext",

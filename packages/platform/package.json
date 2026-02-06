@@ -48,13 +48,13 @@
   },
   "dependencies": {
     "@eten-tech-foundation/scripture-utilities": "workspace:~",
-    "@floating-ui/dom": "^1.7.4",
+    "@floating-ui/dom": "^1.7.5",
     "@lexical/react": "^0.40.0",
     "@lexical/selection": "^0.40.0",
     "@lexical/text": "^0.40.0",
     "@lexical/utils": "^0.40.0",
     "@lexical/yjs": "^0.40.0",
-    "@sillsdev/scripture": "^2.0.2",
+    "@sillsdev/scripture": "^2.0.3",
     "fast-equals": "^5.2.2",
     "lexical": "^0.40.0",
     "quill-delta": "^5.1.0"
@@ -64,7 +64,7 @@
     "react-dom": "^18.3.1",
     "shared": "workspace:~",
     "shared-react": "workspace:~",
-    "yjs": "^13.6.27"
+    "yjs": "^13.6.29"
   },
   "publishConfig": {
     "access": "public",

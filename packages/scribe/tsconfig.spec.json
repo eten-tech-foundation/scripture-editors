@@ -3,11 +3,11 @@
   "compilerOptions": {
     "outDir": "./out-tsc/vitest",
     "types": [
+      "vitest",
       "vitest/globals",
       "vitest/importMeta",
       "vite/client",
-      "node",
-      "vitest"
+      "node"
     ],
     "forceConsistentCasingInFileNames": true,
     "jsx": "react-jsx",

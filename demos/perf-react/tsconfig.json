@@ -4,15 +4,6 @@
   "include": [],
   "references": [
     {
-      "path": "../../libs/shared-react"
-    },
-    {
-      "path": "../../libs/shared"
-    },
-    {
-      "path": "../../libs/test-data"
-    },
-    {
       "path": "./tsconfig.app.json"
     },
     {

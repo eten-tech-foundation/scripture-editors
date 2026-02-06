@@ -37,7 +37,7 @@
   },
   "dependencies": {
     "@eten-tech-foundation/scripture-utilities": "workspace:~",
-    "@floating-ui/dom": "^1.7.4",
+    "@floating-ui/dom": "^1.7.5",
     "@lexical/mark": "^0.40.0",
     "@lexical/react": "^0.40.0",
     "@lexical/selection": "^0.40.0",
@@ -46,14 +46,14 @@
     "lexical": "^0.40.0"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4.1.13",
+    "@tailwindcss/postcss": "^4.1.18",
     "postcss": "^8.5.6",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "shared": "workspace:~",
     "shared-react": "workspace:~",
     "sj-usfm-grammar": "^3.0.8",
-    "tailwindcss": "^4.1.13"
+    "tailwindcss": "^4.1.18"
   },
   "volta": {
     "extends": "../../package.json"

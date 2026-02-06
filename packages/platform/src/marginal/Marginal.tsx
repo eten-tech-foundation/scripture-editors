@@ -40,8 +40,10 @@ export interface MarginalRef extends EditorRef {
  * @deprecated {@link Marginal} is deprecated. It will be removed in a future release.
  * @public
  */
-export interface MarginalProps<TLogger extends LoggerBasic>
-  extends Omit<EditorProps<TLogger>, "onUsjChange"> {
+export interface MarginalProps<TLogger extends LoggerBasic> extends Omit<
+  EditorProps<TLogger>,
+  "onUsjChange"
+> {
   /** Callback function when comments have changed. */
   onCommentChange?: (comments: Comments | undefined) => void;
   /** Callback function when USJ Scripture data has changed. */

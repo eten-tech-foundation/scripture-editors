@@ -57,8 +57,9 @@ const DrawerOverlay = React.forwardRef<
 DrawerOverlay.displayName = DrawerPrimitive.Overlay.displayName;
 
 /* CUSTOM: Extend DrawerPrimitive.Content with additional props */
-interface DrawerContentProps
-  extends React.ComponentPropsWithoutRef<typeof DrawerPrimitive.Content> {
+interface DrawerContentProps extends React.ComponentPropsWithoutRef<
+  typeof DrawerPrimitive.Content
+> {
   /** Optionally hide the drawer handle */
   hideDrawerHandle?: boolean;
 }

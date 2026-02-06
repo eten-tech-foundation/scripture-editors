@@ -1,7 +1,7 @@
 /// <reference types='vitest' />
 import * as path from "path";
 // import { visualizer } from "rollup-plugin-visualizer";
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 import dts from "vite-plugin-dts";
 
 // https://vitejs.dev/config/

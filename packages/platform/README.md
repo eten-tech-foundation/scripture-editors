@@ -364,8 +364,10 @@ If you must continue using `<Marginal />`, watch release notes for the removal t
 Inherits from the [Editorial Properties](#editorial-properties).
 
 ```ts
-export interface MarginalProps<TLogger extends LoggerBasic>
-  extends Omit<EditorProps<TLogger>, "onUsjChange"> {
+export interface MarginalProps<TLogger extends LoggerBasic> extends Omit<
+  EditorProps<TLogger>,
+  "onUsjChange"
+> {
   /** Callback function when comments have changed. */
   onCommentChange?: (comments: Comments | undefined) => void;
   /** Callback function when USJ Scripture data has changed. */
