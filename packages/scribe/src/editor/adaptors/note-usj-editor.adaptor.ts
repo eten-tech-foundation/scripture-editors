@@ -325,8 +325,6 @@ function createChar(
     direction: null,
     format: "",
     indent: 0,
-    textFormat: 0,
-    textStyle: "",
     version: CHAR_VERSION,
   });
 }

@@ -11,15 +11,15 @@
     "react-dom": ">=18.3.1"
   },
   "dependencies": {
-    "@lexical/headless": "^0.38.2",
-    "@lexical/html": "^0.38.2",
-    "@lexical/react": "^0.38.2",
-    "@lexical/selection": "^0.38.2",
-    "@lexical/utils": "^0.38.2",
+    "@lexical/headless": "^0.40.0",
+    "@lexical/html": "^0.40.0",
+    "@lexical/react": "^0.40.0",
+    "@lexical/selection": "^0.40.0",
+    "@lexical/utils": "^0.40.0",
     "base-64": "^1.0.0",
     "epitelete-html": "^0.2.21-beta.2",
     "json-difference": "^1.16.1",
-    "lexical": "^0.38.2",
+    "lexical": "^0.40.0",
     "open-patcher": "1.0.0-beta.1",
     "proskomma-core": "^0.11.0",
     "pure-uuid": "^1.8.1"

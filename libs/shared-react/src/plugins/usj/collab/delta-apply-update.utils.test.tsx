@@ -4527,11 +4527,6 @@ function cleanupSerializedEditorState(
     if (direction !== undefined && "direction" in node && node.direction !== direction)
       node.direction = direction;
 
-    if (node.type === "char") {
-      node.textFormat = 0;
-      node.textStyle = "";
-    }
-
     if (
       (node.marker === "c" || node.marker === "v") &&
       "showMarker" in node &&
