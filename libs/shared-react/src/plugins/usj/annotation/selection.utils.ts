@@ -128,6 +128,11 @@ function $getNodeFromLocation(
       currentNode = $getContentChildAtIndex(currentNode, index);
     }
 
+    // If we landed on a TypedMarkNode (annotation wrapper), unwrap it to get the actual content
+    if (currentNode && $isTypedMarkNode(currentNode)) {
+      currentNode = currentNode.getFirstChild() ?? undefined;
+    }
+
     // If the jsonPath resolves to an ElementNode (e.g. "$.content[0]"), interpret offset as a
     // content-based child boundary offset (what the editor can emit), and return an element point.
     if (currentNode && $isElementNode(currentNode)) {
@@ -306,15 +311,20 @@ function $findTextNodeInMarks(
   if (!node || !$isTextNode(node)) return [undefined, undefined];
 
   const text = node.getTextContent();
-  if (offset >= 0 && offset <= text.length) return [node, offset];
+  // If offset is within the text (not at the very end), return this node.
+  // If offset equals text.length exactly, continue to next sibling to find the start of next content.
+  if (offset >= 0 && offset < text.length) return [node, offset];
 
   let nextNode = node.getNextSibling();
   if (!nextNode) {
     const parent = node.getParent();
     if ($isTypedMarkNode(parent)) nextNode = parent.getNextSibling();
   }
-  if (!nextNode || (!$isTypedMarkNode(nextNode) && !$isTextNode(nextNode)))
+  if (!nextNode || (!$isTypedMarkNode(nextNode) && !$isTextNode(nextNode))) {
+    // No more siblings - if offset equals text.length, return end of current node
+    if (offset === text.length) return [node, offset];
     return [undefined, undefined];
+  }
 
   const nextOffset = offset - text.length;
   if (nextNode && $isTextNode(nextNode)) return $findTextNodeInMarks(nextNode, nextOffset);
