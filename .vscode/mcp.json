@@ -1,17 +1,14 @@
 {
-  "mcpServers": {
+  "servers": {
     "nx-mcp": {
-      "type": "stdio",
       "command": "npx",
       "args": ["nx-mcp"]
     },
     "context7": {
-      "type": "stdio",
       "command": "npx",
       "args": ["-y", "@upstash/context7-mcp@latest"]
     },
     "chrome-devtools": {
-      "type": "stdio",
       "command": "npx",
       "args": ["-y", "chrome-devtools-mcp@latest"]
     }
