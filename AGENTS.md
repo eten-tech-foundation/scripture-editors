@@ -16,3 +16,30 @@
 
 - Prefer `undefined` over `null` when representing missing values unless an API explicitly requires `null`.
 - Prefer chaining Lexical `append` calls inside the final `$getRoot().append(...)` when setting up document structure in tests so the hierarchy is readable at a glance.
+
+# Context 7 Library Documentation
+
+The Context 7 MCP server is available for looking up library documentation and code examples. **No API key is required.**
+
+## Using Context 7 to look up library documentation
+
+When you need documentation for a library or package:
+
+1. Use `mcp_context7_resolve-library-id` to find the library ID:
+
+   ```
+   mcp_context7_resolve-library-id with libraryName="Library Name"
+   ```
+
+   This will return matching libraries with their Context7-compatible IDs (format: `/org/project`), descriptions, code snippet counts, and trust scores.
+
+2. Once you have the library ID, use `mcp_context7_get-library-docs` to fetch documentation:
+   ```
+   mcp_context7_get-library-docs with context7CompatibleLibraryID="/org/project"
+   ```
+   You can also specify a `topic` parameter to focus on specific aspects (e.g., "hooks", "routing", "components").
+
+## Example: Looking up Lexical documentation
+
+- Resolve: Find Lexical → returns `/facebook/lexical` (official, trust score 9.2)
+- Fetch: Get docs for `/facebook/lexical` → Returns 661 lines of documentation with code examples for editor creation, React setup, state management, etc.
