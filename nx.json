@@ -1,8 +1,9 @@
 {
   "$schema": "./node_modules/nx/schemas/nx-schema.json",
   "defaultBase": "main",
-  "nxCloudId": "66a2e268e3adf95b524754c9",
-  "nxCloudAccessToken": "Mzk3MDg0NjAtMGMwMy00NWUxLTliMTQtN2Y0YTYxMjc3Njc1fHJlYWQ=",
+  "_comment": "Temporarily disabled while Nx Cloud credits are exhausted. IJH: 2026 Feb 16",
+  "_nxCloudId": "66a2e268e3adf95b524754c9",
+  "_nxCloudAccessToken": "Mzk3MDg0NjAtMGMwMy00NWUxLTliMTQtN2Y0YTYxMjc3Njc1fHJlYWQ=",
   "namedInputs": {
     "default": ["{projectRoot}/**/*", "sharedGlobals"],
     "production": [
