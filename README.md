@@ -36,7 +36,7 @@ You can use [Volta](https://volta.sh/) with this repo to use the right version o
 
 If you don't use Volta just look at the `volta` property in [package.json](/package.json) to see the right tool versions to install in your preferred way.
 
-NOTE: there is a [known limitation using PNPM with Volta](https://docs.volta.sh/advanced/pnpm). So to install packages globally, use NPM instead of PNPM (only for global installs). For an example, see step 2 of [Developer Quick Start](#developer-quick-start).
+NOTE: there is a [known limitation using PNPM with Volta](https://docs.volta.sh/advanced/pnpm). So set your environment variable `VOLTA_FEATURE_PNPM` to 1. Also to install packages globally, use NPM instead of PNPM (only for global installs). For an example, see step 2 of [Developer Quick Start](#developer-quick-start).
 
 ## Nx Monorepo Build System
 

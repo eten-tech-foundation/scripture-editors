@@ -4,15 +4,6 @@
   "include": [],
   "references": [
     {
-      "path": "../../libs/test-data"
-    },
-    {
-      "path": "../../packages/platform"
-    },
-    {
-      "path": "../../packages/utilities"
-    },
-    {
       "path": "./tsconfig.app.json"
     },
     {

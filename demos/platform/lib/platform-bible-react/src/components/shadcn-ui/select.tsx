@@ -12,7 +12,8 @@ import { cva, VariantProps } from "class-variance-authority";
  * @see Shadcn UI Documentation: {@link https://ui.shadcn.com/docs/components/select}
  */
 export interface SelectTriggerProps
-  extends React.ComponentPropsWithoutRef<typeof SelectPrimitive.Trigger>,
+  extends
+    React.ComponentPropsWithoutRef<typeof SelectPrimitive.Trigger>,
     VariantProps<typeof selectTriggerVariants> {
   asChild?: boolean;
 }

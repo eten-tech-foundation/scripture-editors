@@ -36,7 +36,7 @@
   },
   "dependencies": {
     "@eten-tech-foundation/scripture-utilities": "workspace:~",
-    "@floating-ui/dom": "^1.7.4",
+    "@floating-ui/dom": "^1.7.5",
     "@lexical/react": "^0.40.0",
     "@lexical/utils": "^0.40.0",
     "fast-equals": "^5.2.2",

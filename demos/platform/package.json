@@ -12,13 +12,13 @@
   "dependencies": {
     "@eten-tech-foundation/platform-editor": "workspace:~",
     "@eten-tech-foundation/scripture-utilities": "workspace:~",
-    "@sillsdev/scripture": "^2.0.2",
+    "@sillsdev/scripture": "^2.0.3",
     "lucide-react": "^0.475.0"
   },
   "devDependencies": {
     "platform-bible-react": "file:./lib/platform-bible-react",
     "platform-bible-utils": "file:./lib/platform-bible-utils",
-    "tailwindcss": "4.1.13",
+    "tailwindcss": "4.1.18",
     "tailwindcss-animate": "1.0.7",
     "test-data": "workspace:~"
   },
