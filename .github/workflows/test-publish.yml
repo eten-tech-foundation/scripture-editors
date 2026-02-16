@@ -16,8 +16,9 @@ on:
         required: false
         default: false
 
-env:
-  NX_CLOUD_ACCESS_TOKEN: ${{ secrets.NX_CLOUD_ACCESS_TOKEN }}
+# env:
+# Temporarily disabled while Nx Cloud credits are exhausted. IJH: 2026 Feb 16
+# NX_CLOUD_ACCESS_TOKEN: ${{ secrets.NX_CLOUD_ACCESS_TOKEN }}
 
 # Needed for nx-set-shas when run on the main branch
 permissions:
