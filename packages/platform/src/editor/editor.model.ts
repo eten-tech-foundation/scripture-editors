@@ -4,6 +4,7 @@ import { RefObject } from "react";
 import { LoggerBasic, TypedMarkOnClick, TypedMarkOnRemove } from "shared";
 import {
   AnnotationRange,
+  ContextMenuOptionConfig,
   DeltaOp,
   DeltaSource,
   SelectionRange,
@@ -161,4 +162,6 @@ export interface EditorOptions {
   view?: ViewOptions;
   /** EXPERIMENTAL: Is the editor being debugged using the TreeView. */
   debug?: boolean;
+  /** Additional items to append to the editor context menu. */
+  contextMenu?: ContextMenuOptionConfig[];
 }
