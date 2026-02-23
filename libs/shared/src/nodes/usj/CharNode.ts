@@ -30,8 +30,8 @@ const VALID_CHAR_FOOTNOTE_MARKERS = [
   "fw",
   "fp",
   "fv",
-  "fdc",
   "fm",
+  "fdc", // Deprecated marker.
 ];
 /** @see https://docs.usfm.bible/usfm/3.1/char/notes/crossref/index.html */
 const VALID_CHAR_CROSS_REFERENCE_MARKERS = [
@@ -43,7 +43,7 @@ const VALID_CHAR_CROSS_REFERENCE_MARKERS = [
   "xta",
   "xot",
   "xnt",
-  "xdc",
+  "xdc", // Deprecated marker.
 ];
 /** @see https://docs.usfm.bible/usfm/3.1/char/index.html */
 const VALID_CHAR_MARKERS = [
@@ -76,7 +76,8 @@ const VALID_CHAR_MARKERS = [
   "wg",
   "wh",
   "wj",
-  // Note there are 2 deprecated markers intentionally not listed here: "addpn", "pro"
+  "addpn", // Deprecated marker.
+  "pro", // Deprecated marker.
 
   // Text Formatting
   "bd",
