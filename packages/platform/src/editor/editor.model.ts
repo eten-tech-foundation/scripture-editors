@@ -89,12 +89,26 @@ export interface EditorRef {
   /** Get the editor element for the given node key, if any. */
   getElementByKey(nodeKey: string): HTMLElement | undefined;
   /**
+   * Insert a marker at the current editor selection, replicating the behavior of the
+   * built-in marker menu. Works with both collapsed (insertion point) and range selections.
+   *
+   * @param marker - A USFM marker string, e.g. `"wj"`, `"p"`, `"f"`, `"v"`, `"c"`.
+   * @throws Will throw an error if the editor is in readonly mode.
+   * @throws Will throw an error if the `scrRef` prop was not provided to the editor.
+   * @throws Will throw an error if the marker is not a supported para, char, note, chapter, or
+   *   verse marker.
+   */
+  insertMarker(marker: string): void;
+  /**
    * Insert a note at the specified selection, e.g. footnote, cross-reference, endnote.
    * @param marker - The marker type for the note.
    * @param caller - Optional note caller to override the default for the given marker.
    * @param selection - Optional selection range where the note should be inserted. By default it
    *   will use the current selection in the editor.
    * @throws Will throw an error if the marker is not a valid note marker.
+   *
+   * @deprecated Use {@link EditorRef.insertMarker} instead. `insertMarker` supports note markers
+   *   and additionally provides readonly and scrRef guards.
    */
   insertNote(marker: string, caller?: string, selection?: SelectionRange): void;
   /**
