@@ -116,7 +116,10 @@ const VALID_PARA_MARKERS = [
   "mi",
   "lit",
   "nb",
-  // Note there is 1 deprecated marker not listed here: "ph#"
+  "ph", // Deprecated marker.
+  "ph1", // Deprecated marker.
+  "ph2", // Deprecated marker.
+  "ph3", // Deprecated marker.
   // Poetry
   "q",
   "q1",
