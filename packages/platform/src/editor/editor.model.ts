@@ -4,6 +4,7 @@ import { RefObject } from "react";
 import { LoggerBasic, TypedMarkOnClick, TypedMarkOnRemove } from "shared";
 import {
   AnnotationRange,
+  ContextMenuOptionConfig,
   DeltaOp,
   DeltaSource,
   SelectionRange,
@@ -154,6 +155,8 @@ export interface EditorOptions {
   markerMenuTrigger?: string;
   /** Options for some editor nodes. */
   nodes?: UsjNodeOptions;
+  /** Additional items to append to the editor context menu. */
+  contextMenu?: ContextMenuOptionConfig[];
   /**
    * EXPERIMENTAL: View options. Defaults to the formatted view mode which is currently the only
    * functional option.

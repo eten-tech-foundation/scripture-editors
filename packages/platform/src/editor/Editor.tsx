@@ -154,6 +154,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
     view: viewOptions = defaultViewOptions,
     nodes: nodeOptions = defaultNodeOptions,
     debug = false,
+    contextMenu: contextMenuOptions,
   } = options ?? defaultOptions;
 
   editorConfig.editable = !isReadonly;
@@ -379,7 +380,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
           <CharNodePlugin />
           <ClipboardPlugin />
           <CommandMenuPlugin logger={logger} />
-          <ContextMenuPlugin />
+          <ContextMenuPlugin options={contextMenuOptions} />
           <NoteNodePlugin
             expandedNoteKeyRef={expandedNoteKeyRef}
             nodeOptions={nodeOptions}

@@ -60,6 +60,7 @@ export type {
 export type {
   AddMissingComments,
   AnnotationRange,
+  ContextMenuOptionConfig,
   DeltaOp,
   DeltaOpInsertNoteEmbed,
   DeltaSource,

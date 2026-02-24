@@ -10,6 +10,20 @@ import { ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 
 import * as ReactDOM from "react-dom";
 import { isImmutableChapterElement } from "shared";
 
+/**
+ * A context menu option to add to the editor context menu.
+ *
+ * @public
+ */
+export interface ContextMenuOptionConfig {
+  /** Display title of the menu item. */
+  title: string;
+  /** Callback invoked when the menu item is selected. */
+  onSelect: () => void;
+  /** Whether the menu item is disabled. */
+  isDisabled?: boolean;
+}
+
 function ContextMenuItem({
   index,
   isSelected,
@@ -111,7 +125,11 @@ function isEditorInput(
   return element.classList.contains(editorInputClassName);
 }
 
-export function ContextMenuPlugin(): ReactElement {
+export function ContextMenuPlugin({
+  options: extraOptions,
+}: {
+  options?: ContextMenuOptionConfig[];
+} = {}): ReactElement {
   const [editor] = useLexicalComposerContext();
   const [isReadonly, setIsReadonly] = useState(() => !editor.isEditable());
   const targetRef = useRef<HTMLElement | undefined>(undefined);
@@ -119,7 +137,7 @@ export function ContextMenuPlugin(): ReactElement {
   const closeMenuFnRef = useRef<(() => void) | undefined>(undefined);
 
   const options = useMemo(() => {
-    return [
+    const builtIn = [
       new ContextMenuOption(`Cut`, {
         onSelect: () => {
           editor.dispatchCommand(CUT_COMMAND, null);
@@ -144,7 +162,12 @@ export function ContextMenuPlugin(): ReactElement {
         isDisabled: isReadonly,
       }),
     ];
-  }, [editor, isReadonly]);
+    const extra = (extraOptions ?? []).map(
+      (opt) =>
+        new ContextMenuOption(opt.title, { onSelect: opt.onSelect, isDisabled: opt.isDisabled }),
+    );
+    return [...builtIn, ...extra];
+  }, [editor, isReadonly, extraOptions]);
 
   const onSelectOption = useCallback(
     (selectedOption: ContextMenuOption, targetNode: LexicalNode | null, closeMenu: () => void) => {
