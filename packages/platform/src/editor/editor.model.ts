@@ -155,6 +155,8 @@ export interface EditorOptions {
   markerMenuTrigger?: string;
   /** Options for some editor nodes. */
   nodes?: UsjNodeOptions;
+  /** Additional items to append to the editor context menu. */
+  contextMenu?: ContextMenuOptionConfig[];
   /**
    * EXPERIMENTAL: View options. Defaults to the formatted view mode which is currently the only
    * functional option.
@@ -162,6 +164,4 @@ export interface EditorOptions {
   view?: ViewOptions;
   /** EXPERIMENTAL: Is the editor being debugged using the TreeView. */
   debug?: boolean;
-  /** Additional items to append to the editor context menu. */
-  contextMenu?: ContextMenuOptionConfig[];
 }
