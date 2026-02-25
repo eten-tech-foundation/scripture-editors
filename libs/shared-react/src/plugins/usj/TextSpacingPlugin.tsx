@@ -65,7 +65,9 @@ function $textNodeTrailingSpaceTransform(node: TextNode): void {
     (text.endsWith(" ") && text.length > 1) ||
     $isNoteNode(nextSibling) ||
     $isCharNode(parent) ||
+    $isCharNode(nextSibling) ||
     $isTypedMarkNode(parent) ||
+    $isTypedMarkNode(nextSibling) ||
     $isUnknownNode(parent)
   )
     return;
