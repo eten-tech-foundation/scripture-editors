@@ -193,6 +193,26 @@ describe("TextSpacingPlugin", () => {
     });
   });
 
+  it("should preserve space-only TextNode when next sibling is a CharNode", async () => {
+    const { editor } = await testEnvironment(() => {
+      $getRoot().append(
+        $createParaNode().append(
+          $createTextNode(" "),
+          $createCharNode("nd").append($createTextNode("xyz")),
+        ),
+      );
+    });
+
+    editor.getEditorState().read(() => {
+      const para = $getRoot().getFirstChild();
+      if (!$isParaNode(para)) throw new Error("Expected a ParaNode");
+      expect(para.getChildren()).toHaveLength(2);
+      const spaceNode = para.getChildAtIndex(0);
+      if (!$isTextNode(spaceNode)) throw new Error("Expected a TextNode");
+      expect(spaceNode.getTextContent()).toBe(" ");
+    });
+  });
+
   it("should add a space if typing before an initial verse in a para", async () => {
     const { editor } = await testEnvironment();
 
