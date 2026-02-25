@@ -157,10 +157,6 @@ describe("TextSpacingPlugin", () => {
       );
     });
 
-    await act(async () => {
-      editor.update(() => {});
-    });
-
     editor.getEditorState().read(() => {
       const para = $getRoot().getFirstChild();
       if (!$isParaNode(para)) throw new Error("Expected a ParaNode");
@@ -182,10 +178,6 @@ describe("TextSpacingPlugin", () => {
           $createTypedMarkNode({ testType1: ["testID1"] }).append($createTextNode("marked")),
         ),
       );
-    });
-
-    await act(async () => {
-      editor.update(() => {});
     });
 
     editor.getEditorState().read(() => {
