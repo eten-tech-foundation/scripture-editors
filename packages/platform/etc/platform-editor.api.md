@@ -36,6 +36,13 @@ export interface CommentBase {
 export type Comments = (Thread | CommentBase)[];
 
 // @public
+export interface ContextMenuOptionConfig {
+    isDisabled?: boolean;
+    onSelect: () => void;
+    title: string;
+}
+
+// @public
 export type DeltaOp = Op;
 
 // @public
@@ -61,6 +68,7 @@ export const Editorial: ForwardRefExoticComponent<EditorProps<LoggerBasic> & Ref
 
 // @public
 export interface EditorOptions {
+    contextMenu?: ContextMenuOptionConfig[];
     debug?: boolean;
     hasExternalUI?: boolean;
     hasSpellCheck?: boolean;
@@ -94,6 +102,8 @@ export interface EditorRef {
     getNoteOps(noteKeyOrIndex: string | number): DeltaOp[] | undefined;
     getSelection(): SelectionRange | undefined;
     getUsj(): Usj | undefined;
+    insertMarker(marker: string): void;
+    // @deprecated
     insertNote(marker: string, caller?: string, selection?: SelectionRange): void;
     paste(): void;
     pastePlainText(): void;

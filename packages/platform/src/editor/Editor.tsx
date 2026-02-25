@@ -1,6 +1,6 @@
 import editorUsjAdaptor from "./adaptors/editor-usj.adaptor";
 import usjEditorAdaptor from "./adaptors/usj-editor.adaptor";
-import { getUsjMarkerAction } from "./adaptors/usj-marker-action.utils";
+import { getUsjMarkerAction, isUsjMarkerSupported } from "./adaptors/usj-marker-action.utils";
 import { EditorOptions, EditorProps, EditorRef } from "./editor.model";
 import editorTheme from "./editor.theme";
 import ScriptureReferencePlugin from "./ScriptureReferencePlugin";
@@ -154,6 +154,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
     view: viewOptions = defaultViewOptions,
     nodes: nodeOptions = defaultNodeOptions,
     debug = false,
+    contextMenu: contextMenuOptions,
   } = options ?? defaultOptions;
 
   editorConfig.editable = !isReadonly;
@@ -255,6 +256,22 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
         () => editorRef.current?.getElementByKey(nodeKey) ?? undefined,
       );
     },
+    insertMarker(marker) {
+      if (isReadonly) throw new Error("Cannot insert marker in readonly mode");
+      if (!scrRef) throw new Error("Cannot insert marker without a scripture reference (scrRef)");
+      if (!editorRef.current) return;
+
+      if (!isUsjMarkerSupported(marker)) throw new Error(`Unsupported marker '${marker}'`);
+
+      const markerAction = getUsjMarkerAction(
+        marker,
+        expandedNoteKeyRef,
+        viewOptions,
+        nodeOptions,
+        logger,
+      );
+      markerAction.action({ editor: editorRef.current, reference: scrRef });
+    },
     insertNote(marker, caller, selection) {
       editorRef.current?.update(() => {
         const noteNode = $insertNote(
@@ -354,8 +371,8 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
               trigger={markerMenuTrigger}
               scrRef={scrRef}
               contextMarker={contextMarker}
-              getMarkerAction={(marker, markerData) =>
-                getUsjMarkerAction(marker, expandedNoteKeyRef, markerData, viewOptions)
+              getMarkerAction={(marker) =>
+                getUsjMarkerAction(marker, expandedNoteKeyRef, viewOptions, nodeOptions, logger)
               }
             />
           )}
@@ -379,7 +396,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
           <CharNodePlugin />
           <ClipboardPlugin />
           <CommandMenuPlugin logger={logger} />
-          <ContextMenuPlugin />
+          <ContextMenuPlugin options={contextMenuOptions} />
           <NoteNodePlugin
             expandedNoteKeyRef={expandedNoteKeyRef}
             nodeOptions={nodeOptions}

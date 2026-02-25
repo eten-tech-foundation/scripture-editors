@@ -1,4 +1,4 @@
-import { MarkerContent, MarkerObject } from "@eten-tech-foundation/scripture-utilities";
+import { MarkerContent } from "@eten-tech-foundation/scripture-utilities";
 import { SerializedVerseRef } from "@sillsdev/scripture";
 import {
   $createTextNode,
@@ -20,10 +20,8 @@ import {
   $isVisibleMarkerNode,
   CharNode,
   createLexicalUsjNode,
-  GENERATOR_NOTE_CALLER,
   getNextVerse,
-  HIDDEN_NOTE_CALLER,
-  Marker,
+  LoggerBasic,
   MarkerAction,
   NBSP,
   NoteNode,
@@ -32,10 +30,11 @@ import {
 } from "shared";
 import {
   $addTrailingSpace,
-  $insertNoteWithSelect,
+  $insertNote,
   $isSomeVerseNode,
   $removeLeadingSpace,
   getDefaultViewOptions,
+  UsjNodeOptions,
   ViewOptions,
 } from "shared-react";
 import usjEditorAdaptor from "./usj-editor.adaptor";
@@ -50,76 +49,6 @@ interface UsjMarkerAction {
     noteText?: string;
   }) => MarkerContent[];
 }
-
-// Keep this function updated with logic from
-// `libs/shared-react/src/nodes/usj/node-react.utils.ts` > `$createNoteChildren`
-const getFootnoteMarkerAction: (footnoteMarker: string) => UsjMarkerAction = (footnoteMarker) => {
-  if (!NoteNode.isValidMarker(footnoteMarker) || !footnoteMarker.includes("f"))
-    throw new Error(`Invalid footnote marker '${footnoteMarker}'`);
-
-  return {
-    action: (currentEditor) => {
-      const { chapterNum, verseNum } = currentEditor.reference;
-      const noteChildren: MarkerObject[] = [];
-      if (chapterNum !== undefined && verseNum !== undefined)
-        noteChildren.push({
-          type: "char",
-          marker: "fr",
-          content: [`${chapterNum}:${verseNum} `],
-        });
-      if (currentEditor.noteText)
-        noteChildren.push({
-          type: "char",
-          marker: "fq",
-          content: [currentEditor.noteText],
-        });
-      noteChildren.push({ type: "char", marker: "ft" });
-      const content: MarkerContent = {
-        type: "note",
-        marker: footnoteMarker,
-        caller: GENERATOR_NOTE_CALLER,
-        content: noteChildren,
-      };
-      return [content];
-    },
-  };
-};
-
-// Keep this function updated with logic from
-// `libs/shared-react/src/nodes/usj/node-react.utils.ts` > `$createNoteChildren`
-const getCrossReferenceMarkerAction: (crossReferenceMarker: string) => UsjMarkerAction = (
-  crossReferenceMarker,
-) => {
-  if (!NoteNode.isValidMarker(crossReferenceMarker) || !crossReferenceMarker.includes("x"))
-    throw new Error(`Invalid cross-reference marker '${crossReferenceMarker}'`);
-
-  return {
-    action: (currentEditor) => {
-      const { chapterNum, verseNum } = currentEditor.reference;
-      const noteChildren: MarkerObject[] = [];
-      if (chapterNum !== undefined && verseNum !== undefined)
-        noteChildren.push({
-          type: "char",
-          marker: "xo",
-          content: [`${chapterNum}:${verseNum} `],
-        });
-      if (currentEditor.noteText)
-        noteChildren.push({
-          type: "char",
-          marker: "xq",
-          content: [currentEditor.noteText],
-        });
-      noteChildren.push({ type: "char", marker: "xt" });
-      const content: MarkerContent = {
-        type: "note",
-        marker: crossReferenceMarker,
-        caller: HIDDEN_NOTE_CALLER,
-        content: noteChildren,
-      };
-      return [content];
-    },
-  };
-};
 
 const markerActions: { [marker: string]: UsjMarkerAction } = {
   c: {
@@ -146,24 +75,50 @@ const markerActions: { [marker: string]: UsjMarkerAction } = {
       return [content];
     },
   },
-  f: getFootnoteMarkerAction("f"),
-  fe: getFootnoteMarkerAction("fe"),
-  ef: getFootnoteMarkerAction("ef"),
-  efe: getFootnoteMarkerAction("efe"),
-  x: getCrossReferenceMarkerAction("x"),
-  ex: getCrossReferenceMarkerAction("ex"),
 };
+
+/** Returns whether the given USFM marker is supported by {@link getUsjMarkerAction}. */
+export function isUsjMarkerSupported(marker: string): boolean {
+  return (
+    NoteNode.isValidMarker(marker) ||
+    !!markerActions[marker] ||
+    ParaNode.isValidMarker(marker) ||
+    CharNode.isValidMarker(marker)
+  );
+}
 
 /** A function that returns a marker action for a given USJ marker */
 export function getUsjMarkerAction(
   marker: string,
   expandedNoteKeyRef: React.MutableRefObject<string | undefined>,
-  _markerData?: Marker,
   viewOptions?: ViewOptions,
+  nodeOptions?: UsjNodeOptions,
+  logger?: LoggerBasic,
   /** Included for tests, e.g. `{ discrete: true }` */
   editorUpdateOptions?: EditorUpdateOptions,
 ): MarkerAction {
+  // Note markers are handled directly via $insertNote (no serialization round-trip).
+  if (NoteNode.isValidMarker(marker)) {
+    const action = (currentEditor: { editor: LexicalEditor; reference: SerializedVerseRef }) => {
+      currentEditor.editor.update(() => {
+        const noteNode = $insertNote(
+          marker,
+          undefined,
+          undefined,
+          currentEditor.reference,
+          viewOptions ?? getDefaultViewOptions(),
+          nodeOptions ?? {},
+          logger,
+        );
+        if (noteNode && !noteNode.getIsCollapsed()) expandedNoteKeyRef.current = noteNode.getKey();
+      }, editorUpdateOptions);
+    };
+    return { action, label: undefined };
+  }
+
   const markerAction = getMarkerAction(marker);
+  // No-op for unsupported markers so the marker menu doesn't crash during render.
+  if (!markerAction) return { action: () => undefined, label: undefined };
   const action = (currentEditor: {
     editor: LexicalEditor;
     reference: SerializedVerseRef;
@@ -172,18 +127,14 @@ export function getUsjMarkerAction(
     currentEditor.editor.update(() => {
       const selection = $getSelection();
       if ($isRangeSelection(selection)) currentEditor.noteText = selection.getTextContent();
-      const content = markerAction?.action?.(currentEditor);
-      if (!content) return;
+      const content = markerAction.action(currentEditor);
 
       const serializedLexicalNode = createLexicalUsjNode(content, usjEditorAdaptor, viewOptions);
       const nodeToInsert = $createNodeFromSerializedNode(serializedLexicalNode);
 
       if ($isRangeSelection(selection)) {
         const node = selection.anchor.getNode();
-        if ($isNoteNode(nodeToInsert)) {
-          $insertNoteWithSelect(nodeToInsert, selection, viewOptions);
-          if (!nodeToInsert.getIsCollapsed()) expandedNoteKeyRef.current = nodeToInsert.getKey();
-        } else if (selection.getTextContent().length > 0) {
+        if (selection.getTextContent().length > 0) {
           // If the selection has text content, wrap the text selection in an inline node
           $wrapTextSelectionInInlineNode(selection, () =>
             $createNodeFromSerializedNode(serializedLexicalNode),

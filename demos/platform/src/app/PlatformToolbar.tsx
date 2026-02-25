@@ -100,15 +100,15 @@ export const PlatformToolbar = forwardRef<HTMLDivElement, PlatformToolbarProps>(
     ref,
   ): ReactElement {
     const handleInsertFootnote = () => {
-      editorRef.current?.insertNote("f");
+      editorRef.current?.insertMarker("f");
     };
 
     const handleInsertCrossReference = () => {
-      editorRef.current?.insertNote("x");
+      editorRef.current?.insertMarker("x");
     };
 
     const handleInsertEndnote = () => {
-      editorRef.current?.insertNote("fe");
+      editorRef.current?.insertMarker("fe");
     };
 
     const onSelectProjectMenuItem: SelectMenuItemHandler = (selectedMenuItem) => {

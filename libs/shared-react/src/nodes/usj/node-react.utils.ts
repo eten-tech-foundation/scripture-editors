@@ -171,9 +171,6 @@ export function $insertNoteWithSelect(
   }
 }
 
-// When this function is modified, also update the same logic in
-// `packages/platform/src/editor/adaptors/usj-marker-action.utils.ts` > `footnoteMarkerAction`
-// and `crossReferenceMarkerAction`
 export function $createNoteChildren(
   selection: RangeSelection,
   marker: string,
