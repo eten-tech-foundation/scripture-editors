@@ -1,5 +1,5 @@
 import { GetMarkerAction, ScriptureReference } from "shared";
-import useUsfmMakersForMenu from "./PerfNodesItems/useUsfmMarkersForMenu";
+import useUsfmMarkersForMenu from "./PerfNodesItems/useUsfmMarkersForMenu";
 import NodesMenu from "./NodesMenu";
 
 export default function UsfmNodesMenuPlugin({
@@ -13,7 +13,7 @@ export default function UsfmNodesMenuPlugin({
   contextMarker: string | undefined;
   getMarkerAction: GetMarkerAction;
 }) {
-  const { markersMenuItems } = useUsfmMakersForMenu({
+  const { markersMenuItems } = useUsfmMarkersForMenu({
     scriptureReference,
     contextMarker,
     getMarkerAction,

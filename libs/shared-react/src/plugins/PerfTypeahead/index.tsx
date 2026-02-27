@@ -1,5 +1,5 @@
 import { getUsfmMarkerAction, ScriptureReference } from "shared";
-import useUsfmMakersForMenu from "../PerfNodesItems/useUsfmMarkersForMenu";
+import useUsfmMarkersForMenu from "../PerfNodesItems/useUsfmMarkersForMenu";
 import TypeaheadPlugin from "../Typeahead/TypeaheadPlugin";
 
 export default function PerfTypeaheadPlugin({
@@ -11,7 +11,7 @@ export default function PerfTypeaheadPlugin({
   scriptureReference: ScriptureReference;
   contextMarker: string;
 }) {
-  const { markersMenuItems } = useUsfmMakersForMenu({
+  const { markersMenuItems } = useUsfmMarkersForMenu({
     scriptureReference,
     contextMarker,
     getMarkerAction: getUsfmMarkerAction,

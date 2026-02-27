@@ -147,6 +147,72 @@ describe("TextSpacingPlugin", () => {
     });
   });
 
+  it("should not add trailing space when next sibling is a CharNode", async () => {
+    const { editor } = await testEnvironment(() => {
+      $getRoot().append(
+        $createParaNode().append(
+          $createTextNode("abc"),
+          $createCharNode("nd").append($createTextNode("xyz")),
+        ),
+      );
+    });
+
+    editor.getEditorState().read(() => {
+      const para = $getRoot().getFirstChild();
+      if (!$isParaNode(para)) throw new Error("Expected a ParaNode");
+      expect(para.getChildren()).toHaveLength(2);
+      const textNode = para.getChildAtIndex(0);
+      if (!$isTextNode(textNode)) throw new Error("Expected a TextNode");
+      expect(textNode.getTextContent()).toBe("abc");
+      const charNode = para.getChildAtIndex(1);
+      if (!$isCharNode(charNode)) throw new Error("Expected a CharNode");
+      expect(charNode.getTextContent()).toBe("xyz");
+    });
+  });
+
+  it("should not add trailing space when next sibling is a TypedMarkNode", async () => {
+    const { editor } = await testEnvironment(() => {
+      $getRoot().append(
+        $createParaNode().append(
+          $createTextNode("abc"),
+          $createTypedMarkNode({ testType1: ["testID1"] }).append($createTextNode("marked")),
+        ),
+      );
+    });
+
+    editor.getEditorState().read(() => {
+      const para = $getRoot().getFirstChild();
+      if (!$isParaNode(para)) throw new Error("Expected a ParaNode");
+      expect(para.getChildren()).toHaveLength(2);
+      const textNode = para.getChildAtIndex(0);
+      if (!$isTextNode(textNode)) throw new Error("Expected a TextNode");
+      expect(textNode.getTextContent()).toBe("abc");
+      const markNode = para.getChildAtIndex(1);
+      if (!$isTypedMarkNode(markNode)) throw new Error("Expected a TypedMarkNode");
+      expect(markNode.getTextContent()).toBe("marked");
+    });
+  });
+
+  it("should preserve space-only TextNode when next sibling is a CharNode", async () => {
+    const { editor } = await testEnvironment(() => {
+      $getRoot().append(
+        $createParaNode().append(
+          $createTextNode(" "),
+          $createCharNode("nd").append($createTextNode("xyz")),
+        ),
+      );
+    });
+
+    editor.getEditorState().read(() => {
+      const para = $getRoot().getFirstChild();
+      if (!$isParaNode(para)) throw new Error("Expected a ParaNode");
+      expect(para.getChildren()).toHaveLength(2);
+      const spaceNode = para.getChildAtIndex(0);
+      if (!$isTextNode(spaceNode)) throw new Error("Expected a TextNode");
+      expect(spaceNode.getTextContent()).toBe(" ");
+    });
+  });
+
   it("should add a space if typing before an initial verse in a para", async () => {
     const { editor } = await testEnvironment();
 

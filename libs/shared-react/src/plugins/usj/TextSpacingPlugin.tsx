@@ -52,6 +52,11 @@ function useTextSpacing(editor: LexicalEditor) {
  * Adds a space to the end of a TextNode if it doesn't precede a note or isn't inside a CharNode,
  * TypedMarkNode, or UnknownNode. It doesn't add a space if the text node is not editable. It
  * removes a TextNode with only a space if it is not followed by a verse node.
+ *
+ * When the next sibling is a CharNode or TypedMarkNode (inline marker or annotation), we skip
+ * both adding trailing space and the space-only cleanup below, so spacing before inline content
+ * is left unchanged.
+ *
  * @param node - TextNode that might need updating.
  */
 function $textNodeTrailingSpaceTransform(node: TextNode): void {
@@ -65,7 +70,9 @@ function $textNodeTrailingSpaceTransform(node: TextNode): void {
     (text.endsWith(" ") && text.length > 1) ||
     $isNoteNode(nextSibling) ||
     $isCharNode(parent) ||
+    $isCharNode(nextSibling) ||
     $isTypedMarkNode(parent) ||
+    $isTypedMarkNode(nextSibling) ||
     $isUnknownNode(parent)
   )
     return;
