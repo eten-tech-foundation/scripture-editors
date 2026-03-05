@@ -25,5 +25,7 @@
     "node_modules": true,
     "demos/platform/lib": true
   },
+  // Exclude auto-generated Lexical state fixtures from SonarLint analysis
+  "sonarlint.analysisExcludesStandalone": ["**/test-data/src/data/2sa.lexical.*.ts"],
   "typescript.tsdk": "node_modules/typescript/lib"
 }

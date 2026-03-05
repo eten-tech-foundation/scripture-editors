@@ -367,12 +367,18 @@ importers:
       shared:
         specifier: workspace:~
         version: link:../shared
+      test-data:
+        specifier: workspace:~
+        version: link:../test-data
 
   libs/test-data:
     dependencies:
       '@eten-tech-foundation/scripture-utilities':
         specifier: workspace:~
         version: link:../../packages/utilities
+      lexical:
+        specifier: ^0.40.0
+        version: 0.40.0
       tslib:
         specifier: ^2.8.1
         version: 2.8.1
@@ -425,6 +431,9 @@ importers:
       shared-react:
         specifier: workspace:~
         version: link:../../libs/shared-react
+      test-data:
+        specifier: workspace:~
+        version: link:../../libs/test-data
       yjs:
         specifier: ^13.6.29
         version: 13.6.29
