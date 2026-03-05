@@ -490,8 +490,7 @@ describe("$getEffectiveVerseForBcv()", () => {
         const root = $getRoot();
         const p = $createParaNode();
         const v1 = $createVerseNode("1", " verse one");
-        root.append(p);
-        p.append(v1);
+        root.append(p.append(v1));
         verse1Key = v1.getKey();
         v1.select(0, 0);
       },
@@ -513,8 +512,7 @@ describe("$getEffectiveVerseForBcv()", () => {
         const root = $getRoot();
         const p = $createParaNode();
         const v1 = $createVerseNode("1", " verse one");
-        root.append(p);
-        p.append(v1);
+        root.append(p.append(v1));
         verse1Key = v1.getKey();
         v1.select(1, 1);
       },
@@ -537,8 +535,7 @@ describe("$getEffectiveVerseForBcv()", () => {
         const p = $createParaNode();
         const v1 = $createImmutableVerseNode("1");
         const t1 = $createTextNode(" verse one");
-        root.append(p);
-        p.append(v1, t1);
+        root.append(p.append(v1, t1));
         verse1Key = v1.getKey();
       },
       { discrete: true },
@@ -562,8 +559,7 @@ describe("$getEffectiveVerseForBcv()", () => {
         const root = $getRoot();
         const p = $createParaNode();
         const v16 = $createVerseNode("16");
-        root.append(p);
-        p.append(v16);
+        root.append(p.append(v16));
         verse16Key = v16.getKey();
         v16.select(0, 0);
       },
@@ -587,8 +583,7 @@ describe("$getEffectiveVerseForBcv()", () => {
         const p = $createParaNode();
         const v1 = $createImmutableVerseNode("1");
         const v2 = $createImmutableVerseNode("2");
-        root.append(p);
-        p.append(v1, v2);
+        root.append(p.append(v1, v2));
         paraKey = p.getKey();
         verse1Key = v1.getKey();
         const selection = $createRangeSelection();
@@ -616,8 +611,7 @@ describe("$getEffectiveVerseForBcv()", () => {
         const p = $createParaNode();
         const v1 = $createImmutableVerseNode("1");
         const v2 = $createImmutableVerseNode("2");
-        root.append(p);
-        p.append(v1, v2);
+        root.append(p.append(v1, v2));
         paraKey = p.getKey();
         verse2Key = v2.getKey();
         const selection = $createRangeSelection();
