@@ -45,6 +45,9 @@
     },
     {
       "path": "../shared/tsconfig.lib.json"
+    },
+    {
+      "path": "../test-data/tsconfig.lib.json"
     }
   ]
 }
