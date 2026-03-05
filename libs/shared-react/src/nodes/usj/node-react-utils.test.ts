@@ -482,7 +482,7 @@ describe("$getEffectiveVerseForBcv()", () => {
     });
   });
 
-  it("returns previous verse (0) when cursor is at offset 0 in verse 1 (VerseNode)", () => {
+  it("returns current verse when VerseNode text does not start with verse number (cursor at offset 0)", () => {
     let verse1Key: string;
     const { editor } = createBasicTestEnvironment([ParaNode, VerseNode]);
     editor.update(
@@ -501,7 +501,7 @@ describe("$getEffectiveVerseForBcv()", () => {
       const node = $getNodeByKey(verse1Key);
       const verseNode = $isSomeVerseNode(node) ? node : undefined;
       const result = $getEffectiveVerseForBcv(verseNode, $getSelection());
-      expect(result).toEqual({ verseNum: 0 });
+      expect(result).toEqual({ verseNum: 1 });
     });
   });
 

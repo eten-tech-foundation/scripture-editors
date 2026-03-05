@@ -475,10 +475,16 @@ export function $findThisVerse(node: LexicalNode | null | undefined) {
 
 /**
  * Minimum offset inside a verse node to be considered "after the verse number" for BCV display.
- * For a range like "15-16", only the first number length is used so cursor before "15" uses previous verse.
+ * Uses the node's actual text when it is a TextNode: if the text starts with the verse number
+ * (e.g. "16" or "15-16"), returns that prefix length; otherwise 0 so cursor is treated as
+ * after the verse number. For non-TextNode verse nodes (e.g. ImmutableVerseNode) returns 0.
  */
-function getVerseNumberPrefixLength(verseNumber: string): number {
-  return verseNumber.split("-")[0].length;
+function getVerseNumberPrefixLength(verseNode: SomeVerseNode): number {
+  if (!$isTextNode(verseNode)) return 0;
+  const verseNumber = verseNode.getNumber();
+  const firstNumber = verseNumber.split("-")[0];
+  const text = verseNode.getTextContent();
+  return text.startsWith(firstNumber) ? firstNumber.length : 0;
 }
 
 /**
@@ -542,7 +548,7 @@ export function $getEffectiveVerseForBcv(
 
   // Cursor is inside the verse node: only count as "in verse" when after the verse number
   if ($isTextNode(verseNode)) {
-    const verseNumberPrefixLength = getVerseNumberPrefixLength(verseNode.getNumber());
+    const verseNumberPrefixLength = getVerseNumberPrefixLength(verseNode);
     if (selection.anchor.offset < verseNumberPrefixLength) return { verseNum: prevNum };
   } else {
     return { verseNum: prevNum };
