@@ -3,6 +3,8 @@ import {
   $getNodeByKey,
   $getRoot,
   $getSelection,
+  $isElementNode,
+  $isRangeSelection,
   $isTextNode,
   COMMAND_PRIORITY_LOW,
   EditorState,
@@ -24,7 +26,12 @@ import {
   removeNodesBeforeNode,
   ScriptureReference,
 } from "shared";
-import { $findThisVerse, $findVerseOrPara } from "shared-react";
+import {
+  $findThisVerse,
+  $findVerseOrPara,
+  $getEffectiveVerseForBcv,
+  $isSomeVerseNode,
+} from "shared-react";
 
 /**
  * A component (plugin) that keeps the Scripture reference updated.
@@ -87,13 +94,15 @@ export function ScriptureReferencePlugin({
         () => {
           if (hasCursorMovedRef.current) hasCursorMovedRef.current = false;
           else {
-            $findAndSetChapterAndVerse(
-              book,
-              chapterNum,
-              verseNum,
-              onScrRefChange,
-              hasSelectionChangedRef,
-            );
+            editor.getEditorState().read(() => {
+              $findAndSetChapterAndVerse(
+                book,
+                chapterNum,
+                verseNum,
+                onScrRefChange,
+                hasSelectionChangedRef,
+              );
+            });
           }
           return false;
         },
@@ -143,19 +152,38 @@ function $findAndSetChapterAndVerse(
   onScrRefChange: (scrRef: ScriptureReference) => void,
   hasSelectionChangedRef: MutableRefObject<boolean>,
 ) {
-  const startNode = getSelectionStartNode($getSelection());
+  const selection = $getSelection();
+  let startNode: ReturnType<typeof getSelectionStartNode>;
+  try {
+    startNode = getSelectionStartNode(selection);
+  } catch {
+    startNode = undefined;
+  }
+  if (!startNode && selection && $isRangeSelection(selection)) {
+    startNode = $getNodeByKey(selection.anchor.key) ?? undefined;
+  }
   if (!startNode) return;
 
   const chapterNode = $findThisChapter(startNode);
   const selectedChapterNum = parseInt(chapterNode?.getNumber() ?? "1", 10);
-  const verseNode = $findThisVerse(startNode);
-  const verse = verseNode?.getNumber();
-  // For verse ranges this returns the first number.
-  const selectedVerseNum = parseInt(verse ?? "0", 10);
-  // Check if the requested verse is within the current verse range
-  const isVerseInCurrentRange = verse
-    ? isVerseInRange(verseNum, verse)
-    : verseNum === selectedVerseNum;
+  let verseNode = $findThisVerse(startNode);
+  if (
+    !verseNode &&
+    $isElementNode(startNode) &&
+    selection &&
+    $isRangeSelection(selection) &&
+    selection.anchor.key === startNode.getKey()
+  ) {
+    const childAtOffset = startNode.getChildAtIndex(selection.anchor.offset);
+    if (childAtOffset && $isSomeVerseNode(childAtOffset)) verseNode = childAtOffset;
+  }
+  const { verseNum: effectiveVerseNum, verse: effectiveVerse } = $getEffectiveVerseForBcv(
+    verseNode ?? undefined,
+    selection,
+  );
+  const isVerseInCurrentRange = effectiveVerse
+    ? isVerseInRange(verseNum, effectiveVerse)
+    : verseNum === effectiveVerseNum;
   hasSelectionChangedRef.current = !!(
     (chapterNode && selectedChapterNum !== chapterNum) ||
     !isVerseInCurrentRange
@@ -164,9 +192,10 @@ function $findAndSetChapterAndVerse(
     const scrRef: ScriptureReference = {
       book,
       chapterNum: selectedChapterNum,
-      verseNum: selectedVerseNum,
+      verseNum: effectiveVerseNum,
     };
-    if (verse != null && selectedVerseNum.toString() !== verse) scrRef.verse = verse;
+    if (effectiveVerse != null && effectiveVerseNum.toString() !== effectiveVerse)
+      scrRef.verse = effectiveVerse;
     onScrRefChange(scrRef);
   }
 }

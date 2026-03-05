@@ -9,10 +9,22 @@ import {
   $findVerseOrPara,
   $findLastVerse,
   $findThisVerse,
+  $getEffectiveVerseForBcv,
   $insertNote,
+  $isSomeVerseNode,
 } from "./node-react.utils";
 import { UsjNodeOptions } from "./usj-node-options.model";
-import { $createTextNode, $getNodeByKey, $getRoot, NodeKey } from "lexical";
+import {
+  $createPoint,
+  $createRangeSelection,
+  $createTextNode,
+  $getNodeByKey,
+  $getRoot,
+  $getSelection,
+  $setSelection,
+  $isTextNode,
+  NodeKey,
+} from "lexical";
 import {
   $createBookNode,
   $createImmutableChapterNode,
@@ -29,6 +41,7 @@ import {
   NoteNode,
   ParaNode,
   TypedMarkNode,
+  VerseNode,
 } from "shared";
 
 describe("$findVerseInNode()", () => {
@@ -456,6 +469,169 @@ describe("$findThisVerse()", () => {
       const verseNode = $findThisVerse(t1);
 
       expect(verseNode).toBeUndefined();
+    });
+  });
+});
+
+describe("$getEffectiveVerseForBcv()", () => {
+  it("returns verse 0 when verseNode is undefined", () => {
+    const { editor } = createBasicTestEnvironment();
+    editor.getEditorState().read(() => {
+      const result = $getEffectiveVerseForBcv(undefined, $getSelection());
+      expect(result).toEqual({ verseNum: 0 });
+    });
+  });
+
+  it("returns previous verse (0) when cursor is at offset 0 in verse 1 (VerseNode)", () => {
+    let verse1Key: string;
+    const { editor } = createBasicTestEnvironment([ParaNode, VerseNode]);
+    editor.update(
+      () => {
+        const root = $getRoot();
+        const p = $createParaNode();
+        const v1 = $createVerseNode("1", " verse one");
+        root.append(p);
+        p.append(v1);
+        verse1Key = v1.getKey();
+        v1.select(0, 0);
+      },
+      { discrete: true },
+    );
+    editor.getEditorState().read(() => {
+      const node = $getNodeByKey(verse1Key);
+      const verseNode = $isSomeVerseNode(node) ? node : undefined;
+      const result = $getEffectiveVerseForBcv(verseNode, $getSelection());
+      expect(result).toEqual({ verseNum: 0 });
+    });
+  });
+
+  it("returns current verse when cursor is after verse number in VerseNode", () => {
+    let verse1Key: string;
+    const { editor } = createBasicTestEnvironment([ParaNode, VerseNode]);
+    editor.update(
+      () => {
+        const root = $getRoot();
+        const p = $createParaNode();
+        const v1 = $createVerseNode("1", " verse one");
+        root.append(p);
+        p.append(v1);
+        verse1Key = v1.getKey();
+        v1.select(1, 1);
+      },
+      { discrete: true },
+    );
+    editor.getEditorState().read(() => {
+      const node = $getNodeByKey(verse1Key);
+      const verseNode = $isSomeVerseNode(node) ? node : undefined;
+      const result = $getEffectiveVerseForBcv(verseNode, $getSelection());
+      expect(result).toEqual({ verseNum: 1 });
+    });
+  });
+
+  it("returns current verse when cursor is at start of content after ImmutableVerseNode", () => {
+    let verse1Key: string;
+    const { editor } = createBasicTestEnvironment([ParaNode, ImmutableVerseNode]);
+    editor.update(
+      () => {
+        const root = $getRoot();
+        const p = $createParaNode();
+        const v1 = $createImmutableVerseNode("1");
+        const t1 = $createTextNode(" verse one");
+        root.append(p);
+        p.append(v1, t1);
+        verse1Key = v1.getKey();
+      },
+      { discrete: true },
+    );
+    editor.update(() => {
+      const t1 = $getNodeByKey(verse1Key)?.getNextSibling();
+      if (t1 && $isTextNode(t1)) t1.select(0, 0);
+    });
+    editor.getEditorState().read(() => {
+      const verseNode = $findThisVerse($getNodeByKey(verse1Key)?.getNextSibling() ?? null);
+      const result = $getEffectiveVerseForBcv(verseNode ?? undefined, $getSelection());
+      expect(result).toEqual({ verseNum: 1 });
+    });
+  });
+
+  it("returns verse 15 when cursor is at start of verse 16 node (between verses)", () => {
+    let verse16Key: string;
+    const { editor } = createBasicTestEnvironment([ParaNode, VerseNode]);
+    editor.update(
+      () => {
+        const root = $getRoot();
+        const p = $createParaNode();
+        const v16 = $createVerseNode("16");
+        root.append(p);
+        p.append(v16);
+        verse16Key = v16.getKey();
+        v16.select(0, 0);
+      },
+      { discrete: true },
+    );
+    editor.getEditorState().read(() => {
+      const node = $getNodeByKey(verse16Key);
+      const verseNode = $isSomeVerseNode(node) ? node : undefined;
+      const result = $getEffectiveVerseForBcv(verseNode, $getSelection());
+      expect(result).toEqual({ verseNum: 15 });
+    });
+  });
+
+  it("returns verse 0 when cursor is in parent at offset 0 (before first verse)", () => {
+    let paraKey: string;
+    let verse1Key: string;
+    const { editor } = createBasicTestEnvironment([ParaNode, ImmutableVerseNode]);
+    editor.update(
+      () => {
+        const root = $getRoot();
+        const p = $createParaNode();
+        const v1 = $createImmutableVerseNode("1");
+        const v2 = $createImmutableVerseNode("2");
+        root.append(p);
+        p.append(v1, v2);
+        paraKey = p.getKey();
+        verse1Key = v1.getKey();
+        const selection = $createRangeSelection();
+        selection.anchor = $createPoint(paraKey, 0, "element");
+        selection.focus = $createPoint(paraKey, 0, "element");
+        $setSelection(selection);
+      },
+      { discrete: true },
+    );
+    editor.getEditorState().read(() => {
+      const node = $getNodeByKey(verse1Key);
+      const verseNode = $isSomeVerseNode(node) ? node : undefined;
+      const result = $getEffectiveVerseForBcv(verseNode, $getSelection());
+      expect(result).toEqual({ verseNum: 0 });
+    });
+  });
+
+  it("returns verse 1 when cursor is in parent at offset 1 (between verse 1 and 2)", () => {
+    let paraKey: string;
+    let verse2Key: string;
+    const { editor } = createBasicTestEnvironment([ParaNode, ImmutableVerseNode]);
+    editor.update(
+      () => {
+        const root = $getRoot();
+        const p = $createParaNode();
+        const v1 = $createImmutableVerseNode("1");
+        const v2 = $createImmutableVerseNode("2");
+        root.append(p);
+        p.append(v1, v2);
+        paraKey = p.getKey();
+        verse2Key = v2.getKey();
+        const selection = $createRangeSelection();
+        selection.anchor = $createPoint(paraKey, 1, "element");
+        selection.focus = $createPoint(paraKey, 1, "element");
+        $setSelection(selection);
+      },
+      { discrete: true },
+    );
+    editor.getEditorState().read(() => {
+      const node = $getNodeByKey(verse2Key);
+      const verseNode = $isSomeVerseNode(node) ? node : undefined;
+      const result = $getEffectiveVerseForBcv(verseNode, $getSelection());
+      expect(result).toEqual({ verseNum: 1 });
     });
   });
 });
