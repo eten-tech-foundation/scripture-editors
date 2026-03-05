@@ -31,6 +31,10 @@ nx run-many -t typecheck           # Type check all packages
 nx format:check                    # Check formatting
 nx format:write                    # Fix formatting
 
+# API extraction (run after changing a package's public API)
+nx extract-api <package-name>      # Update API report for specific package
+nx run-many -t extract-api         # Update API reports for all packages
+
 # Development environments
 nx dev perf-react                  # React-based PERF editor
 nx dev perf-vanilla                # Vanilla JS PERF editor
@@ -136,6 +140,7 @@ shared-react (React-specific extensions)
 3. **Testing**: Run `nx test <package-name>` for specific package tests
 4. **Linting**: Run `nx run-many -t lint` before committing
 5. **Building**: Use `nx build <package-name>` to build specific packages
+6. **API Changes**: Run `nx extract-api <package-name>` after changing a package's public API to update its API report
 
 ### Key Files and Directories
 
