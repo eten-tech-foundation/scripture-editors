@@ -16,6 +16,7 @@ import {
 import { UsjNodeOptions } from "./usj-node-options.model";
 import { $dfs } from "@lexical/utils";
 import {
+  BaseSelection,
   $createTextNode,
   $getNodeByKey,
   $getSelection,
@@ -470,6 +471,100 @@ export function $findThisVerse(node: LexicalNode | null | undefined) {
   if (!verseNode && $isSomeChapterNode(previousParentSibling)) return;
 
   return verseNode;
+}
+
+/**
+ * Minimum offset inside a verse node to be considered "after the verse number" for BCV display.
+ * Uses the node's actual text when it is a TextNode: if the text starts with the verse number
+ * (e.g. "16" or "15-16"), returns that prefix length; otherwise 0 so cursor is treated as
+ * after the verse number. For non-TextNode verse nodes (e.g. ImmutableVerseNode) returns 0.
+ */
+function getVerseNumberPrefixLength(verseNode: SomeVerseNode): number {
+  if (!$isTextNode(verseNode)) return 0;
+  const verseNumber = verseNode.getNumber();
+  const firstNumber = verseNumber.split("-")[0];
+  const text = verseNode.getTextContent();
+  return text.startsWith(firstNumber) ? firstNumber.length : 0;
+}
+
+/**
+ * Returns true when the selection anchor is positioned before the given verse node in document
+ * order. Handles: (1) cursor inside the verse's parent with offset before this verse's index,
+ * (2) cursor in the verse's previous sibling.
+ */
+function $isSelectionBeforeVerseNode(
+  selection: RangeSelection,
+  verseNode: SomeVerseNode,
+  anchorNode: LexicalNode | null,
+): boolean {
+  if (!anchorNode) return false;
+  const parent = verseNode.getParent();
+  if (anchorNode === parent && $isElementNode(anchorNode)) {
+    const verseIndex = verseNode.getIndexWithinParent();
+    const anchorOffset = selection.anchor.offset;
+    return anchorOffset <= verseIndex;
+  }
+  if (anchorNode.getNextSibling() === verseNode) return true;
+  return false;
+}
+
+/**
+ * Returns the verse number (and optional verse range) that should be displayed in BCV for the
+ * given verse node and selection. When the cursor is before the verse number (e.g. at offset 0
+ * in the verse node), returns the previous verse so BCV only updates when the cursor is
+ * after the verse number.
+ *
+ * When returning the "previous" verse (cursor before current verse), only the numeric
+ * `verseNum` is set; no `verse` range string is included because the function receives only
+ * the current verse node, not the previous one. So if the actual previous verse were "2-3",
+ * callers get `{ verseNum: 3 }` rather than `{ verseNum: 2, verse: "2-3" }`.
+ *
+ * @param verseNode - The verse node that contains or precedes the cursor.
+ * @param selection - The current editor selection.
+ * @returns Effective verse number and optional verse range string for BCV display.
+ */
+export function $getEffectiveVerseForBcv(
+  verseNode: SomeVerseNode | undefined,
+  selection: BaseSelection | null,
+): { verseNum: number; verse?: string } {
+  const verse = verseNode?.getNumber();
+  const selectedVerseNum = parseInt(verse ?? "0", 10);
+  if (!verseNode) return { verseNum: 0 };
+
+  if (!selection || !$isRangeSelection(selection)) {
+    return {
+      verseNum: selectedVerseNum,
+      verse: verse != null && selectedVerseNum.toString() !== verse ? verse : undefined,
+    };
+  }
+
+  const anchorNode = $getNodeByKey(selection.anchor.key);
+  // Previous verse number only; we don't have the previous verse node, so no verse range is set.
+  const prevNum = selectedVerseNum <= 1 ? 0 : selectedVerseNum - 1;
+
+  // When cursor is not inside the verse node, check if it is before the verse (e.g. in a parent
+  // that only has verse markers, or in the previous sibling). Then show previous verse.
+  if (anchorNode !== verseNode) {
+    if ($isSelectionBeforeVerseNode(selection, verseNode, anchorNode)) return { verseNum: prevNum };
+    return {
+      verseNum: selectedVerseNum,
+      verse: verse != null && selectedVerseNum.toString() !== verse ? verse : undefined,
+    };
+  }
+
+  // Cursor is inside the verse node: only count as "in verse" when after the verse number
+  if ($isTextNode(verseNode)) {
+    const verseNumberPrefixLength = getVerseNumberPrefixLength(verseNode);
+    if (selection.anchor.offset < verseNumberPrefixLength) return { verseNum: prevNum };
+  } else {
+    // ImmutableVerseNode (DecoratorNode): not keyboard-selectable, so anchor on it is programmatic; show previous verse.
+    return { verseNum: prevNum };
+  }
+
+  return {
+    verseNum: selectedVerseNum,
+    verse: verse != null && selectedVerseNum.toString() !== verse ? verse : undefined,
+  };
 }
 
 /**
