@@ -179,6 +179,22 @@ To run all TS unit tests watching for file changes:
 
 You can also use the [recommended VS Code extensions](/.vscode/extensions.json) to run tests there. This is particularly useful for running individual tests and debugging.
 
+## API Extraction
+
+If you change the public API of a package, run `nx extract-api` to update its API report:
+
+```bash
+nx extract-api <package-name>  # e.g., nx extract-api platform-editor
+```
+
+Or update all packages at once:
+
+```bash
+nx run-many -t extract-api
+```
+
+The generated API report files should be committed alongside your changes.
+
 ## Formatting, Linting and Typechecking
 
 Formatting happens automatically when you commit. If you use VS Code with this repo's recommended extensions, files will be formatted when you save.
