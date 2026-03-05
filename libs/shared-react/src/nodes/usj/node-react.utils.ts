@@ -514,6 +514,11 @@ function $isSelectionBeforeVerseNode(
  * in the verse node), returns the previous verse so BCV only updates when the cursor is
  * after the verse number.
  *
+ * When returning the "previous" verse (cursor before current verse), only the numeric
+ * `verseNum` is set; no `verse` range string is included because the function receives only
+ * the current verse node, not the previous one. So if the actual previous verse were "2-3",
+ * callers get `{ verseNum: 3 }` rather than `{ verseNum: 2, verse: "2-3" }`.
+ *
  * @param verseNode - The verse node that contains or precedes the cursor.
  * @param selection - The current editor selection.
  * @returns Effective verse number and optional verse range string for BCV display.
@@ -534,6 +539,7 @@ export function $getEffectiveVerseForBcv(
   }
 
   const anchorNode = $getNodeByKey(selection.anchor.key);
+  // Previous verse number only; we don't have the previous verse node, so no verse range is set.
   const prevNum = selectedVerseNum <= 1 ? 0 : selectedVerseNum - 1;
 
   // When cursor is not inside the verse node, check if it is before the verse (e.g. in a parent
@@ -551,6 +557,7 @@ export function $getEffectiveVerseForBcv(
     const verseNumberPrefixLength = getVerseNumberPrefixLength(verseNode);
     if (selection.anchor.offset < verseNumberPrefixLength) return { verseNum: prevNum };
   } else {
+    // ImmutableVerseNode (DecoratorNode): not keyboard-selectable, so anchor on it is programmatic; show previous verse.
     return { verseNum: prevNum };
   }
 

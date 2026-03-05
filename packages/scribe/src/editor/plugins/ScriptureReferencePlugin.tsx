@@ -95,6 +95,7 @@ export function ScriptureReferencePlugin({
         () => {
           if (hasCursorMovedRef.current) hasCursorMovedRef.current = false;
           else {
+            // Command handler runs outside any Lexical read/update context; read() gives $getSelection() etc. a valid state.
             editor.getEditorState().read(() => {
               $findAndSetChapterAndVerse(
                 book,
