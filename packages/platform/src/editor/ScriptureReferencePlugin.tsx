@@ -20,6 +20,7 @@ import {
   BookNode,
   CURSOR_CHANGE_TAG,
   getSelectionStartNode,
+  isSelectionStartNodeExpectedError,
   isVerseInRange,
   isVerseRange,
   removeNodeAndAfter,
@@ -151,8 +152,9 @@ function $findAndSetChapterAndVerse(
   let startNode: ReturnType<typeof getSelectionStartNode>;
   try {
     startNode = getSelectionStartNode(selection);
-  } catch {
-    startNode = undefined;
+  } catch (err) {
+    if (isSelectionStartNodeExpectedError(err)) startNode = undefined;
+    else throw err;
   }
   if (!startNode && selection && $isRangeSelection(selection)) {
     startNode = $getNodeByKey(selection.anchor.key) ?? undefined;

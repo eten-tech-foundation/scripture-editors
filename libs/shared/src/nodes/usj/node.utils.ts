@@ -558,6 +558,19 @@ export function removeUndefinedProperties<T>(obj: T): T {
 }
 
 /**
+ * Returns true when the thrown error is the known Lexical case where the selection
+ * references a node that does not support getNodes() (e.g. DecoratorNode like
+ * ImmutableVerseNode). Used to avoid swallowing unexpected errors in callers that
+ * catch getSelectionStartNode failures.
+ */
+export function isSelectionStartNodeExpectedError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return (
+    message.includes("$caretFromPoint") || message.includes("does not inherit from ElementNode")
+  );
+}
+
+/**
  * Get the start node of the selection.
  * @param selection - The selection to get the start node from.
  * @returns The start node of the selection or `undefined` if no selection is provided.
