@@ -4,6 +4,7 @@ import { nxViteTsPaths } from "@nx/vite/plugins/nx-tsconfig-paths.plugin";
 import react from "@vitejs/plugin-react-swc";
 import * as path from "path";
 // import { visualizer } from "rollup-plugin-visualizer";
+// import type { PluginOption } from "vite";
 import { defineConfig } from "vitest/config";
 import dts from "vite-plugin-dts";
 
@@ -55,7 +56,7 @@ export default defineConfig({
         /^lexical.*/,
       ],
       // open the HTML file manually or  set `open` to true
-      // plugins: [visualizer({ filename: "dist/bundle-analysis.html", open: false })],
+      // plugins: [visualizer({ filename: "dist/bundle-analysis.html", open: false }) as PluginOption],
     },
   },
   test: {

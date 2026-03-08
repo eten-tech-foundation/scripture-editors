@@ -122,12 +122,12 @@
      *
      * DEFAULT VALUE: no overrideTsconfig section
      *
-     * Module Resolution Inconsistency: The main issue was a mismatch between the base TypeScript configuration (moduleResolution: "nodenext") and API Extractor's expectations. I configured API Extractor to use its own TypeScript compiler options with moduleResolution: "node" and module: "commonjs".
+     * API Extractor uses a compiler override to keep module settings aligned with modern ESM packages.
      */
     "overrideTsconfig": {
       "compilerOptions": {
-        "module": "commonjs",
-        "moduleResolution": "node"
+        "module": "esnext",
+        "moduleResolution": "bundler"
       }
     }
 

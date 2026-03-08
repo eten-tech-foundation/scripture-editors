@@ -139,12 +139,7 @@ export default function App() {
     if (viewMode === UNDEFINED_VIEW_MODE) return undefined;
     if (viewMode === CUSTOM_VIEW_MODE) return { markerMode, noteMode, hasSpacing, isFormattedFont };
 
-    const _viewOptions = getViewOptions(viewMode);
-    setMarkerMode(_viewOptions?.markerMode ?? "hidden");
-    setNoteMode(_viewOptions?.noteMode ?? "collapsed");
-    setHasSpacing(_viewOptions?.hasSpacing ?? true);
-    setIsFormattedFont(_viewOptions?.isFormattedFont ?? true);
-    return _viewOptions;
+    return getViewOptions(viewMode);
   }, [viewMode, markerMode, noteMode, hasSpacing, isFormattedFont]);
 
   const customNodeOptions = useMemo<UsjNodeOptions>(
@@ -205,6 +200,7 @@ export default function App() {
 
   const formattedNodeOptions = useMemo(
     () =>
+      // eslint-disable-next-line react-hooks/refs -- Debug-only serialization must reflect the live nodeOptions object, including callable fields.
       JSON.stringify(nodeOptions, (_key, value) =>
         typeof value === "function" ? "<Function>" : value,
       )

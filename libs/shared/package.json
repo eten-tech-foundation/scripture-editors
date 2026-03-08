@@ -37,10 +37,10 @@
   },
   "dependencies": {
     "@eten-tech-foundation/scripture-utilities": "workspace:~",
-    "@lexical/mark": "^0.40.0",
-    "@lexical/utils": "^0.40.0",
-    "@sillsdev/scripture": "^2.0.3",
-    "lexical": "^0.40.0",
+    "@lexical/mark": "^0.41.0",
+    "@lexical/utils": "^0.41.0",
+    "@sillsdev/scripture": "^2.0.4",
+    "lexical": "^0.41.0",
     "tslib": "^2.8.1"
   },
   "devDependencies": {
