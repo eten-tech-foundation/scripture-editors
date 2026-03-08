@@ -37,6 +37,7 @@ function ContextMenuItem({
   onMouseEnter: () => void;
   option: ContextMenuOption;
 }) {
+  /* eslint-disable react-hooks/refs -- Lexical MenuOption API stores interaction fields on option instances consumed during render. */
   let className = "item";
   if (isSelected) {
     className += " selected";
@@ -60,6 +61,7 @@ function ContextMenuItem({
       <span className="text">{option.title}</span>
     </li>
   );
+  /* eslint-enable react-hooks/refs */
 }
 
 function ContextMenu({

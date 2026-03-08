@@ -457,9 +457,22 @@ function CommentsPanelListComment({
   rtf: Intl.RelativeTimeFormat;
   thread?: Thread;
 }): ReactElement {
-  const seconds = Math.round(
-    (comment.timeStamp - (performance.timeOrigin + performance.now())) / 1000,
-  );
+  const [currentTimeMs, setCurrentTimeMs] = useState<number>(0);
+
+  useEffect(() => {
+    const updateCurrentTime = () => {
+      setCurrentTimeMs(performance.timeOrigin + performance.now());
+    };
+
+    updateCurrentTime();
+    const intervalId = window.setInterval(updateCurrentTime, 60_000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, []);
+
+  const seconds = Math.round((comment.timeStamp - currentTimeMs) / 1000);
   const minutes = Math.round(seconds / 60);
   const [modal, showModal] = useModal();
 
@@ -793,6 +806,8 @@ export default function CommentPlugin<TLogger extends LoggerBasic>({
 
   useEffect(() => {
     const changedElems: HTMLElement[] = [];
+    let showCommentsTimeoutId: number | undefined;
+
     for (const id of activeIDs) {
       const keys = markNodeMap.get(id);
       if (keys !== undefined) {
@@ -801,12 +816,18 @@ export default function CommentPlugin<TLogger extends LoggerBasic>({
           if (elem !== null) {
             elem.classList.add("selected");
             changedElems.push(elem);
-            setShowComments(true);
+            showCommentsTimeoutId = window.setTimeout(() => {
+              setShowComments(true);
+            }, 0);
           }
         }
       }
     }
+
     return () => {
+      if (showCommentsTimeoutId !== undefined) {
+        window.clearTimeout(showCommentsTimeoutId);
+      }
       for (const changedElem of changedElems) {
         changedElem.classList.remove("selected");
       }
@@ -950,6 +971,7 @@ export default function CommentPlugin<TLogger extends LoggerBasic>({
           />,
           document.body,
         )}
+      {/* eslint-disable react-hooks/refs -- Portal container refs are provided by parent and intentionally read here to target external DOM roots. */}
       {showCommentsContainerRef !== null &&
         createPortal(
           <Button
@@ -972,6 +994,7 @@ export default function CommentPlugin<TLogger extends LoggerBasic>({
           />,
           commentContainerRef?.current ?? document.body,
         )}
+      {/* eslint-enable react-hooks/refs */}
     </>
   );
 }

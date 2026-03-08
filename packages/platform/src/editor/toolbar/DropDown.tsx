@@ -105,21 +105,11 @@ function DropDownItems({
     }
   };
 
-  const contextValue = useMemo(
-    () => ({
-      registerItem,
-    }),
-    [registerItem],
-  );
+  const contextValue = useMemo(() => ({ registerItem }), [registerItem]);
 
   useEffect(() => {
-    if (items && !highlightedItem) {
-      setHighlightedItem(items[0]);
-    }
-
-    if (highlightedItem && highlightedItem.current) {
-      highlightedItem.current.focus();
-    }
+    const activeItem = highlightedItem ?? items?.[0];
+    if (activeItem?.current) activeItem.current.focus();
   }, [items, highlightedItem]);
 
   return (
