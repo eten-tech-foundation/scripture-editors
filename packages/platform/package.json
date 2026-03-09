@@ -30,6 +30,7 @@
     "!src/**/*.test.tsx"
   ],
   "scripts": {
+    "generate:test-data": "cross-env GENERATE_TEST_DATA=1 pnpm vitest run generate-2sa-lexical-states",
     "prepublishOnly": "tsx ../../scripts/prepare-publish.ts && cd ../.. && nx extract-api platform-editor",
     "postpublish": "git restore package.json",
     "predevpub": "npm run prepublishOnly",
@@ -64,6 +65,7 @@
     "react-dom": "^18.3.1",
     "shared": "workspace:~",
     "shared-react": "workspace:~",
+    "test-data": "workspace:~",
     "yjs": "^13.6.29"
   },
   "publishConfig": {
