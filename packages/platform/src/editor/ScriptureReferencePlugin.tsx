@@ -1,4 +1,5 @@
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
+import { mergeRegister } from "@lexical/utils";
 import { SerializedVerseRef } from "@sillsdev/scripture";
 import {
   $getNodeByKey,
@@ -22,8 +23,9 @@ import {
   isVerseRange,
   removeNodeAndAfter,
   removeNodesBeforeNode,
+  VerseNode,
 } from "shared";
-import { $findThisVerse, $findVerseOrPara } from "shared-react";
+import { $findThisVerse, $findVerseOrPara, ImmutableVerseNode } from "shared-react";
 
 /**
  * A component (plugin) that keeps the Scripture reference updated.
@@ -100,6 +102,22 @@ export default function ScriptureReferencePlugin({
       ),
     [editor, book, chapterNum, verseNum, onScrRefChange],
   );
+
+  // Verse node destroyed - SELECTION_CHANGE_COMMAND won't fire if the cursor position didn't
+  // change (e.g. cursor was at offset 0 of the node after the verse, and stays there after
+  // deletion of the non-keyboard-selectable DecoratorNode).
+  useEffect(() => {
+    const onVerseDestroyed = (nodeMutations: Map<string, "created" | "updated" | "destroyed">) => {
+      const hasDestroyedVerse = [...nodeMutations.values()].some(
+        (m) => m === "created" || m === "destroyed",
+      );
+      if (hasDestroyedVerse) editor.dispatchCommand(SELECTION_CHANGE_COMMAND, undefined);
+    };
+    return mergeRegister(
+      editor.registerMutationListener(ImmutableVerseNode, onVerseDestroyed),
+      editor.registerMutationListener(VerseNode, onVerseDestroyed),
+    );
+  }, [editor]);
 
   return null;
 }
