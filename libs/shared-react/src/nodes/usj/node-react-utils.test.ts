@@ -55,8 +55,7 @@ describe("$findVerseInNode()", () => {
         const v2 = $createVerseNode("2");
         const t1 = $createTextNode("text1");
         const t2 = $createTextNode("text2");
-        root.append(p1);
-        p1.append(v1, t1, v2, t2);
+        root.append(p1.append(v1, t1, v2, t2));
       },
       { discrete: true },
     );
@@ -79,8 +78,7 @@ describe("$findVerseInNode()", () => {
         const v2 = $createVerseNode("2-3");
         const t1 = $createTextNode("text1");
         const t2 = $createTextNode("text2");
-        root.append(p1);
-        p1.append(v1, t1, v2, t2);
+        root.append(p1.append(v1, t1, v2, t2));
       },
       { discrete: true },
     );
@@ -103,8 +101,7 @@ describe("$findVerseInNode()", () => {
         const v2 = $createVerseNode("2-3");
         const t1 = $createTextNode("text1");
         const t2 = $createTextNode("text2");
-        root.append(p1);
-        p1.append(v1, t1, v2, t2);
+        root.append(p1.append(v1, t1, v2, t2));
       },
       { discrete: true },
     );
@@ -127,8 +124,7 @@ describe("$findVerseInNode()", () => {
         const v2 = $createVerseNode("2a-3b");
         const t1 = $createTextNode("text1");
         const t2 = $createTextNode("text2");
-        root.append(p1);
-        p1.append(v1, t1, v2, t2);
+        root.append(p1.append(v1, t1, v2, t2));
       },
       { discrete: true },
     );
@@ -180,8 +176,7 @@ describe("$findLastVerse()", () => {
         const v2 = $createVerseNode("2");
         const t1 = $createTextNode("text1");
         const t2 = $createTextNode("text2");
-        root.append(p1);
-        p1.append(v1, t1, v2, t2);
+        root.append(p1.append(v1, t1, v2, t2));
       },
       { discrete: true },
     );
@@ -204,8 +199,7 @@ describe("$findLastVerse()", () => {
         const v2 = $createImmutableVerseNode("2");
         const t1 = $createTextNode("text1");
         const t2 = $createTextNode("text2");
-        root.append(p1);
-        p1.append(v1, t1, v2, t2);
+        root.append(p1.append(v1, t1, v2, t2));
       },
       { discrete: true },
     );
@@ -237,8 +231,7 @@ describe("$findThisVerse()", () => {
         const v2 = $createImmutableVerseNode("2");
         const t1 = $createTextNode("text1");
         const t2 = $createTextNode("text2");
-        root.append(p1);
-        p1.append(v1, t1, v2, t2);
+        root.append(p1.append(v1, t1, v2, t2));
         t2Key = t2.getKey();
       },
       { discrete: true },
@@ -272,9 +265,7 @@ describe("$findThisVerse()", () => {
         const t1 = $createTextNode("text1");
         const m1 = $createTypedMarkNode({ testType1: ["testID1"] });
         const t2 = $createTextNode("text2");
-        root.append(p1);
-        p1.append(v1, t1, v2, m1);
-        m1.append(t2);
+        root.append(p1.append(v1, t1, v2, m1.append(t2)));
         t2Key = t2.getKey();
       },
       { discrete: true },
@@ -308,10 +299,7 @@ describe("$findThisVerse()", () => {
         const t1 = $createTextNode("text1");
         const t2 = $createTextNode("text2");
         const t3 = $createTextNode("text3");
-        root.append(p1, p2, p3);
-        p1.append(v1, t1);
-        p2.append(t2);
-        p3.append(t3);
+        root.append(p1.append(v1, t1), p2.append(t2), p3.append(t3));
         t3Key = t3.getKey();
       },
       { discrete: true },
@@ -344,9 +332,7 @@ describe("$findThisVerse()", () => {
         const v2 = $createImmutableVerseNode("2");
         const t1 = $createTextNode("text1");
         const t2 = $createTextNode("text2");
-        root.append(p1, p2);
-        p1.append(v1, t1, v2);
-        p2.append(t2);
+        root.append(p1.append(v1, t1, v2), p2.append(t2));
         t2Key = t2.getKey();
       },
       { discrete: true },
@@ -384,9 +370,7 @@ describe("$findThisVerse()", () => {
         const v1 = $createImmutableVerseNode("1");
         const t1 = $createTextNode("text1");
         const t2 = $createTextNode("text2");
-        root.append(c1, p1, p2, p3);
-        p1.append(v1, t1);
-        p2.append(t2);
+        root.append(c1, p1.append(v1, t1), p2.append(t2), p3);
         p3Key = p3.getKey();
       },
       { discrete: true },
@@ -420,8 +404,7 @@ describe("$findThisVerse()", () => {
         const v1 = $createImmutableVerseNode("1");
         const c1 = $createImmutableChapterNode("1");
         const p2 = $createParaNode();
-        root.append(p1, c1, p2);
-        p1.append(v1);
+        root.append(p1.append(v1), c1, p2);
         p2Key = p2.getKey();
       },
       { discrete: true },
@@ -456,9 +439,7 @@ describe("$findThisVerse()", () => {
         const c1 = $createImmutableChapterNode("1");
         const p2 = $createParaNode();
         const t1 = $createTextNode("text1");
-        root.append(p1, c1, p2);
-        p1.append(v1);
-        p2.append(t1);
+        root.append(p1.append(v1), c1, p2.append(t1));
         t1Key = t1.getKey();
       },
       { discrete: true },
@@ -647,8 +628,7 @@ describe("$insertNote()", () => {
         const root = $getRoot();
         const p1 = $createParaNode();
         const t1 = $createTextNode("text");
-        root.append(p1);
-        p1.append(t1);
+        root.append(p1.append(t1));
         t1.select();
       },
       { discrete: true },
@@ -676,8 +656,7 @@ describe("$insertNote()", () => {
         const root = $getRoot();
         const p1 = $createParaNode();
         const t1 = $createTextNode("text");
-        root.append(p1);
-        p1.append(t1);
+        root.append(p1.append(t1));
         // Set collapsed selection at position 2
         t1.select(2, 2);
       },
@@ -725,8 +704,7 @@ describe("$insertNote()", () => {
         const root = $getRoot();
         const p1 = $createParaNode();
         const t1 = $createTextNode("selected text here");
-        root.append(p1);
-        p1.append(t1);
+        root.append(p1.append(t1));
         // Select "selected"
         t1.select(0, 8);
       },
@@ -765,8 +743,7 @@ describe("$insertNote()", () => {
         const root = $getRoot();
         const p1 = $createParaNode();
         const t1 = $createTextNode("text");
-        root.append(p1);
-        p1.append(t1);
+        root.append(p1.append(t1));
         t1.select(2, 2);
       },
       { discrete: true },
@@ -814,8 +791,7 @@ describe("$insertNote()", () => {
         const root = $getRoot();
         const p1 = $createParaNode();
         const t1 = $createTextNode("text");
-        root.append(p1);
-        p1.append(t1);
+        root.append(p1.append(t1));
         t1.select(2, 2);
       },
       { discrete: true },
@@ -844,8 +820,7 @@ describe("$insertNote()", () => {
         const root = $getRoot();
         const p1 = $createParaNode();
         const t1 = $createTextNode("text");
-        root.append(p1);
-        p1.append(t1);
+        root.append(p1.append(t1));
         t1.select(2, 2);
       },
       { discrete: true },
@@ -881,8 +856,7 @@ describe("$insertNote()", () => {
         const root = $getRoot();
         const p1 = $createParaNode();
         const t1 = $createTextNode("text");
-        root.append(p1);
-        p1.append(t1);
+        root.append(p1.append(t1));
         t1.select(2, 2);
       },
       { discrete: true },
@@ -911,8 +885,7 @@ describe("$insertNote()", () => {
         const root = $getRoot();
         const p1 = $createParaNode();
         const t1 = $createTextNode("text");
-        root.append(p1);
-        p1.append(t1);
+        root.append(p1.append(t1));
         t1.select(2, 2);
       },
       { discrete: true },
@@ -948,8 +921,7 @@ describe("$insertNote()", () => {
         const root = $getRoot();
         const p1 = $createParaNode();
         const t1 = $createTextNode("text");
-        root.append(p1);
-        p1.append(t1);
+        root.append(p1.append(t1));
         t1.select(2, 2);
       },
       { discrete: true },
@@ -1006,8 +978,7 @@ describe("$insertNote()", () => {
         const root = $getRoot();
         const p1 = $createParaNode();
         const t1 = $createTextNode("text");
-        root.append(p1);
-        p1.append(t1);
+        root.append(p1.append(t1));
         t1.select(2, 2);
       },
       { discrete: true },
@@ -1036,8 +1007,7 @@ describe("$insertNote()", () => {
         const root = $getRoot();
         const p1 = $createParaNode();
         const t1 = $createTextNode("text");
-        root.append(p1);
-        p1.append(t1);
+        root.append(p1.append(t1));
         t1.select(2, 2);
       },
       { discrete: true },

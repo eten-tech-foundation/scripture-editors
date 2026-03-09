@@ -138,6 +138,11 @@ describe("ScriptureReferencePlugin", () => {
           verse1Key = nodeWithVerse1.getFirstChild()?.getKey();
         }
       });
+      // Clear hasCursorMovedRef (set by initial "move cursor to verse start" effect) so our dispatch runs BCV logic.
+      await act(async () => {
+        editor.dispatchCommand(SELECTION_CHANGE_COMMAND, undefined);
+      });
+      mockOnScrRefChange.mockClear();
       await act(async () => {
         editor.update(() => {
           if (verse1Key) {
@@ -147,6 +152,8 @@ describe("ScriptureReferencePlugin", () => {
             $setSelection(selection);
           }
         });
+      });
+      await act(async () => {
         editor.dispatchCommand(SELECTION_CHANGE_COMMAND, undefined);
       });
 

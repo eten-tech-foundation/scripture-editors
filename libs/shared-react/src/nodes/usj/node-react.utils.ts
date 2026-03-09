@@ -475,9 +475,19 @@ export function $findThisVerse(node: LexicalNode | null | undefined) {
 
 /**
  * Minimum offset inside a verse node to be considered "after the verse number" for BCV display.
- * Uses the node's actual text when it is a TextNode: if the text starts with the verse number
- * (e.g. "16" or "15-16"), returns that prefix length; otherwise 0 so cursor is treated as
- * after the verse number. For non-TextNode verse nodes (e.g. ImmutableVerseNode) returns 0.
+ *
+ * Assumes verse text typically starts with the verse number (e.g. "16" or "1 In the beginning...").
+ * When the text starts with the verse number, returns that prefix length so we can compare
+ * selection.anchor.offset to determine if the cursor is before or after it.
+ *
+ * When the text does NOT start with the verse number (e.g. $createVerseNode("1", " verse one")
+ * where the number is stored in metadata but not in the text), returns 0. That treats all
+ * positions as "after the verse number" and shows the current verse. This fallback is
+ * intentional and conservative: when we cannot infer the boundary from text, we avoid
+ * incorrectly showing the previous verse (e.g. when the number is rendered separately
+ * before the text and the cursor at offset 0 is actually in the verse content).
+ *
+ * For non-TextNode verse nodes (e.g. ImmutableVerseNode) returns 0.
  */
 function getVerseNumberPrefixLength(verseNode: SomeVerseNode): number {
   if (!$isTextNode(verseNode)) return 0;
@@ -552,7 +562,9 @@ export function $getEffectiveVerseForBcv(
     };
   }
 
-  // Cursor is inside the verse node: only count as "in verse" when after the verse number
+  // Cursor is inside the verse node: only count as "in verse" when after the verse number.
+  // getVerseNumberPrefixLength returns 0 when text doesn't start with the verse number,
+  // so we conservatively show current verse in that case.
   if ($isTextNode(verseNode)) {
     const verseNumberPrefixLength = getVerseNumberPrefixLength(verseNode);
     if (selection.anchor.offset < verseNumberPrefixLength) return { verseNum: prevNum };
