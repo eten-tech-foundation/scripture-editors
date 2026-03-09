@@ -22,8 +22,9 @@ import {
   isVerseRange,
   removeNodeAndAfter,
   removeNodesBeforeNode,
+  VerseNode,
 } from "shared";
-import { $findThisVerse, $findVerseOrPara } from "shared-react";
+import { $findThisVerse, $findVerseOrPara, ImmutableVerseNode } from "shared-react";
 
 /**
  * A component (plugin) that keeps the Scripture reference updated.
@@ -143,7 +144,15 @@ function $findAndSetChapterAndVerse(
 
   const chapterNode = $findThisChapter(startNode);
   const selectedChapterNum = parseInt(chapterNode?.getNumber() ?? "1", 10);
-  const verseNode = $findThisVerse(startNode);
+  // If the selection resolved to a verse node, the cursor is at or before the verse marker
+  // (e.g. NodeSelection from clicking the marker, or an element-offset-0 RangeSelection).
+  // In either case the cursor is not inside verse content yet, so look up the verse from
+  // the position immediately before the marker instead.
+  const nodeForVerseLookup =
+    startNode instanceof ImmutableVerseNode || startNode instanceof VerseNode
+      ? (startNode.getPreviousSibling() ?? startNode.getParent())
+      : startNode;
+  const verseNode = $findThisVerse(nodeForVerseLookup);
   const verse = verseNode?.getNumber();
   // For verse ranges this returns the first number.
   const selectedVerseNum = parseInt(verse ?? "0", 10);
