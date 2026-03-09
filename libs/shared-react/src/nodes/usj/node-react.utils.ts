@@ -476,9 +476,9 @@ export function $findThisVerse(node: LexicalNode | null | undefined) {
 /**
  * Minimum offset inside a verse node to be considered "after the verse number" for BCV display.
  *
- * Assumes verse text typically starts with the verse number (e.g. "16" or "1 In the beginning...").
- * When the text starts with the verse number, returns that prefix length so we can compare
- * selection.anchor.offset to determine if the cursor is before or after it.
+ * Assumes verse text typically starts with the verse number (e.g. "16", "2-3", "2a-3b", or
+ * "1 In the beginning..."). When the text starts with the verse number, returns that prefix
+ * length so we can compare selection.anchor.offset to determine if the cursor is before or after it.
  *
  * When the text does NOT start with the verse number (e.g. $createVerseNode("1", " verse one")
  * where the number is stored in metadata but not in the text), returns 0. That treats all
@@ -492,9 +492,8 @@ export function $findThisVerse(node: LexicalNode | null | undefined) {
 function getVerseNumberPrefixLength(verseNode: SomeVerseNode): number {
   if (!$isTextNode(verseNode)) return 0;
   const verseNumber = verseNode.getNumber();
-  const firstNumber = verseNumber.split("-")[0];
   const text = verseNode.getTextContent();
-  return text.startsWith(firstNumber) ? firstNumber.length : 0;
+  return text.startsWith(verseNumber) ? verseNumber.length : 0;
 }
 
 /**

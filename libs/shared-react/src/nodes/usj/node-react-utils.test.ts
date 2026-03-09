@@ -554,6 +554,47 @@ describe("$getEffectiveVerseForBcv()", () => {
     });
   });
 
+  it("returns previous verse when cursor is within verse range text (e.g. 2-3 at offset 1 or 2)", () => {
+    let verse23Key: string;
+    const { editor } = createBasicTestEnvironment([ParaNode, VerseNode]);
+    editor.update(
+      () => {
+        const root = $getRoot();
+        const p = $createParaNode();
+        const v23 = $createVerseNode("2-3");
+        root.append(p.append(v23));
+        verse23Key = v23.getKey();
+      },
+      { discrete: true },
+    );
+    editor.update(
+      () => {
+        const v23 = $getNodeByKey(verse23Key);
+        if (v23 && $isTextNode(v23)) v23.select(1, 1);
+      },
+      { discrete: true },
+    );
+    editor.getEditorState().read(() => {
+      const node = $getNodeByKey(verse23Key);
+      const verseNode = $isSomeVerseNode(node) ? node : undefined;
+      const result = $getEffectiveVerseForBcv(verseNode, $getSelection());
+      expect(result).toEqual({ verseNum: 1 });
+    });
+    editor.update(
+      () => {
+        const v23 = $getNodeByKey(verse23Key);
+        if (v23 && $isTextNode(v23)) v23.select(2, 2);
+      },
+      { discrete: true },
+    );
+    editor.getEditorState().read(() => {
+      const node = $getNodeByKey(verse23Key);
+      const verseNode = $isSomeVerseNode(node) ? node : undefined;
+      const result = $getEffectiveVerseForBcv(verseNode, $getSelection());
+      expect(result).toEqual({ verseNum: 1 });
+    });
+  });
+
   it("returns verse 0 when cursor is in parent at offset 0 (before first verse)", () => {
     let paraKey: string;
     let verse1Key: string;
