@@ -113,9 +113,13 @@ export function ScriptureReferencePlugin({
     [editor, book, chapterNum, verseNum, onScrRefChange],
   );
 
-  editor.registerUpdateListener(({ editorState }) => {
-    $getBookCode(editorState, onScrRefChange, scrRef);
-  });
+  useEffect(
+    () =>
+      editor.registerUpdateListener(({ editorState }) => {
+        $getBookCode(editorState, onScrRefChange, scrRef);
+      }),
+    [editor, onScrRefChange, scrRef],
+  );
 
   return null;
 }
