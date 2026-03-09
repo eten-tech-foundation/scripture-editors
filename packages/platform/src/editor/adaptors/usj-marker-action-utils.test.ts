@@ -96,7 +96,6 @@ describe("USJ Marker Action Utils", () => {
         const insertedNode = secondVerseTextNode.getNextSibling();
         if (!$isImmutableVerseNode(insertedNode)) throw new Error("Inserted node is not a verse");
         expect(insertedNode.getMarker()).toBe("v");
-        // Note that renumbering happens in the `UsjNodesMenuPlugin` which isn't in scope here.
         expect(insertedNode.getNumber()).toBe("2");
         const tailTextNode = insertedNode.getNextSibling();
         if (!$isTextNode(tailTextNode)) throw new Error("Tail node is not text");
@@ -126,7 +125,6 @@ describe("USJ Marker Action Utils", () => {
         const insertedNode = secondVerseTextNode.getNextSibling();
         if (!$isImmutableVerseNode(insertedNode)) throw new Error("Inserted node is not a verse");
         expect(insertedNode.getMarker()).toBe("v");
-        // Note that renumbering happens in the `UsjNodesMenuPlugin` which isn't in scope here.
         expect(insertedNode.getNumber()).toBe("2");
         const tailTextNode = insertedNode.getNextSibling();
         if (!$isTextNode(tailTextNode)) throw new Error("Tail node is not text");
