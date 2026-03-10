@@ -399,10 +399,9 @@ export default function App() {
               </button>
             </div>
           </span>
-          <button onClick={() => setIsNoteEditorVisible(!isNoteEditorVisible)}>
-            {isNoteEditorVisible ? "Hide" : "Show"} note editor
-          </button>
-          <pre style={{ color: "black" }}>{contextMarker}</pre>
+          <pre title="contextMarker" style={{ color: "black" }}>
+            {contextMarker}
+          </pre>
         </div>
         {isOptionsDefined && (
           <>
