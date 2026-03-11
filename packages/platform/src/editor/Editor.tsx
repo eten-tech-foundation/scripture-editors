@@ -64,6 +64,7 @@ import {
   ContextMenuPlugin,
   DeltaOnChangePlugin,
   DeltaOp,
+  DisableHistoryShortcutsPlugin,
   EditablePlugin,
   getDefaultViewOptions,
   getInsertedNodeKey,
@@ -362,11 +363,12 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
             placeholder={<Placeholder />}
             ErrorBoundary={LexicalErrorBoundary}
           />
+          {hasExternalUI && <DisableHistoryShortcutsPlugin />}
           <HistoryPlugin />
           {scrRef && onScrRefChange && (
             <ScriptureReferencePlugin scrRef={scrRef} onScrRefChange={onScrRefChange} />
           )}
-          {scrRef && (
+          {scrRef && !hasExternalUI && (
             <UsjNodesMenuPlugin
               trigger={markerMenuTrigger}
               scrRef={scrRef}

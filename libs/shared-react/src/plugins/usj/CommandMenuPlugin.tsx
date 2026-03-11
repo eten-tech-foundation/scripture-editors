@@ -6,7 +6,6 @@ import { LoggerBasic } from "shared";
 
 /**
  * This plugin prevents the backslash or forward slash key from being typed, or pasted or dragged.
- * Later this plugin will open the command menu to insert USJ elements.
  * @returns `null`. This plugin has no DOM presence.
  */
 export function CommandMenuPlugin({ logger }: { logger?: LoggerBasic }): null {

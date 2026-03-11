@@ -49,7 +49,7 @@ interface Annotations {
 
 const isTesting = process.env.NODE_ENV === "testing";
 const webUsj = usxStringToUsj(isTesting ? WEB_PSA_USX : WEB_PSA_CH1_USX);
-const editorUsj = webUsj; // isTesting ? webUsj : TJ_USJ;
+const editorUsj = webUsj; // isTesting ? webUsj : usj2Sa;
 const defaultScrRef: SerializedVerseRef = { book: "PSA", chapterNum: 1, verseNum: 1 };
 // Word "man" inside first q1 of PSA 1:1.
 const annotationRange1: AnnotationRange = {
@@ -399,10 +399,9 @@ export default function App() {
               </button>
             </div>
           </span>
-          <button onClick={() => setIsNoteEditorVisible(!isNoteEditorVisible)}>
-            {isNoteEditorVisible ? "Hide" : "Show"} note editor
-          </button>
-          <pre style={{ color: "black" }}>{contextMarker}</pre>
+          <pre title="contextMarker" style={{ color: "black" }}>
+            {contextMarker}
+          </pre>
         </div>
         {isOptionsDefined && (
           <>
