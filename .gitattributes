@@ -11,4 +11,4 @@
 *.woff  binary
 *.woff2 binary
 *.ldml  binary
-*.json  linguist-language=JSON-with-Comments
+**/config/*.json linguist-language=JSON-with-Comments
