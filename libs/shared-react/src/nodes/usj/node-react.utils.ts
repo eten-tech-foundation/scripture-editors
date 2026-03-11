@@ -564,7 +564,7 @@ function currentVerseResult(verseNode: SomeVerseNode): { verseNum: number; verse
 /**
  * Returns the verse number (and optional verse range) for BCV display. When the cursor is
  * before the verse number, returns the previous verse so BCV only updates after the number.
- * For "previous" verse, only `verseNum` is set (no `verse` range); e.g. previous "2-3" → `{ verseNum: 3 }`.
+ * For "previous" verse, only `verseNum` is set (no `verse` range); e.g. cursor before "2-3" → `{ verseNum: 1 }`.
  *
  * @param verseNode - The verse node that contains or precedes the cursor.
  * @param selection - The current editor selection.

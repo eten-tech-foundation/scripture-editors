@@ -201,8 +201,8 @@ function $findAndSetChapterAndVerse(
     const childAtOffset = startNode.getChildAtIndex(selection.anchor.offset);
     if (childAtOffset && $isSomeVerseNode(childAtOffset)) {
       verseNode = childAtOffset;
-    } else if (childAtOffset) {
-      // Anchor points to non-verse child (e.g. TypedMarkNode); walk backward for previous verse
+    } else {
+      // Non-verse child or cursor past last child; walk backward for previous verse
       verseNode = $findPreviousVerseInSiblings(startNode, selection.anchor.offset);
     }
   }
