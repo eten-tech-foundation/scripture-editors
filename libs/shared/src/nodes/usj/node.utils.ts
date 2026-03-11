@@ -558,15 +558,16 @@ export function removeUndefinedProperties<T>(obj: T): T {
 }
 
 /**
- * Returns true when the thrown error is the known Lexical case where the selection
- * references a node that does not support getNodes() (e.g. DecoratorNode like
- * ImmutableVerseNode). Used to avoid swallowing unexpected errors in callers that
- * catch getSelectionStartNode failures.
+ * Returns true when the error is Lexical's getNodes() throw (selection on DecoratorNode).
+ * Message-based; may break if Lexical changes error text. Prefer pre-checking anchor
+ * node type before calling getSelectionStartNode.
  */
 export function isSelectionStartNodeExpectedError(err: unknown): boolean {
   const message = err instanceof Error ? err.message : String(err);
   return (
-    message.includes("$caretFromPoint") || message.includes("does not inherit from ElementNode")
+    message.includes("$caretFromPoint") ||
+    message.includes("does not inherit from ElementNode") ||
+    message.includes("does not inherit from TextNode")
   );
 }
 

@@ -5,6 +5,7 @@ import { ViewOptions } from "../../views/view-options.utils";
 import { $isImmutableNoteCallerNode, ImmutableNoteCallerNode } from "./ImmutableNoteCallerNode";
 import { ImmutableVerseNode, $createImmutableVerseNode } from "./ImmutableVerseNode";
 import {
+  $findPreviousVerseInSiblings,
   $findVerseInNode,
   $findVerseOrPara,
   $findLastVerse,
@@ -209,6 +210,31 @@ describe("$findLastVerse()", () => {
 
       expect(verseNode).toBeDefined();
       expect(verseNode?.getNumber()).toEqual("2");
+    });
+  });
+});
+
+describe("$findPreviousVerseInSiblings()", () => {
+  it("returns previous verse when offset points to non-verse child (e.g. TypedMarkNode)", () => {
+    const { editor } = createBasicTestEnvironment([ParaNode, VerseNode, TypedMarkNode]);
+    editor.update(
+      () => {
+        const root = $getRoot();
+        const p = $createParaNode();
+        const v1 = $createVerseNode("1");
+        const mark = $createTypedMarkNode({ annotation: ["annot-1"] }).append(
+          $createTextNode("annotated"),
+        );
+        const v2 = $createVerseNode("2");
+        root.append(p.append(v1, mark, v2));
+      },
+      { discrete: true },
+    );
+    editor.getEditorState().read(() => {
+      const p = $getRoot().getFirstChild();
+      if (!p) throw new Error("paragraph not found");
+      const verseNode = $findPreviousVerseInSiblings(p, 2);
+      expect(verseNode?.getNumber()).toBe("1");
     });
   });
 });

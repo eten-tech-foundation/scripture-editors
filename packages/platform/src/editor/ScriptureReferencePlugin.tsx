@@ -27,6 +27,7 @@ import {
   removeNodesBeforeNode,
 } from "shared";
 import {
+  $findPreviousVerseInSiblings,
   $findThisVerse,
   $findVerseOrPara,
   $getEffectiveVerseForBcv,
@@ -151,14 +152,30 @@ function $findAndSetChapterAndVerse(
 ) {
   const selection = $getSelection();
   let startNode: ReturnType<typeof getSelectionStartNode>;
-  try {
-    startNode = getSelectionStartNode(selection);
-  } catch (err) {
-    if (isSelectionStartNodeExpectedError(err)) startNode = undefined;
-    else throw err;
+
+  // Avoid getSelectionStartNode when anchor points at a node that would cause getNodes() to throw
+  // (e.g. DecoratorNode like ImmutableVerseNode). Lexical throws when anchor.type expects
+  // ElementNode/TextNode but the node is neither.
+  if (selection && $isRangeSelection(selection)) {
+    const anchorNode = $getNodeByKey(selection.anchor.key);
+    const wouldThrow =
+      anchorNode &&
+      ((selection.anchor.type === "element" && !$isElementNode(anchorNode)) ||
+        (selection.anchor.type === "text" && !$isTextNode(anchorNode)));
+    if (wouldThrow) {
+      startNode = anchorNode ?? undefined;
+    }
   }
-  if (!startNode && selection && $isRangeSelection(selection)) {
-    startNode = $getNodeByKey(selection.anchor.key) ?? undefined;
+  if (startNode === undefined) {
+    try {
+      startNode = getSelectionStartNode(selection);
+    } catch (err) {
+      if (isSelectionStartNodeExpectedError(err)) startNode = undefined;
+      else throw err;
+    }
+    if (!startNode && selection && $isRangeSelection(selection)) {
+      startNode = $getNodeByKey(selection.anchor.key) ?? undefined;
+    }
   }
   if (!startNode) return;
 
@@ -173,7 +190,12 @@ function $findAndSetChapterAndVerse(
     selection.anchor.key === startNode.getKey()
   ) {
     const childAtOffset = startNode.getChildAtIndex(selection.anchor.offset);
-    if (childAtOffset && $isSomeVerseNode(childAtOffset)) verseNode = childAtOffset;
+    if (childAtOffset && $isSomeVerseNode(childAtOffset)) {
+      verseNode = childAtOffset;
+    } else if (childAtOffset) {
+      // Anchor points to non-verse child (e.g. TypedMarkNode); walk backward for previous verse
+      verseNode = $findPreviousVerseInSiblings(startNode, selection.anchor.offset);
+    }
   }
   const { verseNum: effectiveVerseNum, verse: effectiveVerse } = $getEffectiveVerseForBcv(
     verseNode ?? undefined,
