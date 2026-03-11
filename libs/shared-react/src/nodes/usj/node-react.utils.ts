@@ -493,20 +493,10 @@ export function $findThisVerse(node: LexicalNode | null | undefined) {
 }
 
 /**
- * Minimum offset inside a verse node to be considered "after the verse number" for BCV display.
- *
- * Assumes verse text typically starts with the verse number (e.g. "16", "2-3", "2a-3b", or
- * "1 In the beginning..."). When the text starts with the verse number, returns that prefix
- * length so we can compare selection.anchor.offset to determine if the cursor is before or after it.
- *
- * When the text does NOT start with the verse number (e.g. $createVerseNode("1", " verse one")
- * where the number is stored in metadata but not in the text), returns 0. That treats all
- * positions as "after the verse number" and shows the current verse. This fallback is
- * intentional and conservative: when we cannot infer the boundary from text, we avoid
- * incorrectly showing the previous verse (e.g. when the number is rendered separately
- * before the text and the cursor at offset 0 is actually in the verse content).
- *
- * For non-TextNode verse nodes (e.g. ImmutableVerseNode) returns 0.
+ * Length of verse number prefix in verse text for BCV "before vs after" check.
+ * If text doesn't start with the verse number (e.g. $createVerseNode("1", " verse one")
+ * or node is non-TextNode (e.g. ImmutableVerseNode), returns 0 — treats all positions
+ * as "after" and shows the current verse.
  */
 function getVerseNumberPrefixLength(verseNode: SomeVerseNode): number {
   if (!$isTextNode(verseNode)) return 0;
@@ -572,15 +562,9 @@ function currentVerseResult(verseNode: SomeVerseNode): { verseNum: number; verse
 }
 
 /**
- * Returns the verse number (and optional verse range) that should be displayed in BCV for the
- * given verse node and selection. When the cursor is before the verse number (e.g. at offset 0
- * in the verse node), returns the previous verse so BCV only updates when the cursor is
- * after the verse number.
- *
- * When returning the "previous" verse (cursor before current verse), only the numeric
- * `verseNum` is set; no `verse` range string is included because the function receives only
- * the current verse node, not the previous one. So if the actual previous verse were "2-3",
- * callers get `{ verseNum: 3 }` rather than `{ verseNum: 2, verse: "2-3" }`.
+ * Returns the verse number (and optional verse range) for BCV display. When the cursor is
+ * before the verse number, returns the previous verse so BCV only updates after the number.
+ * For "previous" verse, only `verseNum` is set (no `verse` range); e.g. previous "2-3" → `{ verseNum: 3 }`.
  *
  * @param verseNode - The verse node that contains or precedes the cursor.
  * @param selection - The current editor selection.
