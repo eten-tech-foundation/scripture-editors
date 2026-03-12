@@ -3,6 +3,7 @@ import {
   $isSomeChapterNode,
   getNextVerse,
   getUnknownAttributes,
+  isSelectionStartNodeExpectedError,
   isValidNumberedMarker,
   isVerseInRange,
   parseNumberFromMarkerText,
@@ -332,6 +333,22 @@ describe("Editor Node Utilities", () => {
     it("should throw", () => {
       expect(() => isVerseInRange(0, "1-2-3")).toThrow();
       expect(() => isVerseInRange(0, "2-1")).toThrow();
+    });
+  });
+
+  describe("getSelectionStartNode() and isSelectionStartNodeExpectedError()", () => {
+    it("isSelectionStartNodeExpectedError identifies Lexical DecoratorNode errors", () => {
+      expect(
+        isSelectionStartNodeExpectedError(
+          new Error("$caretFromPoint: Node does not inherit from ElementNode"),
+        ),
+      ).toBe(true);
+      expect(
+        isSelectionStartNodeExpectedError(
+          new Error("$caretFromPoint: Node does not inherit from TextNode"),
+        ),
+      ).toBe(true);
+      expect(isSelectionStartNodeExpectedError(new Error("some other error"))).toBe(false);
     });
   });
 });

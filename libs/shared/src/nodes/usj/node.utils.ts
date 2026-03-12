@@ -558,6 +558,20 @@ export function removeUndefinedProperties<T>(obj: T): T {
 }
 
 /**
+ * Returns true when the error is Lexical's getNodes() throw (selection on DecoratorNode).
+ * Message-based; may break if Lexical changes error text. Prefer pre-checking anchor
+ * node type before calling getSelectionStartNode.
+ */
+export function isSelectionStartNodeExpectedError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return (
+    message.includes("$caretFromPoint") ||
+    message.includes("does not inherit from ElementNode") ||
+    message.includes("does not inherit from TextNode")
+  );
+}
+
+/**
  * Get the start node of the selection.
  * @param selection - The selection to get the start node from.
  * @returns The start node of the selection or `undefined` if no selection is provided.

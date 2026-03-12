@@ -16,6 +16,7 @@ import {
 import { UsjNodeOptions } from "./usj-node-options.model";
 import { $dfs } from "@lexical/utils";
 import {
+  BaseSelection,
   $createTextNode,
   $getNodeByKey,
   $getSelection,
@@ -406,6 +407,25 @@ export function $findNextVerse(nodes: LexicalNode[]) {
 }
 
 /**
+ * Find the previous verse node in a parent's children, walking backward from the given index.
+ * @param parent - Element node whose children to search.
+ * @param fromIndex - Start index (exclusive); search from fromIndex - 1 down to 0.
+ * @returns The verse node if found, `undefined` otherwise.
+ */
+export function $findPreviousVerseInSiblings(
+  parent: LexicalNode | null | undefined,
+  fromIndex: number,
+): SomeVerseNode | undefined {
+  if (!parent || !$isElementNode(parent) || fromIndex <= 0) return;
+  const children = parent.getChildren();
+  for (let i = fromIndex - 1; i >= 0; i--) {
+    const child = children[i];
+    if (child && $isSomeVerseNode(child)) return child as SomeVerseNode;
+  }
+  return undefined;
+}
+
+/**
  * Find the last verse in the children of the node.
  * @param node - Node with potential verses in children.
  * @returns the verse node if found, `undefined` otherwise.
@@ -470,6 +490,104 @@ export function $findThisVerse(node: LexicalNode | null | undefined) {
   if (!verseNode && $isSomeChapterNode(previousParentSibling)) return;
 
   return verseNode;
+}
+
+/**
+ * Length of verse number prefix in verse text for BCV "before vs after" check.
+ * If text doesn't start with the verse number (e.g. $createVerseNode("1", " verse one")
+ * or node is non-TextNode (e.g. ImmutableVerseNode), returns 0 — treats all positions
+ * as "after" and shows the current verse.
+ */
+function getVerseNumberPrefixLength(verseNode: SomeVerseNode): number {
+  if (!$isTextNode(verseNode)) return 0;
+  const verseNumber = verseNode.getNumber();
+  const text = verseNode.getTextContent();
+  return text.startsWith(verseNumber) ? verseNumber.length : 0;
+}
+
+/**
+ * Returns true when the selection anchor is positioned before the given verse node in document
+ * order. Handles: (1) cursor inside the verse's parent with offset before this verse's index,
+ * (2) cursor in the verse's previous sibling.
+ */
+function $isSelectionBeforeVerseNode(
+  selection: RangeSelection,
+  verseNode: SomeVerseNode,
+  anchorNode: LexicalNode | null,
+): boolean {
+  if (!anchorNode) return false;
+  const parent = verseNode.getParent();
+  if (anchorNode === parent && $isElementNode(anchorNode)) {
+    const verseIndex = verseNode.getIndexWithinParent();
+    const anchorOffset = selection.anchor.offset;
+    return anchorOffset <= verseIndex;
+  }
+  if (anchorNode.getNextSibling() === verseNode) return true;
+  return false;
+}
+
+/**
+ * Returns true when BCV should show the previous verse (cursor is before the verse number).
+ * Encapsulates: anchor in parent/previous sibling before verse; anchor in verse node before
+ * verse number (TextNode) or on whole node (DecoratorNode).
+ */
+function $shouldShowPreviousVerseForBcv(
+  verseNode: SomeVerseNode,
+  selection: RangeSelection,
+): boolean {
+  const anchorNode = $getNodeByKey(selection.anchor.key);
+
+  // Anchor not on verse node: check if cursor is before verse (parent offset or previous sibling)
+  if (anchorNode !== verseNode) {
+    return $isSelectionBeforeVerseNode(selection, verseNode, anchorNode);
+  }
+
+  // Anchor on verse node: show previous if cursor is before verse number
+  if ($isTextNode(verseNode)) {
+    const prefixLength = getVerseNumberPrefixLength(verseNode);
+    return selection.anchor.offset < prefixLength;
+  }
+  // ImmutableVerseNode (DecoratorNode): whole node is verse number; show previous
+  return true;
+}
+
+/** Build result for current verse (no selection or cursor after verse number). */
+function currentVerseResult(verseNode: SomeVerseNode): { verseNum: number; verse?: string } {
+  const verse = verseNode.getNumber();
+  const selectedVerseNum = parseInt(verse ?? "0", 10);
+  return {
+    verseNum: selectedVerseNum,
+    verse: verse != null && selectedVerseNum.toString() !== verse ? verse : undefined,
+  };
+}
+
+/**
+ * Returns the verse number (and optional verse range) for BCV display. When the cursor is
+ * before the verse number, returns the previous verse so BCV only updates after the number.
+ * For "previous" verse, only `verseNum` is set (no `verse` range); e.g. cursor before "2-3" → `{ verseNum: 1 }`.
+ *
+ * @param verseNode - The verse node that contains or precedes the cursor.
+ * @param selection - The current editor selection.
+ * @returns Effective verse number and optional verse range string for BCV display.
+ */
+export function $getEffectiveVerseForBcv(
+  verseNode: SomeVerseNode | undefined,
+  selection: BaseSelection | null,
+): { verseNum: number; verse?: string } {
+  if (!verseNode) return { verseNum: 0 };
+
+  // No selection or not range: use verse node as-is
+  if (!selection || !$isRangeSelection(selection)) {
+    return currentVerseResult(verseNode);
+  }
+
+  const selectedVerseNum = parseInt(verseNode.getNumber() ?? "0", 10);
+  const prevNum = selectedVerseNum <= 1 ? 0 : selectedVerseNum - 1;
+
+  // Anchor before verse number: show previous verse
+  if ($shouldShowPreviousVerseForBcv(verseNode, selection)) return { verseNum: prevNum };
+
+  return currentVerseResult(verseNode);
 }
 
 /**

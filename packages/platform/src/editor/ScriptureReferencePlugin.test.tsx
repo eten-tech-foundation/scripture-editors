@@ -15,6 +15,10 @@ import { act, render } from "@testing-library/react";
 import {
   TextNode,
   $getRoot,
+  $isElementNode,
+  $createPoint,
+  $createRangeSelection,
+  $setSelection,
   SELECTION_CHANGE_COMMAND,
   $createTextNode,
   LexicalEditor,
@@ -122,6 +126,40 @@ describe("ScriptureReferencePlugin", () => {
         $expectSelectionToBe(thirdVerseTextNode, 2);
       });
       expect(mockOnScrRefChange).not.toHaveBeenCalled();
+    });
+
+    it("should report verse 0 when cursor is on verse 1 number (before verse content)", async () => {
+      const { editor } = await testEnvironment(scrRef, mockOnScrRefChange);
+      let verse1Key: string | undefined;
+      editor.getEditorState().read(() => {
+        const root = $getRoot();
+        const nodeWithVerse1 = root.getChildAtIndex(3);
+        if (nodeWithVerse1 && $isElementNode(nodeWithVerse1)) {
+          verse1Key = nodeWithVerse1.getFirstChild()?.getKey();
+        }
+      });
+      // Clear hasCursorMovedRef (set by initial "move cursor to verse start" effect) so our dispatch runs BCV logic.
+      await act(async () => {
+        editor.dispatchCommand(SELECTION_CHANGE_COMMAND, undefined);
+      });
+      mockOnScrRefChange.mockClear();
+      await act(async () => {
+        editor.update(() => {
+          if (verse1Key) {
+            const selection = $createRangeSelection();
+            selection.anchor = $createPoint(verse1Key, 0, "element");
+            selection.focus = $createPoint(verse1Key, 0, "element");
+            $setSelection(selection);
+          }
+        });
+      });
+      await act(async () => {
+        editor.dispatchCommand(SELECTION_CHANGE_COMMAND, undefined);
+      });
+
+      expect(mockOnScrRefChange).toHaveBeenCalledWith(
+        expect.objectContaining({ book: "GEN", chapterNum: 1, verseNum: 0 }),
+      );
     });
   });
 });
