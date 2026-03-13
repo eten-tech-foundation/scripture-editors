@@ -438,14 +438,14 @@ export function $findLastVerse(nodes: LexicalNode[]) {
  * @param node - Node to start from.
  * @returns the nearest previous node, or `null` if none exists.
  */
-function $findNearestPreviousNode(node: LexicalNode): LexicalNode | null {
+function $findNearestPreviousNode(node: LexicalNode): LexicalNode | undefined {
   let current: LexicalNode | null | undefined = node;
   while (current && current.getParent() !== null) {
     const prev = current.getPreviousSibling();
     if (prev) return prev;
     current = current.getParent();
   }
-  return null;
+  return undefined;
 }
 
 /**
