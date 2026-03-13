@@ -1,5 +1,0 @@
-{
-  "permissions": {
-    "allow": ["Bash(pnpm nx test shared-react -- --reporter=verbose UsjNodesMenuPlugin)"]
-  }
-}

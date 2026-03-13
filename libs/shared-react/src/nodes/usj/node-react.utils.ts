@@ -41,7 +41,6 @@ import {
   $isNoteNode,
   $isParaNode,
   $isSomeChapterNode,
-  $isTypedMarkNode,
   $isVerseNode,
   $moveSelectionToEnd,
   closingMarkerText,
@@ -434,6 +433,22 @@ export function $findLastVerse(nodes: LexicalNode[]) {
 }
 
 /**
+ * Finds the nearest previous node by checking the node's previous sibling, then walking up
+ * through ancestors and checking their previous siblings. Stops at root.
+ * @param node - Node to start from.
+ * @returns the nearest previous node, or `null` if none exists.
+ */
+function $findNearestPreviousNode(node: LexicalNode): LexicalNode | null {
+  let current: LexicalNode | null | undefined = node;
+  while (current && current.getParent() !== null) {
+    const prev = current.getPreviousSibling();
+    if (prev) return prev;
+    current = current.getParent();
+  }
+  return null;
+}
+
+/**
  * Find the verse that this node is in.
  * @param node - Node to find the verse it's in.
  * @returns the verse node if found, `undefined` otherwise.
@@ -444,32 +459,22 @@ export function $findThisVerse(node: LexicalNode | null | undefined) {
   // is this node a verse
   if ($isSomeVerseNode(node)) return node;
 
-  // is one of the previous sibling nodes a verse
-  const isWrappedInMark = $isTypedMarkNode(node.getParent());
-  let previousSibling = isWrappedInMark
-    ? node.getParent()?.getPreviousSibling()
-    : node.getPreviousSibling();
-  while (
-    previousSibling &&
-    !$isSomeVerseNode(previousSibling) &&
-    !$isSomeChapterNode(previousSibling)
-  ) {
-    previousSibling = previousSibling.getPreviousSibling();
-  }
-  if (previousSibling && $isSomeVerseNode(previousSibling)) return previousSibling;
+  let previousSiblingOrParent = $findNearestPreviousNode(node);
+  while (previousSiblingOrParent) {
+    // If this node is a chapter node, stop searching as we've reached the start of this chapter
+    if ($isSomeChapterNode(previousSiblingOrParent)) return;
 
-  // is the verse in a previous parent sibling
-  let previousParentSibling = node.getTopLevelElement()?.getPreviousSibling();
-  let verseNode = $findLastVerseInNode(previousParentSibling);
-  let nextVerseNode = verseNode;
-  while (previousParentSibling && !verseNode && !$isSomeChapterNode(previousParentSibling)) {
-    verseNode = nextVerseNode;
-    previousParentSibling = previousParentSibling.getPreviousSibling();
-    nextVerseNode = $findLastVerseInNode(previousParentSibling);
-  }
-  if (!verseNode && $isSomeChapterNode(previousParentSibling)) return;
+    // If this node is a verse node, return it
+    if ($isSomeVerseNode(previousSiblingOrParent)) return previousSiblingOrParent;
 
-  return verseNode;
+    // If this node contains a verse node, return that
+    const verseNode = $findLastVerseInNode(previousSiblingOrParent);
+    if (verseNode) return verseNode;
+
+    previousSiblingOrParent = $findNearestPreviousNode(previousSiblingOrParent);
+  }
+
+  return undefined;
 }
 
 /**

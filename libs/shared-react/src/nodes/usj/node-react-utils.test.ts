@@ -15,6 +15,7 @@ import { UsjNodeOptions } from "./usj-node-options.model";
 import { $createTextNode, $getNodeByKey, $getRoot, NodeKey } from "lexical";
 import {
   $createBookNode,
+  $createCharNode,
   $createImmutableChapterNode,
   $createParaNode,
   $createTypedMarkNode,
@@ -262,6 +263,80 @@ describe("$findThisVerse()", () => {
         root.append(p1);
         p1.append(v1, t1, v2, m1);
         m1.append(t2);
+        t2Key = t2.getKey();
+      },
+      { discrete: true },
+    );
+
+    editor.getEditorState().read(() => {
+      const t2 = $getNodeByKey(t2Key);
+      const verseNode = $findThisVerse(t2);
+
+      expect(verseNode).toBeDefined();
+      expect(verseNode?.getNumber()).toEqual("2");
+    });
+  });
+
+  it("should find the last verse in node when the text is in a char node", () => {
+    let t2Key: string;
+    const { editor } = createBasicTestEnvironment([ParaNode, ImmutableVerseNode, CharNode]);
+    /*
+     *      root
+     *       p1
+     * v1 t1 v2 c1
+     *          t2
+     *          ^^
+     */
+    editor.update(
+      () => {
+        const root = $getRoot();
+        const p1 = $createParaNode();
+        const v1 = $createImmutableVerseNode("1");
+        const v2 = $createImmutableVerseNode("2");
+        const t1 = $createTextNode("text1");
+        const c1 = $createCharNode("add");
+        const t2 = $createTextNode("text2");
+        root.append(p1);
+        p1.append(v1, t1, v2, c1);
+        c1.append(t2);
+        t2Key = t2.getKey();
+      },
+      { discrete: true },
+    );
+
+    editor.getEditorState().read(() => {
+      const t2 = $getNodeByKey(t2Key);
+      const verseNode = $findThisVerse(t2);
+
+      expect(verseNode).toBeDefined();
+      expect(verseNode?.getNumber()).toEqual("2");
+    });
+  });
+
+  it("should find the last verse in a previous parent node when the text is in a char node", () => {
+    let t2Key: string;
+    const { editor } = createBasicTestEnvironment([ParaNode, ImmutableVerseNode, CharNode]);
+    /*
+     *         root
+     *    p1          p2
+     * v1 t1 v2    c1
+     *             t2
+     *             ^^
+     */
+    editor.update(
+      () => {
+        const root = $getRoot();
+        const p1 = $createParaNode();
+        const p2 = $createParaNode();
+        const v1 = $createImmutableVerseNode("1");
+        const v2 = $createImmutableVerseNode("2");
+        const t1 = $createTextNode("text1");
+        const c1 = $createCharNode("add");
+        const t2 = $createTextNode("text2");
+        root.append(p1, p2);
+        p1.append(v1, t1, v2);
+        p2.append(c1);
+        c1.append(t2);
         t2Key = t2.getKey();
       },
       { discrete: true },
