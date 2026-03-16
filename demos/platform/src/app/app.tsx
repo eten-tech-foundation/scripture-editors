@@ -1,4 +1,5 @@
 /* eslint-disable no-console */
+import { BookChapterControl } from "platform-bible-react";
 import AnnotationTypeSelect from "./AnnotationTypeSelect";
 import NodeOptionsDropDown, {
   CUSTOM_NODES_MODE,
@@ -486,7 +487,7 @@ export default function App() {
             )}
           </>
         )}
-        {hasExternalUI && (
+        {hasExternalUI ? (
           <PlatformToolbar
             ref={toolbarEndRef}
             editorRef={marginalRef}
@@ -497,6 +498,10 @@ export default function App() {
             canRedo={canRedo}
             blockMarker={blockMarker}
           />
+        ) : (
+          <div className="tw-items-center tw-text-primary">
+            <BookChapterControl scrRef={scrRef} handleSubmit={setScrRef} />
+          </div>
         )}
         <Marginal
           ref={marginalRef}

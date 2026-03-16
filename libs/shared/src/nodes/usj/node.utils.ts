@@ -131,6 +131,22 @@ export function $findNextChapter(nodes: LexicalNode[], isCurrentChapterAtFirstNo
 }
 
 /**
+ * Finds the nearest previous node by checking the node's previous sibling, then walking up
+ * through ancestors and checking their previous siblings. Stops at root.
+ * @param node - Node to start from.
+ * @returns the nearest previous node, or `undefined` if none exists.
+ */
+export function $findNearestPreviousNode(node: LexicalNode): LexicalNode | undefined {
+  let current: LexicalNode | null | undefined = node;
+  while (current && current.getParent() !== null) {
+    const prev = current.getPreviousSibling();
+    if (prev) return prev;
+    current = current.getParent();
+  }
+  return undefined;
+}
+
+/**
  * Find the chapter that this node is in.
  * @param node - Node to find the chapter it's in.
  * @returns the chapter node if found, `undefined` otherwise.

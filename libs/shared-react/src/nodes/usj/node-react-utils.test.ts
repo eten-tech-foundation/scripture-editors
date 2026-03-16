@@ -15,6 +15,7 @@ import { UsjNodeOptions } from "./usj-node-options.model";
 import { $createTextNode, $getNodeByKey, $getRoot, NodeKey } from "lexical";
 import {
   $createBookNode,
+  $createCharNode,
   $createImmutableChapterNode,
   $createParaNode,
   $createTypedMarkNode,
@@ -36,14 +37,14 @@ describe("$findVerseInNode()", () => {
     const { editor } = createBasicTestEnvironment();
     editor.update(
       () => {
-        const root = $getRoot();
-        const p1 = $createParaNode();
-        const v1 = $createVerseNode("1");
-        const v2 = $createVerseNode("2");
-        const t1 = $createTextNode("text1");
-        const t2 = $createTextNode("text2");
-        root.append(p1);
-        p1.append(v1, t1, v2, t2);
+        $getRoot().append(
+          $createParaNode().append(
+            $createVerseNode("1"),
+            $createTextNode("text1"),
+            $createVerseNode("2"),
+            $createTextNode("text2"),
+          ),
+        );
       },
       { discrete: true },
     );
@@ -60,14 +61,14 @@ describe("$findVerseInNode()", () => {
     const { editor } = createBasicTestEnvironment();
     editor.update(
       () => {
-        const root = $getRoot();
-        const p1 = $createParaNode();
-        const v1 = $createVerseNode("1");
-        const v2 = $createVerseNode("2-3");
-        const t1 = $createTextNode("text1");
-        const t2 = $createTextNode("text2");
-        root.append(p1);
-        p1.append(v1, t1, v2, t2);
+        $getRoot().append(
+          $createParaNode().append(
+            $createVerseNode("1"),
+            $createTextNode("text1"),
+            $createVerseNode("2-3"),
+            $createTextNode("text2"),
+          ),
+        );
       },
       { discrete: true },
     );
@@ -84,14 +85,14 @@ describe("$findVerseInNode()", () => {
     const { editor } = createBasicTestEnvironment();
     editor.update(
       () => {
-        const root = $getRoot();
-        const p1 = $createParaNode();
-        const v1 = $createVerseNode("1");
-        const v2 = $createVerseNode("2-3");
-        const t1 = $createTextNode("text1");
-        const t2 = $createTextNode("text2");
-        root.append(p1);
-        p1.append(v1, t1, v2, t2);
+        $getRoot().append(
+          $createParaNode().append(
+            $createVerseNode("1"),
+            $createTextNode("text1"),
+            $createVerseNode("2-3"),
+            $createTextNode("text2"),
+          ),
+        );
       },
       { discrete: true },
     );
@@ -108,14 +109,14 @@ describe("$findVerseInNode()", () => {
     const { editor } = createBasicTestEnvironment();
     editor.update(
       () => {
-        const root = $getRoot();
-        const p1 = $createParaNode();
-        const v1 = $createVerseNode("1");
-        const v2 = $createVerseNode("2a-3b");
-        const t1 = $createTextNode("text1");
-        const t2 = $createTextNode("text2");
-        root.append(p1);
-        p1.append(v1, t1, v2, t2);
+        $getRoot().append(
+          $createParaNode().append(
+            $createVerseNode("1"),
+            $createTextNode("text1"),
+            $createVerseNode("2a-3b"),
+            $createTextNode("text2"),
+          ),
+        );
       },
       { discrete: true },
     );
@@ -130,18 +131,13 @@ describe("$findVerseInNode()", () => {
 });
 
 describe("$findVerseOrPara()", () => {
-  let s1NodeKey: NodeKey;
-
   it("should find the given verse in the nodes before the first verse", () => {
+    let s1NodeKey: NodeKey;
     const { editor } = createBasicTestEnvironment();
     editor.update(
       () => {
-        const root = $getRoot();
-        const id = $createBookNode("GEN");
         const s1 = $createParaNode("s1");
-        const h1 = $createParaNode("h");
-        const p1 = $createParaNode();
-        root.append(id, s1, h1, p1);
+        $getRoot().append($createBookNode("GEN"), s1, $createParaNode("h"), $createParaNode());
         s1NodeKey = s1.getKey();
       },
       { discrete: true },
@@ -161,14 +157,14 @@ describe("$findLastVerse()", () => {
     const { editor } = createBasicTestEnvironment();
     editor.update(
       () => {
-        const root = $getRoot();
-        const p1 = $createParaNode();
-        const v1 = $createVerseNode("1");
-        const v2 = $createVerseNode("2");
-        const t1 = $createTextNode("text1");
-        const t2 = $createTextNode("text2");
-        root.append(p1);
-        p1.append(v1, t1, v2, t2);
+        $getRoot().append(
+          $createParaNode().append(
+            $createVerseNode("1"),
+            $createTextNode("text1"),
+            $createVerseNode("2"),
+            $createTextNode("text2"),
+          ),
+        );
       },
       { discrete: true },
     );
@@ -185,14 +181,14 @@ describe("$findLastVerse()", () => {
     const { editor } = createBasicTestEnvironment([ParaNode, ImmutableVerseNode]);
     editor.update(
       () => {
-        const root = $getRoot();
-        const p1 = $createParaNode();
-        const v1 = $createImmutableVerseNode("1");
-        const v2 = $createImmutableVerseNode("2");
-        const t1 = $createTextNode("text1");
-        const t2 = $createTextNode("text2");
-        root.append(p1);
-        p1.append(v1, t1, v2, t2);
+        $getRoot().append(
+          $createParaNode().append(
+            $createImmutableVerseNode("1"),
+            $createTextNode("text1"),
+            $createImmutableVerseNode("2"),
+            $createTextNode("text2"),
+          ),
+        );
       },
       { discrete: true },
     );
@@ -210,22 +206,17 @@ describe("$findThisVerse()", () => {
   it("should find the last verse in node", () => {
     let t2Key: string;
     const { editor } = createBasicTestEnvironment([ParaNode, ImmutableVerseNode]);
-    /*
-     *    root
-     *     p1
-     * v1 t1 v2 t2
-     *          ^^
-     */
     editor.update(
       () => {
-        const root = $getRoot();
-        const p1 = $createParaNode();
-        const v1 = $createImmutableVerseNode("1");
-        const v2 = $createImmutableVerseNode("2");
-        const t1 = $createTextNode("text1");
         const t2 = $createTextNode("text2");
-        root.append(p1);
-        p1.append(v1, t1, v2, t2);
+        $getRoot().append(
+          $createParaNode().append(
+            $createImmutableVerseNode("1"),
+            $createTextNode("text1"),
+            $createImmutableVerseNode("2"),
+            t2,
+          ),
+        );
         t2Key = t2.getKey();
       },
       { discrete: true },
@@ -243,25 +234,73 @@ describe("$findThisVerse()", () => {
   it("should find the last verse in node when the text is in a mark", () => {
     let t2Key: string;
     const { editor } = createBasicTestEnvironment([ParaNode, ImmutableVerseNode, TypedMarkNode]);
-    /*
-     *    root
-     *     p1
-     * v1 t1 v2 m1
-     *          t2
-     *          ^^
-     */
     editor.update(
       () => {
-        const root = $getRoot();
-        const p1 = $createParaNode();
-        const v1 = $createImmutableVerseNode("1");
-        const v2 = $createImmutableVerseNode("2");
-        const t1 = $createTextNode("text1");
-        const m1 = $createTypedMarkNode({ testType1: ["testID1"] });
         const t2 = $createTextNode("text2");
-        root.append(p1);
-        p1.append(v1, t1, v2, m1);
-        m1.append(t2);
+        $getRoot().append(
+          $createParaNode().append(
+            $createImmutableVerseNode("1"),
+            $createTextNode("text1"),
+            $createImmutableVerseNode("2"),
+            $createTypedMarkNode({ testType1: ["testID1"] }).append(t2),
+          ),
+        );
+        t2Key = t2.getKey();
+      },
+      { discrete: true },
+    );
+
+    editor.getEditorState().read(() => {
+      const t2 = $getNodeByKey(t2Key);
+      const verseNode = $findThisVerse(t2);
+
+      expect(verseNode).toBeDefined();
+      expect(verseNode?.getNumber()).toEqual("2");
+    });
+  });
+
+  it("should find the last verse in node when the text is in a char node", () => {
+    let t2Key: string;
+    const { editor } = createBasicTestEnvironment([ParaNode, ImmutableVerseNode, CharNode]);
+    editor.update(
+      () => {
+        const t2 = $createTextNode("text2");
+        $getRoot().append(
+          $createParaNode().append(
+            $createImmutableVerseNode("1"),
+            $createTextNode("text1"),
+            $createImmutableVerseNode("2"),
+            $createCharNode("add").append(t2),
+          ),
+        );
+        t2Key = t2.getKey();
+      },
+      { discrete: true },
+    );
+
+    editor.getEditorState().read(() => {
+      const t2 = $getNodeByKey(t2Key);
+      const verseNode = $findThisVerse(t2);
+
+      expect(verseNode).toBeDefined();
+      expect(verseNode?.getNumber()).toEqual("2");
+    });
+  });
+
+  it("should find the last verse in a previous parent node when the text is in a char node", () => {
+    let t2Key: string;
+    const { editor } = createBasicTestEnvironment([ParaNode, ImmutableVerseNode, CharNode]);
+    editor.update(
+      () => {
+        const t2 = $createTextNode("text2");
+        $getRoot().append(
+          $createParaNode().append(
+            $createImmutableVerseNode("1"),
+            $createTextNode("text1"),
+            $createImmutableVerseNode("2"),
+          ),
+          $createParaNode().append($createCharNode("add").append(t2)),
+        );
         t2Key = t2.getKey();
       },
       { discrete: true },
@@ -279,26 +318,14 @@ describe("$findThisVerse()", () => {
   it("should find the verse in a previous parent node", () => {
     let t3Key: string;
     const { editor } = createBasicTestEnvironment([ParaNode, ImmutableVerseNode]);
-    /*
-     *         root
-     *   p1     p2    p3
-     * v1 t1    t2    t3
-     *                ^^
-     */
     editor.update(
       () => {
-        const root = $getRoot();
-        const p1 = $createParaNode();
-        const p2 = $createParaNode();
-        const p3 = $createParaNode();
-        const v1 = $createImmutableVerseNode("1");
-        const t1 = $createTextNode("text1");
-        const t2 = $createTextNode("text2");
         const t3 = $createTextNode("text3");
-        root.append(p1, p2, p3);
-        p1.append(v1, t1);
-        p2.append(t2);
-        p3.append(t3);
+        $getRoot().append(
+          $createParaNode().append($createImmutableVerseNode("1"), $createTextNode("text1")),
+          $createParaNode().append($createTextNode("text2")),
+          $createParaNode().append(t3),
+        );
         t3Key = t3.getKey();
       },
       { discrete: true },
@@ -316,24 +343,17 @@ describe("$findThisVerse()", () => {
   it("should find the last verse in the previous parent node", () => {
     let t2Key: string;
     const { editor } = createBasicTestEnvironment([ParaNode, ImmutableVerseNode]);
-    /*
-     *       root
-     *    p1       p2
-     * v1 t1 v2    t2
-     *             ^^
-     */
     editor.update(
       () => {
-        const root = $getRoot();
-        const p1 = $createParaNode();
-        const p2 = $createParaNode();
-        const v1 = $createImmutableVerseNode("1");
-        const v2 = $createImmutableVerseNode("2");
-        const t1 = $createTextNode("text1");
         const t2 = $createTextNode("text2");
-        root.append(p1, p2);
-        p1.append(v1, t1, v2);
-        p2.append(t2);
+        $getRoot().append(
+          $createParaNode().append(
+            $createImmutableVerseNode("1"),
+            $createTextNode("text1"),
+            $createImmutableVerseNode("2"),
+          ),
+          $createParaNode().append(t2),
+        );
         t2Key = t2.getKey();
       },
       { discrete: true },
@@ -355,25 +375,15 @@ describe("$findThisVerse()", () => {
       ParaNode,
       ImmutableVerseNode,
     ]);
-    /*
-     *         root
-     * c1    p1     p2    p3
-     *     v1 t1    t2
-     *                    ^^
-     */
     editor.update(
       () => {
-        const root = $getRoot();
-        const c1 = $createImmutableChapterNode("1");
-        const p1 = $createParaNode();
-        const p2 = $createParaNode();
         const p3 = $createParaNode();
-        const v1 = $createImmutableVerseNode("1");
-        const t1 = $createTextNode("text1");
-        const t2 = $createTextNode("text2");
-        root.append(c1, p1, p2, p3);
-        p1.append(v1, t1);
-        p2.append(t2);
+        $getRoot().append(
+          $createImmutableChapterNode("1"),
+          $createParaNode().append($createImmutableVerseNode("1"), $createTextNode("text1")),
+          $createParaNode().append($createTextNode("text2")),
+          p3,
+        );
         p3Key = p3.getKey();
       },
       { discrete: true },
@@ -395,20 +405,14 @@ describe("$findThisVerse()", () => {
       ImmutableVerseNode,
       ParaNode,
     ]);
-    /*
-     *   root
-     * p1 c1 p2
-     * v1    ^^
-     */
     editor.update(
       () => {
-        const root = $getRoot();
-        const p1 = $createParaNode();
-        const v1 = $createImmutableVerseNode("1");
-        const c1 = $createImmutableChapterNode("1");
         const p2 = $createParaNode();
-        root.append(p1, c1, p2);
-        p1.append(v1);
+        $getRoot().append(
+          $createParaNode().append($createImmutableVerseNode("1")),
+          $createImmutableChapterNode("1"),
+          p2,
+        );
         p2Key = p2.getKey();
       },
       { discrete: true },
@@ -429,23 +433,14 @@ describe("$findThisVerse()", () => {
       ImmutableVerseNode,
       ParaNode,
     ]);
-    /*
-     *   root
-     * p1 c1 p2
-     * v1    t1
-     *       ^^
-     */
     editor.update(
       () => {
-        const root = $getRoot();
-        const p1 = $createParaNode();
-        const v1 = $createImmutableVerseNode("1");
-        const c1 = $createImmutableChapterNode("1");
-        const p2 = $createParaNode();
         const t1 = $createTextNode("text1");
-        root.append(p1, c1, p2);
-        p1.append(v1);
-        p2.append(t1);
+        $getRoot().append(
+          $createParaNode().append($createImmutableVerseNode("1")),
+          $createImmutableChapterNode("1"),
+          $createParaNode().append(t1),
+        );
         t1Key = t1.getKey();
       },
       { discrete: true },
@@ -474,11 +469,8 @@ describe("$insertNote()", () => {
     const { editor } = createBasicTestEnvironment(requiredNodes);
     editor.update(
       () => {
-        const root = $getRoot();
-        const p1 = $createParaNode();
         const t1 = $createTextNode("text");
-        root.append(p1);
-        p1.append(t1);
+        $getRoot().append($createParaNode().append(t1));
         t1.select();
       },
       { discrete: true },
@@ -503,12 +495,8 @@ describe("$insertNote()", () => {
     const { editor } = createBasicTestEnvironment(requiredNodes);
     editor.update(
       () => {
-        const root = $getRoot();
-        const p1 = $createParaNode();
         const t1 = $createTextNode("text");
-        root.append(p1);
-        p1.append(t1);
-        // Set collapsed selection at position 2
+        $getRoot().append($createParaNode().append(t1));
         t1.select(2, 2);
       },
       { discrete: true },
@@ -552,12 +540,8 @@ describe("$insertNote()", () => {
     const { editor } = createBasicTestEnvironment(requiredNodes);
     editor.update(
       () => {
-        const root = $getRoot();
-        const p1 = $createParaNode();
         const t1 = $createTextNode("selected text here");
-        root.append(p1);
-        p1.append(t1);
-        // Select "selected"
+        $getRoot().append($createParaNode().append(t1));
         t1.select(0, 8);
       },
       { discrete: true },
@@ -592,11 +576,8 @@ describe("$insertNote()", () => {
     const { editor } = createBasicTestEnvironment(requiredNodes);
     editor.update(
       () => {
-        const root = $getRoot();
-        const p1 = $createParaNode();
         const t1 = $createTextNode("text");
-        root.append(p1);
-        p1.append(t1);
+        $getRoot().append($createParaNode().append(t1));
         t1.select(2, 2);
       },
       { discrete: true },
@@ -633,19 +614,13 @@ describe("$insertNote()", () => {
   });
 
   it("should insert note with collapsed noteMode", () => {
-    const collapsedViewOptions: ViewOptions = {
-      ...viewOptions,
-      noteMode: "collapsed",
-    };
+    const collapsedViewOptions: ViewOptions = { ...viewOptions, noteMode: "collapsed" };
 
     const { editor } = createBasicTestEnvironment(requiredNodes);
     editor.update(
       () => {
-        const root = $getRoot();
-        const p1 = $createParaNode();
         const t1 = $createTextNode("text");
-        root.append(p1);
-        p1.append(t1);
+        $getRoot().append($createParaNode().append(t1));
         t1.select(2, 2);
       },
       { discrete: true },
@@ -671,11 +646,8 @@ describe("$insertNote()", () => {
     const { editor } = createBasicTestEnvironment(requiredNodes);
     editor.update(
       () => {
-        const root = $getRoot();
-        const p1 = $createParaNode();
         const t1 = $createTextNode("text");
-        root.append(p1);
-        p1.append(t1);
+        $getRoot().append($createParaNode().append(t1));
         t1.select(2, 2);
       },
       { discrete: true },
@@ -708,11 +680,8 @@ describe("$insertNote()", () => {
     const { editor } = createBasicTestEnvironment(requiredNodes);
     editor.update(
       () => {
-        const root = $getRoot();
-        const p1 = $createParaNode();
         const t1 = $createTextNode("text");
-        root.append(p1);
-        p1.append(t1);
+        $getRoot().append($createParaNode().append(t1));
         t1.select(2, 2);
       },
       { discrete: true },
@@ -738,11 +707,8 @@ describe("$insertNote()", () => {
     const { editor } = createBasicTestEnvironment(requiredNodes);
     editor.update(
       () => {
-        const root = $getRoot();
-        const p1 = $createParaNode();
         const t1 = $createTextNode("text");
-        root.append(p1);
-        p1.append(t1);
+        $getRoot().append($createParaNode().append(t1));
         t1.select(2, 2);
       },
       { discrete: true },
@@ -775,11 +741,8 @@ describe("$insertNote()", () => {
     const { editor } = createBasicTestEnvironment(requiredNodes);
     editor.update(
       () => {
-        const root = $getRoot();
-        const p1 = $createParaNode();
         const t1 = $createTextNode("text");
-        root.append(p1);
-        p1.append(t1);
+        $getRoot().append($createParaNode().append(t1));
         t1.select(2, 2);
       },
       { discrete: true },
@@ -833,11 +796,8 @@ describe("$insertNote()", () => {
     const { editor } = createBasicTestEnvironment(requiredNodes);
     editor.update(
       () => {
-        const root = $getRoot();
-        const p1 = $createParaNode();
         const t1 = $createTextNode("text");
-        root.append(p1);
-        p1.append(t1);
+        $getRoot().append($createParaNode().append(t1));
         t1.select(2, 2);
       },
       { discrete: true },
@@ -863,11 +823,8 @@ describe("$insertNote()", () => {
     const { editor } = createBasicTestEnvironment(requiredNodes);
     editor.update(
       () => {
-        const root = $getRoot();
-        const p1 = $createParaNode();
         const t1 = $createTextNode("text");
-        root.append(p1);
-        p1.append(t1);
+        $getRoot().append($createParaNode().append(t1));
         t1.select(2, 2);
       },
       { discrete: true },
