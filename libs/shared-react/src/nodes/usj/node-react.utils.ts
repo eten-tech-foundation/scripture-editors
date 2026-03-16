@@ -34,6 +34,7 @@ import {
   $createImmutableTypedTextNode,
   $createMarkerNode,
   $createNoteNode,
+  $findNearestPreviousNode,
   $getNoteCallerPreviewText,
   $isCharNode,
   $isImmutableTypedTextNode,
@@ -430,22 +431,6 @@ export function $findLastVerse(nodes: LexicalNode[]) {
   if (verseNodes.length <= 0) return;
 
   return verseNodes[verseNodes.length - 1];
-}
-
-/**
- * Finds the nearest previous node by checking the node's previous sibling, then walking up
- * through ancestors and checking their previous siblings. Stops at root.
- * @param node - Node to start from.
- * @returns the nearest previous node, or `null` if none exists.
- */
-function $findNearestPreviousNode(node: LexicalNode): LexicalNode | undefined {
-  let current: LexicalNode | null | undefined = node;
-  while (current && current.getParent() !== null) {
-    const prev = current.getPreviousSibling();
-    if (prev) return prev;
-    current = current.getParent();
-  }
-  return undefined;
 }
 
 /**
