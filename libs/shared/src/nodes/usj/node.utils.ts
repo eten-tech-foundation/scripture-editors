@@ -565,9 +565,9 @@ export function removeUndefinedProperties<T>(obj: T): T {
 export function isSelectionStartNodeExpectedError(err: unknown): boolean {
   const message = err instanceof Error ? err.message : String(err);
   return (
-    message.includes("$caretFromPoint") ||
-    message.includes("does not inherit from ElementNode") ||
-    message.includes("does not inherit from TextNode")
+    message.includes("$caretFromPoint") &&
+    (message.includes("does not inherit from ElementNode") ||
+      message.includes("does not inherit from TextNode"))
   );
 }
 

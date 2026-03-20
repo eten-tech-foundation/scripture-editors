@@ -416,11 +416,11 @@ export function $findPreviousVerseInSiblings(
   parent: LexicalNode | null | undefined,
   fromIndex: number,
 ): SomeVerseNode | undefined {
-  if (!parent || !$isElementNode(parent) || fromIndex <= 0) return;
+  if (!$isElementNode(parent) || fromIndex <= 0) return;
   const children = parent.getChildren();
   for (let i = fromIndex - 1; i >= 0; i--) {
     const child = children[i];
-    if (child && $isSomeVerseNode(child)) return child as SomeVerseNode;
+    if ($isSomeVerseNode(child)) return child as SomeVerseNode;
   }
   return undefined;
 }
@@ -495,11 +495,11 @@ export function $findThisVerse(node: LexicalNode | null | undefined) {
 /**
  * Length of verse number prefix in verse text for BCV "before vs after" check.
  * If text doesn't start with the verse number (e.g. $createVerseNode("1", " verse one")
- * or node is non-TextNode (e.g. ImmutableVerseNode), returns 0 — treats all positions
+ * or node is non-VerseNode (e.g. ImmutableVerseNode), returns 0 — treats all positions
  * as "after" and shows the current verse.
  */
 function getVerseNumberPrefixLength(verseNode: SomeVerseNode): number {
-  if (!$isTextNode(verseNode)) return 0;
+  if (!$isVerseNode(verseNode)) return 0;
   const verseNumber = verseNode.getNumber();
   const text = verseNode.getTextContent();
   return text.startsWith(verseNumber) ? verseNumber.length : 0;
@@ -535,7 +535,7 @@ function $shouldShowPreviousVerseForBcv(
   verseNode: SomeVerseNode,
   selection: RangeSelection,
 ): boolean {
-  const anchorNode = $getNodeByKey(selection.anchor.key);
+  const anchorNode = selection.anchor.getNode();
 
   // Anchor not on verse node: check if cursor is before verse (parent offset or previous sibling)
   if (anchorNode !== verseNode) {
@@ -554,7 +554,7 @@ function $shouldShowPreviousVerseForBcv(
 /** Build result for current verse (no selection or cursor after verse number). */
 function currentVerseResult(verseNode: SomeVerseNode): { verseNum: number; verse?: string } {
   const verse = verseNode.getNumber();
-  const selectedVerseNum = parseInt(verse ?? "0", 10);
+  const selectedVerseNum = Number.parseInt(verse ?? "0", 10);
   return {
     verseNum: selectedVerseNum,
     verse: verse != null && selectedVerseNum.toString() !== verse ? verse : undefined,
@@ -577,11 +577,11 @@ export function $getEffectiveVerseForBcv(
   if (!verseNode) return { verseNum: 0 };
 
   // No selection or not range: use verse node as-is
-  if (!selection || !$isRangeSelection(selection)) {
+  if (!$isRangeSelection(selection)) {
     return currentVerseResult(verseNode);
   }
 
-  const selectedVerseNum = parseInt(verseNode.getNumber() ?? "0", 10);
+  const selectedVerseNum = Number.parseInt(verseNode.getNumber() ?? "0", 10);
   const prevNum = selectedVerseNum <= 1 ? 0 : selectedVerseNum - 1;
 
   // Anchor before verse number: show previous verse

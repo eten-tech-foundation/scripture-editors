@@ -9,6 +9,8 @@ import {
   $isRangeSelection,
   $isTextNode,
   COMMAND_PRIORITY_LOW,
+  EditorState,
+  LexicalNode,
   SELECTION_CHANGE_COMMAND,
 } from "lexical";
 import { MutableRefObject, useEffect, useRef } from "react";
@@ -98,16 +100,13 @@ export default function ScriptureReferencePlugin({
         () => {
           if (hasCursorMovedRef.current) hasCursorMovedRef.current = false;
           else {
-            // Command handler runs outside any Lexical read/update context; read() gives $getSelection() etc. a valid state.
-            editor.getEditorState().read(() => {
-              $findAndSetChapterAndVerse(
-                book,
-                chapterNum,
-                verseNum,
-                onScrRefChange,
-                hasSelectionChangedRef,
-              );
-            });
+            $findAndSetChapterAndVerse(
+              book,
+              chapterNum,
+              verseNum,
+              onScrRefChange,
+              hasSelectionChangedRef,
+            );
           }
           return false;
         },
@@ -131,6 +130,15 @@ export default function ScriptureReferencePlugin({
       editor.registerMutationListener(VerseNode, onVerseDestroyed),
     );
   }, [editor]);
+
+  // Book loaded - detect book code from editor content when document loads
+  useEffect(
+    () =>
+      editor.registerUpdateListener(({ editorState }) => {
+        $getBookCode(editorState, onScrRefChange, scrRef);
+      }),
+    [editor, onScrRefChange, scrRef],
+  );
 
   return null;
 }
@@ -162,6 +170,62 @@ function $moveCursorToVerseStart(
   hasCursorMovedRef.current = true;
 }
 
+/**
+ * Returns the selection start node, or undefined if none. Handles edge cases where
+ * getSelectionStartNode would throw (e.g. cursor on DecoratorNode like ImmutableVerseNode).
+ */
+function $getSelectionStartNodeSafe(
+  selection: ReturnType<typeof $getSelection>,
+): LexicalNode | undefined {
+  if (!selection || !$isRangeSelection(selection)) {
+    return getSelectionStartNode(selection);
+  }
+
+  const anchorNode = selection.anchor.getNode();
+  const anchorTypeMismatch =
+    anchorNode &&
+    ((selection.anchor.type === "element" && !$isElementNode(anchorNode)) ||
+      (selection.anchor.type === "text" && !$isTextNode(anchorNode)));
+
+  if (anchorTypeMismatch) {
+    return anchorNode ?? undefined;
+  }
+
+  try {
+    const node = getSelectionStartNode(selection);
+    return node ?? $getNodeByKey(selection.anchor.key) ?? undefined;
+  } catch (err) {
+    if (isSelectionStartNodeExpectedError(err)) {
+      return anchorNode ?? undefined;
+    }
+    throw err;
+  }
+}
+
+/**
+ * Resolves the verse node for the given start node. When the cursor is on an element
+ * (e.g. para) rather than inside a verse, looks at the child at offset or walks backward.
+ */
+function $resolveVerseNode(startNode: LexicalNode, selection: ReturnType<typeof $getSelection>) {
+  let verseNode = $findThisVerse(startNode);
+
+  if (verseNode) return verseNode;
+
+  const isCursorOnElement =
+    $isElementNode(startNode) &&
+    selection &&
+    $isRangeSelection(selection) &&
+    selection.anchor.key === startNode.getKey();
+
+  if (!isCursorOnElement) return undefined;
+
+  const childAtOffset = startNode.getChildAtIndex(selection.anchor.offset);
+  if (childAtOffset && $isSomeVerseNode(childAtOffset)) {
+    return childAtOffset;
+  }
+  return $findPreviousVerseInSiblings(startNode, selection.anchor.offset);
+}
+
 function $findAndSetChapterAndVerse(
   book: string,
   chapterNum: number,
@@ -170,52 +234,13 @@ function $findAndSetChapterAndVerse(
   hasSelectionChangedRef: MutableRefObject<boolean>,
 ) {
   const selection = $getSelection();
-  let startNode: ReturnType<typeof getSelectionStartNode>;
-
-  // Avoid getSelectionStartNode when anchor points at a node that would cause getNodes() to throw
-  // (e.g. DecoratorNode like ImmutableVerseNode). Lexical throws when anchor.type expects
-  // ElementNode/TextNode but the node is neither.
-  if (selection && $isRangeSelection(selection)) {
-    const anchorNode = $getNodeByKey(selection.anchor.key);
-    const wouldThrow =
-      anchorNode &&
-      ((selection.anchor.type === "element" && !$isElementNode(anchorNode)) ||
-        (selection.anchor.type === "text" && !$isTextNode(anchorNode)));
-    if (wouldThrow) {
-      startNode = anchorNode ?? undefined;
-    }
-  }
-  if (startNode === undefined) {
-    try {
-      startNode = getSelectionStartNode(selection);
-    } catch (err) {
-      if (isSelectionStartNodeExpectedError(err)) startNode = undefined;
-      else throw err;
-    }
-    if (!startNode && selection && $isRangeSelection(selection)) {
-      startNode = $getNodeByKey(selection.anchor.key) ?? undefined;
-    }
-  }
+  const startNode = $getSelectionStartNodeSafe(selection);
   if (!startNode) return;
 
   const chapterNode = $findThisChapter(startNode);
   const selectedChapterNum = parseInt(chapterNode?.getNumber() ?? "1", 10);
-  let verseNode = $findThisVerse(startNode);
-  if (
-    !verseNode &&
-    $isElementNode(startNode) &&
-    selection &&
-    $isRangeSelection(selection) &&
-    selection.anchor.key === startNode.getKey()
-  ) {
-    const childAtOffset = startNode.getChildAtIndex(selection.anchor.offset);
-    if (childAtOffset && $isSomeVerseNode(childAtOffset)) {
-      verseNode = childAtOffset;
-    } else {
-      // Non-verse child or cursor past last child; walk backward for previous verse
-      verseNode = $findPreviousVerseInSiblings(startNode, selection.anchor.offset);
-    }
-  }
+  const verseNode = $resolveVerseNode(startNode, selection);
+
   const { verseNum: effectiveVerseNum, verse: effectiveVerse } = $getEffectiveVerseForBcv(
     verseNode ?? undefined,
     selection,
@@ -223,18 +248,45 @@ function $findAndSetChapterAndVerse(
   const isVerseInCurrentRange = effectiveVerse
     ? isVerseInRange(verseNum, effectiveVerse)
     : verseNum === effectiveVerseNum;
-  hasSelectionChangedRef.current = !!(
-    (chapterNode && selectedChapterNum !== chapterNum) ||
-    !isVerseInCurrentRange
-  );
+
+  const chapterChanged = chapterNode && selectedChapterNum !== chapterNum;
+  const verseChanged = !isVerseInCurrentRange;
+  hasSelectionChangedRef.current = !!(chapterChanged || verseChanged);
+
   if (hasSelectionChangedRef.current) {
     const scrRef: SerializedVerseRef = {
       book,
       chapterNum: selectedChapterNum,
       verseNum: effectiveVerseNum,
     };
-    if (effectiveVerse != null && effectiveVerseNum.toString() !== effectiveVerse)
+    if (effectiveVerse != null && effectiveVerseNum.toString() !== effectiveVerse) {
       scrRef.verse = effectiveVerse;
+    }
     onScrRefChange(scrRef);
   }
+}
+
+function $getBookCode(
+  editorState: EditorState,
+  onScrRefChange: (scrRef: SerializedVerseRef) => void,
+  currentScrRef: SerializedVerseRef,
+) {
+  editorState.read(() => {
+    const root = $getRoot();
+    let node = root.getFirstChild();
+
+    while (node !== null) {
+      if ($isBookNode(node)) {
+        const bookNode = node;
+        if (bookNode.__code !== currentScrRef.book) {
+          onScrRefChange({
+            ...currentScrRef,
+            book: bookNode.__code,
+          });
+        }
+        break;
+      }
+      node = node.getNextSibling();
+    }
+  });
 }

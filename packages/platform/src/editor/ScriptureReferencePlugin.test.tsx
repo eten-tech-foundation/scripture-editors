@@ -151,10 +151,8 @@ describe("ScriptureReferencePlugin", () => {
             selection.focus = $createPoint(verse1Key, 0, "element");
             $setSelection(selection);
           }
+          editor.dispatchCommand(SELECTION_CHANGE_COMMAND, undefined);
         });
-      });
-      await act(async () => {
-        editor.dispatchCommand(SELECTION_CHANGE_COMMAND, undefined);
       });
 
       expect(mockOnScrRefChange).toHaveBeenCalledWith(
