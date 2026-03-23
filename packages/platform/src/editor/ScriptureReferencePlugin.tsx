@@ -207,7 +207,7 @@ function $getSelectionStartNodeSafe(
  * (e.g. para) rather than inside a verse, looks at the child at offset or walks backward.
  */
 function $resolveVerseNode(startNode: LexicalNode, selection: ReturnType<typeof $getSelection>) {
-  let verseNode = $findThisVerse(startNode);
+  const verseNode = $findThisVerse(startNode);
 
   if (verseNode) return verseNode;
 
