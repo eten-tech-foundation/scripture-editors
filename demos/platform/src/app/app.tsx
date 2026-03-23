@@ -1,4 +1,5 @@
 /* eslint-disable no-console */
+import { BookChapterControl } from "platform-bible-react";
 import AnnotationTypeSelect from "./AnnotationTypeSelect";
 import NodeOptionsDropDown, {
   CUSTOM_NODES_MODE,
@@ -139,12 +140,7 @@ export default function App() {
     if (viewMode === UNDEFINED_VIEW_MODE) return undefined;
     if (viewMode === CUSTOM_VIEW_MODE) return { markerMode, noteMode, hasSpacing, isFormattedFont };
 
-    const _viewOptions = getViewOptions(viewMode);
-    setMarkerMode(_viewOptions?.markerMode ?? "hidden");
-    setNoteMode(_viewOptions?.noteMode ?? "collapsed");
-    setHasSpacing(_viewOptions?.hasSpacing ?? true);
-    setIsFormattedFont(_viewOptions?.isFormattedFont ?? true);
-    return _viewOptions;
+    return getViewOptions(viewMode);
   }, [viewMode, markerMode, noteMode, hasSpacing, isFormattedFont]);
 
   const customNodeOptions = useMemo<UsjNodeOptions>(
@@ -205,6 +201,7 @@ export default function App() {
 
   const formattedNodeOptions = useMemo(
     () =>
+      // eslint-disable-next-line react-hooks/refs -- Debug-only serialization must reflect the live nodeOptions object, including callable fields.
       JSON.stringify(nodeOptions, (_key, value) =>
         typeof value === "function" ? "<Function>" : value,
       )
@@ -490,7 +487,7 @@ export default function App() {
             )}
           </>
         )}
-        {hasExternalUI && (
+        {hasExternalUI ? (
           <PlatformToolbar
             ref={toolbarEndRef}
             editorRef={marginalRef}
@@ -501,6 +498,10 @@ export default function App() {
             canRedo={canRedo}
             blockMarker={blockMarker}
           />
+        ) : (
+          <div className="tw-items-center tw-text-primary">
+            <BookChapterControl scrRef={scrRef} handleSubmit={setScrRef} />
+          </div>
         )}
         <Marginal
           ref={marginalRef}

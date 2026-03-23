@@ -26,7 +26,7 @@ import {
   LexicalNode,
   SerializedEditorState,
 } from "lexical";
-import { ReactNode } from "react";
+import { ReactNode, useEffect } from "react";
 import { segmentState, SerializedNoteNode, SerializedParaNode, TypedMarkNode } from "shared";
 
 export async function baseTestEnvironment(
@@ -36,7 +36,12 @@ export async function baseTestEnvironment(
   let editor: LexicalEditor;
 
   function GrabEditor() {
-    [editor] = useLexicalComposerContext();
+    const [composerEditor] = useLexicalComposerContext();
+
+    useEffect(() => {
+      editor = composerEditor;
+    }, [composerEditor]);
+
     return null;
   }
 

@@ -23,7 +23,7 @@ import {
   $createTextNode,
   LexicalEditor,
 } from "lexical";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { $createBookNode, $createImmutableChapterNode, $createParaNode } from "shared";
 import { $createImmutableVerseNode, usjReactNodes } from "shared-react";
 
@@ -183,17 +183,28 @@ async function testEnvironment(
   onScrRefChange: (scrRef: SerializedVerseRef) => void = () => undefined,
   $initialEditorState: () => void = $defaultInitialEditorState,
 ) {
-  let editor: LexicalEditor;
-  let _setScrRef: (scrRef: SerializedVerseRef) => void;
+  let editor: LexicalEditor | undefined;
+  const setScrRefRef: { current: ((scrRef: SerializedVerseRef) => void) | undefined } = {
+    current: undefined,
+  };
 
   function GrabEditor() {
-    [editor] = useLexicalComposerContext();
+    const [composerEditor] = useLexicalComposerContext();
+
+    useEffect(() => {
+      editor = composerEditor;
+    }, [composerEditor]);
+
     return null;
   }
 
   function App() {
     const [internalScrRef, setInternalScrRef] = useState<SerializedVerseRef>(scrRef);
-    _setScrRef = setInternalScrRef;
+
+    useEffect(() => {
+      setScrRefRef.current = setInternalScrRef;
+    }, [setInternalScrRef]);
+
     return (
       <LexicalComposer
         initialConfig={{
@@ -219,7 +230,7 @@ async function testEnvironment(
 
   async function setScrRef(newScrRef: SerializedVerseRef) {
     await act(async () => {
-      _setScrRef(newScrRef);
+      setScrRefRef.current?.(newScrRef);
     });
   }
 

@@ -53,3 +53,6 @@ vite.config.*.timestamp*
 vitest.config.*.timestamp*
 
 .env
+
+# claude - files that are supposed to be local-only and not shared with the team
+.claude/settings.local.json
