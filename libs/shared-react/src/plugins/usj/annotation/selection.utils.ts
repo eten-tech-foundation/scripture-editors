@@ -464,8 +464,11 @@ function $getLocationFromNode(node: LexicalNode, offset: number): UsjDocumentLoc
     return { jsonPath: usjJsonPathFromIndexes($getJsonPathIndexes(node)), offset: contentOffset };
   }
 
-  // Regular text node - UsjTextContentLocation
-  return { jsonPath: usjJsonPathFromIndexes($getJsonPathIndexes(node)), offset };
+  // Text node or node inside TypedMarkNode - use annotation-agnostic path (base USJ)
+  return {
+    jsonPath: usjJsonPathFromIndexes($getJsonPathIndexesForBaseUsj(node)),
+    offset: $getOffsetInContentRun(node, offset),
+  };
 }
 
 function $getMarkerAnchorNode(markerNode: MarkerNode): LexicalNode | undefined {
@@ -510,6 +513,92 @@ function $getJsonPathIndexes(node: LexicalNode): number[] {
     current = parent;
   }
   return jsonPathIndexes;
+}
+
+/**
+ * Gets the jsonPath indexes for base USJ (ignoring annotations). TypedMarkNodes are collapsed
+ * into the same content run as adjacent TextNodes, so paths are valid against USJ without
+ * annotation milestones.
+ * @param node - The node to get the path for (TextNode or node inside TypedMarkNode).
+ * @returns An array of indexes representing the path from root to node.
+ */
+function $getJsonPathIndexesForBaseUsj(node: LexicalNode): number[] {
+  const jsonPathIndexes: number[] = [];
+  let current: LexicalNode | null = node;
+  while (current?.getParent()) {
+    const parent: ElementNode | null = current.getParent();
+    if (parent) {
+      if ($isTypedMarkNode(parent)) {
+        const grandparent: LexicalNode | null = parent.getParent();
+        if (grandparent && $isElementNode(grandparent)) {
+          const index = $getContentIndexWithinParentForBaseUsj(grandparent, parent);
+          if (index >= 0) jsonPathIndexes.unshift(index);
+          current = grandparent;
+        } else {
+          current = parent;
+        }
+      } else {
+        const index = $getContentIndexWithinParentForBaseUsj(parent, current);
+        if (index >= 0) jsonPathIndexes.unshift(index);
+        current = parent;
+      }
+    } else {
+      current = parent;
+    }
+  }
+  return jsonPathIndexes;
+}
+
+/**
+ * Content index for base USJ: TypedMarkNodes and consecutive TextNodes form one "content run"
+ * and share the same content index. Only increment when we hit a non-run node (e.g. MarkerNode,
+ * VerseNode, MilestoneNode). Ignored nodes are skipped.
+ */
+function $getContentIndexWithinParentForBaseUsj(parent: ElementNode, child: LexicalNode): number {
+  const children = parent.getChildren();
+  let contentIndex = 0;
+  for (const sibling of children) {
+    if (sibling === child) return contentIndex;
+
+    if ($shouldIgnoreNodeForContentIndexes(sibling)) {
+      continue;
+    }
+    if ($isTextNode(sibling) || $isTypedMarkNode(sibling)) {
+      continue;
+    }
+    contentIndex += 1;
+  }
+  return -1;
+}
+
+/**
+ * Gets the character offset within the content run (base USJ), summing text lengths of
+ * preceding TextNodes and TypedMarkNode contents in the same run.
+ */
+function $getOffsetInContentRun(node: LexicalNode, offset: number): number {
+  const runNode = $isTypedMarkNode(node.getParent()) ? (node.getParent() as LexicalNode) : node;
+  const runContainer = runNode.getParent();
+  if (!runContainer || !$isElementNode(runContainer)) return offset;
+
+  const children = runContainer.getChildren();
+  let runOffset = 0;
+  for (const sibling of children) {
+    if (sibling === runNode) return runOffset + offset;
+
+    if ($shouldIgnoreNodeForContentIndexes(sibling)) {
+      // End of run
+    } else if ($isTextNode(sibling)) {
+      runOffset += sibling.getTextContent().length;
+    } else if ($isTypedMarkNode(sibling)) {
+      const firstChild = sibling.getFirstChild();
+      if (firstChild && $isTextNode(firstChild)) {
+        runOffset += firstChild.getTextContent().length;
+      }
+    } else {
+      // End of run
+    }
+  }
+  return runOffset + offset;
 }
 
 function $getContentIndexWithinParent(parent: ElementNode, child: LexicalNode): number {

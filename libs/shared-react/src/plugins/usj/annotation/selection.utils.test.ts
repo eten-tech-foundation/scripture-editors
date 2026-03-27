@@ -918,8 +918,8 @@ describe("$getUsjSelectionFromEditor", () => {
 
         if (!usjSelection) throw new Error("Expected usjSelection to be defined");
         expect(usjSelection.start).toEqual({
-          jsonPath: "$.content[0].content[1]",
-          offset: 0,
+          jsonPath: "$.content[0].content[0]",
+          offset: 4,
         });
         expect(usjSelection.end).toBeUndefined();
       });
@@ -955,8 +955,8 @@ describe("$getUsjSelectionFromEditor", () => {
 
         if (!usjSelection) throw new Error("Expected usjSelection to be defined");
         expect(usjSelection.start).toEqual({
-          jsonPath: "$.content[0].content[2]",
-          offset: 0,
+          jsonPath: "$.content[0].content[1]",
+          offset: 17,
         });
         expect(usjSelection.end).toBeUndefined();
       });
@@ -1031,12 +1031,48 @@ describe("$getUsjSelectionFromEditor", () => {
 
         if (!usjSelection) throw new Error("Expected usjSelection to be defined");
         expect(usjSelection.start).toEqual({
-          jsonPath: "$.content[0].content[0].content[0]",
+          jsonPath: "$.content[0].content[0]",
           offset: 3,
         });
         expect(usjSelection.end).toEqual({
-          jsonPath: "$.content[0].content[0].content[0]",
+          jsonPath: "$.content[0].content[0]",
           offset: 9,
+        });
+      });
+    });
+
+    it("should report annotation-agnostic path when multiple annotations in same paragraph", () => {
+      let textBefore: TextNode;
+      let textAfter: TextNode;
+      const { editor } = createBasicTestEnvironment([ParaNode, TypedMarkNode], () => {
+        textBefore = $createTextNode("before ");
+        const markedText = $createTextNode("neva");
+        textAfter = $createTextNode(" sleep");
+        $getRoot().append(
+          $createParaNode().append(
+            textBefore,
+            $createTypedMarkNode({ testType: ["testId"] }).append(markedText),
+            textAfter,
+          ),
+        );
+      });
+      // Select "sleep" - the text after the first annotation
+      // Non-null assertions are safe: textAfter is assigned during the test setup callback.
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      updateSelection(editor, textAfter!, 1, textAfter!, 6);
+
+      editor.getEditorState().read(() => {
+        const usjSelection = $getUsjSelectionFromEditor();
+
+        if (!usjSelection) throw new Error("Expected usjSelection to be defined");
+        // Path should be annotation-agnostic: content[0] (not content[2]) with offset 12-18
+        expect(usjSelection.start).toEqual({
+          jsonPath: "$.content[0].content[0]",
+          offset: 12,
+        });
+        expect(usjSelection.end).toEqual({
+          jsonPath: "$.content[0].content[0]",
+          offset: 17,
         });
       });
     });
