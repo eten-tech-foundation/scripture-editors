@@ -97,7 +97,7 @@ export default function ScriptureReferencePlugin({
                   if (mutation === "destroyed") continue;
                   const bookNode = $getNodeByKey<BookNode>(nodeKey);
                   if (!bookNode || !$isBookNode(bookNode)) continue;
-                  const code = bookNode.__code;
+                  const code = bookNode.getCode();
                   const current = scrRefRef.current;
                   if (code && code !== current.book) {
                     onScrRefChangeRef.current({ ...current, book: code });

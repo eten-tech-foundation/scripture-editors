@@ -65,11 +65,13 @@ function useArrowKeys(editor: LexicalEditor, viewOptions: ViewOptions | undefine
       if (!$isRangeSelection(selection) || !selection.isCollapsed()) return false;
 
       if (event.key === "ArrowUp") {
+        if (event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return false;
         const isHandled = $selectPreviousVerse(selection);
         if (isHandled) event.preventDefault();
         return isHandled;
       }
       if (event.key === "ArrowDown") {
+        if (event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return false;
         const isHandled = $selectNextVerse(selection);
         if (isHandled) event.preventDefault();
         return isHandled;
