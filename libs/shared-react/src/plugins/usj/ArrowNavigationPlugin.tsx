@@ -1,6 +1,8 @@
 import {
   $isImmutableNoteCallerNode,
   $isImmutableVerseNode,
+  $selectNextVerse,
+  $selectPreviousVerse,
   ImmutableVerseNode,
 } from "../../nodes/usj";
 import { ViewOptions } from "../../views/view-options.utils";
@@ -59,10 +61,20 @@ function useArrowKeys(editor: LexicalEditor, viewOptions: ViewOptions | undefine
     }
 
     const $handleKeyDown = (event: KeyboardEvent): boolean => {
-      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return false;
-
       const selection = $getSelection();
       if (!$isRangeSelection(selection) || !selection.isCollapsed()) return false;
+
+      if (event.key === "ArrowUp") {
+        const isHandled = $selectPreviousVerse(selection);
+        if (isHandled) event.preventDefault();
+        return isHandled;
+      }
+      if (event.key === "ArrowDown") {
+        const isHandled = $selectNextVerse(selection);
+        if (isHandled) event.preventDefault();
+        return isHandled;
+      }
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return false;
 
       const inputDiv = editor.getRootElement();
       if (!inputDiv) return false;

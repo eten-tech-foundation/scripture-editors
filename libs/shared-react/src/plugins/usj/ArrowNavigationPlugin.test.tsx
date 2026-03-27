@@ -294,6 +294,100 @@ describe("Note collapsed", () => {
   });
 });
 
+describe("Arrow up/down verse navigation", () => {
+  describe("verses in separate paras", () => {
+    it("moves to next verse when pressing ArrowDown", async () => {
+      let v1Text: TextNode;
+      let v2Text: TextNode;
+      const { editor } = await testEnvironment(() => {
+        v1Text = $createTextNode("verse1 text ");
+        v2Text = $createTextNode("verse2 text ");
+        $getRoot().append(
+          $createParaNode().append($createImmutableVerseNode("1"), v1Text),
+          $createParaNode().append($createImmutableVerseNode("2"), v2Text),
+        );
+      });
+      updateSelection(editor, v1Text!, 0);
+
+      await pressKey(editor, "ArrowDown");
+
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(v2Text!, 0);
+      });
+    });
+
+    it("moves to previous verse when pressing ArrowUp", async () => {
+      let v1Text: TextNode;
+      let v2Text: TextNode;
+      const { editor } = await testEnvironment(() => {
+        v1Text = $createTextNode("verse1 text ");
+        v2Text = $createTextNode("verse2 text ");
+        $getRoot().append(
+          $createParaNode().append($createImmutableVerseNode("1"), v1Text),
+          $createParaNode().append($createImmutableVerseNode("2"), v2Text),
+        );
+      });
+      updateSelection(editor, v2Text!, 0);
+
+      await pressKey(editor, "ArrowUp");
+
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(v1Text!, 0);
+      });
+    });
+  });
+
+  describe("verses in same para", () => {
+    it("moves to next verse when pressing ArrowDown", async () => {
+      let v1Text: TextNode;
+      let v2Text: TextNode;
+      const { editor } = await testEnvironment(() => {
+        v1Text = $createTextNode("v1 ");
+        v2Text = $createTextNode("v2 ");
+        $getRoot().append(
+          $createParaNode().append(
+            $createImmutableVerseNode("1"),
+            v1Text,
+            $createImmutableVerseNode("2"),
+            v2Text,
+          ),
+        );
+      });
+      updateSelection(editor, v1Text!, 0);
+
+      await pressKey(editor, "ArrowDown");
+
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(v2Text!, 0);
+      });
+    });
+
+    it("moves to previous verse when pressing ArrowUp", async () => {
+      let v1Text: TextNode;
+      let v2Text: TextNode;
+      const { editor } = await testEnvironment(() => {
+        v1Text = $createTextNode("v1 ");
+        v2Text = $createTextNode("v2 ");
+        $getRoot().append(
+          $createParaNode().append(
+            $createImmutableVerseNode("1"),
+            v1Text,
+            $createImmutableVerseNode("2"),
+            v2Text,
+          ),
+        );
+      });
+      updateSelection(editor, v2Text!, 0);
+
+      await pressKey(editor, "ArrowUp");
+
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(v1Text!, 0);
+      });
+    });
+  });
+});
+
 // These tests are skipped because they are flaky. Running together several fail (but which ones
 // fail varies) but just about always pass when run individually.
 describe("Note expanded", () => {

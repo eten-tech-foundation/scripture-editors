@@ -622,3 +622,101 @@ export function $removeLeadingSpace(node: LexicalNode | null | undefined) {
 export function wasNodeCreated(editor: LexicalEditor, nodeKey: string) {
   return editor.getEditorState().read(() => !$getNodeByKey(nodeKey));
 }
+
+/**
+ * Moves the selection to the start of the next verse's content (after the verse marker).
+ * Used for ArrowDown navigation so the cursor lands on a position that ScriptureReferencePlugin
+ * can resolve for BCV display.
+ * @param selection - The current range selection.
+ * @returns `true` if the selection was moved, `false` otherwise.
+ */
+export function $selectNextVerse(selection: RangeSelection): boolean {
+  const anchorNode = selection.anchor.getNode();
+  const currentVerse = $findThisVerse(anchorNode);
+
+  let nextVerse: SomeVerseNode | undefined;
+
+  if (currentVerse) {
+    const parent = currentVerse.getParent();
+    if (parent && $isElementNode(parent)) {
+      const children = parent.getChildren();
+      const currentIndex = currentVerse.getIndexWithinParent();
+      for (let i = currentIndex + 1; i < children.length; i++) {
+        const child = children[i];
+        if ($isSomeVerseNode(child)) {
+          nextVerse = child as SomeVerseNode;
+          break;
+        }
+      }
+    }
+    if (!nextVerse && parent) {
+      let nextPara = parent.getNextSibling();
+      while (nextPara && !$isSomeChapterNode(nextPara)) {
+        const verse = $findNextVerseInNode(nextPara);
+        if (verse) {
+          nextVerse = verse;
+          break;
+        }
+        nextPara = nextPara.getNextSibling();
+      }
+    }
+  } else {
+    const topLevel = anchorNode.getTopLevelElement();
+    let para: LexicalNode | null = topLevel ?? anchorNode;
+    while (para) {
+      const verse = $findNextVerseInNode(para);
+      if (verse) {
+        nextVerse = verse;
+        break;
+      }
+      para = para.getNextSibling();
+      if (para && $isSomeChapterNode(para)) break;
+    }
+  }
+
+  if (!nextVerse) return false;
+  nextVerse.selectNext(0, 0);
+  return true;
+}
+
+/**
+ * Moves the selection to the start of the previous verse's content (after the verse marker).
+ * Used for ArrowUp navigation so the cursor lands on a position that ScriptureReferencePlugin
+ * can resolve for BCV display.
+ * @param selection - The current range selection.
+ * @returns `true` if the selection was moved, `false` otherwise.
+ */
+export function $selectPreviousVerse(selection: RangeSelection): boolean {
+  const anchorNode = selection.anchor.getNode();
+  const currentVerse = $findThisVerse(anchorNode);
+
+  let prevVerse: SomeVerseNode | undefined;
+
+  if (currentVerse) {
+    const parent = currentVerse.getParent();
+    if (parent && $isElementNode(parent)) {
+      prevVerse = $findPreviousVerseInSiblings(parent, currentVerse.getIndexWithinParent());
+    }
+    if (!prevVerse && parent) {
+      let prevPara = parent.getPreviousSibling();
+      while (prevPara && !$isSomeChapterNode(prevPara)) {
+        const verse = $findLastVerseInNode(prevPara);
+        if (verse) {
+          prevVerse = verse;
+          break;
+        }
+        prevPara = prevPara.getPreviousSibling();
+      }
+    }
+  } else {
+    const topLevel = anchorNode.getTopLevelElement();
+    const prevPara = topLevel?.getPreviousSibling();
+    if (prevPara && !$isSomeChapterNode(prevPara)) {
+      prevVerse = $findLastVerseInNode(prevPara);
+    }
+  }
+
+  if (!prevVerse) return false;
+  prevVerse.selectNext(0, 0);
+  return true;
+}
