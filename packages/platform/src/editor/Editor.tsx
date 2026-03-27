@@ -26,6 +26,7 @@ import {
   REDO_COMMAND,
   UNDO_COMMAND,
 } from "lexical";
+import { getBookCodeFromUsj } from "@eten-tech-foundation/scripture-utilities";
 import {
   ForwardedRef,
   forwardRef,
@@ -33,6 +34,7 @@ import {
   PropsWithChildren,
   ReactElement,
   useCallback,
+  useEffect,
   useImperativeHandle,
   useRef,
   useState,
@@ -160,6 +162,15 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
 
   editorConfig.editable = !isReadonly;
   editorUsjAdaptor.initialize(logger);
+
+  // Sync scrRef.book from USJ when content loads or changes (proactive fix for host/content mismatch)
+  useEffect(() => {
+    if (!scrRef || !onScrRefChange) return;
+    const book = getBookCodeFromUsj(usj);
+    if (book && book !== scrRef.book) {
+      onScrRefChange({ ...scrRef, book });
+    }
+  }, [usj, scrRef, onScrRefChange]);
 
   useImperativeHandle(ref, () => ({
     focus() {

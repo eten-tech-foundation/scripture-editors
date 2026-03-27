@@ -20,6 +20,9 @@ export const EMPTY_USJ: Readonly<Usj>;
 export const EMPTY_USX = "<usx version=\"3.1\" />";
 
 // @public
+export function getBookCodeFromUsj(usj: Usj | null | undefined): string | undefined;
+
+// @public
 export function getUsjDocumentLocationTypeName(location: UsjDocumentLocation | undefined | null): string;
 
 // @public

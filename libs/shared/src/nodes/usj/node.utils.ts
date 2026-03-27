@@ -5,6 +5,7 @@ import {
   $getCommonAncestor,
   $getState,
   $isElementNode,
+  $isRangeSelection,
   $isTextNode,
   BaseSelection,
   LexicalEditor,
@@ -587,12 +588,7 @@ export function isSelectionStartNodeExpectedError(err: unknown): boolean {
   );
 }
 
-/**
- * Get the start node of the selection.
- * @param selection - The selection to get the start node from.
- * @returns The start node of the selection or `undefined` if no selection is provided.
- */
-export function getSelectionStartNode(selection: BaseSelection | null): LexicalNode | undefined {
+function getSelectionStartNodeInner(selection: BaseSelection | null): LexicalNode | undefined {
   if (!selection) return undefined;
 
   const nodes = selection.getNodes();
@@ -601,6 +597,40 @@ export function getSelectionStartNode(selection: BaseSelection | null): LexicalN
   }
 
   return undefined;
+}
+
+/**
+ * Get the start node of the selection.
+ * For range selections, avoids throws from `getNodes()` when the anchor is on a node type that
+ * does not match the anchor type (e.g. DecoratorNode with an element selection), by returning the
+ * anchor node or applying `isSelectionStartNodeExpectedError` fallback.
+ * @param selection - The selection to get the start node from.
+ * @returns The start node of the selection or `undefined` if no selection is provided.
+ */
+export function getSelectionStartNode(selection: BaseSelection | null): LexicalNode | undefined {
+  if (!$isRangeSelection(selection)) {
+    return getSelectionStartNodeInner(selection);
+  }
+
+  const anchorNode = selection.anchor.getNode();
+  const isAnchorTypeMismatch =
+    anchorNode &&
+    ((selection.anchor.type === "element" && !$isElementNode(anchorNode)) ||
+      (selection.anchor.type === "text" && !$isTextNode(anchorNode)));
+
+  if (isAnchorTypeMismatch) {
+    return anchorNode ?? undefined;
+  }
+
+  try {
+    const node = getSelectionStartNodeInner(selection);
+    return node ?? anchorNode ?? undefined;
+  } catch (err) {
+    if (isSelectionStartNodeExpectedError(err)) {
+      return anchorNode ?? undefined;
+    }
+    throw err;
+  }
 }
 
 /**

@@ -52,6 +52,41 @@ describe("ScriptureReferencePlugin", () => {
     expect(mockOnScrRefChange).not.toHaveBeenCalled();
   });
 
+  describe("Book code sync (scrRef.book vs content)", () => {
+    it("should call onScrRefChange with content book when scrRef.book mismatches", async () => {
+      // Content has EXO, scrRef has GEN - plugin's $getBookCode should correct
+      const scrRefWithWrongBook = { book: "GEN", chapterNum: 1, verseNum: 1 };
+      function $editorStateWithExo() {
+        sectionTextNode = $createTextNode("Section Text");
+        firstVerseTextNode = $createTextNode("first verse text ");
+        secondVerseTextNode = $createTextNode("second verse text ");
+        thirdVerseTextNode = $createTextNode("third verse text ");
+
+        $getRoot().append(
+          $createBookNode("EXO").append($createTextNode("Test Book")),
+          $createImmutableChapterNode("1"),
+          $createParaNode("s1").append(sectionTextNode),
+          $createParaNode().append($createImmutableVerseNode("1"), firstVerseTextNode),
+          $createParaNode().append($createImmutableVerseNode("2"), secondVerseTextNode),
+          $createParaNode().append($createImmutableVerseNode("3-4"), thirdVerseTextNode),
+        );
+      }
+
+      await testEnvironment(scrRefWithWrongBook, mockOnScrRefChange, $editorStateWithExo);
+
+      expect(mockOnScrRefChange).toHaveBeenCalledWith(
+        expect.objectContaining({ book: "EXO", chapterNum: 1, verseNum: 1 }),
+      );
+    });
+
+    it("should not call onScrRefChange for book sync when scrRef.book matches content", async () => {
+      // Content has GEN, scrRef has GEN - no book correction needed
+      await testEnvironment(scrRef, mockOnScrRefChange);
+
+      expect(mockOnScrRefChange).not.toHaveBeenCalled();
+    });
+  });
+
   describe("Selection Change", () => {
     it("should move the cursor", async () => {
       const { editor } = await testEnvironment(scrRef, mockOnScrRefChange);
