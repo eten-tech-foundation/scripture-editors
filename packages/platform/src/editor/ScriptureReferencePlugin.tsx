@@ -58,9 +58,11 @@ export default function ScriptureReferencePlugin({
   const { book, chapterNum, verseNum } = scrRef;
   /** Latest scrRef for book sync (avoids re-registering listeners when chapter/verse changes). */
   const scrRefRef = useRef(scrRef);
-  scrRefRef.current = scrRef;
   const onScrRefChangeRef = useRef(onScrRefChange);
-  onScrRefChangeRef.current = onScrRefChange;
+  useEffect(() => {
+    scrRefRef.current = scrRef;
+    onScrRefChangeRef.current = onScrRefChange;
+  }, [scrRef, onScrRefChange]);
 
   // Book node: move cursor when a new BookNode appears after load; sync scrRef.book when the
   // book code changes (initial tree + updates). Uses a second listener with skipInitialization:
