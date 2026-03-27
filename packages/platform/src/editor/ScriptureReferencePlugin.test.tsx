@@ -54,7 +54,7 @@ describe("ScriptureReferencePlugin", () => {
 
   describe("Book code sync (scrRef.book vs content)", () => {
     it("should call onScrRefChange with content book when scrRef.book mismatches", async () => {
-      // Content has EXO, scrRef has GEN - plugin's $getBookCode should correct
+      // Content has EXO, scrRef has GEN - plugin should correct book from BookNode
       const scrRefWithWrongBook = { book: "GEN", chapterNum: 1, verseNum: 1 };
       function $editorStateWithExo() {
         sectionTextNode = $createTextNode("Section Text");
@@ -82,6 +82,29 @@ describe("ScriptureReferencePlugin", () => {
     it("should not call onScrRefChange for book sync when scrRef.book matches content", async () => {
       // Content has GEN, scrRef has GEN - no book correction needed
       await testEnvironment(scrRef, mockOnScrRefChange);
+
+      expect(mockOnScrRefChange).not.toHaveBeenCalled();
+    });
+
+    it("should not call onScrRefChange when BookNode has empty code", async () => {
+      const scrRefWithWrongBook = { book: "GEN", chapterNum: 1, verseNum: 1 };
+      function $editorStateWithEmptyBookCode() {
+        sectionTextNode = $createTextNode("Section Text");
+        firstVerseTextNode = $createTextNode("first verse text ");
+        secondVerseTextNode = $createTextNode("second verse text ");
+        thirdVerseTextNode = $createTextNode("third verse text ");
+
+        $getRoot().append(
+          $createBookNode("").append($createTextNode("Test Book")),
+          $createImmutableChapterNode("1"),
+          $createParaNode("s1").append(sectionTextNode),
+          $createParaNode().append($createImmutableVerseNode("1"), firstVerseTextNode),
+          $createParaNode().append($createImmutableVerseNode("2"), secondVerseTextNode),
+          $createParaNode().append($createImmutableVerseNode("3-4"), thirdVerseTextNode),
+        );
+      }
+
+      await testEnvironment(scrRefWithWrongBook, mockOnScrRefChange, $editorStateWithEmptyBookCode);
 
       expect(mockOnScrRefChange).not.toHaveBeenCalled();
     });
