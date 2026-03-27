@@ -234,24 +234,22 @@ function $findAndSetChapterAndVerse(
 
 /**
  * Resolves the verse node for the given start node. When the cursor is on an element
- * (e.g. para) rather than inside a verse, looks at the child at offset or walks backward.
+ * (e.g. para) rather than inside a verse, looks at the child at offset or walks backward
+ * within that element before falling back to $findThisVerse (which may walk to prior paras).
  */
 function $resolveVerseNode(startNode: LexicalNode, selection: ReturnType<typeof $getSelection>) {
-  const verseNode = $findThisVerse(startNode);
-
-  if (verseNode) return verseNode;
-
   const isCursorOnElement =
     $isElementNode(startNode) &&
     selection &&
     $isRangeSelection(selection) &&
     selection.anchor.key === startNode.getKey();
 
-  if (!isCursorOnElement) return undefined;
-
-  const childAtOffset = startNode.getChildAtIndex(selection.anchor.offset);
-  if (childAtOffset && $isSomeVerseNode(childAtOffset)) {
-    return childAtOffset;
+  if (isCursorOnElement) {
+    const childAtOffset = startNode.getChildAtIndex(selection.anchor.offset);
+    if (childAtOffset && $isSomeVerseNode(childAtOffset)) return childAtOffset;
+    const prev = $findPreviousVerseInSiblings(startNode, selection.anchor.offset);
+    if (prev) return prev;
   }
-  return $findPreviousVerseInSiblings(startNode, selection.anchor.offset);
+
+  return $findThisVerse(startNode);
 }
