@@ -47,9 +47,9 @@ import {
  * Expected `roundTripped.start` for text locations where `$getUsjSelectionFromEditor` emits
  * base-USJ paths that differ from `entry.documentLocation` (paranext-style paths).
  */
-const TEXT_CONTENT_ANNOTATION_AGNOSTIC_ROUND_TRIP_EXPECTED: Partial<
-  Record<string, UsjDocumentLocation>
-> = {
+const TEXT_CONTENT_ANNOTATION_AGNOSTIC_ROUND_TRIP_EXPECTED: {
+  [key: string]: UsjDocumentLocation | undefined;
+} = {
   "textContent at $.content[16].content[1].content[0] offset 0": {
     jsonPath: "$.content[16].content[0].content[0]",
     offset: 0,
