@@ -57,18 +57,22 @@ describe("ScriptureReferencePlugin", () => {
       // Content has EXO, scrRef has GEN - plugin should correct book from BookNode
       const scrRefWithWrongBook = { book: "GEN", chapterNum: 1, verseNum: 1 };
       function $editorStateWithExo() {
-        sectionTextNode = $createTextNode("Section Text");
-        firstVerseTextNode = $createTextNode("first verse text ");
-        secondVerseTextNode = $createTextNode("second verse text ");
-        thirdVerseTextNode = $createTextNode("third verse text ");
-
         $getRoot().append(
           $createBookNode("EXO").append($createTextNode("Test Book")),
           $createImmutableChapterNode("1"),
-          $createParaNode("s1").append(sectionTextNode),
-          $createParaNode().append($createImmutableVerseNode("1"), firstVerseTextNode),
-          $createParaNode().append($createImmutableVerseNode("2"), secondVerseTextNode),
-          $createParaNode().append($createImmutableVerseNode("3-4"), thirdVerseTextNode),
+          $createParaNode("s1").append($createTextNode("Section Text")),
+          $createParaNode().append(
+            $createImmutableVerseNode("1"),
+            $createTextNode("first verse text "),
+          ),
+          $createParaNode().append(
+            $createImmutableVerseNode("2"),
+            $createTextNode("second verse text "),
+          ),
+          $createParaNode().append(
+            $createImmutableVerseNode("3-4"),
+            $createTextNode("third verse text "),
+          ),
         );
       }
 
@@ -89,18 +93,22 @@ describe("ScriptureReferencePlugin", () => {
     it("should not call onScrRefChange when BookNode has empty code", async () => {
       const scrRefWithWrongBook = { book: "GEN", chapterNum: 1, verseNum: 1 };
       function $editorStateWithEmptyBookCode() {
-        sectionTextNode = $createTextNode("Section Text");
-        firstVerseTextNode = $createTextNode("first verse text ");
-        secondVerseTextNode = $createTextNode("second verse text ");
-        thirdVerseTextNode = $createTextNode("third verse text ");
-
         $getRoot().append(
           $createBookNode("").append($createTextNode("Test Book")),
           $createImmutableChapterNode("1"),
-          $createParaNode("s1").append(sectionTextNode),
-          $createParaNode().append($createImmutableVerseNode("1"), firstVerseTextNode),
-          $createParaNode().append($createImmutableVerseNode("2"), secondVerseTextNode),
-          $createParaNode().append($createImmutableVerseNode("3-4"), thirdVerseTextNode),
+          $createParaNode("s1").append($createTextNode("Section Text")),
+          $createParaNode().append(
+            $createImmutableVerseNode("1"),
+            $createTextNode("first verse text "),
+          ),
+          $createParaNode().append(
+            $createImmutableVerseNode("2"),
+            $createTextNode("second verse text "),
+          ),
+          $createParaNode().append(
+            $createImmutableVerseNode("3-4"),
+            $createTextNode("third verse text "),
+          ),
         );
       }
 

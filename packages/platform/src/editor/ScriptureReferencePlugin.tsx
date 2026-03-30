@@ -240,7 +240,6 @@ function $findAndSetChapterAndVerse(
 function $resolveVerseNode(startNode: LexicalNode, selection: ReturnType<typeof $getSelection>) {
   const isCursorOnElement =
     $isElementNode(startNode) &&
-    selection &&
     $isRangeSelection(selection) &&
     selection.anchor.key === startNode.getKey();
 

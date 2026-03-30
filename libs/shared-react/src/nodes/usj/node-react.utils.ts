@@ -420,7 +420,7 @@ export function $findPreviousVerseInSiblings(
   const children = parent.getChildren();
   for (let i = fromIndex - 1; i >= 0; i--) {
     const child = children[i];
-    if ($isSomeVerseNode(child)) return child as SomeVerseNode;
+    if ($isSomeVerseNode(child)) return child;
   }
   return undefined;
 }
@@ -434,8 +434,7 @@ export function $findLastVerseInNode(node: LexicalNode | null | undefined) {
   if (!node || !$isElementNode(node)) return;
 
   const children = node.getChildren();
-  const verseNode = children.findLast((node) => $isSomeVerseNode(node));
-  return verseNode as SomeVerseNode | undefined;
+  return children.findLast((n): n is SomeVerseNode => $isSomeVerseNode(n));
 }
 
 /**
@@ -627,10 +626,12 @@ export function wasNodeCreated(editor: LexicalEditor, nodeKey: string) {
  * Moves the selection to the start of the next verse's content (after the verse marker).
  * Used for ArrowDown navigation so the cursor lands on a position that ScriptureReferencePlugin
  * can resolve for BCV display.
- * @param selection - The current range selection.
- * @returns `true` if the selection was moved, `false` otherwise.
+ * @param selection - The current range selection (must be collapsed).
+ * @returns `true` if the selection was moved, `false` if not collapsed or no next verse.
  */
 export function $selectNextVerse(selection: RangeSelection): boolean {
+  if (!selection.isCollapsed()) return false;
+
   const anchorNode = selection.anchor.getNode();
   const currentVerse = $findThisVerse(anchorNode);
 
@@ -644,7 +645,7 @@ export function $selectNextVerse(selection: RangeSelection): boolean {
       for (let i = currentIndex + 1; i < children.length; i++) {
         const child = children[i];
         if ($isSomeVerseNode(child)) {
-          nextVerse = child as SomeVerseNode;
+          nextVerse = child;
           break;
         }
       }
@@ -683,10 +684,12 @@ export function $selectNextVerse(selection: RangeSelection): boolean {
  * Moves the selection to the start of the previous verse's content (after the verse marker).
  * Used for ArrowUp navigation so the cursor lands on a position that ScriptureReferencePlugin
  * can resolve for BCV display.
- * @param selection - The current range selection.
- * @returns `true` if the selection was moved, `false` otherwise.
+ * @param selection - The current range selection (must be collapsed).
+ * @returns `true` if the selection was moved, `false` if not collapsed or no previous verse.
  */
 export function $selectPreviousVerse(selection: RangeSelection): boolean {
+  if (!selection.isCollapsed()) return false;
+
   const anchorNode = selection.anchor.getNode();
   const currentVerse = $findThisVerse(anchorNode);
 

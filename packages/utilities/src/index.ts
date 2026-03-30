@@ -24,7 +24,6 @@ export {
 export { usjToUsxString } from "./converters/usj/usj-to-usx.js";
 export {
   EMPTY_USJ,
-  getBookCodeFromUsj,
   MARKER_OBJECT_PROPS,
   USJ_TYPE,
   USJ_VERSION,

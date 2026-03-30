@@ -588,17 +588,6 @@ export function isSelectionStartNodeExpectedError(err: unknown): boolean {
   );
 }
 
-function getSelectionStartNodeInner(selection: BaseSelection | null): LexicalNode | undefined {
-  if (!selection) return undefined;
-
-  const nodes = selection.getNodes();
-  if (nodes.length > 0) {
-    return selection.isBackward() ? nodes[nodes.length - 1] : nodes[0];
-  }
-
-  return undefined;
-}
-
 /**
  * Get the start node of the selection.
  * For range selections, avoids throws from `getNodes()` when the anchor is on a node type that
@@ -690,4 +679,15 @@ export function isVerseInRange(verseNum: number, verseRange: string | undefined)
  */
 export function isVerseRange(verseRange: string | undefined): boolean {
   return !!verseRange && verseRange.includes("-");
+}
+
+function getSelectionStartNodeInner(selection: BaseSelection | null): LexicalNode | undefined {
+  if (!selection) return undefined;
+
+  const nodes = selection.getNodes();
+  if (nodes.length > 0) {
+    return selection.isBackward() ? nodes[nodes.length - 1] : nodes[0];
+  }
+
+  return undefined;
 }

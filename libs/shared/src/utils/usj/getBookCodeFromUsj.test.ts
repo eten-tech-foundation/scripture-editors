@@ -1,9 +1,17 @@
-import { usjGen1v1 } from "./converter-test.data.js";
-import { EMPTY_USJ, getBookCodeFromUsj } from "./usj.model.js";
+import { EMPTY_USJ, type Usj } from "@eten-tech-foundation/scripture-utilities";
+import { describe, expect, it } from "vitest";
+
+import { getBookCodeFromUsj } from "./getBookCodeFromUsj.js";
+
+const usjWithGenBook: Usj = {
+  type: "USJ",
+  version: "3.1",
+  content: [{ type: "book", marker: "id", code: "GEN", content: ["Some Scripture Version"] }],
+};
 
 describe("getBookCodeFromUsj()", () => {
   it("returns book code from USJ with book element", () => {
-    expect(getBookCodeFromUsj(usjGen1v1)).toBe("GEN");
+    expect(getBookCodeFromUsj(usjWithGenBook)).toBe("GEN");
   });
 
   it("returns undefined for empty USJ", () => {
@@ -26,8 +34,8 @@ describe("getBookCodeFromUsj()", () => {
 
   it("returns undefined when content has no book element", () => {
     const usjWithoutBook = {
-      ...usjGen1v1,
-      content: usjGen1v1.content.filter((c) => {
+      ...usjWithGenBook,
+      content: usjWithGenBook.content.filter((c) => {
         const item = c as { type?: string; marker?: string };
         return !(item.type === "book" && item.marker === "id");
       }),

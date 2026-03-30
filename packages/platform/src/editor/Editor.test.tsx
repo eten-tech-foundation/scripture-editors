@@ -1,3 +1,4 @@
+// Import test fixture USJ from utilities via a deep path (not the published package entry); Nx `enforce-module-boundaries` would forbid this without the next line.
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import { usjGen1v1 } from "../../../utilities/src/converters/usj/converter-test.data";
 import type { Usj } from "@eten-tech-foundation/scripture-utilities";

@@ -98,23 +98,6 @@ export interface Usj {
 }
 
 /**
- * Extract the book code from USJ content. Returns the first top-level element with
- * `type === "book"` and `marker === "id"`.
- * @param usj - USJ scripture data.
- * @returns The book code if found, `undefined` otherwise.
- * @public
- */
-export function getBookCodeFromUsj(usj: Usj | null | undefined): string | undefined {
-  const content = usj?.content;
-  if (!Array.isArray(content)) return undefined;
-  const bookItem = content.find(
-    (item): item is MarkerObject =>
-      typeof item === "object" && item?.type === "book" && item?.marker === "id",
-  );
-  return typeof bookItem?.code === "string" ? bookItem.code : undefined;
-}
-
-/**
  * Check if the given code is a valid 3-letter Scripture book code.
  * @public
  */
