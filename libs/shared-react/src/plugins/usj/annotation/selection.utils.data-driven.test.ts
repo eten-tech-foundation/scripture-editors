@@ -13,6 +13,11 @@
  * **Round-trip tests** assert that a location survives USJ → Lexical → USJ unchanged.
  * Some `textContent` entries use paranext USJ paths through `TypedMarkNode`; the editor emits
  * annotation-agnostic paths for those — see `TEXT_CONTENT_ANNOTATION_AGNOSTIC_ROUND_TRIP_EXPECTED`.
+ * Marker mode (editable / visible / hidden) changes how the document is serialized to Lexical
+ * (markers, annotation wrappers, `CharNode` boundaries). The same logical paranext path can
+ * therefore resolve to different nodes across modes, and `$getUsjSelectionFromEditor` may emit a
+ * base-USJ path in one mode while another mode keeps per-child indexes that match the fixture.
+ * Per-mode expectations are listed in `TEXT_CONTENT_ROUND_TRIP_OVERRIDES_BY_MODE` when they differ.
  * `textContent` locations round-trip in all 3 modes.  Other location types
  * (marker, closingMarker, propertyValue, …) are tested for round-trip only in editable mode.
  * Entries that don't yet round-trip are also wrapped with `expect(…).toThrow()`.
@@ -59,8 +64,8 @@ const TEXT_CONTENT_ANNOTATION_AGNOSTIC_ROUND_TRIP_EXPECTED: {
     offset: 1,
   },
   "textContent at $.content[16].content[2] offset 0": {
-    jsonPath: "$.content[16].content[1]",
-    offset: 2,
+    jsonPath: "$.content[16].content[2]",
+    offset: 0,
   },
   "textContent at $.content[18].content[1].content[0] offset 0": {
     jsonPath: "$.content[18].content[0].content[0]",
@@ -92,17 +97,30 @@ const TEXT_CONTENT_ANNOTATION_AGNOSTIC_ROUND_TRIP_EXPECTED: {
   },
 };
 
+/** Marker mode names — must match `MARKER_MODES` below. */
+type MarkerModeName = "editable" | "visible" | "hidden";
+
+/**
+ * When the expected round-trip `start` depends on marker mode. Use when the Lexical caret lands in
+ * a TypedMark-backed run in one mode but not another (see file-level note on serialized state).
+ */
+const TEXT_CONTENT_ROUND_TRIP_OVERRIDES_BY_MODE: {
+  [description: string]: Partial<Record<MarkerModeName, UsjDocumentLocation>>;
+} = {
+  "textContent at $.content[6].content[1].content[0] offset 0": {
+    editable: { jsonPath: "$.content[6].content[0].content[0]", offset: 0 },
+  },
+};
+
 function getExpectedRoundTripStart(
   markerModeName: string,
   entry: LocationEntry2Sa,
 ): UsjDocumentLocation {
-  // Editable mode reports annotation-agnostic paths for this location; visible/hidden match paranext.
-  if (entry.description === "textContent at $.content[6].content[1].content[0] offset 0") {
-    if (markerModeName === "editable") {
-      return { jsonPath: "$.content[6].content[0].content[0]", offset: 0 };
-    }
-    return entry.documentLocation;
-  }
+  const modeOverride =
+    TEXT_CONTENT_ROUND_TRIP_OVERRIDES_BY_MODE[entry.description]?.[
+      markerModeName as MarkerModeName
+    ];
+  if (modeOverride) return modeOverride;
   return (
     TEXT_CONTENT_ANNOTATION_AGNOSTIC_ROUND_TRIP_EXPECTED[entry.description] ??
     entry.documentLocation
