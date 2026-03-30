@@ -10,6 +10,7 @@ import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext
 import { ContentEditable } from "@lexical/react/LexicalContentEditable";
 import { LexicalErrorBoundary } from "@lexical/react/LexicalErrorBoundary";
 import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
+import type { BookCode } from "@eten-tech-foundation/scripture-utilities";
 import { SerializedVerseRef } from "@sillsdev/scripture";
 import { act, render } from "@testing-library/react";
 import {
@@ -56,27 +57,10 @@ describe("ScriptureReferencePlugin", () => {
     it("should call onScrRefChange with content book when scrRef.book mismatches", async () => {
       // Content has EXO, scrRef has GEN - plugin should correct book from BookNode
       const scrRefWithWrongBook = { book: "GEN", chapterNum: 1, verseNum: 1 };
-      function $editorStateWithExo() {
-        $getRoot().append(
-          $createBookNode("EXO").append($createTextNode("Test Book")),
-          $createImmutableChapterNode("1"),
-          $createParaNode("s1").append($createTextNode("Section Text")),
-          $createParaNode().append(
-            $createImmutableVerseNode("1"),
-            $createTextNode("first verse text "),
-          ),
-          $createParaNode().append(
-            $createImmutableVerseNode("2"),
-            $createTextNode("second verse text "),
-          ),
-          $createParaNode().append(
-            $createImmutableVerseNode("3-4"),
-            $createTextNode("third verse text "),
-          ),
-        );
-      }
 
-      await testEnvironment(scrRefWithWrongBook, mockOnScrRefChange, $editorStateWithExo);
+      await testEnvironment(scrRefWithWrongBook, mockOnScrRefChange, () =>
+        $appendScrRefPluginFixture("EXO"),
+      );
 
       expect(mockOnScrRefChange).toHaveBeenCalledWith(
         expect.objectContaining({ book: "EXO", chapterNum: 1, verseNum: 1 }),
@@ -92,27 +76,10 @@ describe("ScriptureReferencePlugin", () => {
 
     it("should not call onScrRefChange when BookNode has empty code", async () => {
       const scrRefWithWrongBook = { book: "GEN", chapterNum: 1, verseNum: 1 };
-      function $editorStateWithEmptyBookCode() {
-        $getRoot().append(
-          $createBookNode("").append($createTextNode("Test Book")),
-          $createImmutableChapterNode("1"),
-          $createParaNode("s1").append($createTextNode("Section Text")),
-          $createParaNode().append(
-            $createImmutableVerseNode("1"),
-            $createTextNode("first verse text "),
-          ),
-          $createParaNode().append(
-            $createImmutableVerseNode("2"),
-            $createTextNode("second verse text "),
-          ),
-          $createParaNode().append(
-            $createImmutableVerseNode("3-4"),
-            $createTextNode("third verse text "),
-          ),
-        );
-      }
 
-      await testEnvironment(scrRefWithWrongBook, mockOnScrRefChange, $editorStateWithEmptyBookCode);
+      await testEnvironment(scrRefWithWrongBook, mockOnScrRefChange, () =>
+        $appendScrRefPluginFixture(""),
+      );
 
       expect(mockOnScrRefChange).not.toHaveBeenCalled();
     });
@@ -241,6 +208,21 @@ function $defaultInitialEditorState() {
     $createParaNode().append($createImmutableVerseNode("1"), firstVerseTextNode),
     $createParaNode().append($createImmutableVerseNode("2"), secondVerseTextNode),
     $createParaNode().append($createImmutableVerseNode("3-4"), thirdVerseTextNode),
+  );
+}
+
+/** Same outline as `$defaultInitialEditorState` but with a parameterized book code (for book-sync tests). */
+function $appendScrRefPluginFixture(bookCode: BookCode | "") {
+  $getRoot().append(
+    $createBookNode(bookCode).append($createTextNode("Test Book")),
+    $createImmutableChapterNode("1"),
+    $createParaNode("s1").append($createTextNode("Section Text")),
+    $createParaNode().append($createImmutableVerseNode("1"), $createTextNode("first verse text ")),
+    $createParaNode().append($createImmutableVerseNode("2"), $createTextNode("second verse text ")),
+    $createParaNode().append(
+      $createImmutableVerseNode("3-4"),
+      $createTextNode("third verse text "),
+    ),
   );
 }
 

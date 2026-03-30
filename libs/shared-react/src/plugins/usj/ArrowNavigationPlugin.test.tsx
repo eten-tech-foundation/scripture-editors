@@ -5,20 +5,45 @@
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import {
   $expectSelectionToBe,
+  createBasicTestEnvironment,
   updateSelection,
 } from "../../../../../libs/shared/src/nodes/usj/test.utils";
-import { $createImmutableNoteCallerNode, $createImmutableVerseNode } from "../../nodes/usj";
+import {
+  $createImmutableNoteCallerNode,
+  $createImmutableVerseNode,
+  ImmutableVerseNode,
+} from "../../nodes/usj";
+import {
+  $findThisVerse,
+  $resolveVerseNode,
+  $selectNextVerse,
+  $selectPreviousVerse,
+} from "../../nodes/usj/node-react.utils";
 import { getDefaultViewOptions } from "../../views/view-options.utils";
 import { ArrowNavigationPlugin } from "./ArrowNavigationPlugin";
 import { TextDirectionPlugin } from "./TextDirectionPlugin";
 import { baseTestEnvironment, pressKey } from "./react-test.utils";
-import { $createTextNode, $getRoot, TextNode } from "lexical";
+import {
+  $createLineBreakNode,
+  $createPoint,
+  $createRangeSelection,
+  $createTextNode,
+  $getNodeByKey,
+  $getRoot,
+  $getSelection,
+  $isRangeSelection,
+  $setSelection,
+  LineBreakNode,
+  TextNode,
+} from "lexical";
 import {
   $createCharNode,
   $createImpliedParaNode,
+  $createImmutableChapterNode,
   $createNoteNode,
   $createParaNode,
   ImpliedParaNode,
+  ImmutableChapterNode,
   ParaNode,
 } from "shared";
 
@@ -383,6 +408,111 @@ describe("Arrow up/down verse navigation", () => {
 
       editor.getEditorState().read(() => {
         $expectSelectionToBe(v1Text!, 0);
+      });
+    });
+  });
+
+  describe("$selectNextVerse() / $selectPreviousVerse() / $resolveVerseNode()", () => {
+    it("ArrowDown: WEB-style empty paras (linebreak + verse), element selection on para resolves to this verse and advances to the next", () => {
+      let verseTwoParagraphKey: string;
+      const { editor } = createBasicTestEnvironment(
+        [ImmutableChapterNode, ParaNode, ImmutableVerseNode, LineBreakNode],
+        () => {
+          const verseTwoParagraph = $createParaNode("q1").append(
+            $createLineBreakNode(),
+            $createImmutableVerseNode("2"),
+          );
+          $getRoot().append(
+            $createImmutableChapterNode("1"),
+            $createParaNode("ms1").append($createTextNode("BOOK 1")),
+            $createParaNode("q1").append($createLineBreakNode(), $createImmutableVerseNode("1")),
+            verseTwoParagraph,
+            $createParaNode("q1").append($createLineBreakNode(), $createImmutableVerseNode("3")),
+          );
+          verseTwoParagraphKey = verseTwoParagraph.getKey();
+        },
+      );
+
+      editor.update(
+        () => {
+          const selection = $createRangeSelection();
+          selection.anchor = $createPoint(verseTwoParagraphKey, 2, "element");
+          selection.focus = $createPoint(verseTwoParagraphKey, 2, "element");
+          $setSelection(selection);
+        },
+        { discrete: true },
+      );
+
+      editor.getEditorState().read(() => {
+        const verseTwoParagraph = $getNodeByKey(verseTwoParagraphKey);
+        if (!verseTwoParagraph) throw new Error("verse-two paragraph missing");
+
+        expect($findThisVerse(verseTwoParagraph)?.getNumber()).toBe("1");
+
+        const selection = $getSelection();
+        if (!$isRangeSelection(selection)) throw new Error("expected range selection");
+        expect($resolveVerseNode(verseTwoParagraph, selection)?.getNumber()).toBe("2");
+      });
+
+      editor.update(
+        () => {
+          const selection = $getSelection();
+          if (!$isRangeSelection(selection)) throw new Error("expected range selection");
+          expect($selectNextVerse(selection)).toBe(true);
+        },
+        { discrete: true },
+      );
+
+      editor.getEditorState().read(() => {
+        const after = $getSelection();
+        if (!$isRangeSelection(after)) throw new Error("expected range selection after next verse");
+        expect($resolveVerseNode(after.anchor.getNode(), after)?.getNumber()).toBe("3");
+      });
+    });
+
+    it("ArrowUp: same structure resolves current verse and moves to the previous verse", () => {
+      let verseTwoParagraphKey: string;
+      const { editor } = createBasicTestEnvironment(
+        [ImmutableChapterNode, ParaNode, ImmutableVerseNode, LineBreakNode],
+        () => {
+          const verseTwoParagraph = $createParaNode("q1").append(
+            $createLineBreakNode(),
+            $createImmutableVerseNode("2"),
+          );
+          $getRoot().append(
+            $createImmutableChapterNode("1"),
+            $createParaNode("ms1").append($createTextNode("BOOK 1")),
+            $createParaNode("q1").append($createLineBreakNode(), $createImmutableVerseNode("1")),
+            verseTwoParagraph,
+          );
+          verseTwoParagraphKey = verseTwoParagraph.getKey();
+        },
+      );
+
+      editor.update(
+        () => {
+          const selection = $createRangeSelection();
+          selection.anchor = $createPoint(verseTwoParagraphKey, 2, "element");
+          selection.focus = $createPoint(verseTwoParagraphKey, 2, "element");
+          $setSelection(selection);
+        },
+        { discrete: true },
+      );
+
+      editor.update(
+        () => {
+          const selection = $getSelection();
+          if (!$isRangeSelection(selection)) throw new Error("expected range selection");
+          expect($selectPreviousVerse(selection)).toBe(true);
+        },
+        { discrete: true },
+      );
+
+      editor.getEditorState().read(() => {
+        const after = $getSelection();
+        if (!$isRangeSelection(after))
+          throw new Error("expected range selection after previous verse");
+        expect($resolveVerseNode(after.anchor.getNode(), after)?.getNumber()).toBe("1");
       });
     });
   });
