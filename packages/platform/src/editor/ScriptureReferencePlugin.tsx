@@ -5,11 +5,8 @@ import {
   $getNodeByKey,
   $getRoot,
   $getSelection,
-  $isElementNode,
-  $isRangeSelection,
   $isTextNode,
   COMMAND_PRIORITY_LOW,
-  LexicalNode,
   SELECTION_CHANGE_COMMAND,
 } from "lexical";
 import { MutableRefObject, useEffect, useRef } from "react";
@@ -29,11 +26,10 @@ import {
   VerseNode,
 } from "shared";
 import {
-  $findPreviousVerseInSiblings,
   $findThisVerse,
   $findVerseOrPara,
   $getEffectiveVerseForBcv,
-  $isSomeVerseNode,
+  $resolveVerseNode,
   ImmutableVerseNode,
 } from "shared-react";
 
@@ -230,25 +226,4 @@ function $findAndSetChapterAndVerse(
     }
     onScrRefChange(scrRef);
   }
-}
-
-/**
- * Resolves the verse node for the given start node. When the cursor is on an element
- * (e.g. para) rather than inside a verse, looks at the child at offset or walks backward
- * within that element before falling back to $findThisVerse (which may walk to prior paras).
- */
-function $resolveVerseNode(startNode: LexicalNode, selection: ReturnType<typeof $getSelection>) {
-  const isCursorOnElement =
-    $isElementNode(startNode) &&
-    $isRangeSelection(selection) &&
-    selection.anchor.key === startNode.getKey();
-
-  if (isCursorOnElement) {
-    const childAtOffset = startNode.getChildAtIndex(selection.anchor.offset);
-    if (childAtOffset && $isSomeVerseNode(childAtOffset)) return childAtOffset;
-    const prev = $findPreviousVerseInSiblings(startNode, selection.anchor.offset);
-    if (prev) return prev;
-  }
-
-  return $findThisVerse(startNode);
 }

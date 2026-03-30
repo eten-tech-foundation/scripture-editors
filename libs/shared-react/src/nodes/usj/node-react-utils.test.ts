@@ -13,17 +13,23 @@ import {
   $getEffectiveVerseForBcv,
   $insertNote,
   $isSomeVerseNode,
+  $resolveVerseNode,
+  $selectNextVerse,
+  $selectPreviousVerse,
 } from "./node-react.utils";
 import { UsjNodeOptions } from "./usj-node-options.model";
 import {
+  $createLineBreakNode,
   $createPoint,
   $createRangeSelection,
   $createTextNode,
   $getNodeByKey,
   $getRoot,
   $getSelection,
+  $isRangeSelection,
   $setSelection,
   $isTextNode,
+  LineBreakNode,
   NodeKey,
 } from "lexical";
 import {
@@ -692,6 +698,114 @@ describe("$getEffectiveVerseForBcv()", () => {
       const result = $getEffectiveVerseForBcv(verseNode, $getSelection());
 
       expect(result).toEqual({ verseNum: 1 });
+    });
+  });
+});
+
+describe("$selectNextVerse() / $selectPreviousVerse() / $resolveVerseNode()", () => {
+  it("ArrowDown: WEB-style empty paras (linebreak + verse), element selection on para resolves to this verse and advances to the next", () => {
+    let para2Key: string;
+    const { editor } = createBasicTestEnvironment(
+      [ImmutableChapterNode, ParaNode, ImmutableVerseNode, LineBreakNode],
+      () => {
+        const pMs = $createParaNode("ms1").append($createTextNode("BOOK 1"));
+        const p1 = $createParaNode("q1").append(
+          $createLineBreakNode(),
+          $createImmutableVerseNode("1"),
+        );
+        const p2 = $createParaNode("q1").append(
+          $createLineBreakNode(),
+          $createImmutableVerseNode("2"),
+        );
+        const p3 = $createParaNode("q1").append(
+          $createLineBreakNode(),
+          $createImmutableVerseNode("3"),
+        );
+        $getRoot().append($createImmutableChapterNode("1"), pMs, p1, p2, p3);
+        para2Key = p2.getKey();
+      },
+    );
+
+    editor.update(
+      () => {
+        const selection = $createRangeSelection();
+        selection.anchor = $createPoint(para2Key, 2, "element");
+        selection.focus = $createPoint(para2Key, 2, "element");
+        $setSelection(selection);
+      },
+      { discrete: true },
+    );
+
+    editor.getEditorState().read(() => {
+      const p2 = $getNodeByKey(para2Key);
+      if (!p2) throw new Error("para2 missing");
+
+      expect($findThisVerse(p2)?.getNumber()).toBe("1");
+
+      const sel = $getSelection();
+      if (!$isRangeSelection(sel)) throw new Error("expected range selection");
+      expect($resolveVerseNode(p2, sel)?.getNumber()).toBe("2");
+    });
+
+    editor.update(
+      () => {
+        const sel = $getSelection();
+        if (!$isRangeSelection(sel)) throw new Error("expected range selection");
+        expect($selectNextVerse(sel)).toBe(true);
+      },
+      { discrete: true },
+    );
+
+    editor.getEditorState().read(() => {
+      const after = $getSelection();
+      if (!$isRangeSelection(after)) throw new Error("expected range selection after next verse");
+      expect($resolveVerseNode(after.anchor.getNode(), after)?.getNumber()).toBe("3");
+    });
+  });
+
+  it("ArrowUp: same structure resolves current verse and moves to the previous verse", () => {
+    let para2Key: string;
+    const { editor } = createBasicTestEnvironment(
+      [ImmutableChapterNode, ParaNode, ImmutableVerseNode, LineBreakNode],
+      () => {
+        const pMs = $createParaNode("ms1").append($createTextNode("BOOK 1"));
+        const p1 = $createParaNode("q1").append(
+          $createLineBreakNode(),
+          $createImmutableVerseNode("1"),
+        );
+        const p2 = $createParaNode("q1").append(
+          $createLineBreakNode(),
+          $createImmutableVerseNode("2"),
+        );
+        $getRoot().append($createImmutableChapterNode("1"), pMs, p1, p2);
+        para2Key = p2.getKey();
+      },
+    );
+
+    editor.update(
+      () => {
+        const selection = $createRangeSelection();
+        selection.anchor = $createPoint(para2Key, 2, "element");
+        selection.focus = $createPoint(para2Key, 2, "element");
+        $setSelection(selection);
+      },
+      { discrete: true },
+    );
+
+    editor.update(
+      () => {
+        const sel = $getSelection();
+        if (!$isRangeSelection(sel)) throw new Error("expected range selection");
+        expect($selectPreviousVerse(sel)).toBe(true);
+      },
+      { discrete: true },
+    );
+
+    editor.getEditorState().read(() => {
+      const after = $getSelection();
+      if (!$isRangeSelection(after))
+        throw new Error("expected range selection after previous verse");
+      expect($resolveVerseNode(after.anchor.getNode(), after)?.getNumber()).toBe("1");
     });
   });
 });

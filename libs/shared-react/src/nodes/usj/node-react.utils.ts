@@ -453,35 +453,6 @@ export function $findLastVerse(nodes: LexicalNode[]) {
 }
 
 /**
- * Find the verse that this node is in.
- * @param node - Node to find the verse it's in.
- * @returns the verse node if found, `undefined` otherwise.
- */
-export function $findThisVerse(node: LexicalNode | null | undefined) {
-  if (!node || $isSomeChapterNode(node)) return;
-
-  // is this node a verse
-  if ($isSomeVerseNode(node)) return node;
-
-  let previousSiblingOrParent = $findNearestPreviousNode(node);
-  while (previousSiblingOrParent) {
-    // If this node is a chapter node, stop searching as we've reached the start of this chapter
-    if ($isSomeChapterNode(previousSiblingOrParent)) return;
-
-    // If this node is a verse node, return it
-    if ($isSomeVerseNode(previousSiblingOrParent)) return previousSiblingOrParent;
-
-    // If this node contains a verse node, return that
-    const verseNode = $findLastVerseInNode(previousSiblingOrParent);
-    if (verseNode) return verseNode;
-
-    previousSiblingOrParent = $findNearestPreviousNode(previousSiblingOrParent);
-  }
-
-  return undefined;
-}
-
-/**
  * Length of verse number prefix in verse text for BCV "before vs after" check.
  * If text doesn't start with the verse number (e.g. $createVerseNode("1", " verse one")
  * or node is non-VerseNode (e.g. ImmutableVerseNode), returns 0 — treats all positions
@@ -633,7 +604,7 @@ export function $selectNextVerse(selection: RangeSelection): boolean {
   if (!selection.isCollapsed()) return false;
 
   const anchorNode = selection.anchor.getNode();
-  const currentVerse = $findThisVerse(anchorNode);
+  const currentVerse = $resolveVerseNode(anchorNode, selection);
 
   let nextVerse: SomeVerseNode | undefined;
 
@@ -691,7 +662,7 @@ export function $selectPreviousVerse(selection: RangeSelection): boolean {
   if (!selection.isCollapsed()) return false;
 
   const anchorNode = selection.anchor.getNode();
-  const currentVerse = $findThisVerse(anchorNode);
+  const currentVerse = $resolveVerseNode(anchorNode, selection);
 
   let prevVerse: SomeVerseNode | undefined;
 
@@ -722,4 +693,59 @@ export function $selectPreviousVerse(selection: RangeSelection): boolean {
   if (!prevVerse) return false;
   prevVerse.selectNext(0, 0);
   return true;
+}
+
+/**
+ * Resolves the verse node for the given start node. When the cursor is on an element
+ * (e.g. para) rather than inside a verse, looks at the child at offset or walks backward
+ * within that element before falling back to $findThisVerse (which may walk to prior paras).
+ */
+export function $resolveVerseNode(
+  startNode: LexicalNode,
+  selection: BaseSelection | null,
+): SomeVerseNode | undefined {
+  const isCursorOnElement =
+    $isElementNode(startNode) &&
+    $isRangeSelection(selection) &&
+    selection.anchor.key === startNode.getKey();
+
+  if (isCursorOnElement) {
+    const childAtOffset = startNode.getChildAtIndex(selection.anchor.offset);
+    if (childAtOffset && $isSomeVerseNode(childAtOffset)) return childAtOffset;
+    const prev = $findPreviousVerseInSiblings(startNode, selection.anchor.offset);
+    if (prev) return prev;
+    const firstVerseInPara = $findNextVerseInNode(startNode);
+    if (firstVerseInPara) return firstVerseInPara;
+  }
+
+  return $findThisVerse(startNode);
+}
+
+/**
+ * Find the verse that this node is in.
+ * @param node - Node to find the verse it's in.
+ * @returns the verse node if found, `undefined` otherwise.
+ */
+export function $findThisVerse(node: LexicalNode | null | undefined) {
+  if (!node || $isSomeChapterNode(node)) return;
+
+  // is this node a verse
+  if ($isSomeVerseNode(node)) return node;
+
+  let previousSiblingOrParent = $findNearestPreviousNode(node);
+  while (previousSiblingOrParent) {
+    // If this node is a chapter node, stop searching as we've reached the start of this chapter
+    if ($isSomeChapterNode(previousSiblingOrParent)) return;
+
+    // If this node is a verse node, return it
+    if ($isSomeVerseNode(previousSiblingOrParent)) return previousSiblingOrParent;
+
+    // If this node contains a verse node, return that
+    const verseNode = $findLastVerseInNode(previousSiblingOrParent);
+    if (verseNode) return verseNode;
+
+    previousSiblingOrParent = $findNearestPreviousNode(previousSiblingOrParent);
+  }
+
+  return undefined;
 }
