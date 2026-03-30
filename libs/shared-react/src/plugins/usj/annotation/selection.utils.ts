@@ -634,7 +634,17 @@ function $getOffsetInContentRun(node: LexicalNode, offset: number): number {
   const children = runContainer.getChildren();
   let runOffset = 0;
   for (const sibling of children) {
-    if (sibling === runNode) return runOffset + offset;
+    if (sibling === runNode) {
+      if ($isTypedMarkNode(sibling)) {
+        let innerOffset = 0;
+        for (const markChild of sibling.getChildren()) {
+          if (markChild === node) break;
+          innerOffset += markChild.getTextContent().length;
+        }
+        return runOffset + innerOffset + offset;
+      }
+      return runOffset + offset;
+    }
 
     if ($shouldIgnoreNodeForContentIndexes(sibling)) {
       // End of run

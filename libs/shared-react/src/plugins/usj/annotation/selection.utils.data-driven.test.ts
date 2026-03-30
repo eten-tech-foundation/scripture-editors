@@ -105,7 +105,7 @@ type MarkerModeName = "editable" | "visible" | "hidden";
  * a TypedMark-backed run in one mode but not another (see file-level note on serialized state).
  */
 const TEXT_CONTENT_ROUND_TRIP_OVERRIDES_BY_MODE: {
-  [description: string]: Partial<Record<MarkerModeName, UsjDocumentLocation>>;
+  [description: string]: { [key in MarkerModeName]?: UsjDocumentLocation };
 } = {
   "textContent at $.content[6].content[1].content[0] offset 0": {
     editable: { jsonPath: "$.content[6].content[0].content[0]", offset: 0 },
@@ -497,6 +497,23 @@ function groupByType(entries: LocationEntry2Sa[]): Map<LocationType, LocationEnt
   return map;
 }
 
+/** Assert `$getRangeFromUsjSelection` yields a defined Lexical selection for this USJ location. */
+function assertUsjLocationResolvesToLexical(editor: LexicalEditor, entry: LocationEntry2Sa): void {
+  editor.getEditorState().read(() => {
+    const usjSelection: SelectionRange = {
+      start: entry.documentLocation,
+    };
+    const editorSelection = $getRangeFromUsjSelection(usjSelection);
+
+    expect(editorSelection).toBeDefined();
+    if (!editorSelection) {
+      throw new Error(`Expected editorSelection to be defined for ${entry.description}`);
+    }
+    expect(editorSelection.anchor).toBeDefined();
+    expect(editorSelection.focus).toBeDefined();
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -513,39 +530,25 @@ describe("data-driven: usj2Sa location conversion", () => {
 
     // ── Resolution: every location must produce a valid Lexical selection ──
     describe("resolution (USJ → Lexical)", () => {
-      for (const [locationType, entries] of groupedLocations) {
-        describe(locationType, () => {
-          for (const entry of entries) {
+      describe.each([...groupedLocations.entries()])("%s", (_locationType, entries) => {
+        it.each(
+          entries.map((entry) => {
             const gapKey = `${modeName}:${entry.description}`;
             const isGap = KNOWN_RESOLUTION_GAPS.has(gapKey);
-            const testName = isGap
-              ? `${entry.description} (implementation gap)`
-              : entry.description;
-
-            it(testName, () => {
-              const run = () => {
-                editor.getEditorState().read(() => {
-                  const usjSelection: SelectionRange = {
-                    start: entry.documentLocation,
-                  };
-                  const editorSelection = $getRangeFromUsjSelection(usjSelection);
-
-                  expect(editorSelection).toBeDefined();
-                  if (!editorSelection) {
-                    throw new Error(
-                      `Expected editorSelection to be defined for ${entry.description}`,
-                    );
-                  }
-                  expect(editorSelection.anchor).toBeDefined();
-                  expect(editorSelection.focus).toBeDefined();
-                });
-              };
-              if (isGap) expect(run).toThrow();
-              else run();
-            });
+            return {
+              title: isGap ? `${entry.description} (implementation gap)` : entry.description,
+              entry,
+              isGap,
+            };
+          }),
+        )("$title", ({ entry, isGap }) => {
+          if (isGap) {
+            expect(() => assertUsjLocationResolvesToLexical(editor, entry)).toThrow();
+          } else {
+            assertUsjLocationResolvesToLexical(editor, entry);
           }
         });
-      }
+      });
     });
 
     // ── Round-trip: USJ → Lexical → USJ should be identity ──

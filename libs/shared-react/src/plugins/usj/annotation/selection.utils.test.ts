@@ -1448,6 +1448,46 @@ describe("round-trip conversion", () => {
     });
   });
 
+  it("should round-trip cursor inside second TextNode of TypedMarkNode (formatting split)", () => {
+    let normal: TextNode;
+    const { editor } = createBasicTestEnvironment([ParaNode, TypedMarkNode], () => {
+      const textBefore = $createTextNode("before");
+      // Distinct formats so Lexical keeps two TextNodes (same-format siblings merge).
+      const bold = $createTextNode("bold").setFormat("bold");
+      normal = $createTextNode("normal");
+      const textAfter = $createTextNode("after");
+      $getRoot().append(
+        $createParaNode().append(
+          textBefore,
+          $createTypedMarkNode({ testType: ["testId"] }).append(bold, normal),
+          textAfter,
+        ),
+      );
+    });
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    updateSelection(editor, normal!, 3);
+
+    editor.getEditorState().read(() => {
+      if (!normal) throw new Error("Expected normal");
+      const usjSelection = $getUsjSelectionFromEditor();
+      if (!usjSelection) throw new Error("Expected usjSelection to be defined");
+
+      // 6 ("before") + 4 ("bold") + 3 (into "normal") = 13
+      expect(usjSelection.start).toEqual({
+        jsonPath: "$.content[0].content[0]",
+        offset: 13,
+      });
+
+      const editorSelection = $getRangeFromUsjSelection(usjSelection);
+      if (!editorSelection) throw new Error("Expected editorSelection to be defined");
+
+      expect(editorSelection.anchor.key).toBe(normal.getKey());
+      expect(editorSelection.anchor.offset).toBe(3);
+      expect(editorSelection.focus.key).toBe(normal.getKey());
+      expect(editorSelection.focus.offset).toBe(3);
+    });
+  });
+
   it("should round-trip text after CharNode using per-child USJ paths", () => {
     let t3: TextNode;
     const { editor } = createBasicTestEnvironment([ParaNode, CharNode], () => {
