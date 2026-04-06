@@ -271,17 +271,17 @@ describe("$selectNextVerse()", () => {
         rangeSelection.anchor = $createPoint(paraKey, 0, "element");
         rangeSelection.focus = $createPoint(paraKey, 0, "element");
         $setSelection(rangeSelection);
-        const sel = $getSelection();
-        if (!$isRangeSelection(sel)) throw new Error("expected range selection");
-        const handled = $selectNextVerse(sel);
+        const selection = $getSelection();
+        if (!$isRangeSelection(selection)) throw new Error("expected range selection");
+        const handled = $selectNextVerse(selection);
         expect(handled).toBe(true);
       },
       { discrete: true },
     );
     editor.getEditorState().read(() => {
-      const sel = $getSelection();
-      if (!$isRangeSelection(sel)) throw new Error("expected range selection");
-      const verse = $findThisVerse(sel.anchor.getNode());
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) throw new Error("expected range selection");
+      const verse = $findThisVerse(selection.anchor.getNode());
       expect(verse?.getNumber()).toBe("1");
     });
   });
