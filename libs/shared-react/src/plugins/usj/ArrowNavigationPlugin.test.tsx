@@ -5,37 +5,14 @@
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import {
   $expectSelectionToBe,
-  createBasicTestEnvironment,
   updateSelection,
 } from "../../../../../libs/shared/src/nodes/usj/test.utils";
-import {
-  $createImmutableNoteCallerNode,
-  $createImmutableVerseNode,
-  ImmutableVerseNode,
-} from "../../nodes/usj";
-import {
-  $findThisVerse,
-  $resolveVerseNode,
-  $selectNextVerse,
-  $selectPreviousVerse,
-} from "../../nodes/usj/node-react.utils";
+import { $createImmutableNoteCallerNode, $createImmutableVerseNode } from "../../nodes/usj";
 import { getDefaultViewOptions } from "../../views/view-options.utils";
 import { ArrowNavigationPlugin } from "./ArrowNavigationPlugin";
 import { TextDirectionPlugin } from "./TextDirectionPlugin";
 import { baseTestEnvironment, pressKey } from "./react-test.utils";
-import {
-  $createLineBreakNode,
-  $createPoint,
-  $createRangeSelection,
-  $createTextNode,
-  $getNodeByKey,
-  $getRoot,
-  $getSelection,
-  $isRangeSelection,
-  $setSelection,
-  LineBreakNode,
-  TextNode,
-} from "lexical";
+import { $createLineBreakNode, $createTextNode, $getRoot, TextNode } from "lexical";
 import {
   $createCharNode,
   $createImpliedParaNode,
@@ -43,7 +20,6 @@ import {
   $createNoteNode,
   $createParaNode,
   ImpliedParaNode,
-  ImmutableChapterNode,
   ParaNode,
 } from "shared";
 
@@ -412,107 +388,63 @@ describe("Arrow up/down verse navigation", () => {
     });
   });
 
-  describe("$selectNextVerse() / $selectPreviousVerse() / $resolveVerseNode()", () => {
-    it("ArrowDown: WEB-style empty paras (linebreak + verse), element selection on para resolves to this verse and advances to the next", () => {
-      let verseTwoParagraphKey: string;
-      const { editor } = createBasicTestEnvironment(
-        [ImmutableChapterNode, ParaNode, ImmutableVerseNode, LineBreakNode],
-        () => {
-          const verseTwoParagraph = $createParaNode("q1").append(
+  describe("WEB-style verse paragraph (linebreak + verse only, no text after verse marker)", () => {
+    it("ArrowDown: element selection on the para moves to the next verse", async () => {
+      let verseTwoPara: ParaNode;
+      let v3Text: TextNode;
+      const { editor } = await testEnvironment(() => {
+        verseTwoPara = $createParaNode("q1").append(
+          $createLineBreakNode(),
+          $createImmutableVerseNode("2"),
+        );
+        v3Text = $createTextNode("verse3 ");
+        $getRoot().append(
+          $createImmutableChapterNode("1"),
+          $createParaNode("ms1").append($createTextNode("BOOK 1")),
+          $createParaNode("q1").append($createLineBreakNode(), $createImmutableVerseNode("1")),
+          verseTwoPara,
+          $createParaNode("q1").append(
             $createLineBreakNode(),
-            $createImmutableVerseNode("2"),
-          );
-          $getRoot().append(
-            $createImmutableChapterNode("1"),
-            $createParaNode("ms1").append($createTextNode("BOOK 1")),
-            $createParaNode("q1").append($createLineBreakNode(), $createImmutableVerseNode("1")),
-            verseTwoParagraph,
-            $createParaNode("q1").append($createLineBreakNode(), $createImmutableVerseNode("3")),
-          );
-          verseTwoParagraphKey = verseTwoParagraph.getKey();
-        },
-      );
-
-      editor.update(
-        () => {
-          const selection = $createRangeSelection();
-          selection.anchor = $createPoint(verseTwoParagraphKey, 2, "element");
-          selection.focus = $createPoint(verseTwoParagraphKey, 2, "element");
-          $setSelection(selection);
-        },
-        { discrete: true },
-      );
-
-      editor.getEditorState().read(() => {
-        const verseTwoParagraph = $getNodeByKey(verseTwoParagraphKey);
-        if (!verseTwoParagraph) throw new Error("verse-two paragraph missing");
-
-        expect($findThisVerse(verseTwoParagraph)?.getNumber()).toBe("1");
-
-        const selection = $getSelection();
-        if (!$isRangeSelection(selection)) throw new Error("expected range selection");
-        expect($resolveVerseNode(verseTwoParagraph, selection)?.getNumber()).toBe("2");
+            $createImmutableVerseNode("3"),
+            v3Text,
+          ),
+        );
       });
+      updateSelection(editor, verseTwoPara!, 2);
 
-      editor.update(
-        () => {
-          const selection = $getSelection();
-          if (!$isRangeSelection(selection)) throw new Error("expected range selection");
-          expect($selectNextVerse(selection)).toBe(true);
-        },
-        { discrete: true },
-      );
+      await pressKey(editor, "ArrowDown");
 
       editor.getEditorState().read(() => {
-        const after = $getSelection();
-        if (!$isRangeSelection(after)) throw new Error("expected range selection after next verse");
-        expect($resolveVerseNode(after.anchor.getNode(), after)?.getNumber()).toBe("3");
+        $expectSelectionToBe(v3Text!, 0);
       });
     });
 
-    it("ArrowUp: same structure resolves current verse and moves to the previous verse", () => {
-      let verseTwoParagraphKey: string;
-      const { editor } = createBasicTestEnvironment(
-        [ImmutableChapterNode, ParaNode, ImmutableVerseNode, LineBreakNode],
-        () => {
-          const verseTwoParagraph = $createParaNode("q1").append(
+    it("ArrowUp: element selection on the para moves to the previous verse", async () => {
+      let verseTwoPara: ParaNode;
+      let v1Text: TextNode;
+      const { editor } = await testEnvironment(() => {
+        verseTwoPara = $createParaNode("q1").append(
+          $createLineBreakNode(),
+          $createImmutableVerseNode("2"),
+        );
+        v1Text = $createTextNode("verse1 ");
+        $getRoot().append(
+          $createImmutableChapterNode("1"),
+          $createParaNode("ms1").append($createTextNode("BOOK 1")),
+          $createParaNode("q1").append(
             $createLineBreakNode(),
-            $createImmutableVerseNode("2"),
-          );
-          $getRoot().append(
-            $createImmutableChapterNode("1"),
-            $createParaNode("ms1").append($createTextNode("BOOK 1")),
-            $createParaNode("q1").append($createLineBreakNode(), $createImmutableVerseNode("1")),
-            verseTwoParagraph,
-          );
-          verseTwoParagraphKey = verseTwoParagraph.getKey();
-        },
-      );
+            $createImmutableVerseNode("1"),
+            v1Text,
+          ),
+          verseTwoPara,
+        );
+      });
+      updateSelection(editor, verseTwoPara!, 2);
 
-      editor.update(
-        () => {
-          const selection = $createRangeSelection();
-          selection.anchor = $createPoint(verseTwoParagraphKey, 2, "element");
-          selection.focus = $createPoint(verseTwoParagraphKey, 2, "element");
-          $setSelection(selection);
-        },
-        { discrete: true },
-      );
-
-      editor.update(
-        () => {
-          const selection = $getSelection();
-          if (!$isRangeSelection(selection)) throw new Error("expected range selection");
-          expect($selectPreviousVerse(selection)).toBe(true);
-        },
-        { discrete: true },
-      );
+      await pressKey(editor, "ArrowUp");
 
       editor.getEditorState().read(() => {
-        const after = $getSelection();
-        if (!$isRangeSelection(after))
-          throw new Error("expected range selection after previous verse");
-        expect($resolveVerseNode(after.anchor.getNode(), after)?.getNumber()).toBe("1");
+        $expectSelectionToBe(v1Text!, 0);
       });
     });
   });

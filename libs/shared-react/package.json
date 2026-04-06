@@ -38,6 +38,7 @@
     "@eten-tech-foundation/scripture-utilities": "workspace:~",
     "@floating-ui/dom": "^1.7.6",
     "@lexical/react": "^0.41.0",
+    "@lexical/selection": "^0.41.0",
     "@lexical/utils": "^0.41.0",
     "fast-equals": "^5.4.0",
     "lexical": "^0.41.0",

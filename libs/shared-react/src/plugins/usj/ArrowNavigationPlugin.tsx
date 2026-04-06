@@ -1,20 +1,27 @@
 import {
   $isImmutableNoteCallerNode,
   $isImmutableVerseNode,
+  $isSomeVerseNode,
+  $resolveVerseNode,
   $selectNextVerse,
   $selectPreviousVerse,
   ImmutableVerseNode,
 } from "../../nodes/usj";
 import { ViewOptions } from "../../views/view-options.utils";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
-import { $findMatchingParent } from "@lexical/utils";
+import { createDOMRange } from "@lexical/selection";
+import { $dfs, $findMatchingParent } from "@lexical/utils";
 import {
   $getSelection,
+  $isElementNode,
   $isRangeSelection,
+  $isTextNode,
   COMMAND_PRIORITY_HIGH,
   KEY_DOWN_COMMAND,
   LexicalEditor,
+  LexicalNode,
   RangeSelection,
+  TextNode,
 } from "lexical";
 import { useEffect } from "react";
 import {
@@ -32,9 +39,151 @@ import {
 } from "shared";
 
 /**
- * This plugin handles arrow key navigation in the editor, specifically for moving between chapter
- * and verse nodes. It ensures that when the user presses the arrow keys, the selection moves to the
- * next or previous chapter or verse node, depending on the direction of the arrow key pressed.
+ * Pixel tolerance when comparing caret position to the first/last visual line of verse content
+ * (DOM rects). Slightly larger than zero to absorb subpixel rounding and layout quirks.
+ */
+const LINE_TOLERANCE_PX = 3;
+
+/**
+ * Returns whether custom ArrowUp/ArrowDown verse navigation should run.
+ *
+ * Vertical verse jumps are only needed when Lexical's default move would leave the caret on the
+ * wrong line for verse/BCV resolution (e.g. element selection on a paragraph), or when crossing
+ * to the next/previous verse. If we always intercept ArrowUp/Down, we steal normal line-by-line
+ * movement inside a verse. So we only run custom verse navigation when the caret is on the first or
+ * last visual line of the current verse's block content, or when the anchor is an element point
+ * (WEB-style verse paragraphs). If layout is unavailable, returns `true` so verse navigation can
+ * still be attempted.
+ *
+ * @param editor - Editor used to map Lexical nodes to DOM ranges.
+ * @param selection - The current collapsed range selection.
+ * @param direction - `"up"` checks the first line of the verse; `"down"` checks the last line.
+ * @returns `true` if verse navigation should be attempted; `false` to let Lexical handle the key.
+ */
+function $shouldAttemptVerticalVerseNavigation(
+  editor: LexicalEditor,
+  selection: RangeSelection,
+  direction: "up" | "down",
+): boolean {
+  if (selection.anchor.type === "element") {
+    return true;
+  }
+
+  const currentVerse = $resolveVerseNode(selection.anchor.getNode(), selection);
+  if (!currentVerse) {
+    return true;
+  }
+
+  const verseNode = currentVerse as LexicalNode;
+  const parent = verseNode.getParent();
+  if (!parent || !$isElementNode(parent)) {
+    return true;
+  }
+
+  const contentNodes: LexicalNode[] = [];
+  const startIdx = verseNode.getIndexWithinParent();
+  const children = parent.getChildren();
+  for (let i = startIdx; i < children.length; i++) {
+    const c = children[i];
+    if (i > startIdx && $isSomeVerseNode(c)) {
+      break;
+    }
+    contentNodes.push(c);
+  }
+
+  const verseDomRange = $createDomRangeForVerseContent(editor, contentNodes);
+  if (!verseDomRange) {
+    return true;
+  }
+
+  const rects =
+    typeof verseDomRange.getClientRects === "function"
+      ? Array.from(verseDomRange.getClientRects())
+      : [];
+  if (rects.length === 0) {
+    return true;
+  }
+
+  const caretDomRange = createDOMRange(
+    editor,
+    selection.anchor.getNode(),
+    selection.anchor.offset,
+    selection.focus.getNode(),
+    selection.focus.offset,
+  );
+  if (!caretDomRange) {
+    return true;
+  }
+
+  if (typeof caretDomRange.getBoundingClientRect !== "function") {
+    return true;
+  }
+  const caretRect = caretDomRange.getBoundingClientRect();
+
+  if (direction === "down") {
+    let maxBottom = rects[0].bottom;
+    for (let i = 1; i < rects.length; i++) {
+      if (rects[i].bottom > maxBottom) maxBottom = rects[i].bottom;
+    }
+    return caretRect.bottom >= maxBottom - LINE_TOLERANCE_PX;
+  }
+
+  let minTop = rects[0].top;
+  for (let i = 1; i < rects.length; i++) {
+    if (rects[i].top < minTop) minTop = rects[i].top;
+  }
+  return caretRect.top <= minTop + LINE_TOLERANCE_PX;
+}
+
+/**
+ * Builds a DOM range spanning the verse's in-paragraph content in document order, for
+ * `Range.prototype.getClientRects()` line-boundary checks.
+ *
+ * Prefers a range from the first to the last text node under the given nodes (in DFS order). If
+ * there are no text nodes, falls back to a range from the first to the last supplied node using
+ * text length or element child count for the end offset.
+ *
+ * @param editor - Editor used to resolve Lexical nodes to DOM.
+ * @param nodes - Sibling nodes from the current verse through the next verse marker (exclusive).
+ * @returns A DOM `Range`, or `null` if a range cannot be constructed.
+ */
+function $createDomRangeForVerseContent(editor: LexicalEditor, nodes: LexicalNode[]): Range | null {
+  if (nodes.length === 0) {
+    return null;
+  }
+
+  const textNodes: TextNode[] = [];
+  for (const n of nodes) {
+    for (const { node } of $dfs(n)) {
+      if ($isTextNode(node)) {
+        textNodes.push(node);
+      }
+    }
+  }
+
+  if (textNodes.length > 0) {
+    const first = textNodes[0];
+    const last = textNodes[textNodes.length - 1];
+    return createDOMRange(editor, first, 0, last, last.getTextContentSize());
+  }
+
+  const first = nodes[0];
+  const last = nodes[nodes.length - 1];
+  let endOffset = 0;
+  if ($isTextNode(last)) {
+    endOffset = last.getTextContentSize();
+  } else if ($isElementNode(last)) {
+    endOffset = last.getChildrenSize();
+  }
+  return createDOMRange(editor, first, 0, last, endOffset);
+}
+
+/**
+ * Registers arrow-key handling for USJ scripture: verse-to-verse vertical movement when needed,
+ * and horizontal movement around notes and chapter boundaries.
+ *
+ * @param viewOptions - View options (e.g. collapsed note mode) affecting backward navigation.
+ * @returns Always `null`; this component has no UI.
  */
 export function ArrowNavigationPlugin({
   viewOptions,
@@ -66,12 +215,14 @@ function useArrowKeys(editor: LexicalEditor, viewOptions: ViewOptions | undefine
 
       if (event.key === "ArrowUp") {
         if (event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return false;
+        if (!$shouldAttemptVerticalVerseNavigation(editor, selection, "up")) return false;
         const isHandled = $selectPreviousVerse(selection);
         if (isHandled) event.preventDefault();
         return isHandled;
       }
       if (event.key === "ArrowDown") {
         if (event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return false;
+        if (!$shouldAttemptVerticalVerseNavigation(editor, selection, "down")) return false;
         const isHandled = $selectNextVerse(selection);
         if (isHandled) event.preventDefault();
         return isHandled;
@@ -200,7 +351,7 @@ function $handleBackwardNavigation(
     const lastChild = prevNode.getLastChild();
     if (!lastChild) return false;
 
-    const note = $findMatchingParent(lastChild, (n) => $isNoteNode(n));
+    const note = $findMatchingParent(lastChild, (n: LexicalNode) => $isNoteNode(n));
     if ($isNoteNode(note) && note.getIsCollapsed()) {
       const parent = note.getParent();
       if (!parent) return false;
