@@ -10,7 +10,7 @@ import {
 import { ViewOptions } from "../../views/view-options.utils";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { createDOMRange } from "@lexical/selection";
-import { $dfs, $findMatchingParent } from "@lexical/utils";
+import { $findMatchingParent } from "@lexical/utils";
 import {
   $getSelection,
   $isElementNode,
@@ -135,6 +135,19 @@ function $shouldAttemptVerticalVerseNavigation(
   return caretRect.top <= minTop + LINE_TOLERANCE_PX;
 }
 
+/** DFS text nodes under `node` only (not past its subtree; unlike `$dfs(node)` alone). */
+function $collectTextNodesInSubtree(node: LexicalNode, out: TextNode[]): void {
+  if ($isTextNode(node)) {
+    out.push(node);
+    return;
+  }
+  if ($isElementNode(node)) {
+    for (const child of node.getChildren()) {
+      $collectTextNodesInSubtree(child, out);
+    }
+  }
+}
+
 /**
  * Builds a DOM range spanning the verse's in-paragraph content in document order, for
  * `Range.prototype.getClientRects()` line-boundary checks.
@@ -154,11 +167,7 @@ function $createDomRangeForVerseContent(editor: LexicalEditor, nodes: LexicalNod
 
   const textNodes: TextNode[] = [];
   for (const n of nodes) {
-    for (const { node } of $dfs(n)) {
-      if ($isTextNode(node)) {
-        textNodes.push(node);
-      }
-    }
+    $collectTextNodesInSubtree(n, textNodes);
   }
 
   if (textNodes.length > 0) {
