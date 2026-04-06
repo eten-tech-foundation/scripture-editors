@@ -13,6 +13,7 @@ import {
   $getEffectiveVerseForBcv,
   $insertNote,
   $isSomeVerseNode,
+  $selectNextVerse,
 } from "./node-react.utils";
 import { UsjNodeOptions } from "./usj-node-options.model";
 import {
@@ -22,6 +23,7 @@ import {
   $getNodeByKey,
   $getRoot,
   $getSelection,
+  $isRangeSelection,
   $setSelection,
   $isTextNode,
   NodeKey,
@@ -239,6 +241,48 @@ describe("$findPreviousVerseInSiblings()", () => {
       const verseNode = $findPreviousVerseInSiblings(p, 2);
 
       expect(verseNode?.getNumber()).toBe("1");
+    });
+  });
+});
+
+describe("$selectNextVerse()", () => {
+  it("selects the first verse when the caret is on the paragraph before that verse (not the following verse)", () => {
+    let paraKey: string;
+    const { editor } = createBasicTestEnvironment([ParaNode, VerseNode, TypedMarkNode]);
+    editor.update(
+      () => {
+        $getRoot().append(
+          $createParaNode().append(
+            $createTypedMarkNode({ annotation: ["annot-1"] }).append($createTextNode("annotated")),
+            $createVerseNode("1"),
+            $createTextNode("text1"),
+            $createVerseNode("2"),
+          ),
+        );
+        const para = $getRoot().getFirstChild();
+        if (!para) throw new Error("paragraph not found");
+        paraKey = para.getKey();
+      },
+      { discrete: true },
+    );
+    editor.update(
+      () => {
+        const rangeSelection = $createRangeSelection();
+        rangeSelection.anchor = $createPoint(paraKey, 0, "element");
+        rangeSelection.focus = $createPoint(paraKey, 0, "element");
+        $setSelection(rangeSelection);
+        const sel = $getSelection();
+        if (!$isRangeSelection(sel)) throw new Error("expected range selection");
+        const handled = $selectNextVerse(sel);
+        expect(handled).toBe(true);
+      },
+      { discrete: true },
+    );
+    editor.getEditorState().read(() => {
+      const sel = $getSelection();
+      if (!$isRangeSelection(sel)) throw new Error("expected range selection");
+      const verse = $findThisVerse(sel.anchor.getNode());
+      expect(verse?.getNumber()).toBe("1");
     });
   });
 });

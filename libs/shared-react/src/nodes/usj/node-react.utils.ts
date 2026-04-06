@@ -610,7 +610,20 @@ export function $selectNextVerse(selection: RangeSelection): boolean {
 
   if (currentVerse) {
     const parent = currentVerse.getParent();
-    if (parent && $isElementNode(parent)) {
+    // When the cursor is on a block (e.g. para) before the first verse in that block,
+    // $resolveVerseNode falls back to the first verse in the paragraph. That verse is
+    // ahead of the caret — it should be the ArrowDown target, not skipped as "current".
+    if (
+      parent &&
+      $isElementNode(parent) &&
+      $isElementNode(anchorNode) &&
+      selection.anchor.key === anchorNode.getKey() &&
+      anchorNode === parent &&
+      selection.anchor.offset < currentVerse.getIndexWithinParent()
+    ) {
+      nextVerse = currentVerse;
+    }
+    if (!nextVerse && parent && $isElementNode(parent)) {
       const children = parent.getChildren();
       const currentIndex = currentVerse.getIndexWithinParent();
       for (let i = currentIndex + 1; i < children.length; i++) {
