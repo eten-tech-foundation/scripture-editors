@@ -159,7 +159,7 @@ export interface EditorProps<TLogger extends LoggerBasic> {
 export interface EditorOptions {
   /** Is the editor readonly or editable. */
   isReadonly?: boolean;
-  /** Does the editor have external UI controls so disable the built-in toolbar and context menu. */
+  /** Does the editor have external UI controls so disable the built-in toolbar and marker menu. */
   hasExternalUI?: boolean;
   /** Is the editor enabled for spell checking. */
   hasSpellCheck?: boolean;
