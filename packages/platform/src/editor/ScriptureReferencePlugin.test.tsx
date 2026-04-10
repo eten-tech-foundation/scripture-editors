@@ -10,11 +10,16 @@ import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext
 import { ContentEditable } from "@lexical/react/LexicalContentEditable";
 import { LexicalErrorBoundary } from "@lexical/react/LexicalErrorBoundary";
 import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
+import type { BookCode } from "@eten-tech-foundation/scripture-utilities";
 import { SerializedVerseRef } from "@sillsdev/scripture";
 import { act, render } from "@testing-library/react";
 import {
   TextNode,
   $getRoot,
+  $isElementNode,
+  $createPoint,
+  $createRangeSelection,
+  $setSelection,
   SELECTION_CHANGE_COMMAND,
   $createTextNode,
   LexicalEditor,
@@ -46,6 +51,38 @@ describe("ScriptureReferencePlugin", () => {
       $expectSelectionToBe(firstVerseTextNode, 0);
     });
     expect(mockOnScrRefChange).not.toHaveBeenCalled();
+  });
+
+  describe("Book code sync (scrRef.book vs content)", () => {
+    it("should call onScrRefChange with content book when scrRef.book mismatches", async () => {
+      // Content has EXO, scrRef has GEN - plugin should correct book from BookNode
+      const scrRefWithWrongBook = { book: "GEN", chapterNum: 1, verseNum: 1 };
+
+      await testEnvironment(scrRefWithWrongBook, mockOnScrRefChange, () =>
+        $appendScrRefPluginFixture("EXO"),
+      );
+
+      expect(mockOnScrRefChange).toHaveBeenCalledWith(
+        expect.objectContaining({ book: "EXO", chapterNum: 1, verseNum: 1 }),
+      );
+    });
+
+    it("should not call onScrRefChange for book sync when scrRef.book matches content", async () => {
+      // Content has GEN, scrRef has GEN - no book correction needed
+      await testEnvironment(scrRef, mockOnScrRefChange);
+
+      expect(mockOnScrRefChange).not.toHaveBeenCalled();
+    });
+
+    it("should not call onScrRefChange when BookNode has empty code", async () => {
+      const scrRefWithWrongBook = { book: "GEN", chapterNum: 1, verseNum: 1 };
+
+      await testEnvironment(scrRefWithWrongBook, mockOnScrRefChange, () =>
+        $appendScrRefPluginFixture(""),
+      );
+
+      expect(mockOnScrRefChange).not.toHaveBeenCalled();
+    });
   });
 
   describe("Selection Change", () => {
@@ -123,6 +160,38 @@ describe("ScriptureReferencePlugin", () => {
       });
       expect(mockOnScrRefChange).not.toHaveBeenCalled();
     });
+
+    it("should report verse 0 when cursor is on verse 1 number (before verse content)", async () => {
+      const { editor } = await testEnvironment(scrRef, mockOnScrRefChange);
+      let verse1Key: string | undefined;
+      editor.getEditorState().read(() => {
+        const root = $getRoot();
+        const nodeWithVerse1 = root.getChildAtIndex(3);
+        if (nodeWithVerse1 && $isElementNode(nodeWithVerse1)) {
+          verse1Key = nodeWithVerse1.getFirstChild()?.getKey();
+        }
+      });
+      // Clear hasCursorMovedRef (set by initial "move cursor to verse start" effect) so our dispatch runs BCV logic.
+      await act(async () => {
+        editor.dispatchCommand(SELECTION_CHANGE_COMMAND, undefined);
+      });
+      mockOnScrRefChange.mockClear();
+      await act(async () => {
+        editor.update(() => {
+          if (verse1Key) {
+            const selection = $createRangeSelection();
+            selection.anchor = $createPoint(verse1Key, 0, "element");
+            selection.focus = $createPoint(verse1Key, 0, "element");
+            $setSelection(selection);
+          }
+          editor.dispatchCommand(SELECTION_CHANGE_COMMAND, undefined);
+        });
+      });
+
+      expect(mockOnScrRefChange).toHaveBeenCalledWith(
+        expect.objectContaining({ book: "GEN", chapterNum: 1, verseNum: 0 }),
+      );
+    });
   });
 });
 
@@ -139,6 +208,21 @@ function $defaultInitialEditorState() {
     $createParaNode().append($createImmutableVerseNode("1"), firstVerseTextNode),
     $createParaNode().append($createImmutableVerseNode("2"), secondVerseTextNode),
     $createParaNode().append($createImmutableVerseNode("3-4"), thirdVerseTextNode),
+  );
+}
+
+/** Same outline as `$defaultInitialEditorState` but with a parameterized book code (for book-sync tests). */
+function $appendScrRefPluginFixture(bookCode: BookCode | "") {
+  $getRoot().append(
+    $createBookNode(bookCode).append($createTextNode("Test Book")),
+    $createImmutableChapterNode("1"),
+    $createParaNode("s1").append($createTextNode("Section Text")),
+    $createParaNode().append($createImmutableVerseNode("1"), $createTextNode("first verse text ")),
+    $createParaNode().append($createImmutableVerseNode("2"), $createTextNode("second verse text ")),
+    $createParaNode().append(
+      $createImmutableVerseNode("3-4"),
+      $createTextNode("third verse text "),
+    ),
   );
 }
 

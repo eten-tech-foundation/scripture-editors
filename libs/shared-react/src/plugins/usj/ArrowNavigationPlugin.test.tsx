@@ -12,10 +12,11 @@ import { getDefaultViewOptions } from "../../views/view-options.utils";
 import { ArrowNavigationPlugin } from "./ArrowNavigationPlugin";
 import { TextDirectionPlugin } from "./TextDirectionPlugin";
 import { baseTestEnvironment, pressKey } from "./react-test.utils";
-import { $createTextNode, $getRoot, TextNode } from "lexical";
+import { $createLineBreakNode, $createTextNode, $getRoot, TextNode } from "lexical";
 import {
   $createCharNode,
   $createImpliedParaNode,
+  $createImmutableChapterNode,
   $createNoteNode,
   $createParaNode,
   ImpliedParaNode,
@@ -289,6 +290,161 @@ describe("Note collapsed", () => {
 
       editor.getEditorState().read(() => {
         $expectSelectionToBe(para!, 1);
+      });
+    });
+  });
+});
+
+describe("Arrow up/down verse navigation", () => {
+  describe("verses in separate paras", () => {
+    it("moves to next verse when pressing ArrowDown", async () => {
+      let v1Text: TextNode;
+      let v2Text: TextNode;
+      const { editor } = await testEnvironment(() => {
+        v1Text = $createTextNode("verse1 text ");
+        v2Text = $createTextNode("verse2 text ");
+        $getRoot().append(
+          $createParaNode().append($createImmutableVerseNode("1"), v1Text),
+          $createParaNode().append($createImmutableVerseNode("2"), v2Text),
+        );
+      });
+      updateSelection(editor, v1Text!, 0);
+
+      await pressKey(editor, "ArrowDown");
+
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(v2Text!, 0);
+      });
+    });
+
+    it("moves to previous verse when pressing ArrowUp", async () => {
+      let v1Text: TextNode;
+      let v2Text: TextNode;
+      const { editor } = await testEnvironment(() => {
+        v1Text = $createTextNode("verse1 text ");
+        v2Text = $createTextNode("verse2 text ");
+        $getRoot().append(
+          $createParaNode().append($createImmutableVerseNode("1"), v1Text),
+          $createParaNode().append($createImmutableVerseNode("2"), v2Text),
+        );
+      });
+      updateSelection(editor, v2Text!, 0);
+
+      await pressKey(editor, "ArrowUp");
+
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(v1Text!, 0);
+      });
+    });
+  });
+
+  describe("verses in same para", () => {
+    it("moves to next verse when pressing ArrowDown", async () => {
+      let v1Text: TextNode;
+      let v2Text: TextNode;
+      const { editor } = await testEnvironment(() => {
+        v1Text = $createTextNode("v1 ");
+        v2Text = $createTextNode("v2 ");
+        $getRoot().append(
+          $createParaNode().append(
+            $createImmutableVerseNode("1"),
+            v1Text,
+            $createImmutableVerseNode("2"),
+            v2Text,
+          ),
+        );
+      });
+      updateSelection(editor, v1Text!, 0);
+
+      await pressKey(editor, "ArrowDown");
+
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(v2Text!, 0);
+      });
+    });
+
+    it("moves to previous verse when pressing ArrowUp", async () => {
+      let v1Text: TextNode;
+      let v2Text: TextNode;
+      const { editor } = await testEnvironment(() => {
+        v1Text = $createTextNode("v1 ");
+        v2Text = $createTextNode("v2 ");
+        $getRoot().append(
+          $createParaNode().append(
+            $createImmutableVerseNode("1"),
+            v1Text,
+            $createImmutableVerseNode("2"),
+            v2Text,
+          ),
+        );
+      });
+      updateSelection(editor, v2Text!, 0);
+
+      await pressKey(editor, "ArrowUp");
+
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(v1Text!, 0);
+      });
+    });
+  });
+
+  describe("WEB-style verse paragraph (linebreak + verse only, no text after verse marker)", () => {
+    it("ArrowDown: element selection on the para moves to the next verse", async () => {
+      let verseTwoPara: ParaNode;
+      let v3Text: TextNode;
+      const { editor } = await testEnvironment(() => {
+        verseTwoPara = $createParaNode("q1").append(
+          $createLineBreakNode(),
+          $createImmutableVerseNode("2"),
+        );
+        v3Text = $createTextNode("verse3 ");
+        $getRoot().append(
+          $createImmutableChapterNode("1"),
+          $createParaNode("ms1").append($createTextNode("BOOK 1")),
+          $createParaNode("q1").append($createLineBreakNode(), $createImmutableVerseNode("1")),
+          verseTwoPara,
+          $createParaNode("q1").append(
+            $createLineBreakNode(),
+            $createImmutableVerseNode("3"),
+            v3Text,
+          ),
+        );
+      });
+      updateSelection(editor, verseTwoPara!, 2);
+
+      await pressKey(editor, "ArrowDown");
+
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(v3Text!, 0);
+      });
+    });
+
+    it("ArrowUp: element selection on the para moves to the previous verse", async () => {
+      let verseTwoPara: ParaNode;
+      let v1Text: TextNode;
+      const { editor } = await testEnvironment(() => {
+        verseTwoPara = $createParaNode("q1").append(
+          $createLineBreakNode(),
+          $createImmutableVerseNode("2"),
+        );
+        v1Text = $createTextNode("verse1 ");
+        $getRoot().append(
+          $createImmutableChapterNode("1"),
+          $createParaNode("ms1").append($createTextNode("BOOK 1")),
+          $createParaNode("q1").append(
+            $createLineBreakNode(),
+            $createImmutableVerseNode("1"),
+            v1Text,
+          ),
+          verseTwoPara,
+        );
+      });
+      updateSelection(editor, verseTwoPara!, 2);
+
+      await pressKey(editor, "ArrowUp");
+
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(v1Text!, 0);
       });
     });
   });

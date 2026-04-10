@@ -3,6 +3,7 @@ import {
   $isSomeChapterNode,
   getNextVerse,
   getUnknownAttributes,
+  isSelectionStartNodeExpectedError,
   isValidNumberedMarker,
   isVerseInRange,
   parseNumberFromMarkerText,
@@ -134,6 +135,7 @@ describe("Editor Node Utilities", () => {
 
       editor.getEditorState().read(() => {
         const c1 = $getNodeByKey(c1NodeKey) ?? undefined;
+
         const updatedChildren = removeNodesBeforeNode($getRoot().getChildren(), c1);
 
         expect(updatedChildren).toBeDefined();
@@ -159,6 +161,7 @@ describe("Editor Node Utilities", () => {
 
       editor.getEditorState().read(() => {
         const c1 = $getNodeByKey(c1NodeKey) ?? undefined;
+
         const updatedChildren = removeNodesBeforeNode($getRoot().getChildren(), c1);
 
         expect(updatedChildren).toBeDefined();
@@ -230,56 +233,67 @@ describe("Editor Node Utilities", () => {
   describe("getNextVerse()", () => {
     it("should increment the verse", () => {
       const nextVerse = getNextVerse(1, undefined);
+
       expect(nextVerse).toBe("2");
     });
 
     it("should increment the verse when empty", () => {
       const nextVerse = getNextVerse(1, "");
+
       expect(nextVerse).toBe("2");
     });
 
     it("should increment the verse when zero", () => {
       const nextVerse = getNextVerse(0, "0");
+
       expect(nextVerse).toBe("1");
     });
 
     it("should increment the end verse range", () => {
       const nextVerse = getNextVerse(1, "1-2");
+
       expect(nextVerse).toBe("3");
     });
 
     it("should increment the end verse range with more than two verses", () => {
       const nextVerse = getNextVerse(1, "1-3");
+
       expect(nextVerse).toBe("4");
     });
 
     it("should increment an open verse range", () => {
       const nextVerse = getNextVerse(1, "1-");
+
       expect(nextVerse).toBe("2");
     });
 
     it("should increment a verse range with segments", () => {
       const nextVerse = getNextVerse(1, "1a-2b");
+
       expect(nextVerse).toBe("3");
     });
 
     it("should increment a verse range with spaces", () => {
       const nextVerse = getNextVerse(1, " 1 - 2 ");
+
       expect(nextVerse).toBe("3");
     });
 
     it("should increment a verse segment", () => {
       const nextVerse = getNextVerse(1, "1a");
+
       expect(nextVerse).toBe("1b");
     });
 
     it("should increment a verse segment from 'z'", () => {
       const nextVerse = getNextVerse(1, "1z");
+
       expect(nextVerse).toBe("2");
     });
 
     it("should increment a verse segment from 'Z'", () => {
       const nextVerse = getNextVerse(1, "1Z");
+
       expect(nextVerse).toBe("2");
     });
   });
@@ -332,6 +346,22 @@ describe("Editor Node Utilities", () => {
     it("should throw", () => {
       expect(() => isVerseInRange(0, "1-2-3")).toThrow();
       expect(() => isVerseInRange(0, "2-1")).toThrow();
+    });
+  });
+
+  describe("isSelectionStartNodeExpectedError()", () => {
+    it("identifies Lexical DecoratorNode errors", () => {
+      expect(
+        isSelectionStartNodeExpectedError(
+          new Error("$caretFromPoint: Node does not inherit from ElementNode"),
+        ),
+      ).toBe(true);
+      expect(
+        isSelectionStartNodeExpectedError(
+          new Error("$caretFromPoint: Node does not inherit from TextNode"),
+        ),
+      ).toBe(true);
+      expect(isSelectionStartNodeExpectedError(new Error("some other error"))).toBe(false);
     });
   });
 });

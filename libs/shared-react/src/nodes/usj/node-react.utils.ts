@@ -16,6 +16,7 @@ import {
 import { UsjNodeOptions } from "./usj-node-options.model";
 import { $dfs } from "@lexical/utils";
 import {
+  BaseSelection,
   $createTextNode,
   $getNodeByKey,
   $getSelection,
@@ -406,6 +407,25 @@ export function $findNextVerse(nodes: LexicalNode[]) {
 }
 
 /**
+ * Find the previous verse node in a parent's children, walking backward from the given index.
+ * @param parent - Element node whose children to search.
+ * @param fromIndex - Start index (exclusive); search from fromIndex - 1 down to 0.
+ * @returns The verse node if found, `undefined` otherwise.
+ */
+export function $findPreviousVerseInSiblings(
+  parent: LexicalNode | null | undefined,
+  fromIndex: number,
+): SomeVerseNode | undefined {
+  if (!$isElementNode(parent) || fromIndex <= 0) return;
+  const children = parent.getChildren();
+  for (let i = fromIndex - 1; i >= 0; i--) {
+    const child = children[i];
+    if ($isSomeVerseNode(child)) return child;
+  }
+  return undefined;
+}
+
+/**
  * Find the last verse in the children of the node.
  * @param node - Node with potential verses in children.
  * @returns the verse node if found, `undefined` otherwise.
@@ -414,8 +434,7 @@ export function $findLastVerseInNode(node: LexicalNode | null | undefined) {
   if (!node || !$isElementNode(node)) return;
 
   const children = node.getChildren();
-  const verseNode = children.findLast((node) => $isSomeVerseNode(node));
-  return verseNode as SomeVerseNode | undefined;
+  return children.findLast((n): n is SomeVerseNode => $isSomeVerseNode(n));
 }
 
 /**
@@ -434,32 +453,101 @@ export function $findLastVerse(nodes: LexicalNode[]) {
 }
 
 /**
- * Find the verse that this node is in.
- * @param node - Node to find the verse it's in.
- * @returns the verse node if found, `undefined` otherwise.
+ * Length of verse number prefix in verse text for BCV "before vs after" check.
+ * If text doesn't start with the verse number (e.g. $createVerseNode("1", " verse one")
+ * or node is non-VerseNode (e.g. ImmutableVerseNode), returns 0 — treats all positions
+ * as "after" and shows the current verse.
  */
-export function $findThisVerse(node: LexicalNode | null | undefined) {
-  if (!node || $isSomeChapterNode(node)) return;
+function getVerseNumberPrefixLength(verseNode: SomeVerseNode): number {
+  if (!$isVerseNode(verseNode)) return 0;
+  const verseNumber = verseNode.getNumber();
+  const text = verseNode.getTextContent();
+  return text.startsWith(verseNumber) ? verseNumber.length : 0;
+}
 
-  // is this node a verse
-  if ($isSomeVerseNode(node)) return node;
+/**
+ * Returns true when the selection anchor is positioned before the given verse node in document
+ * order. Handles: (1) cursor inside the verse's parent with offset before this verse's index,
+ * (2) cursor in the verse's previous sibling.
+ */
+function $isSelectionBeforeVerseNode(
+  selection: RangeSelection,
+  verseNode: SomeVerseNode,
+  anchorNode: LexicalNode | null,
+): boolean {
+  if (!anchorNode) return false;
+  const parent = verseNode.getParent();
+  if (anchorNode === parent && $isElementNode(anchorNode)) {
+    const verseIndex = verseNode.getIndexWithinParent();
+    const anchorOffset = selection.anchor.offset;
+    return anchorOffset <= verseIndex;
+  }
+  if (anchorNode.getNextSibling() === verseNode) return true;
+  return false;
+}
 
-  let previousSiblingOrParent = $findNearestPreviousNode(node);
-  while (previousSiblingOrParent) {
-    // If this node is a chapter node, stop searching as we've reached the start of this chapter
-    if ($isSomeChapterNode(previousSiblingOrParent)) return;
+/**
+ * Returns true when BCV should show the previous verse (cursor is before the verse number).
+ * Encapsulates: anchor in parent/previous sibling before verse; anchor in verse node before
+ * verse number (TextNode) or on whole node (DecoratorNode).
+ */
+function $shouldShowPreviousVerseForBcv(
+  verseNode: SomeVerseNode,
+  selection: RangeSelection,
+): boolean {
+  const anchorNode = selection.anchor.getNode();
 
-    // If this node is a verse node, return it
-    if ($isSomeVerseNode(previousSiblingOrParent)) return previousSiblingOrParent;
-
-    // If this node contains a verse node, return that
-    const verseNode = $findLastVerseInNode(previousSiblingOrParent);
-    if (verseNode) return verseNode;
-
-    previousSiblingOrParent = $findNearestPreviousNode(previousSiblingOrParent);
+  // Anchor not on verse node: check if cursor is before verse (parent offset or previous sibling)
+  if (anchorNode !== verseNode) {
+    return $isSelectionBeforeVerseNode(selection, verseNode, anchorNode);
   }
 
-  return undefined;
+  // Anchor on verse node: show previous if cursor is before verse number
+  if ($isTextNode(verseNode)) {
+    const prefixLength = getVerseNumberPrefixLength(verseNode);
+    return selection.anchor.offset < prefixLength;
+  }
+  // ImmutableVerseNode (DecoratorNode): whole node is verse number; show previous
+  return true;
+}
+
+/** Build result for current verse (no selection or cursor after verse number). */
+function currentVerseResult(verseNode: SomeVerseNode): { verseNum: number; verse?: string } {
+  const verse = verseNode.getNumber();
+  const selectedVerseNum = Number.parseInt(verse ?? "0", 10);
+  return {
+    verseNum: selectedVerseNum,
+    verse: verse != null && selectedVerseNum.toString() !== verse ? verse : undefined,
+  };
+}
+
+/**
+ * Returns the verse number (and optional verse range) for BCV display. When the cursor is
+ * before the verse number, returns the previous verse so BCV only updates after the number.
+ * For "previous" verse, only `verseNum` is set (no `verse` range); e.g. cursor before "2-3" → `{ verseNum: 1 }`.
+ *
+ * @param verseNode - The verse node that contains or precedes the cursor.
+ * @param selection - The current editor selection.
+ * @returns Effective verse number and optional verse range string for BCV display.
+ */
+export function $getEffectiveVerseForBcv(
+  verseNode: SomeVerseNode | undefined,
+  selection: BaseSelection | null,
+): { verseNum: number; verse?: string } {
+  if (!verseNode) return { verseNum: 0 };
+
+  // No selection or not range: use verse node as-is
+  if (!$isRangeSelection(selection)) {
+    return currentVerseResult(verseNode);
+  }
+
+  const selectedVerseNum = Number.parseInt(verseNode.getNumber() ?? "0", 10);
+  const prevNum = selectedVerseNum <= 1 ? 0 : selectedVerseNum - 1;
+
+  // Anchor before verse number: show previous verse
+  if ($shouldShowPreviousVerseForBcv(verseNode, selection)) return { verseNum: prevNum };
+
+  return currentVerseResult(verseNode);
 }
 
 /**
@@ -503,4 +591,174 @@ export function $removeLeadingSpace(node: LexicalNode | null | undefined) {
  */
 export function wasNodeCreated(editor: LexicalEditor, nodeKey: string) {
   return editor.getEditorState().read(() => !$getNodeByKey(nodeKey));
+}
+
+/**
+ * Moves the selection to the start of the next verse's content (after the verse marker).
+ * Used for ArrowDown navigation so the cursor lands on a position that ScriptureReferencePlugin
+ * can resolve for BCV display.
+ * @param selection - The current range selection (must be collapsed).
+ * @returns `true` if the selection was moved, `false` if not collapsed or no next verse.
+ */
+export function $selectNextVerse(selection: RangeSelection): boolean {
+  if (!selection.isCollapsed()) return false;
+
+  const anchorNode = selection.anchor.getNode();
+  const currentVerse = $resolveVerseNode(anchorNode, selection);
+
+  let nextVerse: SomeVerseNode | undefined;
+
+  if (currentVerse) {
+    const parent = currentVerse.getParent();
+    // When the cursor is on a block (e.g. para) before the first verse in that block,
+    // $resolveVerseNode falls back to the first verse in the paragraph. That verse is
+    // ahead of the caret — it should be the ArrowDown target, not skipped as "current".
+    if (
+      parent &&
+      $isElementNode(parent) &&
+      $isElementNode(anchorNode) &&
+      selection.anchor.key === anchorNode.getKey() &&
+      anchorNode === parent &&
+      selection.anchor.offset < currentVerse.getIndexWithinParent()
+    ) {
+      nextVerse = currentVerse;
+    }
+    if (!nextVerse && parent && $isElementNode(parent)) {
+      const children = parent.getChildren();
+      const currentIndex = currentVerse.getIndexWithinParent();
+      for (let i = currentIndex + 1; i < children.length; i++) {
+        const child = children[i];
+        if ($isSomeVerseNode(child)) {
+          nextVerse = child;
+          break;
+        }
+      }
+    }
+    if (!nextVerse && parent) {
+      let nextPara = parent.getNextSibling();
+      while (nextPara && !$isSomeChapterNode(nextPara)) {
+        const verse = $findNextVerseInNode(nextPara);
+        if (verse) {
+          nextVerse = verse;
+          break;
+        }
+        nextPara = nextPara.getNextSibling();
+      }
+    }
+  } else {
+    const topLevel = anchorNode.getTopLevelElement();
+    let para: LexicalNode | null = topLevel ?? anchorNode;
+    while (para) {
+      const verse = $findNextVerseInNode(para);
+      if (verse) {
+        nextVerse = verse;
+        break;
+      }
+      para = para.getNextSibling();
+      if (para && $isSomeChapterNode(para)) break;
+    }
+  }
+
+  if (!nextVerse) return false;
+  nextVerse.selectNext(0, 0);
+  return true;
+}
+
+/**
+ * Moves the selection to the start of the previous verse's content (after the verse marker).
+ * Used for ArrowUp navigation so the cursor lands on a position that ScriptureReferencePlugin
+ * can resolve for BCV display.
+ * @param selection - The current range selection (must be collapsed).
+ * @returns `true` if the selection was moved, `false` if not collapsed or no previous verse.
+ */
+export function $selectPreviousVerse(selection: RangeSelection): boolean {
+  if (!selection.isCollapsed()) return false;
+
+  const anchorNode = selection.anchor.getNode();
+  const currentVerse = $resolveVerseNode(anchorNode, selection);
+
+  let prevVerse: SomeVerseNode | undefined;
+
+  if (currentVerse) {
+    const parent = currentVerse.getParent();
+    if (parent && $isElementNode(parent)) {
+      prevVerse = $findPreviousVerseInSiblings(parent, currentVerse.getIndexWithinParent());
+    }
+    if (!prevVerse && parent) {
+      let prevPara = parent.getPreviousSibling();
+      while (prevPara && !$isSomeChapterNode(prevPara)) {
+        const verse = $findLastVerseInNode(prevPara);
+        if (verse) {
+          prevVerse = verse;
+          break;
+        }
+        prevPara = prevPara.getPreviousSibling();
+      }
+    }
+  } else {
+    const topLevel = anchorNode.getTopLevelElement();
+    const prevPara = topLevel?.getPreviousSibling();
+    if (prevPara && !$isSomeChapterNode(prevPara)) {
+      prevVerse = $findLastVerseInNode(prevPara);
+    }
+  }
+
+  if (!prevVerse) return false;
+  prevVerse.selectNext(0, 0);
+  return true;
+}
+
+/**
+ * Resolves the verse node for the given start node. When the cursor is on an element
+ * (e.g. para) rather than inside a verse, looks at the child at offset or walks backward
+ * within that element before falling back to $findThisVerse (which may walk to prior paras).
+ */
+export function $resolveVerseNode(
+  startNode: LexicalNode,
+  selection: BaseSelection | null,
+): SomeVerseNode | undefined {
+  const isCursorOnElement =
+    $isElementNode(startNode) &&
+    $isRangeSelection(selection) &&
+    selection.anchor.key === startNode.getKey();
+
+  if (isCursorOnElement) {
+    const childAtOffset = startNode.getChildAtIndex(selection.anchor.offset);
+    if (childAtOffset && $isSomeVerseNode(childAtOffset)) return childAtOffset;
+    const prev = $findPreviousVerseInSiblings(startNode, selection.anchor.offset);
+    if (prev) return prev;
+    const firstVerseInPara = $findNextVerseInNode(startNode);
+    if (firstVerseInPara) return firstVerseInPara;
+  }
+
+  return $findThisVerse(startNode);
+}
+
+/**
+ * Find the verse that this node is in.
+ * @param node - Node to find the verse it's in.
+ * @returns the verse node if found, `undefined` otherwise.
+ */
+export function $findThisVerse(node: LexicalNode | null | undefined) {
+  if (!node || $isSomeChapterNode(node)) return;
+
+  // is this node a verse
+  if ($isSomeVerseNode(node)) return node;
+
+  let previousSiblingOrParent = $findNearestPreviousNode(node);
+  while (previousSiblingOrParent) {
+    // If this node is a chapter node, stop searching as we've reached the start of this chapter
+    if ($isSomeChapterNode(previousSiblingOrParent)) return;
+
+    // If this node is a verse node, return it
+    if ($isSomeVerseNode(previousSiblingOrParent)) return previousSiblingOrParent;
+
+    // If this node contains a verse node, return that
+    const verseNode = $findLastVerseInNode(previousSiblingOrParent);
+    if (verseNode) return verseNode;
+
+    previousSiblingOrParent = $findNearestPreviousNode(previousSiblingOrParent);
+  }
+
+  return undefined;
 }
