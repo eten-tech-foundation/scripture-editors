@@ -17,7 +17,7 @@
   "generators": "./generators.json",
   "dependencies": {
     "@nx/devkit": "22.5.4",
-    "axios": "^1.13.6",
+    "axios": "^1.15.0",
     "tslib": "^2.8.1"
   },
   "volta": {
