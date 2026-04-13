@@ -5,7 +5,15 @@
 import { pasteSelection, pasteSelectionAsPlainText } from "./clipboard.utils";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { COPY_COMMAND, CUT_COMMAND } from "lexical";
-import { ReactElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ReactElement,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import * as ReactDOM from "react-dom";
 import { isImmutableChapterElement } from "shared";
 
@@ -45,7 +53,6 @@ function ContextMenuItem({
   }
   return (
     <li
-      key={option.title}
       tabIndex={-1}
       className={className}
       role="option"
@@ -80,7 +87,7 @@ function ContextMenu({
             isSelected={selectedItemIndex === i}
             onClick={() => onOptionClick(option, i)}
             onMouseEnter={() => onOptionMouseEnter(i)}
-            key={option.title}
+            key={option.key}
             option={option}
           />
         ))}
@@ -89,7 +96,10 @@ function ContextMenu({
   );
 }
 
+let optionKeyCounter = 0;
+
 export class ContextMenuOption {
+  key: string;
   title: string;
   onSelect: () => void;
   isDisabled: boolean;
@@ -101,6 +111,7 @@ export class ContextMenuOption {
       isDisabled?: boolean;
     },
   ) {
+    this.key = `context-menu-option-${optionKeyCounter++}`;
     this.title = title;
     this.onSelect = options.onSelect.bind(this);
     this.isDisabled = options.isDisabled || false;
@@ -181,35 +192,35 @@ export function ContextMenuPlugin({
 
   // Register context menu event on editor root
   useEffect(() => {
-    return editor.registerRootListener((rootElement) => {
+    const handleContextMenu = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (
+        isEditorInput(target, editorInputClassNameRef.current) ||
+        isImmutableChapterElement(target)
+      ) {
+        return;
+      }
+      event.preventDefault();
+      setMenuState({ isOpen: true, x: event.clientX, y: event.clientY });
+      setSelectedIndex(undefined);
+    };
+
+    return editor.registerRootListener((rootElement, prevRootElement) => {
+      prevRootElement?.removeEventListener("contextmenu", handleContextMenu);
       if (!rootElement) return;
-
-      const handleContextMenu = (event: MouseEvent) => {
-        const target = event.target as HTMLElement;
-        if (
-          isEditorInput(target, editorInputClassNameRef.current) ||
-          isImmutableChapterElement(target)
-        ) {
-          return;
-        }
-        event.preventDefault();
-        setMenuState({ isOpen: true, x: event.clientX, y: event.clientY });
-        setSelectedIndex(undefined);
-      };
-
       rootElement.addEventListener("contextmenu", handleContextMenu);
-      return () => rootElement.removeEventListener("contextmenu", handleContextMenu);
     });
   }, [editor]);
 
   // Close menu on scroll
   useEffect(() => {
+    if (!menuState.isOpen) return;
     const handleScroll = () => {
       closeMenu();
     };
     globalThis.addEventListener("scroll", handleScroll, true);
     return () => globalThis.removeEventListener("scroll", handleScroll, true);
-  }, [closeMenu]);
+  }, [menuState.isOpen, closeMenu]);
 
   // Close menu on click outside
   useEffect(() => {
@@ -221,15 +232,39 @@ export function ContextMenuPlugin({
     return () => document.removeEventListener("pointerdown", handlePointerDown);
   }, [menuState.isOpen, closeMenu]);
 
-  // Close menu on Escape
+  // Keyboard navigation and close on Escape
   useEffect(() => {
     if (!menuState.isOpen) return;
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") closeMenu();
+      if (event.key === "Escape") {
+        closeMenu();
+      } else if (event.key === "ArrowDown") {
+        event.preventDefault();
+        event.stopPropagation();
+        setSelectedIndex((prev) => (prev === undefined ? 0 : (prev + 1) % options.length));
+      } else if (event.key === "ArrowUp") {
+        event.preventDefault();
+        event.stopPropagation();
+        setSelectedIndex((prev) =>
+          prev === undefined ? options.length - 1 : (prev - 1 + options.length) % options.length,
+        );
+      } else if (event.key === "Enter" && selectedIndex !== undefined) {
+        event.preventDefault();
+        event.stopPropagation();
+        const option = options[selectedIndex];
+        if (option && !option.isDisabled) {
+          editor.update(() => {
+            option.onSelect();
+          });
+          closeMenu();
+        }
+      }
     };
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [menuState.isOpen, closeMenu]);
+    // Use capture phase so this fires before Lexical's own keydown handler,
+    // which would otherwise consume arrow keys and move the editor cursor.
+    document.addEventListener("keydown", handleKeyDown, true);
+    return () => document.removeEventListener("keydown", handleKeyDown, true);
+  }, [menuState.isOpen, closeMenu, options, selectedIndex, editor]);
 
   useEffect(
     () =>
@@ -239,16 +274,32 @@ export function ContextMenuPlugin({
     [editor],
   );
 
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Clamp menu position to viewport bounds before first paint to prevent off-screen rendering.
+  useLayoutEffect(() => {
+    const menu = menuRef.current;
+    if (!menu) return;
+    const { width, height } = menu.getBoundingClientRect();
+    const clampedLeft = Math.max(0, Math.min(menuState.x, globalThis.innerWidth - width));
+    const clampedTop = Math.max(0, Math.min(menuState.y, globalThis.innerHeight - height));
+    menu.style.left = `${clampedLeft}px`;
+    menu.style.top = `${clampedTop}px`;
+    menu.style.visibility = "visible";
+  }, [menuState.x, menuState.y]);
+
   if (!menuState.isOpen) return null;
 
   return ReactDOM.createPortal(
     <div
+      ref={menuRef}
       className="typeahead-popover auto-embed-menu"
       style={{
         left: menuState.x,
         position: "fixed",
         top: menuState.y,
         userSelect: "none",
+        visibility: "hidden",
         width: 200,
         zIndex: 9999,
       }}
