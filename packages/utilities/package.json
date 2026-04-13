@@ -39,10 +39,10 @@
     "postdevpub": "npm run postpublish"
   },
   "dependencies": {
-    "@xmldom/xmldom": "^0.9.8"
+    "@xmldom/xmldom": "^0.9.9"
   },
   "devDependencies": {
-    "lexical": "^0.41.0"
+    "lexical": "^0.43.0"
   },
   "publishConfig": {
     "access": "public",

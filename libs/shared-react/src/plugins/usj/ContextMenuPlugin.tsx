@@ -4,8 +4,7 @@
 
 import { pasteSelection, pasteSelectionAsPlainText } from "./clipboard.utils";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
-import { LexicalContextMenuPlugin, MenuOption } from "@lexical/react/LexicalContextMenuPlugin";
-import { type LexicalNode, COPY_COMMAND, CUT_COMMAND } from "lexical";
+import { COPY_COMMAND, CUT_COMMAND } from "lexical";
 import { ReactElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as ReactDOM from "react-dom";
 import { isImmutableChapterElement } from "shared";
@@ -37,7 +36,6 @@ function ContextMenuItem({
   onMouseEnter: () => void;
   option: ContextMenuOption;
 }) {
-  /* eslint-disable react-hooks/refs -- Lexical MenuOption API stores interaction fields on option instances consumed during render. */
   let className = "item";
   if (isSelected) {
     className += " selected";
@@ -47,10 +45,9 @@ function ContextMenuItem({
   }
   return (
     <li
-      key={option.key}
+      key={option.title}
       tabIndex={-1}
       className={className}
-      ref={option.setRefElement}
       role="option"
       aria-selected={isSelected}
       aria-disabled={option.isDisabled}
@@ -61,7 +58,6 @@ function ContextMenuItem({
       <span className="text">{option.title}</span>
     </li>
   );
-  /* eslint-enable react-hooks/refs */
 }
 
 function ContextMenu({
@@ -70,7 +66,7 @@ function ContextMenu({
   onOptionClick,
   onOptionMouseEnter,
 }: {
-  selectedItemIndex: number | null;
+  selectedItemIndex: number | undefined;
   onOptionClick: (option: ContextMenuOption, index: number) => void;
   onOptionMouseEnter: (index: number) => void;
   options: ContextMenuOption[];
@@ -84,7 +80,7 @@ function ContextMenu({
             isSelected={selectedItemIndex === i}
             onClick={() => onOptionClick(option, i)}
             onMouseEnter={() => onOptionMouseEnter(i)}
-            key={option.key}
+            key={option.title}
             option={option}
           />
         ))}
@@ -93,19 +89,18 @@ function ContextMenu({
   );
 }
 
-export class ContextMenuOption extends MenuOption {
+export class ContextMenuOption {
   title: string;
-  onSelect: (targetNode: LexicalNode | null) => void;
+  onSelect: () => void;
   isDisabled: boolean;
 
   constructor(
     title: string,
     options: {
-      onSelect: (targetNode: LexicalNode | null) => void;
+      onSelect: () => void;
       isDisabled?: boolean;
     },
   ) {
-    super(title);
     this.title = title;
     this.onSelect = options.onSelect.bind(this);
     this.isDisabled = options.isDisabled || false;
@@ -131,12 +126,16 @@ export function ContextMenuPlugin({
   options: extraOptions,
 }: {
   options?: ContextMenuOptionConfig[];
-} = {}): ReactElement {
+} = {}): ReactElement | null {
   const [editor] = useLexicalComposerContext();
   const [isReadonly, setIsReadonly] = useState(() => !editor.isEditable());
-  const targetRef = useRef<HTMLElement | undefined>(undefined);
+  const [menuState, setMenuState] = useState<{ isOpen: boolean; x: number; y: number }>({
+    isOpen: false,
+    x: 0,
+    y: 0,
+  });
+  const [selectedIndex, setSelectedIndex] = useState<number | undefined>(undefined);
   const editorInputClassNameRef = useRef<string | undefined>(undefined);
-  const closeMenuFnRef = useRef<(() => void) | undefined>(undefined);
 
   const options = useMemo(() => {
     const builtIn = [
@@ -171,31 +170,66 @@ export function ContextMenuPlugin({
     return [...builtIn, ...extra];
   }, [editor, isReadonly, extraOptions]);
 
-  const onSelectOption = useCallback(
-    (selectedOption: ContextMenuOption, targetNode: LexicalNode | null, closeMenu: () => void) => {
-      editor.update(() => {
-        selectedOption?.onSelect(targetNode);
-        closeMenu();
-      });
-    },
-    [editor],
-  );
+  const closeMenu = useCallback(() => {
+    setMenuState((prev) => ({ ...prev, isOpen: false }));
+    setSelectedIndex(undefined);
+  }, []);
 
   useEffect(() => {
     editorInputClassNameRef.current = editor.getRootElement()?.className ?? "";
   }, [editor]);
 
+  // Register context menu event on editor root
+  useEffect(() => {
+    return editor.registerRootListener((rootElement) => {
+      if (!rootElement) return;
+
+      const handleContextMenu = (event: MouseEvent) => {
+        const target = event.target as HTMLElement;
+        if (
+          isEditorInput(target, editorInputClassNameRef.current) ||
+          isImmutableChapterElement(target)
+        ) {
+          return;
+        }
+        event.preventDefault();
+        setMenuState({ isOpen: true, x: event.clientX, y: event.clientY });
+        setSelectedIndex(undefined);
+      };
+
+      rootElement.addEventListener("contextmenu", handleContextMenu);
+      return () => rootElement.removeEventListener("contextmenu", handleContextMenu);
+    });
+  }, [editor]);
+
+  // Close menu on scroll
   useEffect(() => {
     const handleScroll = () => {
-      closeMenuFnRef.current?.();
+      closeMenu();
     };
+    globalThis.addEventListener("scroll", handleScroll, true);
+    return () => globalThis.removeEventListener("scroll", handleScroll, true);
+  }, [closeMenu]);
 
-    window.addEventListener("scroll", handleScroll, true);
-
-    return () => {
-      window.removeEventListener("scroll", handleScroll, true);
+  // Close menu on click outside
+  useEffect(() => {
+    if (!menuState.isOpen) return;
+    const handlePointerDown = () => {
+      closeMenu();
     };
-  }, []);
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [menuState.isOpen, closeMenu]);
+
+  // Close menu on Escape
+  useEffect(() => {
+    if (!menuState.isOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeMenu();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [menuState.isOpen, closeMenu]);
 
   useEffect(
     () =>
@@ -205,53 +239,37 @@ export function ContextMenuPlugin({
     [editor],
   );
 
-  return (
-    <LexicalContextMenuPlugin
-      options={options}
-      onSelectOption={onSelectOption}
-      onWillOpen={(event: MouseEvent) => {
-        targetRef.current = event.target as HTMLElement;
-      }}
-      menuRenderFn={(
-        anchorElementRef,
-        { selectedIndex, options: _options, selectOptionAndCleanUp, setHighlightedIndex },
-        { setMenuRef },
-      ) => {
-        // Store the closeMenu function.
-        closeMenuFnRef.current = () =>
-          selectOptionAndCleanUp(undefined as unknown as ContextMenuOption);
+  if (!menuState.isOpen) return null;
 
-        return anchorElementRef.current &&
-          !isEditorInput(targetRef.current, editorInputClassNameRef.current) &&
-          !isImmutableChapterElement(targetRef.current)
-          ? ReactDOM.createPortal(
-              <div
-                className="typeahead-popover auto-embed-menu"
-                style={{
-                  marginLeft: anchorElementRef.current.style.width,
-                  userSelect: "none",
-                  width: 200,
-                }}
-                ref={setMenuRef}
-              >
-                <ContextMenu
-                  options={options}
-                  selectedItemIndex={selectedIndex}
-                  onOptionClick={(option: ContextMenuOption, index: number) => {
-                    if (!option.isDisabled) {
-                      setHighlightedIndex(index);
-                      selectOptionAndCleanUp(option);
-                    }
-                  }}
-                  onOptionMouseEnter={(index: number) => {
-                    setHighlightedIndex(index);
-                  }}
-                />
-              </div>,
-              anchorElementRef.current,
-            )
-          : null;
+  return ReactDOM.createPortal(
+    <div
+      className="typeahead-popover auto-embed-menu"
+      style={{
+        left: menuState.x,
+        position: "fixed",
+        top: menuState.y,
+        userSelect: "none",
+        width: 200,
+        zIndex: 9999,
       }}
-    />
+      onPointerDown={(e) => e.stopPropagation()}
+    >
+      <ContextMenu
+        options={options}
+        selectedItemIndex={selectedIndex}
+        onOptionClick={(option: ContextMenuOption) => {
+          if (!option.isDisabled) {
+            editor.update(() => {
+              option.onSelect();
+            });
+            closeMenu();
+          }
+        }}
+        onOptionMouseEnter={(index: number) => {
+          setSelectedIndex(index);
+        }}
+      />
+    </div>,
+    document.body,
   );
 }

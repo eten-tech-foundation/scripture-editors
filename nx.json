@@ -1,5 +1,6 @@
 {
   "$schema": "./node_modules/nx/schemas/nx-schema.json",
+  "analytics": true,
   "defaultBase": "main",
   "_comment": "Temporarily disabled while Nx Cloud credits are exhausted. IJH: 2026 Feb 16",
   "_nxCloudId": "66a2e268e3adf95b524754c9",
