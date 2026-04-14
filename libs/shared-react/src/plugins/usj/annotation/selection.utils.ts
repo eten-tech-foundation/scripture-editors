@@ -33,8 +33,11 @@ import {
   TextNode,
 } from "lexical";
 import {
+  $isCharNode,
   $isMarkerNode,
+  $isMilestoneNode,
   $isTypedMarkNode,
+  $isVerseNode,
   $isVisibleMarkerNode,
   ImmutableTypedTextNode,
   MarkerNode,
@@ -464,8 +467,57 @@ function $getLocationFromNode(node: LexicalNode, offset: number): UsjDocumentLoc
     return { jsonPath: usjJsonPathFromIndexes($getJsonPathIndexes(node)), offset: contentOffset };
   }
 
-  // Regular text node - UsjTextContentLocation
-  return { jsonPath: usjJsonPathFromIndexes($getJsonPathIndexes(node)), offset };
+  // Text and other non-element leaves: base-USJ for collapsed runs; per-child indexes when a
+  // CharNode precedes this text ($textRequiresStandardLexicalContentPath).
+  if ($shouldUseAnnotationAgnosticTextPath(node)) {
+    return {
+      jsonPath: usjJsonPathFromIndexes($getJsonPathIndexesForBaseUsj(node)),
+      offset: $getOffsetInContentRun(node, offset),
+    };
+  }
+  if ($isTextNode(node)) {
+    return {
+      jsonPath: usjJsonPathFromIndexes($getJsonPathIndexes(node)),
+      offset,
+    };
+  }
+  return {
+    jsonPath: usjJsonPathFromIndexes($getJsonPathIndexes(node)),
+    offset,
+  };
+}
+
+/**
+ * Whether to emit base-USJ paths (collapse consecutive Text/TypedMark runs; annotation-agnostic).
+ * When false, use per-child content indexes from $getJsonPathIndexes so round-trips match
+ * $getNodeFromLocation.
+ *
+ * Use standard indexes only after CharNode, VerseNode, or MilestoneNode breaks the run—see
+ * $textRequiresStandardLexicalContentPath. TypedMark and consecutive plain Text stay on base-USJ.
+ */
+function $shouldUseAnnotationAgnosticTextPath(node: LexicalNode): boolean {
+  const parent = node.getParent();
+  if (!parent || !$isElementNode(parent)) return false;
+  if ($isTypedMarkNode(parent)) return true;
+  if ($isTextNode(node) && $textRequiresStandardLexicalContentPath(node)) return false;
+  return true;
+}
+
+/**
+ * True when this text node is preceded among the parent's children by a node that starts a new
+ * USJ content entry (CharNode, VerseNode, MilestoneNode), so per-child content indexes must match
+ * $getContentChildAtIndex and round-trip via $getNodeFromLocation (see PT-3835).
+ */
+function $textRequiresStandardLexicalContentPath(node: LexicalNode): boolean {
+  if (!$isTextNode(node)) return false;
+  const parent = node.getParent();
+  if (!parent || !$isElementNode(parent)) return false;
+  for (const sibling of parent.getChildren()) {
+    if (sibling === node) break;
+    if ($shouldIgnoreNodeForContentIndexes(sibling)) continue;
+    if ($isCharNode(sibling) || $isVerseNode(sibling) || $isMilestoneNode(sibling)) return true;
+  }
+  return false;
 }
 
 function $getMarkerAnchorNode(markerNode: MarkerNode): LexicalNode | undefined {
@@ -510,6 +562,102 @@ function $getJsonPathIndexes(node: LexicalNode): number[] {
     current = parent;
   }
   return jsonPathIndexes;
+}
+
+/**
+ * Gets the jsonPath indexes for base USJ (ignoring annotations). TypedMarkNodes are collapsed
+ * into the same content run as adjacent TextNodes, so paths are valid against USJ without
+ * annotation milestones.
+ * @param node - The node to get the path for (TextNode or node inside TypedMarkNode).
+ * @returns An array of indexes representing the path from root to node.
+ */
+function $getJsonPathIndexesForBaseUsj(node: LexicalNode): number[] {
+  const jsonPathIndexes: number[] = [];
+  let current: LexicalNode | null = node;
+  while (current?.getParent()) {
+    const parent: ElementNode | null = current.getParent();
+    if (parent) {
+      if ($isTypedMarkNode(parent)) {
+        const grandparent: LexicalNode | null = parent.getParent();
+        if (grandparent && $isElementNode(grandparent)) {
+          const index = $getContentIndexWithinParentForBaseUsj(grandparent, parent);
+          if (index >= 0) jsonPathIndexes.unshift(index);
+          current = grandparent;
+        } else {
+          current = parent;
+        }
+      } else {
+        const index = $getContentIndexWithinParentForBaseUsj(parent, current);
+        if (index >= 0) jsonPathIndexes.unshift(index);
+        current = parent;
+      }
+    } else {
+      current = parent;
+    }
+  }
+  return jsonPathIndexes;
+}
+
+/**
+ * Content index for base USJ: TypedMarkNodes and consecutive TextNodes form one "content run"
+ * and share the same content index. Only increment when we hit a non-run node (e.g. MilestoneNode,
+ * MarkerNode). Ignored nodes are skipped. CharNode, VerseNode, and MilestoneNode break USJ
+ * continuity for following text; use $textRequiresStandardLexicalContentPath +
+ * $getJsonPathIndexes instead of this for text after those nodes.
+ */
+function $getContentIndexWithinParentForBaseUsj(parent: ElementNode, child: LexicalNode): number {
+  const children = parent.getChildren();
+  let contentIndex = 0;
+  for (const sibling of children) {
+    if (sibling === child) return contentIndex;
+
+    if ($shouldIgnoreNodeForContentIndexes(sibling)) {
+      continue;
+    }
+    if ($isTextNode(sibling) || $isTypedMarkNode(sibling)) {
+      continue;
+    }
+    contentIndex += 1;
+  }
+  return -1;
+}
+
+/**
+ * Gets the character offset within the content run (base USJ), summing text lengths of
+ * preceding TextNodes and TypedMarkNode contents in the same run.
+ */
+function $getOffsetInContentRun(node: LexicalNode, offset: number): number {
+  const runNode = $isTypedMarkNode(node.getParent()) ? (node.getParent() as LexicalNode) : node;
+  const runContainer = runNode.getParent();
+  if (!runContainer || !$isElementNode(runContainer)) return offset;
+
+  const children = runContainer.getChildren();
+  let runOffset = 0;
+  for (const sibling of children) {
+    if (sibling === runNode) {
+      if ($isTypedMarkNode(sibling)) {
+        let innerOffset = 0;
+        for (const markChild of sibling.getChildren()) {
+          if (markChild === node) break;
+          innerOffset += markChild.getTextContent().length;
+        }
+        return runOffset + innerOffset + offset;
+      }
+      return runOffset + offset;
+    }
+
+    if ($shouldIgnoreNodeForContentIndexes(sibling)) {
+      // End of run
+    } else if ($isTextNode(sibling)) {
+      runOffset += sibling.getTextContent().length;
+    } else if ($isTypedMarkNode(sibling)) {
+      runOffset += sibling.getTextContent().length;
+    } else if ($isCharNode(sibling)) {
+      // Character styles are separate USJ content entries; do not accumulate across them.
+      runOffset = 0;
+    }
+  }
+  return runOffset + offset;
 }
 
 function $getContentIndexWithinParent(parent: ElementNode, child: LexicalNode): number {

@@ -68,6 +68,8 @@ export function filterAndRankItems<T extends Item>(
       try {
         return actualFilter(item, query);
       } catch (error) {
+        // Defensive log when filter() throws on bad items
+        // eslint-disable-next-line no-console
         console.warn(`Error filtering item:`, item, error);
         return false;
       }
