@@ -12,7 +12,7 @@
   "dependencies": {
     "@eten-tech-foundation/platform-editor": "workspace:~",
     "@eten-tech-foundation/scripture-utilities": "workspace:~",
-    "@sillsdev/scripture": "^2.0.4",
+    "@sillsdev/scripture": "^2.0.5",
     "lucide-react": "^0.577.0"
   },
   "devDependencies": {

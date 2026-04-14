@@ -39,7 +39,7 @@
     "@eten-tech-foundation/scripture-utilities": "workspace:~",
     "@lexical/mark": "^0.43.0",
     "@lexical/utils": "^0.43.0",
-    "@sillsdev/scripture": "^2.0.4",
+    "@sillsdev/scripture": "^2.0.5",
     "lexical": "^0.43.0",
     "tslib": "^2.8.1"
   },

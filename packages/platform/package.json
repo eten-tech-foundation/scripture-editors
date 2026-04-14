@@ -55,7 +55,7 @@
     "@lexical/text": "^0.43.0",
     "@lexical/utils": "^0.43.0",
     "@lexical/yjs": "^0.43.0",
-    "@sillsdev/scripture": "^2.0.4",
+    "@sillsdev/scripture": "^2.0.5",
     "fast-equals": "^5.4.0",
     "lexical": "^0.43.0",
     "quill-delta": "^5.1.0"
