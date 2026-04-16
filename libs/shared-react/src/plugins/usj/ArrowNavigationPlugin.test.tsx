@@ -390,19 +390,16 @@ describe("Arrow up/down verse navigation", () => {
 
   describe("WEB-style verse paragraph (linebreak + verse only, no text after verse marker)", () => {
     it("ArrowDown: element selection on the para moves to the next verse", async () => {
-      let verseTwoPara: ParaNode;
+      let q1: ParaNode;
       let v3Text: TextNode;
       const { editor } = await testEnvironment(() => {
-        verseTwoPara = $createParaNode("q1").append(
-          $createLineBreakNode(),
-          $createImmutableVerseNode("2"),
-        );
+        q1 = $createParaNode("q1");
         v3Text = $createTextNode("verse3 ");
         $getRoot().append(
           $createImmutableChapterNode("1"),
           $createParaNode("ms1").append($createTextNode("BOOK 1")),
           $createParaNode("q1").append($createLineBreakNode(), $createImmutableVerseNode("1")),
-          verseTwoPara,
+          q1.append($createLineBreakNode(), $createImmutableVerseNode("2")),
           $createParaNode("q1").append(
             $createLineBreakNode(),
             $createImmutableVerseNode("3"),
@@ -410,7 +407,7 @@ describe("Arrow up/down verse navigation", () => {
           ),
         );
       });
-      updateSelection(editor, verseTwoPara!, 2);
+      updateSelection(editor, q1!, 2);
 
       await pressKey(editor, "ArrowDown");
 
@@ -420,13 +417,10 @@ describe("Arrow up/down verse navigation", () => {
     });
 
     it("ArrowUp: element selection on the para moves to the previous verse", async () => {
-      let verseTwoPara: ParaNode;
+      let q1: ParaNode;
       let v1Text: TextNode;
       const { editor } = await testEnvironment(() => {
-        verseTwoPara = $createParaNode("q1").append(
-          $createLineBreakNode(),
-          $createImmutableVerseNode("2"),
-        );
+        q1 = $createParaNode("q1");
         v1Text = $createTextNode("verse1 ");
         $getRoot().append(
           $createImmutableChapterNode("1"),
@@ -436,10 +430,10 @@ describe("Arrow up/down verse navigation", () => {
             $createImmutableVerseNode("1"),
             v1Text,
           ),
-          verseTwoPara,
+          q1.append($createLineBreakNode(), $createImmutableVerseNode("2")),
         );
       });
-      updateSelection(editor, verseTwoPara!, 2);
+      updateSelection(editor, q1!, 2);
 
       await pressKey(editor, "ArrowUp");
 

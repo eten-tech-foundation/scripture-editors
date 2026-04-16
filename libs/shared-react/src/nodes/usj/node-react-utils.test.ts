@@ -691,8 +691,7 @@ describe("$getEffectiveVerseForBcv()", () => {
     const { editor } = createBasicTestEnvironment([ParaNode, ImmutableVerseNode], () => {
       const v1 = $createImmutableVerseNode("1");
       const paraNode = $createParaNode();
-      paraNode.append(v1, $createImmutableVerseNode("2"));
-      $getRoot().append(paraNode);
+      $getRoot().append(paraNode.append(v1, $createImmutableVerseNode("2")));
       verse1Key = v1.getKey();
       paraKey = paraNode.getKey();
     });
@@ -722,8 +721,7 @@ describe("$getEffectiveVerseForBcv()", () => {
     const { editor } = createBasicTestEnvironment([ParaNode, ImmutableVerseNode], () => {
       const v2 = $createImmutableVerseNode("2");
       const paraNode = $createParaNode();
-      paraNode.append($createImmutableVerseNode("1"), v2);
-      $getRoot().append(paraNode);
+      $getRoot().append(paraNode.append($createImmutableVerseNode("1"), v2));
       verse2Key = v2.getKey();
       paraKey = paraNode.getKey();
     });
