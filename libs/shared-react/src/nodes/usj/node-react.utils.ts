@@ -681,7 +681,14 @@ export function $selectPreviousVerse(selection: RangeSelection): boolean {
 
   if (currentVerse) {
     const parent = currentVerse.getParent();
-    if (parent && $isElementNode(parent)) {
+    // When the cursor is in a different (later) paragraph than currentVerse's parent,
+    // $resolveVerseNode found the verse via backward traversal across paragraphs.
+    // That verse is behind the caret — it should be the ArrowUp target directly.
+    const topLevel = anchorNode.getTopLevelElement();
+    if (parent && topLevel && topLevel !== parent) {
+      prevVerse = currentVerse;
+    }
+    if (!prevVerse && parent && $isElementNode(parent)) {
       prevVerse = $findPreviousVerseInSiblings(parent, currentVerse.getIndexWithinParent());
     }
     if (!prevVerse && parent) {
@@ -697,9 +704,14 @@ export function $selectPreviousVerse(selection: RangeSelection): boolean {
     }
   } else {
     const topLevel = anchorNode.getTopLevelElement();
-    const prevPara = topLevel?.getPreviousSibling();
-    if (prevPara && !$isSomeChapterNode(prevPara)) {
-      prevVerse = $findLastVerseInNode(prevPara);
+    let prevPara = topLevel?.getPreviousSibling() ?? null;
+    while (prevPara && !$isSomeChapterNode(prevPara)) {
+      const verse = $findLastVerseInNode(prevPara);
+      if (verse) {
+        prevVerse = verse;
+        break;
+      }
+      prevPara = prevPara.getPreviousSibling();
     }
   }
 

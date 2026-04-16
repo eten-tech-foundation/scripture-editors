@@ -14,6 +14,7 @@ import {
   $insertNote,
   $isSomeVerseNode,
   $selectNextVerse,
+  $selectPreviousVerse,
 } from "./node-react.utils";
 import { UsjNodeOptions } from "./usj-node-options.model";
 import {
@@ -274,6 +275,44 @@ describe("$selectNextVerse()", () => {
         const selection = $getSelection();
         if (!$isRangeSelection(selection)) throw new Error("expected range selection");
         const handled = $selectNextVerse(selection);
+        expect(handled).toBe(true);
+      },
+      { discrete: true },
+    );
+    editor.getEditorState().read(() => {
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) throw new Error("expected range selection");
+      const verse = $findThisVerse(selection.anchor.getNode());
+      expect(verse?.getNumber()).toBe("1");
+    });
+  });
+});
+
+describe("$selectPreviousVerse()", () => {
+  it("skips intervening verse-less paragraphs to find the previous verse", () => {
+    let paraKey: string;
+    const { editor } = createBasicTestEnvironment([ParaNode, VerseNode]);
+    editor.update(
+      () => {
+        const cursorPara = $createParaNode();
+        $getRoot().append(
+          $createParaNode().append($createVerseNode("1"), $createTextNode("verse text")),
+          $createParaNode().append($createTextNode("section heading")),
+          cursorPara,
+        );
+        paraKey = cursorPara.getKey();
+      },
+      { discrete: true },
+    );
+    editor.update(
+      () => {
+        const rangeSelection = $createRangeSelection();
+        rangeSelection.anchor = $createPoint(paraKey, 0, "element");
+        rangeSelection.focus = $createPoint(paraKey, 0, "element");
+        $setSelection(rangeSelection);
+        const selection = $getSelection();
+        if (!$isRangeSelection(selection)) throw new Error("expected range selection");
+        const handled = $selectPreviousVerse(selection);
         expect(handled).toBe(true);
       },
       { discrete: true },
