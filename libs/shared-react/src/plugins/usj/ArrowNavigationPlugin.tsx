@@ -39,155 +39,6 @@ import {
 } from "shared";
 
 /**
- * Pixel tolerance when comparing caret position to the first/last visual line of verse content
- * (DOM rects). Slightly larger than zero to absorb subpixel rounding and layout quirks.
- */
-const LINE_TOLERANCE_PX = 3;
-
-/**
- * Returns whether custom ArrowUp/ArrowDown verse navigation should run.
- *
- * Vertical verse jumps are only needed when Lexical's default move would leave the caret on the
- * wrong line for verse/BCV resolution (e.g. element selection on a paragraph), or when crossing
- * to the next/previous verse. If we always intercept ArrowUp/Down, we steal normal line-by-line
- * movement inside a verse. So we only run custom verse navigation when the caret is on the first or
- * last visual line of the current verse's block content, or when the anchor is an element point
- * (WEB-style verse paragraphs). If layout is unavailable, returns `true` so verse navigation can
- * still be attempted.
- *
- * @param editor - Editor used to map Lexical nodes to DOM ranges.
- * @param selection - The current collapsed range selection.
- * @param direction - `"up"` checks the first line of the verse; `"down"` checks the last line.
- * @returns `true` if verse navigation should be attempted; `false` to let Lexical handle the key.
- */
-function $shouldAttemptVerticalVerseNavigation(
-  editor: LexicalEditor,
-  selection: RangeSelection,
-  direction: "up" | "down",
-): boolean {
-  if (selection.anchor.type === "element") {
-    return true;
-  }
-
-  const currentVerse = $resolveVerseNode(selection.anchor.getNode(), selection);
-  if (!currentVerse) {
-    return true;
-  }
-
-  const verseNode = currentVerse as LexicalNode;
-  const parent = verseNode.getParent();
-  if (!parent || !$isElementNode(parent)) {
-    return true;
-  }
-
-  const contentNodes: LexicalNode[] = [];
-  const startIdx = verseNode.getIndexWithinParent();
-  const children = parent.getChildren();
-  for (let i = startIdx; i < children.length; i++) {
-    const c = children[i];
-    if (i > startIdx && $isSomeVerseNode(c)) {
-      break;
-    }
-    contentNodes.push(c);
-  }
-
-  const verseDomRange = $createDomRangeForVerseContent(editor, contentNodes);
-  if (!verseDomRange) {
-    return true;
-  }
-
-  const rects =
-    typeof verseDomRange.getClientRects === "function"
-      ? Array.from(verseDomRange.getClientRects())
-      : [];
-  if (rects.length === 0) {
-    return true;
-  }
-
-  const caretDomRange = createDOMRange(
-    editor,
-    selection.anchor.getNode(),
-    selection.anchor.offset,
-    selection.focus.getNode(),
-    selection.focus.offset,
-  );
-  if (!caretDomRange) {
-    return true;
-  }
-
-  if (typeof caretDomRange.getBoundingClientRect !== "function") {
-    return true;
-  }
-  const caretRect = caretDomRange.getBoundingClientRect();
-
-  if (direction === "down") {
-    let maxBottom = rects[0].bottom;
-    for (let i = 1; i < rects.length; i++) {
-      if (rects[i].bottom > maxBottom) maxBottom = rects[i].bottom;
-    }
-    return caretRect.bottom >= maxBottom - LINE_TOLERANCE_PX;
-  }
-
-  let minTop = rects[0].top;
-  for (let i = 1; i < rects.length; i++) {
-    if (rects[i].top < minTop) minTop = rects[i].top;
-  }
-  return caretRect.top <= minTop + LINE_TOLERANCE_PX;
-}
-
-/** DFS text nodes under `node` only (not past its subtree; unlike `$dfs(node)` alone). */
-function $collectTextNodesInSubtree(node: LexicalNode, out: TextNode[]): void {
-  if ($isTextNode(node)) {
-    out.push(node);
-    return;
-  }
-  if ($isElementNode(node)) {
-    for (const child of node.getChildren()) {
-      $collectTextNodesInSubtree(child, out);
-    }
-  }
-}
-
-/**
- * Builds a DOM range spanning the verse's in-paragraph content in document order, for
- * `Range.prototype.getClientRects()` line-boundary checks.
- *
- * Prefers a range from the first to the last text node under the given nodes (in DFS order). If
- * there are no text nodes, falls back to a range from the first to the last supplied node using
- * text length or element child count for the end offset.
- *
- * @param editor - Editor used to resolve Lexical nodes to DOM.
- * @param nodes - Sibling nodes from the current verse through the next verse marker (exclusive).
- * @returns A DOM `Range`, or `null` if a range cannot be constructed.
- */
-function $createDomRangeForVerseContent(editor: LexicalEditor, nodes: LexicalNode[]): Range | null {
-  if (nodes.length === 0) {
-    return null;
-  }
-
-  const textNodes: TextNode[] = [];
-  for (const n of nodes) {
-    $collectTextNodesInSubtree(n, textNodes);
-  }
-
-  if (textNodes.length > 0) {
-    const first = textNodes[0];
-    const last = textNodes[textNodes.length - 1];
-    return createDOMRange(editor, first, 0, last, last.getTextContentSize());
-  }
-
-  const first = nodes[0];
-  const last = nodes[nodes.length - 1];
-  let endOffset = 0;
-  if ($isTextNode(last)) {
-    endOffset = last.getTextContentSize();
-  } else if ($isElementNode(last)) {
-    endOffset = last.getChildrenSize();
-  }
-  return createDOMRange(editor, first, 0, last, endOffset);
-}
-
-/**
  * Registers arrow-key handling for USJ scripture: verse-to-verse vertical movement when needed,
  * and horizontal movement around notes and chapter boundaries.
  *
@@ -385,4 +236,153 @@ function $handleBackwardNavigation(
   }
 
   return false;
+}
+
+/**
+ * Pixel tolerance when comparing caret position to the first/last visual line of verse content
+ * (DOM rects). Slightly larger than zero to absorb subpixel rounding and layout quirks.
+ */
+const LINE_TOLERANCE_PX = 3;
+
+/**
+ * Returns whether custom ArrowUp/ArrowDown verse navigation should run.
+ *
+ * Vertical verse jumps are only needed when Lexical's default move would leave the caret on the
+ * wrong line for verse/BCV resolution (e.g. element selection on a paragraph), or when crossing
+ * to the next/previous verse. If we always intercept ArrowUp/Down, we steal normal line-by-line
+ * movement inside a verse. So we only run custom verse navigation when the caret is on the first or
+ * last visual line of the current verse's block content, or when the anchor is an element point
+ * (WEB-style verse paragraphs). If layout is unavailable, returns `true` so verse navigation can
+ * still be attempted.
+ *
+ * @param editor - Editor used to map Lexical nodes to DOM ranges.
+ * @param selection - The current collapsed range selection.
+ * @param direction - `"up"` checks the first line of the verse; `"down"` checks the last line.
+ * @returns `true` if verse navigation should be attempted; `false` to let Lexical handle the key.
+ */
+function $shouldAttemptVerticalVerseNavigation(
+  editor: LexicalEditor,
+  selection: RangeSelection,
+  direction: "up" | "down",
+): boolean {
+  if (selection.anchor.type === "element") {
+    return true;
+  }
+
+  const currentVerse = $resolveVerseNode(selection.anchor.getNode(), selection);
+  if (!currentVerse) {
+    return true;
+  }
+
+  const verseNode = currentVerse as LexicalNode;
+  const parent = verseNode.getParent();
+  if (!parent || !$isElementNode(parent)) {
+    return true;
+  }
+
+  const contentNodes: LexicalNode[] = [];
+  const startIdx = verseNode.getIndexWithinParent();
+  const children = parent.getChildren();
+  for (let i = startIdx; i < children.length; i++) {
+    const c = children[i];
+    if (i > startIdx && $isSomeVerseNode(c)) {
+      break;
+    }
+    contentNodes.push(c);
+  }
+
+  const verseDomRange = $createDomRangeForVerseContent(editor, contentNodes);
+  if (!verseDomRange) {
+    return true;
+  }
+
+  const rects =
+    typeof verseDomRange.getClientRects === "function"
+      ? Array.from(verseDomRange.getClientRects())
+      : [];
+  if (rects.length === 0) {
+    return true;
+  }
+
+  const caretDomRange = createDOMRange(
+    editor,
+    selection.anchor.getNode(),
+    selection.anchor.offset,
+    selection.focus.getNode(),
+    selection.focus.offset,
+  );
+  if (!caretDomRange) {
+    return true;
+  }
+
+  if (typeof caretDomRange.getBoundingClientRect !== "function") {
+    return true;
+  }
+  const caretRect = caretDomRange.getBoundingClientRect();
+
+  if (direction === "down") {
+    let maxBottom = rects[0].bottom;
+    for (let i = 1; i < rects.length; i++) {
+      if (rects[i].bottom > maxBottom) maxBottom = rects[i].bottom;
+    }
+    return caretRect.bottom >= maxBottom - LINE_TOLERANCE_PX;
+  }
+
+  let minTop = rects[0].top;
+  for (let i = 1; i < rects.length; i++) {
+    if (rects[i].top < minTop) minTop = rects[i].top;
+  }
+  return caretRect.top <= minTop + LINE_TOLERANCE_PX;
+}
+
+/** DFS text nodes under `node` only (not past its subtree; unlike `$dfs(node)` alone). */
+function $collectTextNodesInSubtree(node: LexicalNode, out: TextNode[]): void {
+  if ($isTextNode(node)) {
+    out.push(node);
+    return;
+  }
+  if ($isElementNode(node)) {
+    for (const child of node.getChildren()) {
+      $collectTextNodesInSubtree(child, out);
+    }
+  }
+}
+
+/**
+ * Builds a DOM range spanning the verse's in-paragraph content in document order, for
+ * `Range.prototype.getClientRects()` line-boundary checks.
+ *
+ * Prefers a range from the first to the last text node under the given nodes (in DFS order). If
+ * there are no text nodes, falls back to a range from the first to the last supplied node using
+ * text length or element child count for the end offset.
+ *
+ * @param editor - Editor used to resolve Lexical nodes to DOM.
+ * @param nodes - Sibling nodes from the current verse through the next verse marker (exclusive).
+ * @returns A DOM `Range`, or `null` if a range cannot be constructed.
+ */
+function $createDomRangeForVerseContent(editor: LexicalEditor, nodes: LexicalNode[]): Range | null {
+  if (nodes.length === 0) {
+    return null;
+  }
+
+  const textNodes: TextNode[] = [];
+  for (const n of nodes) {
+    $collectTextNodesInSubtree(n, textNodes);
+  }
+
+  if (textNodes.length > 0) {
+    const first = textNodes[0];
+    const last = textNodes[textNodes.length - 1];
+    return createDOMRange(editor, first, 0, last, last.getTextContentSize());
+  }
+
+  const first = nodes[0];
+  const last = nodes[nodes.length - 1];
+  let endOffset = 0;
+  if ($isTextNode(last)) {
+    endOffset = last.getTextContentSize();
+  } else if ($isElementNode(last)) {
+    endOffset = last.getChildrenSize();
+  }
+  return createDOMRange(editor, first, 0, last, endOffset);
 }
