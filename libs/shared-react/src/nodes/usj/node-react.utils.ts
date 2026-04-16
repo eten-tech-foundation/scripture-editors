@@ -617,7 +617,6 @@ export function $selectNextVerse(selection: RangeSelection): boolean {
       parent &&
       $isElementNode(parent) &&
       $isElementNode(anchorNode) &&
-      selection.anchor.key === anchorNode.getKey() &&
       anchorNode === parent &&
       selection.anchor.offset < currentVerse.getIndexWithinParent()
     ) {
