@@ -6,14 +6,7 @@ import {
 } from "../../../nodes/usj/node-react.utils";
 import { UsjNodeOptions } from "../../../nodes/usj/usj-node-options.model";
 import { ViewOptions } from "../../../views/view-options.utils";
-import {
-  $isEmbedNode,
-  $isParaLikeNode,
-  DeltaOp,
-  EmbedNode,
-  isInsertEmbedOpOfType,
-  LF,
-} from "./delta-common.utils";
+import { $isEmbedNode, DeltaOp, EmbedNode, isInsertEmbedOpOfType, LF } from "./delta-common.utils";
 import {
   DeltaOpInsertNoteEmbed,
   OT_BOOK_PROPS,
@@ -66,6 +59,7 @@ import {
   $isImpliedParaNode,
   $isMilestoneNode,
   $isNoteNode,
+  $isParaLikeNode,
   $isParaNode,
   $isSomeChapterNode,
   $isSomeParaNode,
