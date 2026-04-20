@@ -12,6 +12,7 @@ import { useEffect } from "react";
 import {
   $isCharNode,
   $isNoteNode,
+  $isParaLikeNode,
   $isTypedMarkNode,
   $isUnknownNode,
   CharNode,
@@ -49,13 +50,14 @@ function useTextSpacing(editor: LexicalEditor) {
 }
 
 /**
- * Adds a space to the end of a TextNode if it doesn't precede a note or isn't inside a CharNode,
- * TypedMarkNode, or UnknownNode. It doesn't add a space if the text node is not editable. It
- * removes a TextNode with only a space if it is not followed by a verse node.
+ * Ensures a TextNode has trailing spacing when needed for inline scripture content.
  *
- * When the next sibling is a CharNode or TypedMarkNode (inline marker or annotation), we skip
- * both adding trailing space and the space-only cleanup below, so spacing before inline content
- * is left unchanged.
+ * The transform does nothing when the node is not editable, already has meaningful trailing
+ * whitespace, precedes a note, is inside or adjacent to CharNode, TypedMarkNode, or UnknownNode
+ * content, or is the last child of a para-like node.
+ *
+ * If the node contains only a single space and is not followed by a verse node, that placeholder
+ * space is removed instead of preserved.
  *
  * @param node - TextNode that might need updating.
  */
@@ -73,7 +75,9 @@ function $textNodeTrailingSpaceTransform(node: TextNode): void {
     $isCharNode(nextSibling) ||
     $isTypedMarkNode(parent) ||
     $isTypedMarkNode(nextSibling) ||
-    $isUnknownNode(parent)
+    $isUnknownNode(parent) ||
+    // Don't add space if it's the last node in a paragraph-like node
+    ($isParaLikeNode(parent) && node.is(parent.getLastChild()))
   )
     return;
 

@@ -60,6 +60,8 @@ export type NodesWithMarker =
 export type SomeChapterNode = ChapterNode | ImmutableChapterNode;
 export type SomeParaNode = ParaNode | ImpliedParaNode;
 
+export type ParaLikeNode = SomeParaNode | BookNode;
+
 /** RegEx to test for a string only containing digits. */
 const ONLY_DIGITS_TEST = /^\d+$/;
 
@@ -237,6 +239,14 @@ export function $getPreviousNode(selection: RangeSelection): LexicalNode | null 
 
   const anchorNode = selection.anchor.getNode();
   return anchorNode.getPreviousSibling() ?? anchorNode.getParent()?.getPreviousSibling() ?? null;
+}
+
+/**
+ * Type guard to check if a node is para-like. Para-like nodes have an OT length of 1 that is
+ * counted on its close (rather than its open).
+ */
+export function $isParaLikeNode(node: LexicalNode | null | undefined): node is ParaLikeNode {
+  return $isSomeParaNode(node) || $isBookNode(node);
 }
 
 /**
