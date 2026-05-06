@@ -2,9 +2,15 @@ import { baseTestEnvironment } from "../react-test.utils";
 import { AnnotationPlugin, AnnotationRef } from "./AnnotationPlugin";
 import { AnnotationRange } from "./selection.model";
 import { act } from "@testing-library/react";
-import { $createTextNode, $getRoot, $isTextNode } from "lexical";
+import { $createTextNode, $getRoot, $isElementNode, $isTextNode, LexicalNode } from "lexical";
 import { createRef } from "react";
-import { $createParaNode, $createTypedMarkNode, $isParaNode, $isTypedMarkNode } from "shared";
+import {
+  $createParaNode,
+  $createTypedMarkNode,
+  $isParaNode,
+  $isTypedMarkNode,
+  TypedMarkNode,
+} from "shared";
 import { vi } from "vitest";
 
 describe("AnnotationPlugin", () => {
@@ -86,7 +92,141 @@ describe("AnnotationPlugin", () => {
       expect(fourthChild.getTextContent()).toBe(" stands");
     });
   });
+
+  describe("hover callbacks survive nested-mark resolution", () => {
+    it("preserves onMouseEnter when a second annotation is added to a range already inside a TypedMarkNode", async () => {
+      // Initial state: "the man who stands" with no marks - we'll add the first via setAnnotation
+      // so the AnnotationPlugin runs end-to-end (mirroring the consumer flow).
+      const onMouseEnter = vi.fn();
+      const onMouseLeave = vi.fn();
+      const text = "the man who stands";
+      const { annotationPlugin, editor } = await testEnvironment(() => {
+        $getRoot().append($createParaNode().append($createTextNode(text)));
+      });
+
+      const jsonPath = "$.content[0].content[0]";
+      const wordRange: AnnotationRange = {
+        // "man" - chars 4..7
+        start: { jsonPath, offset: 4 },
+        end: { jsonPath, offset: 7 },
+      };
+
+      // Annotation #1: a highlight mark with hover callbacks attached.
+      await act(async () => {
+        annotationPlugin.setAnnotation(
+          wordRange,
+          "highlight",
+          "hl-A",
+          undefined,
+          undefined,
+          onMouseEnter,
+          onMouseLeave,
+        );
+      });
+
+      // Annotation #2: a second annotation type ("dim") over the SAME range, no callbacks.
+      // This exercises the nested-element resolver path: the second setAnnotation lands on a
+      // range already wrapped by the first TypedMarkNode, and merge logic must preserve the
+      // hover callbacks registered on the first annotation.
+      await act(async () => {
+        annotationPlugin.setAnnotation(wordRange, "dim", "dim-A");
+      });
+
+      // After merge, find the surviving TypedMarkNode covering "man" and assert the hover
+      // callbacks survived the merge.
+      editor.getEditorState().read(() => {
+        const merged = $findMergedTypedMarkNode("man");
+        if (merged === null) throw new Error("Expected merged TypedMarkNode covering 'man'");
+
+        const typedIDs = merged.getTypedIDs();
+        expect(typedIDs["highlight"]).toContain("hl-A");
+        expect(typedIDs["dim"]).toContain("dim-A");
+
+        const onMouseEnters = merged.getTypedOnMouseEnters();
+        const onMouseLeaves = merged.getTypedOnMouseLeaves();
+        expect(onMouseEnters["highlight"]?.["hl-A"]).toBe(onMouseEnter);
+        expect(onMouseLeaves["highlight"]?.["hl-A"]).toBe(onMouseLeave);
+
+        const element = editor.getElementByKey(merged.getKey());
+        if (!(element instanceof HTMLElement)) {
+          throw new Error("Expected DOM element for merged mark node");
+        }
+        element.dispatchEvent(new window.MouseEvent("mouseenter"));
+      });
+
+      expect(onMouseEnter).toHaveBeenCalledTimes(1);
+      expect(onMouseEnter).toHaveBeenCalledWith(expect.anything(), "highlight", "hl-A", "man");
+    });
+
+    it("preserves the original mark and its IDs after applying a second annotation to the same range", async () => {
+      const text = "the man who stands";
+      const { annotationPlugin, editor } = await testEnvironment(() => {
+        $getRoot().append($createParaNode().append($createTextNode(text)));
+      });
+
+      const jsonPath = "$.content[0].content[0]";
+      const wordRange: AnnotationRange = {
+        start: { jsonPath, offset: 4 },
+        end: { jsonPath, offset: 7 },
+      };
+
+      await act(async () => {
+        annotationPlugin.setAnnotation(
+          wordRange,
+          "highlight",
+          "hl-A",
+          undefined,
+          undefined,
+          vi.fn(),
+          vi.fn(),
+        );
+      });
+
+      await act(async () => {
+        annotationPlugin.setAnnotation(wordRange, "dim", "dim-A");
+      });
+
+      // Editor should still contain at least one TypedMarkNode covering the word, and that mark
+      // should carry both type+id pairs after the second-annotation cascade resolves.
+      editor.getEditorState().read(() => {
+        const allMarks: TypedMarkNode[] = [];
+        $getRoot()
+          .getAllTextNodes()
+          .forEach((tn) => {
+            for (let p = tn.getParent(); p !== null; p = p.getParent()) {
+              if ($isTypedMarkNode(p) && !allMarks.includes(p)) allMarks.push(p);
+            }
+          });
+        expect(allMarks.length).toBeGreaterThan(0);
+
+        const carryingBoth = allMarks.find((m) => {
+          const ids = m.getTypedIDs();
+          return ids["highlight"]?.includes("hl-A") && ids["dim"]?.includes("dim-A");
+        });
+        expect(carryingBoth).toBeDefined();
+      });
+    });
+  });
 });
+
+/**
+ * Find the TypedMarkNode whose text content is exactly `expectedText` after merge.
+ * Must be called inside an `editor.read` / `editor.update` callback.
+ */
+function $findMergedTypedMarkNode(expectedText: string): TypedMarkNode | null {
+  const stack: LexicalNode[] = $getRoot().getChildren();
+  while (stack.length > 0) {
+    const node = stack.shift();
+    if (node === undefined) break;
+    if ($isTypedMarkNode(node) && node.getTextContent() === expectedText) {
+      return node;
+    }
+    if ($isElementNode(node)) {
+      stack.push(...node.getChildren());
+    }
+  }
+  return null;
+}
 
 async function testEnvironment($initialEditorState: () => void) {
   const annotationPluginRef = createRef<AnnotationRef>();

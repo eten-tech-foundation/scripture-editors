@@ -18,7 +18,15 @@ import {
   useRef,
   useState,
 } from "react";
-import { DeltaOp, DeltaSource } from "shared-react";
+import {
+  AnnotationRange,
+  DeltaOp,
+  DeltaSource,
+  TypedMarkOnClick,
+  TypedMarkOnMouseEnter,
+  TypedMarkOnMouseLeave,
+  TypedMarkOnRemove,
+} from "shared-react";
 import { LoggerBasic } from "shared";
 
 /**
@@ -145,8 +153,28 @@ const Marginal = forwardRef(function Marginal<TLogger extends LoggerBasic>(
     setSelection(selection) {
       editorRef.current?.setSelection(selection);
     },
-    setAnnotation(selection, type, id, onClick, onRemove) {
-      editorRef.current?.setAnnotation(selection, type, id, onClick, onRemove);
+    setAnnotation(
+      selection: AnnotationRange,
+      type: string,
+      id: string,
+      fourth?:
+        | TypedMarkOnClick
+        | {
+            onClick?: TypedMarkOnClick;
+            onRemove?: TypedMarkOnRemove;
+            onMouseEnter?: TypedMarkOnMouseEnter;
+            onMouseLeave?: TypedMarkOnMouseLeave;
+          },
+      fifth?: TypedMarkOnRemove,
+    ) {
+      // Discriminate so the delegated call binds to the matching overload (legacy positional vs
+      // new options-object). Forwarding `(fourth, fifth)` together would fail typecheck since
+      // neither overload accepts both shapes.
+      if (typeof fourth === "function" || fourth === undefined) {
+        editorRef.current?.setAnnotation(selection, type, id, fourth, fifth);
+      } else {
+        editorRef.current?.setAnnotation(selection, type, id, fourth);
+      }
     },
     removeAnnotation(type, id) {
       editorRef.current?.removeAnnotation(type, id);

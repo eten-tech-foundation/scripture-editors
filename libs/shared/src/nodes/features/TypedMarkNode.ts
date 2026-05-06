@@ -85,6 +85,44 @@ export interface TypedOnRemoves {
   [type: string]: { [id: string]: TypedMarkOnRemove };
 }
 
+/**
+ * A callback function type for handling mouse-enter events on annotated marks.
+ *
+ * Fires once when the cursor enters the rendered `<mark>` element. Uses native `mouseenter`
+ * semantics (no bubbling, no re-fire as cursor crosses inner text-node boundaries).
+ *
+ * @public
+ */
+export type TypedMarkOnMouseEnter = (
+  event: DomMouseEvent,
+  type: string,
+  id: string,
+  textContent: string,
+) => void;
+
+export interface TypedOnMouseEnters {
+  [type: string]: { [id: string]: TypedMarkOnMouseEnter };
+}
+
+/**
+ * A callback function type for handling mouse-leave events on annotated marks.
+ *
+ * Fires once when the cursor leaves the rendered `<mark>` element. Uses native `mouseleave`
+ * semantics (no bubbling).
+ *
+ * @public
+ */
+export type TypedMarkOnMouseLeave = (
+  event: DomMouseEvent,
+  type: string,
+  id: string,
+  textContent: string,
+) => void;
+
+export interface TypedOnMouseLeaves {
+  [type: string]: { [id: string]: TypedMarkOnMouseLeave };
+}
+
 export type SerializedTypedMarkNode = Spread<
   {
     typedIDs: TypedIDs;
@@ -99,32 +137,48 @@ const reservedTypes = [COMMENT_MARK_TYPE];
 const NO_IDS: TypedIDs = Object.freeze({});
 const NO_ON_CLICKS: TypedOnClicks = Object.freeze({});
 const NO_ON_REMOVES: TypedOnRemoves = Object.freeze({});
+const NO_ON_MOUSE_ENTERS: TypedOnMouseEnters = Object.freeze({});
+const NO_ON_MOUSE_LEAVES: TypedOnMouseLeaves = Object.freeze({});
 const TYPED_MARK_VERSION = 1;
 
 const typedOnClickRegistry = new Map<NodeKey, TypedOnClicks>();
 const typedOnRemoveRegistry = new Map<NodeKey, TypedOnRemoves>();
+const typedOnMouseEnterRegistry = new Map<NodeKey, TypedOnMouseEnters>();
+const typedOnMouseLeaveRegistry = new Map<NodeKey, TypedOnMouseLeaves>();
 
 export class TypedMarkNode extends ElementNode {
   __typedIDs: TypedIDs;
   __typedOnClicks?: TypedOnClicks;
   __typedOnRemoves?: TypedOnRemoves;
+  __typedOnMouseEnters?: TypedOnMouseEnters;
+  __typedOnMouseLeaves?: TypedOnMouseLeaves;
   __domOnClickListener?: (event: DomMouseEvent) => void;
+  __domOnMouseEnterListener?: (event: DomMouseEvent) => void;
+  __domOnMouseLeaveListener?: (event: DomMouseEvent) => void;
   __suppressOnRemoveCallbacks?: boolean;
 
   constructor(
     typedIds: TypedIDs = NO_IDS,
     typedOnClicks?: TypedOnClicks,
     typedOnRemoves?: TypedOnRemoves,
+    typedOnMouseEnters?: TypedOnMouseEnters,
+    typedOnMouseLeaves?: TypedOnMouseLeaves,
     key?: NodeKey,
   ) {
     super(key);
     this.__typedIDs = cloneTypedIDs(typedIds);
     this.__typedOnClicks = cloneTypedOnClicks(typedOnClicks);
     this.__typedOnRemoves = cloneTypedOnRemoves(typedOnRemoves);
+    this.__typedOnMouseEnters = cloneTypedOnMouseEnters(typedOnMouseEnters);
+    this.__typedOnMouseLeaves = cloneTypedOnMouseLeaves(typedOnMouseLeaves);
     this.pruneTypedOnClicks();
     this.pruneTypedOnRemoves();
+    this.pruneTypedOnMouseEnters();
+    this.pruneTypedOnMouseLeaves();
     this.syncTypedOnClicksToRegistry();
     this.syncTypedOnRemovesToRegistry();
+    this.syncTypedOnMouseEntersToRegistry();
+    this.syncTypedOnMouseLeavesToRegistry();
   }
 
   static override getType(): string {
@@ -135,7 +189,16 @@ export class TypedMarkNode extends ElementNode {
     const __typedIDs = cloneTypedIDs(node.__typedIDs);
     const __typedOnClicks = cloneTypedOnClicks(node.__typedOnClicks);
     const __typedOnRemoves = cloneTypedOnRemoves(node.__typedOnRemoves);
-    return new TypedMarkNode(__typedIDs, __typedOnClicks, __typedOnRemoves, node.__key);
+    const __typedOnMouseEnters = cloneTypedOnMouseEnters(node.__typedOnMouseEnters);
+    const __typedOnMouseLeaves = cloneTypedOnMouseLeaves(node.__typedOnMouseLeaves);
+    return new TypedMarkNode(
+      __typedIDs,
+      __typedOnClicks,
+      __typedOnRemoves,
+      __typedOnMouseEnters,
+      __typedOnMouseLeaves,
+      node.__key,
+    );
   }
 
   static isReservedType(type: string): boolean {
@@ -172,6 +235,10 @@ export class TypedMarkNode extends ElementNode {
     }
     const clickListener = this.getOrCreateDOMClickListener(editor);
     element.addEventListener("click", clickListener);
+    const mouseEnterListener = this.getOrCreateDOMMouseEnterListener(editor);
+    element.addEventListener("mouseenter", mouseEnterListener);
+    const mouseLeaveListener = this.getOrCreateDOMMouseLeaveListener(editor);
+    element.addEventListener("mouseleave", mouseLeaveListener);
     return element;
   }
 
@@ -251,8 +318,12 @@ export class TypedMarkNode extends ElementNode {
     self.dispatchRemovedIDs(previousIDs, self.__typedIDs, "removed");
     self.pruneTypedOnClicks();
     self.pruneTypedOnRemoves();
+    self.pruneTypedOnMouseEnters();
+    self.pruneTypedOnMouseLeaves();
     self.syncTypedOnClicksToRegistry();
     self.syncTypedOnRemovesToRegistry();
+    self.syncTypedOnMouseEntersToRegistry();
+    self.syncTypedOnMouseLeavesToRegistry();
     const mergedNode = self.mergeWithAdjacentTypedMarks();
     if (mergedNode.hasNoIDsForEveryType() && mergedNode.getParent() !== null)
       $unwrapTypedMarkNode(mergedNode);
@@ -289,7 +360,44 @@ export class TypedMarkNode extends ElementNode {
     return stored ?? {};
   }
 
-  addID(type: string, id: string, onClick?: TypedMarkOnClick, onRemove?: TypedMarkOnRemove): void {
+  setTypedOnMouseEnters(typedOnMouseEnters: TypedOnMouseEnters): this {
+    const self = this.getWritable();
+    self.__typedOnMouseEnters = cloneTypedOnMouseEnters(typedOnMouseEnters);
+    self.pruneTypedOnMouseEnters();
+    self.syncTypedOnMouseEntersToRegistry();
+    return self;
+  }
+
+  getTypedOnMouseEnters(): TypedOnMouseEnters {
+    const self = this.getLatest();
+    if (!$isTypedMarkNode(self)) return {};
+    const stored = typedOnMouseEnterRegistry.get(self.getKey());
+    return stored ?? {};
+  }
+
+  setTypedOnMouseLeaves(typedOnMouseLeaves: TypedOnMouseLeaves): this {
+    const self = this.getWritable();
+    self.__typedOnMouseLeaves = cloneTypedOnMouseLeaves(typedOnMouseLeaves);
+    self.pruneTypedOnMouseLeaves();
+    self.syncTypedOnMouseLeavesToRegistry();
+    return self;
+  }
+
+  getTypedOnMouseLeaves(): TypedOnMouseLeaves {
+    const self = this.getLatest();
+    if (!$isTypedMarkNode(self)) return {};
+    const stored = typedOnMouseLeaveRegistry.get(self.getKey());
+    return stored ?? {};
+  }
+
+  addID(
+    type: string,
+    id: string,
+    onClick?: TypedMarkOnClick,
+    onRemove?: TypedMarkOnRemove,
+    onMouseEnter?: TypedMarkOnMouseEnter,
+    onMouseLeave?: TypedMarkOnMouseLeave,
+  ): void {
     const self = this.getWritable();
     if (!$isTypedMarkNode(self)) return;
 
@@ -305,12 +413,16 @@ export class TypedMarkNode extends ElementNode {
       if (id === existingId) {
         if (onClick) self.setOnClickFor(type, id, onClick);
         if (onRemove) self.setOnRemoveFor(type, id, onRemove);
+        if (onMouseEnter) self.setOnMouseEnterFor(type, id, onMouseEnter);
+        if (onMouseLeave) self.setOnMouseLeaveFor(type, id, onMouseLeave);
         return;
       }
     }
     ids.push(id);
     if (onClick) self.setOnClickFor(type, id, onClick);
     if (onRemove) self.setOnRemoveFor(type, id, onRemove);
+    if (onMouseEnter) self.setOnMouseEnterFor(type, id, onMouseEnter);
+    if (onMouseLeave) self.setOnMouseLeaveFor(type, id, onMouseLeave);
   }
 
   deleteID(type: string, id: string): void {
@@ -330,8 +442,12 @@ export class TypedMarkNode extends ElementNode {
 
     self.removeOnClickFor(type, id);
     self.removeOnRemoveFor(type, id);
+    self.removeOnMouseEnterFor(type, id);
+    self.removeOnMouseLeaveFor(type, id);
     self.pruneTypedOnClicks();
     self.pruneTypedOnRemoves();
+    self.pruneTypedOnMouseEnters();
+    self.pruneTypedOnMouseLeaves();
     const mergedNode = self.mergeWithAdjacentTypedMarks();
     if (mergedNode.hasNoIDsForEveryType() && mergedNode.getParent() !== null)
       $unwrapTypedMarkNode(mergedNode);
@@ -401,8 +517,12 @@ export class TypedMarkNode extends ElementNode {
 
     typedOnClickRegistry.delete(self.getKey());
     typedOnRemoveRegistry.delete(self.getKey());
+    typedOnMouseEnterRegistry.delete(self.getKey());
+    typedOnMouseLeaveRegistry.delete(self.getKey());
     self.__typedOnClicks = undefined;
     self.__typedOnRemoves = undefined;
+    self.__typedOnMouseEnters = undefined;
+    self.__typedOnMouseLeaves = undefined;
 
     super.remove.call(self, preserveEmptyParent);
   }
@@ -422,6 +542,62 @@ export class TypedMarkNode extends ElementNode {
 
     const callbacks: [TypedMarkOnClick, string, string][] = [];
     for (const [type, callbacksById] of Object.entries(typedOnClicks)) {
+      for (const [id, callback] of Object.entries(callbacksById)) {
+        if (callback) callbacks.push([callback, type, id]);
+      }
+    }
+
+    if (callbacks.length === 0) return;
+
+    const textContent = editor.read(() => this.getTextContent());
+    for (const [callback, type, id] of callbacks) {
+      callback(event, type, id, textContent);
+    }
+  }
+
+  private getOrCreateDOMMouseEnterListener(editor: LexicalEditor): (event: DomMouseEvent) => void {
+    if (!this.__domOnMouseEnterListener) {
+      this.__domOnMouseEnterListener = (event: DomMouseEvent) => {
+        this.handleDOMMouseEnter(event, editor);
+      };
+    }
+    return this.__domOnMouseEnterListener;
+  }
+
+  private handleDOMMouseEnter(event: DomMouseEvent, editor: LexicalEditor): void {
+    const typedOnMouseEnters = typedOnMouseEnterRegistry.get(this.getKey());
+    if (!typedOnMouseEnters) return;
+
+    const callbacks: [TypedMarkOnMouseEnter, string, string][] = [];
+    for (const [type, callbacksById] of Object.entries(typedOnMouseEnters)) {
+      for (const [id, callback] of Object.entries(callbacksById)) {
+        if (callback) callbacks.push([callback, type, id]);
+      }
+    }
+
+    if (callbacks.length === 0) return;
+
+    const textContent = editor.read(() => this.getTextContent());
+    for (const [callback, type, id] of callbacks) {
+      callback(event, type, id, textContent);
+    }
+  }
+
+  private getOrCreateDOMMouseLeaveListener(editor: LexicalEditor): (event: DomMouseEvent) => void {
+    if (!this.__domOnMouseLeaveListener) {
+      this.__domOnMouseLeaveListener = (event: DomMouseEvent) => {
+        this.handleDOMMouseLeave(event, editor);
+      };
+    }
+    return this.__domOnMouseLeaveListener;
+  }
+
+  private handleDOMMouseLeave(event: DomMouseEvent, editor: LexicalEditor): void {
+    const typedOnMouseLeaves = typedOnMouseLeaveRegistry.get(this.getKey());
+    if (!typedOnMouseLeaves) return;
+
+    const callbacks: [TypedMarkOnMouseLeave, string, string][] = [];
+    for (const [type, callbacksById] of Object.entries(typedOnMouseLeaves)) {
       for (const [id, callback] of Object.entries(callbacksById)) {
         if (callback) callbacks.push([callback, type, id]);
       }
@@ -594,6 +770,176 @@ export class TypedMarkNode extends ElementNode {
     this.syncTypedOnRemovesToRegistry();
   }
 
+  private ensureOnMouseEnterMapMutable(): TypedOnMouseEnters {
+    if (
+      this.__typedOnMouseEnters === undefined ||
+      this.__typedOnMouseEnters === NO_ON_MOUSE_ENTERS
+    ) {
+      const existing = typedOnMouseEnterRegistry.get(this.getKey());
+      this.__typedOnMouseEnters = existing ?? {};
+    }
+    return this.__typedOnMouseEnters;
+  }
+
+  private syncTypedOnMouseEntersToRegistry(): void {
+    if (!this.__typedOnMouseEnters || Object.keys(this.__typedOnMouseEnters).length === 0) {
+      typedOnMouseEnterRegistry.delete(this.getKey());
+      if (this.__typedOnMouseEnters && Object.keys(this.__typedOnMouseEnters).length === 0) {
+        this.__typedOnMouseEnters = undefined;
+      }
+      return;
+    }
+    typedOnMouseEnterRegistry.set(this.getKey(), this.__typedOnMouseEnters);
+  }
+
+  private setOnMouseEnterFor(type: string, id: string, onMouseEnter: TypedMarkOnMouseEnter): void {
+    assertSafeKey(type);
+    assertSafeKey(id);
+
+    const callbacks = this.ensureOnMouseEnterMapMutable();
+    const typeCallbacks = callbacks[type] ?? (callbacks[type] = {});
+    typeCallbacks[id] = onMouseEnter;
+    this.syncTypedOnMouseEntersToRegistry();
+  }
+
+  private removeOnMouseEnterFor(type: string, id: string): void {
+    if (!this.__typedOnMouseEnters) return;
+    const typeCallbacks = this.__typedOnMouseEnters[type];
+    if (!typeCallbacks) return;
+
+    const updatedTypeCallbacks = omitRecordKey(typeCallbacks, id);
+    const hasRemainingCallbacks = Object.keys(updatedTypeCallbacks).length > 0;
+
+    if (hasRemainingCallbacks) {
+      this.__typedOnMouseEnters = {
+        ...this.__typedOnMouseEnters,
+        [type]: updatedTypeCallbacks,
+      };
+    } else {
+      const remainingCallbacks = omitRecordKey(this.__typedOnMouseEnters, type);
+      this.__typedOnMouseEnters =
+        Object.keys(remainingCallbacks).length > 0 ? remainingCallbacks : undefined;
+    }
+
+    this.syncTypedOnMouseEntersToRegistry();
+  }
+
+  private pruneTypedOnMouseEnters(): void {
+    if (!this.__typedOnMouseEnters || this.__typedOnMouseEnters === NO_ON_MOUSE_ENTERS) {
+      this.__typedOnMouseEnters = undefined;
+      this.syncTypedOnMouseEntersToRegistry();
+      return;
+    }
+
+    const nextTypedOnMouseEnters: TypedOnMouseEnters = {};
+
+    for (const [type, callbacks] of Object.entries(this.__typedOnMouseEnters)) {
+      const ids = this.__typedIDs[type];
+      if (!ids || ids.length === 0) {
+        continue;
+      }
+      const idSet = new Set(ids);
+      const filteredCallbacks: { [id: string]: TypedMarkOnMouseEnter } = {};
+      for (const [id, callback] of Object.entries(callbacks)) {
+        if (idSet.has(id)) {
+          filteredCallbacks[id] = callback;
+        }
+      }
+      if (Object.keys(filteredCallbacks).length > 0) {
+        nextTypedOnMouseEnters[type] = filteredCallbacks;
+      }
+    }
+
+    this.__typedOnMouseEnters =
+      Object.keys(nextTypedOnMouseEnters).length > 0 ? nextTypedOnMouseEnters : undefined;
+    this.syncTypedOnMouseEntersToRegistry();
+  }
+
+  private ensureOnMouseLeaveMapMutable(): TypedOnMouseLeaves {
+    if (
+      this.__typedOnMouseLeaves === undefined ||
+      this.__typedOnMouseLeaves === NO_ON_MOUSE_LEAVES
+    ) {
+      const existing = typedOnMouseLeaveRegistry.get(this.getKey());
+      this.__typedOnMouseLeaves = existing ?? {};
+    }
+    return this.__typedOnMouseLeaves;
+  }
+
+  private syncTypedOnMouseLeavesToRegistry(): void {
+    if (!this.__typedOnMouseLeaves || Object.keys(this.__typedOnMouseLeaves).length === 0) {
+      typedOnMouseLeaveRegistry.delete(this.getKey());
+      if (this.__typedOnMouseLeaves && Object.keys(this.__typedOnMouseLeaves).length === 0) {
+        this.__typedOnMouseLeaves = undefined;
+      }
+      return;
+    }
+    typedOnMouseLeaveRegistry.set(this.getKey(), this.__typedOnMouseLeaves);
+  }
+
+  private setOnMouseLeaveFor(type: string, id: string, onMouseLeave: TypedMarkOnMouseLeave): void {
+    assertSafeKey(type);
+    assertSafeKey(id);
+
+    const callbacks = this.ensureOnMouseLeaveMapMutable();
+    const typeCallbacks = callbacks[type] ?? (callbacks[type] = {});
+    typeCallbacks[id] = onMouseLeave;
+    this.syncTypedOnMouseLeavesToRegistry();
+  }
+
+  private removeOnMouseLeaveFor(type: string, id: string): void {
+    if (!this.__typedOnMouseLeaves) return;
+    const typeCallbacks = this.__typedOnMouseLeaves[type];
+    if (!typeCallbacks) return;
+
+    const updatedTypeCallbacks = omitRecordKey(typeCallbacks, id);
+    const hasRemainingCallbacks = Object.keys(updatedTypeCallbacks).length > 0;
+
+    if (hasRemainingCallbacks) {
+      this.__typedOnMouseLeaves = {
+        ...this.__typedOnMouseLeaves,
+        [type]: updatedTypeCallbacks,
+      };
+    } else {
+      const remainingCallbacks = omitRecordKey(this.__typedOnMouseLeaves, type);
+      this.__typedOnMouseLeaves =
+        Object.keys(remainingCallbacks).length > 0 ? remainingCallbacks : undefined;
+    }
+
+    this.syncTypedOnMouseLeavesToRegistry();
+  }
+
+  private pruneTypedOnMouseLeaves(): void {
+    if (!this.__typedOnMouseLeaves || this.__typedOnMouseLeaves === NO_ON_MOUSE_LEAVES) {
+      this.__typedOnMouseLeaves = undefined;
+      this.syncTypedOnMouseLeavesToRegistry();
+      return;
+    }
+
+    const nextTypedOnMouseLeaves: TypedOnMouseLeaves = {};
+
+    for (const [type, callbacks] of Object.entries(this.__typedOnMouseLeaves)) {
+      const ids = this.__typedIDs[type];
+      if (!ids || ids.length === 0) {
+        continue;
+      }
+      const idSet = new Set(ids);
+      const filteredCallbacks: { [id: string]: TypedMarkOnMouseLeave } = {};
+      for (const [id, callback] of Object.entries(callbacks)) {
+        if (idSet.has(id)) {
+          filteredCallbacks[id] = callback;
+        }
+      }
+      if (Object.keys(filteredCallbacks).length > 0) {
+        nextTypedOnMouseLeaves[type] = filteredCallbacks;
+      }
+    }
+
+    this.__typedOnMouseLeaves =
+      Object.keys(nextTypedOnMouseLeaves).length > 0 ? nextTypedOnMouseLeaves : undefined;
+    this.syncTypedOnMouseLeavesToRegistry();
+  }
+
   private invokeOnRemove(type: string, id: string, cause: TypedMarkRemovalCause): void {
     const callbacks = this.getTypedOnRemoves();
     const callback = callbacks[type]?.[id];
@@ -649,6 +995,8 @@ export class TypedMarkNode extends ElementNode {
   private mergeWithPreviousTypedMark(previous: TypedMarkNode): void {
     this.mergeOnClicksFrom(previous.getTypedOnClicks());
     this.mergeOnRemovesFrom(previous.getTypedOnRemoves());
+    this.mergeOnMouseEntersFrom(previous.getTypedOnMouseEnters());
+    this.mergeOnMouseLeavesFrom(previous.getTypedOnMouseLeaves());
 
     const previousChildren = previous.getChildren();
     if (previousChildren.length > 0) {
@@ -657,6 +1005,8 @@ export class TypedMarkNode extends ElementNode {
 
     typedOnClickRegistry.delete(previous.getKey());
     typedOnRemoveRegistry.delete(previous.getKey());
+    typedOnMouseEnterRegistry.delete(previous.getKey());
+    typedOnMouseLeaveRegistry.delete(previous.getKey());
     previous.getWritable().__suppressOnRemoveCallbacks = true;
     previous.remove();
   }
@@ -664,6 +1014,8 @@ export class TypedMarkNode extends ElementNode {
   private mergeWithNextTypedMark(next: TypedMarkNode): void {
     this.mergeOnClicksFrom(next.getTypedOnClicks());
     this.mergeOnRemovesFrom(next.getTypedOnRemoves());
+    this.mergeOnMouseEntersFrom(next.getTypedOnMouseEnters());
+    this.mergeOnMouseLeavesFrom(next.getTypedOnMouseLeaves());
 
     const nextChildren = next.getChildren();
     if (nextChildren.length > 0) {
@@ -672,6 +1024,8 @@ export class TypedMarkNode extends ElementNode {
 
     typedOnClickRegistry.delete(next.getKey());
     typedOnRemoveRegistry.delete(next.getKey());
+    typedOnMouseEnterRegistry.delete(next.getKey());
+    typedOnMouseLeaveRegistry.delete(next.getKey());
     next.getWritable().__suppressOnRemoveCallbacks = true;
     next.remove();
   }
@@ -690,6 +1044,22 @@ export class TypedMarkNode extends ElementNode {
     if (Object.keys(merged).length === 0) return;
 
     this.setTypedOnRemoves(merged);
+  }
+
+  private mergeOnMouseEntersFrom(additional: TypedOnMouseEnters): void {
+    if (!additional || Object.keys(additional).length === 0) return;
+    const merged = mergeTypedOnMouseEnterMaps(this.getTypedOnMouseEnters(), additional);
+    if (Object.keys(merged).length === 0) return;
+
+    this.setTypedOnMouseEnters(merged);
+  }
+
+  private mergeOnMouseLeavesFrom(additional: TypedOnMouseLeaves): void {
+    if (!additional || Object.keys(additional).length === 0) return;
+    const merged = mergeTypedOnMouseLeaveMaps(this.getTypedOnMouseLeaves(), additional);
+    if (Object.keys(merged).length === 0) return;
+
+    this.setTypedOnMouseLeaves(merged);
   }
 }
 
@@ -737,6 +1107,44 @@ function cloneTypedOnRemoves(typedOnRemoves?: TypedOnRemoves): TypedOnRemoves | 
   for (const [type, callbacks] of Object.entries(typedOnRemoves)) {
     assertSafeKey(type);
     const clonedCallbacks: { [id: string]: TypedMarkOnRemove } = {};
+    for (const [id, callback] of Object.entries(callbacks)) {
+      assertSafeKey(id);
+      clonedCallbacks[id] = callback;
+    }
+    if (Object.keys(clonedCallbacks).length > 0) clone[type] = clonedCallbacks;
+  }
+
+  return Object.keys(clone).length > 0 ? clone : undefined;
+}
+
+function cloneTypedOnMouseEnters(
+  typedOnMouseEnters?: TypedOnMouseEnters,
+): TypedOnMouseEnters | undefined {
+  if (!typedOnMouseEnters || typedOnMouseEnters === NO_ON_MOUSE_ENTERS) return undefined;
+
+  const clone: TypedOnMouseEnters = {};
+  for (const [type, callbacks] of Object.entries(typedOnMouseEnters)) {
+    assertSafeKey(type);
+    const clonedCallbacks: { [id: string]: TypedMarkOnMouseEnter } = {};
+    for (const [id, callback] of Object.entries(callbacks)) {
+      assertSafeKey(id);
+      clonedCallbacks[id] = callback;
+    }
+    if (Object.keys(clonedCallbacks).length > 0) clone[type] = clonedCallbacks;
+  }
+
+  return Object.keys(clone).length > 0 ? clone : undefined;
+}
+
+function cloneTypedOnMouseLeaves(
+  typedOnMouseLeaves?: TypedOnMouseLeaves,
+): TypedOnMouseLeaves | undefined {
+  if (!typedOnMouseLeaves || typedOnMouseLeaves === NO_ON_MOUSE_LEAVES) return undefined;
+
+  const clone: TypedOnMouseLeaves = {};
+  for (const [type, callbacks] of Object.entries(typedOnMouseLeaves)) {
+    assertSafeKey(type);
+    const clonedCallbacks: { [id: string]: TypedMarkOnMouseLeave } = {};
     for (const [id, callback] of Object.entries(callbacks)) {
       assertSafeKey(id);
       clonedCallbacks[id] = callback;
@@ -845,6 +1253,54 @@ function mergeTypedOnRemoveMaps(
   return merged;
 }
 
+function mergeTypedOnMouseEnterMaps(
+  primary: TypedOnMouseEnters,
+  secondary: TypedOnMouseEnters,
+): TypedOnMouseEnters {
+  const merged: TypedOnMouseEnters = {};
+  const types = new Set([...Object.keys(primary), ...Object.keys(secondary)]);
+
+  for (const type of types) {
+    const primaryCallbacks = primary[type] ?? {};
+    const secondaryCallbacks = secondary[type] ?? {};
+    const ids = new Set([...Object.keys(primaryCallbacks), ...Object.keys(secondaryCallbacks)]);
+
+    const mergedCallbacks: { [id: string]: TypedMarkOnMouseEnter } = {};
+    for (const id of ids) {
+      const callback = primaryCallbacks[id] ?? secondaryCallbacks[id];
+      if (callback) mergedCallbacks[id] = callback;
+    }
+
+    if (Object.keys(mergedCallbacks).length > 0) merged[type] = mergedCallbacks;
+  }
+
+  return merged;
+}
+
+function mergeTypedOnMouseLeaveMaps(
+  primary: TypedOnMouseLeaves,
+  secondary: TypedOnMouseLeaves,
+): TypedOnMouseLeaves {
+  const merged: TypedOnMouseLeaves = {};
+  const types = new Set([...Object.keys(primary), ...Object.keys(secondary)]);
+
+  for (const type of types) {
+    const primaryCallbacks = primary[type] ?? {};
+    const secondaryCallbacks = secondary[type] ?? {};
+    const ids = new Set([...Object.keys(primaryCallbacks), ...Object.keys(secondaryCallbacks)]);
+
+    const mergedCallbacks: { [id: string]: TypedMarkOnMouseLeave } = {};
+    for (const id of ids) {
+      const callback = primaryCallbacks[id] ?? secondaryCallbacks[id];
+      if (callback) mergedCallbacks[id] = callback;
+    }
+
+    if (Object.keys(mergedCallbacks).length > 0) merged[type] = mergedCallbacks;
+  }
+
+  return merged;
+}
+
 function getTypedClassName(className: string, type: string): string {
   return `${className}-${type}`;
 }
@@ -864,8 +1320,18 @@ export function $createTypedMarkNode(
   typedIds?: TypedIDs,
   typedOnClicks?: TypedOnClicks,
   typedOnRemoves?: TypedOnRemoves,
+  typedOnMouseEnters?: TypedOnMouseEnters,
+  typedOnMouseLeaves?: TypedOnMouseLeaves,
 ): TypedMarkNode {
-  return $applyNodeReplacement(new TypedMarkNode(typedIds, typedOnClicks, typedOnRemoves));
+  return $applyNodeReplacement(
+    new TypedMarkNode(
+      typedIds,
+      typedOnClicks,
+      typedOnRemoves,
+      typedOnMouseEnters,
+      typedOnMouseLeaves,
+    ),
+  );
 }
 
 export function $isTypedMarkNode(node: LexicalNode | null | undefined): node is TypedMarkNode {
@@ -892,7 +1358,6 @@ export function $unwrapTypedMarkNode(node: TypedMarkNode): void {
     target = child;
   }
   node.remove();
-  typedOnClickRegistry.delete(node.getKey());
 }
 
 export function $wrapSelectionInTypedMarkNode(
@@ -901,6 +1366,8 @@ export function $wrapSelectionInTypedMarkNode(
   id: string,
   onClick?: TypedMarkOnClick,
   onRemove?: TypedMarkOnRemove,
+  onMouseEnter?: TypedMarkOnMouseEnter,
+  onMouseLeave?: TypedMarkOnMouseLeave,
 ): void {
   const nodes = selection.getNodes();
   const anchorOffset = selection.anchor.offset;
@@ -971,7 +1438,7 @@ export function $wrapSelectionInTypedMarkNode(
 
       if (lastCreatedMarkNode === undefined) {
         lastCreatedMarkNode = $createTypedMarkNode();
-        lastCreatedMarkNode.addID(type, id, onClick, onRemove);
+        lastCreatedMarkNode.addID(type, id, onClick, onRemove, onMouseEnter, onMouseLeave);
         targetNode.insertBefore(lastCreatedMarkNode);
       }
 
