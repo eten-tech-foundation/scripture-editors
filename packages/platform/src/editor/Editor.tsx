@@ -45,6 +45,10 @@ import {
   LoggerBasic,
   SELECTION_CHANGE_TAG,
   TypedMarkNode,
+  TypedMarkOnClick,
+  TypedMarkOnMouseEnter,
+  TypedMarkOnMouseLeave,
+  TypedMarkOnRemove,
 } from "shared";
 import {
   $applyUpdate,
@@ -56,6 +60,7 @@ import {
   $insertNote,
   $selectNote,
   AnnotationPlugin,
+  AnnotationRange,
   AnnotationRef,
   ArrowNavigationPlugin,
   CharNodePlugin,
@@ -159,6 +164,12 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
   } = options ?? defaultOptions;
 
   editorConfig.editable = !isReadonly;
+  // Pass `showCharMarkerTitles` through the Lexical theme so `CharNode.createDOM` can suppress
+  // the per-char `title=__marker` attribute when consumers opt out via `ViewOptions`. Theme is
+  // used as the channel because Lexical's theme map permits arbitrary keys and is the
+  // lowest-friction way to thread a node-rendering flag through `EditorConfig` without
+  // introducing a new option object.
+  editorConfig.theme = { ...editorTheme, showCharMarkerTitles: viewOptions.showCharMarkerTitles };
   editorUsjAdaptor.initialize(logger);
 
   useImperativeHandle(ref, () => ({
@@ -232,13 +243,45 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
         }
       });
     },
-    setAnnotation(selection, type, id, onClick, onRemove) {
+    setAnnotation(
+      selection: AnnotationRange,
+      type: string,
+      id: string,
+      fourth?:
+        | TypedMarkOnClick
+        | {
+            onClick?: TypedMarkOnClick;
+            onRemove?: TypedMarkOnRemove;
+            onMouseEnter?: TypedMarkOnMouseEnter;
+            onMouseLeave?: TypedMarkOnMouseLeave;
+          },
+      fifth?: TypedMarkOnRemove,
+    ) {
+      let onClick: TypedMarkOnClick | undefined;
+      let onRemove: TypedMarkOnRemove | undefined;
+      let onMouseEnter: TypedMarkOnMouseEnter | undefined;
+      let onMouseLeave: TypedMarkOnMouseLeave | undefined;
+
+      if (typeof fourth === "function" || fourth === undefined) {
+        // Legacy positional form: (selection, type, id, onClick?, onRemove?)
+        onClick = fourth;
+        onRemove = fifth;
+      } else {
+        // New options-object form: (selection, type, id, callbacks?)
+        onClick = fourth.onClick;
+        onRemove = fourth.onRemove;
+        onMouseEnter = fourth.onMouseEnter;
+        onMouseLeave = fourth.onMouseLeave;
+      }
+
       annotationRef.current?.setAnnotation(
         selection,
         externalTypedMarkType(type),
         id,
         onClick,
         onRemove,
+        onMouseEnter,
+        onMouseLeave,
       );
     },
     removeAnnotation(type, id) {

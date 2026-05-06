@@ -1,6 +1,12 @@
 import { $createParaNode, ParaNode } from "../usj/ParaNode.js";
 import { createBasicTestEnvironment } from "../usj/test.utils.js";
-import { $createTypedMarkNode, $isTypedMarkNode, TypedMarkNode } from "./TypedMarkNode.js";
+import {
+  $createTypedMarkNode,
+  $isTypedMarkNode,
+  TypedMarkNode,
+  TypedMarkOnMouseEnter,
+  TypedMarkOnMouseLeave,
+} from "./TypedMarkNode.js";
 import { $createTextNode, $getRoot, EditorConfig, TextNode } from "lexical";
 import { vi } from "vitest";
 
@@ -445,6 +451,207 @@ describe("TypedMarkNode", () => {
       });
 
       expect(onRemoveRight).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("TypedMarkNode hover events", () => {
+    it("fires onMouseEnter when the cursor enters the <mark>", () => {
+      const onMouseEnter = vi.fn<TypedMarkOnMouseEnter>();
+      let markNode: TypedMarkNode | null = null;
+      const { editor } = createBasicTestEnvironment([ParaNode, TypedMarkNode], () => {
+        markNode = $createTypedMarkNode({});
+        $getRoot().append($createParaNode().append(markNode.append($createTextNode("example"))));
+      });
+      const getMarkNode = (): TypedMarkNode => {
+        if (!markNode) throw new Error("Expected mark node to exist");
+        return markNode;
+      };
+
+      editor.update(() => {
+        const node = getMarkNode();
+        node.addID(testType1, testID1, undefined, undefined, onMouseEnter);
+      });
+
+      editor.getEditorState().read(() => {
+        const node = getMarkNode();
+        const element = editor.getElementByKey(node.getKey());
+        if (!(element instanceof HTMLElement)) {
+          throw new Error("Expected DOM element for mark node");
+        }
+        element.dispatchEvent(new window.MouseEvent("mouseenter"));
+
+        expect(onMouseEnter).toHaveBeenCalledTimes(1);
+        expect(onMouseEnter).toHaveBeenCalledWith(expect.anything(), testType1, testID1, "example");
+      });
+    });
+
+    it("fires onMouseLeave when the cursor leaves the <mark>", () => {
+      const onMouseLeave = vi.fn<TypedMarkOnMouseLeave>();
+      let markNode: TypedMarkNode | null = null;
+      const { editor } = createBasicTestEnvironment([ParaNode, TypedMarkNode], () => {
+        markNode = $createTypedMarkNode({});
+        $getRoot().append($createParaNode().append(markNode.append($createTextNode("example"))));
+      });
+      const getMarkNode = (): TypedMarkNode => {
+        if (!markNode) throw new Error("Expected mark node to exist");
+        return markNode;
+      };
+
+      editor.update(() => {
+        const node = getMarkNode();
+        node.addID(testType1, testID1, undefined, undefined, undefined, onMouseLeave);
+      });
+
+      editor.getEditorState().read(() => {
+        const node = getMarkNode();
+        const element = editor.getElementByKey(node.getKey());
+        if (!(element instanceof HTMLElement)) {
+          throw new Error("Expected DOM element for mark node");
+        }
+        element.dispatchEvent(new window.MouseEvent("mouseleave"));
+
+        expect(onMouseLeave).toHaveBeenCalledTimes(1);
+        expect(onMouseLeave).toHaveBeenCalledWith(expect.anything(), testType1, testID1, "example");
+      });
+    });
+
+    it("fires both callbacks for every (type, id) on a multi-id mark", () => {
+      const onMouseEnterA = vi.fn<TypedMarkOnMouseEnter>();
+      const onMouseEnterB = vi.fn<TypedMarkOnMouseEnter>();
+      let markNode: TypedMarkNode | null = null;
+      const { editor } = createBasicTestEnvironment([ParaNode, TypedMarkNode], () => {
+        markNode = $createTypedMarkNode({});
+        $getRoot().append($createParaNode().append(markNode.append($createTextNode("example"))));
+      });
+      const getMarkNode = (): TypedMarkNode => {
+        if (!markNode) throw new Error("Expected mark node to exist");
+        return markNode;
+      };
+
+      editor.update(() => {
+        const node = getMarkNode();
+        node.addID(testType1, testID1, undefined, undefined, onMouseEnterA);
+        node.addID(testType2, testID2, undefined, undefined, onMouseEnterB);
+      });
+
+      editor.getEditorState().read(() => {
+        const node = getMarkNode();
+        const element = editor.getElementByKey(node.getKey());
+        if (!(element instanceof HTMLElement)) {
+          throw new Error("Expected DOM element for mark node");
+        }
+        element.dispatchEvent(new window.MouseEvent("mouseenter"));
+
+        expect(onMouseEnterA).toHaveBeenCalledTimes(1);
+        expect(onMouseEnterA).toHaveBeenCalledWith(
+          expect.anything(),
+          testType1,
+          testID1,
+          "example",
+        );
+        expect(onMouseEnterB).toHaveBeenCalledTimes(1);
+        expect(onMouseEnterB).toHaveBeenCalledWith(
+          expect.anything(),
+          testType2,
+          testID2,
+          "example",
+        );
+      });
+    });
+
+    it("drops hover callbacks when deleteID is called", () => {
+      const onMouseEnter = vi.fn<TypedMarkOnMouseEnter>();
+      let markNode: TypedMarkNode | null = null;
+      const { editor } = createBasicTestEnvironment([ParaNode, TypedMarkNode], () => {
+        markNode = $createTypedMarkNode({});
+        $getRoot().append($createParaNode().append(markNode.append($createTextNode("example"))));
+      });
+      const getMarkNode = (): TypedMarkNode => {
+        if (!markNode) throw new Error("Expected mark node to exist");
+        return markNode;
+      };
+
+      editor.update(() => {
+        const node = getMarkNode();
+        node.addID(testType1, testID1, undefined, undefined, onMouseEnter);
+      });
+
+      editor.update(() => {
+        const node = getMarkNode();
+        node.deleteID(testType1, testID1);
+      });
+
+      // After deleteID the mark unwraps; if any element still exists, dispatching shouldn't fire
+      // the callback because it has been removed from the registry.
+      editor.getEditorState().read(() => {
+        const node = getMarkNode();
+        const element = editor.getElementByKey(node.getKey());
+        if (element instanceof HTMLElement) {
+          element.dispatchEvent(new window.MouseEvent("mouseenter"));
+        }
+        expect(onMouseEnter).not.toHaveBeenCalled();
+      });
+    });
+
+    it("survives merge of adjacent typed marks with identical typedIDs", () => {
+      const grammarType = testType1;
+      const grammarId = testID1;
+      const spellingType = testType2;
+      const spellingId = testID2;
+      const onMouseEnterLeft = vi.fn<TypedMarkOnMouseEnter>();
+      const onMouseEnterRight = vi.fn<TypedMarkOnMouseEnter>();
+      let leftMark: TypedMarkNode | null = null;
+      let rightMark: TypedMarkNode | null = null;
+      const { editor } = createBasicTestEnvironment([ParaNode, TypedMarkNode], () => {
+        const paraNode = $createParaNode();
+        leftMark = $createTypedMarkNode({
+          [grammarType]: [grammarId],
+          [spellingType]: [spellingId],
+        });
+        rightMark = $createTypedMarkNode({
+          [grammarType]: [grammarId],
+        });
+        leftMark.addID(grammarType, grammarId, undefined, undefined, onMouseEnterLeft);
+        leftMark.addID(spellingType, spellingId);
+        rightMark.addID(grammarType, grammarId, undefined, undefined, onMouseEnterRight);
+        $getRoot().append(
+          paraNode.append(
+            leftMark.append($createTextNode("man")),
+            rightMark.append($createTextNode(" who")),
+          ),
+        );
+      });
+
+      editor.update(() => {
+        if (!leftMark || !rightMark) throw new Error("Expected mark nodes to exist");
+        // Removing the spelling ID makes the typedIDs equal between leftMark and rightMark and
+        // merges them. The merged node should retain the leftMark's onMouseEnter for grammar.
+        leftMark.deleteID(spellingType, spellingId);
+      });
+
+      editor.getEditorState().read(() => {
+        if (!leftMark) throw new Error("Expected left mark node");
+        const node = leftMark;
+        const element = editor.getElementByKey(node.getKey());
+        if (!(element instanceof HTMLElement)) {
+          throw new Error("Expected DOM element for merged mark node");
+        }
+        element.dispatchEvent(new window.MouseEvent("mouseenter"));
+
+        // The left callback (the primary, since left absorbs right) should fire exactly once for
+        // (grammarType, grammarId). Primary-wins is the intentional contract - see
+        // mergeTypedOnMouseEnterMaps. If two adjacent marks both register a callback under the
+        // same (type, id), the surviving (primary) mark's callback is preserved and the
+        // overwritten side is silently dropped.
+        expect(onMouseEnterLeft).toHaveBeenCalledTimes(1);
+        expect(onMouseEnterLeft).toHaveBeenCalledWith(
+          expect.anything(),
+          grammarType,
+          grammarId,
+          "man who",
+        );
+        expect(onMouseEnterRight).not.toHaveBeenCalled();
+      });
     });
   });
 
