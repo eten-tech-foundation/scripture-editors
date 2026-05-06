@@ -56,6 +56,12 @@ export interface ViewOptions {
   hasSpacing: boolean;
   /** Is the text in a formatted font. */
   isFormattedFont: boolean;
+  /**
+   * When false, `CharNode.createDOM` skips setting the `title=__marker` attribute on rendered
+   * char spans. Useful for consumers that don't want the USFM marker name surfaced as a browser
+   * tooltip. Default (undefined or true) preserves the marker hint for consumers authoring USFM.
+   */
+  showCharMarkerTitles?: boolean;
 }
 
 let defaultViewMode: ViewMode;
