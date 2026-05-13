@@ -7,6 +7,7 @@ import {
   DOMConversionMap,
   DOMConversionOutput,
   DOMExportOutput,
+  EditorConfig,
   ElementNode,
   LexicalEditor,
   LexicalNode,
@@ -201,10 +202,16 @@ export class CharNode extends ElementNode {
     return self.__unknownAttributes;
   }
 
-  override createDOM(): HTMLElement {
+  override createDOM(config: EditorConfig): HTMLElement {
     const dom = document.createElement("span");
     dom.setAttribute("data-marker", this.__marker);
-    dom.setAttribute("title", this.__marker);
+    // Consumers can suppress the per-char marker tooltip via
+    // `ViewOptions.showCharMarkerTitles = false` - useful when the marker name shouldn't
+    // surface as a browser tooltip on every char span. Default (undefined or true) preserves
+    // the marker hint for consumers that want it while authoring USFM.
+    if (config.theme?.showCharMarkerTitles !== false) {
+      dom.setAttribute("title", this.__marker);
+    }
     dom.classList.add(this.__type, `usfm_${this.__marker}`);
     return dom;
   }
