@@ -30,40 +30,43 @@ A pragmatic-first / less-hacky-later split:
 Paratext 9 (running HBKENG / TNN / TND)
          │  one-time per resource
          ▼
-  tools/pt9-css-extractor/ (C# CLI)
+  paranext-core/tools/pt9-css-extractor/ (C# CLI)
          │
          ▼
-  data/pt9-css/{hbkeng,tnn,tnd}.css        ← committed, flat
+  paranext-core/data/pt9-css/{hbkeng,tnn,tnd}.css        ← committed, flat
          │
          ▼
-  scripts/pt9-css-to-editor-scss.ts (TS)
+  scripture-editors/scripts/pt9-css-to-editor-scss.ts (TS, run via Nx)
          │
          ▼
   paranext-core/extensions/src/platform-scripture-editor/src/marker-styles/
-    {hbkeng,tnn,tnd}.scss                  ← committed
+    {hbkeng,tnn,tnd}.scss                                ← committed
 
   At runtime (platform-scripture-editor.web-view.tsx):
     useEffect → detect resource ID → dynamic `import(./marker-styles/<id>.scss)`
     Webpack code-splits each SCSS into its own chunk.
 ```
 
+The pipeline spans both repos: the C# CLI and the raw/generated CSS artifacts live in `paranext-core` (where the DLL toolchain is already set up); the TS converter stays in `scripture-editors` and reads/writes via the sibling-repo relative path.
+
 In parallel, a separate workstream investigates and fixes the chapter-change hang (PT-3537).
 
 ## 3. Components
 
-### 3.1 C# CLI — `tools/pt9-css-extractor/`
+### 3.1 C# CLI — `paranext-core/tools/pt9-css-extractor/`
 
 Small .NET console app. Loads a Paratext project's `ScrStylesheet` (which already applies `custom.sty` on top of `usfm.sty`) and calls `CSSCreator.CreateDefaultCSS(scrText, zoom: 100, fontFamilies: …, includeFontFaces: false)`. Writes the resulting CSS to disk.
 
+- **Lives in paranext-core** because that repo already has the ParatextData DLL toolchain set up — building a sibling .NET tool there avoids duplicating the dependency wiring in scripture-editors.
 - **DLL references:** `ParatextData.dll`, `ParatextInternalShared.dll`, `PtxUtils.dll`. All .NET Standard, no UI deps.
-- **Invocation:** `dotnet run -- --project HBKENG --out data/pt9-css/hbkeng.css`
+- **Invocation:** `dotnet run -- --project HBKENG --out paranext-core/data/pt9-css/hbkeng.css`
 - **Output:** flat CSS file, selectors of the form `.usfm_<marker> { … }` (PT9 already follows this naming convention, so no selector renaming is needed downstream — only the view-mode split in §3.3).
-- **Run once per resource.** Output is committed; CLI doesn't run in CI.
-- **Lives in scripture-editors** (this repo) under `tools/` since it's a dev-only one-shot tool. The .csproj is checked in but the built binary isn't.
+- **Run once per resource.** Output committed to `paranext-core/data/pt9-css/`; CLI doesn't run in CI.
+- The `.csproj` is checked in but the built binary isn't.
 
 ### 3.2 Validation pass
 
-For HBKENG only, also perform a **manual extraction** of the rendered CSS from PT9 (option a — capture via PT9's debug inspector or whichever export mechanism exists). Save as `data/pt9-css/hbkeng-manual.css`. Diff against the CLI output. If they match modulo whitespace and ordering, the CLI is trusted and TNN/TND skip the manual step.
+For HBKENG only, also perform a **manual extraction** of the rendered CSS from PT9 (option a — capture via PT9's debug inspector or whichever export mechanism exists). Save as `paranext-core/data/pt9-css/hbkeng-manual.css`. Diff against the CLI output. If they match modulo whitespace and ordering, the CLI is trusted and TNN/TND skip the manual step.
 
 If the diff is non-trivial, that's a Day 5 gate: fix the CLI before proceeding to TNN/TND.
 
@@ -152,18 +155,18 @@ If picked up as Day 10 stretch: add static `registerMarkers(string[])` methods t
 
 ## 4. Schedule (Plan B)
 
-| Day | Goal                                           | Deliverable                                                                          | Gate                                                |
-| --- | ---------------------------------------------- | ------------------------------------------------------------------------------------ | --------------------------------------------------- |
-| 1   | Hang investigation spike                       | JIRA comment with hypothesis + code pointers + profiler trace                        | Must have working hypothesis EOD. If not, escalate. |
-| 2   | First hang fix attempt                         | Commit + manual repro showing no hang                                                | Fix may not hold; backup hypothesis ready.          |
-| 3   | Verify fix or pivot                            | Repro evidence across HBKENG/TNN/TND chapter cycles                                  | If still hanging EOD, prepare cut-losses Day 4.     |
-| 4   | Polish + regression test, or hard stop         | Merged PR + test, or WIP branch + writeup                                            | **Hard stop EOD.** Marker work starts Day 5.        |
-| 5   | C# CLI + HBKENG extraction + manual validation | `tools/pt9-css-extractor/` + `data/pt9-css/hbkeng.css` + diff vs `hbkeng-manual.css` | If diff is large, fix CLI before TNN/TND.           |
-| 6   | TS converter                                   | `scripts/pt9-css-to-editor-scss.ts` + `marker-styles/hbkeng.scss`                    | Classifier unit-tested on hand-picked rules.        |
-| 7   | HBKENG end-to-end                              | Dynamic SCSS import wired in webview; HBKENG smoke-tested across FRT/INT/MAT/XXA     | If visual is way off PT9, iterate classifier.       |
-| 8   | TNN end-to-end                                 | `tnn.css` + `tnn.scss` + smoke test                                                  | Mostly mechanical.                                  |
-| 9   | TND end-to-end                                 | `tnd.css` + `tnd.scss` + smoke test                                                  | Mostly mechanical.                                  |
-| 10  | Buffer + stretch                               | Cross-resource regression + stretch picks                                            | —                                                   |
+| Day | Goal                                           | Deliverable                                                                                                      | Gate                                                |
+| --- | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| 1   | Hang investigation spike                       | JIRA comment with hypothesis + code pointers + profiler trace                                                    | Must have working hypothesis EOD. If not, escalate. |
+| 2   | First hang fix attempt                         | Commit + manual repro showing no hang                                                                            | Fix may not hold; backup hypothesis ready.          |
+| 3   | Verify fix or pivot                            | Repro evidence across HBKENG/TNN/TND chapter cycles                                                              | If still hanging EOD, prepare cut-losses Day 4.     |
+| 4   | Polish + regression test, or hard stop         | Merged PR + test, or WIP branch + writeup                                                                        | **Hard stop EOD.** Marker work starts Day 5.        |
+| 5   | C# CLI + HBKENG extraction + manual validation | `paranext-core/tools/pt9-css-extractor/` + `paranext-core/data/pt9-css/hbkeng.css` + diff vs `hbkeng-manual.css` | If diff is large, fix CLI before TNN/TND.           |
+| 6   | TS converter                                   | `scripts/pt9-css-to-editor-scss.ts` + `marker-styles/hbkeng.scss`                                                | Classifier unit-tested on hand-picked rules.        |
+| 7   | HBKENG end-to-end                              | Dynamic SCSS import wired in webview; HBKENG smoke-tested across FRT/INT/MAT/XXA                                 | If visual is way off PT9, iterate classifier.       |
+| 8   | TNN end-to-end                                 | `tnn.css` + `tnn.scss` + smoke test                                                                              | Mostly mechanical.                                  |
+| 9   | TND end-to-end                                 | `tnd.css` + `tnd.scss` + smoke test                                                                              | Mostly mechanical.                                  |
+| 10  | Buffer + stretch                               | Cross-resource regression + stretch picks                                                                        | —                                                   |
 
 ### Stretch backlog (Day 10, priority order)
 
@@ -193,8 +196,8 @@ If picked up as Day 10 stretch: add static `registerMarkers(string[])` methods t
 ## 7. Deliverables summary
 
 1. **Hang fix PR** (if root cause tractable in 3 days; otherwise WIP + JIRA writeup)
-2. **C# CLI** in `tools/pt9-css-extractor/` — committed source, gitignored binary
-3. **Raw CSS files** in `data/pt9-css/` — `hbkeng.css`, `tnn.css`, `tnd.css`, plus `hbkeng-manual.css` for validation
+2. **C# CLI** in `paranext-core/tools/pt9-css-extractor/` — committed source (`.csproj`), gitignored binary
+3. **Raw CSS files** in `paranext-core/data/pt9-css/` — `hbkeng.css`, `tnn.css`, `tnd.css`, plus `hbkeng-manual.css` for validation
 4. **TS converter** in `scripts/pt9-css-to-editor-scss.ts`
 5. **Generated SCSS** in `paranext-core/extensions/src/platform-scripture-editor/src/marker-styles/` — `hbkeng.scss`, `tnn.scss`, `tnd.scss`
 6. **Dynamic loader** in `platform-scripture-editor.web-view.tsx`
