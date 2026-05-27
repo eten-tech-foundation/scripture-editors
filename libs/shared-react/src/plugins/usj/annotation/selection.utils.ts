@@ -31,13 +31,15 @@ import {
   RangeSelection,
   TextNode,
 } from "lexical";
+import { $isImmutableVerseNode } from "../../../nodes/usj/ImmutableVerseNode";
+import { $isSomeVerseNode } from "../../../nodes/usj/node-react.utils";
 import {
   $isCharNode,
   $isMarkerNode,
   $isMilestoneNode,
+  $isNoteNode,
   $isParaLikeNode,
   $isTypedMarkNode,
-  $isVerseNode,
   $isVisibleMarkerNode,
   ImmutableTypedTextNode,
   MarkerNode,
@@ -505,8 +507,13 @@ function $shouldUseAnnotationAgnosticTextPath(node: LexicalNode): boolean {
 
 /**
  * True when this text node is preceded among the parent's children by a node that starts a new
- * USJ content entry (CharNode, VerseNode, MilestoneNode), so per-child content indexes must match
- * $getContentChildAtIndex and round-trip via $getNodeFromLocation (see PT-3835).
+ * USJ content entry (CharNode, VerseNode, ImmutableVerseNode, MilestoneNode, NoteNode), so
+ * per-child content indexes must match $getContentChildAtIndex and round-trip via
+ * $getNodeFromLocation (see PT-3835).
+ *
+ * `$isSomeVerseNode` covers both `VerseNode` and `ImmutableVerseNode` — `$isVerseNode` from
+ * `shared` only matches the editable `VerseNode`, missing `ImmutableVerseNode` which is the
+ * default verse representation in the platform editor.
  */
 function $textRequiresStandardLexicalContentPath(node: LexicalNode): boolean {
   if (!$isTextNode(node)) return false;
@@ -515,7 +522,13 @@ function $textRequiresStandardLexicalContentPath(node: LexicalNode): boolean {
   for (const sibling of parent.getChildren()) {
     if (sibling === node) break;
     if ($shouldIgnoreNodeForContentIndexes(sibling)) continue;
-    if ($isCharNode(sibling) || $isVerseNode(sibling) || $isMilestoneNode(sibling)) return true;
+    if (
+      $isCharNode(sibling) ||
+      $isSomeVerseNode(sibling) ||
+      $isMilestoneNode(sibling) ||
+      $isNoteNode(sibling)
+    )
+      return true;
   }
   return false;
 }
@@ -648,13 +661,13 @@ function $getOffsetInContentRun(node: LexicalNode, offset: number): number {
 
     if ($shouldIgnoreNodeForContentIndexes(sibling)) {
       // End of run
+    } else if ($isCharNode(sibling) || $isNoteNode(sibling) || $isImmutableVerseNode(sibling)) {
+      // Each of these is a separate USJ content entry; do not accumulate across them.
+      runOffset = 0;
     } else if ($isTextNode(sibling)) {
       runOffset += sibling.getTextContent().length;
     } else if ($isTypedMarkNode(sibling)) {
       runOffset += sibling.getTextContent().length;
-    } else if ($isCharNode(sibling)) {
-      // Character styles are separate USJ content entries; do not accumulate across them.
-      runOffset = 0;
     }
   }
   return runOffset + offset;
