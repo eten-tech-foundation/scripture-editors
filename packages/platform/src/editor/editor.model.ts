@@ -1,7 +1,13 @@
 import { Usj } from "@eten-tech-foundation/scripture-utilities";
 import { SerializedVerseRef } from "@sillsdev/scripture";
 import { RefObject } from "react";
-import { LoggerBasic, TypedMarkOnClick, TypedMarkOnRemove } from "shared";
+import {
+  LoggerBasic,
+  TypedMarkOnClick,
+  TypedMarkOnMouseEnter,
+  TypedMarkOnMouseLeave,
+  TypedMarkOnRemove,
+} from "shared";
 import {
   AnnotationRange,
   ContextMenuOptionConfig,
@@ -63,9 +69,33 @@ export interface EditorRef {
    */
   setSelection(selection: SelectionRange): void;
   /**
-   * Set an ephemeral annotation.
-   * @param selection - An annotation range containing the start and end location. The json-path in
-   *   an annotation location assumes no comment Milestone nodes are present in the USJ.
+   * Set an ephemeral annotation with optional event callbacks.
+   *
+   * @param selection - An annotation range containing the start and end location. The json-path
+   *   in an annotation location assumes no comment Milestone nodes are present in the USJ.
+   * @param type - Type of the annotation.
+   * @param id - ID of the annotation.
+   * @param callbacks - Optional click / removal / hover handlers. Each is independently
+   *   optional. Omit the argument entirely to register an annotation with no callbacks.
+   */
+  setAnnotation(
+    selection: AnnotationRange,
+    type: string,
+    id: string,
+    callbacks?: {
+      onClick?: TypedMarkOnClick;
+      onRemove?: TypedMarkOnRemove;
+      onMouseEnter?: TypedMarkOnMouseEnter;
+      onMouseLeave?: TypedMarkOnMouseLeave;
+    },
+  ): void;
+  /**
+   * Set an ephemeral annotation with positional click / remove handlers.
+   *
+   * @deprecated Pass a callbacks object instead. This positional form is preserved for backward
+   *   compatibility and will be removed in a future release.
+   *
+   * @param selection - An annotation range containing the start and end location.
    * @param type - Type of the annotation.
    * @param id - ID of the annotation.
    * @param onClick - Optional onClick handler.
@@ -159,7 +189,7 @@ export interface EditorProps<TLogger extends LoggerBasic> {
 export interface EditorOptions {
   /** Is the editor readonly or editable. */
   isReadonly?: boolean;
-  /** Does the editor have external UI controls so disable the built-in toolbar and context menu. */
+  /** Does the editor have external UI controls so disable the built-in toolbar and marker menu. */
   hasExternalUI?: boolean;
   /** Is the editor enabled for spell checking. */
   hasSpellCheck?: boolean;
