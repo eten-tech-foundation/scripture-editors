@@ -37,6 +37,10 @@ import {
  * Registers arrow-key handling for USJ scripture: verse-to-verse vertical movement when needed,
  * and horizontal movement around notes and chapter boundaries.
  *
+ * TODO: When the caret is before an empty verse number in an otherwise empty para, pressing up or
+ * down moves the caret to after the verse number in the para above/below rather than staying
+ * before the verse number.
+ *
  * @param viewOptions - View options (e.g. collapsed note mode) affecting backward navigation.
  * @returns Always `null`; this component has no UI.
  */
