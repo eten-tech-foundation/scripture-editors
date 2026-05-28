@@ -244,8 +244,17 @@ function $handleBackwardNavigation(
  * positions adjacent to `ImmutableVerseNode`) or when the anchor is inside an editable
  * `VerseNode` (a `TextNode` subclass). Regular `TextNode` positions are left to Lexical's
  * default visual-line navigation.
+ *
+ * Lexical normalizes element points to text offset 0 when the next child is a `TextNode`;
+ * the post-normalization position right after an `ImmutableVerseNode` marker is also
+ * treated as a verse boundary.
  */
 function $shouldAttemptVerticalVerseNavigation(selection: RangeSelection): boolean {
   if (selection.anchor.type === "element") return true;
-  return $isSomeVerseNode(selection.anchor.getNode());
+  const anchorNode = selection.anchor.getNode();
+  if ($isSomeVerseNode(anchorNode)) return true;
+  if (selection.anchor.offset === 0 && $isSomeVerseNode(anchorNode.getPreviousSibling())) {
+    return true;
+  }
+  return false;
 }
