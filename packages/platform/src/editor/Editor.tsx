@@ -34,6 +34,7 @@ import {
   ReactElement,
   useCallback,
   useImperativeHandle,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -45,6 +46,10 @@ import {
   LoggerBasic,
   SELECTION_CHANGE_TAG,
   TypedMarkNode,
+  TypedMarkOnClick,
+  TypedMarkOnMouseEnter,
+  TypedMarkOnMouseLeave,
+  TypedMarkOnRemove,
 } from "shared";
 import {
   $applyUpdate,
@@ -56,6 +61,7 @@ import {
   $insertNote,
   $selectNote,
   AnnotationPlugin,
+  AnnotationRange,
   AnnotationRef,
   ArrowNavigationPlugin,
   CharNodePlugin,
@@ -83,22 +89,6 @@ import {
   UsjNodesMenuPlugin,
   usjReactNodes,
 } from "shared-react";
-
-type Mutable<T> = {
-  -readonly [P in keyof T]: T[P];
-};
-
-const editorConfig: Mutable<InitialConfigType> = {
-  namespace: "platformEditor",
-  theme: editorTheme,
-  editable: true,
-  editorState: undefined,
-  // Handling of errors during update
-  onError(error) {
-    throw error;
-  },
-  nodes: [TypedMarkNode, ...usjReactNodes],
-};
 
 const defaultViewOptions = getDefaultViewOptions();
 const defaultNodeOptions: UsjNodeOptions = {};
@@ -152,13 +142,38 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
     hasSpellCheck = false,
     textDirection = "ltr",
     markerMenuTrigger = "\\",
-    view: viewOptions = defaultViewOptions,
-    nodes: nodeOptions = defaultNodeOptions,
+    view,
+    nodes,
     debug = false,
-    contextMenu: contextMenuOptions,
+    contextMenu,
   } = options ?? defaultOptions;
 
-  editorConfig.editable = !isReadonly;
+  // Stabilize the destructured option objects so plugin props don't churn when the parent passes
+  // a fresh `options` object every render. Pairs with the per-instance `initialConfig` below -
+  // any state derived from `options` should follow the same pattern to avoid cross-instance
+  // surprises with multiple Editor instances in one WebView.
+  const viewOptions = useMemo(() => view ?? defaultViewOptions, [view]);
+  const nodeOptions = useMemo(() => nodes ?? defaultNodeOptions, [nodes]);
+  const contextMenuOptions = useMemo(() => contextMenu, [contextMenu]);
+
+  // `showCharMarkerTitles` rides on the Lexical theme so `CharNode.createDOM` can read it via
+  // `EditorConfig.theme`. Theme is the channel because its map permits arbitrary keys and is the
+  // lowest-friction way to thread a node-rendering flag through `EditorConfig` without
+  // introducing a new option object.
+  const initialConfig = useMemo<InitialConfigType>(
+    () => ({
+      namespace: "platformEditor",
+      theme: { ...editorTheme, showCharMarkerTitles: viewOptions.showCharMarkerTitles },
+      editable: !isReadonly,
+      editorState: undefined,
+      // Handling of errors during update
+      onError(error) {
+        throw error;
+      },
+      nodes: [TypedMarkNode, ...usjReactNodes],
+    }),
+    [isReadonly, viewOptions.showCharMarkerTitles],
+  );
   editorUsjAdaptor.initialize(logger);
 
   useImperativeHandle(ref, () => ({
@@ -232,13 +247,45 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
         }
       });
     },
-    setAnnotation(selection, type, id, onClick, onRemove) {
+    setAnnotation(
+      selection: AnnotationRange,
+      type: string,
+      id: string,
+      fourth?:
+        | TypedMarkOnClick
+        | {
+            onClick?: TypedMarkOnClick;
+            onRemove?: TypedMarkOnRemove;
+            onMouseEnter?: TypedMarkOnMouseEnter;
+            onMouseLeave?: TypedMarkOnMouseLeave;
+          },
+      fifth?: TypedMarkOnRemove,
+    ) {
+      let onClick: TypedMarkOnClick | undefined;
+      let onRemove: TypedMarkOnRemove | undefined;
+      let onMouseEnter: TypedMarkOnMouseEnter | undefined;
+      let onMouseLeave: TypedMarkOnMouseLeave | undefined;
+
+      if (typeof fourth === "function" || fourth === undefined) {
+        // Legacy positional form: (selection, type, id, onClick?, onRemove?)
+        onClick = fourth;
+        onRemove = fifth;
+      } else {
+        // New options-object form: (selection, type, id, callbacks?)
+        onClick = fourth.onClick;
+        onRemove = fourth.onRemove;
+        onMouseEnter = fourth.onMouseEnter;
+        onMouseLeave = fourth.onMouseLeave;
+      }
+
       annotationRef.current?.setAnnotation(
         selection,
         externalTypedMarkType(type),
         id,
         onClick,
         onRemove,
+        onMouseEnter,
+        onMouseLeave,
       );
     },
     removeAnnotation(type, id) {
@@ -336,7 +383,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
   );
 
   return (
-    <LexicalComposer initialConfig={editorConfig}>
+    <LexicalComposer initialConfig={initialConfig}>
       <EditablePlugin isEditable={!isReadonly} />
       <div className="editor-container">
         {hasExternalUI ? (

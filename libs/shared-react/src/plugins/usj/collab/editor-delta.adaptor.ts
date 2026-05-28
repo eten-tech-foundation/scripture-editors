@@ -1,11 +1,5 @@
 import { $isSomeVerseNode, SomeVerseNode } from "../../../nodes/usj/node-react.utils";
-import {
-  $isElementNodeClosing,
-  $isParaLikeNode,
-  DeltaOp,
-  LF,
-  ParaLikeNode,
-} from "./delta-common.utils";
+import { $isElementNodeClosing, DeltaOp, LF } from "./delta-common.utils";
 import {
   DeltaOpInsertNoteEmbed,
   OTBookAttribute,
@@ -29,6 +23,7 @@ import {
   $isImpliedParaNode,
   $isMilestoneNode,
   $isNoteNode,
+  $isParaLikeNode,
   $isParaNode,
   $isSomeChapterNode,
   $isUnknownNode,
@@ -43,6 +38,7 @@ import {
   NBSP,
   NODE_ATTRIBUTE_PREFIX,
   NoteNode,
+  ParaLikeNode,
   ParaNode,
   segmentState,
   SomeChapterNode,

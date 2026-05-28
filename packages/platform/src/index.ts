@@ -54,6 +54,8 @@ export type {
   LoggerBasic,
   NodeOptions,
   TypedMarkOnClick,
+  TypedMarkOnMouseEnter,
+  TypedMarkOnMouseLeave,
   TypedMarkOnRemove,
   TypedMarkRemovalCause,
 } from "shared";
