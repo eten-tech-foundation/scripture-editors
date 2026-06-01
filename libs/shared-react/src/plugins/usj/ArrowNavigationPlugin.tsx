@@ -1,6 +1,9 @@
 import {
   $isImmutableNoteCallerNode,
   $isImmutableVerseNode,
+  $isSomeVerseNode,
+  $selectNextVerse,
+  $selectPreviousVerse,
   ImmutableVerseNode,
 } from "../../nodes/usj";
 import { ViewOptions } from "../../views/view-options.utils";
@@ -12,6 +15,7 @@ import {
   COMMAND_PRIORITY_HIGH,
   KEY_DOWN_COMMAND,
   LexicalEditor,
+  LexicalNode,
   RangeSelection,
 } from "lexical";
 import { useEffect } from "react";
@@ -30,9 +34,15 @@ import {
 } from "shared";
 
 /**
- * This plugin handles arrow key navigation in the editor, specifically for moving between chapter
- * and verse nodes. It ensures that when the user presses the arrow keys, the selection moves to the
- * next or previous chapter or verse node, depending on the direction of the arrow key pressed.
+ * Registers arrow-key handling for USJ scripture: verse-to-verse vertical movement when needed,
+ * and horizontal movement around notes and chapter boundaries.
+ *
+ * TODO: When the caret is before an empty verse number in an otherwise empty para, pressing up or
+ * down moves the caret to after the verse number in the para above/below rather than staying
+ * before the verse number.
+ *
+ * @param viewOptions - View options (e.g. collapsed note mode) affecting backward navigation.
+ * @returns Always `null`; this component has no UI.
  */
 export function ArrowNavigationPlugin({
   viewOptions,
@@ -59,10 +69,24 @@ function useArrowKeys(editor: LexicalEditor, viewOptions: ViewOptions | undefine
     }
 
     const $handleKeyDown = (event: KeyboardEvent): boolean => {
-      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return false;
-
       const selection = $getSelection();
       if (!$isRangeSelection(selection) || !selection.isCollapsed()) return false;
+
+      if (event.key === "ArrowUp") {
+        if (event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return false;
+        if (!$shouldAttemptVerticalVerseNavigation(selection)) return false;
+        const isHandled = $selectPreviousVerse(selection);
+        if (isHandled) event.preventDefault();
+        return isHandled;
+      }
+      if (event.key === "ArrowDown") {
+        if (event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return false;
+        if (!$shouldAttemptVerticalVerseNavigation(selection)) return false;
+        const isHandled = $selectNextVerse(selection);
+        if (isHandled) event.preventDefault();
+        return isHandled;
+      }
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return false;
 
       const inputDiv = editor.getRootElement();
       if (!inputDiv) return false;
@@ -186,7 +210,7 @@ function $handleBackwardNavigation(
     const lastChild = prevNode.getLastChild();
     if (!lastChild) return false;
 
-    const note = $findMatchingParent(lastChild, (n) => $isNoteNode(n));
+    const note = $findMatchingParent(lastChild, (n: LexicalNode) => $isNoteNode(n));
     if ($isNoteNode(note) && note.getIsCollapsed()) {
       const parent = note.getParent();
       if (!parent) return false;
@@ -210,5 +234,27 @@ function $handleBackwardNavigation(
     return true;
   }
 
+  return false;
+}
+
+/**
+ * Returns whether custom ArrowUp/ArrowDown verse navigation should run.
+ *
+ * Intercepts when the anchor is an element point (cursor between block nodes, including
+ * positions adjacent to `ImmutableVerseNode`) or when the anchor is inside an editable
+ * `VerseNode` (a `TextNode` subclass). Regular `TextNode` positions are left to Lexical's
+ * default visual-line navigation.
+ *
+ * Lexical normalizes element points to text offset 0 when the next child is a `TextNode`;
+ * the post-normalization position right after an `ImmutableVerseNode` marker is also
+ * treated as a verse boundary.
+ */
+function $shouldAttemptVerticalVerseNavigation(selection: RangeSelection): boolean {
+  if (selection.anchor.type === "element") return true;
+  const anchorNode = selection.anchor.getNode();
+  if ($isSomeVerseNode(anchorNode)) return true;
+  if (selection.anchor.offset === 0 && $isSomeVerseNode(anchorNode.getPreviousSibling())) {
+    return true;
+  }
   return false;
 }
