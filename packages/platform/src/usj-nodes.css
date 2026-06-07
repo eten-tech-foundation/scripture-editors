@@ -2206,11 +2206,11 @@
   color: #7777ff;
 }
 
-table {
+.usfm table {
   border-collapse: collapse;
 }
 
-td {
+.usfm td {
   border: 1px solid #000000;
   page-break-inside: avoid;
   /* FB27281 adding padding based on font size*/
@@ -2218,11 +2218,11 @@ td {
   padding-left: 0.28em;
 }
 
-td.markercell {
+.usfm td.markercell {
   border-style: none;
 }
 
-rt {
+.usfm rt {
   cursor: pointer;
 }
 
