@@ -23,10 +23,10 @@ import {
   HIDDEN_NOTE_CALLER,
   isInsertEmbedOpOfType,
   Marginal,
-  MarginalProps,
   MarginalRef,
   MarkerMode,
   NoteMode,
+  SelectionRange,
   TextDirection,
   UsjNodeOptions,
   ViewOptions,
@@ -47,6 +47,14 @@ interface Annotations {
     types: { [annotationType: string]: { isSet: boolean; id: string } };
   };
 }
+
+type OnUsjChangeWithComments = (
+  usj: Usj,
+  comments: Comments | undefined,
+  ops?: DeltaOp[],
+  source?: DeltaSource,
+  insertedNodeKey?: string,
+) => void;
 
 const isTesting = process.env.NODE_ENV === "testing";
 const webUsj = usxStringToUsj(isTesting ? WEB_PSA_USX : WEB_PSA_CH1_USX);
@@ -111,6 +119,7 @@ export default function App() {
   const marginalRef = useRef<MarginalRef | null>(null);
   const noteEditorRef = useRef<EditorRef | null>(null);
   const noteNodeKeyRef = useRef<string | undefined>();
+  const currentSelectionRef = useRef<SelectionRange | undefined>(undefined);
   const [isNoteEditorVisible, setIsNoteEditorVisible] = useState(false);
   const [isOptionsDefined, setIsOptionsDefined] = useState(false);
   const [isReadonly, setIsReadonly] = useState(false);
@@ -215,7 +224,7 @@ export default function App() {
     [nodeOptions],
   );
 
-  const handleUsjChange = useCallback<NonNullable<MarginalProps<Console>["onUsjChange"]>>(
+  const handleUsjChange = useCallback<OnUsjChangeWithComments>(
     (
       usj: Usj,
       comments: Comments | undefined,
@@ -394,6 +403,33 @@ export default function App() {
               >
                 stand
               </button>
+              <button
+                id="insertAtSelection"
+                onClick={() => {
+                  const selection = currentSelectionRef.current;
+                  if (
+                    selection?.start &&
+                    selection?.end &&
+                    marginalRef.current &&
+                    isUsjTextContentLocation(selection.start) &&
+                    isUsjTextContentLocation(selection.end)
+                  ) {
+                    const id = `sel-${Date.now()}`;
+                    marginalRef.current.setAnnotation(
+                      { start: selection.start, end: selection.end },
+                      annotationType,
+                      id,
+                      handleAnnotationOnClick,
+                      handleAnnotationOnRemove,
+                    );
+                    console.log("Inserted annotation at selection", { selection, id });
+                  } else {
+                    console.warn("No valid selection for annotation");
+                  }
+                }}
+              >
+                Insert at selection
+              </button>
             </div>
           </span>
           <pre title="contextMarker" style={{ color: "black" }}>
@@ -508,7 +544,10 @@ export default function App() {
           defaultUsj={EMPTY_USJ}
           scrRef={scrRef}
           onScrRefChange={setScrRef}
-          onSelectionChange={(selection) => console.log({ selection })}
+          onSelectionChange={(selection) => {
+            currentSelectionRef.current = selection;
+            console.log({ selection });
+          }}
           onCommentChange={(comments) => console.log({ comments })}
           onUsjChange={handleUsjChange}
           onStateChange={({
