@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createEditor, $getRoot, $createTextNode } from "lexical";
+import { createEditor, $getRoot, $createTextNode, $getSelection } from "lexical";
 import { $createParaNode, $createVerseNode, ParaNode, VerseNode } from "shared";
 import { $isVerseParaEmpty, $getVerseParaFromSelection } from "./ActiveVersePlugin";
 
@@ -77,5 +77,51 @@ describe("$isVerseParaEmpty", () => {
 describe("$getVerseParaFromSelection", () => {
   it("returns null for a null selection", () => {
     expect($getVerseParaFromSelection(null)).toBeNull();
+  });
+
+  it("returns the para when cursor is inside a verse para", async () => {
+    const editor = makeEditor();
+    editor.setRootElement(document.createElement("div"));
+
+    let result: ReturnType<typeof $getVerseParaFromSelection> = null;
+    await new Promise<void>((resolve) => {
+      editor.update(
+        () => {
+          const para = $createParaNode("p");
+          const textNode = $createTextNode("Hello world");
+          para.append($createVerseNode("1"), textNode);
+          $getRoot().append(para);
+          textNode.select();
+          result = $getVerseParaFromSelection($getSelection());
+        },
+        { onUpdate: resolve, discrete: true },
+      );
+    });
+
+    expect(result).not.toBeNull();
+  });
+
+  it("returns null when cursor is in a non-verse para", async () => {
+    const editor = makeEditor();
+    editor.setRootElement(document.createElement("div"));
+
+    let result: ReturnType<typeof $getVerseParaFromSelection> = undefined as unknown as ReturnType<
+      typeof $getVerseParaFromSelection
+    >;
+    await new Promise<void>((resolve) => {
+      editor.update(
+        () => {
+          const para = $createParaNode("s");
+          const textNode = $createTextNode("Heading");
+          para.append(textNode);
+          $getRoot().append(para);
+          textNode.select();
+          result = $getVerseParaFromSelection($getSelection());
+        },
+        { onUpdate: resolve, discrete: true },
+      );
+    });
+
+    expect(result).toBeNull();
   });
 });
