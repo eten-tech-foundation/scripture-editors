@@ -3,6 +3,7 @@ import usjEditorAdaptor from "./adaptors/usj-editor.adaptor";
 import { getUsjMarkerAction, isUsjMarkerSupported } from "./adaptors/usj-marker-action.utils";
 import { EditorOptions, EditorProps, EditorRef } from "./editor.model";
 import editorTheme from "./editor.theme";
+import { ActiveVersePlugin } from "./ActiveVersePlugin";
 import ScriptureReferencePlugin from "./ScriptureReferencePlugin";
 import TreeViewPlugin from "./TreeViewPlugin";
 import { ToolbarPlugin } from "./toolbar/ToolbarPlugin";
@@ -146,6 +147,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
     nodes,
     debug = false,
     contextMenu,
+    isSimpleView = false,
   } = options ?? defaultOptions;
 
   // Stabilize the destructured option objects so plugin props don't churn when the parent passes
@@ -385,7 +387,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
   return (
     <LexicalComposer initialConfig={initialConfig}>
       <EditablePlugin isEditable={!isReadonly} />
-      <div className="editor-container">
+      <div className={`editor-container${isSimpleView ? " psc-simple-view" : ""}`}>
         {hasExternalUI ? (
           <StateChangePlugin onStateChange={handleStateChange} />
         ) : (
@@ -455,6 +457,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
           <ParaNodePlugin />
           <TextDirectionPlugin textDirection={textDirection} />
           <TextSpacingPlugin />
+          {isSimpleView && <ActiveVersePlugin />}
           {children}
         </div>
         {debug && <TreeViewPlugin />}
