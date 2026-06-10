@@ -585,10 +585,29 @@ button.toolbar-item:disabled .chevron-down {
   color: var(--scripture-accent-chapter);
 }
 
-.psc-simple-view span.psc-active-verse {
+.psc-simple-view .psc-active-verse {
+  position: relative;
+}
+
+/* Box offset left so the verse number sits visually outside it.
+   1.6em clears 1–3 digit numbers at 13px bold; increase if the number
+   ever appears inside the box at a different font size. */
+.psc-simple-view .psc-active-verse::before {
+  content: '';
+  position: absolute;
+  left: 1.6em;
+  right: -4px;
+  top: -2px;
+  bottom: -2px;
   outline: 2.5px solid var(--scripture-accent);
   border-radius: 4px;
-  outline-offset: 1px;
+  pointer-events: none;
+}
+
+.psc-simple-view .psc-empty-verse::after {
+  content: '…';
+  color: #aaa;
+  font-style: italic;
 }
 
 .psc-simple-view .usfm_s,
