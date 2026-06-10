@@ -645,7 +645,7 @@ button.toolbar-item:disabled .chevron-down {
 .psc-simple-view .para > .marker {
   position: absolute;
   right: calc(100% + 0.5em);
-  top: 0.15em;
+  top: 0;
   width: 3em;
   text-align: right;
   white-space: nowrap;
@@ -657,7 +657,7 @@ button.toolbar-item:disabled .chevron-down {
 /* RTL: move gutter to the right */
 [dir='rtl'] .psc-simple-view .editor-input {
   padding-right: 4em;
-  padding-left: 10px;
+  padding-left: 10px; /* restore base value */
 }
 
 [dir='rtl'] .psc-simple-view .para > .marker {
