@@ -625,3 +625,43 @@ button.toolbar-item:disabled .chevron-down {
   border-top: none;
   margin-top: 1rem;
 }
+
+/* ── Marker column ───────────────────────────────────────────────────────────
+   Paragraph-level markers appear in a fixed-width gutter to the left of the
+   content area. The .editor-input left padding creates the gutter space;
+   each .para > .marker span is pulled into it with absolute positioning.
+   All rules scoped to .psc-simple-view so toggling the class fully reverts. */
+
+.psc-simple-view .editor-input {
+  padding-left: 4em;
+}
+
+/* Generalize position: relative to all .para elements (not just psc-active-verse)
+   so the absolutely-positioned .marker span has the right containing block. */
+.psc-simple-view .para {
+  position: relative;
+}
+
+.psc-simple-view .para > .marker {
+  position: absolute;
+  right: calc(100% + 0.5em);
+  top: 0.15em;
+  width: 3em;
+  text-align: right;
+  white-space: nowrap;
+  color: var(--scripture-accent-marker);
+  font-size: 0.75em;
+  font-family: monospace;
+}
+
+/* RTL: move gutter to the right */
+[dir='rtl'] .psc-simple-view .editor-input {
+  padding-right: 4em;
+  padding-left: 10px;
+}
+
+[dir='rtl'] .psc-simple-view .para > .marker {
+  right: auto;
+  left: calc(100% + 0.5em);
+  text-align: left;
+}
