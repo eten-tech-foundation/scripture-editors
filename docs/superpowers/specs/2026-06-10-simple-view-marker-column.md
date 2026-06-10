@@ -38,6 +38,20 @@ Pure CSS change. No new JavaScript, no new Lexical nodes, no new React component
 
 ## CSS Design
 
+### Token
+
+Add `--scripture-accent-marker` to the existing `.psc-simple-view` token block. This was previously defined but removed as unused; the marker column now consumes it.
+
+```css
+.psc-simple-view {
+  --scripture-accent: #c4956a;
+  --scripture-accent-chapter: rgba(196, 149, 106, 0.35);
+  --scripture-accent-marker: rgba(196, 149, 106, 0.45); /* re-added for marker column */
+}
+```
+
+The value `rgba(196, 149, 106, 0.45)` sits between the full accent (verse numbers) and the very muted chapter color, giving markers a visible but subordinate presence.
+
 ### Gutter space
 
 ```css
@@ -68,7 +82,7 @@ The existing `padding-right: 10px` and `padding-top/bottom: 15px` are unchanged.
   width: 3em;
   text-align: right;
   white-space: nowrap;
-  color: rgba(140, 140, 140, 0.7);
+  color: var(--scripture-accent-marker);
   font-size: 0.75em;
   font-family: monospace;
 }
