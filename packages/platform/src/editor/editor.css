@@ -3,7 +3,6 @@
 /* Scripture accent tokens (used by .psc-simple-view) */
 :root {
   --scripture-accent: #c4956a;
-  --scripture-accent-marker: rgba(196, 149, 106, 0.6);
   --scripture-accent-chapter: rgba(196, 149, 106, 0.35);
 }
 
@@ -601,7 +600,7 @@ button.toolbar-item:disabled .chevron-down {
   letter-spacing: 0.1em;
   font-size: 0.8rem;
   font-weight: 400;
-  color: var(--muted-foreground);
-  border-top: none !important;
+  color: var(--muted-foreground, #6b7280);
+  border-top: none;
   margin-top: 1rem;
 }
