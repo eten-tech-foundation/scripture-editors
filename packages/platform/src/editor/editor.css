@@ -4,6 +4,7 @@
 .psc-simple-view {
   --scripture-accent: #c4956a;
   --scripture-accent-chapter: rgba(196, 149, 106, 0.35);
+  --scripture-accent-marker: rgba(196, 149, 106, 0.45);
 }
 
 /* Lexical */
