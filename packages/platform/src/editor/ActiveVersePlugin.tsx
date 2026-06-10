@@ -59,8 +59,34 @@ function updateVerseOffset(paraEl: HTMLElement): void {
 export function ActiveVersePlugin(): null {
   const [editor] = useLexicalComposerContext();
   const activeKeyRef = useRef<string | null>(null);
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
 
   useEffect(() => {
+    /** Switches the active verse para, updating CSS classes and ResizeObserver. */
+    function setActivePara(key: string | null): void {
+      if (activeKeyRef.current) {
+        editor.getElementByKey(activeKeyRef.current)?.classList.remove(ACTIVE_CLASS);
+      }
+      resizeObserverRef.current?.disconnect();
+      resizeObserverRef.current = null;
+
+      if (key) {
+        const paraEl = editor.getElementByKey(key) as HTMLElement | null;
+        if (paraEl) {
+          updateVerseOffset(paraEl);
+          paraEl.classList.add(ACTIVE_CLASS);
+          // Re-measure whenever the paragraph resizes (window resize, font load, etc.)
+          resizeObserverRef.current = new ResizeObserver(() => updateVerseOffset(paraEl));
+          resizeObserverRef.current.observe(paraEl);
+          activeKeyRef.current = key;
+        } else {
+          activeKeyRef.current = null;
+        }
+      } else {
+        activeKeyRef.current = null;
+      }
+    }
+
     const unsubscribeListener = editor.registerUpdateListener(({ editorState }) => {
       const { newActiveKey, emptyKeys, nonEmptyKeys } = editorState.read(() => {
         const newActiveKey = $getVerseParaFromSelection($getSelection())?.getKey() ?? null;
@@ -87,21 +113,16 @@ export function ActiveVersePlugin(): null {
       });
 
       if (newActiveKey !== activeKeyRef.current) {
-        if (activeKeyRef.current) {
-          editor.getElementByKey(activeKeyRef.current)?.classList.remove(ACTIVE_CLASS);
-        }
-        if (newActiveKey) {
-          const paraEl = editor.getElementByKey(newActiveKey);
-          if (paraEl) {
-            updateVerseOffset(paraEl as HTMLElement);
-            paraEl.classList.add(ACTIVE_CLASS);
-          }
-        }
-        activeKeyRef.current = newActiveKey;
+        setActivePara(newActiveKey);
       } else if (newActiveKey) {
-        // Re-measure on every update in case font loading or resize changed the layout.
-        const paraEl = editor.getElementByKey(newActiveKey);
-        if (paraEl) updateVerseOffset(paraEl as HTMLElement);
+        // Key unchanged — re-measure in case font loading or layout changed.
+        const paraEl = editor.getElementByKey(newActiveKey) as HTMLElement | null;
+        if (paraEl) {
+          updateVerseOffset(paraEl);
+        } else {
+          // Element gone without key change (node removed without selection change).
+          setActivePara(null);
+        }
       }
 
       emptyKeys.forEach((key) => editor.getElementByKey(key)?.classList.add(EMPTY_CLASS));
@@ -111,10 +132,7 @@ export function ActiveVersePlugin(): null {
     const unsubscribeBlur = editor.registerCommand(
       BLUR_COMMAND,
       () => {
-        if (activeKeyRef.current) {
-          editor.getElementByKey(activeKeyRef.current)?.classList.remove(ACTIVE_CLASS);
-          activeKeyRef.current = null;
-        }
+        setActivePara(null);
         return false;
       },
       COMMAND_PRIORITY_LOW,
@@ -128,17 +146,7 @@ export function ActiveVersePlugin(): null {
             .getEditorState()
             .read(() => $getVerseParaFromSelection($getSelection())?.getKey() ?? null) ?? null;
         if (newActiveKey !== activeKeyRef.current) {
-          if (activeKeyRef.current) {
-            editor.getElementByKey(activeKeyRef.current)?.classList.remove(ACTIVE_CLASS);
-          }
-          if (newActiveKey) {
-            const paraEl = editor.getElementByKey(newActiveKey);
-            if (paraEl) {
-              updateVerseOffset(paraEl as HTMLElement);
-              paraEl.classList.add(ACTIVE_CLASS);
-            }
-          }
-          activeKeyRef.current = newActiveKey;
+          setActivePara(newActiveKey);
         }
         return false;
       },
@@ -149,6 +157,7 @@ export function ActiveVersePlugin(): null {
       unsubscribeListener();
       unsubscribeBlur();
       unsubscribeFocus();
+      resizeObserverRef.current?.disconnect();
     };
   }, [editor]);
 
