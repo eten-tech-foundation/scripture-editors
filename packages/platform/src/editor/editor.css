@@ -1,5 +1,12 @@
 /* stylelint-disable selector-no-qualifying-type */
 
+/* Scripture accent tokens (used by .psc-simple-view) */
+:root {
+  --scripture-accent: #c4956a;
+  --scripture-accent-marker: rgba(196, 149, 106, 0.6);
+  --scripture-accent-chapter: rgba(196, 149, 106, 0.35);
+}
+
 /* Lexical */
 
 .editor-container {
@@ -557,4 +564,44 @@ button.toolbar-item:disabled .chevron-down {
   height: 100%;
   background-color: #eee;
   margin: 0 4px;
+}
+
+/* ── 10Simple visual styling ──────────────────────────────────────────────────
+   All rules scoped to .psc-simple-view so toggling the class fully reverts. */
+
+.psc-simple-view .usfm_v,
+.psc-simple-view span.verse {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--scripture-accent);
+  vertical-align: unset;
+  position: relative;
+  top: -1px;
+  background: none;
+}
+
+.psc-simple-view .usfm_c {
+  font-size: 3.5rem;
+  font-weight: 300;
+  color: var(--scripture-accent-chapter);
+}
+
+.psc-simple-view span.psc-active-verse {
+  outline: 2.5px solid var(--scripture-accent);
+  border-radius: 4px;
+  outline-offset: 1px;
+}
+
+.psc-simple-view .usfm_s,
+.psc-simple-view .usfm_s1,
+.psc-simple-view .usfm_s2,
+.psc-simple-view .usfm_s3 {
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 0.8rem;
+  font-weight: 400;
+  color: var(--muted-foreground);
+  border-top: none !important;
+  margin-top: 1rem;
 }
