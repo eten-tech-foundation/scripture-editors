@@ -44,6 +44,18 @@ export function $isVerseParaEmpty(para: ElementNode): boolean {
 const ACTIVE_CLASS = "psc-active-verse";
 const EMPTY_CLASS = "psc-empty-verse";
 
+/** Measures the verse number span's right edge and stores it as --verse-end on the para element.
+ *  The ::before pseudo-element uses this to start the outline box just after the verse number,
+ *  regardless of text-indent or verse number digit count. */
+function updateVerseOffset(paraEl: HTMLElement): void {
+  const verseSpan = paraEl.querySelector<HTMLElement>(".usfm_v, .verse");
+  if (!verseSpan) return;
+  const paraRect = paraEl.getBoundingClientRect();
+  const verseRect = verseSpan.getBoundingClientRect();
+  const offset = Math.round(verseRect.right - paraRect.left) + 4;
+  paraEl.style.setProperty("--verse-end", `${offset}px`);
+}
+
 export function ActiveVersePlugin(): null {
   const [editor] = useLexicalComposerContext();
   const activeKeyRef = useRef<string | null>(null);
@@ -79,9 +91,17 @@ export function ActiveVersePlugin(): null {
           editor.getElementByKey(activeKeyRef.current)?.classList.remove(ACTIVE_CLASS);
         }
         if (newActiveKey) {
-          editor.getElementByKey(newActiveKey)?.classList.add(ACTIVE_CLASS);
+          const paraEl = editor.getElementByKey(newActiveKey);
+          if (paraEl) {
+            updateVerseOffset(paraEl as HTMLElement);
+            paraEl.classList.add(ACTIVE_CLASS);
+          }
         }
         activeKeyRef.current = newActiveKey;
+      } else if (newActiveKey) {
+        // Re-measure on every update in case font loading or resize changed the layout.
+        const paraEl = editor.getElementByKey(newActiveKey);
+        if (paraEl) updateVerseOffset(paraEl as HTMLElement);
       }
 
       emptyKeys.forEach((key) => editor.getElementByKey(key)?.classList.add(EMPTY_CLASS));
@@ -112,7 +132,11 @@ export function ActiveVersePlugin(): null {
             editor.getElementByKey(activeKeyRef.current)?.classList.remove(ACTIVE_CLASS);
           }
           if (newActiveKey) {
-            editor.getElementByKey(newActiveKey)?.classList.add(ACTIVE_CLASS);
+            const paraEl = editor.getElementByKey(newActiveKey);
+            if (paraEl) {
+              updateVerseOffset(paraEl as HTMLElement);
+              paraEl.classList.add(ACTIVE_CLASS);
+            }
           }
           activeKeyRef.current = newActiveKey;
         }

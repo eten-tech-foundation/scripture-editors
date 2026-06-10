@@ -590,12 +590,13 @@ button.toolbar-item:disabled .chevron-down {
 }
 
 /* Box offset left so the verse number sits visually outside it.
-   24px clears 1–3 digit numbers at 13px bold; adjust if the verse number
-   font size changes. */
+   --verse-end is set dynamically by ActiveVersePlugin to the measured right edge of the
+   verse number span, so the box starts just after the number regardless of text-indent
+   or digit count. Falls back to 24px if the measurement isn't available. */
 .psc-simple-view .psc-active-verse::before {
   content: '';
   position: absolute;
-  left: 24px;
+  left: var(--verse-end, 24px);
   right: -4px; /* slight overhang mirrors the top/bottom -2px spacing */
   top: -2px;
   bottom: -2px;
