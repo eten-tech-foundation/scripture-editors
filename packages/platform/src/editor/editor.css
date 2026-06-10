@@ -630,7 +630,12 @@ button.toolbar-item:disabled .chevron-down {
    Paragraph-level markers appear in a fixed-width gutter to the left of the
    content area. The .editor-input left padding creates the gutter space;
    each .para > .marker span is pulled into it with absolute positioning.
-   All rules scoped to .psc-simple-view so toggling the class fully reverts. */
+   All rules scoped to .psc-simple-view so toggling the class fully reverts.
+
+   --para-indent tracks each paragraph type's margin-left so the marker is
+   always anchored at the same gutter position regardless of indent level.
+   Only overridden when .text-spacing is also present (same condition as the
+   margin-left rules in usj-nodes.css). */
 
 .psc-simple-view .editor-input {
   padding-left: 4em;
@@ -640,11 +645,14 @@ button.toolbar-item:disabled .chevron-down {
    so the absolutely-positioned .marker span has the right containing block. */
 .psc-simple-view .para {
   position: relative;
+  --para-indent: 0px;
 }
 
 .psc-simple-view .para > .marker {
   position: absolute;
-  right: calc(100% + 0.5em);
+  /* left = -(gutter-width) + 0.5em-gap + para-indent-compensation
+     = -(3em + 0.5em) - var(--para-indent) relative to the para's left edge */
+  left: calc(-3.5em - var(--para-indent));
   top: 0;
   width: 3em;
   text-align: right;
@@ -654,6 +662,45 @@ button.toolbar-item:disabled .chevron-down {
   font-family: monospace;
 }
 
+/* Indent compensation — mirrors the margin-left values in usj-nodes.css.
+   Only active when .text-spacing is present (same condition as the source rules). */
+.psc-simple-view .text-spacing .usfm_io,
+.psc-simple-view .text-spacing .usfm_io1,
+.psc-simple-view .text-spacing .usfm_ili,
+.psc-simple-view .text-spacing .usfm_ili1,
+.psc-simple-view .text-spacing[dir='ltr'] .usfm_pi2 {
+  --para-indent: 10vw;
+}
+.psc-simple-view .text-spacing .usfm_q,
+.psc-simple-view .text-spacing .usfm_q1,
+.psc-simple-view .text-spacing .usfm_q2,
+.psc-simple-view .text-spacing .usfm_q3,
+.psc-simple-view .text-spacing .usfm_q4,
+.psc-simple-view .text-spacing .usfm_io2,
+.psc-simple-view .text-spacing .usfm_ili2,
+.psc-simple-view .text-spacing[dir='ltr'] .usfm_pi3 {
+  --para-indent: 15vw;
+}
+.psc-simple-view .text-spacing .usfm_qm,
+.psc-simple-view .text-spacing .usfm_qm1,
+.psc-simple-view .text-spacing .usfm_io3 {
+  --para-indent: 20vw;
+}
+.psc-simple-view .text-spacing .usfm_io4 {
+  --para-indent: 25vw;
+}
+.psc-simple-view .text-spacing .usfm_ipi,
+.psc-simple-view .text-spacing .usfm_imi,
+.psc-simple-view .text-spacing .usfm_pmo,
+.psc-simple-view .text-spacing .usfm_pm,
+.psc-simple-view .text-spacing .usfm_pmc,
+.psc-simple-view .text-spacing .usfm_pmr,
+.psc-simple-view .text-spacing .usfm_pi,
+.psc-simple-view .text-spacing .usfm_pi1,
+.psc-simple-view .text-spacing .usfm_mi {
+  --para-indent: 5vw;
+}
+
 /* RTL: move gutter to the right */
 [dir='rtl'] .psc-simple-view .editor-input {
   padding-right: 4em;
@@ -661,7 +708,7 @@ button.toolbar-item:disabled .chevron-down {
 }
 
 [dir='rtl'] .psc-simple-view .para > .marker {
-  right: auto;
-  left: calc(100% + 0.5em);
+  left: auto;
+  right: calc(-3.5em - var(--para-indent));
   text-align: left;
 }
