@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { createEditor, $getRoot, $createTextNode, $getSelection } from "lexical";
 import { $createParaNode, $createVerseNode, ParaNode, VerseNode } from "shared";
+import { $createImmutableVerseNode, ImmutableVerseNode } from "shared-react";
 import { $isVerseParaEmpty, $getVerseParaFromSelection } from "./ActiveVersePlugin";
 
 function makeEditor() {
   return createEditor({
-    nodes: [ParaNode, VerseNode],
+    nodes: [ParaNode, VerseNode, ImmutableVerseNode],
     onError: (err) => {
       throw err;
     },
@@ -63,6 +64,26 @@ describe("$isVerseParaEmpty", () => {
         () => {
           const para = $createParaNode("p");
           para.append($createVerseNode("1"), $createTextNode("   "));
+          $getRoot().append(para);
+          result = $isVerseParaEmpty(para);
+        },
+        { onUpdate: resolve, discrete: true },
+      );
+    });
+
+    expect(result).toBe(true);
+  });
+
+  it("returns true when para has only an ImmutableVerseNode", async () => {
+    const editor = makeEditor();
+    editor.setRootElement(document.createElement("div"));
+
+    let result = false;
+    await new Promise<void>((resolve) => {
+      editor.update(
+        () => {
+          const para = $createParaNode("p");
+          para.append($createImmutableVerseNode("1"));
           $getRoot().append(para);
           result = $isVerseParaEmpty(para);
         },

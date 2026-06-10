@@ -5,6 +5,8 @@ import {
   $isElementNode,
   $isRangeSelection,
   BaseSelection,
+  BLUR_COMMAND,
+  COMMAND_PRIORITY_LOW,
   ElementNode,
 } from "lexical";
 import { useEffect, useRef } from "react";
@@ -35,7 +37,7 @@ export function $isVerseParaEmpty(para: ElementNode): boolean {
     .filter((child) => !$isVerseNode(child) && !$isImmutableVerseNode(child))
     .map((child) => child.getTextContent())
     .join("");
-  return nonVerseText.replace(/​/g, "").trim() === "";
+  return nonVerseText.replace(/\u200B/g, "").trim() === "";
 }
 
 const ACTIVE_CLASS = "psc-active-verse";
@@ -46,7 +48,7 @@ export function ActiveVersePlugin(): null {
   const activeKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
-    return editor.registerUpdateListener(({ editorState }) => {
+    const unsubscribeListener = editor.registerUpdateListener(({ editorState }) => {
       const { newActiveKey, emptyKeys, nonEmptyKeys } = editorState.read(() => {
         const newActiveKey = $getVerseParaFromSelection($getSelection())?.getKey() ?? null;
 
@@ -84,6 +86,23 @@ export function ActiveVersePlugin(): null {
       emptyKeys.forEach((key) => editor.getElementByKey(key)?.classList.add(EMPTY_CLASS));
       nonEmptyKeys.forEach((key) => editor.getElementByKey(key)?.classList.remove(EMPTY_CLASS));
     });
+
+    const unsubscribeBlur = editor.registerCommand(
+      BLUR_COMMAND,
+      () => {
+        if (activeKeyRef.current) {
+          editor.getElementByKey(activeKeyRef.current)?.classList.remove(ACTIVE_CLASS);
+          activeKeyRef.current = null;
+        }
+        return false;
+      },
+      COMMAND_PRIORITY_LOW,
+    );
+
+    return () => {
+      unsubscribeListener();
+      unsubscribeBlur();
+    };
   }, [editor]);
 
   return null;
