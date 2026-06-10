@@ -648,7 +648,9 @@ button.toolbar-item:disabled .chevron-down {
   --para-indent: 0px;
 }
 
-.psc-simple-view .para > .marker {
+/* :not(.verse) excludes ImmutableVerseNode spans which also get class "marker"
+   when markerMode is "visible" — those stay inline, not in the gutter. */
+.psc-simple-view .para > .marker:not(.verse) {
   position: absolute;
   /* left = -(gutter-width) + 0.5em-gap + para-indent-compensation
      = -(3em + 0.5em) - var(--para-indent) relative to the para's left edge */
@@ -660,6 +662,23 @@ button.toolbar-item:disabled .chevron-down {
   color: var(--scripture-accent-marker);
   font-size: 0.75em;
   font-family: monospace;
+}
+
+/* When markerMode is "visible" the verse span includes "\v N" as a single text
+   node. Hide that text and re-render just the number from data-number so the
+   verse number stays visible without the "\v" prefix cluttering the line. */
+.psc-simple-view .verse.marker > span {
+  font-size: 0;
+}
+.psc-simple-view .verse.marker::after {
+  content: attr(data-number);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--scripture-accent);
+  vertical-align: unset;
+  position: relative;
+  top: -1px;
+  background: none;
 }
 
 /* Indent compensation — mirrors the margin-left values in usj-nodes.css.
@@ -707,7 +726,7 @@ button.toolbar-item:disabled .chevron-down {
   padding-left: 10px; /* restore base value */
 }
 
-[dir='rtl'] .psc-simple-view .para > .marker {
+[dir='rtl'] .psc-simple-view .para > .marker:not(.verse) {
   left: auto;
   right: calc(-3.5em - var(--para-indent));
   text-align: left;
