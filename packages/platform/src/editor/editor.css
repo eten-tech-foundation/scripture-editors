@@ -590,13 +590,13 @@ button.toolbar-item:disabled .chevron-down {
 }
 
 /* Box offset left so the verse number sits visually outside it.
-   1.6em clears 1–3 digit numbers at 13px bold; increase if the number
-   ever appears inside the box at a different font size. */
+   24px clears 1–3 digit numbers at 13px bold; adjust if the verse number
+   font size changes. */
 .psc-simple-view .psc-active-verse::before {
   content: '';
   position: absolute;
-  left: 1.6em;
-  right: -4px;
+  left: 24px;
+  right: -4px; /* slight overhang mirrors the top/bottom -2px spacing */
   top: -2px;
   bottom: -2px;
   outline: 2.5px solid var(--scripture-accent);
@@ -606,7 +606,7 @@ button.toolbar-item:disabled .chevron-down {
 
 .psc-simple-view .psc-empty-verse::after {
   content: '…';
-  color: #aaa;
+  color: var(--muted-foreground, #6b7280);
   font-style: italic;
 }
 
