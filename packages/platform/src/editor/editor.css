@@ -1,7 +1,7 @@
 /* stylelint-disable selector-no-qualifying-type */
 
-/* Scripture accent tokens (used by .psc-simple-view) */
-:root {
+/* Scripture accent tokens */
+.psc-simple-view {
   --scripture-accent: #c4956a;
   --scripture-accent-chapter: rgba(196, 149, 106, 0.35);
 }
@@ -599,7 +599,7 @@ button.toolbar-item:disabled .chevron-down {
   right: -4px; /* slight overhang mirrors the top/bottom -2px spacing */
   top: -2px;
   bottom: -2px;
-  outline: 2.5px solid var(--scripture-accent);
+  border: 2.5px solid var(--scripture-accent);
   border-radius: 4px;
   pointer-events: none;
 }

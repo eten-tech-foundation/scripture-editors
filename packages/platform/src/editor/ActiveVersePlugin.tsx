@@ -8,6 +8,7 @@ import {
   BLUR_COMMAND,
   COMMAND_PRIORITY_LOW,
   ElementNode,
+  FOCUS_COMMAND,
 } from "lexical";
 import { useEffect, useRef } from "react";
 import { $isVerseNode } from "shared";
@@ -99,9 +100,31 @@ export function ActiveVersePlugin(): null {
       COMMAND_PRIORITY_LOW,
     );
 
+    const unsubscribeFocus = editor.registerCommand(
+      FOCUS_COMMAND,
+      () => {
+        const newActiveKey =
+          editor
+            .getEditorState()
+            .read(() => $getVerseParaFromSelection($getSelection())?.getKey() ?? null) ?? null;
+        if (newActiveKey !== activeKeyRef.current) {
+          if (activeKeyRef.current) {
+            editor.getElementByKey(activeKeyRef.current)?.classList.remove(ACTIVE_CLASS);
+          }
+          if (newActiveKey) {
+            editor.getElementByKey(newActiveKey)?.classList.add(ACTIVE_CLASS);
+          }
+          activeKeyRef.current = newActiveKey;
+        }
+        return false;
+      },
+      COMMAND_PRIORITY_LOW,
+    );
+
     return () => {
       unsubscribeListener();
       unsubscribeBlur();
+      unsubscribeFocus();
     };
   }, [editor]);
 
