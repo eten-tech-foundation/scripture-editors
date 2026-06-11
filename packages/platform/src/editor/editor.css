@@ -3,7 +3,7 @@
 /* Scripture accent tokens */
 .psc-simple-view {
   --scripture-accent: #c4956a;
-  --scripture-accent-chapter: rgba(196, 149, 106, 0.35);
+  --scripture-accent-chapter: rgba(196, 149, 106, 0.55);
   --scripture-accent-marker: rgba(196, 149, 106, 0.45);
 }
 
@@ -578,27 +578,39 @@ button.toolbar-item:disabled .chevron-down {
   position: relative;
   top: -1px;
   background: none;
+  padding-right: 6px;
 }
 
+/* Chapter number: hide raw text (\c 1 in visible mode, or just 1 in hidden mode)
+   and render a large decorative number via ::after using the data-number attribute. */
 .psc-simple-view .usfm_c {
-  font-size: 3.5rem;
-  font-weight: 300;
+  display: block;
+  font-size: 0;
+  line-height: 0;
+  padding: 0.5rem 0 0.25rem;
+}
+
+.psc-simple-view .usfm_c::after {
+  content: attr(data-number);
+  display: block;
+  font-size: 5rem;
+  font-weight: 200;
+  line-height: 1;
   color: var(--scripture-accent-chapter);
 }
 
+/* Active verse box: a ::before pseudo-element anchored to the paragraph's
+   visual text start. Poetry paragraphs use margin-left + negative text-indent,
+   so the text hangs left of the element's border edge; --verse-text-start
+   mirrors that offset so the box aligns with the first character. */
 .psc-simple-view .psc-active-verse {
   position: relative;
 }
-
-/* Box offset left so the verse number sits visually outside it.
-   --verse-end is set dynamically by ActiveVersePlugin to the measured right edge of the
-   verse number span, so the box starts just after the number regardless of text-indent
-   or digit count. Falls back to 24px if the measurement isn't available. */
 .psc-simple-view .psc-active-verse::before {
   content: '';
   position: absolute;
-  left: var(--verse-end, 24px);
-  right: -4px; /* slight overhang mirrors the top/bottom -2px spacing */
+  left: var(--verse-text-start, 0px);
+  right: 0;
   top: -2px;
   bottom: -2px;
   border: 2.5px solid var(--scripture-accent);
@@ -646,11 +658,27 @@ button.toolbar-item:disabled .chevron-down {
 .psc-simple-view .para {
   position: relative;
   --para-indent: 0px;
+  --verse-text-start: 0px;
 }
 
-/* :not(.verse) excludes ImmutableVerseNode spans which also get class "marker"
-   when markerMode is "visible" — those stay inline, not in the gutter. */
-.psc-simple-view .para > .marker:not(.verse) {
+/* Hide non-verse marker spans and milestone attribute spans (|sid=, |eid= text).
+   In markerMode "visible", the adaptor creates:
+     - class "marker" nodes for \zmsc-s and \* text
+     - class "attribute" nodes for |sid="..." and |eid="..." text
+   Both are invisible in simple view; the paragraph's own marker goes in the gutter.
+   :not(.chapter) exempts ImmutableChapterNode which also gets class "marker" when
+   showMarker=true — the chapter number is shown via its own ::after rule above. */
+.psc-simple-view .marker:not(.verse):not(.chapter),
+.psc-simple-view .attribute {
+  display: none;
+}
+
+/* Only the :first-child .marker is the paragraph's own type identifier (e.g. \p, \q1).
+   Milestone and character markers that appear later in the paragraph are NOT shown in the
+   gutter — they are already hidden by the .marker:not(.verse):not(.chapter) rule above.
+   :not(.verse) excludes ImmutableVerseNode; :not(.chapter) excludes ImmutableChapterNode. */
+.psc-simple-view .para > .marker:not(.verse):not(.chapter):first-child {
+  display: block;
   position: absolute;
   /* left = -(gutter-width) + 0.5em-gap + para-indent-compensation
      = -(3em + 0.5em) - var(--para-indent) relative to the para's left edge */
@@ -720,14 +748,63 @@ button.toolbar-item:disabled .chevron-down {
   --para-indent: 5vw;
 }
 
+/* --verse-text-start mirrors the text-indent values from usj-nodes.css for
+   paragraphs with a negative text-indent (hanging indent). These paragraphs
+   render their first line to the LEFT of the element's border edge, so the
+   active verse ::before must start at text-indent to align with the text. */
+.psc-simple-view .text-spacing .usfm_q,
+.psc-simple-view .text-spacing .usfm_q1 {
+  --verse-text-start: -10vw;
+}
+.psc-simple-view .text-spacing .usfm_q2 {
+  --verse-text-start: -7.5vw;
+}
+.psc-simple-view .text-spacing .usfm_q3 {
+  --verse-text-start: -5vw;
+}
+.psc-simple-view .text-spacing .usfm_q4 {
+  --verse-text-start: -2.5vw;
+}
+.psc-simple-view .text-spacing .usfm_qm,
+.psc-simple-view .text-spacing .usfm_qm1 {
+  --verse-text-start: -15vw;
+}
+.psc-simple-view .text-spacing .usfm_qm2 {
+  --verse-text-start: -10vw;
+}
+.psc-simple-view .text-spacing .usfm_qm3 {
+  --verse-text-start: -5vw;
+}
+.psc-simple-view .text-spacing .usfm_ili,
+.psc-simple-view .text-spacing .usfm_ili1,
+.psc-simple-view .text-spacing .usfm_ili2 {
+  --verse-text-start: -7.5vw;
+}
+.psc-simple-view .text-spacing .usfm_iq,
+.psc-simple-view .text-spacing .usfm_iq1 {
+  --verse-text-start: -15vw;
+}
+.psc-simple-view .text-spacing .usfm_iq2 {
+  --verse-text-start: -10vw;
+}
+.psc-simple-view .text-spacing .usfm_iq3 {
+  --verse-text-start: -5vw;
+}
+
 /* RTL: move gutter to the right */
 [dir='rtl'] .psc-simple-view .editor-input {
   padding-right: 4em;
   padding-left: 10px; /* restore base value */
 }
 
-[dir='rtl'] .psc-simple-view .para > .marker:not(.verse) {
+[dir='rtl'] .psc-simple-view .para > .marker:not(.verse):not(.chapter):first-child {
   left: auto;
   right: calc(-3.5em - var(--para-indent));
   text-align: left;
+}
+
+/* RTL: active verse box mirrors the hanging indent to the right side */
+[dir='rtl'] .psc-simple-view .psc-active-verse::before {
+  left: 0;
+  right: var(--verse-text-start, 0px);
 }

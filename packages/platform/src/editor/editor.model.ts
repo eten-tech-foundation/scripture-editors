@@ -208,4 +208,6 @@ export interface EditorOptions {
   view?: ViewOptions;
   /** EXPERIMENTAL: Is the editor being debugged using the TreeView. */
   debug?: boolean;
+  /** Apply 10Simple visual styling (scoped to .psc-simple-view). */
+  isSimpleView?: boolean;
 }

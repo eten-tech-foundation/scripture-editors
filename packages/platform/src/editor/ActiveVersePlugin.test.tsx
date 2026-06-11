@@ -122,7 +122,7 @@ describe("$getVerseParaFromSelection", () => {
     expect(result).not.toBeNull();
   });
 
-  it("returns null when cursor is in a non-verse para", async () => {
+  it("returns the paragraph even when cursor is in a non-verse para (e.g. \\q2 continuation)", async () => {
     const editor = makeEditor();
     editor.setRootElement(document.createElement("div"));
 
@@ -143,6 +143,6 @@ describe("$getVerseParaFromSelection", () => {
       );
     });
 
-    expect(result).toBeNull();
+    expect(result).not.toBeNull();
   });
 });
