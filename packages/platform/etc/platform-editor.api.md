@@ -129,7 +129,7 @@ export interface EditorRef {
 export const GENERATOR_NOTE_CALLER = "+";
 
 // @public
-export const getDefaultViewMode: () => "formatted" | "unformatted";
+export const getDefaultViewMode: () => "formatted" | "unformatted" | "paragraph-structure";
 
 // @public
 export const getDefaultViewOptions: () => ViewOptions;
@@ -327,10 +327,13 @@ export type ViewMode = keyof typeof viewModeToViewNames;
 export const viewModeToViewNames: {
     formatted: string;
     unformatted: string;
+    "paragraph-structure": string;
 };
 
 // @public
 export interface ViewOptions {
+    hasActiveTextFocusBox?: boolean;
+    hasGutterParaMarkers?: boolean;
     hasSpacing: boolean;
     isFormattedFont: boolean;
     markerMode: MarkerMode;

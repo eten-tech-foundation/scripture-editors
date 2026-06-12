@@ -3,6 +3,7 @@ import usjEditorAdaptor from "./adaptors/usj-editor.adaptor";
 import { getUsjMarkerAction, isUsjMarkerSupported } from "./adaptors/usj-marker-action.utils";
 import { EditorOptions, EditorProps, EditorRef } from "./editor.model";
 import editorTheme from "./editor.theme";
+import { ActiveTextPlugin } from "./ActiveTextPlugin";
 import ScriptureReferencePlugin from "./ScriptureReferencePlugin";
 import TreeViewPlugin from "./TreeViewPlugin";
 import { ToolbarPlugin } from "./toolbar/ToolbarPlugin";
@@ -403,7 +404,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
           <RichTextPlugin
             contentEditable={
               <ContentEditable
-                className={`editor-input usfm ${getViewClassList(viewOptions).join(" ")}`}
+                className={`editor-input usfm ${getViewClassList(viewOptions).join(" ")}${viewOptions.hasGutterParaMarkers ? " psc-gutter-markers" : ""}${viewOptions.hasActiveTextFocusBox ? " psc-active-focus" : ""}`}
                 spellCheck={hasSpellCheck}
               />
             }
@@ -455,6 +456,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
           <ParaNodePlugin />
           <TextDirectionPlugin textDirection={textDirection} />
           <TextSpacingPlugin />
+          {viewOptions.hasActiveTextFocusBox && <ActiveTextPlugin />}
           {children}
         </div>
         {debug && <TreeViewPlugin />}
