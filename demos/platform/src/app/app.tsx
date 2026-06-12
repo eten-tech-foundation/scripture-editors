@@ -123,7 +123,6 @@ export default function App() {
   const [hasSpacing, setHasSpacing] = useState(true);
   const [isFormattedFont, setIsFormattedFont] = useState(true);
   const [nodesMode, setNodesMode] = useState<NodesMode>(CUSTOM_NODES_MODE);
-  const [isSimpleView, setIsSimpleView] = useState(false);
   const [debug, setDebug] = useState(!isTesting);
   const [scrRef, setScrRef] = useState(defaultScrRef);
   const [annotations, setAnnotations] = useState(defaultAnnotations);
@@ -183,9 +182,7 @@ export default function App() {
             hasExternalUI,
             hasSpellCheck,
             textDirection,
-            view: viewOptions
-              ? { ...viewOptions, showParagraphStructure: isSimpleView }
-              : undefined,
+            view: viewOptions,
             nodes: nodeOptions,
             debug,
           }
@@ -198,7 +195,6 @@ export default function App() {
       textDirection,
       viewOptions,
       nodeOptions,
-      isSimpleView,
       debug,
     ],
   );
@@ -433,15 +429,6 @@ export default function App() {
                   onChange={(e) => setHasSpellCheck(e.target.checked)}
                 />
                 <label htmlFor="hasSpellCheckBox">Has spell check</label>
-              </div>
-              <div className="checkbox">
-                <input
-                  type="checkbox"
-                  id="isSimpleViewCheckBox"
-                  checked={isSimpleView}
-                  onChange={(e) => setIsSimpleView(e.target.checked)}
-                />
-                <label htmlFor="isSimpleViewCheckBox">Is simple view</label>
               </div>
               <TextDirectionDropDown textDirection={textDirection} onSelect={setTextDirection} />
               <ViewModeDropDown viewMode={viewMode} onSelect={setViewMode} />

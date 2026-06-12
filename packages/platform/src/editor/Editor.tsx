@@ -404,7 +404,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
           <RichTextPlugin
             contentEditable={
               <ContentEditable
-                className={`editor-input usfm ${getViewClassList(viewOptions).join(" ")}${viewOptions.showParagraphStructure ? " psc-paragraph-structure" : ""}`}
+                className={`editor-input usfm ${getViewClassList(viewOptions).join(" ")}${viewOptions.hasGutterParaMarkers ? " psc-gutter-markers" : ""}${viewOptions.hasActiveTextFocusBox ? " psc-active-focus" : ""}`}
                 spellCheck={hasSpellCheck}
               />
             }
@@ -456,7 +456,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
           <ParaNodePlugin />
           <TextDirectionPlugin textDirection={textDirection} />
           <TextSpacingPlugin />
-          {viewOptions.showParagraphStructure && <ActiveTextPlugin />}
+          {viewOptions.hasActiveTextFocusBox && <ActiveTextPlugin />}
           {children}
         </div>
         {debug && <TreeViewPlugin />}

@@ -133,7 +133,7 @@ const EMPTY_CLASS = "psc-empty-text";
 /**
  * Plugin that shows an outline box around the active text section (the verse range under the
  * cursor) and marks paragraphs with no body content as empty. Activated when
- * `viewOptions.showParagraphStructure` is true.
+ * `viewOptions.hasActiveTextFocusBox` is true.
  *
  * @public
  */
