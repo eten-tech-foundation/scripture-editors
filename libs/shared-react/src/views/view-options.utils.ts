@@ -62,6 +62,11 @@ export interface ViewOptions {
    * tooltip. Default (undefined or true) preserves the marker hint for consumers authoring USFM.
    */
   showCharMarkerTitles?: boolean;
+  /**
+   * Show paragraph structure: a gutter with paragraph-level USFM markers, styled verse numbers,
+   * decorative chapter numbers, and an active-text outline box on the focused paragraph section.
+   */
+  showParagraphStructure?: boolean;
 }
 
 let defaultViewMode: ViewMode;

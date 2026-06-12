@@ -73,7 +73,6 @@ export interface EditorOptions {
     hasExternalUI?: boolean;
     hasSpellCheck?: boolean;
     isReadonly?: boolean;
-    isSimpleView?: boolean;
     markerMenuTrigger?: string;
     nodes?: UsjNodeOptions;
     textDirection?: TextDirection;
@@ -337,6 +336,7 @@ export interface ViewOptions {
     markerMode: MarkerMode;
     noteMode?: NoteMode;
     showCharMarkerTitles?: boolean;
+    showParagraphStructure?: boolean;
 }
 
 ```

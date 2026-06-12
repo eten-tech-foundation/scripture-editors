@@ -183,9 +183,10 @@ export default function App() {
             hasExternalUI,
             hasSpellCheck,
             textDirection,
-            view: viewOptions,
+            view: viewOptions
+              ? { ...viewOptions, showParagraphStructure: isSimpleView }
+              : undefined,
             nodes: nodeOptions,
-            isSimpleView,
             debug,
           }
         : { hasExternalUI, debug },

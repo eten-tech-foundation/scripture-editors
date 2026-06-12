@@ -3,7 +3,7 @@ import usjEditorAdaptor from "./adaptors/usj-editor.adaptor";
 import { getUsjMarkerAction, isUsjMarkerSupported } from "./adaptors/usj-marker-action.utils";
 import { EditorOptions, EditorProps, EditorRef } from "./editor.model";
 import editorTheme from "./editor.theme";
-import { ActiveVersePlugin } from "./ActiveVersePlugin";
+import { ActiveTextPlugin } from "./ActiveTextPlugin";
 import ScriptureReferencePlugin from "./ScriptureReferencePlugin";
 import TreeViewPlugin from "./TreeViewPlugin";
 import { ToolbarPlugin } from "./toolbar/ToolbarPlugin";
@@ -147,7 +147,6 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
     nodes,
     debug = false,
     contextMenu,
-    isSimpleView = false,
   } = options ?? defaultOptions;
 
   // Stabilize the destructured option objects so plugin props don't churn when the parent passes
@@ -387,7 +386,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
   return (
     <LexicalComposer initialConfig={initialConfig}>
       <EditablePlugin isEditable={!isReadonly} />
-      <div className={`editor-container${isSimpleView ? " psc-simple-view" : ""}`}>
+      <div className="editor-container">
         {hasExternalUI ? (
           <StateChangePlugin onStateChange={handleStateChange} />
         ) : (
@@ -405,7 +404,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
           <RichTextPlugin
             contentEditable={
               <ContentEditable
-                className={`editor-input usfm ${getViewClassList(viewOptions).join(" ")}`}
+                className={`editor-input usfm ${getViewClassList(viewOptions).join(" ")}${viewOptions.showParagraphStructure ? " psc-paragraph-structure" : ""}`}
                 spellCheck={hasSpellCheck}
               />
             }
@@ -457,7 +456,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
           <ParaNodePlugin />
           <TextDirectionPlugin textDirection={textDirection} />
           <TextSpacingPlugin />
-          {isSimpleView && <ActiveVersePlugin />}
+          {viewOptions.showParagraphStructure && <ActiveTextPlugin />}
           {children}
         </div>
         {debug && <TreeViewPlugin />}
