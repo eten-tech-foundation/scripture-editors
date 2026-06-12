@@ -1,4 +1,4 @@
-import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
+﻿import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { mergeRegister } from "@lexical/utils";
 import {
   $getRoot,
@@ -31,7 +31,7 @@ export function $isParaBodyEmpty(para: ElementNode): boolean {
     .filter((child) => !$isSomeVerseNode(child))
     .map((child) => child.getTextContent())
     .join("");
-  return nonVerseText.replace(/​/g, "").trim() === "";
+  return nonVerseText.replace(/\u200B/g, "").trim() === "";
 }
 
 function $paraHasVerse(para: ElementNode): boolean {
@@ -184,7 +184,7 @@ export function ActiveTextPlugin(): null {
       }
     }
 
-    function readActiveState(): {
+    function $readActiveState(): {
       newActiveKey: string | null;
       newActiveVerseKey: string | null;
       newNextVerseKey: string | null;
@@ -206,7 +206,7 @@ export function ActiveTextPlugin(): null {
       editor.registerUpdateListener(({ editorState }) => {
         const { newActiveKey, newActiveVerseKey, newNextVerseKey, emptyKeys, nonEmptyKeys } =
           editorState.read(() => {
-            const { newActiveKey, newActiveVerseKey, newNextVerseKey } = readActiveState();
+            const { newActiveKey, newActiveVerseKey, newNextVerseKey } = $readActiveState();
 
             const emptyKeys: string[] = [];
             const nonEmptyKeys: string[] = [];
@@ -254,7 +254,7 @@ export function ActiveTextPlugin(): null {
         () => {
           const { newActiveKey, newActiveVerseKey, newNextVerseKey } = editor
             .getEditorState()
-            .read(readActiveState);
+            .read($readActiveState);
           if (
             newActiveKey !== activeKeyRef.current ||
             newActiveVerseKey !== activeVerseKeyRef.current

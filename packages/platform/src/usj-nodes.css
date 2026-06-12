@@ -2430,7 +2430,7 @@ span.read img {
 }
 
 .psc-gutter-markers .psc-empty-text::after {
-  content: '…';
+  content: "…";
   color: var(--muted-foreground, #6b7280);
   font-style: italic;
 }
@@ -2519,7 +2519,7 @@ span.read img {
 .psc-gutter-markers.text-spacing .usfm_io1,
 .psc-gutter-markers.text-spacing .usfm_ili,
 .psc-gutter-markers.text-spacing .usfm_ili1,
-.psc-gutter-markers.text-spacing[dir='ltr'] .usfm_pi2 {
+.psc-gutter-markers.text-spacing[dir="ltr"] .usfm_pi2 {
   --para-indent: 10vw;
 }
 .psc-gutter-markers.text-spacing .usfm_q,
@@ -2529,7 +2529,7 @@ span.read img {
 .psc-gutter-markers.text-spacing .usfm_q4,
 .psc-gutter-markers.text-spacing .usfm_io2,
 .psc-gutter-markers.text-spacing .usfm_ili2,
-.psc-gutter-markers.text-spacing[dir='ltr'] .usfm_pi3 {
+.psc-gutter-markers.text-spacing[dir="ltr"] .usfm_pi3 {
   --para-indent: 15vw;
 }
 .psc-gutter-markers.text-spacing .usfm_qm,
@@ -2596,12 +2596,12 @@ span.read img {
 }
 
 /* RTL: move gutter to the right */
-.usfm.psc-gutter-markers[dir='rtl'] {
+.usfm.psc-gutter-markers[dir="rtl"] {
   padding-right: 4em;
   padding-left: 10px; /* restore base value */
 }
 
-.psc-gutter-markers[dir='rtl'] .para > .marker:not(.verse):not(.chapter):first-child {
+.psc-gutter-markers[dir="rtl"] .para > .marker:not(.verse):not(.chapter):first-child {
   left: auto;
   right: calc(-1 * (var(--psc-gutter-width) - 0.5em) - var(--para-indent));
   text-align: left;
@@ -2624,7 +2624,7 @@ span.read img {
 }
 
 .psc-active-focus .psc-active-text::before {
-  content: '';
+  content: "";
   position: absolute;
   left: var(--verse-text-start, 0px);
   right: 0;
@@ -2636,7 +2636,7 @@ span.read img {
 }
 
 /* RTL: active text box mirrors the hanging indent to the right side */
-.psc-active-focus[dir='rtl'] .psc-active-text::before {
+.psc-active-focus[dir="rtl"] .psc-active-text::before {
   left: 0;
   right: var(--verse-text-start, 0px);
 }
