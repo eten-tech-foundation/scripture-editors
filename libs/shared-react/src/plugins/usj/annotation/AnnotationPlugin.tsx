@@ -14,6 +14,8 @@ import {
   TypedIDs,
   TypedMarkNode,
   TypedMarkOnClick,
+  TypedMarkOnMouseEnter,
+  TypedMarkOnMouseLeave,
   TypedMarkOnRemove,
 } from "shared";
 
@@ -25,6 +27,8 @@ export interface AnnotationRef {
     id: string,
     onClick?: TypedMarkOnClick,
     onRemove?: TypedMarkOnRemove,
+    onMouseEnter?: TypedMarkOnMouseEnter,
+    onMouseLeave?: TypedMarkOnMouseLeave,
   ): void;
   removeAnnotation(type: string, id: string): void;
 }
@@ -50,17 +54,23 @@ function useAnnotations(editor: LexicalEditor, markNodeMap: Map<string, Set<Node
             from.getTypedIDs(),
             from.getTypedOnClicks(),
             from.getTypedOnRemoves(),
+            from.getTypedOnMouseEnters(),
+            from.getTypedOnMouseLeaves(),
           );
         },
         (from: TypedMarkNode, to: TypedMarkNode) => {
           // Merge the IDs
           const fromOnClicks = from.getTypedOnClicks();
           const fromOnRemoves = from.getTypedOnRemoves();
+          const fromOnMouseEnters = from.getTypedOnMouseEnters();
+          const fromOnMouseLeaves = from.getTypedOnMouseLeaves();
           for (const [type, ids] of Object.entries(from.getTypedIDs())) {
             ids.forEach((id) => {
               const onClick = fromOnClicks[type]?.[id];
               const onRemove = fromOnRemoves[type]?.[id];
-              to.addID(type, id, onClick, onRemove);
+              const onMouseEnter = fromOnMouseEnters[type]?.[id];
+              const onMouseLeave = fromOnMouseLeaves[type]?.[id];
+              to.addID(type, id, onClick, onRemove, onMouseEnter, onMouseLeave);
             });
           }
 
@@ -154,7 +164,15 @@ export const AnnotationPlugin = forwardRef(function AnnotationPlugin<TLogger ext
   };
 
   useImperativeHandle(ref, () => ({
-    setAnnotation(selection, type, id, onClick?: TypedMarkOnClick, onRemove?: TypedMarkOnRemove) {
+    setAnnotation(
+      selection,
+      type,
+      id,
+      onClick?: TypedMarkOnClick,
+      onRemove?: TypedMarkOnRemove,
+      onMouseEnter?: TypedMarkOnMouseEnter,
+      onMouseLeave?: TypedMarkOnMouseLeave,
+    ) {
       if (TypedMarkNode.isReservedType(type))
         throw new Error(
           `setAnnotation: Can't directly set this reserved annotation type '${type}'.` +
@@ -172,7 +190,15 @@ export const AnnotationPlugin = forwardRef(function AnnotationPlugin<TLogger ext
 
           $removeMarkNodesForTypeID(type, id);
 
-          $wrapSelectionInTypedMarkNode(editorSelection, type, id, onClick, onRemove);
+          $wrapSelectionInTypedMarkNode(
+            editorSelection,
+            type,
+            id,
+            onClick,
+            onRemove,
+            onMouseEnter,
+            onMouseLeave,
+          );
         },
         { tag: ANNOTATION_CHANGE_TAG },
       );

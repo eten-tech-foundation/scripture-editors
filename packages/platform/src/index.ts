@@ -43,6 +43,7 @@ export {
   getViewMode,
   getViewOptions,
   isInsertEmbedOpOfType,
+  PARAGRAPH_STRUCTURE_VIEW_MODE,
   viewModeToViewNames,
 } from "shared-react";
 
@@ -54,6 +55,8 @@ export type {
   LoggerBasic,
   NodeOptions,
   TypedMarkOnClick,
+  TypedMarkOnMouseEnter,
+  TypedMarkOnMouseLeave,
   TypedMarkOnRemove,
   TypedMarkRemovalCause,
 } from "shared";

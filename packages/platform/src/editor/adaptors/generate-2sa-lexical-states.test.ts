@@ -72,6 +72,7 @@ export const ${mode.exportName}: SerializedEditorState = ${json};
       const filePath = resolve(outputDir, mode.fileName);
       writeFileSync(filePath, content, "utf8");
       // Log so the test runner output shows what was generated
+      // eslint-disable-next-line no-console -- test output
       console.log(`Wrote ${filePath} (${content.length} chars)`);
       expect(serializedState.root.children.length).toBeGreaterThan(0);
     });

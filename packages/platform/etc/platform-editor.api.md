@@ -111,6 +111,13 @@ export interface EditorRef {
     removeAnnotation(type: string, id: string): void;
     replaceEmbedUpdate(embedNodeKey: string, insertEmbedOps: DeltaOp[]): void;
     selectNote(noteKeyOrIndex: string | number): void;
+    setAnnotation(selection: AnnotationRange, type: string, id: string, callbacks?: {
+        onClick?: TypedMarkOnClick;
+        onRemove?: TypedMarkOnRemove;
+        onMouseEnter?: TypedMarkOnMouseEnter;
+        onMouseLeave?: TypedMarkOnMouseLeave;
+    }): void;
+    // @deprecated
     setAnnotation(selection: AnnotationRange, type: string, id: string, onClick?: TypedMarkOnClick, onRemove?: TypedMarkOnRemove): void;
     setSelection(selection: SelectionRange): void;
     setUsj(usj: Usj): void;
@@ -122,7 +129,7 @@ export interface EditorRef {
 export const GENERATOR_NOTE_CALLER = "+";
 
 // @public
-export const getDefaultViewMode: () => "formatted" | "unformatted";
+export const getDefaultViewMode: () => "formatted" | "unformatted" | "paragraph-structure";
 
 // @public
 export const getDefaultViewOptions: () => ViewOptions;
@@ -260,6 +267,9 @@ export interface OTVerseEmbed extends OTParaAttribute {
 }
 
 // @public
+export const PARAGRAPH_STRUCTURE_VIEW_MODE = "paragraph-structure";
+
+// @public
 export interface SelectionRange {
     end?: UsjDocumentLocation;
     start: UsjDocumentLocation;
@@ -288,6 +298,12 @@ export interface Thread {
 export type TypedMarkOnClick = (event: DomMouseEvent, type: string, id: string, textContent: string) => void;
 
 // @public
+export type TypedMarkOnMouseEnter = (event: DomMouseEvent, type: string, id: string, textContent: string) => void;
+
+// @public
+export type TypedMarkOnMouseLeave = (event: DomMouseEvent, type: string, id: string, textContent: string) => void;
+
+// @public
 export type TypedMarkOnRemove = (type: string, id: string, cause: TypedMarkRemovalCause, textContent: string) => void;
 
 // @public
@@ -314,14 +330,18 @@ export type ViewMode = keyof typeof viewModeToViewNames;
 export const viewModeToViewNames: {
     formatted: string;
     unformatted: string;
+    "paragraph-structure": string;
 };
 
 // @public
 export interface ViewOptions {
+    hasActiveTextFocusBox?: boolean;
+    hasGutterParaMarkers?: boolean;
     hasSpacing: boolean;
     isFormattedFont: boolean;
     markerMode: MarkerMode;
     noteMode?: NoteMode;
+    showCharMarkerTitles?: boolean;
 }
 
 ```

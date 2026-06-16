@@ -5,6 +5,7 @@ import {
   $getCommonAncestor,
   $getState,
   $isElementNode,
+  $isRangeSelection,
   $isTextNode,
   BaseSelection,
   LexicalEditor,
@@ -59,6 +60,8 @@ export type NodesWithMarker =
 // If you want use these utils with your own chapter node, add it to this list of types.
 export type SomeChapterNode = ChapterNode | ImmutableChapterNode;
 export type SomeParaNode = ParaNode | ImpliedParaNode;
+
+export type ParaLikeNode = SomeParaNode | BookNode;
 
 /** RegEx to test for a string only containing digits. */
 const ONLY_DIGITS_TEST = /^\d+$/;
@@ -237,6 +240,14 @@ export function $getPreviousNode(selection: RangeSelection): LexicalNode | null 
 
   const anchorNode = selection.anchor.getNode();
   return anchorNode.getPreviousSibling() ?? anchorNode.getParent()?.getPreviousSibling() ?? null;
+}
+
+/**
+ * Type guard to check if a node is para-like. Para-like nodes have an OT length of 1 that is
+ * counted on its close (rather than its open).
+ */
+export function $isParaLikeNode(node: LexicalNode | null | undefined): node is ParaLikeNode {
+  return $isSomeParaNode(node) || $isBookNode(node);
 }
 
 /**
@@ -574,19 +585,51 @@ export function removeUndefinedProperties<T>(obj: T): T {
 }
 
 /**
+ * Returns true when the error is Lexical's getNodes() throw (selection on DecoratorNode).
+ * Message-based; may break if Lexical changes error text. Prefer pre-checking anchor
+ * node type before calling getSelectionStartNode.
+ */
+export function isSelectionStartNodeExpectedError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return (
+    message.includes("$caretFromPoint") &&
+    (message.includes("does not inherit from ElementNode") ||
+      message.includes("does not inherit from TextNode"))
+  );
+}
+
+/**
  * Get the start node of the selection.
+ * For range selections, avoids throws from `getNodes()` when the anchor is on a node type that
+ * does not match the anchor type (e.g. DecoratorNode with an element selection), by returning the
+ * anchor node or applying `isSelectionStartNodeExpectedError` fallback.
  * @param selection - The selection to get the start node from.
  * @returns The start node of the selection or `undefined` if no selection is provided.
  */
 export function getSelectionStartNode(selection: BaseSelection | null): LexicalNode | undefined {
-  if (!selection) return undefined;
-
-  const nodes = selection.getNodes();
-  if (nodes.length > 0) {
-    return selection.isBackward() ? nodes[nodes.length - 1] : nodes[0];
+  if (!$isRangeSelection(selection)) {
+    return getSelectionStartNodeInner(selection);
   }
 
-  return undefined;
+  const anchorNode = selection.anchor.getNode();
+  const isAnchorTypeMismatch =
+    anchorNode &&
+    ((selection.anchor.type === "element" && !$isElementNode(anchorNode)) ||
+      (selection.anchor.type === "text" && !$isTextNode(anchorNode)));
+
+  if (isAnchorTypeMismatch) {
+    return anchorNode ?? undefined;
+  }
+
+  try {
+    const node = getSelectionStartNodeInner(selection);
+    return node ?? anchorNode ?? undefined;
+  } catch (err) {
+    if (isSelectionStartNodeExpectedError(err)) {
+      return anchorNode ?? undefined;
+    }
+    throw err;
+  }
 }
 
 /**
@@ -646,4 +689,15 @@ export function isVerseInRange(verseNum: number, verseRange: string | undefined)
  */
 export function isVerseRange(verseRange: string | undefined): boolean {
   return !!verseRange && verseRange.includes("-");
+}
+
+function getSelectionStartNodeInner(selection: BaseSelection | null): LexicalNode | undefined {
+  if (!selection) return undefined;
+
+  const nodes = selection.getNodes();
+  if (nodes.length > 0) {
+    return selection.isBackward() ? nodes[nodes.length - 1] : nodes[0];
+  }
+
+  return undefined;
 }

@@ -173,180 +173,60 @@ These follow a similar patter to [Annotation Styles](#annotation-styles). If a c
 
 ### Editorial Properties
 
-```ts
-/** Props for the Editor component that provides Scripture editing functionality. */
-export interface EditorProps<TLogger extends LoggerBasic> {
-  /** Initial Scripture data in USJ format. */
-  defaultUsj?: Usj;
-  /** Scripture reference that controls the general cursor location of the Scripture. */
-  scrRef?: SerializedVerseRef;
-  /** Callback function when the Scripture reference has changed. */
-  onScrRefChange?: (scrRef: SerializedVerseRef) => void;
-  /** Callback function when the cursor selection changes. */
-  onSelectionChange?: (selection: SelectionRange | undefined) => void;
-  /** Callback function when USJ Scripture data has changed. */
-  onUsjChange?: (usj: Usj, ops?: DeltaOp[], source?: DeltaSource, insertedNodeKey?: string) => void;
-  /** Callback function when state changes. */
-  onStateChange?: ({ canUndo, canRedo, blockMarker, contextMarker }: StateChangeSnapshot) => void;
-  /** Options to configure the editor. */
-  options?: EditorOptions;
-  /** Logger instance. */
-  logger?: TLogger;
-}
-```
+Controls initial data, BCV linkage, and change callbacks. Self-evident props (`options`,
+`onSelectionChange`, `logger`) are omitted — see the full reference below.
+
+| Prop                        | Note                                                                                                    |
+| --------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `defaultUsj`                | Uncontrolled: only sets initial value; external changes after mount are ignored                         |
+| `scrRef` + `onScrRefChange` | Both required together for BCV linkage; cursor moves when ref changes and ref updates when cursor moves |
+| `onUsjChange`               | Optionally receives delta ops for collaborative editing                                                 |
+| `onStateChange`             | Yields `canUndo`, `canRedo`, current `blockMarker` and `contextMarker`                                  |
+
+> Full API reference: [platform-editor.api.md](etc/platform-editor.api.md)
 
 ### Editorial Ref
 
-```ts
-/** Forward reference for the editor. */
-export interface EditorRef {
-  /** Focus the editor. */
-  focus(): void;
-  /** Undo the last action. */
-  undo(): void;
-  /** Redo the last undone action. */
-  redo(): void;
-  /** Cut the selected text. */
-  cut(): void;
-  /** Copy the selected text. */
-  copy(): void;
-  /** Paste text at the current cursor position. */
-  paste(): void;
-  /** Paste text as plain text at the current cursor position. */
-  pastePlainText(): void;
-  /** Get USJ Scripture data. */
-  getUsj(): Usj | undefined;
-  /** Set the USJ Scripture data. */
-  setUsj(usj: Usj): void;
-  /** EXPERIMENTAL: Apply Operational Transform delta update. */
-  applyUpdate(ops: DeltaOp[], source?: DeltaSource): void;
-  /**
-   * EXPERIMENTAL: Replace an embed Operational Transform delta.
-   *
-   * @remarks Embed nodes are treated as atomic units. These include chapter nodes, verse nodes,
-   *   milestone nodes, note nodes, and unmatched nodes.
-   *
-   * @param embedNodeKey - The editor key of the embed node to replace.
-   * @param insertEmbedOps - The delta operations that insert the new embed node.
-   */
-  replaceEmbedUpdate(embedNodeKey: string, insertEmbedOps: DeltaOp[]): void;
-  /**
-   * Get the selection location or range.
-   * @returns the selection location or range, or `undefined` if there is no selection. The
-   *   json-path in the selection assumes no comment Milestone nodes are present in the USJ.
-   */
-  getSelection(): SelectionRange | undefined;
-  /**
-   * Set the selection location or range.
-   * @param selection - A selection location or range. The json-path in the selection assumes no
-   *   comment Milestone nodes are present in the USJ.
-   */
-  setSelection(selection: SelectionRange): void;
-  /**
-   * Set an ephemeral annotation.
-   * @param selection - An annotation range containing the start and end location. The json-path in
-   *   an annotation location assumes no comment Milestone nodes are present in the USJ.
-   * @param type - Type of the annotation.
-   * @param id - ID of the annotation.
-   * @param onClick - Optional onClick handler.
-   * @param onRemove - Optional onRemove handler.
-   */
-  setAnnotation(
-    selection: AnnotationRange,
-    type: string,
-    id: string,
-    onClick?: TypedMarkOnClick,
-    onRemove?: TypedMarkOnRemove,
-  ): void;
-  /**
-   * Remove an ephemeral annotation.
-   * @param type - Type of the annotation.
-   * @param id - ID of the annotation.
-   */
-  removeAnnotation(type: string, id: string): void;
-  /** Format the paragraph at the current cursor position with the given block marker. */
-  formatPara(blockMarker: string): void;
-  /** Get the editor element for the given node key, if any. */
-  getElementByKey(nodeKey: string): HTMLElement | undefined;
-  /**
-   * Insert a note at the specified selection, e.g. footnote, cross-reference, endnote.
-   * @param marker - The marker type for the note.
-   * @param caller - Optional note caller to override the default for the given marker.
-   * @param selection - Optional selection range where the note should be inserted. By default it
-   *   will use the current selection in the editor.
-   * @throws Will throw an error if the marker is not a valid note marker.
-   */
-  insertNote(marker: string, caller?: string, selection?: SelectionRange): void;
-  /**
-   * EXPERIMENTAL: Select the note by editor key or at the given index in the editor, if any.
-   * @param noteKeyOrIndex - The note key or index, e.g. index=1 would select the second note in the
-   *   editor.
-   */
-  selectNote(noteKeyOrIndex: string | number): void;
-  /**
-   * EXPERIMENTAL: Get the note operations by editor key or at the given index in the editor, if any.
-   * @param noteKeyOrIndex - The note key or index, e.g. index=1 would get the second note in the
-   *   editor.
-   */
-  getNoteOps(noteKeyOrIndex: string | number): DeltaOp[] | undefined;
-  /** Ref to the end of the toolbar - INTERNAL USE ONLY to dynamically add controls in the toolbar. */
-  toolbarEndRef: RefObject<HTMLElement | null> | null;
-}
-```
+Programmatic control over the editor. Self-evident methods (`focus`, `undo`, `redo`, `cut`, `copy`,
+`paste`, `pastePlainText`, `getUsj`, `setUsj`, `formatPara`, `getElementByKey`, `selectNote`,
+`getNoteOps`) are omitted — see the full reference below.
+
+| Method                               | Note                                                                                        |
+| ------------------------------------ | ------------------------------------------------------------------------------------------- |
+| `getSelection` / `setSelection`      | Uses json-path; assumes no comment Milestone nodes in the USJ                               |
+| `setAnnotation` / `removeAnnotation` | Ephemeral — not persisted; same json-path caveat                                            |
+| `applyUpdate` / `replaceEmbedUpdate` | EXPERIMENTAL: real-time collaborative editing                                               |
+| `insertMarker`                       | Replicates marker menu; throws if readonly, `scrRef` not provided, or marker is unsupported |
+| `insertNote`                         | Deprecated — use `insertMarker`                                                             |
+| `toolbarEndRef`                      | Internal use only: for dynamically adding toolbar controls                                  |
+
+> Full API reference: [platform-editor.api.md](etc/platform-editor.api.md)
 
 ### Editorial Options
 
-```ts
-/** Options to configure the editor. */
-export interface EditorOptions {
-  /** Is the editor readonly or editable. */
-  isReadonly?: boolean;
-  /** Does the editor have external UI controls so disable the built-in toolbar and context menu. */
-  hasExternalUI?: boolean;
-  /** Is the editor enabled for spell checking. */
-  hasSpellCheck?: boolean;
-  /** Text direction: "ltr" | "rtl" | "auto". */
-  textDirection?: TextDirection;
-  /** Key to trigger the marker menu. Defaults to '\'. */
-  markerMenuTrigger?: string;
-  /** Options for some editor nodes. */
-  nodes?: UsjNodeOptions;
-  /** EXPERIMENTAL: View options. Defaults to the formatted view mode which is currently the only functional option. */
-  view?: ViewOptions;
-  /** EXPERIMENTAL: Is the editor being debugged using the TreeView. */
-  debug?: boolean;
-}
-```
+Self-evident options (`isReadonly`, `hasSpellCheck`, `textDirection`, `nodes`) are omitted — see
+the full reference below.
+
+| Option              | Note                                                       |
+| ------------------- | ---------------------------------------------------------- |
+| `hasExternalUI`     | Disables the built-in toolbar and marker menu              |
+| `markerMenuTrigger` | Defaults to `\`; has no effect when `hasExternalUI` is set |
+| `contextMenu`       | Append custom items to the built-in context menu           |
+| `view`              | EXPERIMENTAL: only formatted view is functional            |
+| `debug`             | Shows Lexical TreeView                                     |
+
+> Full API reference: [platform-editor.api.md](etc/platform-editor.api.md)
 
 ### Node Options
 
-In `EditorOptions.nodes`, you can set the list of possible note callers to what ever you need for the vernacular language being edited. The note callers option defaults to:
+Set in `EditorOptions.nodes`. Self-evident options are omitted — see the full reference below.
 
-```ts
-import { EditorOptions, UsjNodeOptions } from "@eten-tech-foundation/platform-editor";
+| Option              | Note                                                                                                                          |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `noteCallers`       | Defaults to `["a"…"z"]`; override for vernacular scripts                                                                      |
+| `noteCallerOnClick` | Callback receives `getCaller`/`setCaller`; use `GENERATOR_NOTE_CALLER` / `HIDDEN_NOTE_CALLER` constants to toggle caller type |
 
-const nodes: UsjNodeOptions = { noteCallers: ["a", "b", "c", ... , "x", "y", "z"] };
-const options: EditorOptions = { nodes };
-```
-
-You can also set an onClick handler:
-
-```ts
-import { EditorOptions, GENERATOR_NOTE_CALLER, HIDDEN_NOTE_CALLER, UsjNodeOptions } from "@eten-tech-foundation/platform-editor";
-
-const nodes: UsjNodeOptions = {
-  {
-    noteCallerOnClick: (event, noteNodeKey, isCollapsed, getCaller, setCaller, getNoteOps) => {
-      if (isCollapsed) return;
-
-      console.log("expanded note node clicked - toggle caller");
-      const caller = getCaller();
-      if (caller === GENERATOR_NOTE_CALLER) setCaller(HIDDEN_NOTE_CALLER);
-      else setCaller(GENERATOR_NOTE_CALLER);
-    }
-  };
-const options: EditorOptions = { nodes };
-```
+> Full API reference: [platform-editor.api.md](etc/platform-editor.api.md)
 
 ## `<Marginal />` API (DEPRECATED)
 
@@ -361,39 +241,25 @@ If you must continue using `<Marginal />`, watch release notes for the removal t
 
 ### Marginal Properties
 
-Inherits from the [Editorial Properties](#editorial-properties).
+Inherits all [Editorial Properties](#editorial-properties). Non-obvious additions:
 
-```ts
-export interface MarginalProps<TLogger extends LoggerBasic> extends Omit<
-  EditorProps<TLogger>,
-  "onUsjChange"
-> {
-  /** Callback function when comments have changed. */
-  onCommentChange?: (comments: Comments | undefined) => void;
-  /** Callback function when USJ Scripture data has changed. */
-  onUsjChange?: (
-    usj: Usj,
-    comments: Comments | undefined,
-    ops?: DeltaOp[],
-    source?: DeltaSource,
-    insertedNodeKey?: string,
-  ) => void;
-  /** Container ref for the show comments button - overrides internal toolbarEndRef if provided. */
-  showCommentsContainerRef?: RefObject<HTMLElement | null> | null;
-}
-```
+| Prop                       | Note                                                                |
+| -------------------------- | ------------------------------------------------------------------- |
+| `onCommentChange`          | Fires when comments change independently of USJ                     |
+| `onUsjChange`              | Re-declared: adds `comments: Comments \| undefined` as 2nd argument |
+| `showCommentsContainerRef` | Overrides where the "show comments" button renders                  |
+
+> Full API reference: [platform-editor.api.md](etc/platform-editor.api.md)
 
 ### Marginal Ref
 
-Inherits from the [Editorial Ref](#editorial-ref).
+Inherits all [Editorial Ref](#editorial-ref) methods. Non-obvious additions:
 
-```ts
-/** Forward reference for the editor. */
-export interface MarginalRef extends EditorRef {
-  /** Set the comments to accompany USJ Scripture. */
-  setComments?(comments: Comments): void;
-}
-```
+| Method        | Note                                                |
+| ------------- | --------------------------------------------------- |
+| `setComments` | Programmatically load comments without a USJ change |
+
+> Full API reference: [platform-editor.api.md](etc/platform-editor.api.md)
 
 ## Demo and Collaborative Web Development Environment
 

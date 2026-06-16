@@ -4,7 +4,9 @@ export interface UnknownAttributes {
   [name: string]: string | undefined;
 }
 
+/** Non-breaking space (U+00A0). */
 export const NBSP = "\u00A0";
+/** Zero-width space (U+200B). */
 export const ZWSP = "\u200B";
 
 export const EMPTY_CHAR_PLACEHOLDER_TEXT = NBSP;

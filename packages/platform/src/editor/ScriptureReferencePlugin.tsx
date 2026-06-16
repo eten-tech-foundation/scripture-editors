@@ -25,7 +25,13 @@ import {
   removeNodesBeforeNode,
   VerseNode,
 } from "shared";
-import { $findThisVerse, $findVerseOrPara, ImmutableVerseNode } from "shared-react";
+import {
+  $findThisVerse,
+  $findVerseOrPara,
+  $getEffectiveVerseForBcv,
+  $resolveVerseNode,
+  ImmutableVerseNode,
+} from "shared-react";
 
 /**
  * A component (plugin) that keeps the Scripture reference updated.
@@ -46,26 +52,59 @@ export default function ScriptureReferencePlugin({
   /** Prevents the `scrRef` updating again after the cursor has moved. */
   const hasCursorMovedRef = useRef(false);
   const { book, chapterNum, verseNum } = scrRef;
+  /** Latest scrRef for book sync (avoids re-registering listeners when chapter/verse changes). */
+  const scrRefRef = useRef(scrRef);
+  const onScrRefChangeRef = useRef(onScrRefChange);
+  useEffect(() => {
+    scrRefRef.current = scrRef;
+    onScrRefChangeRef.current = onScrRefChange;
+  }, [scrRef, onScrRefChange]);
 
-  // Book loaded or changed
+  // Book node: move cursor when a new BookNode appears after load; sync scrRef.book when the
+  // book code changes (initial tree + updates). Uses a second listener with skipInitialization:
+  // false so existing BookNodes from initial editor state are included (updateListener ran on
+  // every keystroke; this only runs when BookNodes are created/updated).
   useEffect(
     () =>
-      editor.registerMutationListener(
-        BookNode,
-        (nodeMutations) => {
-          editor.update(
-            () => {
-              for (const [nodeKey, mutation] of nodeMutations) {
-                const bookNode = $getNodeByKey<BookNode>(nodeKey);
-                if (bookNode && $isBookNode(bookNode) && mutation === "created") {
-                  $moveCursorToVerseStart(chapterNum, verseNum, hasCursorMovedRef);
+      mergeRegister(
+        editor.registerMutationListener(
+          BookNode,
+          (nodeMutations) => {
+            editor.update(
+              () => {
+                for (const [nodeKey, mutation] of nodeMutations) {
+                  const bookNode = $getNodeByKey<BookNode>(nodeKey);
+                  if (bookNode && $isBookNode(bookNode) && mutation === "created") {
+                    $moveCursorToVerseStart(chapterNum, verseNum, hasCursorMovedRef);
+                  }
                 }
-              }
-            },
-            { tag: CURSOR_CHANGE_TAG },
-          );
-        },
-        { skipInitialization: true },
+              },
+              { tag: CURSOR_CHANGE_TAG },
+            );
+          },
+          { skipInitialization: true },
+        ),
+        editor.registerMutationListener(
+          BookNode,
+          (nodeMutations) => {
+            editor.update(
+              () => {
+                for (const [nodeKey, mutation] of nodeMutations) {
+                  if (mutation === "destroyed") continue;
+                  const bookNode = $getNodeByKey<BookNode>(nodeKey);
+                  if (!bookNode || !$isBookNode(bookNode)) continue;
+                  const code = bookNode.getCode();
+                  const current = scrRefRef.current;
+                  if (code && code !== current.book) {
+                    onScrRefChangeRef.current({ ...current, book: code });
+                  }
+                }
+              },
+              { tag: CURSOR_CHANGE_TAG },
+            );
+          },
+          { skipInitialization: false },
+        ),
       ),
     [editor, chapterNum, verseNum],
   );
@@ -156,30 +195,35 @@ function $findAndSetChapterAndVerse(
   onScrRefChange: (scrRef: SerializedVerseRef) => void,
   hasSelectionChangedRef: MutableRefObject<boolean>,
 ) {
-  const startNode = getSelectionStartNode($getSelection());
+  const selection = $getSelection();
+  const startNode = getSelectionStartNode(selection);
   if (!startNode) return;
 
   const chapterNode = $findThisChapter(startNode);
   const selectedChapterNum = parseInt(chapterNode?.getNumber() ?? "1", 10);
-  const verseNode = $findThisVerse(startNode);
-  const verse = verseNode?.getNumber();
-  // For verse ranges this returns the first number.
-  const selectedVerseNum = parseInt(verse ?? "0", 10);
-  // Check if the requested verse is within the current verse range
-  const isVerseInCurrentRange = verse
-    ? isVerseInRange(verseNum, verse)
-    : verseNum === selectedVerseNum;
-  hasSelectionChangedRef.current = !!(
-    (chapterNode && selectedChapterNum !== chapterNum) ||
-    !isVerseInCurrentRange
+  const verseNode = $resolveVerseNode(startNode, selection);
+
+  const { verseNum: effectiveVerseNum, verse: effectiveVerse } = $getEffectiveVerseForBcv(
+    verseNode ?? undefined,
+    selection,
   );
+  const isVerseInCurrentRange = effectiveVerse
+    ? isVerseInRange(verseNum, effectiveVerse)
+    : verseNum === effectiveVerseNum;
+
+  const hasChapterChanged = chapterNode && selectedChapterNum !== chapterNum;
+  const hasVerseChanged = !isVerseInCurrentRange;
+  hasSelectionChangedRef.current = !!(hasChapterChanged || hasVerseChanged);
+
   if (hasSelectionChangedRef.current) {
     const scrRef: SerializedVerseRef = {
       book,
       chapterNum: selectedChapterNum,
-      verseNum: selectedVerseNum,
+      verseNum: effectiveVerseNum,
     };
-    if (verse != null && selectedVerseNum.toString() !== verse) scrRef.verse = verse;
+    if (effectiveVerse != null && effectiveVerseNum.toString() !== effectiveVerse) {
+      scrRef.verse = effectiveVerse;
+    }
     onScrRefChange(scrRef);
   }
 }

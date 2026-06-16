@@ -22,6 +22,16 @@ export const FORMATTED_VIEW_MODE = "formatted";
 export const UNFORMATTED_VIEW_MODE = "unformatted";
 
 /**
+ * Constant representing the paragraph structure view mode.
+ * Displays formatted text with visible USFM paragraph markers in a gutter column,
+ * styled verse numbers, decorative chapter numbers, and an active-text outline on
+ * the focused paragraph section.
+ *
+ * @public
+ */
+export const PARAGRAPH_STRUCTURE_VIEW_MODE = "paragraph-structure";
+
+/**
  * Maps view mode keys to their human-readable display names.
  * Used for UI components that need to show view mode options to users.
  *
@@ -30,4 +40,5 @@ export const UNFORMATTED_VIEW_MODE = "unformatted";
 export const viewModeToViewNames = {
   [FORMATTED_VIEW_MODE]: "Formatted",
   [UNFORMATTED_VIEW_MODE]: "Unformatted",
+  [PARAGRAPH_STRUCTURE_VIEW_MODE]: "Paragraph Structure",
 };

@@ -1,4 +1,3 @@
-import { $isParaLikeNode } from "../collab/delta-common.utils";
 import { AnnotationRange, SelectionRange } from "./selection.model";
 import {
   type PropertyJsonPath,
@@ -36,6 +35,7 @@ import {
   $isCharNode,
   $isMarkerNode,
   $isMilestoneNode,
+  $isParaLikeNode,
   $isTypedMarkNode,
   $isVerseNode,
   $isVisibleMarkerNode,

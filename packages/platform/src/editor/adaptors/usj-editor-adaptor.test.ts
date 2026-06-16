@@ -52,6 +52,7 @@ import {
   isSerializedImmutableVerseNode,
   isSomeSerializedVerseNode,
   SerializedImmutableNoteCallerNode,
+  PARAGRAPH_STRUCTURE_VIEW_MODE,
   UNFORMATTED_VIEW_MODE,
   ViewOptions,
 } from "shared-react";
@@ -193,6 +194,38 @@ describe("USJ Editor Adaptor", () => {
     const idxVerse2 = pChildren.findIndex((n) => isSomeSerializedVerseNode(n) && n.number === "2");
     expect(idxVerse2).toBeGreaterThan(0);
     expect(pChildren[idxVerse2 - 1].type).toBe("linebreak");
+  });
+
+  it("should render para markers but not inline char/verse markers in paragraph structure view", () => {
+    const serializedEditorState = serializeEditorState(
+      usjGen1v1,
+      getViewOptions(PARAGRAPH_STRUCTURE_VIEW_MODE),
+    );
+
+    // Para 'p' begins with a typed-text marker (rendered for the gutter to consume)
+    const pPara = serializedEditorState.root.children[VERSE_PARA_INDEX];
+    if (!isSerializedParaNode(pPara)) throw new Error("No para node found");
+    const pFirst = pPara.children?.[0];
+    if (!isSerializedImmutableTypedTextNode(pFirst)) throw new Error("No para marker found");
+    expect(pFirst.textType).toBe("marker");
+    expect(pFirst.text).toBe(`${openingMarkerText("p")}${NBSP}`);
+
+    // Verse is immutable and does NOT show its inline marker (markerMode is "hidden")
+    const verse2 = pPara.children.find(
+      (n: SerializedLexicalNode) => isSerializedImmutableVerseNode(n) && n.number === "2",
+    );
+    if (!isSerializedImmutableVerseNode(verse2)) throw new Error("Verse 2 not found");
+    expect(verse2.showMarker).toBeUndefined();
+
+    // Char nodes in notes should not have inline typed-text markers
+    const notePara = serializedEditorState.root.children[NOTE_PARA_INDEX];
+    if (!isSerializedParaNode(notePara)) throw new Error("No note para node found");
+    const note = notePara.children.find((n) => isSerializedNoteNode(n));
+    if (!isSerializedNoteNode(note)) throw new Error("No note node found");
+    const frChar = note.children.find((n) => isSerializedCharNode(n) && n.marker === "fr");
+    if (!isSerializedCharNode(frChar)) throw new Error("No fr char found");
+    const hasInlineMarker = frChar.children?.some((n) => isSerializedImmutableTypedTextNode(n));
+    expect(hasInlineMarker).toBe(false);
   });
 
   it("should convert from USJ to Lexical editor state JSON in editable mode", () => {

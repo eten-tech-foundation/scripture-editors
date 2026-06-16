@@ -13,20 +13,18 @@ import {
 } from "lexical";
 import { Op } from "quill-delta";
 import {
-  $isBookNode,
   $isDescendantOf,
   $isImmutableUnmatchedNode,
   $isMilestoneNode,
   $isNoteNode,
+  $isParaLikeNode,
   $isSomeChapterNode,
-  $isSomeParaNode,
   $isUnknownNode,
-  BookNode,
   ImmutableUnmatchedNode,
   MilestoneNode,
   NoteNode,
+  ParaLikeNode,
   SomeChapterNode,
-  SomeParaNode,
   UnknownNode,
 } from "shared";
 
@@ -59,8 +57,6 @@ export type EmbedNode =
   | MilestoneNode
   | NoteNode
   | ImmutableUnmatchedNode;
-
-export type ParaLikeNode = SomeParaNode | BookNode;
 
 interface OpenContentEmbed {
   node: NoteNode | UnknownNode;
@@ -331,14 +327,6 @@ export function $isEmbedNode(node: LexicalNode | null | undefined): node is Embe
     $isUnknownNode(node) ||
     $isImmutableUnmatchedNode(node)
   );
-}
-
-/**
- * Type guard to check if a node is para-like. Para-like nodes have an OT length of 1 that is
- * counted on its close (rather than its open).
- */
-export function $isParaLikeNode(node: LexicalNode | null | undefined): node is ParaLikeNode {
-  return $isSomeParaNode(node) || $isBookNode(node);
 }
 
 /**
