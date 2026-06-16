@@ -28,7 +28,9 @@ import {
   $createImpliedParaNode,
   $isImmutableChapterNode,
   $isImpliedParaNode,
+  blackListedChangeTags,
   charIdState,
+  EXTERNAL_USJ_MUTATION_TAG,
   ImmutableChapterNode,
   ImpliedParaNode,
   segmentState,
@@ -314,6 +316,47 @@ describe("OnChangePlugin", () => {
         if (!$isTextNode(t2)) throw new Error("Expected TextNode");
         expect(t2.getTextContent()).toBe("and all the brethren who are with me");
       });
+    });
+  });
+
+  describe("Blacklisted change tags (ignoreTags)", () => {
+    async function setup() {
+      const calls: DeltaOp[][] = [];
+      const { editor } = await baseTestEnvironment(
+        () => {
+          $getRoot().append($createImpliedParaNode().append($createTextNode("hello")));
+        },
+        <DeltaOnChangePlugin
+          onChange={(_editorState, _editor, _tags, ops) => calls.push(ops)}
+          ignoreSelectionChange
+          ignoreHistoryMergeTagChange
+          ignoreTags={blackListedChangeTags}
+        />,
+      );
+      return { editor, calls };
+    }
+
+    // A multi-node change forces the expensive full-document diff branch in $getUpdateOps.
+    function $makeMultiNodeChange() {
+      const root = $getRoot();
+      const para = root.getFirstChild();
+      if ($isImpliedParaNode(para)) {
+        const firstText = para.getFirstChild();
+        if ($isTextNode(firstText)) firstText.setTextContent("changed");
+      }
+      root.append($createImpliedParaNode().append($createTextNode("added")));
+    }
+
+    it("emits a delta for an untagged change (sanity)", async () => {
+      const { editor, calls } = await setup();
+      await sutUpdate(editor, $makeMultiNodeChange);
+      expect(calls).toHaveLength(1);
+    });
+
+    it("skips the delta when the update carries a blacklisted tag (e.g. chapter load)", async () => {
+      const { editor, calls } = await setup();
+      await sutUpdate(editor, $makeMultiNodeChange, { tag: EXTERNAL_USJ_MUTATION_TAG });
+      expect(calls).toHaveLength(0);
     });
   });
 });

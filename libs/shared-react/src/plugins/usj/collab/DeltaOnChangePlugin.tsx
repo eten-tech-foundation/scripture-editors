@@ -10,14 +10,27 @@ import { $getNodeByKey, $isTextNode, HISTORY_MERGE_TAG } from "lexical";
 import Delta from "quill-delta";
 import { useLayoutEffect } from "react";
 
+/** Stable default for {@link DeltaOnChangePlugin}'s `ignoreTags` so the effect deps stay stable. */
+const EMPTY_TAGS: readonly string[] = [];
+
 /** Adapted from the LexicalOnChangePlugin to include collaborative editing operations. */
 export function DeltaOnChangePlugin({
   ignoreHistoryMergeTagChange = true,
   ignoreSelectionChange = false,
+  ignoreTags = EMPTY_TAGS,
   onChange,
 }: {
   ignoreHistoryMergeTagChange?: boolean;
   ignoreSelectionChange?: boolean;
+  /**
+   * Update tags for which no delta should be computed or emitted. Updates carrying any of these
+   * tags are skipped before `$getUpdateOps` runs. Use this for programmatic, non-collaborative
+   * mutations (e.g. loading a new chapter via `EXTERNAL_USJ_MUTATION_TAG`): computing a delta for
+   * a full-document replacement diffs the entire old text against the entire new text, which is
+   * O(n×d) and can take minutes for large documents - and the result is discarded by consumers
+   * that already filter these tags anyway.
+   */
+  ignoreTags?: readonly string[];
   onChange: (
     editorState: EditorState,
     editor: LexicalEditor,
@@ -35,6 +48,7 @@ export function DeltaOnChangePlugin({
       if (
         (ignoreSelectionChange && dirtyElements.size === 0 && dirtyLeaves.size === 0) ||
         (ignoreHistoryMergeTagChange && tags.has(HISTORY_MERGE_TAG)) ||
+        ignoreTags.some((tag) => tags.has(tag)) ||
         prevEditorState.isEmpty()
       ) {
         return;
@@ -47,7 +61,7 @@ export function DeltaOnChangePlugin({
 
       onChange(editorState, editor, tags, ops);
     });
-  }, [editor, ignoreHistoryMergeTagChange, ignoreSelectionChange, onChange]);
+  }, [editor, ignoreHistoryMergeTagChange, ignoreSelectionChange, ignoreTags, onChange]);
 
   return null;
 }
