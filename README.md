@@ -208,6 +208,27 @@ nx run-many -t lint # to check linting
 nx run-many -t typecheck # to check types
 ```
 
+## Claude Code Code Intelligence
+
+This repo commits Claude Code settings (`.claude/settings.json`) that enable the `typescript-lsp`
+plugin, giving Claude jump-to-definition, find-references, and type-error diagnostics across the
+monorepo.
+
+That plugin needs the `typescript-language-server` binary on your `PATH`. This is **not** the
+`tsserver` bundled with the `typescript` package — it is a separate LSP wrapper you install
+yourself:
+
+```bash
+npm install -g typescript-language-server   # use npm for global installs (see JavaScript Tool Manager)
+typescript-language-server --version        # verify it resolves
+```
+
+Restart Claude Code afterwards so the language server starts at launch. If the `/plugin` Errors
+tab shows `Executable not found in $PATH`, the binary is missing. The `typescript` package itself
+is already provided by the workspace, so only the language server needs a global install.
+
+If you don't use Claude Code, this is optional and can be ignored.
+
 ## Collaborative Web Development Environment
 
 Thanks to [CodeSandbox](https://codesandbox.io/) for the instant dev environment: https://codesandbox.io/p/github/eten-tech-foundation/scripture-editors/main

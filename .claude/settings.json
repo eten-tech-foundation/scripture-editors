@@ -8,6 +8,10 @@
     }
   },
   "enabledPlugins": {
-    "nx@nx-claude-plugins": true
+    "nx@nx-claude-plugins": true,
+    "typescript-lsp@claude-plugins-official": true
+  },
+  "permissions": {
+    "deny": ["Read(./demos/platform/lib/**)"]
   }
 }
