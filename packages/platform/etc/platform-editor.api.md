@@ -267,6 +267,9 @@ export interface OTVerseEmbed extends OTParaAttribute {
 }
 
 // @public
+export const PARAGRAPH_STRUCTURE_VIEW_MODE = "paragraph-structure";
+
+// @public
 export interface SelectionRange {
     end?: UsjDocumentLocation;
     start: UsjDocumentLocation;
