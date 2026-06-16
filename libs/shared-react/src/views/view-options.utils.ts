@@ -5,7 +5,12 @@ import {
   VerseNode,
 } from "shared";
 import { ImmutableVerseNode } from "../nodes/usj/ImmutableVerseNode";
-import { ViewMode, FORMATTED_VIEW_MODE, UNFORMATTED_VIEW_MODE } from "./view-mode.model";
+import {
+  ViewMode,
+  FORMATTED_VIEW_MODE,
+  UNFORMATTED_VIEW_MODE,
+  PARAGRAPH_STRUCTURE_VIEW_MODE,
+} from "./view-mode.model";
 
 /**
  * How USFM markers are displayed.
@@ -62,6 +67,19 @@ export interface ViewOptions {
    * tooltip. Default (undefined or true) preserves the marker hint for consumers authoring USFM.
    */
   showCharMarkerTitles?: boolean;
+  /**
+   * Show a fixed-width gutter at the inline-start of the editor containing paragraph-level USFM markers,
+   * styled verse numbers, and decorative chapter numbers. When enabled, paragraph markers are
+   * rendered as immutable typed-text nodes (so they exist in the DOM to be repositioned into the
+   * gutter) regardless of `markerMode`. Inline char/verse/note markers are NOT shown.
+   */
+  hasGutterParaMarkers?: boolean;
+  /**
+   * Show an outline box around the active text section (the verse range under the cursor).
+   * Can be used independently of `hasGutterParaMarkers`, though poetry-paragraph alignment of
+   * the box relies on indent variables set by the gutter feature.
+   */
+  hasActiveTextFocusBox?: boolean;
 }
 
 let defaultViewMode: ViewMode;
@@ -129,6 +147,16 @@ export function getViewOptions(viewMode?: string | undefined): ViewOptions | und
         isFormattedFont: false,
       };
       break;
+    case PARAGRAPH_STRUCTURE_VIEW_MODE:
+      viewOptions = {
+        markerMode: "hidden",
+        noteMode: "collapsed",
+        hasSpacing: true,
+        isFormattedFont: true,
+        hasGutterParaMarkers: true,
+        hasActiveTextFocusBox: true,
+      };
+      break;
     default:
       break;
   }
@@ -146,9 +174,32 @@ export function getViewOptions(viewMode?: string | undefined): ViewOptions | und
 export function getViewMode(viewOptions: ViewOptions | undefined): ViewMode | undefined {
   if (!viewOptions) return undefined;
 
-  const { markerMode, hasSpacing, isFormattedFont } = viewOptions;
-  if (markerMode === "hidden" && hasSpacing && isFormattedFont) return FORMATTED_VIEW_MODE;
-  if (markerMode === "editable" && !hasSpacing && !isFormattedFont) return UNFORMATTED_VIEW_MODE;
+  const { markerMode, hasSpacing, isFormattedFont, hasGutterParaMarkers, hasActiveTextFocusBox } =
+    viewOptions;
+  if (
+    markerMode === "hidden" &&
+    hasSpacing &&
+    isFormattedFont &&
+    hasGutterParaMarkers &&
+    hasActiveTextFocusBox
+  )
+    return PARAGRAPH_STRUCTURE_VIEW_MODE;
+  if (
+    markerMode === "hidden" &&
+    hasSpacing &&
+    isFormattedFont &&
+    !hasGutterParaMarkers &&
+    !hasActiveTextFocusBox
+  )
+    return FORMATTED_VIEW_MODE;
+  if (
+    markerMode === "editable" &&
+    !hasSpacing &&
+    !isFormattedFont &&
+    !hasGutterParaMarkers &&
+    !hasActiveTextFocusBox
+  )
+    return UNFORMATTED_VIEW_MODE;
   return undefined;
 }
 
