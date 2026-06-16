@@ -39,7 +39,12 @@ import {
 } from "@eten-tech-foundation/scripture-utilities";
 import { SerializedVerseRef } from "@sillsdev/scripture";
 import { MouseEvent, RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { WEB_PSA_CH1_USX, WEB_PSA_USX, WEB_PSA_COMMENTS as comments } from "test-data";
+import {
+  AR_PSA_CH1_USX,
+  WEB_PSA_CH1_USX,
+  WEB_PSA_USX,
+  WEB_PSA_COMMENTS as comments,
+} from "test-data";
 
 interface Annotations {
   [buttonId: string]: {
@@ -293,6 +298,14 @@ export default function App() {
       version: "3.1",
       content: [],
     });
+  }, []);
+
+  const handleLoadArabic = useCallback(() => {
+    marginalRef.current?.setUsj(usxStringToUsj(AR_PSA_CH1_USX));
+  }, []);
+
+  const handleLoadEnglish = useCallback(() => {
+    marginalRef.current?.setUsj(editorUsj);
   }, []);
 
   const handleApplyOps = useCallback(() => {
@@ -559,18 +572,34 @@ export default function App() {
             }}
           >
             <h4 style={{ color: "#222" }}>OT Apply Updates</h4>
-            <button
-              onClick={handleEmptyEditor}
+            <div
               style={{
                 marginBottom: 8,
-                width: "auto",
-                alignSelf: "center",
-                minWidth: 0,
-                padding: "4px 12px",
+                display: "flex",
+                gap: 8,
+                justifyContent: "center",
+                flexWrap: "wrap",
               }}
             >
-              Empty Editor
-            </button>
+              <button
+                onClick={handleEmptyEditor}
+                style={{ width: "auto", minWidth: 0, padding: "4px 12px" }}
+              >
+                Empty Editor
+              </button>
+              <button
+                onClick={handleLoadEnglish}
+                style={{ width: "auto", minWidth: 0, padding: "4px 12px" }}
+              >
+                Load English
+              </button>
+              <button
+                onClick={handleLoadArabic}
+                style={{ width: "auto", minWidth: 0, padding: "4px 12px" }}
+              >
+                Load Arabic
+              </button>
+            </div>
             <div
               style={{
                 marginBottom: 8,

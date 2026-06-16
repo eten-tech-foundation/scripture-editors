@@ -380,7 +380,7 @@ function createPara(
   const children: SerializedLexicalNode[] = [];
   if (_viewOptions?.markerMode === "editable")
     children.push(createMarker(marker), createText(NBSP, "marker-trailing-space"));
-  else if (_viewOptions?.markerMode === "visible")
+  else if (_viewOptions?.markerMode === "visible" || _viewOptions?.hasGutterParaMarkers)
     children.push(createImmutableTypedText("marker", openingMarkerText(marker) + NBSP));
   children.push(...childNodes);
   const unknownAttributes = getUnknownAttributes(markerObject, PARA_MARKER_OBJECT_PROPS);

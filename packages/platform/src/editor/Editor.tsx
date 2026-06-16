@@ -441,6 +441,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
             ignoreSelectionChange
             ignoreHistoryMergeTagChange
           />
+          <ActiveTextPlugin viewOptions={viewOptions} />
           <AnnotationPlugin ref={annotationRef} logger={logger} />
           <ArrowNavigationPlugin viewOptions={viewOptions} />
           <CharNodePlugin />
@@ -456,7 +457,6 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
           <ParaNodePlugin />
           <TextDirectionPlugin textDirection={textDirection} />
           <TextSpacingPlugin />
-          {viewOptions.hasActiveTextFocusBox && <ActiveTextPlugin />}
           {children}
         </div>
         {debug && <TreeViewPlugin />}

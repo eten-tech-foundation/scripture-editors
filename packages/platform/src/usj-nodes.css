@@ -2392,7 +2392,7 @@ span.read img {
   --scripture-accent: #c4956a;
   --scripture-accent-chapter: rgba(196, 149, 106, 0.55);
   --scripture-accent-marker: rgba(196, 149, 106, 0.45);
-  /* Gutter width. The marker left offset uses calc(-(--psc-gutter-width) + 0.5em),
+  /* Gutter width. The marker inline-start offset uses calc(-(--psc-gutter-width) + 0.5em),
      so both values must be updated together if the gutter size changes. */
   --psc-gutter-width: 4em;
 }
@@ -2406,7 +2406,7 @@ span.read img {
   position: relative;
   top: -1px;
   background: none;
-  padding-right: 6px;
+  padding-inline-end: 6px;
 }
 
 /* Chapter number: hide raw text (\c 1 in visible mode, or just 1 in hidden mode)
@@ -2449,10 +2449,10 @@ span.read img {
   margin-top: 1rem;
 }
 
-/* The .editor-input left padding creates the gutter space; each .para > .marker
+/* The .editor-input inline-start padding creates the gutter space; each .para > .marker
    span is pulled into it with absolute positioning. */
 .usfm.psc-gutter-markers {
-  padding-left: var(--psc-gutter-width);
+  padding-inline-start: var(--psc-gutter-width);
 }
 
 /* position: relative gives absolutely-positioned gutter markers the right
@@ -2480,6 +2480,10 @@ span.read img {
    Milestone and character markers that appear later in the paragraph are NOT shown in the
    gutter — they are already hidden by the .marker:not(.verse):not(.chapter) rule above.
    :not(.verse) excludes ImmutableVerseNode; :not(.chapter) excludes ImmutableChapterNode. */
+/* direction: ltr + unicode-bidi: isolate keep USFM marker text (e.g. \q1) readable as
+   LTR even in RTL documents. Physical left/right are used for positioning (instead of
+   inset-inline-*) because forcing direction: ltr on the element makes logical property
+   resolution unreliable across browsers. */
 .psc-gutter-markers .para > .marker:not(.verse):not(.chapter):first-child {
   display: block;
   position: absolute;
@@ -2487,11 +2491,27 @@ span.read img {
   left: calc(-1 * (var(--psc-gutter-width) - 0.5em) - var(--para-indent));
   top: 0;
   width: 3em;
+  direction: ltr;
+  unicode-bidi: isolate;
   text-align: right;
   white-space: nowrap;
   color: var(--scripture-accent-marker);
   font-size: 0.75em;
   font-family: monospace;
+}
+
+/* RTL: gutter moves to the right. Physical right is used for the same reason as left above.
+   var(--para-indent) is inherited from the paragraph element (same variable the LTR left
+   calc uses), so indented para types automatically get the correct gutter column without
+   needing per-type overrides.
+   text-align is intentionally NOT overridden here: the base rule's `text-align: right` is
+   what keeps the (forced-ltr) marker text painting inside its 3em box. Setting
+   `text-align: left` here in an RTL containing block triggers a Chrome/Firefox bidi quirk
+   where the text glyphs are painted ~57px outside the box to the left (only manifests when
+   the box width matches the CSS width — auto-widened boxes like \mt1, \ms1 escape it). */
+.psc-gutter-markers[dir="rtl"] .para > .marker:not(.verse):not(.chapter):first-child {
+  left: auto;
+  right: calc(-1 * (var(--psc-gutter-width) - 0.5em) - var(--para-indent));
 }
 
 /* When markerMode is "visible" the verse span includes "\v N" as a single text
@@ -2513,13 +2533,24 @@ span.read img {
   background: none;
 }
 
-/* Indent compensation — mirrors the margin-left values above.
-   Only active when .text-spacing is present (same condition as the source rules). */
+/* In RTL the verse span sits at the inline-start (right side) of the line.
+   Forcing direction: ltr on the span keeps ::after at the span's right edge
+   (the same side the number appeared at in LTR), so the numeral reads next to
+   the verse text rather than floating away from it. */
+.psc-gutter-markers[dir="rtl"] .verse.marker {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+/* Indent compensation — mirrors the inline-start margin values above.
+   Only active when .text-spacing is present (same condition as the source rules).
+   pi2 and pi3 use the same primary-indent value in both LTR and RTL (10vw and 15vw
+   respectively), so no direction restriction is needed here. */
 .psc-gutter-markers.text-spacing .usfm_io,
 .psc-gutter-markers.text-spacing .usfm_io1,
 .psc-gutter-markers.text-spacing .usfm_ili,
 .psc-gutter-markers.text-spacing .usfm_ili1,
-.psc-gutter-markers.text-spacing[dir="ltr"] .usfm_pi2 {
+.psc-gutter-markers.text-spacing .usfm_pi2 {
   --para-indent: 10vw;
 }
 .psc-gutter-markers.text-spacing .usfm_q,
@@ -2529,7 +2560,7 @@ span.read img {
 .psc-gutter-markers.text-spacing .usfm_q4,
 .psc-gutter-markers.text-spacing .usfm_io2,
 .psc-gutter-markers.text-spacing .usfm_ili2,
-.psc-gutter-markers.text-spacing[dir="ltr"] .usfm_pi3 {
+.psc-gutter-markers.text-spacing .usfm_pi3 {
   --para-indent: 15vw;
 }
 .psc-gutter-markers.text-spacing .usfm_qm,
@@ -2554,7 +2585,7 @@ span.read img {
 
 /* --verse-text-start mirrors the text-indent values for paragraphs with a
    negative text-indent (hanging indent). These paragraphs render their first
-   line to the LEFT of the element's border edge, so the active focus box
+   line to the inline-start of the element's border edge, so the active focus box
    ::before must start at text-indent to align with the text. */
 .psc-gutter-markers.text-spacing .usfm_q,
 .psc-gutter-markers.text-spacing .usfm_q1 {
@@ -2595,18 +2626,6 @@ span.read img {
   --verse-text-start: -5vw;
 }
 
-/* RTL: move gutter to the right */
-.usfm.psc-gutter-markers[dir="rtl"] {
-  padding-right: 4em;
-  padding-left: 10px; /* restore base value */
-}
-
-.psc-gutter-markers[dir="rtl"] .para > .marker:not(.verse):not(.chapter):first-child {
-  left: auto;
-  right: calc(-1 * (var(--psc-gutter-width) - 0.5em) - var(--para-indent));
-  text-align: left;
-}
-
 /* ── Active text focus box ────────────────────────────────────────────────────
    Applied via .psc-active-focus when viewOptions.hasActiveTextFocusBox is true.
    Shows an outline box around the verse range under the cursor. When used
@@ -2626,17 +2645,11 @@ span.read img {
 .psc-active-focus .psc-active-text::before {
   content: "";
   position: absolute;
-  left: var(--verse-text-start, 0px);
-  right: 0;
+  inset-inline-start: var(--verse-text-start, 0px);
+  inset-inline-end: 0;
   top: var(--active-verse-top, -2px);
   bottom: var(--active-verse-bottom, -2px);
   border: 2.5px solid var(--scripture-accent);
   border-radius: 4px;
   pointer-events: none;
-}
-
-/* RTL: active text box mirrors the hanging indent to the right side */
-.psc-active-focus[dir="rtl"] .psc-active-text::before {
-  left: 0;
-  right: var(--verse-text-start, 0px);
 }

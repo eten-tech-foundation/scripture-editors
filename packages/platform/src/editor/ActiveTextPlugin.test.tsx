@@ -1,395 +1,345 @@
 import { describe, expect, it } from "vitest";
-import { createEditor, $getRoot, $createTextNode, $getSelection } from "lexical";
-import { $createParaNode, $createVerseNode, ParaNode, VerseNode } from "shared";
+import { $getRoot, $createTextNode, $getSelection, LexicalNode } from "lexical";
+import {
+  $createCharNode,
+  $createImmutableTypedTextNode,
+  $createMarkerNode,
+  $createParaNode,
+  $createVerseNode,
+  CharNode,
+  ImmutableTypedTextNode,
+  MarkerNode,
+  NBSP,
+  ParaNode,
+  VerseNode,
+} from "shared";
 import { $createImmutableVerseNode, ImmutableVerseNode } from "shared-react";
+// Reaching inside only for tests.
+// eslint-disable-next-line @nx/enforce-module-boundaries
+import { createBasicTestEnvironment } from "../../../../libs/shared/src/nodes/usj/test.utils";
 import {
   $isParaBodyEmpty,
   $getVerseParaFromSelection,
   $getActiveVerseSiblings,
 } from "./ActiveTextPlugin";
 
-function makeEditor() {
-  return createEditor({
-    nodes: [ParaNode, VerseNode, ImmutableVerseNode],
-    onError: (err) => {
-      throw err;
-    },
-  });
+const nodes = [
+  ParaNode,
+  VerseNode,
+  ImmutableVerseNode,
+  MarkerNode,
+  ImmutableTypedTextNode,
+  CharNode,
+];
+
+/**
+ * The three realistic ParaNode shapes the plugin must handle, matching what
+ * `usj-editor.adaptor.ts` produces for each set of view options.
+ *
+ * - `editable`: `markerMode: "editable"` — paragraph starts with a mutable `MarkerNode("\\p")`
+ *   followed by a `TextNode(NBSP)` (the "marker-trailing-space"), and verses are mutable
+ *   `VerseNode`s containing visible text like `"\\v 1 "`.
+ * - `gutter-hidden`: `markerMode: "hidden"` + `hasGutterParaMarkers: true` (the Paragraph
+ *   Structure view this plugin actually ships in) — paragraph starts with an
+ *   `ImmutableTypedTextNode("marker", "\\p\\u00A0")` for the gutter, then `ImmutableVerseNode`s.
+ * - `plain-hidden`: `markerMode: "hidden"` with no gutter — no paragraph-marker prefix at all,
+ *   and verses are `ImmutableVerseNode`s.
+ */
+type ParaShape = "editable" | "gutter-hidden" | "plain-hidden";
+
+/** Builds the leading paragraph-marker children for the given shape, or [] if the shape has none. */
+function $paraMarkerPrefix(shape: ParaShape, marker: string): LexicalNode[] {
+  if (shape === "editable") return [$createMarkerNode(marker), $createTextNode(NBSP)];
+  if (shape === "gutter-hidden")
+    return [$createImmutableTypedTextNode("marker", `\\${marker}${NBSP}`)];
+  return [];
+}
+
+/** Creates the appropriate verse-number node type for the given shape. */
+function $verseFor(shape: ParaShape, number: string) {
+  return shape === "editable" ? $createVerseNode(number) : $createImmutableVerseNode(number);
 }
 
 describe("$isParaBodyEmpty", () => {
-  it("returns true when para has only a verse node", async () => {
-    const editor = makeEditor();
-    editor.setRootElement(document.createElement("div"));
+  const shapes: ParaShape[] = ["editable", "gutter-hidden", "plain-hidden"];
 
-    let result = false;
-    await new Promise<void>((resolve) => {
-      editor.update(
-        () => {
-          const para = $createParaNode("p");
-          para.append($createVerseNode("1"));
-          $getRoot().append(para);
-          result = $isParaBodyEmpty(para);
-        },
-        { onUpdate: resolve, discrete: true },
-      );
+  describe.each(shapes)("%s shape", (shape) => {
+    it("is true for a verse with no body text", () => {
+      let para: ParaNode;
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        para = $createParaNode("p").append(...$paraMarkerPrefix(shape, "p"), $verseFor(shape, "1"));
+        $getRoot().append(para);
+      });
+
+      editor.getEditorState().read(() => {
+        expect($isParaBodyEmpty(para)).toBe(true);
+      });
     });
 
-    expect(result).toBe(true);
-  });
+    it("is false when the verse has body text", () => {
+      let para: ParaNode;
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        para = $createParaNode("p").append(
+          ...$paraMarkerPrefix(shape, "p"),
+          $verseFor(shape, "1"),
+          $createTextNode("In the beginning"),
+        );
+        $getRoot().append(para);
+      });
 
-  it("returns false when para has a verse node and text", async () => {
-    const editor = makeEditor();
-    editor.setRootElement(document.createElement("div"));
-
-    let result = false;
-    await new Promise<void>((resolve) => {
-      editor.update(
-        () => {
-          const para = $createParaNode("p");
-          para.append($createVerseNode("1"), $createTextNode("In the beginning"));
-          $getRoot().append(para);
-          result = $isParaBodyEmpty(para);
-        },
-        { onUpdate: resolve, discrete: true },
-      );
+      editor.getEditorState().read(() => {
+        expect($isParaBodyEmpty(para)).toBe(false);
+      });
     });
 
-    expect(result).toBe(false);
-  });
+    it("is true when the verse is followed by whitespace only", () => {
+      let para: ParaNode;
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        para = $createParaNode("p").append(
+          ...$paraMarkerPrefix(shape, "p"),
+          $verseFor(shape, "1"),
+          $createTextNode("   "),
+        );
+        $getRoot().append(para);
+      });
 
-  it("returns true when para has a verse node followed by whitespace only", async () => {
-    const editor = makeEditor();
-    editor.setRootElement(document.createElement("div"));
-
-    let result = false;
-    await new Promise<void>((resolve) => {
-      editor.update(
-        () => {
-          const para = $createParaNode("p");
-          para.append($createVerseNode("1"), $createTextNode("   "));
-          $getRoot().append(para);
-          result = $isParaBodyEmpty(para);
-        },
-        { onUpdate: resolve, discrete: true },
-      );
+      editor.getEditorState().read(() => {
+        expect($isParaBodyEmpty(para)).toBe(true);
+      });
     });
-
-    expect(result).toBe(true);
-  });
-
-  it("returns true when para has only an ImmutableVerseNode", async () => {
-    const editor = makeEditor();
-    editor.setRootElement(document.createElement("div"));
-
-    let result = false;
-    await new Promise<void>((resolve) => {
-      editor.update(
-        () => {
-          const para = $createParaNode("p");
-          para.append($createImmutableVerseNode("1"));
-          $getRoot().append(para);
-          result = $isParaBodyEmpty(para);
-        },
-        { onUpdate: resolve, discrete: true },
-      );
-    });
-
-    expect(result).toBe(true);
   });
 });
 
 describe("$getVerseParaFromSelection", () => {
-  it("returns null for a null selection", () => {
-    expect($getVerseParaFromSelection(null)).toBeNull();
+  it("returns undefined for an undefined selection", () => {
+    expect($getVerseParaFromSelection(undefined)).toBeUndefined();
   });
 
-  it("returns the para when cursor is inside a verse para", async () => {
-    const editor = makeEditor();
-    editor.setRootElement(document.createElement("div"));
-
-    let result: ReturnType<typeof $getVerseParaFromSelection> = null;
-    await new Promise<void>((resolve) => {
-      editor.update(
-        () => {
-          const para = $createParaNode("p");
-          const textNode = $createTextNode("Hello world");
-          para.append($createVerseNode("1"), textNode);
-          $getRoot().append(para);
-          textNode.select();
-          result = $getVerseParaFromSelection($getSelection());
-        },
-        { onUpdate: resolve, discrete: true },
+  it("returns the paragraph when cursor is in a verse paragraph (gutter-hidden shape)", () => {
+    const { editor } = createBasicTestEnvironment(nodes, () => {
+      const textNode = $createTextNode("Hello world");
+      $getRoot().append(
+        $createParaNode("p").append(
+          ...$paraMarkerPrefix("gutter-hidden", "p"),
+          $verseFor("gutter-hidden", "1"),
+          textNode,
+        ),
       );
+      textNode.select();
     });
 
-    expect(result).not.toBeNull();
+    editor.getEditorState().read(() => {
+      const result = $getVerseParaFromSelection($getSelection() ?? undefined);
+
+      expect(result).toBeDefined();
+    });
   });
 
-  it("returns the paragraph when cursor is in a non-verse para (e.g. \\s heading)", async () => {
-    const editor = makeEditor();
-    editor.setRootElement(document.createElement("div"));
-
-    let result: ReturnType<typeof $getVerseParaFromSelection> = undefined as unknown as ReturnType<
-      typeof $getVerseParaFromSelection
-    >;
-    await new Promise<void>((resolve) => {
-      editor.update(
-        () => {
-          const para = $createParaNode("s");
-          const textNode = $createTextNode("Heading");
-          para.append(textNode);
-          $getRoot().append(para);
-          textNode.select();
-          result = $getVerseParaFromSelection($getSelection());
-        },
-        { onUpdate: resolve, discrete: true },
+  it("returns the paragraph when cursor is in a non-verse para (e.g. \\s heading)", () => {
+    const { editor } = createBasicTestEnvironment(nodes, () => {
+      const textNode = $createTextNode("Heading");
+      $getRoot().append(
+        $createParaNode("s").append(...$paraMarkerPrefix("gutter-hidden", "s"), textNode),
       );
+      textNode.select();
     });
 
-    expect(result).not.toBeNull();
+    editor.getEditorState().read(() => {
+      const result = $getVerseParaFromSelection($getSelection() ?? undefined);
+
+      expect(result).not.toBeNull();
+    });
   });
 });
 
 describe("$getActiveVerseSiblings", () => {
-  it("returns (null, null) for a null selection", async () => {
-    const editor = makeEditor();
-    editor.setRootElement(document.createElement("div"));
-
-    let result: ReturnType<typeof $getActiveVerseSiblings> = {
-      activeVerseKey: "sentinel",
-      nextVerseKey: "sentinel",
-    };
-    await new Promise<void>((resolve) => {
-      editor.update(
-        () => {
-          const para = $createParaNode("p");
-          para.append($createVerseNode("1"), $createTextNode("text"));
-          $getRoot().append(para);
-          result = $getActiveVerseSiblings(para, null);
-        },
-        { onUpdate: resolve, discrete: true },
+  it("returns (undefined, undefined) for an undefined selection", () => {
+    let para: ParaNode;
+    const { editor } = createBasicTestEnvironment(nodes, () => {
+      para = $createParaNode("p").append(
+        ...$paraMarkerPrefix("gutter-hidden", "p"),
+        $verseFor("gutter-hidden", "1"),
+        $createTextNode("text"),
       );
+      $getRoot().append(para);
     });
 
-    expect(result.activeVerseKey).toBeNull();
-    expect(result.nextVerseKey).toBeNull();
+    editor.getEditorState().read(() => {
+      const result = $getActiveVerseSiblings(para, undefined);
+
+      expect(result.activeVerseKey).toBeUndefined();
+      expect(result.nextVerseKey).toBeUndefined();
+    });
   });
 
-  it("returns the verse key and null for a single-verse paragraph", async () => {
-    const editor = makeEditor();
-    editor.setRootElement(document.createElement("div"));
+  const shapes: ParaShape[] = ["editable", "gutter-hidden", "plain-hidden"];
 
-    let verseKey = "";
-    let result: ReturnType<typeof $getActiveVerseSiblings> = {
-      activeVerseKey: null,
-      nextVerseKey: null,
-    };
-    await new Promise<void>((resolve) => {
-      editor.update(
-        () => {
-          const verse = $createVerseNode("1");
-          const text = $createTextNode("In the beginning");
-          const para = $createParaNode("p");
-          para.append(verse, text);
-          $getRoot().append(para);
-          verseKey = verse.getKey();
-          text.select();
-          result = $getActiveVerseSiblings(para, $getSelection());
-        },
-        { onUpdate: resolve, discrete: true },
-      );
+  describe.each(shapes)("%s shape", (shape) => {
+    it("returns the verse key and undefined for a single-verse paragraph", () => {
+      let para: ParaNode;
+      let verse: VerseNode | ImmutableVerseNode;
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        verse = $verseFor(shape, "1");
+        const text = $createTextNode("In the beginning");
+        para = $createParaNode("p").append(...$paraMarkerPrefix(shape, "p"), verse, text);
+        $getRoot().append(para);
+        text.select();
+      });
+
+      editor.getEditorState().read(() => {
+        const result = $getActiveVerseSiblings(para, $getSelection() ?? undefined);
+
+        expect(result.activeVerseKey).toBe(verse.getKey());
+        expect(result.nextVerseKey).toBeUndefined();
+      });
     });
 
-    expect(result.activeVerseKey).toBe(verseKey);
-    expect(result.nextVerseKey).toBeNull();
+    it("returns (verse1Key, verse2Key) when cursor is in the first verse section", () => {
+      let para: ParaNode;
+      let v1: VerseNode | ImmutableVerseNode;
+      let v2: VerseNode | ImmutableVerseNode;
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        v1 = $verseFor(shape, "1");
+        const t1 = $createTextNode("text one");
+        v2 = $verseFor(shape, "2");
+        para = $createParaNode("p").append(
+          ...$paraMarkerPrefix(shape, "p"),
+          v1,
+          t1,
+          v2,
+          $createTextNode("text two"),
+        );
+        $getRoot().append(para);
+        t1.select();
+      });
+
+      editor.getEditorState().read(() => {
+        const result = $getActiveVerseSiblings(para, $getSelection() ?? undefined);
+
+        expect(result.activeVerseKey).toBe(v1.getKey());
+        expect(result.nextVerseKey).toBe(v2.getKey());
+      });
+    });
+
+    it("returns (verse2Key, verse3Key) when cursor is in the middle verse section", () => {
+      let para: ParaNode;
+      let v2: VerseNode | ImmutableVerseNode;
+      let v3: VerseNode | ImmutableVerseNode;
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        v2 = $verseFor(shape, "2");
+        v3 = $verseFor(shape, "3");
+        const t2 = $createTextNode("text two");
+        para = $createParaNode("p").append(
+          ...$paraMarkerPrefix(shape, "p"),
+          $verseFor(shape, "1"),
+          $createTextNode("text one"),
+          v2,
+          t2,
+          v3,
+          $createTextNode("text three"),
+        );
+        $getRoot().append(para);
+        t2.select();
+      });
+
+      editor.getEditorState().read(() => {
+        const result = $getActiveVerseSiblings(para, $getSelection() ?? undefined);
+
+        expect(result.activeVerseKey).toBe(v2.getKey());
+        expect(result.nextVerseKey).toBe(v3.getKey());
+      });
+    });
+
+    it("returns (lastVerseKey, undefined) when cursor is in the last verse section", () => {
+      let para: ParaNode;
+      let v2: VerseNode | ImmutableVerseNode;
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        v2 = $verseFor(shape, "2");
+        const t2 = $createTextNode("text two");
+        para = $createParaNode("p").append(
+          ...$paraMarkerPrefix(shape, "p"),
+          $verseFor(shape, "1"),
+          $createTextNode("text one"),
+          v2,
+          t2,
+        );
+        $getRoot().append(para);
+        t2.select();
+      });
+
+      editor.getEditorState().read(() => {
+        const result = $getActiveVerseSiblings(para, $getSelection() ?? undefined);
+
+        expect(result.activeVerseKey).toBe(v2.getKey());
+        expect(result.nextVerseKey).toBeUndefined();
+      });
+    });
+
+    it("returns (undefined, firstVerseKey) when cursor is in pre-verse intro text", () => {
+      let para: ParaNode;
+      let v1: VerseNode | ImmutableVerseNode;
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        const intro = $createTextNode("intro");
+        v1 = $verseFor(shape, "1");
+        para = $createParaNode("p").append(
+          ...$paraMarkerPrefix(shape, "p"),
+          intro,
+          v1,
+          $createTextNode("text one"),
+        );
+        $getRoot().append(para);
+        intro.select();
+      });
+
+      editor.getEditorState().read(() => {
+        const result = $getActiveVerseSiblings(para, $getSelection() ?? undefined);
+
+        expect(result.activeVerseKey).toBeUndefined();
+        expect(result.nextVerseKey).toBe(v1.getKey());
+      });
+    });
+
+    it("returns the verse key when the cursor is inside a CharNode within the verse section", () => {
+      let para: ParaNode;
+      let v1: VerseNode | ImmutableVerseNode;
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        v1 = $verseFor(shape, "1");
+        const charText = $createTextNode("Lord");
+        const charNode = $createCharNode("nd").append(charText);
+        para = $createParaNode("p").append(
+          ...$paraMarkerPrefix(shape, "p"),
+          v1,
+          $createTextNode("The "),
+          charNode,
+          $createTextNode(" said"),
+        );
+        $getRoot().append(para);
+        charText.select();
+      });
+
+      editor.getEditorState().read(() => {
+        const result = $getActiveVerseSiblings(para, $getSelection() ?? undefined);
+
+        expect(result.activeVerseKey).toBe(v1.getKey());
+        expect(result.nextVerseKey).toBeUndefined();
+      });
+    });
   });
 
-  it("returns (verse1Key, verse2Key) when cursor is in the first verse section", async () => {
-    const editor = makeEditor();
-    editor.setRootElement(document.createElement("div"));
-
-    let verse1Key = "";
-    let verse2Key = "";
-    let result: ReturnType<typeof $getActiveVerseSiblings> = {
-      activeVerseKey: null,
-      nextVerseKey: null,
-    };
-    await new Promise<void>((resolve) => {
-      editor.update(
-        () => {
-          const v1 = $createVerseNode("1");
-          const t1 = $createTextNode("text one");
-          const v2 = $createVerseNode("2");
-          const t2 = $createTextNode("text two");
-          const para = $createParaNode("p");
-          para.append(v1, t1, v2, t2);
-          $getRoot().append(para);
-          verse1Key = v1.getKey();
-          verse2Key = v2.getKey();
-          t1.select(); // cursor in verse 1 section
-          result = $getActiveVerseSiblings(para, $getSelection());
-        },
-        { onUpdate: resolve, discrete: true },
-      );
+  it("returns (undefined, undefined) for a paragraph with no verse nodes (e.g. \\q2 continuation)", () => {
+    let para: ParaNode;
+    const { editor } = createBasicTestEnvironment(nodes, () => {
+      const text = $createTextNode("continuation line");
+      para = $createParaNode("q2").append(...$paraMarkerPrefix("gutter-hidden", "q2"), text);
+      $getRoot().append(para);
+      text.select();
     });
 
-    expect(result.activeVerseKey).toBe(verse1Key);
-    expect(result.nextVerseKey).toBe(verse2Key);
-  });
+    editor.getEditorState().read(() => {
+      const result = $getActiveVerseSiblings(para, $getSelection() ?? undefined);
 
-  it("returns (verse2Key, verse3Key) when cursor is in the middle verse section", async () => {
-    const editor = makeEditor();
-    editor.setRootElement(document.createElement("div"));
-
-    let verse2Key = "";
-    let verse3Key = "";
-    let result: ReturnType<typeof $getActiveVerseSiblings> = {
-      activeVerseKey: null,
-      nextVerseKey: null,
-    };
-    await new Promise<void>((resolve) => {
-      editor.update(
-        () => {
-          const v1 = $createVerseNode("1");
-          const t1 = $createTextNode("text one");
-          const v2 = $createVerseNode("2");
-          const t2 = $createTextNode("text two");
-          const v3 = $createVerseNode("3");
-          const t3 = $createTextNode("text three");
-          const para = $createParaNode("p");
-          para.append(v1, t1, v2, t2, v3, t3);
-          $getRoot().append(para);
-          verse2Key = v2.getKey();
-          verse3Key = v3.getKey();
-          t2.select(); // cursor in verse 2 section
-          result = $getActiveVerseSiblings(para, $getSelection());
-        },
-        { onUpdate: resolve, discrete: true },
-      );
+      expect(result.activeVerseKey).toBeUndefined();
+      expect(result.nextVerseKey).toBeUndefined();
     });
-
-    expect(result.activeVerseKey).toBe(verse2Key);
-    expect(result.nextVerseKey).toBe(verse3Key);
-  });
-
-  it("returns (lastVerseKey, null) when cursor is in the last verse section", async () => {
-    const editor = makeEditor();
-    editor.setRootElement(document.createElement("div"));
-
-    let verse2Key = "";
-    let result: ReturnType<typeof $getActiveVerseSiblings> = {
-      activeVerseKey: null,
-      nextVerseKey: null,
-    };
-    await new Promise<void>((resolve) => {
-      editor.update(
-        () => {
-          const v1 = $createVerseNode("1");
-          const t1 = $createTextNode("text one");
-          const v2 = $createVerseNode("2");
-          const t2 = $createTextNode("text two");
-          const para = $createParaNode("p");
-          para.append(v1, t1, v2, t2);
-          $getRoot().append(para);
-          verse2Key = v2.getKey();
-          t2.select(); // cursor in last verse section
-          result = $getActiveVerseSiblings(para, $getSelection());
-        },
-        { onUpdate: resolve, discrete: true },
-      );
-    });
-
-    expect(result.activeVerseKey).toBe(verse2Key);
-    expect(result.nextVerseKey).toBeNull();
-  });
-
-  it("returns (null, verse1Key) when cursor is before the first verse", async () => {
-    const editor = makeEditor();
-    editor.setRootElement(document.createElement("div"));
-
-    let verse1Key = "";
-    let result: ReturnType<typeof $getActiveVerseSiblings> = {
-      activeVerseKey: null,
-      nextVerseKey: null,
-    };
-    await new Promise<void>((resolve) => {
-      editor.update(
-        () => {
-          const intro = $createTextNode("intro");
-          const v1 = $createVerseNode("1");
-          const t1 = $createTextNode("text one");
-          const para = $createParaNode("p");
-          para.append(intro, v1, t1);
-          $getRoot().append(para);
-          verse1Key = v1.getKey();
-          intro.select(); // cursor before any verse
-          result = $getActiveVerseSiblings(para, $getSelection());
-        },
-        { onUpdate: resolve, discrete: true },
-      );
-    });
-
-    expect(result.activeVerseKey).toBeNull();
-    expect(result.nextVerseKey).toBe(verse1Key);
-  });
-
-  it("returns (null, null) for a paragraph with no verse nodes", async () => {
-    const editor = makeEditor();
-    editor.setRootElement(document.createElement("div"));
-
-    let result: ReturnType<typeof $getActiveVerseSiblings> = {
-      activeVerseKey: "sentinel",
-      nextVerseKey: "sentinel",
-    };
-    await new Promise<void>((resolve) => {
-      editor.update(
-        () => {
-          const text = $createTextNode("continuation line");
-          const para = $createParaNode("q2");
-          para.append(text);
-          $getRoot().append(para);
-          text.select();
-          result = $getActiveVerseSiblings(para, $getSelection());
-        },
-        { onUpdate: resolve, discrete: true },
-      );
-    });
-
-    expect(result.activeVerseKey).toBeNull();
-    expect(result.nextVerseKey).toBeNull();
-  });
-
-  it("works with ImmutableVerseNode as well as VerseNode", async () => {
-    const editor = makeEditor();
-    editor.setRootElement(document.createElement("div"));
-
-    let v1Key = "";
-    let v2Key = "";
-    let result: ReturnType<typeof $getActiveVerseSiblings> = {
-      activeVerseKey: null,
-      nextVerseKey: null,
-    };
-    await new Promise<void>((resolve) => {
-      editor.update(
-        () => {
-          const v1 = $createImmutableVerseNode("1");
-          const t1 = $createTextNode("text one");
-          const v2 = $createImmutableVerseNode("2");
-          const t2 = $createTextNode("text two");
-          const para = $createParaNode("p");
-          para.append(v1, t1, v2, t2);
-          $getRoot().append(para);
-          v1Key = v1.getKey();
-          v2Key = v2.getKey();
-          t1.select();
-          result = $getActiveVerseSiblings(para, $getSelection());
-        },
-        { onUpdate: resolve, discrete: true },
-      );
-    });
-
-    expect(result.activeVerseKey).toBe(v1Key);
-    expect(result.nextVerseKey).toBe(v2Key);
   });
 });
