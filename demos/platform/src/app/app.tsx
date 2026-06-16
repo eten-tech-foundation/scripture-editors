@@ -302,10 +302,12 @@ export default function App() {
 
   const handleLoadArabic = useCallback(() => {
     marginalRef.current?.setUsj(usxStringToUsj(AR_PSA_CH1_USX));
+    setTextDirection("rtl");
   }, []);
 
   const handleLoadEnglish = useCallback(() => {
     marginalRef.current?.setUsj(editorUsj);
+    setTextDirection("ltr");
   }, []);
 
   const handleApplyOps = useCallback(() => {
@@ -444,6 +446,8 @@ export default function App() {
                 <label htmlFor="hasSpellCheckBox">Has spell check</label>
               </div>
               <TextDirectionDropDown textDirection={textDirection} onSelect={setTextDirection} />
+              <button onClick={handleLoadEnglish}>Load English</button>
+              <button onClick={handleLoadArabic}>Load Arabic</button>
               <ViewModeDropDown viewMode={viewMode} onSelect={setViewMode} />
               <NodeOptionsDropDown nodesMode={nodesMode} onSelect={setNodesMode} />
             </div>
@@ -586,18 +590,6 @@ export default function App() {
                 style={{ width: "auto", minWidth: 0, padding: "4px 12px" }}
               >
                 Empty Editor
-              </button>
-              <button
-                onClick={handleLoadEnglish}
-                style={{ width: "auto", minWidth: 0, padding: "4px 12px" }}
-              >
-                Load English
-              </button>
-              <button
-                onClick={handleLoadArabic}
-                style={{ width: "auto", minWidth: 0, padding: "4px 12px" }}
-              >
-                Load Arabic
               </button>
             </div>
             <div

@@ -67,8 +67,8 @@ describe("$isParaBodyEmpty", () => {
     it("is true for a verse with no body text", () => {
       let para: ParaNode;
       const { editor } = createBasicTestEnvironment(nodes, () => {
-        para = $createParaNode("p").append(...$paraMarkerPrefix(shape, "p"), $verseFor(shape, "1"));
-        $getRoot().append(para);
+        para = $createParaNode("p");
+        $getRoot().append(para.append(...$paraMarkerPrefix(shape, "p"), $verseFor(shape, "1")));
       });
 
       editor.getEditorState().read(() => {

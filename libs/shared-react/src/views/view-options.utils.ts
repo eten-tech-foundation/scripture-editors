@@ -184,8 +184,22 @@ export function getViewMode(viewOptions: ViewOptions | undefined): ViewMode | un
     hasActiveTextFocusBox
   )
     return PARAGRAPH_STRUCTURE_VIEW_MODE;
-  if (markerMode === "hidden" && hasSpacing && isFormattedFont) return FORMATTED_VIEW_MODE;
-  if (markerMode === "editable" && !hasSpacing && !isFormattedFont) return UNFORMATTED_VIEW_MODE;
+  if (
+    markerMode === "hidden" &&
+    hasSpacing &&
+    isFormattedFont &&
+    !hasGutterParaMarkers &&
+    !hasActiveTextFocusBox
+  )
+    return FORMATTED_VIEW_MODE;
+  if (
+    markerMode === "editable" &&
+    !hasSpacing &&
+    !isFormattedFont &&
+    !hasGutterParaMarkers &&
+    !hasActiveTextFocusBox
+  )
+    return UNFORMATTED_VIEW_MODE;
   return undefined;
 }
 
