@@ -440,6 +440,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
             onChange={handleChange}
             ignoreSelectionChange
             ignoreHistoryMergeTagChange
+            ignoreTags={blackListedChangeTags}
           />
           <ActiveTextPlugin viewOptions={viewOptions} />
           <AnnotationPlugin ref={annotationRef} logger={logger} />
