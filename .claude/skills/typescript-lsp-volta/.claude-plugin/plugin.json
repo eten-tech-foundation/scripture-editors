@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "typescript-lsp-volta",
+  "displayName": "TypeScript LSP (Volta-compatible)",
+  "version": "1.0.0",
+  "description": "TypeScript/JavaScript language server for Claude Code, launched via node against the repo-local typescript-language-server dependency. Works with Volta on Windows, macOS, and Linux. Use instead of the official typescript-lsp plugin, whose shell-free spawn cannot launch Volta's .cmd shim on Windows (ENOENT).",
+  "lspServers": "./.lsp.json"
+}

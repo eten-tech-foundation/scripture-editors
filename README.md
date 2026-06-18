@@ -208,26 +208,27 @@ nx run-many -t lint # to check linting
 nx run-many -t typecheck # to check types
 ```
 
-## Claude Code Code Intelligence
+## TypeScript Code Intelligence
 
-This repo commits Claude Code settings (`.claude/settings.json`) that enable the `typescript-lsp`
-plugin, giving Claude jump-to-definition, find-references, and type-error diagnostics across the
-monorepo.
+This repo gives Claude Code a TypeScript language server (jump-to-definition, find-references, and
+type-error diagnostics across the monorepo). It works on Windows, macOS, and Linux with **no manual
+setup** beyond `pnpm install`.
 
-That plugin needs the `typescript-language-server` binary on your `PATH`. This is **not** the
-`tsserver` bundled with the `typescript` package — it is a separate LSP wrapper you install
-yourself:
+`typescript-language-server` is a repo **devDependency**, so `pnpm install` provides it (and the
+`typescript` it needs is already in the workspace). A committed Claude Code plugin
+([`.claude/skills/typescript-lsp-volta`](/.claude/skills/typescript-lsp-volta)) launches it and
+loads automatically when you start Claude Code from the repo root — no global install, no `/plugin`
+install step.
 
-```bash
-npm install -g typescript-language-server   # use npm for global installs (see JavaScript Tool Manager)
-typescript-language-server --version        # verify it resolves
-```
+It uses a custom plugin rather than the official `typescript-lsp`, which fails under Volta on Windows;
+see the [plugin README](/.claude/skills/typescript-lsp-volta/README.md) for why and how.
 
-Restart Claude Code afterwards so the language server starts at launch. If the `/plugin` Errors
-tab shows `Executable not found in $PATH`, the binary is missing. The `typescript` package itself
-is already provided by the workspace, so only the language server needs a global install.
+Notes:
 
-If you don't use Claude Code, this is optional and can be ignored.
+- Start Claude Code from the repo root; project-scope plugins don't load from a subdirectory. After
+  changing directories, run `/reload-plugins`.
+- The `typescript-language-server` dev dependency is installed for everyone via `pnpm install` but is
+  only used by Claude Code. If you don't use Claude Code, you can ignore this feature.
 
 ## Collaborative Web Development Environment
 

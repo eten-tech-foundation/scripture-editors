@@ -10,7 +10,8 @@
   },
   "enabledPlugins": {
     "nx@nx-claude-plugins": true,
-    "typescript-lsp@claude-plugins-official": true
+    "typescript-lsp@claude-plugins-official": false,
+    "typescript-lsp-volta@skills-dir": true
   },
   "permissions": {
     "allow": [
