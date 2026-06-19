@@ -232,6 +232,10 @@ function createBook(markerObject: MarkerObject): SerializedBookNode {
     children.push(
       createImmutableTypedText("marker", openingMarkerText(marker) + " " + code + NBSP),
     );
+  } else if (_viewOptions?.hasGutterParaMarkers) {
+    // Gutter mode hides inline markers, but the paragraph-structure view still wants the \id
+    // tag visible in the gutter alongside the other paragraph-level markers (\h, \s1, \p, ...).
+    children.push(createImmutableTypedText("marker", openingMarkerText(marker) + NBSP));
   }
   const text = getTextContent(markerObject.content);
   if (text) children.push(createText(text));

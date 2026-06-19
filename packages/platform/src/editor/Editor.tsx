@@ -4,6 +4,7 @@ import { getUsjMarkerAction, isUsjMarkerSupported } from "./adaptors/usj-marker-
 import { EditorOptions, EditorProps, EditorRef } from "./editor.model";
 import editorTheme from "./editor.theme";
 import { ActiveTextPlugin } from "./ActiveTextPlugin";
+import { ParaMarkerPrefixGuardPlugin } from "./ParaMarkerPrefixGuardPlugin";
 import ScriptureReferencePlugin from "./ScriptureReferencePlugin";
 import TreeViewPlugin from "./TreeViewPlugin";
 import { ToolbarPlugin } from "./toolbar/ToolbarPlugin";
@@ -446,6 +447,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
             ignoreTags={blackListedChangeTags}
           />
           <ActiveTextPlugin viewOptions={viewOptions} />
+          <ParaMarkerPrefixGuardPlugin viewOptions={viewOptions} logger={logger} />
           <AnnotationPlugin ref={annotationRef} logger={logger} />
           <ArrowNavigationPlugin viewOptions={viewOptions} />
           <CharNodePlugin />

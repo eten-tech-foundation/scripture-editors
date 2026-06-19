@@ -1,6 +1,7 @@
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { mergeRegister } from "@lexical/utils";
 import {
+  $getNearestNodeFromDOMNode,
   $getRoot,
   $getSelection,
   $isElementNode,
@@ -10,8 +11,6 @@ import {
   COMMAND_PRIORITY_LOW,
   ElementNode,
   FOCUS_COMMAND,
-  LexicalEditor,
-  LexicalNode,
 } from "lexical";
 import { useEffect, useRef } from "react";
 import { $isImmutableTypedTextNode, $isMarkerNode, ZWSP } from "shared";
@@ -21,97 +20,68 @@ const ACTIVE_CLASS = "psc-active-text";
 const EMPTY_CLASS = "psc-empty-text";
 
 /**
- * Plugin that shows an outline box around the active text section (the verse range under the
- * cursor) and marks paragraphs with no body content as empty. No-op unless
- * `viewOptions.hasActiveTextFocusBox` is true.
- *
- * @public
+ * Plugin that outlines the paragraph under the cursor and marks individual verses with no
+ * body content as empty. No-op unless `viewOptions.hasActiveTextFocusBox` is true.
  */
 export function ActiveTextPlugin({ viewOptions }: { viewOptions: ViewOptions | undefined }): null {
   const [editor] = useLexicalComposerContext();
   const activeKeyRef = useRef<string>(undefined);
-  const activeVerseKeyRef = useRef<string>(undefined);
-  const nextVerseKeyRef = useRef<string>(undefined);
   const isEnabled = viewOptions?.hasActiveTextFocusBox ?? false;
 
   useEffect(() => {
     if (!isEnabled) return;
 
-    // Re-measures verse section bounds when the active paragraph's height changes due to
-    // text reflow (window resize, content edits that change line count, etc.).
-    const resizeObserver = new ResizeObserver(() => {
+    function setActivePara(key: string | undefined): void {
       if (activeKeyRef.current) {
-        updateTextOutlineBounds(
-          editor,
-          activeKeyRef.current,
-          activeVerseKeyRef.current,
-          nextVerseKeyRef.current,
-        );
-      }
-    });
-
-    function setActivePara(
-      key: string | undefined,
-      verseKey: string | undefined,
-      nextVerseKey: string | undefined,
-    ): void {
-      if (activeKeyRef.current) {
-        const oldEl = editor.getElementByKey(activeKeyRef.current);
-        if (oldEl) {
-          oldEl.classList.remove(ACTIVE_CLASS);
-          oldEl.style.removeProperty("--active-verse-top");
-          oldEl.style.removeProperty("--active-verse-bottom");
-          resizeObserver.unobserve(oldEl);
-        }
+        editor.getElementByKey(activeKeyRef.current)?.classList.remove(ACTIVE_CLASS);
       }
       activeKeyRef.current = key;
-      activeVerseKeyRef.current = verseKey;
-      nextVerseKeyRef.current = nextVerseKey;
       if (key) {
-        const el = editor.getElementByKey(key);
-        if (el) {
-          el.classList.add(ACTIVE_CLASS);
-          updateTextOutlineBounds(editor, key, verseKey, nextVerseKey);
-          resizeObserver.observe(el);
-        }
+        editor.getElementByKey(key)?.classList.add(ACTIVE_CLASS);
       }
     }
 
-    return mergeRegister(
+    // Clicking the ellipsis placeholder (rendered as ::after on the empty verse span) hits the
+    // verse element itself, which is a decorator node — Lexical's default cursor placement leaves
+    // the user with no obvious caret inside the empty verse's section. Move the caret to the slot
+    // immediately after the verse in its paragraph so typing extends the empty verse.
+    function placeCursorAfterEmptyVerse(event: MouseEvent): void {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const verseEl = target.closest(`.${EMPTY_CLASS}`);
+      if (!verseEl) return;
+      editor.update(() => {
+        const node = $getNearestNodeFromDOMNode(verseEl);
+        if (!$isSomeVerseNode(node)) return;
+        const para = node.getParent();
+        if (!$isElementNode(para)) return;
+        const after = node.getIndexWithinParent() + 1;
+        para.select(after, after);
+      });
+    }
+
+    const unsubscribers = [
+      editor.registerRootListener((rootElement, prevRootElement) => {
+        prevRootElement?.removeEventListener("click", placeCursorAfterEmptyVerse);
+        rootElement?.addEventListener("click", placeCursorAfterEmptyVerse);
+      }),
       editor.registerUpdateListener(({ editorState }) => {
-        const { newActiveKey, newActiveVerseKey, newNextVerseKey, emptyKeys, nonEmptyKeys } =
-          editorState.read(() => {
-            const { newActiveKey, newActiveVerseKey, newNextVerseKey } = $readActiveState();
+        const { newActiveKey, emptyKeys, nonEmptyKeys } = editorState.read(() => {
+          const newActiveKey = $getActiveParaKey();
+          const emptyKeys: string[] = [];
+          const nonEmptyKeys: string[] = [];
+          $getRoot()
+            .getChildren()
+            .forEach((child) => {
+              if (!$isElementNode(child)) return;
+              const { emptyKeys: e, nonEmptyKeys: n } = $getEmptyVerseStatus(child);
+              emptyKeys.push(...e);
+              nonEmptyKeys.push(...n);
+            });
+          return { newActiveKey, emptyKeys, nonEmptyKeys };
+        });
 
-            const emptyKeys: string[] = [];
-            const nonEmptyKeys: string[] = [];
-            $getRoot()
-              .getChildren()
-              .forEach((child) => {
-                if (!$isElementNode(child)) return;
-                if (!$paraHasVerse(child)) return;
-                if ($isParaBodyEmpty(child)) {
-                  emptyKeys.push(child.getKey());
-                } else {
-                  nonEmptyKeys.push(child.getKey());
-                }
-              });
-
-            return { newActiveKey, newActiveVerseKey, newNextVerseKey, emptyKeys, nonEmptyKeys };
-          });
-
-        if (newActiveKey !== activeKeyRef.current) {
-          setActivePara(newActiveKey, newActiveVerseKey, newNextVerseKey);
-        } else if (
-          newActiveVerseKey !== activeVerseKeyRef.current ||
-          newNextVerseKey !== nextVerseKeyRef.current
-        ) {
-          // Same paragraph, cursor moved to a different verse section — re-measure bounds only.
-          activeVerseKeyRef.current = newActiveVerseKey;
-          nextVerseKeyRef.current = newNextVerseKey;
-          if (newActiveKey)
-            updateTextOutlineBounds(editor, newActiveKey, newActiveVerseKey, newNextVerseKey);
-        }
+        if (newActiveKey !== activeKeyRef.current) setActivePara(newActiveKey);
 
         emptyKeys.forEach((key) => editor.getElementByKey(key)?.classList.add(EMPTY_CLASS));
         nonEmptyKeys.forEach((key) => editor.getElementByKey(key)?.classList.remove(EMPTY_CLASS));
@@ -119,7 +89,7 @@ export function ActiveTextPlugin({ viewOptions }: { viewOptions: ViewOptions | u
       editor.registerCommand(
         BLUR_COMMAND,
         () => {
-          setActivePara(undefined, undefined, undefined);
+          setActivePara(undefined);
           return false;
         },
         COMMAND_PRIORITY_LOW,
@@ -127,50 +97,36 @@ export function ActiveTextPlugin({ viewOptions }: { viewOptions: ViewOptions | u
       editor.registerCommand(
         FOCUS_COMMAND,
         () => {
-          const { newActiveKey, newActiveVerseKey, newNextVerseKey } = editor
-            .getEditorState()
-            .read($readActiveState);
-          if (
-            newActiveKey !== activeKeyRef.current ||
-            newActiveVerseKey !== activeVerseKeyRef.current
-          ) {
-            setActivePara(newActiveKey, newActiveVerseKey, newNextVerseKey);
-          }
+          const newActiveKey = editor.getEditorState().read($getActiveParaKey);
+          if (newActiveKey !== activeKeyRef.current) setActivePara(newActiveKey);
           return false;
         },
         COMMAND_PRIORITY_LOW,
       ),
-      () => resizeObserver.disconnect(),
-    );
+    ];
+
+    // Initial sync: registerUpdateListener does not fire on registration, so a mount with an
+    // already-focused editor (route reload, focus restored by browser) would otherwise leave the
+    // active outline missing until the user moves the cursor.
+    setActivePara(editor.getEditorState().read($getActiveParaKey));
+
+    return mergeRegister(...unsubscribers);
   }, [editor, isEnabled]);
 
   return null;
 }
 
-/**
- * Reads the active paragraph and surrounding verse siblings from the current selection.
- * Must be called inside an editor state read.
- */
-export function $readActiveState(): {
-  newActiveKey: string | undefined;
-  newActiveVerseKey: string | undefined;
-  newNextVerseKey: string | undefined;
-} {
-  const selection = $getSelection() ?? undefined;
-  const activePara = $getVerseParaFromSelection(selection);
-  const newActiveKey = activePara?.getKey();
-  let newActiveVerseKey: string | undefined;
-  let newNextVerseKey: string | undefined;
-  if (activePara) {
-    const siblings = $getActiveVerseSiblings(activePara, selection);
-    newActiveVerseKey = siblings.activeVerseKey;
-    newNextVerseKey = siblings.nextVerseKey;
-  }
-  return { newActiveKey, newActiveVerseKey, newNextVerseKey };
+/** Reads the active paragraph's key from the current selection. Must run inside an editor read. */
+function $getActiveParaKey(): string | undefined {
+  return $getParaFromSelection($getSelection() ?? undefined)?.getKey();
 }
 
-/** Returns the top-level paragraph for the cursor, or undefined if no range selection. */
-export function $getVerseParaFromSelection(
+/**
+ * Returns the top-level paragraph for the cursor, or undefined if no range selection. This is any
+ * paragraph the cursor lands in — verse-bearing paragraphs, section headings, book code paragraph,
+ * empty paragraphs, etc.
+ */
+export function $getParaFromSelection(
   selection: BaseSelection | undefined,
 ): ElementNode | undefined {
   if (!$isRangeSelection(selection)) return undefined;
@@ -178,107 +134,33 @@ export function $getVerseParaFromSelection(
 }
 
 /**
- * Returns the key of the verse node (VerseNode or ImmutableVerseNode) immediately before
- * the cursor within `para`, plus the key of the verse node that follows it.
- *
- * Used to restrict the active-text outline box to a single verse section within paragraphs
- * that contain multiple \v markers (e.g. Matthew 1's \p paragraphs).
- *
- * - `activeVerseKey`: the last verse node at or before the cursor; undefined if no verse precedes
- *   the cursor position.
- * - `nextVerseKey`: the first verse node after the active one; when `activeVerseKey` is undefined
- *   (cursor before any verse), the first verse in the paragraph so the pre-verse intro section
- *   is bounded correctly; undefined when no subsequent verse exists in the paragraph.
+ * Classifies each verse in the paragraph by whether its "section" — the children between this
+ * verse marker and the next verse marker (or end of paragraph) — has any non-whitespace body text.
+ * Marker-prefix nodes (the paragraph's leading `\p` marker / immutable typed text) and ZWSPs are
+ * ignored. Used to apply `psc-empty-text` per verse so the ellipsis placeholder renders next to
+ * every empty verse number, not just verses that occupy their own paragraph.
  */
-export function $getActiveVerseSiblings(
-  para: ElementNode,
-  selection: BaseSelection | undefined,
-): { activeVerseKey: string | undefined; nextVerseKey: string | undefined } {
-  if (!$isRangeSelection(selection)) return { activeVerseKey: undefined, nextVerseKey: undefined };
-
-  const anchorNode = selection.anchor.getNode();
-
-  // Walk up from the anchor to find its direct child of `para` (handles CharNode nesting etc.).
-  let directChild: LexicalNode = anchorNode;
-  for (;;) {
-    const parent = directChild.getParent();
-    if (!parent || parent.is(para)) break;
-    directChild = parent;
-  }
-
+export function $getEmptyVerseStatus(para: ElementNode): {
+  emptyKeys: string[];
+  nonEmptyKeys: string[];
+} {
   const children = para.getChildren();
-  const directChildIndex = children.findIndex((c) => c.is(directChild));
-  if (directChildIndex === -1) return { activeVerseKey: undefined, nextVerseKey: undefined };
-
-  // Last verse node AT OR BEFORE the cursor position (inclusive of the cursor's own node).
-  let activeVerseIndex = -1;
-  let activeVerseKey: string | undefined;
-  for (let i = directChildIndex; i >= 0; i--) {
-    if ($isSomeVerseNode(children[i])) {
-      activeVerseKey = children[i].getKey();
-      activeVerseIndex = i;
-      break;
+  const emptyKeys: string[] = [];
+  const nonEmptyKeys: string[] = [];
+  for (let i = 0; i < children.length; i++) {
+    const verse = children[i];
+    if (!$isSomeVerseNode(verse)) continue;
+    let sectionHasBody = false;
+    for (let j = i + 1; j < children.length; j++) {
+      const sibling = children[j];
+      if ($isSomeVerseNode(sibling)) break;
+      if ($isImmutableTypedTextNode(sibling) || $isMarkerNode(sibling)) continue;
+      if (sibling.getTextContent().replaceAll(ZWSP, "").trim() !== "") {
+        sectionHasBody = true;
+        break;
+      }
     }
+    (sectionHasBody ? nonEmptyKeys : emptyKeys).push(verse.getKey());
   }
-
-  // First verse node AFTER the active verse.  When there is no active verse (cursor before any
-  // \v), scan from the start so pre-verse intro content is bounded by the first verse.
-  const searchFrom = activeVerseIndex === -1 ? 0 : activeVerseIndex + 1;
-  let nextVerseKey: string | undefined;
-  for (let i = searchFrom; i < children.length; i++) {
-    if ($isSomeVerseNode(children[i])) {
-      nextVerseKey = children[i].getKey();
-      break;
-    }
-  }
-
-  return { activeVerseKey, nextVerseKey };
-}
-
-/** Returns true if the paragraph's only content beyond verse and marker-prefix nodes is whitespace. */
-export function $isParaBodyEmpty(para: ElementNode): boolean {
-  const nonVerseText = para
-    .getChildren()
-    .filter(
-      (child) =>
-        !$isSomeVerseNode(child) && !$isImmutableTypedTextNode(child) && !$isMarkerNode(child),
-    )
-    .map((child) => child.getTextContent())
-    .join("");
-  return nonVerseText.replaceAll(ZWSP, "").trim() === "";
-}
-
-function $paraHasVerse(para: ElementNode): boolean {
-  return para.getChildren().some((c) => $isSomeVerseNode(c));
-}
-
-/**
- * Sets `--active-verse-top` and `--active-verse-bottom` on the paragraph element so the
- * CSS `::before` outline covers only the active text section, not the whole paragraph.
- *
- * When `activeVerseKey` is undefined (paragraph with no verse node, e.g. a \q2 continuation),
- * both properties default to -2px, which produces the same full-paragraph box as before.
- */
-function updateTextOutlineBounds(
-  editor: LexicalEditor,
-  paraKey: string,
-  activeVerseKey: string | undefined,
-  nextVerseKey: string | undefined,
-): void {
-  const paraEl = editor.getElementByKey(paraKey);
-  if (!paraEl) return;
-
-  const verseEl = activeVerseKey ? editor.getElementByKey(activeVerseKey) : undefined;
-  const nextVerseEl = nextVerseKey ? editor.getElementByKey(nextVerseKey) : undefined;
-
-  // top: 2px above the first line of the active verse span (or 2px above the paragraph top).
-  const topOffset = verseEl ? verseEl.offsetTop - 2 : -2;
-
-  // bottom: expressed as CSS `bottom: Xpx` (distance from the paragraph's bottom edge).
-  // We want the box to extend 2px below the top edge of the next verse span.
-  const paraHeight = paraEl.clientHeight;
-  const bottomCSS = nextVerseEl ? Math.max(0, paraHeight - nextVerseEl.offsetTop - 2) : -2;
-
-  paraEl.style.setProperty("--active-verse-top", `${topOffset}px`);
-  paraEl.style.setProperty("--active-verse-bottom", `${bottomCSS}px`);
+  return { emptyKeys, nonEmptyKeys };
 }
