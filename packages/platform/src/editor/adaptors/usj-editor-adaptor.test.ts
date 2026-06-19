@@ -202,6 +202,15 @@ describe("USJ Editor Adaptor", () => {
       getViewOptions(PARAGRAPH_STRUCTURE_VIEW_MODE),
     );
 
+    // Book \id begins with a typed-text marker (no book code suffix in gutter mode — the gutter
+    // only shows the opening marker text, not the per-marker arguments).
+    const book = serializedEditorState.root.children[0];
+    if (!isSerializedBookNode(book)) throw new Error("No book node found");
+    const bookMarker = book.children?.[0];
+    if (!isSerializedImmutableTypedTextNode(bookMarker)) throw new Error("No book marker found");
+    expect(bookMarker.textType).toBe("marker");
+    expect(bookMarker.text).toBe(`${openingMarkerText("id")}${NBSP}`);
+
     // Para 'p' begins with a typed-text marker (rendered for the gutter to consume)
     const pPara = serializedEditorState.root.children[VERSE_PARA_INDEX];
     if (!isSerializedParaNode(pPara)) throw new Error("No para node found");

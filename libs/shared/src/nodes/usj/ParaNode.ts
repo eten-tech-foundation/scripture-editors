@@ -7,6 +7,7 @@ import {
   DOMConversionMap,
   DOMConversionOutput,
   DOMExportOutput,
+  EditorConfig,
   ElementFormatType,
   LexicalEditor,
   LexicalNode,
@@ -241,6 +242,16 @@ export class ParaNode extends ParagraphNode {
     dom.setAttribute("data-marker", this.__marker);
     dom.classList.add(this.__type, `usfm_${this.__marker}`);
     return dom;
+  }
+
+  override updateDOM(prevNode: this, dom: HTMLElement, config: EditorConfig): boolean {
+    const recreate = super.updateDOM(prevNode, dom, config);
+    if (!recreate && prevNode.__marker !== this.__marker) {
+      dom.setAttribute("data-marker", this.__marker);
+      dom.classList.remove(`usfm_${prevNode.__marker}`);
+      dom.classList.add(`usfm_${this.__marker}`);
+    }
+    return recreate;
   }
 
   override exportDOM(editor: LexicalEditor): DOMExportOutput {
