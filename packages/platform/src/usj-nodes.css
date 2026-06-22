@@ -2429,10 +2429,26 @@ span.read img {
   color: var(--scripture-accent-chapter);
 }
 
-.psc-gutter-markers .psc-empty-text::after {
+/* Ellipsis placeholder rendered after the verse number whenever a verse has no body text
+   between its marker and the next verse (or end of paragraph). The class is set per-verse by
+   ActiveTextPlugin so the placeholder shows up for every empty verse, not just verses that
+   stand alone in their paragraph. (The `.marker` class is only present in markerMode "visible";
+   in paragraph-structure view the verse number is rendered by ImmutableVerseNode.decorate, so
+   we attach the ellipsis to `.verse` directly.) */
+.psc-gutter-markers .verse.psc-empty-text::after {
   content: "…";
-  color: var(--muted-foreground, #6b7280);
+  cursor: text;
+  /* Padding instead of margin so the I-beam cursor extends across the spacing on either
+     side of the ellipsis, not just the glyph itself. Inline-logical so the gap follows
+     writing direction (flips in RTL) without per-direction overrides. */
+  padding-inline-start: 0.25em;
+  padding-inline-end: 0.25em;
+  /* The platform's --muted-foreground holds raw HSL component values, so it has to be wrapped
+     in hsl(). The fallback is hsl-formatted too, lighter than the platform default to read as
+     a placeholder rather than body text. */
+  color: hsl(var(--muted-foreground, 215 16% 65%) / 0.7);
   font-style: italic;
+  font-weight: normal;
 }
 
 .psc-gutter-markers .usfm_s,
@@ -2440,11 +2456,6 @@ span.read img {
 .psc-gutter-markers .usfm_s2,
 .psc-gutter-markers .usfm_s3 {
   text-align: center;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  font-size: 0.8rem;
-  font-weight: 400;
-  color: var(--muted-foreground, #6b7280);
   border-top: none;
   margin-top: 1rem;
 }
@@ -2458,7 +2469,8 @@ span.read img {
 /* position: relative gives absolutely-positioned gutter markers the right
    containing block. --para-indent and --verse-text-start default to 0;
    paragraph-specific overrides follow below. */
-.psc-gutter-markers .para {
+.psc-gutter-markers .para,
+.psc-gutter-markers .book {
   position: relative;
   --para-indent: 0px;
   --verse-text-start: 0px;
@@ -2484,7 +2496,8 @@ span.read img {
    LTR even in RTL documents. Physical left/right are used for positioning (instead of
    inset-inline-*) because forcing direction: ltr on the element makes logical property
    resolution unreliable across browsers. */
-.psc-gutter-markers .para > .marker:not(.verse):not(.chapter):first-child {
+.psc-gutter-markers .para > .marker:not(.verse):not(.chapter):first-child,
+.psc-gutter-markers .book > .marker:first-child {
   display: block;
   position: absolute;
   /* left = -(gutter-width) + 0.5em-gap + para-indent-compensation */
@@ -2509,7 +2522,8 @@ span.read img {
    `text-align: left` here in an RTL containing block triggers a Chrome/Firefox bidi quirk
    where the text glyphs are painted ~57px outside the box to the left (only manifests when
    the box width matches the CSS width — auto-widened boxes like \mt1, \ms1 escape it). */
-.psc-gutter-markers[dir="rtl"] .para > .marker:not(.verse):not(.chapter):first-child {
+.psc-gutter-markers[dir="rtl"] .para > .marker:not(.verse):not(.chapter):first-child,
+.psc-gutter-markers[dir="rtl"] .book > .marker:first-child {
   left: auto;
   right: calc(-1 * (var(--psc-gutter-width) - 0.5em) - var(--para-indent));
 }
@@ -2539,6 +2553,27 @@ span.read img {
    the verse text rather than floating away from it. */
 .psc-gutter-markers[dir="rtl"] .verse.marker {
   direction: ltr;
+  unicode-bidi: isolate;
+}
+
+/* Without isolation, an inline verse number (a weak EN-type character) bidi-merges with
+   adjacent Latin text into a single LTR run, which makes the verse number render before its
+   text in left-to-right visual order instead of at the start of the verse in RTL reading
+   order.
+
+   `unicode-bidi: isolate` alone is not enough though: an isolated element with no explicit
+   `direction` becomes a *neutral* character in the parent's bidi flow. Bidi rule N1 then
+   promotes any neutrals sandwiched between two strong LTR runs (e.g. the verses sitting
+   between two English text fragments) up to the LTR level, merging them all back into one
+   big LTR run. Forcing `direction: rtl` on the verse makes the isolated unit a *strong* RTL
+   atom in the parent's bidi flow, so each verse keeps its RTL level regardless of neighbors
+   and the bidi algorithm places verse + following text in reading order. The digit inside
+   still renders LTR because EN flips to level 2 within the verse's RTL isolation.
+
+   The .verse.marker rule above is preserved (it forces direction: ltr because the visible-
+   marker mode's "\\v N" content needs to stay readable LTR) and wins via higher specificity. */
+.psc-gutter-markers[dir="rtl"] .verse {
+  direction: rtl;
   unicode-bidi: isolate;
 }
 
@@ -2628,28 +2663,43 @@ span.read img {
 
 /* ── Active text focus box ────────────────────────────────────────────────────
    Applied via .psc-active-focus when viewOptions.hasActiveTextFocusBox is true.
-   Shows an outline box around the verse range under the cursor. When used
-   alongside .psc-gutter-markers, the --verse-text-start variable aligns the box
-   with the hanging-indent text start of poetry paragraphs. Without the gutter
-   class that variable defaults to 0px, so poetry alignment is approximate. */
+   Outlines the entire paragraph under the cursor. When used alongside
+   .psc-gutter-markers, the --verse-text-start variable aligns the box with the
+   hanging-indent text start of poetry paragraphs. Without the gutter class that
+   variable defaults to 0px, so poetry alignment is approximate. */
 
 .psc-active-focus {
   --scripture-accent: #c4956a;
 }
 
-/* position: relative on the active paragraph is the containing block for ::before. */
+/* position: relative on the active paragraph is the containing block for the outline pseudo.
+   We use ::after instead of ::before because BookNode paragraphs already use ::before to render
+   the book code via attr(data-code) (see .marker-hidden .book[data-code]::before above), and that
+   rule has higher specificity than the outline's — sharing ::before would let "HAB" bleed into the
+   outline's absolutely-positioned box. */
 .psc-active-focus .psc-active-text {
   position: relative;
 }
 
-.psc-active-focus .psc-active-text::before {
+.psc-active-focus .psc-active-text::after {
   content: "";
   position: absolute;
   inset-inline-start: var(--verse-text-start, 0px);
   inset-inline-end: 0;
-  top: var(--active-verse-top, -2px);
-  bottom: var(--active-verse-bottom, -2px);
+  top: -2px;
+  bottom: -2px;
   border: 2.5px solid var(--scripture-accent);
   border-radius: 4px;
   pointer-events: none;
+}
+
+/* In gutter-marker mode, the paragraph marker (\p, \q1, etc.) is absolutely positioned in the
+   gutter to the inline-start side of the paragraph's content box. Extend the outline's
+   inline-start so the box surrounds the marker too — using min() picks whichever is further
+   into the gutter, the hanging-indent text start (for poetry) or the marker's own column. */
+.psc-active-focus.psc-gutter-markers .psc-active-text::after {
+  inset-inline-start: min(
+    var(--verse-text-start, 0px),
+    calc(-1 * var(--psc-gutter-width) - var(--para-indent))
+  );
 }

@@ -104,6 +104,9 @@ export class BookNode extends ElementNode {
   }
 
   override createDOM(): HTMLElement {
+    // The `.book` class is targeted by platform gutter-positioning rules in usj-nodes.css
+    // alongside `.para` (paragraph-like layout). Changes here that affect the first-child marker
+    // node, the data-code attribute, or the element tag may require corresponding CSS updates.
     const dom = document.createElement("p");
     dom.setAttribute("data-marker", this.__marker);
     dom.classList.add(this.__type, `usfm_${this.__marker}`);
