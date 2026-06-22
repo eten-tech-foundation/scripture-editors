@@ -447,7 +447,6 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
             ignoreTags={blackListedChangeTags}
           />
           <ActiveTextPlugin viewOptions={viewOptions} />
-          <ParaMarkerPrefixGuardPlugin viewOptions={viewOptions} logger={logger} />
           <AnnotationPlugin ref={annotationRef} logger={logger} />
           <ArrowNavigationPlugin viewOptions={viewOptions} />
           <CharNodePlugin />
@@ -460,6 +459,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
             viewOptions={viewOptions}
             logger={logger}
           />
+          <ParaMarkerPrefixGuardPlugin viewOptions={viewOptions} logger={logger} />
           <ParaNodePlugin />
           <TextDirectionPlugin textDirection={textDirection} />
           <TextSpacingPlugin />

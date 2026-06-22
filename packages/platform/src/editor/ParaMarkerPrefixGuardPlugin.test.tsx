@@ -37,7 +37,7 @@ const nodes = [
  */
 type PrefixShape = "editable" | "gutter-hidden";
 
-function $paraMarkerPrefix(shape: PrefixShape, marker: string): LexicalNode[] {
+function $createParaMarkerPrefixNodes(shape: PrefixShape, marker: string): LexicalNode[] {
   if (shape === "editable") return [$createMarkerNode(marker), $createTextNode(NBSP)];
   return [$createImmutableTypedTextNode("marker", `\\${marker}${NBSP}`)];
 }
@@ -49,8 +49,8 @@ describe("$resetMarkerIfPrefixDeleted", () => {
     it("resets a non-default paragraph's marker when the prefix has been removed", () => {
       let para: ParaNode;
       const { editor } = createBasicTestEnvironment(nodes, () => {
-        para = $createParaNode("q1").append($createTextNode("a poetry line"));
-        $getRoot().append(para);
+        para = $createParaNode("q1");
+        $getRoot().append(para.append($createTextNode("a poetry line")));
       });
 
       editor.update(() => $resetMarkerIfPrefixDeleted(para), { discrete: true });
@@ -63,11 +63,13 @@ describe("$resetMarkerIfPrefixDeleted", () => {
     it("does not reset when the prefix is still the first child", () => {
       let para: ParaNode;
       const { editor } = createBasicTestEnvironment(nodes, () => {
-        para = $createParaNode("q1").append(
-          ...$paraMarkerPrefix(shape, "q1"),
-          $createTextNode("a poetry line"),
+        para = $createParaNode("q1");
+        $getRoot().append(
+          para.append(
+            ...$createParaMarkerPrefixNodes(shape, "q1"),
+            $createTextNode("a poetry line"),
+          ),
         );
-        $getRoot().append(para);
       });
 
       editor.update(() => $resetMarkerIfPrefixDeleted(para), { discrete: true });
@@ -94,8 +96,8 @@ describe("$resetMarkerIfPrefixDeleted", () => {
     it("does not reset a paragraph already at the default marker", () => {
       let para: ParaNode;
       const { editor } = createBasicTestEnvironment(nodes, () => {
-        para = $createParaNode("p").append($createTextNode("plain text"));
-        $getRoot().append(para);
+        para = $createParaNode("p");
+        $getRoot().append(para.append($createTextNode("plain text")));
       });
 
       editor.update(() => $resetMarkerIfPrefixDeleted(para), { discrete: true });

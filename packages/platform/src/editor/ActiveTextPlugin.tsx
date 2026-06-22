@@ -8,9 +8,11 @@ import {
   $isRangeSelection,
   BaseSelection,
   BLUR_COMMAND,
+  CLICK_COMMAND,
   COMMAND_PRIORITY_LOW,
   ElementNode,
   FOCUS_COMMAND,
+  LexicalNode,
 } from "lexical";
 import { useEffect, useRef } from "react";
 import { $isImmutableTypedTextNode, $isMarkerNode, ZWSP } from "shared";
@@ -41,33 +43,34 @@ export function ActiveTextPlugin({ viewOptions }: { viewOptions: ViewOptions | u
       }
     }
 
-    // Clicking the ellipsis placeholder (rendered as ::after on the empty verse span) hits the
-    // verse element itself, which is a decorator node — Lexical's default cursor placement leaves
-    // the user with no obvious caret inside the empty verse's section. Move the caret to the slot
-    // immediately after the verse in its paragraph so typing extends the empty verse.
-    function placeCursorAfterEmptyVerse(event: MouseEvent): void {
-      const target = event.target;
-      if (!(target instanceof Element)) return;
-      const verseEl = target.closest(`.${EMPTY_CLASS}`);
-      if (!verseEl) return;
-      editor.update(() => {
-        const node = $getNearestNodeFromDOMNode(verseEl);
-        if (!$isSomeVerseNode(node)) return;
-        const para = node.getParent();
-        if (!$isElementNode(para)) return;
-        const after = node.getIndexWithinParent() + 1;
-        para.select(after, after);
-      });
-    }
-
     const unsubscribers = [
-      editor.registerRootListener((rootElement, prevRootElement) => {
-        prevRootElement?.removeEventListener("click", placeCursorAfterEmptyVerse);
-        rootElement?.addEventListener("click", placeCursorAfterEmptyVerse);
-      }),
+      // Clicking the ellipsis placeholder (rendered as ::after on the empty verse span) hits the
+      // verse element itself, which is a decorator node — Lexical's default cursor placement leaves
+      // the user with no obvious caret inside the empty verse's section. Move the caret to the slot
+      // immediately after the verse in its paragraph so typing extends the empty verse. CLICK_COMMAND
+      // handlers already run inside an editor update, so we set selection directly here rather than
+      // calling editor.update() from a DOM listener.
+      editor.registerCommand(
+        CLICK_COMMAND,
+        (event) => {
+          const target = event.target;
+          if (!(target instanceof Element)) return false;
+          const verseEl = target.closest(`.${EMPTY_CLASS}`);
+          if (!verseEl) return false;
+          const node = $getNearestNodeFromDOMNode(verseEl);
+          if (!$isSomeVerseNode(node)) return false;
+          const para = node.getParent();
+          if (!$isElementNode(para)) return false;
+          const after = node.getIndexWithinParent() + 1;
+          para.select(after, after);
+          return false;
+        },
+        COMMAND_PRIORITY_LOW,
+      ),
       editor.registerUpdateListener(({ editorState }) => {
-        const { newActiveKey, emptyKeys, nonEmptyKeys } = editorState.read(() => {
+        const { newActiveKey, activeVerseKey, emptyKeys, nonEmptyKeys } = editorState.read(() => {
           const newActiveKey = $getActiveParaKey();
+          const activeVerseKey = $getActiveVerseKey();
           const emptyKeys: string[] = [];
           const nonEmptyKeys: string[] = [];
           $getRoot()
@@ -78,12 +81,21 @@ export function ActiveTextPlugin({ viewOptions }: { viewOptions: ViewOptions | u
               emptyKeys.push(...e);
               nonEmptyKeys.push(...n);
             });
-          return { newActiveKey, emptyKeys, nonEmptyKeys };
+          return { newActiveKey, activeVerseKey, emptyKeys, nonEmptyKeys };
         });
 
         if (newActiveKey !== activeKeyRef.current) setActivePara(newActiveKey);
 
-        emptyKeys.forEach((key) => editor.getElementByKey(key)?.classList.add(EMPTY_CLASS));
+        // The active verse (the one whose section currently contains the cursor) is treated as
+        // non-empty: the ellipsis placeholder hides while the user is positioned to type there,
+        // and reappears on the next update when the cursor moves to a different verse.
+        emptyKeys.forEach((key) => {
+          if (key === activeVerseKey) {
+            editor.getElementByKey(key)?.classList.remove(EMPTY_CLASS);
+          } else {
+            editor.getElementByKey(key)?.classList.add(EMPTY_CLASS);
+          }
+        });
         nonEmptyKeys.forEach((key) => editor.getElementByKey(key)?.classList.remove(EMPTY_CLASS));
       }),
       editor.registerCommand(
@@ -119,6 +131,47 @@ export function ActiveTextPlugin({ viewOptions }: { viewOptions: ViewOptions | u
 /** Reads the active paragraph's key from the current selection. Must run inside an editor read. */
 function $getActiveParaKey(): string | undefined {
   return $getParaFromSelection($getSelection() ?? undefined)?.getKey();
+}
+
+/**
+ * Returns the key of the verse whose section currently contains the cursor — that is, the most
+ * recent verse marker at or before the cursor's position within its paragraph. Returns undefined
+ * when there is no range selection, the cursor sits in a non-verse paragraph, or the cursor is
+ * before the first verse marker. Must run inside an editor read.
+ */
+export function $getActiveVerseKey(): string | undefined {
+  const selection = $getSelection();
+  if (!$isRangeSelection(selection)) return undefined;
+
+  const anchor = selection.anchor;
+  const anchorNode = anchor.getNode();
+  const para = anchorNode.getTopLevelElement();
+  if (!$isElementNode(para)) return undefined;
+
+  // Translate the cursor into a boundary index within the paragraph's children. Verse markers at
+  // index < boundary sit at or before the cursor; the latest one is the active verse.
+  let boundary: number;
+  if (anchorNode.is(para)) {
+    // Element selection on the para itself — offset is a child index, e.g. set by
+    // placeCursorAfterEmptyVerse via `para.select(verseIndex + 1, verseIndex + 1)`.
+    boundary = anchor.offset;
+  } else {
+    // Selection inside a descendant — walk up to the direct paragraph child and treat the
+    // cursor as positioned just past that child's start (so the child itself counts).
+    let topChild: LexicalNode | undefined = anchorNode;
+    while (topChild && !topChild.getParent()?.is(para)) {
+      topChild = topChild.getParent() ?? undefined;
+    }
+    if (!topChild) return undefined;
+    boundary = topChild.getIndexWithinParent() + 1;
+  }
+
+  const children = para.getChildren();
+  let activeKey: string | undefined;
+  for (let i = 0; i < boundary && i < children.length; i++) {
+    if ($isSomeVerseNode(children[i])) activeKey = children[i].getKey();
+  }
+  return activeKey;
 }
 
 /**

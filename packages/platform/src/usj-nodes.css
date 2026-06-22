@@ -2437,12 +2437,12 @@ span.read img {
    we attach the ellipsis to `.verse` directly.) */
 .psc-gutter-markers .verse.psc-empty-text::after {
   content: "…";
-  /* Inline-logical margins so the spacing flips correctly in RTL: a hardcoded NBSP inside
-     `content` is a weak bidi character and ends up between the ellipsis and its own verse
-     number when the paragraph is RTL, making the ellipsis look like it belongs to the next
-     verse. Using margin-inline-start/end keeps the gaps on the right sides in both directions. */
-  margin-inline-start: 0.25em;
-  margin-inline-end: 0.25em;
+  cursor: text;
+  /* Padding instead of margin so the I-beam cursor extends across the spacing on either
+     side of the ellipsis, not just the glyph itself. Inline-logical so the gap follows
+     writing direction (flips in RTL) without per-direction overrides. */
+  padding-inline-start: 0.25em;
+  padding-inline-end: 0.25em;
   /* The platform's --muted-foreground holds raw HSL component values, so it has to be wrapped
      in hsl(). The fallback is hsl-formatted too, lighter than the platform default to read as
      a placeholder rather than body text. */

@@ -532,6 +532,19 @@ export function $isVisibleMarkerNode(
 }
 
 /**
+ * True for either flavor of paragraph-marker node: a `MarkerNode` (markerMode "editable") or an
+ * `ImmutableTypedTextNode` with `textType: "marker"` (markerMode "visible" or gutter views).
+ * These are the two node shapes used to render a paragraph's USFM marker (e.g. `\p`, `\s2`,
+ * `\q1`) as the visible first child of its paragraph.
+ *
+ * @param node - The node to check.
+ * @returns `true` if the node is a `MarkerNode` or a visible marker node.
+ */
+export function $isParaMarkerPrefix(node: LexicalNode | null | undefined): boolean {
+  return $isMarkerNode(node) || $isVisibleMarkerNode(node);
+}
+
+/**
  * Remove all known properties of the `markerObject`.
  * @param markerObject - Scripture marker and its contents.
  * @param markerObjectProps - List of known properties to remove. Defaults to `MARKER_OBJECT_PROPS`.
