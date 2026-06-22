@@ -84,6 +84,7 @@ import {
   pasteSelectionAsPlainText,
   StateChangePlugin,
   StateChangeSnapshot,
+  StructureProtectionPlugin,
   TextDirectionPlugin,
   TextSpacingPlugin,
   UsjNodeOptions,
@@ -139,6 +140,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
 
   const {
     isReadonly = false,
+    isProtected = false,
     hasExternalUI = false,
     hasSpellCheck = false,
     textDirection = "ltr",
@@ -389,6 +391,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
   return (
     <LexicalComposer initialConfig={initialConfig}>
       <EditablePlugin isEditable={!isReadonly} />
+      <StructureProtectionPlugin isProtected={isProtected} />
       <div className="editor-container">
         {hasExternalUI ? (
           <StateChangePlugin onStateChange={handleStateChange} />

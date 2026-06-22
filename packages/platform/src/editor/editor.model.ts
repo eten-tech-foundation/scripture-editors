@@ -189,6 +189,8 @@ export interface EditorProps<TLogger extends LoggerBasic> {
 export interface EditorOptions {
   /** Is the editor readonly or editable. */
   isReadonly?: boolean;
+  /** When true, paragraph and verse markers cannot be changed via keyboard input. */
+  isProtected?: boolean;
   /** Does the editor have external UI controls so disable the built-in toolbar and marker menu. */
   hasExternalUI?: boolean;
   /** Is the editor enabled for spell checking. */

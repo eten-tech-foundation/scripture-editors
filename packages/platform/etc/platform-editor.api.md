@@ -72,6 +72,7 @@ export interface EditorOptions {
     debug?: boolean;
     hasExternalUI?: boolean;
     hasSpellCheck?: boolean;
+    isProtected?: boolean;
     isReadonly?: boolean;
     markerMenuTrigger?: string;
     nodes?: UsjNodeOptions;
