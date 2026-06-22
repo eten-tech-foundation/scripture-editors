@@ -223,6 +223,25 @@ install step.
 It uses a custom plugin rather than the official `typescript-lsp`, which fails under Volta on Windows;
 see the [plugin README](/.claude/skills/typescript-lsp-volta/README.md) for why and how.
 
+### Linux / WSL override
+
+The custom plugin works on Windows and macOS but currently has a loading issue on Linux / WSL where
+Claude Code recognises the plugin yet fails to start its LSP server. On Linux the official plugin
+works fine (Volta shims are real executables, not `.cmd` files), so add this override to
+`.claude/settings.local.json` (gitignored):
+
+```jsonc
+{
+  // ... keep any existing keys ...
+  "enabledPlugins": {
+    "typescript-lsp@claude-plugins-official": true,
+    "typescript-lsp-volta@skills-dir": false,
+  },
+}
+```
+
+Then run `/reload-plugins` inside Claude Code.
+
 Notes:
 
 - Start Claude Code from the repo root; project-scope plugins don't load from a subdirectory. After
