@@ -13,6 +13,19 @@
     "typescript-lsp@claude-plugins-official": false,
     "typescript-lsp-volta@skills-dir": true
   },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./scripts/volta-fix-snapshot.sh"
+          }
+        ]
+      }
+    ]
+  },
   "permissions": {
     "allow": [
       "Bash",

@@ -10,6 +10,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Install Nx globally: `npm i -g nx`
 - Install dependencies: `pnpm install`
 
+### Volta Compatibility (Claude Code)
+
+VS Code resolves Volta's shims to direct binary paths and prepends them to `PATH`, bypassing project-level version pinning. Claude Code compounds this by capturing the broken `PATH` in a shell snapshot that replays before every Bash command.
+
+A `PreToolUse` hook in `.claude/settings.json` runs `scripts/volta-fix-snapshot.sh` before each Bash command. The script reads the project's `volta` pins from `package.json` and patches the snapshot so the correct Volta image paths are used. No per-machine setup is required — the hook and script are committed to the repo.
+
+**Not needed on Windows** — Volta's native `.cmd` shims work correctly there.
+
+**Fallback:** If the hook is not active, prefix commands with `volta run`:
+
+```bash
+volta run node --version           # Uses project-pinned Node
+volta run pnpm nx test shared      # nx via project-pinned pnpm/node
+```
+
 ### Core Development Commands
 
 ```bash
