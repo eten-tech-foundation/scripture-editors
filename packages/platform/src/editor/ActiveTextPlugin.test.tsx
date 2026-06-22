@@ -68,8 +68,8 @@ describe("$getEmptyVerseStatus", () => {
       let v1: SomeVerseNode;
       const { editor } = createBasicTestEnvironment(nodes, () => {
         v1 = $verseFor(shape, "1");
-        para = $createParaNode("p").append(...$createParaMarkerPrefixNodes(shape, "p"), v1);
-        $getRoot().append(para);
+        para = $createParaNode("p");
+        $getRoot().append(para.append(...$createParaMarkerPrefixNodes(shape, "p"), v1));
       });
 
       editor.getEditorState().read(() => {
@@ -85,12 +85,14 @@ describe("$getEmptyVerseStatus", () => {
       let v1: SomeVerseNode;
       const { editor } = createBasicTestEnvironment(nodes, () => {
         v1 = $verseFor(shape, "1");
-        para = $createParaNode("p").append(
-          ...$createParaMarkerPrefixNodes(shape, "p"),
-          v1,
-          $createTextNode("In the beginning"),
+        para = $createParaNode("p");
+        $getRoot().append(
+          para.append(
+            ...$createParaMarkerPrefixNodes(shape, "p"),
+            v1,
+            $createTextNode("In the beginning"),
+          ),
         );
-        $getRoot().append(para);
       });
 
       editor.getEditorState().read(() => {
@@ -106,12 +108,10 @@ describe("$getEmptyVerseStatus", () => {
       let v1: SomeVerseNode;
       const { editor } = createBasicTestEnvironment(nodes, () => {
         v1 = $verseFor(shape, "1");
-        para = $createParaNode("p").append(
-          ...$createParaMarkerPrefixNodes(shape, "p"),
-          v1,
-          $createTextNode("   "),
+        para = $createParaNode("p");
+        $getRoot().append(
+          para.append(...$createParaMarkerPrefixNodes(shape, "p"), v1, $createTextNode("   ")),
         );
-        $getRoot().append(para);
       });
 
       editor.getEditorState().read(() => {
@@ -129,13 +129,15 @@ describe("$getEmptyVerseStatus", () => {
       const { editor } = createBasicTestEnvironment(nodes, () => {
         v1 = $verseFor(shape, "1");
         v2 = $verseFor(shape, "2");
-        para = $createParaNode("p").append(
-          ...$createParaMarkerPrefixNodes(shape, "p"),
-          v1,
-          v2,
-          $createTextNode("In the beginning"),
+        para = $createParaNode("p");
+        $getRoot().append(
+          para.append(
+            ...$createParaMarkerPrefixNodes(shape, "p"),
+            v1,
+            v2,
+            $createTextNode("In the beginning"),
+          ),
         );
-        $getRoot().append(para);
       });
 
       editor.getEditorState().read(() => {
@@ -153,13 +155,15 @@ describe("$getEmptyVerseStatus", () => {
       const { editor } = createBasicTestEnvironment(nodes, () => {
         v1 = $verseFor(shape, "1");
         v2 = $verseFor(shape, "2");
-        para = $createParaNode("p").append(
-          ...$createParaMarkerPrefixNodes(shape, "p"),
-          v1,
-          $createTextNode("text one"),
-          v2,
+        para = $createParaNode("p");
+        $getRoot().append(
+          para.append(
+            ...$createParaMarkerPrefixNodes(shape, "p"),
+            v1,
+            $createTextNode("text one"),
+            v2,
+          ),
         );
-        $getRoot().append(para);
       });
 
       editor.getEditorState().read(() => {
@@ -173,11 +177,13 @@ describe("$getEmptyVerseStatus", () => {
     it("returns no keys for a paragraph with no verses", () => {
       let para: ParaNode;
       const { editor } = createBasicTestEnvironment(nodes, () => {
-        para = $createParaNode("q2").append(
-          ...$createParaMarkerPrefixNodes(shape, "q2"),
-          $createTextNode("continuation"),
+        para = $createParaNode("q2");
+        $getRoot().append(
+          para.append(
+            ...$createParaMarkerPrefixNodes(shape, "q2"),
+            $createTextNode("continuation"),
+          ),
         );
-        $getRoot().append(para);
       });
 
       editor.getEditorState().read(() => {
@@ -193,12 +199,14 @@ describe("$getEmptyVerseStatus", () => {
       let v1: SomeVerseNode;
       const { editor } = createBasicTestEnvironment(nodes, () => {
         v1 = $verseFor(shape, "1");
-        para = $createParaNode("p").append(
-          ...$createParaMarkerPrefixNodes(shape, "p"),
-          $createTextNode("pre-verse intro"),
-          v1,
+        para = $createParaNode("p");
+        $getRoot().append(
+          para.append(
+            ...$createParaMarkerPrefixNodes(shape, "p"),
+            $createTextNode("pre-verse intro"),
+            v1,
+          ),
         );
-        $getRoot().append(para);
       });
 
       editor.getEditorState().read(() => {
@@ -251,11 +259,10 @@ describe("$getActiveVerseKey", () => {
     it("returns undefined when cursor sits before the first verse marker", () => {
       let para: ParaNode;
       const { editor } = createBasicTestEnvironment(nodes, () => {
-        para = $createParaNode("p").append(
-          ...$createParaMarkerPrefixNodes(shape, "p"),
-          $verseFor(shape, "1"),
+        para = $createParaNode("p");
+        $getRoot().append(
+          para.append(...$createParaMarkerPrefixNodes(shape, "p"), $verseFor(shape, "1")),
         );
-        $getRoot().append(para);
         para.select(0, 0);
       });
 
@@ -271,8 +278,8 @@ describe("$getActiveVerseKey", () => {
       let para: ParaNode;
       const { editor } = createBasicTestEnvironment(nodes, () => {
         v1 = $verseFor(shape, "1");
-        para = $createParaNode("p").append(...$createParaMarkerPrefixNodes(shape, "p"), v1);
-        $getRoot().append(para);
+        para = $createParaNode("p");
+        $getRoot().append(para.append(...$createParaMarkerPrefixNodes(shape, "p"), v1));
         // Mimic placeCursorAfterEmptyVerse: drop the caret immediately after the verse marker.
         const after = v1.getIndexWithinParent() + 1;
         para.select(after, after);
@@ -338,12 +345,14 @@ describe("$getParaFromSelection", () => {
     let para: ParaNode;
     const { editor } = createBasicTestEnvironment(nodes, () => {
       const textNode = $createTextNode("Hello world");
-      para = $createParaNode("p").append(
-        ...$createParaMarkerPrefixNodes("gutter-hidden", "p"),
-        $verseFor("gutter-hidden", "1"),
-        textNode,
+      para = $createParaNode("p");
+      $getRoot().append(
+        para.append(
+          ...$createParaMarkerPrefixNodes("gutter-hidden", "p"),
+          $verseFor("gutter-hidden", "1"),
+          textNode,
+        ),
       );
-      $getRoot().append(para);
       textNode.select();
     });
 
@@ -358,11 +367,10 @@ describe("$getParaFromSelection", () => {
     let para: ParaNode;
     const { editor } = createBasicTestEnvironment(nodes, () => {
       const textNode = $createTextNode("Heading");
-      para = $createParaNode("s").append(
-        ...$createParaMarkerPrefixNodes("gutter-hidden", "s"),
-        textNode,
+      para = $createParaNode("s");
+      $getRoot().append(
+        para.append(...$createParaMarkerPrefixNodes("gutter-hidden", "s"), textNode),
       );
-      $getRoot().append(para);
       textNode.select();
     });
 
