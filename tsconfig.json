@@ -32,6 +32,9 @@
     },
     {
       "path": "./tools/usfm-markers"
+    },
+    {
+      "path": "./tools/pt9-css-converter"
     }
   ]
 }
