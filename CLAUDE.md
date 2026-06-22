@@ -220,7 +220,11 @@ When working with scripture data:
 # Code Style
 
 - Prefer `undefined` over `null` when representing missing values unless an API explicitly requires `null`.
-- Prefer chaining Lexical `append` calls inside the final `$getRoot().append(...)` when setting up document structure in tests so the hierarchy is readable at a glance.
+- When building Lexical structures in tests, chain `.append(...)` calls inside `$getRoot().append(...)` so the code shape mirrors the resulting tree. Even when you need a local reference to a node, hoist only the bare `$createXNode(...)` to the variable and put the children inside the root chain — `para = $createParaNode("p"); $getRoot().append(para.append(...children));` — rather than the half-flat `para = $createParaNode("p").append(...); $getRoot().append(para);` shape.
+- Construct Lexical nodes via `$create<X>Node` / `$create<X>Nodes` helpers (singular for one node, plural for an array), matching Lexical's own naming convention. Test helpers follow the same pattern.
+- When a named type alias exists for a union (e.g., `SomeVerseNode` for `VerseNode | ImmutableVerseNode`), use the alias rather than re-spelling the union inline. Aliases live alongside their `$is*` guards.
+- Don't call `editor.update(...)` from inside a listener (event handler, update listener, etc.) — nested updates risk infinite cascade loops. Lexical's command system (`editor.registerCommand`) is the canonical entry point for mutating state in response to user interactions.
+- Order `<*Plugin />` children in `packages/platform/src/editor/Editor.tsx` alphabetically by component name. The alphabetical block starts partway through — initial plugins in the setup section (`OnSelectionChangePlugin`, `DeltaOnChangePlugin`, `ActiveTextPlugin`, …) intentionally precede it.
 
 # Context 7 Library Documentation
 
