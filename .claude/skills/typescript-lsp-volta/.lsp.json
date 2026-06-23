@@ -1,0 +1,19 @@
+{
+  "typescript": {
+    "command": "node",
+    "args": [
+      "${CLAUDE_PROJECT_DIR}/node_modules/typescript-language-server/lib/cli.mjs",
+      "--stdio"
+    ],
+    "extensionToLanguage": {
+      ".ts": "typescript",
+      ".tsx": "typescriptreact",
+      ".js": "javascript",
+      ".jsx": "javascriptreact",
+      ".mts": "typescript",
+      ".cts": "typescript",
+      ".mjs": "javascript",
+      ".cjs": "javascript"
+    }
+  }
+}

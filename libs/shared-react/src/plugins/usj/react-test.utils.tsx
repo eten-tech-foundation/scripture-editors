@@ -20,6 +20,7 @@ import {
   $isElementNode,
   $setSelection,
   $setState,
+  EditorUpdateOptions,
   KEY_DOWN_COMMAND,
   KEY_ENTER_COMMAND,
   LexicalEditor,
@@ -325,12 +326,17 @@ export async function deleteTextAtSelection(
  * Run generic test update logic in the LexicalEditor for the SUT (Software Under Test).
  * @param editor - The LexicalEditor instance where the update will occur.
  * @param $updateFn - The function containing the update logic.
+ * @param options - Optional Lexical update options, e.g. `{ tag: EXTERNAL_USJ_MUTATION_TAG }`.
  */
-export async function sutUpdate(editor: LexicalEditor, $updateFn: () => void) {
+export async function sutUpdate(
+  editor: LexicalEditor,
+  $updateFn: () => void,
+  options?: EditorUpdateOptions,
+) {
   await act(async () => {
     editor.update(() => {
       $updateFn();
-    });
+    }, options);
   });
 }
 

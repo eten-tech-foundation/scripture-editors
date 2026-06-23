@@ -4,6 +4,7 @@ import { getUsjMarkerAction, isUsjMarkerSupported } from "./adaptors/usj-marker-
 import { EditorOptions, EditorProps, EditorRef } from "./editor.model";
 import editorTheme from "./editor.theme";
 import { ActiveTextPlugin } from "./ActiveTextPlugin";
+import { ParaMarkerPrefixGuardPlugin } from "./ParaMarkerPrefixGuardPlugin";
 import ScriptureReferencePlugin from "./ScriptureReferencePlugin";
 import TreeViewPlugin from "./TreeViewPlugin";
 import { ToolbarPlugin } from "./toolbar/ToolbarPlugin";
@@ -358,17 +359,20 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
   }));
 
   const handleChange = useCallback(
-    (editorState: EditorState, _editor: LexicalEditor, tags: Set<string>, ops: DeltaOp[]) => {
-      if (blackListedChangeTags.some((tag) => tags.has(tag))) return;
-
+    (editorState: EditorState, _editor: LexicalEditor, _tags: Set<string>, ops: DeltaOp[]) => {
+      // No blacklisted-tag guard is needed here: `DeltaOnChangePlugin` is given
+      // `ignoreTags={blackListedChangeTags}` and short-circuits before calling this handler, so
+      // only local user edits (which carry no blacklisted tag) ever reach this point.
       const newUsj = editorUsjAdaptor.deserializeEditorState(editorState);
       if (newUsj) {
         const isEdited = !deepEqual(editedUsjRef.current, newUsj);
         if (isEdited) editedUsjRef.current = newUsj;
         if (isEdited || !deepEqual(usj, newUsj)) {
-          const source = tags.has(DELTA_CHANGE_TAG) ? "remote" : "local";
+          // `handleChange` only runs for local edits: `DeltaOnChangePlugin` ignores
+          // `blackListedChangeTags` (which includes `DELTA_CHANGE_TAG`), so updates from
+          // `applyUpdate` never reach here - they emit `onUsjChange` with source "remote" directly.
           const insertedNodeKey = getInsertedNodeKey(ops, editorState);
-          onUsjChange?.(newUsj, ops, source, insertedNodeKey);
+          onUsjChange?.(newUsj, ops, "local", insertedNodeKey);
         }
       }
     },
@@ -440,6 +444,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
             onChange={handleChange}
             ignoreSelectionChange
             ignoreHistoryMergeTagChange
+            ignoreTags={blackListedChangeTags}
           />
           <ActiveTextPlugin viewOptions={viewOptions} />
           <AnnotationPlugin ref={annotationRef} logger={logger} />
@@ -454,6 +459,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
             viewOptions={viewOptions}
             logger={logger}
           />
+          <ParaMarkerPrefixGuardPlugin viewOptions={viewOptions} logger={logger} />
           <ParaNodePlugin />
           <TextDirectionPlugin textDirection={textDirection} />
           <TextSpacingPlugin />
