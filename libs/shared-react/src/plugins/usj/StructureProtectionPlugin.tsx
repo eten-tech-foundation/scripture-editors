@@ -18,18 +18,22 @@ import {
 import { useEffect } from "react";
 
 /**
- * When `isProtected`, blocks keyboard-driven changes to paragraph and verse markers.
+ * When `isStructureProtected`, blocks keyboard-driven changes to paragraph and verse markers.
  * Registers a KEY_DOWN handler at COMMAND_PRIORITY_HIGH, mirroring ArrowNavigationPlugin.
  *
- * @param isProtected - When true, structural keystrokes are intercepted; when false, inert.
+ * @param isStructureProtected - When true, structural keystrokes are intercepted; when false, inert.
  * @returns Always `null`; this component has no UI.
  */
-export function StructureProtectionPlugin({ isProtected }: { isProtected: boolean }): null {
+export function StructureProtectionPlugin({
+  isStructureProtected,
+}: {
+  isStructureProtected: boolean;
+}): null {
   const [editor] = useLexicalComposerContext();
 
   useEffect(() => {
     const $handleKeyDown = (event: KeyboardEvent): boolean => {
-      if (!isProtected) return false;
+      if (!isStructureProtected) return false;
       const intent = keyDownToIntent(event);
       if (!intent) return false;
       const selection = $getSelection();
@@ -44,7 +48,7 @@ export function StructureProtectionPlugin({ isProtected }: { isProtected: boolea
     // Reuses Rule 1: block when the selection spans a boundary or contains a verse marker.
     // Inspecting pasted/dropped *content* for embedded markers is deferred (see spec §2.5).
     const $blockUnsafeSelection = (payload: unknown): boolean => {
-      if (!isProtected) return false;
+      if (!isStructureProtected) return false;
       const selection = $getSelection();
       if (!selection || !$shouldBlockSelectionReplacement(selection)) return false;
       if (payload instanceof Event) payload.preventDefault();
@@ -63,7 +67,7 @@ export function StructureProtectionPlugin({ isProtected }: { isProtected: boolea
         COMMAND_PRIORITY_HIGH,
       ),
     );
-  }, [editor, isProtected]);
+  }, [editor, isStructureProtected]);
 
   return null;
 }

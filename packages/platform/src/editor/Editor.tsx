@@ -141,7 +141,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
 
   const {
     isReadonly = false,
-    isProtected = false,
+    isStructureProtected = false,
     hasExternalUI = false,
     hasSpellCheck = false,
     textDirection = "ltr",
@@ -392,7 +392,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
   return (
     <LexicalComposer initialConfig={initialConfig}>
       <EditablePlugin isEditable={!isReadonly} />
-      <StructureProtectionPlugin isProtected={isProtected} />
+      <StructureProtectionPlugin isStructureProtected={isStructureProtected} />
       <div className="editor-container">
         {hasExternalUI ? (
           <StateChangePlugin onStateChange={handleStateChange} />

@@ -221,9 +221,9 @@ describe("StructureProtectionPlugin — non-keydown vectors", () => {
   });
 });
 
-async function testEnvironment(isProtected: boolean, $initialEditorState: () => void) {
+async function testEnvironment(isStructureProtected: boolean, $initialEditorState: () => void) {
   return baseTestEnvironment(
     $initialEditorState,
-    <StructureProtectionPlugin isProtected={isProtected} />,
+    <StructureProtectionPlugin isStructureProtected={isStructureProtected} />,
   );
 }
