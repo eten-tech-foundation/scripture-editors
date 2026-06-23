@@ -65,3 +65,4 @@ vitest.config.*.timestamp*
 .superpowers
 docs/superpowers
 .claude
+.review

@@ -6,6 +6,7 @@ import {
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { mergeRegister } from "@lexical/utils";
 import {
+  $getSelection,
   COMMAND_PRIORITY_HIGH,
   CONTROLLED_TEXT_INSERTION_COMMAND,
   CUT_COMMAND,
@@ -31,7 +32,8 @@ export function StructureProtectionPlugin({ isProtected }: { isProtected: boolea
       if (!isProtected) return false;
       const intent = keyDownToIntent(event);
       if (!intent) return false;
-      if ($shouldBlockStructuralEdit(intent)) {
+      const selection = $getSelection();
+      if (selection && $shouldBlockStructuralEdit(selection, intent)) {
         event.preventDefault();
         return true;
       }
@@ -43,7 +45,8 @@ export function StructureProtectionPlugin({ isProtected }: { isProtected: boolea
     // Inspecting pasted/dropped *content* for embedded markers is deferred (see spec §2.5).
     const $blockUnsafeSelection = (payload: unknown): boolean => {
       if (!isProtected) return false;
-      if (!$shouldBlockSelectionReplacement()) return false;
+      const selection = $getSelection();
+      if (!selection || !$shouldBlockSelectionReplacement(selection)) return false;
       if (payload instanceof Event) payload.preventDefault();
       return true;
     };

@@ -185,7 +185,7 @@ describe("$shouldBlockStructuralEdit (decision logic)", () => {
     });
     updateSelection(editor, t2!, 0);
     editor.getEditorState().read(() => {
-      expect($shouldBlockStructuralEdit("deleteBackward")).toBe(true);
+      expect($shouldBlockStructuralEdit($getSelection()!, "deleteBackward")).toBe(true);
     });
   });
 
@@ -197,7 +197,7 @@ describe("$shouldBlockStructuralEdit (decision logic)", () => {
     });
     updateSelection(editor, t1!, 3);
     editor.getEditorState().read(() => {
-      expect($shouldBlockStructuralEdit("deleteBackward")).toBe(false);
+      expect($shouldBlockStructuralEdit($getSelection()!, "deleteBackward")).toBe(false);
     });
   });
 
@@ -209,7 +209,7 @@ describe("$shouldBlockStructuralEdit (decision logic)", () => {
     });
     updateSelection(editor, t1!, 0);
     editor.getEditorState().read(() => {
-      expect($shouldBlockStructuralEdit("deleteBackward")).toBe(false);
+      expect($shouldBlockStructuralEdit($getSelection()!, "deleteBackward")).toBe(false);
     });
   });
 
@@ -226,7 +226,7 @@ describe("$shouldBlockStructuralEdit (decision logic)", () => {
     });
     updateSelection(editor, t1!, 0);
     editor.getEditorState().read(() => {
-      expect($shouldBlockStructuralEdit("deleteBackward")).toBe(true);
+      expect($shouldBlockStructuralEdit($getSelection()!, "deleteBackward")).toBe(true);
     });
   });
 
@@ -238,7 +238,7 @@ describe("$shouldBlockStructuralEdit (decision logic)", () => {
     });
     updateSelection(editor, t1!, 3);
     editor.getEditorState().read(() => {
-      expect($shouldBlockStructuralEdit("insertParagraph")).toBe(true);
+      expect($shouldBlockStructuralEdit($getSelection()!, "insertParagraph")).toBe(true);
     });
   });
 
@@ -250,7 +250,7 @@ describe("$shouldBlockStructuralEdit (decision logic)", () => {
     });
     updateSelection(editor, t1!, 3);
     editor.getEditorState().read(() => {
-      expect($shouldBlockStructuralEdit("insertText")).toBe(false);
+      expect($shouldBlockStructuralEdit($getSelection()!, "insertText")).toBe(false);
     });
   });
 
@@ -264,7 +264,7 @@ describe("$shouldBlockStructuralEdit (decision logic)", () => {
     });
     updateSelection(editor, t1!, 0, t2!, 6);
     editor.getEditorState().read(() => {
-      expect($shouldBlockStructuralEdit("insertText")).toBe(true);
+      expect($shouldBlockStructuralEdit($getSelection()!, "insertText")).toBe(true);
     });
   });
 });

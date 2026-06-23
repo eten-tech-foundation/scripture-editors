@@ -1,7 +1,6 @@
 import { $isSomeVerseNode } from "../../nodes/usj";
 import { $findMatchingParent } from "@lexical/utils";
 import {
-  $getSelection,
   $isElementNode,
   $isNodeSelection,
   $isRangeSelection,
@@ -43,11 +42,7 @@ export function $selectionSpansBlockBoundary(selection: BaseSelection): boolean 
     const para = $getParaAncestor(node);
     if (para) paraKeys.add(para.getKey());
   }
-  if (paraKeys.size > 1) return true;
-  // Fall back to the endpoints in case getNodes() collapsed to a single inline node.
-  const anchorPara = $getParaAncestor(selection.anchor.getNode());
-  const focusPara = $getParaAncestor(selection.focus.getNode());
-  return !!anchorPara && !!focusPara && anchorPara.getKey() !== focusPara.getKey();
+  return paraKeys.size > 1;
 }
 
 /** True when the selection includes any verse marker node. */
@@ -124,19 +119,15 @@ function $hasNeighborBlock(selection: BaseSelection, direction: "backward" | "fo
 }
 
 /**
- * Rule 1 (all input vectors): block when the current selection spans a block boundary or
+ * Rule 1 (all input vectors): block when the given selection spans a block boundary or
  * touches a verse marker. Used by paste/cut/drop/IME guards.
  */
-export function $shouldBlockSelectionReplacement(): boolean {
-  const selection = $getSelection();
-  if (!selection) return false;
+export function $shouldBlockSelectionReplacement(selection: BaseSelection): boolean {
   return $selectionContainsVerseMarker(selection) || $selectionSpansBlockBoundary(selection);
 }
 
 /** Full keyboard decision: combines Rule 1 with collapsed-caret structural rules. */
-export function $shouldBlockStructuralEdit(intent: EditIntent): boolean {
-  const selection = $getSelection();
-  if (!selection) return false;
+export function $shouldBlockStructuralEdit(selection: BaseSelection, intent: EditIntent): boolean {
   if ($selectionContainsVerseMarker(selection) || $selectionSpansBlockBoundary(selection)) {
     return true;
   }
