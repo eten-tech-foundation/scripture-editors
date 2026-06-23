@@ -1,4 +1,5 @@
 {
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "extraKnownMarketplaces": {
     "nx-claude-plugins": {
       "source": {
@@ -8,6 +9,70 @@
     }
   },
   "enabledPlugins": {
-    "nx@nx-claude-plugins": true
-  }
+    "nx@nx-claude-plugins": true,
+    "typescript-lsp@claude-plugins-official": false,
+    "typescript-lsp-volta@skills-dir": true
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./scripts/volta-fix-snapshot.sh"
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash",
+      "Read",
+      "Write",
+      "Edit",
+      "Glob",
+      "Grep",
+      "WebFetch",
+      "WebSearch",
+      "NotebookEdit",
+      "mcp__ide__*"
+    ],
+    "deny": [
+      "Read(./demos/platform/lib/**)",
+      "Bash(rm -rf /)",
+      "Bash(rm -rf /*)",
+      "Bash(mkfs:*)",
+      "Bash(chmod -R 777 /)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git commit --no-verify:*)",
+      "Bash(git commit -n:*)",
+      "Bash(HUSKY=0:*)",
+      "Edit(.claude/settings.json)",
+      "Write(.claude/settings.json)",
+      "Edit(.claude/settings.local.json)",
+      "Write(.claude/settings.local.json)",
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./secrets/**)",
+      "Read(**/dist/**)",
+      "Glob(**/dist/**)",
+      "Grep(**/dist/**)"
+    ],
+    "ask": [
+      "Bash(rm -rf:*)",
+      "Bash(rm -r:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(git clean -f:*)",
+      "Bash(chmod -R:*)",
+      "Bash(chown -R:*)",
+      "Bash(sudo:*)",
+      "Bash(eval:*)",
+      "Bash(npm publish:*)",
+      "Bash(git push --force-with-lease:*)"
+    ]
+  },
+  "respectGitignore": true
 }

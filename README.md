@@ -208,6 +208,47 @@ nx run-many -t lint # to check linting
 nx run-many -t typecheck # to check types
 ```
 
+## TypeScript Code Intelligence
+
+This repo gives Claude Code a TypeScript language server (jump-to-definition, find-references, and
+type-error diagnostics across the monorepo). It works on Windows, macOS, and Linux with **no manual
+setup** beyond `pnpm install`.
+
+`typescript-language-server` is a repo **devDependency**, so `pnpm install` provides it (and the
+`typescript` it needs is already in the workspace). A committed Claude Code plugin
+([`.claude/skills/typescript-lsp-volta`](/.claude/skills/typescript-lsp-volta)) launches it and
+loads automatically when you start Claude Code from the repo root — no global install, no `/plugin`
+install step.
+
+It uses a custom plugin rather than the official `typescript-lsp`, which fails under Volta on Windows;
+see the [plugin README](/.claude/skills/typescript-lsp-volta/README.md) for why and how.
+
+### Linux / WSL override
+
+The custom plugin works on Windows and macOS but currently has a loading issue on Linux / WSL where
+Claude Code recognises the plugin yet fails to start its LSP server. On Linux the official plugin
+works fine (Volta shims are real executables, not `.cmd` files), so add this override to
+`.claude/settings.local.json` (gitignored):
+
+```jsonc
+{
+  // ... keep any existing keys ...
+  "enabledPlugins": {
+    "typescript-lsp@claude-plugins-official": true,
+    "typescript-lsp-volta@skills-dir": false,
+  },
+}
+```
+
+Then run `/reload-plugins` inside Claude Code.
+
+Notes:
+
+- Start Claude Code from the repo root; project-scope plugins don't load from a subdirectory. After
+  changing directories, run `/reload-plugins`.
+- The `typescript-language-server` dev dependency is installed for everyone via `pnpm install` but is
+  only used by Claude Code. If you don't use Claude Code, you can ignore this feature.
+
 ## Collaborative Web Development Environment
 
 Thanks to [CodeSandbox](https://codesandbox.io/) for the instant dev environment: https://codesandbox.io/p/github/eten-tech-foundation/scripture-editors/main
