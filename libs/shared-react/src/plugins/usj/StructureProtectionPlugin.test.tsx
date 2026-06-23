@@ -27,16 +27,13 @@ import { $createParaNode, ParaNode } from "shared";
 describe("StructureProtectionPlugin — keyboard", () => {
   it("blocks Backspace-at-start merge when protected", async () => {
     let t2: TextNode;
-    const { editor } = await baseTestEnvironment(
-      () => {
-        t2 = $createTextNode("second");
-        $getRoot().append(
-          $createParaNode("p").append($createTextNode("first")),
-          $createParaNode("q").append(t2),
-        );
-      },
-      <StructureProtectionPlugin isProtected={true} />,
-    );
+    const { editor } = await testEnvironment(true, () => {
+      t2 = $createTextNode("second");
+      $getRoot().append(
+        $createParaNode("p").append($createTextNode("first")),
+        $createParaNode("q").append(t2),
+      );
+    });
     updateSelection(editor, t2!, 0);
 
     await pressKey(editor, "Backspace", 0);
@@ -48,16 +45,13 @@ describe("StructureProtectionPlugin — keyboard", () => {
 
   it("allows Backspace-at-start merge when NOT protected", async () => {
     let t2: TextNode;
-    const { editor } = await baseTestEnvironment(
-      () => {
-        t2 = $createTextNode("second");
-        $getRoot().append(
-          $createParaNode("p").append($createTextNode("first")),
-          $createParaNode("q").append(t2),
-        );
-      },
-      <StructureProtectionPlugin isProtected={false} />,
-    );
+    const { editor } = await testEnvironment(false, () => {
+      t2 = $createTextNode("second");
+      $getRoot().append(
+        $createParaNode("p").append($createTextNode("first")),
+        $createParaNode("q").append(t2),
+      );
+    });
     updateSelection(editor, t2!, 0);
 
     await pressKey(editor, "Backspace", 0);
@@ -69,13 +63,10 @@ describe("StructureProtectionPlugin — keyboard", () => {
 
   it("blocks Enter (paragraph split) when protected", async () => {
     let t1: TextNode;
-    const { editor } = await baseTestEnvironment(
-      () => {
-        t1 = $createTextNode("abcdef");
-        $getRoot().append($createParaNode("p").append(t1));
-      },
-      <StructureProtectionPlugin isProtected={true} />,
-    );
+    const { editor } = await testEnvironment(true, () => {
+      t1 = $createTextNode("abcdef");
+      $getRoot().append($createParaNode("p").append(t1));
+    });
     updateSelection(editor, t1!, 3);
 
     await pressKey(editor, "Enter", 0);
@@ -90,14 +81,11 @@ describe("StructureProtectionPlugin — non-keydown vectors", () => {
   it("blocks controlled text insertion over a selection spanning a block boundary when protected", async () => {
     let t1: TextNode;
     let t2: TextNode;
-    const { editor } = await baseTestEnvironment(
-      () => {
-        t1 = $createTextNode("first");
-        t2 = $createTextNode("second");
-        $getRoot().append($createParaNode("p").append(t1), $createParaNode("q").append(t2));
-      },
-      <StructureProtectionPlugin isProtected={true} />,
-    );
+    const { editor } = await testEnvironment(true, () => {
+      t1 = $createTextNode("first");
+      t2 = $createTextNode("second");
+      $getRoot().append($createParaNode("p").append(t1), $createParaNode("q").append(t2));
+    });
     updateSelection(editor, t1!, 0, t2!, 6);
 
     await act(async () => {
@@ -112,14 +100,11 @@ describe("StructureProtectionPlugin — non-keydown vectors", () => {
   it("allows controlled text insertion spanning a boundary when NOT protected", async () => {
     let t1: TextNode;
     let t2: TextNode;
-    const { editor } = await baseTestEnvironment(
-      () => {
-        t1 = $createTextNode("first");
-        t2 = $createTextNode("second");
-        $getRoot().append($createParaNode("p").append(t1), $createParaNode("q").append(t2));
-      },
-      <StructureProtectionPlugin isProtected={false} />,
-    );
+    const { editor } = await testEnvironment(false, () => {
+      t1 = $createTextNode("first");
+      t2 = $createTextNode("second");
+      $getRoot().append($createParaNode("p").append(t1), $createParaNode("q").append(t2));
+    });
     updateSelection(editor, t1!, 0, t2!, 6);
 
     await act(async () => {
@@ -134,14 +119,11 @@ describe("StructureProtectionPlugin — non-keydown vectors", () => {
   it("blocks insertion over a selection containing a verse marker when protected", async () => {
     let para: ParaNode;
     let t1: TextNode;
-    const { editor } = await baseTestEnvironment(
-      () => {
-        para = $createParaNode("p");
-        t1 = $createTextNode("text");
-        $getRoot().append(para.append($createImmutableVerseNode("1"), t1));
-      },
-      <StructureProtectionPlugin isProtected={true} />,
-    );
+    const { editor } = await testEnvironment(true, () => {
+      para = $createParaNode("p");
+      t1 = $createTextNode("text");
+      $getRoot().append(para.append($createImmutableVerseNode("1"), t1));
+    });
     updateSelection(editor, para!, 0, t1!, 4);
 
     await act(async () => {
@@ -161,14 +143,11 @@ describe("StructureProtectionPlugin — non-keydown vectors", () => {
   it("consumes CUT over an unsafe selection when protected (low-priority spy not reached)", async () => {
     let t1: TextNode;
     let t2: TextNode;
-    const { editor } = await baseTestEnvironment(
-      () => {
-        t1 = $createTextNode("first");
-        t2 = $createTextNode("second");
-        $getRoot().append($createParaNode("p").append(t1), $createParaNode("q").append(t2));
-      },
-      <StructureProtectionPlugin isProtected={true} />,
-    );
+    const { editor } = await testEnvironment(true, () => {
+      t1 = $createTextNode("first");
+      t2 = $createTextNode("second");
+      $getRoot().append($createParaNode("p").append(t1), $createParaNode("q").append(t2));
+    });
     updateSelection(editor, t1!, 0, t2!, 6);
 
     const spy = vi.fn(() => false);
@@ -184,14 +163,11 @@ describe("StructureProtectionPlugin — non-keydown vectors", () => {
   it("does NOT consume CUT when not protected (low-priority spy reached)", async () => {
     let t1: TextNode;
     let t2: TextNode;
-    const { editor } = await baseTestEnvironment(
-      () => {
-        t1 = $createTextNode("first");
-        t2 = $createTextNode("second");
-        $getRoot().append($createParaNode("p").append(t1), $createParaNode("q").append(t2));
-      },
-      <StructureProtectionPlugin isProtected={false} />,
-    );
+    const { editor } = await testEnvironment(false, () => {
+      t1 = $createTextNode("first");
+      t2 = $createTextNode("second");
+      $getRoot().append($createParaNode("p").append(t1), $createParaNode("q").append(t2));
+    });
     updateSelection(editor, t1!, 0, t2!, 6);
 
     const spy = vi.fn(() => true); // claim handled so RichText's own cut does nothing
@@ -207,14 +183,11 @@ describe("StructureProtectionPlugin — non-keydown vectors", () => {
   it("consumes DRAGSTART over an unsafe selection when protected (low-priority spy not reached)", async () => {
     let t1: TextNode;
     let t2: TextNode;
-    const { editor } = await baseTestEnvironment(
-      () => {
-        t1 = $createTextNode("first");
-        t2 = $createTextNode("second");
-        $getRoot().append($createParaNode("p").append(t1), $createParaNode("q").append(t2));
-      },
-      <StructureProtectionPlugin isProtected={true} />,
-    );
+    const { editor } = await testEnvironment(true, () => {
+      t1 = $createTextNode("first");
+      t2 = $createTextNode("second");
+      $getRoot().append($createParaNode("p").append(t1), $createParaNode("q").append(t2));
+    });
     updateSelection(editor, t1!, 0, t2!, 6);
 
     const spy = vi.fn(() => false);
@@ -230,14 +203,11 @@ describe("StructureProtectionPlugin — non-keydown vectors", () => {
   it("does NOT consume DRAGSTART when not protected (low-priority spy reached)", async () => {
     let t1: TextNode;
     let t2: TextNode;
-    const { editor } = await baseTestEnvironment(
-      () => {
-        t1 = $createTextNode("first");
-        t2 = $createTextNode("second");
-        $getRoot().append($createParaNode("p").append(t1), $createParaNode("q").append(t2));
-      },
-      <StructureProtectionPlugin isProtected={false} />,
-    );
+    const { editor } = await testEnvironment(false, () => {
+      t1 = $createTextNode("first");
+      t2 = $createTextNode("second");
+      $getRoot().append($createParaNode("p").append(t1), $createParaNode("q").append(t2));
+    });
     updateSelection(editor, t1!, 0, t2!, 6);
 
     const spy = vi.fn(() => true);
@@ -250,3 +220,10 @@ describe("StructureProtectionPlugin — non-keydown vectors", () => {
     expect(spy).toHaveBeenCalled(); // plugin inert; propagation continued
   });
 });
+
+async function testEnvironment(isProtected: boolean, $initialEditorState: () => void) {
+  return baseTestEnvironment(
+    $initialEditorState,
+    <StructureProtectionPlugin isProtected={isProtected} />,
+  );
+}
