@@ -46,7 +46,7 @@ export function StructureProtectionPlugin({
 
     // Guard for vectors that bypass KEY_DOWN (cut, paste, drop, IME-composed input).
     // Reuses Rule 1: block when the selection spans a boundary or contains a verse marker.
-    // Inspecting pasted/dropped *content* for embedded markers is deferred (see spec §2.5).
+    // Inspecting pasted/dropped *content* for embedded markers is deferred.
     const $blockUnsafeSelection = (payload: unknown): boolean => {
       if (!isStructureProtected) return false;
       const selection = $getSelection();

@@ -392,7 +392,6 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
   return (
     <LexicalComposer initialConfig={initialConfig}>
       <EditablePlugin isEditable={!isReadonly} />
-      <StructureProtectionPlugin isStructureProtected={isStructureProtected} />
       <div className="editor-container">
         {hasExternalUI ? (
           <StateChangePlugin onStateChange={handleStateChange} />
@@ -464,6 +463,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
           />
           <ParaMarkerPrefixGuardPlugin viewOptions={viewOptions} logger={logger} />
           <ParaNodePlugin />
+          <StructureProtectionPlugin isStructureProtected={isStructureProtected} />
           <TextDirectionPlugin textDirection={textDirection} />
           <TextSpacingPlugin />
           {children}
