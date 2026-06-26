@@ -1,13 +1,14 @@
 import { $isSomeVerseNode } from "../../nodes/usj";
 import { $findMatchingParent } from "@lexical/utils";
 import {
+  $createTextNode,
   $isElementNode,
   $isNodeSelection,
   $isRangeSelection,
   BaseSelection,
   LexicalNode,
 } from "lexical";
-import { $isSomeParaNode } from "shared";
+import { $isSomeChapterNode, $isSomeParaNode } from "shared";
 
 /** Editing operations that can alter block structure. */
 export type EditIntent = "insertParagraph" | "deleteBackward" | "deleteForward" | "insertText";
@@ -148,4 +149,35 @@ export function $shouldBlockStructuralEdit(selection: BaseSelection, intent: Edi
     case "insertText":
       return false;
   }
+}
+
+/**
+ * Flattens one pasted/dropped node for a structure-protected document: verse and chapter
+ * markers vanish (leaf markers), paragraph wrappers are removed but their children kept,
+ * and all other (inline) nodes pass through unchanged.
+ */
+function $flattenForProtectedStructure(node: LexicalNode): LexicalNode[] {
+  if ($isSomeVerseNode(node) || $isSomeChapterNode(node)) return [];
+  if ($isSomeParaNode(node)) return node.getChildren().flatMap($flattenForProtectedStructure);
+  return [node];
+}
+
+/**
+ * Sanitizes a flat array of pasted/dropped nodes for a structure-protected document by
+ * stripping structural markers (paragraph breaks, verse markers, chapter markers) while
+ * preserving text, inline character formatting, and notes. A removed paragraph boundary is
+ * replaced with a single space so words from adjacent paragraphs do not fuse.
+ *
+ * @param nodes - The top-level nodes produced from the payload (e.g. via `$generateNodesFromDOM`).
+ * @returns A new flat array of inline nodes safe to insert without altering document structure.
+ */
+export function $sanitizeNodesForProtectedStructure(nodes: LexicalNode[]): LexicalNode[] {
+  const result: LexicalNode[] = [];
+  for (const node of nodes) {
+    const flattened = $flattenForProtectedStructure(node);
+    if (flattened.length === 0) continue;
+    if ($isSomeParaNode(node) && result.length > 0) result.push($createTextNode(" "));
+    result.push(...flattened);
+  }
+  return result;
 }

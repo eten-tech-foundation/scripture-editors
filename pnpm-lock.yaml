@@ -354,6 +354,9 @@ importers:
       '@floating-ui/dom':
         specifier: ^1.7.6
         version: 1.7.6
+      '@lexical/html':
+        specifier: ^0.43.0
+        version: 0.43.0
       '@lexical/react':
         specifier: ^0.43.0
         version: 0.43.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(yjs@13.6.30)
