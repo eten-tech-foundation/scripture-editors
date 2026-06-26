@@ -6,6 +6,7 @@ import {
 } from "./structureProtection.utils";
 import { $generateNodesFromDOM } from "@lexical/html";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
+import DOMPurify from "dompurify";
 import { mergeRegister } from "@lexical/utils";
 import {
   $getSelection,
@@ -65,7 +66,11 @@ export function StructureProtectionPlugin({
     // Returns true (consume) when we handled an HTML payload; false to let the default handler run.
     const $sanitizeAndInsert = (html: string | undefined, event: Event): boolean => {
       if (!html) return false; // plain-text-only (or empty) payload carries no markers
-      const dom = new DOMParser().parseFromString(html, "text/html");
+      // Sanitize untrusted clipboard/drop HTML before parsing — strips scripts, event
+      // handlers, and javascript: URLs so they can never reach the DOM (defense in depth;
+      // Lexical only reconstructs known node types, but this also clears the taint flow).
+      const safeHtml = DOMPurify.sanitize(html);
+      const dom = new DOMParser().parseFromString(safeHtml, "text/html");
       const sanitized = $sanitizeNodesForProtectedStructure($generateNodesFromDOM(editor, dom));
       // For DROP, the browser pre-positions the DOM selection at the drop point before the event fires, so $getSelection() reflects the drop target.
       const selection = $getSelection();
