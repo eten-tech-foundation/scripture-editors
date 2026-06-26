@@ -165,8 +165,9 @@ function $flattenForProtectedStructure(node: LexicalNode): LexicalNode[] {
 /**
  * Sanitizes a flat array of pasted/dropped nodes for a structure-protected document by
  * stripping structural markers (paragraph breaks, verse markers, chapter markers) while
- * preserving text, inline character formatting, and notes. A removed paragraph boundary is
- * replaced with a single space so words from adjacent paragraphs do not fuse.
+ * preserving text, inline character formatting, and notes. A removed top-level paragraph
+ * boundary is replaced with a single space so words from adjacent paragraphs do not fuse;
+ * nested paragraphs are flattened without inserting a separator.
  *
  * @param nodes - The top-level nodes produced from the payload (e.g. via `$generateNodesFromDOM`).
  * @returns A new flat array of inline nodes safe to insert without altering document structure.

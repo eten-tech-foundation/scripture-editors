@@ -50,6 +50,9 @@ export function StructureProtectionPlugin({
 
     // Guard for vectors that bypass KEY_DOWN (cut, dragstart, IME-composed input).
     // Rule 1: block when the selection spans a boundary or contains a verse marker.
+    // `payload` is `unknown` because this guard serves commands with differing payload
+    // types: CUT/DRAGSTART carry an `Event` (which we preventDefault), while
+    // CONTROLLED_TEXT_INSERTION carries a string. We only call preventDefault for Events.
     const $blockUnsafeSelection = (payload: unknown): boolean => {
       if (!isStructureProtected) return false;
       const selection = $getSelection();
