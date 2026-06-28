@@ -85,6 +85,7 @@ import {
   pasteSelectionAsPlainText,
   StateChangePlugin,
   StateChangeSnapshot,
+  StructureProtectionPlugin,
   TextDirectionPlugin,
   TextSpacingPlugin,
   UsjNodeOptions,
@@ -140,6 +141,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
 
   const {
     isReadonly = false,
+    isStructureProtected = false,
     hasExternalUI = false,
     hasSpellCheck = false,
     textDirection = "ltr",
@@ -461,6 +463,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
           />
           <ParaMarkerPrefixGuardPlugin viewOptions={viewOptions} logger={logger} />
           <ParaNodePlugin />
+          <StructureProtectionPlugin isStructureProtected={isStructureProtected} />
           <TextDirectionPlugin textDirection={textDirection} />
           <TextSpacingPlugin />
           {children}
