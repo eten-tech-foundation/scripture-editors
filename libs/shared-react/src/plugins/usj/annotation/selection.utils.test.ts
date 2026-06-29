@@ -25,6 +25,7 @@ import {
   $createImmutableTypedTextNode,
   $createMarkerNode,
   $createMilestoneNode,
+  $createNoteNode,
   $createParaNode,
   $createTypedMarkNode,
   $createVerseNode,
@@ -36,6 +37,7 @@ import {
   MarkerNode,
   MilestoneNode,
   NBSP,
+  NoteNode,
   openingMarkerText,
   ParaNode,
   textTypeState,
@@ -1077,6 +1079,60 @@ describe("$getUsjSelectionFromEditor", () => {
       });
     });
 
+    it("should report base-USJ path for text after NoteNode in same paragraph", () => {
+      let textAfter: TextNode;
+      const { editor } = createBasicTestEnvironment([ParaNode, NoteNode], () => {
+        const textBefore = $createTextNode("before ");
+        const noteNode = $createNoteNode("f", "+", false);
+        noteNode.append($createTextNode("footnote body"));
+        textAfter = $createTextNode("after");
+        $getRoot().append($createParaNode().append(textBefore, noteNode, textAfter));
+      });
+      // Cursor at offset 2 inside "after"
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      updateSelection(editor, textAfter!, 2);
+
+      editor.getEditorState().read(() => {
+        const usjSelection = $getUsjSelectionFromEditor();
+
+        if (!usjSelection) throw new Error("Expected usjSelection to be defined");
+        // Base USJ content of this para is ["before ", {type:"note",...}, "after"], so "after"
+        // is content[2]; offset is measured from the start of that string (not accumulated
+        // across the note boundary).
+        expect(usjSelection.start).toEqual({
+          jsonPath: "$.content[0].content[2]",
+          offset: 2,
+        });
+      });
+    });
+
+    it("should report base-USJ path for text after ImmutableVerseNode mid-paragraph", () => {
+      let textAfter: TextNode;
+      const { editor } = createBasicTestEnvironment([ParaNode, ImmutableVerseNode], () => {
+        const textBefore = $createTextNode("foo ");
+        textAfter = $createTextNode("bar");
+        $getRoot().append(
+          $createParaNode().append(textBefore, $createImmutableVerseNode("2"), textAfter),
+        );
+      });
+      // Cursor at offset 1 inside "bar"
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      updateSelection(editor, textAfter!, 1);
+
+      editor.getEditorState().read(() => {
+        const usjSelection = $getUsjSelectionFromEditor();
+
+        if (!usjSelection) throw new Error("Expected usjSelection to be defined");
+        // Base USJ content of this para is ["foo ", {type:"verse",number:"2"}, "bar"], so "bar"
+        // is content[2]; offset is measured from the start of that string. `$isVerseNode` from
+        // `shared` only matches editable VerseNode, so the helper uses `$isSomeVerseNode` here.
+        expect(usjSelection.start).toEqual({
+          jsonPath: "$.content[0].content[2]",
+          offset: 1,
+        });
+      });
+    });
+
     it("should return USJ selection of ImmutableVerseNode as an atomic unit", () => {
       let paraNode: ParaNode;
       let textNode: TextNode;
@@ -1529,6 +1585,70 @@ describe("round-trip conversion", () => {
       expect(editorSelection.anchor.offset).toBe(0);
       expect(editorSelection.focus.key).toBe(textAfter.getKey());
       expect(editorSelection.focus.offset).toBe(0);
+    });
+  });
+
+  it("should round-trip text after NoteNode using per-child USJ paths", () => {
+    let textAfter: TextNode;
+    const { editor } = createBasicTestEnvironment([ParaNode, NoteNode], () => {
+      const textBefore = $createTextNode("before ");
+      const noteNode = $createNoteNode("f", "+", false);
+      noteNode.append($createTextNode("footnote body"));
+      textAfter = $createTextNode("after");
+      $getRoot().append($createParaNode().append(textBefore, noteNode, textAfter));
+    });
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    updateSelection(editor, textAfter!, 2);
+
+    editor.getEditorState().read(() => {
+      if (!textAfter) throw new Error("Expected textAfter");
+      const usjSelection = $getUsjSelectionFromEditor();
+      if (!usjSelection) throw new Error("Expected usjSelection to be defined");
+
+      expect(usjSelection.start).toEqual({
+        jsonPath: "$.content[0].content[2]",
+        offset: 2,
+      });
+
+      const editorSelection = $getRangeFromUsjSelection(usjSelection);
+      if (!editorSelection) throw new Error("Expected editorSelection to be defined");
+
+      expect(editorSelection.anchor.key).toBe(textAfter.getKey());
+      expect(editorSelection.anchor.offset).toBe(2);
+      expect(editorSelection.focus.key).toBe(textAfter.getKey());
+      expect(editorSelection.focus.offset).toBe(2);
+    });
+  });
+
+  it("should round-trip text after ImmutableVerseNode using per-child USJ paths", () => {
+    let textAfter: TextNode;
+    const { editor } = createBasicTestEnvironment([ParaNode, ImmutableVerseNode], () => {
+      const textBefore = $createTextNode("foo ");
+      textAfter = $createTextNode("bar");
+      $getRoot().append(
+        $createParaNode().append(textBefore, $createImmutableVerseNode("2"), textAfter),
+      );
+    });
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    updateSelection(editor, textAfter!, 1);
+
+    editor.getEditorState().read(() => {
+      if (!textAfter) throw new Error("Expected textAfter");
+      const usjSelection = $getUsjSelectionFromEditor();
+      if (!usjSelection) throw new Error("Expected usjSelection to be defined");
+
+      expect(usjSelection.start).toEqual({
+        jsonPath: "$.content[0].content[2]",
+        offset: 1,
+      });
+
+      const editorSelection = $getRangeFromUsjSelection(usjSelection);
+      if (!editorSelection) throw new Error("Expected editorSelection to be defined");
+
+      expect(editorSelection.anchor.key).toBe(textAfter.getKey());
+      expect(editorSelection.anchor.offset).toBe(1);
+      expect(editorSelection.focus.key).toBe(textAfter.getKey());
+      expect(editorSelection.focus.offset).toBe(1);
     });
   });
 
