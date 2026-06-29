@@ -4,7 +4,7 @@
 // Reaching inside only for tests.
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import { updateSelection } from "../../../../../libs/shared/src/nodes/usj/test.utils";
-import { StructureProtectionPlugin } from "./StructureProtectionPlugin";
+import { StructureKeyboardPlugin } from "./StructureKeyboardPlugin";
 import { baseTestEnvironment, pressKey } from "./react-test.utils";
 import { act } from "@testing-library/react";
 import {
@@ -72,11 +72,12 @@ describe("baseline (unprotected) structural behavior", () => {
   });
 });
 
-// With the plugin present but disabled (isStructureProtected={false}) the editor must behave exactly
-// like the unprotected baseline above: structural edits go through and the plugin's high-priority
-// handlers stay inert, letting commands propagate.
-describe("StructureProtectionPlugin disabled — behaves like baseline", () => {
-  it("allows Backspace-at-start merge", async () => {
+// With the plugin present but not in protected mode (isStructureProtected={false}), the plugin
+// now implements the two-step intentional-delete behavior (PT-4020). Structural Backspace is
+// intercepted: first press arms (selects the block), second press fires (merges).
+// Non-keyboard vectors (CUT, DRAGSTART) and plain text insertion are not blocked.
+describe("StructureKeyboardPlugin unprotected — two-step delete active", () => {
+  it("Backspace-at-start first press arms the block (does not immediately merge)", async () => {
     let t2: TextNode;
     const { editor } = await testEnvironment(() => {
       t2 = $createTextNode("second");
@@ -90,7 +91,7 @@ describe("StructureProtectionPlugin disabled — behaves like baseline", () => {
     await pressKey(editor, "Backspace", 0);
 
     editor.getEditorState().read(() => {
-      expect($getRoot().getChildrenSize()).toBe(1); // merged
+      expect($getRoot().getChildrenSize()).toBe(2); // still two paragraphs — not yet merged
     });
   });
 
@@ -157,6 +158,6 @@ describe("StructureProtectionPlugin disabled — behaves like baseline", () => {
 async function testEnvironment($initialEditorState: () => void) {
   return baseTestEnvironment(
     $initialEditorState,
-    <StructureProtectionPlugin isStructureProtected={false} />,
+    <StructureKeyboardPlugin isStructureProtected={false} />,
   );
 }

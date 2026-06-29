@@ -1,11 +1,14 @@
-import { $isSomeVerseNode } from "../../nodes/usj";
+import { $isSomeVerseNode, SomeVerseNode } from "../../nodes/usj";
 import { $findMatchingParent } from "@lexical/utils";
 import {
   $isElementNode,
   $isNodeSelection,
   $isRangeSelection,
+  $isTextNode,
   BaseSelection,
+  ElementNode,
   LexicalNode,
+  NodeKey,
 } from "lexical";
 import { $isSomeParaNode } from "shared";
 
@@ -110,6 +113,34 @@ export function $caretAdjacentToVerseMarker(
   return $isSomeVerseNode(node.getNextSibling());
 }
 
+/**
+ * The verse marker immediately before/after a collapsed caret, or undefined.
+ * Node-returning sibling of `$caretAdjacentToVerseMarker`.
+ */
+export function $adjacentVerseMarker(
+  selection: BaseSelection,
+  direction: "backward" | "forward",
+): SomeVerseNode | undefined {
+  if (!$isRangeSelection(selection) || !selection.isCollapsed()) return undefined;
+  const { anchor } = selection;
+  const node = anchor.getNode();
+  if (anchor.type === "element" && $isElementNode(node)) {
+    const children = node.getChildren();
+    const idx = direction === "backward" ? anchor.offset - 1 : anchor.offset;
+    if (idx < 0) return undefined;
+    const candidate = children[idx];
+    return $isSomeVerseNode(candidate) ? candidate : undefined;
+  }
+  if (direction === "backward") {
+    if (anchor.offset !== 0) return undefined;
+    const prev = node.getPreviousSibling();
+    return $isSomeVerseNode(prev) ? prev : undefined;
+  }
+  if (anchor.offset !== node.getTextContentSize()) return undefined;
+  const next = node.getNextSibling();
+  return $isSomeVerseNode(next) ? next : undefined;
+}
+
 /** True when the paragraph holding the caret has a preceding block sibling. */
 function $hasNeighborBlock(selection: BaseSelection, direction: "backward" | "forward"): boolean {
   if (!$isRangeSelection(selection)) return false;
@@ -148,4 +179,99 @@ export function $shouldBlockStructuralEdit(selection: BaseSelection, intent: Edi
     case "insertText":
       return false;
   }
+}
+
+/** What a structural delete keystroke would act on. */
+export type DeleteTarget =
+  | { kind: "verse"; node: SomeVerseNode }
+  | { kind: "para"; node: ElementNode };
+
+/**
+ * The marker/section a delete keystroke would remove at a structural boundary, or undefined
+ * when the keystroke is ordinary editing. Mirror of `$shouldBlockStructuralEdit`'s boundary
+ * conditions, but resolves the target node instead of returning a boolean.
+ *
+ * Backward: the adjacent verse, else the current paragraph (when a previous block exists).
+ * Forward: the adjacent verse, else the NEXT paragraph (when a next block exists) — the block
+ * whose marker the merge removes.
+ */
+export function $structuralDeleteTarget(
+  selection: BaseSelection,
+  intent: EditIntent,
+): DeleteTarget | undefined {
+  if (!$isRangeSelection(selection) || !selection.isCollapsed()) return undefined;
+  if (intent === "deleteBackward") {
+    const verse = $adjacentVerseMarker(selection, "backward");
+    if (verse) return { kind: "verse", node: verse };
+    if ($caretAtParaStart(selection) && $hasNeighborBlock(selection, "backward")) {
+      const para = $getParaAncestor(selection.anchor.getNode());
+      if (para) return { kind: "para", node: para as ElementNode };
+    }
+    return undefined;
+  }
+  if (intent === "deleteForward") {
+    const verse = $adjacentVerseMarker(selection, "forward");
+    if (verse) return { kind: "verse", node: verse };
+    if ($caretAtParaEnd(selection) && $hasNeighborBlock(selection, "forward")) {
+      const para = $getParaAncestor(selection.anchor.getNode());
+      const next = para?.getNextSibling();
+      if ($isElementNode(next)) return { kind: "para", node: next };
+    }
+    return undefined;
+  }
+  return undefined;
+}
+
+/** A pending two-step delete: the armed target's key, kind, and the intent that armed it. */
+export interface ArmedDelete {
+  key: NodeKey;
+  kind: "verse" | "para";
+  intent: "deleteBackward" | "deleteForward";
+}
+
+/** True when the live selection still encodes the armed target. */
+export function $isArmedSelection(selection: BaseSelection | null, armed: ArmedDelete): boolean {
+  if (!selection) return false;
+  if (armed.kind === "verse") {
+    return $isNodeSelection(selection) && selection.has(armed.key);
+  }
+  if (!$isRangeSelection(selection) || selection.isCollapsed()) return false;
+  const anchorPara = $getParaAncestor(selection.anchor.getNode());
+  const focusPara = $getParaAncestor(selection.focus.getNode());
+  return (
+    !!anchorPara &&
+    anchorPara.getKey() === armed.key &&
+    !!focusPara &&
+    focusPara.getKey() === armed.key
+  );
+}
+
+/** Collapses the caret to the end of `node` (end of its text for a TextNode). */
+export function $placeCaretAtEnd(node: LexicalNode): void {
+  if ($isTextNode(node)) {
+    const size = node.getTextContentSize();
+    node.select(size, size);
+  } else if ($isElementNode(node)) {
+    node.selectEnd();
+  } else {
+    node.selectNext(0, 0);
+  }
+}
+
+/**
+ * Merge-into-previous semantics for a paragraph delete: move `para`'s children into its
+ * previous element sibling (which keeps ITS marker), remove `para` (dropping its marker),
+ * and place the caret at the junction. Text is never lost. Caller guarantees a previous
+ * element sibling exists (checked via `$hasNeighborBlock` when the target was resolved).
+ */
+export function $mergeParaIntoPrevious(para: ElementNode): void {
+  const prev = para.getPreviousSibling();
+  if (!$isElementNode(prev)) return;
+  const junction = prev.getLastChild();
+  const moved = para.getChildren();
+  prev.append(...moved);
+  para.remove();
+  if (junction) $placeCaretAtEnd(junction);
+  else if (moved.length > 0) $placeCaretAtEnd(prev);
+  else prev.selectStart();
 }

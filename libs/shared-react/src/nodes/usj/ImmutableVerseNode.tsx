@@ -14,11 +14,30 @@ import {
   Spread,
   isHTMLElement,
 } from "lexical";
+import { useLexicalNodeSelection } from "@lexical/react/useLexicalNodeSelection";
 import { ReactElement } from "react";
 import { getVisibleOpenMarkerText, UnknownAttributes, VERSE_CLASS_NAME, ZWSP } from "shared";
 
 export const VERSE_MARKER = "v";
 export const IMMUTABLE_VERSE_VERSION = 1;
+
+/**
+ * Class applied to the rendered verse marker while it is in a NodeSelection (e.g. armed for the
+ * two-step intentional delete). Themeable by the host app; a default selection-style background
+ * ships in the platform stylesheet.
+ */
+export const VERSE_SELECTED_CLASS_NAME = "verse-selected";
+
+/**
+ * Renders the verse marker text and reflects its node-selection state. DecoratorNodes do not get
+ * selection styling for free, so this subscribes to the node's selection and toggles
+ * {@link VERSE_SELECTED_CLASS_NAME}.
+ */
+function VerseDecorator({ nodeKey, text }: { nodeKey: NodeKey; text: string }): ReactElement {
+  const [isSelected] = useLexicalNodeSelection(nodeKey);
+  // ZWSPs stay inside this span so double-click word selection still excludes the number.
+  return <span className={isSelected ? VERSE_SELECTED_CLASS_NAME : undefined}>{text}</span>;
+}
 
 type VerseMarker = typeof VERSE_MARKER;
 
@@ -226,14 +245,11 @@ export class ImmutableVerseNode extends DecoratorNode<ReactElement> {
   }
 
   override decorate(): ReactElement {
-    return (
-      <span>
-        {this.getShowMarker()
-          ? getVisibleOpenMarkerText(this.getMarker(), this.getNumber())
-          : // ZWSP added so double click word selection works without including this number.
-            ZWSP + this.getNumber() + ZWSP}
-      </span>
-    );
+    const text = this.getShowMarker()
+      ? getVisibleOpenMarkerText(this.getMarker(), this.getNumber())
+      : // ZWSP added so double click word selection works without including this number.
+        ZWSP + this.getNumber() + ZWSP;
+    return <VerseDecorator nodeKey={this.getKey()} text={text} />;
   }
 
   override exportJSON(): SerializedImmutableVerseNode {

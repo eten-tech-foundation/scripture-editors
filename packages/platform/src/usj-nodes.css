@@ -2266,6 +2266,17 @@
   white-space: nowrap;
 }
 
+/* Verse marker armed for the two-step intentional delete (first Backspace/Delete selects it).
+   Destructive (shadcn) styling — light red background, red text — signals "press again to
+   delete". Literal reds render in any context (this demo's theme stores --destructive as HSL
+   components, so it can't be referenced directly here); the platform app binds these to its live
+   `--destructive` theme token instead — see paranext-core's _usj-nodes.scss. */
+.verse-selected {
+  background-color: color-mix(in srgb, #dc2626 15%, transparent);
+  color: #dc2626;
+  border-radius: 2px;
+}
+
 span.unread img {
   background-color: #ffff99;
   position: relative;
