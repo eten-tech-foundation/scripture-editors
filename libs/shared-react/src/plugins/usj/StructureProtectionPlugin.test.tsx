@@ -12,6 +12,7 @@ import {
   $getRoot,
   $createTextNode,
   $setSelection,
+  LexicalNode,
   TextNode,
   COMMAND_PRIORITY_LOW,
   CONTROLLED_TEXT_INSERTION_COMMAND,
@@ -20,7 +21,7 @@ import {
   DROP_COMMAND,
   PASTE_COMMAND,
 } from "lexical";
-import { $createParaNode, ParaNode } from "shared";
+import { $createParaNode, $isParaNode, ParaNode } from "shared";
 
 // NOTE: jsdom cannot drive collapsed mid-text deletes (domSelection.modify) or printable-char
 // insertion via dispatchCommand, and IS_APPLE is false so Alt+Backspace is a no-op. Those cases
@@ -98,10 +99,10 @@ describe("StructureProtectionPlugin — non-keydown vectors", () => {
 
     editor.getEditorState().read(() => {
       const firstBlock = $getRoot().getChildren()[0];
-      const hasVerse =
-        "getChildren" in firstBlock &&
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (firstBlock as any).getChildren().some((n: unknown) => n instanceof ImmutableVerseNode);
+      if (!$isParaNode(firstBlock)) throw new Error("Expected a ParaNode");
+      const hasVerse = firstBlock
+        .getChildren()
+        .some((n: LexicalNode) => n instanceof ImmutableVerseNode);
       expect(hasVerse).toBe(true); // verse marker survives
     });
   });
@@ -183,10 +184,8 @@ describe("StructureProtectionPlugin — paste/drop payload sanitization", () => 
     editor.getEditorState().read(() => {
       expect($getRoot().getChildrenSize()).toBe(1); // no new paragraph
       const para = $getRoot().getChildren()[0];
-      const hasVerse =
-        "getChildren" in para &&
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (para as any).getChildren().some((n: unknown) => n instanceof ImmutableVerseNode);
+      if (!$isParaNode(para)) throw new Error("Expected a ParaNode");
+      const hasVerse = para.getChildren().some((n: LexicalNode) => n instanceof ImmutableVerseNode);
       expect(hasVerse).toBe(false); // verse marker stripped
       expect($getRoot().getTextContent()).toContain("pasted"); // text kept
     });
@@ -208,10 +207,8 @@ describe("StructureProtectionPlugin — paste/drop payload sanitization", () => 
 
     editor.getEditorState().read(() => {
       const para = $getRoot().getChildren()[0];
-      const hasVerse =
-        "getChildren" in para &&
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (para as any).getChildren().some((n: unknown) => n instanceof ImmutableVerseNode);
+      if (!$isParaNode(para)) throw new Error("Expected a ParaNode");
+      const hasVerse = para.getChildren().some((n: LexicalNode) => n instanceof ImmutableVerseNode);
       expect(hasVerse).toBe(false);
       expect($getRoot().getTextContent()).toContain("pasted");
     });
@@ -261,10 +258,8 @@ describe("StructureProtectionPlugin — paste/drop payload sanitization", () => 
     editor.getEditorState().read(() => {
       // No verse node inserted and document text unchanged
       const para = $getRoot().getChildren()[0];
-      const hasVerse =
-        "getChildren" in para &&
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (para as any).getChildren().some((n: unknown) => n instanceof ImmutableVerseNode);
+      if (!$isParaNode(para)) throw new Error("Expected a ParaNode");
+      const hasVerse = para.getChildren().some((n: LexicalNode) => n instanceof ImmutableVerseNode);
       expect(hasVerse).toBe(false);
       expect($getRoot().getTextContent()).not.toContain("pasted");
     });

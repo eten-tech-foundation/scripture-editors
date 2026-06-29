@@ -50,6 +50,7 @@
   "dependencies": {
     "@eten-tech-foundation/scripture-utilities": "workspace:~",
     "@floating-ui/dom": "^1.7.6",
+    "@lexical/html": "^0.43.0",
     "@lexical/react": "^0.43.0",
     "@lexical/selection": "^0.43.0",
     "@lexical/text": "^0.43.0",
