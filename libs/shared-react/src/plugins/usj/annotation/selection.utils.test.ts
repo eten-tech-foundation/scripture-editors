@@ -1488,30 +1488,47 @@ describe("round-trip conversion", () => {
     });
   });
 
-  it("should round-trip text after CharNode using per-child USJ paths", () => {
-    let t3: TextNode;
-    const { editor } = createBasicTestEnvironment([ParaNode, CharNode], () => {
-      const t1 = $createTextNode("abc");
-      const inner = $createTextNode("def");
-      t3 = $createTextNode("ghi");
-      $getRoot().append($createParaNode().append(t1, $createCharNode("wj").append(inner), t3));
+  it("should round-trip cursor after multiple annotations in the same paragraph", () => {
+    let textAfter: TextNode;
+    const { editor } = createBasicTestEnvironment([ParaNode, TypedMarkNode], () => {
+      const textBefore = $createTextNode("before");
+      const mark1 = $createTextNode("neva");
+      const textMiddle = $createTextNode("middle");
+      const mark2 = $createTextNode("sleep");
+      textAfter = $createTextNode("after");
+      $getRoot().append(
+        $createParaNode().append(
+          textBefore,
+          $createTypedMarkNode({ testType: ["id1"] }).append(mark1),
+          textMiddle,
+          $createTypedMarkNode({ testType: ["id2"] }).append(mark2),
+          textAfter,
+        ),
+      );
     });
-    // Non-null assertions are safe: t3 is assigned during the test setup callback.
+    // Non-null assertion is safe: textAfter is assigned during the test setup callback.
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    updateSelection(editor, t3!, 1, t3!, 2);
+    updateSelection(editor, textAfter!, 0);
 
     editor.getEditorState().read(() => {
-      if (!t3) throw new Error("Expected t3");
+      if (!textAfter) throw new Error("Expected textAfter");
       const usjSelection = $getUsjSelectionFromEditor();
       if (!usjSelection) throw new Error("Expected usjSelection to be defined");
+
+      // Both annotations collapse into one base-USJ content run:
+      // 6 ("before") + 4 ("neva") + 6 ("middle") + 5 ("sleep") = 21
+      expect(usjSelection.start).toEqual({
+        jsonPath: "$.content[0].content[0]",
+        offset: 21,
+      });
 
       const editorSelection = $getRangeFromUsjSelection(usjSelection);
       if (!editorSelection) throw new Error("Expected editorSelection to be defined");
 
-      expect(editorSelection.anchor.key).toBe(t3.getKey());
-      expect(editorSelection.anchor.offset).toBe(1);
-      expect(editorSelection.focus.key).toBe(t3.getKey());
-      expect(editorSelection.focus.offset).toBe(2);
+      expect(editorSelection.anchor.key).toBe(textAfter.getKey());
+      expect(editorSelection.anchor.offset).toBe(0);
+      expect(editorSelection.focus.key).toBe(textAfter.getKey());
+      expect(editorSelection.focus.offset).toBe(0);
     });
   });
 
