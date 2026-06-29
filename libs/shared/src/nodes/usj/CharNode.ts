@@ -142,8 +142,11 @@ export class CharNode extends ElementNode {
     return new CharNode(__marker, __unknownAttributes, __key);
   }
 
-  static isValidMarker(marker: string | undefined): boolean {
-    return marker !== undefined && VALID_CHAR_MARKERS.includes(marker);
+  static isValidMarker(marker: string | undefined, extraValidMarkers?: readonly string[]): boolean {
+    return (
+      marker !== undefined &&
+      (VALID_CHAR_MARKERS.includes(marker) || (extraValidMarkers?.includes(marker) ?? false))
+    );
   }
 
   static isValidFootnoteMarker(marker: string | undefined): boolean {
