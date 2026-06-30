@@ -25,6 +25,7 @@ import {
   $createImmutableTypedTextNode,
   $createMarkerNode,
   $createMilestoneNode,
+  $createNoteNode,
   $createParaNode,
   $createTypedMarkNode,
   $createVerseNode,
@@ -36,6 +37,7 @@ import {
   MarkerNode,
   MilestoneNode,
   NBSP,
+  NoteNode,
   openingMarkerText,
   ParaNode,
   textTypeState,
@@ -1031,12 +1033,102 @@ describe("$getUsjSelectionFromEditor", () => {
 
         if (!usjSelection) throw new Error("Expected usjSelection to be defined");
         expect(usjSelection.start).toEqual({
-          jsonPath: "$.content[0].content[0].content[0]",
+          jsonPath: "$.content[0].content[0]",
           offset: 3,
         });
         expect(usjSelection.end).toEqual({
-          jsonPath: "$.content[0].content[0].content[0]",
+          jsonPath: "$.content[0].content[0]",
           offset: 9,
+        });
+      });
+    });
+
+    it("should report annotation-agnostic path when multiple annotations in same paragraph", () => {
+      let textBefore: TextNode;
+      let textAfter: TextNode;
+      const { editor } = createBasicTestEnvironment([ParaNode, TypedMarkNode], () => {
+        textBefore = $createTextNode("before ");
+        const markedText = $createTextNode("neva");
+        textAfter = $createTextNode(" sleep");
+        $getRoot().append(
+          $createParaNode().append(
+            textBefore,
+            $createTypedMarkNode({ testType: ["testId"] }).append(markedText),
+            textAfter,
+          ),
+        );
+      });
+      // Select "sleep" - the text after the first annotation
+      // Non-null assertions are safe: textAfter is assigned during the test setup callback.
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      updateSelection(editor, textAfter!, 1, textAfter!, 6);
+
+      editor.getEditorState().read(() => {
+        const usjSelection = $getUsjSelectionFromEditor();
+
+        if (!usjSelection) throw new Error("Expected usjSelection to be defined");
+        // Path should be annotation-agnostic: content[0] (not content[2]) with offset 12-18
+        expect(usjSelection.start).toEqual({
+          jsonPath: "$.content[0].content[0]",
+          offset: 12,
+        });
+        expect(usjSelection.end).toEqual({
+          jsonPath: "$.content[0].content[0]",
+          offset: 17,
+        });
+      });
+    });
+
+    it("should report base-USJ path for text after NoteNode in same paragraph", () => {
+      let textAfter: TextNode;
+      const { editor } = createBasicTestEnvironment([ParaNode, NoteNode], () => {
+        const textBefore = $createTextNode("before ");
+        const noteNode = $createNoteNode("f", "+", false);
+        noteNode.append($createTextNode("footnote body"));
+        textAfter = $createTextNode("after");
+        $getRoot().append($createParaNode().append(textBefore, noteNode, textAfter));
+      });
+      // Cursor at offset 2 inside "after"
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      updateSelection(editor, textAfter!, 2);
+
+      editor.getEditorState().read(() => {
+        const usjSelection = $getUsjSelectionFromEditor();
+
+        if (!usjSelection) throw new Error("Expected usjSelection to be defined");
+        // Base USJ content of this para is ["before ", {type:"note",...}, "after"], so "after"
+        // is content[2]; offset is measured from the start of that string (not accumulated
+        // across the note boundary).
+        expect(usjSelection.start).toEqual({
+          jsonPath: "$.content[0].content[2]",
+          offset: 2,
+        });
+      });
+    });
+
+    it("should report base-USJ path for text after ImmutableVerseNode mid-paragraph", () => {
+      let textAfter: TextNode;
+      const { editor } = createBasicTestEnvironment([ParaNode, ImmutableVerseNode], () => {
+        const textBefore = $createTextNode("foo ");
+        textAfter = $createTextNode("bar");
+        $getRoot().append(
+          $createParaNode().append(textBefore, $createImmutableVerseNode("2"), textAfter),
+        );
+      });
+      // Cursor at offset 1 inside "bar"
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      updateSelection(editor, textAfter!, 1);
+
+      editor.getEditorState().read(() => {
+        const usjSelection = $getUsjSelectionFromEditor();
+
+        if (!usjSelection) throw new Error("Expected usjSelection to be defined");
+        // Base USJ content of this para is ["foo ", {type:"verse",number:"2"}, "bar"], so "bar"
+        // is content[2]; offset is measured from the start of that string. `$isVerseNode` from
+        // `shared` only matches editable VerseNode, so the helper uses `$isSomeVerseNode` here.
+        expect(usjSelection.start).toEqual({
+          jsonPath: "$.content[0].content[2]",
+          offset: 1,
         });
       });
     });
@@ -1369,6 +1461,194 @@ describe("round-trip conversion", () => {
       expect(editorSelection.anchor.offset).toBe(2);
       expect(editorSelection.focus.key).toBe(t1.getKey());
       expect(editorSelection.focus.offset).toBe(8);
+    });
+  });
+
+  it("should round-trip cursor after TypedMarkNode with multiple text children", () => {
+    let textAfter: TextNode;
+    const { editor } = createBasicTestEnvironment([ParaNode, TypedMarkNode], () => {
+      const textBefore = $createTextNode("before");
+      const bold = $createTextNode("bold");
+      const normal = $createTextNode("normal");
+      textAfter = $createTextNode("after");
+      $getRoot().append(
+        $createParaNode().append(
+          textBefore,
+          $createTypedMarkNode({ testType: ["testId"] }).append(bold, normal),
+          textAfter,
+        ),
+      );
+    });
+    // Non-null assertion is safe: textAfter is assigned during the test setup callback.
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    updateSelection(editor, textAfter!, 0);
+
+    editor.getEditorState().read(() => {
+      if (!textAfter) throw new Error("Expected textAfter");
+      const usjSelection = $getUsjSelectionFromEditor();
+      if (!usjSelection) throw new Error("Expected usjSelection to be defined");
+
+      // 6 ("before") + 4 ("bold") + 6 ("normal") = 16 — full mark text must count toward run offset
+      expect(usjSelection.start).toEqual({
+        jsonPath: "$.content[0].content[0]",
+        offset: 16,
+      });
+
+      const editorSelection = $getRangeFromUsjSelection(usjSelection);
+      if (!editorSelection) throw new Error("Expected editorSelection to be defined");
+
+      expect(editorSelection.anchor.key).toBe(textAfter.getKey());
+      expect(editorSelection.anchor.offset).toBe(0);
+      expect(editorSelection.focus.key).toBe(textAfter.getKey());
+      expect(editorSelection.focus.offset).toBe(0);
+    });
+  });
+
+  it("should round-trip cursor inside second TextNode of TypedMarkNode (formatting split)", () => {
+    let normal: TextNode;
+    const { editor } = createBasicTestEnvironment([ParaNode, TypedMarkNode], () => {
+      const textBefore = $createTextNode("before");
+      // Distinct formats so Lexical keeps two TextNodes (same-format siblings merge).
+      const bold = $createTextNode("bold").setFormat("bold");
+      normal = $createTextNode("normal");
+      const textAfter = $createTextNode("after");
+      $getRoot().append(
+        $createParaNode().append(
+          textBefore,
+          $createTypedMarkNode({ testType: ["testId"] }).append(bold, normal),
+          textAfter,
+        ),
+      );
+    });
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    updateSelection(editor, normal!, 3);
+
+    editor.getEditorState().read(() => {
+      if (!normal) throw new Error("Expected normal");
+      const usjSelection = $getUsjSelectionFromEditor();
+      if (!usjSelection) throw new Error("Expected usjSelection to be defined");
+
+      // 6 ("before") + 4 ("bold") + 3 (into "normal") = 13
+      expect(usjSelection.start).toEqual({
+        jsonPath: "$.content[0].content[0]",
+        offset: 13,
+      });
+
+      const editorSelection = $getRangeFromUsjSelection(usjSelection);
+      if (!editorSelection) throw new Error("Expected editorSelection to be defined");
+
+      expect(editorSelection.anchor.key).toBe(normal.getKey());
+      expect(editorSelection.anchor.offset).toBe(3);
+      expect(editorSelection.focus.key).toBe(normal.getKey());
+      expect(editorSelection.focus.offset).toBe(3);
+    });
+  });
+
+  it("should round-trip cursor after multiple annotations in the same paragraph", () => {
+    let textAfter: TextNode;
+    const { editor } = createBasicTestEnvironment([ParaNode, TypedMarkNode], () => {
+      const textBefore = $createTextNode("before");
+      const mark1 = $createTextNode("neva");
+      const textMiddle = $createTextNode("middle");
+      const mark2 = $createTextNode("sleep");
+      textAfter = $createTextNode("after");
+      $getRoot().append(
+        $createParaNode().append(
+          textBefore,
+          $createTypedMarkNode({ testType: ["id1"] }).append(mark1),
+          textMiddle,
+          $createTypedMarkNode({ testType: ["id2"] }).append(mark2),
+          textAfter,
+        ),
+      );
+    });
+    // Non-null assertion is safe: textAfter is assigned during the test setup callback.
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    updateSelection(editor, textAfter!, 0);
+
+    editor.getEditorState().read(() => {
+      if (!textAfter) throw new Error("Expected textAfter");
+      const usjSelection = $getUsjSelectionFromEditor();
+      if (!usjSelection) throw new Error("Expected usjSelection to be defined");
+
+      // Both annotations collapse into one base-USJ content run:
+      // 6 ("before") + 4 ("neva") + 6 ("middle") + 5 ("sleep") = 21
+      expect(usjSelection.start).toEqual({
+        jsonPath: "$.content[0].content[0]",
+        offset: 21,
+      });
+
+      const editorSelection = $getRangeFromUsjSelection(usjSelection);
+      if (!editorSelection) throw new Error("Expected editorSelection to be defined");
+
+      expect(editorSelection.anchor.key).toBe(textAfter.getKey());
+      expect(editorSelection.anchor.offset).toBe(0);
+      expect(editorSelection.focus.key).toBe(textAfter.getKey());
+      expect(editorSelection.focus.offset).toBe(0);
+    });
+  });
+
+  it("should round-trip text after NoteNode using per-child USJ paths", () => {
+    let textAfter: TextNode;
+    const { editor } = createBasicTestEnvironment([ParaNode, NoteNode], () => {
+      const textBefore = $createTextNode("before ");
+      const noteNode = $createNoteNode("f", "+", false);
+      noteNode.append($createTextNode("footnote body"));
+      textAfter = $createTextNode("after");
+      $getRoot().append($createParaNode().append(textBefore, noteNode, textAfter));
+    });
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    updateSelection(editor, textAfter!, 2);
+
+    editor.getEditorState().read(() => {
+      if (!textAfter) throw new Error("Expected textAfter");
+      const usjSelection = $getUsjSelectionFromEditor();
+      if (!usjSelection) throw new Error("Expected usjSelection to be defined");
+
+      expect(usjSelection.start).toEqual({
+        jsonPath: "$.content[0].content[2]",
+        offset: 2,
+      });
+
+      const editorSelection = $getRangeFromUsjSelection(usjSelection);
+      if (!editorSelection) throw new Error("Expected editorSelection to be defined");
+
+      expect(editorSelection.anchor.key).toBe(textAfter.getKey());
+      expect(editorSelection.anchor.offset).toBe(2);
+      expect(editorSelection.focus.key).toBe(textAfter.getKey());
+      expect(editorSelection.focus.offset).toBe(2);
+    });
+  });
+
+  it("should round-trip text after ImmutableVerseNode using per-child USJ paths", () => {
+    let textAfter: TextNode;
+    const { editor } = createBasicTestEnvironment([ParaNode, ImmutableVerseNode], () => {
+      const textBefore = $createTextNode("foo ");
+      textAfter = $createTextNode("bar");
+      $getRoot().append(
+        $createParaNode().append(textBefore, $createImmutableVerseNode("2"), textAfter),
+      );
+    });
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    updateSelection(editor, textAfter!, 1);
+
+    editor.getEditorState().read(() => {
+      if (!textAfter) throw new Error("Expected textAfter");
+      const usjSelection = $getUsjSelectionFromEditor();
+      if (!usjSelection) throw new Error("Expected usjSelection to be defined");
+
+      expect(usjSelection.start).toEqual({
+        jsonPath: "$.content[0].content[2]",
+        offset: 1,
+      });
+
+      const editorSelection = $getRangeFromUsjSelection(usjSelection);
+      if (!editorSelection) throw new Error("Expected editorSelection to be defined");
+
+      expect(editorSelection.anchor.key).toBe(textAfter.getKey());
+      expect(editorSelection.anchor.offset).toBe(1);
+      expect(editorSelection.focus.key).toBe(textAfter.getKey());
+      expect(editorSelection.focus.offset).toBe(1);
     });
   });
 
