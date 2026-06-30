@@ -2,6 +2,7 @@
 
 import {
   $applyNodeReplacement,
+  BaseSelection,
   DOMConversionMap,
   DOMConversionOutput,
   DOMExportOutput,
@@ -16,7 +17,13 @@ import {
 } from "lexical";
 import { useLexicalNodeSelection } from "@lexical/react/useLexicalNodeSelection";
 import { ReactElement } from "react";
-import { getVisibleOpenMarkerText, UnknownAttributes, VERSE_CLASS_NAME, ZWSP } from "shared";
+import {
+  getVisibleOpenMarkerText,
+  isSelectionStartNodeExpectedError,
+  UnknownAttributes,
+  VERSE_CLASS_NAME,
+  ZWSP,
+} from "shared";
 
 export const VERSE_MARKER = "v";
 export const IMMUTABLE_VERSE_VERSION = 1;
@@ -264,6 +271,19 @@ export class ImmutableVerseNode extends DecoratorNode<ReactElement> {
       unknownAttributes: this.getUnknownAttributes(),
       version: IMMUTABLE_VERSE_VERSION,
     };
+  }
+
+  override isSelected(selection?: BaseSelection | null): boolean {
+    // The base implementation calls `selection.getNodes()`, which throws when a RangeSelection
+    // has an element-type point anchored on this DecoratorNode (the "cursor on the verse number"
+    // case). Treat that expected throw as "not selected", consistent with how
+    // `getSelectionStartNode` handles the same selection shape.
+    try {
+      return super.isSelected(selection);
+    } catch (err) {
+      if (isSelectionStartNodeExpectedError(err)) return false;
+      throw err;
+    }
   }
 
   // Mutation
