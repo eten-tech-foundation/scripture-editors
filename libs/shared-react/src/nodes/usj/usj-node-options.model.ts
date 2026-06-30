@@ -28,4 +28,11 @@ export interface UsjNodeOptions extends NodeOptions {
    *   application state or other mechanisms instead.
    */
   addMissingComments?: AddMissingComments;
+  /**
+   * Additional marker names to treat as valid, beyond the built-in USFM lists. This prevents
+   * "Unexpected <kind> marker" warnings when loading documents that use them. Applied to char,
+   * para, note, and milestone markers alike. Markers that are neither built-in, z-prefixed
+   * (custom), nor listed here still warn. Additive — never replaces the built-in lists.
+   */
+  extraValidMarkers?: readonly string[];
 }

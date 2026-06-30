@@ -56,3 +56,21 @@ describe("CharNode createDOM title attribute", () => {
     expect(element.classList.contains("usfm_wj")).toBe(true);
   });
 });
+
+describe("CharNode.isValidMarker", () => {
+  it("returns true for a built-in marker", () => {
+    expect(CharNode.isValidMarker("add")).toBe(true);
+  });
+
+  it("returns false for an unknown marker when no extra list is given", () => {
+    expect(CharNode.isValidMarker("app")).toBe(false);
+  });
+
+  it("returns true for a marker supplied via extraValidMarkers", () => {
+    expect(CharNode.isValidMarker("app", ["app"])).toBe(true);
+  });
+
+  it("returns false for a marker not in the extra list", () => {
+    expect(CharNode.isValidMarker("app", ["other"])).toBe(false);
+  });
+});

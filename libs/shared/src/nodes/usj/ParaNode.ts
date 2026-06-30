@@ -185,10 +185,11 @@ export class ParaNode extends ParagraphNode {
     return new ParaNode(__marker, __unknownAttributes, __key);
   }
 
-  static isValidMarker(marker: string | undefined): boolean {
+  static isValidMarker(marker: string | undefined, extraValidMarkers?: readonly string[]): boolean {
     return (
       marker !== undefined &&
-      VALID_PARA_MARKERS.includes(marker as (typeof VALID_PARA_MARKERS)[number])
+      (VALID_PARA_MARKERS.includes(marker as (typeof VALID_PARA_MARKERS)[number]) ||
+        (extraValidMarkers?.includes(marker) ?? false))
     );
   }
 
