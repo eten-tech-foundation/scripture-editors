@@ -142,6 +142,9 @@ export function getViewMode(viewOptions: ViewOptions | undefined): ViewMode | un
 export function getViewOptions(viewMode?: string | undefined): ViewOptions | undefined;
 
 // @public
+export const HANDBOOK_VALID_MARKERS: readonly string[];
+
+// @public
 export const HIDDEN_NOTE_CALLER = "-";
 
 // @public
