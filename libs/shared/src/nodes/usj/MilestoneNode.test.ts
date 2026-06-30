@@ -17,4 +17,8 @@ describe("MilestoneNode.isValidMarker", () => {
   it("returns true for a marker supplied via extraValidMarkers", () => {
     expect(MilestoneNode.isValidMarker("app", ["app"])).toBe(true);
   });
+
+  it("returns false for a marker not in the extra list", () => {
+    expect(MilestoneNode.isValidMarker("app", ["other"])).toBe(false);
+  });
 });

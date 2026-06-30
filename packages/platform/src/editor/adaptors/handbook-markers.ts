@@ -1,12 +1,13 @@
 /**
- * Marker names used by the PT9 commentary handbooks (HBKENG, TNN, TND), sourced as the union
+ * Marker names used by the Paratext commentary handbooks (HBKENG, TNN, TND), sourced as the union
  * of `.usfm_<marker>` class names captured from PT9 Desktop
  * (paranext-core data/pt9-css/{hbkeng,tnn,tnd}-manual.css).
  *
  * Pass as `nodeOptions.extraValidMarkers` to suppress "Unexpected <kind> marker" warnings when
  * loading handbook content. Opt-in: never applied by default.
  *
- * Regenerate: see docs/superpowers/plans/2026-06-29-handbook-marker-registration.md, Task 3.
+ * Regenerate by collecting the union of `.usfm_<marker>` class names from those CSS snapshots,
+ * stripping the `usfm_` prefix, then deduplicating and sorting.
  *
  * @public
  */

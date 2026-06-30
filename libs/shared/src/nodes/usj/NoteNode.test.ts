@@ -13,4 +13,8 @@ describe("NoteNode.isValidMarker", () => {
   it("returns true for a marker supplied via extraValidMarkers", () => {
     expect(NoteNode.isValidMarker("app", ["app"])).toBe(true);
   });
+
+  it("returns false for a marker not in the extra list", () => {
+    expect(NoteNode.isValidMarker("app", ["other"])).toBe(false);
+  });
 });
