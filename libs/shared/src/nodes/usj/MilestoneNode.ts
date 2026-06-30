@@ -96,11 +96,12 @@ export class MilestoneNode extends DecoratorNode<string> {
     return $createMilestoneNode().updateFromJSON(serializedNode);
   }
 
-  static isValidMarker(marker: string | undefined): boolean {
+  static isValidMarker(marker: string | undefined, extraValidMarkers?: readonly string[]): boolean {
     return (
       marker !== undefined &&
       (VALID_MILESTONE_MARKERS.includes(marker as (typeof VALID_MILESTONE_MARKERS)[number]) ||
-        marker.startsWith("z"))
+        marker.startsWith("z") ||
+        (extraValidMarkers?.includes(marker) ?? false))
     );
   }
 

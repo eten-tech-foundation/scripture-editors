@@ -332,7 +332,7 @@ function createChar(
   childNodes: SerializedLexicalNode[] = [],
 ): SerializedCharNode {
   let { marker } = markerObject;
-  if (!CharNode.isValidMarker(marker)) {
+  if (!CharNode.isValidMarker(marker, _nodeOptions?.extraValidMarkers)) {
     _logger?.warn(`Unexpected char marker '${marker}'!`);
   }
   marker = marker ?? "";
@@ -377,7 +377,7 @@ function createPara(
   childNodes: SerializedLexicalNode[] = [],
 ): SerializedParaNode {
   let { marker } = markerObject;
-  if (!ParaNode.isValidMarker(marker)) {
+  if (!ParaNode.isValidMarker(marker, _nodeOptions?.extraValidMarkers)) {
     _logger?.warn(`Unexpected para marker '${marker}'!`);
   }
   marker = marker ?? PARA_MARKER_DEFAULT;
@@ -427,7 +427,8 @@ function createNote(
   childNodes: SerializedLexicalNode[],
 ): SerializedNoteNode {
   let { marker } = markerObject;
-  if (!NoteNode.isValidMarker(marker)) _logger?.warn(`Unexpected note marker '${marker}'!`);
+  if (!NoteNode.isValidMarker(marker, _nodeOptions?.extraValidMarkers))
+    _logger?.warn(`Unexpected note marker '${marker}'!`);
   marker = marker ?? DEFAULT_NOTE_MARKER;
   const { category } = markerObject;
   const caller = markerObject.caller ?? "*";
@@ -488,7 +489,7 @@ function addSpaceNodes(
 
 function createMilestone(markerObject: MarkerObject): SerializedMilestoneNode {
   let { marker } = markerObject;
-  if (!marker || !MilestoneNode.isValidMarker(marker)) {
+  if (!marker || !MilestoneNode.isValidMarker(marker, _nodeOptions?.extraValidMarkers)) {
     _logger?.warn(`Unexpected milestone marker '${marker}'!`);
   }
   marker = marker ?? "";
