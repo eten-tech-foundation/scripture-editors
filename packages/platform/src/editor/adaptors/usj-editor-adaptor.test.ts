@@ -331,4 +331,32 @@ describe("USJ Editor Adaptor", () => {
     expect(consoleWarnSpy).toHaveBeenNthCalledWith(8, "Unknown type-marker 'table:row-tr'!");
     expect(consoleWarnSpy).toHaveBeenNthCalledWith(9, "Unknown type-marker 'table:cell-tc1'!");
   });
+
+  it("warns on an unknown char marker when no extra valid markers are configured", () => {
+    initialize({}, console);
+    const usj = {
+      ...EMPTY_USJ,
+      content: [{ type: "char", marker: "qqq", content: ["x"] } as MarkerObject],
+    };
+
+    serializeEditorState(usj);
+
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Unexpected char marker 'qqq'"),
+    );
+  });
+
+  it("does not warn on a char marker listed in extraValidMarkers", () => {
+    initialize({ extraValidMarkers: ["qqq"] }, console);
+    const usj = {
+      ...EMPTY_USJ,
+      content: [{ type: "char", marker: "qqq", content: ["x"] } as MarkerObject],
+    };
+
+    serializeEditorState(usj);
+
+    expect(consoleWarnSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining("Unexpected char marker"),
+    );
+  });
 });
