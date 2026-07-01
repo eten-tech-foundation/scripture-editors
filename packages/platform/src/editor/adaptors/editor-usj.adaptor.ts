@@ -46,10 +46,16 @@ import {
   SerializedMilestoneNode,
   SerializedNoteNode,
   SerializedParaNode,
+  SerializedTableCellNode,
+  SerializedTableNode,
+  SerializedTableRowNode,
   SerializedTypedMarkNode,
   SerializedUnknownNode,
   SerializedVerseNode,
   STARTING_MS_COMMENT_MARKER,
+  TableCellNode,
+  TableNode,
+  TableRowNode,
   TypedMarkNode,
   UnknownNode,
   UNMATCHED_TAG_NAME,
@@ -196,6 +202,30 @@ function createParaMarker(
     ...unknownAttributes,
     content,
   });
+}
+
+function createTableMarker(
+  node: SerializedTableNode,
+  content: MarkerContent[] | undefined,
+): MarkerObject {
+  const { type, unknownAttributes } = node;
+  return removeUndefinedProperties({ type, ...unknownAttributes, content });
+}
+
+function createTableRowMarker(
+  node: SerializedTableRowNode,
+  content: MarkerContent[] | undefined,
+): MarkerObject {
+  const { type, marker, unknownAttributes } = node;
+  return removeUndefinedProperties({ type, marker, ...unknownAttributes, content });
+}
+
+function createTableCellMarker(
+  node: SerializedTableCellNode,
+  content: MarkerContent[] | undefined,
+): MarkerObject {
+  const { type, marker, align, colspan, unknownAttributes } = node;
+  return removeUndefinedProperties({ type, marker, align, colspan, ...unknownAttributes, content });
 }
 
 function createNoteMarker(
@@ -380,6 +410,30 @@ function recurseNodes(
       case ParaNode.getType():
         markers.push(
           createParaMarker(serializedParaNode, recurseNodes(serializedParaNode.children)),
+        );
+        break;
+      case TableNode.getType():
+        markers.push(
+          createTableMarker(
+            node as SerializedTableNode,
+            recurseNodes((node as SerializedTableNode).children),
+          ),
+        );
+        break;
+      case TableRowNode.getType():
+        markers.push(
+          createTableRowMarker(
+            node as SerializedTableRowNode,
+            recurseNodes((node as SerializedTableRowNode).children),
+          ),
+        );
+        break;
+      case TableCellNode.getType():
+        markers.push(
+          createTableCellMarker(
+            node as SerializedTableCellNode,
+            recurseNodes((node as SerializedTableCellNode).children),
+          ),
         );
         break;
       case NoteNode.getType():

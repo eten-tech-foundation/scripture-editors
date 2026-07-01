@@ -86,6 +86,18 @@ import {
   SerializedUnknownNode,
   SerializedVerseNode,
   STARTING_MS_COMMENT_MARKER,
+  TableCellNode,
+  TABLE_CELL_MARKER_OBJECT_PROPS,
+  TableNode,
+  TABLE_MARKER_OBJECT_PROPS,
+  TableRowNode,
+  TABLE_ROW_MARKER_OBJECT_PROPS,
+  TABLE_CELL_VERSION,
+  TABLE_ROW_VERSION,
+  TABLE_VERSION,
+  SerializedTableCellNode,
+  SerializedTableNode,
+  SerializedTableRowNode,
   TypedMarkNode,
   UNKNOWN_MARKER_OBJECT_PROPS,
   UNKNOWN_VERSION,
@@ -400,6 +412,69 @@ function createPara(
     textFormat: 0,
     textStyle: "",
     version: PARA_VERSION,
+  });
+}
+
+function createBaseElement() {
+  return {
+    direction: null as null,
+    format: "" as const,
+    indent: 0,
+    version: 1,
+  };
+}
+
+function createTable(
+  markerObject: MarkerObject,
+  childNodes: SerializedLexicalNode[] = [],
+): SerializedTableNode {
+  const unknownAttributes = getUnknownAttributes(markerObject, TABLE_MARKER_OBJECT_PROPS);
+  return removeUndefinedProperties({
+    ...createBaseElement(),
+    type: TableNode.getType(),
+    unknownAttributes,
+    children: childNodes,
+    version: TABLE_VERSION,
+  });
+}
+
+function createTableRow(
+  markerObject: MarkerObject,
+  childNodes: SerializedLexicalNode[] = [],
+): SerializedTableRowNode {
+  const unknownAttributes = getUnknownAttributes(markerObject, TABLE_ROW_MARKER_OBJECT_PROPS);
+  return removeUndefinedProperties({
+    ...createBaseElement(),
+    type: TableRowNode.getType(),
+    marker: markerObject.marker ?? "tr",
+    unknownAttributes,
+    children: childNodes,
+    version: TABLE_ROW_VERSION,
+  });
+}
+
+function createTableCell(
+  markerObject: MarkerObject,
+  childNodes: SerializedLexicalNode[] = [],
+): SerializedTableCellNode {
+  const { marker, align, colspan } = markerObject;
+  const children: SerializedLexicalNode[] = [];
+  const cellMarker = marker ?? "tc1";
+  if (_viewOptions?.markerMode === "editable")
+    children.push(createMarker(cellMarker), createText(NBSP, "marker-trailing-space"));
+  else if (_viewOptions?.markerMode === "visible" || _viewOptions?.hasGutterParaMarkers)
+    children.push(createImmutableTypedText("marker", openingMarkerText(cellMarker) + NBSP));
+  children.push(...childNodes);
+  const unknownAttributes = getUnknownAttributes(markerObject, TABLE_CELL_MARKER_OBJECT_PROPS);
+  return removeUndefinedProperties({
+    ...createBaseElement(),
+    type: TableCellNode.getType(),
+    marker: cellMarker,
+    align,
+    colspan,
+    unknownAttributes,
+    children,
+    version: TABLE_CELL_VERSION,
   });
 }
 
@@ -745,6 +820,15 @@ function recurseNodes(markers: MarkerContent[] | undefined): SerializedLexicalNo
           break;
         case ImmutableUnmatchedNode.getType():
           nodes.push(createUnmatched(markerContent.marker ?? ""));
+          break;
+        case TableNode.getType():
+          nodes.push(createTable(markerContent, recurseNodes(markerContent.content)));
+          break;
+        case TableRowNode.getType():
+          nodes.push(createTableRow(markerContent, recurseNodes(markerContent.content)));
+          break;
+        case TableCellNode.getType():
+          nodes.push(createTableCell(markerContent, recurseNodes(markerContent.content)));
           break;
         default:
           _logger?.warn(`Unknown type-marker '${markerContent.type}-${markerContent.marker}'!`);

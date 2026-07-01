@@ -22,11 +22,11 @@ import {
   usjMarks,
   usjWithUnknownItems,
 } from "../../../../utilities/src/converters/usj/converter-test.data";
-import editorUsjAdaptor from "./editor-usj.adaptor";
+import editorUsjAdaptor, { deserializeSerializedEditorState } from "./editor-usj.adaptor";
 import usjEditorAdaptor from "./usj-editor.adaptor";
 import { EMPTY_USJ, MarkerObject } from "@eten-tech-foundation/scripture-utilities";
 import { deepEqual } from "fast-equals";
-import { SerializedTextNode } from "lexical";
+import { SerializedEditorState, SerializedTextNode } from "lexical";
 import { usjReactNodes } from "shared-react";
 import {
   CHAPTER_MARKER,
@@ -133,5 +133,84 @@ describe("Editor USJ Adaptor", () => {
     const usj = editorUsjAdaptor.deserializeEditorState(editorState);
 
     expect(usj).toEqual(usjWithUnknownItems);
+  });
+
+  it("serializes a table back to USJ", () => {
+    const serializedEditorState = {
+      root: {
+        type: "root",
+        format: "",
+        indent: 0,
+        version: 1,
+        direction: null,
+        children: [
+          {
+            type: "table",
+            format: "",
+            indent: 0,
+            version: 1,
+            direction: null,
+            children: [
+              {
+                type: "table:row",
+                marker: "tr",
+                format: "",
+                indent: 0,
+                version: 1,
+                direction: null,
+                children: [
+                  {
+                    type: "table:cell",
+                    marker: "tc1",
+                    align: "start",
+                    colspan: "2",
+                    format: "",
+                    indent: 0,
+                    version: 1,
+                    direction: null,
+                    children: [
+                      {
+                        type: "text",
+                        text: "Header",
+                        detail: 0,
+                        format: 0,
+                        mode: "normal",
+                        style: "",
+                        version: 1,
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    };
+
+    const usj = deserializeSerializedEditorState(
+      serializedEditorState as unknown as SerializedEditorState,
+    );
+
+    expect(usj?.content).toEqual([
+      {
+        type: "table",
+        content: [
+          {
+            type: "table:row",
+            marker: "tr",
+            content: [
+              {
+                type: "table:cell",
+                marker: "tc1",
+                align: "start",
+                colspan: "2",
+                content: ["Header"],
+              },
+            ],
+          },
+        ],
+      },
+    ]);
   });
 });
