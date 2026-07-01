@@ -321,16 +321,13 @@ describe("USJ Editor Adaptor", () => {
 
     removeNoteCallerOnClick(serializedEditorState, NOTE_PARA_WITH_UNKNOWN_ITEMS_INDEX);
     expect(serializedEditorState).toEqual(editorStateWithUnknownItems);
-    expect(consoleWarnSpy).toHaveBeenCalledTimes(9);
+    expect(consoleWarnSpy).toHaveBeenCalledTimes(6);
     expect(consoleWarnSpy).toHaveBeenNthCalledWith(1, "Unknown type-marker 'wat-z'!");
     expect(consoleWarnSpy).toHaveBeenNthCalledWith(2, "Unknown type-marker 'optbreak-undefined'!");
     expect(consoleWarnSpy).toHaveBeenNthCalledWith(3, "Unknown type-marker 'ref-undefined'!");
     expect(consoleWarnSpy).toHaveBeenNthCalledWith(4, "Unknown type-marker 'sidebar-esb'!");
     expect(consoleWarnSpy).toHaveBeenNthCalledWith(5, "Unknown type-marker 'periph-undefined'!");
     expect(consoleWarnSpy).toHaveBeenNthCalledWith(6, "Unknown type-marker 'figure-fig'!");
-    expect(consoleWarnSpy).toHaveBeenNthCalledWith(7, "Unknown type-marker 'table-undefined'!");
-    expect(consoleWarnSpy).toHaveBeenNthCalledWith(8, "Unknown type-marker 'table:row-tr'!");
-    expect(consoleWarnSpy).toHaveBeenNthCalledWith(9, "Unknown type-marker 'table:cell-tc1'!");
   });
 
   it("warns on an unknown char marker when no extra valid markers are configured", () => {

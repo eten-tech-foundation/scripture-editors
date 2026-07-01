@@ -10,6 +10,9 @@ import { $createImpliedParaNode, ImpliedParaNode } from "./ImpliedParaNode.js";
 import { MilestoneNode } from "./MilestoneNode.js";
 import { NoteNode } from "./NoteNode.js";
 import { ParaNode } from "./ParaNode.js";
+import { TableNode } from "./TableNode.js";
+import { TableRowNode } from "./TableRowNode.js";
+import { TableCellNode } from "./TableCellNode.js";
 import { VerseNode } from "./VerseNode.js";
 import { Klass, LexicalNode, LexicalNodeReplacement, ParagraphNode } from "lexical";
 
@@ -23,6 +26,9 @@ export * from "./node-constants.js";
 export * from "./node.utils.js";
 export * from "./NoteNode.js";
 export * from "./ParaNode.js";
+export * from "./TableNode.js";
+export * from "./TableRowNode.js";
+export * from "./TableCellNode.js";
 export * from "./VerseNode.js";
 
 export const usjBaseNodes: readonly (Klass<LexicalNode> | LexicalNodeReplacement)[] = [
@@ -39,6 +45,9 @@ export const usjBaseNodes: readonly (Klass<LexicalNode> | LexicalNodeReplacement
   ImmutableUnmatchedNode,
   ParaNode,
   ImpliedParaNode,
+  TableNode,
+  TableRowNode,
+  TableCellNode,
   {
     replace: ParagraphNode,
     with: () => $createImpliedParaNode(),
