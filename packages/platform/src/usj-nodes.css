@@ -2266,6 +2266,69 @@
   white-space: nowrap;
 }
 
+/* Verse marker armed for the two-step intentional delete (first Backspace/Delete selects it).
+   Destructive (shadcn) styling — light red background, red text, roomier padding — signals
+   "press again to delete". The glow-underline blink (option C) is gated on the `verse-delete-armed`
+   root class so a verse merely inside an ordinary range selection shows the tint but does not blink.
+   Literal reds render in any context (this demo's theme stores --destructive as HSL components, so
+   it can't be referenced directly here); the platform app binds these to its live `--destructive`
+   theme token instead — see paranext-core's _usj-nodes.scss. */
+/* `verse-selected` is on the inner decorator span (VerseDecorator), NOT the outer `.verse` element
+   that carries the marker's own padding/margin. So the roomier background must be applied here, on
+   the element that actually paints the red. Padding widens the painted background; an equal negative
+   margin cancels the added width so neighboring text does not shift when the marker arms (the red
+   fills the space that was previously the outer marker's ~3px gap). */
+.verse-selected {
+  background-color: color-mix(in srgb, #dc2626 15%, transparent);
+  color: #dc2626;
+  border-radius: 4px;
+  padding: 0 3px;
+  margin: 0 -3px;
+}
+
+/* Caret-like glow-underline blink, only while armed (see StructureKeyboardPlugin root class). */
+@keyframes verse-armed-glow {
+  0%,
+  100% {
+    box-shadow: 0 2px 0 -1px #dc2626;
+  }
+  50% {
+    box-shadow: 0 2px 0 -1px transparent;
+  }
+}
+.verse-delete-armed .verse-selected {
+  animation: verse-armed-glow 1.06s steps(1) infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .verse-delete-armed .verse-selected {
+    animation: none;
+    box-shadow: 0 2px 0 -1px #dc2626; /* static glow underline — still signals "armed" */
+  }
+}
+
+/* Destructive tooltip naming the confirming keystroke. Rendered via portal to <body> by
+   VerseDeleteTooltip (shared-react), styled here in the platform demo. */
+.verse-delete-tooltip {
+  padding: 4px 8px;
+  font-size: 0.75rem;
+  line-height: 1.2;
+  color: #dc2626;
+  background-color: color-mix(in srgb, #dc2626 12%, white);
+  border: 1px solid color-mix(in srgb, #dc2626 40%, transparent);
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  white-space: nowrap;
+  pointer-events: none;
+}
+.verse-delete-tooltip kbd {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+  padding: 1px 4px;
+  border: 1px solid color-mix(in srgb, #dc2626 40%, transparent);
+  border-radius: 3px;
+  background-color: color-mix(in srgb, #dc2626 8%, white);
+}
+
 span.unread img {
   background-color: #ffff99;
   position: relative;

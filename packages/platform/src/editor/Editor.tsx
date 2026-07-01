@@ -85,7 +85,7 @@ import {
   pasteSelectionAsPlainText,
   StateChangePlugin,
   StateChangeSnapshot,
-  StructureProtectionPlugin,
+  StructureKeyboardPlugin,
   TextDirectionPlugin,
   TextSpacingPlugin,
   UsjNodeOptions,
@@ -463,7 +463,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
           />
           <ParaMarkerPrefixGuardPlugin viewOptions={viewOptions} logger={logger} />
           <ParaNodePlugin />
-          <StructureProtectionPlugin isStructureProtected={isStructureProtected} />
+          <StructureKeyboardPlugin isStructureProtected={isStructureProtected} />
           <TextDirectionPlugin textDirection={textDirection} />
           <TextSpacingPlugin />
           {children}
