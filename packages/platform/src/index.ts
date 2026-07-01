@@ -36,7 +36,6 @@ export { default as Editorial } from "./Editorial";
  */
 export { default as Marginal } from "./marginal/Marginal";
 export { GENERATOR_NOTE_CALLER, HIDDEN_NOTE_CALLER } from "shared";
-export { HANDBOOK_VALID_MARKERS } from "./editor/adaptors/handbook-markers";
 export {
   directionToNames,
   getDefaultViewMode,
