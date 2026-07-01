@@ -28,7 +28,7 @@ import { $createParaNode, $isParaNode, ParaNode } from "shared";
 // NOTE: jsdom cannot drive collapsed mid-text deletes (domSelection.modify) or printable-char
 // insertion via dispatchCommand, and IS_APPLE is false so Alt+Backspace is a no-op. Those cases
 // (mid-text-allowed, Alt/Cmd+Backspace blocked, insertText-allowed, verse removal) are covered as
-// deterministic unit tests in structureProtection.utils.test.ts. Behavior tests here cover only
+// deterministic unit tests in structureKeyboard.utils.test.ts. Behavior tests here cover only
 // the jsdom-working paths: block-boundary merge and Enter split.
 describe("StructureKeyboardPlugin — keyboard", () => {
   it("blocks Backspace-at-start merge when protected", async () => {

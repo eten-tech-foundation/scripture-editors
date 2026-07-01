@@ -97,21 +97,7 @@ export function $caretAdjacentToVerseMarker(
   selection: BaseSelection,
   direction: "backward" | "forward",
 ): boolean {
-  if (!$isRangeSelection(selection) || !selection.isCollapsed()) return false;
-  const { anchor } = selection;
-  const node = anchor.getNode();
-  if (anchor.type === "element" && $isElementNode(node)) {
-    const children = node.getChildren();
-    const idx = direction === "backward" ? anchor.offset - 1 : anchor.offset;
-    if (idx < 0) return false;
-    return $isSomeVerseNode(children[idx]);
-  }
-  if (direction === "backward") {
-    if (anchor.offset !== 0) return false;
-    return $isSomeVerseNode(node.getPreviousSibling());
-  }
-  if (anchor.offset !== node.getTextContentSize()) return false;
-  return $isSomeVerseNode(node.getNextSibling());
+  return !!$adjacentVerseMarker(selection, direction);
 }
 
 /**

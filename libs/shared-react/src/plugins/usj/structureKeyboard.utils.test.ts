@@ -19,7 +19,7 @@ import {
   $shouldBlockStructuralEdit,
   $structuralDeleteTarget,
   keyDownToIntent,
-} from "./structureProtection.utils";
+} from "./structureKeyboard.utils";
 import {
   $createNodeSelection,
   $getRoot,
@@ -41,7 +41,7 @@ import {
   ParaNode,
 } from "shared";
 
-describe("structureProtection.utils", () => {
+describe("structureKeyboard.utils", () => {
   it("$selectionSpansBlockBoundary: true across two paragraphs", async () => {
     let t1: TextNode;
     let t2: TextNode;

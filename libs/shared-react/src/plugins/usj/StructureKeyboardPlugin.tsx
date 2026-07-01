@@ -8,7 +8,7 @@ import {
   $structuralDeleteTarget,
   ArmedDelete,
   keyDownToIntent,
-} from "./structureProtection.utils";
+} from "./structureKeyboard.utils";
 import { $generateNodesFromDOM } from "@lexical/html";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import DOMPurify from "dompurify";
