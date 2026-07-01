@@ -1,6 +1,7 @@
 export * from "./annotation";
 export * from "./collab";
 
+export * from "./armedDeleteMessage";
 export * from "./ArrowNavigationPlugin";
 export * from "./CharNodePlugin";
 export * from "./clipboard.utils";
@@ -19,3 +20,4 @@ export * from "./text-direction.model";
 export * from "./TextDirectionPlugin";
 export * from "./TextSpacingPlugin";
 export * from "./UsjNodesMenuPlugin";
+export * from "./VerseDeleteTooltip";

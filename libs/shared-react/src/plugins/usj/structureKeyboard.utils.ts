@@ -209,11 +209,24 @@ export function $structuralDeleteTarget(
   return undefined;
 }
 
-/** A pending two-step delete: the armed target's key, kind, and the intent that armed it. */
-export interface ArmedDelete {
+/** A snapshot of one RangeSelection endpoint, used to detect whether a latched range still holds. */
+export interface PointSnapshot {
   key: NodeKey;
-  kind: "verse" | "para";
+  offset: number;
+  type: "text" | "element";
+}
+
+/** A pending two-step delete: the armed target's kind + the intent that armed it. */
+export interface ArmedDelete {
+  kind: "verse" | "para" | "selection";
   intent: "deleteBackward" | "deleteForward";
+  /** verse/para: the target node's key. selection: verseKeys[0], used as the tooltip anchor. */
+  key: NodeKey;
+  /** selection only: the verse marker node keys inside the armed range. */
+  verseKeys?: NodeKey[];
+  /** selection only: the armed range's endpoints. */
+  anchor?: PointSnapshot;
+  focus?: PointSnapshot;
 }
 
 /** True when the live selection still encodes the armed target. */
@@ -221,6 +234,19 @@ export function $isArmedSelection(selection: BaseSelection | null, armed: ArmedD
   if (!selection) return false;
   if (armed.kind === "verse") {
     return $isNodeSelection(selection) && selection.has(armed.key);
+  }
+  if (armed.kind === "selection") {
+    if (!$isRangeSelection(selection) || selection.isCollapsed()) return false;
+    if (!armed.anchor || !armed.focus) return false;
+    const { anchor, focus } = selection;
+    return (
+      anchor.key === armed.anchor.key &&
+      anchor.offset === armed.anchor.offset &&
+      anchor.type === armed.anchor.type &&
+      focus.key === armed.focus.key &&
+      focus.offset === armed.focus.offset &&
+      focus.type === armed.focus.type
+    );
   }
   if (!$isRangeSelection(selection) || selection.isCollapsed()) return false;
   const anchorPara = $getParaAncestor(selection.anchor.getNode());

@@ -533,6 +533,72 @@ describe("StructureKeyboardPlugin — two-step delete guards", () => {
   });
 });
 
+describe("StructureKeyboardPlugin — two-step delete for range selections with verse markers", () => {
+  it("first Backspace arms (no delete), second Backspace deletes the whole selection", async () => {
+    let t1: TextNode;
+    let verse: ImmutableVerseNode;
+    let t2: TextNode;
+    const { editor } = await unprotectedEnvironment(() => {
+      t1 = $createTextNode("ab");
+      verse = $createImmutableVerseNode("2");
+      t2 = $createTextNode("cd");
+      $getRoot().append($createParaNode("p").append(t1, verse, t2));
+    });
+    // Select from inside "ab" across the verse marker into "cd".
+    updateSelection(editor, t1!, 1, t2!, 1);
+
+    await pressKey(editor, "Backspace", 0); // arm
+    editor.getEditorState().read(() => {
+      const para = $getRoot().getChildren()[0] as ParaNode;
+      expect(para.getChildren().some((n) => n instanceof ImmutableVerseNode)).toBe(true); // not yet deleted
+    });
+
+    await pressKey(editor, "Backspace", 0); // fire
+    editor.getEditorState().read(() => {
+      const para = $getRoot().getChildren()[0] as ParaNode;
+      expect(para.getChildren().some((n) => n instanceof ImmutableVerseNode)).toBe(false); // verse gone
+      expect(para.getTextContent()).toBe("ad"); // "b", verse, and "c" removed
+    });
+  });
+
+  it("toggles the verse-delete-armed class on the editor root while armed", async () => {
+    let t1: TextNode;
+    let verse: ImmutableVerseNode;
+    let t2: TextNode;
+    const { editor } = await unprotectedEnvironment(() => {
+      t1 = $createTextNode("ab");
+      verse = $createImmutableVerseNode("2");
+      t2 = $createTextNode("cd");
+      $getRoot().append($createParaNode("p").append(t1, verse, t2));
+    });
+    updateSelection(editor, t1!, 1, t2!, 1);
+
+    await pressKey(editor, "Backspace", 0); // arm
+    expect(editor.getRootElement()?.classList.contains("verse-delete-armed")).toBe(true);
+  });
+
+  it("mismatched direction cancels the armed range without deleting", async () => {
+    let t1: TextNode;
+    let verse: ImmutableVerseNode;
+    let t2: TextNode;
+    const { editor } = await unprotectedEnvironment(() => {
+      t1 = $createTextNode("ab");
+      verse = $createImmutableVerseNode("2");
+      t2 = $createTextNode("cd");
+      $getRoot().append($createParaNode("p").append(t1, verse, t2));
+    });
+    updateSelection(editor, t1!, 1, t2!, 1);
+
+    await pressKey(editor, "Backspace", 0); // arm backward
+    await pressKey(editor, "Delete", 0); // forward → cancel
+    editor.getEditorState().read(() => {
+      const para = $getRoot().getChildren()[0] as ParaNode;
+      expect(para.getChildren().some((n) => n instanceof ImmutableVerseNode)).toBe(true); // survived
+      expect(para.getTextContent()).toBe("abcd");
+    });
+  });
+});
+
 async function testEnvironment($initialEditorState: () => void) {
   return baseTestEnvironment(
     $initialEditorState,

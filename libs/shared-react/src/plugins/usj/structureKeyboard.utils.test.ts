@@ -25,6 +25,7 @@ import {
   $getRoot,
   $getSelection,
   $createTextNode,
+  $isRangeSelection,
   $isTextNode,
   $setSelection,
   TextNode,
@@ -475,6 +476,53 @@ describe("$isArmedSelection", () => {
           intent: "deleteBackward",
         }),
       ).toBe(false);
+    });
+  });
+
+  it("$isArmedSelection: selection kind matches the same live range", async () => {
+    let t1: TextNode;
+    let t2: TextNode;
+    const { editor } = await baseTestEnvironment(() => {
+      t1 = $createTextNode("text");
+      t2 = $createTextNode("more");
+      $getRoot().append($createParaNode("p").append(t1, $createImmutableVerseNode("1"), t2));
+    });
+    // Endpoints are text points on the flanking text nodes — never on the verse DecoratorNode.
+    updateSelection(editor, t1!, 0, t2!, 2);
+
+    editor.getEditorState().read(() => {
+      const sel = $getSelection();
+      if (!$isRangeSelection(sel)) throw new Error("expected a RangeSelection");
+      const armed = {
+        kind: "selection" as const,
+        intent: "deleteBackward" as const,
+        key: "anchor-verse",
+        verseKeys: ["anchor-verse"],
+        anchor: { key: sel.anchor.key, offset: sel.anchor.offset, type: sel.anchor.type },
+        focus: { key: sel.focus.key, offset: sel.focus.offset, type: sel.focus.type },
+      };
+      expect($isArmedSelection(sel, armed)).toBe(true);
+    });
+  });
+
+  it("$isArmedSelection: selection kind is false once the range moves", async () => {
+    let t1: TextNode;
+    const { editor } = await baseTestEnvironment(() => {
+      t1 = $createTextNode("hello");
+      $getRoot().append($createParaNode("p").append(t1));
+    });
+    updateSelection(editor, t1!, 0, t1!, 3);
+
+    const armed = {
+      kind: "selection" as const,
+      intent: "deleteBackward" as const,
+      key: "x",
+      verseKeys: ["x"],
+      anchor: { key: "different", offset: 0, type: "text" as const },
+      focus: { key: "different", offset: 3, type: "text" as const },
+    };
+    editor.getEditorState().read(() => {
+      expect($isArmedSelection($getSelection(), armed)).toBe(false);
     });
   });
 });

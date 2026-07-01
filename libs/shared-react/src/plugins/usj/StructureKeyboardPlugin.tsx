@@ -3,12 +3,14 @@ import {
   $mergeParaIntoPrevious,
   $placeCaretAtEnd,
   $sanitizeNodesForProtectedStructure,
+  $selectionContainsVerseMarker,
   $shouldBlockSelectionReplacement,
   $shouldBlockStructuralEdit,
   $structuralDeleteTarget,
   ArmedDelete,
   keyDownToIntent,
 } from "./structureKeyboard.utils";
+import { VerseDeleteTooltip } from "./VerseDeleteTooltip";
 import { $generateNodesFromDOM } from "@lexical/html";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import DOMPurify from "dompurify";
@@ -30,7 +32,8 @@ import {
   KEY_DOWN_COMMAND,
   PASTE_COMMAND,
 } from "lexical";
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { $isSomeVerseNode } from "../../nodes/usj";
 
 /**
  * Governs structural keystrokes (Backspace/Delete/Enter/typing) at verse- and paragraph-marker
@@ -48,9 +51,14 @@ export function StructureKeyboardPlugin({
   isStructureProtected,
 }: {
   isStructureProtected: boolean;
-}): null {
+}): JSX.Element | null {
   const [editor] = useLexicalComposerContext();
   const armedRef = useRef<ArmedDelete | undefined>(undefined);
+  const [armed, setArmed] = useState<ArmedDelete | undefined>(undefined);
+  const setArmedState = useCallback((next: ArmedDelete | undefined) => {
+    armedRef.current = next;
+    setArmed(next);
+  }, []);
 
   useEffect(() => {
     const $handleKeyDown = (event: KeyboardEvent): boolean => {
@@ -78,7 +86,7 @@ export function StructureKeyboardPlugin({
 
       // FIRE / cancel: a target is armed.
       if (armed && selection && $isArmedSelection(selection, armed)) {
-        armedRef.current = undefined;
+        setArmedState(undefined);
         event.preventDefault();
         if (intent !== armed.intent) return true; // mismatched direction: cancel, no delete
         const node = $getNodeByKey(armed.key) ?? undefined;
@@ -92,29 +100,55 @@ export function StructureKeyboardPlugin({
             else if (next && $isTextNode(next)) next.select(0, 0);
             else parent?.selectStart();
           }
+        } else if (armed.kind === "selection") {
+          if ($isRangeSelection(selection)) selection.removeText(); // deletes the whole range, verse included
         } else if (node && $isElementNode(node)) {
           $mergeParaIntoPrevious(node);
         }
         return true;
       }
 
-      // ARM: caret at a structural boundary.
+      // ARM: caret at a structural boundary, or a range selection containing a verse marker.
       if (!selection) return false;
       const target = $structuralDeleteTarget(selection, intent);
-      if (!target) return false;
-      if (target.kind === "verse") {
-        const ns = $createNodeSelection();
-        ns.add(target.node.getKey());
-        $setSelection(ns);
-      } else {
-        const range = $createRangeSelection();
-        range.anchor.set(target.node.getKey(), 0, "element");
-        range.focus.set(target.node.getKey(), target.node.getChildrenSize(), "element");
-        $setSelection(range);
+      if (target) {
+        if (target.kind === "verse") {
+          const ns = $createNodeSelection();
+          ns.add(target.node.getKey());
+          $setSelection(ns);
+        } else {
+          const range = $createRangeSelection();
+          range.anchor.set(target.node.getKey(), 0, "element");
+          range.focus.set(target.node.getKey(), target.node.getChildrenSize(), "element");
+          $setSelection(range);
+        }
+        setArmedState({ key: target.node.getKey(), kind: target.kind, intent });
+        event.preventDefault();
+        return true;
       }
-      armedRef.current = { key: target.node.getKey(), kind: target.kind, intent };
-      event.preventDefault();
-      return true;
+      // Range/text selection that includes a verse marker: arm without altering the selection.
+      if (
+        $isRangeSelection(selection) &&
+        !selection.isCollapsed() &&
+        $selectionContainsVerseMarker(selection)
+      ) {
+        const verseKeys = selection
+          .getNodes()
+          .filter($isSomeVerseNode)
+          .map((n) => n.getKey());
+        const { anchor, focus } = selection;
+        setArmedState({
+          kind: "selection",
+          intent,
+          key: verseKeys[0],
+          verseKeys,
+          anchor: { key: anchor.key, offset: anchor.offset, type: anchor.type },
+          focus: { key: focus.key, offset: focus.offset, type: focus.type },
+        });
+        event.preventDefault();
+        return true;
+      }
+      return false;
     };
 
     // Guard for vectors that bypass KEY_DOWN (cut, dragstart, IME-composed input).
@@ -173,7 +207,7 @@ export function StructureKeyboardPlugin({
       const armed = armedRef.current;
       if (!armed) return;
       editor.getEditorState().read(() => {
-        if (!$isArmedSelection($getSelection(), armed)) armedRef.current = undefined;
+        if (!$isArmedSelection($getSelection(), armed)) setArmedState(undefined);
       });
     };
 
@@ -190,7 +224,18 @@ export function StructureKeyboardPlugin({
       ),
       editor.registerUpdateListener(clearStaleLatch),
     );
-  }, [editor, isStructureProtected]);
+  }, [editor, isStructureProtected, setArmedState]);
 
-  return null;
+  // Reflect the armed state onto the editor root so CSS can gate the blink to armed markers only.
+  useEffect(() => {
+    const root = editor.getRootElement();
+    if (!root) return;
+    root.classList.toggle("verse-delete-armed", !!armed);
+    return () => root.classList.remove("verse-delete-armed");
+  }, [editor, armed]);
+
+  // Show the destructive hint while armed. `para` merges never get a tooltip (verse-marker scope).
+  return armed && armed.kind !== "para" ? (
+    <VerseDeleteTooltip editor={editor} armed={armed} />
+  ) : null;
 }
