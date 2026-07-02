@@ -14,7 +14,9 @@ import {
   NodeKey,
 } from "lexical";
 import {
+  $isCharNode,
   $isMarkerNode,
+  $isNoteNode,
   $isParaNode,
   closingMarkerText,
   getMarker,
@@ -71,6 +73,26 @@ function isParaKindMarker(marker: string): boolean {
   return kind === undefined || kind === MarkerType.Paragraph || kind === MarkerType.Unknown;
 }
 
+/** Spec §5.1 same-positional-kind rule for char openers. Unknown markers stay as typed.
+ * Uses the same local `isKnownMilestoneMarker` helper as `isParaKindMarker`, for the same
+ * z-wildcard false-positive reason (see that function's doc comment). */
+function isCharKindMarker(marker: string): boolean {
+  const clean = marker.replace(/^\+/, "");
+  if (clean === "v" || clean === "c") return false;
+  if (NoteNode.isValidMarker(clean) || isKnownMilestoneMarker(clean)) return false;
+  const kind = getMarker(clean)?.type;
+  return kind === undefined || kind === MarkerType.Character || kind === MarkerType.Unknown;
+}
+
+function $clampSelectionToLength(node: MarkerNode, newLength: number): void {
+  const selection = $getSelection();
+  if (!$isRangeSelection(selection)) return;
+  [selection.anchor, selection.focus].forEach((point) => {
+    if (point.key === node.getKey() && point.offset > newLength)
+      point.set(node.getKey(), newLength, "text");
+  });
+}
+
 function $moveCaretPastMarker(node: MarkerNode): void {
   const selection = $getSelection();
   if (!$isRangeSelection(selection) || !selection.isCollapsed()) return;
@@ -99,8 +121,29 @@ export function $applyOpenerRename(
     context.logger?.debug(`[MarkerEdit] para marker renamed to "${newMarker}"`);
     return;
   }
-  // Char/note openers are handled in-place from Task 8 on; re-tokenizing is the
-  // correct (if heavier) behavior in the meantime.
+  if ($isCharNode(parent) || $isNoteNode(parent)) {
+    const clean = newMarker.replace(/^\+/, "");
+    const isValidKind = $isCharNode(parent)
+      ? isCharKindMarker(newMarker)
+      : NoteNode.isValidMarker(clean);
+    if (!isValidKind) {
+      $requestTier2ForNode(node, context.viewOptions, context.logger);
+      return;
+    }
+    parent.setMarker(clean);
+    const closer = parent
+      .getChildren()
+      .filter($isMarkerNode)
+      .find((child) => child.getMarkerSyntax() === "closing");
+    if (closer) {
+      $clampSelectionToLength(closer, closingMarkerText(clean).length);
+      closer.setMarker(clean); // same update: opener authority rewrites the closer
+    }
+    node.setMarker(clean);
+    $moveCaretPastMarker(node);
+    context.logger?.debug(`[MarkerEdit] ${parent.getType()} marker renamed to "${clean}"`);
+    return;
+  }
   $requestTier2ForNode(node, context.viewOptions, context.logger);
 }
 
