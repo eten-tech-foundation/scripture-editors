@@ -32,6 +32,15 @@ export const UNFORMATTED_VIEW_MODE = "unformatted";
 export const PARAGRAPH_STRUCTURE_VIEW_MODE = "paragraph-structure";
 
 /**
+ * Constant representing the standard view mode (PT9 "Standard" equivalent).
+ * Displays formatted text with USFM markers visible inline as editable text and
+ * notes collapsed to callers.
+ *
+ * @public
+ */
+export const STANDARD_VIEW_MODE = "standard";
+
+/**
  * Maps view mode keys to their human-readable display names.
  * Used for UI components that need to show view mode options to users.
  *
@@ -41,4 +50,5 @@ export const viewModeToViewNames = {
   [FORMATTED_VIEW_MODE]: "Formatted",
   [UNFORMATTED_VIEW_MODE]: "Unformatted",
   [PARAGRAPH_STRUCTURE_VIEW_MODE]: "Paragraph Structure",
+  [STANDARD_VIEW_MODE]: "Standard",
 };

@@ -204,8 +204,8 @@ export interface EditorOptions {
   /** Additional items to append to the editor context menu. */
   contextMenu?: ContextMenuOptionConfig[];
   /**
-   * EXPERIMENTAL: View options. Defaults to the formatted view mode which is currently the only
-   * functional option.
+   * View options of the editor. Defaults to the formatted view mode. Named modes:
+   * "formatted", "unformatted", "paragraph-structure", "standard".
    */
   view?: ViewOptions;
   /** EXPERIMENTAL: Is the editor being debugged using the TreeView. */

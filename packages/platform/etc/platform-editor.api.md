@@ -130,7 +130,7 @@ export interface EditorRef {
 export const GENERATOR_NOTE_CALLER = "+";
 
 // @public
-export const getDefaultViewMode: () => "formatted" | "unformatted" | "paragraph-structure";
+export const getDefaultViewMode: () => "formatted" | "unformatted" | "paragraph-structure" | "standard";
 
 // @public
 export const getDefaultViewOptions: () => ViewOptions;
@@ -277,6 +277,9 @@ export interface SelectionRange {
 }
 
 // @public
+export const STANDARD_VIEW_MODE = "standard";
+
+// @public
 export interface StateChangeSnapshot {
     blockMarker: string | undefined;
     canRedo: boolean;
@@ -333,6 +336,7 @@ export const viewModeToViewNames: {
     formatted: string;
     unformatted: string;
     "paragraph-structure": string;
+    standard: string;
 };
 
 // @public
