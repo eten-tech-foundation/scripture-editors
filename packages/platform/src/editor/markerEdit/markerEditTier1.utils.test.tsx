@@ -14,11 +14,14 @@ import {
   $createMarkerNode,
   $createNoteNode,
   $createParaNode,
+  $createVerseNode,
   CharNode,
+  getVisibleOpenMarkerText,
   MarkerNode,
   NBSP,
   NoteNode as NoteNodeClass,
   ParaNode,
+  VerseNode,
 } from "shared";
 // Reaching inside only for tests.
 // eslint-disable-next-line @nx/enforce-module-boundaries
@@ -298,5 +301,70 @@ describe("Tier 1 char opener rename on a collab-flattened nested span", () => {
     const json = JSON.stringify(editor.getEditorState().toJSON());
     expect(json).toContain('"marker":"add"');
     expect(json).toContain('"marker":"wj"');
+  });
+});
+
+function $appendVersePara(): { verse: VerseNode } {
+  const para = $createParaNode("p");
+  const verse = $createVerseNode("1", getVisibleOpenMarkerText("v", "1"));
+  $getRoot().append(
+    para.append(
+      $createMarkerNode("p"),
+      $createTextNode(NBSP),
+      verse,
+      $createTextNode("In the beginning"),
+    ),
+  );
+  return { verse };
+}
+
+describe("Tier 1 verse/chapter number sync", () => {
+  it("syncs the number when the verse token is edited", async () => {
+    let verse: VerseNode;
+    const { editor } = await testEnvironment(() => ({ verse } = $appendVersePara()));
+    await act(async () =>
+      editor.update(() => verse.setTextContent(getVisibleOpenMarkerText("v", "2"))),
+    );
+    editor.getEditorState().read(() => expect(verse.getNumber()).toBe("2"));
+  });
+
+  it("syncs bridges and segments", async () => {
+    let verse: VerseNode;
+    const { editor } = await testEnvironment(() => ({ verse } = $appendVersePara()));
+    await act(async () =>
+      editor.update(() => verse.setTextContent(getVisibleOpenMarkerText("v", "1-2"))),
+    );
+    editor.getEditorState().read(() => expect(verse.getNumber()).toBe("1-2"));
+  });
+
+  it("extracts trailing typed text out of the verse node", async () => {
+    let verse: VerseNode;
+    const { editor } = await testEnvironment(() => ({ verse } = $appendVersePara()));
+    await act(async () =>
+      editor.update(() => verse.setTextContent(`${getVisibleOpenMarkerText("v", "1")}x`)),
+    );
+    editor.getEditorState().read(() => {
+      expect(verse.getTextContent()).toBe(getVisibleOpenMarkerText("v", "1"));
+      // Lexical's own dirty-leaf normalization (LexicalNormalization.ts) merges the newly
+      // extracted "x" TextNode into the adjacent plain "In the beginning" sibling every update
+      // - core behavior, not something this transform controls - so the surviving sibling reads
+      // "xIn the beginning" rather than staying a bare "x" node.
+      expect(verse.getNextSibling()?.getTextContent()).toBe("xIn the beginning");
+    });
+  });
+
+  it("leaves a number-less mid-edit token pending", async () => {
+    let verse: VerseNode;
+    const { editor } = await testEnvironment(() => ({ verse } = $appendVersePara()));
+    await act(async () => editor.update(() => verse.setTextContent(`\\v${NBSP}`)));
+    editor.getEditorState().read(() => expect(verse.getNumber()).toBe("1")); // stored number kept
+  });
+
+  it("re-tokenizes when the \\v prefix is broken (verse dissolves to text)", async () => {
+    let verse: VerseNode;
+    const { editor } = await testEnvironment(() => ({ verse } = $appendVersePara()));
+    await act(async () => editor.update(() => verse.setTextContent("v 1 ")));
+    const json = JSON.stringify(editor.getEditorState().toJSON());
+    expect(json).not.toContain('"type":"verse"');
   });
 });

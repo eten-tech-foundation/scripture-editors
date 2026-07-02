@@ -437,7 +437,7 @@ export function parseNumberFromMarkerText(
     const rest = text.slice(openMarkerText.length).replace(/^[\s ]+/, "");
     // Full verse-number token: digits + optional segment letter, optionally
     // bridged (-) or listed (,) with more of the same. E.g. 12, 5a, 1-2, 1a-2b, 1,3.
-    const match = /^(\d+[a-zA-Z]?(?:[-,]\d+[a-zA-Z]?)*)/.exec(rest);
+    const match = /^(\d+[a-zA-Z]*(?:[-,]\d+[a-zA-Z]*)*)/.exec(rest);
     if (match) number = match[1];
   }
   return number;

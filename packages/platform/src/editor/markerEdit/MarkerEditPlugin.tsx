@@ -1,7 +1,9 @@
 import {
+  $chapterNodeTransform,
   $isSelectionInMarkerNode,
   $markerNodeTransform,
   $resolvePendingMarkers,
+  $verseNodeTransform,
   MarkerEditContext,
 } from "./markerEditTier1.utils";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
@@ -18,7 +20,7 @@ import {
   SELECTION_CHANGE_COMMAND,
 } from "lexical";
 import { useEffect } from "react";
-import { LoggerBasic, MarkerNode } from "shared";
+import { ChapterNode, LoggerBasic, MarkerNode, VerseNode } from "shared";
 import { ViewOptions } from "shared-react";
 
 /**
@@ -55,6 +57,14 @@ export function MarkerEditPlugin({
       editor.registerNodeTransform(MarkerNode, (node) => {
         if (editor.isComposing()) return;
         $markerNodeTransform(node, context);
+      }),
+      editor.registerNodeTransform(VerseNode, (node) => {
+        if (editor.isComposing()) return;
+        $verseNodeTransform(node, context);
+      }),
+      editor.registerNodeTransform(ChapterNode, (node) => {
+        if (editor.isComposing()) return;
+        $chapterNodeTransform(node, context);
       }),
       editor.registerCommand(
         KEY_ENTER_COMMAND,

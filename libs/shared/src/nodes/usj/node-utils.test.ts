@@ -239,6 +239,10 @@ describe("Editor Node Utilities", () => {
     it("falls back to the default when no number is present", () => {
       expect(parseNumberFromMarkerText("v", `\\v${NBSP}`, "9")).toBe("9");
     });
+
+    it("preserves multi-letter segments instead of truncating (finding #5)", () => {
+      expect(parseNumberFromMarkerText("v", `\\v${NBSP}5abc `, "9")).toBe("5abc");
+    });
   });
 
   describe("getUnknownAttributes()", () => {

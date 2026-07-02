@@ -6,6 +6,7 @@
 
 import { $requestTier2ForNode } from "./tier2Rebuild.utils";
 import {
+  $createTextNode,
   $getNodeByKey,
   $getSelection,
   $isRangeSelection,
@@ -18,8 +19,10 @@ import {
   $isMarkerNode,
   $isNoteNode,
   $isParaNode,
+  ChapterNode,
   closingMarkerText,
   getMarker,
+  getVisibleOpenMarkerText,
   isMilestoneCommentMarker,
   LoggerBasic,
   MarkerNode,
@@ -27,6 +30,7 @@ import {
   MilestoneNode,
   NoteNode,
   openingMarkerText,
+  VerseNode,
 } from "shared";
 import { ViewOptions } from "shared-react";
 
@@ -187,6 +191,60 @@ export function $markerNodeTransform(node: MarkerNode, context: MarkerEditContex
     return;
   }
   context.pendingKeys.add(node.getKey());
+}
+
+// `\v`, separator, number token, then either nothing-yet (unterminated), or a
+// separator plus optional trailing text the user typed inside the node.
+const VERSE_TEXT_REGEX = /^\\v[ \u00A0]+([^ \u00A0\\]+)(?:[ \u00A0]([\s\S]*))?$/;
+
+export function $verseNodeTransform(node: VerseNode, context: MarkerEditContext): void {
+  const text = node.getTextContent();
+  const expected = getVisibleOpenMarkerText("v", node.getNumber());
+  if (text === expected) {
+    context.pendingKeys.delete(node.getKey());
+    return;
+  }
+  if (/^\\v[ \u00A0]*$/.test(text)) {
+    // number mid-edit; keep the stored number as the serialization fallback
+    context.pendingKeys.add(node.getKey());
+    return;
+  }
+  const match = VERSE_TEXT_REGEX.exec(text);
+  if (!match) {
+    // `\v` prefix broken: PT9 re-tokenizes and the token becomes plain text
+    context.pendingKeys.delete(node.getKey());
+    $requestTier2ForNode(node, context.viewOptions, context.logger);
+    return;
+  }
+  const [, numberToken, rest] = match;
+  if (rest === undefined && !/[ \u00A0]$/.test(text)) {
+    context.pendingKeys.add(node.getKey()); // e.g. `\v 12` while typing the number
+    return;
+  }
+  context.pendingKeys.delete(node.getKey());
+  node.setNumber(numberToken); // PT9 GetNextWord: whole word, valid or not
+  node.setTextContent(getVisibleOpenMarkerText("v", numberToken));
+  if (rest) {
+    const restNode = $createTextNode(rest);
+    node.insertAfter(restNode);
+    restNode.select(rest.length, rest.length);
+  }
+}
+
+export function $chapterNodeTransform(node: ChapterNode, _context: MarkerEditContext): void {
+  if (node.getChildrenSize() === 0) {
+    node.remove(); // §5.5: deleting the chapter marker deletes it
+    return;
+  }
+  const textNode = node.getFirstChild();
+  if (!$isTextNode(textNode)) return;
+  const expected = getVisibleOpenMarkerText("c", node.getNumber());
+  const text = textNode.getTextContent();
+  if (text === expected) return;
+  const match = /^\\c[ \u00A0]+([^ \u00A0\\]+)[ \u00A0]/.exec(text);
+  if (!match) return; // leave literal; serialization falls back to the stored number
+  node.setNumber(match[1]);
+  textNode.setTextContent(getVisibleOpenMarkerText("c", match[1]));
 }
 
 /**
