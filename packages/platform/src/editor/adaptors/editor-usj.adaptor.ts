@@ -20,6 +20,7 @@ import {
   ChapterNode,
   CharNode,
   COMMENT_MARK_TYPE,
+  displayTextToUsj,
   ENDING_MS_COMMENT_MARKER,
   getEditableCallerText,
   ImmutableChapterNode,
@@ -33,6 +34,7 @@ import {
   MilestoneNode,
   NBSP,
   NODE_ATTRIBUTE_PREFIX,
+  normalizeSpaceRuns,
   NoteNode,
   ParaNode,
   parseNumberFromMarkerText,
@@ -56,9 +58,12 @@ import {
   VerseNode,
 } from "shared";
 import {
+  getViewMode,
   ImmutableNoteCallerNode,
   ImmutableVerseNode,
   SerializedImmutableVerseNode,
+  STANDARD_VIEW_MODE,
+  ViewOptions,
 } from "shared-react";
 
 interface EditorUsjAdaptor {
@@ -68,9 +73,17 @@ interface EditorUsjAdaptor {
 
 /** Logger instance */
 let _logger: LoggerBasic;
+/** View options of the editor. */
+let _viewOptions: ViewOptions | undefined;
 
-export function initialize(logger: LoggerBasic | undefined) {
+export function initialize(logger: LoggerBasic | undefined, viewOptions?: ViewOptions) {
   if (logger) _logger = logger;
+  _viewOptions = viewOptions;
+}
+
+/** §4 whitespace display rules are Standard-view-only (spec: must not leak into other modes). */
+function isStandardView(): boolean {
+  return _viewOptions !== undefined && getViewMode(_viewOptions) === STANDARD_VIEW_MODE;
 }
 
 export function deserializeEditorState(editorState: EditorState): Usj | undefined {
@@ -171,12 +184,15 @@ function createCharMarker(
 ): MarkerObject {
   const { type, marker: nodeMarker, unknownAttributes } = node;
   const marker = nodeMarker === "" ? undefined : nodeMarker;
-  // Remove NBSP at the start of the child text nodes.
-  content?.forEach((c, i) => {
-    if (typeof c === "string" && c.startsWith(NBSP)) {
-      content[i] = c.slice(1);
-    }
-  });
+  // Remove NBSP at the start of the child text nodes. In standard view this separator is
+  // stripped earlier, before whitespace inversion, so a real leading NBSP in the data isn't
+  // misread as the separator here (see the `recurseNodes` TextNode branch).
+  if (!isStandardView())
+    content?.forEach((c, i) => {
+      if (typeof c === "string" && c.startsWith(NBSP)) {
+        content[i] = c.slice(1);
+      }
+    });
   return removeUndefinedProperties({
     type,
     marker,
@@ -340,6 +356,7 @@ function replaceMarkWithMilestones(
 function recurseNodes(
   nodes: SerializedLexicalNode[],
   noteCaller?: string,
+  isCharChild = false,
 ): MarkerContent[] | undefined {
   const markers: MarkerContent[] = [];
   let childMarkers: MarkerContent[] | undefined;
@@ -374,7 +391,10 @@ function recurseNodes(
         break;
       case CharNode.getType():
         markers.push(
-          createCharMarker(serializedCharNode, recurseNodes(serializedCharNode.children)),
+          createCharMarker(
+            serializedCharNode,
+            recurseNodes(serializedCharNode.children, undefined, true),
+          ),
         );
         break;
       case ParaNode.getType():
@@ -424,7 +444,15 @@ function recurseNodes(
           !serializedTextNode.text.startsWith(NODE_ATTRIBUTE_PREFIX) &&
           (!noteCaller || serializedTextNode.text !== getEditableCallerText(noteCaller))
         ) {
-          combineTextContentOrAdd(markers, createTextMarker(serializedTextNode));
+          let text = createTextMarker(serializedTextNode);
+          // §4: Standard view stores display text; invert and normalize on serialization. A
+          // char marker's leading NBSP separator (added by the forward adaptor's `createChar`)
+          // must be stripped before inversion so it isn't misread as a collapsed space run.
+          if (isStandardView()) {
+            if (isCharChild && text.startsWith(NBSP)) text = text.slice(1);
+            text = normalizeSpaceRuns(displayTextToUsj(text));
+          }
+          combineTextContentOrAdd(markers, text);
         }
         break;
       case UnknownNode.getType():

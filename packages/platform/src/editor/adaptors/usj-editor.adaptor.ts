@@ -51,6 +51,7 @@ import {
   isMilestoneCommentMarker,
   isSerializedBookNode,
   isSerializedImmutableTypedTextNode,
+  isSerializedMarkerNode,
   isSerializedParaNode,
   isSerializedTextNode,
   isSomeSerializedChapterNode,
@@ -90,6 +91,7 @@ import {
   UNKNOWN_MARKER_OBJECT_PROPS,
   UNKNOWN_VERSION,
   UnknownNode,
+  usjTextToDisplay,
   VERSE_MARKER,
   VERSE_MARKER_OBJECT_PROPS,
   VERSE_VERSION,
@@ -106,10 +108,12 @@ import {
   NoteCallerOnClick,
   SerializedImmutableNoteCallerNode,
   SerializedImmutableVerseNode,
+  STANDARD_VIEW_MODE,
   UsjNodeOptions,
   ViewOptions,
   getDefaultViewOptions,
   getVerseNodeClass,
+  getViewMode,
   isSomeSerializedVerseNode,
 } from "shared-react";
 
@@ -209,6 +213,11 @@ function setNodeOptions(nodeOptions: UsjNodeOptions | undefined) {
  */
 function setLogger(logger: LoggerBasic | undefined) {
   if (logger) _logger = logger;
+}
+
+/** §4 whitespace display rules are Standard-view-only (spec: must not leak into other modes). */
+function isStandardView(): boolean {
+  return _viewOptions !== undefined && getViewMode(_viewOptions) === STANDARD_VIEW_MODE;
 }
 
 function getTextContent(markers: MarkerContent[] | undefined): string {
@@ -387,6 +396,14 @@ function createPara(
   else if (_viewOptions?.markerMode === "visible" || _viewOptions?.hasGutterParaMarkers)
     children.push(createImmutableTypedText("marker", openingMarkerText(marker) + NBSP));
   children.push(...childNodes);
+  if (isStandardView()) {
+    // §4: paragraph-leading spaces display as NBSP. First content text node only.
+    const firstText = children.find(
+      (node) => isSerializedTextNode(node) && node.text !== NBSP && !isSerializedMarkerNode(node),
+    );
+    if (firstText && isSerializedTextNode(firstText))
+      firstText.text = firstText.text.replace(/^ +/, (lead) => NBSP.repeat(lead.length));
+  }
   const unknownAttributes = getUnknownAttributes(markerObject, PARA_MARKER_OBJECT_PROPS);
 
   return removeUndefinedProperties({
@@ -708,7 +725,8 @@ function recurseNodes(markers: MarkerContent[] | undefined): SerializedLexicalNo
   const nodes: SerializedLexicalNode[] = [];
   markers?.forEach((markerContent) => {
     if (typeof markerContent === "string") {
-      if (markerContent) nodes.push(createText(markerContent));
+      if (markerContent)
+        nodes.push(createText(isStandardView() ? usjTextToDisplay(markerContent) : markerContent));
     } else if (!markerContent.type) {
       _logger?.error(`Marker type is missing!`);
     } else {

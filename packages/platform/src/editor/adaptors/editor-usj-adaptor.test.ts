@@ -22,15 +22,24 @@ import {
   usjMarks,
   usjWithUnknownItems,
 } from "../../../../utilities/src/converters/usj/converter-test.data";
-import editorUsjAdaptor from "./editor-usj.adaptor";
-import usjEditorAdaptor from "./usj-editor.adaptor";
-import { EMPTY_USJ, MarkerObject } from "@eten-tech-foundation/scripture-utilities";
+import editorUsjAdaptor, {
+  deserializeSerializedEditorState,
+  initialize as initializeDeserialize,
+} from "./editor-usj.adaptor";
+import usjEditorAdaptor, {
+  initialize as initializeSerialize,
+  reset,
+  serializeEditorState,
+} from "./usj-editor.adaptor";
+import { EMPTY_USJ, MarkerObject, usxStringToUsj } from "@eten-tech-foundation/scripture-utilities";
 import { deepEqual } from "fast-equals";
 import { SerializedTextNode } from "lexical";
-import { usjReactNodes } from "shared-react";
+import { getViewOptions, STANDARD_VIEW_MODE, usjReactNodes } from "shared-react";
 import {
   CHAPTER_MARKER,
   getVisibleOpenMarkerText,
+  isSerializedTextNode,
+  NBSP,
   SerializedChapterNode,
   SerializedParaNode,
   SerializedVerseNode,
@@ -133,5 +142,35 @@ describe("Editor USJ Adaptor", () => {
     const usj = editorUsjAdaptor.deserializeEditorState(editorState);
 
     expect(usj).toEqual(usjWithUnknownItems);
+  });
+
+  function buildPatchedStandardState(displayText: string) {
+    const usj = usxStringToUsj(
+      `<usx version="3.0"><book code="RUT" style="id" /><chapter number="1" style="c" /><para style="p"><verse number="1" style="v" />in the days</para></usx>`,
+    );
+    initializeSerialize(undefined, undefined);
+    reset();
+    const state = serializeEditorState(usj, getViewOptions(STANDARD_VIEW_MODE));
+    const para = state.root.children[2] as SerializedParaNode;
+    const text = para.children.find(
+      (child) => isSerializedTextNode(child) && child.text.includes("in the days"),
+    ) as SerializedTextNode;
+    text.text = displayText;
+    return state;
+  }
+
+  it("inverts display whitespace when deserializing standard view", () => {
+    // display tilde (= data NBSP) + display-NBSP run (= space run, collapses to one)
+    const state = buildPatchedStandardState(`in~the${NBSP}${NBSP}days`);
+    initializeDeserialize(undefined, getViewOptions(STANDARD_VIEW_MODE));
+    const roundTripped = deserializeSerializedEditorState(state);
+    expect(JSON.stringify(roundTripped)).toContain(`in${NBSP}the days`);
+  });
+
+  it("leaves whitespace untouched when deserializing without standard viewOptions", () => {
+    const state = buildPatchedStandardState(`in~the${NBSP}${NBSP}days`);
+    initializeDeserialize(undefined);
+    const roundTripped = deserializeSerializedEditorState(state);
+    expect(JSON.stringify(roundTripped)).toContain(`in~the${NBSP}${NBSP}days`);
   });
 });

@@ -178,7 +178,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
     }),
     [isReadonly, viewOptions.showCharMarkerTitles],
   );
-  editorUsjAdaptor.initialize(logger);
+  editorUsjAdaptor.initialize(logger, viewOptions);
 
   useImperativeHandle(ref, () => ({
     focus() {
