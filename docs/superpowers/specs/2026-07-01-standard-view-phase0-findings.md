@@ -138,3 +138,10 @@ dispositions to list — the generic `UnknownNode`/`unknownAttributes`
 pass-through mechanism (see "Task 5 run" above) already makes all five
 constructs lossless in `standard` mode without requiring dedicated node
 types.
+
+## MarkerNode lost its `marker` DOM class (pre-existing, commit 5ef9976)
+
+- **Symptom:** CSS keyed on `.marker` no longer reaches editable-mode MarkerNodes; Task 8's rules target `.opening/.closing/.selfClosing` instead as a workaround.
+- **Suspected site:** libs/shared/src/nodes/features/MarkerNode.ts createDOM (class list changed in #359).
+- **Severity:** cosmetic
+- **Disposition:** phase-2-engine — decide whether to restore the `marker` class on MarkerNode (and audit #359's motivation) or standardize on the syntax classes.

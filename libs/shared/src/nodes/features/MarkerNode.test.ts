@@ -152,12 +152,43 @@ describe("MarkerNode", () => {
   });
 
   describe("createDOM()", () => {
+    // Regression pin: usj-nodes.css keys the PT9 standard-view marker look off the
+    // marker-syntax class (opening/closing/selfClosing), not `marker` (dropped in #359).
+    // If this contract changes again, update packages/platform/src/usj-nodes.css to match.
     it("should set data-marker and the marker syntax class", () => {
       const { editor } = createBasicTestEnvironment([MarkerNode]);
       editor.update(() => {
         const element = $createMarkerNode(testParaMarker, "closing").createDOM(testConfig(editor));
         expect(element.getAttribute("data-marker")).toBe(testParaMarker);
         expect(element.classList.contains("closing")).toBe(true);
+      });
+    });
+
+    it("adds the 'opening' class and data-marker attribute for an opening marker", () => {
+      const { editor } = createBasicTestEnvironment([MarkerNode]);
+      editor.update(() => {
+        const element = $createMarkerNode(testParaMarker, "opening").createDOM(testConfig(editor));
+        expect(element.classList.contains("opening")).toBe(true);
+        expect(element.getAttribute("data-marker")).toBe(testParaMarker);
+      });
+    });
+
+    it("adds the 'selfClosing' class and data-marker attribute for a self-closing marker", () => {
+      const { editor } = createBasicTestEnvironment([MarkerNode]);
+      editor.update(() => {
+        const element = $createMarkerNode(testParaMarker, "selfClosing").createDOM(
+          testConfig(editor),
+        );
+        expect(element.classList.contains("selfClosing")).toBe(true);
+        expect(element.getAttribute("data-marker")).toBe(testParaMarker);
+      });
+    });
+
+    it("does not add a 'marker' class", () => {
+      const { editor } = createBasicTestEnvironment([MarkerNode]);
+      editor.update(() => {
+        const element = $createMarkerNode(testParaMarker, "opening").createDOM(testConfig(editor));
+        expect(element.classList.contains("marker")).toBe(false);
       });
     });
   });
