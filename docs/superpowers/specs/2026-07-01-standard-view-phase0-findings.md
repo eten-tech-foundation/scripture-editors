@@ -1,5 +1,36 @@
 # Standard View Phase 0 — Round-Trip Findings
 
+## Phase 0+1 completion summary
+
+- Corpus: 14 fixtures × 4 view modes; 56 passing, 0 skipped-with-finding.
+- Acceptance criterion (§7): table, figure, sidebar, periph, unclosed note — 5 of 5 lossless in
+  standard mode (generic `UnknownNode`/`unknownAttributes` pass-through; no dedicated node types
+  needed). See "Acceptance criterion status (spec §7)" below.
+- Editable delta round-trip test: enabled and green — the skipped test's expected-ops fixture was
+  stale (never regenerated since introduction); corrected to match current adaptor behavior, no
+  adaptor source changed (commit 54941d2).
+- Adaptor fixes landed: none in `libs/*/adaptors` proper. Two upstream converter/plugin fixes:
+  `parseNumberFromMarkerText` preserved verse bridges/segments (commit 2aabcb9); note-caller
+  rendering keyed off `noteMode` instead of `markerMode` (commit 3904573). One styling fix:
+  Task 8's CSS retargeted to MarkerNode syntax classes (`.opening`/`.closing`/`.selfClosing`)
+  instead of the lost `.marker` class (commit 1320947), with the underlying class-drop logged as
+  a phase-2-engine finding below.
+- Recommended Phase 2 plan inputs (top findings, most to least actionable):
+  1. **MarkerNode lost its `marker` DOM class** (pre-existing, commit 5ef9976, #359) — cosmetic;
+     decide whether to restore the class or standardize on syntax classes. See finding below.
+  2. **Editable delta ops carry raw marker glyphs** (e.g. `\v`, `\nd`, NBSP) instead of stripping
+     them — the corrected fixture (commit 54941d2) removed a `// TODO: NBSP and markers need to
+     be removed.` comment because it no longer matched reality, not because the aspiration was
+     resolved. Design question for the Phase 2 marker-editing engine: whether/how to strip marker
+     glyph text from collab delta ops before they reach collaborators.
+  3. **Book `\id` marker glyph is absent from editable delta ops** while other marker glyphs
+     (`\c`, `\p`, `\v`, etc.) are present verbatim — pre-existing asymmetry in
+     `libs/shared-react/src/plugins/usj/collab/editor-delta.adaptor.ts`; confirm intentional
+     with the collab adaptor owner before Phase 2 design locks in delta-ops behavior.
+- Unicode normalization (spec §4): applied host-side automatically on every PT10 save via
+  `ScrText.PutText` (not a Phase 5 gap); NBSP↔`~` handling also already present host-side. See
+  "Unicode normalization (spec §4)" below for the full evidence trail.
+
 Corpus: `packages/platform/src/editor/adaptors/corpus/`. Each entry below is a
 round-trip failure discovered by the harness and NOT fixed in its discovery
 task, with enough detail to plan the fix. Format per finding:
@@ -145,3 +176,40 @@ types.
 - **Suspected site:** libs/shared/src/nodes/features/MarkerNode.ts createDOM (class list changed in #359).
 - **Severity:** cosmetic
 - **Disposition:** phase-2-engine — decide whether to restore the `marker` class on MarkerNode (and audit #359's motivation) or standardize on the syntax classes.
+
+## Unicode normalization (spec §4)
+
+Read-only investigation of `/home/lyonsm/paranext-core` (no code changes made there).
+
+`grep -rn "Normalize" c-sharp/Projects/ParatextProjectDataProvider.cs` finds exactly one hit:
+`ConvertUsxToUsfm` (the USX→USFM step of the save path, `ParatextProjectDataProvider.cs:2141-2158`)
+calls `UsfmToken.NormalizeUsfm(scrText, verseRef.BookNum, usfm)` at line 2158. Reading
+`UsfmToken.NormalizeUsfm`/`NormalizeTokenUsfm` (`/home/lyonsm/Paratext/ParatextData/UsfmToken.cs:795-920`)
+shows this call only re-tokenizes and re-serializes USFM (CR/LF placement, double-space removal, RTL
+direction marks) — it contains no `string.Normalize`/`NormalizationForm` call and is **not** Unicode
+NFC/NFD normalization.
+
+**Applied — one layer down, in `ScrText.PutText`, not in `ParatextProjectDataProvider.cs` itself.**
+Every save path in `ParatextProjectDataProvider.cs` (`SetChapterUsfm:1830`, `SetBookUsfm:1807`, and
+`SetChapterUsx`'s inline call at `:1985`, all reached after `ConvertUsxToUsfm` produces USFM)
+funnels into `scrText.PutText(...)`. `ScrText.PutText`
+(`/home/lyonsm/Paratext/ParatextData/ScrText.cs:1157-1250`) itself calls `text = Normalize(text, false)`
+at **`ScrText.cs:1244`**, and `ScrText.Normalize` (`ScrText.cs:1573-1576`, the reference cited in the
+task brief) delegates to `StringUtils.Normalize(text, Settings.NormalizationForm, forceUndefinedAsComposed)`
+— the project's configured NFC/NFD form, exactly PT9's behavior. So: normalization is applied
+automatically on every PT10 save, inherited "for free" from `ParatextData.dll` via `PutText`; no call
+to `Normalize`/`NormalizationForm` exists directly in paranext-core's own C# and none is needed — this
+is **not** a Phase 5 host-side gap.
+
+**NBSP↔`~` handling:** a `FixNBSP`-equivalent transform *does* appear directly in the paranext-core
+save path (not just transitively via `PutText`). `ConvertUsxToUsfm` calls
+`UsxFragmenter.FindFragments(..., scrText.Settings.AllowInvisibleChars)` at
+`ParatextProjectDataProvider.cs:2150-2156`; inside it, `UsxFragmenter.AddTextUsfm`
+(`/home/lyonsm/Paratext/ParatextData/UsxFragmenter.cs:101-106`) does
+`nav.Value.Replace(U+00A0, '~')` (NBSP to tilde) whenever `allowInvisibleChars` is false — the same
+character mapping as `ScrText.FixNBSP` (`ScrText.cs:1467-1492`, `str.Replace(U+00A0, '~')`), inlined
+rather than calling `FixNBSP` itself. The reverse direction (tilde to literal NBSP) happens on the
+read/import side at `UsfmParser.cs:507` (`text.Replace('~', U+00A0)`). Net effect for Phase 2's §4
+whitespace rules: NBSP in USX/USJ text round-trips to `~` in saved USFM (and back) at the host layer
+already — the editor does not need to do this conversion itself, only needs to treat `~`/NBSP as the
+same logical whitespace char when reasoning about marker-adjacent whitespace.
