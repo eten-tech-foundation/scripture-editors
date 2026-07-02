@@ -433,8 +433,12 @@ export function parseNumberFromMarkerText(
 ): string {
   const openMarkerText = openingMarkerText(marker);
   if (text?.startsWith(openMarkerText)) {
-    const numberText = parseInt(text.slice(openMarkerText.length), 10);
-    if (!isNaN(numberText)) number = numberText.toString();
+    // Skip the NBSP/space separator inserted by `getVisibleOpenMarkerText`.
+    const rest = text.slice(openMarkerText.length).replace(/^[\s ]+/, "");
+    // Full verse-number token: digits + optional segment letter, optionally
+    // bridged (-) or listed (,) with more of the same. E.g. 12, 5a, 1-2, 1a-2b, 1,3.
+    const match = /^(\d+[a-zA-Z]?(?:[-,]\d+[a-zA-Z]?)*)/.exec(rest);
+    if (match) number = match[1];
   }
   return number;
 }

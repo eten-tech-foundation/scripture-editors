@@ -215,6 +215,30 @@ describe("Editor Node Utilities", () => {
 
       expect(number).toEqual("1");
     });
+
+    it("preserves verse bridges", () => {
+      expect(parseNumberFromMarkerText("v", `\\v${NBSP}1-2 `, "9")).toBe("1-2");
+    });
+
+    it("preserves verse segments", () => {
+      expect(parseNumberFromMarkerText("v", `\\v${NBSP}5a `, "9")).toBe("5a");
+    });
+
+    it("preserves segmented bridges", () => {
+      expect(parseNumberFromMarkerText("v", `\\v${NBSP}1a-2b `, "9")).toBe("1a-2b");
+    });
+
+    it("preserves comma-separated verse lists", () => {
+      expect(parseNumberFromMarkerText("v", `\\v${NBSP}1,3 `, "9")).toBe("1,3");
+    });
+
+    it("still parses plain integers with a regular space separator", () => {
+      expect(parseNumberFromMarkerText("v", "\\v 12 ", "9")).toBe("12");
+    });
+
+    it("falls back to the default when no number is present", () => {
+      expect(parseNumberFromMarkerText("v", `\\v${NBSP}`, "9")).toBe("9");
+    });
   });
 
   describe("getUnknownAttributes()", () => {
