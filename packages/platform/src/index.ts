@@ -44,6 +44,7 @@ export {
   getViewOptions,
   isInsertEmbedOpOfType,
   PARAGRAPH_STRUCTURE_VIEW_MODE,
+  STANDARD_VIEW_MODE,
   viewModeToViewNames,
 } from "shared-react";
 

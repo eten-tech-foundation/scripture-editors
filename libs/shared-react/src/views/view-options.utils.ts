@@ -10,6 +10,7 @@ import {
   FORMATTED_VIEW_MODE,
   UNFORMATTED_VIEW_MODE,
   PARAGRAPH_STRUCTURE_VIEW_MODE,
+  STANDARD_VIEW_MODE,
 } from "./view-mode.model";
 
 /**
@@ -157,6 +158,14 @@ export function getViewOptions(viewMode?: string | undefined): ViewOptions | und
         hasActiveTextFocusBox: true,
       };
       break;
+    case STANDARD_VIEW_MODE:
+      viewOptions = {
+        markerMode: "editable",
+        noteMode: "collapsed",
+        hasSpacing: true,
+        isFormattedFont: true,
+      };
+      break;
     default:
       break;
   }
@@ -174,8 +183,14 @@ export function getViewOptions(viewMode?: string | undefined): ViewOptions | und
 export function getViewMode(viewOptions: ViewOptions | undefined): ViewMode | undefined {
   if (!viewOptions) return undefined;
 
-  const { markerMode, hasSpacing, isFormattedFont, hasGutterParaMarkers, hasActiveTextFocusBox } =
-    viewOptions;
+  const {
+    markerMode,
+    noteMode,
+    hasSpacing,
+    isFormattedFont,
+    hasGutterParaMarkers,
+    hasActiveTextFocusBox,
+  } = viewOptions;
   if (
     markerMode === "hidden" &&
     hasSpacing &&
@@ -184,6 +199,15 @@ export function getViewMode(viewOptions: ViewOptions | undefined): ViewMode | un
     hasActiveTextFocusBox
   )
     return PARAGRAPH_STRUCTURE_VIEW_MODE;
+  if (
+    markerMode === "editable" &&
+    noteMode === "collapsed" &&
+    hasSpacing &&
+    isFormattedFont &&
+    !hasGutterParaMarkers &&
+    !hasActiveTextFocusBox
+  )
+    return STANDARD_VIEW_MODE;
   if (
     markerMode === "hidden" &&
     hasSpacing &&
