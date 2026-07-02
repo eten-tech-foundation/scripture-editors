@@ -90,4 +90,36 @@ ${USX_FOOTER}`,
       `<para style="p"><verse number="1" style="v" />וַיְהִ֗י בִּימֵי֙ שְׁפֹ֣ט הַשֹּׁפְטִ֔ים <char style="nd">יהוה</char> וַיְהִ֥י רָעָ֖ב׃</para>`,
     ),
   },
+  {
+    name: "table with header and cells",
+    usx: book(`<para style="p"><verse number="1" style="v" />Before the table.</para>
+  <table><row style="tr"><cell style="th1" align="start">Day</cell><cell style="th2" align="start">Tribe</cell></row>
+  <row style="tr"><cell style="tc1" align="start">First</cell><cell style="tc2" align="start">Judah</cell></row></table>
+  <para style="p">After the table.</para>`),
+  },
+  {
+    name: "figure (USFM 3 attributes)",
+    usx: book(
+      `<para style="p"><verse number="1" style="v" />Text with figure.<figure style="fig" file="cn01617.jpg" size="span" ref="1:31">At once they left their nets.</figure>More text.</para>`,
+    ),
+  },
+  {
+    name: "sidebar (esb)",
+    usx: book(`<para style="p"><verse number="1" style="v" />Main text.</para>
+  <sidebar style="esb" category="History"><para style="p">Sidebar paragraph content.</para></sidebar>
+  <para style="p">Continues after sidebar.</para>`),
+  },
+  {
+    name: "periph",
+    usx: `<usx version="3.0">
+  <book code="FRT" style="id">Front matter</book>
+  <periph id="title" alt="Title Page"><para style="mt1">The Title</para></periph>
+${USX_FOOTER}`,
+  },
+  {
+    name: "unclosed note (closed=false)",
+    usx: book(
+      `<para style="p"><verse number="1" style="v" />Text<note caller="+" style="f" closed="false"><char style="fr">1.1 </char><char style="ft">Unterminated note</char></note></para>`,
+    ),
+  },
 ];
