@@ -2838,6 +2838,27 @@ export const usfmMarkers: { [marker: string]: Marker } = {
     hasEndMarker: true,
     children: undefined,
   },
+  w: {
+    category: CategoryType.SpecialFeatures,
+    type: MarkerType.Character,
+    description: "A wordlist/glossary/dictionary entry marker for study/analysis purposes",
+    hasEndMarker: true,
+    children: undefined,
+  },
+  rb: {
+    category: CategoryType.SpecialFeatures,
+    type: MarkerType.Character,
+    description: "A ruby glossing marker for study/analysis purposes",
+    hasEndMarker: true,
+    children: undefined,
+  },
+  jmp: {
+    category: CategoryType.SpecialFeatures,
+    type: MarkerType.Character,
+    description: "A hyperlink marker for study/analysis purposes",
+    hasEndMarker: true,
+    children: undefined,
+  },
   k: {
     category: CategoryType.SpecialText,
     type: MarkerType.Character,

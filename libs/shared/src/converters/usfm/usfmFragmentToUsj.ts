@@ -156,18 +156,52 @@ function tokenize(fragment: string): Token[] {
   return tokens;
 }
 
-// `scanMilestone` and attribute parsing are added in the next task; until then
-// milestones fall back to literal text.
-/* eslint-disable @typescript-eslint/no-unused-vars -- stub params Task 3 fills in */
-function scanMilestone(
-  _fragment: string,
-  _rawStart: number,
-  _name: string,
-  _index: number,
-): { token: Token; next: number } | undefined {
+const ATTRIBUTE_PAIR_REGEX = /([-\w]+)\s*=\s*"(.*?)"/g;
+
+/** USFM 3 default attribute per marker (subset; unmapped bare values stay literal). */
+const DEFAULT_MARKER_ATTRIBUTES: { [marker: string]: string } = {
+  w: "lemma",
+  rb: "gloss",
+  xt: "href",
+  jmp: "href",
+};
+
+function parseAttributeText(
+  attributeText: string,
+  marker: string,
+): { [attributeName: string]: string } | undefined {
+  const attributes: { [attributeName: string]: string } = {};
+  const pairs = [...attributeText.matchAll(ATTRIBUTE_PAIR_REGEX)];
+  if (pairs.length > 0) {
+    for (const [, name, value] of pairs) attributes[name] = value;
+    return attributes;
+  }
+  const bare = attributeText.trim();
+  const defaultName = DEFAULT_MARKER_ATTRIBUTES[marker];
+  if (bare && defaultName) return { [defaultName]: bare };
   return undefined;
 }
-/* eslint-enable @typescript-eslint/no-unused-vars */
+
+/**
+ * A milestone must be terminated by `\*` (PT9 `MilestoneEnded`); attributes may
+ * follow a `|` between the marker and the `\*`.
+ */
+function scanMilestone(
+  fragment: string,
+  _rawStart: number,
+  name: string,
+  index: number,
+): { token: Token; next: number } | undefined {
+  const closeIndex = fragment.indexOf("\\", index);
+  if (closeIndex === -1 || fragment.slice(closeIndex, closeIndex + 2) !== "\\*") return undefined;
+  const between = fragment.slice(index, closeIndex);
+  if (between.includes("\\")) return undefined;
+  const pipeIndex = between.indexOf("|");
+  let attributes: { [attributeName: string]: string } | undefined;
+  if (pipeIndex >= 0) attributes = parseAttributeText(between.slice(pipeIndex + 1), name);
+  else if (between.trim() !== "") return undefined; // non-attribute content before \* — literal
+  return { token: { kind: "milestone", marker: name, attributes }, next: closeIndex + 2 };
+}
 
 /** Convert `~` to NBSP for USJ text content (PT9 read-side `UsfmParser` behavior). */
 function toUsjText(text: string): string {
@@ -273,6 +307,9 @@ export function usfmFragmentToUsjContent(fragment: string): MarkerContent[] {
           extractAttributes(charStack[frameIndex].object);
           charStack.length = frameIndex;
         } else if (note && note.marker === marker) {
+          // Explicit note close auto-closes any still-open char span within it
+          // (PT9: closing a note terminates its content, same as para/verse/chapter).
+          closeCharStack();
           closeNote(true);
         } else {
           // Unmatched closer: literal text (degradation property).
@@ -302,6 +339,18 @@ export function usfmFragmentToUsjContent(fragment: string): MarkerContent[] {
   return result;
 }
 
-// Attribute extraction from a closed char span is added in the next task.
-// eslint-disable-next-line @typescript-eslint/no-unused-vars, @typescript-eslint/no-empty-function -- stub param/body Task 3 fills in
-function extractAttributes(_object: MarkerObject): void {}
+/** On explicit close, split a trailing `|attributes` chunk off the span's last text. */
+function extractAttributes(object: MarkerObject): void {
+  const content = object.content;
+  if (!content || content.length === 0) return;
+  const last = content[content.length - 1];
+  if (typeof last !== "string") return;
+  const pipeIndex = last.indexOf("|");
+  if (pipeIndex < 0) return;
+  const attributes = parseAttributeText(last.slice(pipeIndex + 1), object.marker ?? "");
+  if (!attributes) return;
+  const text = last.slice(0, pipeIndex);
+  if (text) content[content.length - 1] = text;
+  else content.pop();
+  Object.assign(object, attributes);
+}
