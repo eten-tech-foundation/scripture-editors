@@ -1,3 +1,4 @@
+import { $removeCharFormattingFromSelection } from "./charFormatting.utils";
 import {
   $charNodeDeletionTransform,
   $paraMarkerDeletionTransform,
@@ -26,6 +27,7 @@ import {
   COPY_COMMAND,
   CUT_COMMAND,
   INSERT_PARAGRAPH_COMMAND,
+  KEY_DOWN_COMMAND,
   KEY_ENTER_COMMAND,
   NodeKey,
   SELECTION_CHANGE_COMMAND,
@@ -39,7 +41,8 @@ import { getViewMode, STANDARD_VIEW_MODE, ViewOptions } from "shared-react";
  * The Standard-view marker-editing engine (design spec §5). Tier 1 node
  * transforms keep structural state in sync with edited marker text; completion
  * commands (Enter/blur) resolve mid-edit markers; deletion transforms (§5.5)
- * handle marker-prefix removal (para merge, char unwrap); Tier 2 re-tokenization
+ * handle marker-prefix removal (para merge, char unwrap); Ctrl+Space (§5.5)
+ * strips character formatting at the caret/selection; Tier 2 re-tokenization
  * handles everything else. Active only when markers are editable text.
  */
 export function MarkerEditPlugin({
@@ -117,6 +120,16 @@ export function MarkerEditPlugin({
             ),
           ]
         : []),
+      editor.registerCommand(
+        KEY_DOWN_COMMAND,
+        (event: KeyboardEvent) => {
+          if (!event.ctrlKey || event.altKey || event.shiftKey || event.metaKey) return false;
+          if (event.key !== " " && event.code !== "Space") return false;
+          event.preventDefault();
+          return $removeCharFormattingFromSelection();
+        },
+        COMMAND_PRIORITY_HIGH,
+      ),
       editor.registerCommand(
         KEY_ENTER_COMMAND,
         () => {
