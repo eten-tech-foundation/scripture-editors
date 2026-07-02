@@ -213,7 +213,9 @@ function $handleTextNodes(
   charContentProduced: Set<CharNode>,
 ) {
   if (!$isTextNode(currentNode)) return;
-  // Remove (skip) editable caller text from note nodes.
+  // Skip a note's first text child: in editable modes this is the note's opening marker glyph
+  // (MarkerNode extends TextNode), which shouldn't flow into ops. Caller text, when present as a
+  // plain text child (expanded editable mode), is never the first child and is not skipped here.
   const parent = currentNode.getParent();
   if ($isNoteNode(parent) && parent.getFirstChild() === currentNode) return;
 
