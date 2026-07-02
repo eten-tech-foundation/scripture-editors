@@ -1009,25 +1009,23 @@ export const editorStateGen1v1Editable = {
 } as unknown as SerializedEditorState;
 
 export const opsGen1v1Editable = [
-  // TODO: NBSP and markers need to be removed.
   { insert: "Some Scripture Version" },
   { insert: "\n", attributes: { book: { style: "id", code: "GEN" } } },
   { insert: { chapter: { style: "c", number: "1", sid: "GEN 1" } } },
-  { insert: "\\c 1 \\p \\v 1 " },
+  { insert: `\\c${NBSP}1 \\p${NBSP}\\v${NBSP}1 ` },
   { insert: { verse: { style: "v", number: "1", sid: "GEN 1:1" } } },
-  { insert: "the first verse \\v 2 " },
+  { insert: `the first verse \\v${NBSP}2 ` },
   { insert: { verse: { style: "v", number: "2", sid: "GEN 1:2" } } },
-  { insert: "the second verse \\v 15 " },
+  { insert: `the second verse \\v${NBSP}15 ` },
   { insert: { verse: { style: "v", number: "15", sid: "GEN 1:15", altnumber: "3" } } },
-  { insert: "Tell the Israelites that I, the \\nd" },
-  { insert: " Lord", attributes: { char: { style: "nd" } } },
-  { insert: "\\nd*, the God of their ancestors, the God of Abraham, Isaac, and Jacob,\\va" },
-  { insert: " 4", attributes: { char: { style: "va" } } },
-  { insert: "\\va*" },
+  { insert: "Tell the Israelites that I, the " },
+  { insert: `\\nd${NBSP}Lord\\nd*`, attributes: { char: { style: "nd" } } },
+  { insert: ", the God of their ancestors, the God of Abraham, Isaac, and Jacob," },
+  { insert: `\\va${NBSP}4\\va*`, attributes: { char: { style: "va" } } },
   { insert: "\n", attributes: { para: { style: "p" } } },
-  { insert: "\\b " },
+  { insert: `\\b${NBSP}` },
   { insert: "\n", attributes: { para: { style: "b" } } },
-  { insert: "\\q2 \\v 16 " },
+  { insert: `\\q2${NBSP}\\v${NBSP}16 ` },
   { insert: { verse: { style: "v", number: "16", sid: "GEN 1:16" } } },
   { insert: "“There is no help for him in God.”" },
   {
@@ -1037,12 +1035,13 @@ export const opsGen1v1Editable = [
         caller: "+",
         contents: {
           ops: [
-            { insert: " + " },
-            { insert: "\\fr" },
-            { insert: " 3:2 ", attributes: { char: { style: "fr" } } },
-            { insert: "\\ft" },
+            { insert: ` +${NBSP}` },
+            { insert: "\\fr", attributes: { char: { style: "fr" } } },
+            { insert: `${NBSP}3:2 `, attributes: { char: { style: "fr" } } },
+            { insert: "\\fk", attributes: { char: { style: "fk" } } },
+            { insert: "\\ft", attributes: { char: { style: "ft" } } },
             {
-              insert: " The Hebrew word rendered “God” is “אֱלֹהִ֑ים” (Elohim).",
+              insert: `${NBSP}The Hebrew word rendered “God” is “אֱלֹהִ֑ים” (Elohim).`,
               attributes: { char: { style: "ft" } },
             },
             { insert: "\\f*" },
@@ -1053,9 +1052,8 @@ export const opsGen1v1Editable = [
   },
   { insert: " " },
   { insert: { unmatched: { marker: "f*" } } },
-  { insert: " \\qs" },
-  { insert: `${NBSP}Selah.`, attributes: { char: { style: "qs" } } },
-  { insert: "\\qs*" },
+  { insert: " " },
+  { insert: `\\qs${NBSP}Selah.\\qs*`, attributes: { char: { style: "qs" } } },
   { insert: "\n", attributes: { para: { style: "q2" } } },
 ];
 

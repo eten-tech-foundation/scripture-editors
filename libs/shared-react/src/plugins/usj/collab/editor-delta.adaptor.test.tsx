@@ -758,7 +758,7 @@ describe("getEditorDelta", () => {
       expect(delta.ops).toEqual(opsGen1v1Nonstandard);
     });
 
-    it.skip("should roundtrip the editor state in editable mode", async () => {
+    it("should roundtrip the editor state in editable mode", async () => {
       const { editor } = await testEnvironment();
       const editorState = editor.parseEditorState(editorStateGen1v1Editable);
 
