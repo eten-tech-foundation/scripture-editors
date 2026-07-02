@@ -3,9 +3,13 @@ import { act } from "@testing-library/react";
 import {
   $createTextNode,
   $getRoot,
+  $getSelection,
+  $isElementNode,
+  $isRangeSelection,
   $isTextNode,
   $setState,
   KEY_DOWN_COMMAND,
+  LexicalNode,
   TextNode,
 } from "lexical";
 import {
@@ -34,6 +38,17 @@ function $charContent(char: ReturnType<typeof $createCharNode>): TextNode {
       .find((n) => !$isMarkerNode(n)),
     "char span has no content text node",
   );
+}
+
+/** All plain (non-marker) TextNode descendants of `node`, in document order. */
+function $collectPlainTextNodes(node: LexicalNode): TextNode[] {
+  const result: TextNode[] = [];
+  const visit = (current: LexicalNode) => {
+    if ($isTextNode(current) && !$isMarkerNode(current)) result.push(current);
+    if ($isElementNode(current)) current.getChildren().forEach(visit);
+  };
+  visit(node);
+  return result;
 }
 
 describe("Ctrl+Space (§5.5)", () => {
@@ -115,9 +130,38 @@ describe("Ctrl+Space (§5.5)", () => {
       );
     });
     editor.getEditorState().read(() => {
-      // exactly one space between the two spans, no double space anywhere
-      expect($getRoot().getTextContent()).not.toContain("  ");
-      expect($getRoot().getTextContent()).toContain("Lord of hosts");
+      const para = requireDefined($getRoot().getChildren().filter($isParaNode)[0], "para missing");
+      // PT9 still SPLITS the span at the caret even though a space sits right
+      // there — it just reuses that space as the separator instead of
+      // manufacturing a second one.
+      const chars = para
+        .getChildren()
+        .filter($isCharNode)
+        .filter((c) => c.getMarker() === "nd");
+      expect(chars).toHaveLength(2);
+      const [left, right] = chars;
+
+      const between = left.getNextSibling();
+      expect(between?.is(right.getPreviousSibling())).toBe(true);
+      const separator = requireDefined(
+        $isTextNode(between) && !$isMarkerNode(between) ? between : undefined,
+        "separator between the split spans is not a plain text node",
+      );
+      // exactly one (reused) space, not two (one reused + one inserted)
+      expect(separator.getTextContent()).toBe(" ");
+
+      expect($charContent(left).getTextContent()).toContain("Lord");
+      expect($charContent(right).getTextContent()).toContain("of hosts");
+
+      // no plain text node anywhere in the paragraph doubled the space —
+      // proves the existing space was reused, not supplemented
+      const plainTextNodes = $collectPlainTextNodes(para);
+      expect(plainTextNodes.some((n) => n.getTextContent().includes("  "))).toBe(false);
+
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) throw new Error("expected a range selection");
+      expect(selection.anchor.getNode().is(separator)).toBe(true);
+      expect(selection.anchor.offset).toBe(1);
     });
   });
 
