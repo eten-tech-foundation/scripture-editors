@@ -11,6 +11,10 @@ import {
   MarkerEditContext,
 } from "./markerEditTier1.utils";
 import { $textNodeTier2Transform } from "./markerEditTier2Trigger.utils";
+import {
+  $displayWhitespaceTransform,
+  $handleCopyForStandardView,
+} from "./whitespaceDisplay.plugin.utils";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { mergeRegister } from "@lexical/utils";
 import {
@@ -19,6 +23,8 @@ import {
   BLUR_COMMAND,
   COMMAND_PRIORITY_HIGH,
   COMMAND_PRIORITY_LOW,
+  COPY_COMMAND,
+  CUT_COMMAND,
   INSERT_PARAGRAPH_COMMAND,
   KEY_ENTER_COMMAND,
   NodeKey,
@@ -27,7 +33,7 @@ import {
 } from "lexical";
 import { useEffect } from "react";
 import { ChapterNode, CharNode, LoggerBasic, MarkerNode, ParaNode, VerseNode } from "shared";
-import { ViewOptions } from "shared-react";
+import { getViewMode, STANDARD_VIEW_MODE, ViewOptions } from "shared-react";
 
 /**
  * The Standard-view marker-editing engine (design spec §5). Tier 1 node
@@ -48,6 +54,7 @@ export function MarkerEditPlugin({
 
   useEffect(() => {
     if (!isEnabled || !viewOptions) return;
+    const isStandardView = getViewMode(viewOptions) === STANDARD_VIEW_MODE;
     const context: MarkerEditContext = {
       viewOptions,
       pendingKeys: new Set<NodeKey>(),
@@ -89,6 +96,27 @@ export function MarkerEditPlugin({
         if (editor.isComposing()) return;
         $textNodeTier2Transform(node, context);
       }),
+      // §4/§5.6: Standard-view-only whitespace display invariant and clipboard
+      // normalization. Gated separately from the rest of this plugin (which is
+      // markerMode-gated and also active in Unformatted view) — must not leak there.
+      ...(isStandardView
+        ? [
+            editor.registerNodeTransform(TextNode, (node) => {
+              if (editor.isComposing()) return;
+              $displayWhitespaceTransform(node);
+            }),
+            editor.registerCommand(
+              COPY_COMMAND,
+              (event) => $handleCopyForStandardView(event as ClipboardEvent, editor, false),
+              COMMAND_PRIORITY_HIGH,
+            ),
+            editor.registerCommand(
+              CUT_COMMAND,
+              (event) => $handleCopyForStandardView(event as ClipboardEvent, editor, true),
+              COMMAND_PRIORITY_HIGH,
+            ),
+          ]
+        : []),
       editor.registerCommand(
         KEY_ENTER_COMMAND,
         () => {

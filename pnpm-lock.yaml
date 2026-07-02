@@ -409,6 +409,9 @@ importers:
       '@floating-ui/dom':
         specifier: ^1.7.6
         version: 1.7.6
+      '@lexical/clipboard':
+        specifier: ^0.43.0
+        version: 0.43.0
       '@lexical/html':
         specifier: ^0.43.0
         version: 0.43.0
