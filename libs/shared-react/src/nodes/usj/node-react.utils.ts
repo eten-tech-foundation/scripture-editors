@@ -255,7 +255,7 @@ export function $createWholeNote(
 
   let callerNode: ImmutableNoteCallerNode | TextNode;
   if (openingMarkerNode) note.append(openingMarkerNode);
-  if (viewOptions?.markerMode === "editable") {
+  if (viewOptions?.markerMode === "editable" && viewOptions?.noteMode === "expanded") {
     if (caller === "") note.append(...contentNodes);
     else {
       callerNode = $createTextNode(getEditableCallerText(note.__caller));

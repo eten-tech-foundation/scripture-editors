@@ -53,6 +53,7 @@ import {
   isSomeSerializedVerseNode,
   SerializedImmutableNoteCallerNode,
   PARAGRAPH_STRUCTURE_VIEW_MODE,
+  STANDARD_VIEW_MODE,
   UNFORMATTED_VIEW_MODE,
   ViewOptions,
 } from "shared-react";
@@ -270,6 +271,42 @@ describe("USJ Editor Adaptor", () => {
       (n) => isSerializedMarkerNode(n) && n.markerSyntax === "closing",
     );
     expect(hasClosingMarker).toBe(true);
+  });
+
+  it("renders an atomic note caller with editable markers in standard view", () => {
+    const usj = usjGen1v1;
+    initialize(undefined, undefined);
+    reset();
+
+    const serializedEditorState = serializeEditorState(usj, getViewOptions(STANDARD_VIEW_MODE));
+
+    const notePara = serializedEditorState.root.children.find(
+      (n) => isSerializedParaNode(n) && n.marker === "q2",
+    );
+    if (!isSerializedParaNode(notePara)) throw new Error("Note para not found");
+    const note = notePara.children.find((n) => isSerializedNoteNode(n));
+    if (!isSerializedNoteNode(note)) throw new Error("Note not found");
+    // Children: opening MarkerNode, ImmutableNoteCallerNode, NBSP text, content..., closing MarkerNode
+    expect(isSerializedMarkerNode(note.children[0])).toBe(true);
+    expect(isSerializedImmutableNoteCallerNode(note.children[1])).toBe(true);
+    expect(isSerializedMarkerNode(note.children[note.children.length - 1])).toBe(true);
+    expect(note.isCollapsed).toBe(true);
+  });
+
+  it("still renders editable caller text in unformatted view", () => {
+    const usj = usjGen1v1;
+    initialize(undefined, undefined);
+    reset();
+
+    const serializedEditorState = serializeEditorState(usj, getViewOptions(UNFORMATTED_VIEW_MODE));
+
+    const notePara = serializedEditorState.root.children.find(
+      (n) => isSerializedParaNode(n) && n.marker === "q2",
+    );
+    if (!isSerializedParaNode(notePara)) throw new Error("Note para not found");
+    const note = notePara.children.find((n) => isSerializedNoteNode(n));
+    if (!isSerializedNoteNode(note)) throw new Error("Note not found");
+    expect(note.children.some((child) => isSerializedImmutableNoteCallerNode(child))).toBe(false);
   });
 
   it("should convert from USJ to Lexical editor state JSON including the hidden caller", () => {
