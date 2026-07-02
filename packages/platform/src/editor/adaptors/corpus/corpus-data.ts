@@ -53,4 +53,41 @@ export const corpusFixtures: CorpusFixture[] = [
       `<para style="p"><verse number="1" style="v" /><char style="add">added <char style="nd">Lord</char> text</char> plain.</para>`,
     ),
   },
+  {
+    name: "verse bridges and segments",
+    usx: book(
+      `<para style="p"><verse number="1-2" style="v" />Bridged verse text. <verse number="3a" style="v" />Segment a. <verse number="3b" style="v" />Segment b. <verse number="4a-5b" style="v" />Segmented bridge.</para>`,
+    ),
+  },
+  {
+    name: "alternate and publishing chapter/verse numbers (ca/cp/va/vp)",
+    usx: `${USX_HEADER}
+  <chapter number="1" style="c" altnumber="2" pubnumber="A" />
+  <para style="p"><verse number="1" style="v" altnumber="2" pubnumber="1b" />Text with alternate numbering.</para>
+${USX_FOOTER}`,
+  },
+  {
+    name: "cross-reference ref target",
+    usx: book(
+      `<para style="p"><verse number="1" style="v" />See <ref loc="GEN 1:1">Genesis 1:1</ref> for details.</para>`,
+    ),
+  },
+  {
+    name: "optional line break (optbreak)",
+    usx: book(
+      `<para style="p"><verse number="1" style="v" />First part<optbreak />second part.</para>`,
+    ),
+  },
+  {
+    name: "milestones (ts)",
+    usx: book(
+      `<para style="p"><ms style="ts-s" /><verse number="1" style="v" />Translator section text.<ms style="ts-e" /></para>`,
+    ),
+  },
+  {
+    name: "RTL text (Hebrew)",
+    usx: book(
+      `<para style="p"><verse number="1" style="v" />וַיְהִ֗י בִּימֵי֙ שְׁפֹ֣ט הַשֹּׁפְטִ֔ים <char style="nd">יהוה</char> וַיְהִ֥י רָעָ֖ב׃</para>`,
+    ),
+  },
 ];

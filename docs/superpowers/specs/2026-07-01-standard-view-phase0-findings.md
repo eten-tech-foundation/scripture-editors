@@ -33,3 +33,22 @@ containing a literal `\n  ` — not something a real single-line-authored USX
 document would produce. Fixed by joining that `<para>`'s content onto one
 source line in `corpus-data.ts` (a single space now separates the two
 sentences, matching normal USX authoring). `usxStringToUsj` was not modified.
+
+## Task 4 run (2026-07-01)
+
+Added six fixtures covering verse bridges/segments, ca/cp/va/vp
+alternate/publishing numbers, `ref` cross-references, `optbreak`,
+milestones (`ms style="ts-s"`/`"ts-e"`), and RTL (Hebrew) text. All
+9 fixtures × 4 view modes (36/36) passed with no adaptor changes
+required — no findings entries needed below the template above.
+
+The "verse bridges and segments" fixture (the one Step 2 required to pass,
+per the Task 2 `parseNumberFromMarkerText` fix) passed in all 4 modes on the
+first run, confirming the Task 2 fix already covers this path.
+
+Passes were independently verified (not just `toEqual` succeeding
+vacuously): a scratch test dumped the intermediate USJ and the
+round-tripped USJ for the ca/cp/va/vp, ref, optbreak, and milestone
+fixtures and confirmed `altnumber`, `pubnumber`, `loc`, and the `ms`
+markers are genuinely present in both and structurally identical, not
+both-sides-empty.
