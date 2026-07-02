@@ -121,6 +121,41 @@ describe("Ctrl+Space (§5.5)", () => {
     });
   });
 
+  it("splits an interior selection into styled-plain-styled (PT9)", async () => {
+    let parts: ReturnType<typeof $appendCharPara>;
+    const { editor } = await testEnvironment(() => (parts = $appendCharPara()));
+    await act(async () =>
+      editor.update(() => {
+        // "or" out of "Lord": both boundaries land mid-text (content is NBSP + "Lord").
+        $charContent(parts.char).select(2, 4);
+      }),
+    );
+    await act(async () => {
+      editor.dispatchCommand(
+        KEY_DOWN_COMMAND,
+        new KeyboardEvent("keydown", { key: " ", ctrlKey: true }),
+      );
+    });
+    editor.getEditorState().read(() => {
+      const para = $getRoot().getChildren().filter($isParaNode)[0];
+      const chars = para.getChildren().filter($isCharNode);
+      expect(chars).toHaveLength(2);
+      expect(chars.every((char) => char.getMarker() === "nd")).toBe(true);
+      const [left, tail] = chars;
+      expect(left.isEmpty()).toBe(false);
+      expect(tail.isEmpty()).toBe(false);
+      const middle = left.getNextSibling();
+      expect(middle?.is(tail.getPreviousSibling())).toBe(true);
+      // the previously-selected text is now plain, not wrapped in any CharNode
+      expect($isTextNode(middle) && !$isMarkerNode(middle) && !$isCharNode(middle)).toBe(true);
+      const middleText = middle && $isTextNode(middle) ? middle.getTextContent() : "";
+      const leftText = $charContent(left).getTextContent().replace(NBSP, "");
+      const tailText = $charContent(tail).getTextContent().replace(NBSP, "");
+      // original content characters survive, in order, split across the three segments
+      expect(leftText + middleText + tailText).toBe("Lord");
+    });
+  });
+
   it("inserts a plain space when the caret is in plain text (PT9 parity)", async () => {
     let text: TextNode;
     const { editor } = await testEnvironment(() => {
