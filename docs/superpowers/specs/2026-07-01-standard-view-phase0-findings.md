@@ -35,12 +35,24 @@
      `\v 5abc` truncates to `"5a"` instead of widening to `[a-zA-Z]*` or falling back to the
      default on a partial match. Cheap Phase 2 follow-up, not a blocker (well-formed verse
      numbers/segments — the only case exercised by the corpus — are unaffected).
-  6. **Manual visual QA handoff (pre-Phase-2 condition, not yet performed by an agent):** run the
-     demo (`pnpm nx dev platform`), switch to Standard view, and visually verify small grey
-     markers, collapsed callers, and specifically judge the superscripted whole verse token
-     (`.formatted-font .verse` `vertical-align: super` applies to the *entire* editable `\v 1`
-     token, not just a styled verse number) — decide whether that is the intended PT9 look before
-     Phase 2 locks in the styling.
+  6. **Manual visual QA — PERFORMED 2026-07-02 (browser verification, Psalm 1 WEB demo data,
+     PT9 Standard view as baseline). Result: PASS with notes.**
+     - Confirmed matching PT9: formatted text + inline small grey markers simultaneously
+       (`\id`, `\ide`, `\h`, `\toc1-3`, `\mt1`, `\cl`, `\ms1`, `\q1/\q2`, `\v`); stylesheet
+       layout (mt1 large centered, poetry hanging indents, toc colors); whole `\c 1` token in
+       large chapter style (PT9 renders the whole `\c N` line in usfm_c too); notes collapsed
+       to a superscript atomic caller with content hidden; markers are genuine editable text
+       (caret verified inside a MarkerNode); Unformatted view unchanged (regression check).
+     - **Superscripted whole verse token: matches PT9.** usfm.sty marks `\v` superscript and
+       PT9's Standard.xslt wraps the whole `\v N` token in `usfm_v`, so whole-token
+       superscript is the PT9 behavior. Cosmetic difference: PT10 adds a light background
+       badge on the verse token that PT9 does not have — flag to PO as a deliberate PT10
+       affordance or drop in Phase 2 CSS polish.
+     - **Divergence (pre-existing, not Phase 0/1):** milestone/attribute runs render loudly —
+       `\ts-s |sid="ts.PSA.tree"\*` shows its `|sid=...` attribute text near-black inline
+       instead of PT9's dimmed `.attribute` grey (PT9 dims attributes until hover). Phase 2
+       polish item: ensure attribute segments get the `.attribute` class/dim styling in
+       editable mode.
 - Unicode normalization (spec §4): applied host-side automatically on every PT10 save via
   `ScrText.PutText` (not a Phase 5 gap); NBSP↔`~` handling also already present host-side. See
   "Unicode normalization (spec §4)" below for the full evidence trail.
