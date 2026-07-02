@@ -1,5 +1,9 @@
-import { displayTextToUsj, normalizeSpaceRuns, usjTextToDisplay } from "./whitespace-display.utils";
-import { NBSP } from "../../nodes/usj/node-constants";
+import {
+  displayTextToUsj,
+  normalizeSpaceRuns,
+  usjTextToDisplay,
+} from "./whitespace-display.utils.js";
+import { NBSP } from "../../nodes/usj/node-constants.js";
 
 describe("usjTextToDisplay", () => {
   it("shows a stored NBSP as a tilde", () => {
