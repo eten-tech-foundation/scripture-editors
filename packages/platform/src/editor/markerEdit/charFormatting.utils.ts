@@ -128,17 +128,31 @@ export function $removeCharFormattingFromSelection(): boolean {
   for (const char of chars) {
     const startNode = anchorPoint.getNode();
     const endNode = focusPoint.getNode();
-    if ($isTextNode(startNode) && startNode.getParent()?.is(char) && anchorPoint.offset > 0) {
+    const startsMidSpan =
+      $isTextNode(startNode) && startNode.getParent()?.is(char) && anchorPoint.offset > 0;
+    const endsMidSpan =
+      $isTextNode(endNode) &&
+      endNode.getParent()?.is(char) &&
+      endNode.getTextContentSize() > focusPoint.offset;
+    if (startsMidSpan && endsMidSpan) {
+      // selection starts and ends mid-span, both inside this same char: PT9
+      // (StyleApplicator blank-style on an interior range) yields three segments —
+      // left styled, middle plain, right (tail) styled. Split the END boundary
+      // first: that leaves the START boundary's (node, offset) — which may be the
+      // very same text node as the end's — still valid for the second split.
+      const tail = $splitCharNodeAt(char, endNode, focusPoint.offset);
+      void tail; // tail keeps the style
+      const middle = $splitCharNodeAt(char, startNode, anchorPoint.offset);
+      $unwrapCharNode(middle);
+      continue;
+    }
+    if (startsMidSpan) {
       // selection starts mid-span: keep the left part styled, unwrap the right
       const right = $splitCharNodeAt(char, startNode, anchorPoint.offset);
       $unwrapCharNode(right);
       continue;
     }
-    if (
-      $isTextNode(endNode) &&
-      endNode.getParent()?.is(char) &&
-      endNode.getTextContentSize() > focusPoint.offset
-    ) {
+    if (endsMidSpan) {
       // selection ends mid-span: unwrap the left part, keep the right styled
       const right = $splitCharNodeAt(char, endNode, focusPoint.offset);
       void right; // right keeps the style
