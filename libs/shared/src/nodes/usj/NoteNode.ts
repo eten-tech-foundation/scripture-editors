@@ -203,10 +203,17 @@ export class NoteNode extends ElementNode {
     return dom;
   }
 
-  override updateDOM(prevNode: NoteNode): boolean {
-    // Returning false tells Lexical that this node does not need its
-    // DOM element replacing with a new copy from createDOM.
+  override updateDOM(prevNode: NoteNode, dom: HTMLElement): boolean {
+    // Returning true tells Lexical that this node needs its DOM element
+    // replacing with a new copy from createDOM.
     if (prevNode.__isCollapsed !== this.__isCollapsed) return true;
+
+    if (prevNode.__marker !== this.__marker) {
+      dom.setAttribute("data-marker", this.__marker);
+      dom.classList.remove(`usfm_${prevNode.__marker}`);
+      dom.classList.add(`usfm_${this.__marker}`);
+    }
+    if (prevNode.__caller !== this.__caller) dom.setAttribute("data-caller", this.__caller);
 
     return false;
   }

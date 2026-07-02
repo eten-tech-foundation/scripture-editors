@@ -183,6 +183,13 @@ export class VerseNode extends TextNode {
     return dom;
   }
 
+  override updateDOM(prevNode: this, dom: HTMLElement, config: EditorConfig): boolean {
+    const recreate = super.updateDOM(prevNode, dom, config);
+    if (!recreate && prevNode.__number !== this.__number)
+      dom.setAttribute("data-number", this.__number);
+    return recreate;
+  }
+
   override exportJSON(): SerializedVerseNode {
     return {
       ...super.exportJSON(),
