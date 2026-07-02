@@ -63,17 +63,23 @@ export function $removeCharFormattingFromSelection(): boolean {
     if (char && $isCharNode(char) && $isTextNode(anchorNode) && !$isMarkerNode(anchorNode)) {
       const offset = selection.anchor.offset;
       const content = anchorNode.getTextContent();
-      // PT9 (HandleCtrlSpace) never inserts a second space next to one that's
-      // already there — the caret just moves past it. Checking this *before*
-      // splitting matters: splitting always manufactures a fresh opener/closer
-      // pair at the boundary, which would inject marker-glyph text between the
-      // two halves even when nothing about the styling actually changed.
+      // PT9 (HandleCtrlSpace) always splits at the caret, even when a space
+      // already sits right there — it just REUSES that space as the plain
+      // separator (moved out of the span) instead of inserting a second one.
       if (offset < content.length) {
-        if (content[offset] === " ") {
-          anchorNode.select(offset + 1, offset + 1);
-          return true;
-        }
         const right = $splitCharNodeAt(char, anchorNode, offset);
+        // If the split carried an existing space into the right span (as its
+        // first content char, after the structural NBSP prefix), strip it
+        // there — the plain space inserted below takes its place.
+        const rightFirst = right.isAttached()
+          ? right.getChildren().find((c) => $isTextNode(c) && !$isMarkerNode(c))
+          : undefined;
+        if (rightFirst && $isTextNode(rightFirst)) {
+          const rightText = rightFirst.getTextContent();
+          const prefix = rightText.startsWith(NBSP) ? NBSP : "";
+          const body = rightText.slice(prefix.length);
+          if (body.startsWith(" ")) rightFirst.setTextContent(prefix + body.slice(1));
+        }
         const space = $createTextNode(" ");
         char.insertAfter(space);
         // drop halves emptied by the split (only glyphs left)
