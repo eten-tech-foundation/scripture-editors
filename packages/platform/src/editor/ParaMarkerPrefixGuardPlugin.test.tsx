@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { act } from "@testing-library/react";
 import { $createTextNode, $getRoot, LexicalNode } from "lexical";
 import {
   $createImmutableTypedTextNode,
@@ -11,11 +12,22 @@ import {
   ParaNode,
   VerseNode,
 } from "shared";
-import { ImmutableVerseNode } from "shared-react";
+import {
+  getViewOptions,
+  ImmutableVerseNode,
+  PARAGRAPH_STRUCTURE_VIEW_MODE,
+  STANDARD_VIEW_MODE,
+} from "shared-react";
 // Reaching inside only for tests.
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import { createBasicTestEnvironment } from "../../../../libs/shared/src/nodes/usj/test.utils";
-import { $resetMarkerIfPrefixDeleted } from "./ParaMarkerPrefixGuardPlugin";
+// Reaching inside only for tests.
+// eslint-disable-next-line @nx/enforce-module-boundaries
+import { baseTestEnvironment } from "../../../../libs/shared-react/src/plugins/usj/react-test.utils";
+import {
+  $resetMarkerIfPrefixDeleted,
+  ParaMarkerPrefixGuardPlugin,
+} from "./ParaMarkerPrefixGuardPlugin";
 
 const nodes = [
   ParaNode,
@@ -105,6 +117,46 @@ describe("$resetMarkerIfPrefixDeleted", () => {
       editor.getEditorState().read(() => {
         expect(para.getMarker()).toBe("p");
       });
+    });
+  });
+});
+
+describe("ParaMarkerPrefixGuardPlugin enablement", () => {
+  it("does not reset the marker in editable mode (MarkerEditPlugin owns deletion there, §5.5)", async () => {
+    let para: ParaNode, marker: MarkerNode;
+    const { editor } = await baseTestEnvironment(
+      () => {
+        para = $createParaNode("q1");
+        marker = $createMarkerNode("q1");
+        $getRoot().append(
+          para.append(marker, $createTextNode(NBSP), $createTextNode("a poetry line")),
+        );
+      },
+      <ParaMarkerPrefixGuardPlugin viewOptions={getViewOptions(STANDARD_VIEW_MODE)} />,
+    );
+    await act(async () => editor.update(() => marker.remove()));
+    editor.getEditorState().read(() => {
+      expect(para.getMarker()).toBe("q1"); // unchanged: this guard is disabled in editable mode
+    });
+  });
+
+  it("still resets the marker in the gutter-hidden mode (Paragraph Structure view)", async () => {
+    let para: ParaNode;
+    const { editor } = await baseTestEnvironment(
+      () => {
+        para = $createParaNode("q1");
+        $getRoot().append(
+          para.append(
+            $createImmutableTypedTextNode("marker", `\\q1${NBSP}`),
+            $createTextNode("a poetry line"),
+          ),
+        );
+      },
+      <ParaMarkerPrefixGuardPlugin viewOptions={getViewOptions(PARAGRAPH_STRUCTURE_VIEW_MODE)} />,
+    );
+    await act(async () => editor.update(() => para.getFirstChild()?.remove()));
+    editor.getEditorState().read(() => {
+      expect(para.getMarker()).toBe("p");
     });
   });
 });

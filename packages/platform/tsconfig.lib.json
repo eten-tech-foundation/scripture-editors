@@ -33,6 +33,7 @@
     "src/**/*.spec.js",
     "src/**/*.test.jsx",
     "src/**/*.spec.jsx",
+    "src/**/markerEdit.test-helpers.tsx",
     "eslint.config.js",
     "eslint.config.cjs",
     "eslint.config.mjs"

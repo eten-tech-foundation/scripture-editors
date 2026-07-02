@@ -1,4 +1,8 @@
 import {
+  $charNodeDeletionTransform,
+  $paraMarkerDeletionTransform,
+} from "./markerEditDeletion.utils";
+import {
   $chapterNodeTransform,
   $isSelectionInMarkerNode,
   $markerNodeTransform,
@@ -20,13 +24,14 @@ import {
   SELECTION_CHANGE_COMMAND,
 } from "lexical";
 import { useEffect } from "react";
-import { ChapterNode, LoggerBasic, MarkerNode, VerseNode } from "shared";
+import { ChapterNode, CharNode, LoggerBasic, MarkerNode, ParaNode, VerseNode } from "shared";
 import { ViewOptions } from "shared-react";
 
 /**
  * The Standard-view marker-editing engine (design spec §5). Tier 1 node
  * transforms keep structural state in sync with edited marker text; completion
- * commands (Enter/blur) resolve mid-edit markers; Tier 2 re-tokenization
+ * commands (Enter/blur) resolve mid-edit markers; deletion transforms (§5.5)
+ * handle marker-prefix removal (para merge, char unwrap); Tier 2 re-tokenization
  * handles everything else. Active only when markers are editable text.
  */
 export function MarkerEditPlugin({
@@ -66,6 +71,14 @@ export function MarkerEditPlugin({
         if (editor.isComposing()) return;
         $chapterNodeTransform(node, context);
       }),
+      editor.registerNodeTransform(ParaNode, (node) => {
+        if (editor.isComposing()) return;
+        $paraMarkerDeletionTransform(node, context);
+      }),
+      editor.registerNodeTransform(CharNode, (node) => {
+        if (editor.isComposing()) return;
+        $charNodeDeletionTransform(node, context);
+      }),
       editor.registerCommand(
         KEY_ENTER_COMMAND,
         () => {
@@ -78,7 +91,7 @@ export function MarkerEditPlugin({
       editor.registerCommand(
         INSERT_PARAGRAPH_COMMAND,
         () => {
-          context.splitExpected.current = true; // consumed by the ParaNode transform (Task 10)
+          context.splitExpected.current = true; // consumed by $paraMarkerDeletionTransform below
           return false;
         },
         COMMAND_PRIORITY_HIGH,

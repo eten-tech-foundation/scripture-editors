@@ -14,6 +14,9 @@ import { ViewOptions } from "shared-react";
  * disappears we read that as "make this a plain paragraph" and rewrite the paragraph's
  * marker to `\p`. The plugin is a no-op in views that don't render the marker (markerMode
  * "hidden" without a gutter), since the user never has the affordance to delete one.
+ *
+ * In editable marker mode the MarkerEditPlugin owns marker-deletion semantics (merge into
+ * the previous paragraph, spec §5.5), so this guard stands down there.
  */
 export function ParaMarkerPrefixGuardPlugin({
   viewOptions,
@@ -24,9 +27,7 @@ export function ParaMarkerPrefixGuardPlugin({
 }): null {
   const [editor] = useLexicalComposerContext();
   const isEnabled =
-    viewOptions?.markerMode === "editable" ||
-    viewOptions?.markerMode === "visible" ||
-    (viewOptions?.hasGutterParaMarkers ?? false);
+    viewOptions?.markerMode === "visible" || (viewOptions?.hasGutterParaMarkers ?? false);
 
   useEffect(() => {
     if (!isEnabled) return;
