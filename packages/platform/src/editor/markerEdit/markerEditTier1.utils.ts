@@ -130,11 +130,22 @@ export function $applyOpenerRename(
       $requestTier2ForNode(node, context.viewOptions, context.logger);
       return;
     }
+    const oldMarker = node.getMarker();
+    if (parent.getMarker() !== oldMarker) {
+      // Tree shape doesn't match the simple opener-owns-parent assumption: e.g. the collab
+      // delta-apply path ($createNestedChars) flattens nested char spans, so an inner opener's
+      // direct parent is the outer CharNode, not an inner one. Renaming in place under that
+      // assumption would target the wrong closer, so refuse and let Tier 2 rebuild proper
+      // nesting from the glyph text via the tokenizer.
+      $requestTier2ForNode(node, context.viewOptions, context.logger);
+      return;
+    }
     parent.setMarker(clean);
     const closer = parent
       .getChildren()
       .filter($isMarkerNode)
-      .find((child) => child.getMarkerSyntax() === "closing");
+      .filter((child) => child.getMarkerSyntax() === "closing" && child.getMarker() === oldMarker)
+      .at(-1);
     if (closer) {
       $clampSelectionToLength(closer, closingMarkerText(clean).length);
       closer.setMarker(clean); // same update: opener authority rewrites the closer

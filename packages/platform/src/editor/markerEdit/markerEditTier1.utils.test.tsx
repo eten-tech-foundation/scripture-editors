@@ -232,3 +232,71 @@ describe("Tier 1 char/note opener rename", () => {
     expect(json).toContain('"marker":"q1"'); // re-tokenized into a q1 paragraph
   });
 });
+
+/**
+ * Mirrors the shape the collab delta-apply path produces for nested char spans
+ * ($createNestedChars): the OUTER CharNode's direct children are the flattened
+ * run `[opening(outer), opening(inner), CharNode(inner), closing(inner), closing(outer)]`,
+ * not the naturally-nested `outer > [openOuter, inner > [...], closeOuter]` shape the
+ * USJ adaptor produces.
+ */
+function $appendNestedCharPara(): {
+  outerChar: CharNode;
+  outerOpener: MarkerNode;
+  innerOpener: MarkerNode;
+  innerChar: CharNode;
+  innerCloser: MarkerNode;
+  outerCloser: MarkerNode;
+} {
+  const para = $createParaNode("p");
+  const paraMarker = $createMarkerNode("p");
+  const outerChar = $createCharNode("add");
+  const outerOpener = $createMarkerNode("add");
+  const innerOpener = $createMarkerNode("nd");
+  const innerChar = $createCharNode("nd");
+  const innerCloser = $createMarkerNode("nd", "closing");
+  const outerCloser = $createMarkerNode("add", "closing");
+  $getRoot().append(
+    para.append(
+      paraMarker,
+      $createTextNode(NBSP),
+      outerChar.append(
+        outerOpener,
+        innerOpener,
+        innerChar.append($createTextNode(`${NBSP}Lord`)),
+        innerCloser,
+        outerCloser,
+      ),
+    ),
+  );
+  return { outerChar, outerOpener, innerOpener, innerChar, innerCloser, outerCloser };
+}
+
+describe("Tier 1 char opener rename on a collab-flattened nested span", () => {
+  it("renames the OUTER closer on a collab-flattened nested span", async () => {
+    let parts: ReturnType<typeof $appendNestedCharPara>;
+    const { editor } = await testEnvironment(() => (parts = $appendNestedCharPara()));
+    await act(async () => editor.update(() => parts.outerOpener.setTextContent("\\bd ")));
+    editor.getEditorState().read(() => {
+      expect(parts.outerChar.getMarker()).toBe("bd");
+      expect(parts.outerCloser.getTextContent()).toBe("\\bd*");
+      // The inner closer belongs to the untouched inner "nd" span and must be left alone.
+      expect(parts.innerCloser.getTextContent()).toBe("\\nd*");
+    });
+  });
+
+  it("routes an inner-opener rename on a flattened span to Tier 2", async () => {
+    let parts: ReturnType<typeof $appendNestedCharPara>;
+    const { editor } = await testEnvironment(() => (parts = $appendNestedCharPara()));
+    await act(async () => editor.update(() => parts.innerOpener.setTextContent("\\wj ")));
+    // Load-bearing wrong-behavior-prevented assertion: pre-fix, the opener-owns-parent
+    // assumption let this rename clobber the OUTER span's marker directly (add -> wj).
+    // The guard refuses the in-place rename here, so Tier 2 rebuilds the paragraph from
+    // its glyph text instead, and the outer "add" span survives alongside the newly
+    // re-tokenized inner "wj" span. (The old node references are torn down by the
+    // rebuild, so the state is inspected via JSON rather than the stale node objects.)
+    const json = JSON.stringify(editor.getEditorState().toJSON());
+    expect(json).toContain('"marker":"add"');
+    expect(json).toContain('"marker":"wj"');
+  });
+});
