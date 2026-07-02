@@ -2085,6 +2085,9 @@
 .formatted-font.marker-editable .verse {
   white-space: nowrap;
   unicode-bidi: embed;
+  /* PT9 Standard view has no background badge on verse tokens (Phase 0 visual QA,
+     finding #6); the formatted (non-editable) view keeps its badge. */
+  background-color: transparent;
 }
 
 .notetext {
