@@ -1,8 +1,25 @@
 import { MarkerEditPlugin } from "./MarkerEditPlugin";
 import { initialize as initializeSerialize, reset } from "../adaptors/usj-editor.adaptor";
 import { act } from "@testing-library/react";
-import { $createTextNode, $getRoot, BLUR_COMMAND, KEY_ENTER_COMMAND } from "lexical";
-import { $createMarkerNode, $createParaNode, MarkerNode, NBSP, ParaNode } from "shared";
+import {
+  $createTextNode,
+  $getRoot,
+  $getSelection,
+  $isRangeSelection,
+  BLUR_COMMAND,
+  KEY_ENTER_COMMAND,
+} from "lexical";
+import {
+  $createCharNode,
+  $createMarkerNode,
+  $createNoteNode,
+  $createParaNode,
+  CharNode,
+  MarkerNode,
+  NBSP,
+  NoteNode as NoteNodeClass,
+  ParaNode,
+} from "shared";
 // Reaching inside only for tests.
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import { baseTestEnvironment } from "../../../../../libs/shared-react/src/plugins/usj/react-test.utils";
@@ -126,5 +143,92 @@ describe("Tier 1 paragraph-marker rename", () => {
           .filter((n) => n.getType() === "para"),
       ).toHaveLength(1);
     });
+  });
+});
+
+function $appendCharPara(): { marker: MarkerNode; char: CharNode; closer: MarkerNode } {
+  const para = $createParaNode("p");
+  const paraMarker = $createMarkerNode("p");
+  const char = $createCharNode("nd");
+  const marker = $createMarkerNode("nd");
+  const closer = $createMarkerNode("nd", "closing");
+  $getRoot().append(
+    para.append(
+      paraMarker,
+      $createTextNode(NBSP),
+      char.append(marker, $createTextNode(`${NBSP}Lord`), closer),
+    ),
+  );
+  return { marker, char, closer };
+}
+
+describe("Tier 1 char/note opener rename", () => {
+  it("renames the span and mirrors the closer", async () => {
+    let parts: ReturnType<typeof $appendCharPara>;
+    const { editor } = await testEnvironment(() => (parts = $appendCharPara()));
+    await act(async () => editor.update(() => parts.marker.setTextContent("\\wj ")));
+    editor.getEditorState().read(() => {
+      expect(parts.char.getMarker()).toBe("wj");
+      expect(parts.marker.getTextContent()).toBe("\\wj");
+      expect(parts.closer.getTextContent()).toBe("\\wj*");
+    });
+  });
+
+  it("clamps the selection when the closer shrinks under the caret", async () => {
+    let parts: ReturnType<typeof $appendCharPara>;
+    const { editor } = await testEnvironment(() => (parts = $appendCharPara()));
+    await act(async () =>
+      editor.update(() => {
+        parts.closer.select(4, 4); // caret at end of `\nd*`
+        parts.marker.setTextContent("\\w "); // shorter marker
+      }),
+    );
+    editor.getEditorState().read(() => {
+      const selection = $getSelection();
+      expect($isRangeSelection(selection)).toBe(true);
+      if (!$isRangeSelection(selection)) throw new Error("expected a range selection");
+      expect(selection.anchor.key).toBe(parts.closer.getKey());
+      expect(selection.anchor.offset).toBeLessThanOrEqual(parts.closer.getTextContentSize());
+    });
+  });
+
+  it("routes a closer mismatch edit to Tier 2 (span rebuilt by the tokenizer)", async () => {
+    let parts: ReturnType<typeof $appendCharPara>;
+    const { editor } = await testEnvironment(() => (parts = $appendCharPara()));
+    await act(async () => editor.update(() => parts.closer.setTextContent("\\wj*")));
+    // Tokenizer sees `\nd ␣Lord\wj*`: unmatched closer stays literal, span auto-closes.
+    const json = JSON.stringify(editor.getEditorState().toJSON());
+    expect(json).toContain('"marker":"nd"');
+    expect(json).toContain("\\\\wj*");
+  });
+
+  it("renames a note opener and mirrors its closer", async () => {
+    let note: NoteNodeClass, opener: MarkerNode, closer: MarkerNode;
+    const { editor } = await testEnvironment(() => {
+      const para = $createParaNode("p");
+      note = $createNoteNode("f", "+");
+      opener = $createMarkerNode("f");
+      closer = $createMarkerNode("f", "closing");
+      $getRoot().append(
+        para.append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          note.append(opener, $createTextNode(`${NBSP}content`), closer),
+        ),
+      );
+    });
+    await act(async () => editor.update(() => opener.setTextContent("\\x ")));
+    editor.getEditorState().read(() => {
+      expect(note.getMarker()).toBe("x");
+      expect(closer.getTextContent()).toBe("\\x*");
+    });
+  });
+
+  it("routes a para-kind marker typed in char position to Tier 2", async () => {
+    let parts: ReturnType<typeof $appendCharPara>;
+    const { editor } = await testEnvironment(() => (parts = $appendCharPara()));
+    await act(async () => editor.update(() => parts.marker.setTextContent("\\q1 ")));
+    const json = JSON.stringify(editor.getEditorState().toJSON());
+    expect(json).toContain('"marker":"q1"'); // re-tokenized into a q1 paragraph
   });
 });
