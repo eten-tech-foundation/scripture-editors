@@ -55,6 +55,28 @@ const usfmMarkersOverwrites: { [marker: string]: MarkerOverwrite } = {
   v: {
     children: null,
   },
+  // The following are attribute-bearing character markers present in usfm.sty and in
+  // CharNode's VALID_CHAR_MARKERS, but absent from the generated usfmMarkers data.
+  // They are defined here as complete entries rather than hand-edited into the
+  // generated file, which would be silently lost on regeneration.
+  w: {
+    category: CategoryType.SpecialFeatures,
+    type: MarkerType.Character,
+    description: "A wordlist/glossary/dictionary entry marker for study/analysis purposes",
+    hasEndMarker: true,
+  },
+  rb: {
+    category: CategoryType.SpecialFeatures,
+    type: MarkerType.Character,
+    description: "A ruby glossing marker for study/analysis purposes",
+    hasEndMarker: true,
+  },
+  jmp: {
+    category: CategoryType.SpecialFeatures,
+    type: MarkerType.Character,
+    description: "A hyperlink marker for study/analysis purposes",
+    hasEndMarker: true,
+  },
 };
 
 export default usfmMarkersOverwrites;

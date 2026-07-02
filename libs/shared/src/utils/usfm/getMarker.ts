@@ -8,6 +8,8 @@ function getMarker(marker: string): Marker | undefined {
   const overwrite = usfmMarkersOverwrites[marker];
 
   if (!baseMarker) {
+    // The overwrites file can ADD markers the generated data lacks.
+    if (overwrite?.type !== undefined) return overwrite as Marker;
     return undefined;
   }
 
