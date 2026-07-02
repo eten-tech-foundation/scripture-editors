@@ -4,6 +4,7 @@ import { getUsjMarkerAction, isUsjMarkerSupported } from "./adaptors/usj-marker-
 import { EditorOptions, EditorProps, EditorRef } from "./editor.model";
 import editorTheme from "./editor.theme";
 import { ActiveTextPlugin } from "./ActiveTextPlugin";
+import { MarkerEditPlugin } from "./markerEdit/MarkerEditPlugin";
 import { ParaMarkerPrefixGuardPlugin } from "./ParaMarkerPrefixGuardPlugin";
 import ScriptureReferencePlugin from "./ScriptureReferencePlugin";
 import TreeViewPlugin from "./TreeViewPlugin";
@@ -455,6 +456,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
           <ClipboardPlugin />
           <CommandMenuPlugin logger={logger} />
           <ContextMenuPlugin options={contextMenuOptions} />
+          <MarkerEditPlugin viewOptions={viewOptions} logger={logger} />
           <NoteNodePlugin
             expandedNoteKeyRef={expandedNoteKeyRef}
             nodeOptions={nodeOptions}
