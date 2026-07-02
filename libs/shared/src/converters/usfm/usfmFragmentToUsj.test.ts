@@ -116,3 +116,128 @@ describe("usfmFragmentToUsjContent — core", () => {
     expect(usfmFragmentToUsjContent("\\b")).toEqual([{ type: "para", marker: "b" }]);
   });
 });
+
+describe("usfmFragmentToUsjContent — verse, chapter, note, milestone, attributes", () => {
+  it("tokenizes verses with numbers, segments, and bridges", () => {
+    expect(usfmFragmentToUsjContent("\\p \\v 1 one \\v 2a two \\v 3-4 three")).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [
+          { type: "verse", marker: "v", number: "1" },
+          "one ",
+          { type: "verse", marker: "v", number: "2a" },
+          "two ",
+          { type: "verse", marker: "v", number: "3-4" },
+          "three",
+        ],
+      },
+    ]);
+  });
+
+  it("closes an open char span at a verse marker", () => {
+    expect(usfmFragmentToUsjContent("\\p \\nd Lord \\v 2 next")).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [
+          { type: "char", marker: "nd", content: ["Lord "] },
+          { type: "verse", marker: "v", number: "2" },
+          "next",
+        ],
+      },
+    ]);
+  });
+
+  it("tokenizes a chapter marker", () => {
+    expect(usfmFragmentToUsjContent("\\c 2 \\p text")).toEqual([
+      { type: "chapter", marker: "c", number: "2" },
+      { type: "para", marker: "p", content: ["text"] },
+    ]);
+  });
+
+  it("builds a closed footnote with caller and char content", () => {
+    expect(usfmFragmentToUsjContent("\\p text\\f + \\fr 1.1 \\ft A note.\\f* after")).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [
+          "text",
+          {
+            type: "note",
+            marker: "f",
+            caller: "+",
+            content: [
+              { type: "char", marker: "fr", content: ["1.1 "] },
+              { type: "char", marker: "ft", content: ["A note."] },
+            ],
+          },
+          " after",
+        ],
+      },
+    ]);
+  });
+
+  it("marks an unterminated note closed=false", () => {
+    expect(usfmFragmentToUsjContent("\\p text\\f + \\ft open note")).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [
+          "text",
+          {
+            type: "note",
+            marker: "f",
+            caller: "+",
+            content: [{ type: "char", marker: "ft", content: ["open note"] }],
+            closed: "false",
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("tokenizes a terminated milestone with attributes", () => {
+    expect(usfmFragmentToUsjContent('\\p one \\ts-s |sid="ts.GEN.1"\\* two')).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: ["one ", { type: "ms", marker: "ts-s", sid: "ts.GEN.1" }, " two"],
+      },
+    ]);
+  });
+
+  it("keeps an unterminated milestone as literal text", () => {
+    expect(usfmFragmentToUsjContent("\\p one \\ts-s two")).toEqual([
+      { type: "para", marker: "p", content: ["one \\ts-s two"] },
+    ]);
+  });
+
+  it("extracts named attributes from a closed char span", () => {
+    expect(usfmFragmentToUsjContent('\\p \\w gracious|lemma="grace" strong="G5485"\\w*')).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [
+          {
+            type: "char",
+            marker: "w",
+            lemma: "grace",
+            strong: "G5485",
+            content: ["gracious"],
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("maps a bare default attribute through the default-attribute table", () => {
+    expect(usfmFragmentToUsjContent("\\p \\w gracious|grace\\w*")).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [{ type: "char", marker: "w", lemma: "grace", content: ["gracious"] }],
+      },
+    ]);
+  });
+});
