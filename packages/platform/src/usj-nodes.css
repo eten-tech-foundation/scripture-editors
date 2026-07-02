@@ -2063,11 +2063,21 @@
 }
 
 /* Standard view: editable markers within formatted text get the PT9 marker look.
+   MarkerNode carries its marker-syntax class (opening/closing/selfClosing), not
+   `marker` (dropped in #359); ImmutableTypedTextNode (book id) carries `marker`.
+   Verse/chapter tokens are deliberately excluded: PT9 styles them via their own
+   usfm_v/usfm_c stylesheet classes, not the grey marker look.
    Scoped to .formatted-font so the Unformatted view keeps full-size plain markers. */
+.formatted-font.marker-editable .opening,
+.formatted-font.marker-editable .closing,
+.formatted-font.marker-editable .selfClosing,
 .formatted-font.marker-editable .marker {
   color: rgba(140, 140, 140, 1);
 }
 
+.formatted-font.marker-editable .opening,
+.formatted-font.marker-editable .closing,
+.formatted-font.marker-editable .selfClosing,
 .formatted-font.marker-editable .marker:not(.chapter) {
   font-size: 0.7em;
 }

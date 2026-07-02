@@ -6,6 +6,7 @@ import {
   SerializedMarkerNode,
   MarkerSyntax,
 } from "./MarkerNode.js";
+import { EditorConfig } from "lexical";
 
 const testParaMarker = "p";
 const testVerseMarker = "v";
@@ -146,6 +147,59 @@ describe("MarkerNode", () => {
 
         node.setMarkerSyntax("selfClosing");
         expect(node.getTextContent()).toBe(`\\*`);
+      });
+    });
+  });
+
+  describe("createDOM()", () => {
+    // Regression pin: usj-nodes.css keys the PT9 standard-view marker look off the
+    // marker-syntax class (opening/closing/selfClosing), not `marker` (dropped in #359).
+    // If this contract changes again, update packages/platform/src/usj-nodes.css to match.
+    const mockEditorConfig: EditorConfig = {
+      namespace: "TestEditor",
+      theme: {},
+    };
+
+    it("adds the 'opening' class and data-marker attribute for an opening marker", () => {
+      const { editor } = createBasicTestEnvironment([MarkerNode]);
+      editor.update(() => {
+        const node = $createMarkerNode(testParaMarker, "opening");
+        const element = node.createDOM(mockEditorConfig);
+
+        expect(element.classList.contains("opening")).toBe(true);
+        expect(element.getAttribute("data-marker")).toBe(testParaMarker);
+      });
+    });
+
+    it("adds the 'closing' class and data-marker attribute for a closing marker", () => {
+      const { editor } = createBasicTestEnvironment([MarkerNode]);
+      editor.update(() => {
+        const node = $createMarkerNode(testParaMarker, "closing");
+        const element = node.createDOM(mockEditorConfig);
+
+        expect(element.classList.contains("closing")).toBe(true);
+        expect(element.getAttribute("data-marker")).toBe(testParaMarker);
+      });
+    });
+
+    it("adds the 'selfClosing' class and data-marker attribute for a self-closing marker", () => {
+      const { editor } = createBasicTestEnvironment([MarkerNode]);
+      editor.update(() => {
+        const node = $createMarkerNode(testParaMarker, "selfClosing");
+        const element = node.createDOM(mockEditorConfig);
+
+        expect(element.classList.contains("selfClosing")).toBe(true);
+        expect(element.getAttribute("data-marker")).toBe(testParaMarker);
+      });
+    });
+
+    it("does not add a 'marker' class", () => {
+      const { editor } = createBasicTestEnvironment([MarkerNode]);
+      editor.update(() => {
+        const node = $createMarkerNode(testParaMarker, "opening");
+        const element = node.createDOM(mockEditorConfig);
+
+        expect(element.classList.contains("marker")).toBe(false);
       });
     });
   });
