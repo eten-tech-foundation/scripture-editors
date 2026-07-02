@@ -2062,6 +2062,21 @@
   font-size: 0.7em;
 }
 
+/* Standard view: editable markers within formatted text get the PT9 marker look.
+   Scoped to .formatted-font so the Unformatted view keeps full-size plain markers. */
+.formatted-font.marker-editable .marker {
+  color: rgba(140, 140, 140, 1);
+}
+
+.formatted-font.marker-editable .marker:not(.chapter) {
+  font-size: 0.7em;
+}
+
+.formatted-font.marker-editable .verse {
+  white-space: nowrap;
+  unicode-bidi: embed;
+}
+
 .notetext {
   unicode-bidi: embed;
 }

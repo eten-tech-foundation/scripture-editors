@@ -1,4 +1,10 @@
-import { getViewOptions, getViewMode, getVerseNodeClass, ViewOptions } from "./view-options.utils";
+import {
+  getViewOptions,
+  getViewMode,
+  getVerseNodeClass,
+  getViewClassList,
+  ViewOptions,
+} from "./view-options.utils";
 import {
   FORMATTED_VIEW_MODE,
   PARAGRAPH_STRUCTURE_VIEW_MODE,
@@ -45,5 +51,17 @@ describe("standard view mode", () => {
   it("does not misclassify unformatted as standard", () => {
     const unformatted: ViewOptions | undefined = getViewOptions(UNFORMATTED_VIEW_MODE);
     expect(getViewMode(unformatted)).toBe(UNFORMATTED_VIEW_MODE);
+  });
+
+  it("puts both marker-editable and formatted-font on the class list, so the PT9 marker CSS (scoped to .formatted-font.marker-editable) applies", () => {
+    const classList = getViewClassList(getViewOptions(STANDARD_VIEW_MODE));
+    expect(classList).toContain("marker-editable");
+    expect(classList).toContain("formatted-font");
+  });
+
+  it("omits formatted-font in unformatted view, so the PT9 marker CSS does not apply there", () => {
+    const classList = getViewClassList(getViewOptions(UNFORMATTED_VIEW_MODE));
+    expect(classList).toContain("marker-editable");
+    expect(classList).not.toContain("formatted-font");
   });
 });
