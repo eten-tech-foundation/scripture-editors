@@ -25,8 +25,8 @@ import {
   VERSE_PARA_INDEX,
 } from "../../../../utilities/src/converters/usj/converter-test.data";
 import { serializeEditorState, reset, initialize } from "./usj-editor.adaptor";
-import { EMPTY_USJ, MarkerObject } from "@eten-tech-foundation/scripture-utilities";
-import { SerializedLexicalNode } from "lexical";
+import { EMPTY_USJ, MarkerObject, usxStringToUsj } from "@eten-tech-foundation/scripture-utilities";
+import { SerializedLexicalNode, SerializedTextNode } from "lexical";
 import {
   closingMarkerText,
   getEditableCallerText,
@@ -46,6 +46,7 @@ import {
 } from "shared";
 import {
   defaultNoteCallers,
+  FORMATTED_VIEW_MODE,
   getDefaultViewOptions,
   getViewOptions,
   isSerializedImmutableNoteCallerNode,
@@ -271,6 +272,38 @@ describe("USJ Editor Adaptor", () => {
       (n) => isSerializedMarkerNode(n) && n.markerSyntax === "closing",
     );
     expect(hasClosingMarker).toBe(true);
+  });
+
+  it("maps NBSP to tilde in standard-view text content", () => {
+    const usj = usxStringToUsj(
+      `<usx version="3.0"><book code="RUT" style="id" /><chapter number="1" style="c" /><para style="p"><verse number="1" style="v" />3${NBSP}000 men</para></usx>`,
+    );
+    initialize(undefined, undefined);
+    reset();
+
+    const state = serializeEditorState(usj, getViewOptions(STANDARD_VIEW_MODE));
+
+    const para = state.root.children[2] as SerializedParaNode;
+    const text = para.children.find(
+      (child) => isSerializedTextNode(child) && child.text.includes("000"),
+    ) as SerializedTextNode;
+    expect(text.text).toBe("3~000 men");
+  });
+
+  it("does not map NBSP in formatted view", () => {
+    const usj = usxStringToUsj(
+      `<usx version="3.0"><book code="RUT" style="id" /><chapter number="1" style="c" /><para style="p"><verse number="1" style="v" />3${NBSP}000 men</para></usx>`,
+    );
+    initialize(undefined, undefined);
+    reset();
+
+    const state = serializeEditorState(usj, getViewOptions(FORMATTED_VIEW_MODE));
+
+    const para = state.root.children[2] as SerializedParaNode;
+    const text = para.children.find(
+      (child) => isSerializedTextNode(child) && child.text.includes("000"),
+    ) as SerializedTextNode;
+    expect(text.text).toBe(`3${NBSP}000 men`);
   });
 
   it("renders an atomic note caller with editable markers in standard view", () => {

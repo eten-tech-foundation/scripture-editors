@@ -28,7 +28,6 @@ const VIEW_MODES = [
 describe("corpus round-trip (USJ -> editor state -> USJ)", () => {
   beforeEach(() => {
     initializeSerialize({ extraValidMarkers: HANDBOOK_VALID_MARKERS }, undefined);
-    initializeDeserialize(undefined);
   });
 
   for (const fixture of corpusFixtures) {
@@ -38,6 +37,7 @@ describe("corpus round-trip (USJ -> editor state -> USJ)", () => {
       run(`${fixture.name} [${viewMode}]${skip ? ` (${skip})` : ""}`, () => {
         const usj = usxStringToUsj(fixture.usx);
         reset();
+        initializeDeserialize(undefined, getViewOptions(viewMode));
         const editorState = serializeEditorState(usj, getViewOptions(viewMode));
         const roundTripped = deserializeSerializedEditorState(editorState);
         expect(roundTripped).toEqual(usj);

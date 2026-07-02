@@ -221,7 +221,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
     }),
     [isReadonly, viewOptions.showCharMarkerTitles],
   );
-  editorUsjAdaptor.initialize(stableLogger);
+  editorUsjAdaptor.initialize(stableLogger, viewOptions);
 
   /**
    * Throws if `marker` is given but isn't a character marker the character marker actions can act

@@ -1,3 +1,5 @@
+import { NBSP } from "shared";
+
 /**
  * Round-trip corpus for Standard view (spec §7/§10, Phase 0).
  * Fixtures are authored as USX and converted to USJ at test time via
@@ -120,6 +122,12 @@ ${USX_FOOTER}`,
     name: "unclosed note (closed=false)",
     usx: book(
       `<para style="p"><verse number="1" style="v" />Text<note caller="+" style="f" closed="false"><char style="fr">1.1 </char><char style="ft">Unterminated note</char></note></para>`,
+    ),
+  },
+  {
+    name: "NBSP in text content",
+    usx: book(
+      `<para style="p"><verse number="1" style="v" />About 3${NBSP}000 men and women.</para>`,
     ),
   },
 ];
