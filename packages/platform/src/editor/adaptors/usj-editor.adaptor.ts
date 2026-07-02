@@ -531,7 +531,7 @@ function createNote(
   const children: SerializedLexicalNode[] = [];
   let callerNode: SerializedImmutableNoteCallerNode | SerializedTextNode;
   if (openingMarkerNode) children.push(openingMarkerNode);
-  if (_viewOptions?.markerMode === "editable") {
+  if (_viewOptions?.markerMode === "editable" && _viewOptions?.noteMode === "expanded") {
     callerNode = createText(getEditableCallerText(caller));
     children.push(callerNode, ...childNodes);
   } else {
