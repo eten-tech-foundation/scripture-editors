@@ -19,7 +19,9 @@ import {
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { mergeRegister } from "@lexical/utils";
 import {
+  $getNodeByKey,
   $getSelection,
+  $getState,
   $isRangeSelection,
   BLUR_COMMAND,
   COMMAND_PRIORITY_HIGH,
@@ -34,7 +36,15 @@ import {
   TextNode,
 } from "lexical";
 import { useEffect } from "react";
-import { ChapterNode, CharNode, LoggerBasic, MarkerNode, ParaNode, VerseNode } from "shared";
+import {
+  ChapterNode,
+  CharNode,
+  LoggerBasic,
+  MarkerNode,
+  ParaNode,
+  textTypeState,
+  VerseNode,
+} from "shared";
 import { getViewMode, STANDARD_VIEW_MODE, ViewOptions } from "shared-react";
 
 /**
@@ -99,6 +109,27 @@ export function MarkerEditPlugin({
         if (editor.isComposing()) return;
         $textNodeTier2Transform(node, context);
       }),
+      // Finding #1 (Phase 0): plain TextNodes can't emit a DOM class from node state the way
+      // ImmutableTypedTextNode does in createDOM(), so milestone attribute runs (`|sid="…"`,
+      // textType "attribute") render without the `.attribute` dim-until-hover styling that
+      // PT9 applies. DOM-only decoration from OUTSIDE the update cycle reconciles it post-render
+      // — no editor.update here, since mutating state from inside a mutation listener risks a
+      // cascading update loop. skipInitialization: false so nodes already in the initial editor
+      // state (not just later edits) get the class too.
+      editor.registerMutationListener(
+        TextNode,
+        (mutations) => {
+          editor.getEditorState().read(() => {
+            for (const [key, mutation] of mutations) {
+              if (mutation === "destroyed") continue;
+              const node = $getNodeByKey<TextNode>(key);
+              if (!node || $getState(node, textTypeState) !== "attribute") continue;
+              editor.getElementByKey(key)?.classList.add("attribute");
+            }
+          });
+        },
+        { skipInitialization: false },
+      ),
       // §4/§5.6: Standard-view-only whitespace display invariant and clipboard
       // normalization. Gated separately from the rest of this plugin (which is
       // markerMode-gated and also active in Unformatted view) — must not leak there.
