@@ -1,5 +1,6 @@
 import { MarkerEditPlugin } from "./MarkerEditPlugin";
 import { initialize as initializeSerialize, reset } from "../adaptors/usj-editor.adaptor";
+import { HistoryPlugin } from "@lexical/react/LexicalHistoryPlugin";
 import { $createTextNode, $getRoot } from "lexical";
 import {
   $createCharNode,
@@ -24,6 +25,23 @@ export async function testEnvironment($initialEditorState: () => void) {
   return baseTestEnvironment(
     $initialEditorState,
     <MarkerEditPlugin viewOptions={getViewOptions(STANDARD_VIEW_MODE)} />,
+  );
+}
+
+/**
+ * Like `testEnvironment`, but also mounts `HistoryPlugin` so undo/redo commands are
+ * available — for tests asserting that a Tier 2 rebuild coalesces into the triggering
+ * edit's undo step rather than becoming a separate one.
+ */
+export async function historyTestEnvironment($initialEditorState: () => void) {
+  initializeSerialize(undefined, undefined);
+  reset();
+  return baseTestEnvironment(
+    $initialEditorState,
+    <>
+      <MarkerEditPlugin viewOptions={getViewOptions(STANDARD_VIEW_MODE)} />
+      <HistoryPlugin />
+    </>,
   );
 }
 
