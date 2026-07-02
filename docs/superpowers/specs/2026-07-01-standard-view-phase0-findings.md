@@ -27,6 +27,20 @@
      (`\c`, `\p`, `\v`, etc.) are present verbatim — pre-existing asymmetry in
      `libs/shared-react/src/plugins/usj/collab/editor-delta.adaptor.ts`; confirm intentional
      with the collab adaptor owner before Phase 2 design locks in delta-ops behavior.
+  4. **Standard-view note shape in collab delta ops** — closing `\f*` glyph flows into note
+     contents ops while the opening glyph and caller/NBSP produce none; now pinned by
+     `opsGen1v1Standard`. See "Standard-view note shape in collab delta ops (pinned)" below.
+  5. **`parseNumberFromMarkerText` segment-regex boundary** — the regex caps segments at one
+     letter (`\d+[a-zA-Z]?`, `libs/shared/src/nodes/usj/node.utils.ts:409`); a nonstandard
+     `\v 5abc` truncates to `"5a"` instead of widening to `[a-zA-Z]*` or falling back to the
+     default on a partial match. Cheap Phase 2 follow-up, not a blocker (well-formed verse
+     numbers/segments — the only case exercised by the corpus — are unaffected).
+  6. **Manual visual QA handoff (pre-Phase-2 condition, not yet performed by an agent):** run the
+     demo (`pnpm nx dev platform`), switch to Standard view, and visually verify small grey
+     markers, collapsed callers, and specifically judge the superscripted whole verse token
+     (`.formatted-font .verse` `vertical-align: super` applies to the *entire* editable `\v 1`
+     token, not just a styled verse number) — decide whether that is the intended PT9 look before
+     Phase 2 locks in the styling.
 - Unicode normalization (spec §4): applied host-side automatically on every PT10 save via
   `ScrText.PutText` (not a Phase 5 gap); NBSP↔`~` handling also already present host-side. See
   "Unicode normalization (spec §4)" below for the full evidence trail.
@@ -176,6 +190,13 @@ types.
 - **Suspected site:** libs/shared/src/nodes/features/MarkerNode.ts createDOM (class list changed in #359).
 - **Severity:** cosmetic
 - **Disposition:** phase-2-engine — decide whether to restore the `marker` class on MarkerNode (and audit #359's motivation) or standardize on the syntax classes.
+
+## Standard-view note shape in collab delta ops (pinned)
+
+- **Symptom:** In standard view (editable+collapsed), a note's closing marker glyph (`\f*`) flows into the note embed's contents ops; the opening glyph is skipped (first-child rule) and the caller/NBSP produce no ops. Now pinned by `opsGen1v1Standard`.
+- **Suspected site:** libs/shared-react/src/plugins/usj/collab/editor-delta.adaptor.ts (skip-first-child rule ~218).
+- **Severity:** data-change (asymmetric glyph in ops; consumers must not assume glyph-free note contents)
+- **Disposition:** phase-2-engine — decide the intended ops contract for marker glyphs in notes (relates to the "marker glyphs in collab ops" design question).
 
 ## Unicode normalization (spec §4)
 
