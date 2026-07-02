@@ -1734,6 +1734,13 @@
 .text-spacing[dir="rtl"] .usfm_tr {
   margin-right: 10vw;
 }
+/* Tables render as real <table>/<tr>/<td|th>. The .usfm_tr rule above is a
+   leftover paragraph hanging-indent whose text-indent is inherited into every
+   cell, dragging cell content left (and clipping a narrow first column). Reset
+   it on real table cells so content sits within each cell. */
+.table-cell {
+  text-indent: 0;
+}
 
 .formatted-font .usfm_th1 {
   font-size: 100%;
