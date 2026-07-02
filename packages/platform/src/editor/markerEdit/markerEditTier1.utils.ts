@@ -39,6 +39,16 @@ export interface MarkerEditContext {
   pendingKeys: Set<NodeKey>;
   splitExpected: { current: boolean };
   logger?: LoggerBasic;
+  /**
+   * Literal text already submitted to `$requestTier2ForNode` this commit.
+   * `$rebuildParas` is deterministic (design spec §5.2 degradation property): a paragraph
+   * whose rebuild still contains an unresolved backslash sequence (e.g. an unmatched closer,
+   * `\wj*` with no `\wj`) reproduces the identical literal text on every retry, so the
+   * TextNode catch-all transform ($textNodeTier2Transform) would otherwise retrigger the
+   * same rebuild forever within one update, tripping Lexical's infinite-transform guard.
+   * Reset every commit by the plugin's update listener.
+   */
+  rebuildAttempted: Set<string>;
 }
 
 const TERMINATED_OPENER_REGEX = /^\\(\+?[\w-]+)[ \u00A0]$/;

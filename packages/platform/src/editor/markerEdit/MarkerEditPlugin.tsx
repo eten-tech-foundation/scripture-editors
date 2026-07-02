@@ -10,6 +10,7 @@ import {
   $verseNodeTransform,
   MarkerEditContext,
 } from "./markerEditTier1.utils";
+import { $textNodeTier2Transform } from "./markerEditTier2Trigger.utils";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { mergeRegister } from "@lexical/utils";
 import {
@@ -22,6 +23,7 @@ import {
   KEY_ENTER_COMMAND,
   NodeKey,
   SELECTION_CHANGE_COMMAND,
+  TextNode,
 } from "lexical";
 import { useEffect } from "react";
 import { ChapterNode, CharNode, LoggerBasic, MarkerNode, ParaNode, VerseNode } from "shared";
@@ -50,6 +52,7 @@ export function MarkerEditPlugin({
       viewOptions,
       pendingKeys: new Set<NodeKey>(),
       splitExpected: { current: false },
+      rebuildAttempted: new Set<string>(),
       logger,
     };
     // Tracks the anchor key as of the most recent commit, updated synchronously by the
@@ -78,6 +81,13 @@ export function MarkerEditPlugin({
       editor.registerNodeTransform(CharNode, (node) => {
         if (editor.isComposing()) return;
         $charNodeDeletionTransform(node, context);
+      }),
+      // Plain-TextNode catch-all for typed/pasted literal backslash sequences (§5.2).
+      // Lexical dispatches transforms by exact node type, so this never fires for
+      // MarkerNode/VerseNode subclasses — TextSpacingPlugin relies on the same fact.
+      editor.registerNodeTransform(TextNode, (node) => {
+        if (editor.isComposing()) return;
+        $textNodeTier2Transform(node, context);
       }),
       editor.registerCommand(
         KEY_ENTER_COMMAND,
@@ -121,6 +131,7 @@ export function MarkerEditPlugin({
       ),
       editor.registerUpdateListener(({ editorState }) => {
         context.splitExpected.current = false;
+        context.rebuildAttempted.clear();
         lastAnchorKey = editorState.read(() => {
           const selection = $getSelection();
           return $isRangeSelection(selection) ? selection.anchor.key : undefined;
