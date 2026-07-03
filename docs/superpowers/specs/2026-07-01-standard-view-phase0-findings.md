@@ -246,3 +246,124 @@ read/import side at `UsfmParser.cs:507` (`text.Replace('~', U+00A0)`). Net effec
 whitespace rules: NBSP in USX/USJ text round-trips to `~` in saved USFM (and back) at the host layer
 already — the editor does not need to do this conversion itself, only needs to treat `~`/NBSP as the
 same logical whitespace char when reasoning about marker-adjacent whitespace.
+
+## Phase 2 browser verification (2026-07-02)
+
+Task 15 acceptance-gate run. **Overall: DONE_WITH_CONCERNS** — the Phase 2
+marker-editing engine performs every specified transformation correctly, but the
+two user-facing input paths for introducing *new* markers (typing `\` and pasting
+USFM) are blocked in the platform editor by the pre-existing `CommandMenuPlugin`.
+See the finding at the end of this section.
+
+**Environment**
+- Demo: `pnpm nx dev platform` → http://localhost:5173, "Standard" view selected
+  in the Define-options → view-mode dropdown (editor class
+  `editor-input usfm marker-editable text-spacing formatted-font`).
+- Browser: Playwright-driven Chromium (headless), MCP tools.
+- Data: default demo load — Psalm 1 (WEB), `WEB_PSA_CH1_USX`. Includes the demo's
+  standing annotation milestones (`\zmsc-s/\zmsc-e` over "stand on the") and a
+  seeded `unknown` node ("wat content?") in the verse-1 para.
+- Note on input simulation: Playwright's synthetic `\` keystroke and `Ctrl+V` do
+  not reach Lexical here (the `\` key is intercepted, see finding; `Ctrl+V` doesn't
+  trigger a native headless paste). Engine behaviors that require literal backslash
+  text were therefore exercised by `keyboard.insertText(...)`, which lands the same
+  text a paste/typing would and drives the identical Tier-2 re-tokenization path.
+  Marker-digit/letter edits (Tier 1) were done with real keystrokes.
+
+**Step 1 whole-repo gates (cache bypassed): all PASS.**
+`test` (9 projects), `lint` (10 projects; 2 pre-existing warnings, 0 errors),
+`typecheck` (10 projects), `format:check` — all green. No source changes were made
+during Task 15. (One transient `format:check` red was self-inflicted: Playwright
+wrote snapshot `.yml` artifacts into a non-ignored `.playwright-mcp/` dir; removed,
+re-ran clean.)
+
+**Step 2 the 11 checks** (screenshots captured during the run, described here, not
+committed):
+
+1. **Tier 1 para rename — PASS.** Clicked the `\q1` glyph on the verse-1 para,
+   selected the `1`, typed `2`: marker read `\q2`, para still `usfm_q1`; the trailing
+   space committed the rename → para restyled to `usfm_q2`, toolbar block-type
+   "q2 - Poetry - Indent Level 2", contextMarker "q2". Real keystrokes (no `\` typed).
+   Undone via the toolbar Undo to restore baseline.
+2. **Tier 1 char rename — PASS.** On a `\nd …\nd*` span, selected `nd` in the opener,
+   typed `wj` + space → char restyled `usfm_nd`→`usfm_wj` and BOTH glyphs updated
+   (`\wj` opener and `\wj*` closer). Real keystrokes.
+3. **Tier 2 typed char marker — PASS (engine).** Inserting `\nd ` mid-text created a
+   `char.usfm_nd` span whose following run auto-extended and auto-closed with `\nd*`
+   at para end; a later `\nd*` inserted after "meditates" closed the span there
+   (node tree: char nd = [marker `\nd`, " meditates", marker `\nd*`], " day and
+   night." plain). The earlier auto-close became a literal unmatched `\nd*` (kept
+   literal per the §5.2 degradation rule — no data loss). **Input-path caveat:** a
+   real user's `\` keystroke is swallowed (see finding), so this is only reachable
+   programmatically.
+4. **Typed footnote — PASS (engine).** `\f + \ft test note\f* ` produced a
+   `note usfm_f collapsed` with an inline `immutable-note-caller` (button title
+   "test note", caller "+") rendering as a superscript caller ("②"). Same input-path
+   caveat as #3.
+5. **Paste split — PASS (engine) / BLOCKED (real paste).** The real paste path does
+   nothing (finding). Feeding the same payload `\p New paragraph text \v 99 verse
+   text` as literal text at a mid-para caret drove the engine correctly: paras 23→24,
+   a new `usfm_p` paragraph, `\v 99` verse token rendered (nav → "Psalms 1:99"), the
+   para split at the caret (text before stays, remainder flows into the new `\p`).
+6. **Deletion — PASS.** (a) Selecting a para's `\q2` glyph + Delete merged the para
+   into the previous one (paras 23→22, texts joined). (b) Deleting an `\nd*` closer
+   extended the char span to para end (span absorbed the following " tailword" and
+   re-closed at para end). Real keystrokes.
+7. **Ctrl+Space — PASS.** Caret inside a styled span + Ctrl+Space split it
+   styled/plain/styled; text typed in the gap is unstyled (not inside any char span).
+   Real Ctrl+Space (the engine's KEY_DOWN handler for it is not blocked).
+8. **Undo — PARTIAL / by-design nuance.** Undo restores the pre-paste state fully.
+   Two nuances: (i) **`Ctrl+Z` keyboard is intentionally disabled** in the platform
+   editor by `DisableHistoryShortcutsPlugin` (mounted when `hasExternalUI`, the demo
+   default) — undo is command/toolbar-driven; the toolbar Undo works and restores in
+   the expected granularity. (ii) The "single undo step for a paste" could not be
+   browser-verified because the real paste path is blocked (#5/finding); the
+   insertText-simulated equivalent took two Undo clicks (a simulation artifact — the
+   raw insert and the async Tier-2 rebuild are separate history entries — whereas a
+   real coalesced paste is unit-tested to be single-step in Task 11).
+9. **Whitespace display — PASS (+ noted copy gap).** Typing two spaces converts them
+   to display-NBSP (raw codes U+00A0, U+00A0) so both stay visible; a typed `~`
+   renders literally as `~` (the NBSP display form). Copy works: selecting "prosper"
+   and `Ctrl+C` lands "prosper" on the clipboard via the stock path. **Per Task 12,
+   the Standard-view copy normalization (`$handleCopyForStandardView`, NBSP→space) is
+   confirmed unreachable** — `ClipboardPlugin` dispatches `COPY_COMMAND` with a `null`
+   payload, so the handler returns at its `clipboardData == null` guard. Noted, not
+   failed (per the amendment).
+10. **Atomic-node refusal (§5.6) — PASS.** Caret placed right before a collapsed note
+    caller; inserting "XXINS" landed it beside the caller ("Yahweh'sXXINS\f…"), never
+    inside (note textContent excludes it); caller intact (data-caller "+", child count
+    unchanged).
+11. **Regression — PASS.** Unformatted view → full-size markers (15px, e.g. `\ide`,
+    no `text-spacing`/`formatted-font` classes), editing works ("QQ" inserted).
+    Formatted view → `marker-hidden`, zero marker glyphs, normal typing works ("TYPED
+    scoffers" inserted), engine inert (`MarkerEditPlugin` is gated to
+    `markerMode === "editable"`).
+
+## CommandMenuPlugin blocks the Standard-view marker input paths (Task 15)
+
+- **Symptom:** In the platform editor (Standard editable view), a real user cannot
+  introduce a new marker by either specified path: (a) pressing `\` (or `/`) inserts
+  nothing, and (b) pasting text containing `\`/`/` is silently dropped. The Phase 2
+  engine (Tiers 1/2, deletion, Ctrl+Space, whitespace, atomic refusal) works
+  correctly once literal backslash text reaches a `TextNode`, but neither user input
+  path delivers it. Tier-1 renames of *existing* glyphs are unaffected (they edit the
+  digit/letter, never type `\`).
+- **Suspected site:** `libs/shared-react/src/plugins/usj/CommandMenuPlugin.tsx` —
+  the `KEY_DOWN_COMMAND` handler (`COMMAND_PRIORITY_NORMAL`) does
+  `preventDefault()`+return-true on `event.key === "\\" || "/"`, and the
+  `PASTE_COMMAND`/`DROP_COMMAND` handlers `preventDefault()`+return-true when the
+  payload text contains `\`/`/`. Mounted unconditionally at
+  `packages/platform/src/editor/Editor.tsx:457`. Because it swallows the `\` before it
+  can land as text, the co-mounted `UsjNodesMenuPlugin` (`Editor.tsx:427`, trigger
+  `\`) — the spec's intended `\`-menu input path (design §5.2, lines ~166/238-247) —
+  also never triggers; no marker menu was observed to appear via any path.
+- **Severity:** blocks the user-facing typed/pasted-marker capability of Phase 2
+  (engine sound, input plumbing blocked). Verified via: real `\` keydown observed
+  (key `\`) with no insertion; real `Ctrl+V` no-op; a directly-dispatched
+  `PASTE_COMMAND` (Lexical's own helper pattern) also swallowed.
+- **Disposition:** design-level — reconcile `CommandMenuPlugin` with the Phase 2
+  engine / `UsjNodesMenuPlugin` (e.g. gate `CommandMenuPlugin` off, or make its
+  `\`/`/` block inert, when `markerMode === "editable"`; or route `\` through the
+  marker menu whose literal-dismiss path §5.2 relies on). Not addressed by the Phase 2
+  plan (the "context-aware marker menu" is deferred to Phase 4); no mechanical
+  in-Phase-2 fix, so recorded here rather than changed under Task 15.
