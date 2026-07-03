@@ -162,8 +162,11 @@ describe("Editor USJ Adaptor", () => {
   it("inverts display whitespace when deserializing standard view", () => {
     // display tilde (= data NBSP) + display-NBSP run (= space run, collapses to one)
     const state = buildPatchedStandardState(`in~the${NBSP}${NBSP}days`);
-    initializeDeserialize(undefined, getViewOptions(STANDARD_VIEW_MODE));
-    const roundTripped = deserializeSerializedEditorState(state);
+    initializeDeserialize(undefined);
+    const roundTripped = deserializeSerializedEditorState(
+      state,
+      getViewOptions(STANDARD_VIEW_MODE),
+    );
     expect(JSON.stringify(roundTripped)).toContain(`in${NBSP}the days`);
   });
 
@@ -172,5 +175,28 @@ describe("Editor USJ Adaptor", () => {
     initializeDeserialize(undefined);
     const roundTripped = deserializeSerializedEditorState(state);
     expect(JSON.stringify(roundTripped)).toContain(`in~the${NBSP}${NBSP}days`);
+  });
+
+  it("uses per-call viewOptions, not a latched module singleton (task zero)", () => {
+    // Build a standard-view state with a stored NBSP (renders as display `~`).
+    const usj = usxStringToUsj(
+      `<usx version="3.0"><book code="RUT" style="id" /><chapter number="1" style="c" /><para style="p"><verse number="1" style="v" />3${NBSP}000 men</para></usx>`,
+    );
+    initializeSerialize(undefined, undefined);
+    initializeDeserialize(undefined); // no viewOptions latched
+    reset();
+    const standardState = serializeEditorState(usj, getViewOptions(STANDARD_VIEW_MODE));
+
+    // Deserializing WITH standard viewOptions inverts display `~` back to a data NBSP...
+    const asStandard = deserializeSerializedEditorState(
+      standardState,
+      getViewOptions(STANDARD_VIEW_MODE),
+    );
+    expect(JSON.stringify(asStandard)).toContain(`3${NBSP}000 men`);
+
+    // ...and deserializing the SAME state WITHOUT standard viewOptions leaves display `~` literal,
+    // proving the result depends on the per-call arg, not on whatever `initialize` last saw.
+    const asDefault = deserializeSerializedEditorState(standardState, undefined);
+    expect(JSON.stringify(asDefault)).toContain(`3~000 men`);
   });
 });

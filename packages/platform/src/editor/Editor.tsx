@@ -179,7 +179,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
     }),
     [isReadonly, viewOptions.showCharMarkerTitles],
   );
-  editorUsjAdaptor.initialize(logger, viewOptions);
+  editorUsjAdaptor.initialize(logger);
 
   useImperativeHandle(ref, () => ({
     focus() {
@@ -226,7 +226,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
       const editorState = editorRef.current?.getEditorState();
       if (!editorState) return;
 
-      const newUsj = editorUsjAdaptor.deserializeEditorState(editorState);
+      const newUsj = editorUsjAdaptor.deserializeEditorState(editorState, viewOptions);
       if (newUsj) {
         const isEdited = !deepEqual(editedUsjRef.current, newUsj);
         if (isEdited) editedUsjRef.current = newUsj;
@@ -366,7 +366,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
       // No blacklisted-tag guard is needed here: `DeltaOnChangePlugin` is given
       // `ignoreTags={blackListedChangeTags}` and short-circuits before calling this handler, so
       // only local user edits (which carry no blacklisted tag) ever reach this point.
-      const newUsj = editorUsjAdaptor.deserializeEditorState(editorState);
+      const newUsj = editorUsjAdaptor.deserializeEditorState(editorState, viewOptions);
       if (newUsj) {
         const isEdited = !deepEqual(editedUsjRef.current, newUsj);
         if (isEdited) editedUsjRef.current = newUsj;
@@ -379,7 +379,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
         }
       }
     },
-    [usj, onUsjChange],
+    [usj, onUsjChange, viewOptions],
   );
 
   const handleStateChange = useCallback(
