@@ -93,10 +93,13 @@ describe("Tier 2 literal-text triggers", () => {
     });
   });
 
-  it("does not fire inside note content (Phase 3 scope)", async () => {
+  it("does not re-tokenize a COLLAPSED note's content (preserve-or-refuse)", async () => {
+    // The note skip is lifted (Phase 3): the trigger now fires inside note content and
+    // routes to `$rebuildNoteContent`. A collapsed note, however, is not inline-editable,
+    // so its content re-tokenization is refused and the typed text stays literal.
     const { editor } = await testEnvironment(() => {
       const para = $createParaNode("p");
-      const note = $createNoteNode("f", "+");
+      const note = $createNoteNode("f", "+"); // isCollapsed defaults to true
       $getRoot().append(
         para.append(
           $createMarkerNode("p"),
@@ -118,7 +121,7 @@ describe("Tier 2 literal-text triggers", () => {
         text?.setTextContent(`${NBSP}note \\bd bold\\bd* text`);
       }),
     );
-    // literal text preserved — no CharNode created inside the note
+    // literal text preserved — no CharNode created inside the collapsed note
     expect(JSON.stringify(editor.getEditorState().toJSON())).toContain("\\\\bd");
   });
 });
