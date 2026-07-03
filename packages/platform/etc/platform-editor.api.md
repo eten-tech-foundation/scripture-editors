@@ -323,6 +323,7 @@ export interface UsjLocation {
 export interface UsjNodeOptions extends NodeOptions {
     // @deprecated
     addMissingComments?: AddMissingComments;
+    crossRefCallers?: string[];
     extraValidMarkers?: readonly string[];
     noteCallerOnClick?: NoteCallerOnClick;
     noteCallers?: string[];

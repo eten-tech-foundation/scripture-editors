@@ -107,6 +107,37 @@ describe("getNoteOps via onClick callback", () => {
   });
 });
 
+describe("decorate - caller label", () => {
+  it("renders a hidden caller (-) as * when collapsed", async () => {
+    const dom = await renderCaller("-", true);
+    expect(dom.querySelector("button")?.textContent).toBe("*");
+  });
+
+  it("renders a generator caller (+) empty when collapsed (CSS-generated)", async () => {
+    const dom = await renderCaller("+", true);
+    expect(dom.querySelector("button")?.textContent).toBe("");
+  });
+
+  it("renders a custom caller literally when collapsed", async () => {
+    const dom = await renderCaller("a", true);
+    expect(dom.querySelector("button")?.textContent).toBe("a");
+  });
+});
+
+async function renderCaller(caller: string, collapsed: boolean): Promise<HTMLElement> {
+  const { editor } = await baseTestEnvironment(() => {
+    $getRoot().append(
+      $createParaNode().append(
+        $createNoteNode("f", "a", collapsed).append($createImmutableNoteCallerNode(caller, "")),
+      ),
+    );
+  });
+
+  const rootElement = editor.getRootElement();
+  if (!rootElement) throw new Error("renderCaller: editor root element not found");
+  return rootElement;
+}
+
 async function simulateCallerClick(editor: LexicalEditor) {
   await act(async () => {
     const editorDiv = editor.getRootElement();

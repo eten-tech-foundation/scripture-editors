@@ -1,6 +1,7 @@
 import {
   $isImmutableNoteCallerNode,
   $isImmutableVerseNode,
+  defaultCrossRefCallers,
   defaultNoteCallers,
   ImmutableNoteCallerNode,
   UsjNodeOptions,
@@ -73,12 +74,15 @@ export function NoteNodePlugin<TLogger extends LoggerBasic>({
 
 /**
  * This hook is responsible for handling updates to `nodeOptions`.
- * @param nodeOptions - Node options that includes the list of potential node callers.
+ * @param nodeOptions - Node options that includes the list of potential note and cross-reference
+ *   callers.
  * @param logger - Logger to use, if any.
  */
 function useNodeOptions(nodeOptions: UsjNodeOptions, logger?: LoggerBasic) {
   const previousNoteCallersRef = useRef<string[] | undefined>(undefined);
+  const previousCrossRefCallersRef = useRef<string[] | undefined>(undefined);
   const nodeOptionsNoteCallers = nodeOptions.noteCallers;
+  const nodeOptionsCrossRefCallers = nodeOptions.crossRefCallers;
 
   useEffect(() => {
     let noteCallers = nodeOptionsNoteCallers;
@@ -88,6 +92,15 @@ function useNodeOptions(nodeOptions: UsjNodeOptions, logger?: LoggerBasic) {
       updateCounterStyleSymbols("note-callers", noteCallers, logger);
     }
   }, [logger, nodeOptionsNoteCallers]);
+
+  useEffect(() => {
+    let crossRefCallers = nodeOptionsCrossRefCallers;
+    if (!crossRefCallers || crossRefCallers.length <= 0) crossRefCallers = defaultCrossRefCallers;
+    if (previousCrossRefCallersRef.current !== crossRefCallers) {
+      previousCrossRefCallersRef.current = crossRefCallers;
+      updateCounterStyleSymbols("cross-ref-callers", crossRefCallers, logger);
+    }
+  }, [logger, nodeOptionsCrossRefCallers]);
 }
 
 /**
