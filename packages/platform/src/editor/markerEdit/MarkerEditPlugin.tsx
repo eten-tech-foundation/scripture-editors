@@ -156,8 +156,11 @@ export function MarkerEditPlugin({
         (event: KeyboardEvent) => {
           if (!event.ctrlKey || event.altKey || event.shiftKey || event.metaKey) return false;
           if (event.key !== " " && event.code !== "Space") return false;
+          // Only claim the keystroke (preventDefault + return true) when we actually acted;
+          // otherwise let it fall through untouched (e.g. no range selection).
+          if (!$removeCharFormattingFromSelection()) return false;
           event.preventDefault();
-          return $removeCharFormattingFromSelection();
+          return true;
         },
         COMMAND_PRIORITY_HIGH,
       ),

@@ -130,4 +130,12 @@ ${USX_FOOTER}`,
       `<para style="p"><verse number="1" style="v" />About 3${NBSP}000 men and women.</para>`,
     ),
   },
+  {
+    // §4 createPara leading-space display rule: a paragraph whose first content text starts
+    // with a single leading space. Standard view displays that space as NBSP; the reverse
+    // adaptor inverts it back (and normalizeSpaceRuns leaves a lone space alone), so the pair
+    // round-trips. The other three modes carry the leading space through untouched.
+    name: "paragraph-leading space (§4 display rule)",
+    usx: book(`<para style="p"> Leading space precedes this text.</para>`),
+  },
 ];
