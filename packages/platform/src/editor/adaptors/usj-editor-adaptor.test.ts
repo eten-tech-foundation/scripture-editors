@@ -326,6 +326,51 @@ describe("USJ Editor Adaptor", () => {
     expect(note.isCollapsed).toBe(true);
   });
 
+  it("renders an unclosed note (closed=false) expanded even in collapsed noteMode", () => {
+    const usj = usxStringToUsj(
+      `<usx version="3.0"><book code="RUT" style="id" /><chapter number="1" style="c" /><para style="p"><verse number="1" style="v" />text<note caller="+" style="f" closed="false"><char style="ft">open note</char></note> after</para></usx>`,
+    );
+    initialize(undefined, undefined);
+    reset();
+
+    const state = serializeEditorState(usj, getViewOptions(STANDARD_VIEW_MODE));
+
+    const para = state.root.children[2] as SerializedParaNode;
+    const note = para.children.find((c) => isSerializedNoteNode(c)) as SerializedNoteNode;
+    expect(note.isCollapsed).toBe(false);
+    // expanded editable layout uses editable caller TEXT, not an ImmutableNoteCallerNode
+    expect(note.children.some((c) => isSerializedImmutableNoteCallerNode(c))).toBe(false);
+    const callerTextNode = note.children[1];
+    if (!isSerializedTextNode(callerTextNode)) throw new Error("Caller text not found");
+    expect(callerTextNode.text).toBe(getEditableCallerText("+"));
+    // no synthesized closing marker for an unclosed note
+    const hasClosingMarker = note.children.some(
+      (n) => isSerializedMarkerNode(n) && n.markerSyntax === "closing",
+    );
+    expect(hasClosingMarker).toBe(false);
+    // round-trips the closed flag
+    expect(JSON.stringify(note)).toContain(`"closed":"false"`);
+  });
+
+  it("still collapses a closed note in collapsed noteMode", () => {
+    const usj = usxStringToUsj(
+      `<usx version="3.0"><book code="RUT" style="id" /><chapter number="1" style="c" /><para style="p"><verse number="1" style="v" />text<note caller="+" style="f"><char style="ft">closed note</char></note></para></usx>`,
+    );
+    initialize(undefined, undefined);
+    reset();
+
+    const state = serializeEditorState(usj, getViewOptions(STANDARD_VIEW_MODE));
+
+    const para = state.root.children[2] as SerializedParaNode;
+    const note = para.children.find((c) => isSerializedNoteNode(c)) as SerializedNoteNode;
+    expect(note.isCollapsed).toBe(true);
+    expect(note.children.some((c) => isSerializedImmutableNoteCallerNode(c))).toBe(true);
+    const hasClosingMarker = note.children.some(
+      (n) => isSerializedMarkerNode(n) && n.markerSyntax === "closing",
+    );
+    expect(hasClosingMarker).toBe(true);
+  });
+
   it("still renders editable caller text in unformatted view", () => {
     const usj = usjGen1v1;
     initialize(undefined, undefined);

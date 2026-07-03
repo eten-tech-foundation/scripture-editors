@@ -449,22 +449,28 @@ function createNote(
   marker = marker ?? DEFAULT_NOTE_MARKER;
   const { category } = markerObject;
   const caller = markerObject.caller ?? "*";
-  const isCollapsed = _viewOptions?.noteMode !== "expanded";
+  // Unclosed notes (closed="false") render expanded inline (PT9 `opennote`); only closed
+  // notes honor noteMode collapse.
+  const isUnclosed = (markerObject as MarkerObject & { closed?: string }).closed === "false";
+  const isCollapsed = isUnclosed ? false : _viewOptions?.noteMode !== "expanded";
   const unknownAttributes = getUnknownAttributes(markerObject, NOTE_MARKER_OBJECT_PROPS);
 
   let openingMarkerNode: SerializedTextNode | SerializedImmutableTypedTextNode | undefined;
   let closingMarkerNode: SerializedTextNode | SerializedImmutableTypedTextNode | undefined;
   if (_viewOptions?.markerMode === "editable") {
     openingMarkerNode = createMarker(marker);
-    closingMarkerNode = createMarker(marker, "closing");
+    // An unclosed note has no closer to display.
+    if (!isUnclosed) closingMarkerNode = createMarker(marker, "closing");
   } else if (_viewOptions?.markerMode === "visible") {
     openingMarkerNode = createImmutableTypedText("marker", openingMarkerText(marker) + " ");
-    closingMarkerNode = createImmutableTypedText("marker", closingMarkerText(marker));
+    if (!isUnclosed)
+      closingMarkerNode = createImmutableTypedText("marker", closingMarkerText(marker));
   }
   const children: SerializedLexicalNode[] = [];
   let callerNode: SerializedImmutableNoteCallerNode | SerializedTextNode;
   if (openingMarkerNode) children.push(openingMarkerNode);
-  if (_viewOptions?.markerMode === "editable" && _viewOptions?.noteMode === "expanded") {
+  // Expanded layout whenever the note is expanded (either noteMode expanded OR unclosed).
+  if (_viewOptions?.markerMode === "editable" && !isCollapsed) {
     callerNode = createText(getEditableCallerText(caller));
     children.push(callerNode, ...childNodes);
   } else {
