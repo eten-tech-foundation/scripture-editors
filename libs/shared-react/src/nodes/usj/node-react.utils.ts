@@ -46,6 +46,7 @@ import {
   $isSomeChapterNode,
   $isVerseNode,
   $moveSelectionToEnd,
+  CharNode,
   closingMarkerText,
   EMPTY_CHAR_PLACEHOLDER_TEXT,
   getEditableCallerText,
@@ -142,7 +143,14 @@ export function $insertNote(
   const selection = selectionRange ? $getRangeFromUsjSelection(selectionRange) : $getSelection();
   if (!$isRangeSelection(selection)) return undefined;
 
-  const children = $createNoteChildren(selection, marker, scriptureReference, nodeOptions, logger);
+  const children = $createNoteChildren(
+    selection,
+    marker,
+    scriptureReference,
+    viewOptions,
+    nodeOptions,
+    logger,
+  );
   if (children === undefined) return undefined;
 
   const isCrossReference = marker.startsWith("x") || marker === "ex";
@@ -188,10 +196,33 @@ export function $insertNoteWithSelect(
   }
 }
 
+/**
+ * Build a single note-content char span matching the reverse adaptor's `createChar` output for
+ * the active `markerMode`. In editable markerMode a char span MUST begin with its opening
+ * MarkerNode glyph and carry a structural NBSP content prefix; otherwise the standard-view
+ * marker-edit engine's `$charNodeDeletionTransform` (§5.5) treats it as "opener deleted" and
+ * unwraps it back to plain text in the same commit — which was silently emptying freshly
+ * inserted footnotes. `content === ""` yields the lone-NBSP empty-char placeholder (matching
+ * `createChar`, which prepends the NBSP prefix only to real content, then adds the placeholder).
+ */
+function $createNoteContentChar(
+  marker: string,
+  content: string,
+  viewOptions: ViewOptions,
+): CharNode {
+  const char = $createCharNode(marker);
+  const isEditable = viewOptions?.markerMode === "editable";
+  if (isEditable) char.append($createMarkerNode(marker));
+  const text = content === "" ? EMPTY_CHAR_PLACEHOLDER_TEXT : isEditable ? NBSP + content : content;
+  char.append($createTextNode(text));
+  return char;
+}
+
 export function $createNoteChildren(
   selection: RangeSelection,
   marker: string,
   scriptureReference: ScriptureReference | undefined,
+  viewOptions: ViewOptions,
   nodeOptions: UsjNodeOptions,
   logger: LoggerBasic | undefined,
 ): LexicalNode[] | undefined {
@@ -212,30 +243,28 @@ export function $createNoteChildren(
     case "ef":
     case "efe":
       if (referenceText !== undefined) {
-        children.push($createCharNode("fr").append($createTextNode(referenceText)));
+        children.push($createNoteContentChar("fr", referenceText, viewOptions));
       }
       if (!selection.isCollapsed()) {
         const quotation = $stripSelectionToQuotation(selection);
         if (quotation.length > 0) {
-          const fq = $createCharNode("fq").append($createTextNode(quotation));
-          children.push(fq);
+          children.push($createNoteContentChar("fq", quotation, viewOptions));
         }
       }
-      children.push($createCharNode("ft").append($createTextNode(EMPTY_CHAR_PLACEHOLDER_TEXT)));
+      children.push($createNoteContentChar("ft", "", viewOptions));
       break;
     case "x":
     case "ex":
       if (referenceText !== undefined) {
-        children.push($createCharNode("xo").append($createTextNode(referenceText)));
+        children.push($createNoteContentChar("xo", referenceText, viewOptions));
       }
       if (!selection.isCollapsed()) {
         const quotation = $stripSelectionToQuotation(selection);
         if (quotation.length > 0) {
-          const xq = $createCharNode("xq").append($createTextNode(quotation));
-          children.push(xq);
+          children.push($createNoteContentChar("xq", quotation, viewOptions));
         }
       }
-      children.push($createCharNode("xt").append($createTextNode(EMPTY_CHAR_PLACEHOLDER_TEXT)));
+      children.push($createNoteContentChar("xt", "", viewOptions));
       break;
     default:
       logger?.warn(`$createNoteChildren: Unsupported note marker '${marker}'`);
