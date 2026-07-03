@@ -20,6 +20,8 @@ export type AddMissingComments = (usjCommentIds: string[]) => void;
 export interface UsjNodeOptions extends NodeOptions {
   /** Possible note callers to use when caller is '+'. Defaults to lowercase Latin characters. */
   noteCallers?: string[];
+  /** Possible cross-reference callers when caller is '+'. Default ['†']. */
+  crossRefCallers?: string[];
   /** Note caller click handler method. */
   noteCallerOnClick?: NoteCallerOnClick;
   /**

@@ -1,5 +1,6 @@
 import {
   $createImmutableNoteCallerNode,
+  defaultCrossRefCallers,
   defaultNoteCallers,
   ImmutableNoteCallerNode,
 } from "../../nodes/usj/ImmutableNoteCallerNode";
@@ -37,6 +38,12 @@ let firstVerseTextNode: TextNode;
 let firstNoteNode: NoteNode;
 let secondNoteNode: NoteNode;
 let thirdNoteNode: NoteNode;
+let noteCallersRule: CounterStyleRuleLike;
+let crossRefCallersRule: CounterStyleRuleLike;
+
+const DEFAULT_NOTE_CALLERS_SYMBOLS =
+  '"a" "b" "c" "d" "e" "f" "g" "h" "i" "j" "k" "l" "m" "n" "o" "p" "q" "r" "s" "t" "u" "v" "w" "x" "y" "z"';
+const DEFAULT_CROSS_REF_CALLERS_SYMBOLS = '"†"';
 
 function $createFootnoteNode(caller: string, reference: string, text: string) {
   const footnoteNode = $createNoteNode("f", GENERATOR_NOTE_CALLER);
@@ -69,15 +76,19 @@ function $defaultInitialEditorState() {
 }
 
 beforeAll(() => {
-  const fakeRule: CounterStyleRuleLike = {
+  noteCallersRule = {
     name: "note-callers",
-    symbols:
-      '"a" "b" "c" "d" "e" "f" "g" "h" "i" "j" "k" "l" "m" "n" "o" "p" "q" "r" "s" "t" "u" "v" "w" "x" "y" "z"',
+    symbols: DEFAULT_NOTE_CALLERS_SYMBOLS,
+    type: 11, // CSSRule.COUNTER_STYLE_RULE
+  };
+  crossRefCallersRule = {
+    name: "cross-ref-callers",
+    symbols: DEFAULT_CROSS_REF_CALLERS_SYMBOLS,
     type: 11, // CSSRule.COUNTER_STYLE_RULE
   };
   const fakeStyleSheet = {
-    cssRules: [fakeRule],
-    rules: [fakeRule],
+    cssRules: [noteCallersRule, crossRefCallersRule],
+    rules: [noteCallersRule, crossRefCallersRule],
   };
   styleSheetsSpy = vi
     .spyOn(document, "styleSheets", "get")
@@ -90,6 +101,12 @@ afterAll(() => {
   if (styleSheetsSpy) {
     styleSheetsSpy.mockRestore();
   }
+});
+
+beforeEach(() => {
+  // Reset symbols between tests since `updateCounterStyleSymbols` mutates the rule in place.
+  noteCallersRule.symbols = DEFAULT_NOTE_CALLERS_SYMBOLS;
+  crossRefCallersRule.symbols = DEFAULT_CROSS_REF_CALLERS_SYMBOLS;
 });
 
 describe("NoteNodePlugin", () => {
@@ -105,6 +122,27 @@ describe("NoteNodePlugin", () => {
       expect(getNoteCaller(firstNoteNode)).toBe("a");
       expect(getNoteCaller(secondNoteNode)).toBe("b");
       expect(getNoteCaller(thirdNoteNode)).toBe("c");
+    });
+  });
+
+  describe("Counter style rewriting", () => {
+    it("should rewrite note-callers counter-style symbols from nodeOptions.noteCallers", async () => {
+      await testEnvironment({ noteCallers: ["one", "two", "three"] });
+
+      expect(noteCallersRule.symbols).toBe('"one" "two" "three"');
+    });
+
+    it("should rewrite cross-ref-callers counter-style symbols from nodeOptions.crossRefCallers", async () => {
+      await testEnvironment({ crossRefCallers: ["‡"] });
+
+      expect(crossRefCallersRule.symbols).toBe('"‡"');
+    });
+
+    it("should default cross-ref-callers counter-style symbols to '†' when crossRefCallers is not set", async () => {
+      await testEnvironment({ noteCallers: defaultNoteCallers });
+
+      expect(defaultCrossRefCallers).toEqual(["†"]);
+      expect(crossRefCallersRule.symbols).toBe(DEFAULT_CROSS_REF_CALLERS_SYMBOLS);
     });
   });
 
