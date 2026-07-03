@@ -17,6 +17,7 @@ import {
   $parseSerializedNode,
   ElementNode,
   LexicalNode,
+  SerializedLexicalNode,
   TextNode,
 } from "lexical";
 import {
@@ -27,16 +28,18 @@ import {
   $isParaNode,
   $isUnknownNode,
   $isVerseNode,
+  getEditableCallerText,
   getMarker,
   LoggerBasic,
   MarkerType,
   NBSP,
+  NoteNode,
   ParaNode,
   textTypeState,
   usfmFragmentToUsjContent,
   VerseNode,
 } from "shared";
-import { ViewOptions } from "shared-react";
+import { $isImmutableNoteCallerNode, ViewOptions } from "shared-react";
 
 export const ATOMIC_SENTINEL = "￼";
 
@@ -177,7 +180,10 @@ function $signatureOf(nodes: LexicalNode[]): string {
 }
 
 function $appendChildrenFragment(element: ElementNode, out: FragmentAccumulator): void {
-  const children = element.getChildren();
+  $appendNodesFragment(element.getChildren(), out);
+}
+
+function $appendNodesFragment(children: LexicalNode[], out: FragmentAccumulator): void {
   for (let index = 0; index < children.length; index++) {
     const node = children[index];
     if ($isMarkerNode(node)) {
@@ -284,22 +290,12 @@ function $spansForNodes(nodes: LexicalNode[]): FragmentSpan[] {
   return out.spans;
 }
 
-function $restoreSelectionAtOffset(
+/** Place the collapsed caret at `offset` within `spans`, falling back to the first element. */
+function $selectAtFragmentOffset(
+  spans: FragmentSpan[],
+  offset: number,
   newNodes: LexicalNode[],
-  offset: number | undefined,
-  anchorInParas: boolean,
 ): void {
-  // The caret was somewhere else entirely (the primary completion flow: the user
-  // typed a mid-edit marker, then clicked/arrowed into another paragraph, which is
-  // what triggered this rebuild). The rebuilt paragraphs are not where the caret
-  // lives, so leave the selection strictly untouched rather than yanking it back in.
-  if (!anchorInParas) return;
-  const firstElement = newNodes.find($isElementNode);
-  if (offset === undefined) {
-    firstElement?.selectStart();
-    return;
-  }
-  const spans = $spansForNodes(newNodes);
   let best: { key: string; offset: number } | undefined;
   for (const span of spans) {
     if (span.isSentinel) continue;
@@ -323,7 +319,44 @@ function $restoreSelectionAtOffset(
       return;
     }
   }
-  firstElement?.selectStart();
+  newNodes.find($isElementNode)?.selectStart();
+}
+
+function $restoreSelectionAtOffset(
+  newNodes: LexicalNode[],
+  offset: number | undefined,
+  anchorInParas: boolean,
+): void {
+  // The caret was somewhere else entirely (the primary completion flow: the user
+  // typed a mid-edit marker, then clicked/arrowed into another paragraph, which is
+  // what triggered this rebuild). The rebuilt paragraphs are not where the caret
+  // lives, so leave the selection strictly untouched rather than yanking it back in.
+  if (!anchorInParas) return;
+  if (offset === undefined) {
+    newNodes.find($isElementNode)?.selectStart();
+    return;
+  }
+  $selectAtFragmentOffset($spansForNodes(newNodes), offset, newNodes);
+}
+
+/**
+ * Restore the caret inside rebuilt NOTE content. Unlike `$restoreSelectionAtOffset`, the
+ * content nodes form one contiguous region, so spans are computed with `$appendNodesFragment`
+ * (no inter-node separators) to match the offset captured over `$buildNoteFragment`'s text.
+ */
+function $restoreSelectionInNoteContent(
+  newNodes: LexicalNode[],
+  offset: number | undefined,
+  anchorInNote: boolean,
+): void {
+  if (!anchorInNote) return;
+  if (offset === undefined) {
+    newNodes.find($isElementNode)?.selectStart();
+    return;
+  }
+  const out: FragmentAccumulator = { text: "", spans: [], sentinels: [] };
+  $appendNodesFragment(newNodes, out);
+  $selectAtFragmentOffset(out.spans, offset, newNodes);
 }
 
 export function $rebuildParas(
@@ -413,7 +446,163 @@ export function $rebuildParas(
   return true;
 }
 
-/** Route a Tier 1-unexpressible edit to Tier 2 via the node's paragraph. */
+/**
+ * Build the re-tokenizable fragment for a note's CONTENT children — everything strictly
+ * between the note's opening MarkerNode(s) + caller prefix and its trailing closing
+ * MarkerNode(s). Preserve-or-refuse (returns undefined) when the note is collapsed, has
+ * unknown attributes, an unrecoverable marker, or an unexpected caller/prefix shape: a
+ * note the engine cannot cleanly re-derive is never rebuilt.
+ */
+function $buildNoteFragment(
+  note: NoteNode,
+): { out: FragmentAccumulator; contentNodes: LexicalNode[] } | undefined {
+  // Only inline-expanded notes are re-tokenizable: a collapsed note's content is not
+  // inline-editable and its display layout (interspersed spacing) is not text-recoverable.
+  if (note.getIsCollapsed() !== false) return undefined;
+  // The note node itself (marker, caller, and any unknown attributes such as the
+  // unclosed-note `closed="false"`) is PRESERVED across the rebuild, so its own
+  // attributes never disqualify a content re-tokenization; only a marker the engine
+  // cannot recognize is refused as a sanity guard.
+  if (!NoteNode.isValidMarker(note.getMarker())) return undefined;
+
+  const children = note.getChildren();
+  // Skip the leading opening-marker(s) prefix.
+  let start = 0;
+  while (start < children.length) {
+    const node = children[start];
+    if (!$isMarkerNode(node) || node.getMarkerSyntax() !== "opening") break;
+    start++;
+  }
+  // Skip the caller node (an ImmutableNoteCallerNode, or the expanded editable caller
+  // TextNode); anything else in this slot is an unexpected shape, so refuse.
+  const callerNode = children[start];
+  if (!callerNode) return undefined;
+  const isCaller =
+    $isImmutableNoteCallerNode(callerNode) ||
+    ($isTextNode(callerNode) &&
+      callerNode.getTextContent() === getEditableCallerText(note.getCaller()));
+  if (!isCaller) return undefined;
+  start++;
+  // Skip the trailing closing-marker(s).
+  let end = children.length;
+  while (end > start) {
+    const node = children[end - 1];
+    if (!$isMarkerNode(node) || node.getMarkerSyntax() !== "closing") break;
+    end--;
+  }
+
+  const contentNodes = children.slice(start, end);
+  const out: FragmentAccumulator = { text: "", spans: [], sentinels: [] };
+  $appendNodesFragment(contentNodes, out);
+  return { out, contentNodes };
+}
+
+/**
+ * Note-scoped Tier 2 re-tokenization (design spec §5.2/§6). Mirrors `$rebuildParas` but
+ * operates on a single note's CONTENT children. The note node identity, its opening
+ * marker(s), its caller, and its closing marker(s) are PRESERVED; only the content is
+ * re-tokenized. Preserve-or-refuse: any guard-rail failure returns false with the note
+ * untouched (never a partial mutation, never an infinite loop). A NoteNode inside a
+ * PARAGRAPH rebuild stays an atomic sentinel; only this path descends into its content.
+ */
+export function $rebuildNoteContent(
+  note: NoteNode,
+  viewOptions: ViewOptions,
+  logger?: LoggerBasic,
+): boolean {
+  const built = $buildNoteFragment(note);
+  if (!built) {
+    logger?.debug("[MarkerEdit] Note Tier 2 skipped: note excluded by guard rails");
+    return false;
+  }
+  const { out, contentNodes } = built;
+
+  // Capture the caret as a fragment offset before mutating, noting whether the anchor
+  // was actually inside this note (vs. parked elsewhere) — mirror `$rebuildParas`.
+  let caretOffset: number | undefined;
+  let anchorInNote = false;
+  const selection = $getSelection();
+  if ($isRangeSelection(selection)) {
+    for (let node: LexicalNode | null = selection.anchor.getNode(); node; node = node.getParent())
+      if (note.is(node)) {
+        anchorInNote = true;
+        break;
+      }
+    if (selection.isCollapsed()) {
+      const span = out.spans.find((candidate) => candidate.key === selection.anchor.key);
+      if (span)
+        caretOffset = Math.min(
+          span.start + (span.isSentinel ? 1 : selection.anchor.offset),
+          span.end,
+        );
+    }
+  }
+
+  const content: MarkerContent[] = usfmFragmentToUsjContent(out.text);
+  if (content.length === 0) {
+    logger?.debug("[MarkerEdit] Note Tier 2 skipped: tokenizer produced no content");
+    return false;
+  }
+  // Symmetry bail-out (see `$rebuildParas`): a preserved-run/placeholder mismatch aborts
+  // the rebuild with the note untouched rather than silently dropping a node.
+  if (countSentinels(content) !== out.sentinels.length) {
+    logger?.warn("[MarkerEdit] Note Tier 2 aborted: sentinel/preserved-node count mismatch");
+    return false;
+  }
+
+  // Serialize note content with noteMode:"expanded" so char spans render editable inline,
+  // then UNWRAP the tokenizer's default \p wrapper (root -> para -> content).
+  const noteViewOptions: ViewOptions = { ...viewOptions, noteMode: "expanded" };
+  const serialized = usjEditorAdaptor.serializeEditorState(
+    { type: USJ_TYPE, version: USJ_VERSION, content },
+    noteViewOptions,
+  );
+  const topLevel = serialized.root.children;
+  const wrapper = topLevel[0] as { children?: SerializedLexicalNode[] } | undefined;
+  const wrapperChildren = wrapper?.children;
+  if (topLevel.length !== 1 || !wrapperChildren) {
+    logger?.warn("[MarkerEdit] Note Tier 2 aborted: unexpected serialized shape");
+    return false;
+  }
+  // The editable \p wrapper prepends a visible para MarkerNode + marker-trailing-space
+  // that must NOT enter the note content; drop that prefix on unwrap.
+  const newNodes = wrapperChildren
+    .map((child) => $parseSerializedNode(child))
+    .filter(
+      (node) => !$isMarkerNode(node) && $getState(node, textTypeState) !== "marker-trailing-space",
+    );
+  if (newNodes.length === 0) {
+    logger?.debug("[MarkerEdit] Note Tier 2 skipped: no content nodes after unwrap");
+    return false;
+  }
+
+  // Fixed-point refusal (preserve-or-refuse) on the CONTENT nodes only: if the freshly
+  // tokenized content is structurally identical to what it was derived from, splicing it
+  // would re-arm the trigger and loop. Compare BEFORE any mutation and bail.
+  if ($signatureOf(newNodes) === $signatureOf(contentNodes)) {
+    logger?.debug("[MarkerEdit] Note Tier 2 skipped: rebuild is a no-op (fixed point)");
+    return false;
+  }
+
+  // Splice: insert the new content before the first old content node (or before the
+  // closing marker / at the note end when the note had no prior content), move preserved
+  // sentinel runs into place, then remove the originals.
+  const firstContent = contentNodes[0];
+  if (firstContent) {
+    newNodes.forEach((node) => firstContent.insertBefore(node));
+  } else {
+    const closing = note
+      .getChildren()
+      .find((child) => $isMarkerNode(child) && child.getMarkerSyntax() === "closing");
+    newNodes.forEach((node) => (closing ? closing.insertBefore(node) : note.append(node)));
+  }
+  $replaceSentinels(newNodes, out.sentinels);
+  contentNodes.forEach((node) => node.remove());
+  $restoreSelectionInNoteContent(newNodes, caretOffset, anchorInNote);
+  return true;
+}
+
+/** Route a Tier 1-unexpressible edit to Tier 2 via the node's paragraph or note. */
 export function $requestTier2ForNode(
   node: LexicalNode,
   viewOptions: ViewOptions,
@@ -421,7 +610,9 @@ export function $requestTier2ForNode(
 ): void {
   let current: LexicalNode | null = node;
   while (current) {
-    if ($isNoteNode(current)) return; // note content is its own scope (Phase 3)
+    // Note content is its own re-tokenization scope (§5.2/§6): route to the note-scoped
+    // rebuild, which preserves the note node, its marker(s), and its caller.
+    if ($isNoteNode(current)) return void $rebuildNoteContent(current, viewOptions, logger);
     if ($isUnknownNode(current)) return; // opaque-block interior (§7): stay literal
     if ($isParaNode(current)) {
       $rebuildParas([current], viewOptions, logger);

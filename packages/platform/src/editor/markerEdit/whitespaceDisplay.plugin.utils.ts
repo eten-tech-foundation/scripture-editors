@@ -9,14 +9,7 @@
 
 import { $getHtmlContent, $getLexicalContent } from "@lexical/clipboard";
 import { $getSelection, $getState, $isRangeSelection, LexicalEditor, TextNode } from "lexical";
-import {
-  $isBookNode,
-  $isChapterNode,
-  $isNoteNode,
-  $isUnknownNode,
-  NBSP,
-  textTypeState,
-} from "shared";
+import { $isBookNode, $isChapterNode, $isUnknownNode, NBSP, textTypeState } from "shared";
 
 /** §4: spaces in runs display as NBSP so they are visible while typing. */
 export function $displayWhitespaceTransform(node: TextNode): void {
@@ -25,15 +18,10 @@ export function $displayWhitespaceTransform(node: TextNode): void {
   const textType = $getState(node, textTypeState);
   if (textType === "attribute" || textType === "marker-trailing-space") return;
   for (let parent = node.getParent(); parent; parent = parent.getParent()) {
-    // Note content is its own re-tokenization scope (Phase 3); books/chapters/
-    // unknowns keep literal text (degradation property) — same skip-list as Tier 2.
-    if (
-      $isNoteNode(parent) ||
-      $isBookNode(parent) ||
-      $isChapterNode(parent) ||
-      $isUnknownNode(parent)
-    )
-      return;
+    // Note content displays space runs as NBSP like any other content (Phase 3);
+    // books/chapters/unknowns keep literal text (degradation property) — same skip-list
+    // as Tier 2.
+    if ($isBookNode(parent) || $isChapterNode(parent) || $isUnknownNode(parent)) return;
   }
   const mapped = text
     .replace(/ (?=[ \u00A0])/g, NBSP) // space followed by space/NBSP

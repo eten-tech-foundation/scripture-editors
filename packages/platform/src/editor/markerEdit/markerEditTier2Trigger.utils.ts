@@ -12,7 +12,7 @@
 import { $requestTier2ForNode } from "./tier2Rebuild.utils";
 import { MarkerEditContext } from "./markerEditTier1.utils";
 import { $getState, TextNode } from "lexical";
-import { $isBookNode, $isChapterNode, $isNoteNode, $isUnknownNode, textTypeState } from "shared";
+import { $isBookNode, $isChapterNode, $isUnknownNode, textTypeState } from "shared";
 
 /** A backslash sequence completed by a space/NBSP separator or a `*` closer. */
 const TERMINATED_MARKER_IN_TEXT_REGEX = /\\\+?[\w-]+(?:\*|[ \u00A0])/;
@@ -26,15 +26,10 @@ export function $textNodeTier2Transform(node: TextNode, context: MarkerEditConte
   const textType = $getState(node, textTypeState);
   if (textType === "attribute" || textType === "marker-trailing-space") return;
   for (let parent = node.getParent(); parent; parent = parent.getParent()) {
-    // Note content is its own re-tokenization scope (Phase 3); books/chapters/
-    // unknowns keep literal text (degradation property).
-    if (
-      $isNoteNode(parent) ||
-      $isBookNode(parent) ||
-      $isChapterNode(parent) ||
-      $isUnknownNode(parent)
-    )
-      return;
+    // Note content now routes to the note-scoped rebuild (`$rebuildNoteContent`) via
+    // `$requestTier2ForNode`, so it is NOT skipped here; books/chapters/unknowns keep
+    // literal text (degradation property).
+    if ($isBookNode(parent) || $isChapterNode(parent) || $isUnknownNode(parent)) return;
   }
   if (TERMINATED_MARKER_IN_TEXT_REGEX.test(text)) {
     context.pendingKeys.delete(node.getKey());
