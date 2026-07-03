@@ -1,23 +1,15 @@
-import { MarkerEditPlugin } from "./MarkerEditPlugin";
 import {
-  initialize as initializeSerialize,
-  reset,
-  serializeEditorState,
-} from "../adaptors/usj-editor.adaptor";
-import { initialize as initializeDeserialize } from "../adaptors/editor-usj.adaptor";
+  $noteContentText,
+  findOnlyNote,
+  noteUsx,
+  renderStandardEditorWithUnclosedNote,
+  requireDefined,
+  serializedState,
+  viewOptions,
+} from "./markerEdit.test-helpers";
 import { $rebuildNoteContent, $rebuildParas } from "./tier2Rebuild.utils";
-import { usxStringToUsj } from "@eten-tech-foundation/scripture-utilities";
 import { act } from "@testing-library/react";
-import {
-  $getRoot,
-  $getSelection,
-  $isElementNode,
-  $isRangeSelection,
-  $isTextNode,
-  ElementNode,
-  LexicalNode,
-  TextNode,
-} from "lexical";
+import { $getRoot, $getSelection, $isRangeSelection, $isTextNode } from "lexical";
 import {
   $isCharNode,
   $isMarkerNode,
@@ -29,76 +21,8 @@ import {
 } from "shared";
 // Reaching inside only for tests.
 // eslint-disable-next-line @nx/enforce-module-boundaries
-import { baseTestEnvironment } from "../../../../../libs/shared-react/src/plugins/usj/react-test.utils";
-// Reaching inside only for tests.
-// eslint-disable-next-line @nx/enforce-module-boundaries
 import { createBasicTestEnvironment } from "../../../../../libs/shared/src/nodes/usj/test.utils";
-import { getViewOptions, STANDARD_VIEW_MODE, usjReactNodes } from "shared-react";
-
-const viewOptions = getViewOptions(STANDARD_VIEW_MODE);
-if (!viewOptions) throw new Error("Standard view options are required for these tests.");
-
-/** Narrow away `T | undefined` without a banned non-null assertion. */
-function requireDefined<T>(value: T | undefined, message: string): T {
-  if (value === undefined) throw new Error(message);
-  return value;
-}
-
-/**
- * USX for a paragraph with an inline note. `closed` controls whether the note renders
- * expanded inline (Task 1: `closed="false"` → PT9 `opennote`) or collapsed.
- */
-function noteUsx(noteAttrs: string, noteContent = `<char style="ft">A note</char>`) {
-  return usxStringToUsj(
-    `<usx version="3.0"><book code="RUT" style="id">T</book><chapter number="1" style="c" />` +
-      `<para style="p"><verse number="1" style="v" />text` +
-      `<note caller="+" style="f" ${noteAttrs}>${noteContent}</note> after</para></usx>`,
-  );
-}
-
-/** Serialize `usj` to a standard-view editor state string (root wrapper). */
-function serializedState(usj: ReturnType<typeof usxStringToUsj>): string {
-  initializeSerialize(undefined, undefined);
-  initializeDeserialize(undefined);
-  reset();
-  const state = serializeEditorState(usj, viewOptions);
-  return JSON.stringify({ root: state.root });
-}
-
-/**
- * Mount a headless standard-view editor with `MarkerEditPlugin` active, containing an
- * inline-expanded (unclosed) note whose `\ft` content is a single char span.
- */
-async function renderStandardEditorWithUnclosedNote() {
-  return baseTestEnvironment(
-    serializedState(noteUsx(`closed="false"`)),
-    <MarkerEditPlugin viewOptions={viewOptions} />,
-  );
-}
-
-/** The single NoteNode in the tree (throws if not exactly one). */
-function findOnlyNote(root: ElementNode): NoteNode {
-  const notes: NoteNode[] = [];
-  const walk = (node: LexicalNode) => {
-    if ($isNoteNode(node)) notes.push(node);
-    if ($isElementNode(node)) node.getChildren().forEach(walk);
-  };
-  root.getChildren().forEach(walk);
-  if (notes.length !== 1) throw new Error(`expected exactly one note, found ${notes.length}`);
-  return notes[0];
-}
-
-/** The `\ft` content TextNode of the note (the one holding "A note"). */
-function $noteContentText(note: NoteNode): TextNode {
-  const text = note
-    .getChildren()
-    .filter($isCharNode)
-    .flatMap((char) => char.getChildren())
-    .find(
-      (node): node is TextNode => $isTextNode(node) && node.getTextContent().includes("A note"),
-    );
-  return requireDefined(text, "note content text node not found");
-}
+import { usjReactNodes } from "shared-react";
 
 /** Char markers (in order) directly inside the note's content. */
 function noteCharMarkers(note: NoteNode): string[] {
@@ -202,6 +126,29 @@ describe("note-scope Tier 2 rebuild", () => {
       expect(text).not.toContain("two  spaces");
     });
   });
+
+  // Regression (Task 2 review gap): literal NON-marker backslash text is the highest-risk
+  // class for this rebuild code — the Phase 2 Critical infinite-loop (resolve/rebuild
+  // fixed-point cascade; see markerEditLoop.test.tsx) lived exactly here. Task 2's own
+  // fixed-point test only exercised `$rebuildNoteContent`'s guard directly; this drives the
+  // same shape of input through the REAL mounted `MarkerEditPlugin` (typed text ->
+  // `$textNodeTier2Transform` -> `$requestTier2ForNode` -> `$rebuildNoteContent`), inside a
+  // note instead of a paragraph, to prove the note-scoped path terminates too.
+  it("types path-like literal backslash text in note content without restructuring or hanging", async () => {
+    const { editor } = await renderStandardEditorWithUnclosedNote();
+
+    await typeInNoteContent(editor, "C:\\temp path ");
+
+    editor.getEditorState().read(() => {
+      const note = findOnlyNote($getRoot());
+      // Not restructured: still a single `\ft` span, the literal text intact as content —
+      // not re-tokenized into a marker/span (the tokenizer cannot resolve `\temp` as a
+      // known marker, so the rebuild is either refused outright or reproduces the same
+      // literal text, which the fixed-point check then refuses to splice in).
+      expect(noteCharMarkers(note)).toEqual(["ft"]);
+      expect(note.getTextContent()).toContain("C:\\temp path");
+    });
+  }, 15000); // generous timeout: a re-introduced cascade must fail loudly, not hang silently
 
   it("refuses to rebuild a collapsed note's content (preserve-or-refuse)", async () => {
     // A closed note collapses in standard view; its content is not inline re-tokenizable.
