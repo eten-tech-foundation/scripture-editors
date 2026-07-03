@@ -103,6 +103,29 @@ describe("§5.5 deletion semantics", () => {
     });
   });
 
+  it("preserves an unwrapped span's unknown attributes as literal text", async () => {
+    let char: ReturnType<typeof $createCharNode>, opener: MarkerNode;
+    const { editor } = await testEnvironment(() => {
+      const para = $createParaNode("p");
+      char = $createCharNode("w", { lemma: "grace" });
+      opener = $createMarkerNode("w");
+      $getRoot().append(
+        para.append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          char.append(opener, $createTextNode(`${NBSP}grace`), $createMarkerNode("w", "closing")),
+        ),
+      );
+    });
+    await act(async () => editor.update(() => opener.remove()));
+    editor.getEditorState().read(() => {
+      expect(char.isAttached()).toBe(false); // span unwrapped
+      // PT9 leaves the attributes as literal bytes: `|lemma="grace"` survives.
+      expect($getRoot().getTextContent()).toContain('|lemma="grace"');
+      expect($getRoot().getTextContent()).toContain("grace");
+    });
+  });
+
   it("routes closer deletion to Tier 2 (span extends per tokenizer rules)", async () => {
     const { editor } = await testEnvironment(() => {
       const para = $createParaNode("p");

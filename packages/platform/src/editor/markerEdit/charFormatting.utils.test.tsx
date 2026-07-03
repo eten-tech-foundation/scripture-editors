@@ -200,6 +200,43 @@ describe("Ctrl+Space (§5.5)", () => {
     });
   });
 
+  it("keeps unknown attributes on only one half when a span is split", async () => {
+    let char: ReturnType<typeof $createCharNode>;
+    const { editor } = await testEnvironment(() => {
+      const para = $createParaNode("p");
+      char = $createCharNode("w", { lemma: "grace" });
+      $getRoot().append(
+        para.append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          char.append(
+            $createMarkerNode("w"),
+            $createTextNode(`${NBSP}abcd`),
+            $createMarkerNode("w", "closing"),
+          ),
+        ),
+      );
+    });
+    // caret mid-content ("ab" | "cd"): the split makes two "w" spans
+    await act(async () => editor.update(() => $charContent(char).select(3, 3)));
+    await act(async () => {
+      editor.dispatchCommand(
+        KEY_DOWN_COMMAND,
+        new KeyboardEvent("keydown", { key: " ", ctrlKey: true }),
+      );
+    });
+    editor.getEditorState().read(() => {
+      const para = $getRoot().getChildren().filter($isParaNode)[0];
+      const wChars = para
+        .getChildren()
+        .filter($isCharNode)
+        .filter((c) => c.getMarker() === "w");
+      expect(wChars).toHaveLength(2);
+      // Attributes are not duplicated: exactly one half carries them.
+      expect(wChars.filter((c) => c.getUnknownAttributes() !== undefined)).toHaveLength(1);
+    });
+  });
+
   it("inserts a plain space when the caret is in plain text (PT9 parity)", async () => {
     let text: TextNode;
     const { editor } = await testEnvironment(() => {
