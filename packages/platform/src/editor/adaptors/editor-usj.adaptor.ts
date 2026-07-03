@@ -83,27 +83,28 @@ interface EditorUsjAdaptor {
 
 /** Logger instance */
 let _logger: LoggerBasic;
-/** View options of the editor. */
-let _viewOptions: ViewOptions | undefined;
 
-export function initialize(logger: LoggerBasic | undefined, viewOptions?: ViewOptions) {
+export function initialize(logger: LoggerBasic | undefined) {
   if (logger) _logger = logger;
-  _viewOptions = viewOptions;
 }
 
 /** §4 whitespace display rules are Standard-view-only (spec: must not leak into other modes). */
-function isStandardView(): boolean {
-  return _viewOptions !== undefined && getViewMode(_viewOptions) === STANDARD_VIEW_MODE;
+function isStandardView(viewOptions: ViewOptions | undefined): boolean {
+  return viewOptions !== undefined && getViewMode(viewOptions) === STANDARD_VIEW_MODE;
 }
 
-export function deserializeEditorState(editorState: EditorState): Usj | undefined {
+export function deserializeEditorState(
+  editorState: EditorState,
+  viewOptions?: ViewOptions,
+): Usj | undefined {
   if (editorState.isEmpty()) return EMPTY_USJ;
 
-  return deserializeSerializedEditorState(editorState.toJSON());
+  return deserializeSerializedEditorState(editorState.toJSON(), viewOptions);
 }
 
 export function deserializeSerializedEditorState(
   serializedEditorState: SerializedEditorState,
+  viewOptions?: ViewOptions,
 ): Usj | undefined {
   if (!serializedEditorState.root || !serializedEditorState.root.children) return;
 
@@ -117,7 +118,7 @@ export function deserializeSerializedEditorState(
     return EMPTY_USJ;
 
   const children = removeImpliedParasRecurse(rootChildren);
-  const content = recurseNodes(children);
+  const content = recurseNodes(children, viewOptions);
   if (!content) return;
 
   const usj: Usj = { type: USJ_TYPE, version: USJ_VERSION, content };
@@ -191,13 +192,14 @@ function createVerseMarker(node: SerializedImmutableVerseNode | SerializedVerseN
 function createCharMarker(
   node: SerializedCharNode,
   content: MarkerContent[] | undefined,
+  viewOptions: ViewOptions | undefined,
 ): MarkerObject {
   const { type, marker: nodeMarker, unknownAttributes } = node;
   const marker = nodeMarker === "" ? undefined : nodeMarker;
   // Remove NBSP at the start of the child text nodes. In standard view this separator is
   // stripped earlier, before whitespace inversion, so a real leading NBSP in the data isn't
   // misread as the separator here (see the `recurseNodes` TextNode branch).
-  if (!isStandardView())
+  if (!isStandardView(viewOptions))
     content?.forEach((c, i) => {
       if (typeof c === "string" && c.startsWith(NBSP)) {
         content[i] = c.slice(1);
@@ -396,6 +398,7 @@ function replaceMarkWithMilestones(
 // this export skips, splices (TypedMarkNodes), and coalesces into single text strings.
 function recurseNodes(
   nodes: SerializedLexicalNode[],
+  viewOptions: ViewOptions | undefined,
   noteCaller?: string,
   isCharChild = false,
 ): MarkerContent[] | undefined {
@@ -415,7 +418,10 @@ function recurseNodes(
     switch (node.type) {
       case BookNode.getType():
         markers.push(
-          createBookMarker(serializedBookNode, recurseNodes(serializedBookNode.children)),
+          createBookMarker(
+            serializedBookNode,
+            recurseNodes(serializedBookNode.children, viewOptions),
+          ),
         );
         break;
       case ImmutableChapterNode.getType():
@@ -423,7 +429,10 @@ function recurseNodes(
         break;
       case ChapterNode.getType():
         markers.push(
-          createChapterMarker(serializedChapterNode, recurseNodes(serializedChapterNode.children)),
+          createChapterMarker(
+            serializedChapterNode,
+            recurseNodes(serializedChapterNode.children, viewOptions),
+          ),
         );
         break;
       case ImmutableVerseNode.getType():
@@ -434,13 +443,17 @@ function recurseNodes(
         markers.push(
           createCharMarker(
             serializedCharNode,
-            recurseNodes(serializedCharNode.children, undefined, true),
+            recurseNodes(serializedCharNode.children, viewOptions, undefined, true),
+            viewOptions,
           ),
         );
         break;
       case ParaNode.getType():
         markers.push(
-          createParaMarker(serializedParaNode, recurseNodes(serializedParaNode.children)),
+          createParaMarker(
+            serializedParaNode,
+            recurseNodes(serializedParaNode.children, viewOptions),
+          ),
         );
         break;
       case ImmutableTableNode.getType():
@@ -471,7 +484,7 @@ function recurseNodes(
         markers.push(
           createNoteMarker(
             serializedNoteNode,
-            recurseNodes(serializedNoteNode.children, serializedNoteNode.caller),
+            recurseNodes(serializedNoteNode.children, viewOptions, serializedNoteNode.caller),
           ),
         );
         break;
@@ -482,7 +495,7 @@ function recurseNodes(
         // These nodes are for presentation only so they don't go into the USJ.
         break;
       case TypedMarkNode.getType():
-        childMarkers = recurseNodes(serializedMarkNode.children);
+        childMarkers = recurseNodes(serializedMarkNode.children, viewOptions);
         if (childMarkers) {
           const commentIDs = serializedMarkNode.typedIDs[COMMENT_MARK_TYPE];
           if (commentIDs) {
@@ -516,7 +529,7 @@ function recurseNodes(
           // §4: Standard view stores display text; invert and normalize on serialization. A
           // char marker's leading NBSP separator (added by the forward adaptor's `createChar`)
           // must be stripped before inversion so it isn't misread as a collapsed space run.
-          if (isStandardView()) {
+          if (isStandardView(viewOptions)) {
             if (isCharChild && text.startsWith(NBSP)) text = text.slice(1);
             text = normalizeSpaceRuns(displayTextToUsj(text));
           }
@@ -525,7 +538,10 @@ function recurseNodes(
         break;
       case UnknownNode.getType():
         markers.push(
-          createUnknownMarker(serializedUnknownNode, recurseNodes(serializedUnknownNode.children)),
+          createUnknownMarker(
+            serializedUnknownNode,
+            recurseNodes(serializedUnknownNode.children, viewOptions),
+          ),
         );
         break;
       case ImmutableUnmatchedNode.getType():

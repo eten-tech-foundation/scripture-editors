@@ -290,8 +290,11 @@ describe("glyph/content boundary restructure is not refused as a fixed point (Im
     });
 
     // Serialization matches the visible outcome: marker "q", "extra" is content text.
-    initializeDeserialize(undefined, getViewOptions(STANDARD_VIEW_MODE));
-    const usj = deserializeSerializedEditorState(editor.getEditorState().toJSON());
+    initializeDeserialize(undefined);
+    const usj = deserializeSerializedEditorState(
+      editor.getEditorState().toJSON(),
+      getViewOptions(STANDARD_VIEW_MODE),
+    );
     const paras = usj?.content.filter((c) => typeof c !== "string" && c.type === "para");
     expect(paras?.[0]).toMatchObject({ type: "para", marker: "q" });
     expect(JSON.stringify(paras?.[0])).toContain("extra body");

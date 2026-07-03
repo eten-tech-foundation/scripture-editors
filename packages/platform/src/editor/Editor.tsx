@@ -222,7 +222,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
     }),
     [isReadonly, viewOptions.showCharMarkerTitles],
   );
-  editorUsjAdaptor.initialize(stableLogger, viewOptions);
+  editorUsjAdaptor.initialize(stableLogger);
 
   /**
    * Throws if `marker` is given but isn't a character marker the character marker actions can act
@@ -278,7 +278,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
       const editorState = editorRef.current?.getEditorState();
       if (!editorState) return;
 
-      const newUsj = editorUsjAdaptor.deserializeEditorState(editorState);
+      const newUsj = editorUsjAdaptor.deserializeEditorState(editorState, viewOptions);
       if (newUsj) {
         const isEdited = !deepEqual(editedUsjRef.current, newUsj);
         if (isEdited) editedUsjRef.current = newUsj;
@@ -487,7 +487,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
       // No blacklisted-tag guard is needed here: `DeltaOnChangePlugin` is given
       // `ignoreTags={blackListedChangeTags}` and short-circuits before calling this handler, so
       // only local user edits (which carry no blacklisted tag) ever reach this point.
-      const newUsj = editorUsjAdaptor.deserializeEditorState(editorState);
+      const newUsj = editorUsjAdaptor.deserializeEditorState(editorState, viewOptions);
       if (newUsj) {
         const isEdited = !deepEqual(editedUsjRef.current, newUsj);
         if (isEdited) editedUsjRef.current = newUsj;
@@ -500,7 +500,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
         }
       }
     },
-    [usj, onUsjChange],
+    [usj, onUsjChange, viewOptions],
   );
 
   const handleStateChange = useCallback(

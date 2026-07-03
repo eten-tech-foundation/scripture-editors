@@ -34,7 +34,7 @@ function usjFromUsx(paraContent: string) {
 /** Load `usj` into a fresh headless editor in standard view; returns the editor. */
 function loadEditor(usj: ReturnType<typeof usjFromUsx>) {
   initializeSerialize(undefined, undefined);
-  initializeDeserialize(undefined, viewOptions);
+  initializeDeserialize(undefined);
   reset();
   const state = serializeEditorState(usj, viewOptions);
   const { editor } = createBasicTestEnvironment([TypedMarkNode, ...usjReactNodes]);
@@ -74,7 +74,7 @@ describe("$rebuildParas", () => {
       },
       { discrete: true },
     );
-    const usj = deserializeSerializedEditorState(editor.getEditorState().toJSON());
+    const usj = deserializeSerializedEditorState(editor.getEditorState().toJSON(), viewOptions);
     const para = $firstPara(usj);
     expect(para).toMatchObject({
       type: "para",
@@ -94,7 +94,7 @@ describe("$rebuildParas", () => {
       discrete: true,
     });
     const usj = requireDefined(
-      deserializeSerializedEditorState(editor.getEditorState().toJSON()),
+      deserializeSerializedEditorState(editor.getEditorState().toJSON(), viewOptions),
       "no USJ reconstructed",
     );
     const paras = usj.content.filter((c) => typeof c !== "string" && c.type === "para");
@@ -105,7 +105,7 @@ describe("$rebuildParas", () => {
   it("creates a verse from literal \\v text", () => {
     const editor = loadEditor(usjFromUsx(`<verse number="1" style="v" />one \\v 2 two`));
     editor.update(() => $rebuildParas([$lastPara()], viewOptions), { discrete: true });
-    const usj = deserializeSerializedEditorState(editor.getEditorState().toJSON());
+    const usj = deserializeSerializedEditorState(editor.getEditorState().toJSON(), viewOptions);
     const para = $firstPara(usj);
     expect(para).toMatchObject({
       content: [{ type: "verse", number: "1" }, "one ", { type: "verse", number: "2" }, "two"],
@@ -117,7 +117,7 @@ describe("$rebuildParas", () => {
       usjFromUsx(`<verse number="1" style="v" />text \\f + \\ft A note.\\f* end`),
     );
     editor.update(() => $rebuildParas([$lastPara()], viewOptions), { discrete: true });
-    const usj = deserializeSerializedEditorState(editor.getEditorState().toJSON());
+    const usj = deserializeSerializedEditorState(editor.getEditorState().toJSON(), viewOptions);
     const para = $firstPara(usj);
     expect(para).toMatchObject({
       content: [
@@ -158,7 +158,7 @@ describe("$rebuildParas", () => {
       const note = para.getChildren().find((n) => n.getType() === "note");
       expect(note?.getKey()).toBe(noteKey); // same instance, not a recreation
     });
-    const usj = deserializeSerializedEditorState(editor.getEditorState().toJSON());
+    const usj = deserializeSerializedEditorState(editor.getEditorState().toJSON(), viewOptions);
     const para = $firstPara(usj);
     expect(JSON.stringify(para)).toContain('"marker":"nd"'); // the typed span was built
     expect(JSON.stringify(para)).toContain('"type":"note"'); // the note survived
@@ -187,7 +187,7 @@ describe("$rebuildParas", () => {
         .filter((n) => n.getType() === "char");
       expect(chars.some((c) => c.getKey() === charKey)).toBe(true); // same instance
     });
-    const usj = deserializeSerializedEditorState(editor.getEditorState().toJSON());
+    const usj = deserializeSerializedEditorState(editor.getEditorState().toJSON(), viewOptions);
     expect(JSON.stringify(usj)).toContain('"marker":"zx"'); // custom span intact
     expect(JSON.stringify(usj)).toContain('"marker":"nd"'); // typed span built
   });
