@@ -136,6 +136,17 @@ export async function renderStandardEditorWithUnclosedNote() {
   );
 }
 
+/**
+ * Mount a headless standard-view editor with `MarkerEditPlugin` active, containing a closed
+ * (collapsed) note whose `\ft` content is a single char span.
+ */
+export async function renderStandardEditorWithCollapsedNote() {
+  return baseTestEnvironment(
+    serializedState(noteUsx("")),
+    <MarkerEditPlugin viewOptions={viewOptions} />,
+  );
+}
+
 /** The single NoteNode in the tree (throws if not exactly one). */
 export function findOnlyNote(root: ElementNode): NoteNode {
   const notes: NoteNode[] = [];

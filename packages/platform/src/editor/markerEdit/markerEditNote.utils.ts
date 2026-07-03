@@ -60,12 +60,17 @@ export function $handleEnterInNote(): boolean {
   const size = textAnchor?.getTextContentSize() ?? 0;
 
   if (textAnchor && offset === 0 && size > 0) {
-    // Caret precedes all of this node's content: the whole node moves into `\fp` (mirrors
-    // an ordinary paragraph break at the very start of a line — nothing stays "before").
+    // Caret precedes all of this node's content: the whole content text moves into `\fp`
+    // (mirrors an ordinary paragraph break at the very start of a line — nothing stays
+    // "before").
     noteChild.insertBefore(fp);
     withNbspPrefix(textAnchor);
     fp.append(textAnchor);
-    if ($isCharNode(noteChild) && noteChild.getChildrenSize() === 0) noteChild.remove();
+    // A CharNode always retains its opening MarkerNode glyph, so `getChildrenSize()` is never
+    // 0 after the content moved out — test emptiness EXCLUDING markers (mirrors
+    // `$unwrapCharNode`'s `!$isMarkerNode` filter) so the now-content-less original span (e.g.
+    // the emptied `\ft`) is actually removed instead of lingering as a marker-only `\ft\fp`.
+    if ($isCharNode(noteChild) && noteChild.getChildren().every($isMarkerNode)) noteChild.remove();
   } else {
     if (textAnchor && offset > 0 && offset < size) {
       // Trailing text moves into the new `\fp` span; text before the caret stays put —
