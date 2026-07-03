@@ -22,6 +22,14 @@ export interface UsjNodeOptions extends NodeOptions {
   noteCallers?: string[];
   /** Possible cross-reference callers when caller is '+'. Default ['†']. */
   crossRefCallers?: string[];
+  /** Chapter/verse separator for inserted note references (PT9 ChapterVerseSeparator). Default ":". */
+  chapterVerseSeparator?: string;
+  /** Verse-range separator for inserted note references. Default "-". */
+  verseRangeSeparator?: string;
+  /** Default caller for inserted footnotes (PT9 DefaultFootnoteCaller). Default "+". */
+  defaultFootnoteCaller?: string;
+  /** Default caller for inserted cross-references (PT9 DefaultCrossRefCaller). Default "-". */
+  defaultCrossRefCaller?: string;
   /** Note caller click handler method. */
   noteCallerOnClick?: NoteCallerOnClick;
   /**
