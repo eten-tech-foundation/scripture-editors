@@ -581,7 +581,9 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
           <ArrowNavigationPlugin viewOptions={viewOptions} />
           <CharNodePlugin />
           <ClipboardPlugin />
-          <CommandMenuPlugin logger={stableLogger} />
+          {/* Editable marker modes require literal backslash input (marker-edit engine §5.2,
+              `\`-menu §5.4); CommandMenuPlugin keeps guarding the non-editable views. */}
+          {viewOptions?.markerMode !== "editable" && <CommandMenuPlugin logger={stableLogger} />}
           <ContextMenuPlugin options={contextMenuOptions} />
           <EmptyVerseCaretGuardPlugin />
           <MarkerEditPlugin viewOptions={viewOptions} logger={logger} />
