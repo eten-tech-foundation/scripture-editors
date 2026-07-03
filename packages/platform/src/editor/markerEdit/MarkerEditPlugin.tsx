@@ -212,10 +212,17 @@ export function MarkerEditPlugin({
         // (a browser/DOM event) and, in headless/test environments especially, isn't guaranteed
         // to fire promptly - or at all - relative to further synchronous updates. Re-dispatching
         // here, synchronously at the end of every commit, makes the caret-departure completion
-        // trigger deterministic instead of depending on that native event's timing. Safe from
-        // runaway recursion: the handler only mutates when `lastAnchorKey` differs from a pending
-        // key, and each such mutation removes that key from `pendingKeys`, so the set shrinks
-        // monotonically to empty (at which point the command handler is a no-op).
+        // trigger deterministic instead of depending on that native event's timing.
+        //
+        // Termination guarantee: resolving a pending key ALWAYS deletes it from `pendingKeys`
+        // first, then requests a Tier 2 rebuild. The rebuild either (a) makes real progress —
+        // producing a structurally different paragraph, whose new nodes may re-add a key, but
+        // that is genuine forward motion, not a cycle — or (b) is a fixed point, in which case
+        // `$rebuildParas` refuses and mutates nothing, so no new node is created and no transform
+        // re-adds a key. A no-mutation resolution commits nothing new, so this self-dispatch is
+        // not re-entered. Either way `pendingKeys` cannot grow without a corresponding structural
+        // change, so the resolve/rebuild cascade terminates. (An earlier version claimed the set
+        // shrinks monotonically; that was false — the fixed-point refusal is the real guarantee.)
         if (context.pendingKeys.size > 0 && lastAnchorKey !== undefined)
           editor.dispatchCommand(SELECTION_CHANGE_COMMAND, undefined);
       }),

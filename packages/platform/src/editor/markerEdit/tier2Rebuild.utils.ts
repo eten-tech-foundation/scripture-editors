@@ -108,6 +108,60 @@ function verseNeedsSentinel(node: VerseNode): boolean {
   );
 }
 
+/** Mirrors `$appendChildrenFragment`'s "preserve this node atomically" classification. */
+function isRebuildSentinel(node: LexicalNode): boolean {
+  if ($isMilestoneNode(node) || $isNoteNode(node) || $isUnknownNode(node)) return true;
+  if ($isVerseNode(node)) return verseNeedsSentinel(node);
+  if ($isCharNode(node))
+    return Boolean(node.getUnknownAttributes()) || getMarker(node.getMarker()) === undefined;
+  return false;
+}
+
+// Delimiters (never present in scripture text) that wrap a structural element's
+// signature span so a structural change is always visible in the signature string.
+const SIGNATURE_OPEN = String.fromCharCode(1);
+const SIGNATURE_CLOSE = String.fromCharCode(2);
+
+/**
+ * Structure-aware, sentinel-normalized signature of a node list, used ONLY to detect
+ * a `$rebuildParas` no-op (fixed point). Marker glyphs and text contribute their
+ * fragment text; every structural element (paragraph, CharNode span, verse-as-text,
+ * transparent wrapper) contributes a delimited, type-tagged span — so any structural
+ * change a real rebuild makes (e.g. flat `\nd x\nd*` literal text becoming a CharNode)
+ * yields a different signature and is never mistaken for a no-op. Preserved (sentinel)
+ * nodes and the U+FFFC placeholders that stand in for them until `$replaceSentinels`
+ * both collapse to `ATOMIC_SENTINEL`, so a pre-splice rebuild output and the paragraphs
+ * it was derived from compare equal IFF the rebuild changed nothing that matters.
+ */
+function $appendSignature(children: LexicalNode[], out: string[]): void {
+  for (const node of children) {
+    if ($isMarkerNode(node)) {
+      out.push(toFragmentText(node.getTextContent()));
+    } else if (isRebuildSentinel(node)) {
+      out.push(ATOMIC_SENTINEL);
+    } else if ($isVerseNode(node)) {
+      out.push(SIGNATURE_OPEN, "verse", toFragmentText(node.getTextContent()), SIGNATURE_CLOSE);
+    } else if ($isLineBreakNode(node)) {
+      out.push(" ");
+    } else if ($isTextNode(node)) {
+      const textType = $getState(node, textTypeState);
+      out.push(textType === "marker-trailing-space" ? " " : toFragmentText(node.getTextContent()));
+    } else if ($isElementNode(node)) {
+      out.push(SIGNATURE_OPEN, node.getType());
+      $appendSignature(node.getChildren(), out);
+      out.push(SIGNATURE_CLOSE);
+    } else {
+      out.push(ATOMIC_SENTINEL);
+    }
+  }
+}
+
+function $signatureOf(nodes: LexicalNode[]): string {
+  const out: string[] = [];
+  $appendSignature(nodes, out);
+  return out.join("");
+}
+
 function $appendChildrenFragment(element: ElementNode, out: FragmentAccumulator): void {
   const children = element.getChildren();
   for (let index = 0; index < children.length; index++) {
@@ -216,7 +270,16 @@ function $spansForNodes(nodes: LexicalNode[]): FragmentSpan[] {
   return out.spans;
 }
 
-function $restoreSelectionAtOffset(newNodes: LexicalNode[], offset: number | undefined): void {
+function $restoreSelectionAtOffset(
+  newNodes: LexicalNode[],
+  offset: number | undefined,
+  anchorInParas: boolean,
+): void {
+  // The caret was somewhere else entirely (the primary completion flow: the user
+  // typed a mid-edit marker, then clicked/arrowed into another paragraph, which is
+  // what triggered this rebuild). The rebuilt paragraphs are not where the caret
+  // lives, so leave the selection strictly untouched rather than yanking it back in.
+  if (!anchorInParas) return;
   const firstElement = newNodes.find($isElementNode);
   if (offset === undefined) {
     firstElement?.selectStart();
@@ -272,16 +335,25 @@ export function $rebuildParas(
     combined.text += fragment.text;
   }
 
-  // Capture the caret as a fragment offset before mutating anything.
+  // Capture the caret as a fragment offset before mutating anything, and note whether
+  // the anchor was actually inside the paragraphs being rebuilt (vs. parked elsewhere).
   let caretOffset: number | undefined;
+  let anchorInParas = false;
   const selection = $getSelection();
-  if ($isRangeSelection(selection) && selection.isCollapsed()) {
-    const span = combined.spans.find((candidate) => candidate.key === selection.anchor.key);
-    if (span)
-      caretOffset = Math.min(
-        span.start + (span.isSentinel ? 1 : selection.anchor.offset),
-        span.end,
-      );
+  if ($isRangeSelection(selection)) {
+    for (let node: LexicalNode | null = selection.anchor.getNode(); node; node = node.getParent())
+      if (paras.some((para) => para.is(node))) {
+        anchorInParas = true;
+        break;
+      }
+    if (selection.isCollapsed()) {
+      const span = combined.spans.find((candidate) => candidate.key === selection.anchor.key);
+      if (span)
+        caretOffset = Math.min(
+          span.start + (span.isSentinel ? 1 : selection.anchor.offset),
+          span.end,
+        );
+    }
   }
 
   const content: MarkerContent[] = usfmFragmentToUsjContent(combined.text);
@@ -303,12 +375,27 @@ export function $rebuildParas(
   );
   const newNodes = serialized.root.children.map((child) => $parseSerializedNode(child));
 
+  // Fixed-point refusal (preserve-or-refuse). If the freshly-tokenized output is
+  // structurally identical to the paragraphs it was derived from, this rebuild is a
+  // no-op: splicing it in would reproduce the same unresolved literal text (an
+  // unterminated `\zzz`, a path-like `C:\temp`, a typo'd `\qq1`), re-arm the TextNode
+  // catch-all transform, and — via the caret-departure/Enter completion path — drive an
+  // endless resolve→rebuild→resolve cascade that hangs the main thread. Compare BEFORE
+  // any mutation and bail. The signature normalizes preserved nodes and their U+FFFC
+  // placeholders to the same token, so this is a structure+text comparison, not node
+  // identity; a rebuild that actually restructures anything (literal `\nd x\nd*` → a
+  // CharNode span) has a different signature and is never mistaken for a no-op.
+  if ($signatureOf(newNodes) === $signatureOf(paras)) {
+    logger?.debug("[MarkerEdit] Tier 2 skipped: rebuild is a no-op (fixed point)");
+    return false;
+  }
+
   const firstPara = paras[0];
   newNodes.forEach((node) => firstPara.insertBefore(node));
   // Move originals BEFORE removing the old paragraphs (removal destroys leftovers).
   $replaceSentinels(newNodes, combined.sentinels);
   paras.forEach((para) => para.remove());
-  $restoreSelectionAtOffset(newNodes, caretOffset);
+  $restoreSelectionAtOffset(newNodes, caretOffset, anchorInParas);
   return true;
 }
 
