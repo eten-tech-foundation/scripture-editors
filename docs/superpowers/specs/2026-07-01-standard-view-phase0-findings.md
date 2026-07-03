@@ -364,6 +364,27 @@ committed):
    unit-tests a coalesced paste as single-step at the engine level; the end-to-end
    toolbar-undo granularity for a real paste is a separate follow-up, outside this fix's
    scope. **Logged as a concern.**
+   **→ RESOLVED (2026-07-03).** Real Ctrl+V paste of `\p New paragraph text \v 99 verse
+   text` mid-paragraph now Undoes to the exact pre-paste state in a **single** toolbar
+   Undo, and Redo re-applies it (browser-verified via the app's own Ctrl+V →
+   `pasteSelection` → `PASTE_COMMAND` path). The earlier "async rebuild outside a history
+   push" hypothesis was **wrong**: instrumentation showed the paste + Tier-2 rebuild is a
+   *single* `paste`-tagged update that already HISTORY_PUSHes. The real root cause was an
+   interaction with `ScriptureReferencePlugin`: its `onVerseDestroyed` verse mutation
+   listener dispatched `SELECTION_CHANGE_COMMAND` **synchronously** when the rebuild
+   creates/destroys a verse (e.g. `\v 99`, and re-tokenizing the existing `\v 1`).
+   Mutation listeners run mid-commit (before update/history listeners), so that dispatch
+   spawned a no-dirty selection commit whose stock-`HistoryPlugin` entry advanced the undo
+   baseline to the **post-rebuild** state *before* the paste update's own push ran — so the
+   push captured the already-split state as the baseline and the pre-paste state was never
+   stored (one Undo → no-op, `CAN_UNDO` false). Controls confirmed the mechanism: a plain
+   paste (no rebuild) and a char-marker rebuild in a **verse-less** paragraph both Undo
+   cleanly; a rebuild that creates *or* destroys a verse breaks. **Fix:** defer that
+   dispatch to a microtask (`ScriptureReferencePlugin.tsx onVerseDestroyed`) so it lands as
+   a fresh top-level update after the mutating commit's history push. Regression test in
+   `ScriptureReferencePlugin.test.tsx` ("defers the verse-mutation reference re-eval until
+   after the mutating commit"). The Task 11 engine-level coalescing test is unaffected and
+   still passes.
 9. **Whitespace display — PASS (+ noted copy gap).** Typing two spaces converts them
    to display-NBSP (raw codes U+00A0, U+00A0) so both stay visible; a typed `~`
    renders literally as `~` (the NBSP display form). Copy works: selecting "prosper"
