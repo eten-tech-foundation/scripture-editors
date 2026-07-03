@@ -1,5 +1,85 @@
 # Standard View Phase 0 — Round-Trip Findings
 
+## Phase 2 completion summary
+
+Plan: `docs/superpowers/specs/2026-07-02-standard-view-phase-2.md` (design spec's marker-editing
+engine, §4, §5.1–5.3, §5.5–5.6). Commit range `784e6e6..ae83555` (24 commits, 15 tasks + 2 fix
+rounds + browser QA). Branch `standard-view`, not pushed.
+
+**What landed:**
+- **Tier 1** (`packages/platform/src/editor/markerEdit/markerEditTier1.utils.ts`): in-place
+  renames that keep structural node state and visible marker text in agreement — paragraph
+  marker rename (`$applyOpenerRename` via `$markerNodeTransform`), char/note opener rename with
+  closer mirroring (including a collab-flattened-nested-span guard), verse/chapter number sync
+  (`$verseNodeTransform`/`$chapterNodeTransform`), and the same-positional-kind guards
+  (`isParaKindMarker`/`isCharKindMarker`) that decide Tier 1 vs. Tier 2.
+- **USFM fragment tokenizer** (`libs/shared/src/converters/usfm/usfmFragmentToUsj.ts`,
+  `usfmFragmentToUsjContent`): a StyleInfo-shaped, fragment-level tokenizer (paragraphs, char
+  spans incl. nesting, verses, chapters, notes, milestones with attributes) that degrades
+  anything it cannot confidently parse to literal text (§5.2 degradation property). Marker kind
+  data comes from `getMarker()` over the bundled usfm.sty table plus `usfmMarkersOverwrites`
+  (added `w`/`rb`/`jmp`, which were absent from the generated table, via the overwrites layer
+  rather than hand-editing generated output).
+- **Tier 2** (`tier2Rebuild.utils.ts`): paragraph-scoped re-tokenization —
+  `$rebuildParas`/`$requestTier2ForNode` — with the preserve-or-refuse sentinel mechanism (U+FFFC
+  `ATOMIC_SENTINEL`) for notes, unknown/opaque nodes, milestone runs, and state-bearing verses;
+  guard-rail refusals (empty/unknown-attributes/non-paragraph-marker/opaque-ancestor/tokenizer-empty/
+  sentinel-count-mismatch) are zero-mutation. Triggers: a plain-`TextNode` catch-all
+  (`markerEditTier2Trigger.utils.ts`) covers typed/pasted literal backslash text in the same
+  update as the edit (single undo step), with a `rebuildAttempted` per-commit content-keyed
+  dedup to break a degradation-fixed-point infinite-transform loop discovered during
+  implementation (not anticipated by the plan).
+- **Deletions** (§5.5, `markerEditDeletion.utils.ts`): paragraph-marker deletion (merge into
+  previous para / reset-to-default+reinject / Enter-split prefix injection), char-opener deletion
+  (`$unwrapCharNode`) and closer deletion (routes to Tier 2).
+- **Ctrl+Space** (§5.5, `charFormatting.utils.ts`): strips character formatting at
+  caret/selection with PT9 split semantics, including two review-driven fix rounds (interior
+  styled-plain-styled selection splitting; caret-in-span space reuse instead of a shortcut that
+  left the space inside the styled span).
+- **Whitespace + clipboard** (§4/§5.6, `whitespaceDisplay.plugin.utils.ts` plus adaptor changes
+  in Task 1/5): typing invariant maps space runs to display-NBSP; `usjTextToDisplay`/
+  `displayTextToUsj`/`normalizeSpaceRuns` thread through both adaptors (with an `isCharChild`
+  correction for char-marker separator NBSP vs. display-encoded NBSP); `$handleCopyForStandardView`
+  normalizes NBSP→space for real `ClipboardEvent` copies (see "still open" below — this path is
+  effectively unreachable in-app).
+- **Polish** (Task 14): `.attribute` DOM-class dimming for milestone/attribute text nodes in
+  editable mode (mutation-listener based, since plain TextNodes can't emit a class from node
+  state the way `ImmutableTypedTextNode` does); verse badge suppressed in standard view CSS.
+- **Integration fixes surfaced by whole-repo/browser QA** (Task 15): `CommandMenuPlugin` (whose
+  sole purpose is blocking `\`/`/`) is now gated off when `markerMode === "editable"` — without
+  this, neither typed `\` nor pasted USFM could reach the engine at all; and
+  `ScriptureReferencePlugin`'s verse-mutation `SELECTION_CHANGE_COMMAND` dispatch is deferred via
+  `queueMicrotask` — a synchronous mid-commit dispatch from a verse-create/destroy mutation
+  listener was advancing the undo baseline past the pre-edit state for any edit that churns a
+  verse (not marker-editing-specific; a general history-hygiene fix).
+
+**Test counts** (all `--skip-nx-cache`, whole-repo, at branch head `ae83555`): `shared` 138
+passed; `shared-react` 1060 passed / 2 skipped; `@eten-tech-foundation/platform-editor` 242
+passed / 3 skipped; `usfm-markers` 19 passed; `utilities` 3 passed. `lint`/`typecheck`/
+`format:check`/`extract-api` all clean across all 10 projects; `git status --short` shows no
+API-report drift.
+
+**Findings closed:**
+- **#1 (MarkerNode `marker` DOM class):** CLOSED — standardized on the syntax classes
+  (`.opening`/`.closing`/`.selfClosing`); the `.attribute` dimming (Task 14) and all Tier
+  1/2/Ctrl+Space styling key off these classes and node state, not a restored `marker` class.
+  Rationale: restoring `marker` would re-create #359's cross-mode styling bleed that motivated
+  dropping it in the first place — see "MarkerNode lost its `marker` DOM class" below.
+- **#5 (segment regex):** CLOSED — Task 9 widened `parseNumberFromMarkerText`'s segment regex
+  from `\d+[a-zA-Z]?(?:[-,]\d+[a-zA-Z]?)*` to `\d+[a-zA-Z]*(?:[-,]\d+[a-zA-Z]*)*`
+  (`libs/shared/src/nodes/usj/node.utils.ts`); `5abc` no longer truncates to `5a`.
+- **Attribute dimming + verse badge (finding #6 items):** CLOSED — Task 14. Milestone/attribute
+  text nodes get `.attribute` via a mutation listener in editable mode; the standard-view verse
+  badge background is suppressed in CSS.
+
+**Findings still open (Phase 5+ / needs an owner):**
+- **#2/#3/#4 (marker glyphs in editable delta ops / `\id` asymmetry / note shape in ops):** Phase
+  2 kept the pinned collab delta-ops contract as-is — no redesign of what marker glyph text flows
+  into collaborative-editing ops. This needs a decision with the collab adaptor owner before any
+  collab-hardening phase; see "Standard-view note shape in collab delta ops (pinned)" below,
+  which Task 6 additionally pinned with a regression test (`opsGen1v1Standard`) so any future
+  change to this behavior is a deliberate, visible diff rather than a silent regression.
+
 ## Phase 0+1 completion summary
 
 - Corpus: 14 fixtures × 4 view modes; 56 passing, 0 skipped-with-finding.
