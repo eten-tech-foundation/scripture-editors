@@ -3,6 +3,7 @@ import {
   $charNodeDeletionTransform,
   $paraMarkerDeletionTransform,
 } from "./markerEditDeletion.utils";
+import { $handleEnterInNote } from "./markerEditNote.utils";
 import {
   $chapterNodeTransform,
   $isSelectionInMarkerNode,
@@ -167,6 +168,12 @@ export function MarkerEditPlugin({
       editor.registerCommand(
         KEY_ENTER_COMMAND,
         () => {
+          // PT9 SmartEnter (§6): Enter inside expanded note content starts an `\fp`
+          // footnote-paragraph span instead of splitting the (inline, non-block) note.
+          if ($handleEnterInNote()) {
+            $resolvePendingMarkers(context);
+            return true; // note handled: suppress the paragraph split
+          }
           const inMarker = $isSelectionInMarkerNode();
           $resolvePendingMarkers(context);
           return inMarker; // swallow Enter inside marker text (complete, don't split)
