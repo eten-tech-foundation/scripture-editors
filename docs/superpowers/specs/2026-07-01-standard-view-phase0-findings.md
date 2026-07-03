@@ -255,6 +255,14 @@ two user-facing input paths for introducing *new* markers (typing `\` and pastin
 USFM) are blocked in the platform editor by the pre-existing `CommandMenuPlugin`.
 See the finding at the end of this section.
 
+> **UPDATE (2026-07-02, Task 15 fix round): the blocking finding is RESOLVED.**
+> `CommandMenuPlugin` is now gated off in editable marker modes, so real typed `\`
+> and real `\`-containing pastes reach the marker engine in Standard view. Checks
+> 3/4/5/8 below were re-verified with real keyboard/paste input (see the inline
+> "→ Real-input re-verification (post-fix)" addenda) and the resolution note at the
+> end of this section. One residual, out-of-scope concern remains: toolbar Undo does
+> not single-step-restore a real paste (check #8).
+
 **Environment**
 - Demo: `pnpm nx dev platform` → http://localhost:5173, "Standard" view selected
   in the Define-options → view-mode dropdown (editor class
@@ -296,15 +304,34 @@ committed):
    literal per the §5.2 degradation rule — no data loss). **Input-path caveat:** a
    real user's `\` keystroke is swallowed (see finding), so this is only reachable
    programmatically.
+   **→ Real-input re-verification (post-fix, 2026-07-02):** with `CommandMenuPlugin`
+   now gated off in editable marker modes, REAL keystrokes `\nd ` (backslash typed via
+   the keyboard) land the literal `\` in the verse text (KEYDOWN → BEFORE_INPUT → INPUT
+   all fire, no `preventDefault`) and the space commit builds a `char usfm_nd` span
+   (`\nd \nd*`, auto-closed at para end). The `\`-typeahead menu does **not** open —
+   `UsjNodesMenuPlugin` is gated `scrRef && !hasExternalUI`, and the demo runs with
+   `hasExternalUI: true`, so the `\`-menu is simply not mounted in this composition
+   (either outcome was acceptable per the fix dispatch). **Now reachable by real input.**
 4. **Typed footnote — PASS (engine).** `\f + \ft test note\f* ` produced a
    `note usfm_f collapsed` with an inline `immutable-note-caller` (button title
    "test note", caller "+") rendering as a superscript caller ("②"). Same input-path
    caveat as #3.
+   **→ Real-input re-verification (post-fix, 2026-07-02):** REAL character-by-character
+   typing of `\f + \ft test\f* ` in verse text now produces a `note usfm_f collapsed`
+   with an `immutable-note-caller` (collapsed footnote caller). **Now reachable by
+   real input.**
 5. **Paste split — PASS (engine) / BLOCKED (real paste).** The real paste path does
    nothing (finding). Feeding the same payload `\p New paragraph text \v 99 verse
    text` as literal text at a mid-para caret drove the engine correctly: paras 23→24,
    a new `usfm_p` paragraph, `\v 99` verse token rendered (nav → "Psalms 1:99"), the
    para split at the caret (text before stays, remainder flows into the new `\p`).
+   **→ Real-input re-verification (post-fix, 2026-07-02):** a REAL paste event
+   (synthesized `ClipboardEvent('paste')` carrying `\p New paragraph text \v 99 verse
+   text` on the focused editor, caret at offset 38 of the verse-1 text) is no longer
+   swallowed — Lexical handles it (`defaultPrevented === true`), the paragraph count
+   goes 25→26, the para splits at the caret (`…doesn't walk in` stays; the remainder
+   `the counsel of the wicked,` flows into the new para), a `\p` marker paragraph is
+   created, and `\v 99` renders as a verse token. **Now reachable by real input.**
 6. **Deletion — PASS.** (a) Selecting a para's `\q2` glyph + Delete merged the para
    into the previous one (paras 23→22, texts joined). (b) Deleting an `\nd*` closer
    extended the char span to para end (span absorbed the following " tailword" and
@@ -321,6 +348,22 @@ committed):
    insertText-simulated equivalent took two Undo clicks (a simulation artifact — the
    raw insert and the async Tier-2 rebuild are separate history entries — whereas a
    real coalesced paste is unit-tested to be single-step in Task 11).
+   **→ Real-input re-verification (post-fix, 2026-07-02) — CONCERN.** With the real
+   paste now reaching the editor (#5), toolbar Undo does **not** cleanly restore the
+   pre-paste state: after the paste, a single toolbar Undo leaves the pasted content in
+   place and `CAN_UNDO` goes false (nothing left to undo). The editor's command log
+   confirms the paste left **no undoable history entry** — after the paste, typing a
+   `Z` then one Undo removed the `Z` and immediately drove `CAN_UNDO → false`, i.e. the
+   paste itself was never on the undo stack. Root cause is the async Tier-2 rebuild,
+   which finalizes the paste by **recreating** the affected paragraph nodes (fresh node
+   keys) in an `editor.update` outside a history push, so the pre-paste snapshot is not
+   recoverable. The toolbar Undo mechanism itself is sound — it reverts an ordinary
+   typed edit (the `Z`) in a single click. This undo-granularity gap lives in the
+   pre-existing paste / async-rebuild pipeline (untouched by the CommandMenuPlugin
+   gate); it is merely now *observable* because paste is no longer swallowed. Task 11
+   unit-tests a coalesced paste as single-step at the engine level; the end-to-end
+   toolbar-undo granularity for a real paste is a separate follow-up, outside this fix's
+   scope. **Logged as a concern.**
 9. **Whitespace display — PASS (+ noted copy gap).** Typing two spaces converts them
    to display-NBSP (raw codes U+00A0, U+00A0) so both stay visible; a typed `~`
    renders literally as `~` (the NBSP display form). Copy works: selecting "prosper"
@@ -367,3 +410,23 @@ committed):
   marker menu whose literal-dismiss path §5.2 relies on). Not addressed by the Phase 2
   plan (the "context-aware marker menu" is deferred to Phase 4); no mechanical
   in-Phase-2 fix, so recorded here rather than changed under Task 15.
+- **RESOLUTION (2026-07-02, Task 15 fix round).** Fixed in
+  `packages/platform/src/editor/Editor.tsx`: `CommandMenuPlugin` is now rendered only
+  when `viewOptions?.markerMode !== "editable"`. In editable marker modes (Standard,
+  Unformatted) literal backslash input is required by the marker-edit engine (§5.2) and
+  reserved for the `\`-menu (§5.4), so the guard must stand aside; in the non-editable
+  views (Formatted, Paragraph Structure) a literal `\` would be garbage data, so
+  `CommandMenuPlugin` keeps guarding them. `CommandMenuPlugin` itself was **not** modified
+  (other editors consume it). The gate mirrors the Task 10 `ParaMarkerPrefixGuardPlugin`
+  hand-off pattern. Regression test:
+  `packages/platform/src/editor/CommandMenuPlugin.gate.test.tsx` mounts the platform
+  `Editor` with a render-spy replacing `CommandMenuPlugin` and asserts it is absent under
+  the Standard (editable) view and present under the Formatted (hidden) view. Browser
+  re-verification (Standard view, real keyboard/paste): typed `\nd ` builds a
+  `char usfm_nd` span; typed `\f + \ft test\f* ` builds a collapsed footnote caller; a
+  real paste of `\p … \v 99 …` splits the paragraph and renders `\v 99`; and the
+  Formatted-view regression still blocks a typed `\` (no glyph lands). Gates:
+  `test` / `typecheck` / `lint` on `@eten-tech-foundation/platform-editor` all green
+  (`--skip-nx-cache`). One residual concern surfaced by the now-reachable paste path:
+  toolbar Undo does not single-step-restore a real paste (see check #8 above) — a
+  pre-existing paste/async-rebuild history gap, outside this gate's scope.
