@@ -422,7 +422,17 @@ export default function ScriptureReferencePlugin({
       const hasCreatedOrDestroyedVerse = [...nodeMutations.values()].some(
         (m) => m === "created" || m === "destroyed",
       );
-      if (hasCreatedOrDestroyedVerse) editor.dispatchCommand(SELECTION_CHANGE_COMMAND, undefined);
+      // Defer to a microtask so this lands as a fresh top-level update instead of a nested commit
+      // inside the current update's mutation-listener phase. Mutation listeners run mid-commit
+      // (before update/history listeners); a synchronous SELECTION_CHANGE_COMMAND here spawns a
+      // no-dirty selection commit whose stock-HistoryPlugin entry advances the undo baseline to the
+      // post-mutation state *before* the triggering update's own history push runs. A Standard-view
+      // Tier-2 rebuild that creates/destroys a verse (e.g. pasting `\p …\v 99 …`) would then push the
+      // already-rebuilt state as the baseline, so a single Undo restores the identical-looking
+      // rebuilt state instead of the pre-edit one. Deferring keeps the triggering edit one undo step
+      // while still re-evaluating the reference.
+      if (hasCreatedOrDestroyedVerse)
+        queueMicrotask(() => editor.dispatchCommand(SELECTION_CHANGE_COMMAND, undefined));
     };
     return mergeRegister(
       editor.registerMutationListener(ImmutableVerseNode, onVerseDestroyed),

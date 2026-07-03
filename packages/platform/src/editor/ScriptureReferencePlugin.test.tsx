@@ -10,6 +10,7 @@ import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext
 import { ContentEditable } from "@lexical/react/LexicalContentEditable";
 import { LexicalErrorBoundary } from "@lexical/react/LexicalErrorBoundary";
 import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
+import { mergeRegister } from "@lexical/utils";
 import type { BookCode } from "@eten-tech-foundation/scripture-utilities";
 import { SerializedVerseRef } from "@sillsdev/scripture";
 import { act, render } from "@testing-library/react";
@@ -20,6 +21,7 @@ import {
   $createPoint,
   $createRangeSelection,
   $setSelection,
+  COMMAND_PRIORITY_LOW,
   SELECTION_CHANGE_COMMAND,
   $createTextNode,
   LexicalEditor,
@@ -157,6 +159,53 @@ describe("ScriptureReferencePlugin", () => {
         $expectSelectionToBe(firstVerseTextNode, 2);
       });
       expect(mockOnScrRefChange).not.toHaveBeenCalled();
+    });
+
+    // Regression: when a verse is created/destroyed inside an edit, the reference re-eval
+    // (SELECTION_CHANGE_COMMAND) must be dispatched off the mutating commit, not synchronously from
+    // the mutation listener. Mutation listeners run mid-commit, before update/history listeners; a
+    // synchronous dispatch there lets a follow-up selection-driven commit advance the stock
+    // HistoryPlugin's undo baseline to the post-edit state BEFORE the edit's own history push. In
+    // Standard view that made a Tier-2 rebuild which creates a verse (pasting `\p …\v 99 …`) push the
+    // already-rebuilt state as the baseline, so a single Undo restored the identical rebuilt state
+    // (no-op) instead of the pre-paste one. Asserting the dispatch lands after the mutating commit
+    // guards the deferral that keeps such an edit a single undo step.
+    it("defers the verse-mutation reference re-eval until after the mutating commit", async () => {
+      const { editor } = await testEnvironment(scrRef, mockOnScrRefChange);
+      const events: string[] = [];
+      const cleanup = mergeRegister(
+        editor.registerUpdateListener(() => {
+          events.push("commit");
+        }),
+        editor.registerCommand(
+          SELECTION_CHANGE_COMMAND,
+          () => {
+            events.push("selection-change");
+            return false;
+          },
+          COMMAND_PRIORITY_LOW,
+        ),
+      );
+
+      events.length = 0;
+      await act(async () => {
+        editor.update(() => {
+          $getRoot().append(
+            $createParaNode().append(
+              $createImmutableVerseNode("5"),
+              $createTextNode("fifth verse text "),
+            ),
+          );
+        });
+      });
+      cleanup();
+
+      const firstCommit = events.indexOf("commit");
+      const firstSelectionChange = events.indexOf("selection-change");
+      // The verse-creating edit committed, and its reference re-eval fired only afterwards
+      // (deferred) — never interleaved before the commit that would corrupt the undo baseline.
+      expect(firstCommit).toBeGreaterThanOrEqual(0);
+      expect(firstSelectionChange).toBeGreaterThan(firstCommit);
     });
   });
 

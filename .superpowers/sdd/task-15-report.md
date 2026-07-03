@@ -176,3 +176,85 @@ is gated `scrRef && !hasExternalUI` and the demo runs `hasExternalUI: true`, so 
   #4. Pre-existing paste/async-rebuild history behavior, outside the CommandMenuPlugin
   gate's scope; recommend a follow-up to make the async Tier-2 rebuild coalesce into the
   paste's history transaction so a real paste is a single undoable step end-to-end.
+
+---
+
+# Task 15 — follow-up: real-paste toolbar Undo fixed (2026-07-03)
+
+**Status: RESOLVED.** The residual concern above (real-paste toolbar Undo not
+single-step / not restorable) is fixed. Root-caused by disciplined browser
+instrumentation; the earlier "async rebuild outside a history push" hypothesis was
+disproven.
+
+## Reproduced natively?
+
+Yes. The platform editor's own Ctrl+V handler (`ClipboardPlugin.onKeyDown`) `preventDefault`s
+the key and routes through `pasteSelection(editor)`, which reads the clipboard and dispatches
+`PASTE_COMMAND` with a synthesized `ClipboardEvent` — so the app's *real* paste path is a
+synthetic `ClipboardEvent`, and the Task-15 QA repro was faithful. Reproduced live via CDP
+clipboard + real `Ctrl+V` in Standard (editable) view: paste `\p New paragraph text \v 99
+verse text` mid-paragraph splits correctly (25→26 root children) but a single toolbar Undo left
+the split in place and drove `CAN_UNDO → false`.
+
+## Root cause (one sentence)
+
+The Tier-2 rebuild creates/destroys verse nodes, which fires `ScriptureReferencePlugin`'s
+`onVerseDestroyed` mutation listener **synchronously mid-commit** (mutation listeners run before
+update/history listeners); its `SELECTION_CHANGE_COMMAND` dispatch spawns a no-dirty selection
+commit whose stock-`HistoryPlugin` entry advances the undo baseline to the post-rebuild state
+*before* the paste update's own `HISTORY_PUSH` runs — so the push stores the already-split state
+as the baseline and the pre-paste state is never captured.
+
+## Evidence (browser instrumentation)
+
+- The paste is a **single** `paste`-tagged update (dl 11, de 7) that HISTORY_PUSHes
+  (`CAN_UNDO → true`); there is no separate async rebuild update — the old hypothesis was wrong.
+- Wrapping `editor.setEditorState` showed the state Undo restores has `childCount 26` with the
+  `\p New paragraph` already present — i.e. the undo-stack entry **is** the split state, not the
+  pre-paste one (and not a literal-text intermediate → **not** the "undo re-triggers the transform"
+  hypothesis; transforms do not even run during `setEditorState`/historic commits).
+- State-identity + call-stack tracing pinned the corrupting follow-up: a no-dirty commit spawned
+  from `onVerseDestroyed` (`ScriptureReferencePlugin.tsx`) dispatching `SELECTION_CHANGE_COMMAND`
+  inside `triggerMutationListeners`, whose history listener runs before the paste's.
+- Controls: a **plain-text** paste (no rebuild) Undoes cleanly; a **char-marker** rebuild
+  (`\nd holy\nd*`) in a **verse-less** paragraph Undoes cleanly; a rebuild that **creates**
+  (`\v 99 hello`) *or* destroys a verse breaks — isolating verse churn as the trigger.
+- Live prototype (deferring the mid-commit `SELECTION_CHANGE` dispatch) restored correct
+  single-step Undo, confirming the mechanism before editing source.
+
+## Fix + regression test
+
+- `packages/platform/src/editor/ScriptureReferencePlugin.tsx` — `onVerseDestroyed` now defers its
+  `SELECTION_CHANGE_COMMAND` dispatch via `queueMicrotask` (precedent: `LoadStatePlugin`), so it
+  lands as a fresh top-level update after the mutating commit's history push. Timing-only change;
+  the reference still re-evaluates. This is a general history-hygiene fix (any programmatic verse
+  create/delete inside a user edit had the same latent corruption); not marker-edit-engine-local,
+  because the corruption originates outside the engine.
+- `packages/platform/src/editor/ScriptureReferencePlugin.test.tsx` — new regression test
+  "defers the verse-mutation reference re-eval until after the mutating commit". Asserts the
+  verse-creating edit's commit fires before the reference re-eval's `SELECTION_CHANGE`. Verified
+  it **fails** without the fix (dispatch interleaves before the commit) and passes with it. (The
+  full undo corruption is browser-specific — jsdom defers commits to microtasks so the synchronous
+  ordering that a real paste triggers does not occur, which is why the Task-11 coalescing test
+  passed while the browser failed; the regression test therefore guards the fix's contract.)
+
+## Gates (all `--skip-nx-cache`, project `@eten-tech-foundation/platform-editor`)
+
+| Gate | Result |
+| --- | --- |
+| `test` | PASS — 242 passed (+1 new), 3 skipped; Task-11 coalescing test still green |
+| `typecheck` | PASS |
+| `lint` | PASS (0 errors) |
+
+## Browser re-verification (real Ctrl+V, un-instrumented fixed code, HMR)
+
+Paste `\p New paragraph text \v 99 verse text` mid-`\v 1` paragraph → 25→26 root children,
+split + `\v 99`. Single toolbar **Undo → 25 children, pre-paste state fully restored.**
+Single toolbar **Redo → 26, paste re-applied.** Screenshot captured.
+
+## Concerns
+
+- The fix is in `ScriptureReferencePlugin` (platform-wide), not the marker-edit engine, because the
+  root cause is a sibling-plugin mid-commit dispatch. It is timing-only and low-risk; existing
+  ScriptureReferencePlugin tests still pass. Worth a brief scan of other platform views for any
+  behavior that depended on the synchronous dispatch (none found in tests).
