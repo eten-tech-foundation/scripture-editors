@@ -134,9 +134,23 @@ const SIGNATURE_CLOSE = String.fromCharCode(2);
  * it was derived from compare equal IFF the rebuild changed nothing that matters.
  */
 function $appendSignature(children: LexicalNode[], out: string[]): void {
-  for (const node of children) {
-    if ($isMarkerNode(node)) {
-      out.push(toFragmentText(node.getTextContent()));
+  for (let index = 0; index < children.length; index++) {
+    const node = children[index];
+    if ($isMilestoneNode(node)) {
+      // Mirror `$appendChildrenFragment`: the milestone's display run (opening
+      // MarkerNode, optional attribute text, self-closing MarkerNode) is absorbed
+      // into the SAME single sentinel the fragment builder produces for it — the
+      // post-splice NEW side's sentinel already stands in for the whole run, so the
+      // pre-splice OLD side must collapse the run the same way or the signatures
+      // never compare equal and the fixed-point refusal never fires.
+      const run = $milestoneDisplayRun(children, index);
+      out.push(ATOMIC_SENTINEL);
+      index += run.length;
+    } else if ($isMarkerNode(node)) {
+      // Delimited and tagged (not bare glyph text) so text moving across the
+      // glyph/content boundary — e.g. glyph "\q extra" vs. glyph "\q" + content
+      // "extra" — changes the signature instead of silently canceling out.
+      out.push(SIGNATURE_OPEN, "marker", toFragmentText(node.getTextContent()), SIGNATURE_CLOSE);
     } else if (isRebuildSentinel(node)) {
       out.push(ATOMIC_SENTINEL);
     } else if ($isVerseNode(node)) {
