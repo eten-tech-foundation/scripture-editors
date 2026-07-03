@@ -20,7 +20,9 @@ import {
  */
 function $splitCharNodeAt(char: CharNode, textNode: TextNode, offset: number): CharNode {
   const marker = char.getMarker();
-  const right = $createCharNode(marker, char.getUnknownAttributes());
+  // Keep any unknown attributes on the LEFT half only (`char`); duplicating them into
+  // both halves would double the `|name="value"` bytes on serialization.
+  const right = $createCharNode(marker);
   const rightOpener = $createMarkerNode(marker);
   const rightChildren: TextNode[] = [];
 

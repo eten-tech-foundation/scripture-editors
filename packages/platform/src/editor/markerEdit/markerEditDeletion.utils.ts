@@ -14,6 +14,7 @@ import {
   $isParaNode,
   CharNode,
   NBSP,
+  NODE_ATTRIBUTE_PREFIX,
   PARA_MARKER_DEFAULT,
   ParaNode,
   textTypeState,
@@ -64,12 +65,29 @@ export function $paraMarkerDeletionTransform(para: ParaNode, context: MarkerEdit
   $injectMarkerPrefix(para);
 }
 
+/** `|name="value" …` literal suffix for a span's unknown attributes (PT9 keeps these
+ * as bytes when the span is unwrapped), or `undefined` when there are none. */
+function unknownAttributesText(char: CharNode): string | undefined {
+  const attributes = char.getUnknownAttributes();
+  if (!attributes) return undefined;
+  const pairs = Object.entries(attributes)
+    .filter(([, value]) => value !== undefined)
+    .map(([name, value]) => `${name}="${value}"`);
+  return pairs.length > 0 ? NODE_ATTRIBUTE_PREFIX + pairs.join(" ") : undefined;
+}
+
 /** Move a char span's content out and drop the span (opener deleted / Ctrl+Space). */
 export function $unwrapCharNode(char: CharNode): void {
   const children = char.getChildren().filter((child) => !$isMarkerNode(child));
   const first = children[0];
   if (first && $isTextNode(first) && first.getTextContent().startsWith(NBSP))
     first.setTextContent(first.getTextContent().slice(1)); // structural NBSP prefix
+  // PT9 leaves an unknown-attribute span's attributes as literal bytes on unwrap.
+  // The char node is about to be dropped, so reconstruct the `|name="value"` suffix
+  // as plain text after the content (where the closer glyph used to be) so the bytes
+  // survive serialization.
+  const attributesText = unknownAttributesText(char);
+  if (attributesText) children.push($createTextNode(attributesText));
   children.forEach((child) => char.insertBefore(child));
   char.remove();
 }
