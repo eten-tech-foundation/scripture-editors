@@ -323,10 +323,14 @@ export interface UsjLocation {
 export interface UsjNodeOptions extends NodeOptions {
     // @deprecated
     addMissingComments?: AddMissingComments;
+    chapterVerseSeparator?: string;
     crossRefCallers?: string[];
+    defaultCrossRefCaller?: string;
+    defaultFootnoteCaller?: string;
     extraValidMarkers?: readonly string[];
     noteCallerOnClick?: NoteCallerOnClick;
     noteCallers?: string[];
+    verseRangeSeparator?: string;
 }
 
 // @public

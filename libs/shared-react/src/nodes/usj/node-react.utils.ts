@@ -13,6 +13,7 @@ import {
   isSerializedImmutableVerseNode,
   SerializedImmutableVerseNode,
 } from "./ImmutableVerseNode";
+import { $stripSelectionToQuotation } from "./noteQuotation.utils";
 import { UsjNodeOptions } from "./usj-node-options.model";
 import { $dfs } from "@lexical/utils";
 import {
@@ -141,12 +142,19 @@ export function $insertNote(
   const selection = selectionRange ? $getRangeFromUsjSelection(selectionRange) : $getSelection();
   if (!$isRangeSelection(selection)) return undefined;
 
-  const children = $createNoteChildren(selection, marker, scriptureReference, logger);
+  const children = $createNoteChildren(selection, marker, scriptureReference, nodeOptions, logger);
   if (children === undefined) return undefined;
+
+  const isCrossReference = marker.startsWith("x") || marker === "ex";
+  const resolvedCaller =
+    caller ??
+    (isCrossReference
+      ? (nodeOptions.defaultCrossRefCaller ?? "-")
+      : (nodeOptions.defaultFootnoteCaller ?? "+"));
 
   const noteNode = $createWholeNote(
     marker,
-    caller,
+    resolvedCaller,
     children,
     viewOptions,
     nodeOptions,
@@ -184,22 +192,32 @@ export function $createNoteChildren(
   selection: RangeSelection,
   marker: string,
   scriptureReference: ScriptureReference | undefined,
+  nodeOptions: UsjNodeOptions,
   logger: LoggerBasic | undefined,
 ): LexicalNode[] | undefined {
   const children: LexicalNode[] = [];
-  const { chapterNum, verseNum } = scriptureReference ?? {};
+  const { chapterNum, verseNum, verse } = scriptureReference ?? {};
+  const chapterVerseSeparator = nodeOptions.chapterVerseSeparator ?? ":";
+  const verseRangeSeparator = nodeOptions.verseRangeSeparator ?? "-";
+  // `verse` (e.g. "16-18") is only populated for a verse bridge; replace the raw "-" bridge
+  // separator with the project's configured verseRangeSeparator (PT9 `GetFormattedVerse`).
+  const referenceText =
+    chapterNum !== undefined && verseNum !== undefined
+      ? `${chapterNum}${chapterVerseSeparator}${(verse ?? `${verseNum}`).replace(/-/g, verseRangeSeparator)} `
+      : undefined;
+
   switch (marker) {
     case "f":
     case "fe":
     case "ef":
     case "efe":
-      if (chapterNum !== undefined && verseNum !== undefined) {
-        children.push($createCharNode("fr").append($createTextNode(`${chapterNum}:${verseNum} `)));
+      if (referenceText !== undefined) {
+        children.push($createCharNode("fr").append($createTextNode(referenceText)));
       }
       if (!selection.isCollapsed()) {
-        const selectedText = selection.getTextContent().trim();
-        if (selectedText.length > 0) {
-          const fq = $createCharNode("fq").append($createTextNode(selectedText));
+        const quotation = $stripSelectionToQuotation(selection);
+        if (quotation.length > 0) {
+          const fq = $createCharNode("fq").append($createTextNode(quotation));
           children.push(fq);
         }
       }
@@ -207,13 +225,13 @@ export function $createNoteChildren(
       break;
     case "x":
     case "ex":
-      if (chapterNum !== undefined && verseNum !== undefined) {
-        children.push($createCharNode("xo").append($createTextNode(`${chapterNum}:${verseNum} `)));
+      if (referenceText !== undefined) {
+        children.push($createCharNode("xo").append($createTextNode(referenceText)));
       }
       if (!selection.isCollapsed()) {
-        const selectedText = selection.getTextContent().trim();
-        if (selectedText.length > 0) {
-          const xq = $createCharNode("xq").append($createTextNode(selectedText));
+        const quotation = $stripSelectionToQuotation(selection);
+        if (quotation.length > 0) {
+          const xq = $createCharNode("xq").append($createTextNode(quotation));
           children.push(xq);
         }
       }

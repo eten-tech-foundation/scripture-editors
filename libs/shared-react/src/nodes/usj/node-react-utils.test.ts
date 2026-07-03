@@ -33,6 +33,7 @@ import {
   $createBookNode,
   $createCharNode,
   $createImmutableChapterNode,
+  $createMarkerNode,
   $createParaNode,
   $createTypedMarkNode,
   $createVerseNode,
@@ -44,6 +45,7 @@ import {
   GENERATOR_NOTE_CALLER,
   HIDDEN_NOTE_CALLER,
   ImmutableChapterNode,
+  MarkerNode,
   NoteNode,
   ParaNode,
   TypedMarkNode,
@@ -786,7 +788,7 @@ describe("$getEffectiveVerseForBcv()", () => {
 });
 
 describe("$insertNote()", () => {
-  const requiredNodes = [ParaNode, NoteNode, CharNode, ImmutableNoteCallerNode];
+  const requiredNodes = [ParaNode, NoteNode, CharNode, ImmutableNoteCallerNode, MarkerNode];
   const viewOptions: ViewOptions = {
     markerMode: "hidden",
     noteMode: "expanded",
@@ -1179,6 +1181,136 @@ describe("$insertNote()", () => {
 
       const caller = noteNode.getFirstChild();
       expect($isImmutableNoteCallerNode(caller)).toBe(true);
+    });
+  });
+
+  it("uses the project chapter:verse separator and cross-ref default caller", () => {
+    const { editor } = createBasicTestEnvironment(requiredNodes);
+    editor.update(
+      () => {
+        const t1 = $createTextNode("text");
+        $getRoot().append($createParaNode().append(t1));
+        t1.select(2, 2);
+      },
+      { discrete: true },
+    );
+
+    editor.update(() => {
+      const noteNode = $insertNote(
+        "x",
+        undefined,
+        undefined,
+        { book: "JHN", chapterNum: 3, verseNum: 16 },
+        viewOptions,
+        { chapterVerseSeparator: ".", defaultCrossRefCaller: "†" },
+        undefined,
+      );
+
+      expect(noteNode?.getCaller()).toBe("†");
+      const xo = noteNode
+        ?.getChildren()
+        .filter($isCharNode)
+        .find((c) => c.getMarker() === "xo");
+      expect(xo?.getTextContent().trim()).toBe("3.16");
+    });
+  });
+
+  it("resolves the footnote default caller from defaultFootnoteCaller when caller is undefined", () => {
+    const { editor } = createBasicTestEnvironment(requiredNodes);
+    editor.update(
+      () => {
+        const t1 = $createTextNode("text");
+        $getRoot().append($createParaNode().append(t1));
+        t1.select(2, 2);
+      },
+      { discrete: true },
+    );
+
+    editor.update(() => {
+      const noteNode = $insertNote(
+        "f",
+        undefined,
+        undefined,
+        { book: "GEN", chapterNum: 1, verseNum: 1 },
+        viewOptions,
+        { defaultFootnoteCaller: "‡" },
+        undefined,
+      );
+
+      expect(noteNode?.getCaller()).toBe("‡");
+    });
+  });
+
+  it("falls back to '+'/'-' when no caller and no project default caller are given", () => {
+    const { editor } = createBasicTestEnvironment(requiredNodes);
+    editor.update(
+      () => {
+        const t1 = $createTextNode("text");
+        $getRoot().append($createParaNode().append(t1));
+        t1.select(2, 2);
+      },
+      { discrete: true },
+    );
+
+    editor.update(() => {
+      const footnote = $insertNote(
+        "f",
+        undefined,
+        undefined,
+        { book: "GEN", chapterNum: 1, verseNum: 1 },
+        viewOptions,
+        nodeOptions,
+        undefined,
+      );
+      expect(footnote?.getCaller()).toBe(GENERATOR_NOTE_CALLER);
+
+      const crossRef = $insertNote(
+        "x",
+        undefined,
+        undefined,
+        { book: "GEN", chapterNum: 1, verseNum: 1 },
+        viewOptions,
+        nodeOptions,
+        undefined,
+      );
+      expect(crossRef?.getCaller()).toBe(HIDDEN_NOTE_CALLER);
+    });
+  });
+
+  it("builds \\fq from the stripped quotation, not the raw selection text (markers removed)", () => {
+    const { editor } = createBasicTestEnvironment(requiredNodes);
+    editor.update(
+      () => {
+        const para = $createParaNode();
+        $getRoot().append(
+          para.append(
+            $createTextNode("selected "),
+            $createCharNode("nd").append(
+              $createMarkerNode("nd"),
+              $createTextNode("word"),
+              $createMarkerNode("nd", "closing"),
+            ),
+          ),
+        );
+        para.select(0, para.getChildrenSize());
+      },
+      { discrete: true },
+    );
+
+    editor.update(() => {
+      const noteNode = $insertNote(
+        "f",
+        GENERATOR_NOTE_CALLER,
+        undefined,
+        { book: "GEN", chapterNum: 1, verseNum: 1 },
+        viewOptions,
+        nodeOptions,
+        undefined,
+      );
+
+      const children = noteNode?.getChildren() ?? [];
+      const fqNode = children.filter($isCharNode).find((node) => node.getMarker() === "fq");
+      expect(fqNode?.getTextContent()).toBe("selected word");
     });
   });
 });
