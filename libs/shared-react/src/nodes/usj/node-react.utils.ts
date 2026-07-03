@@ -144,7 +144,15 @@ export function $insertNote(
   const children = $createNoteChildren(selection, marker, scriptureReference, logger);
   if (children === undefined) return undefined;
 
-  const noteNode = $createWholeNote(marker, caller, children, viewOptions, nodeOptions);
+  const noteNode = $createWholeNote(
+    marker,
+    caller,
+    children,
+    viewOptions,
+    nodeOptions,
+    undefined,
+    undefined,
+  );
   $insertNoteWithSelect(noteNode, selection, viewOptions);
   return noteNode;
 }
@@ -227,6 +235,9 @@ export function $createNoteChildren(
  * @param viewOptions - The view options for the note.
  * @param nodeOptions - The node options for the note.
  * @param segment - The segment for the note.
+ * @param closed - The source `closed` attribute (`"false"` for an unterminated note). Unclosed
+ *   notes render expanded inline (PT9 `opennote`) regardless of `noteMode`. `undefined` (the
+ *   default for freshly inserted notes) behaves as closed.
  * @returns The created note node.
  */
 // Keep this function updated with logic from
@@ -238,8 +249,12 @@ export function $createWholeNote(
   viewOptions: ViewOptions,
   nodeOptions: UsjNodeOptions,
   segment?: string,
+  closed?: string,
 ) {
-  const isCollapsed = viewOptions?.noteMode !== "expanded";
+  // Unclosed notes (closed="false") render expanded inline (PT9 `opennote`); only closed
+  // notes honor noteMode collapse.
+  const isUnclosed = closed === "false";
+  const isCollapsed = isUnclosed ? false : viewOptions?.noteMode !== "expanded";
   const note = $createNoteNode(marker, caller, isCollapsed);
   if (segment) $setState(note, segmentState, () => segment);
 
@@ -247,15 +262,18 @@ export function $createWholeNote(
   let closingMarkerNode: MarkerNode | ImmutableTypedTextNode | undefined;
   if (viewOptions?.markerMode === "editable") {
     openingMarkerNode = $createMarkerNode(marker);
-    closingMarkerNode = $createMarkerNode(marker, "closing");
+    // An unclosed note has no closer to display.
+    if (!isUnclosed) closingMarkerNode = $createMarkerNode(marker, "closing");
   } else if (viewOptions?.markerMode === "visible") {
     openingMarkerNode = $createImmutableTypedTextNode("marker", openingMarkerText(marker) + NBSP);
-    closingMarkerNode = $createImmutableTypedTextNode("marker", closingMarkerText(marker) + NBSP);
+    if (!isUnclosed)
+      closingMarkerNode = $createImmutableTypedTextNode("marker", closingMarkerText(marker) + NBSP);
   }
 
   let callerNode: ImmutableNoteCallerNode | TextNode;
   if (openingMarkerNode) note.append(openingMarkerNode);
-  if (viewOptions?.markerMode === "editable" && viewOptions?.noteMode === "expanded") {
+  // Expanded layout whenever the note is expanded (either noteMode expanded OR unclosed).
+  if (viewOptions?.markerMode === "editable" && !isCollapsed) {
     if (caller === "") note.append(...contentNodes);
     else {
       callerNode = $createTextNode(getEditableCallerText(note.__caller));
