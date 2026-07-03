@@ -216,7 +216,6 @@ function getContent(object: MarkerObject): MarkerContent[] {
 
 interface CharFrame {
   object: MarkerObject;
-  container: MarkerContent[];
 }
 
 /**
@@ -297,7 +296,7 @@ export function usfmFragmentToUsjContent(fragment: string): MarkerContent[] {
         const target = container();
         const object: MarkerObject = { type: "char", marker: token.marker, content: [] };
         target.push(object);
-        charStack.push({ object, container: target });
+        charStack.push({ object });
         break;
       }
       case "end": {

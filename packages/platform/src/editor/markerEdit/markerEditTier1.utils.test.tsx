@@ -5,14 +5,17 @@ import {
   $getRoot,
   $getSelection,
   $isRangeSelection,
+  $isTextNode,
   BLUR_COMMAND,
   KEY_ENTER_COMMAND,
 } from "lexical";
 import {
+  $createChapterNode,
   $createCharNode,
   $createMarkerNode,
   $createNoteNode,
   $createParaNode,
+  ChapterNode,
   CharNode,
   getVisibleOpenMarkerText,
   MarkerNode,
@@ -321,5 +324,45 @@ describe("Tier 1 verse/chapter number sync", () => {
     await act(async () => editor.update(() => verse.setTextContent("v 1 ")));
     const json = JSON.stringify(editor.getEditorState().toJSON());
     expect(json).not.toContain('"type":"verse"');
+  });
+
+  it("syncs the number and canonicalizes when the chapter token is edited", async () => {
+    let chapter: ChapterNode;
+    const { editor } = await testEnvironment(() => {
+      chapter = $createChapterNode("1");
+      $getRoot().append(
+        chapter.append($createTextNode(getVisibleOpenMarkerText("c", "1"))),
+        $createParaNode("p").append($createMarkerNode("p"), $createTextNode(NBSP)),
+      );
+    });
+    // Retype the marker with a plain-space separator; the transform canonicalizes to NBSP.
+    // Lexical runs an ElementNode transform only when the element is *intentionally* dirtied;
+    // a bare text-child edit marks the ChapterNode dirty non-intentionally, so mark it dirty
+    // to reach the registered transform (a real structural edit dirties it the same way — see
+    // the emptied-chapter test, which triggers organically via remove()).
+    await act(async () =>
+      editor.update(() => {
+        const text = chapter.getFirstChild();
+        if ($isTextNode(text)) text.setTextContent("\\c 2 ");
+        chapter.markDirty();
+      }),
+    );
+    editor.getEditorState().read(() => {
+      expect(chapter.getNumber()).toBe("2");
+      expect(chapter.getFirstChild()?.getTextContent()).toBe(getVisibleOpenMarkerText("c", "2"));
+    });
+  });
+
+  it("removes the chapter node when its marker text is fully deleted (§5.5)", async () => {
+    let chapter: ChapterNode;
+    const { editor } = await testEnvironment(() => {
+      chapter = $createChapterNode("1");
+      $getRoot().append(
+        chapter.append($createTextNode(getVisibleOpenMarkerText("c", "1"))),
+        $createParaNode("p").append($createMarkerNode("p"), $createTextNode(NBSP)),
+      );
+    });
+    await act(async () => editor.update(() => chapter.getFirstChild()?.remove()));
+    editor.getEditorState().read(() => expect(chapter.isAttached()).toBe(false));
   });
 });

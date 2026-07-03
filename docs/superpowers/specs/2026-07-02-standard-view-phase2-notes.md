@@ -1,6 +1,6 @@
 # Standard View Phase 2 — Engine Notes for Phases 3–5
 
-Source: Phase 2 plan (`docs/superpowers/specs/2026-07-02-standard-view-phase-2.md`,
+Source: Phase 2 plan (`docs/superpowers/plans/2026-07-02-standard-view-phase-2.md`,
 commit `784e6e6`), executed as `.superpowers/sdd/progress.md` (Phase 2 section) tracks,
 branch `standard-view`, commit range `784e6e6..ae83555`. This doc is the ground-truth
 handoff — where it disagrees with the plan's own "Out of scope" seed list, this doc wins
@@ -26,6 +26,22 @@ handoff — where it disagrees with the plan's own "Out of scope" seed list, thi
   appropriate for note content). No public API changes are needed on this repo's side to support
   that — `MarkerEditPlugin` is already a plain, viewOptions-driven React component with no
   platform-specific coupling beyond `usjEditorAdaptor` (used only inside Tier 2 rebuilds).
+
+- **Phase 3 precondition (task zero): the adaptor `_viewOptions` is a module-level singleton.**
+  Both `editor-usj.adaptor.ts` (reverse) and `usj-editor.adaptor.ts` (forward) hold their active
+  `ViewOptions` in a module-scoped `_viewOptions`, set once per `initialize(...)` at `Editor`
+  render (`isStandardView()`/`markerMode` reads all funnel through it). This is safe today because
+  a webview hosts exactly one editor. The FootnoteEditor introduces a **second** `<LexicalComposer>`
+  in the same webview, and note content may run in a different view mode than the host (e.g. an
+  editable-marker note popover over a non-editable host, or vice versa). With a shared module
+  singleton, whichever editor initialized last wins, silently corrupting the other's
+  serialize/deserialize (NBSP inversion, marker glyph emission, leading-space display all branch on
+  `_viewOptions`). Before wiring a second editor, thread `viewOptions` per call — pass it into
+  `deserializeEditorState`/`serializeEditorState` (and the internal `isStandardView()` and
+  `create*` helpers) instead of reading the module global, or hold it per-editor-instance. Do this
+  as Phase 3 **task zero**, ahead of any FootnoteEditor mount; it is a precondition, not a cleanup.
+  (Deliberately not refactored in Phase 2 — no second editor exists yet, so the singleton is still
+  correct; recording it here so Phase 3 hits it first, not as a mid-stream surprise.)
 
 - **Note content is currently a Tier 2 dead zone — by design, not oversight.** Two independent
   guards both skip note interiors, and Phase 3 needs to lift (or replace) both:

@@ -2,7 +2,7 @@
 
 ## Phase 2 completion summary
 
-Plan: `docs/superpowers/specs/2026-07-02-standard-view-phase-2.md` (design spec's marker-editing
+Plan: `docs/superpowers/plans/2026-07-02-standard-view-phase-2.md` (design spec's marker-editing
 engine, §4, §5.1–5.3, §5.5–5.6). Commit range `784e6e6..ae83555` (24 commits, 15 tasks + 2 fix
 rounds + browser QA). Branch `standard-view`, not pushed.
 
