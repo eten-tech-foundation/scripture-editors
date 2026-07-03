@@ -124,11 +124,24 @@ describe("decorate - caller label", () => {
   });
 });
 
-async function renderCaller(caller: string, collapsed: boolean): Promise<HTMLElement> {
+describe("decorate - caller tooltip", () => {
+  it("exposes the note preview as the caller tooltip (title)", async () => {
+    const dom = await renderCaller("+", true, "1:1 A footnote.");
+    expect(dom.querySelector("button")?.getAttribute("title")).toBe("1:1 A footnote.");
+  });
+});
+
+async function renderCaller(
+  caller: string,
+  collapsed: boolean,
+  previewText?: string,
+): Promise<HTMLElement> {
   const { editor } = await baseTestEnvironment(() => {
     $getRoot().append(
       $createParaNode().append(
-        $createNoteNode("f", "a", collapsed).append($createImmutableNoteCallerNode(caller, "")),
+        $createNoteNode("f", "a", collapsed).append(
+          $createImmutableNoteCallerNode(caller, previewText ?? ""),
+        ),
       ),
     );
   });
