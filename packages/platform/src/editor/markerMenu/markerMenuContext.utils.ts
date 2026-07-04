@@ -15,9 +15,11 @@ import {
   $getRoot,
   $getSelection,
   $getState,
+  $isElementNode,
   $isRangeSelection,
   $isTextNode,
   LexicalNode,
+  TextNode,
 } from "lexical";
 import {
   $findFirstAncestorNoteNode,
@@ -87,15 +89,33 @@ function $collectPreviousParaMarkers(node: LexicalNode): string[] {
 }
 
 /** A plain `TextNode` tagged as the NBSP separator following a paragraph's marker prefix. */
-function $isTrailingSpaceNode(node: LexicalNode | null | undefined): boolean {
+function $isTrailingSpaceNode(node: LexicalNode | null | undefined): node is TextNode {
   return $isTextNode(node) && $getState(node, textTypeState) === "marker-trailing-space";
 }
 
+/** First leaf of `node`: descend through first children of element nodes (the node itself
+ * when it is already a leaf or an empty element). */
+function $getFirstLeaf(node: LexicalNode): LexicalNode {
+  let current = node;
+  while ($isElementNode(current)) {
+    const child: LexicalNode | null = current.getFirstChild();
+    if (!child) break;
+    current = child;
+  }
+  return current;
+}
+
 /**
- * True when `anchorNode`/`offset` sits at `para`'s CONTENT start: offset 0 of the first
- * non-prefix child (no visible marker prefix rendered), or inside the marker prefix / its
- * trailing-space NBSP, or offset 0 of the child immediately following that trailing space
- * (`MarkerDropdownEditHandler.cs:107-116`, adapted to the Lexical tree).
+ * True when `anchorNode`/`offset` sits at `para`'s CONTENT start: inside the marker prefix /
+ * its trailing-space NBSP, or at offset 0 of the first LEAF of the first content child
+ * (`MarkerDropdownEditHandler.cs:107-116` — PT9's probe is a flat character-position check,
+ * blind to markup nesting, so ours must see through wrappers too).
+ *
+ * The leaf descent matters when the paragraph's visible content begins inside a char span —
+ * e.g. `\p \wj Then Jesus said…\wj*`, an ordinary red-letter Gospel shape: Lexical anchors
+ * the caret on the span's inner leaf, never on the span element itself. In editable mode a
+ * CharNode's first leaf is its opener MarkerNode glyph — a caret at offset 0 of that glyph
+ * IS the visible content start.
  */
 function $isAtParagraphContentStart(
   para: ParaNode,
@@ -104,15 +124,18 @@ function $isAtParagraphContentStart(
 ): boolean {
   const firstChild = para.getFirstChild();
   if (!firstChild) return false;
-  if (!$isParaMarkerPrefix(firstChild)) return anchorNode.is(firstChild) && offset === 0;
-  if (anchorNode.is(firstChild)) return true;
 
-  const afterPrefix = firstChild.getNextSibling();
-  if (!$isTrailingSpaceNode(afterPrefix)) return anchorNode.is(afterPrefix) && offset === 0;
-  if (anchorNode.is(afterPrefix)) return true;
-
-  const contentStart = afterPrefix?.getNextSibling();
-  return !!contentStart && anchorNode.is(contentStart) && offset === 0;
+  let contentStart: LexicalNode | null = firstChild;
+  if ($isParaMarkerPrefix(firstChild)) {
+    if (anchorNode.is(firstChild)) return true;
+    contentStart = firstChild.getNextSibling();
+    if ($isTrailingSpaceNode(contentStart)) {
+      if (anchorNode.is(contentStart)) return true;
+      contentStart = contentStart.getNextSibling();
+    }
+  }
+  if (!contentStart) return false;
+  return anchorNode.is($getFirstLeaf(contentStart)) && offset === 0;
 }
 
 /** iframe-relative viewport coords of the live DOM selection, or `undefined` if unavailable. */

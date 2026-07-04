@@ -109,6 +109,58 @@ describe("$getMarkerMenuContext", () => {
     expect(context?.source).toBe("character");
   });
 
+  it("reports paragraph source for a caret at the visible start of a leading \\wj span (red-letter shape)", async () => {
+    let wjOpen: MarkerNode;
+    const { editor } = await testEnvironment(() => {
+      const para = $createParaNode("p");
+      const prefix = $createMarkerNode("p");
+      const trailing = $createTextNode(NBSP);
+      $setState(trailing, textTypeState, "marker-trailing-space");
+      const wj = $createCharNode("wj");
+      wjOpen = $createMarkerNode("wj");
+      $getRoot().append(
+        para.append(
+          prefix,
+          trailing,
+          wj.append(wjOpen, $createTextNode("Then Jesus said"), $createMarkerNode("wj", "closing")),
+        ),
+      );
+    });
+
+    // The paragraph's visible content starts inside the char span: its first leaf is the
+    // opener MarkerNode glyph, and a caret at its offset 0 is the content start.
+    await act(async () => editor.update(() => wjOpen.select(0, 0)));
+
+    const context = editor.getEditorState().read(() => $getMarkerMenuContext());
+    expect(context?.source).toBe("paragraph");
+  });
+
+  it("reports character source for a caret past the opener glyph of a leading \\wj span", async () => {
+    let wjContent: TextNode;
+    const { editor } = await testEnvironment(() => {
+      const para = $createParaNode("p");
+      const prefix = $createMarkerNode("p");
+      const trailing = $createTextNode(NBSP);
+      $setState(trailing, textTypeState, "marker-trailing-space");
+      const wj = $createCharNode("wj");
+      wjContent = $createTextNode("Then Jesus said");
+      $getRoot().append(
+        para.append(
+          prefix,
+          trailing,
+          wj.append($createMarkerNode("wj"), wjContent, $createMarkerNode("wj", "closing")),
+        ),
+      );
+    });
+
+    // Offset 0 of the span's content TEXT is already past the visible content start (the
+    // opener glyph leaf) - mid-span, so character source.
+    await act(async () => editor.update(() => wjContent.select(0, 0)));
+
+    const context = editor.getEditorState().read(() => $getMarkerMenuContext());
+    expect(context?.source).toBe("character");
+  });
+
   it("reports noteMarker: f for a caret in an expanded note's \\ft content", async () => {
     const { editor } = await renderStandardEditorWithUnclosedNote();
     let ftContent: TextNode;
