@@ -48,6 +48,7 @@ import {
   $isImmutableTypedTextNode,
   $isImmutableUnmatchedNode,
   $isImpliedParaNode,
+  $isMarkerNode,
   $isMilestoneNode,
   $isNoteNode,
   $isParaNode,
@@ -56,6 +57,7 @@ import {
   charIdState,
   EMPTY_CHAR_PLACEHOLDER_TEXT,
   GENERATOR_NOTE_CALLER,
+  getEditableCallerText,
   NBSP,
   removeUndefinedProperties,
   segmentState,
@@ -3385,6 +3387,153 @@ describe("Delta Utils $applyUpdate", () => {
           throw new Error("Expected a ImmutableTypedTextNode");
         expect(closingMarker.getTextType()).toBe("marker");
         expect(closingMarker.getTextContent()).toBe(`\\f*${NBSP}`);
+      });
+    });
+
+    // Canonical glyph-free note ops in editable marker mode: contents ops carry CONTENT only,
+    // and `$applyUpdate` materializes the same note shape the USJ adaptor builds — single
+    // MarkerNode glyph per span, structural NBSP separator glued to the content text, the
+    // expanded editable caller text, and a closing glyph only for a closed note.
+    it("should insert an expanded editable-mode note materializing glyphs and NBSP prefixes", async () => {
+      const { editor } = await testEnvironment();
+      const viewOptions: ViewOptions = {
+        ...defaultViewOptions,
+        markerMode: "editable",
+        noteMode: "expanded",
+      };
+      const ops: DeltaOp[] = [
+        { insert: "When" },
+        {
+          insert: {
+            note: {
+              style: "f",
+              caller: GENERATOR_NOTE_CALLER,
+              contents: {
+                ops: [
+                  { insert: "2.1 ", attributes: { char: { style: "fr" } } },
+                  { insert: "", attributes: { char: { style: "fk" } } },
+                  { insert: "in time.", attributes: { char: { style: "ft" } } },
+                ],
+              },
+            },
+          },
+        },
+      ];
+
+      await sutApplyUpdate(editor, ops, viewOptions);
+
+      editor.getEditorState().read(() => {
+        const p = $getRoot().getFirstChild();
+        if (!$isImpliedParaNode(p)) throw new Error("p is not an ImpliedParaNode");
+        expect(p.getChildrenSize()).toBe(2);
+
+        const note = p.getChildAtIndex(1);
+        if (!$isNoteNode(note)) throw new Error("note is not a NoteNode");
+        expect(note.getMarker()).toBe("f");
+        expect(note.getCaller()).toBe(GENERATOR_NOTE_CALLER);
+        expect(note.getIsCollapsed()).toBe(false);
+        // [\f glyph, caller text, fr char, fk char, ft char, \f* glyph]
+        expect(note.getChildrenSize()).toBe(6);
+
+        const openingGlyph = note.getFirstChild();
+        if (!$isMarkerNode(openingGlyph)) throw new Error("Expected opening MarkerNode glyph");
+        expect(openingGlyph.getMarker()).toBe("f");
+        expect(openingGlyph.getMarkerSyntax()).toBe("opening");
+
+        const callerText = note.getChildAtIndex(1);
+        if (!$isTextNode(callerText)) throw new Error("Expected editable caller TextNode");
+        expect(callerText.getTextContent()).toBe(getEditableCallerText(GENERATOR_NOTE_CALLER));
+
+        const char1 = note.getChildAtIndex(2);
+        if (!$isCharNode(char1)) throw new Error("char1 is not a CharNode");
+        expect(char1.getMarker()).toBe("fr");
+        expect(char1.getChildrenSize()).toBe(2);
+        const frGlyph = char1.getFirstChild();
+        if (!$isMarkerNode(frGlyph)) throw new Error("Expected fr MarkerNode glyph");
+        expect(frGlyph.getMarker()).toBe("fr");
+        const frText = char1.getChildAtIndex(1);
+        if (!$isTextNode(frText)) throw new Error("Expected fr content TextNode");
+        expect(frText.getTextContent()).toBe(`${NBSP}2.1 `);
+
+        const char2 = note.getChildAtIndex(3);
+        if (!$isCharNode(char2)) throw new Error("char2 is not a CharNode");
+        expect(char2.getMarker()).toBe("fk");
+        expect(char2.getChildrenSize()).toBe(2);
+        const fkGlyph = char2.getFirstChild();
+        if (!$isMarkerNode(fkGlyph)) throw new Error("Expected fk MarkerNode glyph");
+        const fkText = char2.getChildAtIndex(1);
+        if (!$isTextNode(fkText)) throw new Error("Expected fk placeholder TextNode");
+        expect(fkText.getTextContent()).toBe(EMPTY_CHAR_PLACEHOLDER_TEXT);
+
+        const char3 = note.getChildAtIndex(4);
+        if (!$isCharNode(char3)) throw new Error("char3 is not a CharNode");
+        expect(char3.getMarker()).toBe("ft");
+        expect(char3.getChildrenSize()).toBe(2);
+        const ftGlyph = char3.getFirstChild();
+        if (!$isMarkerNode(ftGlyph)) throw new Error("Expected ft MarkerNode glyph");
+        const ftText = char3.getChildAtIndex(1);
+        if (!$isTextNode(ftText)) throw new Error("Expected ft content TextNode");
+        expect(ftText.getTextContent()).toBe(`${NBSP}in time.`);
+
+        const closingGlyph = note.getChildAtIndex(5);
+        if (!$isMarkerNode(closingGlyph)) throw new Error("Expected closing MarkerNode glyph");
+        expect(closingGlyph.getMarker()).toBe("f");
+        expect(closingGlyph.getMarkerSyntax()).toBe("closing");
+      });
+    });
+
+    it('should insert an unclosed editable-mode note (closed="false") without a closer', async () => {
+      const { editor } = await testEnvironment();
+      const viewOptions: ViewOptions = {
+        ...defaultViewOptions,
+        markerMode: "editable",
+        noteMode: "expanded",
+      };
+      const ops: DeltaOp[] = [
+        { insert: "When" },
+        {
+          insert: {
+            note: {
+              style: "f",
+              caller: GENERATOR_NOTE_CALLER,
+              closed: "false",
+              contents: {
+                ops: [
+                  { insert: "1:2 ", attributes: { char: { style: "fr" } } },
+                  { insert: "unterminated", attributes: { char: { style: "ft" } } },
+                ],
+              },
+            },
+          },
+        },
+      ];
+
+      await sutApplyUpdate(editor, ops, viewOptions);
+
+      editor.getEditorState().read(() => {
+        const p = $getRoot().getFirstChild();
+        if (!$isImpliedParaNode(p)) throw new Error("p is not an ImpliedParaNode");
+
+        const note = p.getChildAtIndex(1);
+        if (!$isNoteNode(note)) throw new Error("note is not a NoteNode");
+        expect(note.getUnknownAttributes()).toEqual({ closed: "false" });
+        // Unclosed notes render expanded inline regardless of noteMode.
+        expect(note.getIsCollapsed()).toBe(false);
+        // [\f glyph, caller text, fr char, ft char] — NO closing glyph.
+        expect(note.getChildrenSize()).toBe(4);
+
+        const openingGlyph = note.getFirstChild();
+        if (!$isMarkerNode(openingGlyph)) throw new Error("Expected opening MarkerNode glyph");
+        expect(openingGlyph.getMarkerSyntax()).toBe("opening");
+
+        const lastChild = note.getLastChild();
+        if (!$isCharNode(lastChild)) throw new Error("Expected last child to be the ft CharNode");
+        expect(lastChild.getMarker()).toBe("ft");
+        expect(
+          note
+            .getChildren()
+            .some((child) => $isMarkerNode(child) && child.getMarkerSyntax() === "closing"),
+        ).toBe(false);
       });
     });
 

@@ -74,6 +74,7 @@ import {
   getVisibleOpenMarkerText,
   ImpliedParaNode,
   LoggerBasic,
+  NBSP,
   NoteNode,
   openingMarkerText,
   ParaNode,
@@ -1722,6 +1723,10 @@ function $createNote(
   if (caller === "") logger?.warn("Note has empty caller. Only use for note editing.");
 
   const unknownAttributes = getUnknownAttributes(noteEmbed.note, OT_NOTE_PROPS);
+  // An unclosed note (closed="false") materializes without a closer glyph and renders
+  // expanded inline, exactly as the USJ adaptor builds it.
+  const closed =
+    typeof unknownAttributes?.closed === "string" ? unknownAttributes.closed : undefined;
 
   const segment = op.attributes?.segment;
   let nodeSegment: string | undefined;
@@ -1731,10 +1736,18 @@ function $createNote(
   for (const childOp of contents?.ops ?? []) {
     if (typeof childOp.insert !== "string") continue;
     if (hasCharAttributes(childOp.attributes)) {
+      // Note contents ops carry CONTENT only; in editable marker mode a char span's content
+      // text carries a structural NBSP separator after the opening glyph (mirror the USJ
+      // adaptor's `createChar`). Empty content stays empty so `$createNestedChars` inserts
+      // the empty-char placeholder instead.
+      const text =
+        viewOptions.markerMode === "editable" && childOp.insert !== ""
+          ? NBSP + childOp.insert
+          : childOp.insert;
       const charNodes = $createNestedChars(
         childOp.attributes.char,
         viewOptions,
-        $createTextNode(childOp.insert),
+        $createTextNode(text),
         undefined,
         contentNodes,
       );
@@ -1744,7 +1757,15 @@ function $createNote(
     }
   }
 
-  const note = $createWholeNote(style, caller, contentNodes, viewOptions, nodeOptions, nodeSegment)
+  const note = $createWholeNote(
+    style,
+    caller,
+    contentNodes,
+    viewOptions,
+    nodeOptions,
+    nodeSegment,
+    closed,
+  )
     .setCategory(category)
     .setUnknownAttributes(unknownAttributes);
 

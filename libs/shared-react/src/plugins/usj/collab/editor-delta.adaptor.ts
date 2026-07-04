@@ -21,6 +21,7 @@ import {
   $isCharNode,
   $isImmutableUnmatchedNode,
   $isImpliedParaNode,
+  $isMarkerNode,
   $isMilestoneNode,
   $isNoteNode,
   $isParaLikeNode,
@@ -33,6 +34,7 @@ import {
   charIdState,
   CharNode,
   EMPTY_CHAR_PLACEHOLDER_TEXT,
+  getEditableCallerText,
   ImmutableUnmatchedNode,
   MilestoneNode,
   NBSP,
@@ -205,6 +207,14 @@ function $handleBlockNodes(
   }
 }
 
+/** Whether any ancestor of the node is a NoteNode. */
+function $hasNoteAncestor(node: LexicalNode): boolean {
+  for (let parent = node.getParent(); parent !== null; parent = parent.getParent()) {
+    if ($isNoteNode(parent)) return true;
+  }
+  return false;
+}
+
 function $handleTextNodes(
   currentNode: LexicalNode,
   ops: DeltaOp[],
@@ -219,15 +229,47 @@ function $handleTextNodes(
   const parent = currentNode.getParent();
   if ($isNoteNode(parent) && parent.getFirstChild() === currentNode) return;
 
-  const text = currentNode.getTextContent();
-  const isNodeAttributeText = text.startsWith(NODE_ATTRIBUTE_PREFIX);
+  // Canonical, glyph-free note ops in editable marker mode: note contents ops carry CONTENT
+  // only, the same shape non-editable marker modes produce. Presentation-only nodes that
+  // `$applyUpdate` re-synthesizes when materializing the note (`$createWholeNote` /
+  // `$createNestedChars`) must not flow into ops, otherwise a round-trip doubles them:
+  // - MarkerNode glyphs (char-span openers/closers and the note's own closing glyph);
+  // - the expanded editable caller text (presentation of the note's `caller` attribute).
+  // MarkerNodes only exist in editable marker mode, so these rules are inert elsewhere.
+  const isInNote = $hasNoteAncestor(currentNode);
+  if (isInNote && $isMarkerNode(currentNode)) return;
+  let text = currentNode.getTextContent();
+  // A glyph-fronted note (first child is a MarkerNode) is the editable-mode shape; only
+  // there does the caller render as a plain text child.
+  if (
+    $isNoteNode(parent) &&
+    $isMarkerNode(parent.getFirstChild()) &&
+    text === getEditableCallerText(parent.getCaller())
+  ) {
+    return;
+  }
+
   const parentCharNode = $isCharNode(parent) ? parent : undefined;
+  // Strip the structural NBSP separator that editable-mode char spans glue onto their
+  // content text after the opening glyph (added by the USJ adaptor's `createChar` and
+  // re-added by `$applyUpdate`'s `$createNote`); it is display-only, not content.
+  if (
+    isInNote &&
+    !!parentCharNode &&
+    $isMarkerNode(parentCharNode.getFirstChild()) &&
+    text.startsWith(NBSP)
+  ) {
+    text = text.slice(1);
+  }
+
+  const isNodeAttributeText = text.startsWith(NODE_ATTRIBUTE_PREFIX);
   const isPlaceholderText =
     !!parentCharNode &&
     text === EMPTY_CHAR_PLACEHOLDER_TEXT &&
     parentCharNode.getChildrenSize() === 1;
 
   const textOp = $getTextOp(currentNode, openCharNodes);
+  textOp.insert = text;
   const activeEmbed = $getActiveEmbedContext(currentNode, openEmbeds);
   if (activeEmbed) {
     if (!text || text === NBSP || isNodeAttributeText) return;
@@ -384,6 +426,11 @@ function $getNoteOp(currentNode: NoteNode): DeltaOpInsertNoteEmbed {
   if (currentNode.__category) {
     note.category = currentNode.__category;
   }
+  // Carry unknown attributes (e.g. the unclosed-note `closed="false"`) so the round-trip is
+  // lossless — `$applyUpdate`'s `$createNote` already reads them back via
+  // `getUnknownAttributes(…, OT_NOTE_PROPS)`, matching how unknown-embed ops behave.
+  const unknownAttributes = currentNode.getUnknownAttributes();
+  if (unknownAttributes) Object.assign(note as unknown as UnknownAttributes, unknownAttributes);
   if (currentNode.getChildrenSize() > 1) {
     note.contents = { ops: [] };
   }

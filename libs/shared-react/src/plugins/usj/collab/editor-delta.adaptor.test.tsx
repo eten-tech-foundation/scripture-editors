@@ -29,6 +29,7 @@ import {
   $createImmutableChapterNode,
   $createImmutableTypedTextNode,
   $createImpliedParaNode,
+  $createMarkerNode,
   $createMilestoneNode,
   $createNoteNode,
   $createParaNode,
@@ -350,6 +351,149 @@ describe("getEditorDelta", () => {
               ops: [
                 { insert: "3:16 ", attributes: { char: { style: "fr" } } },
                 { insert: "Footnote text ", attributes: { char: { style: "ft" } } },
+              ],
+            },
+          },
+        },
+      },
+      { insert: LF, attributes: { para: { style: "q1" } } },
+    ]);
+  });
+
+  // Canonical glyph-free note ops in editable marker mode: presentation-only MarkerNode
+  // glyphs, the expanded editable caller text, and the structural NBSP separator after a
+  // char span's opening glyph must NOT flow into note contents ops. `$applyUpdate`
+  // re-synthesizes all of them (`$createWholeNote`/`$createNestedChars`), so note contents
+  // ops carry CONTENT only — the same shape non-editable marker modes produce.
+  it("should return canonical glyph-free contents ops for an expanded editable-mode note", async () => {
+    const { editor } = await testEnvironment(() => {
+      $getRoot().append(
+        $createParaNode("q1").append(
+          $createTextNode("When"),
+          $createNoteNode("f", GENERATOR_NOTE_CALLER, false).append(
+            $createMarkerNode("f"),
+            $createTextNode(getEditableCallerText(GENERATOR_NOTE_CALLER)),
+            $createCharNode("fr").append($createMarkerNode("fr"), $createTextNode(`${NBSP}3:2 `)),
+            $createCharNode("fk").append(
+              $createMarkerNode("fk"),
+              $createTextNode(EMPTY_CHAR_PLACEHOLDER_TEXT),
+            ),
+            $createCharNode("ft").append(
+              $createMarkerNode("ft"),
+              $createTextNode(`${NBSP}Footnote text `),
+            ),
+            $createMarkerNode("f", "closing"),
+          ),
+        ),
+      );
+    });
+
+    const delta = getEditorDelta(editor.getEditorState());
+
+    expect(delta.ops).toEqual([
+      { insert: "When" },
+      {
+        insert: {
+          note: {
+            style: "f",
+            caller: GENERATOR_NOTE_CALLER,
+            contents: {
+              ops: [
+                { insert: "3:2 ", attributes: { char: { style: "fr" } } },
+                { insert: "", attributes: { char: { style: "fk" } } },
+                { insert: "Footnote text ", attributes: { char: { style: "ft" } } },
+              ],
+            },
+          },
+        },
+      },
+      { insert: LF, attributes: { para: { style: "q1" } } },
+    ]);
+  });
+
+  it("should return canonical contents ops for a nested char in an editable-mode note", async () => {
+    const { editor } = await testEnvironment(() => {
+      $getRoot().append(
+        $createParaNode("q1").append(
+          $createTextNode("When"),
+          $createNoteNode("f", GENERATOR_NOTE_CALLER, false).append(
+            $createMarkerNode("f"),
+            $createTextNode(getEditableCallerText(GENERATOR_NOTE_CALLER)),
+            $createCharNode("fr").append($createMarkerNode("fr"), $createTextNode(`${NBSP}1:1 `)),
+            $createCharNode("ft").append(
+              $createMarkerNode("ft"),
+              $createTextNode(`${NBSP}see `),
+              $createCharNode("fv").append($createMarkerNode("fv"), $createTextNode(`${NBSP}2`)),
+              $createTextNode(`${NBSP} more`),
+            ),
+            $createMarkerNode("f", "closing"),
+          ),
+        ),
+      );
+    });
+
+    const delta = getEditorDelta(editor.getEditorState());
+
+    expect(delta.ops).toEqual([
+      { insert: "When" },
+      {
+        insert: {
+          note: {
+            style: "f",
+            caller: GENERATOR_NOTE_CALLER,
+            contents: {
+              ops: [
+                { insert: "1:1 ", attributes: { char: { style: "fr" } } },
+                { insert: "see ", attributes: { char: { style: "ft" } } },
+                {
+                  insert: "2",
+                  attributes: { char: [{ style: "ft" }, { style: "fv" }] },
+                },
+                { insert: " more", attributes: { char: { style: "ft" } } },
+              ],
+            },
+          },
+        },
+      },
+      { insert: LF, attributes: { para: { style: "q1" } } },
+    ]);
+  });
+
+  it("should carry unknown attributes and no closer for an unclosed editable-mode note", async () => {
+    const { editor } = await testEnvironment(() => {
+      $getRoot().append(
+        $createParaNode("q1").append(
+          $createTextNode("When"),
+          // closed="false": an unterminated note — no closing glyph exists in the editor.
+          $createNoteNode("f", GENERATOR_NOTE_CALLER, false, undefined, {
+            closed: "false",
+          }).append(
+            $createMarkerNode("f"),
+            $createTextNode(getEditableCallerText(GENERATOR_NOTE_CALLER)),
+            $createCharNode("fr").append($createMarkerNode("fr"), $createTextNode(`${NBSP}1:2 `)),
+            $createCharNode("ft").append(
+              $createMarkerNode("ft"),
+              $createTextNode(`${NBSP}unterminated`),
+            ),
+          ),
+        ),
+      );
+    });
+
+    const delta = getEditorDelta(editor.getEditorState());
+
+    expect(delta.ops).toEqual([
+      { insert: "When" },
+      {
+        insert: {
+          note: {
+            style: "f",
+            caller: GENERATOR_NOTE_CALLER,
+            closed: "false",
+            contents: {
+              ops: [
+                { insert: "1:2 ", attributes: { char: { style: "fr" } } },
+                { insert: "unterminated", attributes: { char: { style: "ft" } } },
               ],
             },
           },
