@@ -228,3 +228,5 @@ pw-server.mjs):**
    noted for future runbook use.
 4. Ledger's Task 15 dispatch line mentions pushing after completion — NOT done here per the
    task constraints (controller pushes after review).
+
+> [CORRECTED by final whole-review 2026-07-04]: the "apply-side descends into UnknownNode" claim in this report (three mentions) is WRONG — $isEmbedNode includes $isUnknownNode at both base and head, so ALL apply traversals treat UnknownNode as an opaque embed; no asymmetry exists. Likely confusion source: the EmbedNode TYPE union omits UnknownNode while the runtime guard matches it (cleanup candidate for future collab unification). Do not design collab work around the phantom wart.
