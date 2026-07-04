@@ -5,6 +5,7 @@ import { OTEmbedTypes, validOTEmbedTypes } from "./rich-text-ot.model";
 import { $dfs, DFSNode } from "@lexical/utils";
 import {
   $getNodeByKey,
+  $isElementNode,
   $isTextNode,
   EditorState,
   ElementNode,
@@ -25,7 +26,6 @@ import {
   NoteNode,
   ParaLikeNode,
   SomeChapterNode,
-  UnknownNode,
 } from "shared";
 
 /**
@@ -58,8 +58,38 @@ export type EmbedNode =
   | NoteNode
   | ImmutableUnmatchedNode;
 
+/**
+ * The OT coordinate system in which positions are counted.
+ *
+ * @remarks
+ * The editor currently has TWO OT coordinate systems. They differ only in editable marker
+ * mode (`markerMode: "editable"`), where an element-based embed — an editable `ChapterNode`
+ * — carries a presentation glyph text child (e.g. `"\c 1 "`, 5 chars). In every other
+ * marker mode embeds have no text children and the two systems coincide.
+ *
+ * - `"delta-doc"` — the legacy counting that matches the doc delta `getEditorDelta`
+ *   serializes for chapters: the chapter embed contributes 1 AND its glyph text child is
+ *   counted as body text (editable chapter = 6). This is the coordinate system of the diff
+ *   op stream `DeltaOnChangePlugin` emits to the host — its single-text-node fast path must
+ *   agree with its `getEditorDelta` diff fallback — and therefore of retains found in
+ *   locally produced ops (e.g. `getInsertedNodeKey` over `onChange` ops). Known pre-existing
+ *   divergence, unchanged here: an editable `VerseNode` is a TextNode, so its glyph text is
+ *   counted but its verse embed op is not, while the doc delta emits both.
+ *
+ * - `"apply"` — the counting `$applyUpdate`'s insert/delete traversals use: EVERY embed is
+ *   opaque (1 unit; children never descended into; editable chapter = 1). Positions used in
+ *   host-local produce→apply round trips (`$getReplaceEmbedOps`, and reverse lookups of
+ *   where `$applyUpdate` actually placed a node) MUST use this system, or every op lands
+ *   offset by the glyph text length of each preceding editable chapter.
+ *
+ * The divergence between the two systems is ACCEPTED for now: the OT collab path was never
+ * fully completed, and unifying editable-mode doc-delta coordinates with the apply-side
+ * traversals belongs to future collab work.
+ */
+export type OTCoordinateSystem = "delta-doc" | "apply";
+
 interface OpenContentEmbed {
-  node: NoteNode | UnknownNode;
+  node: ElementNode;
   position: number;
 }
 
@@ -68,6 +98,12 @@ export const LF = "\n";
 
 /**
  * Get the replace embed operations for a given embed node key.
+ *
+ * @remarks
+ * The returned ops are host-local: they are meant to be fed straight to `$applyUpdate`, so
+ * the retain is computed in `"apply"` coordinates (see {@link OTCoordinateSystem}) to agree
+ * with `$applyUpdate`'s insert/delete traversals.
+ *
  * @param embedNodeKey - The key of the embed node to replace.
  * @param insertEmbedOps - The operations to insert the new embed node.
  * @returns The replace embed operations, or `undefined` if the node is not found.
@@ -79,7 +115,7 @@ export function $getReplaceEmbedOps(
   const node = $getNodeByKey(embedNodeKey);
   if (!$isEmbedNode(node)) return;
 
-  const retain = $getOTPositionOfNode(node);
+  const retain = $getOTPositionOfNode(node, "apply");
   if (retain === undefined) return;
 
   const ops: DeltaOp[] = [{ retain }, ...insertEmbedOps, { delete: 1 }];
@@ -96,9 +132,15 @@ export function $getReplaceEmbedOps(
  * - CharNodes have no OT length contribution
  *
  * @param node - The Lexical node to find the position for.
+ * @param coordinates - The OT coordinate system to count in (see {@link OTCoordinateSystem}).
+ *   Defaults to the legacy `"delta-doc"` counting; pass `"apply"` for positions consumed by
+ *   `$applyUpdate`.
  * @returns The OT position of the node, or `undefined` if the node is not found.
  */
-export function $getOTPositionOfNode(node: LexicalNode | null | undefined): number | undefined {
+export function $getOTPositionOfNode(
+  node: LexicalNode | null | undefined,
+  coordinates: OTCoordinateSystem = "delta-doc",
+): number | undefined {
   if (!node) return undefined;
 
   const dfsNodes = $dfs();
@@ -165,8 +207,9 @@ export function $getOTPositionOfNode(node: LexicalNode | null | undefined): numb
       }
     }
 
-    // Track when we enter a note or unknown node (treat contents as opaque)
-    if ($isNoteNode(currentNode) || $isUnknownNode(currentNode)) {
+    // Track when we enter an opaque content container (note/unknown always; any element
+    // embed such as an editable chapter in "apply" coordinates)
+    if ($isOpaqueContentNode(currentNode, coordinates)) {
       if (currentNode.getKey() === targetKey) return currentIndex;
 
       openContentEmbeds.push({ node: currentNode, position: currentIndex });
@@ -189,24 +232,41 @@ export function $getOTPositionOfNode(node: LexicalNode | null | undefined): numb
  * Get the key of the inserted node from the OT delta operations.
  * @param ops - The OT delta operations with potential insertion.
  * @param editorState - The current editor state.
+ * @param coordinates - The OT coordinate system the retain in `ops` is expressed in (see
+ *   {@link OTCoordinateSystem}). Use `"apply"` when the ops were applied by `$applyUpdate`
+ *   (the node was placed at the retain in apply coordinates); use the default `"delta-doc"`
+ *   for retains produced by doc-delta diffs (e.g. `DeltaOnChangePlugin` local-edit ops).
  * @returns The key of the inserted node if found, `undefined` otherwise.
  */
-export function getInsertedNodeKey(ops: DeltaOp[], editorState: EditorState): NodeKey | undefined {
+export function getInsertedNodeKey(
+  ops: DeltaOp[],
+  editorState: EditorState,
+  coordinates: OTCoordinateSystem = "delta-doc",
+): NodeKey | undefined {
   if (ops.length < 2 || !isRetainOp(ops[0]) || !isInsertEmbedOp(ops[1])) return undefined;
 
   const retain = ops[0].retain;
   return editorState.read(() => {
-    const node = $getNodeFromOTPosition(retain);
+    const node = $getNodeFromOTPosition(retain, coordinates);
     return node?.getKey();
   });
 }
 
 /**
  * Get the Lexical node at a specific OT delta position.
+ *
+ * @remarks
+ * This is the reverse of {@link $getOTPositionOfNode}: both must count in the SAME
+ * coordinate system for round trips to resolve to the same node.
+ *
  * @param otPosition - The OT delta position in the doc.
+ * @param coordinates - The OT coordinate system to count in (see {@link OTCoordinateSystem}).
  * @returns The Lexical node if found, `undefined` otherwise.
  */
-export function $getNodeFromOTPosition(otPosition: number): LexicalNode | undefined {
+export function $getNodeFromOTPosition(
+  otPosition: number,
+  coordinates: OTCoordinateSystem = "delta-doc",
+): LexicalNode | undefined {
   const dfsNodes = $dfs();
   let currentIndex = 0;
   const openParaLikeNodes: ParaLikeNode[] = [];
@@ -252,8 +312,9 @@ export function $getNodeFromOTPosition(otPosition: number): LexicalNode | undefi
       }
     }
 
-    // Track when we enter a note or unknown node (treat contents as opaque)
-    if ($isNoteNode(currentNode) || $isUnknownNode(currentNode)) {
+    // Track when we enter an opaque content container (note/unknown always; any element
+    // embed such as an editable chapter in "apply" coordinates)
+    if ($isOpaqueContentNode(currentNode, coordinates)) {
       if (currentIndex === otPosition) {
         return currentNode;
       }
@@ -371,6 +432,25 @@ function isInsertEmbedOp<T extends keyof OTEmbedTypes>(
  */
 function isRetainOp(op: DeltaOp): op is { retain: number } {
   return op.retain != null && typeof op.retain === "number";
+}
+
+/**
+ * Whether the node is an opaque content container in the given coordinate system: it
+ * contributes exactly 1 OT unit and its descendants are skipped.
+ *
+ * Note and unknown contents are opaque in BOTH systems (their contents ops nest inside the
+ * embed insert op in the doc delta). Other element-based embeds with presentation glyph
+ * children — an editable `ChapterNode` — are opaque only in `"apply"` coordinates:
+ * `$applyUpdate`'s traversals never descend into ANY embed, while the doc delta serializes
+ * a chapter's glyph text child as a body text op. See {@link OTCoordinateSystem}.
+ */
+function $isOpaqueContentNode(
+  node: LexicalNode,
+  coordinates: OTCoordinateSystem,
+): node is ElementNode {
+  if ($isNoteNode(node) || $isUnknownNode(node)) return true;
+
+  return coordinates === "apply" && $isElementNode(node) && $isEmbedNode(node);
 }
 
 /** Calculate the OT length contribution of a single node. */

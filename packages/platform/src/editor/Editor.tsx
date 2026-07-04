@@ -235,7 +235,10 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
         const isEdited = !deepEqual(editedUsjRef.current, newUsj);
         if (isEdited) editedUsjRef.current = newUsj;
         if (isEdited || !deepEqual(usj, newUsj)) {
-          const insertedNodeKey = getInsertedNodeKey(ops, editorState);
+          // "apply" coordinates: `$applyUpdate` placed the inserted node by interpreting the
+          // retain with its own traversals (every embed opaque), so the reverse lookup must
+          // count the same way to find the node that was actually inserted.
+          const insertedNodeKey = getInsertedNodeKey(ops, editorState, "apply");
           onUsjChange?.(newUsj, ops, source, insertedNodeKey);
         }
       }
@@ -378,6 +381,8 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
           // `handleChange` only runs for local edits: `DeltaOnChangePlugin` ignores
           // `blackListedChangeTags` (which includes `DELTA_CHANGE_TAG`), so updates from
           // `applyUpdate` never reach here - they emit `onUsjChange` with source "remote" directly.
+          // Default "delta-doc" coordinates: these ops come from `DeltaOnChangePlugin`, whose
+          // retains are doc-delta diff positions, so the reverse lookup must count the same way.
           const insertedNodeKey = getInsertedNodeKey(ops, editorState);
           onUsjChange?.(newUsj, ops, "local", insertedNodeKey);
         }
