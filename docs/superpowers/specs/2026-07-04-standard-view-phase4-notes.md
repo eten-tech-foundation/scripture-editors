@@ -47,11 +47,13 @@ plus `\Marker s1 \Color 255` (= #FF0000) merge test. Verification by editor stat
 re-verified in-app; item 7 root-caused (delta round-trip malformation, not the options
 override). After Task 14 (user-sanctioned dedicated fix, 2026-07-04): **8/8 PASS with one
 inline caveat** — item 7 fixed (canonical glyph-free note ops in editable marker mode, commit
-2a09b69 + worktree 9fc945fff82) and re-verified in-app, BUT popover Save is only half-usable:
-the written note CONTENT is clean (state + SFM), while its replace POSITION lands +5 OT units
-off (pre-existing `$getOTPositionOfNode` vs apply-traversal chapter-glyph asymmetry — Save
-stays unusable for real edits until the owner's OT-coordinate decision; see item 7 row and
-limitations).
+2a09b69 + worktree 9fc945fff82) and re-verified in-app, BUT popover Save was only half-usable:
+the written note CONTENT was clean (state + SFM), while its replace POSITION landed +5 OT
+units off (pre-existing `$getOTPositionOfNode` vs apply-traversal chapter-glyph asymmetry).
+After Task 15 (owner decision: host-local `"apply"` coordinates): **the caveat is RESOLVED**
+— popover Save replaces the note in place (in-app verified: count unchanged, sentinel in the
+target `\ft` only, neighbors intact, SFM clean and correctly positioned, undo restores); see
+limitations for the accepted delta-DOC coordinate divergence.
 
 | # | Item | Result | Evidence |
 | --- | --- | --- | --- |
@@ -91,17 +93,26 @@ marker typing and the menu coexist (PT9 allows both).
   9fc945fff82 worktree) — canonical glyph-free note contents ops in editable marker mode; see
   the QA table and `.superpowers/sdd/task-14-popover-report.md` for the contract redefinition.
   Remaining follow-ons from that work:
-  - **Popover Save replace-position displacement (pre-existing, NEW finding):**
-    `$getOTPositionOfNode` (used by `$getReplaceEmbedOps` for the retain) double-counts an
-    editable-mode chapter — embed (1) PLUS its `\c 1 ` glyph text child via DFS descent (+5) —
-    while `$applyUpdate`'s insert/delete traversals treat the chapter as an opaque embed (1).
-    In-app: popover Save wrote the (clean) note 5 OT units past the original — between
-    "time|wen" with the space deleted and the original note not removed. The two coordinate
-    systems (delta-doc coordinates where body glyph text counts vs tree coordinates where
-    embeds are opaque) need an owner decision — same unfinished editable-mode collab territory
-    as findings #2/#3; NOT touched by Task 14 (out of sanctioned scope; noted in
-    `note-ops-popover-roundtrip.test.tsx`'s Save-leg comment). Cleanup in QA was via host undo
-    (which fully reverted the displaced write, state + disk verified).
+  - **Popover Save replace-position displacement:** RESOLVED in Task 15 (owner decision:
+    option 1, host-local correctness). `$getOTPositionOfNode`/`$getNodeFromOTPosition`/
+    `getInsertedNodeKey` now take an `OTCoordinateSystem` parameter (`"delta-doc"` legacy
+    default | `"apply"`): in `"apply"` coordinates every element-based embed (the editable
+    `ChapterNode`) is opaque (1 unit, glyph text child not counted), matching `$applyUpdate`'s
+    insert/delete traversals. `$getReplaceEmbedOps` computes its retain in `"apply"`
+    coordinates and `Editor.applyUpdate`'s `getInsertedNodeKey` reverse-maps in them, so the
+    host-local popover-Save round trip replaces the note IN PLACE (in-app: note count
+    unchanged through live per-keystroke replaces, sentinel in the target `\ft` only,
+    adjacent text intact, SFM on disk clean and correctly positioned, undo restores).
+    ACCEPTED DIVERGENCE (owner call, collab path never completed): `"apply"` retains disagree
+    with the pinned delta-DOC coordinates wherever an editable chapter precedes the position
+    (delta-doc counts the `\c 1 ` glyph text; body glyph ops remain the pinned Phase 2
+    contract). `DeltaOnChangePlugin`'s fast-path retain and `handleChange`'s
+    `getInsertedNodeKey` deliberately stay on `"delta-doc"` (they pair with `getEditorDelta`
+    diffs — the Ctrl+T popover-auto-open path depends on it). Unifying the two coordinate
+    systems belongs to future collab work; the divergence is documented on
+    `OTCoordinateSystem` in `delta-common.utils.ts`. Known pre-existing wrinkle recorded
+    there too: editable `VerseNode` glyph text counts as text in BOTH systems but the doc
+    delta additionally emits its verse embed op (a delta-doc-side asymmetry, unchanged).
   - **Popover wrapper-para glyph artifact (pre-existing):** `applyUpdate([noteOp])` inserts the
     note at OT index 0, BEFORE the popover wrapper para's `\p` glyph prefix;
     `$paraMarkerDeletionTransform` then injects a fresh prefix, leaving the ORIGINAL `\p `
