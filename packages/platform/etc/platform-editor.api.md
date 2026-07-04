@@ -186,6 +186,12 @@ export const getDefaultViewMode: () => "formatted" | "unformatted" | "paragraph-
 export const getDefaultViewOptions: () => ViewOptions;
 
 // @public
+export function getEnterMenuItems(styleInfo: StyleInfo, context: MarkerMenuContext): MarkerMenuItem[];
+
+// @public
+export function getMarkerMenuItems(styleInfo: StyleInfo, context: MarkerMenuContext): MarkerMenuItem[];
+
+// @public
 export function getViewMode(viewOptions: ViewOptions | undefined): ViewMode | undefined;
 
 // @public
@@ -242,6 +248,25 @@ export interface Marker {
 
 // @public
 export type MarkerLookup = (marker: string) => Marker | undefined;
+
+// @public
+export interface MarkerMenuContext {
+    hasTextSelection: boolean;
+    inMarkerText: boolean;
+    noteMarker?: string;
+    openCharMarkers: string[];
+    paraMarker?: string;
+    previousParaMarkers: string[];
+    source: "paragraph" | "character";
+}
+
+// @public
+export interface MarkerMenuItem {
+    description?: string;
+    isBasic: boolean;
+    kind: "paragraph" | "character" | "note" | "closeTag";
+    marker: string;
+}
 
 // @public
 export type MarkerMode =

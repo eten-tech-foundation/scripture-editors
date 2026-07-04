@@ -31,7 +31,7 @@ import { $isSomeVerseNode } from "shared-react";
 
 export type MarkerValidity = "unknown" | "invalid";
 
-interface ParaStackEntry {
+export interface ParaStackEntry {
   marker: string;
   rank: number;
   occursUnder: readonly string[];
@@ -42,7 +42,7 @@ function getEntry(styleInfo: StyleInfo, marker: string): MarkerStyleInfo | undef
 }
 
 /** Port of PT9 TagValidator.IsParagraphTagValid (TagValidator.cs:18-57). */
-function isParagraphTagValid(stack: ParaStackEntry[], tag: ParaStackEntry): boolean {
+export function isParagraphTagValid(stack: ParaStackEntry[], tag: ParaStackEntry): boolean {
   if (stack.length === 0) {
     stack.push(tag);
     return true;
