@@ -503,6 +503,48 @@ describe("getEditorDelta", () => {
     ]);
   });
 
+  it("should keep note content text that merely equals the caller text", async () => {
+    // The caller-text skip is POSITIONAL (caller position = immediately after the note's
+    // opening glyph). A pathological content text node whose value coincidentally equals
+    // getEditableCallerText(caller) but sits elsewhere in the note must still flow into ops.
+    const callerText = getEditableCallerText(GENERATOR_NOTE_CALLER);
+    const { editor } = await testEnvironment(() => {
+      $getRoot().append(
+        $createParaNode("q1").append(
+          $createTextNode("When"),
+          $createNoteNode("f", GENERATOR_NOTE_CALLER, false).append(
+            $createMarkerNode("f"),
+            $createTextNode(callerText), // the real caller (skipped: caller position)
+            $createCharNode("fr").append($createMarkerNode("fr"), $createTextNode(`${NBSP}1:1 `)),
+            $createTextNode(callerText), // pathological CONTENT equal to the caller text
+            $createMarkerNode("f", "closing"),
+          ),
+        ),
+      );
+    });
+
+    const delta = getEditorDelta(editor.getEditorState());
+
+    expect(delta.ops).toEqual([
+      { insert: "When" },
+      {
+        insert: {
+          note: {
+            style: "f",
+            caller: GENERATOR_NOTE_CALLER,
+            contents: {
+              ops: [
+                { insert: "1:1 ", attributes: { char: { style: "fr" } } },
+                { insert: callerText },
+              ],
+            },
+          },
+        },
+      },
+      { insert: LF, attributes: { para: { style: "q1" } } },
+    ]);
+  });
+
   it("should return the correct ops for a note with visible markers", async () => {
     const { editor } = await testEnvironment(() => {
       const whenText = $createTextNode("When");

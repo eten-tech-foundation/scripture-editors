@@ -254,3 +254,46 @@ Prior QA custom.sty still live (verified: `\s1` red, `zln` blue) — not recreat
 - Honest accounting: two pre-existing defects surfaced by making the popover usable
   (displacement, wrapper-para junk) are reported as concerns with mechanisms and evidence,
   not folded into the fix or silently skipped.
+
+## 9. Review fixes (coordinator verdict: Approved + 1 Important, 2 Minor)
+
+Controller RATIFIED the mode-independent `closed`/unknownAttributes carry (closes Phase 3's
+recorded OT closed-threading gap) — kept as shipped.
+
+**IMPORTANT 1 — Save-leg test could not detect a silent no-op write.** Fixed
+position-independently in `note-ops-popover-roundtrip.test.tsx`: the popover note's `\ft`
+content is mutated with a sentinel (`task14-review-sentinel`, mirroring the in-app "pau" QA)
+BEFORE Save; the test then asserts the popover ops carry the sentinel, that SOME host note's
+USJ contains the sentinel after `replaceEmbedUpdate` (proving the write occurred), that the
+written note deep-equals the popover's serialized note, and that every host note is
+well-formed. Replace POSITION remains deliberately unasserted (§7.1 comment retained).
+Red-first is not attainable for this item without breaking product code (the write does
+happen today); the strengthening is against the silent-no-op failure mode the reviewer named.
+
+**MINOR 2 — caller-skip positional guard.** `$handleTextNodes` now skips the caller text only
+in CALLER POSITION: the node's previous sibling must be a MarkerNode AND the note's first
+child (the opening glyph), in addition to the value match. New pinned test
+("should keep note content text that merely equals the caller text"): a content text node
+equal to `getEditableCallerText(caller)` placed after a char span still serializes as a
+contents op. TDD: with the guard stashed (value-based skip restored), the new test FAILED
+(`1 failed | 31 skipped`); with the guard, green.
+
+**MINOR 3 — docs honesty.** phase4-notes QA headline no longer reads bare "8/8 PASS": it now
+carries the inline caveat — "8/8 PASS with one inline caveat — … popover Save is only
+half-usable: the written note CONTENT is clean (state + SFM), while its replace POSITION
+lands +5 OT units off (pre-existing … Save stays unusable for real edits until the owner's
+OT-coordinate decision)".
+
+**Gates (all `--skip-nx-cache`):**
+- `nx test platform-editor -- --run note-ops-popover-roundtrip` → 3/3 passed.
+- `nx test shared-react -- --run editor-delta.adaptor.test.tsx` → 30 passed | 2 skipped (32;
+  +1 new caller-text pin).
+- Full `nx test platform-editor` → 314 passed | 3 skipped (317).
+- Full `nx test shared-react` → 1081 passed | 2 skipped (1083).
+- `nx run-many -t typecheck lint -p shared-react platform-editor` → success.
+
+**Propagation:** the guard changes shipped library source, so the runbook hops were re-run:
+`nx build platform-editor --skip-nx-cache` (dist 548,686 B) → `devpub` (worktree
+node_modules byte-identical, `Buffer.equals` true) → `npm run build:extensions` ("compiled
+successfully"; app remains stopped — next launch loads it). No tracked worktree files
+changed (no new worktree commit needed).
