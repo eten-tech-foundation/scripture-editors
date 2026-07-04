@@ -192,6 +192,28 @@ function expectWellFormedEditableNote(lexical: LexicalEditor, noteIndex: number)
   });
 }
 
+/** Replace the `noteIndex`-th note object (document order) in the USJ with `newNote`. */
+function replaceUsjNote(usj: Usj, noteIndex: number, newNote: MarkerObject): boolean {
+  let seen = 0;
+  const walk = (content: MarkerContent[] | undefined): boolean => {
+    if (!content) return false;
+    for (let i = 0; i < content.length; i++) {
+      const item = content[i];
+      if (typeof item === "string") continue;
+      if (item.type === "note") {
+        if (seen === noteIndex) {
+          content[i] = newNote;
+          return true;
+        }
+        seen += 1;
+      }
+      if (walk(item.content)) return true;
+    }
+    return false;
+  };
+  return walk(usj.content);
+}
+
 /** Find the note MarkerObject in USJ content, in document order. */
 function findUsjNotes(usj: Usj): MarkerObject[] {
   const notes: MarkerObject[] = [];
@@ -307,6 +329,8 @@ describe("popover note ops round-trip (canonical glyph-free contract)", () => {
     const hostNoteKey = host.lexical.getEditorState().read(() => {
       return requireDefined($findNotes()[0], "host note").getKey();
     });
+    const preSaveNoteCount = host.lexical.getEditorState().read(() => $findNotes().length);
+    const preSaveUsj = requireDefined(host.editorRef.getUsj(), "host USJ before save");
     await act(async () => {
       host.editorRef.replaceEmbedUpdate(hostNoteKey, popoverNoteOps);
     });
@@ -314,15 +338,6 @@ describe("popover note ops round-trip (canonical glyph-free contract)", () => {
     // Contract-owned invariants: the sentinel-carrying note WAS written into the host, its
     // USJ deep-equals the popover's serialized note, and every note in the host document is
     // CLEAN — no doubled glyphs, no unmatched nodes.
-    //
-    // Deliberately NOT asserted here: the replace POSITION. `$getReplaceEmbedOps` computes
-    // its retain with `$getOTPositionOfNode`, which double-counts an editable-mode chapter
-    // (embed 1 + its "\c 1 " glyph text child via DFS descent), while `$applyUpdate`'s
-    // insert/delete traversals treat the chapter as an opaque embed (1) — a PRE-EXISTING
-    // body OT-coordinate asymmetry (the unfinished editable-mode collab path; body glyph
-    // ops are the pinned Phase 2 contract). Until the owner reconciles those coordinate
-    // systems, a host document containing an editable chapter places the replacement a few
-    // units away from the original note. See the Task 14 report.
     const popoverUsj = requireDefined(popover.editorRef.getUsj(), "popover USJ after edit");
     const popoverNoteUsj = requireDefined(findUsjNotes(popoverUsj)[0], "popover note USJ");
     expect(JSON.stringify(popoverNoteUsj)).toContain(sentinel);
@@ -335,5 +350,19 @@ describe("popover note ops round-trip (canonical glyph-free contract)", () => {
 
     const noteCount = host.lexical.getEditorState().read(() => $findNotes().length);
     for (let i = 0; i < noteCount; i++) expectWellFormedEditableNote(host.lexical, i);
+
+    // Replace POSITION (Task 15): `$getReplaceEmbedOps` computes its retain in "apply"
+    // coordinates — the coordinate system `$applyUpdate`'s insert/delete traversals use,
+    // where an editable chapter is an opaque embed (1 unit, glyph text child not counted).
+    // The replacement therefore lands exactly where the old note was:
+    // - the note count is unchanged (old note deleted, new note inserted — not appended);
+    expect(noteCount).toBe(preSaveNoteCount);
+    // - the sentinel note sits AT the original note's position (note index 0);
+    expect(JSON.stringify(hostNotes[0])).toContain(sentinel);
+    // - and the whole document deep-equals the pre-save document with ONLY note 0 swapped
+    //   for the popover's note — no character eaten from adjacent text, nothing displaced.
+    const expectedUsj = JSON.parse(JSON.stringify(preSaveUsj)) as Usj;
+    expect(replaceUsjNote(expectedUsj, 0, popoverNoteUsj)).toBe(true);
+    expect(hostUsj).toEqual(expectedUsj);
   }, 30000);
 });

@@ -76,6 +76,9 @@ function $getUpdateOps(
     if (dirtyLeaves.size === 1 && $isTextNode($getNodeByKey(nodeKey))) {
       // Handle the most common case of text changing in a single text node.
       const node = $getNodeByKey(nodeKey);
+      // Default "delta-doc" coordinates (NOT "apply"): this fast path must produce the same
+      // retain the `getEditorDelta` diff fallback below would, since both feed the same
+      // doc-delta op stream emitted to the host via `onChange`.
       const retain = $getOTPositionOfNode(node);
       if ($isTextNode(node) && retain !== undefined) {
         const prevTextDoc = prevEditorState.read(() => {
