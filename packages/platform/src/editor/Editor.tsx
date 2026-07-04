@@ -44,6 +44,7 @@ import {
 import {
   $createParaNode,
   blackListedChangeTags,
+  createMarkerLookup,
   DELTA_CHANGE_TAG,
   externalTypedMarkType,
   LoggerBasic,
@@ -151,6 +152,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
     nodes,
     debug = false,
     contextMenu,
+    styleInfo,
   } = options ?? defaultOptions;
 
   // Stabilize the destructured option objects so plugin props don't churn when the parent passes
@@ -160,6 +162,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
   const viewOptions = useMemo(() => view ?? defaultViewOptions, [view]);
   const nodeOptions = useMemo(() => nodes ?? defaultNodeOptions, [nodes]);
   const contextMenuOptions = useMemo(() => contextMenu, [contextMenu]);
+  const markerLookup = useMemo(() => createMarkerLookup(styleInfo), [styleInfo]);
 
   // `showCharMarkerTitles` rides on the Lexical theme so `CharNode.createDOM` can read it via
   // `EditorConfig.theme`. Theme is the channel because its map permits arbitrary keys and is the
@@ -458,7 +461,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
               `\`-menu §5.4); CommandMenuPlugin keeps guarding the non-editable views. */}
           {viewOptions?.markerMode !== "editable" && <CommandMenuPlugin logger={logger} />}
           <ContextMenuPlugin options={contextMenuOptions} />
-          <MarkerEditPlugin viewOptions={viewOptions} logger={logger} />
+          <MarkerEditPlugin viewOptions={viewOptions} getMarker={markerLookup} logger={logger} />
           <NoteNodePlugin
             expandedNoteKeyRef={expandedNoteKeyRef}
             nodeOptions={nodeOptions}

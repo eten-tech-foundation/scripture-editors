@@ -14,8 +14,19 @@ import getMarker from "./getMarker.js";
 import { usfmMarkers } from "./usfmMarkers.js";
 import { CategoryType, Marker, MarkerType } from "./usfmTypes.js";
 
+/**
+ * The kind of USFM style a marker declares in the stylesheet.
+ *
+ * @public
+ */
 export type StyleType = "paragraph" | "character" | "note" | "milestone";
 
+/**
+ * A single marker's entry in a project stylesheet (usfm.sty/custom.sty), as
+ * serialized by the host.
+ *
+ * @public
+ */
 export interface MarkerStyleInfo {
   marker: string;
   styleType: StyleType;
@@ -45,6 +56,12 @@ export interface MarkerStyleInfo {
   lineSpacing?: number;
 }
 
+/**
+ * Project stylesheet data (merged usfm.sty + custom.sty) as serialized by the
+ * host.
+ *
+ * @public
+ */
 export interface StyleInfo {
   /** Project default font/size (ScrText settings) — drives the base CSS rule like PT9. */
   defaultFont?: string;
@@ -52,7 +69,11 @@ export interface StyleInfo {
   markers: { [marker: string]: MarkerStyleInfo };
 }
 
-/** The `getMarker` seam shape (design spec: signature preserved). */
+/**
+ * The `getMarker` seam shape (design spec: signature preserved).
+ *
+ * @public
+ */
 export type MarkerLookup = (marker: string) => Marker | undefined;
 
 const STYLE_TYPE_TO_MARKER_TYPE: { [K in StyleType]: MarkerType } = {

@@ -3,6 +3,7 @@ import { SerializedVerseRef } from "@sillsdev/scripture";
 import { RefObject } from "react";
 import {
   LoggerBasic,
+  StyleInfo,
   TypedMarkOnClick,
   TypedMarkOnMouseEnter,
   TypedMarkOnMouseLeave,
@@ -208,6 +209,13 @@ export interface EditorOptions {
    * "formatted", "unformatted", "paragraph-structure", "standard".
    */
   view?: ViewOptions;
+  /**
+   * Project stylesheet data (merged usfm.sty + custom.sty, serialized by the
+   * host). Drives marker classification, Tier-1 kind routing, and §5.1
+   * validation in editable marker modes. Falls back to the bundled default
+   * stylesheet data when absent.
+   */
+  styleInfo?: StyleInfo;
   /** EXPERIMENTAL: Is the editor being debugged using the TreeView. */
   debug?: boolean;
 }

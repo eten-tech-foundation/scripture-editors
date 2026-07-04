@@ -76,6 +76,7 @@ export interface EditorOptions {
     isStructureProtected?: boolean;
     markerMenuTrigger?: string;
     nodes?: UsjNodeOptions;
+    styleInfo?: StyleInfo;
     textDirection?: TextDirection;
     view?: ViewOptions;
 }
@@ -174,6 +175,11 @@ export interface MarginalRef extends EditorRef {
     setComments?(comments: Comments): void;
 }
 
+// Warning: (ae-forgotten-export) The symbol "Marker" needs to be exported by the entry point index.d.ts
+//
+// @public
+export type MarkerLookup = (marker: string) => Marker | undefined;
+
 // @public
 export type MarkerMode =
 /** USFM markers are visible. */
@@ -182,6 +188,59 @@ export type MarkerMode =
 | "editable"
 /** USFM markers are hidden. */
 | "hidden";
+
+// @public
+export interface MarkerStyleInfo {
+    // (undocumented)
+    bold?: boolean;
+    // (undocumented)
+    color?: string;
+    // (undocumented)
+    description?: string;
+    // (undocumented)
+    endMarker?: string;
+    // (undocumented)
+    firstLineIndent?: number;
+    // (undocumented)
+    fontName?: string;
+    // (undocumented)
+    fontSize?: number;
+    // (undocumented)
+    italic?: boolean;
+    // (undocumented)
+    justification?: "left" | "center" | "right" | "both";
+    // (undocumented)
+    leftMargin?: number;
+    // (undocumented)
+    lineSpacing?: number;
+    // (undocumented)
+    marker: string;
+    // (undocumented)
+    notRepeatable?: boolean;
+    occursUnder?: string[];
+    // (undocumented)
+    rank?: number;
+    // (undocumented)
+    rightMargin?: number;
+    // (undocumented)
+    smallCaps?: boolean;
+    // (undocumented)
+    spaceAfter?: number;
+    // (undocumented)
+    spaceBefore?: number;
+    // (undocumented)
+    styleType: StyleType;
+    // (undocumented)
+    subscript?: boolean;
+    // (undocumented)
+    superscript?: boolean;
+    // (undocumented)
+    textProperties?: string[];
+    // (undocumented)
+    textType?: string;
+    // (undocumented)
+    underline?: boolean;
+}
 
 // @public
 export interface NodeOptions {
@@ -286,6 +345,20 @@ export interface StateChangeSnapshot {
     canUndo: boolean;
     contextMarker: string | undefined;
 }
+
+// @public
+export interface StyleInfo {
+    defaultFont?: string;
+    // (undocumented)
+    defaultFontSize?: number;
+    // (undocumented)
+    markers: {
+        [marker: string]: MarkerStyleInfo;
+    };
+}
+
+// @public
+export type StyleType = "paragraph" | "character" | "note" | "milestone";
 
 // @public
 export type TextDirection = "ltr" | "rtl" | "auto";
