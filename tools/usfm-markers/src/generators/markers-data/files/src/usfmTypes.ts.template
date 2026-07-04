@@ -28,6 +28,7 @@ export enum MarkerType {
   Paragraph = "Paragraph",
   Character = "Character",
   Note = "Note",
+  Milestone = "Milestone",
   Unknown = "Unknown",
 }
 
