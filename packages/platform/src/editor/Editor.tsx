@@ -11,6 +11,7 @@ import {
 import { EditorOptions, EditorProps, EditorRef } from "./editor.model";
 import editorTheme from "./editor.theme";
 import { ActiveTextPlugin } from "./ActiveTextPlugin";
+import { $getMarkerMenuContext } from "./markerMenu/markerMenuContext.utils";
 import { MarkerEditPlugin } from "./markerEdit/MarkerEditPlugin";
 import { MarkerValidationPlugin } from "./markerEdit/MarkerValidationPlugin";
 import { ParaMarkerPrefixGuardPlugin } from "./ParaMarkerPrefixGuardPlugin";
@@ -452,6 +453,12 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
         stableLogger,
       );
       markerAction.action({ editor: editorRef.current, reference: scrRef });
+    },
+    getMarkerMenuContext() {
+      if (isReadonly) return undefined;
+      // `getEditorState().read`, NOT `editor.read` - the latter force-flushes any in-flight
+      // update mid-dispatch (Task 7's `OnSelectionChangePlugin` hazard class).
+      return editorRef.current?.getEditorState().read(() => $getMarkerMenuContext());
     },
     insertNote(marker, caller, selection) {
       editorRef.current?.update(() => {

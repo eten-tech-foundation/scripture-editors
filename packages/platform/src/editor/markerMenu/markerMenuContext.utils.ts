@@ -1,0 +1,162 @@
+/**
+ * §5.5 marker-menu context — builds a `MarkerMenuContext` (Task 1) snapshot from the live
+ * Lexical selection. Port of PT9's `MarkerDropdownEditHandler.HandleBackslash` selection-shape
+ * rule (`MarkerDropdownEditHandler.cs:96-139`): a non-collapsed selection is always character
+ * source (`:130-137`); a collapsed caret is paragraph source only at the paragraph's content
+ * start (immediately after the visible marker prefix), otherwise character source.
+ *
+ * Called from `EditorRef.getMarkerMenuContext` (`Editor.tsx`) via
+ * `editorRef.current?.getEditorState().read(...)` rather than `editor.read(...)` - the latter
+ * force-flushes any in-flight update mid-dispatch, the hazard class fixed for
+ * `OnSelectionChangePlugin` (Task 7).
+ */
+import { MarkerMenuContext } from "./markerItemSource";
+import {
+  $getRoot,
+  $getSelection,
+  $getState,
+  $isRangeSelection,
+  $isTextNode,
+  LexicalNode,
+} from "lexical";
+import {
+  $findFirstAncestorNoteNode,
+  $isBookNode,
+  $isCharNode,
+  $isChapterNode,
+  $isMarkerNode,
+  $isParaMarkerPrefix,
+  $isParaNode,
+  ParaNode,
+  textTypeState,
+} from "shared";
+
+/**
+ * `MarkerMenuContext` plus the caret's viewport rect for palette anchoring. `undefined` in
+ * headless tests (jsdom's `Range` has no `getBoundingClientRect`) and whenever there is no
+ * live DOM selection to read one from.
+ *
+ * Not re-exported from the package barrel (internal implementation detail, like
+ * `markerEditDeletion.utils.ts`'s `$createMarkerPrefix`) - `EditorRef.getMarkerMenuContext`
+ * spells the equivalent intersection type inline (`editor.model.ts`) since that IS public API.
+ */
+export type MarkerMenuContextSnapshot = MarkerMenuContext & {
+  anchorRect?: { x: number; y: number; width: number; height: number };
+};
+
+/** Nearest ancestor (including `node` itself) satisfying `predicate`, or `undefined`. */
+function $findNearestAncestor<T extends LexicalNode>(
+  node: LexicalNode,
+  predicate: (candidate: LexicalNode) => candidate is T,
+): T | undefined {
+  let current: LexicalNode | null = node;
+  while (current) {
+    if (predicate(current)) return current;
+    current = current.getParent();
+  }
+  return undefined;
+}
+
+/** `CharNode` ancestors of `node` (inclusive), innermost first. */
+function $collectOpenCharMarkers(node: LexicalNode): string[] {
+  const markers: string[] = [];
+  let current: LexicalNode | null = node;
+  while (current) {
+    if ($isCharNode(current)) markers.push(current.getMarker());
+    current = current.getParent();
+  }
+  return markers;
+}
+
+/**
+ * Root's block-level children before the top-level element containing `node`, in document
+ * order: `ParaNode`/`ChapterNode`/`BookNode` markers (the stack replay in
+ * `markerItemSource.ts` filters to styleType-paragraph entries itself - `c`/`id` ARE
+ * paragraph-typed in the sheet).
+ */
+function $collectPreviousParaMarkers(node: LexicalNode): string[] {
+  const topLevel = node.getTopLevelElement();
+  const markers: string[] = [];
+  for (const child of $getRoot().getChildren()) {
+    if (topLevel && child.is(topLevel)) break;
+    if ($isBookNode(child) || $isChapterNode(child) || $isParaNode(child)) {
+      markers.push(child.getMarker());
+    }
+  }
+  return markers;
+}
+
+/** A plain `TextNode` tagged as the NBSP separator following a paragraph's marker prefix. */
+function $isTrailingSpaceNode(node: LexicalNode | null | undefined): boolean {
+  return $isTextNode(node) && $getState(node, textTypeState) === "marker-trailing-space";
+}
+
+/**
+ * True when `anchorNode`/`offset` sits at `para`'s CONTENT start: offset 0 of the first
+ * non-prefix child (no visible marker prefix rendered), or inside the marker prefix / its
+ * trailing-space NBSP, or offset 0 of the child immediately following that trailing space
+ * (`MarkerDropdownEditHandler.cs:107-116`, adapted to the Lexical tree).
+ */
+function $isAtParagraphContentStart(
+  para: ParaNode,
+  anchorNode: LexicalNode,
+  offset: number,
+): boolean {
+  const firstChild = para.getFirstChild();
+  if (!firstChild) return false;
+  if (!$isParaMarkerPrefix(firstChild)) return anchorNode.is(firstChild) && offset === 0;
+  if (anchorNode.is(firstChild)) return true;
+
+  const afterPrefix = firstChild.getNextSibling();
+  if (!$isTrailingSpaceNode(afterPrefix)) return anchorNode.is(afterPrefix) && offset === 0;
+  if (anchorNode.is(afterPrefix)) return true;
+
+  const contentStart = afterPrefix?.getNextSibling();
+  return !!contentStart && anchorNode.is(contentStart) && offset === 0;
+}
+
+/** iframe-relative viewport coords of the live DOM selection, or `undefined` if unavailable. */
+function getAnchorRect(): MarkerMenuContextSnapshot["anchorRect"] {
+  if (typeof window === "undefined" || typeof window.getSelection !== "function") return undefined;
+  const domSelection = window.getSelection();
+  if (!domSelection || domSelection.rangeCount === 0) return undefined;
+
+  const range = domSelection.getRangeAt(0);
+  if (typeof range.getBoundingClientRect !== "function") return undefined;
+
+  const { x, y, width, height } = range.getBoundingClientRect();
+  return { x, y, width, height };
+}
+
+/**
+ * Builds a `MarkerMenuContext` snapshot from the current selection. Call inside
+ * `editor.read()`/`editor.getEditorState().read()`. Returns `undefined` when there is no range
+ * selection (e.g. a `NodeSelection`, or none at all).
+ */
+export function $getMarkerMenuContext(): MarkerMenuContextSnapshot | undefined {
+  const selection = $getSelection();
+  if (!$isRangeSelection(selection)) return undefined;
+
+  const anchorNode = selection.anchor.getNode();
+  const offset = selection.anchor.offset;
+  const hasTextSelection = !selection.isCollapsed();
+
+  const para = $findNearestAncestor(anchorNode, $isParaNode);
+  const source: MarkerMenuContext["source"] =
+    !hasTextSelection && para && $isAtParagraphContentStart(para, anchorNode, offset)
+      ? "paragraph"
+      : "character";
+
+  const note = $findFirstAncestorNoteNode(anchorNode);
+
+  return {
+    source,
+    paraMarker: para?.getMarker(),
+    previousParaMarkers: $collectPreviousParaMarkers(anchorNode),
+    openCharMarkers: $collectOpenCharMarkers(anchorNode),
+    noteMarker: note?.getMarker(),
+    hasTextSelection,
+    inMarkerText: $isMarkerNode(anchorNode),
+    anchorRect: getAnchorRect(),
+  };
+}

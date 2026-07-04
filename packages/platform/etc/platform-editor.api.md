@@ -147,6 +147,14 @@ export interface EditorRef {
     focus(): void;
     formatPara(blockMarker: string): void;
     getElementByKey(nodeKey: string): HTMLElement | undefined;
+    getMarkerMenuContext(): (MarkerMenuContext & {
+        anchorRect?: {
+            x: number;
+            y: number;
+            width: number;
+            height: number;
+        };
+    }) | undefined;
     getNoteOps(noteKeyOrIndex: string | number): DeltaOp[] | undefined;
     getSelection(): SelectionRange | undefined;
     getUsj(): Usj | undefined;
