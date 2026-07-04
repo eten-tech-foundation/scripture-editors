@@ -1,0 +1,5 @@
+/** Generated file using `nx generate markers-data` with '<%- usfmStyleUrl %>' */
+
+import { StyleInfo } from "./styleInfo.js";
+
+export const defaultStyleInfo: StyleInfo = <%- styleInfoJson %>;
