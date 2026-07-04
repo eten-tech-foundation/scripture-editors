@@ -22,6 +22,52 @@ export interface AnnotationRange {
     start: UsjDocumentLocation;
 }
 
+// @public (undocumented)
+export enum CategoryType {
+    // (undocumented)
+    Breaks = "Breaks",
+    // (undocumented)
+    CenterTables = "CenterTables",
+    // (undocumented)
+    CharacterStyling = "CharacterStyling",
+    // (undocumented)
+    CrossReferences = "CrossReferences",
+    // (undocumented)
+    DivisionMarks = "DivisionMarks",
+    // (undocumented)
+    FileIdentification = "FileIdentification",
+    // (undocumented)
+    Footnotes = "Footnotes",
+    // (undocumented)
+    Headers = "Headers",
+    // (undocumented)
+    Introduction = "Introduction",
+    // (undocumented)
+    Lists = "Lists",
+    // (undocumented)
+    Paragraphs = "Paragraphs",
+    // (undocumented)
+    PeripheralMaterials = "PeripheralMaterials",
+    // (undocumented)
+    PeripheralReferences = "PeripheralReferences",
+    // (undocumented)
+    Poetry = "Poetry",
+    // (undocumented)
+    Remarks = "Remarks",
+    // (undocumented)
+    RightTables = "RightTables",
+    // (undocumented)
+    SpecialFeatures = "SpecialFeatures",
+    // (undocumented)
+    SpecialText = "SpecialText",
+    // (undocumented)
+    Tables = "Tables",
+    // (undocumented)
+    TitlesHeadings = "TitlesHeadings",
+    // (undocumented)
+    Uncategorized = "Uncategorized"
+}
+
 // @public
 export interface CommentBase {
     author: string;
@@ -178,8 +224,22 @@ export interface MarginalRef extends EditorRef {
     setComments?(comments: Comments): void;
 }
 
-// Warning: (ae-forgotten-export) The symbol "Marker" needs to be exported by the entry point index.d.ts
-//
+// @public (undocumented)
+export interface Marker {
+    // (undocumented)
+    category: CategoryType;
+    // (undocumented)
+    children?: Partial<{
+        [K in CategoryType]: string[];
+    }>;
+    // (undocumented)
+    description: string;
+    // (undocumented)
+    hasEndMarker: boolean;
+    // (undocumented)
+    type: MarkerType;
+}
+
 // @public
 export type MarkerLookup = (marker: string) => Marker | undefined;
 
@@ -243,6 +303,20 @@ export interface MarkerStyleInfo {
     textType?: string;
     // (undocumented)
     underline?: boolean;
+}
+
+// @public (undocumented)
+export enum MarkerType {
+    // (undocumented)
+    Character = "Character",
+    // (undocumented)
+    Milestone = "Milestone",
+    // (undocumented)
+    Note = "Note",
+    // (undocumented)
+    Paragraph = "Paragraph",
+    // (undocumented)
+    Unknown = "Unknown"
 }
 
 // @public
