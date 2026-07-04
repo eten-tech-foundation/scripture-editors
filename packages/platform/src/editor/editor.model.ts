@@ -1,3 +1,4 @@
+import { MarkerMenuContext } from "./markerMenu/markerItemSource";
 import { Usj } from "@eten-tech-foundation/scripture-utilities";
 import { SerializedVerseRef } from "@sillsdev/scripture";
 import { RefObject } from "react";
@@ -130,6 +131,13 @@ export interface EditorRef {
    *   verse marker.
    */
   insertMarker(marker: string): void;
+  /**
+   * Snapshot of the marker-menu context at the current selection (standard-view marker menus).
+   * Returns undefined when the editor is readonly or has no range selection.
+   */
+  getMarkerMenuContext():
+    | (MarkerMenuContext & { anchorRect?: { x: number; y: number; width: number; height: number } })
+    | undefined;
   /**
    * Insert a note at the specified selection, e.g. footnote, cross-reference, endnote.
    * @param marker - The marker type for the note.
