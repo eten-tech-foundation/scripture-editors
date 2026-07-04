@@ -43,10 +43,13 @@ function getEntry(styleInfo: StyleInfo, marker: string): MarkerStyleInfo | undef
 
 /** Port of PT9 TagValidator.IsParagraphTagValid (TagValidator.cs:18-57). */
 function isParagraphTagValid(stack: ParaStackEntry[], tag: ParaStackEntry): boolean {
-  if (stack.length === 0 || tag.occursUnder.length === 0) {
+  if (stack.length === 0) {
     stack.push(tag);
     return true;
   }
+  // PT9: empty occursUnder = valid anywhere, and it does NOT join the stack
+  // (TagValidator.cs:28-30 returns without Add).
+  if (tag.occursUnder.length === 0) return true;
   for (let i = stack.length - 1; i >= 0; i--) {
     if (!tag.occursUnder.includes(stack[i].marker)) continue;
     if (i === stack.length - 1 || tag.rank === 0 || stack[i + 1].rank <= tag.rank) {
@@ -137,8 +140,9 @@ export function $validateDocument(styleInfo: StyleInfo): Map<NodeKey, MarkerVali
     const entry = getEntry(styleInfo, marker);
     if (!entry) {
       flagGlyphs(node, "unknown", out);
-      // PT9 auto-creates unknown tags with empty occursUnder — valid anywhere,
-      // and they join the stack (ScrStylesheet.GetTagIndex:182-201).
+      // PT9 auto-creates unknown tags with empty occursUnder (ScrStylesheet
+      // .GetTagIndex:182-201) — valid anywhere, and like every empty-occursUnder
+      // tag they do NOT join a non-empty stack (TagValidator.cs:28-30).
       isParagraphTagValid(stack, { marker, rank: 0, occursUnder: [] });
       return;
     }
