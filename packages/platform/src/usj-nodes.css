@@ -2090,6 +2090,22 @@
   background-color: transparent;
 }
 
+/* §5.1 validation states (PT9 ScriptureBase.css .status_unknown/.status_invalid;
+   design spec Phase 4). Applied to marker GLYPH spans only — body text stays
+   normal (PT9 Standard.xslt stamps status on the marker span, not the element).
+   Same error red as the unmatched-closer `.invalid` rule below. */
+.marker-editable .status_unknown,
+.formatted-font.marker-editable .status_unknown {
+  color: rgba(204, 30, 20, 1);
+  font-weight: bold;
+}
+
+.marker-editable .status_invalid,
+.formatted-font.marker-editable .status_invalid {
+  color: rgba(204, 30, 20, 1);
+  border-bottom: 1px solid rgba(204, 30, 20, 1);
+}
+
 .notetext {
   unicode-bidi: embed;
 }
