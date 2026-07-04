@@ -173,8 +173,11 @@ describe("Tier 2 resolve/rebuild fixed-point loop (Critical)", () => {
   }, 15000);
 
   it("does not hang: unterminated \\zzz + Enter resolves via a real rebuild", async () => {
-    let pText: TextNode;
-    const { editor } = await testEnvironment(() => ({ pText } = $twoParas("body", "second")));
+    let pText: TextNode, pKey: string;
+    const { editor } = await testEnvironment(() => {
+      ({ pText } = $twoParas("body", "second"));
+      pKey = pText.getKey();
+    });
 
     await act(async () =>
       editor.update(() => {
@@ -187,12 +190,18 @@ describe("Tier 2 resolve/rebuild fixed-point loop (Critical)", () => {
     });
 
     editor.getEditorState().read(() => {
-      // As above, "zzz" resolves structurally rather than staying literal (Task 3); Enter
-      // additionally applies its own default paragraph split on top of the rebuild's result,
-      // so (unlike the caret-departure case) the exact shape isn't asserted here — the
-      // regression this test guards is that resolving does not hang, and a "zzz" marker
-      // glyph is still present in the tree, not silently dropped.
-      expect($getRoot().getTextContent()).toContain("\\zz");
+      // As above, "zzz" resolves structurally rather than staying literal (Task 3). Two
+      // deterministic discriminators pin the real rebuild: (1) the original literal
+      // TextNode was destroyed by the paragraph rebuild — under the old literal behavior
+      // (fixed-point refusal) or a regressed Enter path that resolves nothing, it would
+      // still be attached; (2) a paragraph with marker "zzz" exists. Enter's own default
+      // split additionally fires on top of the rebuild's result (the restored caret sits
+      // inside the new "\zzz" glyph, so the split lands mid-glyph, leaving an extra
+      // artifact paragraph) — that orthogonal, pre-existing interaction is tolerated by
+      // not pinning the paragraph count.
+      expect($getNodeByKey(pKey)).toBeNull();
+      const paras = $getRoot().getChildren().filter($isParaNode);
+      expect(paras.some((para) => para.getMarker() === "zzz")).toBe(true);
     });
   }, 15000);
 
@@ -300,10 +309,11 @@ describe("genuine fixed-point refusal (no real progress possible)", () => {
     // usfmFragmentToUsjContent's doc comment): it comes back out exactly as it went in, so
     // this is the one scenario left where the resolve/rebuild cascade must terminate via
     // `$rebuildParas`'s fixed-point refusal (no mutation), not via real forward progress.
-    let pText: TextNode, qText: TextNode;
-    const { editor } = await testEnvironment(
-      () => ({ pText, qText } = $twoParas("body", "second")),
-    );
+    let pText: TextNode, qText: TextNode, pParaKey: string;
+    const { editor } = await testEnvironment(() => {
+      ({ pText, qText } = $twoParas("body", "second"));
+      pParaKey = pText.getParentOrThrow().getKey();
+    });
 
     await act(async () =>
       editor.update(() => {
@@ -318,6 +328,11 @@ describe("genuine fixed-point refusal (no real progress possible)", () => {
       // No split happened: the rebuild was refused as a no-op, not spliced in.
       const paras = $getRoot().getChildren().filter($isParaNode);
       expect(paras).toHaveLength(2);
+      // Node-identity pin (the file's established discriminator): the refusal mutated
+      // NOTHING — the same ParaNode and the same literal TextNode are still attached,
+      // not a structurally identical re-splice.
+      expect($getNodeByKey(pParaKey)?.isAttached()).toBe(true);
+      expect($getNodeByKey(pText.getKey())?.isAttached()).toBe(true);
     });
   }, 15000);
 });
