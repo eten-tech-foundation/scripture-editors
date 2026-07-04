@@ -294,18 +294,30 @@ describe("PT9 unknown-marker handling (Phase 4)", () => {
     const content = usfmFragmentToUsjContent("\\ft text \\zfoo word\\zfoo* after", {
       isNoteContext: true,
     });
+    // Flat siblings, not nesting: PT9 closes open char styles unconditionally for any
+    // non-`+` Character token (UsfmParser.cs:247, CharacterStyleShouldAutomaticallyClose).
     expect(content).toEqual([
       {
         type: "para",
         marker: "p",
         content: [
-          {
-            type: "char",
-            marker: "ft",
-            content: ["text ", { type: "char", marker: "zfoo", content: ["word"] }, " after"],
-          },
+          { type: "char", marker: "ft", content: ["text "] },
+          { type: "char", marker: "zfoo", content: ["word"] },
+          " after",
         ],
       },
+    ]);
+  });
+
+  it("keeps an unterminated suffix-convention z-milestone literal; other z-markers resolve as unknown", () => {
+    // zmsc-s is on MilestoneNode's explicit list (-s/-e suffix convention): malformed milestone.
+    expect(usfmFragmentToUsjContent("\\p one \\zmsc-s two")).toEqual([
+      { type: "para", marker: "p", content: ["one \\zmsc-s two"] },
+    ]);
+    // zfoo matches only the generic z-prefix wildcard: unknown resolution, not milestone.
+    expect(usfmFragmentToUsjContent("\\p one \\zfoo two")).toEqual([
+      { type: "para", marker: "p", content: ["one "] },
+      { type: "para", marker: "zfoo", content: ["two"] },
     ]);
   });
 
