@@ -68,9 +68,13 @@ interface MarkerStyleInfo {
   superscript?: boolean;
   color?: string; // "#RRGGBB"; omitted when black (PT9 skips black)
   justification?: "left" | "center" | "right" | "both";
-  firstLineIndent?: number; // .sty raw int (÷50 → vw, see generator)
-  leftMargin?: number; // .sty raw int (÷50 → vw)
+  firstLineIndent?: number; // .sty inches (float); ×20×zoom → vw (see generator)
+  leftMargin?: number; // .sty inches (float); ×20×zoom → vw
   rightMargin?: number;
+  // [CORRECTED post-review] The three comments above originally read ".sty raw int (÷50 → vw)" —
+  // a plan-authorship error. PT9 stores these as thousandths-of-inch ints and CSSCreator.cs
+  // divides by 50; our wire format carries .sty inches as floats, so the generator scales
+  // ×20×zoom (1000/50 = 20). See generateUsjCss.ts header and CSSCreator.cs:103-247.
   spaceBefore?: number; // pt
   spaceAfter?: number; // pt
   lineSpacing?: number; // PT9 quirk: 1 → line-height 1.5, 2 → 2, else nothing
@@ -161,9 +165,11 @@ walk:
 - **Paragraph-side** (PT9 node set `//para | //book | //chapter | //sidebar`): `BookNode`,
   `ChapterNode`/`ImmutableChapterNode`, `ParaNode` root children (sidebars when they exist as
   non-opaque). Marker absent from the sheet → `unknown` (and, like PT9's auto-created unknown tags,
-  it participates in the stack with empty `occursUnder`). Else run the
+  it gets empty `occursUnder` and is therefore valid WITHOUT joining the stack unless the stack is
+  empty — PT9 `TagValidator.cs:28-30`). Else run the
   `TagValidator.IsParagraphTagValid` port (`ParatextData/Checking/TagValidator.cs:18-57`): empty
-  stack → valid; empty `occursUnder` → valid anywhere; else walk the stack top-down for an ancestor
+  stack → valid + push; empty `occursUnder` → valid without pushing (no stack participation,
+  `TagValidator.cs:28-30`); else walk the stack top-down for an ancestor
   whose marker ∈ `occursUnder`, accept when it is the immediate top, or `rank === 0`, or
   `stack[i+1].rank <= tag.rank`; truncate above it and push. No acceptable ancestor → `invalid`.
 - **Character-side** (PT9 node set `//char | //verse | //link | //figure`): `CharNode` and
