@@ -37,6 +37,7 @@ export { default as Editorial } from "./Editorial";
 export { default as Marginal } from "./marginal/Marginal";
 export { CategoryType, GENERATOR_NOTE_CALLER, HIDDEN_NOTE_CALLER, MarkerType } from "shared";
 export { generateUsjCss } from "./editor/generateUsjCss";
+export { getEnterMenuItems, getMarkerMenuItems } from "./editor/markerMenu/markerItemSource";
 export {
   directionToNames,
   getDefaultViewMode,
@@ -51,6 +52,7 @@ export {
 
 export type { EditorOptions, EditorProps, EditorRef } from "./editor/editor.model";
 export type { UsjCssOptions } from "./editor/generateUsjCss";
+export type { MarkerMenuContext, MarkerMenuItem } from "./editor/markerMenu/markerItemSource";
 export type { CommentBase, Comments, Thread } from "./marginal/comments/commenting";
 export type { MarginalRef, MarginalProps } from "./marginal/Marginal";
 export type {
