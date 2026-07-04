@@ -19,7 +19,12 @@ export interface UsjCssOptions {
   zoom?: number;
   /** Swap left/right margins and justification (PT9 rtl handling). */
   rtl?: boolean;
-  /** Scope prefix; must at least match the static usj-nodes.css rules' specificity. */
+  /**
+   * Scope prefix; must at least match the static usj-nodes.css rules' specificity. Defaults to
+   * `".editor-input.usfm"` (the editor ContentEditable carries both classes): at (0,2,0) the base
+   * rule ties the static `.usfm.formatted-font` rules and wins by injection order, so the project
+   * default font/size actually applies (spec §8 stage 4 — project styles win where defined).
+   */
   containerSelector?: string;
 }
 
@@ -80,7 +85,7 @@ function markerDeclarations(entry: MarkerStyleInfo, zoom: number, rtl: boolean):
  * @public
  */
 export function generateUsjCss(styleInfo: StyleInfo, options: UsjCssOptions = {}): string {
-  const { zoom = 1, rtl = false, containerSelector = ".editor-input" } = options;
+  const { zoom = 1, rtl = false, containerSelector = ".editor-input.usfm" } = options;
   const rules: string[] = [];
   const baseDecls: string[] = [];
   if (styleInfo.defaultFont) baseDecls.push(`font-family: "${styleInfo.defaultFont}"`);

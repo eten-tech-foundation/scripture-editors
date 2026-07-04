@@ -37,18 +37,18 @@ describe("generateUsjCss (PT9 CSSCreator port)", () => {
   it("emits the base rule and per-marker rules (ltr, zoom 1)", () => {
     expect(generateUsjCss(styleInfo)).toBe(
       [
-        '.editor-input { font-family: "Charis SIL"; font-size: 12pt; }',
-        ".editor-input .usfm_s1 { font-weight: bold; color: #003380; font-size: 116%; margin-top: 8pt; margin-bottom: 4pt; text-align: center; }",
-        ".editor-input .usfm_q1 { text-indent: -10vw; margin-left: 25vw; line-height: 1.5; }",
-        ".editor-input .usfm_v { vertical-align: text-top; font-size: 66%; white-space: nowrap; unicode-bidi: embed; }",
-        ".editor-input .usfm_nd { font-variant: small-caps; }",
+        '.editor-input.usfm { font-family: "Charis SIL"; font-size: 12pt; }',
+        ".editor-input.usfm .usfm_s1 { font-weight: bold; color: #003380; font-size: 116%; margin-top: 8pt; margin-bottom: 4pt; text-align: center; }",
+        ".editor-input.usfm .usfm_q1 { text-indent: -10vw; margin-left: 25vw; line-height: 1.5; }",
+        ".editor-input.usfm .usfm_v { vertical-align: text-top; font-size: 66%; white-space: nowrap; unicode-bidi: embed; }",
+        ".editor-input.usfm .usfm_nd { font-variant: small-caps; }",
       ].join("\n"),
     );
   });
 
   it("flips margins and justification under rtl and scales with zoom", () => {
     const css = generateUsjCss(styleInfo, { zoom: 2, rtl: true });
-    expect(css).toContain('.editor-input { font-family: "Charis SIL"; font-size: 24pt; }');
+    expect(css).toContain('.editor-input.usfm { font-family: "Charis SIL"; font-size: 24pt; }');
     expect(css).toContain("margin-right: 50vw"); // q1 leftMargin flipped + zoomed
     expect(css).toContain("text-indent: -20vw");
     expect(css).toContain("margin-top: 16pt"); // s1 spaceBefore zoomed
@@ -74,20 +74,20 @@ describe("generateUsjCss (PT9 CSSCreator port)", () => {
     // fr emits font-size twice (116% then 66%) — deliberate cascade, later wins.
     expect(generateUsjCss(branchStyleInfo)).toBe(
       [
-        ".editor-input .usfm_pr { margin-right: 5vw; text-align: left; }",
-        ".editor-input .usfm_pd { line-height: 2; }",
-        ".editor-input .usfm_p3 { font-weight: bold; }",
-        ".editor-input .usfm_em { font-style: italic; text-decoration: underline; }",
-        '.editor-input .usfm_wj { font-family: "Andika"; }',
-        ".editor-input .usfm_zsub { vertical-align: text-bottom; font-size: 66%; }",
-        ".editor-input .usfm_fr { font-size: 116%; vertical-align: text-top; font-size: 66%; }",
+        ".editor-input.usfm .usfm_pr { margin-right: 5vw; text-align: left; }",
+        ".editor-input.usfm .usfm_pd { line-height: 2; }",
+        ".editor-input.usfm .usfm_p3 { font-weight: bold; }",
+        ".editor-input.usfm .usfm_em { font-style: italic; text-decoration: underline; }",
+        '.editor-input.usfm .usfm_wj { font-family: "Andika"; }',
+        ".editor-input.usfm .usfm_zsub { vertical-align: text-bottom; font-size: 66%; }",
+        ".editor-input.usfm .usfm_fr { font-size: 116%; vertical-align: text-top; font-size: 66%; }",
       ].join("\n"),
     );
   });
 
   it("swaps rightMargin and left-justification under rtl", () => {
     const css = generateUsjCss(branchStyleInfo, { rtl: true });
-    expect(css).toContain(".editor-input .usfm_pr { margin-left: 5vw; text-align: right; }");
+    expect(css).toContain(".editor-input.usfm .usfm_pr { margin-left: 5vw; text-align: right; }");
   });
 
   it("respects a custom containerSelector", () => {
