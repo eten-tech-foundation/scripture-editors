@@ -45,9 +45,13 @@ plus `\Marker s1 \Color 255` (= #FF0000) merge test. Verification by editor stat
 
 **Result: 6/8 PASS** at Task 13; after Task 13b (below): **7/8 PASS** — item 2 fixed and
 re-verified in-app; item 7 root-caused (delta round-trip malformation, not the options
-override). After Task 14 (user-sanctioned dedicated fix, 2026-07-04): **8/8 PASS** — item 7
-fixed (canonical glyph-free note ops in editable marker mode, commit 2a09b69 + worktree
-9fc945fff82) and re-verified in-app.
+override). After Task 14 (user-sanctioned dedicated fix, 2026-07-04): **8/8 PASS with one
+inline caveat** — item 7 fixed (canonical glyph-free note ops in editable marker mode, commit
+2a09b69 + worktree 9fc945fff82) and re-verified in-app, BUT popover Save is only half-usable:
+the written note CONTENT is clean (state + SFM), while its replace POSITION lands +5 OT units
+off (pre-existing `$getOTPositionOfNode` vs apply-traversal chapter-glyph asymmetry — Save
+stays unusable for real edits until the owner's OT-coordinate decision; see item 7 row and
+limitations).
 
 | # | Item | Result | Evidence |
 | --- | --- | --- | --- |

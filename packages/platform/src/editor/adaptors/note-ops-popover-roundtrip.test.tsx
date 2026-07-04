@@ -19,7 +19,7 @@ import { MarkerContent, MarkerObject, Usj } from "@eten-tech-foundation/scriptur
 import { act, render } from "@testing-library/react";
 import { deepEqual } from "fast-equals";
 import { createRef } from "react";
-import { $getRoot, LexicalEditor, LexicalNode } from "lexical";
+import { $getRoot, $isTextNode, LexicalEditor, LexicalNode } from "lexical";
 import {
   $isCharNode,
   $isImmutableUnmatchedNode,
@@ -281,17 +281,39 @@ describe("popover note ops round-trip (canonical glyph-free contract)", () => {
   it("writes a clean note back into the host via replaceEmbedUpdate (popover Save path)", async () => {
     const { host, popover } = await roundtripNote(0, closedNoteUsj);
 
+    // Mutate the popover note BEFORE saving (mirrors the in-app QA: type into the \ft span),
+    // so the assertion below can only be satisfied by a write that actually happened — an
+    // unmodified save would leave the host indistinguishable from its pre-save state.
+    const sentinel = "task14-review-sentinel";
+    await act(async () => {
+      popover.lexical.update(() => {
+        const note = requireDefined($findNotes()[0], "popover note");
+        const ftChar = note
+          .getChildren()
+          .filter($isCharNode)
+          .find((char) => char.getMarker() === "ft");
+        const contentText = requireDefined(ftChar, "popover ft char")
+          .getChildren()
+          .filter($isTextNode)
+          .find((child) => !$isMarkerNode(child));
+        requireDefined(contentText, "popover ft content text").setTextContent(
+          `${requireDefined(contentText, "popover ft content text").getTextContent()}${sentinel}`,
+        );
+      });
+    });
+    const popoverNoteOps = requireDefined(popover.editorRef.getNoteOps(0), "popover note ops");
+    expect(JSON.stringify(popoverNoteOps)).toContain(sentinel);
+
     const hostNoteKey = host.lexical.getEditorState().read(() => {
       return requireDefined($findNotes()[0], "host note").getKey();
     });
-    const popoverNoteOps = requireDefined(popover.editorRef.getNoteOps(0), "popover note ops");
     await act(async () => {
       host.editorRef.replaceEmbedUpdate(hostNoteKey, popoverNoteOps);
     });
 
-    // Contract-owned invariants: every note in the host document (including the one the
-    // popover Save just wrote) is CLEAN — no doubled glyphs, no unmatched nodes — and the
-    // written note's USJ deep-equals the popover's note.
+    // Contract-owned invariants: the sentinel-carrying note WAS written into the host, its
+    // USJ deep-equals the popover's serialized note, and every note in the host document is
+    // CLEAN — no doubled glyphs, no unmatched nodes.
     //
     // Deliberately NOT asserted here: the replace POSITION. `$getReplaceEmbedOps` computes
     // its retain with `$getOTPositionOfNode`, which double-counts an editable-mode chapter
@@ -301,12 +323,16 @@ describe("popover note ops round-trip (canonical glyph-free contract)", () => {
     // ops are the pinned Phase 2 contract). Until the owner reconciles those coordinate
     // systems, a host document containing an editable chapter places the replacement a few
     // units away from the original note. See the Task 14 report.
+    const popoverUsj = requireDefined(popover.editorRef.getUsj(), "popover USJ after edit");
+    const popoverNoteUsj = requireDefined(findUsjNotes(popoverUsj)[0], "popover note USJ");
+    expect(JSON.stringify(popoverNoteUsj)).toContain(sentinel);
+
     const hostUsj = requireDefined(host.editorRef.getUsj(), "host USJ after save");
     const hostNotes = findUsjNotes(hostUsj);
-    expect(hostNotes.some((note) => deepEqual(note, closedNoteUsj))).toBe(true);
-    host.lexical.getEditorState().read(() => {
-      expect($findNotes().length).toBeGreaterThanOrEqual(2);
-    });
+    const writtenNote = hostNotes.find((note) => JSON.stringify(note).includes(sentinel));
+    expect(writtenNote).toBeDefined();
+    expect(deepEqual(writtenNote, popoverNoteUsj)).toBe(true);
+
     const noteCount = host.lexical.getEditorState().read(() => $findNotes().length);
     for (let i = 0; i < noteCount; i++) expectWellFormedEditableNote(host.lexical, i);
   }, 30000);

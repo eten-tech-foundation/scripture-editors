@@ -244,10 +244,14 @@ function $handleTextNodes(
   // emitted, so it must never appear in a delta op either.
   if (isCursorPlaceholderOnly(text)) return;
   // A glyph-fronted note (first child is a MarkerNode) is the editable-mode shape; only
-  // there does the caller render as a plain text child.
+  // there does the caller render as a plain text child, and always in CALLER POSITION —
+  // immediately after the opening glyph. The positional guard keeps a pathological content
+  // text node that merely EQUALS the caller text (elsewhere in the note) flowing into ops.
+  const previousSibling = currentNode.getPreviousSibling();
   if (
     $isNoteNode(parent) &&
-    $isMarkerNode(parent.getFirstChild()) &&
+    $isMarkerNode(previousSibling) &&
+    previousSibling === parent.getFirstChild() &&
     text === getEditableCallerText(parent.getCaller())
   ) {
     return;
