@@ -1,5 +1,6 @@
 /** Generated file using `nx generate markers-data` with '<%- usfmStyleUrl %>' */
 
+/** @public */
 export enum CategoryType {
   FileIdentification = "FileIdentification",
   Headers = "Headers",
@@ -24,6 +25,7 @@ export enum CategoryType {
   Uncategorized = "Uncategorized",
 }
 
+/** @public */
 export enum MarkerType {
   Paragraph = "Paragraph",
   Character = "Character",
@@ -32,6 +34,7 @@ export enum MarkerType {
   Unknown = "Unknown",
 }
 
+/** @public */
 export interface Marker {
   category: CategoryType;
   type: MarkerType;

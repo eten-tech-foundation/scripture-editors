@@ -35,7 +35,7 @@ export { default as Editorial } from "./Editorial";
  * optional `yjs` peer dependency if you continue using margin comments during the transition.
  */
 export { default as Marginal } from "./marginal/Marginal";
-export { GENERATOR_NOTE_CALLER, HIDDEN_NOTE_CALLER } from "shared";
+export { CategoryType, GENERATOR_NOTE_CALLER, HIDDEN_NOTE_CALLER, MarkerType } from "shared";
 export { generateUsjCss } from "./editor/generateUsjCss";
 export {
   directionToNames,
@@ -56,6 +56,7 @@ export type { MarginalRef, MarginalProps } from "./marginal/Marginal";
 export type {
   DomMouseEvent,
   LoggerBasic,
+  Marker,
   MarkerLookup,
   MarkerStyleInfo,
   NodeOptions,
