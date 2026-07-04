@@ -8,25 +8,28 @@
  * a marker the lookup KNOWS is classified by its declared type, full stop.
  *
  * Markers the effective stylesheet does NOT know (`kind === undefined`) fall
- * back to the `NoteNode`/`MilestoneNode` name-pattern heuristics, and failing
- * those, resolve by context exactly like PT9's `UsfmParser.DetermineUnknownTokenType`:
- * PARAGRAPH in body text, CHARACTER inside a note (`options.isNoteContext`),
- * except `esb`/`esbe`, which PT9 always treats as paragraphs
- * (`UsfmToken.cs:405-421`). An unmatched closer (known or unknown marker, no
- * open frame to close) becomes a `{ type: "unmatched", marker: "<name>*" }`
- * USJ object (PT9 `sink.Unmatched`, `UsxUsfmParserSink.cs:262-266`), not
- * literal text.
+ * back to name-pattern heuristics — `NoteNode.isValidMarker`, and for
+ * milestones only names following the `-s`/`-e` suffix convention (bare `ts`
+ * or the `zmsc-*` comment markers; NOT the bare `z`-prefix wildcard) — and
+ * failing those, resolve by context exactly like PT9's
+ * `UsfmParser.DetermineUnknownTokenType`: PARAGRAPH in body text, CHARACTER
+ * inside a note (`options.isNoteContext`), except `esb`/`esbe`, which PT9
+ * always treats as paragraphs (`UsfmToken.cs:405-421`). An unmatched closer
+ * (known or unknown marker, no open frame to close) becomes a
+ * `{ type: "unmatched", marker: "<name>*" }` USJ object (PT9 `sink.Unmatched`,
+ * `UsxUsfmParserSink.cs:262-266`), not literal text.
  *
  * Literal-text degradation (spec §5.2) remains only for fragments the
- * tokenizer cannot confidently parse at all: a bare `\`, a stray `\*`, an
- * unterminated milestone, or non-attribute content before a milestone's `\*`.
+ * tokenizer cannot confidently parse at all: a bare `\`, a stray `\*`,
+ * non-attribute content before a milestone's `\*`, or an unterminated
+ * milestone (stylesheet-declared, or matching the suffix convention above).
  *
  * Input is USFM text: `~` means NBSP; U+FFFC sentinels (atomic-node placeholders
  * from the Tier 2 fragment builder) ride through as ordinary text characters.
  */
 
 import { NBSP, PARA_MARKER_DEFAULT } from "../../nodes/usj/node-constants.js";
-import { MilestoneNode } from "../../nodes/usj/MilestoneNode.js";
+import { isMilestoneCommentMarker, MilestoneNode } from "../../nodes/usj/MilestoneNode.js";
 import { NoteNode } from "../../nodes/usj/NoteNode.js";
 import getMarker from "../../utils/usfm/getMarker.js";
 import { MarkerLookup } from "../../utils/usfm/styleInfo.js";
@@ -79,6 +82,20 @@ function scanMarkerName(fragment: string, start: number): { name: string; next: 
     index++;
   }
   return { name: fragment.slice(start, index), next: index };
+}
+
+/**
+ * True for milestone NAMES per USFM's `-s`/`-e` start/end suffix convention (bare `ts` is the
+ * sole exception) — mirrors `isKnownMilestoneMarker` in the platform marker-edit utils.
+ * `MilestoneNode.isValidMarker` alone is too loose here: its generic `z`-prefix wildcard would
+ * classify any custom.sty-style marker (e.g. `\zfoo`) as a milestone, which would keep
+ * unknown-marker resolution (`DetermineUnknownTokenType`) from ever seeing it.
+ */
+function isMilestoneHeuristicName(name: string): boolean {
+  return (
+    MilestoneNode.isValidMarker(name) &&
+    (name === "ts" || name.endsWith("-s") || name.endsWith("-e") || isMilestoneCommentMarker(name))
+  );
 }
 
 /** PT9 `GetNextWord`: skip leading whitespace, take up to whitespace or `\`. */
@@ -156,30 +173,19 @@ function tokenize(fragment: string, getMarkerFn: MarkerLookup, isNoteContext: bo
       tokens.push({ kind: "note", marker: name, caller: word || "+" });
       continue;
     }
-    if (
-      kind === MarkerType.Milestone ||
-      (kind === undefined && MilestoneNode.isValidMarker(name))
-    ) {
+    if (kind === MarkerType.Milestone || (kind === undefined && isMilestoneHeuristicName(name))) {
       const milestone = scanMilestone(fragment, rawStart, name, index);
       if (milestone) {
         tokens.push(milestone.token);
         index = milestone.next;
-        continue;
-      }
-      // Not `\*`-terminated. A stylesheet-known milestone, or a well-known
-      // milestone NAME (the `MilestoneNode.isValidMarker` explicit list), is a
-      // malformed milestone: keep the raw text through the next `\` (PT9
-      // behavior, unchanged). But a marker guessed ONLY via the generic `z`-
-      // prefix wildcard (PT9's uncataloged-marker convention) that fails to
-      // scan as a milestone isn't actually milestone-shaped — fall through to
-      // unknown-marker resolution below (DetermineUnknownTokenType).
-      if (kind !== undefined || !name.startsWith("z")) {
+      } else {
+        // Not `\*`-terminated: keep the raw text through the next `\` (PT9 behavior).
         const endOfText = fragment.indexOf("\\", index);
         const end = endOfText === -1 ? fragment.length : endOfText;
         pushText(fragment.slice(rawStart, end));
         index = end;
-        continue;
       }
+      continue;
     }
     if (kind === MarkerType.Paragraph) {
       consumeSeparator();
@@ -191,13 +197,12 @@ function tokenize(fragment: string, getMarkerFn: MarkerLookup, isNoteContext: bo
       // Unknown to the effective stylesheet: PT9 resolves by context
       // (DetermineUnknownTokenType): PARAGRAPH in body text, CHARACTER inside
       // a note; `esb`/`esbe` are explicitly paragraphs (UsfmToken.cs:405-421).
+      // A non-`+` char run closes any open char style unconditionally, same as
+      // a known Character token (UsfmParser.cs:247).
       consumeSeparator();
       if (!isNoteContext || name === "esb" || name === "esbe")
         tokens.push({ kind: "para", marker: name });
-      // Always nested: an unknown marker has no declared style to compete
-      // with, so it must not auto-close the note's enclosing known char span
-      // (e.g. \ft) the way a sibling character style opener would.
-      else tokens.push({ kind: "charOpen", marker: clean, isNested: true });
+      else tokens.push({ kind: "charOpen", marker: clean, isNested });
     }
   }
   return tokens;
