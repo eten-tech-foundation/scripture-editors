@@ -54,7 +54,11 @@ export type { MarginalRef, MarginalProps } from "./marginal/Marginal";
 export type {
   DomMouseEvent,
   LoggerBasic,
+  MarkerLookup,
+  MarkerStyleInfo,
   NodeOptions,
+  StyleInfo,
+  StyleType,
   TypedMarkOnClick,
   TypedMarkOnMouseEnter,
   TypedMarkOnMouseLeave,

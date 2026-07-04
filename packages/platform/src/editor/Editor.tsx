@@ -51,6 +51,7 @@ import {
 import {
   $createParaNode,
   blackListedChangeTags,
+  createMarkerLookup,
   DELTA_CHANGE_TAG,
   externalTypedMarkType,
   LoggerBasic,
@@ -160,6 +161,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
     nodes,
     debug = false,
     contextMenu,
+    styleInfo,
   } = options ?? defaultOptions;
 
   // Stabilize the destructured option objects so plugin props don't churn when the parent passes
@@ -190,6 +192,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
   const viewOptions = viewOptionsRef.current;
   const nodeOptions = useMemo(() => nodes ?? defaultNodeOptions, [nodes]);
   const contextMenuOptions = useMemo(() => contextMenu, [contextMenu]);
+  const markerLookup = useMemo(() => createMarkerLookup(styleInfo), [styleInfo]);
 
   // `logger` is also a dependency of `LoadStatePlugin`'s reload effect (see the `viewOptions`
   // comment above for what that effect does on every fire), so the same reference-instability
@@ -586,7 +589,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
           {viewOptions?.markerMode !== "editable" && <CommandMenuPlugin logger={stableLogger} />}
           <ContextMenuPlugin options={contextMenuOptions} />
           <EmptyVerseCaretGuardPlugin />
-          <MarkerEditPlugin viewOptions={viewOptions} logger={logger} />
+          <MarkerEditPlugin viewOptions={viewOptions} getMarker={markerLookup} logger={logger} />
           <NoteNodePlugin
             expandedNoteKeyRef={expandedNoteKeyRef}
             nodeOptions={nodeOptions}
