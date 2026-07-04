@@ -5,7 +5,8 @@
  * The loop: an unterminated backslash sequence lands as pending literal text; a caret
  * departure or Enter routes it to Tier 2; the rebuild reproduces an unchanged fragment
  * in a fresh node; that node re-arms the TextNode transform, which re-adds it to
- * `pendingKeys`; the update listener self-dispatches `SELECTION_CHANGE_COMMAND`, which
+ * `pendingKeys`; the update listener queues a deferred resolution update (a microtask;
+ * formerly a synchronous `SELECTION_CHANGE_COMMAND` self-dispatch), which
  * resolves and rebuilds again — forever. Pre-fix this hung the main thread (measured at
  * 180s). The fix is a fixed-point refusal in `$rebuildParas`: a structurally identical
  * rebuild mutates nothing, so no new node is created, nothing re-arms, and the cascade
