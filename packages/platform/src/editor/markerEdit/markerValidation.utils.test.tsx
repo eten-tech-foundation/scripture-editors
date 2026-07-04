@@ -11,7 +11,6 @@ import {
   $createNoteNode,
   $createParaNode,
   $createVerseNode,
-  ChapterNode,
   getVisibleOpenMarkerText,
   MarkerNode,
   NBSP,
@@ -359,29 +358,93 @@ describe("$validateDocument — xq exemption and note exclusion", () => {
   });
 });
 
-describe("$validateDocument — paragraph stack semantics (self-review coverage)", () => {
-  it("an unknown para joins the stack with an empty occursUnder (valid anywhere, doesn't break later lookups)", async () => {
-    let unknownOpener: MarkerNode, chapter: ChapterNode;
+describe("$validateDocument — paragraph stack semantics (PT9 discriminators)", () => {
+  it("an unknown para does NOT join the stack (PT9 TagValidator.cs:28-30)", async () => {
+    const probeSheet: StyleInfo = {
+      markers: {
+        id: { marker: "id", styleType: "paragraph" },
+        probe: { marker: "probe", styleType: "paragraph", occursUnder: ["zfoo"] },
+      },
+    };
+    let unknownOpener: MarkerNode, probeOpener: MarkerNode;
     const { editor } = await baseTestEnvironment(() => {
       const book = $createBookNode("RUT");
       const unknown = $createParaNode("zfoo");
+      const probe = $createParaNode("probe");
       unknownOpener = $createMarkerNode("zfoo");
-      chapter = $createChapterNode("1");
+      probeOpener = $createMarkerNode("probe");
       $getRoot().append(
         book.append($createTextNode(getVisibleOpenMarkerText("id", "RUT"))),
         unknown.append(unknownOpener, $createTextNode(NBSP)),
-        chapter.append($createTextNode(getVisibleOpenMarkerText("c", "1"))),
+        probe.append(probeOpener, $createTextNode(NBSP)),
       );
     });
     editor.getEditorState().read(() => {
-      const map = $validateDocument(sheet);
-      // The unknown para itself is flagged unknown...
+      const map = $validateDocument(probeSheet);
+      // The unknown para itself is flagged unknown and stays valid-anywhere...
       expect(map.get(unknownOpener.getKey())).toBe("unknown");
-      // ...but `c` (occursUnder ["id"]) still resolves past it to the `id` ancestor beneath it,
-      // proving the unknown para was pushed onto the stack (occupying a slot) rather than
-      // silently ignored, while still not blocking a valid deeper match.
-      expect(map.has(chapter.getKey())).toBe(false);
-      expect(map.size).toBe(1);
+      // ...but it never joined the stack: `probe` (occursUnder ["zfoo"]) finds no `zfoo`
+      // ancestor and is invalid. Had zfoo been (wrongly) pushed, probe would be clean.
+      expect(map.get(probeOpener.getKey())).toBe("invalid");
+      expect(map.size).toBe(2);
+    });
+  });
+
+  it("a known empty-occursUnder para does NOT join the stack (PT9 TagValidator.cs:28-30)", async () => {
+    const noPushSheet: StyleInfo = {
+      markers: {
+        id: { marker: "id", styleType: "paragraph" },
+        c: { marker: "c", styleType: "paragraph", occursUnder: ["id"] },
+        x: { marker: "x", styleType: "paragraph", rank: 5 },
+        s1: { marker: "s1", styleType: "paragraph", occursUnder: ["c"], rank: 3 },
+      },
+    };
+    const { editor } = await baseTestEnvironment(() => {
+      const book = $createBookNode("RUT");
+      const chapter = $createChapterNode("1");
+      $getRoot().append(
+        book.append($createTextNode(getVisibleOpenMarkerText("id", "RUT"))),
+        chapter.append($createTextNode(getVisibleOpenMarkerText("c", "1"))),
+        $createParaNode("x").append($createMarkerNode("x"), $createTextNode(NBSP)),
+        $createParaNode("s1").append($createMarkerNode("s1"), $createTextNode(NBSP)),
+      );
+    });
+    editor.getEditorState().read(() => {
+      // `x` (empty occursUnder, rank 5) is valid anywhere but must NOT be pushed: `s1`
+      // (occursUnder ["c"], rank 3) then finds `c` at the top of the stack and is valid.
+      // Under push-on-empty-occursUnder semantics the stack would be [id, c, x] and the
+      // `c` match would be rank-forbidden (x.rank 5 > 3) with nothing lower — invalid.
+      expect($validateDocument(noPushSheet).size).toBe(0);
+    });
+  });
+
+  it("a rank-forbidden ancestor match keeps scanning lower stack entries (PT9 continues, no break)", async () => {
+    const rescanSheet: StyleInfo = {
+      markers: {
+        id: { marker: "id", styleType: "paragraph" },
+        c: { marker: "c", styleType: "paragraph", occursUnder: ["id"] },
+        s1: { marker: "s1", styleType: "paragraph", occursUnder: ["c"], rank: 3 },
+        s2: { marker: "s2", styleType: "paragraph", occursUnder: ["s1"], rank: 4 },
+        t: { marker: "t", styleType: "paragraph", occursUnder: ["s1", "c"], rank: 3 },
+      },
+    };
+    const { editor } = await baseTestEnvironment(() => {
+      const book = $createBookNode("RUT");
+      const chapter = $createChapterNode("1");
+      $getRoot().append(
+        book.append($createTextNode(getVisibleOpenMarkerText("id", "RUT"))),
+        chapter.append($createTextNode(getVisibleOpenMarkerText("c", "1"))),
+        $createParaNode("s1").append($createMarkerNode("s1"), $createTextNode(NBSP)),
+        $createParaNode("s2").append($createMarkerNode("s2"), $createTextNode(NBSP)),
+        $createParaNode("t").append($createMarkerNode("t"), $createTextNode(NBSP)),
+      );
+    });
+    editor.getEditorState().read(() => {
+      // Stack when validating `t` is [id, c, s1, s2]. The first occursUnder match scanning
+      // top-down is `s1` (i=2) — rank-forbidden (stack[3]=s2 rank 4 > t.rank 3). PT9 keeps
+      // scanning and accepts at `c` (i=1: stack[2]=s1 rank 3 <= 3), so `t` is valid. An
+      // implementation that breaks on the first rank-forbidden match would flag it invalid.
+      expect($validateDocument(rescanSheet).size).toBe(0);
     });
   });
 
