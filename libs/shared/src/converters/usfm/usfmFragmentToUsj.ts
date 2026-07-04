@@ -3,8 +3,23 @@
  * (design spec §5.3). Reference semantics: ParatextData `UsfmToken.Tokenize` —
  * fragment-level tokenization only; document-level validation stays out. Marker
  * kinds come from the bundled usfm.sty-derived `usfmMarkers` map via `getMarker`
- * (Phase 4 swaps in project `StyleInfo`). Fragments the tokenizer cannot
- * confidently parse degrade to literal text (spec §5.2 degradation property).
+ * by default, or from `options.getMarker` (a project `StyleInfo`-backed
+ * `MarkerLookup`, Task 1) when supplied — classification is stylesheet-first:
+ * a marker the lookup KNOWS is classified by its declared type, full stop.
+ *
+ * Markers the effective stylesheet does NOT know (`kind === undefined`) fall
+ * back to the `NoteNode`/`MilestoneNode` name-pattern heuristics, and failing
+ * those, resolve by context exactly like PT9's `UsfmParser.DetermineUnknownTokenType`:
+ * PARAGRAPH in body text, CHARACTER inside a note (`options.isNoteContext`),
+ * except `esb`/`esbe`, which PT9 always treats as paragraphs
+ * (`UsfmToken.cs:405-421`). An unmatched closer (known or unknown marker, no
+ * open frame to close) becomes a `{ type: "unmatched", marker: "<name>*" }`
+ * USJ object (PT9 `sink.Unmatched`, `UsxUsfmParserSink.cs:262-266`), not
+ * literal text.
+ *
+ * Literal-text degradation (spec §5.2) remains only for fragments the
+ * tokenizer cannot confidently parse at all: a bare `\`, a stray `\*`, an
+ * unterminated milestone, or non-attribute content before a milestone's `\*`.
  *
  * Input is USFM text: `~` means NBSP; U+FFFC sentinels (atomic-node placeholders
  * from the Tier 2 fragment builder) ride through as ordinary text characters.
@@ -14,8 +29,20 @@ import { NBSP, PARA_MARKER_DEFAULT } from "../../nodes/usj/node-constants.js";
 import { MilestoneNode } from "../../nodes/usj/MilestoneNode.js";
 import { NoteNode } from "../../nodes/usj/NoteNode.js";
 import getMarker from "../../utils/usfm/getMarker.js";
+import { MarkerLookup } from "../../utils/usfm/styleInfo.js";
 import { MarkerType } from "../../utils/usfm/usfmTypes.js";
 import { MarkerContent, MarkerObject } from "@eten-tech-foundation/scripture-utilities";
+
+export interface UsfmFragmentOptions {
+  /** Marker classification lookup; defaults to the bundled usfm.sty-derived `getMarker`. */
+  getMarker?: MarkerLookup;
+  /**
+   * True when the fragment is NOTE content. PT9 resolves unknown markers by
+   * context (UsfmParser.DetermineUnknownTokenType, UsfmParser.cs:642-649):
+   * CHARACTER inside a note, PARAGRAPH in body text.
+   */
+  isNoteContext?: boolean;
+}
 
 const VERSE_MARKER = "v";
 const CHAPTER_MARKER = "c";
@@ -65,7 +92,7 @@ function getNextWord(fragment: string, start: number): { word: string; next: num
   return { word, next: index };
 }
 
-function tokenize(fragment: string): Token[] {
+function tokenize(fragment: string, getMarkerFn: MarkerLookup, isNoteContext: boolean): Token[] {
   const tokens: Token[] = [];
   let index = 0;
   const pushText = (text: string) => {
@@ -116,41 +143,61 @@ function tokenize(fragment: string): Token[] {
       tokens.push({ kind: "chapter", number: word });
       continue;
     }
-    if (NoteNode.isValidMarker(name)) {
+
+    // Stylesheet-first (PT9: the stylesheet always classifies; our pattern
+    // heuristics only stand in for markers ABSENT from the effective sheet).
+    const isNested = name.startsWith("+");
+    const clean = isNested ? name.slice(1) : name;
+    const kind = getMarkerFn(clean)?.type;
+
+    if (kind === MarkerType.Note || (kind === undefined && NoteNode.isValidMarker(name))) {
       const { word, next: afterWord } = getNextWord(fragment, index);
       index = afterWord;
       tokens.push({ kind: "note", marker: name, caller: word || "+" });
       continue;
     }
-    if (MilestoneNode.isValidMarker(name)) {
+    if (
+      kind === MarkerType.Milestone ||
+      (kind === undefined && MilestoneNode.isValidMarker(name))
+    ) {
       const milestone = scanMilestone(fragment, rawStart, name, index);
       if (milestone) {
         tokens.push(milestone.token);
         index = milestone.next;
-      } else {
-        // Not `\*`-terminated: keep the raw text through the next `\` (PT9 behavior).
+        continue;
+      }
+      // Not `\*`-terminated. A stylesheet-known milestone, or a well-known
+      // milestone NAME (the `MilestoneNode.isValidMarker` explicit list), is a
+      // malformed milestone: keep the raw text through the next `\` (PT9
+      // behavior, unchanged). But a marker guessed ONLY via the generic `z`-
+      // prefix wildcard (PT9's uncataloged-marker convention) that fails to
+      // scan as a milestone isn't actually milestone-shaped — fall through to
+      // unknown-marker resolution below (DetermineUnknownTokenType).
+      if (kind !== undefined || !name.startsWith("z")) {
         const endOfText = fragment.indexOf("\\", index);
         const end = endOfText === -1 ? fragment.length : endOfText;
         pushText(fragment.slice(rawStart, end));
         index = end;
+        continue;
       }
-      continue;
     }
-
-    const isNested = name.startsWith("+");
-    const markerData = getMarker(isNested ? name.slice(1) : name);
-    if (markerData?.type === MarkerType.Paragraph) {
+    if (kind === MarkerType.Paragraph) {
       consumeSeparator();
       tokens.push({ kind: "para", marker: name });
-    } else if (markerData?.type === MarkerType.Character) {
+    } else if (kind === MarkerType.Character) {
       consumeSeparator();
-      tokens.push({ kind: "charOpen", marker: isNested ? name.slice(1) : name, isNested });
+      tokens.push({ kind: "charOpen", marker: clean, isNested });
     } else {
-      // Unknown marker: kept as typed (literal text), including its separator space.
-      let end = index;
-      if (end < fragment.length && /[\s\u00A0]/.test(fragment[end])) end++;
-      pushText(fragment.slice(rawStart, end));
-      index = end;
+      // Unknown to the effective stylesheet: PT9 resolves by context
+      // (DetermineUnknownTokenType): PARAGRAPH in body text, CHARACTER inside
+      // a note; `esb`/`esbe` are explicitly paragraphs (UsfmToken.cs:405-421).
+      consumeSeparator();
+      if (!isNoteContext || name === "esb" || name === "esbe")
+        tokens.push({ kind: "para", marker: name });
+      // Always nested: an unknown marker has no declared style to compete
+      // with, so it must not auto-close the note's enclosing known char span
+      // (e.g. \ft) the way a sibling character style opener would.
+      else tokens.push({ kind: "charOpen", marker: clean, isNested: true });
     }
   }
   return tokens;
@@ -225,7 +272,10 @@ interface CharFrame {
  */
 type NoteMarkerObject = MarkerObject & { closed?: string };
 
-export function usfmFragmentToUsjContent(fragment: string): MarkerContent[] {
+export function usfmFragmentToUsjContent(
+  fragment: string,
+  options?: UsfmFragmentOptions,
+): MarkerContent[] {
   const result: MarkerContent[] = [];
   let para: MarkerObject | undefined;
   let note: NoteMarkerObject | undefined;
@@ -259,7 +309,11 @@ export function usfmFragmentToUsjContent(fragment: string): MarkerContent[] {
     note = undefined;
   };
 
-  for (const token of tokenize(fragment)) {
+  for (const token of tokenize(
+    fragment,
+    options?.getMarker ?? getMarker,
+    options?.isNoteContext ?? false,
+  )) {
     switch (token.kind) {
       case "text":
         pushContent(toUsjText(token.text));
@@ -311,8 +365,10 @@ export function usfmFragmentToUsjContent(fragment: string): MarkerContent[] {
           closeCharStack();
           closeNote(true);
         } else {
-          // Unmatched closer: literal text (degradation property).
-          pushContent(`\\${token.marker}*`);
+          // Unmatched closer: PT9 sink.Unmatched (UsxUsfmParserSink.cs:262-266)
+          // — an unmatched element, rendered as ImmutableUnmatchedNode with the
+          // existing `.invalid` styling; serializes back to the same text.
+          pushContent({ type: "unmatched", marker: `${token.marker}*` });
         }
         break;
       }

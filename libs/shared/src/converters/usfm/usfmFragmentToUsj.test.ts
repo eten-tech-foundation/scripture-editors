@@ -1,5 +1,6 @@
 import { usfmFragmentToUsjContent } from "./usfmFragmentToUsj.js";
 import { NBSP } from "../../nodes/usj/node-constants.js";
+import { createMarkerLookup, StyleInfo } from "../../utils/usfm/styleInfo.js";
 
 describe("usfmFragmentToUsjContent — core", () => {
   it("tokenizes a plain paragraph", () => {
@@ -82,15 +83,20 @@ describe("usfmFragmentToUsjContent — core", () => {
     ]);
   });
 
-  it("keeps an unknown marker as literal text (degradation property)", () => {
+  it("splits an unknown marker into a paragraph (PT9 DetermineUnknownTokenType)", () => {
     expect(usfmFragmentToUsjContent("\\p a \\zzz b")).toEqual([
-      { type: "para", marker: "p", content: ["a \\zzz b"] },
+      { type: "para", marker: "p", content: ["a "] },
+      { type: "para", marker: "zzz", content: ["b"] },
     ]);
   });
 
-  it("keeps an unmatched closer as literal text", () => {
+  it("turns an unmatched closer into an unmatched element (PT9 sink.Unmatched)", () => {
     expect(usfmFragmentToUsjContent("\\p a \\nd* b")).toEqual([
-      { type: "para", marker: "p", content: ["a \\nd* b"] },
+      {
+        type: "para",
+        marker: "p",
+        content: ["a ", { type: "unmatched", marker: "nd*" }, " b"],
+      },
     ]);
   });
 
@@ -239,5 +245,94 @@ describe("usfmFragmentToUsjContent — verse, chapter, note, milestone, attribut
         content: [{ type: "char", marker: "w", lemma: "grace", content: ["gracious"] }],
       },
     ]);
+  });
+});
+
+const projectSheet: StyleInfo = {
+  markers: {
+    p: { marker: "p", styleType: "paragraph" },
+    zln: { marker: "zln", styleType: "character", endMarker: "zln*" },
+    zpb: { marker: "zpb", styleType: "paragraph" },
+  },
+};
+
+describe("stylesheet-first classification (Phase 4)", () => {
+  it("classifies a custom.sty character marker that matches the z-milestone wildcard", () => {
+    const content = usfmFragmentToUsjContent("\\p text \\zln word\\zln* after", {
+      getMarker: createMarkerLookup(projectSheet),
+    });
+    expect(content).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: ["text ", { type: "char", marker: "zln", content: ["word"] }, " after"],
+      },
+    ]);
+  });
+
+  it("classifies a custom.sty paragraph marker", () => {
+    const content = usfmFragmentToUsjContent("\\p one \\zpb two", {
+      getMarker: createMarkerLookup(projectSheet),
+    });
+    expect(content).toEqual([
+      { type: "para", marker: "p", content: ["one "] },
+      { type: "para", marker: "zpb", content: ["two"] },
+    ]);
+  });
+});
+
+describe("PT9 unknown-marker handling (Phase 4)", () => {
+  it("unknown marker in body context becomes a paragraph (UsfmParser.DetermineUnknownTokenType)", () => {
+    const content = usfmFragmentToUsjContent("\\p before \\zfoo after");
+    expect(content).toEqual([
+      { type: "para", marker: "p", content: ["before "] },
+      { type: "para", marker: "zfoo", content: ["after"] },
+    ]);
+  });
+
+  it("unknown marker in note context becomes a char run and consumes its closer", () => {
+    const content = usfmFragmentToUsjContent("\\ft text \\zfoo word\\zfoo* after", {
+      isNoteContext: true,
+    });
+    expect(content).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [
+          {
+            type: "char",
+            marker: "ft",
+            content: ["text ", { type: "char", marker: "zfoo", content: ["word"] }, " after"],
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("bare unknown closer becomes an unmatched element (sink.Unmatched)", () => {
+    const content = usfmFragmentToUsjContent("\\p text \\zfoo* after");
+    expect(content).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: ["text ", { type: "unmatched", marker: "zfoo*" }, " after"],
+      },
+    ]);
+  });
+
+  it("known closer without an opener becomes an unmatched element", () => {
+    const content = usfmFragmentToUsjContent("\\p text \\nd* after");
+    expect(content).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: ["text ", { type: "unmatched", marker: "nd*" }, " after"],
+      },
+    ]);
+  });
+
+  it("esb stays a paragraph even in note context (UsfmToken.cs special case)", () => {
+    const content = usfmFragmentToUsjContent("\\ft text \\esb more", { isNoteContext: true });
+    expect(content[content.length - 1]).toMatchObject({ type: "para", marker: "esb" });
   });
 });
