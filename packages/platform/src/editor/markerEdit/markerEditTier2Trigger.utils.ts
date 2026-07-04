@@ -35,8 +35,9 @@ export function $textNodeTier2Transform(node: TextNode, context: MarkerEditConte
     context.pendingKeys.delete(node.getKey());
     if (context.rebuildAttempted.has(text)) {
       // $rebuildParas already produced this exact literal text once this commit and, being
-      // deterministic, would only reproduce it again (e.g. an unmatched closer that stays
-      // literal per the §5.2 degradation property) — settle rather than retrigger forever.
+      // deterministic, would only reproduce it again (e.g. an unterminated milestone run
+      // that stays literal per the §5.2 degradation property) — settle rather than
+      // retrigger forever.
       return;
     }
     context.rebuildAttempted.add(text);

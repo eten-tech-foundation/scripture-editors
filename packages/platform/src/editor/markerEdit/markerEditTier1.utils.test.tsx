@@ -20,6 +20,8 @@ import {
   $createMarkerNode,
   $createNoteNode,
   $createParaNode,
+  $isCharNode,
+  $isParaNode,
   ChapterNode,
   CharNode,
   getVisibleOpenMarkerText,
@@ -70,8 +72,17 @@ describe("stylesheet-first kind guards (Phase 4)", () => {
     );
     await act(async () => editor.update(() => marker.setTextContent("\\zln ")));
     editor.getEditorState().read(() => {
-      // zln is CHARACTER kind in the sheet: the para must NOT become a "zln" para.
+      // zln is CHARACTER kind in the sheet: the para must NOT become a "zln" para...
       expect(para.isAttached() ? para.getMarker() : "detached").not.toBe("zln");
+      // ...and the Tier 2 rebuild actually happened (not a silently ignored rename): the
+      // sheet-aware tokenizer resolved `\zln` as a char run, so the heading text now lives
+      // in a CharNode span with marker "zln" inside the rebuilt (default \p) paragraph.
+      const chars = $getRoot()
+        .getChildren()
+        .filter($isParaNode)
+        .flatMap((p) => p.getChildren())
+        .filter($isCharNode);
+      expect(chars.some((c) => c.getMarker() === "zln")).toBe(true);
     });
   });
 
