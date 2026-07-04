@@ -40,7 +40,7 @@ export function $textNodeTier2Transform(node: TextNode, context: MarkerEditConte
       return;
     }
     context.rebuildAttempted.add(text);
-    $requestTier2ForNode(node, context.viewOptions, context.logger);
+    $requestTier2ForNode(node, context);
   } else {
     context.pendingKeys.add(node.getKey()); // Enter/blur completes it
   }

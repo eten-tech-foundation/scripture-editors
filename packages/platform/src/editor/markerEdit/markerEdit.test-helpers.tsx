@@ -24,10 +24,12 @@ import {
   $isCharNode,
   $isNoteNode,
   CharNode,
+  createMarkerLookup,
   getVisibleOpenMarkerText,
   MarkerNode,
   NBSP,
   NoteNode,
+  StyleInfo,
   VerseNode,
 } from "shared";
 // Reaching inside only for tests.
@@ -54,6 +56,22 @@ export async function testEnvironment($initialEditorState: () => void) {
   return baseTestEnvironment(
     $initialEditorState,
     <MarkerEditPlugin viewOptions={getViewOptions(STANDARD_VIEW_MODE)} />,
+  );
+}
+
+/** Like `testEnvironment`, but with a project-StyleInfo-backed MarkerLookup. */
+export async function testEnvironmentWithSheet(
+  $initialEditorState: () => void,
+  styleInfo: StyleInfo,
+) {
+  initializeSerialize(undefined, undefined);
+  reset();
+  return baseTestEnvironment(
+    $initialEditorState,
+    <MarkerEditPlugin
+      viewOptions={getViewOptions(STANDARD_VIEW_MODE)}
+      getMarker={createMarkerLookup(styleInfo)}
+    />,
   );
 }
 

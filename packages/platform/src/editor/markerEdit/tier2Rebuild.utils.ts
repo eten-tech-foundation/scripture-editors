@@ -2,6 +2,12 @@
  * Tier 2 paragraph-scoped re-tokenization (design spec §5.2). Runs INSIDE the
  * triggering update (transform or command listener), so the rebuild and the
  * user's edit are one history entry. Blast radius is paragraph-local.
+ *
+ * Sentinel classification and the paragraph guard (`$buildParaFragment`) are
+ * lookup-driven: both take a `MarkerLookup` (Task 1's `getMarker` seam) via
+ * `Tier2Context.getMarker`, so a project's custom.sty markers are classified —
+ * and rebuild — exactly like standard usfm.sty markers whenever a project
+ * `StyleInfo` is active, with the bundled table only as the no-project default.
  */
 
 import usjEditorAdaptor from "../adaptors/usj-editor.adaptor";
@@ -29,8 +35,8 @@ import {
   $isUnknownNode,
   $isVerseNode,
   getEditableCallerText,
-  getMarker,
   LoggerBasic,
+  MarkerLookup,
   MarkerType,
   NBSP,
   NoteNode,
@@ -40,6 +46,12 @@ import {
   VerseNode,
 } from "shared";
 import { $isImmutableNoteCallerNode, ViewOptions } from "shared-react";
+
+export interface Tier2Context {
+  viewOptions: ViewOptions;
+  getMarker: MarkerLookup;
+  logger?: LoggerBasic;
+}
 
 export const ATOMIC_SENTINEL = "￼";
 
@@ -112,11 +124,11 @@ function verseNeedsSentinel(node: VerseNode): boolean {
 }
 
 /** Mirrors `$appendChildrenFragment`'s "preserve this node atomically" classification. */
-function isRebuildSentinel(node: LexicalNode): boolean {
+function isRebuildSentinel(node: LexicalNode, getMarkerFn: MarkerLookup): boolean {
   if ($isMilestoneNode(node) || $isNoteNode(node) || $isUnknownNode(node)) return true;
   if ($isVerseNode(node)) return verseNeedsSentinel(node);
   if ($isCharNode(node))
-    return Boolean(node.getUnknownAttributes()) || getMarker(node.getMarker()) === undefined;
+    return Boolean(node.getUnknownAttributes()) || getMarkerFn(node.getMarker()) === undefined;
   return false;
 }
 
@@ -136,7 +148,7 @@ const SIGNATURE_CLOSE = String.fromCharCode(2);
  * both collapse to `ATOMIC_SENTINEL`, so a pre-splice rebuild output and the paragraphs
  * it was derived from compare equal IFF the rebuild changed nothing that matters.
  */
-function $appendSignature(children: LexicalNode[], out: string[]): void {
+function $appendSignature(children: LexicalNode[], out: string[], getMarkerFn: MarkerLookup): void {
   for (let index = 0; index < children.length; index++) {
     const node = children[index];
     if ($isMilestoneNode(node)) {
@@ -154,7 +166,7 @@ function $appendSignature(children: LexicalNode[], out: string[]): void {
       // glyph/content boundary — e.g. glyph "\q extra" vs. glyph "\q" + content
       // "extra" — changes the signature instead of silently canceling out.
       out.push(SIGNATURE_OPEN, "marker", toFragmentText(node.getTextContent()), SIGNATURE_CLOSE);
-    } else if (isRebuildSentinel(node)) {
+    } else if (isRebuildSentinel(node, getMarkerFn)) {
       out.push(ATOMIC_SENTINEL);
     } else if ($isVerseNode(node)) {
       out.push(SIGNATURE_OPEN, "verse", toFragmentText(node.getTextContent()), SIGNATURE_CLOSE);
@@ -165,7 +177,7 @@ function $appendSignature(children: LexicalNode[], out: string[]): void {
       out.push(textType === "marker-trailing-space" ? " " : toFragmentText(node.getTextContent()));
     } else if ($isElementNode(node)) {
       out.push(SIGNATURE_OPEN, node.getType());
-      $appendSignature(node.getChildren(), out);
+      $appendSignature(node.getChildren(), out, getMarkerFn);
       out.push(SIGNATURE_CLOSE);
     } else {
       out.push(ATOMIC_SENTINEL);
@@ -173,17 +185,25 @@ function $appendSignature(children: LexicalNode[], out: string[]): void {
   }
 }
 
-function $signatureOf(nodes: LexicalNode[]): string {
+function $signatureOf(nodes: LexicalNode[], getMarkerFn: MarkerLookup): string {
   const out: string[] = [];
-  $appendSignature(nodes, out);
+  $appendSignature(nodes, out, getMarkerFn);
   return out.join("");
 }
 
-function $appendChildrenFragment(element: ElementNode, out: FragmentAccumulator): void {
-  $appendNodesFragment(element.getChildren(), out);
+function $appendChildrenFragment(
+  element: ElementNode,
+  out: FragmentAccumulator,
+  getMarkerFn: MarkerLookup,
+): void {
+  $appendNodesFragment(element.getChildren(), out, getMarkerFn);
 }
 
-function $appendNodesFragment(children: LexicalNode[], out: FragmentAccumulator): void {
+function $appendNodesFragment(
+  children: LexicalNode[],
+  out: FragmentAccumulator,
+  getMarkerFn: MarkerLookup,
+): void {
   for (let index = 0; index < children.length; index++) {
     const node = children[index];
     if ($isMarkerNode(node)) {
@@ -200,9 +220,9 @@ function $appendNodesFragment(children: LexicalNode[], out: FragmentAccumulator)
     } else if ($isCharNode(node)) {
       // Unknown-marker spans (custom.sty) are not text-recoverable: the
       // tokenizer would degrade them to literal text (preserve-or-refuse).
-      if (node.getUnknownAttributes() || getMarker(node.getMarker()) === undefined)
+      if (node.getUnknownAttributes() || getMarkerFn(node.getMarker()) === undefined)
         pushSentinel(out, [node]);
-      else $appendChildrenFragment(node, out);
+      else $appendChildrenFragment(node, out, getMarkerFn);
     } else if ($isLineBreakNode(node)) {
       pushText(out, node, " ");
     } else if ($isTextNode(node)) {
@@ -212,25 +232,35 @@ function $appendNodesFragment(children: LexicalNode[], out: FragmentAccumulator)
     } else if ($isElementNode(node)) {
       // TypedMarkNode and other transparent wrappers: annotation marks are
       // host-reapplied overlays; their text content is rebuilt as plain content.
-      $appendChildrenFragment(node, out);
+      $appendChildrenFragment(node, out, getMarkerFn);
     } else {
       pushSentinel(out, [node]);
     }
   }
 }
 
-function $buildParaFragment(para: ParaNode): FragmentAccumulator | undefined {
+function $buildParaFragment(
+  para: ParaNode,
+  getMarkerFn: MarkerLookup,
+): FragmentAccumulator | undefined {
   // §5.2 guard rails (preserve-or-refuse): a paragraph the engine cannot fully
   // re-derive from its text is never rebuilt — edits inside it stay literal text.
   if (para.getUnknownAttributes()) return undefined;
-  // Unknown/custom.sty para marker: the tokenizer would re-wrap the fragment in
-  // a default \p and turn the real marker into literal text (invented bytes).
-  if (getMarker(para.getMarker())?.type !== MarkerType.Paragraph) return undefined;
+  // Known non-paragraph kinds can't be re-derived as paragraphs. Unknown markers
+  // now round-trip: the tokenizer emits them as paragraphs in body context (PT9
+  // DetermineUnknownTokenType), so they no longer refuse.
+  const paraKind = getMarkerFn(para.getMarker())?.type;
+  if (
+    paraKind !== undefined &&
+    paraKind !== MarkerType.Unknown &&
+    paraKind !== MarkerType.Paragraph
+  )
+    return undefined;
   // Paragraphs inside opaque blocks (§7: sidebars, periph, …) stay untouched.
   for (let parent = para.getParent(); parent !== null; parent = parent.getParent())
     if ($isUnknownNode(parent)) return undefined;
   const out: FragmentAccumulator = { text: "", spans: [], sentinels: [] };
-  $appendChildrenFragment(para, out);
+  $appendChildrenFragment(para, out, getMarkerFn);
   return out;
 }
 
@@ -281,11 +311,11 @@ function countSentinels(content: MarkerContent[]): number {
   return count;
 }
 
-function $spansForNodes(nodes: LexicalNode[]): FragmentSpan[] {
+function $spansForNodes(nodes: LexicalNode[], getMarkerFn: MarkerLookup): FragmentSpan[] {
   const out: FragmentAccumulator = { text: "", spans: [], sentinels: [] };
   for (const node of nodes) {
     if (out.text.length > 0) out.text += " ";
-    if ($isElementNode(node)) $appendChildrenFragment(node, out);
+    if ($isElementNode(node)) $appendChildrenFragment(node, out, getMarkerFn);
   }
   return out.spans;
 }
@@ -326,6 +356,7 @@ function $restoreSelectionAtOffset(
   newNodes: LexicalNode[],
   offset: number | undefined,
   anchorInParas: boolean,
+  getMarkerFn: MarkerLookup,
 ): void {
   // The caret was somewhere else entirely (the primary completion flow: the user
   // typed a mid-edit marker, then clicked/arrowed into another paragraph, which is
@@ -336,7 +367,7 @@ function $restoreSelectionAtOffset(
     newNodes.find($isElementNode)?.selectStart();
     return;
   }
-  $selectAtFragmentOffset($spansForNodes(newNodes), offset, newNodes);
+  $selectAtFragmentOffset($spansForNodes(newNodes, getMarkerFn), offset, newNodes);
 }
 
 /**
@@ -348,6 +379,7 @@ function $restoreSelectionInNoteContent(
   newNodes: LexicalNode[],
   offset: number | undefined,
   anchorInNote: boolean,
+  getMarkerFn: MarkerLookup,
 ): void {
   if (!anchorInNote) return;
   if (offset === undefined) {
@@ -355,20 +387,17 @@ function $restoreSelectionInNoteContent(
     return;
   }
   const out: FragmentAccumulator = { text: "", spans: [], sentinels: [] };
-  $appendNodesFragment(newNodes, out);
+  $appendNodesFragment(newNodes, out, getMarkerFn);
   $selectAtFragmentOffset(out.spans, offset, newNodes);
 }
 
-export function $rebuildParas(
-  paras: ParaNode[],
-  viewOptions: ViewOptions,
-  logger?: LoggerBasic,
-): boolean {
+export function $rebuildParas(paras: ParaNode[], context: Tier2Context): boolean {
   if (paras.length === 0) return false;
+  const { viewOptions, getMarker: getMarkerFn, logger } = context;
 
   const combined: FragmentAccumulator = { text: "", spans: [], sentinels: [] };
   for (const para of paras) {
-    const fragment = $buildParaFragment(para);
+    const fragment = $buildParaFragment(para, getMarkerFn);
     if (!fragment) {
       logger?.debug("[MarkerEdit] Tier 2 skipped: paragraph excluded by guard rails");
       return false;
@@ -403,7 +432,9 @@ export function $rebuildParas(
     }
   }
 
-  const content: MarkerContent[] = usfmFragmentToUsjContent(combined.text);
+  const content: MarkerContent[] = usfmFragmentToUsjContent(combined.text, {
+    getMarker: getMarkerFn,
+  });
   if (content.length === 0) {
     logger?.debug("[MarkerEdit] Tier 2 skipped: tokenizer produced no content");
     return false;
@@ -424,15 +455,18 @@ export function $rebuildParas(
 
   // Fixed-point refusal (preserve-or-refuse). If the freshly-tokenized output is
   // structurally identical to the paragraphs it was derived from, this rebuild is a
-  // no-op: splicing it in would reproduce the same unresolved literal text (an
-  // unterminated `\zzz`, a path-like `C:\temp`, a typo'd `\qq1`), re-arm the TextNode
-  // catch-all transform, and — via the caret-departure/Enter completion path — drive an
-  // endless resolve→rebuild→resolve cascade that hangs the main thread. Compare BEFORE
-  // any mutation and bail. The signature normalizes preserved nodes and their U+FFFC
+  // no-op: splicing it in would reproduce the same unresolved literal text (a bare
+  // `\`, a stray `\*`, or an unterminated milestone run — the tokenizer's remaining
+  // literal-degradation cases; most unknown markers now resolve structurally instead,
+  // see usfmFragmentToUsjContent's doc comment), re-arm the TextNode catch-all
+  // transform, and — via the caret-departure/Enter completion path — drive an endless
+  // resolve→rebuild→resolve cascade that hangs the main thread. Compare BEFORE any
+  // mutation and bail. The signature normalizes preserved nodes and their U+FFFC
   // placeholders to the same token, so this is a structure+text comparison, not node
   // identity; a rebuild that actually restructures anything (literal `\nd x\nd*` → a
-  // CharNode span) has a different signature and is never mistaken for a no-op.
-  if ($signatureOf(newNodes) === $signatureOf(paras)) {
+  // CharNode span, or an unknown opener splitting off its own paragraph) has a
+  // different signature and is never mistaken for a no-op.
+  if ($signatureOf(newNodes, getMarkerFn) === $signatureOf(paras, getMarkerFn)) {
     logger?.debug("[MarkerEdit] Tier 2 skipped: rebuild is a no-op (fixed point)");
     return false;
   }
@@ -442,7 +476,7 @@ export function $rebuildParas(
   // Move originals BEFORE removing the old paragraphs (removal destroys leftovers).
   $replaceSentinels(newNodes, combined.sentinels);
   paras.forEach((para) => para.remove());
-  $restoreSelectionAtOffset(newNodes, caretOffset, anchorInParas);
+  $restoreSelectionAtOffset(newNodes, caretOffset, anchorInParas, getMarkerFn);
   return true;
 }
 
@@ -455,6 +489,7 @@ export function $rebuildParas(
  */
 function $buildNoteFragment(
   note: NoteNode,
+  getMarkerFn: MarkerLookup,
 ): { out: FragmentAccumulator; contentNodes: LexicalNode[] } | undefined {
   // Only inline-expanded notes are re-tokenizable: a collapsed note's content is not
   // inline-editable and its display layout (interspersed spacing) is not text-recoverable.
@@ -493,7 +528,7 @@ function $buildNoteFragment(
 
   const contentNodes = children.slice(start, end);
   const out: FragmentAccumulator = { text: "", spans: [], sentinels: [] };
-  $appendNodesFragment(contentNodes, out);
+  $appendNodesFragment(contentNodes, out, getMarkerFn);
   return { out, contentNodes };
 }
 
@@ -505,12 +540,9 @@ function $buildNoteFragment(
  * untouched (never a partial mutation, never an infinite loop). A NoteNode inside a
  * PARAGRAPH rebuild stays an atomic sentinel; only this path descends into its content.
  */
-export function $rebuildNoteContent(
-  note: NoteNode,
-  viewOptions: ViewOptions,
-  logger?: LoggerBasic,
-): boolean {
-  const built = $buildNoteFragment(note);
+export function $rebuildNoteContent(note: NoteNode, context: Tier2Context): boolean {
+  const { viewOptions, getMarker: getMarkerFn, logger } = context;
+  const built = $buildNoteFragment(note, getMarkerFn);
   if (!built) {
     logger?.debug("[MarkerEdit] Note Tier 2 skipped: note excluded by guard rails");
     return false;
@@ -538,7 +570,10 @@ export function $rebuildNoteContent(
     }
   }
 
-  const content: MarkerContent[] = usfmFragmentToUsjContent(out.text);
+  const content: MarkerContent[] = usfmFragmentToUsjContent(out.text, {
+    getMarker: getMarkerFn,
+    isNoteContext: true,
+  });
   if (content.length === 0) {
     logger?.debug("[MarkerEdit] Note Tier 2 skipped: tokenizer produced no content");
     return false;
@@ -579,7 +614,7 @@ export function $rebuildNoteContent(
   // Fixed-point refusal (preserve-or-refuse) on the CONTENT nodes only: if the freshly
   // tokenized content is structurally identical to what it was derived from, splicing it
   // would re-arm the trigger and loop. Compare BEFORE any mutation and bail.
-  if ($signatureOf(newNodes) === $signatureOf(contentNodes)) {
+  if ($signatureOf(newNodes, getMarkerFn) === $signatureOf(contentNodes, getMarkerFn)) {
     logger?.debug("[MarkerEdit] Note Tier 2 skipped: rebuild is a no-op (fixed point)");
     return false;
   }
@@ -598,24 +633,20 @@ export function $rebuildNoteContent(
   }
   $replaceSentinels(newNodes, out.sentinels);
   contentNodes.forEach((node) => node.remove());
-  $restoreSelectionInNoteContent(newNodes, caretOffset, anchorInNote);
+  $restoreSelectionInNoteContent(newNodes, caretOffset, anchorInNote, getMarkerFn);
   return true;
 }
 
 /** Route a Tier 1-unexpressible edit to Tier 2 via the node's paragraph or note. */
-export function $requestTier2ForNode(
-  node: LexicalNode,
-  viewOptions: ViewOptions,
-  logger?: LoggerBasic,
-): void {
+export function $requestTier2ForNode(node: LexicalNode, context: Tier2Context): void {
   let current: LexicalNode | null = node;
   while (current) {
     // Note content is its own re-tokenization scope (§5.2/§6): route to the note-scoped
     // rebuild, which preserves the note node, its marker(s), and its caller.
-    if ($isNoteNode(current)) return void $rebuildNoteContent(current, viewOptions, logger);
+    if ($isNoteNode(current)) return void $rebuildNoteContent(current, context);
     if ($isUnknownNode(current)) return; // opaque-block interior (§7): stay literal
     if ($isParaNode(current)) {
-      $rebuildParas([current], viewOptions, logger);
+      $rebuildParas([current], context);
       return;
     }
     current = current.getParent();

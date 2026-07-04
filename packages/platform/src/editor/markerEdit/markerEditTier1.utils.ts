@@ -4,7 +4,7 @@
  * Everything Tier 1 cannot express routes to Tier 2 ($requestTier2ForNode).
  */
 
-import { $requestTier2ForNode } from "./tier2Rebuild.utils";
+import { $requestTier2ForNode, Tier2Context } from "./tier2Rebuild.utils";
 import {
   $createTextNode,
   $getNodeByKey,
@@ -21,10 +21,9 @@ import {
   $isParaNode,
   ChapterNode,
   closingMarkerText,
-  getMarker,
   getVisibleOpenMarkerText,
   isMilestoneCommentMarker,
-  LoggerBasic,
+  MarkerLookup,
   MarkerNode,
   MarkerType,
   MilestoneNode,
@@ -32,20 +31,21 @@ import {
   openingMarkerText,
   VerseNode,
 } from "shared";
-import { ViewOptions } from "shared-react";
 
-export interface MarkerEditContext {
-  viewOptions: ViewOptions;
+export interface MarkerEditContext extends Tier2Context {
   pendingKeys: Set<NodeKey>;
   splitExpected: { current: boolean };
-  logger?: LoggerBasic;
   /**
    * Literal text already submitted to `$requestTier2ForNode` this commit.
    * `$rebuildParas` is deterministic (design spec §5.2 degradation property): a paragraph
-   * whose rebuild still contains an unresolved backslash sequence (e.g. an unmatched closer,
-   * `\wj*` with no `\wj`) reproduces the identical literal text on every retry, so the
-   * TextNode catch-all transform ($textNodeTier2Transform) would otherwise retrigger the
-   * same rebuild forever within one update, tripping Lexical's infinite-transform guard.
+   * whose rebuild still contains a fragment the tokenizer cannot resolve into anything new
+   * (e.g. an unterminated milestone run) reproduces the identical literal text on every
+   * retry, so the TextNode catch-all transform ($textNodeTier2Transform) would otherwise
+   * retrigger the same rebuild forever within one update, tripping Lexical's
+   * infinite-transform guard. This is no longer about unmatched closers specifically —
+   * those now resolve to an `ImmutableUnmatchedNode` (real structural progress, not
+   * identical-literal reproduction) — the guard remains only for fragments that still
+   * reproduce identically.
    * Reset every commit by the plugin's update listener.
    */
   rebuildAttempted: Set<string>;
@@ -78,24 +78,27 @@ function isKnownMilestoneMarker(marker: string): boolean {
   );
 }
 
-/** Spec §5.1 same-positional-kind rule for paragraph openers. Unknown markers stay as typed. */
-function isParaKindMarker(marker: string): boolean {
+/** Spec §5.1 same-positional-kind rule for paragraph openers. Stylesheet-first:
+ * a marker the effective sheet KNOWS classifies by its styleType; heuristics
+ * cover only markers absent from the sheet. Unknown markers stay as typed
+ * (spec deviation #4: Tier-1 renames to unknown markers stay in place). */
+function isParaKindMarker(marker: string, getMarkerFn: MarkerLookup): boolean {
   const clean = marker.replace(/^\+/, "");
   if (clean === "v" || clean === "c") return false;
+  const kind = getMarkerFn(clean)?.type;
+  if (kind !== undefined && kind !== MarkerType.Unknown) return kind === MarkerType.Paragraph;
   if (NoteNode.isValidMarker(clean) || isKnownMilestoneMarker(clean)) return false;
-  const kind = getMarker(clean)?.type;
-  return kind === undefined || kind === MarkerType.Paragraph || kind === MarkerType.Unknown;
+  return true;
 }
 
-/** Spec §5.1 same-positional-kind rule for char openers. Unknown markers stay as typed.
- * Uses the same local `isKnownMilestoneMarker` helper as `isParaKindMarker`, for the same
- * z-wildcard false-positive reason (see that function's doc comment). */
-function isCharKindMarker(marker: string): boolean {
+/** Spec §5.1 same-positional-kind rule for char openers (see isParaKindMarker). */
+function isCharKindMarker(marker: string, getMarkerFn: MarkerLookup): boolean {
   const clean = marker.replace(/^\+/, "");
   if (clean === "v" || clean === "c") return false;
+  const kind = getMarkerFn(clean)?.type;
+  if (kind !== undefined && kind !== MarkerType.Unknown) return kind === MarkerType.Character;
   if (NoteNode.isValidMarker(clean) || isKnownMilestoneMarker(clean)) return false;
-  const kind = getMarker(clean)?.type;
-  return kind === undefined || kind === MarkerType.Character || kind === MarkerType.Unknown;
+  return true;
 }
 
 function $clampSelectionToLength(node: MarkerNode, newLength: number): void {
@@ -125,8 +128,8 @@ export function $applyOpenerRename(
 ): void {
   const parent = node.getParent();
   if ($isParaNode(parent)) {
-    if (!isParaKindMarker(newMarker)) {
-      $requestTier2ForNode(node, context.viewOptions, context.logger);
+    if (!isParaKindMarker(newMarker, context.getMarker)) {
+      $requestTier2ForNode(node, context);
       return;
     }
     parent.setMarker(newMarker);
@@ -138,10 +141,10 @@ export function $applyOpenerRename(
   if ($isCharNode(parent) || $isNoteNode(parent)) {
     const clean = newMarker.replace(/^\+/, "");
     const isValidKind = $isCharNode(parent)
-      ? isCharKindMarker(newMarker)
+      ? isCharKindMarker(newMarker, context.getMarker)
       : NoteNode.isValidMarker(clean);
     if (!isValidKind) {
-      $requestTier2ForNode(node, context.viewOptions, context.logger);
+      $requestTier2ForNode(node, context);
       return;
     }
     const oldMarker = node.getMarker();
@@ -151,7 +154,7 @@ export function $applyOpenerRename(
       // direct parent is the outer CharNode, not an inner one. Renaming in place under that
       // assumption would target the wrong closer, so refuse and let Tier 2 rebuild proper
       // nesting from the glyph text via the tokenizer.
-      $requestTier2ForNode(node, context.viewOptions, context.logger);
+      $requestTier2ForNode(node, context);
       return;
     }
     parent.setMarker(clean);
@@ -169,7 +172,7 @@ export function $applyOpenerRename(
     context.logger?.debug(`[MarkerEdit] ${parent.getType()} marker renamed to "${clean}"`);
     return;
   }
-  $requestTier2ForNode(node, context.viewOptions, context.logger);
+  $requestTier2ForNode(node, context);
 }
 
 export function $markerNodeTransform(node: MarkerNode, context: MarkerEditContext): void {
@@ -188,7 +191,7 @@ export function $markerNodeTransform(node: MarkerNode, context: MarkerEditContex
     if (CLOSER_FORM_REGEX.test(text)) {
       // Opener retyped into closer form: positional kind changed -> Tier 2.
       context.pendingKeys.delete(node.getKey());
-      $requestTier2ForNode(node, context.viewOptions, context.logger);
+      $requestTier2ForNode(node, context);
       return;
     }
     context.pendingKeys.add(node.getKey());
@@ -197,7 +200,7 @@ export function $markerNodeTransform(node: MarkerNode, context: MarkerEditContex
   // Closer / selfClosing: one-way authority — closer edits never rename the span.
   if (text.endsWith("*")) {
     context.pendingKeys.delete(node.getKey());
-    $requestTier2ForNode(node, context.viewOptions, context.logger);
+    $requestTier2ForNode(node, context);
     return;
   }
   context.pendingKeys.add(node.getKey());
@@ -223,7 +226,7 @@ export function $verseNodeTransform(node: VerseNode, context: MarkerEditContext)
   if (!match) {
     // `\v` prefix broken: PT9 re-tokenizes and the token becomes plain text
     context.pendingKeys.delete(node.getKey());
-    $requestTier2ForNode(node, context.viewOptions, context.logger);
+    $requestTier2ForNode(node, context);
     return;
   }
   const [, numberToken, rest] = match;
@@ -274,10 +277,10 @@ export function $resolvePendingMarkers(context: MarkerEditContext, exceptKey?: N
       if (text === $markerCanonicalText(node)) continue;
       const bare = BARE_OPENER_REGEX.exec(text);
       if (node.getMarkerSyntax() === "opening" && bare) $applyOpenerRename(node, bare[1], context);
-      else $requestTier2ForNode(node, context.viewOptions, context.logger);
+      else $requestTier2ForNode(node, context);
     } else {
       // Pending plain-text / verse nodes (registered by later tasks) re-tokenize.
-      $requestTier2ForNode(node, context.viewOptions, context.logger);
+      $requestTier2ForNode(node, context);
     }
   }
 }

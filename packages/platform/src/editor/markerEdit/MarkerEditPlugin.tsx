@@ -40,7 +40,9 @@ import { useEffect } from "react";
 import {
   ChapterNode,
   CharNode,
+  getMarker as bundledGetMarker,
   LoggerBasic,
+  MarkerLookup,
   MarkerNode,
   ParaNode,
   textTypeState,
@@ -58,9 +60,12 @@ import { getViewMode, STANDARD_VIEW_MODE, ViewOptions } from "shared-react";
  */
 export function MarkerEditPlugin({
   viewOptions,
+  getMarker,
   logger,
 }: {
   viewOptions: ViewOptions | undefined;
+  /** Project StyleInfo-backed lookup; defaults to the bundled table. */
+  getMarker?: MarkerLookup;
   logger?: LoggerBasic;
 }): null {
   const [editor] = useLexicalComposerContext();
@@ -71,6 +76,7 @@ export function MarkerEditPlugin({
     const isStandardView = getViewMode(viewOptions) === STANDARD_VIEW_MODE;
     const context: MarkerEditContext = {
       viewOptions,
+      getMarker: getMarker ?? bundledGetMarker,
       pendingKeys: new Set<NodeKey>(),
       splitExpected: { current: false },
       rebuildAttempted: new Set<string>(),
@@ -237,7 +243,7 @@ export function MarkerEditPlugin({
           editor.dispatchCommand(SELECTION_CHANGE_COMMAND, undefined);
       }),
     );
-  }, [editor, isEnabled, viewOptions, logger]);
+  }, [editor, isEnabled, viewOptions, getMarker, logger]);
 
   return null;
 }

@@ -7,10 +7,10 @@ import {
   deserializeSerializedEditorState,
   initialize as initializeDeserialize,
 } from "../adaptors/editor-usj.adaptor";
-import { $rebuildParas } from "./tier2Rebuild.utils";
+import { $rebuildParas, Tier2Context } from "./tier2Rebuild.utils";
 import { usxStringToUsj } from "@eten-tech-foundation/scripture-utilities";
 import { $getRoot, $getSelection, $isRangeSelection, $isTextNode } from "lexical";
-import { $isParaNode, ParaNode, TypedMarkNode } from "shared";
+import { $isParaNode, getMarker as bundledGetMarker, ParaNode, TypedMarkNode } from "shared";
 // Reaching inside only for tests.
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import { createBasicTestEnvironment } from "../../../../../libs/shared/src/nodes/usj/test.utils";
@@ -18,6 +18,7 @@ import { getViewOptions, STANDARD_VIEW_MODE, usjReactNodes } from "shared-react"
 
 const viewOptions = getViewOptions(STANDARD_VIEW_MODE);
 if (!viewOptions) throw new Error("Standard view options are required for these tests.");
+const context: Tier2Context = { viewOptions, getMarker: bundledGetMarker };
 
 /** Narrow away `T | undefined` without a banned non-null assertion. */
 function requireDefined<T>(value: T | undefined, message: string): T {
@@ -70,7 +71,7 @@ describe("$rebuildParas", () => {
           "text node containing 'before' not found",
         );
         text.setTextContent("before \\nd Lord\\nd* after");
-        expect($rebuildParas([para], viewOptions)).toBe(true);
+        expect($rebuildParas([para], context)).toBe(true);
       },
       { discrete: true },
     );
@@ -90,7 +91,7 @@ describe("$rebuildParas", () => {
 
   it("splits the paragraph when the text contains a literal \\p", () => {
     const editor = loadEditor(usjFromUsx(`<verse number="1" style="v" />one \\p two`));
-    editor.update(() => expect($rebuildParas([$lastPara()], viewOptions)).toBe(true), {
+    editor.update(() => expect($rebuildParas([$lastPara()], context)).toBe(true), {
       discrete: true,
     });
     const usj = requireDefined(
@@ -104,7 +105,7 @@ describe("$rebuildParas", () => {
 
   it("creates a verse from literal \\v text", () => {
     const editor = loadEditor(usjFromUsx(`<verse number="1" style="v" />one \\v 2 two`));
-    editor.update(() => $rebuildParas([$lastPara()], viewOptions), { discrete: true });
+    editor.update(() => $rebuildParas([$lastPara()], context), { discrete: true });
     const usj = deserializeSerializedEditorState(editor.getEditorState().toJSON(), viewOptions);
     const para = $firstPara(usj);
     expect(para).toMatchObject({
@@ -116,7 +117,7 @@ describe("$rebuildParas", () => {
     const editor = loadEditor(
       usjFromUsx(`<verse number="1" style="v" />text \\f + \\ft A note.\\f* end`),
     );
-    editor.update(() => $rebuildParas([$lastPara()], viewOptions), { discrete: true });
+    editor.update(() => $rebuildParas([$lastPara()], context), { discrete: true });
     const usj = deserializeSerializedEditorState(editor.getEditorState().toJSON(), viewOptions);
     const para = $firstPara(usj);
     expect(para).toMatchObject({
@@ -149,7 +150,7 @@ describe("$rebuildParas", () => {
           "note node not found",
         );
         noteKey = noteNode.getKey();
-        $rebuildParas([para], viewOptions);
+        $rebuildParas([para], context);
       },
       { discrete: true },
     );
@@ -177,7 +178,7 @@ describe("$rebuildParas", () => {
           "char node not found",
         );
         charKey = charNode.getKey();
-        expect($rebuildParas([para], viewOptions)).toBe(true);
+        expect($rebuildParas([para], context)).toBe(true);
       },
       { discrete: true },
     );
@@ -192,14 +193,30 @@ describe("$rebuildParas", () => {
     expect(JSON.stringify(usj)).toContain('"marker":"nd"'); // typed span built
   });
 
-  it("refuses to rebuild a paragraph whose marker is unknown (guard rail)", () => {
+  // Phase 4 (Task 4): the old guard refused ANY unknown para marker outright. The guard is
+  // now relaxed — unknown/custom.sty para markers round-trip, because the tokenizer (Task 3)
+  // emits them as paragraphs in body context (PT9 DetermineUnknownTokenType), so the rebuild
+  // no longer invents bytes by re-wrapping the fragment in a default \p.
+  it("rebuilds a paragraph whose marker is unknown to the sheet (relaxed guard, deviation #4)", () => {
     const editor = loadEditor(
       usxStringToUsj(
         `<usx version="3.0"><book code="RUT" style="id">T</book><chapter number="1" style="c" /><para style="zq">custom para \\nd x\\nd*</para></usx>`,
       ),
     );
-    editor.update(() => expect($rebuildParas([$lastPara()], viewOptions)).toBe(false), {
-      discrete: true,
+    editor.update(
+      () => {
+        const para = $lastPara();
+        expect(para.getMarker()).toBe("zq");
+        expect($rebuildParas([para], context)).toBe(true);
+      },
+      { discrete: true },
+    );
+    editor.getEditorState().read(() => {
+      const para = $lastPara();
+      // The unknown para marker is preserved (not rewrapped as a default \p)...
+      expect(para.getMarker()).toBe("zq");
+      // ...and the literal "\nd x\nd*" text really did rebuild into a CharNode span.
+      expect(para.getChildren().some((n) => n.getType() === "char")).toBe(true);
     });
   });
 
@@ -218,7 +235,7 @@ describe("$rebuildParas", () => {
           "milestone node not found",
         );
         msKey = msNode.getKey();
-        expect($rebuildParas([para], viewOptions)).toBe(true);
+        expect($rebuildParas([para], context)).toBe(true);
       },
       { discrete: true },
     );
@@ -239,7 +256,7 @@ describe("$rebuildParas", () => {
       () => {
         const para = $lastPara();
         para.setUnknownAttributes({ custom: "x" });
-        expect($rebuildParas([para], viewOptions)).toBe(false);
+        expect($rebuildParas([para], context)).toBe(false);
       },
       { discrete: true },
     );
@@ -262,7 +279,7 @@ describe("$rebuildParas", () => {
         // caret between "af" and "ter" of the trailing text
         const offset = text.getTextContent().indexOf("ter");
         text.select(offset, offset);
-        $rebuildParas([para], viewOptions);
+        $rebuildParas([para], context);
       },
       { discrete: true },
     );
@@ -273,6 +290,30 @@ describe("$rebuildParas", () => {
         const anchorNode = selection.anchor.getNode();
         expect(anchorNode.getTextContent().slice(selection.anchor.offset)).toMatch(/^ter/);
       }
+    });
+  });
+});
+
+describe("unknown-para rebuild round-trip (Phase 4)", () => {
+  it("rebuilds a paragraph whose marker is unknown to the sheet (no more guard refusal)", () => {
+    const editor = loadEditor(
+      usxStringToUsj(
+        `<usx version="3.0"><book code="RUT" style="id">T</book><chapter number="1" style="c" /><para style="zfoo">x \\nd y\\nd* z</para></usx>`,
+      ),
+    );
+    editor.update(
+      () => {
+        const para = $lastPara();
+        expect(para.getMarker()).toBe("zfoo");
+        // Previously $buildParaFragment refused: getMarker("zfoo") === undefined.
+        expect($rebuildParas([para], context)).toBe(true);
+      },
+      { discrete: true },
+    );
+    editor.getEditorState().read(() => {
+      const para = $lastPara();
+      expect(para.getMarker()).toBe("zfoo"); // preserved, not rewrapped as a default \p
+      expect(para.getChildren().some((n) => n.getType() === "char")).toBe(true); // "nd" span built
     });
   });
 });
