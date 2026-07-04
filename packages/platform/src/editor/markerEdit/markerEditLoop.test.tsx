@@ -2,17 +2,25 @@
  * Regression tests for the resolve/rebuild fixed-point loop (Critical finding) and
  * the caret-hijack-on-completion finding (Important #1).
  *
- * The loop: an unterminated backslash sequence the tokenizer cannot structure
- * (`\zzz`, a typo'd `\qq1`, a pasted `C:\temp`) lands as pending literal text; a
- * caret departure or Enter routes it to Tier 2; the rebuild reproduces the same
- * literal text in a fresh node; that node re-arms the TextNode transform, which
- * re-adds it to `pendingKeys`; the update listener self-dispatches
- * `SELECTION_CHANGE_COMMAND`, which resolves and rebuilds again — forever. Pre-fix
- * this hung the main thread (measured at 180s). The fix is a fixed-point refusal in
- * `$rebuildParas`: a structurally identical rebuild mutates nothing, so no new node
- * is created, nothing re-arms, and the cascade terminates. The termination argument
- * is verified by the mere fact that each test RETURNS (pre-fix it hangs); the tests
- * carry generous per-test timeouts so a re-introduced loop fails loudly.
+ * The loop: an unterminated backslash sequence lands as pending literal text; a caret
+ * departure or Enter routes it to Tier 2; the rebuild reproduces an unchanged fragment
+ * in a fresh node; that node re-arms the TextNode transform, which re-adds it to
+ * `pendingKeys`; the update listener self-dispatches `SELECTION_CHANGE_COMMAND`, which
+ * resolves and rebuilds again — forever. Pre-fix this hung the main thread (measured at
+ * 180s). The fix is a fixed-point refusal in `$rebuildParas`: a structurally identical
+ * rebuild mutates nothing, so no new node is created, nothing re-arms, and the cascade
+ * terminates. The termination argument is verified by the mere fact that each test
+ * RETURNS (pre-fix it hangs); the tests carry generous per-test timeouts so a
+ * re-introduced loop fails loudly.
+ *
+ * Since Task 3's stylesheet-first tokenizer, most of these inputs (`\zzz`, a pasted
+ * `C:\temp`) no longer hit the fixed-point path at all: an unknown marker now resolves
+ * structurally (PT9 `DetermineUnknownTokenType` — a body-context paragraph split), so
+ * the rebuild makes real forward progress on the FIRST attempt and the cascade
+ * terminates that way instead. Those tests below assert the real split. The fixed-point
+ * refusal itself is exercised separately, by an input the tokenizer genuinely cannot
+ * resolve into anything new (an unterminated milestone run — one of the tokenizer's
+ * few remaining literal-degradation cases).
  */
 
 import {
@@ -97,7 +105,11 @@ function $anchorIsInParaOf(anchor: LexicalNode, qText: TextNode): boolean {
  * sentinel; `$appendSignature` must do the same (Fix 1) or the fixed-point comparison
  * never matches and the resolve/rebuild loop stays reachable for any milestone paragraph.
  */
-function $milestoneZzzParaAndSecond(): { zzzText: TextNode; qText: TextNode } {
+function $milestoneZzzParaAndSecond(): {
+  zzzText: TextNode;
+  qText: TextNode;
+  milestone: ReturnType<typeof $createMilestoneNode>;
+} {
   const pTrailing = $createTextNode(NBSP);
   $setState(pTrailing, textTypeState, "marker-trailing-space");
   const milestone = $createMilestoneNode("ts-s", "ts.RUT.1");
@@ -124,11 +136,11 @@ function $milestoneZzzParaAndSecond(): { zzzText: TextNode; qText: TextNode } {
   // Caret starts inside the pending `\zzz` text (as if the user just typed it), matching
   // the shape of the other loop tests: it only pends until the caret departs.
   zzzText.select(zzzText.getTextContentSize(), zzzText.getTextContentSize());
-  return { zzzText, qText };
+  return { zzzText, qText, milestone };
 }
 
 describe("Tier 2 resolve/rebuild fixed-point loop (Critical)", () => {
-  it("does not hang and keeps literal text: unterminated \\zzz + caret departure", async () => {
+  it("does not hang: unterminated \\zzz + caret departure resolves via a real rebuild", async () => {
     let pText: TextNode, qText: TextNode;
     const { editor } = await testEnvironment(
       () => ({ pText, qText } = $twoParas("body", "second")),
@@ -145,7 +157,14 @@ describe("Tier 2 resolve/rebuild fixed-point loop (Critical)", () => {
     await act(async () => editor.update(() => qText.select(0, 0)));
 
     editor.getEditorState().read(() => {
-      expect($getRoot().getTextContent()).toContain("\\zzz"); // literal text intact
+      // "zzz" is unknown to the stylesheet, so per PT9 DetermineUnknownTokenType (Task 3)
+      // it resolves as a genuine body-context PARAGRAPH split, not literal text left in
+      // place: a real, non-fixed-point rebuild. The cascade still terminates (this test
+      // returns) via forward progress, not the fixed-point refusal.
+      const paras = $getRoot().getChildren().filter($isParaNode);
+      expect(paras).toHaveLength(3);
+      expect(paras[0].getTextContent()).toContain("body");
+      expect(paras[1].getMarker()).toBe("zzz");
       const selection = $getSelection();
       expect($isRangeSelection(selection)).toBe(true);
       if ($isRangeSelection(selection))
@@ -153,7 +172,7 @@ describe("Tier 2 resolve/rebuild fixed-point loop (Critical)", () => {
     });
   }, 15000);
 
-  it("does not hang and keeps literal text: unterminated \\zzz + Enter", async () => {
+  it("does not hang: unterminated \\zzz + Enter resolves via a real rebuild", async () => {
     let pText: TextNode;
     const { editor } = await testEnvironment(() => ({ pText } = $twoParas("body", "second")));
 
@@ -168,11 +187,16 @@ describe("Tier 2 resolve/rebuild fixed-point loop (Critical)", () => {
     });
 
     editor.getEditorState().read(() => {
-      expect($getRoot().getTextContent()).toContain("\\zzz");
+      // As above, "zzz" resolves structurally rather than staying literal (Task 3); Enter
+      // additionally applies its own default paragraph split on top of the rebuild's result,
+      // so (unlike the caret-departure case) the exact shape isn't asserted here — the
+      // regression this test guards is that resolving does not hang, and a "zzz" marker
+      // glyph is still present in the tree, not silently dropped.
+      expect($getRoot().getTextContent()).toContain("\\zz");
     });
   }, 15000);
 
-  it("does not hang and keeps literal text: path-like C:\\temp + caret departure", async () => {
+  it("does not hang: path-like C:\\temp resolves via a real rebuild, not a loop", async () => {
     let pText: TextNode, qText: TextNode;
     const { editor } = await testEnvironment(
       () => ({ pText, qText } = $twoParas("safe", "second")),
@@ -187,7 +211,15 @@ describe("Tier 2 resolve/rebuild fixed-point loop (Critical)", () => {
     await act(async () => editor.update(() => qText.select(0, 0)));
 
     editor.getEditorState().read(() => {
-      expect($getRoot().getTextContent()).toContain("C:\\temp");
+      // "temp" is unknown to the stylesheet, so per PT9 DetermineUnknownTokenType (Task 3)
+      // it resolves as a genuine body-context PARAGRAPH split rather than staying literal —
+      // a real, non-fixed-point rebuild. The termination guarantee here is forward progress
+      // (a new paragraph), not the fixed-point refusal exercised by the other tests in this
+      // file; either way the resolve/rebuild cascade must still terminate (this test returns).
+      const paras = $getRoot().getChildren().filter($isParaNode);
+      expect(paras).toHaveLength(3);
+      expect(paras[0].getTextContent()).toContain("C:");
+      expect(paras[1].getMarker()).toBe("temp");
     });
   }, 15000);
 });
@@ -221,32 +253,71 @@ describe("caret hijack on pending completion (Important #1)", () => {
   }, 15000);
 });
 
-describe("Tier 2 fixed-point loop with a milestone display run (Critical, Fix 1)", () => {
-  it("does not hang and keeps literal text: milestone run + unterminated \\zzz + caret departure", async () => {
-    let zzzKey: string, qText: TextNode;
+describe("Tier 2 rebuild with a milestone display run (Critical, Fix 1)", () => {
+  it("does not hang and preserves the milestone: unterminated \\zzz splits into its own paragraph", async () => {
+    let zzzKey: string, qText: TextNode, msKey: string;
     const { editor } = await testEnvironment(() => {
-      const { zzzText, qText: q } = $milestoneZzzParaAndSecond();
+      const { zzzText, qText: q, milestone } = $milestoneZzzParaAndSecond();
       zzzKey = zzzText.getKey();
       qText = q;
+      msKey = milestone.getKey();
     });
 
     // Move the caret into the other paragraph -> the pending `\zzz` text resolves,
     // routing the WHOLE paragraph (milestone run + literal text) through $rebuildParas.
-    // Pre-Fix-1 this hangs: the milestone run's OLD-side signature never collapses to the
-    // same single sentinel the fragment builder (and therefore the tokenized NEW side)
-    // produces, so the fixed-point refusal never fires and the resolve/rebuild cascade
-    // repeats forever.
+    // "zzz" is unknown to the stylesheet, so per PT9 DetermineUnknownTokenType (Task 3) it
+    // now resolves as a genuine body-context PARAGRAPH split rather than staying literal:
+    // this is a real, non-fixed-point rebuild, not a loop. Fix 1 still matters here:
+    // `$appendSignature` must collapse the milestone's display run into the SAME single
+    // sentinel `$appendChildrenFragment` uses when building the fragment, or the milestone
+    // run would be torn down and rebuilt (or worse, mismatch the sentinel/placeholder count
+    // and abort) even though its own paragraph content is otherwise unchanged.
     await act(async () => editor.update(() => qText.select(0, 0)));
 
     editor.getEditorState().read(() => {
-      expect($getRoot().getTextContent()).toContain("\\zzz"); // literal text intact
-      // Fixed-point refusal means $rebuildParas mutated nothing: the same TextNode
-      // instance is still attached, not a freshly re-tokenized replacement.
-      expect($getNodeByKey(zzzKey)?.isAttached()).toBe(true);
+      // The "zzz" text was genuinely retokenized away into a new paragraph (the old
+      // TextNode is gone entirely, not merely detached).
+      expect($getNodeByKey(zzzKey)).toBeNull();
+      const paras = $getRoot().getChildren().filter($isParaNode);
+      expect(paras).toHaveLength(3);
+      expect(paras[1].getMarker()).toBe("zzz");
+      // ...while the milestone in the FIRST paragraph survived as the SAME instance
+      // (preserved via its Tier 2 sentinel, not recreated), since that paragraph's own
+      // content was otherwise unchanged.
+      expect(paras[0].getChildren().some((n) => n.getKey() === msKey)).toBe(true);
       const selection = $getSelection();
       expect($isRangeSelection(selection)).toBe(true);
       if ($isRangeSelection(selection))
         expect($anchorIsInParaOf(selection.anchor.getNode(), qText)).toBe(true);
+    });
+  }, 15000);
+});
+
+describe("genuine fixed-point refusal (no real progress possible)", () => {
+  it("does not hang: an unterminated milestone run is a true no-op, refused rather than looping", async () => {
+    // Unlike `\zzz` or `C:\temp` above, an unterminated milestone run (no `\*` to close it)
+    // is one of the tokenizer's few remaining literal-degradation cases (see
+    // usfmFragmentToUsjContent's doc comment): it comes back out exactly as it went in, so
+    // this is the one scenario left where the resolve/rebuild cascade must terminate via
+    // `$rebuildParas`'s fixed-point refusal (no mutation), not via real forward progress.
+    let pText: TextNode, qText: TextNode;
+    const { editor } = await testEnvironment(
+      () => ({ pText, qText } = $twoParas("body", "second")),
+    );
+
+    await act(async () =>
+      editor.update(() => {
+        pText.setTextContent('body \\ts-s |sid="x"');
+        pText.select(pText.getTextContentSize(), pText.getTextContentSize());
+      }),
+    );
+    await act(async () => editor.update(() => qText.select(0, 0)));
+
+    editor.getEditorState().read(() => {
+      expect($getRoot().getTextContent()).toContain('\\ts-s |sid="x"'); // literal text intact
+      // No split happened: the rebuild was refused as a no-op, not spliced in.
+      const paras = $getRoot().getChildren().filter($isParaNode);
+      expect(paras).toHaveLength(2);
     });
   }, 15000);
 });

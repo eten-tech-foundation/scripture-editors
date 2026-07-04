@@ -1,4 +1,9 @@
-import { $appendCharPara, $appendVersePara, testEnvironment } from "./markerEdit.test-helpers";
+import {
+  $appendCharPara,
+  $appendVersePara,
+  testEnvironment,
+  testEnvironmentWithSheet,
+} from "./markerEdit.test-helpers";
 import { act } from "@testing-library/react";
 import {
   $createTextNode,
@@ -22,6 +27,7 @@ import {
   NBSP,
   NoteNode as NoteNodeClass,
   ParaNode,
+  StyleInfo,
   VerseNode,
 } from "shared";
 
@@ -31,6 +37,54 @@ function $appendHeadingPara(): { para: ParaNode; marker: MarkerNode } {
   $getRoot().append(para.append(marker, $createTextNode(NBSP), $createTextNode("Heading")));
   return { para, marker };
 }
+
+const customSheet: StyleInfo = {
+  markers: {
+    p: { marker: "p", styleType: "paragraph" },
+    s1: { marker: "s1", styleType: "paragraph" },
+    nd: { marker: "nd", styleType: "character", endMarker: "nd*" },
+    zln: { marker: "zln", styleType: "character", endMarker: "zln*" },
+    zpb: { marker: "zpb", styleType: "paragraph" },
+  },
+};
+
+describe("stylesheet-first kind guards (Phase 4)", () => {
+  it("renames a char span to a project-known custom char marker in Tier 1", async () => {
+    let char: CharNode, marker: MarkerNode, closer: MarkerNode;
+    const { editor } = await testEnvironmentWithSheet(
+      () => ({ char, marker, closer } = $appendCharPara()),
+      customSheet,
+    );
+    await act(async () => editor.update(() => marker.setTextContent("\\zln ")));
+    editor.getEditorState().read(() => {
+      expect(char.getMarker()).toBe("zln");
+      expect(closer.getTextContent()).toBe("\\zln*");
+    });
+  });
+
+  it("routes a para rename to a project-known char marker to Tier 2 (not renamed in place)", async () => {
+    let para: ParaNode, marker: MarkerNode;
+    const { editor } = await testEnvironmentWithSheet(
+      () => ({ para, marker } = $appendHeadingPara()),
+      customSheet,
+    );
+    await act(async () => editor.update(() => marker.setTextContent("\\zln ")));
+    editor.getEditorState().read(() => {
+      // zln is CHARACTER kind in the sheet: the para must NOT become a "zln" para.
+      expect(para.isAttached() ? para.getMarker() : "detached").not.toBe("zln");
+    });
+  });
+
+  it("keeps an unknown rename in place with the project sheet active (deviation #4)", async () => {
+    let para: ParaNode, marker: MarkerNode;
+    const { editor } = await testEnvironmentWithSheet(
+      () => ({ para, marker } = $appendHeadingPara()),
+      customSheet,
+    );
+    await act(async () => editor.update(() => marker.setTextContent("\\zzz ")));
+    editor.getEditorState().read(() => expect(para.getMarker()).toBe("zzz"));
+  });
+});
 
 describe("Tier 1 paragraph-marker rename", () => {
   it("renames the paragraph when marker text is retyped and space-terminated", async () => {
@@ -171,10 +225,12 @@ describe("Tier 1 char/note opener rename", () => {
     let parts: ReturnType<typeof $appendCharPara>;
     const { editor } = await testEnvironment(() => (parts = $appendCharPara()));
     await act(async () => editor.update(() => parts.closer.setTextContent("\\wj*")));
-    // Tokenizer sees `\nd ␣Lord\wj*`: unmatched closer stays literal, span auto-closes.
+    // Tokenizer sees `\nd ␣Lord\wj*`: the span auto-closes, and the unmatched `\wj*`
+    // closer resolves to an ImmutableUnmatchedNode (PT9 sink.Unmatched), not literal text.
     const json = JSON.stringify(editor.getEditorState().toJSON());
     expect(json).toContain('"marker":"nd"');
-    expect(json).toContain("\\\\wj*");
+    expect(json).toContain('"type":"unmatched"');
+    expect(json).toContain('"marker":"wj*"');
   });
 
   it("renames a note opener and mirrors its closer", async () => {

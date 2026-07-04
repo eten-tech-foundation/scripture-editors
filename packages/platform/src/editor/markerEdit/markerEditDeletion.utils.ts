@@ -109,6 +109,6 @@ export function $charNodeDeletionTransform(char: CharNode, context: MarkerEditCo
     .some((child) => $isMarkerNode(child) && child.getMarkerSyntax() === "closing");
   if (needsCloser && !hasCloser) {
     // §5.5: closer deletion goes through Tier 2 (tokenizer decides the span extent).
-    $requestTier2ForNode(char, context.viewOptions, context.logger);
+    $requestTier2ForNode(char, context);
   }
 }

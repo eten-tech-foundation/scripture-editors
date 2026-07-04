@@ -7,7 +7,7 @@ import {
   serializedState,
   viewOptions,
 } from "./markerEdit.test-helpers";
-import { $rebuildNoteContent, $rebuildParas } from "./tier2Rebuild.utils";
+import { $rebuildNoteContent, $rebuildParas, Tier2Context } from "./tier2Rebuild.utils";
 import { act } from "@testing-library/react";
 import { $getRoot, $getSelection, $isRangeSelection, $isTextNode } from "lexical";
 import {
@@ -15,6 +15,7 @@ import {
   $isMarkerNode,
   $isNoteNode,
   $isParaNode,
+  getMarker as bundledGetMarker,
   NBSP,
   NoteNode,
   TypedMarkNode,
@@ -23,6 +24,8 @@ import {
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import { createBasicTestEnvironment } from "../../../../../libs/shared/src/nodes/usj/test.utils";
 import { usjReactNodes } from "shared-react";
+
+const context: Tier2Context = { viewOptions, getMarker: bundledGetMarker };
 
 /** Char markers (in order) directly inside the note's content. */
 function noteCharMarkers(note: NoteNode): string[] {
@@ -134,19 +137,21 @@ describe("note-scope Tier 2 rebuild", () => {
   // same shape of input through the REAL mounted `MarkerEditPlugin` (typed text ->
   // `$textNodeTier2Transform` -> `$requestTier2ForNode` -> `$rebuildNoteContent`), inside a
   // note instead of a paragraph, to prove the note-scoped path terminates too.
-  it("types path-like literal backslash text in note content without restructuring or hanging", async () => {
+  it("resolves path-like literal backslash text in note content into a char span (not a hang)", async () => {
     const { editor } = await renderStandardEditorWithUnclosedNote();
 
     await typeInNoteContent(editor, "C:\\temp path ");
 
     editor.getEditorState().read(() => {
       const note = findOnlyNote($getRoot());
-      // Not restructured: still a single `\ft` span, the literal text intact as content —
-      // not re-tokenized into a marker/span (the tokenizer cannot resolve `\temp` as a
-      // known marker, so the rebuild is either refused outright or reproduces the same
-      // literal text, which the fixed-point check then refuses to splice in).
-      expect(noteCharMarkers(note)).toEqual(["ft"]);
-      expect(note.getTextContent()).toContain("C:\\temp path");
+      // "temp" is unknown to the stylesheet, so per PT9 DetermineUnknownTokenType (Task 3)
+      // it resolves as a CHARACTER span inside note content (context = note, not body, so
+      // it does NOT become a paragraph) rather than staying literal: a real, non-fixed-point
+      // rebuild. The regression this test guards (Task 2) is that this terminates rather
+      // than hanging, whatever the resulting structure.
+      expect(noteCharMarkers(note)).toEqual(["ft", "temp"]);
+      expect(note.getTextContent()).toContain("C:");
+      expect(note.getTextContent()).toContain("path");
     });
   }, 15000); // generous timeout: a re-introduced cascade must fail loudly, not hang silently
 
@@ -160,7 +165,7 @@ describe("note-scope Tier 2 rebuild", () => {
       () => {
         const note = findOnlyNote($getRoot());
         expect(note.getIsCollapsed()).toBe(true);
-        expect($rebuildNoteContent(note, viewOptions)).toBe(false);
+        expect($rebuildNoteContent(note, context)).toBe(false);
       },
       { discrete: true },
     );
@@ -173,7 +178,7 @@ describe("note-scope Tier 2 rebuild", () => {
       () => {
         // No new marker typed: re-tokenizing the unchanged content is a fixed point.
         const note = findOnlyNote($getRoot());
-        expect($rebuildNoteContent(note, viewOptions)).toBe(false);
+        expect($rebuildNoteContent(note, context)).toBe(false);
         expect(noteCharMarkers(note)).toEqual(["ft"]); // untouched
       },
       { discrete: true },
@@ -206,7 +211,7 @@ describe("note-scope Tier 2 rebuild", () => {
         after.setTextContent(` \\nd Lord\\nd*${after.getTextContent()}`);
         // A paragraph rebuild treats the note as an atomic sentinel: same note instance,
         // and its inner content text node is moved through untouched (not re-tokenized).
-        expect($rebuildParas([para], viewOptions)).toBe(true);
+        expect($rebuildParas([para], context)).toBe(true);
       },
       { discrete: true },
     );
