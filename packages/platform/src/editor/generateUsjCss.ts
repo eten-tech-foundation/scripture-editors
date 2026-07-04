@@ -48,6 +48,8 @@ function markerDeclarations(entry: MarkerStyleInfo, zoom: number, rtl: boolean):
     decls.push(`margin-bottom: ${formatLength(entry.spaceAfter * zoom)}pt`);
   if (entry.lineSpacing === 1) decls.push("line-height: 1.5");
   else if (entry.lineSpacing === 2) decls.push("line-height: 2");
+  // Deliberate duplicate-property cascade: a marker with both fontSize and sub/superscript emits
+  // font-size twice — the later 66% wins per CSS cascade (matches PT9's independent emissions).
   if (entry.subscript) decls.push("vertical-align: text-bottom", "font-size: 66%");
   else if (entry.superscript) decls.push("vertical-align: text-top", "font-size: 66%");
   if (entry.underline) decls.push("text-decoration: underline");

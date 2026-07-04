@@ -56,6 +56,40 @@ describe("generateUsjCss (PT9 CSSCreator port)", () => {
     expect(css).toContain("font-size: 116%");
   });
 
+  // Review-fix coverage: the formula-table branches the first fixture leaves unexercised.
+  const branchStyleInfo: StyleInfo = {
+    markers: {
+      pr: { marker: "pr", styleType: "paragraph", rightMargin: 0.25, justification: "left" },
+      pd: { marker: "pd", styleType: "paragraph", lineSpacing: 2 },
+      p3: { marker: "p3", styleType: "paragraph", bold: true, lineSpacing: 3 },
+      em: { marker: "em", styleType: "character", italic: true, underline: true },
+      wj: { marker: "wj", styleType: "character", fontName: "Andika" },
+      zsub: { marker: "zsub", styleType: "character", subscript: true },
+      fr: { marker: "fr", styleType: "character", fontSize: 14, superscript: true },
+    },
+  };
+
+  it("covers the remaining formula branches (ltr, zoom 1)", () => {
+    // Derivations: rightMargin 0.25in*20 = 5vw; lineSpacing 2 → 2, 3 → nothing;
+    // fr emits font-size twice (116% then 66%) — deliberate cascade, later wins.
+    expect(generateUsjCss(branchStyleInfo)).toBe(
+      [
+        ".editor-input .usfm_pr { margin-right: 5vw; text-align: left; }",
+        ".editor-input .usfm_pd { line-height: 2; }",
+        ".editor-input .usfm_p3 { font-weight: bold; }",
+        ".editor-input .usfm_em { font-style: italic; text-decoration: underline; }",
+        '.editor-input .usfm_wj { font-family: "Andika"; }',
+        ".editor-input .usfm_zsub { vertical-align: text-bottom; font-size: 66%; }",
+        ".editor-input .usfm_fr { font-size: 116%; vertical-align: text-top; font-size: 66%; }",
+      ].join("\n"),
+    );
+  });
+
+  it("swaps rightMargin and left-justification under rtl", () => {
+    const css = generateUsjCss(branchStyleInfo, { rtl: true });
+    expect(css).toContain(".editor-input .usfm_pr { margin-left: 5vw; text-align: right; }");
+  });
+
   it("respects a custom containerSelector", () => {
     expect(generateUsjCss({ markers: {} }, { containerSelector: ".x" })).toBe("");
     expect(
