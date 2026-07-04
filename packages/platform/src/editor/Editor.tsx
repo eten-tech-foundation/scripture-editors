@@ -12,6 +12,7 @@ import { EditorOptions, EditorProps, EditorRef } from "./editor.model";
 import editorTheme from "./editor.theme";
 import { ActiveTextPlugin } from "./ActiveTextPlugin";
 import { MarkerEditPlugin } from "./markerEdit/MarkerEditPlugin";
+import { MarkerValidationPlugin } from "./markerEdit/MarkerValidationPlugin";
 import { ParaMarkerPrefixGuardPlugin } from "./ParaMarkerPrefixGuardPlugin";
 import { ScriptureReferencePlugin } from "./ScriptureReferencePlugin";
 import TreeViewPlugin from "./TreeViewPlugin";
@@ -590,6 +591,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
           <ContextMenuPlugin options={contextMenuOptions} />
           <EmptyVerseCaretGuardPlugin />
           <MarkerEditPlugin viewOptions={viewOptions} getMarker={markerLookup} logger={logger} />
+          <MarkerValidationPlugin styleInfo={styleInfo} viewOptions={viewOptions} logger={logger} />
           <NoteNodePlugin
             expandedNoteKeyRef={expandedNoteKeyRef}
             nodeOptions={nodeOptions}
