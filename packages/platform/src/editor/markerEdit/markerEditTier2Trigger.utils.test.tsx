@@ -1,6 +1,13 @@
 import { historyTestEnvironment, testEnvironment } from "./markerEdit.test-helpers";
 import { act } from "@testing-library/react";
-import { $createTextNode, $getRoot, KEY_ENTER_COMMAND, UNDO_COMMAND } from "lexical";
+import {
+  $createTextNode,
+  $getRoot,
+  $getSelection,
+  $isRangeSelection,
+  KEY_ENTER_COMMAND,
+  UNDO_COMMAND,
+} from "lexical";
 import { $createMarkerNode, $createNoteNode, $createParaNode, $isParaNode, NBSP } from "shared";
 
 describe("Tier 2 literal-text triggers", () => {
@@ -64,6 +71,46 @@ describe("Tier 2 literal-text triggers", () => {
       expect(paras[1].getMarker()).toBe("q1");
     });
     expect(JSON.stringify(editor.getEditorState().toJSON())).toContain('"number":"2"');
+  });
+
+  it("keeps subsequent keystrokes in the glyph after a mid-paragraph marker split (no scramble)", async () => {
+    // Typing `\z` mid-paragraph terminates immediately against the pre-existing following
+    // space and splits the paragraph. The user is mid-way through typing a longer marker
+    // name (`\zfoo `): each subsequent keystroke must land at the END of the glyph so the
+    // name builds up in order. Pre-fix, the post-rebuild caret sat INSIDE the glyph
+    // (between "\" and "z"), so `\zfoo ` came out as the scrambled `\foo z` (Task 9 QA).
+    const { editor } = await testEnvironment(() => {
+      const para = $createParaNode("p");
+      $getRoot().append(
+        para.append($createMarkerNode("p"), $createTextNode(`${NBSP}For Yahweh knows the way`)),
+      );
+    });
+    await act(async () =>
+      editor.update(() => {
+        const text = $getRoot()
+          .getAllTextNodes()
+          .find((node) => node.getTextContent() === `${NBSP}For Yahweh knows the way`);
+        expect(text).toBeDefined();
+        // simulate the user having just typed "\z" after "knows"; caret right after the "z"
+        text?.setTextContent(`${NBSP}For Yahweh knows\\z the way`);
+        const offset = `${NBSP}For Yahweh knows\\z`.length;
+        text?.select(offset, offset);
+      }),
+    );
+    // Continue typing the rest of the marker name at the restored caret.
+    for (const character of ["f", "o", "o", " "]) {
+      await act(async () =>
+        editor.update(() => {
+          const selection = $getSelection();
+          expect($isRangeSelection(selection)).toBe(true);
+          if ($isRangeSelection(selection)) selection.insertText(character);
+        }),
+      );
+    }
+    editor.getEditorState().read(() => {
+      const paras = $getRoot().getChildren().filter($isParaNode);
+      expect(paras.some((para) => para.getMarker() === "zfoo")).toBe(true);
+    });
   });
 
   it("coalesces the rebuild with the triggering edit into one undo step", async () => {

@@ -292,6 +292,45 @@ describe("$rebuildParas", () => {
       }
     });
   });
+
+  it("restores the caret to the END of a marker glyph split out mid-paragraph (no scramble)", () => {
+    // Typing `\z` mid-paragraph immediately terminates against the pre-existing following
+    // space, so the rebuild splits the paragraph. The caret sat right after the just-typed
+    // "z"; after the rebuild it must sit at the END of the new "\z" glyph (offset 2), so
+    // continued typing extends the marker name. Pre-fix, the caret was mapped through RAW
+    // fragment-string offsets, but the new fragment gains an inter-paragraph joiner space
+    // that the old fragment didn't have — every offset past the split point shifted by
+    // one, landing the caret INSIDE the glyph (between "\" and "z") and scrambling all
+    // subsequent keystrokes (Task 9 QA: `\zfoo ` rendered as `\foo z `).
+    const editor = loadEditor(usjFromUsx(`<verse number="1" style="v" />For Yahweh knows the way`));
+    editor.update(
+      () => {
+        const para = $lastPara();
+        const text = requireDefined(
+          para
+            .getChildren()
+            .filter($isTextNode)
+            .find((node) => node.getTextContent().includes("knows")),
+          "text node containing 'knows' not found",
+        );
+        // simulate the user having just typed "\z" after "knows"; caret right after the "z"
+        text.setTextContent("For Yahweh knows\\z the way");
+        const offset = "For Yahweh knows\\z".length;
+        text.select(offset, offset);
+        expect($rebuildParas([para], context)).toBe(true);
+      },
+      { discrete: true },
+    );
+    editor.getEditorState().read(() => {
+      const selection = $getSelection();
+      expect($isRangeSelection(selection)).toBe(true);
+      if ($isRangeSelection(selection)) {
+        const anchorNode = selection.anchor.getNode();
+        expect(anchorNode.getTextContent()).toBe("\\z");
+        expect(selection.anchor.offset).toBe(2); // END of the glyph, not inside it
+      }
+    });
+  });
 });
 
 describe("unknown-para rebuild round-trip (Phase 4)", () => {

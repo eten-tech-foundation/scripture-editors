@@ -320,23 +320,50 @@ function $spansForNodes(nodes: LexicalNode[], getMarkerFn: MarkerLookup): Fragme
   return out.spans;
 }
 
-/** Place the collapsed caret at `offset` within `spans`, falling back to the first element. */
+/**
+ * The caret as a CUMULATIVE span-text offset: the summed length of the spans before the
+ * anchor's span, plus the in-span offset (a sentinel span counts as its single placeholder
+ * char). Cumulative — rather than raw `span.start` fragment-string — coordinates exclude
+ * the non-span filler between spans (the inter-paragraph " " joiners), which a rebuild can
+ * add or remove (e.g. a mid-paragraph marker splitting off its own paragraph). Span TEXT
+ * itself is preserved by the tokenizer (§5.2 degradation property), so a cumulative offset
+ * captured over the old spans lands on the same character over the new spans; a raw offset
+ * would shift past every added joiner (Task 9 QA: caret restored INSIDE the new glyph,
+ * scrambling subsequent keystrokes).
+ */
+function caretSpanTextOffset(
+  spans: FragmentSpan[],
+  anchorKey: string,
+  anchorOffset: number,
+): number | undefined {
+  let cumulative = 0;
+  for (const span of spans) {
+    const length = span.end - span.start;
+    if (span.key === anchorKey)
+      return cumulative + Math.min(span.isSentinel ? 1 : anchorOffset, length);
+    cumulative += length;
+  }
+  return undefined;
+}
+
+/** Place the collapsed caret at cumulative span-text `offset` (see `caretSpanTextOffset`)
+ * within `spans`, falling back to the first element. */
 function $selectAtFragmentOffset(
   spans: FragmentSpan[],
   offset: number,
   newNodes: LexicalNode[],
 ): void {
   let best: { key: string; offset: number } | undefined;
+  let cumulative = 0;
   for (const span of spans) {
-    if (span.isSentinel) continue;
-    if (offset >= span.start && offset <= span.end) {
-      best = { key: span.key, offset: offset - span.start };
+    const length = span.end - span.start;
+    // Skip sentinels (their inner text is not addressable); an offset that fell inside
+    // one resolves to the start of the next non-sentinel span.
+    if (!span.isSentinel && offset <= cumulative + length) {
+      best = { key: span.key, offset: Math.max(offset - cumulative, 0) };
       break;
     }
-    if (span.start > offset) {
-      best = { key: span.key, offset: 0 };
-      break;
-    }
+    cumulative += length;
   }
   if (!best) {
     const last = [...spans].reverse().find((span) => !span.isSentinel);
@@ -422,14 +449,12 @@ export function $rebuildParas(paras: ParaNode[], context: Tier2Context): boolean
         anchorInParas = true;
         break;
       }
-    if (selection.isCollapsed()) {
-      const span = combined.spans.find((candidate) => candidate.key === selection.anchor.key);
-      if (span)
-        caretOffset = Math.min(
-          span.start + (span.isSentinel ? 1 : selection.anchor.offset),
-          span.end,
-        );
-    }
+    if (selection.isCollapsed())
+      caretOffset = caretSpanTextOffset(
+        combined.spans,
+        selection.anchor.key,
+        selection.anchor.offset,
+      );
   }
 
   const content: MarkerContent[] = usfmFragmentToUsjContent(combined.text, {
@@ -560,14 +585,8 @@ export function $rebuildNoteContent(note: NoteNode, context: Tier2Context): bool
         anchorInNote = true;
         break;
       }
-    if (selection.isCollapsed()) {
-      const span = out.spans.find((candidate) => candidate.key === selection.anchor.key);
-      if (span)
-        caretOffset = Math.min(
-          span.start + (span.isSentinel ? 1 : selection.anchor.offset),
-          span.end,
-        );
-    }
+    if (selection.isCollapsed())
+      caretOffset = caretSpanTextOffset(out.spans, selection.anchor.key, selection.anchor.offset);
   }
 
   const content: MarkerContent[] = usfmFragmentToUsjContent(out.text, {

@@ -33,7 +33,6 @@ import {
   KEY_DOWN_COMMAND,
   KEY_ENTER_COMMAND,
   NodeKey,
-  SELECTION_CHANGE_COMMAND,
   TextNode,
 } from "lexical";
 import { useEffect } from "react";
@@ -83,12 +82,14 @@ export function MarkerEditPlugin({
       logger,
     };
     // Tracks the anchor key as of the most recent commit, updated synchronously by the
-    // update listener below. SELECTION_CHANGE_COMMAND can also be re-entered from Lexical's
-    // own async native-DOM selectionchange handling; by that point further updates may
-    // already have landed, so reading $getSelection() from inside that handler can observe
-    // a stale anchor. The update listener never lags, so it's the reliable source here.
+    // update listener below (which never lags, unlike command handlers re-entered from
+    // Lexical's async native-DOM selectionchange handling). Read again at resolution time
+    // so the deferred resolution below always excepts the node the caret is CURRENTLY in.
     let lastAnchorKey: NodeKey | undefined;
-    return mergeRegister(
+    // One pending-marker resolution queued at a time; disposed on effect cleanup.
+    let resolveQueued = false;
+    let disposed = false;
+    const unregister = mergeRegister(
       editor.registerNodeTransform(MarkerNode, (node) => {
         if (editor.isComposing()) return;
         $markerNodeTransform(node, context);
@@ -202,21 +203,6 @@ export function MarkerEditPlugin({
         },
         COMMAND_PRIORITY_LOW,
       ),
-      editor.registerCommand(
-        SELECTION_CHANGE_COMMAND,
-        () => {
-          // PT9's debounced reformat completes a marker once the user moves on;
-          // our deterministic equivalent: resolve pendings the caret is no longer in. An
-          // absent selection (no RangeSelection at all, e.g. before the editor has ever been
-          // focused) is not evidence the caret left a pending node - only an *observed* move
-          // to somewhere else counts, so pendings stay untouched until it's known where the
-          // caret actually is.
-          if (context.pendingKeys.size === 0 || lastAnchorKey === undefined) return false;
-          $resolvePendingMarkers(context, lastAnchorKey);
-          return false;
-        },
-        COMMAND_PRIORITY_LOW,
-      ),
       editor.registerUpdateListener(({ editorState }) => {
         context.splitExpected.current = false;
         context.rebuildAttempted.clear();
@@ -224,25 +210,55 @@ export function MarkerEditPlugin({
           const selection = $getSelection();
           return $isRangeSelection(selection) ? selection.anchor.key : undefined;
         });
-        // Lexical's native selectionchange-driven SELECTION_CHANGE_COMMAND dispatch is async
-        // (a browser/DOM event) and, in headless/test environments especially, isn't guaranteed
-        // to fire promptly - or at all - relative to further synchronous updates. Re-dispatching
-        // here, synchronously at the end of every commit, makes the caret-departure completion
-        // trigger deterministic instead of depending on that native event's timing.
+        // PT9's debounced reformat completes a marker once the user moves on; our
+        // deterministic equivalent resolves pendings the caret is no longer in, keyed off
+        // every commit here rather than off SELECTION_CHANGE_COMMAND — Lexical's native
+        // selectionchange dispatch is async (a browser/DOM event) and, in headless/test
+        // environments especially, isn't guaranteed to fire promptly (or at all), while a
+        // caret move IS a commit, so this listener never misses a departure. An absent
+        // selection (no RangeSelection at all, e.g. before the editor has ever been
+        // focused) is not evidence the caret left a pending node — only an *observed* move
+        // to somewhere else counts, so pendings stay untouched until it's known where the
+        // caret actually is.
         //
-        // Termination guarantee: resolving a pending key ALWAYS deletes it from `pendingKeys`
-        // first, then requests a Tier 2 rebuild. The rebuild either (a) makes real progress —
-        // producing a structurally different paragraph, whose new nodes may re-add a key, but
-        // that is genuine forward motion, not a cycle — or (b) is a fixed point, in which case
-        // `$rebuildParas` refuses and mutates nothing, so no new node is created and no transform
-        // re-adds a key. A no-mutation resolution commits nothing new, so this self-dispatch is
-        // not re-entered. Either way `pendingKeys` cannot grow without a corresponding structural
-        // change, so the resolve/rebuild cascade terminates. (An earlier version claimed the set
-        // shrinks monotonically; that was false — the fixed-point refusal is the real guarantee.)
-        if (context.pendingKeys.size > 0 && lastAnchorKey !== undefined)
-          editor.dispatchCommand(SELECTION_CHANGE_COMMAND, undefined);
+        // The resolution is deferred to a microtask and re-entered through a fresh
+        // top-level editor.update(): this listener runs INSIDE $commitPendingUpdates,
+        // after the just-committed state (and, in dev builds, its selection and node map)
+        // is frozen. Mutating synchronously from here can execute against that frozen
+        // state and throw — reachable in production because a commit can be force-flushed
+        // MID-dispatch by any SELECTION_CHANGE handler calling editor.read() (e.g.
+        // OnSelectionChangePlugin), leaving this listener's dispatch to short-circuit into
+        // the committed state (Task 9 QA bugs A/B). The microtask runs before any further
+        // input event, so completion stays deterministic. (Not editor.update() directly in
+        // the listener — that nests a queued update mid-commit; see the repo rule.)
+        //
+        // Termination guarantee: resolving a pending key ALWAYS deletes it from
+        // `pendingKeys` first, then requests a Tier 2 rebuild. The rebuild either (a)
+        // makes real progress — producing a structurally different paragraph, whose new
+        // nodes may re-add a key, but that is genuine forward motion, not a cycle — or (b)
+        // is a fixed point, in which case `$rebuildParas` refuses and mutates nothing, so
+        // the deferred update commits nothing, this listener doesn't fire again, and
+        // nothing re-queues. Either way `pendingKeys` cannot grow without a corresponding
+        // structural change, so the resolve/rebuild cascade terminates. (An earlier
+        // version claimed the set shrinks monotonically; that was false — the fixed-point
+        // refusal is the real guarantee.)
+        if (resolveQueued || lastAnchorKey === undefined) return;
+        const anchorKey = lastAnchorKey;
+        if (![...context.pendingKeys].some((key) => key !== anchorKey)) return;
+        resolveQueued = true;
+        queueMicrotask(() => {
+          resolveQueued = false;
+          if (disposed) return;
+          // lastAnchorKey is re-read here: if further commits landed before this microtask,
+          // the freshest anchor wins (never except a node the caret has already left).
+          editor.update(() => $resolvePendingMarkers(context, lastAnchorKey));
+        });
       }),
     );
+    return () => {
+      disposed = true;
+      unregister();
+    };
   }, [editor, isEnabled, viewOptions, getMarker, logger]);
 
   return null;
