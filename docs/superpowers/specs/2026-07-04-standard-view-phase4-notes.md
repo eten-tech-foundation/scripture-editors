@@ -45,7 +45,9 @@ plus `\Marker s1 \Color 255` (= #FF0000) merge test. Verification by editor stat
 
 **Result: 6/8 PASS** at Task 13; after Task 13b (below): **7/8 PASS** — item 2 fixed and
 re-verified in-app; item 7 root-caused (delta round-trip malformation, not the options
-override), fix pending controller decision.
+override). After Task 14 (user-sanctioned dedicated fix, 2026-07-04): **8/8 PASS** — item 7
+fixed (canonical glyph-free note ops in editable marker mode, commit 2a09b69 + worktree
+9fc945fff82) and re-verified in-app.
 
 | # | Item | Result | Evidence |
 | --- | --- | --- | --- |
@@ -55,7 +57,7 @@ override), fix pending controller decision.
 | 4 | `\zfoo ` in body → split + `status_unknown` | PASS | New `para` marker `zfoo` holding the tail text; glyph class `opening status_unknown`, computed rgb(204,30,20) weight 700 |
 | 5 | `\ft ` in body → `status_invalid` | PASS | Glyph `opening status_invalid`, rgb(204,30,20) + 1px rgb(204,30,20) border-bottom; the document's legitimate `char/ft` nodes inside real footnotes stayed undecorated (context sensitivity) |
 | 6 | `\zln ` inside `\s1` → `status_invalid` | PASS | Both zln glyphs `status_invalid` (red + underline) while the `\s1` opener glyph stays clean and red — occursUnder `p q1 q2` enforced |
-| 7 | FootnoteEditor popover classify/validate | **FAIL** (root-caused in 13b, fix pending) | No Tier-1/Tier-2 resolution inside the popover: typed markers remain literal text, no errors. Task 13b root cause (headless repro + in-app screenshot both confirm): NOT the popover options override — `markerMode: "editable"` IS preserved (source, dist, and repro all agree; the engine mounts). The popover NOTE IS MALFORMED by the delta round-trip: `getNoteOps` on an editable-markerMode note serializes char-span glyph MarkerNodes (`\fr`, `\ft`) and the closing `\f*` glyph as text ops (only the note's FIRST text child is skipped, `editor-delta.adaptor.ts:216-220`); the popover's `applyUpdate` re-synthesizes its own glyphs → doubled glyphs + an `ImmutableUnmatchedNode` from the bare `\f*` op (visible in the Task 13 qa7 screenshot: `\f + \fr \fr 1:1 \ft \ft\f*…\f*`). Tier-2 note rebuild then aborts: "sentinel/preserved-node count mismatch" → literal settle. Para-level typing is separately inert: the popover para's only editable text is the `\p` glyph's `marker-trailing-space` node, which `$textNodeTier2Transform` skips by design. Also, `\` is swallowed by FootnoteEditor's own document-keydown menu trigger (`footnote-editor.component.tsx:504-529`). Fix is delta-adaptor territory (canonical, glyph-free serialization in editable mode) with OT-collab blast radius — NEEDS_CONTEXT, not attempted in 13b. |
+| 7 | FootnoteEditor popover classify/validate | **PASS** (fixed in Task 14) | Root cause was the 13b diagnosis: `getNoteOps` serialized char-span glyph MarkerNodes + the closing `\f*` as text ops; `applyUpdate` re-synthesized glyphs → doubled glyphs + `ImmutableUnmatchedNode` → Tier-2 sentinel abort → literal settle. Task 14 fix (commit 2a09b69): canonical glyph-free note contents ops in editable marker mode (`$handleTextNodes` skips glyph MarkerNodes/editable caller text/structural NBSP inside notes; `$getNoteOp` carries unknownAttributes incl. `closed="false"`; `$createNote` re-adds the NBSP separator and honors `closed` on materialization) — note contents ops are now identical across marker modes and the ops→apply round trip is an idempotent fixed point (pinned by `note-ops-popover-roundtrip.test.tsx` + updated `opsGen1v1Editable`/`opsGen1v1Standard`). Worktree 9fc945fff82 gates FootnoteEditor's `\`-keydown menu trigger off when `markerMode === "editable"`. In-app re-verification (wgPIDGIN GEN 1): popover note loads well-formed (single glyphs, no unmatched — state-verified); Tier-1 rename `\ft`→`\fq` restyles on caret departure; typed `\zln …\zln* ` classifies as `char/zln` (blue, custom.sty); typed `\zfoo ` becomes `char/zfoo` with `status_unknown` glyphs rgb(204,30,20)/700 (unknown-in-note→char per PT9); literal `\` reaches the popover editor (menu suppressed); popover Save writes the note content CLEANLY into host state and SFM on disk (`\ft pau\ft*` — no doubled glyphs, no NBSP bytes). Save's replace POSITION is displaced by a separate pre-existing body OT-coordinate asymmetry (see limitations). |
 | 8 | Console 0 errors; typing latency | PASS | `console.error`/`window.onerror`/`unhandledrejection` hooks empty across the whole session; 30-char burst insert committed in 8 ms with validation active; all marker resolutions completed within the 2 s observation windows |
 
 ### QA method note (typed markers in-app)
@@ -81,20 +83,34 @@ marker typing and the menu coexist (PT9 allows both).
 
 - **Generated base-rule specificity (QA item 2):** RESOLVED in Task 13b (2bd0f05) — default
   `containerSelector` is now `".editor-input.usfm"`; re-verified in-app (computed Andika/18pt).
-- **Popover marker editing dead (QA item 7):** root-caused in Task 13b (see table): the
-  editable-markerMode delta round-trip (`getNoteOps` serializes glyph MarkerNodes/closing `\f*`
-  as text ops; `applyUpdate` re-synthesizes glyphs) malforms the popover note (doubled glyphs +
-  `ImmutableUnmatchedNode`), tripping the Tier-2 sentinel-count abort. Candidate fix: canonical
-  (glyph-free, view-independent) serialization in `$handleTextNodes`
-  (`libs/shared-react/src/plugins/usj/collab/editor-delta.adaptor.ts`) — skip MarkerNode glyph
-  text and `marker-trailing-space` nodes, mirroring the existing note-first-child skip. Blast
-  radius: ALL editable-mode delta output incl. OT collab and the popover→main
-  `replaceEmbedUpdate` save path (which today would write the same malformed shape back into
-  the main document on popover Save). Needs its own task + review. The `\`-swallow half
-  (FootnoteEditor keydown menu trigger) is a small platform-bible-react gate
-  (`markerMode === "editable"`) but is pointless until the round-trip is fixed. Also fix the
-  popover para shape follow-on: with no content text, para-level typing lands in the
-  `marker-trailing-space` node and never triggers Tier-2.
+- **Popover marker editing dead (QA item 7):** RESOLVED in Task 14 (2a09b69 library +
+  9fc945fff82 worktree) — canonical glyph-free note contents ops in editable marker mode; see
+  the QA table and `.superpowers/sdd/task-14-popover-report.md` for the contract redefinition.
+  Remaining follow-ons from that work:
+  - **Popover Save replace-position displacement (pre-existing, NEW finding):**
+    `$getOTPositionOfNode` (used by `$getReplaceEmbedOps` for the retain) double-counts an
+    editable-mode chapter — embed (1) PLUS its `\c 1 ` glyph text child via DFS descent (+5) —
+    while `$applyUpdate`'s insert/delete traversals treat the chapter as an opaque embed (1).
+    In-app: popover Save wrote the (clean) note 5 OT units past the original — between
+    "time|wen" with the space deleted and the original note not removed. The two coordinate
+    systems (delta-doc coordinates where body glyph text counts vs tree coordinates where
+    embeds are opaque) need an owner decision — same unfinished editable-mode collab territory
+    as findings #2/#3; NOT touched by Task 14 (out of sanctioned scope; noted in
+    `note-ops-popover-roundtrip.test.tsx`'s Save-leg comment). Cleanup in QA was via host undo
+    (which fully reverted the displaced write, state + disk verified).
+  - **Popover wrapper-para glyph artifact (pre-existing):** `applyUpdate([noteOp])` inserts the
+    note at OT index 0, BEFORE the popover wrapper para's `\p` glyph prefix;
+    `$paraMarkerDeletionTransform` then injects a fresh prefix, leaving the ORIGINAL `\p `
+    glyph pair as visible trailing junk after the note (the qa7 screenshot's trailing `\p`).
+    Display-only: MarkerNode/NBSP are presentation nodes, so popover USJ and note ops stay
+    clean; never written on Save. Fix candidates: insert after the para prefix, or drop the
+    `PARAGRAPH_USJ` wrapper para (FootnoteEditor).
+  - **Popover para-level typing** still lands in the `\p` glyph's `marker-trailing-space` node
+    (skipped by design) — unchanged from 13b.
+  - Mid-typing marker interleaving inside note content (key-by-key `\zln …\zln* ` with commits
+    between keystrokes) can leave a stray `unmatched zln*` from intermediate Tier-2 rebuilds —
+    engine caret-restoration/rebuild interplay, not the ops contract (single-commit insertText
+    of the same sequence resolves cleanly, per Task 13 item 3 and the popover QA).
 - Validation pass is O(document) per commit — accepted for chapter-sized docs; revisit if
   book-sized docs land.
 - Pre-existing end-token laxity vs PT9 (unmatched closer leaves charStack intact; `+`-stripped
@@ -104,8 +120,10 @@ marker typing and the menu coexist (PT9 allows both).
 - Vendored-sty parser: 4 fields (`fontName`/`lineSpacing`/`subscript`/`notRepeatable`) + the
   no-StyleType skip branch unexercised by the vendored sheet or tests; README
   "uncategorized-excluded" wording; `schema.json` `usfmStyleUrl` description still URL-only.
-- Phase 3 carryovers: OT-collab `closed` threading (`delta-apply-update.utils.ts:1747`);
-  `\fq`/`\xq` quotation-branch test; footnote popover whitespace/copy NBSP rules; Mac Cmd+T.
+- Phase 3 carryovers: ~~OT-collab `closed` threading (`delta-apply-update.utils.ts:1747`)~~
+  RESOLVED in Task 14 (`$getNoteOp` carries unknownAttributes; `$createNote` passes `closed`
+  to `$createWholeNote`); `\fq`/`\xq` quotation-branch test; footnote popover whitespace/copy
+  NBSP rules; Mac Cmd+T.
 
 ## Phase 5 handoff pointers
 
