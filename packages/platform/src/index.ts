@@ -36,6 +36,7 @@ export { default as Editorial } from "./Editorial";
  */
 export { default as Marginal } from "./marginal/Marginal";
 export { GENERATOR_NOTE_CALLER, HIDDEN_NOTE_CALLER } from "shared";
+export { generateUsjCss } from "./editor/generateUsjCss";
 export {
   directionToNames,
   getDefaultViewMode,
@@ -49,6 +50,7 @@ export {
 } from "shared-react";
 
 export type { EditorOptions, EditorProps, EditorRef } from "./editor/editor.model";
+export type { UsjCssOptions } from "./editor/generateUsjCss";
 export type { CommentBase, Comments, Thread } from "./marginal/comments/commenting";
 export type { MarginalRef, MarginalProps } from "./marginal/Marginal";
 export type {

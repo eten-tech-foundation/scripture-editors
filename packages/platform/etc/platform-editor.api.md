@@ -128,6 +128,9 @@ export interface EditorRef {
 }
 
 // @public
+export function generateUsjCss(styleInfo: StyleInfo, options?: UsjCssOptions): string;
+
+// @public
 export const GENERATOR_NOTE_CALLER = "+";
 
 // @public
@@ -385,6 +388,13 @@ export type TypedMarkOnRemove = (type: string, id: string, cause: TypedMarkRemov
 
 // @public
 export type TypedMarkRemovalCause = "removed" | "destroyed";
+
+// @public
+export interface UsjCssOptions {
+    containerSelector?: string;
+    rtl?: boolean;
+    zoom?: number;
+}
 
 // @public @deprecated
 export interface UsjLocation {
