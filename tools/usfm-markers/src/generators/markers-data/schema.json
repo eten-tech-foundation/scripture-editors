@@ -6,12 +6,12 @@
   "properties": {
     "usfmStyleUrl": {
       "type": "string",
-      "description": "URL to the USFM style file",
+      "description": "URL or workspace-relative path to the USFM style file (vendored path preferred for deterministic regeneration)",
       "$default": {
         "$source": "argv",
         "index": 0
       },
-      "x-prompt": "What is the URL of the USFM style file?"
+      "x-prompt": "What is the URL or path of the USFM style file?"
     },
     "outputPath": {
       "type": "string",

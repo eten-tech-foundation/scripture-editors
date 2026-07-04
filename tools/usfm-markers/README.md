@@ -10,7 +10,7 @@ Run `nx generate markers-data` and when prompted give it a USFM style file URL (
 nx g usfm-markers:markers-data tools/usfm-markers/src/generators/markers-data/data/usfm.sty --outputPath=libs/shared/src/utils/usfm
 ```
 
-This writes `usfmMarkers.ts`, `usfmTypes.ts`, and `defaultStyleInfo.ts` directly into `outputPath` (no manual copy step). `usfmMarkers.ts`/`usfmTypes.ts` are then reverted (`git checkout --`) if unchanged from the currently-committed, hand-curated simplified table — only `defaultStyleInfo.ts` (the full, uncategorized-excluded stylesheet table) is meant to be regenerated freely.
+This writes `usfmMarkers.ts`, `usfmTypes.ts`, and `defaultStyleInfo.ts` directly into `outputPath` (no manual copy step). `usfmMarkers.ts`/`usfmTypes.ts` are then reverted (`git checkout --`) if unchanged from the currently-committed, hand-curated simplified table — only `defaultStyleInfo.ts` (the full stylesheet table, with no category exclusion) is meant to be regenerated freely.
 
 ## Building
 
