@@ -1008,6 +1008,17 @@ export const editorStateGen1v1Editable = {
   },
 } as unknown as SerializedEditorState;
 
+/**
+ * Expected ops for `editorStateGen1v1Editable` (editable markers, expanded notes). Body ops
+ * carry the editable marker glyph text verbatim (pinned Phase 2 contract), but the note's
+ * `contents.ops` are CANONICAL (glyph-free): the editable caller text, the char-span glyph
+ * MarkerNodes, the structural NBSP content separators, and the closing `\f*` glyph are
+ * presentation-only and are re-synthesized by `$applyUpdate` when the note is materialized,
+ * so they must not flow into note contents ops (they used to, which doubled the glyphs and
+ * materialized an unmatched `\f*` on every round-trip — see the Task 14 contract
+ * redefinition). Note contents ops are therefore identical across marker modes (compare
+ * `opsGen1v1`).
+ */
 export const opsGen1v1Editable = [
   { insert: "Some Scripture Version" },
   { insert: "\n", attributes: { book: { style: "id", code: "GEN" } } },
@@ -1035,16 +1046,12 @@ export const opsGen1v1Editable = [
         caller: "+",
         contents: {
           ops: [
-            { insert: ` +${NBSP}` },
-            { insert: "\\fr", attributes: { char: { style: "fr" } } },
-            { insert: `${NBSP}3:2 `, attributes: { char: { style: "fr" } } },
-            { insert: "\\fk", attributes: { char: { style: "fk" } } },
-            { insert: "\\ft", attributes: { char: { style: "ft" } } },
+            { insert: "3:2 ", attributes: { char: { style: "fr" } } },
+            { insert: "", attributes: { char: { style: "fk" } } },
             {
-              insert: `${NBSP}The Hebrew word rendered “God” is “אֱלֹהִ֑ים” (Elohim).`,
+              insert: "The Hebrew word rendered “God” is “אֱלֹהִ֑ים” (Elohim).",
               attributes: { char: { style: "ft" } },
             },
-            { insert: "\\f*" },
           ],
         },
       },
@@ -1621,14 +1628,14 @@ export const editorStateGen1v1Standard = {
 } as unknown as SerializedEditorState;
 
 /**
- * Expected ops for `editorStateGen1v1Standard`, derived by running `getEditorDelta` on the
- * parsed state and transcribing the actual output (see commit message for the verification
- * trail). Identical to `opsGen1v1Editable` except the note's `contents.ops` omits the leading
- * caller op: in standard view the caller is an `ImmutableNoteCallerNode` decorator (produces no
- * op) rather than plain editable text, and the NBSP spacer text nodes `createNote` inserts around
- * the note's content also produce no ops (skipped by the `text === NBSP` check in
- * `$handleTextNodes`). The note's closing `\f*` marker glyph still flows into `contents.ops`
- * (the skip-first-child rule only swallows the *opening* marker, per `editor-delta.adaptor.ts`).
+ * Expected ops for `editorStateGen1v1Standard` (standard view: editable markers, collapsed
+ * notes). Identical to `opsGen1v1Editable`: body ops carry the editable marker glyph text
+ * verbatim (pinned Phase 2 contract), while the note's `contents.ops` are CANONICAL
+ * (glyph-free) — in standard view the caller is an `ImmutableNoteCallerNode` decorator and
+ * the NBSP spacers produce no ops, and the char-span glyphs / NBSP separators / closing
+ * `\f*` glyph are skipped as presentation-only (Task 14 contract redefinition; they are
+ * re-synthesized by `$applyUpdate`). Note contents ops are identical across marker modes
+ * (compare `opsGen1v1`).
  */
 export const opsGen1v1Standard = [
   { insert: "Some Scripture Version" },
@@ -1657,15 +1664,12 @@ export const opsGen1v1Standard = [
         caller: "+",
         contents: {
           ops: [
-            { insert: "\\fr", attributes: { char: { style: "fr" } } },
-            { insert: `${NBSP}3:2 `, attributes: { char: { style: "fr" } } },
-            { insert: "\\fk", attributes: { char: { style: "fk" } } },
-            { insert: "\\ft", attributes: { char: { style: "ft" } } },
+            { insert: "3:2 ", attributes: { char: { style: "fr" } } },
+            { insert: "", attributes: { char: { style: "fk" } } },
             {
-              insert: `${NBSP}The Hebrew word rendered “God” is “אֱלֹהִ֑ים” (Elohim).`,
+              insert: "The Hebrew word rendered “God” is “אֱלֹהִ֑ים” (Elohim).",
               attributes: { char: { style: "ft" } },
             },
-            { insert: "\\f*" },
           ],
         },
       },
