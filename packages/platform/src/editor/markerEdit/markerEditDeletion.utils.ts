@@ -20,14 +20,14 @@ import {
   textTypeState,
 } from "shared";
 
-function $createMarkerPrefix(marker: string) {
+export function $createMarkerPrefix(marker: string) {
   const markerNode = $createMarkerNode(marker);
   const spaceNode = $createTextNode(NBSP);
   $setState(spaceNode, textTypeState, "marker-trailing-space");
   return [markerNode, spaceNode];
 }
 
-function $injectMarkerPrefix(para: ParaNode): void {
+export function $injectMarkerPrefix(para: ParaNode): void {
   para.splice(0, 0, $createMarkerPrefix(para.getMarker()));
   // Keep the caret on the content side of the injected prefix.
   const third = para.getChildAtIndex(2);
