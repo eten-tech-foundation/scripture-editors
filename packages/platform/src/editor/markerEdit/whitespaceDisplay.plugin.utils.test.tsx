@@ -1,7 +1,40 @@
 import { testEnvironment } from "./markerEdit.test-helpers";
+import {
+  $getStandardViewClipboardData,
+  $handleCopyForStandardView,
+} from "./whitespaceDisplay.plugin.utils";
 import { act } from "@testing-library/react";
-import { $createTextNode, $getRoot, $setState, COPY_COMMAND, TextNode } from "lexical";
+import { LexicalClipboardData } from "@lexical/clipboard";
+import {
+  $createTextNode,
+  $getRoot,
+  $setState,
+  COPY_COMMAND,
+  CUT_COMMAND,
+  LexicalEditor,
+  TextNode,
+} from "lexical";
 import { $createMarkerNode, $createParaNode, NBSP, textTypeState } from "shared";
+
+/**
+ * §5.6 null-event leg: ClipboardPlugin/ContextMenuPlugin/EditorRef dispatch COPY_COMMAND/
+ * CUT_COMMAND with a `null` payload. `@lexical/clipboard`'s `copyToClipboard` is mocked so the
+ * jsdom `execCommand`/synthetic-event dance (unimplemented in jsdom — verified: `execCommand` is
+ * `undefined` and `instanceof ClipboardEvent` throws) never has to run; instead we assert the
+ * handler calls through with the exact normalized payload, per spec §2. `$getHtmlContent`/
+ * `$getLexicalContent` (also from this module) stay real via the `importOriginal` spread, so the
+ * payload-builder unit tests below exercise genuine HTML/Lexical-JSON generation.
+ */
+const copyToClipboardSpy = vi.hoisted(() =>
+  vi.fn(
+    async (_editor: LexicalEditor, _event: ClipboardEvent | null, _data?: LexicalClipboardData) =>
+      true,
+  ),
+);
+vi.mock("@lexical/clipboard", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@lexical/clipboard")>();
+  return { ...actual, copyToClipboard: copyToClipboardSpy };
+});
 
 /**
  * jsdom (see StructureProtectionPlugin.test.tsx's `htmlPasteEvent`) doesn't implement
@@ -83,5 +116,108 @@ describe("§5.6 clipboard normalization", () => {
       editor.dispatchCommand(COPY_COMMAND, event);
     });
     expect(getData("text/plain")).toBe("a  b and 3~000"); // NBSP→space; ~ stays (PT9 shows/copies ~)
+  });
+
+  it("real-event branch is unaffected by the mocked copyToClipboard (regression guard)", () => {
+    expect(copyToClipboardSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("$getStandardViewClipboardData", () => {
+  it("returns undefined for a collapsed selection", async () => {
+    let text: TextNode;
+    const { editor } = await testEnvironment(() => {
+      text = $createTextNode(`a${NBSP}b`);
+      $appendMarkerAndText(text);
+    });
+    await act(async () => editor.update(() => text.select(1, 1)));
+    let data: LexicalClipboardData | undefined;
+    await act(async () => editor.update(() => (data = $getStandardViewClipboardData(editor))));
+    expect(data).toBeUndefined();
+  });
+
+  it("builds a normalized text/plain payload (NBSP→space) plus html/lexical for a range selection", async () => {
+    let text: TextNode;
+    const { editor } = await testEnvironment(() => {
+      text = $createTextNode(`a${NBSP}${NBSP}b`);
+      $appendMarkerAndText(text);
+    });
+    await act(async () => editor.update(() => text.select(0, text.getTextContentSize())));
+    let data: LexicalClipboardData | undefined;
+    await act(async () => editor.update(() => (data = $getStandardViewClipboardData(editor))));
+    expect(data?.["text/plain"]).toBe("a  b");
+    expect(data?.["text/html"]).toBeTruthy();
+    expect(data?.["application/x-lexical-editor"]).toBeTruthy();
+  });
+});
+
+describe("§5.6 clipboard normalization — null-event leg (ClipboardPlugin/ContextMenuPlugin/EditorRef)", () => {
+  it("COPY_COMMAND(null) writes the normalized payload via copyToClipboard(editor, null, data), selection intact", async () => {
+    let text: TextNode;
+    const { editor } = await testEnvironment(() => {
+      text = $createTextNode(`a${NBSP}${NBSP}b`);
+      $appendMarkerAndText(text);
+    });
+    await act(async () => editor.update(() => text.select(0, text.getTextContentSize())));
+    copyToClipboardSpy.mockClear();
+    let handled: boolean | undefined;
+    await act(async () => {
+      handled = editor.dispatchCommand(COPY_COMMAND, null);
+    });
+    expect(handled).toBe(true);
+    expect(copyToClipboardSpy).toHaveBeenCalledTimes(1);
+    const [calledEditor, calledEvent, calledData] = copyToClipboardSpy.mock.calls[0];
+    expect(calledEditor).toBe(editor);
+    expect(calledEvent).toBeNull();
+    expect(calledData?.["text/plain"]).toBe("a  b");
+    editor.getEditorState().read(() => expect(text.getTextContent()).toBe(`a${NBSP}${NBSP}b`)); // copy: unchanged
+  });
+
+  it("CUT_COMMAND(null) also removes the selected text after handing off to copyToClipboard", async () => {
+    // Selects only the two interior NBSPs (leaving "a"/"b" behind) rather than the whole node:
+    // cutting the *entire* content of a TextNode leaves it empty, and Lexical garbage-collects
+    // empty text nodes on commit — the `text` reference would then point at a node no longer in
+    // the committed state ("Lexical node does not exist in active editor state"). A partial cut
+    // asserts real removal via the surviving node without hitting that GC edge case.
+    let text: TextNode;
+    const { editor } = await testEnvironment(() => {
+      text = $createTextNode(`a${NBSP}${NBSP}b`);
+      $appendMarkerAndText(text);
+    });
+    await act(async () => editor.update(() => text.select(1, 3)));
+    copyToClipboardSpy.mockClear();
+    let handled: boolean | undefined;
+    await act(async () => {
+      handled = editor.dispatchCommand(CUT_COMMAND, null);
+    });
+    expect(handled).toBe(true);
+    expect(copyToClipboardSpy).toHaveBeenCalledTimes(1);
+    const [, , calledData] = copyToClipboardSpy.mock.calls[0];
+    expect(calledData?.["text/plain"]).toBe("  ");
+    editor.getEditorState().read(() => expect(text.getTextContent()).toBe("ab"));
+  });
+
+  it("returns false (does not call copyToClipboard) for a collapsed selection", async () => {
+    // Calls the handler directly rather than via editor.dispatchCommand: a `false` return here
+    // falls through to Lexical's own RichText copy fallback, which — in real browsers — is fine,
+    // but under jsdom crashes on a bare `ClipboardEvent` reference (jsdom doesn't implement the
+    // class; verified above) regardless of this plugin's code. That's a pre-existing jsdom gap
+    // in Lexical's own fallback, orthogonal to what's under test here (the collapsed-selection
+    // decline), so it's sidestepped by unit-testing the handler in isolation.
+    let text: TextNode;
+    const { editor } = await testEnvironment(() => {
+      text = $createTextNode(`a${NBSP}b`);
+      $appendMarkerAndText(text);
+    });
+    await act(async () => editor.update(() => text.select(1, 1)));
+    copyToClipboardSpy.mockClear();
+    let handled: boolean | undefined;
+    await act(async () =>
+      editor.update(() => {
+        handled = $handleCopyForStandardView(null, editor, false);
+      }),
+    );
+    expect(handled).toBe(false);
+    expect(copyToClipboardSpy).not.toHaveBeenCalled();
   });
 });
