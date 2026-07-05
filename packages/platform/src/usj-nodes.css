@@ -2110,10 +2110,13 @@
    figures, sidebars (\esb), \periph, \ref, \optbreak, etc. Hidden by default in every view
    (preserves today's behavior for formatted/markers views); standard view (.marker-editable)
    reveals it as a subdued read-only container with its lead marker shown as a label, so the
-   content is visible/inert instead of silently invisible. \optbreak is the one verified
-   exception — PT9 renders it as a literal `//` mid-sentence, so it gets the inline-token
-   treatment instead of a block box that would break the paragraph (see UnknownNode.ts's
-   INLINE_UNKNOWN_TAGS; createDOM picks the class per construct). */
+   content is visible/inert instead of silently invisible. Two corpus-proven mid-paragraph
+   constructs get the inline treatment instead of a block box that would break the sentence
+   (§7: "a line-level box in the middle of a sentence would be visibly wrong"; see
+   UnknownNode.ts's INLINE_UNKNOWN_TAGS — createDOM picks the class per construct):
+   - \optbreak: no children; PT9 renders a literal `//`, supplied here via a ::before keyed
+     off data-tag="optbreak".
+   - \ref: real child text shown inline; NO label (the optbreak selector cannot match it). */
 .unknown-block,
 .unknown-inline {
   display: none;
@@ -2146,8 +2149,10 @@
 }
 
 /* \optbreak carries no USFM marker text of its own (data-marker is empty) — PT9 renders it as
-   a literal `//` token, so the label is hard-coded rather than driven by attr(data-marker). */
-.marker-editable .unknown-inline::before {
+   a literal `//` token, so the label is hard-coded rather than driven by attr(data-marker).
+   Keyed off data-tag so it applies ONLY to optbreak: \ref shares the unknown-inline class but
+   displays its own child text and must not grow a `//` prefix. */
+.marker-editable .unknown-inline[data-tag="optbreak"]::before {
   content: "//";
   color: rgba(140, 140, 140, 1);
 }
