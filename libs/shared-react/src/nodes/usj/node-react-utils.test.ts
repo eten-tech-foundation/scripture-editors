@@ -947,6 +947,43 @@ describe("$insertNote()", () => {
     });
   });
 
+  it("should insert a cross-reference note with selected text (non-collapsed selection carries \\xq)", () => {
+    const { editor } = createBasicTestEnvironment(requiredNodes);
+    editor.update(
+      () => {
+        const t1 = $createTextNode("selected text here");
+        $getRoot().append($createParaNode().append(t1));
+        // Select "selected"
+        t1.select(0, 8);
+      },
+      { discrete: true },
+    );
+
+    editor.update(() => {
+      const noteNode = $insertNote(
+        "x",
+        HIDDEN_NOTE_CALLER,
+        undefined,
+        { book: "JHN", chapterNum: 3, verseNum: 16 },
+        viewOptions,
+        nodeOptions,
+        undefined,
+      );
+
+      expect(noteNode).toBeDefined();
+
+      const children = noteNode?.getChildren() ?? [];
+      const charNodes = children.filter($isCharNode);
+
+      // Should have xo, xq (with selected text), xt
+      expect(charNodes.length).toBeGreaterThanOrEqual(3);
+
+      const xqNode = charNodes.find((node) => node.getMarker() === "xq");
+      expect(xqNode).toBeDefined();
+      expect(xqNode?.getTextContent()).toBe("selected");
+    });
+  });
+
   it("should insert note with collapsed noteMode", () => {
     const collapsedViewOptions: ViewOptions = { ...viewOptions, noteMode: "collapsed" };
 
