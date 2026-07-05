@@ -88,6 +88,9 @@ export interface ContextMenuOptionConfig {
     title: string;
 }
 
+// @public (undocumented)
+export const defaultStyleInfo: StyleInfo;
+
 // @public
 export type DeltaOp = Op;
 
