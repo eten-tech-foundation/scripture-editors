@@ -11,8 +11,10 @@ import {
   $getSelection,
   $isRangeSelection,
   $isTextNode,
+  $setSelection,
   BLUR_COMMAND,
   KEY_ENTER_COMMAND,
+  TextNode,
 } from "lexical";
 import {
   $createChapterNode,
@@ -24,6 +26,7 @@ import {
   $isParaNode,
   ChapterNode,
   CharNode,
+  CURSOR_CHANGE_TAG,
   getVisibleOpenMarkerText,
   MarkerNode,
   NBSP,
@@ -453,5 +456,134 @@ describe("Tier 1 verse/chapter number sync", () => {
     });
     await act(async () => editor.update(() => chapter.getFirstChild()?.remove()));
     editor.getEditorState().read(() => expect(chapter.isAttached()).toBe(false));
+  });
+});
+
+/** A `\p` body paragraph: `[marker, "body text"]`. */
+function $appendBodyPara(): { para: ParaNode; body: TextNode } {
+  const para = $createParaNode("p");
+  const body = $createTextNode("body text");
+  $getRoot().append(para.append($createMarkerNode("p"), body));
+  return { para, body };
+}
+
+/**
+ * Task 15 cluster A — the Standard-view `\`-palette keyboard flows were broken in-app by two
+ * real-browser actors the demo/unit harness never exercised, root-caused from QA run 2 timelines:
+ *
+ *  1. ScriptureReferencePlugin's async scrRef echo. Typing `\` fires SELECTION_CHANGE, which pushes
+ *     a new scrRef up through papi; the returning setting echo (~90-190ms later) re-enters
+ *     `$moveCursorToVerseStart`, which yanks the caret to the para/verse start via
+ *     `editor.update(..., { tag: CURSOR_CHANGE_TAG })`. Pre-fix the marker engine treated that
+ *     programmatic move as a user caret departure and force-settled the just-typed literal —
+ *     instant paragraph split, `\p \` autosaved to disk (QA items 1-4/12). FALSIFIES the task's
+ *     original "blur nulls the selection" hypothesis for the TYPING path: QA proved focus never
+ *     leaves the editor (item 2) and the popover — which has no ScriptureReferencePlugin — never
+ *     races (item 7). Fix: the update listener ignores CURSOR_CHANGE-tagged commits.
+ *
+ *  2. Cross-frame blur on palette-item CLICK. Clicking a renderer-overlay palette item blurs the
+ *     editor iframe; a real cross-frame blur can null Lexical's live selection, so the BLUR handler
+ *     can't read the caret's anchor. Pre-fix it then excepted `undefined` and resolved EVERY pending
+ *     — including the literal the palette apply is about to replace. Fix: the update listener keeps
+ *     the last real anchor when the selection goes null (rather than clobbering it to undefined), and
+ *     the BLUR handler falls back to it.
+ */
+describe("Cluster A: async scrRef caret-yank and cross-frame blur (Task 15)", () => {
+  it("does not settle a pending paragraph-marker rename on a CURSOR_CHANGE caret yank", async () => {
+    let para: ParaNode, marker: MarkerNode;
+    const { editor } = await testEnvironment(() => ({ para, marker } = $appendHeadingPara()));
+    await act(async () =>
+      editor.update(() => {
+        marker.setTextContent("\\s2");
+        marker.select(3, 3); // still editing: pends
+      }),
+    );
+    editor.getEditorState().read(() => expect(para.getMarker()).toBe("s1")); // pending
+    // The scrRef echo yanks the caret to the para start under a CURSOR_CHANGE tag — NOT a user
+    // departure. (The untagged control is "completes a pending marker when the caret leaves it".)
+    await act(async () =>
+      editor.update(() => para.getLastChild()?.selectStart(), { tag: CURSOR_CHANGE_TAG }),
+    );
+    editor.getEditorState().read(() => expect(para.getMarker()).toBe("s1")); // STILL pending
+  });
+
+  it("does not force-settle a pending literal backslash into a split on a CURSOR_CHANGE yank (QA items 1-4)", async () => {
+    let para: ParaNode, body: TextNode;
+    const { editor } = await testEnvironment(() => ({ para, body } = $appendBodyPara()));
+    // Type an unterminated `\zz` into the body; caret stays inside, so it only pends (§5.2).
+    await act(async () =>
+      editor.update(() => {
+        body.setTextContent("body \\zz");
+        body.select(body.getTextContentSize(), body.getTextContentSize());
+      }),
+    );
+    editor
+      .getEditorState()
+      .read(() => expect($getRoot().getChildren().filter($isParaNode)).toHaveLength(1));
+    // scrRef echo yanks the caret to the para marker glyph (offset 0) under a CURSOR_CHANGE tag.
+    // Pre-fix this resolved the pending literal → Tier 2 rebuild → paragraph split (`\p \` on disk).
+    await act(async () =>
+      editor.update(() => para.getFirstChild()?.selectStart(), { tag: CURSOR_CHANGE_TAG }),
+    );
+    editor.getEditorState().read(() => {
+      expect($getRoot().getChildren().filter($isParaNode)).toHaveLength(1); // NOT split
+      expect($getRoot().getTextContent()).toContain("\\zz"); // literal preserved
+    });
+  });
+
+  it("keeps the caret's pending marker on a cross-frame blur that nulls the selection", async () => {
+    let para: ParaNode, marker: MarkerNode;
+    const { editor } = await testEnvironment(() => ({ para, marker } = $appendHeadingPara()));
+    await act(async () =>
+      editor.update(() => {
+        marker.setTextContent("\\s2");
+        marker.select(3, 3); // caret parked in the mid-edit marker -> lastAnchorKey tracks it
+      }),
+    );
+    // A real cross-frame blur nulls the live selection before BLUR_COMMAND fires.
+    await act(async () => editor.update(() => $setSelection(null)));
+    await act(async () => {
+      editor.dispatchCommand(BLUR_COMMAND, null as never);
+    });
+    editor.getEditorState().read(() => {
+      expect(para.getMarker()).toBe("s1"); // NOT force-settled: fell back to lastAnchorKey
+      expect(marker.getTextContent()).toBe("\\s2"); // literal preserved for the palette apply
+    });
+  });
+
+  it("resolves non-caret pendings but keeps the caret's on a nulled-selection blur", async () => {
+    let para1: ParaNode, para2: ParaNode, first: MarkerNode, second: MarkerNode;
+    const { editor } = await testEnvironment(() => {
+      para1 = $createParaNode("s1");
+      first = $createMarkerNode("s1");
+      para2 = $createParaNode("s1");
+      second = $createMarkerNode("s1");
+      $getRoot().append(
+        para1.append(first, $createTextNode(NBSP), $createTextNode("First")),
+        para2.append(second, $createTextNode(NBSP), $createTextNode("Second")),
+      );
+    });
+    // First is mid-edited with the caret inside it -> lastAnchorKey = first, first stays pending.
+    await act(async () =>
+      editor.update(() => {
+        first.setTextContent("\\s2");
+        first.select(3, 3);
+      }),
+    );
+    // Second becomes pending in the SAME commit that nulls the selection, so the deferred resolution
+    // (gated on a known anchor) can't sweep it first — it survives to the blur.
+    await act(async () =>
+      editor.update(() => {
+        second.setTextContent("\\s2");
+        $setSelection(null);
+      }),
+    );
+    await act(async () => {
+      editor.dispatchCommand(BLUR_COMMAND, null as never);
+    });
+    editor.getEditorState().read(() => {
+      expect(para1.getMarker()).toBe("s1"); // caret's own pending preserved (lastAnchorKey except)
+      expect(para2.getMarker()).toBe("s2"); // the other pending still completes on blur
+    });
   });
 });
