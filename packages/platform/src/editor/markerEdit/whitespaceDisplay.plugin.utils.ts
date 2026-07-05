@@ -64,7 +64,7 @@ export function $handleCopyForStandardView(
   if (!$isRangeSelection(selection) || selection.isCollapsed()) return false;
   const data = $getStandardViewClipboardData(editor);
   if (!data) return false;
-  if (!event || !("clipboardData" in event) || event.clipboardData == null) {
+  if (!event || !("clipboardData" in event)) {
     // Null-payload dispatch (ClipboardPlugin / ContextMenuPlugin / EditorRef): write via
     // Lexical's execCommand mechanism with OUR pre-normalized payload. copyToClipboard(null)
     // without `data` would intercept its own synthesized event at COMMAND_PRIORITY_CRITICAL
@@ -73,6 +73,11 @@ export function $handleCopyForStandardView(
     if (isCut) selection.removeText();
     return true;
   }
+  // Event-shaped payload whose clipboardData is null/absent: decline outright, exactly as the
+  // pre-null-leg code did. This is an in-flight native clipboard event whose data store isn't
+  // accessible — routing it into the null-dispatch leg above would re-enter
+  // document.execCommand from inside that dispatch and never preventDefault the original event.
+  if (event.clipboardData == null) return false;
   event.preventDefault();
   for (const [mime, value] of Object.entries(data)) event.clipboardData.setData(mime, value);
   if (isCut) selection.removeText();

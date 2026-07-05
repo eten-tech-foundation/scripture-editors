@@ -197,6 +197,33 @@ describe("§5.6 clipboard normalization — null-event leg (ClipboardPlugin/Cont
     editor.getEditorState().read(() => expect(text.getTextContent()).toBe("ab"));
   });
 
+  it("declines an event-shaped payload whose clipboardData is null (no dispatch, no removal)", async () => {
+    // A real ClipboardEvent can carry a null clipboardData (the DOM data store is only
+    // guaranteed during dispatch of a trusted clipboard event). The pre-null-leg code declined
+    // this case outright, and the spec requires the real-event branch to stay behaviorally
+    // identical — it must NOT fall into the null-dispatch leg, which would re-enter
+    // document.execCommand from inside an in-flight native copy and never preventDefault the
+    // original event. Direct handler call for the same jsdom-fallback reason as below.
+    let text: TextNode;
+    const { editor } = await testEnvironment(() => {
+      text = $createTextNode(`a${NBSP}${NBSP}b`);
+      $appendMarkerAndText(text);
+    });
+    await act(async () => editor.update(() => text.select(1, 3)));
+    copyToClipboardSpy.mockClear();
+    const event = { clipboardData: null, preventDefault: vi.fn() } as unknown as ClipboardEvent;
+    let handled: boolean | undefined;
+    await act(async () =>
+      editor.update(() => {
+        handled = $handleCopyForStandardView(event, editor, true);
+      }),
+    );
+    expect(handled).toBe(false);
+    expect(copyToClipboardSpy).not.toHaveBeenCalled();
+    expect(event.preventDefault).not.toHaveBeenCalled();
+    editor.getEditorState().read(() => expect(text.getTextContent()).toBe(`a${NBSP}${NBSP}b`));
+  });
+
   it("returns false (does not call copyToClipboard) for a collapsed selection", async () => {
     // Calls the handler directly rather than via editor.dispatchCommand: a `false` return here
     // falls through to Lexical's own RichText copy fallback, which — in real browsers — is fine,
