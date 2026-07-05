@@ -1,5 +1,3 @@
-import { createEditor } from "lexical";
-import { describe, expect, it } from "vitest";
 import { $createTableCellNode, TableCellNode } from "./TableCellNode.js";
 import {
   $createTableRowNode,
@@ -7,16 +5,8 @@ import {
   isSerializedTableRowNode,
   TableRowNode,
 } from "./TableRowNode.js";
-
-function withEditor(fn: () => void) {
-  const editor = createEditor({
-    nodes: [TableRowNode, TableCellNode],
-    onError: (e) => {
-      throw e;
-    },
-  });
-  editor.update(fn, { discrete: true });
-}
+import { withEditor } from "./test.utils.js";
+import { describe, expect, it } from "vitest";
 
 describe("TableRowNode", () => {
   it("has type 'table:row'", () => {
@@ -24,7 +14,7 @@ describe("TableRowNode", () => {
   });
 
   it("renders a <tr> with structural and marker classes and holds cells", () => {
-    withEditor(() => {
+    withEditor([TableRowNode, TableCellNode], () => {
       const row = $createTableRowNode("tr");
       row.append($createTableCellNode("tc1", "start"));
       const dom = row.createDOM();
@@ -37,7 +27,7 @@ describe("TableRowNode", () => {
   });
 
   it("round-trips through JSON", () => {
-    withEditor(() => {
+    withEditor([TableRowNode, TableCellNode], () => {
       const json = $createTableRowNode("tr").exportJSON();
       expect(isSerializedTableRowNode(json)).toBe(true);
       expect(json).toMatchObject({ type: "table:row", marker: "tr" });
@@ -48,7 +38,7 @@ describe("TableRowNode", () => {
   });
 
   it("round-trips unknownAttributes through JSON", () => {
-    withEditor(() => {
+    withEditor([TableRowNode, TableCellNode], () => {
       const node = $createTableRowNode("tr", { category: "watCat" });
       const json = node.exportJSON();
       expect(json).toMatchObject({ unknownAttributes: { category: "watCat" } });

@@ -71,12 +71,11 @@ export class TableNode extends ElementNode {
   }
 
   override exportJSON(): SerializedTableNode {
+    const unknownAttributes = this.getUnknownAttributes();
     return {
       ...super.exportJSON(),
       type: TABLE_TYPE,
-      ...(this.getUnknownAttributes() !== undefined && {
-        unknownAttributes: this.getUnknownAttributes(),
-      }),
+      ...(unknownAttributes !== undefined && { unknownAttributes }),
       version: TABLE_VERSION,
     };
   }
@@ -98,5 +97,5 @@ export function $isTableNode(node: LexicalNode | null | undefined): node is Tabl
 export function isSerializedTableNode(
   node: SerializedLexicalNode | null | undefined,
 ): node is SerializedTableNode {
-  return node?.type === TableNode.getType();
+  return node?.type === TABLE_TYPE;
 }

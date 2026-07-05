@@ -1,5 +1,3 @@
-import { $getNodeByKey, $getRoot, createEditor } from "lexical";
-import { describe, expect, it } from "vitest";
 import {
   $createTableCellNode,
   $isTableCellNode,
@@ -7,16 +5,9 @@ import {
   isSerializedTableCellNode,
   TableCellNode,
 } from "./TableCellNode.js";
-
-function withEditor(fn: () => void) {
-  const editor = createEditor({
-    nodes: [TableCellNode],
-    onError: (e) => {
-      throw e;
-    },
-  });
-  editor.update(fn, { discrete: true });
-}
+import { withEditor } from "./test.utils.js";
+import { $getNodeByKey, $getRoot, createEditor } from "lexical";
+import { describe, expect, it } from "vitest";
 
 describe("TableCellNode", () => {
   it("has type 'table:cell'", () => {
@@ -24,29 +15,39 @@ describe("TableCellNode", () => {
   });
 
   it("renders a <td> with structural and marker classes for a tc marker", () => {
-    withEditor(() => {
+    withEditor([TableCellNode], () => {
       const node = $createTableCellNode("tc1", "start");
       const dom = node.createDOM();
       expect(dom.tagName).toBe("TD");
       expect(dom.getAttribute("data-marker")).toBe("tc1");
       expect(dom.classList.contains("table-cell")).toBe(true);
       expect(dom.classList.contains("usfm_tc1")).toBe(true);
-      expect(dom.style.textAlign).toBe("left");
+      expect(dom.style.textAlign).toBe("start");
     });
   });
 
-  it("renders a <th> for a th marker and maps align end->right, with colspan", () => {
-    withEditor(() => {
+  it("renders a <th> for a th marker, keeps align logical (end), with colspan", () => {
+    withEditor([TableCellNode], () => {
       const node = $createTableCellNode("thr5", "end", "2");
       const dom = node.createDOM();
       expect(dom.tagName).toBe("TH");
-      expect(dom.style.textAlign).toBe("right");
+      expect(dom.style.textAlign).toBe("end");
       expect(dom.getAttribute("colspan")).toBe("2");
     });
   });
 
+  it("uses logical text-align (start/end, not left/right) so cells mirror under RTL", () => {
+    withEditor([TableCellNode], () => {
+      // Physical left/right would break RTL scripts; the logical values flip with `dir`.
+      expect($createTableCellNode("tc1", "start").createDOM().style.textAlign).toBe("start");
+      expect($createTableCellNode("tcr1", "end").createDOM().style.textAlign).toBe("end");
+      // An unrecognized align value is ignored rather than written to the style.
+      expect($createTableCellNode("tc1", "left").createDOM().style.textAlign).toBe("");
+    });
+  });
+
   it("round-trips through JSON", () => {
-    withEditor(() => {
+    withEditor([TableCellNode], () => {
       const node = $createTableCellNode("thc3", "center", "2");
       const json = node.exportJSON();
       expect(isSerializedTableCellNode(json)).toBe(true);
@@ -69,7 +70,7 @@ describe("TableCellNode", () => {
   });
 
   it("round-trips unknownAttributes through JSON", () => {
-    withEditor(() => {
+    withEditor([TableCellNode], () => {
       const node = $createTableCellNode("tc1", undefined, undefined, { category: "watCat" });
       const json = node.exportJSON();
       expect(json).toMatchObject({ unknownAttributes: { category: "watCat" } });
@@ -109,6 +110,6 @@ describe("TableCellNode", () => {
     );
 
     const dom = editor.getElementByKey(nodeKey) as HTMLElement;
-    expect(dom.style.textAlign).toBe("right");
+    expect(dom.style.textAlign).toBe("end");
   });
 });
