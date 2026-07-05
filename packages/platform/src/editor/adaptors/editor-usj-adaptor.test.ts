@@ -24,7 +24,7 @@ import {
 } from "../../../../utilities/src/converters/usj/converter-test.data";
 import editorUsjAdaptor, { deserializeSerializedEditorState } from "./editor-usj.adaptor";
 import usjEditorAdaptor from "./usj-editor.adaptor";
-import { EMPTY_USJ, MarkerObject } from "@eten-tech-foundation/scripture-utilities";
+import { EMPTY_USJ, MarkerObject, Usj } from "@eten-tech-foundation/scripture-utilities";
 import { deepEqual } from "fast-equals";
 import { SerializedEditorState, SerializedTextNode } from "lexical";
 import { usjReactNodes } from "shared-react";
@@ -212,5 +212,37 @@ describe("Editor USJ Adaptor", () => {
         ],
       },
     ]);
+  });
+
+  it("round-trips a multi-row table (header + body) through both adaptors, preserving align/colspan", () => {
+    const usj: Usj = {
+      ...EMPTY_USJ,
+      content: [
+        {
+          type: "table",
+          content: [
+            {
+              type: "table:row",
+              marker: "tr",
+              content: [
+                // Logical alignment (start/end) must survive so RTL rendering stays correct.
+                { type: "table:cell", marker: "th1", align: "start", content: ["Name"] },
+                { type: "table:cell", marker: "thr2", align: "end", content: ["Amount"] },
+              ],
+            },
+            {
+              type: "table:row",
+              marker: "tr",
+              content: [{ type: "table:cell", marker: "tc1", colspan: "2", content: ["Total"] }],
+            },
+          ],
+        },
+      ],
+    };
+
+    const serializedEditorState = usjEditorAdaptor.serializeEditorState(usj);
+    const roundTripped = deserializeSerializedEditorState(serializedEditorState);
+
+    expect(roundTripped).toEqual(usj);
   });
 });
