@@ -4,19 +4,28 @@ import {
   ApplyMarkerMenuSelectionDeps,
 } from "./markerMenuApply.utils";
 import { MarkerMenuItem } from "./markerItemSource";
+import { deserializeEditorState } from "../adaptors/editor-usj.adaptor";
+import { MarkerEditPlugin } from "../markerEdit/MarkerEditPlugin";
 import {
   historyTestEnvironment,
   testEnvironment,
   viewOptions,
 } from "../markerEdit/markerEdit.test-helpers";
+import {
+  initialize as initializeSerialize,
+  reset as resetSerialize,
+} from "../adaptors/usj-editor.adaptor";
+import { HistoryPlugin } from "@lexical/react/LexicalHistoryPlugin";
 import { act } from "@testing-library/react";
 import {
   $createTextNode,
   $getRoot,
   $getSelection,
+  $getState,
   $isRangeSelection,
   $isTextNode,
   $setState,
+  BLUR_COMMAND,
   TextNode,
   UNDO_COMMAND,
 } from "lexical";
@@ -27,9 +36,35 @@ import {
   $isCharNode,
   $isMarkerNode,
   $isParaNode,
+  MarkerNode,
   NBSP,
   textTypeState,
 } from "shared";
+import { CharNodePlugin, TextSpacingPlugin } from "shared-react";
+// Reaching inside only for tests.
+// eslint-disable-next-line @nx/enforce-module-boundaries
+import { baseTestEnvironment } from "../../../../../libs/shared-react/src/plugins/usj/react-test.utils";
+
+/**
+ * Full markerEdit harness: the marker-edit engine plus the neighboring plugins the real
+ * `Editor.tsx` always mounts alongside it (CharNodePlugin, TextSpacingPlugin), plus
+ * HistoryPlugin for undo assertions. Task 8 QA (and Phase 3's cc82802 before it) showed that
+ * apply-path tests WITHOUT the engine's transforms/pending-marker machinery active miss
+ * exactly the defect class where the engine reacts to the apply flow's intermediate states.
+ */
+async function fullHarnessEnvironment($initialEditorState: () => void) {
+  initializeSerialize(undefined, undefined);
+  resetSerialize();
+  return baseTestEnvironment(
+    $initialEditorState,
+    <>
+      <MarkerEditPlugin viewOptions={viewOptions} />
+      <CharNodePlugin />
+      <TextSpacingPlugin />
+      <HistoryPlugin />
+    </>,
+  );
+}
 
 /** Narrow away `T | undefined` without a banned non-null assertion. */
 function requireDefined<T>(value: T | undefined, message: string): T {
@@ -141,6 +176,258 @@ describe("$applyMarkerMenuSelection", () => {
         expect(paras[0].getTextContent()).toContain("Hello there");
         expect(paras[1].getMarker()).toBe("q1");
       });
+    });
+  });
+
+  describe("paragraph kind — retag vs split (Task 8 QA item 1)", () => {
+    it("retags the current paragraph in place at content start: same para, no new paragraphs, content intact, single undo restores the literal", async () => {
+      let glyph: MarkerNode;
+      let qPara: ReturnType<typeof $createParaNode>;
+      const { editor } = await historyTestEnvironment(() => {
+        const intro = $createParaNode("p");
+        qPara = $createParaNode("q2");
+        glyph = $createMarkerNode("q2");
+        $getRoot().append(
+          intro.append(
+            $createMarkerNode("p"),
+            $createTrailingSpaceNode(),
+            $createTextNode("walk not in the counsel;"),
+          ),
+          qPara.append(
+            glyph,
+            $createTrailingSpaceNode(),
+            $createTextNode("nor sit in the seat of scoffers;"),
+          ),
+        );
+      });
+      // Simulate the QA flow: Home lands the caret at the marker glyph's offset 0 (the
+      // paragraph's true content start in Standard view), and the typed literal `\q1`
+      // prepends into the glyph's own text.
+      await act(async () =>
+        editor.update(() => {
+          glyph.setTextContent("\\q1\\q2");
+          glyph.select(3, 3);
+        }),
+      );
+
+      const item: MarkerMenuItem = { marker: "q1", kind: "paragraph", isBasic: true };
+      // Postcondition (structure + caret) asserted inside the SAME `editor.update()` that
+      // applies - the function's own synchronous contract. A later, separate read can observe
+      // the selection having been re-synced from jsdom's simulated `selectionchange` (none of
+      // this test's DOM nodes are ever truly focused), so the caret check belongs here.
+      await act(async () =>
+        editor.update(() => {
+          $applyMarkerMenuSelection(
+            item,
+            { trigger: "backslash", literalPrefixLanded: true },
+            reference,
+            makeDeps(),
+          );
+
+          // PT9 reformat outcome: typing `\q1 ` at paragraph content start RETAGS the current
+          // paragraph - the SAME ParaNode, no paragraphs added or removed anywhere.
+          const paras = $getRoot().getChildren().filter($isParaNode);
+          expect(paras).toHaveLength(2);
+          expect(paras[0].getMarker()).toBe("p"); // preceding para untouched
+          expect(paras[1].is(qPara)).toBe(true); // same node, retagged in place
+          expect(paras[1].getMarker()).toBe("q1");
+          const first = paras[1].getFirstChild();
+          expect($isMarkerNode(first)).toBe(true);
+          expect($isMarkerNode(first) ? first.getMarker() : undefined).toBe("q1");
+          expect($isMarkerNode(first) ? first.getTextContent() : undefined).toBe("\\q1");
+          expect(paras[1].getTextContent()).toContain("nor sit in the seat of scoffers;");
+
+          // Caret kept sensible: on the content side of the retagged prefix.
+          const selection = $getSelection();
+          if (!$isRangeSelection(selection)) throw new Error("expected a range selection");
+          const contentNode = paras[1].getChildAtIndex(2);
+          expect(selection.anchor.getNode().is(contentNode)).toBe(true);
+          expect(selection.anchor.offset).toBe(0);
+        }),
+      );
+
+      editor.getEditorState().read(() => {
+        // Committed state: retag held through transforms (no merge, no bogus paragraphs).
+        const paras = $getRoot().getChildren().filter($isParaNode);
+        expect(paras).toHaveLength(2);
+        expect(paras[1].getMarker()).toBe("q1");
+        expect(paras[1].getTextContent()).toContain("nor sit in the seat of scoffers;");
+      });
+
+      await act(async () => {
+        editor.dispatchCommand(UNDO_COMMAND, undefined);
+      });
+      editor.getEditorState().read(() => {
+        // A single undo restores the pre-apply state: q2 marker AND the typed literal.
+        const paras = $getRoot().getChildren().filter($isParaNode);
+        expect(paras).toHaveLength(2);
+        expect(paras[1].getMarker()).toBe("q2");
+        const first = paras[1].getFirstChild();
+        expect($isMarkerNode(first) ? first.getTextContent() : undefined).toBe("\\q1\\q2");
+      });
+    });
+
+    it("splits at the caret when the choice is made mid-text (PT9: a paragraph marker mid-text starts a new paragraph)", async () => {
+      let text: TextNode;
+      const { editor } = await historyTestEnvironment(() => {
+        const para = $createParaNode("p");
+        text = $createTextNode("one two");
+        $getRoot().append(para.append($createMarkerNode("p"), $createTrailingSpaceNode(), text));
+      });
+      // literal `\q1` typed mid-text: "one \q1two", caret after the literal
+      await act(async () =>
+        editor.update(() => {
+          text.setTextContent("one \\q1two");
+          text.select(7, 7);
+        }),
+      );
+
+      const item: MarkerMenuItem = { marker: "q1", kind: "paragraph", isBasic: true };
+      // Same-update postcondition assertion - see the retag test above for the rationale.
+      await act(async () =>
+        editor.update(() => {
+          $applyMarkerMenuSelection(
+            item,
+            { trigger: "backslash", literalPrefixLanded: true },
+            reference,
+            makeDeps(),
+          );
+
+          const paras = $getRoot().getChildren().filter($isParaNode);
+          expect(paras).toHaveLength(2);
+          expect(paras[0].getMarker()).toBe("p");
+          expect(paras[0].getTextContent()).toContain("one");
+          expect(paras[1].getMarker()).toBe("q1");
+          expect($isMarkerNode(paras[1].getFirstChild())).toBe(true);
+          expect(paras[1].getTextContent()).toContain("two");
+          // No literal residue anywhere.
+          expect($getRoot().getTextContent()).not.toContain("\\q1two");
+
+          // Caret on the content side of the new paragraph's prefix (split semantics).
+          const selection = $getSelection();
+          if (!$isRangeSelection(selection)) throw new Error("expected a range selection");
+          const contentNode = paras[1].getChildAtIndex(2);
+          expect(selection.anchor.getNode().is(contentNode)).toBe(true);
+          expect(selection.anchor.offset).toBe(0);
+        }),
+      );
+
+      editor.getEditorState().read(() => {
+        // Committed state: the split held through transforms.
+        const paras = $getRoot().getChildren().filter($isParaNode);
+        expect(paras).toHaveLength(2);
+        expect(paras[1].getMarker()).toBe("q1");
+        expect($isMarkerNode(paras[1].getFirstChild())).toBe(true);
+      });
+
+      await act(async () => {
+        editor.dispatchCommand(UNDO_COMMAND, undefined);
+      });
+      editor.getEditorState().read(() => {
+        const paras = $getRoot().getChildren().filter($isParaNode);
+        expect(paras).toHaveLength(1);
+        expect($getRoot().getTextContent()).toContain("one \\q1two");
+      });
+    });
+  });
+
+  describe("collapsed char insert with the full marker-edit engine (Task 8 QA item 4)", () => {
+    /** Shared setup: para `\p the wicked,` with a literal `\wj` typed at "wic|ked,". */
+    async function setUpLiteralMidWord() {
+      let text: TextNode | undefined;
+      const environment = await fullHarnessEnvironment(() => {
+        const para = $createParaNode("p");
+        text = $createTextNode("the wicked,");
+        $getRoot().append(para.append($createMarkerNode("p"), $createTrailingSpaceNode(), text));
+      });
+      await act(async () =>
+        environment.editor.update(() => {
+          const node = requireDefined(text, "setup text node missing");
+          node.setTextContent("the wic\\wjked,");
+          node.select(10, 10); // caret right after the literal `\wj`
+        }),
+      );
+      return environment;
+    }
+
+    function $expectCleanCollapsedInsert() {
+      const paras = $getRoot().getChildren().filter($isParaNode);
+      expect(paras).toHaveLength(1); // no phantom paragraph spliced anywhere
+      const para = paras[0];
+      const children = para.getChildren();
+      // [marker \p, trailing NBSP, "the wic", char/wj, "ked,"]
+      expect(children).toHaveLength(5);
+      expect($isTextNode(children[2]) ? children[2].getTextContent() : undefined).toBe("the wic");
+      const char = children[3];
+      expect($isCharNode(char)).toBe(true);
+      if (!$isCharNode(char)) throw new Error("expected a char span");
+      expect(char.getMarker()).toBe("wj");
+      expect(char.getChildren().filter($isMarkerNode)).toHaveLength(2); // opener + closer glyphs
+
+      // The word remainder is a PLAIN TextNode: exactly type "text", not a marker glyph,
+      // and carrying no textType state classification.
+      const remainder = children[4];
+      expect(remainder.getType()).toBe("text");
+      expect($isMarkerNode(remainder)).toBe(false);
+      expect($isTextNode(remainder) ? remainder.getTextContent() : undefined).toBe("ked,");
+      if ($isTextNode(remainder)) expect($getState(remainder, textTypeState)).toBeUndefined();
+    }
+
+    it("keeps the word remainder plain when the menu click blurs the editor mid-literal (QA repro)", async () => {
+      const { editor } = await setUpLiteralMidWord();
+      // Clicking a marker-menu option steals focus from the contenteditable in the real
+      // browser (NodeSelectionMenu options don't preventDefault on mousedown), so a BLUR
+      // arrives between the literal landing and the apply - the exact QA event sequence.
+      await act(async () => {
+        editor.dispatchCommand(BLUR_COMMAND, new FocusEvent("blur"));
+      });
+
+      const item: MarkerMenuItem = { marker: "wj", kind: "character", isBasic: true };
+      await act(async () =>
+        editor.update(() => {
+          $applyMarkerMenuSelection(
+            item,
+            { trigger: "backslash", literalPrefixLanded: true },
+            reference,
+            makeDeps(),
+          );
+        }),
+      );
+
+      editor.getEditorState().read(() => $expectCleanCollapsedInsert());
+
+      // The editor->USJ adaptor round-trip confirms no phantom marker survives: the para's
+      // content is plain text + the char object, with no backslash residue anywhere.
+      const usj = deserializeEditorState(editor.getEditorState(), viewOptions);
+      const usjJson = JSON.stringify(usj);
+      expect(usjJson).toContain("ked,");
+      expect(usjJson).not.toContain("\\\\"); // no literal backslash text survives in USJ
+
+      await act(async () => {
+        editor.dispatchCommand(UNDO_COMMAND, undefined);
+      });
+      editor.getEditorState().read(() => {
+        // A single undo restores the pre-apply literal state.
+        const paras = $getRoot().getChildren().filter($isParaNode);
+        expect(paras).toHaveLength(1);
+        expect($getRoot().getTextContent()).toContain("the wic\\wjked,");
+      });
+    });
+
+    it("keeps the word remainder plain on a plain collapsed insert (no blur - regression pin)", async () => {
+      const { editor } = await setUpLiteralMidWord();
+      const item: MarkerMenuItem = { marker: "wj", kind: "character", isBasic: true };
+      await act(async () =>
+        editor.update(() => {
+          $applyMarkerMenuSelection(
+            item,
+            { trigger: "backslash", literalPrefixLanded: true },
+            reference,
+            makeDeps(),
+          );
+        }),
+      );
+      editor.getEditorState().read(() => $expectCleanCollapsedInsert());
     });
   });
 

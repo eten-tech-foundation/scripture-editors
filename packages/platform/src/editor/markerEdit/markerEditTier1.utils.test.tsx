@@ -146,6 +146,28 @@ describe("Tier 1 paragraph-marker rename", () => {
     editor.getEditorState().read(() => expect(para.getMarker()).toBe("s2"));
   });
 
+  it("keeps the caret's OWN pending marker literal on blur (marker-menu focus loss)", async () => {
+    // Clicking a marker-menu item (or a P10 host overlay) blurs the editor while the caret
+    // still sits in the menu's literal `\...` trigger text; blur must not Tier-2-commit that
+    // node out from under the menu's apply (Task 8 QA items 1/4). Enter/caret-departure remain
+    // the completion triggers for the node being edited.
+    let para: ParaNode, marker: MarkerNode;
+    const { editor } = await testEnvironment(() => ({ para, marker } = $appendHeadingPara()));
+    await act(async () =>
+      editor.update(() => {
+        marker.setTextContent("\\s2");
+        marker.select(3, 3); // caret parked inside the mid-edit marker
+      }),
+    );
+    await act(async () => {
+      editor.dispatchCommand(BLUR_COMMAND, null as never);
+    });
+    editor.getEditorState().read(() => {
+      expect(para.getMarker()).toBe("s1"); // NOT committed by the blur
+      expect(marker.getTextContent()).toBe("\\s2"); // literal preserved for the menu's apply
+    });
+  });
+
   it("completes a pending marker when the caret leaves it (PT9 debounce equivalent)", async () => {
     let para: ParaNode, marker: MarkerNode;
     const { editor } = await testEnvironment(() => ({ para, marker } = $appendHeadingPara()));

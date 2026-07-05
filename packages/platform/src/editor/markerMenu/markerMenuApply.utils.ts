@@ -2,11 +2,12 @@
  * §5.5 marker-menu apply — turns a `MarkerMenuItem` (Task 1) selection into an editor mutation.
  * Port of PT9's `MarkerDropdownEditHandler`/`KeyPressEditHandler` "apply" step
  * (`MarkerDropdownEditHandler.cs`), adapted to the Lexical tree:
- * - `applyMarkerMenuSelection` — paragraph/character/note ("open") kinds run the existing
+ * - `applyMarkerMenuSelection` — character/note ("open") kinds run the existing
  *   structural-insert action (`getUsjMarkerAction`), first deleting a literal `\marker` trigger
  *   prefix typed before the caret when one landed (`MarkerDropdownControl.cs:216-219`);
- *   `closeTag` kind closes the matching open character span instead
- *   (`$closeCharSpanAtCaret`, `../markerEdit/charFormatting.utils`).
+ *   paragraph kinds retag the current paragraph at content start or split it mid-text (PT9
+ *   reformat semantics — see `$applyParagraphSelection`); `closeTag` kind closes the matching
+ *   open character span instead (`$closeCharSpanAtCaret`, `../markerEdit/charFormatting.utils`).
  * - `splitParagraphWithMarker` — the Enter-triggered marker menu's apply step: splits the
  *   paragraph at the caret and gives the new paragraph the chosen marker.
  *
@@ -17,9 +18,10 @@ import { getUsjMarkerAction } from "../adaptors/usj-marker-action.utils";
 import { $closeCharSpanAtCaret } from "../markerEdit/charFormatting.utils";
 import { $injectMarkerPrefix } from "../markerEdit/markerEditDeletion.utils";
 import { MarkerMenuItem } from "./markerItemSource";
+import { $isAtParagraphContentStart } from "./markerMenuContext.utils";
 import { SerializedVerseRef } from "@sillsdev/scripture";
-import { $getEditor, $getSelection, $isRangeSelection, $isTextNode } from "lexical";
-import { $isParaNode, LoggerBasic } from "shared";
+import { $getEditor, $getSelection, $isRangeSelection, $isTextNode, LexicalNode } from "lexical";
+import { $isMarkerNode, $isParaNode, LoggerBasic, openingMarkerText, ParaNode } from "shared";
 import { UsjNodeOptions, ViewOptions } from "shared-react";
 import { MutableRefObject } from "react";
 
@@ -45,6 +47,67 @@ function $removeLiteralTriggerPrefix(): void {
   if (!match) return;
 
   anchorNode.spliceText(offset - match[0].length, match[0].length, "", true);
+}
+
+/** Nearest `ParaNode` ancestor of `node` (including `node` itself), or `undefined`. */
+function $findNearestParaNode(node: LexicalNode): ParaNode | undefined {
+  let current: LexicalNode | null = node;
+  while (current) {
+    if ($isParaNode(current)) return current;
+    current = current.getParent();
+  }
+  return undefined;
+}
+
+/**
+ * Retags `para` in place: marker state AND the visible prefix glyph text change together,
+ * content untouched — the PT9 reformat outcome for typing `\q1 `-style at a paragraph's
+ * content start (committing the marker retags the paragraph itself; it does not create one).
+ */
+function $retagParagraph(para: ParaNode, marker: string): void {
+  para.setMarker(marker);
+  const first = para.getFirstChild();
+  if ($isMarkerNode(first)) {
+    first.setMarker(marker);
+    first.setTextContent(openingMarkerText(marker));
+  }
+  // Caret to the content side of the retagged prefix (mirror `$injectMarkerPrefix`).
+  const third = para.getChildAtIndex(2);
+  if (third && $isTextNode(third)) third.select(0, 0);
+  else para.selectEnd();
+}
+
+/**
+ * Applies a PARAGRAPH-kind menu pick per PT9's two semantics (Task 8 QA item 1):
+ * - Caret at the current paragraph's CONTENT START (the same probe that made the menu offer
+ *   the paragraph source in the first place): RETAG the paragraph in place — PT9's reformat
+ *   outcome for committing `\q1 ` at paragraph start.
+ * - Anywhere mid-text: a paragraph marker starts a NEW paragraph at that point in PT9, so
+ *   split via `$splitParagraphWithMarker`.
+ *
+ * Never routes through `getUsjMarkerAction`'s paragraph branch (insertParagraph + replace):
+ * that path assumes a caret inside plain content and corrupts the tree when the caret sits in
+ * or next to the visible marker prefix — QA item 1's two-bogus-paragraph splice.
+ *
+ * Enter-trigger menus are split-only (PT9 SmartEnter starts a new paragraph even at content
+ * start); their primary entry point is `EditorRef.splitParagraphWithMarker`, but a paragraph
+ * item arriving here with `trigger: "enter"` routes to the split for the same reason.
+ */
+function $applyParagraphSelection(marker: string, trigger: "backslash" | "enter"): void {
+  const selection = $getSelection();
+  if (!$isRangeSelection(selection)) return;
+
+  const anchorNode = selection.anchor.getNode();
+  const para = $findNearestParaNode(anchorNode);
+  if (
+    trigger === "backslash" &&
+    para &&
+    $isAtParagraphContentStart(para, anchorNode, selection.anchor.offset)
+  ) {
+    $retagParagraph(para, marker);
+    return;
+  }
+  $splitParagraphWithMarker(marker);
 }
 
 /** Dependencies threaded through from `Editor.tsx`'s closure — the same values `insertMarker`
@@ -76,6 +139,14 @@ export function $applyMarkerMenuSelection(
   // cleanup so `getUsjMarkerAction`'s `$wrapTextSelectionInInlineNode` path wraps the intact
   // selection instead of a post-cleanup one.
   if (opts.literalPrefixLanded) $removeLiteralTriggerPrefix();
+
+  // Paragraph-kind picks that are real ParaNode markers retag or split (PT9 reformat
+  // semantics). The sheet also types some non-para structural markers as "paragraph" (`c` —
+  // chapter); those keep the structural action below, which handles them specially.
+  if (item.kind === "paragraph" && ParaNode.isValidMarker(item.marker)) {
+    $applyParagraphSelection(item.marker, opts.trigger);
+    return;
+  }
 
   const markerAction = getUsjMarkerAction(
     item.marker,

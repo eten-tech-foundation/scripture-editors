@@ -116,8 +116,11 @@ function $getFirstLeaf(node: LexicalNode): LexicalNode {
  * the caret on the span's inner leaf, never on the span element itself. In editable mode a
  * CharNode's first leaf is its opener MarkerNode glyph — a caret at offset 0 of that glyph
  * IS the visible content start.
+ *
+ * Exported for `markerMenuApply.utils.ts`'s paragraph-kind retag-vs-split routing — the same
+ * PT9 probe decides both which menu SOURCE to offer and how a paragraph pick APPLIES.
  */
-function $isAtParagraphContentStart(
+export function $isAtParagraphContentStart(
   para: ParaNode,
   anchorNode: LexicalNode,
   offset: number,
