@@ -42,6 +42,7 @@ import {
   $isRangeSelection,
   $setState,
   ElementNode,
+  INSERT_PARAGRAPH_COMMAND,
   KEY_DOWN_COMMAND,
   KEY_ENTER_COMMAND,
   LexicalEditor,
@@ -56,6 +57,7 @@ import {
   $isParaNode,
   defaultStyleInfo,
   getVisibleOpenMarkerText,
+  MarkerNode,
   NBSP,
   textTypeState,
 } from "shared";
@@ -403,6 +405,93 @@ describe("editable-mode marker menu harness (Task 5)", () => {
           .map((c) => c.getMarker());
         expect(markers).toContain("fp");
       });
+    });
+
+    // The two guard tests below dispatch INSERT_PARAGRAPH_COMMAND DIRECTLY (a public Lexical
+    // command - hosts/paste/IME paths can dispatch it with no keydown), because via keyboard
+    // these guard branches are unreachable today: MarkerEditPlugin's KEY_ENTER_COMMAND handler
+    // (HIGH) swallows Enter first for both states ($handleEnterInNote /
+    // $isSelectionInMarkerNode), so rich-text's KEY_ENTER fallback never dispatches
+    // INSERT_PARAGRAPH from typing there - the \fp test above exercises THAT upstream swallow,
+    // not the harness's own guards. RED isn't demonstrable for a pass-through without mutating
+    // the guard itself; instead the glyph test below embeds a positive control proving the
+    // same direct dispatch DOES open the menu at an unguarded caret, so "no menu" here can
+    // only mean the guard branch was taken.
+    it("guards a directly dispatched INSERT_PARAGRAPH_COMMAND when the caret is in note content (noteMarker)", async () => {
+      const { editor } = await harnessTestEnvironment(serializedState(noteUsx(`closed="false"`)));
+
+      let ftText: TextNode | undefined;
+      editor.getEditorState().read(() => {
+        ftText = $noteContentText(findOnlyNote($getRoot()));
+      });
+      editor.update(
+        () => {
+          const text = requireDefined(ftText, "\\ft content text not found");
+          text.select(text.getTextContentSize(), text.getTextContentSize());
+        },
+        { discrete: true },
+      );
+
+      let handled = false;
+      await act(async () => {
+        handled = editor.dispatchCommand(INSERT_PARAGRAPH_COMMAND, undefined);
+      });
+
+      // Guard branch taken: the harness passed through (returned false) - no menu opened. The
+      // CONTAINER is asserted on, not just menuitems: inside a note `getEnterItems` returns []
+      // (paragraph source is empty in notes), so a guard regression would open an EMPTY menu
+      // that a menuitem-count check cannot distinguish from no menu at all (verified RED: with
+      // the guard disabled, the container check below fails while a menuitem check passes).
+      expect(document.querySelector(".autocomplete-menu-container")).toBeNull();
+      // The dispatch was still handled downstream (rich-text's default), not swallowed here.
+      expect(handled).toBe(true);
+      editor.getEditorState().read(() => {
+        // No split-with-menu artifacts: exactly one note survives whatever the downstream
+        // default did with the in-note split.
+        findOnlyNote($getRoot());
+      });
+    });
+
+    it("guards a directly dispatched INSERT_PARAGRAPH_COMMAND when the caret is in marker glyph text (inMarkerText) - while the same dispatch opens the menu at an unguarded caret", async () => {
+      let prefix: MarkerNode | undefined;
+      const { editor } = await harnessTestEnvironment(() => {
+        const para = $createParaNode("p");
+        prefix = $createMarkerNode("p");
+        $getRoot().append(
+          para.append(prefix, $createTrailingSpaceNode(), $createTextNode("hello")),
+        );
+      });
+      // Caret inside the "\p" glyph (between "\" and "p") - inMarkerText true.
+      await act(async () => editor.update(() => requireDefined(prefix, "prefix").select(1, 1)));
+
+      let handled = false;
+      await act(async () => {
+        handled = editor.dispatchCommand(INSERT_PARAGRAPH_COMMAND, undefined);
+      });
+
+      // Guard branch taken: pass-through (no menu, not even an empty container); still
+      // handled downstream.
+      expect(document.querySelector(".autocomplete-menu-container")).toBeNull();
+      expect(screen.queryAllByRole("menuitem")).toHaveLength(0);
+      expect(handled).toBe(true);
+
+      // Positive control - same dispatch mechanism, unguarded caret: the menu DOES open, so
+      // the guard assertions above can't be passing merely because a direct dispatch never
+      // reaches the harness. The text node is re-found by content (not a captured reference):
+      // the guarded dispatch above split through the glyph and the marker-edit transforms may
+      // have rebuilt the paragraph, destroying original node identities.
+      await act(async () =>
+        editor.update(() => {
+          const hello = $getRoot()
+            .getAllTextNodes()
+            .find((node) => node.getTextContent().includes("hello"));
+          requireDefined(hello, "hello text").select(2, 2);
+        }),
+      );
+      await act(async () => {
+        editor.dispatchCommand(INSERT_PARAGRAPH_COMMAND, undefined);
+      });
+      await waitForMenu();
     });
   });
 });
