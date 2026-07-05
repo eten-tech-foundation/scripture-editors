@@ -7,7 +7,12 @@
  * caller (`MarkerEditPlugin.tsx`) — they must not run in other view modes (§4).
  */
 
-import { $getHtmlContent, $getLexicalContent } from "@lexical/clipboard";
+import {
+  $getHtmlContent,
+  $getLexicalContent,
+  copyToClipboard,
+  LexicalClipboardData,
+} from "@lexical/clipboard";
 import { $getSelection, $getState, $isRangeSelection, LexicalEditor, TextNode } from "lexical";
 import { $isBookNode, $isChapterNode, $isUnknownNode, NBSP, textTypeState } from "shared";
 
@@ -29,22 +34,47 @@ export function $displayWhitespaceTransform(node: TextNode): void {
   if (mapped !== text) node.setTextContent(mapped); // length-preserving: caret stays valid
 }
 
+/**
+ * §5.6 payload builder: the currently-selected content, normalized so `text/plain` carries
+ * plain spaces where the display shows NBSP. Shared by both the real-event and null-event
+ * branches of `$handleCopyForStandardView` below so they stay byte-for-byte consistent.
+ */
+export function $getStandardViewClipboardData(
+  editor: LexicalEditor,
+): LexicalClipboardData | undefined {
+  const selection = $getSelection();
+  if (!$isRangeSelection(selection) || selection.isCollapsed()) return undefined;
+  const data: LexicalClipboardData = {
+    "text/plain": selection.getTextContent().replaceAll(NBSP, " "),
+  };
+  const html = $getHtmlContent(editor);
+  const lexical = $getLexicalContent(editor);
+  if (html) data["text/html"] = html;
+  if (lexical) data["application/x-lexical-editor"] = lexical;
+  return data;
+}
+
 /** §5.6: clipboard text carries plain spaces where the display shows NBSP. */
 export function $handleCopyForStandardView(
   event: ClipboardEvent | null | undefined,
   editor: LexicalEditor,
   isCut: boolean,
 ): boolean {
-  if (!event || !("clipboardData" in event) || event.clipboardData == null) return false;
   const selection = $getSelection();
   if (!$isRangeSelection(selection) || selection.isCollapsed()) return false;
-  const plain = selection.getTextContent().replaceAll(NBSP, " ");
-  const html = $getHtmlContent(editor);
-  const lexical = $getLexicalContent(editor);
+  const data = $getStandardViewClipboardData(editor);
+  if (!data) return false;
+  if (!event || !("clipboardData" in event) || event.clipboardData == null) {
+    // Null-payload dispatch (ClipboardPlugin / ContextMenuPlugin / EditorRef): write via
+    // Lexical's execCommand mechanism with OUR pre-normalized payload. copyToClipboard(null)
+    // without `data` would intercept its own synthesized event at COMMAND_PRIORITY_CRITICAL
+    // and write the stock payload — which is why this branch must pass `data` (spec §2).
+    void copyToClipboard(editor, null, data);
+    if (isCut) selection.removeText();
+    return true;
+  }
   event.preventDefault();
-  event.clipboardData.setData("text/plain", plain);
-  if (html) event.clipboardData.setData("text/html", html);
-  if (lexical) event.clipboardData.setData("application/x-lexical-editor", lexical);
+  for (const [mime, value] of Object.entries(data)) event.clipboardData.setData(mime, value);
   if (isCut) selection.removeText();
   return true;
 }

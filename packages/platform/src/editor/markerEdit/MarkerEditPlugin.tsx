@@ -149,12 +149,27 @@ export function MarkerEditPlugin({
             }),
             editor.registerCommand(
               COPY_COMMAND,
-              (event) => $handleCopyForStandardView(event as ClipboardEvent, editor, false),
+              (event) =>
+                $handleCopyForStandardView(
+                  // COPY_COMMAND's payload is `ClipboardEvent | KeyboardEvent | null`. A plain
+                  // `event instanceof ClipboardEvent` narrows this correctly in real browsers,
+                  // but jsdom (our test environment) doesn't implement `ClipboardEvent` at all —
+                  // `instanceof` against the undefined global throws — so this duck-checks the
+                  // one property `$handleCopyForStandardView` actually needs instead.
+                  event && typeof event === "object" && "clipboardData" in event ? event : null,
+                  editor,
+                  false,
+                ),
               COMMAND_PRIORITY_HIGH,
             ),
             editor.registerCommand(
               CUT_COMMAND,
-              (event) => $handleCopyForStandardView(event as ClipboardEvent, editor, true),
+              (event) =>
+                $handleCopyForStandardView(
+                  event && typeof event === "object" && "clipboardData" in event ? event : null,
+                  editor,
+                  true,
+                ),
               COMMAND_PRIORITY_HIGH,
             ),
           ]
