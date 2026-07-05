@@ -13,6 +13,7 @@ import {
   $isTextNode,
   $setSelection,
   BLUR_COMMAND,
+  KEY_DOWN_COMMAND,
   KEY_ENTER_COMMAND,
   TextNode,
 } from "lexical";
@@ -505,6 +506,37 @@ describe("Cluster A: async scrRef caret-yank and cross-frame blur (Task 15)", ()
       editor.update(() => para.getLastChild()?.selectStart(), { tag: CURSOR_CHANGE_TAG }),
     );
     editor.getEditorState().read(() => expect(para.getMarker()).toBe("s1")); // STILL pending
+  });
+
+  it("survives the FOLLOW-ON untagged commit after a CURSOR_CHANGE yank (in-app 3-commit sequence)", async () => {
+    // Runtime smoke (Task 15) proved the CURSOR_CHANGE gate alone is insufficient: the scrRef echo
+    // yanks the caret to the glyph (commit 2, tagged), then a FOLLOW-ON untagged commit (commit 3 —
+    // e.g. Lexical's own selectionchange reconcile / OnSelectionChangePlugin) sees the caret parked
+    // OFF the pending node and resolves it → paragraph split. The caret stays app-placed until the
+    // user actually acts (a KEY_DOWN), so resolution must stay suppressed across that follow-on.
+    let para: ParaNode, marker: MarkerNode;
+    const { editor } = await testEnvironment(() => ({ para, marker } = $appendHeadingPara()));
+    await act(async () =>
+      editor.update(() => {
+        marker.setTextContent("\\s2");
+        marker.select(3, 3);
+      }),
+    );
+    // commit 2: programmatic scrRef yank off the pending marker (to the heading text start).
+    await act(async () =>
+      editor.update(() => para.getLastChild()?.select(0, 0), { tag: CURSOR_CHANGE_TAG }),
+    );
+    // commit 3: an untagged follow-on that leaves the caret off the pending marker (genuine move).
+    await act(async () => editor.update(() => para.getLastChild()?.select(1, 1)));
+    editor.getEditorState().read(() => expect(para.getMarker()).toBe("s1")); // STILL pending, not split
+
+    // But a genuine user keystroke re-establishes intent: after KEY_DOWN, a real caret departure DOES
+    // complete the marker (the suppression is not permanent).
+    await act(async () => {
+      editor.dispatchCommand(KEY_DOWN_COMMAND, new KeyboardEvent("keydown", { key: "ArrowRight" }));
+    });
+    await act(async () => editor.update(() => para.getLastChild()?.select(3, 3)));
+    editor.getEditorState().read(() => expect(para.getMarker()).toBe("s2")); // now completes
   });
 
   it("does not force-settle a pending literal backslash into a split on a CURSOR_CHANGE yank (QA items 1-4)", async () => {
