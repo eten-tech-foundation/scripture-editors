@@ -1,19 +1,43 @@
+import { $createMarkerNode } from "../features/MarkerNode.js";
+import { $createTypedMarkNode, TypedMarkNode } from "../features/TypedMarkNode.js";
+import { $createCharNode } from "./CharNode.js";
 import { $createImmutableChapterNode } from "./ImmutableChapterNode.js";
+import { usjBaseNodes } from "./index.js";
 import {
+  $getElementOffsetFromLogicalIndex,
+  $getLogicalContentItems,
+  $getLogicalIndexOfChild,
+  $getLogicalParent,
+  $getLogicalPointFromElementPoint,
+  $getLogicalTextLocation,
+  $getTextNodeAtLogicalOffset,
   $isSomeChapterNode,
   getNextVerse,
   getUnknownAttributes,
   isSelectionStartNodeExpectedError,
   isValidNumberedMarker,
   isVerseInRange,
+  LogicalContentItem,
+  LogicalTextItem,
   parseNumberFromMarkerText,
   removeNodeAndAfter,
   removeNodesBeforeNode,
 } from "./node.utils.js";
+import { NBSP } from "./node-constants.js";
 import { $createParaNode } from "./ParaNode.js";
 import { createBasicTestEnvironment } from "./test.utils.js";
+import { $createVerseNode, VerseNode } from "./VerseNode.js";
 import { MarkerObject } from "@eten-tech-foundation/scripture-utilities";
-import { $getNodeByKey, $getRoot, NodeKey } from "lexical";
+import {
+  $getNodeByKey,
+  $getRoot,
+  NodeKey,
+  $createTextNode,
+  $isElementNode,
+  TextNode,
+} from "lexical";
+
+const nodes = [TypedMarkNode, ...usjBaseNodes];
 
 describe("Editor Node Utilities", () => {
   describe("isValidNumberedMarker()", () => {
@@ -364,4 +388,456 @@ describe("Editor Node Utilities", () => {
       expect(isSelectionStartNodeExpectedError(new Error("some other error"))).toBe(false);
     });
   });
+
+  describe("$getLogicalContentItems", () => {
+    it("returns one text item for a plain text paragraph", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        $getRoot().append($createParaNode().append($createTextNode("Hello world")));
+      });
+
+      editor.getEditorState().read(() => {
+        const items = $getFirstParaItems();
+
+        expect(items).toHaveLength(1);
+        $expectTextItem(items[0], [{ text: "Hello world", start: 0 }]);
+      });
+    });
+
+    it("coalesces text split by a TypedMarkNode into one item", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        $getRoot().append(
+          $createParaNode().append(
+            $createTextNode("the "),
+            $createTypedMarkNode({ spelling: ["s1"] }).append($createTextNode("man")),
+            $createTextNode(" who"),
+          ),
+        );
+      });
+
+      editor.getEditorState().read(() => {
+        const items = $getFirstParaItems();
+
+        expect(items).toHaveLength(1);
+        $expectTextItem(items[0], [
+          { text: "the ", start: 0 },
+          { text: "man", start: 4 },
+          { text: " who", start: 7 },
+        ]);
+      });
+    });
+
+    it("coalesces text across adjacent overlapping-annotation marks (flat structure)", () => {
+      // Overlapping annotations never nest: AnnotationPlugin's nested-element resolver flattens
+      // them into adjacent sibling marks with merged typed IDs. This mirrors that real structure
+      // for "man who" (grammar) overlapping "man" (spelling).
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        $getRoot().append(
+          $createParaNode().append(
+            $createTextNode("the "),
+            $createTypedMarkNode({ spelling: ["s1"], grammar: ["g1"] }).append(
+              $createTextNode("man"),
+            ),
+            $createTypedMarkNode({ grammar: ["g1"] }).append($createTextNode(" who")),
+            $createTextNode(" stands"),
+          ),
+        );
+      });
+
+      editor.getEditorState().read(() => {
+        const items = $getFirstParaItems();
+
+        expect(items).toHaveLength(1);
+        $expectTextItem(items[0], [
+          { text: "the ", start: 0 },
+          { text: "man", start: 4 },
+          { text: " who", start: 7 },
+          { text: " stands", start: 11 },
+        ]);
+      });
+    });
+
+    it("breaks a text run at a non-text element (CharNode)", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        $getRoot().append(
+          $createParaNode().append(
+            $createTextNode("aaa "),
+            $createCharNode("nd").append($createTextNode("LORD")),
+            $createTextNode(" bbb"),
+          ),
+        );
+      });
+
+      editor.getEditorState().read(() => {
+        const items = $getFirstParaItems();
+
+        expect(items).toHaveLength(3);
+        $expectTextItem(items[0], [{ text: "aaa ", start: 0 }]);
+        expect(items[1].type).toBe("element");
+        $expectTextItem(items[2], [{ text: " bbb", start: 0 }]);
+      });
+    });
+
+    it("emits editable VerseNodes as standalone items, breaking text runs", () => {
+      // VerseNode extends TextNode (editable-marker rendering, e.g. "\v 1 "), but the
+      // editor→USJ exporter always emits it as its own verse marker item — never coalesced
+      // into the surrounding string content.
+      let v1: VerseNode;
+      let v2: VerseNode;
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        v1 = $createVerseNode("1", "\\v 1 ");
+        v2 = $createVerseNode("2", "\\v 2 ");
+        $getRoot().append(
+          $createParaNode("p").append(
+            v1,
+            $createTextNode("In the beginning "),
+            v2,
+            $createTextNode("and the earth"),
+          ),
+        );
+      });
+
+      editor.getEditorState().read(() => {
+        const items = $getFirstParaItems();
+
+        expect(items).toHaveLength(4);
+        expect(items[0]).toEqual({ type: "element", node: v1 });
+        $expectTextItem(items[1], [{ text: "In the beginning ", start: 0 }]);
+        expect(items[2]).toEqual({ type: "element", node: v2 });
+        $expectTextItem(items[3], [{ text: "and the earth", start: 0 }]);
+      });
+    });
+
+    it("skips presentation-only MarkerNodes without breaking the run", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        $getRoot().append(
+          $createParaNode("p").append($createMarkerNode("p"), $createTextNode("verse text")),
+        );
+      });
+
+      editor.getEditorState().read(() => {
+        const items = $getFirstParaItems();
+
+        expect(items).toHaveLength(1);
+        $expectTextItem(items[0], [{ text: "verse text", start: 0 }]);
+      });
+    });
+
+    it("skips standalone NBSP spacer text nodes between content items", () => {
+      // Visible/hidden modes insert NBSP spacer text nodes between element items (e.g. between
+      // char nodes in a note). The editor→USJ conversion drops them, so they are not USJ
+      // content. A spacer only survives as its own node next to elements — Lexical merges
+      // adjacent plain text nodes, so an NBSP beside other text is not a separate node.
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        $getRoot().append(
+          $createParaNode().append(
+            $createCharNode("nd").append($createTextNode("aaa")),
+            $createTextNode(NBSP),
+            $createCharNode("nd").append($createTextNode("bbb")),
+          ),
+        );
+      });
+
+      editor.getEditorState().read(() => {
+        const items = $getFirstParaItems();
+
+        expect(items).toHaveLength(2);
+        expect(items[0].type).toBe("element");
+        expect(items[1].type).toBe("element");
+      });
+    });
+
+    it("emits a non-text element wrapped inside a TypedMarkNode as its own item", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        $getRoot().append(
+          $createParaNode().append(
+            $createTextNode("x"),
+            $createTypedMarkNode({ t: ["1"] }).append(
+              $createTextNode("y"),
+              $createCharNode("nd").append($createTextNode("LORD")),
+              $createTextNode("z"),
+            ),
+          ),
+        );
+      });
+
+      editor.getEditorState().read(() => {
+        const items = $getFirstParaItems();
+
+        // run "xy" | char | run "z"
+        expect(items).toHaveLength(3);
+        $expectTextItem(items[0], [
+          { text: "x", start: 0 },
+          { text: "y", start: 1 },
+        ]);
+        expect(items[1].type).toBe("element");
+        $expectTextItem(items[2], [{ text: "z", start: 0 }]);
+      });
+    });
+
+    it("returns an empty array for an empty paragraph", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        $getRoot().append($createParaNode());
+      });
+
+      editor.getEditorState().read(() => {
+        expect($getFirstParaItems()).toEqual([]);
+      });
+    });
+  });
+
+  describe("$getLogicalParent / $getLogicalIndexOfChild / $getLogicalTextLocation", () => {
+    it("resolves through TypedMarkNode wrappers to the real parent and run index", () => {
+      let markedText: TextNode;
+      let trailingText: TextNode;
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        markedText = $createTextNode("man");
+        trailingText = $createTextNode(" who");
+        $getRoot().append(
+          $createParaNode().append(
+            $createTextNode("the "),
+            $createTypedMarkNode({ spelling: ["s1"] }).append(markedText),
+            trailingText,
+          ),
+        );
+      });
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isElementNode(para)) throw new Error("Expected an ElementNode");
+
+        // Logical parent of text inside the mark is the para, not the mark.
+        expect($getLogicalParent(markedText)?.getKey()).toBe(para.getKey());
+        // All three text pieces belong to logical item 0.
+        expect($getLogicalIndexOfChild(para, markedText)).toBe(0);
+        expect($getLogicalIndexOfChild(para, trailingText)).toBe(0);
+
+        // Cumulative offsets: "the " (4) + "man" (3) + " who".
+        expect($getLogicalTextLocation(markedText, 1)).toEqual({
+          parent: para,
+          index: 0,
+          offset: 5,
+        });
+        expect($getLogicalTextLocation(trailingText, 2)).toEqual({
+          parent: para,
+          index: 0,
+          offset: 9,
+        });
+      });
+    });
+
+    it("gives elements after an annotated run their logical index", () => {
+      let charNode: ReturnType<typeof $createCharNode>;
+      let tailText: TextNode;
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        charNode = $createCharNode("nd");
+        tailText = $createTextNode("dd");
+        $getRoot().append(
+          $createParaNode().append(
+            $createTextNode("aaa "),
+            $createTypedMarkNode({ t: ["1"] }).append($createTextNode("bb")),
+            $createTextNode(" cc "),
+            charNode.append($createTextNode("LORD")),
+            tailText,
+          ),
+        );
+      });
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isElementNode(para)) throw new Error("Expected an ElementNode");
+
+        // USJ content: [0]="aaa bb cc ", [1]=char, [2]="dd" — the mark is invisible.
+        expect($getLogicalIndexOfChild(para, charNode)).toBe(1);
+        expect($getLogicalIndexOfChild(para, tailText)).toBe(2);
+        expect($getLogicalTextLocation(tailText, 1)).toEqual({
+          parent: para,
+          index: 2,
+          offset: 1,
+        });
+      });
+    });
+
+    it("returns -1 / undefined for presentation-only nodes", () => {
+      let markerNode: ReturnType<typeof $createMarkerNode>;
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        markerNode = $createMarkerNode("p");
+        $getRoot().append($createParaNode("p").append(markerNode, $createTextNode("hi")));
+      });
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isElementNode(para)) throw new Error("Expected an ElementNode");
+        expect($getLogicalIndexOfChild(para, markerNode)).toBe(-1);
+        expect($getLogicalTextLocation(markerNode, 0)).toBeUndefined();
+      });
+    });
+  });
+
+  describe("$getTextNodeAtLogicalOffset", () => {
+    it("finds the segment and local offset for cumulative offsets", () => {
+      const { editor, t1, t2, t3 } = buildAnnotatedPara();
+      editor.getEditorState().read(() => {
+        const item = $getFirstParaTextItem();
+
+        expect($getTextNodeAtLogicalOffset(item, 2)).toEqual([t1, 2]); // in "the "
+        expect($getTextNodeAtLogicalOffset(item, 5)).toEqual([t2, 1]); // in "man"
+        expect($getTextNodeAtLogicalOffset(item, 9)).toEqual([t3, 2]); // in " who"
+      });
+    });
+
+    it("prefers the next segment's start at internal boundaries", () => {
+      const { editor, t2 } = buildAnnotatedPara();
+      editor.getEditorState().read(() => {
+        const item = $getFirstParaTextItem();
+
+        // Offset 4 is the boundary "the "|"man": the mark's text at local offset 0.
+        expect($getTextNodeAtLogicalOffset(item, 4)).toEqual([t2, 0]);
+      });
+    });
+
+    it("returns the end of the last segment for offset === length, undefined beyond", () => {
+      const { editor, t3 } = buildAnnotatedPara();
+      editor.getEditorState().read(() => {
+        const item = $getFirstParaTextItem();
+
+        expect($getTextNodeAtLogicalOffset(item, 11)).toEqual([t3, 4]); // "the man who".length
+        expect($getTextNodeAtLogicalOffset(item, 12)).toBeUndefined();
+      });
+    });
+  });
+
+  describe("$getLogicalPointFromElementPoint / $getElementOffsetFromLogicalIndex", () => {
+    it("maps element boundaries around an annotated run", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        $getRoot().append(
+          $createParaNode().append(
+            $createTextNode("aaa "),
+            $createTypedMarkNode({ t: ["1"] }).append($createTextNode("bb")),
+            $createTextNode(" cc "),
+            $createCharNode("nd").append($createTextNode("LORD")),
+            $createTextNode("dd"),
+          ),
+        );
+      });
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isElementNode(para)) throw new Error("Expected an ElementNode");
+        // Lexical children:      0="aaa "  1=Mark  2=" cc "  3=Char  4="dd"
+        // Logical content items: 0="aaa bb cc "   1=Char     2="dd"
+
+        // Boundary before child 0 = before item 0.
+        expect($getLogicalPointFromElementPoint(para, 0)).toEqual({ type: "index", index: 0 });
+        // Boundary before the mark falls INSIDE logical item 0 at cumulative offset 4.
+        expect($getLogicalPointFromElementPoint(para, 1)).toEqual({
+          type: "text",
+          index: 0,
+          offset: 4,
+        });
+        // Boundary before " cc " is also inside item 0, at offset 6.
+        expect($getLogicalPointFromElementPoint(para, 2)).toEqual({
+          type: "text",
+          index: 0,
+          offset: 6,
+        });
+        // Boundary before the char is the clean boundary between items 0 and 1.
+        expect($getLogicalPointFromElementPoint(para, 3)).toEqual({ type: "index", index: 1 });
+        // End boundary.
+        expect($getLogicalPointFromElementPoint(para, 5)).toEqual({ type: "index", index: 3 });
+
+        // Inverse: earliest element child offset for each logical boundary.
+        expect($getElementOffsetFromLogicalIndex(para, 0)).toBe(0);
+        expect($getElementOffsetFromLogicalIndex(para, 1)).toBe(3); // after " cc "
+        expect($getElementOffsetFromLogicalIndex(para, 2)).toBe(4); // after Char
+        expect($getElementOffsetFromLogicalIndex(para, 3)).toBe(5); // after "dd"
+      });
+    });
+
+    it("resolves a boundary at a mark wrapping a non-text element child", () => {
+      // The mark wraps a CharNode rather than plain text (e.g. from wrapping a partial CharNode
+      // selection in an annotation). This pins the $isDescendantOf element-item branch: the
+      // "child" passed in is the mark itself, and the matching item's node (the CharNode) is a
+      // descendant of it, not equal to it.
+      let markNode: TypedMarkNode;
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        markNode = $createTypedMarkNode({ t: ["1"] }).append(
+          $createCharNode("nd").append($createTextNode("LORD")),
+        );
+        $getRoot().append(
+          $createParaNode().append($createTextNode("ab"), markNode, $createTextNode("cd")),
+        );
+      });
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isElementNode(para)) throw new Error("Expected an ElementNode");
+        // Lexical children:      0="ab"  1=Mark  2="cd"
+        // Logical content items: 0="ab"  1=Char  2="cd"
+
+        // Boundary before the mark (child index 1) falls on the char's logical index, not the
+        // mark's own (dropped) index.
+        expect($getLogicalPointFromElementPoint(para, 1)).toEqual({ type: "index", index: 1 });
+      });
+    });
+  });
 });
+
+// ---------------------------------------------------------------------------
+// Helpers (function declarations hoist, so they may live after the tests)
+// ---------------------------------------------------------------------------
+
+/**
+ * Gets the logical content items of the first (para) child of root. Must be called inside an
+ * active editor state read scope, e.g. `editor.getEditorState().read(...)`.
+ */
+function $getFirstParaItems(): LogicalContentItem[] {
+  const para = $getRoot().getFirstChild();
+  if (!$isElementNode(para)) throw new Error("Expected an ElementNode");
+  return $getLogicalContentItems(para);
+}
+
+/**
+ * Gets the first logical content item of the first (para) child of root, asserting it is a
+ * text item. Must be called inside an active editor state read scope.
+ */
+function $getFirstParaTextItem(): LogicalTextItem {
+  const [item] = $getFirstParaItems();
+  if (item?.type !== "text") throw new Error("Expected a text item");
+  return item;
+}
+
+/**
+ * Asserts a text item's segment texts and cumulative starts. Must be called inside an active
+ * editor state read scope, e.g. `editor.getEditorState().read(...)`.
+ */
+function $expectTextItem(
+  item: LogicalContentItem,
+  expectedSegments: { text: string; start: number }[],
+) {
+  if (item.type !== "text") throw new Error("Expected a text item");
+  expect(
+    item.segments.map((segment) => ({
+      text: segment.node.getTextContent(),
+      start: segment.start,
+    })),
+  ).toEqual(expectedSegments);
+  expect(item.length).toBe(expectedSegments.reduce((sum, segment) => sum + segment.text.length, 0));
+}
+
+/** Build "the " |man| " who" where "man" is annotated, returning the three text nodes. */
+function buildAnnotatedPara() {
+  let t1: TextNode;
+  let t2: TextNode;
+  let t3: TextNode;
+  const { editor } = createBasicTestEnvironment(nodes, () => {
+    t1 = $createTextNode("the ");
+    t2 = $createTextNode("man");
+    t3 = $createTextNode(" who");
+    $getRoot().append(
+      $createParaNode().append(t1, $createTypedMarkNode({ s: ["1"] }).append(t2), t3),
+    );
+  });
+  // Non-null assertion is safe: the initial state callback ran synchronously.
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+  return { editor, t1: t1!, t2: t2!, t3: t3! };
+}

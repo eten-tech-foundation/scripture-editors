@@ -162,8 +162,10 @@ describe("$getRangeFromUsjSelection", () => {
       });
 
       editor.getEditorState().read(() => {
+        // Coalesced-USJ coordinates: the TypedMarkNode is invisible in exported USJ, so the
+        // marked text is the para's first (and only) content string — not a nested content item.
         const usjSelection: SelectionRange = {
-          start: { jsonPath: "$.content[0].content[0].content[0]", offset: 7 },
+          start: { jsonPath: "$.content[0].content[0]", offset: 7 },
         };
         const editorSelection = $getRangeFromUsjSelection(usjSelection);
 
@@ -803,6 +805,109 @@ describe("$getRangeFromUsjSelection", () => {
   });
 });
 
+describe("$getRangeFromUsjSelection with annotations (PT-3835)", () => {
+  it("resolves coalesced offsets across the annotation into the right text nodes", () => {
+    const { editor, t1, t3 } = buildAnnotatedEnvironment(); // "the " |man| " who stands"
+
+    editor.getEditorState().read(() => {
+      const usjSelection: SelectionRange = {
+        start: { jsonPath: "$.content[0].content[0]", offset: 2 }, // in "the "
+        end: { jsonPath: "$.content[0].content[0]", offset: 9 }, // in " who stands"
+      };
+      const editorSelection = $getRangeFromUsjSelection(usjSelection);
+
+      if (!editorSelection) throw new Error("Expected editorSelection to be defined");
+      expect(editorSelection.anchor.key).toBe(t1.getKey());
+      expect(editorSelection.anchor.offset).toBe(2);
+      expect(editorSelection.focus.key).toBe(t3.getKey());
+      expect(editorSelection.focus.offset).toBe(2); // 9 - 4 - 3
+    });
+  });
+
+  it("resolves an offset inside the annotation", () => {
+    const { editor, t2 } = buildAnnotatedEnvironment();
+
+    editor.getEditorState().read(() => {
+      const editorSelection = $getRangeFromUsjSelection({
+        start: { jsonPath: "$.content[0].content[0]", offset: 5 },
+      });
+
+      if (!editorSelection) throw new Error("Expected editorSelection to be defined");
+      expect(editorSelection.anchor.key).toBe(t2.getKey());
+      expect(editorSelection.anchor.offset).toBe(1);
+    });
+  });
+
+  it("resolves elements positioned after an annotated run", () => {
+    // USJ content: [0]="aaa bb cc ", [1]=char("LORD"), [2]="dd"
+    let charText: TextNode;
+    let tailText: TextNode;
+    const { editor } = createBasicTestEnvironment([TypedMarkNode, ParaNode, CharNode], () => {
+      charText = $createTextNode("LORD");
+      tailText = $createTextNode("dd");
+      $getRoot().append(
+        $createParaNode().append(
+          $createTextNode("aaa "),
+          $createTypedMarkNode({ t: ["1"] }).append($createTextNode("bb")),
+          $createTextNode(" cc "),
+          $createCharNode("nd").append(charText),
+          tailText,
+        ),
+      );
+    });
+
+    editor.getEditorState().read(() => {
+      // The char's inner text: index 1 must NOT be shifted by the annotation.
+      const charSelection = $getRangeFromUsjSelection({
+        start: { jsonPath: "$.content[0].content[1].content[0]", offset: 2 },
+      });
+      if (!charSelection) throw new Error("Expected charSelection to be defined");
+      // Non-null assertion is safe: charText is assigned during the test setup callback.
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      expect(charSelection.anchor.key).toBe(charText!.getKey());
+      expect(charSelection.anchor.offset).toBe(2);
+
+      // Trailing text at logical index 2.
+      const tailSelection = $getRangeFromUsjSelection({
+        start: { jsonPath: "$.content[0].content[2]", offset: 1 },
+      });
+      if (!tailSelection) throw new Error("Expected tailSelection to be defined");
+      // Non-null assertion is safe: tailText is assigned during the test setup callback.
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      expect(tailSelection.anchor.key).toBe(tailText!.getKey());
+      expect(tailSelection.anchor.offset).toBe(1);
+    });
+  });
+
+  it("resolves offsets across adjacent overlapping-annotation marks", () => {
+    // Overlapping annotations resolve to FLAT adjacent sibling marks with merged typed IDs
+    // (AnnotationPlugin's nested-element resolver squashes any transient nesting).
+    let overlapText: TextNode;
+    const { editor } = createBasicTestEnvironment([TypedMarkNode, ParaNode], () => {
+      overlapText = $createTextNode("cd");
+      $getRoot().append(
+        $createParaNode().append(
+          $createTextNode("ab"),
+          $createTypedMarkNode({ outer: ["o1"] }).append($createTextNode("")),
+          $createTypedMarkNode({ outer: ["o1"], inner: ["i1"] }).append(overlapText),
+          $createTypedMarkNode({ outer: ["o1"] }).append($createTextNode("ef")),
+        ),
+      );
+    });
+
+    editor.getEditorState().read(() => {
+      const editorSelection = $getRangeFromUsjSelection({
+        start: { jsonPath: "$.content[0].content[0]", offset: 3 }, // "abcdef" → in "cd"
+      });
+      if (!editorSelection) throw new Error("Expected editorSelection to be defined");
+      // Non-null assertion is safe: overlapText is assigned during the test setup callback.
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      expect(editorSelection.anchor.key).toBe(overlapText!.getKey());
+      expect(editorSelection.anchor.offset).toBe(1);
+    });
+  });
+});
+
 describe("$getUsjSelectionFromEditor", () => {
   describe("UsjTextContentLocation", () => {
     it("should return undefined when there is no selection", () => {
@@ -1030,14 +1135,75 @@ describe("$getUsjSelectionFromEditor", () => {
         const usjSelection = $getUsjSelectionFromEditor();
 
         if (!usjSelection) throw new Error("Expected usjSelection to be defined");
+        // Coalesced-USJ coordinates: the TypedMarkNode is invisible in exported USJ, so the
+        // marked text is the para's first (and only) content string.
         expect(usjSelection.start).toEqual({
-          jsonPath: "$.content[0].content[0].content[0]",
+          jsonPath: "$.content[0].content[0]",
           offset: 3,
         });
         expect(usjSelection.end).toEqual({
-          jsonPath: "$.content[0].content[0].content[0]",
+          jsonPath: "$.content[0].content[0]",
           offset: 9,
         });
+      });
+    });
+
+    it("should anchor an element point on a mark's non-text child at the mark's logical position", () => {
+      // The mark wraps a CharNode (e.g. from wrapping a partial CharNode selection in an
+      // annotation) rather than plain text, so the offset-0 element point on the mark must not
+      // be resolved as if the mark itself were the logical parent (which would drop the mark's
+      // own content index and produce offset 0 instead of 1).
+      let markNode: TypedMarkNode;
+      const { editor } = createBasicTestEnvironment([ParaNode, TypedMarkNode, CharNode], () => {
+        markNode = $createTypedMarkNode({ testType: ["testId"] }).append(
+          $createCharNode("nd").append($createTextNode("LORD")),
+        );
+        $getRoot().append(
+          $createParaNode().append($createTextNode("ab"), markNode, $createTextNode("cd")),
+        );
+      });
+      // Non-null assertion is safe: markNode is assigned during the test setup callback.
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      updateSelection(editor, markNode!, 0);
+
+      editor.getEditorState().read(() => {
+        const usjSelection = $getUsjSelectionFromEditor();
+
+        if (!usjSelection) throw new Error("Expected usjSelection to be defined");
+        // USJ content: [0]="ab", [1]=char, [2]="cd" — the boundary before the mark's content is
+        // logical index 1 (after "ab", before the char).
+        expect(usjSelection.start).toEqual({
+          jsonPath: "$.content[0]",
+          offset: 1,
+        });
+        expect(usjSelection.end).toBeUndefined();
+      });
+    });
+
+    it("should anchor an element point after a mark's non-text child at the boundary past it", () => {
+      let markNode: TypedMarkNode;
+      const { editor } = createBasicTestEnvironment([ParaNode, TypedMarkNode, CharNode], () => {
+        markNode = $createTypedMarkNode({ testType: ["testId"] }).append(
+          $createCharNode("nd").append($createTextNode("LORD")),
+        );
+        $getRoot().append(
+          $createParaNode().append($createTextNode("ab"), markNode, $createTextNode("cd")),
+        );
+      });
+      // Non-null assertion is safe: markNode is assigned during the test setup callback.
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      updateSelection(editor, markNode!, 1);
+
+      editor.getEditorState().read(() => {
+        const usjSelection = $getUsjSelectionFromEditor();
+
+        if (!usjSelection) throw new Error("Expected usjSelection to be defined");
+        // The boundary after the mark's content is logical index 2 (before "cd").
+        expect(usjSelection.start).toEqual({
+          jsonPath: "$.content[0]",
+          offset: 2,
+        });
+        expect(usjSelection.end).toBeUndefined();
       });
     });
 
@@ -1343,6 +1509,75 @@ describe("$getUsjSelectionFromEditor", () => {
     });
   });
 });
+
+describe("$getUsjSelectionFromEditor with annotations (PT-3835)", () => {
+  // Para text: "the man who stands" — "man" is annotated (see buildAnnotatedEnvironment,
+  // placed after the tests). USJ has ONE string: content[0].content[0], so all offsets are
+  // absolute within that string.
+  it("reports coalesced USJ coordinates for text after the annotation", () => {
+    const { editor, t3 } = buildAnnotatedEnvironment();
+    updateSelection(editor, t3, 1, t3, 4); // "who" within " who stands"
+
+    editor.getEditorState().read(() => {
+      expect($getUsjSelectionFromEditor()).toEqual({
+        start: { jsonPath: "$.content[0].content[0]", offset: 8 },
+        end: { jsonPath: "$.content[0].content[0]", offset: 11 },
+      });
+    });
+  });
+
+  it("reports coalesced USJ coordinates for text inside the annotation", () => {
+    const { editor, t2 } = buildAnnotatedEnvironment();
+    updateSelection(editor, t2, 0, t2, 3); // "man"
+
+    editor.getEditorState().read(() => {
+      expect($getUsjSelectionFromEditor()).toEqual({
+        start: { jsonPath: "$.content[0].content[0]", offset: 4 },
+        end: { jsonPath: "$.content[0].content[0]", offset: 7 },
+      });
+    });
+  });
+
+  it("reports the same location as an unannotated document", () => {
+    // Unannotated equivalent: one text node "the man who stands".
+    let plain: TextNode;
+    const { editor: plainEditor } = createBasicTestEnvironment([TypedMarkNode, ParaNode], () => {
+      plain = $createTextNode("the man who stands");
+      $getRoot().append($createParaNode().append(plain));
+    });
+    // Non-null assertions are safe: plain is assigned during the test setup callback.
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    updateSelection(plainEditor, plain!, 8, plain!, 11);
+    let expected: SelectionRange | undefined;
+    plainEditor.getEditorState().read(() => {
+      expected = $getUsjSelectionFromEditor();
+    });
+
+    const { editor, t3 } = buildAnnotatedEnvironment();
+    updateSelection(editor, t3, 1, t3, 4); // same "who" range
+    editor.getEditorState().read(() => {
+      expect($getUsjSelectionFromEditor()).toEqual(expected);
+    });
+  });
+});
+
+/** Build "the " |man| " who stands" where "man" is annotated. */
+function buildAnnotatedEnvironment() {
+  let t1: TextNode;
+  let t2: TextNode;
+  let t3: TextNode;
+  const { editor } = createBasicTestEnvironment([TypedMarkNode, ParaNode], () => {
+    t1 = $createTextNode("the ");
+    t2 = $createTextNode("man");
+    t3 = $createTextNode(" who stands");
+    $getRoot().append(
+      $createParaNode().append(t1, $createTypedMarkNode({ spelling: ["s1"] }).append(t2), t3),
+    );
+  });
+  // Non-null assertions are safe: the initial state callback ran synchronously.
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+  return { editor, t1: t1!, t2: t2!, t3: t3! };
+}
 
 describe("round-trip conversion", () => {
   it("should round-trip UsjTextContentLocation selection", () => {
