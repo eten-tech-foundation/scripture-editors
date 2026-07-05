@@ -272,6 +272,50 @@ describe("ScriptureReferencePlugin", () => {
       expect(mockOnScrRefChange).not.toHaveBeenCalled();
     });
 
+    // Task 15 cluster A residual: the host echoes back refs this editor itself reported, but the
+    // round trip is slow (~100-900ms), and the old single-boolean suppression
+    // (`hasSelectionChangedRef`) was OVERWRITTEN by every SELECTION_CHANGE in between — a keystroke
+    // that recomputes the same verse as the (not-yet-echoed) prop clobbered the pending `true` back
+    // to `false`, so the late echo then yanked the caret to the verse/para start mid-typing (QA
+    // items 1-4: caret ejected to the `\s1` glyph ~190ms after typing `\`). The suppression must
+    // key on the VALUES this editor emitted, not on a clobber-prone boolean.
+    it("does not yank the caret when a late self-echo arrives after an intervening selection change", async () => {
+      const { editor, setScrRef } = await testEnvironment(scrRef, mockOnScrRefChange);
+      // Consume the initial move-to-verse-start flag so dispatches below run the BCV logic.
+      await act(async () => {
+        editor.dispatchCommand(SELECTION_CHANGE_COMMAND, undefined);
+      });
+      mockOnScrRefChange.mockClear();
+
+      // 1. Caret into the heading (verse 0 position): the editor reports {GEN 1:0} to the host.
+      updateSelection(editor, sectionTextNode, 2);
+      await act(async () => {
+        editor.dispatchCommand(SELECTION_CHANGE_COMMAND, undefined);
+      });
+      expect(mockOnScrRefChange).toHaveBeenCalledWith(
+        expect.objectContaining({ book: "GEN", chapterNum: 1, verseNum: 0 }),
+      );
+
+      // 2. Before the echo returns, the user types/moves: a SELECTION_CHANGE that computes the
+      // same verse as the still-old prop (verse 1) — this clobbered the old boolean to false.
+      updateSelection(editor, firstVerseTextNode, 2);
+      await act(async () => {
+        editor.dispatchCommand(SELECTION_CHANGE_COMMAND, undefined);
+      });
+
+      // 3. The step-1 echo finally arrives. It is OUR OWN report — the caret must stay put.
+      await setScrRef({ book: "GEN", chapterNum: 1, verseNum: 0 });
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(firstVerseTextNode, 2); // NOT yanked to the heading start
+      });
+
+      // 4. Control: a genuinely external navigation still moves the caret.
+      await setScrRef({ book: "GEN", chapterNum: 1, verseNum: 2 });
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(secondVerseTextNode, 0);
+      });
+    });
+
     it("should report verse 0 when cursor is on verse 1 number (before verse content)", async () => {
       const { editor } = await testEnvironment(scrRef, mockOnScrRefChange);
       let verse1Key: string | undefined;
