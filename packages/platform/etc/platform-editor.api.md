@@ -141,6 +141,10 @@ export interface EditorProps<TLogger extends LoggerBasic> {
 
 // @public
 export interface EditorRef {
+    applyMarkerMenuSelection(item: MarkerMenuItem, opts: {
+        trigger: "backslash" | "enter";
+        literalPrefixLanded: boolean;
+    }): void;
     applyUpdate(ops: DeltaOp[], source?: DeltaSource): void;
     copy(): void;
     cut(): void;
@@ -177,6 +181,7 @@ export interface EditorRef {
     setAnnotation(selection: AnnotationRange, type: string, id: string, onClick?: TypedMarkOnClick, onRemove?: TypedMarkOnRemove): void;
     setSelection(selection: SelectionRange): void;
     setUsj(usj: Usj): void;
+    splitParagraphWithMarker(marker: string): void;
     toolbarEndRef: RefObject<HTMLElement | null> | null;
     undo(): void;
 }

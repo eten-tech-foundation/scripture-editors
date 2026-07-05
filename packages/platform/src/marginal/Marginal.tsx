@@ -189,6 +189,12 @@ const Marginal = forwardRef(function Marginal<TLogger extends LoggerBasic>(
     getMarkerMenuContext() {
       return editorRef.current?.getMarkerMenuContext();
     },
+    applyMarkerMenuSelection(item, opts) {
+      editorRef.current?.applyMarkerMenuSelection(item, opts);
+    },
+    splitParagraphWithMarker(marker) {
+      editorRef.current?.splitParagraphWithMarker(marker);
+    },
     insertNote(marker, caller, selection) {
       editorRef.current?.insertNote(marker, caller, selection);
     },

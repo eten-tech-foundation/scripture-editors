@@ -317,9 +317,26 @@ function $wrapNode(node: LexicalNode, wrapper: LexicalNode): void {
     wrapper.setTextContent(text);
     node.remove();
   } else if ($isElementNode(wrapper)) {
-    const wrapperChildrenCount = wrapper.getChildrenSize();
-    wrapper.append(node);
-    for (let i = 0; i < wrapperChildrenCount; i++) wrapper.getFirstChild()?.remove();
+    // A freshly created wrapper already carries its own opener/closer glyph children (plus a
+    // placeholder for its otherwise-empty content) when built in "editable" marker mode
+    // (`createChar`, `usj-editor.adaptor.ts:349-356`): preserve those glyphs and discard only
+    // the placeholder, inserting the real wrapped content where the placeholder sat - a
+    // glyph-less span reads to `MarkerEditPlugin` as "the opener was deleted" and gets
+    // unwrapped again immediately (`$charNodeDeletionTransform`). Other marker modes don't
+    // populate glyph children this way, so the original strip-everything behavior (append then
+    // drop whatever pre-existing children there were) is unchanged for them.
+    const existingChildren = wrapper.getChildren();
+    const closer = existingChildren.find(
+      (child) => $isMarkerNode(child) && child.getMarkerSyntax() !== "opening",
+    );
+    if (closer) {
+      closer.insertBefore(node);
+      existingChildren.filter((child) => !$isMarkerNode(child)).forEach((child) => child.remove());
+    } else {
+      const wrapperChildrenCount = wrapper.getChildrenSize();
+      wrapper.append(node);
+      for (let i = 0; i < wrapperChildrenCount; i++) wrapper.getFirstChild()?.remove();
+    }
     $moveLeadingSpaceToPreviousNode(node, wrapper);
   }
 }

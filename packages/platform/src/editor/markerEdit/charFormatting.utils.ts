@@ -4,7 +4,14 @@
  */
 
 import { $unwrapCharNode } from "./markerEditDeletion.utils";
-import { $createTextNode, $getSelection, $isRangeSelection, $isTextNode, TextNode } from "lexical";
+import {
+  $createTextNode,
+  $getSelection,
+  $isRangeSelection,
+  $isTextNode,
+  LexicalNode,
+  TextNode,
+} from "lexical";
 import {
   $createCharNode,
   $createMarkerNode,
@@ -170,4 +177,72 @@ export function $removeCharFormattingFromSelection(): boolean {
     $unwrapCharNode(char);
   }
   return chars.size > 0;
+}
+
+/** Nearest `CharNode` ancestor (including `node` itself) whose implied endmarker (its own
+ * marker + `"*"`, the USFM convention — no `StyleInfo` is threaded through here) equals
+ * `endMarker`, innermost first. */
+function $findCharNodeByEndMarker(node: LexicalNode, endMarker: string): CharNode | undefined {
+  let current: LexicalNode | null = node;
+  while (current) {
+    if ($isCharNode(current) && `${current.getMarker()}*` === endMarker) return current;
+    current = current.getParent();
+  }
+  return undefined;
+}
+
+/** Whether `node` is the last plain (non-marker) text child of `char` — i.e. its content end. */
+function $isLastPlainTextChild(char: CharNode, node: TextNode): boolean {
+  const plainChildren = char
+    .getChildren()
+    .filter((c): c is TextNode => $isTextNode(c) && !$isMarkerNode(c));
+  const last = plainChildren[plainChildren.length - 1];
+  return !!last && last.is(node);
+}
+
+/** Move the selection to just after `char` — into its next plain-text sibling when there is
+ * one (the common case right after a split+unwrap), else an element-point selection. */
+function $selectAfterCharNode(char: CharNode): void {
+  const next = char.getNextSibling();
+  if ($isTextNode(next)) {
+    next.select(0, 0);
+    return;
+  }
+  const parent = char.getParent();
+  if (!parent) return;
+  const index = char.getIndexWithinParent();
+  parent.select(index + 1, index + 1);
+}
+
+/**
+ * Closes the innermost open character span matching `endMarker` (e.g. `"nd*"`) at the caret —
+ * the marker-menu `closeTag` apply (§5.5, PT9 `MarkerDropdownControl`'s close-tag entries).
+ *
+ * Splits the span at the caret via `$splitCharNodeAt` and unwraps the right half (content after
+ * the caret leaves the span, becoming plain text) — mirroring Ctrl+Space's split shape. When the
+ * caret already sits at the span's content end, the span is already effectively closed: no split
+ * is performed, the selection just moves past it. Returns `false` when there is no open span
+ * matching `endMarker` at the caret, or the selection isn't a collapsed range selection.
+ */
+export function $closeCharSpanAtCaret(endMarker: string): boolean {
+  const selection = $getSelection();
+  if (!$isRangeSelection(selection) || !selection.isCollapsed()) return false;
+
+  const anchorNode = selection.anchor.getNode();
+  const char = $findCharNodeByEndMarker(anchorNode, endMarker);
+  if (!char) return false;
+
+  const offset = selection.anchor.offset;
+  if ($isTextNode(anchorNode) && anchorNode.getParent()?.is(char)) {
+    const isContentEnd =
+      offset === anchorNode.getTextContentSize() && $isLastPlainTextChild(char, anchorNode);
+    if (!isContentEnd) {
+      const right = $splitCharNodeAt(char, anchorNode, offset);
+      $unwrapCharNode(right);
+    }
+  }
+  // Else: the caret isn't directly inside the matched span's own text content (e.g. nested
+  // deeper than one level below it) — degrade to moving the caret past the span.
+  $selectAfterCharNode(char);
+  return true;
 }

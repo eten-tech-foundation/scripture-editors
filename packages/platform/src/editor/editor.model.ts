@@ -1,4 +1,4 @@
-import { MarkerMenuContext } from "./markerMenu/markerItemSource";
+import { MarkerMenuContext, MarkerMenuItem } from "./markerMenu/markerItemSource";
 import { Usj } from "@eten-tech-foundation/scripture-utilities";
 import { SerializedVerseRef } from "@sillsdev/scripture";
 import { RefObject } from "react";
@@ -138,6 +138,36 @@ export interface EditorRef {
   getMarkerMenuContext():
     | (MarkerMenuContext & { anchorRect?: { x: number; y: number; width: number; height: number } })
     | undefined;
+  /**
+   * Apply a marker-menu selection at the current editor selection (standard-view `\`/Enter
+   * marker menus). Mirrors PT9's `MarkerDropdownEditHandler`/`KeyPressEditHandler` apply step:
+   * paragraph/character/note kinds run the structural insert action used by
+   * {@link EditorRef.insertMarker} (optionally cleaning up a literal `\marker` trigger prefix
+   * typed before the caret); `closeTag` kind closes the matching open character span instead.
+   *
+   * @param item - The selected marker-menu item (from {@link getMarkerMenuItems} /
+   *   {@link getEnterMenuItems}).
+   * @param opts - `trigger` is which UI trigger produced the menu (`"backslash"` or `"enter"`).
+   *   `literalPrefixLanded` is whether a literal `\marker` trigger prefix was typed before the
+   *   caret and must be deleted before applying the action; ignored for `closeTag` items.
+   * @throws Will throw an error if the editor is in readonly mode.
+   * @throws Will throw an error if the `scrRef` prop was not provided to the editor.
+   * @throws Will throw an error if `item.kind` is not `"closeTag"` and `item.marker` is not a
+   *   supported para, char, note, chapter, or verse marker.
+   */
+  applyMarkerMenuSelection(
+    item: MarkerMenuItem,
+    opts: { trigger: "backslash" | "enter"; literalPrefixLanded: boolean },
+  ): void;
+  /**
+   * Splits the paragraph at the current caret, giving the new paragraph `marker` with its
+   * visible prefix injected in the same update (standard-view Enter-triggered marker menu
+   * apply step).
+   *
+   * @param marker - A USFM paragraph marker string, e.g. `"q1"`, `"p"`.
+   * @throws Will throw an error if the editor is in readonly mode.
+   */
+  splitParagraphWithMarker(marker: string): void;
   /**
    * Insert a note at the specified selection, e.g. footnote, cross-reference, endnote.
    * @param marker - The marker type for the note.

@@ -4,6 +4,10 @@ import { getUsjMarkerAction, isUsjMarkerSupported } from "./adaptors/usj-marker-
 import { EditorOptions, EditorProps, EditorRef } from "./editor.model";
 import editorTheme from "./editor.theme";
 import { ActiveTextPlugin } from "./ActiveTextPlugin";
+import {
+  $applyMarkerMenuSelection,
+  $splitParagraphWithMarker,
+} from "./markerMenu/markerMenuApply.utils";
 import { $getMarkerMenuContext } from "./markerMenu/markerMenuContext.utils";
 import { MarkerEditPlugin } from "./markerEdit/MarkerEditPlugin";
 import { MarkerValidationPlugin } from "./markerEdit/MarkerValidationPlugin";
@@ -338,6 +342,35 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
       // `getEditorState().read`, NOT `editor.read` - the latter force-flushes any in-flight
       // update mid-dispatch (Task 7's `OnSelectionChangePlugin` hazard class).
       return editorRef.current?.getEditorState().read(() => $getMarkerMenuContext());
+    },
+    applyMarkerMenuSelection(item, opts) {
+      if (isReadonly) throw new Error("Cannot apply marker menu selection in readonly mode");
+      if (!scrRef)
+        throw new Error(
+          "Cannot apply marker menu selection without a scripture reference (scrRef)",
+        );
+      if (!editorRef.current) return;
+
+      if (item.kind !== "closeTag" && !isUsjMarkerSupported(item.marker))
+        throw new Error(`Unsupported marker '${item.marker}'`);
+
+      const editor = editorRef.current;
+      editor.update(() => {
+        $applyMarkerMenuSelection(item, opts, scrRef, {
+          expandedNoteKeyRef,
+          viewOptions,
+          nodeOptions,
+          logger,
+        });
+      });
+    },
+    splitParagraphWithMarker(marker) {
+      if (isReadonly) throw new Error("Cannot split paragraph in readonly mode");
+      if (!editorRef.current) return;
+
+      editorRef.current.update(() => {
+        $splitParagraphWithMarker(marker);
+      });
     },
     insertNote(marker, caller, selection) {
       editorRef.current?.update(() => {
