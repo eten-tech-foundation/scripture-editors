@@ -9,6 +9,7 @@ import {
   $getRoot,
   $getSelection,
   $isRangeSelection,
+  $isTextNode,
   $setSelection,
 } from "lexical";
 
@@ -92,6 +93,8 @@ describe("UnknownNode", () => {
       });
     });
 
+    // Pins the browser-primitive half of §7's caret contract; true caret-navigation skipping is
+    // browser-level behavior and is covered by Task 15 in-app QA.
     it("sets contentEditable to false", () => {
       const { editor } = createBasicTestEnvironment([UnknownNode]);
       editor.update(() => {
@@ -189,6 +192,88 @@ describe("UnknownNode", () => {
         expect(children).toHaveLength(1);
         expect(children[0]?.getTextContent()).toBe("beforeafter");
       });
+    });
+  });
+
+  // The other half of §7's typing contract, model-level: with the caret collapsed at the
+  // boundaries adjacent to the opaque block (end of the preceding paragraph, start of the
+  // following one), inserted text lands in the neighboring paragraphs, Lexical's selection
+  // normalization never yields an anchor inside the UnknownNode, and the opaque subtree's
+  // serialized bytes are untouched. (jsdom has no native caret, so this is the executable
+  // formulation; the browser-level caret half is contentEditable=false, pinned above.)
+  describe("caret-adjacent typing (§7)", () => {
+    it("inserts text into the neighboring paragraphs and leaves the UnknownNode byte-unchanged", () => {
+      let para1: ParaNode | null = null;
+      let para2: ParaNode | null = null;
+      let unknownKey = "";
+      const { editor } = createBasicTestEnvironment([ParaNode, UnknownNode], () => {
+        para1 = $createParaNode("p");
+        const row = $createUnknownNode("row", "tr");
+        const unknown = $createUnknownNode("table", undefined);
+        para2 = $createParaNode("p");
+        unknownKey = unknown.getKey();
+        $getRoot().append(
+          para1.append($createTextNode("before")),
+          unknown.append(row.append($createTextNode("cell text"))),
+          para2.append($createTextNode("after")),
+        );
+      });
+      // Byte-level pin of the whole opaque subtree (children included): the UnknownNode is
+      // root.children[1] in the serialized editor state and must stay there, byte-identical.
+      const serializedUnknown = JSON.stringify(editor.getEditorState().toJSON().root.children[1]);
+
+      const $expectAnchorOutsideUnknown = () => {
+        const selection = $getSelection();
+        if (!$isRangeSelection(selection)) throw new Error("Expected a range selection");
+        const anchorNode = selection.anchor.getNode();
+        expect(anchorNode.getKey()).not.toBe(unknownKey);
+        expect(anchorNode.getParents().some((parent) => parent.getKey() === unknownKey)).toBe(
+          false,
+        );
+      };
+
+      // (a) caret collapsed at the END of the preceding paragraph.
+      editor.update(
+        () => {
+          if (!para1) throw new Error("Expected paragraph node to exist");
+          const text1 = para1.getFirstChild();
+          if (!$isTextNode(text1)) throw new Error("Expected a text child");
+          text1.select(text1.getTextContentSize(), text1.getTextContentSize());
+          $expectAnchorOutsideUnknown();
+
+          const selection = $getSelection();
+          if (!$isRangeSelection(selection)) throw new Error("Expected a range selection");
+          selection.insertText("X");
+          $expectAnchorOutsideUnknown();
+        },
+        { discrete: true },
+      );
+
+      // (b) caret collapsed at the START of the following paragraph.
+      editor.update(
+        () => {
+          if (!para2) throw new Error("Expected paragraph node to exist");
+          const text2 = para2.getFirstChild();
+          if (!$isTextNode(text2)) throw new Error("Expected a text child");
+          text2.select(0, 0);
+          $expectAnchorOutsideUnknown();
+
+          const selection = $getSelection();
+          if (!$isRangeSelection(selection)) throw new Error("Expected a range selection");
+          selection.insertText("Y");
+          $expectAnchorOutsideUnknown();
+        },
+        { discrete: true },
+      );
+
+      editor.getEditorState().read(() => {
+        if (!para1 || !para2) throw new Error("Expected paragraph nodes to exist");
+        expect(para1.getTextContent()).toBe("beforeX");
+        expect(para2.getTextContent()).toBe("Yafter");
+      });
+      expect(JSON.stringify(editor.getEditorState().toJSON().root.children[1])).toBe(
+        serializedUnknown,
+      );
     });
   });
 });
