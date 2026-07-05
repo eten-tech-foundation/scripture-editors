@@ -516,6 +516,10 @@ describe("Cluster A: async scrRef caret-yank and cross-frame blur (Task 15)", ()
     // user actually acts (a KEY_DOWN), so resolution must stay suppressed across that follow-on.
     let para: ParaNode, marker: MarkerNode;
     const { editor } = await testEnvironment(() => ({ para, marker } = $appendHeadingPara()));
+    const $selectHeadingText = (offset: number) => {
+      const last = para.getLastChild();
+      if ($isTextNode(last)) last.select(offset, offset);
+    };
     await act(async () =>
       editor.update(() => {
         marker.setTextContent("\\s2");
@@ -523,11 +527,9 @@ describe("Cluster A: async scrRef caret-yank and cross-frame blur (Task 15)", ()
       }),
     );
     // commit 2: programmatic scrRef yank off the pending marker (to the heading text start).
-    await act(async () =>
-      editor.update(() => para.getLastChild()?.select(0, 0), { tag: CURSOR_CHANGE_TAG }),
-    );
+    await act(async () => editor.update(() => $selectHeadingText(0), { tag: CURSOR_CHANGE_TAG }));
     // commit 3: an untagged follow-on that leaves the caret off the pending marker (genuine move).
-    await act(async () => editor.update(() => para.getLastChild()?.select(1, 1)));
+    await act(async () => editor.update(() => $selectHeadingText(1)));
     editor.getEditorState().read(() => expect(para.getMarker()).toBe("s1")); // STILL pending, not split
 
     // But a genuine user keystroke re-establishes intent: after KEY_DOWN, a real caret departure DOES
@@ -535,7 +537,7 @@ describe("Cluster A: async scrRef caret-yank and cross-frame blur (Task 15)", ()
     await act(async () => {
       editor.dispatchCommand(KEY_DOWN_COMMAND, new KeyboardEvent("keydown", { key: "ArrowRight" }));
     });
-    await act(async () => editor.update(() => para.getLastChild()?.select(3, 3)));
+    await act(async () => editor.update(() => $selectHeadingText(3)));
     editor.getEditorState().read(() => expect(para.getMarker()).toBe("s2")); // now completes
   });
 
