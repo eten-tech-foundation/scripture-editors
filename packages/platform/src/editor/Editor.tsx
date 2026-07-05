@@ -5,6 +5,12 @@ import { EditorOptions, EditorProps, EditorRef } from "./editor.model";
 import editorTheme from "./editor.theme";
 import { ActiveTextPlugin } from "./ActiveTextPlugin";
 import {
+  getEnterMenuItems,
+  getMarkerMenuItems,
+  MarkerMenuContext,
+  MarkerMenuItem,
+} from "./markerMenu/markerItemSource";
+import {
   $applyMarkerMenuSelection,
   $splitParagraphWithMarker,
 } from "./markerMenu/markerMenuApply.utils";
@@ -51,6 +57,7 @@ import {
   $createParaNode,
   blackListedChangeTags,
   createMarkerLookup,
+  defaultStyleInfo,
   DELTA_CHANGE_TAG,
   externalTypedMarkType,
   LoggerBasic,
@@ -81,6 +88,7 @@ import {
   DeltaOnChangePlugin,
   DeltaOp,
   DisableHistoryShortcutsPlugin,
+  EditableMarkerMenuHarness,
   EditablePlugin,
   getDefaultViewOptions,
   getInsertedNodeKey,
@@ -169,6 +177,32 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
   const nodeOptions = useMemo(() => nodes ?? defaultNodeOptions, [nodes]);
   const contextMenuOptions = useMemo(() => contextMenu, [contextMenu]);
   const markerLookup = useMemo(() => createMarkerLookup(styleInfo), [styleInfo]);
+
+  // QA-ONLY editable-mode document-first marker-menu harness (Task 5 - shared-react's
+  // `UsjNodesMenuPlugin` "editableHarness" branch; see its doc comment). `undefined` outside
+  // markerMode "editable" so the plugin falls back to its legacy typeahead unaffected. Built
+  // from the same `EditorRef` methods (Task 2/3) a host would call, plus the module-level
+  // marker-item source (Task 1) - not a separate implementation.
+  const editableMarkerMenuHarness = useMemo<EditableMarkerMenuHarness | undefined>(() => {
+    if (viewOptions.markerMode !== "editable") return undefined;
+
+    const menuStyleInfo = styleInfo ?? defaultStyleInfo;
+    const editorApiRef = ref as MutableRefObject<EditorRef | null>;
+    return {
+      getContext: () => editorApiRef.current?.getMarkerMenuContext(),
+      // The context object is always one this same harness produced via `getContext()` above
+      // (never externally supplied), so it really is a full `MarkerMenuContext` at runtime -
+      // the cast bridges shared-react's structural `MarkerMenuContextLike` back to it.
+      getItems: (context) => getMarkerMenuItems(menuStyleInfo, context as MarkerMenuContext),
+      getEnterItems: (context) => getEnterMenuItems(menuStyleInfo, context as MarkerMenuContext),
+      apply: (item, opts) => {
+        const editorApi = editorApiRef.current;
+        if (!editorApi) return;
+        if (opts.trigger === "enter") editorApi.splitParagraphWithMarker(item.marker);
+        else editorApi.applyMarkerMenuSelection(item as MarkerMenuItem, opts);
+      },
+    };
+  }, [viewOptions, styleInfo, ref]);
 
   // `showCharMarkerTitles` rides on the Lexical theme so `CharNode.createDOM` can read it via
   // `EditorConfig.theme`. Theme is the channel because its map permits arbitrary keys and is the
@@ -480,6 +514,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
               getMarkerAction={(marker) =>
                 getUsjMarkerAction(marker, expandedNoteKeyRef, viewOptions, nodeOptions, logger)
               }
+              editableHarness={editableMarkerMenuHarness}
             />
           )}
           <LoadStatePlugin
