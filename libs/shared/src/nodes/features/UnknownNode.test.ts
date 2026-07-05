@@ -44,7 +44,7 @@ describe("UnknownNode", () => {
     // UnknownNode with tag "optbreak" (packages/utilities/src/converters/usj/
     // converter-test.data.ts:2571, and the "optional line break (optbreak)" Phase 0 corpus
     // fixture). PT9 renders it as a literal `//` mid-sentence, so — unlike table/figure/
-    // sidebar/periph/ref — it must render inline, not as a block box breaking the paragraph.
+    // sidebar/periph — it must render inline, not as a block box breaking the paragraph.
     it("adds the 'unknown-inline' class instead of 'unknown-block' for the optbreak construct", () => {
       const { editor } = createBasicTestEnvironment([UnknownNode]);
       editor.update(() => {
@@ -53,6 +53,42 @@ describe("UnknownNode", () => {
 
         expect(element.classList.contains("unknown-inline")).toBe(true);
         expect(element.classList.contains("unknown-block")).toBe(false);
+      });
+    });
+
+    // Coordinator adjudication of the Task 6 `\ref` flag: the §7 rationale ("a line-level box in
+    // the middle of a sentence would be visibly wrong") governs over the spec's literal block
+    // bucket. The "cross-reference ref target" corpus fixture nests <ref> INSIDE a paragraph's
+    // running text (converter-test.data.ts:2581 shows it becoming UnknownNode tag "ref"), the
+    // same mid-sentence placement as optbreak — so ref gets the inline class too. Unlike
+    // optbreak it carries real child text, so it must NOT get the optbreak-only `//` label
+    // (pinned by the data-tag test below — the label selector keys off [data-tag="optbreak"]).
+    it("adds the 'unknown-inline' class instead of 'unknown-block' for the ref construct", () => {
+      const { editor } = createBasicTestEnvironment([UnknownNode]);
+      editor.update(() => {
+        const node = $createUnknownNode("ref", undefined);
+        const element = node.createDOM();
+
+        expect(element.classList.contains("unknown-inline")).toBe(true);
+        expect(element.classList.contains("unknown-block")).toBe(false);
+      });
+    });
+
+    // The `//` label is optbreak-specific: usj-nodes.css keys it off [data-tag="optbreak"], so
+    // the ::before rule can never match a ref (or any other construct). jsdom doesn't render
+    // pseudo-elements, so the DOM-level contract pinned here is the discriminator attribute the
+    // CSS selector depends on. data-tag is also the attribute importDOM's $convertUnknownElement
+    // reads, so emitting it keeps createDOM symmetric with the conversion map.
+    it("stamps data-tag with the construct tag so CSS can key the optbreak-only label off it", () => {
+      const { editor } = createBasicTestEnvironment([UnknownNode]);
+      editor.update(() => {
+        const optbreakElement = $createUnknownNode("optbreak", undefined).createDOM();
+        const refElement = $createUnknownNode("ref", undefined).createDOM();
+        const tableElement = $createUnknownNode("table", undefined).createDOM();
+
+        expect(optbreakElement.getAttribute("data-tag")).toBe("optbreak");
+        expect(refElement.getAttribute("data-tag")).toBe("ref");
+        expect(tableElement.getAttribute("data-tag")).toBe("table");
       });
     });
 
@@ -74,6 +110,33 @@ describe("UnknownNode", () => {
 
         expect(element.style.display).toBe("");
       });
+    });
+  });
+
+  // Inline ref content (§7 adjudication): a ref's child text is real visible content — the
+  // reconciler must keep it in the mounted editor DOM under the unknown-inline element (CSS
+  // reveals it inline in standard view; the optbreak-only `//` label rule cannot match it).
+  describe("inline ref content (§7)", () => {
+    it("keeps a ref construct's child text in the mounted editor DOM", () => {
+      let refKey = "";
+      const { editor } = createBasicTestEnvironment([ParaNode, UnknownNode], () => {
+        const ref = $createUnknownNode("ref", undefined);
+        refKey = ref.getKey();
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createTextNode("See "),
+            ref.append($createTextNode("Mk 9.50")),
+            $createTextNode(" for details."),
+          ),
+        );
+      });
+
+      const element = editor.getElementByKey(refKey);
+      expect(element).toBeInstanceOf(HTMLElement);
+      if (!(element instanceof HTMLElement)) throw new Error("Expected DOM element for ref node");
+      expect(element.classList.contains("unknown-inline")).toBe(true);
+      expect(element.getAttribute("data-tag")).toBe("ref");
+      expect(element.textContent).toBe("Mk 9.50");
     });
   });
 

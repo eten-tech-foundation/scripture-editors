@@ -30,14 +30,21 @@ export const UNKNOWN_TAG_NAME = "unknown";
 export const UNKNOWN_VERSION = 1;
 
 /**
- * `UnknownNode` tags that PT9 renders as an inline atomic token instead of a subdued block
- * container (design spec §7). `\optbreak` (USJ type "optbreak") is the one verified exception:
- * PT9 renders it as a literal `//` mid-sentence, so a block-level box would visibly break the
- * paragraph it sits in. Verified against the Phase 0 "optional line break (optbreak)" corpus
- * fixture and `packages/utilities/src/converters/usj/converter-test.data.ts:2571`, both of
- * which show `\optbreak` becoming an `UnknownNode` with `tag: "optbreak"`.
+ * `UnknownNode` tags that render inline instead of as a subdued block container (design spec
+ * §7: "a line-level box in the middle of a sentence would be visibly wrong"). These are the two
+ * corpus-proven mid-paragraph constructs — both nest INSIDE a `<para>`'s running text in the
+ * Phase 0 corpus fixtures ("optional line break (optbreak)" and "cross-reference ref target"),
+ * and `packages/utilities/src/converters/usj/converter-test.data.ts:2571,2581` shows both
+ * becoming `UnknownNode`s (tags "optbreak" and "ref"):
+ *
+ * - `\optbreak` — PT9 renders it as a literal `//` token mid-sentence; it has no children, so
+ *   the CSS supplies the `//` label (keyed off `data-tag="optbreak"`).
+ * - `\ref` — a cross-reference target with real child text that must display inline; it gets
+ *   NO label (the optbreak label selector cannot match it).
+ *
+ * Everything else (table/figure/sidebar/periph/...) stays block-level.
  */
-const INLINE_UNKNOWN_TAGS = new Set(["optbreak"]);
+const INLINE_UNKNOWN_TAGS = new Set(["optbreak", "ref"]);
 
 export class UnknownNode extends ElementNode {
   __tag: string;
@@ -124,6 +131,10 @@ export class UnknownNode extends ElementNode {
 
   override createDOM(): HTMLElement {
     const dom = document.createElement(UNKNOWN_TAG_NAME);
+    // data-tag doubles as the CSS discriminator for construct-specific treatment (the
+    // optbreak-only `//` label keys off [data-tag="optbreak"]) and mirrors what importDOM's
+    // $convertUnknownElement reads back.
+    dom.setAttribute("data-tag", this.getTag());
     dom.setAttribute("data-marker", this.getMarker() ?? "");
     dom.classList.add(INLINE_UNKNOWN_TAGS.has(this.getTag()) ? "unknown-inline" : "unknown-block");
     // Read-only whole-block: no inline display:none here (that hid the content in every view).
