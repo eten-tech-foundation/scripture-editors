@@ -52,6 +52,7 @@ import {
   isSerializedBookNode,
   isSerializedImmutableTypedTextNode,
   isSerializedParaNode,
+  isSerializedTableNode,
   isSerializedTextNode,
   isSomeSerializedChapterNode,
   LoggerBasic,
@@ -87,10 +88,12 @@ import {
   SerializedVerseNode,
   STARTING_MS_COMMENT_MARKER,
   TableCellNode,
+  TABLE_CELL_DEFAULT_MARKER,
   TABLE_CELL_MARKER_OBJECT_PROPS,
   TableNode,
   TABLE_MARKER_OBJECT_PROPS,
   TableRowNode,
+  TABLE_ROW_DEFAULT_MARKER,
   TABLE_ROW_MARKER_OBJECT_PROPS,
   TABLE_CELL_VERSION,
   TABLE_ROW_VERSION,
@@ -420,7 +423,6 @@ function createBaseElement() {
     direction: null as null,
     format: "" as const,
     indent: 0,
-    version: 1,
   };
 }
 
@@ -446,7 +448,7 @@ function createTableRow(
   return removeUndefinedProperties({
     ...createBaseElement(),
     type: TableRowNode.getType(),
-    marker: markerObject.marker ?? "tr",
+    marker: markerObject.marker ?? TABLE_ROW_DEFAULT_MARKER,
     unknownAttributes,
     children: childNodes,
     version: TABLE_ROW_VERSION,
@@ -459,7 +461,7 @@ function createTableCell(
 ): SerializedTableCellNode {
   const { marker, align, colspan } = markerObject;
   const children: SerializedLexicalNode[] = [];
-  const cellMarker = marker ?? "tc1";
+  const cellMarker = marker ?? TABLE_CELL_DEFAULT_MARKER;
   if (_viewOptions?.markerMode === "editable")
     children.push(createMarker(cellMarker), createText(NBSP, "marker-trailing-space"));
   else if (_viewOptions?.markerMode === "visible" || _viewOptions?.hasGutterParaMarkers)
@@ -847,7 +849,12 @@ function recurseNodes(markers: MarkerContent[] | undefined): SerializedLexicalNo
 function insertImpliedParasRecurse(nodes: SerializedLexicalNode[]): SerializedLexicalNode[] {
   const validRootNodeIndex = nodes.findIndex(
     (node) =>
-      isSerializedBookNode(node) || isSomeSerializedChapterNode(node) || isSerializedParaNode(node),
+      isSerializedBookNode(node) ||
+      isSomeSerializedChapterNode(node) ||
+      isSerializedParaNode(node) ||
+      // A table is a block root in its own right; without this it would be swept into an implied
+      // para alongside any sibling text/verse nodes.
+      isSerializedTableNode(node),
   );
   const isValidRootNodeFound = validRootNodeIndex >= 0;
   if (isValidRootNodeFound) {
