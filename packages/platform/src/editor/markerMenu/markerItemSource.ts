@@ -196,8 +196,9 @@ function characterItemsRaw(styleInfo: StyleInfo, context: MarkerMenuContext): Ma
 
 /**
  * Close-tag entries (:149-159): one per open char span, innermost first,
- * `+`-prefixed endmarker unless it is the outermost span. Placed first,
- * ahead of (and never re-sorted against) the rest of the character list.
+ * `+`-prefixed endmarker unless it is the outermost span. Inserted at the
+ * front of the character list (PT9 `tags.Insert(i, ...)`), before the final
+ * combined basic-first pass in {@link characterItems} runs.
  */
 function closeTagItems(styleInfo: StyleInfo, openCharMarkers: string[]): MarkerMenuItem[] {
   return openCharMarkers.map((marker, i) => {
@@ -207,11 +208,26 @@ function closeTagItems(styleInfo: StyleInfo, openCharMarkers: string[]): MarkerM
   });
 }
 
+/**
+ * PT9 GetTags's final pass (MarkerItemSource.cs:100): a stable
+ * `OrderBy(tag => tag.IsBasic ? 0 : 1)` over the COMBINED list. Close-tag
+ * entries are never basic, so basic character/note items float above them,
+ * while stability preserves the relative order within the basic group and
+ * within the non-basic group (close tags innermost-first, then the sorted
+ * non-basic items). `Array.prototype.sort` is stable, matching OrderBy.
+ * PT9 also runs this over the paragraph source, where it is a no-op because
+ * {@link compareItems} already ordered basic items first.
+ */
+function compareBasicFirst(a: MarkerMenuItem, b: MarkerMenuItem): number {
+  if (a.isBasic === b.isBasic) return 0;
+  return a.isBasic ? -1 : 1;
+}
+
 function characterItems(styleInfo: StyleInfo, context: MarkerMenuContext): MarkerMenuItem[] {
   return [
     ...closeTagItems(styleInfo, context.openCharMarkers),
     ...characterItemsRaw(styleInfo, context),
-  ];
+  ].sort(compareBasicFirst);
 }
 
 /**

@@ -97,8 +97,8 @@ describe("getMarkerMenuItems — character source (MarkerItemSource.cs:109-147)"
   });
 
   it(
-    "puts close tags first, innermost open span first, +-prefixed unless outermost " +
-      "(MarkerItemSource.cs:149-159)",
+    "floats basic items above close tags via the final stable basic-first pass; close tags " +
+      "keep innermost-first order, +-prefixed unless outermost (MarkerItemSource.cs:100,149-159)",
     () => {
       const context = makeContext({
         source: "character",
@@ -106,8 +106,14 @@ describe("getMarkerMenuItems — character source (MarkerItemSource.cs:109-147)"
         openCharMarkers: ["nd", "wj"],
       });
       const items = getMarkerMenuItems(sheet, context);
-      expect(items[0]).toMatchObject({ marker: "+nd*", kind: "closeTag" });
-      expect(items[1]).toMatchObject({ marker: "wj*", kind: "closeTag" });
+      // Pre-pass order is [+nd*, wj*, wj, f, nd, v]; PT9's final stable
+      // OrderBy(IsBasic) floats `wj` (basic) above the never-basic close tags
+      // while preserving relative order within the non-basic group — close
+      // tags (innermost first, `+nd*` then `wj*`) still ahead of the sorted
+      // non-basic char/note items (`f`, `nd`, `v`), pinning stability.
+      expect(items.map((item) => item.marker)).toEqual(["wj", "+nd*", "wj*", "f", "nd", "v"]);
+      expect(items[1]).toMatchObject({ marker: "+nd*", kind: "closeTag", isBasic: false });
+      expect(items[2]).toMatchObject({ marker: "wj*", kind: "closeTag", isBasic: false });
     },
   );
 
