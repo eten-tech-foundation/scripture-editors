@@ -39,6 +39,7 @@ import { useEffect } from "react";
 import {
   ChapterNode,
   CharNode,
+  CURSOR_CHANGE_TAG,
   getMarker as bundledGetMarker,
   LoggerBasic,
   MarkerLookup,
@@ -223,20 +224,45 @@ export function MarkerEditPlugin({
           // never commits the typed run this way — selecting from it REPLACES the run
           // (MarkerDropdownControl.cs:216-219). The caret's own node still completes via
           // Enter or caret departure, the other two PT9-debounce-equivalent triggers.
+          //
+          // Task 15 cluster A (click path): a REAL cross-frame blur — clicking a renderer-overlay
+          // palette item outside the editor iframe — can null Lexical's live selection before this
+          // handler runs, so `$getSelection()` yields no anchor to except. Falling back to
+          // `undefined` would resolve EVERY pending, including the literal the palette apply is about
+          // to replace (the exact corruption this except-the-caret guard exists to prevent). Fall
+          // back to `lastAnchorKey` — the last COMMITTED real anchor, which the update listener keeps
+          // through null-selection commits — so the node the user was editing is still excepted.
           const selection = $getSelection();
-          const anchorKey = $isRangeSelection(selection) ? selection.anchor.key : undefined;
+          const anchorKey = $isRangeSelection(selection) ? selection.anchor.key : lastAnchorKey;
           $resolvePendingMarkers(context, anchorKey);
           return false;
         },
         COMMAND_PRIORITY_LOW,
       ),
-      editor.registerUpdateListener(({ editorState }) => {
+      editor.registerUpdateListener(({ editorState, tags }) => {
         context.splitExpected.current = false;
         context.rebuildAttempted.clear();
-        lastAnchorKey = editorState.read(() => {
+        // Task 15 cluster A (typing path): ScriptureReferencePlugin's async scrRef echo re-enters
+        // `$moveCursorToVerseStart` and yanks the caret to the para/verse start via
+        // `editor.update(..., { tag: CURSOR_CHANGE_TAG })` ~90-190ms after a keystroke (QA run 2
+        // items 1-4 timeline: `\` lands, caret sits in the pending literal, then the caret is pulled
+        // to the `\s1` glyph start). That is a PROGRAMMATIC cursor move, NOT a user caret departure,
+        // so it must not update the tracked anchor nor queue resolution — otherwise the just-typed
+        // literal is force-settled and the paragraph splits (`\p \` autosaved to disk). The popover
+        // footnote editor has no ScriptureReferencePlugin, which is why it never raced in QA. This
+        // FALSIFIES the "blur nulls the selection" hypothesis for the typing path: QA confirmed focus
+        // never leaves the editor there; the cross-frame-blur null path is a separate, click-only
+        // actor handled by the BLUR handler's lastAnchorKey fallback above.
+        if (tags.has(CURSOR_CHANGE_TAG)) return;
+        const anchorKey = editorState.read(() => {
           const selection = $getSelection();
           return $isRangeSelection(selection) ? selection.anchor.key : undefined;
         });
+        // Keep the last REAL anchor when the selection goes null (a cross-frame blur clears the DOM
+        // selection): a null selection is "don't know where the caret is", not a departure, so it
+        // must not clobber the anchor the BLUR handler falls back to. Only an observed move to a real
+        // selection advances it.
+        if (anchorKey !== undefined) lastAnchorKey = anchorKey;
         // PT9's debounced reformat completes a marker once the user moves on; our
         // deterministic equivalent resolves pendings the caret is no longer in, keyed off
         // every commit here rather than off SELECTION_CHANGE_COMMAND — Lexical's native
@@ -269,8 +295,12 @@ export function MarkerEditPlugin({
         // structural change, so the resolve/rebuild cascade terminates. (An earlier
         // version claimed the set shrinks monotonically; that was false — the fixed-point
         // refusal is the real guarantee.)
-        if (resolveQueued || lastAnchorKey === undefined) return;
-        const anchorKey = lastAnchorKey;
+        //
+        // Gate on THIS commit's real anchor (`anchorKey`), not the preserved `lastAnchorKey`: a
+        // null-selection commit (anchorKey === undefined) is not an observed departure, so it queues
+        // nothing even though lastAnchorKey still points at the user's node. The BLUR handler, not
+        // this deferred path, does the final sweep when focus is genuinely lost.
+        if (resolveQueued || anchorKey === undefined) return;
         if (![...context.pendingKeys].some((key) => key !== anchorKey)) return;
         resolveQueued = true;
         queueMicrotask(() => {
