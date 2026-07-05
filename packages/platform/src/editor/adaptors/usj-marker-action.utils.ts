@@ -50,6 +50,21 @@ interface UsjMarkerAction {
   }) => MarkerContent[];
 }
 
+/**
+ * Extends the shared {@link MarkerAction} `action`/`label` pair with an optional way to read the
+ * freshly-inserted note's TRUE Lexical node key immediately after `action(...)` returns. Only the
+ * note branch of {@link getUsjMarkerAction} populates it; every other marker's returned action
+ * leaves it `undefined`.
+ *
+ * Exists so `EditorRef.insertMarker` (`Editor.tsx`) can hand the host the exact key of the note it
+ * just created, bypassing the `"delta-doc"` OT coordinate derivation (`getInsertedNodeKey`) that
+ * double-counts editable VerseNodes and can land past the note when one precedes the insertion
+ * point (Task 14b) — without touching any OT coordinate code.
+ */
+export interface UsjMarkerActionResult extends MarkerAction {
+  getInsertedNoteKey?: () => string | undefined;
+}
+
 const markerActions: { [marker: string]: UsjMarkerAction } = {
   c: {
     action: (currentEditor) => {
@@ -96,9 +111,13 @@ export function getUsjMarkerAction(
   logger?: LoggerBasic,
   /** Included for tests, e.g. `{ discrete: true }` */
   editorUpdateOptions?: EditorUpdateOptions,
-): MarkerAction {
+): UsjMarkerActionResult {
   // Note markers are handled directly via $insertNote (no serialization round-trip).
   if (NoteNode.isValidMarker(marker)) {
+    // Captured synchronously inside the `editor.update()` callback below - Lexical's callback
+    // always runs synchronously (only the DOM reconciliation/commit may be deferred), so this is
+    // populated by the time `action(...)` returns, regardless of `editorUpdateOptions`.
+    let insertedNoteKey: string | undefined;
     const action = (currentEditor: { editor: LexicalEditor; reference: SerializedVerseRef }) => {
       currentEditor.editor.update(() => {
         const noteNode = $insertNote(
@@ -110,10 +129,11 @@ export function getUsjMarkerAction(
           nodeOptions ?? {},
           logger,
         );
+        insertedNoteKey = noteNode?.getKey();
         if (noteNode && !noteNode.getIsCollapsed()) expandedNoteKeyRef.current = noteNode.getKey();
       }, editorUpdateOptions);
     };
-    return { action, label: undefined };
+    return { action, label: undefined, getInsertedNoteKey: () => insertedNoteKey };
   }
 
   const markerAction = getMarkerAction(marker);

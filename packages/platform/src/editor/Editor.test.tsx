@@ -7,6 +7,9 @@ import Editorial from "../Editorial";
 import { ContentJsonPath, Usj } from "@eten-tech-foundation/scripture-utilities";
 import { act, render } from "@testing-library/react";
 import { createRef, RefObject } from "react";
+import { $getNodeByKey, $getRoot, $isTextNode, LexicalEditor, LexicalNode } from "lexical";
+import { $isNoteNode } from "shared";
+import { getViewOptions, STANDARD_VIEW_MODE } from "shared-react";
 import { vi } from "vitest";
 
 /** USJ with book PSA for Editor sync effect test (clone of usjGen1v1 with book code changed) */
@@ -176,5 +179,102 @@ describe("setAnnotation overload", () => {
 
     expect(() => triggerClickOnMark()).not.toThrow();
     expect(() => triggerMouseEnterOnMark()).not.toThrow();
+  });
+});
+
+describe("insertMarker return value (Task 14b)", () => {
+  // GEN 1:1 with a verse preceding the seed text - the exact shape that makes the host's
+  // "delta-doc" `getInsertedNodeKey` derivation (used only for the popover auto-open path, not
+  // here) double-count the editable VerseNode and land past the note.
+  const noteReference = { book: "GEN", chapterNum: 1, verseNum: 1 };
+
+  /** Walks the tree to find the first TextNode whose content includes `substring`. */
+  function $findTextNodeContaining(substring: string): LexicalNode | undefined {
+    const walk = (node: LexicalNode): LexicalNode | undefined => {
+      if ($isTextNode(node) && node.getTextContent().includes(substring)) return node;
+      const element = node as unknown as { getChildren?: () => LexicalNode[] };
+      if (typeof element.getChildren === "function") {
+        for (const child of element.getChildren()) {
+          const found = walk(child);
+          if (found) return found;
+        }
+      }
+      return undefined;
+    };
+    return walk($getRoot());
+  }
+
+  /** Mounts a standard-view (markerMode "editable") `Editor` with `MarkerEditPlugin` active
+   * (always mounted - see `Editor.tsx`), the same path `insertMarker` uses in the real app. */
+  async function renderEditorWithVerseText() {
+    const ref = createRef<EditorRef>();
+    let container: HTMLElement | undefined;
+    await act(async () => {
+      const result = render(
+        <Editor
+          ref={ref}
+          defaultUsj={sampleUsj}
+          scrRef={noteReference}
+          options={{ view: getViewOptions(STANDARD_VIEW_MODE) }}
+        />,
+      );
+      container = result.container;
+    });
+    if (!ref.current) throw new Error("EditorRef did not mount");
+    if (!container) throw new Error("Editor container did not mount");
+    const editorInput = container.querySelector(".editor-input");
+    if (!editorInput) throw new Error("editor-input element not found");
+    const lexical = (editorInput as unknown as { __lexicalEditor?: LexicalEditor }).__lexicalEditor;
+    if (!lexical) throw new Error("lexical editor handle not found");
+    return { ref, lexical };
+  }
+
+  /** Collapses the caret right after "first" in the seed verse text. */
+  function selectAfterFirstWord(lexical: LexicalEditor): void {
+    act(() => {
+      lexical.update(() => {
+        const textNode = $findTextNodeContaining("first verse text");
+        if (!textNode || !$isTextNode(textNode)) throw new Error("seed text node not found");
+        textNode.select(5, 5);
+      });
+    });
+  }
+
+  it("returns the inserted note's true Lexical key for a note marker", async () => {
+    const { ref, lexical } = await renderEditorWithVerseText();
+    selectAfterFirstWord(lexical);
+
+    let key: string | undefined;
+    await act(async () => {
+      // `insertMarker`'s return is populated synchronously (the note branch's `editor.update()`
+      // callback runs synchronously - only the DOM reconciliation/commit is deferred), so `key`
+      // doesn't need to wait for anything. The note itself only becomes visible via
+      // `getEditorState()`/`$getNodeByKey` once Lexical's (microtask-deferred, non-discrete)
+      // commit runs - flush it (and any state updates it cascades into, e.g. `ToolbarPlugin`)
+      // before reading, still inside `act`.
+      key = ref.current?.insertMarker("f");
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    if (!key) throw new Error("insertMarker did not return a key");
+    const noteKey = key;
+
+    lexical.getEditorState().read(() => {
+      expect($isNoteNode($getNodeByKey(noteKey))).toBe(true);
+    });
+  });
+
+  it("returns undefined for a non-note marker", async () => {
+    const { ref, lexical } = await renderEditorWithVerseText();
+    selectAfterFirstWord(lexical);
+
+    let key: string | undefined;
+    await act(async () => {
+      key = ref.current?.insertMarker("wj");
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(key).toBeUndefined();
   });
 });

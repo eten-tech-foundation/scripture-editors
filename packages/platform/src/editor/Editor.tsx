@@ -358,7 +358,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
     insertMarker(marker) {
       if (isReadonly) throw new Error("Cannot insert marker in readonly mode");
       if (!scrRef) throw new Error("Cannot insert marker without a scripture reference (scrRef)");
-      if (!editorRef.current) return;
+      if (!editorRef.current) return undefined;
 
       if (!isUsjMarkerSupported(marker)) throw new Error(`Unsupported marker '${marker}'`);
 
@@ -370,6 +370,12 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
         logger,
       );
       markerAction.action({ editor: editorRef.current, reference: scrRef });
+      // Read the note branch's captured key right after `action(...)` returns - Lexical's
+      // `editor.update()` callback runs synchronously, so this is already populated. Gives the
+      // host the note's TRUE key directly, bypassing the "delta-doc" OT coordinate derivation
+      // (`getInsertedNodeKey`, used by `handleChange`'s `onUsjChange` below) that double-counts
+      // editable VerseNodes and can point past the note when one precedes it (Task 14b).
+      return markerAction.getInsertedNoteKey?.();
     },
     getMarkerMenuContext() {
       if (isReadonly) return undefined;

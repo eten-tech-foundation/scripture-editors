@@ -125,12 +125,14 @@ export interface EditorRef {
    * built-in marker menu. Works with both collapsed (insertion point) and range selections.
    *
    * @param marker - A USFM marker string, e.g. `"wj"`, `"p"`, `"f"`, `"v"`, `"c"`.
+   * @returns the freshly-inserted note's true Lexical node key when `marker` is a note marker
+   *   (e.g. `"f"`, `"x"`, `"fe"`); `undefined` for every other marker kind.
    * @throws Will throw an error if the editor is in readonly mode.
    * @throws Will throw an error if the `scrRef` prop was not provided to the editor.
    * @throws Will throw an error if the marker is not a supported para, char, note, chapter, or
    *   verse marker.
    */
-  insertMarker(marker: string): void;
+  insertMarker(marker: string): string | undefined;
   /**
    * Snapshot of the marker-menu context at the current selection (standard-view marker menus).
    * Returns undefined when the editor is readonly or has no range selection.
