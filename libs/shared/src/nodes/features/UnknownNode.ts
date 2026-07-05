@@ -29,6 +29,16 @@ export const UNKNOWN_MARKER_OBJECT_PROPS: (keyof MarkerObject)[] = ["type", "mar
 export const UNKNOWN_TAG_NAME = "unknown";
 export const UNKNOWN_VERSION = 1;
 
+/**
+ * `UnknownNode` tags that PT9 renders as an inline atomic token instead of a subdued block
+ * container (design spec §7). `\optbreak` (USJ type "optbreak") is the one verified exception:
+ * PT9 renders it as a literal `//` mid-sentence, so a block-level box would visibly break the
+ * paragraph it sits in. Verified against the Phase 0 "optional line break (optbreak)" corpus
+ * fixture and `packages/utilities/src/converters/usj/converter-test.data.ts:2571`, both of
+ * which show `\optbreak` becoming an `UnknownNode` with `tag: "optbreak"`.
+ */
+const INLINE_UNKNOWN_TAGS = new Set(["optbreak"]);
+
 export class UnknownNode extends ElementNode {
   __tag: string;
   __marker?: string;
@@ -114,7 +124,14 @@ export class UnknownNode extends ElementNode {
 
   override createDOM(): HTMLElement {
     const dom = document.createElement(UNKNOWN_TAG_NAME);
-    dom.style.display = "none";
+    dom.setAttribute("data-marker", this.getMarker() ?? "");
+    dom.classList.add(INLINE_UNKNOWN_TAGS.has(this.getTag()) ? "unknown-inline" : "unknown-block");
+    // Read-only whole-block: no inline display:none here (that hid the content in every view).
+    // Visibility is CSS-mode-gated in usj-nodes.css (hidden by default, revealed as a subdued
+    // block/token in standard view's .marker-editable scope). contentEditable=false stops the
+    // browser from placing a native caret inside it, so caret navigation skips over the whole
+    // node like any decorator node (design spec §7).
+    dom.contentEditable = "false";
     return dom;
   }
 

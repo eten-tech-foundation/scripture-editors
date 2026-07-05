@@ -2106,6 +2106,52 @@
   border-bottom: 1px solid rgba(204, 30, 20, 1);
 }
 
+/* UnknownNode (§7): lossless carrier for content this editor doesn't model directly — tables,
+   figures, sidebars (\esb), \periph, \ref, \optbreak, etc. Hidden by default in every view
+   (preserves today's behavior for formatted/markers views); standard view (.marker-editable)
+   reveals it as a subdued read-only container with its lead marker shown as a label, so the
+   content is visible/inert instead of silently invisible. \optbreak is the one verified
+   exception — PT9 renders it as a literal `//` mid-sentence, so it gets the inline-token
+   treatment instead of a block box that would break the paragraph (see UnknownNode.ts's
+   INLINE_UNKNOWN_TAGS; createDOM picks the class per construct). */
+.unknown-block,
+.unknown-inline {
+  display: none;
+}
+
+.marker-editable .unknown-block {
+  display: block;
+  margin: 0.25em 0;
+  padding: 0.25em 0.5em;
+  border: 1px dashed hsl(var(--muted-foreground, 215 16% 65%) / 0.5);
+  background-color: hsl(var(--muted-foreground, 215 16% 65%) / 0.08);
+  color: hsl(var(--muted-foreground, 215 16% 65%) / 0.85);
+  /* Whole-block selection/deletion only (§7) — a selection can be made within the container but
+     is contained by it rather than merging with the surrounding text. */
+  user-select: contain;
+}
+
+.marker-editable .unknown-block::before {
+  content: "\\" attr(data-marker);
+  display: block;
+  font-size: 0.7em;
+  font-weight: bold;
+  color: rgba(140, 140, 140, 1);
+  margin-bottom: 0.2em;
+}
+
+.marker-editable .unknown-inline {
+  display: inline;
+  color: hsl(var(--muted-foreground, 215 16% 65%) / 0.85);
+}
+
+/* \optbreak carries no USFM marker text of its own (data-marker is empty) — PT9 renders it as
+   a literal `//` token, so the label is hard-coded rather than driven by attr(data-marker). */
+.marker-editable .unknown-inline::before {
+  content: "//";
+  color: rgba(140, 140, 140, 1);
+}
+
 .notetext {
   unicode-bidi: embed;
 }
@@ -2293,17 +2339,6 @@
 
 .usfm rt {
   cursor: pointer;
-}
-
-/* Style statues */
-.status_unknown {
-  color: rgba(204, 30, 20, 1);
-  font-weight: bold;
-}
-
-.status_invalid {
-  border-bottom: 1px solid rgba(204, 30, 20, 1);
-  color: rgba(204, 30, 20, 1);
 }
 
 .caption {
