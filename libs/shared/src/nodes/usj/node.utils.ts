@@ -5,9 +5,11 @@ import {
   $getCommonAncestor,
   $getState,
   $isElementNode,
+  $isLineBreakNode,
   $isRangeSelection,
   $isTextNode,
   BaseSelection,
+  ElementNode,
   LexicalEditor,
   LexicalNode,
   NodeKey,
@@ -16,13 +18,14 @@ import {
   SerializedTextNode,
   TextNode,
 } from "lexical";
-import { charIdState } from "../collab/delta.state.js";
+import { charIdState, textTypeState } from "../collab/delta.state.js";
 import {
   $isImmutableTypedTextNode,
   ImmutableTypedTextNode,
   isSerializedImmutableTypedTextNode,
 } from "../features/ImmutableTypedTextNode.js";
 import { $isMarkerNode, isSerializedMarkerNode } from "../features/MarkerNode.js";
+import { $isTypedMarkNode } from "../features/TypedMarkNode.js";
 import { $isUnknownNode, UnknownNode } from "../features/UnknownNode.js";
 import { $isBookNode, BookNode } from "./BookNode.js";
 import {
@@ -712,5 +715,257 @@ function getSelectionStartNodeInner(selection: BaseSelection | null): LexicalNod
     return selection.isBackward() ? nodes[nodes.length - 1] : nodes[0];
   }
 
+  return undefined;
+}
+
+/** A piece of a logical text item: one Lexical TextNode and its cumulative start offset. */
+export interface LogicalTextSegment {
+  node: TextNode;
+  /** Offset of this segment's first character within the logical text item. */
+  start: number;
+}
+
+/**
+ * One USJ content item as represented in the editor. Either a standalone content item (CharNode,
+ * NoteNode, VerseNode, MilestoneNode, …) or a coalesced text run: the maximal sequence of plain
+ * TextNodes (exact "text" type) — top-level, inside TypedMarkNodes (annotations), or separated
+ * only by presentation-only nodes — that the editor→USJ conversion exports as a single string.
+ * TextNode subclasses never join a run: VerseNode is a standalone item (the exporter emits it
+ * as its own verse marker object) and MarkerNode is presentation-only scaffolding.
+ */
+export interface LogicalTextItem {
+  type: "text";
+  segments: LogicalTextSegment[];
+  length: number;
+}
+
+export type LogicalContentItem = { type: "element"; node: LexicalNode } | LogicalTextItem;
+
+/**
+ * Checks whether a node is presentation-only and therefore not part of USJ content:
+ * line breaks, marker scaffolding (editable and visible), marker-trailing-space or
+ * attribute text, and empty or NBSP-only spacer text (which the editor→USJ conversion
+ * drops as well; ideally the USJ→editor conversion would create such spacers as
+ * presentation-typed text nodes instead — follow-up work).
+ * @param node - The node to check.
+ * @returns `true` if the node must be skipped when computing USJ content indexes.
+ */
+export function $shouldIgnoreNodeForContentIndexes(node: LexicalNode | null | undefined): boolean {
+  if (!node) return false;
+  if ($isLineBreakNode(node)) return true;
+  if ($isMarkerNode(node)) return true;
+  if ($isVisibleMarkerNode(node)) return true;
+  if ($isTextNode(node)) {
+    const textType = $getState(node, textTypeState);
+    if (textType === "marker-trailing-space" || textType === "attribute") return true;
+
+    const text = node.getTextContent();
+    if (text === "" || text === NBSP) return true;
+  }
+  return false;
+}
+
+/**
+ * Maps a parent element's Lexical children to its logical USJ content items — the items the
+ * editor→USJ conversion would export: presentation-only nodes skipped, TypedMarkNodes
+ * transparent (children spliced in, recursively), contiguous text coalesced into single items.
+ *
+ * Known exclusion: comment-type TypedMarkNodes are treated as transparent like every other
+ * mark, even though the exporter still serializes them as milestone items. That milestone
+ * serialization is deprecated and pending removal, so the model intentionally ignores it.
+ * @param parent - The parent element node.
+ * @returns the logical content items in document order.
+ */
+export function $getLogicalContentItems(parent: ElementNode): LogicalContentItem[] {
+  const items: LogicalContentItem[] = [];
+  let run: { segments: LogicalTextSegment[]; length: number } | undefined;
+
+  const flushRun = () => {
+    if (run) {
+      items.push({ type: "text", segments: run.segments, length: run.length });
+      run = undefined;
+    }
+  };
+
+  const visit = (node: LexicalNode) => {
+    if ($shouldIgnoreNodeForContentIndexes(node)) return;
+    if ($isTypedMarkNode(node)) {
+      // Recursion is defense-in-depth: nested marks only exist transiently before the
+      // AnnotationPlugin's nested-element resolver flattens them into siblings.
+      node.getChildren().forEach(visit);
+      return;
+    }
+    // Only plain TextNodes (exact "text" type) join a coalesced run, mirroring the exporter.
+    // TextNode subclasses (e.g. VerseNode) fall through to become standalone items.
+    if ($isTextNode(node) && node.getType() === TextNode.getType()) {
+      run ??= { segments: [], length: 0 };
+      run.segments.push({ node, start: run.length });
+      run.length += node.getTextContentSize();
+      return;
+    }
+    flushRun();
+    items.push({ type: "element", node });
+  };
+
+  parent.getChildren().forEach(visit);
+  flushRun();
+  return items;
+}
+
+/**
+ * Gets the nearest ancestor that is not a TypedMarkNode — the element that owns the node's
+ * logical content index (annotation wrappers are transparent in USJ).
+ * @param node - The node to get the logical parent of.
+ * @returns the logical parent element, or `null` at the root.
+ */
+export function $getLogicalParent(node: LexicalNode): ElementNode | null {
+  let parent: ElementNode | null = node.getParent();
+  while (parent && $isTypedMarkNode(parent)) parent = parent.getParent();
+  return parent;
+}
+
+/**
+ * Gets the logical content index of the item containing the child (the child may be nested
+ * inside TypedMarkNodes under the parent).
+ * @param parent - The logical parent element.
+ * @param child - The node to find.
+ * @returns the logical index, or -1 if the child is presentation-only or not found.
+ */
+export function $getLogicalIndexOfChild(parent: ElementNode, child: LexicalNode): number {
+  return $getLogicalContentItems(parent).findIndex((item) =>
+    item.type === "element"
+      ? item.node.is(child)
+      : item.segments.some((segment) => segment.node.is(child)),
+  );
+}
+
+/**
+ * Converts a (TextNode, local offset) point to logical USJ text coordinates: the index of the
+ * coalesced text item within the logical parent and the cumulative offset within it.
+ * @param textNode - The Lexical text node.
+ * @param offset - The offset within the text node.
+ * @returns the logical parent, item index, and cumulative offset, or `undefined` if the text
+ *   node is not part of any logical text item (e.g. presentation-only text).
+ */
+export function $getLogicalTextLocation(
+  textNode: TextNode,
+  offset: number,
+): { parent: ElementNode; index: number; offset: number } | undefined {
+  const parent = $getLogicalParent(textNode);
+  if (!parent) return undefined;
+
+  const items = $getLogicalContentItems(parent);
+  for (let index = 0; index < items.length; index++) {
+    const item = items[index];
+    if (item.type !== "text") continue;
+
+    const segment = item.segments.find((segment) => segment.node.is(textNode));
+    if (segment) return { parent, index, offset: segment.start + offset };
+  }
+  return undefined;
+}
+
+/** A point in logical USJ content: between items, or inside a coalesced text item. */
+export type LogicalPoint =
+  | { type: "index"; index: number }
+  | { type: "text"; index: number; offset: number };
+
+/**
+ * Finds the TextNode and local offset at a cumulative offset within a logical text item.
+ * At internal segment boundaries the next segment's start is preferred, so a point at an
+ * annotation edge targets the start of the following content rather than the end of the
+ * previous piece.
+ * @param item - The logical text item.
+ * @param offset - The cumulative offset within the item.
+ * @returns the text node and local offset, or `undefined` when out of range.
+ */
+export function $getTextNodeAtLogicalOffset(
+  item: LogicalTextItem,
+  offset: number,
+): [TextNode, number] | undefined {
+  if (offset < 0 || offset > item.length) return undefined;
+
+  for (const segment of item.segments) {
+    const segmentLength = segment.node.getTextContentSize();
+    if (offset >= segment.start && offset < segment.start + segmentLength)
+      return [segment.node, offset - segment.start];
+  }
+  // offset === item.length: end of the last segment.
+  const lastSegment = item.segments[item.segments.length - 1];
+  if (!lastSegment) return undefined;
+  return [lastSegment.node, offset - lastSegment.start];
+}
+
+/**
+ * Converts an element point (parent + child index) to a logical point. Boundaries that fall
+ * inside a coalesced text item (e.g. at an annotation edge) become text points; boundaries
+ * between logical items become index points.
+ * @param parent - The parent element node of the element point.
+ * @param elementOffset - The child index of the element point.
+ * @returns the logical point.
+ */
+export function $getLogicalPointFromElementPoint(
+  parent: ElementNode,
+  elementOffset: number,
+): LogicalPoint {
+  const items = $getLogicalContentItems(parent);
+  const child = parent.getChildAtIndex(elementOffset);
+  if (!child) return { type: "index", index: items.length };
+
+  // Boundary before a presentation-only node: use the boundary before the next content child.
+  if ($shouldIgnoreNodeForContentIndexes(child))
+    return $getLogicalPointFromElementPoint(parent, elementOffset + 1);
+
+  for (let index = 0; index < items.length; index++) {
+    const item = items[index];
+    if (item.type === "element") {
+      if (item.node.is(child) || $isDescendantOf(item.node, child.getKey()))
+        return { type: "index", index };
+      continue;
+    }
+    for (const segment of item.segments) {
+      if (segment.node.is(child) || $isDescendantOf(segment.node, child.getKey())) {
+        return segment.start === 0
+          ? { type: "index", index }
+          : { type: "text", index, offset: segment.start };
+      }
+    }
+  }
+  return { type: "index", index: items.length };
+}
+
+/**
+ * Converts a logical boundary index to the earliest element child offset at that boundary
+ * (the inverse of `$getLogicalPointFromElementPoint` for index points).
+ * @param parent - The parent element node.
+ * @param logicalIndex - The logical boundary index (0 = before the first item).
+ * @returns the element child offset.
+ */
+export function $getElementOffsetFromLogicalIndex(
+  parent: ElementNode,
+  logicalIndex: number,
+): number {
+  if (logicalIndex <= 0) return 0;
+
+  const items = $getLogicalContentItems(parent);
+  if (items.length === 0 || logicalIndex > items.length) return parent.getChildrenSize();
+
+  const previousItem = items[logicalIndex - 1];
+  const lastNode =
+    previousItem.type === "element"
+      ? previousItem.node
+      : previousItem.segments[previousItem.segments.length - 1]?.node;
+  const topLevelChild = lastNode ? $findChildOfParent(parent, lastNode) : undefined;
+  return topLevelChild ? topLevelChild.getIndexWithinParent() + 1 : parent.getChildrenSize();
+}
+
+/** Walks up from a descendant to the direct child of the given parent. */
+function $findChildOfParent(parent: ElementNode, descendant: LexicalNode): LexicalNode | undefined {
+  let current: LexicalNode | null = descendant;
+  while (current) {
+    const currentParent: ElementNode | null = current.getParent();
+    if (currentParent?.is(parent)) return current;
+    current = currentParent;
+  }
   return undefined;
 }

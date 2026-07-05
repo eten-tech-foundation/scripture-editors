@@ -21,24 +21,29 @@ import {
   $createRangeSelection,
   $getRoot,
   $getSelection,
-  $getState,
   $isElementNode,
-  $isLineBreakNode,
   $isRangeSelection,
   $isTextNode,
   ElementNode,
   LexicalNode,
   RangeSelection,
-  TextNode,
 } from "lexical";
 import {
+  $getElementOffsetFromLogicalIndex,
+  $getLogicalContentItems,
+  $getLogicalIndexOfChild,
+  $getLogicalParent,
+  $getLogicalPointFromElementPoint,
+  $getLogicalTextLocation,
+  $getTextNodeAtLogicalOffset,
   $isMarkerNode,
   $isParaLikeNode,
   $isTypedMarkNode,
   $isVisibleMarkerNode,
+  $shouldIgnoreNodeForContentIndexes,
   ImmutableTypedTextNode,
+  type LogicalContentItem,
   MarkerNode,
-  textTypeState,
 } from "shared";
 
 /**
@@ -122,25 +127,27 @@ function $getNodeFromLocation(
   if (isUsjTextContentLocation(location)) {
     const jsonPathIndexes = indexesFromUsjJsonPath(location.jsonPath);
     let currentNode: LexicalNode | undefined = $getRoot();
-    for (const index of jsonPathIndexes) {
+    for (let i = 0; i < jsonPathIndexes.length; i++) {
       if (!currentNode || !$isElementNode(currentNode)) return [undefined, undefined];
 
-      currentNode = $getContentChildAtIndex(currentNode, index);
+      const item: LogicalContentItem | undefined =
+        $getLogicalContentItems(currentNode)[jsonPathIndexes[i]];
+      if (!item) return [undefined, undefined];
+
+      if (item.type === "text") {
+        // Text items are terminal — the path must end here.
+        if (i !== jsonPathIndexes.length - 1) return [undefined, undefined];
+        return $getTextNodeAtLogicalOffset(item, location.offset) ?? [undefined, undefined];
+      }
+      currentNode = item.node;
     }
 
-    // If we landed on a TypedMarkNode (annotation wrapper), unwrap it to get the actual content
-    if (currentNode && $isTypedMarkNode(currentNode)) {
-      currentNode = currentNode.getFirstChild() ?? undefined;
-    }
-
-    // If the jsonPath resolves to an ElementNode (e.g. "$.content[0]"), interpret offset as a
-    // content-based child boundary offset (what the editor can emit), and return an element point.
+    // The jsonPath resolved to an ElementNode (e.g. "$.content[0]"): interpret offset as a
+    // logical child boundary offset and return an element point.
     if (currentNode && $isElementNode(currentNode)) {
-      const elementOffset = $getElementOffsetFromContentOffset(currentNode, location.offset);
-      return [currentNode, elementOffset];
+      return [currentNode, $getElementOffsetFromLogicalIndex(currentNode, location.offset)];
     }
-
-    return $findTextNodeInMarks(currentNode, location.offset);
+    return [undefined, undefined];
   }
 
   // Handle UsjAttributeKeyLocation and UsjAttributeMarkerLocation BEFORE UsjMarkerLocation
@@ -260,21 +267,6 @@ function $getNodeFromLocation(
   );
 }
 
-/**
- * Converts a content-based offset (skipping ignored nodes) into an element-based child offset.
- * This returns the earliest element offset that corresponds to the given content offset.
- */
-function $getElementOffsetFromContentOffset(parent: ElementNode, contentOffset: number): number {
-  const children = parent.getChildren();
-  let currentContentOffset = 0;
-  for (let elementOffset = 0; elementOffset <= children.length; elementOffset++) {
-    if (currentContentOffset === contentOffset) return elementOffset;
-    if (elementOffset >= children.length) break;
-    if (!$shouldIgnoreNodeForContentIndexes(children[elementOffset])) currentContentOffset += 1;
-  }
-  return children.length;
-}
-
 function $normalizeVisibleMarkerPoint(node: LexicalNode, offset: number): [LexicalNode, number] {
   if (!$isVisibleMarkerNode(node)) return [node, offset];
 
@@ -294,42 +286,6 @@ function $normalizeVisibleMarkerPoint(node: LexicalNode, offset: number): [Lexic
 
 function $getPointType(node: LexicalNode | undefined): "text" | "element" {
   return $isElementNode(node) ? "element" : "text";
-}
-
-/**
- * Find the text node that contains the location offset. Check if the offset fits within the current
- * text node, if it doesn't check in the next nodes ignoring the TypedMarkNodes but looking inside
- * as if the text was contiguous.
- * @param node - Current text node.
- * @param offset - Annotation location offset.
- * @returns the text node and offset where the offset was found in.
- */
-function $findTextNodeInMarks(
-  node: LexicalNode | undefined,
-  offset: number,
-): [TextNode | undefined, number | undefined] {
-  if (!node || !$isTextNode(node)) return [undefined, undefined];
-
-  const text = node.getTextContent();
-  // If offset is within the text (not at the very end), return this node.
-  // If offset equals text.length exactly, continue to next sibling to find the start of next content.
-  if (offset >= 0 && offset < text.length) return [node, offset];
-
-  let nextNode = node.getNextSibling();
-  if (!nextNode) {
-    const parent = node.getParent();
-    if ($isTypedMarkNode(parent)) nextNode = parent.getNextSibling();
-  }
-  if (!nextNode || (!$isTypedMarkNode(nextNode) && !$isTextNode(nextNode))) {
-    // No more siblings - if offset equals text.length, return end of current node
-    if (offset === text.length) return [node, offset];
-    return [undefined, undefined];
-  }
-
-  const nextOffset = offset - text.length;
-  if (nextNode && $isTextNode(nextNode)) return $findTextNodeInMarks(nextNode, nextOffset);
-
-  return $findTextNodeInMarks(nextNode.getFirstChild() ?? undefined, nextOffset);
 }
 
 /**
@@ -378,24 +334,10 @@ function $navigateToNode(jsonPath: string): LexicalNode | undefined {
   for (const index of jsonPathIndexes) {
     if (!currentNode || !$isElementNode(currentNode)) return undefined;
 
-    currentNode = $getContentChildAtIndex(currentNode, index);
+    const item: LogicalContentItem | undefined = $getLogicalContentItems(currentNode)[index];
+    currentNode = item?.type === "element" ? item.node : undefined;
   }
   return currentNode;
-}
-
-function $getContentChildAtIndex(
-  parent: ElementNode,
-  contentIndex: number,
-): LexicalNode | undefined {
-  const children = parent.getChildren();
-  let currentIndex = 0;
-  for (const child of children) {
-    if ($shouldIgnoreNodeForContentIndexes(child)) continue;
-    if (currentIndex === contentIndex) return child;
-
-    currentIndex += 1;
-  }
-  return undefined;
 }
 
 /**
@@ -451,7 +393,30 @@ function $getLocationFromNode(node: LexicalNode, offset: number): UsjDocumentLoc
     } satisfies UsjPropertyValueLocation;
   }
 
-  // Element selection - offset is a child index, convert to content-based offset
+  if ($isTypedMarkNode(node)) {
+    // An element point on the annotation wrapper: convert to the equivalent point as if the
+    // mark did not exist.
+    const childrenSize = node.getChildrenSize();
+    const childAtOffset = node.getChildAtIndex(Math.min(offset, childrenSize - 1));
+    if ($isTextNode(childAtOffset)) {
+      const localOffset = offset >= childrenSize ? childAtOffset.getTextContentSize() : 0;
+      return $getLocationFromNode(childAtOffset, localOffset);
+    }
+
+    // Non-text child (e.g. a CharNode wrapped in the mark) or an empty mark (childAtOffset is
+    // null): anchor on the logical parent at the mark's own position instead of falling through
+    // to treat the mark itself as the logical parent, which would drop the mark's content index.
+    // The mark contributes no content of its own, so the boundary before/after it is the
+    // boundary before/after its own position in the logical parent.
+    const logicalParent = $getLogicalParent(node);
+    if (logicalParent?.is(node.getParent())) {
+      const markIndex = node.getIndexWithinParent();
+      const elementOffset = offset >= childrenSize ? markIndex + 1 : markIndex;
+      return $getLocationFromNode(logicalParent, elementOffset);
+    }
+  }
+
+  // Element selection - offset is a child index, convert to a logical point.
   if ($isElementNode(node)) {
     const childAtOffset = node.getChildAtIndex(offset);
     if ($isVisibleMarkerNode(childAtOffset)) {
@@ -460,11 +425,35 @@ function $getLocationFromNode(node: LexicalNode, offset: number): UsjDocumentLoc
       } satisfies UsjMarkerLocation;
     }
 
-    const contentOffset = $getContentOffsetFromElementOffset(node, offset);
-    return { jsonPath: usjJsonPathFromIndexes($getJsonPathIndexes(node)), offset: contentOffset };
+    const logicalPoint = $getLogicalPointFromElementPoint(node, offset);
+    if (logicalPoint.type === "text") {
+      // The boundary falls inside a coalesced USJ text item (e.g. at an annotation edge).
+      return {
+        jsonPath: usjJsonPathFromIndexes([...$getJsonPathIndexes(node), logicalPoint.index]),
+        offset: logicalPoint.offset,
+      };
+    }
+    return {
+      jsonPath: usjJsonPathFromIndexes($getJsonPathIndexes(node)),
+      offset: logicalPoint.index,
+    };
   }
 
-  // Regular text node - UsjTextContentLocation
+  // Regular text node - UsjTextContentLocation in coalesced-USJ coordinates.
+  if ($isTextNode(node)) {
+    const logicalTextLocation = $getLogicalTextLocation(node, offset);
+    if (logicalTextLocation) {
+      return {
+        jsonPath: usjJsonPathFromIndexes([
+          ...$getJsonPathIndexes(logicalTextLocation.parent),
+          logicalTextLocation.index,
+        ]),
+        offset: logicalTextLocation.offset,
+      };
+    }
+  }
+
+  // Fallback for nodes outside the logical content model (e.g. presentation-only text).
   return { jsonPath: usjJsonPathFromIndexes($getJsonPathIndexes(node)), offset };
 }
 
@@ -476,7 +465,8 @@ function $getMarkerAnchorNode(markerNode: MarkerNode): LexicalNode | undefined {
   if (
     previousContentSibling &&
     !$isParaLikeNode(previousContentSibling) &&
-    !$isTextNode(previousContentSibling)
+    !$isTextNode(previousContentSibling) &&
+    !$isTypedMarkNode(previousContentSibling)
   ) {
     return previousContentSibling;
   }
@@ -494,66 +484,21 @@ function $getPreviousContentSibling(child: LexicalNode): LexicalNode | undefined
 }
 
 /**
- * Gets the jsonPath indexes from a node by traversing up to the root.
+ * Gets the jsonPath indexes from a node by traversing up to the root using logical
+ * (annotation-transparent) content indexes.
  * @param node - The node to get the path for.
  * @returns An array of indexes representing the path from root to node.
  */
 function $getJsonPathIndexes(node: LexicalNode): number[] {
   const jsonPathIndexes: number[] = [];
   let current: LexicalNode | null = node;
-  while (current?.getParent()) {
-    const parent: ElementNode | null = current.getParent();
-    if (parent) {
-      const index = $getContentIndexWithinParent(parent, current);
-      if (index >= 0) jsonPathIndexes.unshift(index);
-    }
+  while (current) {
+    const parent = $getLogicalParent(current);
+    if (!parent) break;
+
+    const index = $getLogicalIndexOfChild(parent, current);
+    if (index >= 0) jsonPathIndexes.unshift(index);
     current = parent;
   }
   return jsonPathIndexes;
-}
-
-function $getContentIndexWithinParent(parent: ElementNode, child: LexicalNode): number {
-  const children = parent.getChildren();
-  let index = 0;
-  for (const sibling of children) {
-    if ($shouldIgnoreNodeForContentIndexes(sibling)) {
-      if (sibling === child) return -1;
-
-      continue;
-    }
-    if (sibling === child) return index;
-
-    index += 1;
-  }
-  return -1;
-}
-
-/**
- * Converts an element-based child offset to a content-based offset.
- * Element offsets count all children, content offsets skip non-content nodes.
- * @param parent - The parent element node.
- * @param elementOffset - The element-based child offset.
- * @returns The content-based offset.
- */
-function $getContentOffsetFromElementOffset(parent: ElementNode, elementOffset: number): number {
-  const children = parent.getChildren();
-  let contentOffset = 0;
-  for (let i = 0; i < elementOffset && i < children.length; i++) {
-    if (!$shouldIgnoreNodeForContentIndexes(children[i])) {
-      contentOffset++;
-    }
-  }
-  return contentOffset;
-}
-
-function $shouldIgnoreNodeForContentIndexes(node: LexicalNode | null | undefined): boolean {
-  if (!node) return false;
-  if ($isLineBreakNode(node)) return true;
-  if ($isMarkerNode(node)) return true;
-  if ($isVisibleMarkerNode(node)) return true;
-  if ($isTextNode(node)) {
-    const textType = $getState(node, textTypeState);
-    if (textType === "marker-trailing-space" || textType === "attribute") return true;
-  }
-  return false;
 }
