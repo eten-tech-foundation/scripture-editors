@@ -87,6 +87,14 @@ export function MarkerEditPlugin({
     // Lexical's async native-DOM selectionchange handling). Read again at resolution time
     // so the deferred resolution below always excepts the node the caret is CURRENTLY in.
     let lastAnchorKey: NodeKey | undefined;
+    // Task 15 cluster A: true while the live caret was placed by a programmatic scrRef sync
+    // (ScriptureReferencePlugin's CURSOR_CHANGE yank) and NOT yet re-established by user input.
+    // The runtime smoke proved the CURSOR_CHANGE tag-skip alone is insufficient — the yank ejects
+    // the caret to the para's marker glyph, then a FOLLOW-ON untagged commit (Lexical's own
+    // selectionchange reconcile) sees the caret off the pending node and resolves it → paragraph
+    // split. Suppressing resolution across that whole app-placed window (until a real keystroke)
+    // keeps the just-typed literal alive. Cleared by the KEY_DOWN handler below.
+    let appPlacedCaret = false;
     // One pending-marker resolution queued at a time; disposed on effect cleanup.
     let resolveQueued = false;
     let disposed = false;
@@ -178,6 +186,10 @@ export function MarkerEditPlugin({
       editor.registerCommand(
         KEY_DOWN_COMMAND,
         (event: KeyboardEvent) => {
+          // Any real keystroke re-establishes user intent over the caret, ending the app-placed
+          // suppression window opened by a scrRef-sync yank (cluster A). Runs for every keydown,
+          // ahead of the Ctrl+Space handling below.
+          appPlacedCaret = false;
           if (!event.ctrlKey || event.altKey || event.shiftKey || event.metaKey) return false;
           if (event.key !== " " && event.code !== "Space") return false;
           // Only claim the keystroke (preventDefault + return true) when we actually acted;
@@ -253,7 +265,18 @@ export function MarkerEditPlugin({
         // FALSIFIES the "blur nulls the selection" hypothesis for the typing path: QA confirmed focus
         // never leaves the editor there; the cross-frame-blur null path is a separate, click-only
         // actor handled by the BLUR handler's lastAnchorKey fallback above.
-        if (tags.has(CURSOR_CHANGE_TAG)) return;
+        //
+        // The tag only rides on the yank commit itself; the runtime smoke proved a FOLLOW-ON untagged
+        // commit then resolves the pending. So mark the caret app-placed here and keep suppressing
+        // resolution (below) until the user's next keystroke clears the flag — not just for this one
+        // commit.
+        if (tags.has(CURSOR_CHANGE_TAG)) {
+          appPlacedCaret = true;
+          return;
+        }
+        // Caret still sits where the scrRef sync parked it (no user input since): a follow-on move is
+        // not a user departure, so don't advance the anchor or resolve anything.
+        if (appPlacedCaret) return;
         const anchorKey = editorState.read(() => {
           const selection = $getSelection();
           return $isRangeSelection(selection) ? selection.anchor.key : undefined;
