@@ -20,7 +20,7 @@ export type SerializedTableRowNode = Spread<
 
 export const TABLE_ROW_TYPE = "table:row";
 export const TABLE_ROW_VERSION = 1;
-const TABLE_ROW_DEFAULT_MARKER = "tr";
+export const TABLE_ROW_DEFAULT_MARKER = "tr";
 
 /** List of known properties of `MarkerObject` */
 export const TABLE_ROW_MARKER_OBJECT_PROPS: (keyof MarkerObject)[] = ["type", "marker", "content"];
@@ -54,7 +54,7 @@ export class TableRowNode extends ElementNode {
   override updateFromJSON(serializedNode: LexicalUpdateJSON<SerializedTableRowNode>): this {
     return super
       .updateFromJSON(serializedNode)
-      .setMarker(serializedNode.marker)
+      .setMarker(serializedNode.marker ?? TABLE_ROW_DEFAULT_MARKER)
       .setUnknownAttributes(serializedNode.unknownAttributes);
   }
 
@@ -91,13 +91,12 @@ export class TableRowNode extends ElementNode {
   }
 
   override exportJSON(): SerializedTableRowNode {
+    const unknownAttributes = this.getUnknownAttributes();
     return {
       ...super.exportJSON(),
       type: TABLE_ROW_TYPE,
       marker: this.getMarker(),
-      ...(this.getUnknownAttributes() !== undefined && {
-        unknownAttributes: this.getUnknownAttributes(),
-      }),
+      ...(unknownAttributes !== undefined && { unknownAttributes }),
       version: TABLE_ROW_VERSION,
     };
   }
@@ -122,5 +121,5 @@ export function $isTableRowNode(node: LexicalNode | null | undefined): node is T
 export function isSerializedTableRowNode(
   node: SerializedLexicalNode | null | undefined,
 ): node is SerializedTableRowNode {
-  return node?.type === TableRowNode.getType();
+  return node?.type === TABLE_ROW_TYPE;
 }

@@ -25,7 +25,7 @@ export type SerializedTableCellNode = Spread<
 
 export const TABLE_CELL_TYPE = "table:cell";
 export const TABLE_CELL_VERSION = 1;
-const TABLE_CELL_DEFAULT_MARKER = "tc1";
+export const TABLE_CELL_DEFAULT_MARKER = "tc1";
 
 /** List of known properties of `MarkerObject` */
 export const TABLE_CELL_MARKER_OBJECT_PROPS: (keyof MarkerObject)[] = [
@@ -36,17 +36,11 @@ export const TABLE_CELL_MARKER_OBJECT_PROPS: (keyof MarkerObject)[] = [
   "content",
 ];
 
-function alignToTextAlign(align: string | undefined): string | undefined {
-  switch (align) {
-    case "start":
-      return "left";
-    case "center":
-      return "center";
-    case "end":
-      return "right";
-    default:
-      return undefined;
-  }
+// USJ `align` is logical (start/center/end), which CSS `text-align` supports natively and mirrors
+// correctly under `dir` (RTL). Pass it straight through, ignoring unrecognized values, rather than
+// mapping to the physical left/right — that would flip alignment in RTL scripts.
+function toLogicalTextAlign(align: string | undefined): string | undefined {
+  return align === "start" || align === "center" || align === "end" ? align : undefined;
 }
 
 export class TableCellNode extends ElementNode {
@@ -85,7 +79,7 @@ export class TableCellNode extends ElementNode {
   override updateFromJSON(serializedNode: LexicalUpdateJSON<SerializedTableCellNode>): this {
     return super
       .updateFromJSON(serializedNode)
-      .setMarker(serializedNode.marker)
+      .setMarker(serializedNode.marker ?? TABLE_CELL_DEFAULT_MARKER)
       .setAlign(serializedNode.align)
       .setColspan(serializedNode.colspan)
       .setUnknownAttributes(serializedNode.unknownAttributes);
@@ -139,7 +133,7 @@ export class TableCellNode extends ElementNode {
     const dom = document.createElement(isHeader ? "th" : "td");
     dom.setAttribute("data-marker", this.__marker);
     dom.classList.add("table-cell", `usfm_${this.__marker}`);
-    const textAlign = alignToTextAlign(this.__align);
+    const textAlign = toLogicalTextAlign(this.__align);
     if (textAlign) dom.style.textAlign = textAlign;
     if (this.__colspan) dom.setAttribute("colspan", this.__colspan);
     return dom;
@@ -155,19 +149,21 @@ export class TableCellNode extends ElementNode {
   }
 
   override exportJSON(): SerializedTableCellNode {
+    const align = this.getAlign();
+    const colspan = this.getColspan();
+    const unknownAttributes = this.getUnknownAttributes();
     return {
       ...super.exportJSON(),
       type: TABLE_CELL_TYPE,
       marker: this.getMarker(),
-      ...(this.getAlign() !== undefined && { align: this.getAlign() }),
-      ...(this.getColspan() !== undefined && { colspan: this.getColspan() }),
-      ...(this.getUnknownAttributes() !== undefined && {
-        unknownAttributes: this.getUnknownAttributes(),
-      }),
+      ...(align !== undefined && { align }),
+      ...(colspan !== undefined && { colspan }),
+      ...(unknownAttributes !== undefined && { unknownAttributes }),
       version: TABLE_CELL_VERSION,
     };
   }
 
+  // Shadow root: keep editing and selection contained within this cell.
   override isShadowRoot(): boolean {
     return true;
   }
@@ -189,5 +185,5 @@ export function $isTableCellNode(node: LexicalNode | null | undefined): node is 
 export function isSerializedTableCellNode(
   node: SerializedLexicalNode | null | undefined,
 ): node is SerializedTableCellNode {
-  return node?.type === TableCellNode.getType();
+  return node?.type === TABLE_CELL_TYPE;
 }
