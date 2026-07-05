@@ -186,6 +186,12 @@ function EditableMarkerMenu({
         () => {
           if (menuState) return false; // shouldn't be reachable while a menu is open; stay defensive
           const context = harness.getContext();
+          // The noteMarker/inMarkerText guards are DEFENSIVE against non-keyboard
+          // INSERT_PARAGRAPH_COMMAND dispatch sources (host calls, paste/IME paths can dispatch
+          // it without any keydown). Via keyboard they are unreachable in the current topology:
+          // the platform's MarkerEditPlugin KEY_ENTER_COMMAND handler (HIGH) swallows Enter
+          // first for exactly these states ($handleEnterInNote / $isSelectionInMarkerNode), so
+          // rich-text's KEY_ENTER fallback never dispatches INSERT_PARAGRAPH from typing there.
           if (!context || context.noteMarker || context.inMarkerText) return false;
 
           setMenuState({
