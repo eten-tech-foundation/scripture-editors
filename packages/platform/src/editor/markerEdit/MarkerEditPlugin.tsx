@@ -213,7 +213,19 @@ export function MarkerEditPlugin({
       editor.registerCommand(
         BLUR_COMMAND,
         () => {
-          $resolvePendingMarkers(context);
+          // §5.5 completion on focus loss — EXCEPT the node the caret is still parked in.
+          // Clicking a marker-menu item (or any host overlay taking focus, P10 spec §1.5)
+          // blurs the editor while the caret still sits in the menu's own literal `\...`
+          // trigger text; resolving that node here Tier-2-reformats the literal into
+          // structure BEFORE the menu's apply can clean it up (Task 8 QA items 1/4:
+          // `the wic\ked,` became an unknown-marker paragraph whose prefix glyph then
+          // absorbed the "ked," word remainder as phantom marker text). PT9's dropdown
+          // never commits the typed run this way — selecting from it REPLACES the run
+          // (MarkerDropdownControl.cs:216-219). The caret's own node still completes via
+          // Enter or caret departure, the other two PT9-debounce-equivalent triggers.
+          const selection = $getSelection();
+          const anchorKey = $isRangeSelection(selection) ? selection.anchor.key : undefined;
+          $resolvePendingMarkers(context, anchorKey);
           return false;
         },
         COMMAND_PRIORITY_LOW,
