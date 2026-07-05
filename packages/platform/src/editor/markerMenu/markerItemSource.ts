@@ -263,7 +263,16 @@ export function getEnterMenuItems(
   const items = paragraphItems(styleInfo, context);
   const stack = buildParaStack(styleInfo, context.previousParaMarkers);
   const ipTag = toStackEntry(styleInfo, "ip");
-  const chosenMarker = ipTag && isParagraphTagValid([...stack], ipTag) ? "ip" : "p";
+  // SmartEnter defaults to `\ip` (introduction prose) ONLY inside the book introduction — before any
+  // `\c`. PT9's rank guard normally rejects `\ip` once chapters start, but only when the effective
+  // stylesheet supplies ranks on `ip`/`c`; a host project sheet that omits them (both are optional)
+  // lets `\ip` validate for the whole book body via isParagraphTagValid's rank-0 bypass, wrongly
+  // promoting it to the first/highlighted Enter choice mid-chapter (Task 15 QA item 6: `\ip`
+  // highlighted in GEN 1 where `\p` is expected). Gating on the actual introduction context — no
+  // chapter marker collected before the caret — keeps the choice correct regardless of sheet ranks.
+  const inIntroduction = !context.previousParaMarkers.includes("c");
+  const chosenMarker =
+    inIntroduction && ipTag && isParagraphTagValid([...stack], ipTag) ? "ip" : "p";
   const chosenIndex = items.findIndex((item) => item.marker === chosenMarker);
   if (chosenIndex <= 0) return items;
   const [chosen] = items.splice(chosenIndex, 1);
