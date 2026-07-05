@@ -165,7 +165,7 @@ export interface EditorRef {
     getNoteOps(noteKeyOrIndex: string | number): DeltaOp[] | undefined;
     getSelection(): SelectionRange | undefined;
     getUsj(): Usj | undefined;
-    insertMarker(marker: string): void;
+    insertMarker(marker: string): string | undefined;
     // @deprecated
     insertNote(marker: string, caller?: string, selection?: SelectionRange): void;
     paste(): void;
