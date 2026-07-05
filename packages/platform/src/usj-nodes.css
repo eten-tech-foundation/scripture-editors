@@ -2146,6 +2146,9 @@
 .marker-editable .unknown-inline {
   display: inline;
   color: hsl(var(--muted-foreground, 215 16% 65%) / 0.85);
+  /* Same containment as the block variant: a selection inside the inert construct is contained
+     by it rather than merging with the surrounding sentence text. */
+  user-select: contain;
 }
 
 /* \optbreak carries no USFM marker text of its own (data-marker is empty) — PT9 renders it as
