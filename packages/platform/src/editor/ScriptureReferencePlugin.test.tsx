@@ -17,7 +17,9 @@ import { act, render } from "@testing-library/react";
 import {
   TextNode,
   $getRoot,
+  $getSelection,
   $isElementNode,
+  $isRangeSelection,
   $createPoint,
   $createRangeSelection,
   $setSelection,
@@ -79,6 +81,25 @@ let sectionTextNode: TextNode;
 let firstVerseTextNode: TextNode;
 let secondVerseTextNode: TextNode;
 let thirdVerseTextNode: TextNode;
+
+beforeAll(() => {
+  // jsdom's Range lacks getBoundingClientRect; Lexical's post-commit scroll-into-view calls it
+  // when a caret repositioning (the chapter-navigation test below) focuses the editor root.
+  if (!Range.prototype.getBoundingClientRect) {
+    Range.prototype.getBoundingClientRect = () =>
+      ({
+        x: 0,
+        y: 0,
+        width: 0,
+        height: 0,
+        top: 0,
+        right: 0,
+        bottom: 0,
+        left: 0,
+        toJSON: () => ({}),
+      }) as DOMRect;
+  }
+});
 
 describe("ScriptureReferencePlugin", () => {
   const scrRef = { book: "GEN", chapterNum: 1, verseNum: 1 };
@@ -907,6 +928,70 @@ describe("ScriptureReferencePlugin", () => {
       expect(mockOnScrRefChange).toHaveBeenCalledWith(
         expect.objectContaining({ book: "GEN", chapterNum: 1, verseNum: 2 }),
       );
+    });
+  });
+});
+
+// Task 15 cluster A/C (runtime falsification #2): live tag-tracing showed the caret yank fires from
+// the BookNode "created" mutation listener, not (only) the incoming-scrRef effect — a whole-state
+// external replace (LoadStatePlugin applying the PDP echo of this editor's own edit ~150-250ms
+// after a keystroke) recreates every node, so "created" fires on EVERY echo and repositioned the
+// caret to the verse start mid-typing (and dragged DOM focus out of the footnote popover).
+// Positioning belongs to genuine document changes only: initial load (sanity test above) and
+// book/chapter navigation (control below) — not a same-book+chapter reload.
+describe("BookNode-created cursor positioning vs same-document reloads", () => {
+  const scrRef = { book: "GEN", chapterNum: 1, verseNum: 1 };
+  const mockOnScrRefChange = vi.fn();
+
+  it("does not reposition the caret when an external replace reloads the same book+chapter", async () => {
+    const { editor } = await testEnvironment(scrRef, mockOnScrRefChange);
+    updateSelection(editor, thirdVerseTextNode, 2); // user caret parked mid-verse
+
+    // The PDP echo: replace the whole state with identical content (every node recreated).
+    const sameState = editor.parseEditorState(JSON.stringify(editor.getEditorState().toJSON()));
+    await act(async () => {
+      editor.update(() => editor.setEditorState(sameState), { tag: "external-usj-mutation" });
+    });
+
+    editor.getEditorState().read(() => {
+      // The replace itself parses to a null selection; the mover must NOT re-add one at the
+      // verse start (pre-fix it yanked to "first verse text "@0 here).
+      expect($getSelection()).toBeNull();
+    });
+  });
+
+  it("still positions the caret when the reload is a different chapter (navigation)", async () => {
+    const { editor, setScrRef } = await testEnvironment(scrRef, mockOnScrRefChange);
+    updateSelection(editor, firstVerseTextNode, 2);
+
+    // Navigate: prop moves to chapter 2 first (no-op in the old doc), then the new chapter loads.
+    await setScrRef({ ...scrRef, chapterNum: 2 });
+    // Load chapter-2 content: fresh nodes (BookNode recreated) with a different chapter number.
+    await act(async () => {
+      editor.update(
+        () => {
+          const root = $getRoot();
+          root.clear();
+          root.append(
+            $createBookNode("GEN").append($createTextNode("Test Book")),
+            $createImmutableChapterNode("2"),
+            $createParaNode().append(
+              $createImmutableVerseNode("1"),
+              $createTextNode("chapter two verse "),
+            ),
+          );
+        },
+        { tag: "external-usj-mutation" },
+      );
+    });
+
+    editor.getEditorState().read(() => {
+      const selection = $getSelection();
+      expect(selection).not.toBeNull();
+      if (selection && $isRangeSelection(selection)) {
+        expect(selection.anchor.getNode().getTextContent()).toBe("chapter two verse ");
+        expect(selection.anchor.offset).toBe(0);
+      }
     });
   });
 });
