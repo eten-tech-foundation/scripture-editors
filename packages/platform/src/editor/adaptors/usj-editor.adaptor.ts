@@ -88,6 +88,7 @@ import {
   SerializedVerseNode,
   STARTING_MS_COMMENT_MARKER,
   TableCellNode,
+  TableCellMarker,
   TABLE_CELL_DEFAULT_MARKER,
   TABLE_CELL_MARKER_OBJECT_PROPS,
   TableNode,
@@ -459,7 +460,7 @@ function createTableCell(
   markerObject: MarkerObject,
   childNodes: SerializedLexicalNode[] = [],
 ): SerializedTableCellNode {
-  const { marker, align, colspan } = markerObject;
+  const { marker, align, colspan } = markerObject as TableCellMarker;
   const children: SerializedLexicalNode[] = [];
   const cellMarker = marker ?? TABLE_CELL_DEFAULT_MARKER;
   if (_viewOptions?.markerMode === "editable")
@@ -467,7 +468,10 @@ function createTableCell(
   else if (_viewOptions?.markerMode === "visible" || _viewOptions?.hasGutterParaMarkers)
     children.push(createImmutableTypedText("marker", openingMarkerText(cellMarker) + NBSP));
   children.push(...childNodes);
-  const unknownAttributes = getUnknownAttributes(markerObject, TABLE_CELL_MARKER_OBJECT_PROPS);
+  const unknownAttributes = getUnknownAttributes<TableCellMarker>(
+    markerObject,
+    TABLE_CELL_MARKER_OBJECT_PROPS,
+  );
   return removeUndefinedProperties({
     ...createBaseElement(),
     type: TableCellNode.getType(),

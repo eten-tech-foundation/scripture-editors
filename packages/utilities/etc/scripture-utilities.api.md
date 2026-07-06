@@ -62,7 +62,6 @@ export interface MarkerObject {
     caller?: string;
     category?: string;
     code?: BookCode;
-    colspan?: string;
     content?: MarkerContent[];
     eid?: string;
     marker?: string;

@@ -38,7 +38,6 @@ export const MARKER_OBJECT_PROPS: (keyof MarkerObject)[] = [
   "pubnumber",
   "caller",
   "align",
-  "colspan",
   "category",
 ];
 
@@ -81,8 +80,6 @@ export interface MarkerObject {
   caller?: string;
   /** Alignment of table cells */
   align?: string;
-  /** Number of columns a table cell spans */
-  colspan?: string;
   /** Category of extended study bible sections */
   category?: string;
 }
