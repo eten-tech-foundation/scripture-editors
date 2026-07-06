@@ -27,8 +27,14 @@ export const TABLE_CELL_TYPE = "table:cell";
 export const TABLE_CELL_VERSION = 1;
 export const TABLE_CELL_DEFAULT_MARKER = "tc1";
 
-/** List of known properties of `MarkerObject` */
-export const TABLE_CELL_MARKER_OBJECT_PROPS: (keyof MarkerObject)[] = [
+/**
+ * A `MarkerObject` for a table cell. `colspan` is specific to table cells, so it lives here rather
+ * than on the shared `MarkerObject`.
+ */
+export type TableCellMarker = MarkerObject & { colspan?: string };
+
+/** List of known properties of a table cell `MarkerObject` */
+export const TABLE_CELL_MARKER_OBJECT_PROPS: (keyof TableCellMarker)[] = [
   "type",
   "marker",
   "align",
