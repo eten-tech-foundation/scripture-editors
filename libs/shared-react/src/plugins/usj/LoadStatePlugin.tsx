@@ -1,5 +1,5 @@
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
-import { CLEAR_HISTORY_COMMAND } from "lexical";
+import { $addUpdateTag, CLEAR_HISTORY_COMMAND, SKIP_DOM_SELECTION_TAG } from "lexical";
 import { RefObject, useEffect } from "react";
 import { EditorAdaptor, EXTERNAL_USJ_MUTATION_TAG, LoggerBasic, NodeOptions } from "shared";
 
@@ -54,8 +54,22 @@ export function LoadStatePlugin<TLogger extends LoggerBasic>({
       // Use queueMicrotask to defer the editor update outside of React's lifecycle,
       // preventing flushSync warnings when this is triggered by a parent component update
       queueMicrotask(() => {
+        // Task 15: an external replace parses to a null selection; reconciling that against the
+        // SHARED document selection clears/moves the caret of whatever DOES have focus — observed
+        // live as the parent editor's PDP echo (~150-250ms after an edit) stealing DOM focus out
+        // of the footnote-editor popover mid-typing. An editor without focus has no claim on the
+        // DOM selection, so skip DOM-selection reconciliation entirely in that case. Evaluated at
+        // apply time (inside the microtask), not schedule time, so a focus change in between is
+        // honored. A focused editor keeps the existing behavior.
+        const rootElement = editor.getRootElement();
+        const activeElement = rootElement?.ownerDocument.activeElement;
+        const editorHasFocus =
+          rootElement != null &&
+          activeElement != null &&
+          (rootElement === activeElement || rootElement.contains(activeElement));
         editor.update(
           () => {
+            if (!editorHasFocus) $addUpdateTag(SKIP_DOM_SELECTION_TAG);
             editor.setEditorState(editorState);
             editor.dispatchCommand(CLEAR_HISTORY_COMMAND, undefined);
           },
