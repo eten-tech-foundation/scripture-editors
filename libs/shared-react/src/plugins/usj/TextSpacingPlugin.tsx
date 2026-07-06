@@ -13,6 +13,7 @@ import {
   $isCharNode,
   $isNoteNode,
   $isParaLikeNode,
+  $isParaMarkerPrefix,
   $isTypedMarkNode,
   $isUnknownNode,
   CharNode,
@@ -116,7 +117,11 @@ function $verseNodeTransform(node: SomeVerseNode): void {
     previousSibling &&
     !$isSomeVerseNode(previousSibling) &&
     !$isTextNode(previousSibling) &&
-    !$isUnknownNode(previousSibling)
+    !$isUnknownNode(previousSibling) &&
+    // Para marker prefixes carry their own trailing spacing (NBSP baked into the prefix text),
+    // and an inserted plain " " would be exporter-visible USJ content that shifts every content
+    // index in the paragraph (see PT-3835).
+    !$isParaMarkerPrefix(previousSibling)
   )
     node.insertBefore($createTextNode(" "));
 }

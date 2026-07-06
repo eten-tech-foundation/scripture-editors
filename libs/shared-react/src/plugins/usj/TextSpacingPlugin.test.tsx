@@ -16,6 +16,7 @@ import { $createTextNode, $getRoot, $isTextNode, TextNode, $setSelection } from 
 import {
   $createCharNode,
   $createImmutableChapterNode,
+  $createImmutableTypedTextNode,
   $createNoteNode,
   $createParaNode,
   $createTypedMarkNode,
@@ -24,6 +25,9 @@ import {
   $isParaNode,
   $isTypedMarkNode,
   $isUnknownNode,
+  $isVisibleMarkerNode,
+  NBSP,
+  openingMarkerText,
   ParaNode,
   UnknownNode,
 } from "shared";
@@ -360,6 +364,34 @@ describe("TextSpacingPlugin", () => {
       // Should remain [UnknownNode, VerseNode]
       expect(para.getChildren()).toHaveLength(2);
       expect($isUnknownNode(para.getChildAtIndex(0))).toBe(true);
+      expect($isSomeVerseNode(para.getChildAtIndex(1))).toBe(true);
+    });
+  });
+
+  it("should not insert a space before a verse if preceded by a gutter paragraph marker prefix", async () => {
+    // Regression test for PT-3835 Gen 2: gutter mode (`hasGutterParaMarkers: true`) renders the
+    // paragraph's `\p` marker as a visible-marker ImmutableTypedTextNode (textType "marker") that is
+    // verse 1's previous sibling. That node is a DecoratorNode, not a TextNode/UnknownNode, so
+    // $verseNodeTransform used to treat it like arbitrary unrecognized content and insert a spurious
+    // leading space, shifting every logical content index in the paragraph.
+    const { editor } = await testEnvironment(() => {
+      $getRoot().append(
+        $createParaNode().append(
+          $createImmutableTypedTextNode("marker", openingMarkerText("p") + NBSP),
+          $createImmutableVerseNode("1"),
+        ),
+      );
+    });
+
+    // Trigger an update (no change expected).
+    await act(async () => editor.update(() => undefined));
+
+    editor.getEditorState().read(() => {
+      const para = $getRoot().getFirstChild();
+      if (!$isParaNode(para)) throw new Error("Expected a ParaNode");
+      // Should remain [marker prefix, VerseNode] -- no spurious space inserted.
+      expect(para.getChildren()).toHaveLength(2);
+      expect($isVisibleMarkerNode(para.getChildAtIndex(0))).toBe(true);
       expect($isSomeVerseNode(para.getChildAtIndex(1))).toBe(true);
     });
   });
