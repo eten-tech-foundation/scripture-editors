@@ -16,11 +16,6 @@ import {
 } from "lexical";
 import { $createParaNode } from "shared";
 
-/** Query the rendered verse marker that carries the "selected" class, if any. */
-function selectedVerseEl(editor: LexicalEditor): Element | null {
-  return editor.getRootElement()?.querySelector(`.${VERSE_SELECTED_CLASS_NAME}`) ?? null;
-}
-
 describe("ImmutableVerseNode selected-state rendering", () => {
   it("renders no selected class when the verse is not in a NodeSelection", async () => {
     const { editor } = await baseTestEnvironment(() => {
@@ -83,3 +78,8 @@ describe("ImmutableVerseNode selected-state rendering", () => {
     expect(selectedVerseEl(editor)).toBeNull();
   });
 });
+
+/** Query the rendered verse marker that carries the "selected" class, if any. */
+function selectedVerseEl(editor: LexicalEditor): Element | null {
+  return editor.getRootElement()?.querySelector(`.${VERSE_SELECTED_CLASS_NAME}`) ?? null;
+}

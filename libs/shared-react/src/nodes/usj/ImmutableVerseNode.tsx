@@ -35,17 +35,6 @@ export const IMMUTABLE_VERSE_VERSION = 1;
  */
 export const VERSE_SELECTED_CLASS_NAME = "verse-selected";
 
-/**
- * Renders the verse marker text and reflects its node-selection state. DecoratorNodes do not get
- * selection styling for free, so this subscribes to the node's selection and toggles
- * {@link VERSE_SELECTED_CLASS_NAME}.
- */
-function VerseDecorator({ nodeKey, text }: { nodeKey: NodeKey; text: string }): ReactElement {
-  const [isSelected] = useLexicalNodeSelection(nodeKey);
-  // ZWSPs stay inside this span so double-click word selection still excludes the number.
-  return <span className={isSelected ? VERSE_SELECTED_CLASS_NAME : undefined}>{text}</span>;
-}
-
 type VerseMarker = typeof VERSE_MARKER;
 
 export type SerializedImmutableVerseNode = Spread<
@@ -291,6 +280,17 @@ export class ImmutableVerseNode extends DecoratorNode<ReactElement> {
   override isKeyboardSelectable(): false {
     return false;
   }
+}
+
+/**
+ * Renders the verse marker text and reflects its node-selection state. DecoratorNodes do not get
+ * selection styling for free, so this subscribes to the node's selection and toggles
+ * {@link VERSE_SELECTED_CLASS_NAME}.
+ */
+function VerseDecorator({ nodeKey, text }: { nodeKey: NodeKey; text: string }): ReactElement {
+  const [isSelected] = useLexicalNodeSelection(nodeKey);
+  // ZWSPs stay inside this span so double-click word selection still excludes the number.
+  return <span className={isSelected ? VERSE_SELECTED_CLASS_NAME : undefined}>{text}</span>;
 }
 
 function $convertImmutableVerseElement(element: HTMLElement): DOMConversionOutput {
