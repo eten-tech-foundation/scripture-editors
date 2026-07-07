@@ -117,20 +117,29 @@ handoff reader's audit trail; no action.
   Lexical re-focuses its root element on every DOM-selection reconcile, so the overlay input cannot
   hold true focus while the document has a live selection; keyboard usability is delivered via
   capture-phase forwarding (filter/arrows/Enter/Escape) for selection-wrap and Enter sessions. On
-  ACTIVE palettes the arrow-highlight sync uses the store index rather than cmdk's internal
-  highlight (cosmetic divergence, fallback path only). Recorded: fixwave round 3 cluster 2. Medium
-  to make the input truly focusable cross-frame.
+  ACTIVE palettes driven externally, the COMMIT path resolves from the host's
+  `filterPaletteItems`-filtered list + store index while the visible list/highlight is cmdk's own
+  (fuzzy) filtering of the controlled input value — the two orderings can diverge, so the
+  committed item can DIFFER from the one that looks selected (not merely a cosmetic highlight
+  offset; final whole-branch review sharpened this). Recorded: fixwave round 3 cluster 2. Medium
+  to make the input truly focusable cross-frame or to unify the two filters.
 - **Mixed-modality filter drift — OPEN.** Locally typed palette chars are unknown to the session
   filter string; the next forwarded key resets the input to the stale session string. Candidate:
   document, or sync-on-commit. Recorded: fixwave round 3 review "Minor (FOLLOW-UPS)". Small.
-- **Ctrl/Cmd chords swallowed as filter chars during selection/Enter sessions — OPEN.** The
-  forwarding branch claims keys before checking `ctrlKey`/`metaKey`, so copy is unavailable while a
-  wrap palette is open. Recorded: fixwave round 3 review; QA run 4 confirmed the Enter-menu filter
-  inherits the wart. Small.
-- **Enter-menu / selection-wrap forwarding-table duplication — OPEN.** The ~50-line forwarding
-  table + helpers are duplicated verbatim across the web view and `FootnoteEditor` (plan-mandated,
-  no cross-imports). Drift risk; candidate future shared hook in `platform-bible-react`. Recorded:
-  ledger Task 11 "Minor (FOLLOW-UPS candidates)". Small–Medium.
+- **Ctrl/Cmd chords swallowed as filter chars during selection/Enter sessions — CLOSED (final
+  review fold-in).** The shared forwarding table (`handleMarkerPaletteSessionKeyDown`) never
+  ingests or claims real chords: the session dismisses and the chord does its normal job (Ctrl+C
+  copies the wrapped selection again). Both consumers inherit the fix by construction.
+- **Enter-menu / selection-wrap forwarding-table duplication — CLOSED (drift CONFIRMED by the
+  final whole-branch review, then extracted).** The predicted drift materialized: the round-3
+  capture-phase rework (stopPropagation on session-ending keys, the every-key-claiming 'selection'
+  session, Enter-session type-to-filter) landed only in the web view, leaving the FootnoteEditor
+  copy bubble-phase without stopPropagation — an in-session Enter there let MarkerEditPlugin's
+  KEY_ENTER mutate the note BEFORE the palette commit applied (double mutation), and the wrap
+  palette's text-loss protection was absent. Fixed by extracting the single source
+  (`handleMarkerPaletteSessionKeyDown`, `platform-bible-react`
+  `components/advanced/marker-palette-keydown.util.ts`), consumed by BOTH the web view and
+  `FootnoteEditor`; unit matrix + popover pins added.
 - **Empty-filter commit orphans an open palette — OPEN.** A commit with an empty filter orphans the
   palette until a click-outside. Candidates: dismiss when the filtered list is empty, or host
   resolve-`undefined` on no candidates. Recorded: ledger Task 10 minor. Small.
@@ -144,6 +153,25 @@ handoff reader's audit trail; no action.
 - **PT9 dual-StartsWith filter residual — OPEN (minor parity).** A literal `"+w"`-labeled item
   matches filter `"+w"` in PT9 but not in the strip-only port. Conformant to brief. Recorded: ledger
   Task 9 minor. Small.
+- **closeTag endMarker source mismatch — OPEN (final whole-branch review minor).** The close-tag
+  item's marker text is built from the sheet's `endMarker` (or `marker + '*'` fallback) in
+  `closeTagItems`, but the apply side matches/strips via `marker + '*'` shapes — a sheet whose
+  `endMarker` differs from `marker + '*'` (nonstandard custom.sty) could offer a close tag the
+  apply can't match. Small.
+- **closeTag pick during a selection-wrap session is a silent no-op — OPEN (final whole-branch
+  review minor).** `$closeCharSpanAtCaret` expects a collapsed caret inside the span; committing a
+  close-tag item while a text selection is active does nothing, with no user feedback. Small.
+- **`$retagParagraph` no-prefix fallback — OPEN (final whole-branch review minor).** When the
+  paragraph's first child is not a MarkerNode (degenerate/legacy shape), the retag updates para
+  state but skips the glyph rewrite and falls back to `para.selectEnd()` — glyph and state can
+  disagree until the next rebuild. Small.
+- **`LITERAL_TRIGGER_PREFIX_REGEX` citation breadth — NOTE (final whole-branch review).** The
+  cleanup regex `\\[a-z0-9+*]*$/i` is broader than the cited PT9
+  `MarkerDropdownControl.cs:216-219` charset (adds `*` and case-insensitivity); intentional for
+  closer-form runs, but the comment's citation overstates the parity. Documentation-only.
+- **Passive palette list height reserved 44px for a nonexistent input — CLOSED (final review
+  fold-in).** Passive mode now uses the full `maxHeight` budget; the -44 input reservation applies
+  only to the active branch.
 - **Space-commit / palette-click cross-frame save window — OPEN (bounded).** The debounced-save
   flush-on-window-blur can fire a mid-marker save on the cross-frame palette-CLICK path (bounded,
   pre-wave-class exposure; trace-verified). Recorded: fixwave "FIX WAVE + LIFECYCLE FIX" new Minor.
@@ -187,10 +215,10 @@ handoff reader's audit trail; no action.
   OPEN.** Inside the popover `isStandardView()` is false, so §4 whitespace-display and copy-NBSP
   normalization are inactive on note content. Needs an `isStandardView`/`getViewMode` rework in
   `scripture-editors`. Recorded: Phase 3 Task 9 limitation; register C. Medium.
-- **`footnotes.component.tsx` `focusRequest` bounds-check reorder — OPEN (one-line, fix-before-merge
-  candidate).** The ref assignment lands before the bounds check, so a click during the pane-mount
-  window silently fails to highlight (self-heals next click). Recorded: Phase 3 Task 11 minor;
-  register C. Small.
+- **`footnotes.component.tsx` `focusRequest` bounds-check reorder — CLOSED (fixed by `d206e992`,
+  Phase 3 final-review fix wave; the final whole-branch reviewer verified the shipped code).** The
+  ref assignment now lands after the bounds check. Previously recorded: Phase 3 Task 11 minor;
+  register C.
 - **Footnotes-pane duplicate-note content-equality ambiguity — OPEN (pre-existing pane behavior).**
   Byte-identical duplicate notes are ambiguous to `findNoteIndexByOps`. Recorded: Phase 3 Task 11;
   register C.
