@@ -94,6 +94,9 @@ export function MarkerEditPlugin({
     // selectionchange reconcile) sees the caret off the pending node and resolves it → paragraph
     // split. Suppressing resolution across that whole app-placed window (until a real keystroke)
     // keeps the just-typed literal alive. Cleared by the KEY_DOWN handler below.
+    // Known residual: the flag persists across mouse-only interaction until the next keydown or
+    // blur — benign, since the suppression only PRESERVES pending literals (nothing is committed
+    // early) and the BLUR handler still sweeps non-caret pendings on focus loss.
     let appPlacedCaret = false;
     // One pending-marker resolution queued at a time; disposed on effect cleanup.
     let resolveQueued = false;
