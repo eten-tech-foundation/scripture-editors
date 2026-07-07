@@ -60,53 +60,67 @@ export default function ScriptureReferencePlugin({
     onScrRefChangeRef.current = onScrRefChange;
   }, [scrRef, onScrRefChange]);
 
-  // Book node: move cursor when a new BookNode appears after load; sync scrRef.book when the
-  // book code changes (initial tree + updates). Uses a second listener with skipInitialization:
-  // false so existing BookNodes from initial editor state are included (updateListener ran on
-  // every keystroke; this only runs when BookNodes are created/updated).
+  // Book node created: move cursor to the verse start once a new BookNode appears after the
+  // initial load (e.g. a different book's document has finished mounting). Re-registers on every
+  // chapterNum/verseNum change so the closure captures the latest target position; safe to
+  // re-register because skipInitialization: true means re-registering never replays existing
+  // BookNodes, only genuinely new "created" mutations going forward.
   useEffect(
     () =>
-      mergeRegister(
-        editor.registerMutationListener(
-          BookNode,
-          (nodeMutations) => {
-            editor.update(
-              () => {
-                for (const [nodeKey, mutation] of nodeMutations) {
-                  const bookNode = $getNodeByKey<BookNode>(nodeKey);
-                  if (bookNode && $isBookNode(bookNode) && mutation === "created") {
-                    $moveCursorToVerseStart(chapterNum, verseNum, hasCursorMovedRef);
-                  }
+      editor.registerMutationListener(
+        BookNode,
+        (nodeMutations) => {
+          editor.update(
+            () => {
+              for (const [nodeKey, mutation] of nodeMutations) {
+                const bookNode = $getNodeByKey<BookNode>(nodeKey);
+                if (bookNode && $isBookNode(bookNode) && mutation === "created") {
+                  $moveCursorToVerseStart(chapterNum, verseNum, hasCursorMovedRef);
                 }
-              },
-              { tag: CURSOR_CHANGE_TAG },
-            );
-          },
-          { skipInitialization: true },
-        ),
-        editor.registerMutationListener(
-          BookNode,
-          (nodeMutations) => {
-            editor.update(
-              () => {
-                for (const [nodeKey, mutation] of nodeMutations) {
-                  if (mutation === "destroyed") continue;
-                  const bookNode = $getNodeByKey<BookNode>(nodeKey);
-                  if (!bookNode || !$isBookNode(bookNode)) continue;
-                  const code = bookNode.getCode();
-                  const current = scrRefRef.current;
-                  if (code && code !== current.book) {
-                    onScrRefChangeRef.current({ ...current, book: code });
-                  }
-                }
-              },
-              { tag: CURSOR_CHANGE_TAG },
-            );
-          },
-          { skipInitialization: false },
-        ),
+              }
+            },
+            { tag: CURSOR_CHANGE_TAG },
+          );
+        },
+        { skipInitialization: true },
       ),
     [editor, chapterNum, verseNum],
+  );
+
+  // Book node sync: correct scrRef.book to match the *currently loaded document's* BookNode
+  // (initial tree + later updates/replacements). Registered once per editor instance ([editor]
+  // only) rather than re-registering on every chapterNum/verseNum change - scrRefRef/
+  // onScrRefChangeRef already track the latest values, so re-registration isn't needed for
+  // freshness, and re-registering would replay the skipInitialization: false initialization pass
+  // against whatever document is currently mounted. On a chapter/verse-only navigation (or a
+  // cross-book navigation still awaiting its new document to load) that document is stale, so a
+  // replay would incorrectly echo the OLD book paired with the NEW chapter/verse back to the
+  // host. Registering once means this only fires for genuine BookNode mutations: the initial
+  // mount (skipInitialization: false's replay) and any later real document swap.
+  useEffect(
+    () =>
+      editor.registerMutationListener(
+        BookNode,
+        (nodeMutations) => {
+          editor.update(
+            () => {
+              for (const [nodeKey, mutation] of nodeMutations) {
+                if (mutation === "destroyed") continue;
+                const bookNode = $getNodeByKey<BookNode>(nodeKey);
+                if (!bookNode || !$isBookNode(bookNode)) continue;
+                const code = bookNode.getCode();
+                const current = scrRefRef.current;
+                if (code && code !== current.book) {
+                  onScrRefChangeRef.current({ ...current, book: code });
+                }
+              }
+            },
+            { tag: CURSOR_CHANGE_TAG },
+          );
+        },
+        { skipInitialization: false },
+      ),
+    [editor],
   );
 
   // Scripture Reference changed
