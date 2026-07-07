@@ -25,6 +25,7 @@ import {
   $getState,
   $isRangeSelection,
   BLUR_COMMAND,
+  CLICK_COMMAND,
   COMMAND_PRIORITY_HIGH,
   COMMAND_PRIORITY_LOW,
   COPY_COMMAND,
@@ -92,12 +93,15 @@ export function MarkerEditPlugin({
     // The runtime smoke proved the CURSOR_CHANGE tag-skip alone is insufficient — the yank ejects
     // the caret to the para's marker glyph, then a FOLLOW-ON untagged commit (Lexical's own
     // selectionchange reconcile) sees the caret off the pending node and resolves it → paragraph
-    // split. Suppressing resolution across that whole app-placed window (until a real keystroke)
-    // keeps the just-typed literal alive. Cleared by the KEY_DOWN handler below.
-    // Known residual: the flag persists across mouse-only interaction until the next keydown or
-    // blur — benign, since the suppression only PRESERVES pending literals (nothing is committed
-    // early) and the BLUR handler still sweeps non-caret pendings on focus loss.
+    // split. Suppressing resolution across that whole app-placed window (until real user input)
+    // keeps the just-typed literal alive. Cleared by the KEY_DOWN and CLICK handlers below
+    // (round 3: a mouse click is user intent just like a keystroke — the earlier keydown-only
+    // clear left the window open across mouse-only interaction).
     let appPlacedCaret = false;
+    // Anchor of the most recent commit (tagged or not) — the tagged-branch "did this commit move
+    // the caret" comparison. Distinct from lastAnchorKey, which deliberately ignores tagged/
+    // app-placed moves (it feeds the BLUR except-the-user's-node fallback).
+    let lastCommitAnchorKey: NodeKey | undefined;
     // One pending-marker resolution queued at a time; disposed on effect cleanup.
     let resolveQueued = false;
     let disposed = false;
@@ -187,6 +191,18 @@ export function MarkerEditPlugin({
           ]
         : []),
       editor.registerCommand(
+        CLICK_COMMAND,
+        () => {
+          // A mouse click re-establishes user intent over the caret, ending the app-placed
+          // suppression window opened by a scrRef-sync yank — same contract as KEY_DOWN below.
+          // Without this, literals typed before a yank could never settle via a mouse-only
+          // caret departure (QA run 3 cluster 3).
+          appPlacedCaret = false;
+          return false;
+        },
+        COMMAND_PRIORITY_LOW,
+      ),
+      editor.registerCommand(
         KEY_DOWN_COMMAND,
         (event: KeyboardEvent) => {
           // Any real keystroke re-establishes user intent over the caret, ending the app-placed
@@ -271,19 +287,32 @@ export function MarkerEditPlugin({
         //
         // The tag only rides on the yank commit itself; the runtime smoke proved a FOLLOW-ON untagged
         // commit then resolves the pending. So mark the caret app-placed here and keep suppressing
-        // resolution (below) until the user's next keystroke clears the flag — not just for this one
-        // commit.
+        // resolution (below) until the user's next keystroke or mouse click clears the flag — not
+        // just for this one commit.
+        const anchorKey = editorState.read(() => {
+          const selection = $getSelection();
+          return $isRangeSelection(selection) ? selection.anchor.key : undefined;
+        });
+        // "Did THIS commit move the caret to a different node" — tracked per commit (tagged or
+        // not) so the tagged-branch comparison below is never stale. NOT read from
+        // prevEditorState inside this listener: entering another state's read() here taints
+        // Lexical's active-state bookkeeping mid-commit and stalls the deferred resolution's
+        // microtask (observed as departure settles never firing in jsdom — same frozen-state
+        // hazard family as the Task 9 bugs documented below).
+        const prevCommitAnchorKey = lastCommitAnchorKey;
+        lastCommitAnchorKey = anchorKey;
         if (tags.has(CURSOR_CHANGE_TAG)) {
-          appPlacedCaret = true;
+          // Round 3 narrowing (QA run 3): arm the suppression window only when the tagged commit
+          // actually MOVED the caret to a different node — an app-placed yank. Tagged commits
+          // that leave the anchor where it was (or carry no selection) are bookkeeping, not
+          // yanks; arming on them re-opened the window after every echo cycle and, combined with
+          // the mouse-only-clear residual, could freeze departure settling indefinitely.
+          if (anchorKey !== undefined && anchorKey !== prevCommitAnchorKey) appPlacedCaret = true;
           return;
         }
         // Caret still sits where the scrRef sync parked it (no user input since): a follow-on move is
         // not a user departure, so don't advance the anchor or resolve anything.
         if (appPlacedCaret) return;
-        const anchorKey = editorState.read(() => {
-          const selection = $getSelection();
-          return $isRangeSelection(selection) ? selection.anchor.key : undefined;
-        });
         // Keep the last REAL anchor when the selection goes null (a cross-frame blur clears the DOM
         // selection): a null selection is "don't know where the caret is", not a departure, so it
         // must not clobber the anchor the BLUR handler falls back to. Only an observed move to a real
