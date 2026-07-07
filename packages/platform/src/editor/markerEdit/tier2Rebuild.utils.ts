@@ -96,6 +96,20 @@ function toFragmentText(text: string): string {
 }
 
 /**
+ * A TextNode's contribution to the rebuild fragment. The para-prefix trailing-space node is
+ * structurally a single display separator, so it normally contributes a plain " " regardless of
+ * its NBSP content — but when the user has TYPED INTO it (the content-start caret position lands
+ * inside it), it carries a literal run that must reach the tokenizer (Task 15 QA run 3: `\zz `
+ * typed at content start was dropped here, so the rebuild reproduced the paragraph unchanged and
+ * the literal never settled). Substitute the separator only while the node is pure whitespace.
+ */
+function $textNodeFragmentText(node: TextNode): string {
+  const text = node.getTextContent();
+  if ($getState(node, textTypeState) !== "marker-trailing-space") return text;
+  return /^[\s\u00A0]*$/.test(text) ? " " : text;
+}
+
+/**
  * Display siblings after a MilestoneNode that belong to its run: opening
  * MarkerNode, optional attribute TextNode, self-closing MarkerNode. They ride
  * inside the milestone's sentinel so the visible glyphs survive the rebuild.
@@ -173,8 +187,7 @@ function $appendSignature(children: LexicalNode[], out: string[], getMarkerFn: M
     } else if ($isLineBreakNode(node)) {
       out.push(" ");
     } else if ($isTextNode(node)) {
-      const textType = $getState(node, textTypeState);
-      out.push(textType === "marker-trailing-space" ? " " : toFragmentText(node.getTextContent()));
+      out.push(toFragmentText($textNodeFragmentText(node)));
     } else if ($isElementNode(node)) {
       out.push(SIGNATURE_OPEN, node.getType());
       $appendSignature(node.getChildren(), out, getMarkerFn);
@@ -226,9 +239,7 @@ function $appendNodesFragment(
     } else if ($isLineBreakNode(node)) {
       pushText(out, node, " ");
     } else if ($isTextNode(node)) {
-      const textType = $getState(node, textTypeState);
-      if (textType === "marker-trailing-space") pushText(out, node, " ");
-      else pushText(out, node, toFragmentText(node.getTextContent()));
+      pushText(out, node, toFragmentText($textNodeFragmentText(node)));
     } else if ($isElementNode(node)) {
       // TypedMarkNode and other transparent wrappers: annotation marks are
       // host-reapplied overlays; their text content is rebuilt as plain content.

@@ -13,6 +13,7 @@ import {
   $isTextNode,
   $setSelection,
   BLUR_COMMAND,
+  CLICK_COMMAND,
   KEY_DOWN_COMMAND,
   KEY_ENTER_COMMAND,
   TextNode,
@@ -583,6 +584,40 @@ describe("Cluster A: async scrRef caret-yank and cross-frame blur (Task 15)", ()
       expect(para.getMarker()).toBe("s1"); // NOT force-settled: fell back to lastAnchorKey
       expect(marker.getTextContent()).toBe("\\s2"); // literal preserved for the palette apply
     });
+  });
+
+  // NOTE (round 3): the "tagged commit that does NOT move the caret must not arm" narrowing is
+  // implemented in MarkerEditPlugin (compared against the previous commit's anchor) but is not
+  // jsdom-pinned: a tagged act followed by an untagged departure hits a Lexical batching edge in
+  // this harness where the departure commit (and with it the deferred resolution microtask)
+  // defers past the test body even with `discrete: true` — three fixture strategies failed
+  // deterministically while every captured trace showed the narrowing itself deciding correctly.
+  // The behavior is covered by the in-app smoke (literals settle on mouse departure).
+  it("a mouse click ends the app-placed suppression window (round 3)", async () => {
+    let para: ParaNode, marker: MarkerNode;
+    const { editor } = await testEnvironment(() => ({ para, marker } = $appendHeadingPara()));
+    const $selectHeading = (offset: number) => {
+      const last = para.getLastChild();
+      if ($isTextNode(last)) last.select(offset, offset);
+    };
+    await act(async () =>
+      editor.update(() => {
+        marker.setTextContent("\\s2");
+        marker.select(3, 3);
+      }),
+    );
+    // A REAL yank (tagged commit that moves the anchor) arms the window...
+    await act(async () => editor.update(() => $selectHeading(0), { tag: CURSOR_CHANGE_TAG }));
+    // ...so an untagged follow-on move does not settle (round-2 behavior, still intact):
+    await act(async () => editor.update(() => $selectHeading(1)));
+    editor.getEditorState().read(() => expect(para.getMarker()).toBe("s1"));
+    // A mouse CLICK re-establishes user intent (same contract as keydown)...
+    await act(async () => {
+      editor.dispatchCommand(CLICK_COMMAND, new MouseEvent("click"));
+    });
+    // ...and the next caret departure settles the pending marker.
+    await act(async () => editor.update(() => $selectHeading(3)));
+    editor.getEditorState().read(() => expect(para.getMarker()).toBe("s2"));
   });
 
   it("resolves non-caret pendings but keeps the caret's on a nulled-selection blur", async () => {
