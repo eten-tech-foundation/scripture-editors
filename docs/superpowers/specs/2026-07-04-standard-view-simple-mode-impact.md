@@ -1,11 +1,12 @@
 # Standard View project: impact on Simple mode
 
 **Audience:** the team owning the simple (`interfaceMode === 'simple'`) experience.
-**Status:** Drafted at Phase 5 design time; finalized at the Phase 5 wrap-up.
+**Status:** Finalized at the Phase 5 wrap-up (2026-07-07) against what shipped and was verified
+in-app. Companion: `docs/superpowers/specs/2026-07-07-standard-view-followups.md`.
 
-**TL;DR:** simple mode's default experience does not change. Two behaviors improve quietly,
-one existing quirk needs your decision, and everything else is gated to the new Standard view
-that simple mode doesn't open by default.
+**TL;DR:** simple mode's default experience does not change. Three behaviors change quietly (two
+correctness improvements and one save-timing change), one existing quirk needs your decision, and
+everything else is gated to the new Standard view that simple mode doesn't open by default.
 
 ## What does NOT change for simple mode
 
@@ -19,7 +20,9 @@ that simple mode doesn't open by default.
 - The overlay service gains a `passive` command-palette mode. Purely additive — existing
   overlay callers and behavior are untouched.
 
-## Two behavior changes that DO reach simple mode
+## Three behavior changes that DO reach simple mode
+
+All three shipped and were verified in-app.
 
 1. **Marker menu contents (formatted view's `\`-menu).** The inline marker menu's item list
    switches from a static built-in USFM table to the project's stylesheet (occursUnder-driven
@@ -31,6 +34,17 @@ that simple mode doesn't open by default.
    note now come from real project settings (Settings.xml) instead of hard-coded defaults
    (`:`, `-`, `+`). For most Western projects the values are identical; projects with custom
    separators/callers will see their configured values — a correctness fix, but a visible one.
+   **One nuance worth flagging:** the newly-registered *default* for the chapter-verse separator
+   is `.` (matching ParatextData's own default), not the editor's old hard-coded `:`. So for a
+   project whose Settings.xml does not set the separator (tag-less projects), an inserted note's
+   reference now reads `1.3` rather than `1:3` — in **all** views, formatted included. This is a
+   PT9-faithful correction, but it is a visible change for those projects.
+3. **Saves while typing are now debounced (~0.7s).** This project changed the editor's
+   keystroke-driven save from per-keystroke to a ~0.7s trailing debounce, with a flush when you
+   switch chapters, blur the window, or close. It lives in the shared editor↔host sync path, so
+   it applies in **every** view including simple mode's formatted view. Upside: it removes a
+   per-keystroke save/echo storm. Trade-off to be aware of: a renderer crash within the ~0.7s
+   window could lose the last moment of typing (the flush-on-switch/blur/close paths limit this).
 
 ## One decision your team owns
 
@@ -40,8 +54,8 @@ means a simple-mode user who cycles views can land in the full marker-editing St
 Options:
 
 - **Keep it** (power feature reachable but not default), or
-- **Skip Standard in simple mode** (cycle `formatted → markers`) — a one-line change we can
-  include in Phase 5 if you want it; tell us.
+- **Skip Standard in simple mode** (cycle `formatted → markers`) — a one-line change; Phase 5 has
+  shipped, so this would be a small follow-up. Tell us which you want.
 
 ## Heads-up, no action needed
 
