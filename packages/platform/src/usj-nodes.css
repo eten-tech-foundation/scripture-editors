@@ -2126,6 +2126,10 @@
   display: block;
   margin: 0.25em 0;
   padding: 0.25em 0.5em;
+  /* An EMPTY opaque block (e.g. a bare \fig) must stay visible/selectable: without content the
+     box collapses to 0 height. One line-height of room keeps the dashed frame and the ::before
+     marker label renderable. */
+  min-height: 1.5em;
   border: 1px dashed hsl(var(--muted-foreground, 215 16% 65%) / 0.5);
   background-color: hsl(var(--muted-foreground, 215 16% 65%) / 0.08);
   color: hsl(var(--muted-foreground, 215 16% 65%) / 0.85);
