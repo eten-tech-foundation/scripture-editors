@@ -7,14 +7,36 @@ import {
   $isRangeSelection,
   $isTextNode,
   BaseSelection,
-  ElementNode,
   LexicalNode,
   NodeKey,
 } from "lexical";
-import { $isSomeChapterNode, $isSomeParaNode } from "shared";
+import { $isSomeChapterNode, $isSomeParaNode, SomeParaNode } from "shared";
 
 /** Editing operations that can alter block structure. */
 export type EditIntent = "insertParagraph" | "deleteBackward" | "deleteForward" | "insertText";
+
+/** What a structural delete keystroke would act on. */
+export type DeleteTarget =
+  | { kind: "verse"; node: SomeVerseNode }
+  | { kind: "para"; node: SomeParaNode };
+
+/** A snapshot of one RangeSelection endpoint, used to detect whether a latched range still holds. */
+export interface PointSnapshot {
+  key: NodeKey;
+  offset: number;
+  type: "text" | "element";
+}
+
+/** A pending two-step delete: the armed target's kind + the intent that armed it. */
+export interface ArmedDelete {
+  kind: "verse" | "para" | "selection";
+  intent: "deleteBackward" | "deleteForward";
+  /** verse/para: the target node's key. selection: the first verse marker key in the range. */
+  key: NodeKey;
+  /** selection only: the armed range's endpoints. */
+  anchor?: PointSnapshot;
+  focus?: PointSnapshot;
+}
 
 /**
  * Maps a keydown to the structural edit it would cause, or undefined for non-editing keys.
@@ -92,7 +114,13 @@ export function $caretAtParaEnd(selection: BaseSelection): boolean {
   return true;
 }
 
-/** True when the node immediately before/after a collapsed caret is a verse marker. */
+/**
+ * True when the node immediately before/after a collapsed caret is a verse marker.
+ *
+ * @param selection - The current selection; only a collapsed RangeSelection can be adjacent.
+ * @param direction - `"backward"` checks the node before the caret; `"forward"` the node after.
+ * @returns Whether a verse marker sits immediately in that direction.
+ */
 export function $caretAdjacentToVerseMarker(
   selection: BaseSelection,
   direction: "backward" | "forward",
@@ -103,6 +131,10 @@ export function $caretAdjacentToVerseMarker(
 /**
  * The verse marker immediately before/after a collapsed caret, or undefined.
  * Node-returning sibling of `$caretAdjacentToVerseMarker`.
+ *
+ * @param selection - The current selection; only a collapsed RangeSelection can be adjacent.
+ * @param direction - `"backward"` looks before the caret; `"forward"` looks after it.
+ * @returns The adjacent verse marker node, or undefined when none is adjacent.
  */
 export function $adjacentVerseMarker(
   selection: BaseSelection,
@@ -144,7 +176,13 @@ export function $shouldBlockSelectionReplacement(selection: BaseSelection): bool
   return $selectionContainsVerseMarker(selection) || $selectionSpansBlockBoundary(selection);
 }
 
-/** Full keyboard decision: combines Rule 1 with collapsed-caret structural rules. */
+/**
+ * Full keyboard decision: combines Rule 1 with collapsed-caret structural rules.
+ *
+ * @param selection - The current selection to evaluate.
+ * @param intent - The structural edit the keystroke would cause (see {@link keyDownToIntent}).
+ * @returns Whether the edit should be blocked in a structure-protected document.
+ */
 export function $shouldBlockStructuralEdit(selection: BaseSelection, intent: EditIntent): boolean {
   if ($selectionContainsVerseMarker(selection) || $selectionSpansBlockBoundary(selection)) {
     return true;
@@ -168,11 +206,6 @@ export function $shouldBlockStructuralEdit(selection: BaseSelection, intent: Edi
   }
 }
 
-/** What a structural delete keystroke would act on. */
-export type DeleteTarget =
-  | { kind: "verse"; node: SomeVerseNode }
-  | { kind: "para"; node: ElementNode };
-
 /**
  * The marker/section a delete keystroke would remove at a structural boundary, or undefined
  * when the keystroke is ordinary editing. Mirror of `$shouldBlockStructuralEdit`'s boundary
@@ -192,7 +225,7 @@ export function $structuralDeleteTarget(
     if (verse) return { kind: "verse", node: verse };
     if ($caretAtParaStart(selection) && $hasNeighborBlock(selection, "backward")) {
       const para = $getParaAncestor(selection.anchor.getNode());
-      if (para) return { kind: "para", node: para as ElementNode };
+      if ($isSomeParaNode(para)) return { kind: "para", node: para };
     }
     return undefined;
   }
@@ -202,31 +235,11 @@ export function $structuralDeleteTarget(
     if ($caretAtParaEnd(selection) && $hasNeighborBlock(selection, "forward")) {
       const para = $getParaAncestor(selection.anchor.getNode());
       const next = para?.getNextSibling();
-      if ($isElementNode(next)) return { kind: "para", node: next };
+      if ($isSomeParaNode(next)) return { kind: "para", node: next };
     }
     return undefined;
   }
   return undefined;
-}
-
-/** A snapshot of one RangeSelection endpoint, used to detect whether a latched range still holds. */
-export interface PointSnapshot {
-  key: NodeKey;
-  offset: number;
-  type: "text" | "element";
-}
-
-/** A pending two-step delete: the armed target's kind + the intent that armed it. */
-export interface ArmedDelete {
-  kind: "verse" | "para" | "selection";
-  intent: "deleteBackward" | "deleteForward";
-  /** verse/para: the target node's key. selection: verseKeys[0], used as the tooltip anchor. */
-  key: NodeKey;
-  /** selection only: the verse marker node keys inside the armed range. */
-  verseKeys?: NodeKey[];
-  /** selection only: the armed range's endpoints. */
-  anchor?: PointSnapshot;
-  focus?: PointSnapshot;
 }
 
 /** True when the live selection still encodes the armed target. */
@@ -273,19 +286,23 @@ export function $placeCaretAtEnd(node: LexicalNode): void {
 
 /**
  * Merge-into-previous semantics for a paragraph delete: move `para`'s children into its
- * previous element sibling (which keeps ITS marker), remove `para` (dropping its marker),
- * and place the caret at the junction. Text is never lost. Caller guarantees a previous
- * element sibling exists (checked via `$hasNeighborBlock` when the target was resolved).
+ * previous paragraph sibling (which keeps ITS marker), remove `para` (dropping its marker),
+ * and place the caret at the junction. Text is never lost. Only paragraphs merge into
+ * paragraphs (ParaNode/ImpliedParaNode either way); any other previous sibling is a no-op.
+ * Caller guarantees a previous element sibling exists (checked via `$hasNeighborBlock`).
+ *
+ * @param para - The paragraph whose marker is being removed by merging it into its predecessor.
  */
-export function $mergeParaIntoPrevious(para: ElementNode): void {
+export function $mergeParaIntoPrevious(para: SomeParaNode): void {
   const prev = para.getPreviousSibling();
-  if (!$isElementNode(prev)) return;
+  if (!$isSomeParaNode(prev)) return;
   const junction = prev.getLastChild();
   const moved = para.getChildren();
   prev.append(...moved);
   para.remove();
+  // When `prev` had content, the junction is the end of its last child; when it was empty the
+  // junction is its start — so the caret lands where the two paragraphs joined, not at the end.
   if (junction) $placeCaretAtEnd(junction);
-  else if (moved.length > 0) $placeCaretAtEnd(prev);
   else prev.selectStart();
 }
 

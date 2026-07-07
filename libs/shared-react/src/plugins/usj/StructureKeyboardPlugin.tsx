@@ -10,7 +10,6 @@ import {
   ArmedDelete,
   keyDownToIntent,
 } from "./structureKeyboard.utils";
-import { VerseDeleteTooltip } from "./VerseDeleteTooltip";
 import { $generateNodesFromDOM } from "@lexical/html";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import DOMPurify from "dompurify";
@@ -20,7 +19,6 @@ import {
   $createRangeSelection,
   $getNodeByKey,
   $getSelection,
-  $isElementNode,
   $isRangeSelection,
   $isTextNode,
   $setSelection,
@@ -32,26 +30,38 @@ import {
   KEY_DOWN_COMMAND,
   PASTE_COMMAND,
 } from "lexical";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { $isSomeVerseNode } from "../../nodes/usj";
+import { $isSomeParaNode } from "shared";
 
 /**
  * Governs structural keystrokes (Backspace/Delete/Enter/typing) at verse- and paragraph-marker
- * boundaries. When `isStructureProtected`, blocks them (PT-4013) and sanitizes paste/drop payloads
- * so structural markers (paragraph breaks, verse markers, chapter markers) cannot be inserted —
+ * boundaries. When `isStructureProtected`, blocks them and sanitizes paste/drop payloads so
+ * structural markers (paragraph breaks, verse markers, chapter markers) cannot be inserted —
  * text, inline character formatting, and notes are kept. When not protected, makes deletion a
  * deliberate two-step gesture: first press selects the marker/section, second press deletes it.
  * Registers a KEY_DOWN handler at COMMAND_PRIORITY_HIGH, mirroring ArrowNavigationPlugin.
  *
+ * The armed state is published to the DOM (rather than rendered here) so the host app owns the
+ * user-facing hint: the root element carries the `verse-delete-armed` class plus
+ * `data-verse-delete-intent` (`deleteBackward` | `deleteForward`) and `data-verse-delete-kind`
+ * (`verse` | `selection`), and the armed marker carries the `verse-selected` class. The host can
+ * observe these to render a localized tooltip (see paranext-core's VerseDeleteTooltipOverlay).
+ *
  * @param isStructureProtected - When true, structural keystrokes are blocked; when false, the
- *   two-step intentional-delete behavior is active.
- * @returns Always `null`; this component has no UI.
+ *   two-step intentional-delete behavior is active. Only consulted when the feature is active.
+ * @param isStructureProtectionActive - Whether the feature applies at all. Defaults to true. When
+ *   false (e.g. the Power interface mode), the plugin registers no handlers and editing is fully
+ *   native — no blocking, no two-step delete, no armed state.
+ * @returns Always `null`; this plugin renders no UI, only editor behavior and DOM signals.
  */
 export function StructureKeyboardPlugin({
   isStructureProtected,
+  isStructureProtectionActive = true,
 }: {
   isStructureProtected: boolean;
-}): JSX.Element | null {
+  isStructureProtectionActive?: boolean;
+}): null {
   const [editor] = useLexicalComposerContext();
   const armedRef = useRef<ArmedDelete | undefined>(undefined);
   const [armed, setArmed] = useState<ArmedDelete | undefined>(undefined);
@@ -61,6 +71,9 @@ export function StructureKeyboardPlugin({
   }, []);
 
   useEffect(() => {
+    // Feature off (e.g. Power mode): register nothing so editing stays fully native.
+    if (!isStructureProtectionActive) return undefined;
+
     const $handleKeyDown = (event: KeyboardEvent): boolean => {
       const intent = keyDownToIntent(event);
       if (!intent) return false;
@@ -102,7 +115,8 @@ export function StructureKeyboardPlugin({
           }
         } else if (armed.kind === "selection") {
           if ($isRangeSelection(selection)) selection.removeText(); // deletes the whole range, verse included
-        } else if (node && $isElementNode(node)) {
+        } else if ($isSomeParaNode(node)) {
+          // Only paragraphs merge into paragraphs; never merge some other ElementNode.
           $mergeParaIntoPrevious(node);
         }
         return true;
@@ -141,7 +155,6 @@ export function StructureKeyboardPlugin({
           kind: "selection",
           intent,
           key: verseKeys[0],
-          verseKeys,
           anchor: { key: anchor.key, offset: anchor.offset, type: anchor.type },
           focus: { key: focus.key, offset: focus.offset, type: focus.type },
         });
@@ -224,18 +237,30 @@ export function StructureKeyboardPlugin({
       ),
       editor.registerUpdateListener(clearStaleLatch),
     );
-  }, [editor, isStructureProtected, setArmedState]);
+  }, [editor, isStructureProtected, isStructureProtectionActive, setArmedState]);
 
-  // Reflect the armed state onto the editor root so CSS can gate the blink to armed markers only.
+  // Publish the armed state onto the editor root: the class gates the CSS blink to armed markers,
+  // and the data attributes let the host app render a localized destructive hint. `para` merges
+  // expose no hint kind (verse-marker scope), matching the previous no-tooltip behavior.
   useEffect(() => {
     const root = editor.getRootElement();
     if (!root) return;
+    const showHint = !!armed && armed.kind !== "para";
     root.classList.toggle("verse-delete-armed", !!armed);
-    return () => root.classList.remove("verse-delete-armed");
+    if (showHint) {
+      root.setAttribute("data-verse-delete-intent", armed.intent);
+      root.setAttribute("data-verse-delete-kind", armed.kind);
+    } else {
+      root.removeAttribute("data-verse-delete-intent");
+      root.removeAttribute("data-verse-delete-kind");
+    }
+    return () => {
+      root.classList.remove("verse-delete-armed");
+      root.removeAttribute("data-verse-delete-intent");
+      root.removeAttribute("data-verse-delete-kind");
+    };
   }, [editor, armed]);
 
-  // Show the destructive hint while armed. `para` merges never get a tooltip (verse-marker scope).
-  return armed && armed.kind !== "para" ? (
-    <VerseDeleteTooltip editor={editor} armed={armed} />
-  ) : null;
+  // Renders no UI: the armed hint is owned by the host app (see this component's JSDoc).
+  return null;
 }

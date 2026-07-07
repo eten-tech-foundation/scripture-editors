@@ -5,6 +5,8 @@ import {
   NOTE_INDEX,
   NOTE_CALLER_INDEX,
 } from "../../../../../packages/utilities/src/converters/usj/converter-test.data";
+// eslint-disable-next-line @nx/enforce-module-boundaries
+import { updateSelection as $updateSelection } from "../../../../../libs/shared/src/nodes/usj/test.utils";
 import { SerializedImmutableNoteCallerNode, usjReactNodes } from "../../nodes/usj";
 import { InitialEditorStateType, LexicalComposer } from "@lexical/react/LexicalComposer";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
@@ -77,6 +79,18 @@ export async function baseTestEnvironment(
   // `editor` is defined on React render.
   // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   return { editor: editor! };
+}
+
+/**
+ * React-aware wrapper around the shared `updateSelection`: runs the selection change inside
+ * `act(...)` so re-renders it triggers (e.g. a verse marker toggling its selected state via
+ * `useLexicalNodeSelection`) are flushed inside act and don't emit "not wrapped in act(...)"
+ * warnings. Same signature as the shared helper; prefer this in tests that render components.
+ */
+export function updateSelection(...args: Parameters<typeof $updateSelection>): void {
+  act(() => {
+    $updateSelection(...args);
+  });
 }
 
 /**

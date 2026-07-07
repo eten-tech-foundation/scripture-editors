@@ -1,12 +1,9 @@
 // Should only be used on nodes that are initialized in the test environment.
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 
-// Reaching inside only for tests.
-// eslint-disable-next-line @nx/enforce-module-boundaries
-import { updateSelection } from "../../../../../libs/shared/src/nodes/usj/test.utils";
 import { $createImmutableVerseNode, ImmutableVerseNode } from "../../nodes/usj";
 import { StructureKeyboardPlugin } from "./StructureKeyboardPlugin";
-import { baseTestEnvironment, pressKey } from "./react-test.utils";
+import { baseTestEnvironment, pressKey, updateSelection } from "./react-test.utils";
 import { act } from "@testing-library/react";
 import {
   $getRoot,
@@ -599,6 +596,114 @@ describe("StructureKeyboardPlugin — two-step delete for range selections with 
   });
 });
 
+// The plugin renders no UI; it publishes the armed state to the editor root so the host app can
+// render a localized hint (see paranext-core's VerseDeleteTooltipOverlay). These assert that
+// DOM contract: `data-verse-delete-intent` + `data-verse-delete-kind`, set only for hint-worthy
+// (verse / selection) arms and cleared otherwise.
+describe("StructureKeyboardPlugin — armed DOM signals for the host hint", () => {
+  it("Backspace-armed verse marks intent=deleteBackward, kind=verse", async () => {
+    let t1: TextNode;
+    const { editor } = await unprotectedEnvironment(() => {
+      t1 = $createTextNode("text");
+      $getRoot().append($createParaNode("p").append($createImmutableVerseNode("1"), t1));
+    });
+    updateSelection(editor, t1!, 0);
+
+    await pressKey(editor, "Backspace", 0); // arm the verse marker
+    const root = editor.getRootElement();
+    expect(root?.getAttribute("data-verse-delete-intent")).toBe("deleteBackward");
+    expect(root?.getAttribute("data-verse-delete-kind")).toBe("verse");
+  });
+
+  it("Delete-armed range selection marks intent=deleteForward, kind=selection", async () => {
+    let t1: TextNode;
+    let t2: TextNode;
+    const { editor } = await unprotectedEnvironment(() => {
+      t1 = $createTextNode("ab");
+      t2 = $createTextNode("cd");
+      $getRoot().append($createParaNode("p").append(t1, $createImmutableVerseNode("2"), t2));
+    });
+    updateSelection(editor, t1!, 1, t2!, 1);
+
+    await pressKey(editor, "Delete", 0); // arm the range selection
+    const root = editor.getRootElement();
+    expect(root?.getAttribute("data-verse-delete-intent")).toBe("deleteForward");
+    expect(root?.getAttribute("data-verse-delete-kind")).toBe("selection");
+  });
+
+  it("paragraph-merge arm sets no hint attributes (verse-marker scope only)", async () => {
+    let t2: TextNode;
+    const { editor } = await unprotectedEnvironment(() => {
+      t2 = $createTextNode("second");
+      $getRoot().append(
+        $createParaNode("p").append($createTextNode("first")),
+        $createParaNode("p").append(t2),
+      );
+    });
+    updateSelection(editor, t2!, 0); // caret at start of the second paragraph
+
+    await pressKey(editor, "Backspace", 0); // arm the paragraph merge
+    const root = editor.getRootElement();
+    expect(root?.getAttribute("data-verse-delete-intent")).toBeNull();
+    expect(root?.getAttribute("data-verse-delete-kind")).toBeNull();
+  });
+
+  it("sets no hint attributes when nothing is armed", async () => {
+    const { editor } = await unprotectedEnvironment(() => {
+      $getRoot().append(
+        $createParaNode("p").append($createImmutableVerseNode("1"), $createTextNode("text")),
+      );
+    });
+    const root = editor.getRootElement();
+    expect(root?.getAttribute("data-verse-delete-intent")).toBeNull();
+    expect(root?.getAttribute("data-verse-delete-kind")).toBeNull();
+  });
+});
+
+// isStructureProtectionActive={false} (e.g. the Power interface mode): the feature is off, so the
+// plugin registers no handlers and editing is fully native — no blocking, no two-step arming.
+describe("StructureKeyboardPlugin — feature inactive (isStructureProtectionActive={false})", () => {
+  it("does not arm the two-step delete at a verse boundary", async () => {
+    let t1: TextNode;
+    const { editor } = await inactiveEnvironment(() => {
+      t1 = $createTextNode("text");
+      $getRoot().append($createParaNode("p").append($createImmutableVerseNode("1"), t1));
+    });
+    updateSelection(editor, t1!, 0);
+
+    // Handler is not registered, so the key falls through to native handling; jsdom lacks
+    // domSelection.modify and throws — catching it confirms the plugin did NOT consume the key.
+    try {
+      await pressKey(editor, "Backspace", 0);
+    } catch (e) {
+      if (!(e instanceof Error) || !e.message.includes("domSelection.modify")) throw e;
+    }
+    const root = editor.getRootElement();
+    expect(root?.classList.contains("verse-delete-armed")).toBe(false);
+    expect(root?.getAttribute("data-verse-delete-kind")).toBeNull();
+  });
+
+  it("does not block structural edits: protected + inactive lets Enter split the paragraph natively", async () => {
+    let t1: TextNode;
+    const { editor } = await baseTestEnvironment(
+      () => {
+        t1 = $createTextNode("abcdef");
+        $getRoot().append($createParaNode("p").append(t1));
+      },
+      // Protected + inactive: inactive wins, so Enter is NOT blocked and splits natively.
+      <StructureKeyboardPlugin isStructureProtected isStructureProtectionActive={false} />,
+    );
+    updateSelection(editor, t1!, 3);
+
+    await pressKey(editor, "Enter", 0);
+
+    editor.getEditorState().read(() => {
+      // When active+protected the plugin blocks Enter (size stays 1); inactive lets it split → 2.
+      expect($getRoot().getChildrenSize()).toBe(2);
+    });
+  });
+});
+
 async function testEnvironment($initialEditorState: () => void) {
   return baseTestEnvironment(
     $initialEditorState,
@@ -610,5 +715,12 @@ async function unprotectedEnvironment($initialEditorState: () => void) {
   return baseTestEnvironment(
     $initialEditorState,
     <StructureKeyboardPlugin isStructureProtected={false} />,
+  );
+}
+
+async function inactiveEnvironment($initialEditorState: () => void) {
+  return baseTestEnvironment(
+    $initialEditorState,
+    <StructureKeyboardPlugin isStructureProtected={false} isStructureProtectionActive={false} />,
   );
 }

@@ -191,6 +191,12 @@ export interface EditorOptions {
   isReadonly?: boolean;
   /** When true, paragraph and verse markers cannot be changed via keyboard input. */
   isStructureProtected?: boolean;
+  /**
+   * Whether the structure-protection feature applies at all. When false (e.g. Power interface
+   * mode), the structural keyboard handling — both protection-blocking and the two-step
+   * intentional delete — is disabled and editing is fully native. Defaults to active (true).
+   */
+  isStructureProtectionActive?: boolean;
   /** Does the editor have external UI controls so disable the built-in toolbar and marker menu. */
   hasExternalUI?: boolean;
   /** Is the editor enabled for spell checking. */

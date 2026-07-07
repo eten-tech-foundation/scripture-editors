@@ -1,11 +1,8 @@
 // Should only be used on nodes that are initialized in the test environment.
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 
-// Reaching inside only for tests.
-// eslint-disable-next-line @nx/enforce-module-boundaries
-import { updateSelection } from "../../../../../libs/shared/src/nodes/usj/test.utils";
 import { StructureKeyboardPlugin } from "./StructureKeyboardPlugin";
-import { baseTestEnvironment, pressKey } from "./react-test.utils";
+import { baseTestEnvironment, pressKey, updateSelection } from "./react-test.utils";
 import { act } from "@testing-library/react";
 import {
   $getRoot,
@@ -73,7 +70,7 @@ describe("baseline (unprotected) structural behavior", () => {
 });
 
 // With the plugin present but not in protected mode (isStructureProtected={false}), the plugin
-// now implements the two-step intentional-delete behavior (PT-4020). Structural Backspace is
+// now implements the two-step intentional-delete behavior. Structural Backspace is
 // intercepted: first press arms (selects the block), second press fires (merges).
 // Non-keyboard vectors (CUT, DRAGSTART) and plain text insertion are not blocked.
 describe("StructureKeyboardPlugin unprotected — two-step delete active", () => {

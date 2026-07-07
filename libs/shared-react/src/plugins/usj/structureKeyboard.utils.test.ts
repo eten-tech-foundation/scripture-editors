@@ -1,10 +1,7 @@
 // Should only be used on nodes that are initialized in the test environment.
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 
-// Reaching inside only for tests.
-// eslint-disable-next-line @nx/enforce-module-boundaries
-import { updateSelection } from "../../../../../libs/shared/src/nodes/usj/test.utils";
-import { baseTestEnvironment, sutUpdate } from "./react-test.utils";
+import { baseTestEnvironment, sutUpdate, updateSelection } from "./react-test.utils";
 import { $createImmutableVerseNode } from "../../nodes/usj";
 import {
   $adjacentVerseMarker,
@@ -89,7 +86,8 @@ describe("structureKeyboard.utils", () => {
       verseNode = $createImmutableVerseNode("1");
       $getRoot().append($createParaNode("p").append(verseNode, $createTextNode("text")));
     });
-    editor.update(
+    await sutUpdate(
+      editor,
       () => {
         const ns = $createNodeSelection();
         ns.add(verseNode.getKey());
@@ -413,7 +411,8 @@ describe("$isArmedSelection", () => {
       verse = $createImmutableVerseNode("1");
       $getRoot().append($createParaNode("p").append(verse, $createTextNode("text")));
     });
-    editor.update(
+    await sutUpdate(
+      editor,
       () => {
         const ns = $createNodeSelection();
         ns.add(verse.getKey());
@@ -497,7 +496,6 @@ describe("$isArmedSelection", () => {
         kind: "selection" as const,
         intent: "deleteBackward" as const,
         key: "anchor-verse",
-        verseKeys: ["anchor-verse"],
         anchor: { key: sel.anchor.key, offset: sel.anchor.offset, type: sel.anchor.type },
         focus: { key: sel.focus.key, offset: sel.focus.offset, type: sel.focus.type },
       };
@@ -517,7 +515,6 @@ describe("$isArmedSelection", () => {
       kind: "selection" as const,
       intent: "deleteBackward" as const,
       key: "x",
-      verseKeys: ["x"],
       anchor: { key: "different", offset: 0, type: "text" as const },
       focus: { key: "different", offset: 3, type: "text" as const },
     };

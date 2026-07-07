@@ -142,6 +142,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
   const {
     isReadonly = false,
     isStructureProtected = false,
+    isStructureProtectionActive = true,
     hasExternalUI = false,
     hasSpellCheck = false,
     textDirection = "ltr",
@@ -463,7 +464,10 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
           />
           <ParaMarkerPrefixGuardPlugin viewOptions={viewOptions} logger={logger} />
           <ParaNodePlugin />
-          <StructureKeyboardPlugin isStructureProtected={isStructureProtected} />
+          <StructureKeyboardPlugin
+            isStructureProtected={isStructureProtected}
+            isStructureProtectionActive={isStructureProtectionActive}
+          />
           <TextDirectionPlugin textDirection={textDirection} />
           <TextSpacingPlugin />
           {children}
