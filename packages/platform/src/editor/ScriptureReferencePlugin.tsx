@@ -55,10 +55,53 @@ export default function ScriptureReferencePlugin({
   /** Latest scrRef for book sync (avoids re-registering listeners when chapter/verse changes). */
   const scrRefRef = useRef(scrRef);
   const onScrRefChangeRef = useRef(onScrRefChange);
+  /**
+   * Target of an externally-driven navigation currently being applied (set when the `scrRef` prop
+   * changes for any reason other than this plugin's own `onScrRefChange` echo). While set,
+   * selection changes landing in the target chapter are programmatic settling of that navigation
+   * - e.g. the caret degrading to the chapter top on read-only surfaces, which computes as verse
+   * 0 - and must not be echoed to `onScrRefChange` (the echo would corrupt the navigation, e.g.
+   * GEN 2:1 -> GEN 2:0). Ended by genuine user input on the editor (pointer/keyboard - any
+   * selection change after that reflects the user's own action), ended by a selection landing in
+   * a DIFFERENT chapter (a genuine jump, e.g. to a search result), and re-targeted by the next
+   * external change (rapid navigation is last-write-wins). `undefined` = no external navigation
+   * pending.
+   */
+  const pendingExternalNavRef = useRef<SerializedVerseRef | undefined>(undefined);
+  /** Previous scrRef so the effect below can tell a genuine change from an unrelated re-render. */
+  const prevScrRefRef = useRef(scrRef);
   useEffect(() => {
+    // Open (or re-target) the external-navigation window on a genuine post-mount scrRef change
+    // that did not originate from this plugin's own emit. hasSelectionChangedRef is still set at
+    // this point for self-originated changes - the "Scripture Reference changed" effect below,
+    // which runs after this one in declaration order, is what consumes it.
+    const prev = prevScrRefRef.current;
+    if (
+      (prev.book !== scrRef.book ||
+        prev.chapterNum !== scrRef.chapterNum ||
+        prev.verseNum !== scrRef.verseNum) &&
+      !hasSelectionChangedRef.current
+    )
+      pendingExternalNavRef.current = scrRef;
+    prevScrRefRef.current = scrRef;
     scrRefRef.current = scrRef;
     onScrRefChangeRef.current = onScrRefChange;
   }, [scrRef, onScrRefChange]);
+
+  // Genuine user input on the editor ends the external-navigation window: programmatic settling
+  // is over by the time the user can interact, and any selection change that follows reflects
+  // the user's own action, so it must be reported again.
+  useEffect(() => {
+    const endPendingExternalNav = () => {
+      pendingExternalNavRef.current = undefined;
+    };
+    return editor.registerRootListener((rootElement, prevRootElement) => {
+      prevRootElement?.removeEventListener("pointerdown", endPendingExternalNav);
+      prevRootElement?.removeEventListener("keydown", endPendingExternalNav);
+      rootElement?.addEventListener("pointerdown", endPendingExternalNav);
+      rootElement?.addEventListener("keydown", endPendingExternalNav);
+    });
+  }, [editor]);
 
   // Book node created: move cursor to the verse start once a new BookNode appears after the
   // initial load (e.g. a different book's document has finished mounting). Re-registers on every
@@ -147,6 +190,7 @@ export default function ScriptureReferencePlugin({
               verseNum,
               onScrRefChange,
               hasSelectionChangedRef,
+              pendingExternalNavRef,
             );
           }
           return false;
@@ -208,6 +252,7 @@ function $findAndSetChapterAndVerse(
   verseNum: number,
   onScrRefChange: (scrRef: SerializedVerseRef) => void,
   hasSelectionChangedRef: MutableRefObject<boolean>,
+  pendingExternalNavRef: MutableRefObject<SerializedVerseRef | undefined>,
 ) {
   const selection = $getSelection();
   const startNode = getSelectionStartNode(selection);
@@ -227,17 +272,33 @@ function $findAndSetChapterAndVerse(
 
   const hasChapterChanged = chapterNode && selectedChapterNum !== chapterNum;
   const hasVerseChanged = !isVerseInCurrentRange;
-  hasSelectionChangedRef.current = !!(hasChapterChanged || hasVerseChanged);
-
-  if (hasSelectionChangedRef.current) {
-    const scrRef: SerializedVerseRef = {
-      book,
-      chapterNum: selectedChapterNum,
-      verseNum: effectiveVerseNum,
-    };
-    if (effectiveVerse != null && effectiveVerseNum.toString() !== effectiveVerse) {
-      scrRef.verse = effectiveVerse;
-    }
-    onScrRefChange(scrRef);
+  if (!hasChapterChanged && !hasVerseChanged) {
+    hasSelectionChangedRef.current = false;
+    return;
   }
+
+  // While an external navigation is being applied, a selection landing in its target chapter is
+  // the editor programmatically settling on that navigation (e.g. the caret degrading to the
+  // chapter top on a read-only surface, which computes as verse 0), not a user move - don't echo
+  // it back to the host. A selection landing in a DIFFERENT chapter is a genuine jump (e.g. to a
+  // search result): report it and end the window.
+  const pendingExternalNav = pendingExternalNavRef.current;
+  if (pendingExternalNav) {
+    if (selectedChapterNum === pendingExternalNav.chapterNum) {
+      hasSelectionChangedRef.current = false;
+      return;
+    }
+    pendingExternalNavRef.current = undefined;
+  }
+
+  hasSelectionChangedRef.current = true;
+  const scrRef: SerializedVerseRef = {
+    book,
+    chapterNum: selectedChapterNum,
+    verseNum: effectiveVerseNum,
+  };
+  if (effectiveVerse != null && effectiveVerseNum.toString() !== effectiveVerse) {
+    scrRef.verse = effectiveVerse;
+  }
+  onScrRefChange(scrRef);
 }

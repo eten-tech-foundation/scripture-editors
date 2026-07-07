@@ -12,7 +12,7 @@ import { LexicalErrorBoundary } from "@lexical/react/LexicalErrorBoundary";
 import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
 import type { BookCode } from "@eten-tech-foundation/scripture-utilities";
 import { SerializedVerseRef } from "@sillsdev/scripture";
-import { act, render } from "@testing-library/react";
+import { act, fireEvent, render } from "@testing-library/react";
 import {
   TextNode,
   $getRoot,
@@ -207,6 +207,137 @@ describe("ScriptureReferencePlugin", () => {
 
       expect(mockOnScrRefChange).toHaveBeenCalledWith(
         expect.objectContaining({ book: "GEN", chapterNum: 1, verseNum: 0 }),
+      );
+    });
+  });
+
+  describe("External navigation settle suppression", () => {
+    /** Reads the key of verse 1's marker node (same anchor the "report verse 0" test uses). */
+    function readVerse1Key(editor: LexicalEditor): string | undefined {
+      let verse1Key: string | undefined;
+      editor.getEditorState().read(() => {
+        const nodeWithVerse1 = $getRoot().getChildAtIndex(3);
+        if (nodeWithVerse1 && $isElementNode(nodeWithVerse1)) {
+          verse1Key = nodeWithVerse1.getFirstChild()?.getKey();
+        }
+      });
+      return verse1Key;
+    }
+
+    /** Places an element-point selection on the verse 1 marker (computes as verse 0) and fires SELECTION_CHANGE. */
+    async function settleAtChapterTop(editor: LexicalEditor, verse1Key: string | undefined) {
+      await act(async () => {
+        editor.update(() => {
+          if (verse1Key) {
+            const selection = $createRangeSelection();
+            selection.anchor = $createPoint(verse1Key, 0, "element");
+            selection.focus = $createPoint(verse1Key, 0, "element");
+            $setSelection(selection);
+          }
+          editor.dispatchCommand(SELECTION_CHANGE_COMMAND, undefined);
+        });
+      });
+    }
+
+    /** Fires SELECTION_CHANGE once so a pending cursor-move consumption is drained. */
+    async function drainCursorMove(editor: LexicalEditor) {
+      await act(async () => {
+        editor.dispatchCommand(SELECTION_CHANGE_COMMAND, undefined);
+      });
+    }
+
+    it("should not report verse 0 when the selection settles at the chapter top while applying an external navigation", async () => {
+      const { editor, setScrRef } = await testEnvironment(scrRef, mockOnScrRefChange);
+      const verse1Key = readVerse1Key(editor);
+      await drainCursorMove(editor); // consume the mount-time cursor move
+
+      await setScrRef({ ...scrRef, verseNum: 2 }); // external navigation: opens the settle window
+      await drainCursorMove(editor); // consume the navigation's own cursor move
+      mockOnScrRefChange.mockClear();
+
+      // Programmatic settle: the caret degrades to the chapter top (before verse 1's number), the
+      // position that computes as verse 0 (see the "should report verse 0..." test above). This
+      // must NOT be echoed to the host - it would corrupt the navigation (e.g. GEN 1:2 -> GEN 1:0).
+      await settleAtChapterTop(editor, verse1Key);
+
+      expect(mockOnScrRefChange).not.toHaveBeenCalled();
+    });
+
+    it("should keep suppressing settles across rapid successive external navigations", async () => {
+      const { editor, setScrRef } = await testEnvironment(scrRef, mockOnScrRefChange);
+      const verse1Key = readVerse1Key(editor);
+      await drainCursorMove(editor);
+
+      // Rapid navigation: the window re-targets to the latest navigation (last-write-wins).
+      await setScrRef({ ...scrRef, verseNum: 2 });
+      await setScrRef({ ...scrRef, verseNum: 3 });
+      await drainCursorMove(editor);
+      await drainCursorMove(editor);
+      mockOnScrRefChange.mockClear();
+
+      await settleAtChapterTop(editor, verse1Key);
+
+      expect(mockOnScrRefChange).not.toHaveBeenCalled();
+    });
+
+    it("should report user selection changes after user input ends the external-navigation window", async () => {
+      const { editor, setScrRef } = await testEnvironment(scrRef, mockOnScrRefChange);
+      await drainCursorMove(editor);
+
+      await setScrRef({ ...scrRef, verseNum: 2 });
+      await drainCursorMove(editor);
+      mockOnScrRefChange.mockClear();
+
+      // The user interacting with the editor ends the window; their caret move must be reported.
+      // (keydown rather than pointerdown: jsdom can't support Lexical's mouse-selection tracking -
+      // it calls getBoundingClientRect on text nodes - and the plugin listens to both events.)
+      const rootElement = editor.getRootElement();
+      if (!rootElement) throw new Error("Editor root element not found");
+      await act(async () => {
+        fireEvent.keyDown(rootElement, { key: "Shift" });
+      });
+      updateSelection(editor, firstVerseTextNode, 2);
+      await drainCursorMove(editor);
+
+      expect(mockOnScrRefChange).toHaveBeenCalledWith(
+        expect.objectContaining({ book: "GEN", chapterNum: 1, verseNum: 1 }),
+      );
+    });
+
+    it("should still report a genuine jump to a different chapter while a navigation is pending", async () => {
+      let chapter2VerseTextNode: TextNode | undefined;
+      const $twoChapterState = () => {
+        chapter2VerseTextNode = $createTextNode("chapter two verse text ");
+        $getRoot().append(
+          $createBookNode("GEN").append($createTextNode("Test Book")),
+          $createImmutableChapterNode("1"),
+          $createParaNode().append(
+            $createImmutableVerseNode("1"),
+            $createTextNode("first verse text "),
+          ),
+          $createImmutableChapterNode("2"),
+          $createParaNode().append($createImmutableVerseNode("1"), chapter2VerseTextNode),
+        );
+      };
+      const { editor, setScrRef } = await testEnvironment(
+        scrRef,
+        mockOnScrRefChange,
+        $twoChapterState,
+      );
+      await drainCursorMove(editor);
+
+      await setScrRef({ ...scrRef, verseNum: 2 }); // external navigation targeting chapter 1
+      await drainCursorMove(editor);
+      mockOnScrRefChange.mockClear();
+
+      // A selection landing in a DIFFERENT chapter than the pending navigation's target is a
+      // genuine jump (e.g. to a search result), not programmatic settling - it must be reported.
+      if (!chapter2VerseTextNode) throw new Error("chapter2VerseTextNode not initialized");
+      updateSelection(editor, chapter2VerseTextNode, 2);
+      await drainCursorMove(editor);
+
+      expect(mockOnScrRefChange).toHaveBeenCalledWith(
+        expect.objectContaining({ book: "GEN", chapterNum: 2, verseNum: 1 }),
       );
     });
   });
