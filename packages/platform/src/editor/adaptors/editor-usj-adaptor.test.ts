@@ -34,6 +34,7 @@ import {
   SerializedChapterNode,
   SerializedParaNode,
   SerializedVerseNode,
+  TableCellMarker,
   TypedMarkNode,
   VERSE_MARKER,
 } from "shared";
@@ -233,7 +234,14 @@ describe("Editor USJ Adaptor", () => {
             {
               type: "table:row",
               marker: "tr",
-              content: [{ type: "table:cell", marker: "tc1", colspan: "2", content: ["Total"] }],
+              content: [
+                {
+                  type: "table:cell",
+                  marker: "tc1",
+                  colspan: "2",
+                  content: ["Total"],
+                } as TableCellMarker,
+              ],
             },
           ],
         },
