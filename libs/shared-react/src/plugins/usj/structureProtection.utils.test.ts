@@ -4,12 +4,13 @@
 // Reaching inside only for tests.
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import { updateSelection } from "../../../../../libs/shared/src/nodes/usj/test.utils";
-import { baseTestEnvironment } from "./react-test.utils";
+import { baseTestEnvironment, sutUpdate } from "./react-test.utils";
 import { $createImmutableVerseNode } from "../../nodes/usj";
 import {
   $caretAdjacentToVerseMarker,
   $caretAtParaEnd,
   $caretAtParaStart,
+  $sanitizeNodesForProtectedStructure,
   $selectionContainsVerseMarker,
   $selectionSpansBlockBoundary,
   $shouldBlockStructuralEdit,
@@ -20,10 +21,21 @@ import {
   $getRoot,
   $getSelection,
   $createTextNode,
+  $isTextNode,
   $setSelection,
   TextNode,
 } from "lexical";
-import { $createParaNode, $createImpliedParaNode, ParaNode } from "shared";
+import {
+  $createChapterNode,
+  $createCharNode,
+  $createNoteNode,
+  $createParaNode,
+  $createImpliedParaNode,
+  $isCharNode,
+  $isNoteNode,
+  $isSomeParaNode,
+  ParaNode,
+} from "shared";
 
 describe("structureProtection.utils", () => {
   it("$selectionSpansBlockBoundary: true across two paragraphs", async () => {
@@ -265,6 +277,93 @@ describe("$shouldBlockStructuralEdit (decision logic)", () => {
     updateSelection(editor, t1!, 0, t2!, 6);
     editor.getEditorState().read(() => {
       expect($shouldBlockStructuralEdit($getSelection()!, "insertText")).toBe(true);
+    });
+  });
+});
+
+describe("$sanitizeNodesForProtectedStructure", () => {
+  it("flattens a paragraph to its text content", async () => {
+    const { editor } = await baseTestEnvironment();
+    await sutUpdate(editor, () => {
+      const para = $createParaNode("p").append($createTextNode("hello"));
+      const result = $sanitizeNodesForProtectedStructure([para]);
+      expect(result).toHaveLength(1);
+      expect($isTextNode(result[0])).toBe(true);
+      expect(result[0].getTextContent()).toBe("hello");
+      expect(result.some((n) => $isSomeParaNode(n))).toBe(false);
+    });
+  });
+
+  it("removes a verse marker entirely", async () => {
+    const { editor } = await baseTestEnvironment();
+    await sutUpdate(editor, () => {
+      const verse = $createImmutableVerseNode("1");
+      const result = $sanitizeNodesForProtectedStructure([verse]);
+      expect(result).toHaveLength(0);
+    });
+  });
+
+  it("removes a chapter marker entirely", async () => {
+    const { editor } = await baseTestEnvironment();
+    await sutUpdate(editor, () => {
+      const chapter = $createChapterNode("1");
+      const result = $sanitizeNodesForProtectedStructure([chapter]);
+      expect(result).toHaveLength(0);
+    });
+  });
+
+  it("preserves an inline CharNode", async () => {
+    const { editor } = await baseTestEnvironment();
+    await sutUpdate(editor, () => {
+      const para = $createParaNode("p").append(
+        $createCharNode("wj").append($createTextNode("words")),
+      );
+      const result = $sanitizeNodesForProtectedStructure([para]);
+      expect(result).toHaveLength(1);
+      expect($isCharNode(result[0])).toBe(true);
+      expect(result[0].getTextContent()).toBe("words");
+    });
+  });
+
+  it("preserves a NoteNode", async () => {
+    const { editor } = await baseTestEnvironment();
+    await sutUpdate(editor, () => {
+      const para = $createParaNode("p").append($createNoteNode("f"));
+      const result = $sanitizeNodesForProtectedStructure([para]);
+      expect(result).toHaveLength(1);
+      expect($isNoteNode(result[0])).toBe(true);
+    });
+  });
+
+  it("joins two paragraphs with a single space", async () => {
+    const { editor } = await baseTestEnvironment();
+    await sutUpdate(editor, () => {
+      const result = $sanitizeNodesForProtectedStructure([
+        $createParaNode("p").append($createTextNode("a")),
+        $createParaNode("q").append($createTextNode("b")),
+      ]);
+      expect(result.map((n) => n.getTextContent())).toEqual(["a", " ", "b"]);
+    });
+  });
+
+  it("strips a verse marker nested inside a paragraph but keeps the text", async () => {
+    const { editor } = await baseTestEnvironment();
+    await sutUpdate(editor, () => {
+      const para = $createParaNode("p").append(
+        $createImmutableVerseNode("2"),
+        $createTextNode("after"),
+      );
+      const result = $sanitizeNodesForProtectedStructure([para]);
+      expect(result).toHaveLength(1);
+      expect(result[0].getTextContent()).toBe("after");
+    });
+  });
+
+  it("returns an empty array when the entire payload is structural markers", async () => {
+    const { editor } = await baseTestEnvironment();
+    await sutUpdate(editor, () => {
+      const result = $sanitizeNodesForProtectedStructure([$createImmutableVerseNode("1")]);
+      expect(result).toHaveLength(0);
     });
   });
 });

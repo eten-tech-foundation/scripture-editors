@@ -104,10 +104,11 @@ export class NoteNode extends ElementNode {
     return $createNoteNode().updateFromJSON(serializedNode);
   }
 
-  static isValidMarker(marker: string | undefined): boolean {
+  static isValidMarker(marker: string | undefined, extraValidMarkers?: readonly string[]): boolean {
     return (
       marker !== undefined &&
-      VALID_NOTE_MARKERS.includes(marker as (typeof VALID_NOTE_MARKERS)[number])
+      (VALID_NOTE_MARKERS.includes(marker as (typeof VALID_NOTE_MARKERS)[number]) ||
+        (extraValidMarkers?.includes(marker) ?? false))
     );
   }
 
