@@ -87,16 +87,13 @@ export default function ScriptureReferencePlugin({
     [editor, chapterNum, verseNum],
   );
 
-  // Book node sync: correct scrRef.book to match the *currently loaded document's* BookNode
-  // (initial tree + later updates/replacements). Registered once per editor instance ([editor]
-  // only) rather than re-registering on every chapterNum/verseNum change - scrRefRef/
-  // onScrRefChangeRef already track the latest values, so re-registration isn't needed for
-  // freshness, and re-registering would replay the skipInitialization: false initialization pass
-  // against whatever document is currently mounted. On a chapter/verse-only navigation (or a
-  // cross-book navigation still awaiting its new document to load) that document is stale, so a
-  // replay would incorrectly echo the OLD book paired with the NEW chapter/verse back to the
-  // host. Registering once means this only fires for genuine BookNode mutations: the initial
-  // mount (skipInitialization: false's replay) and any later real document swap.
+  // Book node sync: correct scrRef.book to match the currently loaded document's BookNode.
+  // Fires on every non-destroyed BookNode mutation (initial-mount replay + later swaps); the
+  // `code !== current.book` guard below is what makes stray firings harmless. Registered once
+  // per editor ([editor] only), NOT re-registered on chapterNum/verseNum change: the refs
+  // already keep values fresh, and re-registering would replay skipInitialization: false against
+  // the still-mounted (stale) document on every navigation, echoing the OLD book with the NEW
+  // chapter/verse back to the host.
   useEffect(
     () =>
       editor.registerMutationListener(
