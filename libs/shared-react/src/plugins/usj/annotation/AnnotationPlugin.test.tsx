@@ -1,8 +1,21 @@
+// Reaching inside only for tests.
+// eslint-disable-next-line @nx/enforce-module-boundaries
+import { updateSelection } from "../../../../../../libs/shared/src/nodes/usj/test.utils";
 import { baseTestEnvironment } from "../react-test.utils";
 import { AnnotationPlugin, AnnotationRef } from "./AnnotationPlugin";
 import { AnnotationRange } from "./selection.model";
+import { $getUsjSelectionFromEditor } from "./selection.utils";
+import { isUsjTextContentLocation } from "@eten-tech-foundation/scripture-utilities";
 import { act } from "@testing-library/react";
-import { $createTextNode, $getRoot, $isElementNode, $isTextNode, LexicalNode } from "lexical";
+import {
+  $createTextNode,
+  $getRoot,
+  $isElementNode,
+  $isTextNode,
+  LexicalEditor,
+  LexicalNode,
+  TextNode,
+} from "lexical";
 import { createRef } from "react";
 import {
   $createParaNode,
@@ -207,6 +220,88 @@ describe("AnnotationPlugin", () => {
       });
     });
   });
+});
+
+describe("PT-3835: inserting annotations from reported selections", () => {
+  const text = "the neva word and the sleep word";
+  // indexOf: "neva" = 4, "sleep" = 22
+
+  it("annotates front-to-back (the PT-3835 failure direction)", async () => {
+    const { annotationPlugin, editor } = await testEnvironment(() => {
+      $getRoot().append($createParaNode().append($createTextNode(text)));
+    });
+
+    await annotateWordViaReportedSelection(annotationPlugin, editor, "neva", "c-1");
+    await annotateWordViaReportedSelection(annotationPlugin, editor, "sleep", "c-2");
+
+    editor.getEditorState().read(() => $expectAnnotatedWords(["neva", "sleep"]));
+  });
+
+  it("annotates back-to-front (regression guard)", async () => {
+    const { annotationPlugin, editor } = await testEnvironment(() => {
+      $getRoot().append($createParaNode().append($createTextNode(text)));
+    });
+
+    await annotateWordViaReportedSelection(annotationPlugin, editor, "sleep", "c-2");
+    await annotateWordViaReportedSelection(annotationPlugin, editor, "neva", "c-1");
+
+    editor.getEditorState().read(() => $expectAnnotatedWords(["neva", "sleep"]));
+  });
+
+  /**
+   * Select a word in the editor, verify the reported USJ selection is in coalesced-USJ
+   * coordinates (annotation-independent), then insert an annotation with exactly that
+   * reported selection — the paranext-core "Insert Comment" flow.
+   */
+  async function annotateWordViaReportedSelection(
+    annotationPlugin: AnnotationRef,
+    editor: LexicalEditor,
+    word: string,
+    id: string,
+  ) {
+    let target: TextNode | undefined;
+    let localOffset = 0;
+    editor.getEditorState().read(() => {
+      const para = $getRoot().getFirstChild();
+      if (!$isElementNode(para)) throw new Error("Expected a para node");
+      target = para.getAllTextNodes().find((node) => node.getTextContent().includes(word));
+      if (!target) throw new Error(`No text node contains '${word}'`);
+      localOffset = target.getTextContent().indexOf(word);
+    });
+    if (!target) throw new Error(`No text node contains '${word}'`);
+    updateSelection(editor, target, localOffset, target, localOffset + word.length);
+
+    const reported = editor.getEditorState().read($getUsjSelectionFromEditor);
+    const start = reported?.start;
+    const end = reported?.end;
+    if (!start || !end || !isUsjTextContentLocation(start) || !isUsjTextContentLocation(end)) {
+      throw new Error(`Expected a reported text selection for '${word}'`);
+    }
+    // The reported location must be in actual-USJ coordinates regardless of annotations.
+    expect(start).toEqual({
+      jsonPath: "$.content[0].content[0]",
+      offset: text.indexOf(word),
+    });
+    expect(end).toEqual({
+      jsonPath: "$.content[0].content[0]",
+      offset: text.indexOf(word) + word.length,
+    });
+
+    await act(async () => {
+      annotationPlugin.setAnnotation({ start, end }, "review", id);
+    });
+  }
+
+  function $expectAnnotatedWords(words: string[]) {
+    const para = $getRoot().getFirstChild();
+    if (!$isElementNode(para)) throw new Error("Expected a para node");
+    const markTexts = para
+      .getChildren()
+      .filter($isTypedMarkNode)
+      .map((node) => node.getTextContent());
+    expect(markTexts).toEqual(words);
+    expect(para.getTextContent()).toBe(text);
+  }
 });
 
 /**
