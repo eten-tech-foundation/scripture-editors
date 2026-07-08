@@ -7,12 +7,13 @@ import {
 } from "../../nodes/usj/node-react.utils";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { mergeRegister } from "@lexical/utils";
-import { $createTextNode, $isTextNode, LexicalEditor, TextNode } from "lexical";
+import { $createTextNode, $isTextNode, LexicalEditor, LexicalNode, TextNode } from "lexical";
 import { useEffect } from "react";
 import {
   $isCharNode,
   $isNoteNode,
   $isParaLikeNode,
+  $isParaMarkerPrefix,
   $isTypedMarkNode,
   $isUnknownNode,
   CharNode,
@@ -111,12 +112,26 @@ function $textNodeInUnknownTransform(node: TextNode, editor: LexicalEditor): voi
 function $verseNodeTransform(node: SomeVerseNode): void {
   if (!node.isAttached()) return;
 
-  const previousSibling = node.getPreviousSibling();
+  // Annotation wrappers (TypedMarkNode) are presentation-only, so the spacing decision depends
+  // on the content INSIDE them: resolve to the wrapper's last content child (nested wrappers
+  // are transient but resolved for safety). An empty wrapper resolves to null and inserts
+  // nothing.
+  let previousSibling: LexicalNode | null = node.getPreviousSibling();
+  while ($isTypedMarkNode(previousSibling)) previousSibling = previousSibling.getLastChild();
+
   if (
     previousSibling &&
     !$isSomeVerseNode(previousSibling) &&
-    !$isTextNode(previousSibling) &&
-    !$isUnknownNode(previousSibling)
+    !$isUnknownNode(previousSibling) &&
+    // Para marker prefixes are presentation scaffolding, not USJ content, so no structural
+    // space belongs after them — and an inserted plain " " would be exporter-visible USJ
+    // content that shifts every content index in the paragraph (see PT-3835). Their visual
+    // separation comes from the prefix nodes' own text.
+    !$isParaMarkerPrefix(previousSibling) &&
+    // Bare text before a verse gets its structural space from $textNodeTrailingSpaceTransform;
+    // text inside an annotation wrapper can't (that transform skips TypedMarkNode parents), so
+    // the space is inserted here instead and coalesces onto the same USJ text run.
+    (!$isTextNode(previousSibling) || $isTypedMarkNode(previousSibling.getParent()))
   )
     node.insertBefore($createTextNode(" "));
 }
