@@ -83,6 +83,23 @@ describe("ScriptureReferencePlugin", () => {
 
       expect(mockOnScrRefChange).not.toHaveBeenCalled();
     });
+
+    it("should not echo the stale document's book when scrRef navigates to a different book while the old document is still loaded", async () => {
+      // Content stays on GEN (the old document hasn't been swapped in yet - simulates the
+      // window between a host navigating across books and the new book's USJ finishing its
+      // async load). scrRef.book already matches the content at mount, so no sync fires yet.
+      const { setScrRef } = await testEnvironment(scrRef, mockOnScrRefChange);
+
+      // Host navigates across books (here GEN -> EXO): scrRef now targets a different book (and
+      // a verse that still exists in the stale document, isolating this test to the book-sync
+      // listener rather than the separate cursor-placement/BCV path), but the editor still
+      // contains the OLD book's BookNode.
+      await setScrRef({ book: "EXO", chapterNum: 1, verseNum: 2 });
+
+      // The plugin must not echo the stale document's book back to the host combined with the
+      // new chapter/verse - that would corrupt the navigation (e.g. EXO 1:2 -> GEN 1:2).
+      expect(mockOnScrRefChange).not.toHaveBeenCalled();
+    });
   });
 
   describe("Selection Change", () => {
