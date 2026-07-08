@@ -90,7 +90,7 @@ describe("ScriptureReferencePlugin", () => {
       // async load). scrRef.book already matches the content at mount, so no sync fires yet.
       const { setScrRef } = await testEnvironment(scrRef, mockOnScrRefChange);
 
-      // Host navigates across books (e.g. NUM -> LEV): scrRef now targets a different book (and
+      // Host navigates across books (here GEN -> EXO): scrRef now targets a different book (and
       // a verse that still exists in the stale document, isolating this test to the book-sync
       // listener rather than the separate cursor-placement/BCV path), but the editor still
       // contains the OLD book's BookNode.
