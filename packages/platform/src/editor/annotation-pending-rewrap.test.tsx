@@ -5,15 +5,16 @@
  * setAnnotation(threadId, same range). Confirmed failing in the app at the last step with
  * "Failed to find start or end node of the annotation."
  *
- * MINIMAL FAILING CONFIGURATION: the failure needs the REAL platform Editor (full plugin
- * stack, driven through its ref API like paranext does) with formatted view options plus
- * `hasGutterParaMarkers: true` — gutter mode renders paragraph markers as extra immutable
- * typed-text nodes in the tree. It does NOT reproduce in a minimal LexicalComposer harness
- * mounting only the AnnotationPlugin (even with identical view options passed to the USJ
- * adaptor), nor in the real Editor without the gutter option
- * (`showCharMarkerTitles`/`hasActiveTextFocusBox` alone don't trigger it either — see the
- * passing control below). Same-tick and separate-act sequencing fail identically at the
- * re-apply step; the pending annotation and its removal both work.
+ * Reproduces ONLY with: real platform Editor + formatted view + `hasGutterParaMarkers: true`.
+ * Does NOT reproduce with:
+ *   - a minimal LexicalComposer mounting only AnnotationPlugin (even with identical view options)
+ *   - the real Editor without the gutter option
+ *   - `showCharMarkerTitles` / `hasActiveTextFocusBox` alone (see the passing control)
+ *
+ * Detail: gutter mode renders paragraph markers as extra immutable typed-text nodes in the
+ * tree, and the failure needs the full plugin stack driven through the Editor's ref API like
+ * paranext does. Same-tick and separate-act sequencing fail identically at the re-apply step;
+ * the pending annotation and its removal both work.
  *
  * The suite covers both failing-mode variants (gutter-only minimal config, and
  * titles/gutter/focus-box all on — the original app configuration) plus the all-off passing
