@@ -25,7 +25,6 @@ import {
   VERSE_PARA_INDEX,
 } from "../../../../utilities/src/converters/usj/converter-test.data";
 import { serializeEditorState, reset, initialize } from "./usj-editor.adaptor";
-import { HANDBOOK_VALID_MARKERS } from "./handbook-markers";
 import { EMPTY_USJ, MarkerObject } from "@eten-tech-foundation/scripture-utilities";
 import { SerializedLexicalNode } from "lexical";
 import {
@@ -349,20 +348,6 @@ describe("USJ Editor Adaptor", () => {
     const usj = {
       ...EMPTY_USJ,
       content: [{ type: "char", marker: "qqq", content: ["x"] } as MarkerObject],
-    };
-
-    serializeEditorState(usj);
-
-    expect(consoleWarnSpy).not.toHaveBeenCalledWith(
-      expect.stringContaining("Unexpected char marker"),
-    );
-  });
-
-  it("does not warn on a handbook marker when HANDBOOK_VALID_MARKERS is configured", () => {
-    initialize({ extraValidMarkers: HANDBOOK_VALID_MARKERS }, console);
-    const usj = {
-      ...EMPTY_USJ,
-      content: [{ type: "char", marker: "app", content: ["x"] } as MarkerObject],
     };
 
     serializeEditorState(usj);

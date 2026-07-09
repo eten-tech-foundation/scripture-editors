@@ -16,14 +16,19 @@ import { $createTextNode, $getRoot, $isTextNode, TextNode, $setSelection } from 
 import {
   $createCharNode,
   $createImmutableChapterNode,
+  $createImmutableTypedTextNode,
   $createNoteNode,
   $createParaNode,
   $createTypedMarkNode,
   $createUnknownNode,
+  $getLogicalContentItems,
   $isCharNode,
   $isParaNode,
   $isTypedMarkNode,
   $isUnknownNode,
+  $isVisibleMarkerNode,
+  NBSP,
+  openingMarkerText,
   ParaNode,
   UnknownNode,
 } from "shared";
@@ -361,6 +366,119 @@ describe("TextSpacingPlugin", () => {
       expect(para.getChildren()).toHaveLength(2);
       expect($isUnknownNode(para.getChildAtIndex(0))).toBe(true);
       expect($isSomeVerseNode(para.getChildAtIndex(1))).toBe(true);
+    });
+  });
+
+  it("should not insert a space before a verse if preceded by a gutter paragraph marker prefix", async () => {
+    // Regression test for PT-3835 Gen 2: gutter mode (`hasGutterParaMarkers: true`) renders the
+    // paragraph's `\p` marker as a visible-marker ImmutableTypedTextNode (textType "marker") that is
+    // verse 1's previous sibling. That node is a DecoratorNode, not a TextNode/UnknownNode, so
+    // $verseNodeTransform used to treat it like arbitrary unrecognized content and insert a spurious
+    // leading space, shifting every logical content index in the paragraph.
+    const { editor } = await testEnvironment(() => {
+      $getRoot().append(
+        $createParaNode().append(
+          $createImmutableTypedTextNode("marker", openingMarkerText("p") + NBSP),
+          $createImmutableVerseNode("1"),
+        ),
+      );
+    });
+
+    // Trigger an update (no change expected).
+    await act(async () => editor.update(() => undefined));
+
+    editor.getEditorState().read(() => {
+      const para = $getRoot().getFirstChild();
+      if (!$isParaNode(para)) throw new Error("Expected a ParaNode");
+      // Should remain [marker prefix, VerseNode] -- no spurious space inserted.
+      expect(para.getChildren()).toHaveLength(2);
+      expect($isVisibleMarkerNode(para.getChildAtIndex(0))).toBe(true);
+      expect($isSomeVerseNode(para.getChildAtIndex(1))).toBe(true);
+    });
+  });
+
+  it("should space an annotation over plain text before a verse without shifting its logical index", async () => {
+    // The annotation wrapper is transparent to USJ content: the inserted space coalesces onto
+    // the wrapped text's run (the trailing-space transform can't reach text inside a
+    // TypedMarkNode), so the verse's logical content index is unchanged.
+    const { editor } = await testEnvironment(() => {
+      $getRoot().append(
+        $createParaNode().append(
+          $createImmutableVerseNode("1"),
+          $createTextNode("the "),
+          $createTypedMarkNode({ t: ["1"] }).append($createTextNode("beginning")),
+          $createImmutableVerseNode("2"),
+        ),
+      );
+    });
+
+    // Trigger an update (transforms run).
+    await act(async () => editor.update(() => undefined));
+
+    editor.getEditorState().read(() => {
+      const para = $getRoot().getFirstChild();
+      if (!$isParaNode(para)) throw new Error("Expected a ParaNode");
+      // [verse 1, "the beginning ", verse 2] — space coalesced into the run, no index shift.
+      expect($getLogicalContentItems(para)).toHaveLength(3);
+      expect(para.getTextContent()).toBe("the beginning ");
+    });
+  });
+
+  it("should insert the structural space when an annotation ending on a CharNode precedes a verse", async () => {
+    // A space between a char and a following verse marker is structural, not content: USJ→USFM
+    // conversion needs it and Paratext 9 re-inserts it when removed. Canonical USJ therefore has
+    // a standalone " " item here, so inserting it matches the exported shape — the annotation
+    // wrapper must not suppress it.
+    const { editor } = await testEnvironment(() => {
+      $getRoot().append(
+        $createParaNode().append(
+          $createImmutableVerseNode("1"),
+          $createTextNode("text "),
+          $createTypedMarkNode({ t: ["1"] }).append(
+            $createCharNode("nd").append($createTextNode("LORD")),
+          ),
+          $createImmutableVerseNode("2"),
+        ),
+      );
+    });
+
+    // Trigger an update (transforms run).
+    await act(async () => editor.update(() => undefined));
+
+    editor.getEditorState().read(() => {
+      const para = $getRoot().getFirstChild();
+      if (!$isParaNode(para)) throw new Error("Expected a ParaNode");
+      // [verse 1, "text ", char, " ", verse 2] — the structural space is its own content item,
+      // exactly as canonical USJ from Paratext has it.
+      const items = $getLogicalContentItems(para);
+      expect(items).toHaveLength(5);
+      expect(items[3].type).toBe("text");
+    });
+  });
+
+  it("should not insert a space before a verse for an empty annotation wrapper", async () => {
+    // An empty TypedMarkNode resolves to no content, so no structural space belongs after it —
+    // inserting one would add exporter-visible USJ content because of a presentation-only node.
+    const { editor } = await testEnvironment(() => {
+      $getRoot().append(
+        $createParaNode().append(
+          $createImmutableVerseNode("1"),
+          $createTextNode("a "),
+          $createTypedMarkNode({ t: ["1"] }),
+          $createImmutableVerseNode("2"),
+        ),
+      );
+    });
+
+    // Trigger an update (transforms run).
+    await act(async () => editor.update(() => undefined));
+
+    editor.getEditorState().read(() => {
+      const para = $getRoot().getFirstChild();
+      if (!$isParaNode(para)) throw new Error("Expected a ParaNode");
+      // [verse 1, "a ", verse 2] — no double space, no extra content item.
+      expect($getLogicalContentItems(para)).toHaveLength(3);
+      expect(para.getTextContent()).toBe("a ");
     });
   });
 

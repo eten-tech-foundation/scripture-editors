@@ -60,53 +60,64 @@ export default function ScriptureReferencePlugin({
     onScrRefChangeRef.current = onScrRefChange;
   }, [scrRef, onScrRefChange]);
 
-  // Book node: move cursor when a new BookNode appears after load; sync scrRef.book when the
-  // book code changes (initial tree + updates). Uses a second listener with skipInitialization:
-  // false so existing BookNodes from initial editor state are included (updateListener ran on
-  // every keystroke; this only runs when BookNodes are created/updated).
+  // Book node created: move cursor to the verse start once a new BookNode appears after the
+  // initial load (e.g. a different book's document has finished mounting). Re-registers on every
+  // chapterNum/verseNum change so the closure captures the latest target position; safe to
+  // re-register because skipInitialization: true means re-registering never replays existing
+  // BookNodes, only genuinely new "created" mutations going forward.
   useEffect(
     () =>
-      mergeRegister(
-        editor.registerMutationListener(
-          BookNode,
-          (nodeMutations) => {
-            editor.update(
-              () => {
-                for (const [nodeKey, mutation] of nodeMutations) {
-                  const bookNode = $getNodeByKey<BookNode>(nodeKey);
-                  if (bookNode && $isBookNode(bookNode) && mutation === "created") {
-                    $moveCursorToVerseStart(chapterNum, verseNum, hasCursorMovedRef);
-                  }
+      editor.registerMutationListener(
+        BookNode,
+        (nodeMutations) => {
+          editor.update(
+            () => {
+              for (const [nodeKey, mutation] of nodeMutations) {
+                const bookNode = $getNodeByKey<BookNode>(nodeKey);
+                if (bookNode && $isBookNode(bookNode) && mutation === "created") {
+                  $moveCursorToVerseStart(chapterNum, verseNum, hasCursorMovedRef);
                 }
-              },
-              { tag: CURSOR_CHANGE_TAG },
-            );
-          },
-          { skipInitialization: true },
-        ),
-        editor.registerMutationListener(
-          BookNode,
-          (nodeMutations) => {
-            editor.update(
-              () => {
-                for (const [nodeKey, mutation] of nodeMutations) {
-                  if (mutation === "destroyed") continue;
-                  const bookNode = $getNodeByKey<BookNode>(nodeKey);
-                  if (!bookNode || !$isBookNode(bookNode)) continue;
-                  const code = bookNode.getCode();
-                  const current = scrRefRef.current;
-                  if (code && code !== current.book) {
-                    onScrRefChangeRef.current({ ...current, book: code });
-                  }
-                }
-              },
-              { tag: CURSOR_CHANGE_TAG },
-            );
-          },
-          { skipInitialization: false },
-        ),
+              }
+            },
+            { tag: CURSOR_CHANGE_TAG },
+          );
+        },
+        { skipInitialization: true },
       ),
     [editor, chapterNum, verseNum],
+  );
+
+  // Book node sync: correct scrRef.book to match the currently loaded document's BookNode.
+  // Fires on every non-destroyed BookNode mutation (initial-mount replay + later swaps); the
+  // `code !== current.book` guard below is what makes stray firings harmless. Registered once
+  // per editor ([editor] only), NOT re-registered on chapterNum/verseNum change: the refs
+  // already keep values fresh, and re-registering would replay skipInitialization: false against
+  // the still-mounted (stale) document on every navigation, echoing the OLD book with the NEW
+  // chapter/verse back to the host.
+  useEffect(
+    () =>
+      editor.registerMutationListener(
+        BookNode,
+        (nodeMutations) => {
+          editor.update(
+            () => {
+              for (const [nodeKey, mutation] of nodeMutations) {
+                if (mutation === "destroyed") continue;
+                const bookNode = $getNodeByKey<BookNode>(nodeKey);
+                if (!bookNode || !$isBookNode(bookNode)) continue;
+                const code = bookNode.getCode();
+                const current = scrRefRef.current;
+                if (code && code !== current.book) {
+                  onScrRefChangeRef.current({ ...current, book: code });
+                }
+              }
+            },
+            { tag: CURSOR_CHANGE_TAG },
+          );
+        },
+        { skipInitialization: false },
+      ),
+    [editor],
   );
 
   // Scripture Reference changed
