@@ -233,7 +233,8 @@ describe("ScriptureReferencePlugin", () => {
           verse1Key = nodeWithVerse1.getFirstChild()?.getKey();
         }
       });
-      // Clear hasCursorMovedRef (set by initial "move cursor to verse start" effect) so our dispatch runs BCV logic.
+      // First dispatch consumes the mount cursor-placement suppression in the old code and is a
+      // no-op report (position == scrRef) in the new code.
       await act(async () => {
         editor.dispatchCommand(SELECTION_CHANGE_COMMAND, undefined);
       });
@@ -519,12 +520,11 @@ describe("ScriptureReferencePlugin", () => {
       await setScrRef({ book: "GEN", chapterNum: 1, verseNum: 0 });
       await flushQueuedEvents();
 
-      // Nothing echoed; the caret left the old position toward the chapter top region.
+      // Nothing echoed; the caret landed at the chapter top - verse 0 places at the start of the
+      // chapter's first para (the section head).
       expect(mockOnScrRefChange).not.toHaveBeenCalled();
       editor.getEditorState().read(() => {
-        const selection = $getSelection();
-        const startNode = getSelectionStartNodeForTest(selection);
-        expect(startNode?.getTextContent()).not.toBe("second verse text ");
+        $expectSelectionToBe(sectionTextNode, 0);
       });
     });
 
@@ -605,6 +605,30 @@ describe("ScriptureReferencePlugin", () => {
       // the prop's book (I1's documented fallback) with the document's chapter/verse.
       expect(mockOnScrRefChange).toHaveBeenCalledWith(
         expect.objectContaining({ book: "GEN", chapterNum: 1, verseNum: 2 }),
+      );
+    });
+
+    it("carries the host's versificationStr on position reports", async () => {
+      const { editor } = await testEnvironment(
+        { book: "GEN", chapterNum: 1, verseNum: 1, versificationStr: "English" },
+        mockOnScrRefChange,
+      );
+      await pressEditor(editor);
+
+      updateSelection(editor, secondVerseTextNode, 2);
+      await act(async () => {
+        editor.dispatchCommand(SELECTION_CHANGE_COMMAND, undefined);
+      });
+
+      // A document states no versification, so the host's must ride along - a report that strips
+      // it could map to the wrong physical verse under a divergent versification.
+      expect(mockOnScrRefChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          book: "GEN",
+          chapterNum: 1,
+          verseNum: 2,
+          versificationStr: "English",
+        }),
       );
     });
 
@@ -749,6 +773,29 @@ describe("ScriptureReferencePlugin", () => {
       expect(mockOnScrRefChange).toHaveBeenCalledWith(
         expect.objectContaining({ book: "GEN", chapterNum: 1, verseNum: 3 }),
       );
+    });
+
+    it("emits nothing when a verse number is malformed (non-numeric)", async () => {
+      let malformedVerseText: TextNode | undefined;
+      const { editor } = await testEnvironment(scrRef, mockOnScrRefChange, () => {
+        malformedVerseText = $createTextNode("unnumbered verse text ");
+        $getRoot().append(
+          $createBookNode("GEN").append($createTextNode("Test Book")),
+          $createImmutableChapterNode("1"),
+          $createParaNode().append($createImmutableVerseNode("x"), malformedVerseText),
+        );
+      });
+      await pressEditor(editor);
+      if (!malformedVerseText) throw new Error("fixture text not found");
+
+      updateSelection(editor, malformedVerseText, 2);
+      await act(async () => {
+        editor.dispatchCommand(SELECTION_CHANGE_COMMAND, undefined);
+      });
+      await flushQueuedEvents();
+
+      // I5: a verse whose number does not parse addresses nothing - silence, not {verseNum: NaN}.
+      expect(mockOnScrRefChange).not.toHaveBeenCalled();
     });
 
     it("closes the navigation window on beforeinput (IME/voice/paste input paths)", async () => {

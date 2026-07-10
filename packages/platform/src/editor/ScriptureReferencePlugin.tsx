@@ -44,7 +44,8 @@ import {
  *   - position report: chapter + verse read from the loaded document in ONE snapshot, with the
  *     book from that same snapshot's BookNode - falling back to the scrRef prop's book ONLY
  *     when the document has no book code (a book-less document cannot name its own book, and
- *     corrections never fire there, so the prop is the sole authority);
+ *     corrections never fire there, so the prop is the sole authority) - and the prop's
+ *     versificationStr riding along (a document states no versification);
  *   - book correction: { ...scrRef, book: <document's book> } - the one deliberate mixed-source
  *     shape ("keep your position, fix the book"), for documents whose book differs from scrRef.
  *
@@ -77,7 +78,8 @@ import {
  *
  * Invariants (each backed by a named test in ScriptureReferencePlugin.test.tsx):
  *   I1 single-source        position reports come from one document snapshot (book falls back
- *                           to the prop only when the document has no book code)
+ *                           to the prop only when the document has no book code;
+ *                           versificationStr always rides from the prop - a document has none)
  *   I2 navigating-silence   zero emissions while navigating
  *   I3 echo-inert           echoed props never move the caret nor open a window
  *   I4 user-report          after user input, the next differing selection reports (sole
@@ -203,6 +205,7 @@ function $resolvePosition(): ResolvedPosition | undefined {
 
   const verseNode = $resolveVerseNode(startNode, selection);
   const { verseNum, verse } = $getEffectiveVerseForBcv(verseNode ?? undefined, selection);
+  if (Number.isNaN(verseNum)) return undefined; // unaddressable - consistent with I5
   return { book: bookNode?.getCode() || undefined, chapterNum, verseNum, verse };
 }
 
@@ -225,13 +228,20 @@ function positionMatchesScrRef(position: ResolvedPosition, scrRef: SerializedVer
     : scrRef.verseNum === position.verseNum;
 }
 
-function positionToScrRef(position: ResolvedPosition, fallbackBook: string): SerializedVerseRef {
+function positionToScrRef(
+  position: ResolvedPosition,
+  hostRef: SerializedVerseRef,
+): SerializedVerseRef {
   const ref: SerializedVerseRef = {
-    book: position.book || fallbackBook,
+    book: position.book || hostRef.book,
     chapterNum: position.chapterNum,
     verseNum: position.verseNum,
   };
   if (position.verse != null) ref.verse = position.verse;
+  // A document states no versification, so the host's rides along on every position report;
+  // stripping it could map the reference to the wrong physical verse under a divergent
+  // versification. refsEqual ignores it, so echo detection is unaffected.
+  if (hostRef.versificationStr != null) ref.versificationStr = hostRef.versificationStr;
   return ref;
 }
 
@@ -294,7 +304,10 @@ function onDocumentChanged(
 }
 
 /** Mutation listeners must not call editor.update synchronously (repo rule); defer one
- * microtask, as LoadStatePlugin does. Reads the latest scrRef at execution time. */
+ * microtask, as LoadStatePlugin does. Reads the latest scrRef at execution time. Deliberately
+ * NOT book-gated at fire time: on an idle cross-book REPLACEMENT the book correction's echo is
+ * still in flight when this fires, so scrRef.book still names the old book and a gate here
+ * would skip the placement that makes the caret match the just-emitted correction. */
 function schedulePlacement(machine: Machine, editor: LexicalEditor) {
   queueMicrotask(() => {
     editor.update(
@@ -317,7 +330,7 @@ function onSelectionSettled(machine: Machine, position: ResolvedPosition | undef
   if (machine.phase === "navigating") return; // settles of an in-flight navigation are noise
   if (!position) return; // never report a position the document cannot address
   if (positionMatchesScrRef(position, machine.scrRef)) return;
-  report(machine, positionToScrRef(position, machine.scrRef.book));
+  report(machine, positionToScrRef(position, machine.scrRef));
 }
 
 /** `userInteracted`: real input ends settling; what follows is the user's. */
@@ -361,6 +374,10 @@ export default function ScriptureReferencePlugin({
   // skipInitialization: false replays the mounted document so mount-time placement and the
   // mount-time book correction work. Reads the FIRST BookNode of the root only - stray extra
   // BookNodes (malformed USJ, cross-editor paste) must not drive contradictory corrections.
+  // Must register BEFORE the verse-node listener below: Lexical delivers mutation listeners in
+  // registration order, and a document swap must flip phase to "navigating" here before the
+  // verse listener's synchronous SELECTION_CHANGE_COMMAND dispatch is classified - reordering
+  // reintroduces the R2 clobber (pinned by the swap-correction and view-option-toggle tests).
   useEffect(
     () =>
       editor.registerMutationListener(
@@ -398,7 +415,8 @@ export default function ScriptureReferencePlugin({
 
   // Verse node destroyed - SELECTION_CHANGE_COMMAND won't fire if the cursor position didn't
   // change (e.g. cursor was at offset 0 of the node after the verse, and stays there after
-  // deletion of the non-keyboard-selectable DecoratorNode).
+  // deletion of the non-keyboard-selectable DecoratorNode). Must register AFTER the BookNode
+  // listener above - see the registration-order note there.
   useEffect(() => {
     const onVerseDestroyed = (nodeMutations: Map<string, "created" | "updated" | "destroyed">) => {
       const hasCreatedOrDestroyedVerse = [...nodeMutations.values()].some(
@@ -415,6 +433,9 @@ export default function ScriptureReferencePlugin({
   // userInteracted: pointer/keyboard/beforeinput on the editor root is the only reliable signal
   // that programmatic settling is over and selection changes are the user's again. beforeinput
   // catches IME/voice/paste input paths that move the selection without a pointerdown or keydown.
+  // ANY keydown counts, including pure modifiers and Escape: closing the window early fails
+  // toward user control (worst case, one stale settle reports), while filtering keys fails
+  // toward suppressing a real user move - eager close is the deliberate choice.
   useEffect(() => {
     const handleUserInput = () => onUserInteracted(machineRef.current);
     return editor.registerRootListener((rootElement, prevRootElement) => {
@@ -439,10 +460,10 @@ function $moveCursorToVerseStart(chapterNum: number, verseNum: number) {
 
   const children = $getRoot().getChildren();
   const chapterNode = $findChapter(children, chapterNum);
-  const nodesInChapter = removeNodesBeforeNode(children, chapterNode);
-  const nextChapterNode = $findNextChapter(nodesInChapter, !!chapterNode);
   if (!chapterNode) return;
 
+  const nodesInChapter = removeNodesBeforeNode(children, chapterNode);
+  const nextChapterNode = $findNextChapter(nodesInChapter, true);
   removeNodeAndAfter(nodesInChapter, nextChapterNode);
   // $findVerseOrPara (shared-react) walks every verse node with the same unguarded isVerseInRange
   // used above; a malformed range there must likewise not throw out of this listener.
