@@ -149,6 +149,7 @@ export interface EditorRef {
         literalPrefixLanded: boolean;
     }): void;
     applyUpdate(ops: DeltaOp[], source?: DeltaSource): void;
+    commitPendingMarkerEdits(): void;
     copy(): void;
     cut(): void;
     focus(): void;
