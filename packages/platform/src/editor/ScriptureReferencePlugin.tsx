@@ -96,6 +96,7 @@ import {
   $getSelection,
   $isTextNode,
   COMMAND_PRIORITY_LOW,
+  EditorState,
   LexicalEditor,
   SELECTION_CHANGE_COMMAND,
 } from "lexical";
@@ -106,6 +107,7 @@ import {
   $findThisChapter,
   $isBookNode,
   $isParaNode,
+  $isSomeChapterNode,
   BookNode,
   CURSOR_CHANGE_TAG,
   getSelectionStartNode,
@@ -198,13 +200,16 @@ export function ScriptureReferencePlugin({
     () =>
       editor.registerMutationListener(
         BookNode,
-        (nodeMutations) => {
+        (nodeMutations, { prevEditorState }) => {
           const kinds = [...nodeMutations.values()];
           if (kinds.every((kind) => kind === "destroyed")) return;
           const bookCode = getCommittedBookCode(editor);
           onDocumentChanged(machineRef.current, editor, bookCode, {
             hasCreated: kinds.includes("created"),
             hasDestroyed: kinds.includes("destroyed"),
+            isSameDocumentReload:
+              getBookChapterIdentity(prevEditorState) ===
+              getBookChapterIdentity(editor.getEditorState()),
           });
         },
         { skipInitialization: false },
@@ -344,7 +349,7 @@ function onDocumentChanged(
   machine: Machine,
   editor: LexicalEditor,
   bookCode: string | undefined,
-  batch: { hasCreated: boolean; hasDestroyed: boolean },
+  batch: { hasCreated: boolean; hasDestroyed: boolean; isSameDocumentReload: boolean },
 ) {
   // Captured before the write below so the MOUNT branch (b) sees the pre-batch value.
   const isFirstDocument = batch.hasCreated && !machine.sawDocument;
@@ -363,7 +368,11 @@ function onDocumentChanged(
     // synthetic selection settle fires before the deferred placement and must be silenced -
     // regardless of book match, since a same-book reload's transient chapter-top settle is the
     // R2 clobber this branch exists to prevent. The correction below (d), if any, runs after.
-    schedulePlacingCaretAtVerseStart(machine, editor);
+    // A same-book+chapter replacement is a RELOAD (e.g. LoadStatePlugin applying the PDP echo of
+    // this editor's own edit ~150-250ms after a keystroke), never a positioning event: keep the
+    // window, skip the placement - the deferred caret move would yank a mid-verse caret to the
+    // verse start mid-typing and re-add a selection after a null-selection swap.
+    if (!batch.isSameDocumentReload) schedulePlacingCaretAtVerseStart(machine, editor);
     machine.phase = "navigating";
   } else if (isFirstDocument) {
     // (b) MOUNT: fresh editor, no navigation window needed - a null selection or one already at
@@ -428,6 +437,14 @@ function $moveCaretToVerseStart(chapterNum: number, verseNum: number) {
     if ($isTextNode(firstChild)) firstChild.select(0, 0);
     else if (!$advancePastParaPrefixes(verseOrParaNode)) verseOrParaNode.select(0, 0);
   } else verseOrParaNode.selectNext(0, 0);
+}
+
+/** `book|chapter` identity of a state's document, for detecting same-document reloads. */
+function getBookChapterIdentity(editorState: EditorState): string {
+  return editorState.read(() => {
+    const chapter = $getRoot().getChildren().find($isSomeChapterNode);
+    return `${$getFirstBookNode()?.getCode() ?? ""}|${chapter?.getNumber() ?? ""}`;
+  });
 }
 
 /** `selectionSettled`: the caret is somewhere; the phase decides whose action that was.
