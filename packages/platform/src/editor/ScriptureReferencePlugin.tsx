@@ -6,6 +6,7 @@ import {
   $getSelection,
   $isTextNode,
   COMMAND_PRIORITY_LOW,
+  EditorState,
   LexicalEditor,
   SELECTION_CHANGE_COMMAND,
 } from "lexical";
@@ -16,6 +17,7 @@ import {
   $findThisChapter,
   $isBookNode,
   $isParaNode,
+  $isSomeChapterNode,
   BookNode,
   CURSOR_CHANGE_TAG,
   getSelectionStartNode,
@@ -267,7 +269,7 @@ function onDocumentChanged(
   machine: Machine,
   editor: LexicalEditor,
   code: string | undefined,
-  batch: { hasCreated: boolean; hasDestroyed: boolean },
+  batch: { hasCreated: boolean; hasDestroyed: boolean; isSameDocumentReload: boolean },
 ) {
   if (machine.phase === "navigating") {
     // Silence - except the arrival of the document the navigation is waiting for.
@@ -283,7 +285,11 @@ function onDocumentChanged(
     // synthetic selection settle fires before the deferred placement and must be silenced -
     // regardless of book match, since a same-book reload's transient chapter-top settle is the
     // R2 clobber this branch exists to prevent. The correction below (d), if any, runs after.
-    schedulePlacement(machine, editor);
+    // A same-book+chapter replacement is a RELOAD (e.g. LoadStatePlugin applying the PDP echo of
+    // this editor's own edit ~150-250ms after a keystroke), never a positioning event: keep the
+    // window, skip the placement - the deferred caret move would yank a mid-verse caret to the
+    // verse start mid-typing and re-add a selection after a null-selection swap.
+    if (!batch.isSameDocumentReload) schedulePlacement(machine, editor);
     machine.phase = "navigating";
   } else if (batch.hasCreated && !machine.sawDocument) {
     // MOUNT: fresh editor, no window needed - a null selection or one already at scrRef.
@@ -314,6 +320,14 @@ function schedulePlacement(machine: Machine, editor: LexicalEditor) {
       () => $moveCursorToVerseStart(machine.scrRef.chapterNum, machine.scrRef.verseNum),
       { tag: CURSOR_CHANGE_TAG },
     );
+  });
+}
+
+/** `book|chapter` identity of a state's document, for detecting same-document reloads. */
+function getBookChapterIdentity(editorState: EditorState): string {
+  return editorState.read(() => {
+    const chapter = $getRoot().getChildren().find($isSomeChapterNode);
+    return `${$getFirstBookNode()?.getCode() ?? ""}|${chapter?.getNumber() ?? ""}`;
   });
 }
 
@@ -382,7 +396,7 @@ export default function ScriptureReferencePlugin({
     () =>
       editor.registerMutationListener(
         BookNode,
-        (nodeMutations) => {
+        (nodeMutations, { prevEditorState }) => {
           const kinds = [...nodeMutations.values()];
           if (kinds.every((kind) => kind === "destroyed")) return;
           const code = editor
@@ -391,6 +405,9 @@ export default function ScriptureReferencePlugin({
           onDocumentChanged(machineRef.current, editor, code, {
             hasCreated: kinds.includes("created"),
             hasDestroyed: kinds.includes("destroyed"),
+            isSameDocumentReload:
+              getBookChapterIdentity(prevEditorState) ===
+              getBookChapterIdentity(editor.getEditorState()),
           });
         },
         { skipInitialization: false },
