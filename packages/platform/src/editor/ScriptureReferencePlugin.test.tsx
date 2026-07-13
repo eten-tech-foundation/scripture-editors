@@ -27,7 +27,6 @@ import {
   SELECTION_CHANGE_COMMAND,
   $createTextNode,
   LexicalEditor,
-  $getSelection,
 } from "lexical";
 import type { BaseSelection } from "lexical";
 import { useEffect, useState } from "react";
