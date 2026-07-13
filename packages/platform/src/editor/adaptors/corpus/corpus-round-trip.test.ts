@@ -8,7 +8,6 @@ import {
   deserializeSerializedEditorState,
   initialize as initializeDeserialize,
 } from "../editor-usj.adaptor";
-import { HANDBOOK_VALID_MARKERS } from "../handbook-markers";
 import { usxStringToUsj } from "@eten-tech-foundation/scripture-utilities";
 import {
   FORMATTED_VIEW_MODE,
@@ -27,7 +26,7 @@ const VIEW_MODES = [
 
 describe("corpus round-trip (USJ -> editor state -> USJ)", () => {
   beforeEach(() => {
-    initializeSerialize({ extraValidMarkers: HANDBOOK_VALID_MARKERS }, undefined);
+    initializeSerialize(undefined, undefined);
   });
 
   for (const fixture of corpusFixtures) {
