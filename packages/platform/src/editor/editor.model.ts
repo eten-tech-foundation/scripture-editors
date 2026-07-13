@@ -44,6 +44,16 @@ export interface EditorRef {
   pastePlainText(): void;
   /** Get USJ Scripture data. */
   getUsj(): Usj | undefined;
+  /**
+   * Settle pending mid-edit marker text (Standard view's marker-editing engine) so the USJ
+   * returned by {@link getUsj} matches what is on screen. Call right before reading the USJ to
+   * save: a marker rename walked away from mid-edit otherwise stays pending indefinitely and
+   * serializes the OLD marker. The node under a live caret (and the user's node during an
+   * app-placed-caret window) stays pending — a mid-typing pause never settles under the user.
+   * Do NOT call while a marker-menu/palette session is open: the palette's apply must be the
+   * one to consume the typed literal. No-op outside editable marker modes.
+   */
+  commitPendingMarkerEdits(): void;
   /** Set the USJ Scripture data. */
   setUsj(usj: Usj): void;
   /** EXPERIMENTAL: Apply Operational Transform delta update. */

@@ -15,7 +15,7 @@ import {
   $splitParagraphWithMarker,
 } from "./markerMenu/markerMenuApply.utils";
 import { $getMarkerMenuContext } from "./markerMenu/markerMenuContext.utils";
-import { MarkerEditPlugin } from "./markerEdit/MarkerEditPlugin";
+import { COMMIT_PENDING_MARKERS_COMMAND, MarkerEditPlugin } from "./markerEdit/MarkerEditPlugin";
 import { MarkerValidationPlugin } from "./markerEdit/MarkerValidationPlugin";
 import { ParaMarkerPrefixGuardPlugin } from "./ParaMarkerPrefixGuardPlugin";
 import ScriptureReferencePlugin from "./ScriptureReferencePlugin";
@@ -248,6 +248,17 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
     },
     getUsj() {
       return editedUsjRef.current;
+    },
+    commitPendingMarkerEdits() {
+      // Discrete so the settle commits synchronously: `DeltaOnChangePlugin` then refreshes
+      // `editedUsjRef` before this method returns, letting callers read fresh USJ via
+      // `getUsj()` immediately (the host save path depends on this ordering).
+      editorRef.current?.update(
+        () => {
+          editorRef.current?.dispatchCommand(COMMIT_PENDING_MARKERS_COMMAND, undefined);
+        },
+        { discrete: true },
+      );
     },
     setUsj(incomingUsj) {
       if (!deepEqual(editedUsjRef.current, incomingUsj)) {

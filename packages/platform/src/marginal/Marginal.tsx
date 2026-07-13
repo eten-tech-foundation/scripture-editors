@@ -136,6 +136,9 @@ const Marginal = forwardRef(function Marginal<TLogger extends LoggerBasic>(
     getUsj() {
       return editorRef.current?.getUsj();
     },
+    commitPendingMarkerEdits() {
+      editorRef.current?.commitPendingMarkerEdits();
+    },
     setUsj(usj) {
       editorRef.current?.setUsj(usj);
     },

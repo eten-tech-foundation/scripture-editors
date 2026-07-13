@@ -8,7 +8,7 @@ import { ContentJsonPath, Usj } from "@eten-tech-foundation/scripture-utilities"
 import { act, render } from "@testing-library/react";
 import { createRef, RefObject } from "react";
 import { $getNodeByKey, $getRoot, $isTextNode, LexicalEditor, LexicalNode } from "lexical";
-import { $isNoteNode } from "shared";
+import { $isMarkerNode, $isNoteNode, MarkerNode } from "shared";
 import { getViewOptions, STANDARD_VIEW_MODE } from "shared-react";
 import { vi } from "vitest";
 
@@ -276,5 +276,69 @@ describe("insertMarker return value (Task 14b)", () => {
     });
 
     expect(key).toBeUndefined();
+  });
+});
+
+describe("commitPendingMarkerEdits (abandonment window, PT-4187)", () => {
+  /** Marker of the `\p` para in a USJ doc shaped like `sampleUsj` (book, chapter, para). */
+  function paraMarkerOf(usj: Usj | undefined): string | undefined {
+    const para = usj?.content[2];
+    if (!para || typeof para === "string") return undefined;
+    return (para as { marker?: string }).marker;
+  }
+
+  it("settles an abandoned mid-rename so getUsj returns what the screen shows", async () => {
+    const ref = createRef<EditorRef>();
+    let container: HTMLElement | undefined;
+    await act(async () => {
+      const result = render(
+        <Editor
+          ref={ref}
+          defaultUsj={sampleUsj}
+          options={{ view: getViewOptions(STANDARD_VIEW_MODE) }}
+        />,
+      );
+      container = result.container;
+    });
+    const editorInput = container?.querySelector(".editor-input");
+    if (!editorInput) throw new Error("editor-input element not found");
+    const lexical = (editorInput as unknown as { __lexicalEditor?: LexicalEditor }).__lexicalEditor;
+    if (!lexical) throw new Error("lexical editor handle not found");
+
+    // Rename the `\p` glyph in place to `\q1` (no terminator typed) with the caret left
+    // inside the glyph, then walk away (blur): the rename stays pending - the exact
+    // window where a host save would serialize the OLD marker.
+    await act(async () => {
+      lexical.update(() => {
+        const walk = (node: LexicalNode): MarkerNode | undefined => {
+          if ($isMarkerNode(node) && node.getMarker() === "p") return node;
+          const element = node as unknown as { getChildren?: () => LexicalNode[] };
+          if (typeof element.getChildren === "function") {
+            for (const child of element.getChildren()) {
+              const found = walk(child);
+              if (found) return found;
+            }
+          }
+          return undefined;
+        };
+        const glyph = walk($getRoot());
+        if (!glyph) throw new Error("para marker glyph not found");
+        glyph.setTextContent("\\q1");
+        glyph.select(3, 3);
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    act(() => {
+      (editorInput as HTMLElement).blur();
+    });
+    expect(paraMarkerOf(ref.current?.getUsj())).toBe("p"); // stale: screen shows \q1
+
+    act(() => {
+      ref.current?.commitPendingMarkerEdits();
+    });
+
+    // Synchronously fresh - the host save reads getUsj() right after committing.
+    expect(paraMarkerOf(ref.current?.getUsj())).toBe("q1");
   });
 });

@@ -29,10 +29,12 @@ import {
   COMMAND_PRIORITY_HIGH,
   COMMAND_PRIORITY_LOW,
   COPY_COMMAND,
+  createCommand,
   CUT_COMMAND,
   INSERT_PARAGRAPH_COMMAND,
   KEY_DOWN_COMMAND,
   KEY_ENTER_COMMAND,
+  LexicalCommand,
   NodeKey,
   TextNode,
 } from "lexical";
@@ -50,6 +52,23 @@ import {
   VerseNode,
 } from "shared";
 import { getViewMode, STANDARD_VIEW_MODE, ViewOptions } from "shared-react";
+
+/**
+ * Settle pending mid-edit markers NOW — the host dispatches this right before it reads the
+ * USJ to save (abandonment-window fix, follow-ups register §1 / PT-4187). The BLUR sweep
+ * deliberately excepts the caret's own node (a marker-menu click blurs the editor while the
+ * caret still sits in the menu's literal trigger text), so a rename walked away from mid-edit
+ * stays pending indefinitely and serialization shows the OLD marker while the screen shows
+ * the new one. This command closes that window: it resolves every pending, excepting the
+ * caret's node only while the editor still actually has DOM focus (a mid-typing pause must
+ * not settle under the user) or while the caret is app-placed (scrRef-yank suppression
+ * window — the user's literal at `lastAnchorKey` stays protected). The HOST is responsible
+ * for not dispatching while a marker-palette session is open — the palette's apply must be
+ * the one to consume the typed literal (Task 8 corruption class).
+ */
+export const COMMIT_PENDING_MARKERS_COMMAND: LexicalCommand<void> = createCommand(
+  "COMMIT_PENDING_MARKERS_COMMAND",
+);
 
 /**
  * The Standard-view marker-editing engine (design spec §5). Tier 1 node
@@ -241,6 +260,32 @@ export function MarkerEditPlugin({
           return false;
         },
         COMMAND_PRIORITY_HIGH,
+      ),
+      editor.registerCommand(
+        COMMIT_PENDING_MARKERS_COMMAND,
+        () => {
+          // See the command's doc comment. Except the caret's node only while the editor
+          // still has DOM focus: a live mid-typing pause must not settle under the user,
+          // but an abandoned (blurred) edit must settle so serialization matches the
+          // screen. During the app-placed-caret window the CURRENT anchor is the yank's
+          // parking spot, not the user's node — except `lastAnchorKey` (the last REAL
+          // anchor) instead, mirroring the BLUR handler's fallback contract.
+          const rootElement = editor.getRootElement();
+          const doc = rootElement?.ownerDocument;
+          const hasFocus =
+            !!rootElement && !!doc && doc.hasFocus() && rootElement.contains(doc.activeElement);
+          let exceptKey: NodeKey | undefined;
+          if (hasFocus) {
+            if (appPlacedCaret) exceptKey = lastAnchorKey;
+            else {
+              const selection = $getSelection();
+              exceptKey = $isRangeSelection(selection) ? selection.anchor.key : lastAnchorKey;
+            }
+          }
+          $resolvePendingMarkers(context, exceptKey);
+          return true;
+        },
+        COMMAND_PRIORITY_LOW,
       ),
       editor.registerCommand(
         BLUR_COMMAND,
