@@ -151,8 +151,6 @@ interface ResolvedPosition {
   verse: string | undefined;
 }
 
-const MAX_PENDING_ECHOES = 8;
-
 /**
  * A component (plugin) that keeps the Scripture reference updated.
  * @param scrRef - Scripture reference.
@@ -200,8 +198,8 @@ export function ScriptureReferencePlugin({
         (nodeMutations) => {
           const kinds = [...nodeMutations.values()];
           if (kinds.every((kind) => kind === "destroyed")) return;
-          const code = getCommittedBookCode(editor);
-          onDocumentChanged(machineRef.current, editor, code, {
+          const bookCode = getCommittedBookCode(editor);
+          onDocumentChanged(machineRef.current, editor, bookCode, {
             hasCreated: kinds.includes("created"),
             hasDestroyed: kinds.includes("destroyed"),
           });
@@ -218,6 +216,8 @@ export function ScriptureReferencePlugin({
         SELECTION_CHANGE_COMMAND,
         () => {
           const machine = machineRef.current;
+          // $resolvePosition MUST be called inline here, in the command's active editor-state
+          // context - see onSelectionSettled's doc before folding it into the helper.
           if (machine.phase === "idle") onSelectionSettled(machine, $resolvePosition());
           return false;
         },
@@ -322,52 +322,50 @@ function getCommittedBookCode(editor: LexicalEditor): string | undefined {
 
 /** First BookNode of the root (documents put it first; strays after content are ignored). */
 function $getFirstBookNode(): BookNode | undefined {
-  let node = $getRoot().getFirstChild();
-  while (node) {
-    if ($isBookNode(node)) return node;
-    node = node.getNextSibling();
-  }
-  return undefined;
+  return $getRoot().getChildren().find($isBookNode);
 }
 
 /** `documentChanged`: the loaded document's book identity was established or changed. */
 function onDocumentChanged(
   machine: Machine,
   editor: LexicalEditor,
-  code: string | undefined,
+  bookCode: string | undefined,
   batch: { hasCreated: boolean; hasDestroyed: boolean },
 ) {
+  // Captured before the write below so the MOUNT branch (b) sees the pre-batch value.
+  const isFirstDocument = batch.hasCreated && !machine.sawDocument;
+  if (batch.hasCreated) machine.sawDocument = true;
+
   if (machine.phase === "navigating") {
     // Silence - except the arrival of the document the navigation is waiting for.
-    if (batch.hasCreated && code && code === machine.scrRef.book) {
+    if (batch.hasCreated && bookCode && bookCode === machine.scrRef.book) {
       schedulePlacingCaretAtVerseStart(machine, editor);
     }
-    if (batch.hasCreated) machine.sawDocument = true;
     return;
   }
 
   if (batch.hasCreated && batch.hasDestroyed) {
-    // REPLACEMENT (LoadStatePlugin's setEditorState swap, in-editor book jump): the swap's own
+    // (a) REPLACEMENT (LoadStatePlugin's setEditorState swap, in-editor book jump): the swap's own
     // synthetic selection settle fires before the deferred placement and must be silenced -
     // regardless of book match, since a same-book reload's transient chapter-top settle is the
     // R2 clobber this branch exists to prevent. The correction below (d), if any, runs after.
     schedulePlacingCaretAtVerseStart(machine, editor);
     machine.phase = "navigating";
-  } else if (batch.hasCreated && !machine.sawDocument) {
-    // MOUNT: fresh editor, no navigation window needed - a null selection or one already at scrRef.
+  } else if (isFirstDocument) {
+    // (b) MOUNT: fresh editor, no navigation window needed - a null selection or one already at
+    // scrRef.
     schedulePlacingCaretAtVerseStart(machine, editor);
   }
-  // else: a later pure-created BookNode (cross-editor paste, undo recreating a BookNode) while a
-  // document is already loaded - neither placement nor a navigation window. A paste must not
+  // (c) else: a later pure-created BookNode (cross-editor paste, undo recreating a BookNode) while
+  // a document is already loaded - neither placement nor a navigation window. A paste must not
   // teleport the caret to verse start.
-  if (batch.hasCreated) machine.sawDocument = true;
 
-  // Book correction: "keep your position, fix the book". Emitting one opens a navigation window
-  // (the swap's own synthetic selection settle fires before the deferred placement and must be
-  // silenced); the correction's echo closes it. Runs after (a)-(c); under (a) phase is already
+  // (d) Book correction: "keep your position, fix the book". Emitting one opens a navigation
+  // window (the swap's own synthetic selection settle fires before the deferred placement and must
+  // be silenced); the correction's echo closes it. Runs after (a)-(c); under (a) phase is already
   // "navigating" here, so this assignment is harmless.
-  if (code && code !== machine.scrRef.book) {
-    if (report(machine, { ...machine.scrRef, book: code })) machine.phase = "navigating";
+  if (bookCode && bookCode !== machine.scrRef.book) {
+    if (report(machine, { ...machine.scrRef, book: bookCode })) machine.phase = "navigating";
   }
 }
 
@@ -385,6 +383,8 @@ function schedulePlacingCaretAtVerseStart(machine: Machine, editor: LexicalEdito
   });
 }
 
+/** Moves the caret to the start of `verseNum` in `chapterNum`. No-op when the caret is already
+ * inside a verse range containing `verseNum` (a range is one location), or the target is absent. */
 function $moveCaretToVerseStart(chapterNum: number, verseNum: number) {
   const startNode = getSelectionStartNode($getSelection());
   const selectedVerse = $findThisVerse(startNode)?.getNumber();
@@ -467,6 +467,10 @@ function positionToScrRef(
   if (hostRef.versificationStr != null) ref.versificationStr = hostRef.versificationStr;
   return ref;
 }
+
+/** Bound on the pendingEchoes FIFO: an echo that hasn't returned within this many subsequent
+ * emissions is presumed lost and dropped (oldest first). */
+const MAX_PENDING_ECHOES = 8;
 
 /** The only caller of `onScrRefChange`. Drops emissions equal to the current prop or to a
  * pending echo. Returns whether an emission actually happened. */

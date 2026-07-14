@@ -5,27 +5,27 @@ import {
   updateSelection,
 } from "../../../../libs/shared/src/nodes/usj/test.utils";
 import { ScriptureReferencePlugin } from "./ScriptureReferencePlugin";
+import type { BookCode } from "@eten-tech-foundation/scripture-utilities";
 import { LexicalComposer } from "@lexical/react/LexicalComposer";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { ContentEditable } from "@lexical/react/LexicalContentEditable";
 import { LexicalErrorBoundary } from "@lexical/react/LexicalErrorBoundary";
 import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
-import type { BookCode } from "@eten-tech-foundation/scripture-utilities";
 import { SerializedVerseRef } from "@sillsdev/scripture";
 import { act, render } from "@testing-library/react";
 import {
-  TextNode,
-  $getRoot,
-  $isElementNode,
   $createPoint,
   $createRangeSelection,
-  $setSelection,
-  SELECTION_CHANGE_COMMAND,
   $createTextNode,
-  LexicalEditor,
+  $getRoot,
   $getSelection,
+  $isElementNode,
+  $setSelection,
+  BaseSelection,
+  LexicalEditor,
+  SELECTION_CHANGE_COMMAND,
+  TextNode,
 } from "lexical";
-import type { BaseSelection } from "lexical";
 import { useEffect, useState } from "react";
 import {
   $createBookNode,
