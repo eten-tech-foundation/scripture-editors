@@ -192,6 +192,26 @@ describe("Enter inside note content", () => {
     });
   });
 
+  it("prevents the native browser Enter when it claims the key (PT-4187 bug 2)", async () => {
+    // Returning `true` from the KEY_ENTER handler suppresses Lexical's RichText handler —
+    // including the `event.preventDefault()` RichText would have called. Without our own
+    // preventDefault, the BROWSER's native contenteditable Enter still splits the DOM and
+    // Lexical reconciles that into a real paragraph split (live-verified: the popover
+    // wrapper split with the caret genuinely inside the note; invisible in jsdom, which has
+    // no native editing engine — hence the register's "jsdom-verified correct" mystery).
+    const { editor } = await renderStandardEditorWithUnclosedNote();
+    placeCaretAtEndOfNoteFt(editor);
+
+    const event = new KeyboardEvent("keydown", { key: "Enter", cancelable: true });
+    let handled = false;
+    await act(async () => {
+      handled = editor.dispatchCommand(KEY_ENTER_COMMAND, event);
+    });
+
+    expect(handled).toBe(true);
+    expect(event.defaultPrevented).toBe(true); // the browser's own split must not run
+  });
+
   it("still splits the paragraph on Enter outside any note", async () => {
     const { editor } = await renderStandardEditorWithUnclosedNote();
     placeCaretInParagraphBody(editor);

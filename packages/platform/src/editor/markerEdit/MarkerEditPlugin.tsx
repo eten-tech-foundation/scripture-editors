@@ -240,14 +240,24 @@ export function MarkerEditPlugin({
       ),
       editor.registerCommand(
         KEY_ENTER_COMMAND,
-        () => {
+        (event) => {
           // PT9 SmartEnter (§6): Enter inside expanded note content starts an `\fp`
           // footnote-paragraph span instead of splitting the (inline, non-block) note.
+          //
+          // Whenever this handler CLAIMS the key (returns true), it must also
+          // preventDefault the DOM event itself (PT-4187 bug 2): returning true suppresses
+          // Lexical's RichText KEY_ENTER handler — including the preventDefault RichText
+          // would have issued — so without this the BROWSER's native contenteditable Enter
+          // still splits the DOM and Lexical reconciles that into a real paragraph split.
+          // Invisible in jsdom (no native editing engine); live it split the footnote
+          // popover's wrapper paragraph with the caret genuinely inside the note.
           if ($handleEnterInNote()) {
+            event?.preventDefault();
             $resolvePendingMarkers(context);
             return true; // note handled: suppress the paragraph split
           }
           const inMarker = $isSelectionInMarkerNode();
+          if (inMarker) event?.preventDefault();
           $resolvePendingMarkers(context);
           return inMarker; // swallow Enter inside marker text (complete, don't split)
         },
