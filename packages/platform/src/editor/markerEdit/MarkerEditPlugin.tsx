@@ -1,6 +1,7 @@
 import { $removeCharFormattingFromSelection } from "./charFormatting.utils";
 import {
   $charNodeDeletionTransform,
+  $noteDeletionTransform,
   $paraMarkerDeletionTransform,
 } from "./markerEditDeletion.utils";
 import { $handleEnterInNote } from "./markerEditNote.utils";
@@ -47,6 +48,7 @@ import {
   LoggerBasic,
   MarkerLookup,
   MarkerNode,
+  NoteNode,
   ParaNode,
   textTypeState,
   VerseNode,
@@ -144,6 +146,10 @@ export function MarkerEditPlugin({
       editor.registerNodeTransform(CharNode, (node) => {
         if (editor.isComposing()) return;
         $charNodeDeletionTransform(node, context);
+      }),
+      editor.registerNodeTransform(NoteNode, (node) => {
+        if (editor.isComposing()) return;
+        $noteDeletionTransform(node, context);
       }),
       // Plain-TextNode catch-all for typed/pasted literal backslash sequences (§5.2).
       // Lexical dispatches transforms by exact node type, so this never fires for

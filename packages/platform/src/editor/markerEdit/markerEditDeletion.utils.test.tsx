@@ -1,15 +1,18 @@
 import { $appendCharPara, $appendVersePara, testEnvironment } from "./markerEdit.test-helpers";
 import { act } from "@testing-library/react";
-import { $createTextNode, $getRoot, INSERT_PARAGRAPH_COMMAND } from "lexical";
+import { $createTextNode, $getRoot, INSERT_PARAGRAPH_COMMAND, LexicalNode } from "lexical";
 import {
   $createCharNode,
   $createMarkerNode,
+  $createNoteNode,
   $createParaNode,
   $isCharNode,
   $isMarkerNode,
+  $isNoteNode,
   $isParaNode,
   MarkerNode,
   NBSP,
+  NoteNode,
   PARA_MARKER_DEFAULT,
   ParaNode,
   VerseNode,
@@ -163,5 +166,116 @@ describe("§5.5 deletion semantics", () => {
     const { editor } = await testEnvironment(() => ({ verse } = $appendVersePara()));
     await act(async () => editor.update(() => verse.setTextContent("")));
     editor.getEditorState().read(() => expect(verse.isAttached()).toBe(false));
+  });
+});
+
+describe("collapsed-note atomic deletion (PT-4187 QA finding)", () => {
+  /** A `\p` para with `before`, a collapsed `\f` note (opener glyph, caller-placeholder text,
+   * `\fr`/`\ft` content, closer glyph), and ` after` — the editable-mode shape `createNote`
+   * builds. Returns the note. */
+  function $appendParaWithCollapsedNote(): NoteNode {
+    const para = $createParaNode("p");
+    const note = $createNoteNode("f", "+", true);
+    const opener = $createMarkerNode("f");
+    const closer = $createMarkerNode("f", "closing");
+    note.append(
+      opener,
+      $createTextNode(`${NBSP}8.4 `),
+      $createCharNode("fr").append($createMarkerNode("fr"), $createTextNode(`${NBSP}8.4`)),
+      closer,
+    );
+    $getRoot().append(
+      para.append(
+        $createMarkerNode("p"),
+        $createTextNode(`${NBSP}before`),
+        note,
+        $createTextNode(" after"),
+      ),
+    );
+    return note;
+  }
+
+  function paraText(editor: { getEditorState: () => { read: <T>(fn: () => T) => T } }): string {
+    return editor.getEditorState().read(() => $getRoot().getTextContent());
+  }
+
+  function $onlyNoteCount(): number {
+    let count = 0;
+    const walk = (node: LexicalNode): void => {
+      if ($isNoteNode(node)) count += 1;
+      const el: unknown = node;
+      if (el && typeof (el as { getChildren?: unknown }).getChildren === "function")
+        (el as { getChildren: () => LexicalNode[] }).getChildren().forEach(walk);
+    };
+    $getRoot().getChildren().forEach(walk);
+    return count;
+  }
+
+  it("removes the whole note when its closing glyph is deleted (Backspace after the note)", async () => {
+    let note: NoteNode;
+    const { editor } = await testEnvironment(() => {
+      note = $appendParaWithCollapsedNote();
+    });
+
+    await act(async () =>
+      editor.update(() => {
+        const closer = note
+          .getChildren()
+          .filter($isMarkerNode)
+          .find((m) => m.getMarkerSyntax() === "closing");
+        closer?.remove(); // what Backspace right after the collapsed note deletes
+      }),
+    );
+
+    editor.getEditorState().read(() => expect($onlyNoteCount()).toBe(0));
+    // The corruption this pins: the damaged note must NOT spill its internals into the
+    // paragraph as literal glyph text (live-verified pre-fix: `\fr 8.4 \ft \f*` in the verse).
+    const text = paraText(editor);
+    expect(text).not.toContain("\\fr");
+    expect(text).not.toContain("\\f");
+    expect(text).toContain("before");
+    expect(text).toContain("after");
+  });
+
+  it("removes the whole note when its opening glyph is deleted (forward Delete before the note)", async () => {
+    let note: NoteNode;
+    const { editor } = await testEnvironment(() => {
+      note = $appendParaWithCollapsedNote();
+    });
+
+    await act(async () =>
+      editor.update(() => {
+        const opener = note
+          .getChildren()
+          .filter($isMarkerNode)
+          .find((m) => m.getMarkerSyntax() === "opening");
+        opener?.remove();
+      }),
+    );
+
+    editor.getEditorState().read(() => expect($onlyNoteCount()).toBe(0));
+    const text = paraText(editor);
+    expect(text).not.toContain("\\fr");
+    expect(text).toContain("before");
+    expect(text).toContain("after");
+  });
+
+  it("leaves an intact collapsed note alone", async () => {
+    const { editor } = await testEnvironment(() => {
+      $appendParaWithCollapsedNote();
+    });
+
+    editor.getEditorState().read(() => expect($onlyNoteCount()).toBe(1));
+  });
+
+  it("leaves a glyph-less collapsed note alone (non-editable creation shapes)", async () => {
+    const { editor } = await testEnvironment(() => {
+      const para = $createParaNode("p");
+      const note = $createNoteNode("f", "+", true);
+      note.append($createTextNode(`${NBSP}content only`));
+      $getRoot().append(para.append($createMarkerNode("p"), $createTextNode(NBSP), note));
+    });
+
+    editor.getEditorState().read(() => expect($onlyNoteCount()).toBe(1));
   });
 });
