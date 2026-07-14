@@ -15,6 +15,7 @@ import {
   CharNode,
   NBSP,
   NODE_ATTRIBUTE_PREFIX,
+  NoteNode,
   PARA_MARKER_DEFAULT,
   ParaNode,
   textTypeState,
@@ -90,6 +91,31 @@ export function $unwrapCharNode(char: CharNode): void {
   if (attributesText) children.push($createTextNode(attributesText));
   children.forEach((child) => char.insertBefore(child));
   char.remove();
+}
+
+/**
+ * §5.5 extension (PT-4187 QA finding): a COLLAPSED note is an atomic object in the text —
+ * PT9 deletes the whole footnote when any part of it is deleted. In editable marker mode a
+ * collapsed note carries its `\f`/`\f*` glyphs as its first/last children; Backspace right
+ * after the note deletes the closing glyph (and forward-Delete before it deletes the opener).
+ * Without this transform the damaged note then spilled its internals into the paragraph as
+ * literal glyph text (`\fr 8.4 \ft \f*` — live-verified data corruption), which the
+ * re-tokenizer would settle into phantom markers. A glyph pair that is damaged on one side
+ * only means the user deleted "half the pair": remove the whole note, PT9-style. Notes with
+ * NO glyphs at all (shapes built by non-editable creation paths) and expanded notes (an
+ * inline-editable zone with its own content-rebuild semantics) are left alone.
+ */
+export function $noteDeletionTransform(note: NoteNode, context: MarkerEditContext): void {
+  if (note.getIsCollapsed() !== true) return;
+  const children = note.getChildren();
+  if (children.length === 0) return; // transient mid-edit state
+  const first = children[0];
+  const last = children[children.length - 1];
+  const hasOpener = $isMarkerNode(first) && first.getMarkerSyntax() === "opening";
+  const hasCloser = $isMarkerNode(last) && last.getMarkerSyntax() === "closing";
+  if (hasOpener === hasCloser) return; // intact pair, or a glyph-less shape — not ours
+  note.remove();
+  context.logger?.debug(`[MarkerEdit] removed collapsed note with damaged glyph pair`);
 }
 
 export function $charNodeDeletionTransform(char: CharNode, context: MarkerEditContext): void {
