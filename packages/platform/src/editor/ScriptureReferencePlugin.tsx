@@ -75,7 +75,11 @@
  *     carve-out forces settle-shape classification, which is how verse-0 sentinels are born);
  *   - collapsing pendingEchoes to a boolean or single slot (two reports can be in flight);
  *   - building an emission from more than one source (except the book-correction shape and
- *     I1's documented no-book fallback).
+ *     I1's documented no-book fallback);
+ *   - calling `editor.read()` anywhere in this file: it runs `$commitPendingUpdates` - a full
+ *     synchronous commit that installs any pending document swap and fires every listener,
+ *     including ours - and NO test catches it (all 37 stay green). Use
+ *     `editor.getEditorState().read()` (see getCommittedBookCode) for the committed snapshot.
  *
  * SAFE (additive) changes:
  *   - adding more events that close the navigation window;
@@ -196,7 +200,7 @@ export function ScriptureReferencePlugin({
         (nodeMutations) => {
           const kinds = [...nodeMutations.values()];
           if (kinds.every((kind) => kind === "destroyed")) return;
-          const code = editor.read(() => $getFirstBookNode()?.getCode() || undefined);
+          const code = getCommittedBookCode(editor);
           onDocumentChanged(machineRef.current, editor, code, {
             hasCreated: kinds.includes("created"),
             hasDestroyed: kinds.includes("destroyed"),
@@ -267,7 +271,7 @@ function onPropChanged(machine: Machine, editor: LexicalEditor, newRef: Serializ
   machine.phase = "navigating";
   machine.pendingEchoes.length = 0;
   // Prop-driven placement gate: never move the caret inside a different book's (stale) document.
-  const bookCode = editor.read(() => $getFirstBookNode()?.getCode() || undefined);
+  const bookCode = getCommittedBookCode(editor);
   if (!bookCode || bookCode === newRef.book) {
     editor.update(() => $moveCaretToVerseStart(newRef.chapterNum, newRef.verseNum), {
       tag: CURSOR_CHANGE_TAG,
@@ -305,6 +309,15 @@ function $resolvePosition(): ResolvedPosition | undefined {
   const { verseNum, verse } = $getEffectiveVerseForBcv(verseNode ?? undefined, selection);
   if (Number.isNaN(verseNum)) return undefined; // unaddressable - consistent with I5
   return { book: bookNode?.getCode() || undefined, chapterNum, verseNum, verse };
+}
+
+/** The loaded document's book code, from COMMITTED state (empty code means no book). Deliberately
+ * `editor.getEditorState().read()`, never `editor.read()` - the latter runs `$commitPendingUpdates`
+ * first, a full synchronous commit that installs any pending document swap (defeating the I6 gate,
+ * which must judge the document the user is looking at) and fires every listener - re-entering
+ * the BookNode mutation listener that calls this. */
+function getCommittedBookCode(editor: LexicalEditor): string | undefined {
+  return editor.getEditorState().read(() => $getFirstBookNode()?.getCode() || undefined);
 }
 
 /** First BookNode of the root (documents put it first; strays after content are ignored). */
