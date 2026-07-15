@@ -1,6 +1,7 @@
 import { $appendCharPara, $appendVersePara, testEnvironment } from "./markerEdit.test-helpers";
 import { act } from "@testing-library/react";
-import { $createTextNode, $getRoot, INSERT_PARAGRAPH_COMMAND, LexicalNode } from "lexical";
+import { $createTextNode, $getRoot, INSERT_PARAGRAPH_COMMAND, LexicalEditor } from "lexical";
+import { $dfs } from "@lexical/utils";
 import {
   $createCharNode,
   $createMarkerNode,
@@ -191,20 +192,12 @@ describe("collapsed-note atomic deletion", () => {
     return note;
   }
 
-  function paraText(editor: { getEditorState: () => { read: <T>(fn: () => T) => T } }): string {
+  function paraText(editor: LexicalEditor): string {
     return editor.getEditorState().read(() => $getRoot().getTextContent());
   }
 
   function $onlyNoteCount(): number {
-    let count = 0;
-    const walk = (node: LexicalNode): void => {
-      if ($isNoteNode(node)) count += 1;
-      const el: unknown = node;
-      if (el && typeof (el as { getChildren?: unknown }).getChildren === "function")
-        (el as { getChildren: () => LexicalNode[] }).getChildren().forEach(walk);
-    };
-    $getRoot().getChildren().forEach(walk);
-    return count;
+    return $dfs($getRoot()).filter(({ node }) => $isNoteNode(node)).length;
   }
 
   it("removes the whole note when its closing glyph is deleted (Backspace after the note)", async () => {
