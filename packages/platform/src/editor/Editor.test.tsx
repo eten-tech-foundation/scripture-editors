@@ -8,6 +8,7 @@ import { ContentJsonPath, Usj } from "@eten-tech-foundation/scripture-utilities"
 import { act, render } from "@testing-library/react";
 import { createRef, RefObject } from "react";
 import { $getNodeByKey, $getRoot, $isTextNode, LexicalEditor, LexicalNode } from "lexical";
+import { $dfs } from "@lexical/utils";
 import { $isMarkerNode, $isNoteNode, MarkerNode } from "shared";
 import { getViewOptions, STANDARD_VIEW_MODE } from "shared-react";
 import { vi } from "vitest";
@@ -122,6 +123,18 @@ function triggerMouseEnterOnMark(): void {
   });
 }
 
+/** Resolve the internal Lexical editor of a mounted black-box `<Editor>`. `<Editor>` owns its
+ * own `LexicalComposer` and exposes no editor handle, so tests read it off the `.editor-input`
+ * DOM node's `__lexicalEditor` back-reference. This reach-in into a Lexical implementation
+ * detail is deliberately confined to this one helper rather than duplicated per test. */
+function getEmbeddedLexicalEditor(container: HTMLElement | undefined): LexicalEditor {
+  const editorInput = container?.querySelector(".editor-input");
+  if (!editorInput) throw new Error("editor-input element not found");
+  const lexical = (editorInput as unknown as { __lexicalEditor?: LexicalEditor }).__lexicalEditor;
+  if (!lexical) throw new Error("lexical editor handle not found");
+  return lexical;
+}
+
 describe("setAnnotation overload", () => {
   it("accepts the deprecated positional form (onClick, onRemove)", async () => {
     const ref = await createEditorRefForTesting();
@@ -224,20 +237,11 @@ describe("insertMarker return value", () => {
   // here) double-count the editable VerseNode and land past the note.
   const noteReference = { book: "GEN", chapterNum: 1, verseNum: 1 };
 
-  /** Walks the tree to find the first TextNode whose content includes `substring`. */
+  /** Finds the first TextNode whose content includes `substring` (depth-first from the root). */
   function $findTextNodeContaining(substring: string): LexicalNode | undefined {
-    const walk = (node: LexicalNode): LexicalNode | undefined => {
-      if ($isTextNode(node) && node.getTextContent().includes(substring)) return node;
-      const element = node as unknown as { getChildren?: () => LexicalNode[] };
-      if (typeof element.getChildren === "function") {
-        for (const child of element.getChildren()) {
-          const found = walk(child);
-          if (found) return found;
-        }
-      }
-      return undefined;
-    };
-    return walk($getRoot());
+    return $dfs($getRoot())
+      .map(({ node }) => node)
+      .find((node) => $isTextNode(node) && node.getTextContent().includes(substring));
   }
 
   /** Mounts a standard-view (markerMode "editable") `Editor` with `MarkerEditPlugin` active
@@ -257,11 +261,7 @@ describe("insertMarker return value", () => {
       container = result.container;
     });
     if (!ref.current) throw new Error("EditorRef did not mount");
-    if (!container) throw new Error("Editor container did not mount");
-    const editorInput = container.querySelector(".editor-input");
-    if (!editorInput) throw new Error("editor-input element not found");
-    const lexical = (editorInput as unknown as { __lexicalEditor?: LexicalEditor }).__lexicalEditor;
-    if (!lexical) throw new Error("lexical editor handle not found");
+    const lexical = getEmbeddedLexicalEditor(container);
     return { ref, lexical };
   }
 
@@ -336,38 +336,29 @@ describe("commitPendingMarkerEdits (abandonment window)", () => {
       );
       container = result.container;
     });
-    const editorInput = container?.querySelector(".editor-input");
-    if (!editorInput) throw new Error("editor-input element not found");
-    const lexical = (editorInput as unknown as { __lexicalEditor?: LexicalEditor }).__lexicalEditor;
-    if (!lexical) throw new Error("lexical editor handle not found");
+    const lexical = getEmbeddedLexicalEditor(container);
 
     // Rename the `\p` glyph in place to `\q1` (no terminator typed) with the caret left
     // inside the glyph, then walk away (blur): the rename stays pending - the exact
     // window where a host save would serialize the OLD marker.
     await act(async () => {
       lexical.update(() => {
-        const walk = (node: LexicalNode): MarkerNode | undefined => {
-          if ($isMarkerNode(node) && node.getMarker() === "p") return node;
-          const element = node as unknown as { getChildren?: () => LexicalNode[] };
-          if (typeof element.getChildren === "function") {
-            for (const child of element.getChildren()) {
-              const found = walk(child);
-              if (found) return found;
-            }
-          }
-          return undefined;
-        };
-        const glyph = walk($getRoot());
+        const glyph = $dfs($getRoot())
+          .map(({ node }) => node)
+          .find((node): node is MarkerNode => $isMarkerNode(node) && node.getMarker() === "p");
         if (!glyph) throw new Error("para marker glyph not found");
         glyph.setTextContent("\\q1");
         glyph.select(3, 3);
       });
+      // Flush Lexical's microtask-deferred commit so the in-place rename lands in the editor
+      // state before we blur: once for the (non-discrete) state commit, once for the React
+      // state updates that commit cascades into. Only then does getUsj() reflect the edit.
       await Promise.resolve();
       await Promise.resolve();
     });
-    act(() => {
-      (editorInput as HTMLElement).blur();
-    });
+    const root = lexical.getRootElement();
+    if (!root) throw new Error("editor root not found");
+    act(() => root.blur());
     expect(paraMarkerOf(ref.current?.getUsj())).toBe("p"); // stale: screen shows \q1
 
     act(() => {

@@ -63,8 +63,9 @@ import { getViewMode, STANDARD_VIEW_MODE, ViewOptions } from "shared-react";
  * stays pending indefinitely and serialization shows the OLD marker while the screen shows
  * the new one. This command closes that window: it resolves every pending, excepting the
  * caret's node only while the editor still actually has DOM focus (a mid-typing pause must
- * not settle under the user) or while the caret is app-placed (scrRef-yank suppression
- * window — the user's literal at `lastAnchorKey` stays protected). The HOST is responsible
+ * not settle under the user) or while the caret is app-placed — moved programmatically by a
+ * scrRef caret-sync, not by the user (the user's literal at `lastAnchorKey` stays protected).
+ * The HOST is responsible
  * for not dispatching while a marker-palette session is open — the palette's apply must be
  * the one to consume the typed literal (otherwise a Tier 2 reformat turns it into corrupt
  * structure before apply runs).
@@ -105,14 +106,17 @@ export function MarkerEditPlugin({
       rebuildAttempted: new Set<string>(),
       logger,
     };
-    // Tracks the anchor key as of the most recent commit, updated synchronously by the
-    // update listener below (which never lags, unlike command handlers re-entered from
-    // Lexical's async native-DOM selectionchange handling). Read again at resolution time
-    // so the deferred resolution below always excepts the node the caret is CURRENTLY in.
+    // Tracks the caret's node key as of the most recent commit — keyed off the selection FOCUS
+    // (the live cursor end, so it stays correct even for a backward range selection), updated
+    // synchronously by the update listener below (which never lags, unlike command handlers
+    // re-entered from Lexical's async native-DOM selectionchange handling). Read again at
+    // resolution time so the deferred resolution below always excepts the node the caret is
+    // CURRENTLY in. (Named `*AnchorKey` for historical reasons; the value is the focus/caret node.)
     let lastAnchorKey: NodeKey | undefined;
-    // True while the live caret was placed by a programmatic scrRef sync
-    // (ScriptureReferencePlugin's CURSOR_CHANGE yank) and NOT yet re-established by user input.
-    // The runtime smoke proved the CURSOR_CHANGE tag-skip alone is insufficient — the yank ejects
+    // True while the live caret was placed by a programmatic scrRef sync — the CURSOR_CHANGE
+    // caret move ScriptureReferencePlugin makes to follow the active scripture reference, which
+    // the comments below call a "yank" — and NOT yet re-established by user input. The runtime
+    // smoke proved the CURSOR_CHANGE tag-skip alone is insufficient — the yank ejects
     // the caret to the para's marker glyph, then a FOLLOW-ON untagged commit (Lexical's own
     // selectionchange reconcile) sees the caret off the pending node and resolves it → paragraph
     // split. Suppressing resolution across that whole app-placed window (until real user input)
@@ -283,9 +287,10 @@ export function MarkerEditPlugin({
           // See the command's doc comment. Except the caret's node only while the editor
           // still has DOM focus: a live mid-typing pause must not settle under the user,
           // but an abandoned (blurred) edit must settle so serialization matches the
-          // screen. During the app-placed-caret window the CURRENT anchor is the yank's
-          // parking spot, not the user's node — except `lastAnchorKey` (the last REAL
-          // anchor) instead, mirroring the BLUR handler's fallback contract.
+          // screen. During the app-placed-caret window the live selection sits where the
+          // scrRef caret-sync programmatically moved it, not on a node the user chose — so
+          // except `lastAnchorKey` (the last caret position the USER established) instead,
+          // mirroring the BLUR handler's fallback contract.
           const rootElement = editor.getRootElement();
           const doc = rootElement?.ownerDocument;
           const hasFocus =
@@ -295,7 +300,9 @@ export function MarkerEditPlugin({
             if (appPlacedCaret) exceptKey = lastAnchorKey;
             else {
               const selection = $getSelection();
-              exceptKey = $isRangeSelection(selection) ? selection.anchor.key : lastAnchorKey;
+              // Focus, not anchor: the focus point is the caret's live end, so the correct
+              // node is excepted even when a range selection is extended backward.
+              exceptKey = $isRangeSelection(selection) ? selection.focus.key : lastAnchorKey;
             }
           }
           $resolvePendingMarkers(context, exceptKey);
@@ -325,7 +332,7 @@ export function MarkerEditPlugin({
           // back to `lastAnchorKey` — the last COMMITTED real anchor, which the update listener keeps
           // through null-selection commits — so the node the user was editing is still excepted.
           const selection = $getSelection();
-          const anchorKey = $isRangeSelection(selection) ? selection.anchor.key : lastAnchorKey;
+          const anchorKey = $isRangeSelection(selection) ? selection.focus.key : lastAnchorKey;
           $resolvePendingMarkers(context, anchorKey);
           return false;
         },
@@ -352,7 +359,7 @@ export function MarkerEditPlugin({
         // just for this one commit.
         const anchorKey = editorState.read(() => {
           const selection = $getSelection();
-          return $isRangeSelection(selection) ? selection.anchor.key : undefined;
+          return $isRangeSelection(selection) ? selection.focus.key : undefined;
         });
         // "Did THIS commit move the caret to a different node" — tracked per commit (tagged or
         // not) so the tagged-branch comparison below is never stale. NOT read from

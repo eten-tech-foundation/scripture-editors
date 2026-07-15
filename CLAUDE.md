@@ -225,6 +225,8 @@ When working with scripture data:
 - When a named type alias exists for a union (e.g., `SomeVerseNode` for `VerseNode | ImmutableVerseNode`), use the alias rather than re-spelling the union inline. Aliases live alongside their `$is*` guards.
 - Don't call `editor.update(...)` from inside a listener (event handler, update listener, etc.) — nested updates risk infinite cascade loops. Lexical's command system (`editor.registerCommand`) is the canonical entry point for mutating state in response to user interactions.
 - Order `<*Plugin />` children in `packages/platform/src/editor/Editor.tsx` alphabetically by component name. The alphabetical block starts partway through — initial plugins in the setup section (`OnSelectionChangePlugin`, `DeltaOnChangePlugin`, `ActiveTextPlugin`, …) intentionally precede it.
+- Walk a Lexical node tree with `$isElementNode(node)` for type-narrowing (then call `node.getChildren()`) or `$dfs()` from `@lexical/utils` — never duck-type with `typeof node.getChildren === "function"` / `as unknown as { getChildren?: ... }`. To find "the node the caret is in", read the selection's `focus` point (the live cursor end — correct even for a backward range selection), not its `anchor`.
+- Keep issue-tracker references out of code and comments: no Jira IDs (e.g. `PT-4187`), internal task/QA labels (`Task 8`), or spec section numbers (`§5.5`). Code must stand on its own — those belong in PR descriptions and commit messages. When a comment needs a term of art (e.g. "yank" for a programmatic caret move), define it inline at first use.
 
 # Context 7 Library Documentation
 
