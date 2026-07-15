@@ -1,13 +1,13 @@
 /**
- * Regression tests for the abandonment-window blur policy (follow-ups register §1,
- * PT-4187 bug 1): a marker rename walked away from mid-edit stays in `pendingKeys`
+ * Regression tests for the abandonment-window blur policy: a marker rename walked
+ * away from mid-edit stays in `pendingKeys`
  * indefinitely (BLUR excepts the caret's node to protect the marker-menu apply flow),
  * so a host save/`getUsj` serializes the OLD marker while the screen shows the new
  * one. `COMMIT_PENDING_MARKERS_COMMAND` lets the host settle pendings right before it
  * reads the USJ to save — resolving everything when the editor no longer has DOM
  * focus (the abandoned case) while still excepting the node under a live caret
  * (mid-typing pause) and the user's node during an app-placed-caret suppression
- * window (scrRef-yank, Task 15 cluster A).
+ * window (scrRef-yank).
  */
 
 import { COMMIT_PENDING_MARKERS_COMMAND } from "./MarkerEditPlugin";
@@ -75,7 +75,7 @@ function firstParaMarker(editor: LexicalEditor): string {
   });
 }
 
-describe("COMMIT_PENDING_MARKERS_COMMAND (abandonment window, PT-4187)", () => {
+describe("COMMIT_PENDING_MARKERS_COMMAND (abandonment window)", () => {
   it("settles an abandoned mid-rename when the editor is not focused", async () => {
     let sectionMarker: MarkerNode;
     const { editor } = await testEnvironment(() => ({ sectionMarker } = $sectionAndBodyParas()));

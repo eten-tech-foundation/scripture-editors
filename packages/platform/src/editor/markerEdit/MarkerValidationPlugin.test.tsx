@@ -39,7 +39,7 @@ const editableViewOptions = requireDefined(
   "Standard view options are required for these tests.",
 );
 
-/** The stylesheet from Task 6's test — reused so the semantics under test are already proven. */
+/** A reused stylesheet, so the semantics under test are already proven elsewhere. */
 const sheet: StyleInfo = {
   markers: {
     id: { marker: "id", styleType: "paragraph" },

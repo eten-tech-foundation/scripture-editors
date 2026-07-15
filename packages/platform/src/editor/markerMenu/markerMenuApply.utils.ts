@@ -1,5 +1,5 @@
 /**
- * §5.5 marker-menu apply — turns a `MarkerMenuItem` (Task 1) selection into an editor mutation.
+ * Marker-menu apply — turns a `MarkerMenuItem` selection into an editor mutation.
  * Port of PT9's `MarkerDropdownEditHandler`/`KeyPressEditHandler` "apply" step
  * (`MarkerDropdownEditHandler.cs`), adapted to the Lexical tree:
  * - `applyMarkerMenuSelection` — character/note ("open") kinds run the existing
@@ -71,14 +71,17 @@ function $retagParagraph(para: ParaNode, marker: string): void {
     first.setMarker(marker);
     first.setTextContent(openingMarkerText(marker));
   }
-  // Caret to the content side of the retagged prefix (mirror `$injectMarkerPrefix`).
-  const third = para.getChildAtIndex(2);
-  if (third && $isTextNode(third)) third.select(0, 0);
+  // Place the caret at the content side of the retagged prefix. In editable marker mode a
+  // paragraph's children are laid out as [0] the marker-glyph node, [1] the trailing NBSP space,
+  // and [2] the first content node — so index 2 is the content (the same layout assumption as
+  // `$injectMarkerPrefix`). Fall back to the paragraph end when there is no content text node yet.
+  const contentChild = para.getChildAtIndex(2);
+  if (contentChild && $isTextNode(contentChild)) contentChild.select(0, 0);
   else para.selectEnd();
 }
 
 /**
- * Applies a PARAGRAPH-kind menu pick per PT9's two semantics (Task 8 QA item 1):
+ * Applies a PARAGRAPH-kind menu pick per PT9's two semantics:
  * - Caret at the current paragraph's CONTENT START (the same probe that made the menu offer
  *   the paragraph source in the first place): RETAG the paragraph in place — PT9's reformat
  *   outcome for committing `\q1 ` at paragraph start.
@@ -87,7 +90,7 @@ function $retagParagraph(para: ParaNode, marker: string): void {
  *
  * Never routes through `getUsjMarkerAction`'s paragraph branch (insertParagraph + replace):
  * that path assumes a caret inside plain content and corrupts the tree when the caret sits in
- * or next to the visible marker prefix — QA item 1's two-bogus-paragraph splice.
+ * or next to the visible marker prefix (the two-bogus-paragraph splice).
  *
  * Enter-trigger menus are split-only (PT9 SmartEnter starts a new paragraph even at content
  * start); their primary entry point is `EditorRef.splitParagraphWithMarker`, but a paragraph

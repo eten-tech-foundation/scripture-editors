@@ -1,5 +1,5 @@
 /**
- * §5.5 marker-menu context — builds a `MarkerMenuContext` (Task 1) snapshot from the live
+ * Marker-menu context — builds a `MarkerMenuContext` snapshot from the live
  * Lexical selection. Port of PT9's `MarkerDropdownEditHandler.HandleBackslash` selection-shape
  * rule (`MarkerDropdownEditHandler.cs:96-139`): a non-collapsed selection is always character
  * source (`:130-137`); a collapsed caret is paragraph source only at the paragraph's content
@@ -8,7 +8,7 @@
  * Called from `EditorRef.getMarkerMenuContext` (`Editor.tsx`) via
  * `editorRef.current?.getEditorState().read(...)` rather than `editor.read(...)` - the latter
  * force-flushes any in-flight update mid-dispatch, the hazard class fixed for
- * `OnSelectionChangePlugin` (Task 7).
+ * `OnSelectionChangePlugin`.
  */
 import { MarkerMenuContext } from "./markerItemSource";
 import {

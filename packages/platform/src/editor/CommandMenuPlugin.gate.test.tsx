@@ -1,23 +1,23 @@
 import Editor from "./Editor";
+import { EditorRef } from "./editor.model";
 import { act, render } from "@testing-library/react";
 import { Usj } from "@eten-tech-foundation/scripture-utilities";
-// `vi.mock` below is hoisted above these imports by Vitest, so `shared-react` (pulled in
-// transitively by `Editor`) resolves to the mocked module even though the import is written here.
+import { createRef } from "react";
+import { KEY_DOWN_COMMAND, LexicalEditor } from "lexical";
 import { FORMATTED_VIEW_MODE, getViewOptions, STANDARD_VIEW_MODE } from "shared-react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
-// Pin the Editor-level gate added for Standard view: `CommandMenuPlugin` (which
-// preventDefaults typed/pasted `\` and `/`) MUST NOT be mounted in editable marker modes,
-// where literal backslash input is required by the marker-edit engine (§5.2) and the
-// `\`-menu (§5.4). It MUST stay mounted in non-editable views, where a literal `\` is garbage.
-// We replace only `CommandMenuPlugin` with a render spy (all other shared-react exports are
-// preserved via the spread) so we can assert its presence/absence purely from viewOptions.
-// `vi.hoisted` so the spy exists before the hoisted `vi.mock` factory references it.
-const commandMenuSpy = vi.hoisted(() => vi.fn(() => null));
-vi.mock("shared-react", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("shared-react")>();
-  return { ...actual, CommandMenuPlugin: commandMenuSpy };
-});
+// The Editor-level gate controls shared-react's `CommandMenuPlugin`, which `preventDefault`s a
+// typed or pasted `\` and `/` so those characters never land in the document. Editable marker
+// modes (Standard view) need a literal `\` to reach the editor - the marker-edit engine and the
+// `\` marker menu both consume it - so the gate leaves CommandMenuPlugin UNMOUNTED there. In
+// non-editable views (Formatted) a literal `\`/`/` is garbage, so the gate keeps CommandMenuPlugin
+// mounted to swallow it.
+//
+// These tests assert the gate's real, user-facing effect rather than merely which plugin mounts:
+// they render the actual Editor (no mock) and dispatch a real `\`/`/` keydown through Lexical's
+// command pipeline, then check whether a handler called `preventDefault`. The key is allowed to
+// land in Standard view and is blocked in Formatted view.
 
 const sampleUsj: Usj = {
   type: "USJ",
@@ -33,22 +33,45 @@ const sampleUsj: Usj = {
   ],
 };
 
-async function renderEditorWithViewMode(viewMode: string): Promise<void> {
+/** Renders the real Editor in `viewMode` and returns its underlying Lexical editor. */
+async function renderEditor(viewMode: string): Promise<LexicalEditor> {
+  const ref = createRef<EditorRef>();
+  let container: HTMLElement | undefined;
   await act(async () => {
-    render(<Editor defaultUsj={sampleUsj} options={{ view: getViewOptions(viewMode) }} />);
+    const result = render(
+      <Editor ref={ref} defaultUsj={sampleUsj} options={{ view: getViewOptions(viewMode) }} />,
+    );
+    container = result.container;
   });
+  const editorInput = container?.querySelector(".editor-input");
+  if (!editorInput) throw new Error("editor-input element not found");
+  const lexical = (editorInput as unknown as { __lexicalEditor?: LexicalEditor }).__lexicalEditor;
+  if (!lexical) throw new Error("lexical editor handle not found");
+  return lexical;
+}
+
+/**
+ * Dispatches a cancelable `keydown` for `key` through the editor's command pipeline and reports
+ * whether a handler blocked it (called `preventDefault`).
+ */
+async function keyWasBlocked(editor: LexicalEditor, key: string): Promise<boolean> {
+  const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
+  await act(async () => {
+    editor.dispatchCommand(KEY_DOWN_COMMAND, event);
+  });
+  return event.defaultPrevented;
 }
 
 describe("CommandMenuPlugin editable-mode gate", () => {
-  it("does NOT mount CommandMenuPlugin in editable marker mode (Standard view)", async () => {
-    commandMenuSpy.mockClear();
-    await renderEditorWithViewMode(STANDARD_VIEW_MODE);
-    expect(commandMenuSpy).not.toHaveBeenCalled();
+  it("lets a literal \\ and / land in editable marker mode (Standard view)", async () => {
+    const editor = await renderEditor(STANDARD_VIEW_MODE);
+    expect(await keyWasBlocked(editor, "\\")).toBe(false);
+    expect(await keyWasBlocked(editor, "/")).toBe(false);
   });
 
-  it("mounts CommandMenuPlugin in a non-editable marker mode (Formatted view)", async () => {
-    commandMenuSpy.mockClear();
-    await renderEditorWithViewMode(FORMATTED_VIEW_MODE);
-    expect(commandMenuSpy).toHaveBeenCalled();
+  it("blocks a literal \\ and / in a non-editable marker mode (Formatted view)", async () => {
+    const editor = await renderEditor(FORMATTED_VIEW_MODE);
+    expect(await keyWasBlocked(editor, "\\")).toBe(true);
+    expect(await keyWasBlocked(editor, "/")).toBe(true);
   });
 });

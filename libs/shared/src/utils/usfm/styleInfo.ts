@@ -1,7 +1,6 @@
 /**
  * Project StyleInfo — the host-agnostic shape of a Paratext project's merged
- * stylesheet (usfm.sty + custom.sty), per design spec
- * docs/superpowers/specs/2026-07-03-standard-view-phase4-styleinfo-design.md.
+ * stylesheet (usfm.sty + custom.sty).
  *
  * Unit conventions (match usfm.sty as parsed, not PT9's internal ints):
  * - fontSize, spaceBefore, spaceAfter: points
@@ -70,7 +69,8 @@ export interface StyleInfo {
 }
 
 /**
- * The `getMarker` seam shape (design spec: signature preserved).
+ * The `getMarker` seam shape — matches the bundled `getMarker` signature so it can be swapped in
+ * directly.
  *
  * @public
  */

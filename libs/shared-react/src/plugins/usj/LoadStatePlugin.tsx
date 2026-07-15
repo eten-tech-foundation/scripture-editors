@@ -54,7 +54,7 @@ export function LoadStatePlugin<TLogger extends LoggerBasic>({
       // Use queueMicrotask to defer the editor update outside of React's lifecycle,
       // preventing flushSync warnings when this is triggered by a parent component update
       queueMicrotask(() => {
-        // Task 15: an external replace parses to a null selection; reconciling that against the
+        // An external replace parses to a null selection; reconciling that against the
         // SHARED document selection clears/moves the caret of whatever DOES have focus — observed
         // live as the parent editor's PDP echo (~150-250ms after an edit) stealing DOM focus out
         // of the footnote-editor popover mid-typing. An editor without focus has no claim on the

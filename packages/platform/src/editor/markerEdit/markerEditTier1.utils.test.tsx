@@ -55,7 +55,7 @@ const customSheet: StyleInfo = {
   },
 };
 
-describe("stylesheet-first kind guards (Phase 4)", () => {
+describe("stylesheet-first kind guards", () => {
   it("renames a char span to a project-known custom char marker in Tier 1", async () => {
     let char: CharNode, marker: MarkerNode, closer: MarkerNode;
     const { editor } = await testEnvironmentWithSheet(
@@ -154,7 +154,7 @@ describe("Tier 1 paragraph-marker rename", () => {
   it("keeps the caret's OWN pending marker literal on blur (marker-menu focus loss)", async () => {
     // Clicking a marker-menu item (or a P10 host overlay) blurs the editor while the caret
     // still sits in the menu's literal `\...` trigger text; blur must not Tier-2-commit that
-    // node out from under the menu's apply (Task 8 QA items 1/4). Enter/caret-departure remain
+    // node out from under the menu's apply. Enter/caret-departure remain
     // the completion triggers for the node being edited.
     let para: ParaNode, marker: MarkerNode;
     const { editor } = await testEnvironment(() => ({ para, marker } = $appendHeadingPara()));
@@ -447,7 +447,7 @@ describe("Tier 1 verse/chapter number sync", () => {
     });
   });
 
-  it("removes the chapter node when its marker text is fully deleted (§5.5)", async () => {
+  it("removes the chapter node when its marker text is fully deleted", async () => {
     let chapter: ChapterNode;
     const { editor } = await testEnvironment(() => {
       chapter = $createChapterNode("1");
@@ -470,18 +470,18 @@ function $appendBodyPara(): { para: ParaNode; body: TextNode } {
 }
 
 /**
- * Task 15 cluster A — the Standard-view `\`-palette keyboard flows were broken in-app by two
- * real-browser actors the demo/unit harness never exercised, root-caused from QA run 2 timelines:
+ * The Standard-view `\`-palette keyboard flows were broken in-app by two
+ * real-browser actors the demo/unit harness never exercised:
  *
  *  1. ScriptureReferencePlugin's async scrRef echo. Typing `\` fires SELECTION_CHANGE, which pushes
  *     a new scrRef up through papi; the returning setting echo (~90-190ms later) re-enters
  *     `$moveCursorToVerseStart`, which yanks the caret to the para/verse start via
  *     `editor.update(..., { tag: CURSOR_CHANGE_TAG })`. Pre-fix the marker engine treated that
  *     programmatic move as a user caret departure and force-settled the just-typed literal —
- *     instant paragraph split, `\p \` autosaved to disk (QA items 1-4/12). FALSIFIES the task's
- *     original "blur nulls the selection" hypothesis for the TYPING path: QA proved focus never
- *     leaves the editor (item 2) and the popover — which has no ScriptureReferencePlugin — never
- *     races (item 7). Fix: the update listener ignores CURSOR_CHANGE-tagged commits.
+ *     instant paragraph split, `\p \` autosaved to disk. This falsifies the
+ *     original "blur nulls the selection" hypothesis for the TYPING path: focus never
+ *     leaves the editor, and the popover — which has no ScriptureReferencePlugin — never
+ *     races. Fix: the update listener ignores CURSOR_CHANGE-tagged commits.
  *
  *  2. Cross-frame blur on palette-item CLICK. Clicking a renderer-overlay palette item blurs the
  *     editor iframe; a real cross-frame blur can null Lexical's live selection, so the BLUR handler
@@ -490,7 +490,7 @@ function $appendBodyPara(): { para: ParaNode; body: TextNode } {
  *     the last real anchor when the selection goes null (rather than clobbering it to undefined), and
  *     the BLUR handler falls back to it.
  */
-describe("Cluster A: async scrRef caret-yank and cross-frame blur (Task 15)", () => {
+describe("async scrRef caret-yank and cross-frame blur", () => {
   it("does not settle a pending paragraph-marker rename on a CURSOR_CHANGE caret yank", async () => {
     let para: ParaNode, marker: MarkerNode;
     const { editor } = await testEnvironment(() => ({ para, marker } = $appendHeadingPara()));
@@ -510,7 +510,7 @@ describe("Cluster A: async scrRef caret-yank and cross-frame blur (Task 15)", ()
   });
 
   it("survives the FOLLOW-ON untagged commit after a CURSOR_CHANGE yank (in-app 3-commit sequence)", async () => {
-    // Runtime smoke (Task 15) proved the CURSOR_CHANGE gate alone is insufficient: the scrRef echo
+    // Runtime smoke proved the CURSOR_CHANGE gate alone is insufficient: the scrRef echo
     // yanks the caret to the glyph (commit 2, tagged), then a FOLLOW-ON untagged commit (commit 3 —
     // e.g. Lexical's own selectionchange reconcile / OnSelectionChangePlugin) sees the caret parked
     // OFF the pending node and resolves it → paragraph split. The caret stays app-placed until the
@@ -542,10 +542,10 @@ describe("Cluster A: async scrRef caret-yank and cross-frame blur (Task 15)", ()
     editor.getEditorState().read(() => expect(para.getMarker()).toBe("s2")); // now completes
   });
 
-  it("does not force-settle a pending literal backslash into a split on a CURSOR_CHANGE yank (QA items 1-4)", async () => {
+  it("does not force-settle a pending literal backslash into a split on a CURSOR_CHANGE yank", async () => {
     let para: ParaNode, body: TextNode;
     const { editor } = await testEnvironment(() => ({ para, body } = $appendBodyPara()));
-    // Type an unterminated `\zz` into the body; caret stays inside, so it only pends (§5.2).
+    // Type an unterminated `\zz` into the body; caret stays inside, so it only pends.
     await act(async () =>
       editor.update(() => {
         body.setTextContent("body \\zz");
@@ -586,14 +586,14 @@ describe("Cluster A: async scrRef caret-yank and cross-frame blur (Task 15)", ()
     });
   });
 
-  // NOTE (round 3): the "tagged commit that does NOT move the caret must not arm" narrowing is
+  // NOTE: the "tagged commit that does NOT move the caret must not arm" narrowing is
   // implemented in MarkerEditPlugin (compared against the previous commit's anchor) but is not
   // jsdom-pinned: a tagged act followed by an untagged departure hits a Lexical batching edge in
   // this harness where the departure commit (and with it the deferred resolution microtask)
   // defers past the test body even with `discrete: true` — three fixture strategies failed
   // deterministically while every captured trace showed the narrowing itself deciding correctly.
   // The behavior is covered by the in-app smoke (literals settle on mouse departure).
-  it("a mouse click ends the app-placed suppression window (round 3)", async () => {
+  it("a mouse click ends the app-placed suppression window", async () => {
     let para: ParaNode, marker: MarkerNode;
     const { editor } = await testEnvironment(() => ({ para, marker } = $appendHeadingPara()));
     const $selectHeading = (offset: number) => {

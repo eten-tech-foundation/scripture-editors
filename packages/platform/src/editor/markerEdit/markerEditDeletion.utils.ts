@@ -1,5 +1,5 @@
 /**
- * §5.5 deletion semantics. Replaces ParaMarkerPrefixGuardPlugin's reset-to-\p
+ * Deletion semantics. Replaces ParaMarkerPrefixGuardPlugin's reset-to-\p
  * behavior in editable marker mode: deleting a paragraph's marker text merges
  * its content into the previous paragraph (PT9 reformat outcome).
  */
@@ -49,7 +49,7 @@ export function $paraMarkerDeletionTransform(para: ParaNode, context: MarkerEdit
 
   const previous = para.getPreviousSibling();
   if ($isParaNode(previous)) {
-    // §5.5: deleting a para's marker text merges its content into the previous para.
+    // Deleting a para's marker text merges its content into the previous para.
     const children = para.getChildren().filter((child) => {
       if ($isTextNode(child) && $getState(child, textTypeState) === "marker-trailing-space")
         return false; // drop the orphaned separator
@@ -94,7 +94,7 @@ export function $unwrapCharNode(char: CharNode): void {
 }
 
 /**
- * §5.5 extension (PT-4187 QA finding): a COLLAPSED note is an atomic object in the text —
+ * A COLLAPSED note is an atomic object in the text —
  * PT9 deletes the whole footnote when any part of it is deleted. In editable marker mode a
  * collapsed note carries its `\f`/`\f*` glyphs as its first/last children; Backspace right
  * after the note deletes the closing glyph (and forward-Delete before it deletes the opener).
@@ -107,13 +107,17 @@ export function $unwrapCharNode(char: CharNode): void {
  */
 export function $noteDeletionTransform(note: NoteNode, context: MarkerEditContext): void {
   if (note.getIsCollapsed() !== true) return;
+  // Detect the glyph pair by PRESENCE among the direct children, not by first/last POSITION: a
+  // stray leading TextNode (the user typed at the note's start — the transient NoteNodePlugin's
+  // `$noteNodeTransform` salvages by moving that text out) leaves the opener glyph intact but no
+  // longer first. A first/last check would read that as "opener deleted" and remove the whole
+  // note before the salvage runs (MarkerEditPlugin's NoteNode transform is registered first, and
+  // Lexical breaks the transform loop once `note.remove()` detaches the node) — destroying the
+  // footnote's `\fr`/`\ft` content on a single keystroke.
   const children = note.getChildren();
-  if (children.length === 0) return; // transient mid-edit state
-  const first = children[0];
-  const last = children[children.length - 1];
-  const hasOpener = $isMarkerNode(first) && first.getMarkerSyntax() === "opening";
-  const hasCloser = $isMarkerNode(last) && last.getMarkerSyntax() === "closing";
-  if (hasOpener === hasCloser) return; // intact pair, or a glyph-less shape — not ours
+  const hasOpener = children.some((c) => $isMarkerNode(c) && c.getMarkerSyntax() === "opening");
+  const hasCloser = children.some((c) => $isMarkerNode(c) && c.getMarkerSyntax() === "closing");
+  if (hasOpener === hasCloser) return; // intact pair, both-gone, or a glyph-less shape — not ours
   note.remove();
   context.logger?.debug(`[MarkerEdit] removed collapsed note with damaged glyph pair`);
 }
@@ -123,7 +127,7 @@ export function $charNodeDeletionTransform(char: CharNode, context: MarkerEditCo
   const first = char.getFirstChild();
   const hasOpener = $isMarkerNode(first) && first.getMarkerSyntax() === "opening";
   if (!hasOpener) {
-    $unwrapCharNode(char); // §5.5: opener deleted -> unwrap the span
+    $unwrapCharNode(char); // opener deleted -> unwrap the span
     context.logger?.debug(`[MarkerEdit] unwrapped char span "${char.getMarker()}"`);
     return;
   }
@@ -134,7 +138,7 @@ export function $charNodeDeletionTransform(char: CharNode, context: MarkerEditCo
     .getChildren()
     .some((child) => $isMarkerNode(child) && child.getMarkerSyntax() === "closing");
   if (needsCloser && !hasCloser) {
-    // §5.5: closer deletion goes through Tier 2 (tokenizer decides the span extent).
+    // Closer deletion goes through Tier 2 (tokenizer decides the span extent).
     $requestTier2ForNode(char, context);
   }
 }

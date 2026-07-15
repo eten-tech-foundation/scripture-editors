@@ -193,8 +193,8 @@ describe("$rebuildParas", () => {
     expect(JSON.stringify(usj)).toContain('"marker":"nd"'); // typed span built
   });
 
-  // Phase 4 (Task 4): the old guard refused ANY unknown para marker outright. The guard is
-  // now relaxed — unknown/custom.sty para markers round-trip, because the tokenizer (Task 3)
+  // The old guard refused ANY unknown para marker outright. The guard is
+  // now relaxed — unknown/custom.sty para markers round-trip, because the tokenizer
   // emits them as paragraphs in body context (PT9 DetermineUnknownTokenType), so the rebuild
   // no longer invents bytes by re-wrapping the fragment in a default \p.
   it("rebuilds a paragraph whose marker is unknown to the sheet (relaxed guard, deviation #4)", () => {
@@ -301,7 +301,7 @@ describe("$rebuildParas", () => {
     // fragment-string offsets, but the new fragment gains an inter-paragraph joiner space
     // that the old fragment didn't have — every offset past the split point shifted by
     // one, landing the caret INSIDE the glyph (between "\" and "z") and scrambling all
-    // subsequent keystrokes (Task 9 QA: `\zfoo ` rendered as `\foo z `).
+    // subsequent keystrokes (e.g. `\zfoo ` rendered as `\foo z `).
     const editor = loadEditor(usjFromUsx(`<verse number="1" style="v" />For Yahweh knows the way`));
     editor.update(
       () => {
@@ -333,7 +333,7 @@ describe("$rebuildParas", () => {
   });
 });
 
-describe("unknown-para rebuild round-trip (Phase 4)", () => {
+describe("unknown-para rebuild round-trip", () => {
   it("rebuilds a paragraph whose marker is unknown to the sheet (no more guard refusal)", () => {
     const editor = loadEditor(
       usxStringToUsj(

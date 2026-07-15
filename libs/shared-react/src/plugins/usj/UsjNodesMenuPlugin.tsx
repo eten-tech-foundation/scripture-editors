@@ -27,7 +27,7 @@ export interface MarkerMenuItemLike {
 /**
  * Caret/selection context the editable-mode harness reads to decide open vs. pass-through
  * behavior - only the fields this file inspects, typed structurally against the platform's
- * real `MarkerMenuContext` (Task 1/2) so no platform import is needed here either.
+ * real `MarkerMenuContext` so no platform import is needed here either.
  */
 export interface MarkerMenuContextLike {
   /** Non-collapsed selection (wrap case, PT9 HandleBackslash). */
@@ -131,7 +131,7 @@ function toHarnessOptionItem(
 }
 
 /**
- * QA HARNESS ONLY - P10 renders marker menus via the host overlay service (spec §1.5). Not
+ * QA HARNESS ONLY - P10 renders marker menus via the host overlay service. Not
  * maintained for production; no polish or completeness guarantees beyond what demo QA needs.
  *
  * Document-first `\`/Enter marker menu for editable marker modes (standard view), mounted by
@@ -142,7 +142,7 @@ function toHarnessOptionItem(
  * Escape always just closes (never mutates the document / never touches the selection).
  * `INSERT_PARAGRAPH_COMMAND` is intercepted at `COMMAND_PRIORITY_CRITICAL` - above
  * `MarkerEditPlugin`'s own `COMMAND_PRIORITY_HIGH` handler - to offer the Enter/SmartEnter
- * paragraph menu instead of splitting; the caret being inside a note (Phase 3's `\fp` path) or
+ * paragraph menu instead of splitting; the caret being inside a note (the `\fp` path) or
  * inside marker glyph text (marker-completion swallow) passes through untouched, and so does a
  * `getContext()` returning `undefined` (readonly / no selection).
  *

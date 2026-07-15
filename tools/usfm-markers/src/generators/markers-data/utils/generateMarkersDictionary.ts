@@ -24,6 +24,9 @@ export enum Justification {
   Left = "Left",
   Center = "Center",
   Right = "Right",
+  // Full/justified alignment (`\Justification Both` in a Paratext .sty). Lowercased downstream to
+  // "both" to match the consumer `MarkerStyleInfo.justification` union.
+  Both = "Both",
 }
 
 export enum TextProperty {

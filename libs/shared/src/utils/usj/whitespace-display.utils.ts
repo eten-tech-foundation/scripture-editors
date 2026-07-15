@@ -1,5 +1,5 @@
 /**
- * Standard-view whitespace display/data mapping (design spec §4, PT9
+ * Standard-view whitespace display/data mapping (PT9
  * `AllowInvisibleChars=false` semantics). In Standard view the editor model holds
  * DISPLAY text: a stored NBSP renders as `~` and spaces in runs render as NBSP so
  * they are visible while typing. Serialization inverts the mapping and collapses

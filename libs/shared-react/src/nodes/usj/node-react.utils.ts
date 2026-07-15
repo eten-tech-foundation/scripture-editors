@@ -200,7 +200,7 @@ export function $insertNoteWithSelect(
  * Build a single note-content char span matching the reverse adaptor's `createChar` output for
  * the active `markerMode`. In editable markerMode a char span MUST begin with its opening
  * MarkerNode glyph and carry a structural NBSP content prefix; otherwise the standard-view
- * marker-edit engine's `$charNodeDeletionTransform` (§5.5) treats it as "opener deleted" and
+ * marker-edit engine's `$charNodeDeletionTransform` treats it as "opener deleted" and
  * unwraps it back to plain text in the same commit — which was silently emptying freshly
  * inserted footnotes. `content === ""` yields the lone-NBSP empty-char placeholder (matching
  * `createChar`, which prepends the NBSP prefix only to real content, then adds the placeholder).

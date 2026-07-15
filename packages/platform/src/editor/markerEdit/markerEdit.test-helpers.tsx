@@ -124,7 +124,7 @@ export function $appendVersePara(): { verse: VerseNode } {
 
 /**
  * USX for a paragraph with an inline note. `closed` controls whether the note renders
- * expanded inline (Task 1: `closed="false"` → PT9 `opennote`) or collapsed.
+ * expanded inline (`closed="false"` → PT9 `opennote`) or collapsed.
  */
 export function noteUsx(noteAttrs: string, noteContent = `<char style="ft">A note</char>`) {
   return usxStringToUsj(

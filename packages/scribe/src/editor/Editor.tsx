@@ -204,8 +204,9 @@ const Editor = forwardRef(function Editor(
       <ClipboardPlugin />
       <ScriptureReferencePlugin scrRef={scrRef} onScrRefChange={onScrRefChange} />
       <ArrowNavigationPlugin viewOptions={viewOptions} />
-      {/* Editable marker modes require literal backslash input (marker-edit engine §5.2,
-          `\`-menu §5.4); CommandMenuPlugin keeps guarding the non-editable views (mirrors
+      {/* Editable marker modes require literal backslash input (the marker-edit engine and the
+          `\` marker menu consume it), so CommandMenuPlugin - which preventDefaults typed or pasted
+          `\` and `/` - only guards the non-editable views (mirrors
           packages/platform/src/editor/Editor.tsx). */}
       {viewOptions?.markerMode !== "editable" && <CommandMenuPlugin />}
       <OnSelectionChangePlugin onChange={onSelectionChange} />

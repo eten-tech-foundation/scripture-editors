@@ -1,5 +1,5 @@
 /**
- * PT9 SmartEnter (design spec §6): pressing Enter inside expanded note content does not
+ * PT9 SmartEnter: pressing Enter inside expanded note content does not
  * split the paragraph — a NoteNode is inline (`isInline()`, `canBeEmpty(): false`), so a
  * paragraph split there would be structurally invalid. PT9 instead starts a new `\fp`
  * (footnote-paragraph) char span at the caret.
@@ -52,7 +52,7 @@ export function $handleEnterInNote(): boolean {
 
   const fp = $createCharNode("fp");
   // A visible opener glyph is required, not optional decoration: `$charNodeDeletionTransform`
-  // (§5.5) treats any CharNode whose first child isn't an opening MarkerNode as "opener
+  // treats any CharNode whose first child isn't an opening MarkerNode as "opener
   // deleted" and immediately unwraps it back to plain text in the same commit.
   fp.append($createMarkerNode("fp"));
   const textAnchor = $isTextNode(anchorNode) && !$isMarkerNode(anchorNode) ? anchorNode : undefined;

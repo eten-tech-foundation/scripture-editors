@@ -1,4 +1,5 @@
 import { $appendCharPara, testEnvironment } from "./markerEdit.test-helpers";
+import { $closeCharSpanAtCaret } from "./charFormatting.utils";
 import { act } from "@testing-library/react";
 import {
   $createTextNode,
@@ -51,7 +52,7 @@ function $collectPlainTextNodes(node: LexicalNode): TextNode[] {
   return result;
 }
 
-describe("Ctrl+Space (§5.5)", () => {
+describe("Ctrl+Space", () => {
   it("breaks out of a char style at the caret (split + plain space)", async () => {
     let parts: ReturnType<typeof $appendCharPara>;
     const { editor } = await testEnvironment(() => (parts = $appendCharPara()));
@@ -254,5 +255,52 @@ describe("Ctrl+Space (§5.5)", () => {
       );
     });
     editor.getEditorState().read(() => expect(text.getTextContent()).toBe("a b"));
+  });
+});
+
+describe("$closeCharSpanAtCaret", () => {
+  it("closes the span at the end of a NON-last content node, unwrapping the tail into plain text", async () => {
+    let char: ReturnType<typeof $createCharNode>;
+    let head: TextNode;
+    const { editor } = await testEnvironment(() => {
+      const para = $createParaNode("p");
+      char = $createCharNode("nd");
+      head = $createTextNode(`${NBSP}ab`);
+      const tail = $createTextNode("cd");
+      // The tail carries a distinct NodeState purely so Lexical's adjacent-text normalization
+      // doesn't merge the two content nodes into one on commit (same trick as the whitespace
+      // suite's `$appendMarkerAndText`); a span with two content text children is the shape
+      // under test. The close logic itself is state-agnostic.
+      $setState(tail, textTypeState, "attribute");
+      $getRoot().append(
+        para.append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          char.append($createMarkerNode("nd"), head, tail, $createMarkerNode("nd", "closing")),
+        ),
+      );
+    });
+    // Caret at the END of the first (non-last) content node "ab".
+    await act(async () =>
+      editor.update(() => head.select(head.getTextContentSize(), head.getTextContentSize())),
+    );
+    let closed: boolean | undefined;
+    await act(async () => editor.update(() => (closed = $closeCharSpanAtCaret("nd*"))));
+    editor.getEditorState().read(() => {
+      expect(closed).toBe(true);
+      const para = requireDefined($getRoot().getChildren().filter($isParaNode)[0], "para missing");
+      const chars = para.getChildren().filter($isCharNode);
+      // Exactly one span survives, holding only the head content; the tail left the span.
+      expect(chars).toHaveLength(1);
+      expect($charContent(chars[0]).getTextContent().replace(NBSP, "")).toBe("ab");
+      // The tail "cd" is now plain text immediately after the closed span, not wrapped in a span.
+      const afterSpan = chars[0].getNextSibling();
+      expect($isTextNode(afterSpan) && !$isMarkerNode(afterSpan)).toBe(true);
+      const afterText = afterSpan && $isTextNode(afterSpan) ? afterSpan.getTextContent() : "";
+      expect(afterText).toContain("cd");
+      // No CharNode wraps "cd" anymore — it is a plain content node under the paragraph.
+      const plainTextNodes = $collectPlainTextNodes(para);
+      expect(plainTextNodes.some((n) => n.getTextContent().includes("cd"))).toBe(true);
+    });
   });
 });

@@ -48,7 +48,7 @@ import { baseTestEnvironment } from "../../../../../libs/shared-react/src/plugin
 /**
  * Full markerEdit harness: the marker-edit engine plus the neighboring plugins the real
  * `Editor.tsx` always mounts alongside it (CharNodePlugin, TextSpacingPlugin), plus
- * HistoryPlugin for undo assertions. Task 8 QA (and Phase 3's cc82802 before it) showed that
+ * HistoryPlugin for undo assertions. Prior debugging showed that
  * apply-path tests WITHOUT the engine's transforms/pending-marker machinery active miss
  * exactly the defect class where the engine reacts to the apply flow's intermediate states.
  */
@@ -179,7 +179,7 @@ describe("$applyMarkerMenuSelection", () => {
     });
   });
 
-  describe("paragraph kind — retag vs split (Task 8 QA item 1)", () => {
+  describe("paragraph kind — retag vs split", () => {
     it("retags the current paragraph in place at content start: same para, no new paragraphs, content intact, single undo restores the literal", async () => {
       let glyph: MarkerNode;
       let qPara: ReturnType<typeof $createParaNode>;
@@ -331,7 +331,7 @@ describe("$applyMarkerMenuSelection", () => {
     });
   });
 
-  describe("collapsed char insert with the full marker-edit engine (Task 8 QA item 4)", () => {
+  describe("collapsed char insert with the full marker-edit engine", () => {
     /** Shared setup: para `\p the wicked,` with a literal `\wj` typed at "wic|ked,". */
     async function setUpLiteralMidWord() {
       let text: TextNode | undefined;

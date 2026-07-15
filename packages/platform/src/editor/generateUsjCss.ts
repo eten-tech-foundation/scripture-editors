@@ -1,11 +1,11 @@
 /**
  * TS port of PT9 CSSCreator.CreateUsfmCss's per-tag emissions
- * (ParatextInternalShared/ScriptureEditor/CSSCreator.cs:103-247), design spec
- * Phase 4 §CSS generator. Emits a base rule (project default font/size — the
- * PT9 `.usfm` rule, CSSCreator.cs:127-129) followed by one `.usfm_<marker>`
- * rule per marker with any presentation fields. StyleInfo units are .sty
- * units (inches/points), so PT9's ×1000-int /50 vw scaling becomes ×20.
- * Not ported (spec non-goals): @font-face emission, vertical text mode.
+ * (ParatextInternalShared/ScriptureEditor/CSSCreator.cs:103-247). Emits a base
+ * rule (project default font/size — the PT9 `.usfm` rule, CSSCreator.cs:127-129)
+ * followed by one `.usfm_<marker>` rule per marker with any presentation fields.
+ * StyleInfo units are .sty units (inches/points), so PT9's ×1000-int /50 vw
+ * scaling collapses to ×20. Not ported (out of scope): @font-face emission,
+ * vertical text mode.
  */
 import { MarkerStyleInfo, StyleInfo } from "shared";
 
@@ -23,7 +23,7 @@ export interface UsjCssOptions {
    * Scope prefix; must at least match the static usj-nodes.css rules' specificity. Defaults to
    * `".editor-input.usfm"` (the editor ContentEditable carries both classes): at (0,2,0) the base
    * rule ties the static `.usfm.formatted-font` rules and wins by injection order, so the project
-   * default font/size actually applies (spec §8 stage 4 — project styles win where defined).
+   * default font/size actually applies (project styles win where defined).
    */
   containerSelector?: string;
 }

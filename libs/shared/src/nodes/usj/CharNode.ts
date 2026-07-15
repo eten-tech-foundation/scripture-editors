@@ -310,6 +310,9 @@ function applyMarkerToDom(dom: HTMLElement, marker: string, config: EditorConfig
   // the marker hint for consumers that want it while authoring USFM.
   if (config.theme?.showCharMarkerTitles !== false) {
     dom.setAttribute("title", marker);
+  } else {
+    // Clear any title a previous render left behind; on a reused element the gate can flip.
+    dom.removeAttribute("title");
   }
   dom.classList.add(`usfm_${marker}`);
 }

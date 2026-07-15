@@ -1,8 +1,8 @@
 /**
- * §5.5 marker menu item-source — a port of PT9's `MarkerItemSource`
+ * Marker menu item-source — a port of PT9's `MarkerItemSource`
  * (`ParatextBase/ScriptureEditor/MarkerItemSource.cs:16-296`), the class that
  * decides which markers a `\`-triggered or Enter-triggered popup offers at
- * the caret. Consumed by the extension wiring (Tasks 2/3/5/10/11) which
+ * the caret. Consumed by the extension wiring which
  * build a `MarkerMenuContext` from the live selection and turn the returned
  * `MarkerMenuItem[]` into command-palette entries.
  *
@@ -20,7 +20,7 @@ import { MarkerStyleInfo, StyleInfo } from "shared";
 
 /**
  * Inputs describing the caret/selection context a marker menu is being built
- * for. Callers (Task 3's `EditorRef.getMarkerMenuContext`) are responsible
+ * for. Callers (`EditorRef.getMarkerMenuContext`) are responsible
  * for populating this from the live selection; this module only reads it.
  *
  * @public
@@ -267,7 +267,7 @@ export function getEnterMenuItems(
   // `\c`. PT9's rank guard normally rejects `\ip` once chapters start, but only when the effective
   // stylesheet supplies ranks on `ip`/`c`; a host project sheet that omits them (both are optional)
   // lets `\ip` validate for the whole book body via isParagraphTagValid's rank-0 bypass, wrongly
-  // promoting it to the first/highlighted Enter choice mid-chapter (Task 15 QA item 6: `\ip`
+  // promoting it to the first/highlighted Enter choice mid-chapter (e.g. `\ip`
   // highlighted in GEN 1 where `\p` is expected). Gating on the actual introduction context — no
   // chapter marker collected before the caret — keeps the choice correct regardless of sheet ranks.
   const inIntroduction = !context.previousParaMarkers.includes("c");

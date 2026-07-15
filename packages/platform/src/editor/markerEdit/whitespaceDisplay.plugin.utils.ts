@@ -1,10 +1,10 @@
 /**
- * Standard-view whitespace display invariant and clipboard normalization (design spec §4,
- * §5.6). While typing, spaces in a run are kept visible as display-NBSP (the same mapping
+ * Standard-view whitespace display invariant and clipboard normalization. While typing, spaces
+ * in a run are kept visible as display-NBSP (the same mapping
  * `usjTextToDisplay` applies at load time, applied incrementally as the user types); copying
  * or cutting selected text inverts display-NBSP back to plain spaces for `text/plain` so pasted
  * text elsewhere isn't polluted with NBSP. Both pieces are gated to Standard view only by the
- * caller (`MarkerEditPlugin.tsx`) — they must not run in other view modes (§4).
+ * caller (`MarkerEditPlugin.tsx`) — they must not run in other view modes.
  */
 
 import {
@@ -16,14 +16,14 @@ import {
 import { $getSelection, $getState, $isRangeSelection, LexicalEditor, TextNode } from "lexical";
 import { $isBookNode, $isChapterNode, $isUnknownNode, NBSP, textTypeState } from "shared";
 
-/** §4: spaces in runs display as NBSP so they are visible while typing. */
+/** Spaces in runs display as NBSP so they are visible while typing. */
 export function $displayWhitespaceTransform(node: TextNode): void {
   const text = node.getTextContent();
   if (!text.includes(" ")) return;
   const textType = $getState(node, textTypeState);
   if (textType === "attribute" || textType === "marker-trailing-space") return;
   for (let parent = node.getParent(); parent; parent = parent.getParent()) {
-    // Note content displays space runs as NBSP like any other content (Phase 3);
+    // Note content displays space runs as NBSP like any other content;
     // books/chapters/unknowns keep literal text (degradation property) — same skip-list
     // as Tier 2.
     if ($isBookNode(parent) || $isChapterNode(parent) || $isUnknownNode(parent)) return;
@@ -35,7 +35,7 @@ export function $displayWhitespaceTransform(node: TextNode): void {
 }
 
 /**
- * §5.6 payload builder: the currently-selected content, normalized so `text/plain` carries
+ * Payload builder: the currently-selected content, normalized so `text/plain` carries
  * plain spaces where the display shows NBSP. Shared by both the real-event and null-event
  * branches of `$handleCopyForStandardView` below so they stay byte-for-byte consistent.
  */
@@ -54,7 +54,7 @@ export function $getStandardViewClipboardData(
   return data;
 }
 
-/** §5.6: clipboard text carries plain spaces where the display shows NBSP. */
+/** Clipboard text carries plain spaces where the display shows NBSP. */
 export function $handleCopyForStandardView(
   event: ClipboardEvent | null | undefined,
   editor: LexicalEditor,
@@ -68,7 +68,7 @@ export function $handleCopyForStandardView(
     // Null-payload dispatch (ClipboardPlugin / ContextMenuPlugin / EditorRef): write via
     // Lexical's execCommand mechanism with OUR pre-normalized payload. copyToClipboard(null)
     // without `data` would intercept its own synthesized event at COMMAND_PRIORITY_CRITICAL
-    // and write the stock payload — which is why this branch must pass `data` (spec §2).
+    // and write the stock payload — which is why this branch must pass `data`.
     void copyToClipboard(editor, null, data);
     if (isCut) selection.removeText();
     return true;

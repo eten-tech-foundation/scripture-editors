@@ -1,7 +1,7 @@
 import { NBSP } from "shared";
 
 /**
- * Round-trip corpus for Standard view (spec §7/§10, Phase 0).
+ * Round-trip corpus for Standard view.
  * Fixtures are authored as USX and converted to USJ at test time via
  * `usxStringToUsj`, guaranteeing shape-valid USJ.
  *
@@ -131,11 +131,11 @@ ${USX_FOOTER}`,
     ),
   },
   {
-    // §4 createPara leading-space display rule: a paragraph whose first content text starts
+    // Paragraph leading-space display rule: a paragraph whose first content text starts
     // with a single leading space. Standard view displays that space as NBSP; the reverse
     // adaptor inverts it back (and normalizeSpaceRuns leaves a lone space alone), so the pair
     // round-trips. The other three modes carry the leading space through untouched.
-    name: "paragraph-leading space (§4 display rule)",
+    name: "paragraph-leading space (display rule)",
     usx: book(`<para style="p"> Leading space precedes this text.</para>`),
   },
 ];

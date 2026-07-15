@@ -256,7 +256,7 @@ const projectSheet: StyleInfo = {
   },
 };
 
-describe("stylesheet-first classification (Phase 4)", () => {
+describe("stylesheet-first classification", () => {
   it("classifies a custom.sty character marker that matches the z-milestone wildcard", () => {
     const content = usfmFragmentToUsjContent("\\p text \\zln word\\zln* after", {
       getMarker: createMarkerLookup(projectSheet),
@@ -281,7 +281,7 @@ describe("stylesheet-first classification (Phase 4)", () => {
   });
 });
 
-describe("PT9 unknown-marker handling (Phase 4)", () => {
+describe("PT9 unknown-marker handling", () => {
   it("unknown marker in body context becomes a paragraph (UsfmParser.DetermineUnknownTokenType)", () => {
     const content = usfmFragmentToUsjContent("\\p before \\zfoo after");
     expect(content).toEqual([

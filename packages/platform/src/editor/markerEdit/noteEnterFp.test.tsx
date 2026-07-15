@@ -1,5 +1,5 @@
 /**
- * PT9 SmartEnter (design spec §6): pressing Enter inside expanded note content inserts an
+ * PT9 SmartEnter: pressing Enter inside expanded note content inserts an
  * `\fp` (footnote-paragraph) char span instead of splitting the paragraph — a NoteNode is
  * inline, so a paragraph split inside it would be structurally invalid.
  */
@@ -101,7 +101,7 @@ describe("Enter inside note content", () => {
         .map((c) => c.getMarker());
       expect(markers).toContain("fp");
       // The \fp span carries a real opening marker glyph, not just bare content — otherwise
-      // `$charNodeDeletionTransform` (§5.5) would treat it as "opener deleted" and unwrap it.
+      // `$charNodeDeletionTransform` would treat it as "opener deleted" and unwrap it.
       const fp = requireDefined(
         note
           .getChildren()
@@ -192,7 +192,7 @@ describe("Enter inside note content", () => {
     });
   });
 
-  it("prevents the native browser Enter when it claims the key (PT-4187 bug 2)", async () => {
+  it("prevents the native browser Enter when it claims the key", async () => {
     // Returning `true` from the KEY_ENTER handler suppresses Lexical's RichText handler —
     // including the `event.preventDefault()` RichText would have called. Without our own
     // preventDefault, the BROWSER's native contenteditable Enter still splits the DOM and

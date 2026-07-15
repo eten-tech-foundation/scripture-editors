@@ -50,4 +50,13 @@ describe("createMarkerLookup", () => {
     expect(lookup("p")?.description).toBe("");
     expect(lookup("zln")?.description).toBe("Custom link");
   });
+
+  it("memoizes: a repeated lookup returns the same built object without rebuilding", () => {
+    const lookup = createMarkerLookup(projectStyleInfo);
+    const first = lookup("zln");
+    const second = lookup("zln");
+    // Each miss builds a fresh Marker object literal, so identity would break on a rebuild.
+    // Same reference proves the second call hit the `cache.has(marker)` cached-return branch.
+    expect(second).toBe(first);
+  });
 });
