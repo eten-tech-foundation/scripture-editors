@@ -292,13 +292,13 @@ describe("ScriptureReferencePlugin", () => {
       expect(mockOnScrRefChange).not.toHaveBeenCalled();
     });
 
-    // Task 15 cluster A residual: the host echoes back refs this editor itself reported, but the
-    // round trip is slow (~100-900ms), and the old single-boolean suppression
-    // (`hasSelectionChangedRef`) was OVERWRITTEN by every SELECTION_CHANGE in between — a keystroke
-    // that recomputes the same verse as the (not-yet-echoed) prop clobbered the pending `true` back
-    // to `false`, so the late echo then yanked the caret to the verse/para start mid-typing (QA
-    // items 1-4: caret ejected to the `\s1` glyph ~190ms after typing `\`). The suppression must
-    // key on the VALUES this editor emitted, not on a clobber-prone boolean.
+    // The host echoes back refs this editor itself reported, but the round trip is slow
+    // (~100-900ms), and the old single-boolean suppression (`hasSelectionChangedRef`) was
+    // OVERWRITTEN by every SELECTION_CHANGE in between — a keystroke that recomputes the same verse
+    // as the (not-yet-echoed) prop clobbered the pending `true` back to `false`, so the late echo
+    // then yanked the caret to the verse/para start mid-typing (observed as the caret ejecting to
+    // the `\s1` glyph ~190ms after typing `\`). The suppression must key on the VALUES this editor
+    // emitted, not on a clobber-prone boolean.
     it("does not yank the caret when a late self-echo arrives after an intervening selection change", async () => {
       const { editor, setScrRef } = await testEnvironment(scrRef, mockOnScrRefChange);
       // Consume the initial move-to-verse-start flag so dispatches below run the BCV logic.
@@ -931,11 +931,11 @@ describe("ScriptureReferencePlugin", () => {
   });
 });
 
-// Task 15 cluster A/C (runtime falsification #2): live tag-tracing showed the caret yank fires from
-// the BookNode "created" mutation listener, not (only) the incoming-scrRef effect — a whole-state
-// external replace (LoadStatePlugin applying the PDP echo of this editor's own edit ~150-250ms
-// after a keystroke) recreates every node, so "created" fires on EVERY echo and repositioned the
-// caret to the verse start mid-typing (and dragged DOM focus out of the footnote popover).
+// The caret yank fires from the BookNode "created" mutation listener, not (only) the
+// incoming-scrRef effect — a whole-state external replace (LoadStatePlugin applying the PDP echo
+// of this editor's own edit ~150-250ms after a keystroke) recreates every node, so "created" fires
+// on EVERY echo and repositioned the caret to the verse start mid-typing (and dragged DOM focus out
+// of the footnote popover).
 // Positioning belongs to genuine document changes only: initial load (sanity test above) and
 // book/chapter navigation (control below) — not a same-book+chapter reload.
 describe("BookNode-created cursor positioning vs same-document reloads", () => {

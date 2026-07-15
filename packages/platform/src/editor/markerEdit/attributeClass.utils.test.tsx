@@ -21,10 +21,21 @@ describe("attribute text styling in editable mode", () => {
   it("adds the .attribute class when a node becomes dirty after mount", async () => {
     let attrText: TextNode;
     const { editor } = await testEnvironment(() => {
+      // Start WITHOUT the attribute textType so the class is ABSENT at mount — otherwise this test is
+      // indistinguishable from the initial-mount test above and would pass even if the dirty-time
+      // re-decoration path were a no-op. The trailing-space node carries its own textType so Lexical's
+      // adjacent simple-TextNode normalization doesn't merge attrText into it (see the
+      // "leaves non-attribute" test), which would invalidate the captured `attrText` key.
+      const spaceNode = $createTextNode(NBSP);
+      $setState(spaceNode, textTypeState, "marker-trailing-space");
       attrText = $createTextNode(`${NBSP}|sid="ts.GEN.1"`);
-      $setState(attrText, textTypeState, "attribute");
       const para = $createParaNode("p");
-      $getRoot().append(para.append($createMarkerNode("p"), $createTextNode(NBSP), attrText));
+      $getRoot().append(para.append($createMarkerNode("p"), spaceNode, attrText));
+    });
+    // Precondition: the class is absent until the node is dirtied with the attribute textType.
+    editor.getEditorState().read(() => {
+      const dom = editor.getElementByKey(attrText.getKey());
+      expect(dom?.classList.contains("attribute")).toBe(false);
     });
     await act(async () => editor.update(() => $setState(attrText, textTypeState, "attribute")));
     editor.getEditorState().read(() => {

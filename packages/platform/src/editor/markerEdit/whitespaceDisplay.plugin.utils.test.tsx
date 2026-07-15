@@ -17,11 +17,11 @@ import {
 import { $createMarkerNode, $createParaNode, NBSP, textTypeState } from "shared";
 
 /**
- * §5.6 null-event leg: ClipboardPlugin/ContextMenuPlugin/EditorRef dispatch COPY_COMMAND/
+ * Null-event leg: ClipboardPlugin/ContextMenuPlugin/EditorRef dispatch COPY_COMMAND/
  * CUT_COMMAND with a `null` payload. `@lexical/clipboard`'s `copyToClipboard` is mocked so the
  * jsdom `execCommand`/synthetic-event dance (unimplemented in jsdom — verified: `execCommand` is
  * `undefined` and `instanceof ClipboardEvent` throws) never has to run; instead we assert the
- * handler calls through with the exact normalized payload, per spec §2. `$getHtmlContent`/
+ * handler calls through with the exact normalized payload. `$getHtmlContent`/
  * `$getLexicalContent` (also from this module) stay real via the `importOriginal` spread, so the
  * payload-builder unit tests below exercise genuine HTML/Lexical-JSON generation.
  */
@@ -68,7 +68,7 @@ function $appendMarkerAndText(text: TextNode): void {
   $getRoot().append($createParaNode("p").append($createMarkerNode("p"), spaceNode, text));
 }
 
-describe("§4 typing invariant", () => {
+describe("typing invariant", () => {
   it("converts a typed double space to display-NBSP", async () => {
     let text: TextNode;
     const { editor } = await testEnvironment(() => {
@@ -100,8 +100,8 @@ describe("§4 typing invariant", () => {
   });
 });
 
-describe("§5.6 clipboard normalization", () => {
-  it("copies display-NBSP as plain spaces in text/plain", async () => {
+describe("clipboard normalization", () => {
+  it("copies display-NBSP as plain spaces in text/plain via the real-event branch (not copyToClipboard)", async () => {
     let text: TextNode;
     const { editor } = await testEnvironment(() => {
       text = $createTextNode(`a${NBSP}${NBSP}b and 3~000`);
@@ -112,13 +112,13 @@ describe("§5.6 clipboard normalization", () => {
     // matching this suite's `updateSelection` precedent.
     await act(async () => editor.update(() => text.select(0, text.getTextContentSize())));
     const { event, getData } = copyEvent();
+    copyToClipboardSpy.mockClear();
     await act(async () => {
       editor.dispatchCommand(COPY_COMMAND, event);
     });
     expect(getData("text/plain")).toBe("a  b and 3~000"); // NBSP→space; ~ stays (PT9 shows/copies ~)
-  });
-
-  it("real-event branch is unaffected by the mocked copyToClipboard (regression guard)", () => {
+    // The real (event-carrying) branch writes directly via clipboardData.setData; it must NOT
+    // route through the null-event copyToClipboard path (which mock would otherwise mask).
     expect(copyToClipboardSpy).not.toHaveBeenCalled();
   });
 });
@@ -145,13 +145,20 @@ describe("$getStandardViewClipboardData", () => {
     await act(async () => editor.update(() => text.select(0, text.getTextContentSize())));
     let data: LexicalClipboardData | undefined;
     await act(async () => editor.update(() => (data = $getStandardViewClipboardData(editor))));
+    // Only text/plain inverts display-NBSP back to plain spaces; the html and lexical payloads
+    // keep the on-screen NBSPs so a paste back into a Standard-view editor round-trips exactly.
     expect(data?.["text/plain"]).toBe("a  b");
-    expect(data?.["text/html"]).toBeTruthy();
-    expect(data?.["application/x-lexical-editor"]).toBeTruthy();
+    // html carries the two NBSPs (as entities) inside a text span, NOT normalized to spaces.
+    expect(data?.["text/html"]).toContain("a&nbsp;&nbsp;b");
+    expect(data?.["text/html"]).not.toContain("a  b");
+    // the lexical clipboard JSON is a single TextNode whose content still holds the NBSPs.
+    const lexical = JSON.parse(data?.["application/x-lexical-editor"] ?? "{}");
+    expect(lexical.nodes).toHaveLength(1);
+    expect(lexical.nodes[0]).toMatchObject({ type: "text", text: `a${NBSP}${NBSP}b` });
   });
 });
 
-describe("§5.6 clipboard normalization — null-event leg (ClipboardPlugin/ContextMenuPlugin/EditorRef)", () => {
+describe("clipboard normalization — null-event leg (ClipboardPlugin/ContextMenuPlugin/EditorRef)", () => {
   it("COPY_COMMAND(null) writes the normalized payload via copyToClipboard(editor, null, data), selection intact", async () => {
     let text: TextNode;
     const { editor } = await testEnvironment(() => {

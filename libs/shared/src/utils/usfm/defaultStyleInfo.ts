@@ -2,6 +2,11 @@
 
 import { StyleInfo } from "./styleInfo.js";
 
+/**
+ * Default project `StyleInfo` derived from the bundled `usfm.sty` stylesheet.
+ *
+ * @public
+ */
 export const defaultStyleInfo: StyleInfo = {
   markers: {
     id: {

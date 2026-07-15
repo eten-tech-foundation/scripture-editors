@@ -1,10 +1,10 @@
 /**
- * StyleInfo-driven USFM fragment tokenizer for Tier 2 paragraph re-tokenization
- * (design spec §5.3). Reference semantics: ParatextData `UsfmToken.Tokenize` —
+ * StyleInfo-driven USFM fragment tokenizer for Tier 2 paragraph re-tokenization.
+ * Reference semantics: ParatextData `UsfmToken.Tokenize` —
  * fragment-level tokenization only; document-level validation stays out. Marker
  * kinds come from the bundled usfm.sty-derived `usfmMarkers` map via `getMarker`
  * by default, or from `options.getMarker` (a project `StyleInfo`-backed
- * `MarkerLookup`, Task 1) when supplied — classification is stylesheet-first:
+ * `MarkerLookup`) when supplied — classification is stylesheet-first:
  * a marker the lookup KNOWS is classified by its declared type, full stop.
  *
  * Markers the effective stylesheet does NOT know (`kind === undefined`) fall
@@ -19,7 +19,7 @@
  * `{ type: "unmatched", marker: "<name>*" }` USJ object (PT9 `sink.Unmatched`,
  * `UsxUsfmParserSink.cs:262-266`), not literal text.
  *
- * Literal-text degradation (spec §5.2) remains only for fragments the
+ * Literal-text degradation remains only for fragments the
  * tokenizer cannot confidently parse at all: a bare `\`, a stray `\*`,
  * non-attribute content before a milestone's `\*`, or an unterminated
  * milestone (stylesheet-declared, or matching the suffix convention above).
@@ -143,7 +143,8 @@ function tokenize(fragment: string, getMarkerFn: MarkerLookup, isNoteContext: bo
       continue;
     }
 
-    // Consume the single separator space after an opening marker (PT9 skips it).
+    // Consume the separator whitespace after an opening marker (PT9 skips it) — all leading
+    // whitespace, not just a single space.
     const consumeSeparator = () => {
       while (index < fragment.length && /[\s\u00A0\u200B]/.test(fragment[index])) index++;
     };

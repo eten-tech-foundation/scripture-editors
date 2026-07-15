@@ -215,7 +215,7 @@ function setLogger(logger: LoggerBasic | undefined) {
   if (logger) _logger = logger;
 }
 
-/** §4 whitespace display rules are Standard-view-only (spec: must not leak into other modes). */
+/** Standard-view-only whitespace display rules; they must not leak into other modes. */
 function isStandardView(): boolean {
   return _viewOptions !== undefined && getViewMode(_viewOptions) === STANDARD_VIEW_MODE;
 }
@@ -397,7 +397,7 @@ function createPara(
     children.push(createImmutableTypedText("marker", openingMarkerText(marker) + NBSP));
   children.push(...childNodes);
   if (isStandardView()) {
-    // §4: paragraph-leading spaces display as NBSP. First content text node only.
+    // Paragraph-leading spaces display as NBSP. First content text node only.
     const firstText = children.find(
       (node) => isSerializedTextNode(node) && node.text !== NBSP && !isSerializedMarkerNode(node),
     );

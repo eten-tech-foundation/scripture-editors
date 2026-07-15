@@ -15,8 +15,8 @@ import { $insertNote } from "shared-react";
  * must produce a NoteNode whose content keeps its char spans (`\fr`+`\ft`, `\xo`+`\xt`). Live
  * QA in Platform.Bible showed the note coming out EMPTY: `$createNoteChildren` built char spans
  * WITHOUT the opening MarkerNode glyph that editable markerMode requires, so
- * `$charNodeDeletionTransform` (§5.5) unwrapped every span back to plain text in the same commit.
- * The Task 5 unit tests missed it because they run WITHOUT `MarkerEditPlugin` mounted and in
+ * `$charNodeDeletionTransform` unwrapped every span back to plain text in the same commit.
+ * The narrower unit tests missed it because they run WITHOUT `MarkerEditPlugin` mounted and in
  * `markerMode: "hidden"` (not the app's editable), so that transform never ran.
  */
 describe("note insertion in standard view (MarkerEditPlugin active)", () => {

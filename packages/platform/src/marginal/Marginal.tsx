@@ -115,6 +115,9 @@ const Marginal = forwardRef(function Marginal<TLogger extends LoggerBasic>(
     focus() {
       editorRef.current?.focus();
     },
+    isFocused() {
+      return editorRef.current?.isFocused() ?? false;
+    },
     undo() {
       editorRef.current?.undo();
     },

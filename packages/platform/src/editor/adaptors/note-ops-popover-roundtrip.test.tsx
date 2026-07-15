@@ -1,5 +1,5 @@
 /**
- * Note-serialization contract (Task 14): in editable marker mode, note contents ops carry
+ * Note-serialization contract: in editable marker mode, note contents ops carry
  * CONTENT only (canonical, glyph-free — same shape as non-editable modes), and
  * `$applyUpdate` re-materializes the exact well-formed note shape the USJ adaptor builds.
  *
@@ -351,7 +351,7 @@ describe("popover note ops round-trip (canonical glyph-free contract)", () => {
     const noteCount = host.lexical.getEditorState().read(() => $findNotes().length);
     for (let i = 0; i < noteCount; i++) expectWellFormedEditableNote(host.lexical, i);
 
-    // Replace POSITION (Task 15): `$getReplaceEmbedOps` computes its retain in "apply"
+    // Replace POSITION: `$getReplaceEmbedOps` computes its retain in "apply"
     // coordinates — the coordinate system `$applyUpdate`'s insert/delete traversals use,
     // where an editable chapter is an opaque embed (1 unit, glyph text child not counted).
     // The replacement therefore lands exactly where the old note was:

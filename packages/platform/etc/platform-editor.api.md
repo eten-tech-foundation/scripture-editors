@@ -169,6 +169,7 @@ export interface EditorRef {
     insertMarker(marker: string): string | undefined;
     // @deprecated
     insertNote(marker: string, caller?: string, selection?: SelectionRange): void;
+    isFocused(): boolean;
     paste(): void;
     pastePlainText(): void;
     redo(): void;

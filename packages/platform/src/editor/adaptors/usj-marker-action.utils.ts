@@ -59,7 +59,7 @@ interface UsjMarkerAction {
  * Exists so `EditorRef.insertMarker` (`Editor.tsx`) can hand the host the exact key of the note it
  * just created, bypassing the `"delta-doc"` OT coordinate derivation (`getInsertedNodeKey`) that
  * double-counts editable VerseNodes and can land past the note when one precedes the insertion
- * point (Task 14b) — without touching any OT coordinate code.
+ * point — without touching any OT coordinate code.
  */
 export interface UsjMarkerActionResult extends MarkerAction {
   getInsertedNoteKey?: () => string | undefined;

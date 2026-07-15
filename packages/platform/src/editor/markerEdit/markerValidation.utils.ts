@@ -1,5 +1,5 @@
 /**
- * §5.1 marker validation — a port of PT9's ValidateUsxStyles pass
+ * Marker validation — a port of PT9's ValidateUsxStyles pass
  * (ViewUsfmXhtmlConverter.cs:288-345) + TagValidator.IsParagraphTagValid
  * (TagValidator.cs:18-57), run over the Lexical tree instead of USX.
  *
@@ -121,7 +121,7 @@ function $validateInline(
       // its content validates against the NOTE's marker.
       $validateInline(child, child.getMarker(), styleInfo, out, insideXq);
     } else if ($isUnknownNode(child)) {
-      // Opaque blocks (§7): never descend.
+      // Opaque blocks (sidebars, periph, …): never descend.
     } else if ($isElementNode(child)) {
       $validateInline(child, contextMarker, styleInfo, out, insideXq);
     }

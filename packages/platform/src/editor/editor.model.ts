@@ -30,6 +30,15 @@ import {
 export interface EditorRef {
   /** Focus the editor. */
   focus(): void;
+  /**
+   * Whether this editor's content-editable root currently holds DOM focus (i.e. the user is
+   * actively editing in it). Resolves the actual root element of THIS editor instance, so hosts
+   * do not have to guess it from a global `document.querySelector('.editor-input')` — a query
+   * coupled to the CSS class name and to the main editor being the first `.editor-input` in
+   * document order (a footnote-editor popover renders its own). Returns `false` when the editor
+   * is unmounted or its root is not attached.
+   */
+  isFocused(): boolean;
   /** Undo the last action. */
   undo(): void;
   /** Redo the last undone action. */
@@ -46,9 +55,10 @@ export interface EditorRef {
   getUsj(): Usj | undefined;
   /**
    * Settle pending mid-edit marker text (Standard view's marker-editing engine) so the USJ
-   * returned by {@link getUsj} matches what is on screen. Call right before reading the USJ to
-   * save: a marker rename walked away from mid-edit otherwise stays pending indefinitely and
-   * serializes the OLD marker. The node under a live caret (and the user's node during an
+   * returned by {@link EditorRef.getUsj} matches what is on screen. In editable marker modes a
+   * marker rename that the user walked away from mid-edit stays pending indefinitely, so reading
+   * the USJ would serialize the OLD marker; call this right before reading the USJ to save so the
+   * pending rename is flushed first. The node under a live caret (and the user's node during an
    * app-placed-caret window) stays pending — a mid-typing pause never settles under the user.
    * Do NOT call while a marker-menu/palette session is open: the palette's apply must be the
    * one to consume the typed literal. No-op outside editable marker modes.
@@ -261,9 +271,9 @@ export interface EditorOptions {
   view?: ViewOptions;
   /**
    * Project stylesheet data (merged usfm.sty + custom.sty, serialized by the
-   * host). Drives marker classification, Tier-1 kind routing, and §5.1
-   * validation in editable marker modes. Falls back to the bundled default
-   * stylesheet data when absent.
+   * host). Drives marker classification, Tier-1 kind routing, and marker
+   * validation (flagging unknown or invalid markers) in editable marker modes.
+   * Falls back to the bundled default stylesheet data when absent.
    */
   styleInfo?: StyleInfo;
   /** EXPERIMENTAL: Is the editor being debugged using the TreeView. */

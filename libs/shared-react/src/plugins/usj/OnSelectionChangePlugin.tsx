@@ -19,7 +19,7 @@ export function OnSelectionChangePlugin({
           // `editor.read()` force-flushes any in-flight `editor.update()` mid-dispatch
           // (`$commitPendingUpdates` runs unconditionally), which is reachable when this handler
           // is invoked from a nested `dispatchCommand(SELECTION_CHANGE_COMMAND, ...)` call inside
-          // another plugin's update — the enabler of the Task 9 frozen-commit crash class (see
+          // another plugin's update — the enabler of the frozen-commit crash class (see
           // OnSelectionChangePlugin.test.tsx). Reading the last COMMITTED state instead never
           // triggers a commit, so it's safe to call from any context; it just means a selection
           // change that is still mid-update-in-flight is reported on the next commit instead.

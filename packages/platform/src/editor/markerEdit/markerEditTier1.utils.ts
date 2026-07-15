@@ -1,5 +1,5 @@
 /**
- * Tier 1 of the marker-editing engine (design spec §5.1): in-place renames that
+ * Tier 1 of the marker-editing engine: in-place renames that
  * keep structural node state and visible marker text in agreement at rest.
  * Everything Tier 1 cannot express routes to Tier 2 ($requestTier2ForNode).
  */
@@ -37,7 +37,7 @@ export interface MarkerEditContext extends Tier2Context {
   splitExpected: { current: boolean };
   /**
    * Literal text already submitted to `$requestTier2ForNode` this commit.
-   * `$rebuildParas` is deterministic (design spec §5.2 degradation property): a paragraph
+   * `$rebuildParas` is deterministic (the degradation property): a paragraph
    * whose rebuild still contains a fragment the tokenizer cannot resolve into anything new
    * (e.g. an unterminated milestone run) reproduces the identical literal text on every
    * retry, so the TextNode catch-all transform ($textNodeTier2Transform) would otherwise
@@ -78,10 +78,10 @@ function isKnownMilestoneMarker(marker: string): boolean {
   );
 }
 
-/** Spec §5.1 same-positional-kind rule for paragraph openers. Stylesheet-first:
+/** Same-positional-kind rule for paragraph openers. Stylesheet-first:
  * a marker the effective sheet KNOWS classifies by its styleType; heuristics
  * cover only markers absent from the sheet. Unknown markers stay as typed
- * (spec deviation #4: Tier-1 renames to unknown markers stay in place). */
+ * (Tier-1 renames to unknown markers stay in place). */
 function isParaKindMarker(marker: string, getMarkerFn: MarkerLookup): boolean {
   const clean = marker.replace(/^\+/, "");
   if (clean === "v" || clean === "c") return false;
@@ -91,7 +91,7 @@ function isParaKindMarker(marker: string, getMarkerFn: MarkerLookup): boolean {
   return true;
 }
 
-/** Spec §5.1 same-positional-kind rule for char openers (see isParaKindMarker). */
+/** Same-positional-kind rule for char openers (see isParaKindMarker). */
 function isCharKindMarker(marker: string, getMarkerFn: MarkerLookup): boolean {
   const clean = marker.replace(/^\+/, "");
   if (clean === "v" || clean === "c") return false;
@@ -246,7 +246,7 @@ export function $verseNodeTransform(node: VerseNode, context: MarkerEditContext)
 
 export function $chapterNodeTransform(node: ChapterNode, _context: MarkerEditContext): void {
   if (node.getChildrenSize() === 0) {
-    node.remove(); // §5.5: deleting the chapter marker deletes it
+    node.remove(); // deleting the chapter marker deletes it
     return;
   }
   const textNode = node.getFirstChild();

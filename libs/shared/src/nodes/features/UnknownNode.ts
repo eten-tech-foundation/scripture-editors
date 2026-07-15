@@ -30,12 +30,12 @@ export const UNKNOWN_TAG_NAME = "unknown";
 export const UNKNOWN_VERSION = 1;
 
 /**
- * `UnknownNode` tags that render inline instead of as a subdued block container (design spec
- * §7: "a line-level box in the middle of a sentence would be visibly wrong"). These are the two
- * corpus-proven mid-paragraph constructs — both nest INSIDE a `<para>`'s running text in the
- * Phase 0 corpus fixtures ("optional line break (optbreak)" and "cross-reference ref target"),
- * and `packages/utilities/src/converters/usj/converter-test.data.ts:2571,2581` shows both
- * becoming `UnknownNode`s (tags "optbreak" and "ref"):
+ * `UnknownNode` tags that render inline instead of as a subdued block container: a line-level box
+ * in the middle of a sentence would be visibly wrong. These are the two corpus-proven
+ * mid-paragraph constructs — both nest INSIDE a `<para>`'s running text in the corpus fixtures
+ * ("optional line break (optbreak)" and "cross-reference ref target"), and
+ * `packages/utilities/src/converters/usj/converter-test.data.ts:2571,2581` shows both becoming
+ * `UnknownNode`s (tags "optbreak" and "ref"):
  *
  * - `\optbreak` — PT9 renders it as a literal `//` token mid-sentence; it has no children, so
  *   the CSS supplies the `//` label (keyed off `data-tag="optbreak"`).
@@ -141,7 +141,7 @@ export class UnknownNode extends ElementNode {
     // Visibility is CSS-mode-gated in usj-nodes.css (hidden by default, revealed as a subdued
     // block/token in standard view's .marker-editable scope). contentEditable=false stops the
     // browser from placing a native caret inside it, so caret navigation skips over the whole
-    // node like any decorator node (design spec §7).
+    // node like any decorator node.
     dom.contentEditable = "false";
     return dom;
   }

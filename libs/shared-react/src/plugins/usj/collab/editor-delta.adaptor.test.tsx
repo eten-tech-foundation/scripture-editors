@@ -928,6 +928,11 @@ describe("getEditorDelta", () => {
       expect(delta.ops).toEqual(opsGen1v1ImpliedPara);
     });
 
+    // Skipped: `getEditorDelta` does not yet normalize unknown items to the canonical delta shape
+    // `opsWithUnknownItems` expects. It currently emits extra fields the fixture omits — a
+    // chapter `sid` ("GEN 1") and the round-tripped `attr-unknown`/`category` attributes on notes
+    // and chars. Un-skip once the adaptor strips those unknown/derived attributes so the round
+    // trip lands on the canonical ops.
     it.skip("should roundtrip the editor state with unknown items", async () => {
       const { editor } = await testEnvironment();
       const editorState = editor.parseEditorState(editorStateWithUnknownItems);
@@ -937,6 +942,10 @@ describe("getEditorDelta", () => {
       expect(delta.ops).toEqual(opsWithUnknownItems);
     });
 
+    // Skipped: `getEditorDelta` emits `closed: "false"` on unclosed (nonstandard) char markers,
+    // which the canonical `opsGen1v1Nonstandard` fixture omits. Un-skip once the adaptor stops
+    // emitting the `closed: "false"` attribute (emitting `closed` only when a char is actually
+    // closed) so nonstandard chars round-trip to the canonical ops.
     it.skip("should roundtrip the editor state with nonstandard features", async () => {
       const { editor } = await testEnvironment();
       const editorState = editor.parseEditorState(editorStateGen1v1Nonstandard);

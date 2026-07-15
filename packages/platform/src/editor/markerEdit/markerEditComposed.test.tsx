@@ -1,5 +1,5 @@
 /**
- * Composed-plugin tests (batch item 6 + Task 9b): MarkerEditPlugin mounted TOGETHER with
+ * Composed-plugin tests: MarkerEditPlugin mounted TOGETHER with
  * other production plugins, as in the real editor.
  *
  * With TextSpacingPlugin: it removes lone space-only TextNodes that don't precede a
@@ -11,14 +11,14 @@
  * spans with a surviving plain-space separator between them, honoring PT9's
  * caret-lands-unstyled guarantee.
  *
- * With OnSelectionChangePlugin (Task 9b regression): its SELECTION_CHANGE handler calls
+ * With OnSelectionChangePlugin: its SELECTION_CHANGE handler calls
  * `editor.read()`, which force-flushes `$commitPendingUpdates` MID-dispatch — the
  * in-flight update's pending editor state becomes the committed (dev-frozen) state while
  * the dispatch is still on the stack. Any marker-resolution mutation triggered from that
  * context (pre-fix: MarkerEditPlugin's update listener synchronously self-dispatching
  * SELECTION_CHANGE_COMMAND) then writes into a frozen selection/node map and throws
  * (`Cannot assign to read only property '_cachedNodes'` / `Cannot call set() on a frozen
- * Lexical node map`) — Task 9 browser-QA bugs A and B.
+ * Lexical node map`) — real-browser-only bugs A and B.
  */
 
 import { MarkerEditPlugin } from "./MarkerEditPlugin";

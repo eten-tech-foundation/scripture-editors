@@ -1010,14 +1010,13 @@ export const editorStateGen1v1Editable = {
 
 /**
  * Expected ops for `editorStateGen1v1Editable` (editable markers, expanded notes). Body ops
- * carry the editable marker glyph text verbatim (pinned Phase 2 contract), but the note's
+ * carry the editable marker glyph text verbatim (the pinned contract), but the note's
  * `contents.ops` are CANONICAL (glyph-free): the editable caller text, the char-span glyph
  * MarkerNodes, the structural NBSP content separators, and the closing `\f*` glyph are
  * presentation-only and are re-synthesized by `$applyUpdate` when the note is materialized,
  * so they must not flow into note contents ops (they used to, which doubled the glyphs and
- * materialized an unmatched `\f*` on every round-trip — see the Task 14 contract
- * redefinition). Note contents ops are therefore identical across marker modes (compare
- * `opsGen1v1`).
+ * materialized an unmatched `\f*` on every round-trip; the contract now excludes them). Note
+ * contents ops are therefore identical across marker modes (compare `opsGen1v1`).
  */
 export const opsGen1v1Editable = [
   { insert: "Some Scripture Version" },
@@ -1630,10 +1629,10 @@ export const editorStateGen1v1Standard = {
 /**
  * Expected ops for `editorStateGen1v1Standard` (standard view: editable markers, collapsed
  * notes). Identical to `opsGen1v1Editable`: body ops carry the editable marker glyph text
- * verbatim (pinned Phase 2 contract), while the note's `contents.ops` are CANONICAL
+ * verbatim (the pinned contract), while the note's `contents.ops` are CANONICAL
  * (glyph-free) — in standard view the caller is an `ImmutableNoteCallerNode` decorator and
  * the NBSP spacers produce no ops, and the char-span glyphs / NBSP separators / closing
- * `\f*` glyph are skipped as presentation-only (Task 14 contract redefinition; they are
+ * `\f*` glyph are skipped as presentation-only (the contract excludes them; they are
  * re-synthesized by `$applyUpdate`). Note contents ops are identical across marker modes
  * (compare `opsGen1v1`).
  */

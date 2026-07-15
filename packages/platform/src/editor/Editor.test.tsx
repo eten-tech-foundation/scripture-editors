@@ -182,7 +182,43 @@ describe("setAnnotation overload", () => {
   });
 });
 
-describe("insertMarker return value (Task 14b)", () => {
+describe("isFocused()", () => {
+  // Editor-owned focus predicate: hosts must be able to ask THIS editor instance whether its
+  // content-editable root holds DOM focus, instead of guessing via a global
+  // `document.querySelector('.editor-input')` (which is coupled to the CSS class name and to the
+  // main editor being the first `.editor-input` in document order — a footnote-editor popover
+  // renders its own). `isFocused()` resolves the actual root of this instance and compares it to
+  // the active element.
+  it("is true only when the editor's own root holds DOM focus", async () => {
+    const ref = createRef<EditorRef>();
+    await act(async () => {
+      render(<Editor ref={ref} defaultUsj={sampleUsj} />);
+    });
+    const editor = ref.current;
+    if (!editor) throw new Error("Editor not mounted");
+
+    const root = document.querySelector<HTMLElement>(".editor-input");
+    if (!root) throw new Error("Editor root not found");
+
+    // An unrelated element holds focus: this editor is not focused.
+    const other = document.createElement("input");
+    document.body.appendChild(other);
+    await act(async () => other.focus());
+    expect(editor.isFocused()).toBe(false);
+
+    // The editor root holds focus: isFocused() is true.
+    await act(async () => root.focus());
+    expect(editor.isFocused()).toBe(true);
+
+    // Focus leaves the editor again: isFocused() is false.
+    await act(async () => other.focus());
+    expect(editor.isFocused()).toBe(false);
+
+    document.body.removeChild(other);
+  });
+});
+
+describe("insertMarker return value", () => {
   // GEN 1:1 with a verse preceding the seed text - the exact shape that makes the host's
   // "delta-doc" `getInsertedNodeKey` derivation (used only for the popover auto-open path, not
   // here) double-count the editable VerseNode and land past the note.
@@ -279,7 +315,7 @@ describe("insertMarker return value (Task 14b)", () => {
   });
 });
 
-describe("commitPendingMarkerEdits (abandonment window, PT-4187)", () => {
+describe("commitPendingMarkerEdits (abandonment window)", () => {
   /** Marker of the `\p` para in a USJ doc shaped like `sampleUsj` (book, chapter, para). */
   function paraMarkerOf(usj: Usj | undefined): string | undefined {
     const para = usj?.content[2];

@@ -14,7 +14,7 @@
  * RETURNS (pre-fix it hangs); the tests carry generous per-test timeouts so a
  * re-introduced loop fails loudly.
  *
- * Since Task 3's stylesheet-first tokenizer, most of these inputs (`\zzz`, a pasted
+ * Since the stylesheet-first tokenizer landed, most of these inputs (`\zzz`, a pasted
  * `C:\temp`) no longer hit the fixed-point path at all: an unknown marker now resolves
  * structurally (PT9 `DetermineUnknownTokenType` — a body-context paragraph split), so
  * the rebuild makes real forward progress on the FIRST attempt and the cascade
@@ -158,7 +158,7 @@ describe("Tier 2 resolve/rebuild fixed-point loop (Critical)", () => {
     await act(async () => editor.update(() => qText.select(0, 0)));
 
     editor.getEditorState().read(() => {
-      // "zzz" is unknown to the stylesheet, so per PT9 DetermineUnknownTokenType (Task 3)
+      // "zzz" is unknown to the stylesheet, so per PT9 DetermineUnknownTokenType
       // it resolves as a genuine body-context PARAGRAPH split, not literal text left in
       // place: a real, non-fixed-point rebuild. The cascade still terminates (this test
       // returns) via forward progress, not the fixed-point refusal.
@@ -191,7 +191,7 @@ describe("Tier 2 resolve/rebuild fixed-point loop (Critical)", () => {
     });
 
     editor.getEditorState().read(() => {
-      // As above, "zzz" resolves structurally rather than staying literal (Task 3). Two
+      // As above, "zzz" resolves structurally rather than staying literal. Two
       // deterministic discriminators pin the real rebuild: (1) the original literal
       // TextNode was destroyed by the paragraph rebuild — under the old literal behavior
       // (fixed-point refusal) or a regressed Enter path that resolves nothing, it would
@@ -221,7 +221,7 @@ describe("Tier 2 resolve/rebuild fixed-point loop (Critical)", () => {
     await act(async () => editor.update(() => qText.select(0, 0)));
 
     editor.getEditorState().read(() => {
-      // "temp" is unknown to the stylesheet, so per PT9 DetermineUnknownTokenType (Task 3)
+      // "temp" is unknown to the stylesheet, so per PT9 DetermineUnknownTokenType
       // it resolves as a genuine body-context PARAGRAPH split rather than staying literal —
       // a real, non-fixed-point rebuild. The termination guarantee here is forward progress
       // (a new paragraph), not the fixed-point refusal exercised by the other tests in this
@@ -275,7 +275,7 @@ describe("Tier 2 rebuild with a milestone display run (Critical, Fix 1)", () => 
 
     // Move the caret into the other paragraph -> the pending `\zzz` text resolves,
     // routing the WHOLE paragraph (milestone run + literal text) through $rebuildParas.
-    // "zzz" is unknown to the stylesheet, so per PT9 DetermineUnknownTokenType (Task 3) it
+    // "zzz" is unknown to the stylesheet, so per PT9 DetermineUnknownTokenType it
     // now resolves as a genuine body-context PARAGRAPH split rather than staying literal:
     // this is a real, non-fixed-point rebuild, not a loop. Fix 1 still matters here:
     // `$appendSignature` must collapse the milestone's display run into the SAME single

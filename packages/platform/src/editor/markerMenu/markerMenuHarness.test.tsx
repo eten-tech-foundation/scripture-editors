@@ -1,9 +1,9 @@
 /**
- * Task 5 QA harness — `UsjNodesMenuPlugin`'s editable-mode branch (the document-first `\`/
+ * Editable-mode marker-menu harness — `UsjNodesMenuPlugin`'s editable-mode branch (the document-first `\`/
  * Enter marker menu), wired the same way `Editor.tsx` wires it in markerMode "editable":
  * `EditorRef`-equivalent methods (`$getMarkerMenuContext` / `$applyMarkerMenuSelection` /
- * `$splitParagraphWithMarker`, Tasks 2/3) plus the module-level marker-item source
- * (`getMarkerMenuItems`/`getEnterMenuItems`, Task 1), `defaultStyleInfo`-backed. Platform-level
+ * `$splitParagraphWithMarker`) plus the module-level marker-item source
+ * (`getMarkerMenuItems`/`getEnterMenuItems`), `defaultStyleInfo`-backed. Platform-level
  * per the brief: this composition only makes sense assembled from the platform's real
  * marker-menu machinery, not a stub.
  *
@@ -235,7 +235,7 @@ async function simulateLiteralInsert(editor: LexicalEditor, text: string): Promi
   );
 }
 
-describe("editable-mode marker menu harness (Task 5)", () => {
+describe("editable-mode marker menu harness", () => {
   describe("`\\` trigger", () => {
     it("does not preventDefault for a collapsed selection - the literal `\\` lands as text - and opens the menu", async () => {
       let text: TextNode | undefined;
@@ -378,7 +378,7 @@ describe("editable-mode marker menu harness (Task 5)", () => {
       });
     });
 
-    it("passes through untouched inside an expanded note - Enter still inserts \\fp (Phase 3)", async () => {
+    it("passes through untouched inside an expanded note - Enter still inserts \\fp", async () => {
       const { editor } = await harnessTestEnvironment(serializedState(noteUsx(`closed="false"`)));
 
       let ftText: TextNode | undefined;

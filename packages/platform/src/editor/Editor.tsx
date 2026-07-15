@@ -178,11 +178,11 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
   const contextMenuOptions = useMemo(() => contextMenu, [contextMenu]);
   const markerLookup = useMemo(() => createMarkerLookup(styleInfo), [styleInfo]);
 
-  // QA-ONLY editable-mode document-first marker-menu harness (Task 5 - shared-react's
+  // QA-ONLY editable-mode document-first marker-menu harness (drives shared-react's
   // `UsjNodesMenuPlugin` "editableHarness" branch; see its doc comment). `undefined` outside
   // markerMode "editable" so the plugin falls back to its legacy typeahead unaffected. Built
-  // from the same `EditorRef` methods (Task 2/3) a host would call, plus the module-level
-  // marker-item source (Task 1) - not a separate implementation.
+  // from the same `EditorRef` methods a host would call, plus the module-level marker-item
+  // source - not a separate implementation.
   const editableMarkerMenuHarness = useMemo<EditableMarkerMenuHarness | undefined>(() => {
     if (viewOptions.markerMode !== "editable") return undefined;
 
@@ -227,6 +227,10 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
   useImperativeHandle(ref, () => ({
     focus() {
       editorRef.current?.focus();
+    },
+    isFocused() {
+      const root = editorRef.current?.getRootElement();
+      return !!root && root.ownerDocument.activeElement === root;
     },
     undo() {
       editorRef.current?.dispatchCommand(UNDO_COMMAND, undefined);
@@ -385,13 +389,14 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
       // `editor.update()` callback runs synchronously, so this is already populated. Gives the
       // host the note's TRUE key directly, bypassing the "delta-doc" OT coordinate derivation
       // (`getInsertedNodeKey`, used by `handleChange`'s `onUsjChange` below) that double-counts
-      // editable VerseNodes and can point past the note when one precedes it (Task 14b).
+      // editable VerseNodes and can point past the note when one precedes it.
       return markerAction.getInsertedNoteKey?.();
     },
     getMarkerMenuContext() {
       if (isReadonly) return undefined;
       // `getEditorState().read`, NOT `editor.read` - the latter force-flushes any in-flight
-      // update mid-dispatch (Task 7's `OnSelectionChangePlugin` hazard class).
+      // update mid-dispatch (the same hazard as reading during an `OnSelectionChangePlugin`
+      // callback).
       return editorRef.current?.getEditorState().read(() => $getMarkerMenuContext());
     },
     applyMarkerMenuSelection(item, opts) {
@@ -555,8 +560,9 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
           <ArrowNavigationPlugin viewOptions={viewOptions} />
           <CharNodePlugin />
           <ClipboardPlugin />
-          {/* Editable marker modes require literal backslash input (marker-edit engine §5.2,
-              `\`-menu §5.4); CommandMenuPlugin keeps guarding the non-editable views. */}
+          {/* Editable marker modes require literal backslash input (the marker-edit engine and
+              the `\` marker menu consume it), so CommandMenuPlugin - which preventDefaults typed
+              or pasted `\` and `/` - only guards the non-editable views. */}
           {viewOptions?.markerMode !== "editable" && <CommandMenuPlugin logger={logger} />}
           <ContextMenuPlugin options={contextMenuOptions} />
           <MarkerEditPlugin viewOptions={viewOptions} getMarker={markerLookup} logger={logger} />

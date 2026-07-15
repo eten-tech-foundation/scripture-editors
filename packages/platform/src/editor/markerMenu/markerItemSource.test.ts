@@ -167,7 +167,7 @@ describe("getEnterMenuItems (KeyPressEditHandler.cs:189-201 SmartEnter choice)",
     expect(markers[0]).toBe("p");
   });
 
-  it("chooses p (not ip) once a chapter has started, even on a rank-less sheet (Task 15 item 6)", () => {
+  it("chooses p (not ip) once a chapter has started, even on a rank-less sheet", () => {
     // The realistic snapshot: book id is pinned at the stack bottom for the whole book, and this
     // fixture's `ip`/`c` carry no `rank` (both optional). Pre-fix, the rank-0 bypass in
     // isParagraphTagValid let `\ip` validate mid-chapter and SmartEnter promoted it to first — QA

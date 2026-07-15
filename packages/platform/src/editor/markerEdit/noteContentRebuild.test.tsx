@@ -130,9 +130,9 @@ describe("note-scope Tier 2 rebuild", () => {
     });
   });
 
-  // Regression (Task 2 review gap): literal NON-marker backslash text is the highest-risk
-  // class for this rebuild code — the Phase 2 Critical infinite-loop (resolve/rebuild
-  // fixed-point cascade; see markerEditLoop.test.tsx) lived exactly here. Task 2's own
+  // Regression: literal NON-marker backslash text is the highest-risk
+  // class for this rebuild code — the infinite-loop bug (resolve/rebuild
+  // fixed-point cascade; see markerEditLoop.test.tsx) lived exactly here. The dedicated
   // fixed-point test only exercised `$rebuildNoteContent`'s guard directly; this drives the
   // same shape of input through the REAL mounted `MarkerEditPlugin` (typed text ->
   // `$textNodeTier2Transform` -> `$requestTier2ForNode` -> `$rebuildNoteContent`), inside a
@@ -144,10 +144,10 @@ describe("note-scope Tier 2 rebuild", () => {
 
     editor.getEditorState().read(() => {
       const note = findOnlyNote($getRoot());
-      // "temp" is unknown to the stylesheet, so per PT9 DetermineUnknownTokenType (Task 3)
+      // "temp" is unknown to the stylesheet, so per PT9 DetermineUnknownTokenType
       // it resolves as a CHARACTER span inside note content (context = note, not body, so
       // it does NOT become a paragraph) rather than staying literal: a real, non-fixed-point
-      // rebuild. The regression this test guards (Task 2) is that this terminates rather
+      // rebuild. The regression this test guards is that this terminates rather
       // than hanging, whatever the resulting structure.
       expect(noteCharMarkers(note)).toEqual(["ft", "temp"]);
       expect(note.getTextContent()).toContain("C:");

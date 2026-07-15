@@ -1,14 +1,13 @@
 /**
- * Task 15 (Standard view fix wave): an external USJ mutation (PDP echo / chapter reload) is a
- * whole-state `setEditorState` replace whose parsed state carries a null selection. When the
- * editor being replaced does NOT have DOM focus (e.g. the user is typing in the footnote-editor
- * POPOVER while the parent editor's PDP echo lands ~150-250ms after an edit), reconciling that
- * null selection writes to the SHARED document selection anyway — clearing the popover's caret
- * and dragging focus back into the parent editor (QA item 7 tail: popover focus stolen, Enter
- * landing nowhere; captured live via a focusin trace, MAIN-EDITOR steals at ~t+250ms). An editor
- * without focus has no claim on the DOM selection, so the external apply must skip DOM-selection
- * reconciliation entirely (Lexical's SKIP_DOM_SELECTION_TAG). An editor WITH focus keeps the
- * current behavior.
+ * An external USJ mutation (PDP echo / chapter reload) is a whole-state `setEditorState` replace
+ * whose parsed state carries a null selection. When the editor being replaced does NOT have DOM
+ * focus (e.g. the user is typing in the footnote-editor POPOVER while the parent editor's PDP echo
+ * lands ~150-250ms after an edit), reconciling that null selection writes to the SHARED document
+ * selection anyway — clearing the popover's caret and dragging focus back into the parent editor
+ * (observed live: popover focus stolen, Enter landing nowhere; a focusin trace shows the main
+ * editor stealing focus at ~t+250ms). An editor without focus has no claim on the DOM selection, so
+ * the external apply must skip DOM-selection reconciliation entirely (Lexical's
+ * SKIP_DOM_SELECTION_TAG). An editor WITH focus keeps the current behavior.
  */
 
 import { LoadStatePlugin } from "./LoadStatePlugin";

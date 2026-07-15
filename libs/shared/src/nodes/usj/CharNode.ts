@@ -223,6 +223,7 @@ export class CharNode extends ElementNode {
     if (prevNode.__marker !== this.__marker) {
       dom.setAttribute("data-marker", this.__marker);
       if (config.theme?.showCharMarkerTitles !== false) dom.setAttribute("title", this.__marker);
+      else dom.removeAttribute("title");
       dom.classList.remove(`usfm_${prevNode.__marker}`);
       dom.classList.add(`usfm_${this.__marker}`);
     }

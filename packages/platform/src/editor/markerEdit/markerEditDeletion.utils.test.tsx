@@ -41,7 +41,7 @@ if (typeof Range.prototype.getBoundingClientRect !== "function") {
   };
 }
 
-describe("§5.5 deletion semantics", () => {
+describe("deletion semantics", () => {
   it("merges a para into the previous para when its marker is deleted", async () => {
     let first: ParaNode, second: ParaNode, secondMarker: MarkerNode;
     const { editor } = await testEnvironment(() => {
@@ -169,26 +169,22 @@ describe("§5.5 deletion semantics", () => {
   });
 });
 
-describe("collapsed-note atomic deletion (PT-4187 QA finding)", () => {
+describe("collapsed-note atomic deletion", () => {
   /** A `\p` para with `before`, a collapsed `\f` note (opener glyph, caller-placeholder text,
    * `\fr`/`\ft` content, closer glyph), and ` after` — the editable-mode shape `createNote`
    * builds. Returns the note. */
   function $appendParaWithCollapsedNote(): NoteNode {
-    const para = $createParaNode("p");
     const note = $createNoteNode("f", "+", true);
-    const opener = $createMarkerNode("f");
-    const closer = $createMarkerNode("f", "closing");
-    note.append(
-      opener,
-      $createTextNode(`${NBSP}8.4 `),
-      $createCharNode("fr").append($createMarkerNode("fr"), $createTextNode(`${NBSP}8.4`)),
-      closer,
-    );
     $getRoot().append(
-      para.append(
+      $createParaNode("p").append(
         $createMarkerNode("p"),
         $createTextNode(`${NBSP}before`),
-        note,
+        note.append(
+          $createMarkerNode("f"),
+          $createTextNode(`${NBSP}8.4 `),
+          $createCharNode("fr").append($createMarkerNode("fr"), $createTextNode(`${NBSP}8.4`)),
+          $createMarkerNode("f", "closing"),
+        ),
         $createTextNode(" after"),
       ),
     );
@@ -270,12 +266,41 @@ describe("collapsed-note atomic deletion (PT-4187 QA finding)", () => {
 
   it("leaves a glyph-less collapsed note alone (non-editable creation shapes)", async () => {
     const { editor } = await testEnvironment(() => {
-      const para = $createParaNode("p");
-      const note = $createNoteNode("f", "+", true);
-      note.append($createTextNode(`${NBSP}content only`));
-      $getRoot().append(para.append($createMarkerNode("p"), $createTextNode(NBSP), note));
+      $getRoot().append(
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          $createNoteNode("f", "+", true).append($createTextNode(`${NBSP}content only`)),
+        ),
+      );
     });
 
     editor.getEditorState().read(() => expect($onlyNoteCount()).toBe(1));
+  });
+
+  it("keeps an intact note when a stray TextNode lands as its first child (typing at note start)", async () => {
+    // Typing at the very start of a collapsed note anchors the typed char as the note's first
+    // child, before the `\f` opener — the transient NoteNodePlugin's `$noteNodeTransform`
+    // salvages by moving the text out. The opener glyph still exists (now second), so the note is
+    // intact and must survive: a first/last-position glyph check would read this as "opener
+    // deleted" and destroy the whole footnote before the salvage runs (transform ordering race).
+    let note: NoteNode;
+    const { editor } = await testEnvironment(() => {
+      note = $appendParaWithCollapsedNote();
+    });
+
+    await act(async () =>
+      editor.update(() => {
+        note.splice(0, 0, [$createTextNode("x")]); // typed char lands before the `\f` opener
+      }),
+    );
+
+    editor.getEditorState().read(() => expect($onlyNoteCount()).toBe(1));
+    // The paragraph is intact around the surviving note (its own glyph text stays inside it —
+    // that is the note rendering, not a spill). The typed char was not lost either.
+    const text = paraText(editor);
+    expect(text).toContain("before");
+    expect(text).toContain("after");
+    expect(text).toContain("x");
   });
 });
