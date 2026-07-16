@@ -4,28 +4,28 @@ import {
   $expectSelectionToBe,
   updateSelection,
 } from "../../../../libs/shared/src/nodes/usj/test.utils";
-import ScriptureReferencePlugin from "./ScriptureReferencePlugin";
+import { ScriptureReferencePlugin } from "./ScriptureReferencePlugin";
+import type { BookCode } from "@eten-tech-foundation/scripture-utilities";
 import { LexicalComposer } from "@lexical/react/LexicalComposer";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { ContentEditable } from "@lexical/react/LexicalContentEditable";
 import { LexicalErrorBoundary } from "@lexical/react/LexicalErrorBoundary";
 import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
-import type { BookCode } from "@eten-tech-foundation/scripture-utilities";
 import { SerializedVerseRef } from "@sillsdev/scripture";
 import { act, render } from "@testing-library/react";
 import {
-  TextNode,
-  $getRoot,
-  $isElementNode,
   $createPoint,
   $createRangeSelection,
-  $setSelection,
-  SELECTION_CHANGE_COMMAND,
   $createTextNode,
-  LexicalEditor,
+  $getRoot,
   $getSelection,
+  $isElementNode,
+  $setSelection,
+  BaseSelection,
+  LexicalEditor,
+  SELECTION_CHANGE_COMMAND,
+  TextNode,
 } from "lexical";
-import type { BaseSelection } from "lexical";
 import { useEffect, useState } from "react";
 import {
   $createBookNode,
@@ -43,7 +43,7 @@ beforeAll(() => {
   // resolves `selectionTarget` to either an element child (offset lookup) or, when the native
   // DOM selection doesn't resolve to an element boundary, `domSelection.getRangeAt(0)` - a Range
   // over a Text node, which is what the plugin's document-swap cursor placement
-  // (`verseOrParaNode.select(0, 0)` in $moveCursorToVerseStart) produces here. Without this shim
+  // (`verseOrParaNode.select(0, 0)` in $moveCaretToVerseStart) produces here. Without this shim
   // that call throws "selectionTarget.getBoundingClientRect is not a function" from inside
   // Lexical's async $commitPendingUpdates (see node_modules/lexical/Lexical.dev.mjs:7931),
   // outside any test's promise chain, so it surfaces as an unhandled error rather than a test
