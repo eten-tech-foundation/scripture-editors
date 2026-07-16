@@ -6,7 +6,7 @@ import {
   NOTE_CALLER_INDEX,
 } from "../../../../../packages/utilities/src/converters/usj/converter-test.data";
 // eslint-disable-next-line @nx/enforce-module-boundaries
-import { updateSelection as $updateSelection } from "../../../../../libs/shared/src/nodes/usj/test.utils";
+import { updateSelection as updateSelectionInternal } from "../../../../../libs/shared/src/nodes/usj/test.utils";
 import { SerializedImmutableNoteCallerNode, usjReactNodes } from "../../nodes/usj";
 import { InitialEditorStateType, LexicalComposer } from "@lexical/react/LexicalComposer";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
@@ -87,9 +87,9 @@ export async function baseTestEnvironment(
  * `useLexicalNodeSelection`) are flushed inside act and don't emit "not wrapped in act(...)"
  * warnings. Same signature as the shared helper; prefer this in tests that render components.
  */
-export function updateSelection(...args: Parameters<typeof $updateSelection>): void {
+export function updateSelection(...args: Parameters<typeof updateSelectionInternal>): void {
   act(() => {
-    $updateSelection(...args);
+    updateSelectionInternal(...args);
   });
 }
 
