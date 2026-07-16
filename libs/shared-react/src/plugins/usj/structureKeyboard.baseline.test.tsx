@@ -69,8 +69,8 @@ describe("baseline (unprotected) structural behavior", () => {
   });
 });
 
-// With the plugin present but not in protected mode (isStructureProtected={false}), the plugin
-// now implements the two-step intentional-delete behavior. Structural Backspace is
+// With the plugin present in guarded mode (structureProtectionMode="guarded"), the plugin
+// implements the two-step intentional-delete behavior. Structural Backspace is
 // intercepted: first press arms (selects the block), second press fires (merges).
 // Non-keyboard vectors (CUT, DRAGSTART) and plain text insertion are not blocked.
 describe("StructureKeyboardPlugin unprotected — two-step delete active", () => {
@@ -155,6 +155,6 @@ describe("StructureKeyboardPlugin unprotected — two-step delete active", () =>
 async function testEnvironment($initialEditorState: () => void) {
   return baseTestEnvironment(
     $initialEditorState,
-    <StructureKeyboardPlugin isStructureProtected={false} />,
+    <StructureKeyboardPlugin structureProtectionMode="guarded" />,
   );
 }

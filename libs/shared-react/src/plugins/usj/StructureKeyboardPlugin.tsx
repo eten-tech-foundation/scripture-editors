@@ -33,13 +33,15 @@ import {
 import { useEffect, useRef, useState, useCallback } from "react";
 import { $isSomeVerseNode } from "../../nodes/usj";
 import { $isSomeParaNode } from "shared";
+import { StructureProtectionMode } from "./structure-protection.model";
 
 /**
  * Governs structural keystrokes (Backspace/Delete/Enter/typing) at verse- and paragraph-marker
- * boundaries. When `isStructureProtected`, blocks them and sanitizes paste/drop payloads so
- * structural markers (paragraph breaks, verse markers, chapter markers) cannot be inserted —
- * text, inline character formatting, and notes are kept. When not protected, makes deletion a
- * deliberate two-step gesture: first press selects the marker/section, second press deletes it.
+ * boundaries. In `"protected"` mode, blocks them and sanitizes paste/drop payloads so structural
+ * markers (paragraph breaks, verse markers, chapter markers) cannot be inserted — text, inline
+ * character formatting, and notes are kept. In `"guarded"` mode, makes deletion a deliberate
+ * two-step gesture instead: first press selects the marker/section, second press deletes it.
+ * In `"off"` mode, no handlers are registered and editing is fully native.
  * Registers a KEY_DOWN handler at COMMAND_PRIORITY_HIGH, mirroring ArrowNavigationPlugin.
  *
  * The armed state is published to the DOM (rather than rendered here) so the host app owns the
@@ -48,19 +50,16 @@ import { $isSomeParaNode } from "shared";
  * (`verse` | `selection`), and the armed marker carries the `verse-selected` class. The host can
  * observe these to render a localized tooltip (see paranext-core's VerseDeleteTooltipOverlay).
  *
- * @param isStructureProtected - When true, structural keystrokes are blocked; when false, the
- *   two-step intentional-delete behavior is active. Only consulted when the feature is active.
- * @param isStructureProtectionActive - Whether the feature applies at all. Defaults to true. When
- *   false (e.g. the Power interface mode), the plugin registers no handlers and editing is fully
- *   native — no blocking, no two-step delete, no armed state.
+ * @param structureProtectionMode - `"off"` (e.g. the Power interface mode): the plugin registers
+ *   no handlers and editing is fully native — no blocking, no two-step delete, no armed state.
+ *   `"guarded"`: two-step intentional-delete behavior is active. `"protected"`: structural
+ *   keystrokes and paste/drop of structural markers are blocked outright. Defaults to `"off"`.
  * @returns Always `null`; this plugin renders no UI, only editor behavior and DOM signals.
  */
 export function StructureKeyboardPlugin({
-  isStructureProtected,
-  isStructureProtectionActive = true,
+  structureProtectionMode = "off",
 }: {
-  isStructureProtected: boolean;
-  isStructureProtectionActive?: boolean;
+  structureProtectionMode?: StructureProtectionMode;
 }): null {
   const [editor] = useLexicalComposerContext();
   const armedRef = useRef<ArmedDelete | undefined>(undefined);
@@ -72,20 +71,20 @@ export function StructureKeyboardPlugin({
 
   useEffect(() => {
     // Feature off (e.g. Power mode): register nothing so editing stays fully native.
-    if (!isStructureProtectionActive) return undefined;
+    if (structureProtectionMode === "off") return undefined;
 
     const $handleKeyDown = (event: KeyboardEvent): boolean => {
       const intent = keyDownToIntent(event);
       if (!intent) return false;
       const selection = $getSelection();
-      if (isStructureProtected) {
+      if (structureProtectionMode === "protected") {
         if (selection && $shouldBlockStructuralEdit(selection, intent)) {
           event.preventDefault();
           return true;
         }
         return false;
       }
-      // Unprotected: two-step intentional delete (delete intents only).
+      // Guarded: two-step intentional delete (delete intents only).
       if (intent !== "deleteBackward" && intent !== "deleteForward") return false;
       return $handleTwoStepDelete(intent, event);
     };
@@ -170,7 +169,7 @@ export function StructureKeyboardPlugin({
     // types: CUT/DRAGSTART carry an `Event` (which we preventDefault), while
     // CONTROLLED_TEXT_INSERTION carries a string. We only call preventDefault for Events.
     const $blockUnsafeSelection = (payload: unknown): boolean => {
-      if (!isStructureProtected) return false;
+      if (structureProtectionMode !== "protected") return false;
       const selection = $getSelection();
       if (!selection || !$shouldBlockSelectionReplacement(selection)) return false;
       if (payload instanceof Event) payload.preventDefault();
@@ -195,7 +194,7 @@ export function StructureKeyboardPlugin({
     };
 
     const $handlePaste = (event: ClipboardEvent): boolean => {
-      if (!isStructureProtected) return false;
+      if (structureProtectionMode !== "protected") return false;
       const selection = $getSelection();
       if (selection && $shouldBlockSelectionReplacement(selection)) {
         event.preventDefault();
@@ -205,7 +204,7 @@ export function StructureKeyboardPlugin({
     };
 
     const $handleDrop = (event: DragEvent): boolean => {
-      if (!isStructureProtected) return false;
+      if (structureProtectionMode !== "protected") return false;
       const selection = $getSelection();
       if (selection && $shouldBlockSelectionReplacement(selection)) {
         event.preventDefault();
@@ -237,7 +236,7 @@ export function StructureKeyboardPlugin({
       ),
       editor.registerUpdateListener(clearStaleLatch),
     );
-  }, [editor, isStructureProtected, isStructureProtectionActive, setArmedState]);
+  }, [editor, structureProtectionMode, setArmedState]);
 
   // Publish the armed state onto the editor root: the class gates the CSS blink to armed markers,
   // and the data attributes let the host app render a localized destructive hint. `para` merges

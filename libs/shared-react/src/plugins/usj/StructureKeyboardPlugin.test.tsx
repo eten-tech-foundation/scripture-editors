@@ -660,9 +660,9 @@ describe("StructureKeyboardPlugin — armed DOM signals for the host hint", () =
   });
 });
 
-// isStructureProtectionActive={false} (e.g. the Power interface mode): the feature is off, so the
+// structureProtectionMode="off" (e.g. the Power interface mode): the feature is off, so the
 // plugin registers no handlers and editing is fully native — no blocking, no two-step arming.
-describe("StructureKeyboardPlugin — feature inactive (isStructureProtectionActive={false})", () => {
+describe('StructureKeyboardPlugin — feature off (structureProtectionMode="off")', () => {
   it("does not arm the two-step delete at a verse boundary", async () => {
     let t1: TextNode;
     const { editor } = await inactiveEnvironment(() => {
@@ -683,22 +683,17 @@ describe("StructureKeyboardPlugin — feature inactive (isStructureProtectionAct
     expect(root?.getAttribute("data-verse-delete-kind")).toBeNull();
   });
 
-  it("does not block structural edits: protected + inactive lets Enter split the paragraph natively", async () => {
+  it("does not block structural edits: Enter splits the paragraph natively", async () => {
     let t1: TextNode;
-    const { editor } = await baseTestEnvironment(
-      () => {
-        t1 = $createTextNode("abcdef");
-        $getRoot().append($createParaNode("p").append(t1));
-      },
-      // Protected + inactive: inactive wins, so Enter is NOT blocked and splits natively.
-      <StructureKeyboardPlugin isStructureProtected isStructureProtectionActive={false} />,
-    );
+    const { editor } = await inactiveEnvironment(() => {
+      t1 = $createTextNode("abcdef");
+      $getRoot().append($createParaNode("p").append(t1));
+    });
     updateSelection(editor, t1!, 3);
 
     await pressKey(editor, "Enter", 0);
 
     editor.getEditorState().read(() => {
-      // When active+protected the plugin blocks Enter (size stays 1); inactive lets it split → 2.
       expect($getRoot().getChildrenSize()).toBe(2);
     });
   });
@@ -707,20 +702,20 @@ describe("StructureKeyboardPlugin — feature inactive (isStructureProtectionAct
 async function testEnvironment($initialEditorState: () => void) {
   return baseTestEnvironment(
     $initialEditorState,
-    <StructureKeyboardPlugin isStructureProtected={true} />,
+    <StructureKeyboardPlugin structureProtectionMode="protected" />,
   );
 }
 
 async function unprotectedEnvironment($initialEditorState: () => void) {
   return baseTestEnvironment(
     $initialEditorState,
-    <StructureKeyboardPlugin isStructureProtected={false} />,
+    <StructureKeyboardPlugin structureProtectionMode="guarded" />,
   );
 }
 
 async function inactiveEnvironment($initialEditorState: () => void) {
   return baseTestEnvironment(
     $initialEditorState,
-    <StructureKeyboardPlugin isStructureProtected={false} isStructureProtectionActive={false} />,
+    <StructureKeyboardPlugin structureProtectionMode="off" />,
   );
 }
