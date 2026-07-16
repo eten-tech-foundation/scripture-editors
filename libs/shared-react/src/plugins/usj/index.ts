@@ -14,6 +14,7 @@ export * from "./NoteNodePlugin";
 export * from "./OnSelectionChangePlugin";
 export * from "./ParaNodePlugin";
 export * from "./StateChangePlugin";
+export * from "./structure-protection.model";
 export * from "./StructureKeyboardPlugin";
 export * from "./text-direction.model";
 export * from "./TextDirectionPlugin";
