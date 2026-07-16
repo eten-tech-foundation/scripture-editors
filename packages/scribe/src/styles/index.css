@@ -67,6 +67,15 @@
   font-size: 12pt;
 }
 
+/* UnknownNode.createDOM no longer sets an inline `display: none`; hiding now comes from these
+   classes (mirrors the base rule in platform's usj-nodes.css). Without this rule the scribe
+   editor — which also registers UnknownNode via usjReactNodes — would render unknown markers
+   (e.g. \fig, tables, \ref) as raw visible content. */
+.unknown-block,
+.unknown-inline {
+  display: none;
+}
+
 /* BookNode */
 
 .usfm_id {

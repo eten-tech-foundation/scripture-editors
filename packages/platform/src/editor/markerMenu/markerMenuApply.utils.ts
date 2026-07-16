@@ -133,15 +133,17 @@ export function $applyMarkerMenuSelection(
   reference: SerializedVerseRef,
   deps: ApplyMarkerMenuSelectionDeps,
 ): void {
+  // Delete the literal `\marker` trigger prefix (when one landed) BEFORE any branch — including the
+  // `closeTag` branch, so closing a char span via the passive `\` palette doesn't strand the trigger
+  // `\` (and any typed filter chars) in the document. The wrap case (a non-collapsed selection)
+  // arrives with `literalPrefixLanded: false`, so this stays a no-op there and `getUsjMarkerAction`'s
+  // `$wrapTextSelectionInInlineNode` path still wraps the intact selection instead of a cleaned-up one.
+  if (opts.literalPrefixLanded) $removeLiteralTriggerPrefix();
+
   if (item.kind === "closeTag") {
     $closeCharSpanAtCaret(item.marker.replace(/^\+/, ""));
     return;
   }
-
-  // Wrap case (a non-collapsed selection lands here with `literalPrefixLanded: false`): skip
-  // cleanup so `getUsjMarkerAction`'s `$wrapTextSelectionInInlineNode` path wraps the intact
-  // selection instead of a post-cleanup one.
-  if (opts.literalPrefixLanded) $removeLiteralTriggerPrefix();
 
   // Paragraph-kind picks that are real ParaNode markers retag or split (PT9 reformat
   // semantics). The sheet also types some non-para structural markers as "paragraph" (`c` —

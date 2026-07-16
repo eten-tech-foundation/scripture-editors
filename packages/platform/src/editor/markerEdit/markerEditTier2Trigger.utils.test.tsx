@@ -83,7 +83,7 @@ describe("Tier 2 literal-text triggers", () => {
   });
 
   it("keeps subsequent keystrokes in the glyph after a mid-paragraph marker split (no scramble)", async () => {
-    // Round 3 note: with caret-bounded termination, typing `\z` mid-paragraph no longer
+    // With caret-bounded termination, typing `\z` mid-paragraph no longer
     // terminates against the PRE-EXISTING following space (that was the phantom-marker
     // corruption class) — the literal builds up in the content text instead, and the split
     // happens when the user types the terminating space themselves. This test starts from a
