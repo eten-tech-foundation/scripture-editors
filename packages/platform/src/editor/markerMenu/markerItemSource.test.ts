@@ -77,6 +77,18 @@ describe("getMarkerMenuItems — paragraph source (MarkerItemSource.cs:168-199)"
     });
     expect(getMarkerMenuItems(sheet, context)).toEqual([]);
   });
+
+  it("never offers the chapter marker `c` in the paragraph or Enter menus (it is structural)", () => {
+    // `c` (occursUnder ["id"]) validates on an `id`-only stack, so without the `includeMarker`
+    // guard it surfaces in both menus — and picking it from the Enter split menu produced a
+    // malformed `<para marker="c">`. Real paragraph markers (e.g. `ip`) must still be offered.
+    const context = makeContext({ source: "paragraph", previousParaMarkers: ["id"] });
+    const backslash = getMarkerMenuItems(sheet, context).map((item) => item.marker);
+    const enter = getEnterMenuItems(sheet, context).map((item) => item.marker);
+    expect(backslash).not.toContain("c");
+    expect(enter).not.toContain("c");
+    expect(backslash).toContain("ip");
+  });
 });
 
 describe("getMarkerMenuItems — character source (MarkerItemSource.cs:109-147)", () => {
