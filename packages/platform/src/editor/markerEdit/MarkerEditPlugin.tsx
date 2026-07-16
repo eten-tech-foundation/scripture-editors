@@ -56,11 +56,11 @@ import {
 import { getViewMode, STANDARD_VIEW_MODE, ViewOptions } from "shared-react";
 
 /**
- * Internal command backing `EditorRef.commitPendingMarkerEdits` — dispatched from `Editor.tsx`
- * and not exported for host use. Resolving a pending marker re-tokenizes its edited text into
- * finished structure; this command resolves every pending marker so the serialized USJ matches
- * what is on screen. Without it, a marker the user renamed but walked away from mid-edit stays
- * pending forever and serializes its OLD text.
+ * The command behind the public `EditorRef.commitPendingMarkerEdits()` method — `Editor.tsx`
+ * dispatches it when a host calls that method. Resolving a pending marker re-tokenizes its
+ * edited text into finished structure; this command resolves every pending marker so the
+ * serialized USJ matches what is on screen. Without it, a marker the user renamed but walked
+ * away from mid-edit stays pending forever and serializes its OLD text.
  *
  * The resolve-everything rule has one exception: the node the caret is in stays pending, but
  * only while the user is genuinely editing it — while the editor still holds DOM focus (a
