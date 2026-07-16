@@ -81,7 +81,7 @@ This is an Nx monorepo containing multiple scripture editor packages that share 
 - **`libs/shared`**: Core framework-agnostic editor functionality (nodes, plugins, converters)
 - **`libs/shared-react`**: React-specific components and plugins extending shared functionality
 - **`packages/platform`**: Scripture editor for Platform.Bible with commenting and collaboration features
-- **`packages/scribe`**: Lightweight scripture editor for Scribe application
+- **`packages/scribe`**: Lightweight scripture editor for Scribe application. **Not currently maintained** — do NOT use it as a reference for existing patterns or conventions when investigating the codebase (prefer `platform`, `shared`, `shared-react`). Touch it only when a change explicitly targets scribe.
 - **`demos/perf-react`**: React-based editor for PERF format with performance optimizations
 - **`demos/perf-vanilla`**: Vanilla JS editor for PERF format
 - **`packages/utilities`**: Data format conversion utilities (USJ/USX/USFM)
