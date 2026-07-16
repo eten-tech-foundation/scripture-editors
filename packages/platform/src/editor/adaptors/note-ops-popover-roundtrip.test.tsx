@@ -21,6 +21,9 @@ import { deepEqual } from "fast-equals";
 import { createRef } from "react";
 import { $getRoot, $isElementNode, $isTextNode, LexicalEditor, LexicalNode } from "lexical";
 import { $dfs } from "@lexical/utils";
+// Reaching inside only for tests.
+// eslint-disable-next-line @nx/enforce-module-boundaries
+import { getEmbeddedLexicalEditor } from "../../../../../libs/shared-react/src/plugins/usj/react-test.utils";
 import {
   $isCharNode,
   $isImmutableUnmatchedNode,
@@ -119,25 +122,6 @@ function makeLogger() {
   return { messages, logger };
 }
 
-/** Reads the `LexicalEditor` out of the mounted editor via the `.editor-input` DOM node's
- * `__lexicalEditor` back-reference.
- *
- * The cleaner handle (used in `Editor.test.tsx` and `CommandMenuPlugin.gate.test.tsx`) drops
- * Lexical's `<EditorRefPlugin>` in as a child and reads it from composer context — but that needs
- * the component to render `children` inside its composer. These tests intentionally go end-to-end
- * through the public `<Editorial>` wrapper, which strips `children` before delegating to `<Editor>`,
- * so the child-plugin handle isn't reachable here. Hence this DOM reach-in, confined to one helper. */
-function getEmbeddedLexicalEditor(container: HTMLElement | undefined): LexicalEditor {
-  const editorInput = requireDefined(
-    container?.querySelector(".editor-input"),
-    "editor input element",
-  );
-  return requireDefined(
-    (editorInput as unknown as { __lexicalEditor?: LexicalEditor }).__lexicalEditor,
-    "lexical editor handle",
-  );
-}
-
 async function renderEditor(options: EditorOptions, defaultUsj: Usj) {
   const ref = createRef<EditorRef>();
   let container: HTMLElement | undefined;
@@ -154,6 +138,8 @@ async function renderEditor(options: EditorOptions, defaultUsj: Usj) {
     container = result.container;
   });
   const editorRef = requireDefined(ref.current, "editor ref");
+  // This suite runs end-to-end through the public <Editorial> wrapper, which strips `children`, so
+  // the cleaner EditorRefPlugin-child handle isn't reachable — read the editor off the mounted DOM.
   const lexical = getEmbeddedLexicalEditor(container);
   return { editorRef, lexical };
 }

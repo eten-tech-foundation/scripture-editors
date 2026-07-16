@@ -4,6 +4,9 @@ import { Usj } from "@eten-tech-foundation/scripture-utilities";
 import { ScriptureReference } from "shared";
 import { KEY_DOWN_COMMAND, LexicalEditor } from "lexical";
 import { FORMATTED_VIEW_MODE, getViewOptions, STANDARD_VIEW_MODE } from "shared-react";
+// Reaching inside only for tests.
+// eslint-disable-next-line @nx/enforce-module-boundaries
+import { getEmbeddedLexicalEditor } from "../../../../libs/shared-react/src/plugins/usj/react-test.utils";
 
 // The Editor-level gate controls shared-react's `CommandMenuPlugin`, which `preventDefault`s a
 // typed or pasted `\` and `/` so those characters never land in the document. Editable marker
@@ -57,20 +60,6 @@ const sampleUsj: Usj = {
 };
 const scrRef: ScriptureReference = { book: "GEN", chapterNum: 1, verseNum: 1 };
 
-/** Reads the `LexicalEditor` out of the mounted `<Editor>` via the `.editor-input` DOM node's
- * `__lexicalEditor` back-reference.
- *
- * Platform's black-box `<Editor>` tests use a cleaner handle — a child `<EditorRefPlugin>` read
- * from composer context — but that needs `<Editor>` to render `children` inside its composer, and
- * scribe's `<Editor>` has no such slot. Hence this DOM reach-in, confined to one helper. */
-function getEmbeddedLexicalEditor(container: HTMLElement | undefined): LexicalEditor {
-  const editorInput = container?.querySelector(".editor-input");
-  if (!editorInput) throw new Error("editor-input element not found");
-  const lexical = (editorInput as unknown as { __lexicalEditor?: LexicalEditor }).__lexicalEditor;
-  if (!lexical) throw new Error("lexical editor handle not found");
-  return lexical;
-}
-
 /** Renders the real Editor in `viewMode` and returns its underlying Lexical editor. */
 async function renderEditor(viewMode: string): Promise<LexicalEditor> {
   let container: HTMLElement | undefined;
@@ -85,6 +74,8 @@ async function renderEditor(viewMode: string): Promise<LexicalEditor> {
     );
     container = result.container;
   });
+  // scribe's <Editor> has no `children` slot, so the cleaner EditorRefPlugin-child handle isn't
+  // available — read the editor off the mounted DOM instead.
   return getEmbeddedLexicalEditor(container);
 }
 

@@ -80,6 +80,25 @@ export async function baseTestEnvironment(
 }
 
 /**
+ * Reads a mounted editor's `LexicalEditor` off the `.editor-input` DOM node's `__lexicalEditor`
+ * back-reference. This touches a Lexical implementation detail, so it is centralized here rather
+ * than reimplemented per test. Prefer the cleaner handle when the editor component renders
+ * `children` inside its composer: pass Lexical's `<EditorRefPlugin editorRef={ref} />` as a child
+ * and read `ref.current`. Use this reach-in only when that route is unavailable (e.g. the editor
+ * renders through a wrapper that strips `children`, or exposes no children slot); the calling test
+ * should note why.
+ *
+ * @param container - The mounted container from `render(...)` (e.g. `result.container`).
+ */
+export function getEmbeddedLexicalEditor(container: HTMLElement | null | undefined): LexicalEditor {
+  const editorInput = container?.querySelector(".editor-input");
+  if (!editorInput) throw new Error("editor-input element not found");
+  const lexical = (editorInput as unknown as { __lexicalEditor?: LexicalEditor }).__lexicalEditor;
+  if (!lexical) throw new Error("lexical editor handle not found");
+  return lexical;
+}
+
+/**
  * Press the enter key at the selection range in the LexicalEditor.
  *
  * @param editor - The LexicalEditor instance where the selection will be set.
