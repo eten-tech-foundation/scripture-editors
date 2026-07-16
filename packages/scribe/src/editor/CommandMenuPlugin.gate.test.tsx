@@ -57,6 +57,20 @@ const sampleUsj: Usj = {
 };
 const scrRef: ScriptureReference = { book: "GEN", chapterNum: 1, verseNum: 1 };
 
+/** Reads the `LexicalEditor` out of the mounted `<Editor>` via the `.editor-input` DOM node's
+ * `__lexicalEditor` back-reference.
+ *
+ * Platform's black-box `<Editor>` tests use a cleaner handle — a child `<EditorRefPlugin>` read
+ * from composer context — but that needs `<Editor>` to render `children` inside its composer, and
+ * scribe's `<Editor>` has no such slot. Hence this DOM reach-in, confined to one helper. */
+function getEmbeddedLexicalEditor(container: HTMLElement | undefined): LexicalEditor {
+  const editorInput = container?.querySelector(".editor-input");
+  if (!editorInput) throw new Error("editor-input element not found");
+  const lexical = (editorInput as unknown as { __lexicalEditor?: LexicalEditor }).__lexicalEditor;
+  if (!lexical) throw new Error("lexical editor handle not found");
+  return lexical;
+}
+
 /** Renders the real Editor in `viewMode` and returns its underlying Lexical editor. */
 async function renderEditor(viewMode: string): Promise<LexicalEditor> {
   let container: HTMLElement | undefined;
@@ -71,11 +85,7 @@ async function renderEditor(viewMode: string): Promise<LexicalEditor> {
     );
     container = result.container;
   });
-  const editorInput = container?.querySelector(".editor-input");
-  if (!editorInput) throw new Error("editor-input element not found");
-  const lexical = (editorInput as unknown as { __lexicalEditor?: LexicalEditor }).__lexicalEditor;
-  if (!lexical) throw new Error("lexical editor handle not found");
-  return lexical;
+  return getEmbeddedLexicalEditor(container);
 }
 
 /**
