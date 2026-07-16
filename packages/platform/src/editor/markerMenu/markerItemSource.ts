@@ -68,9 +68,14 @@ function markerIsBasic(description?: string): boolean {
  * MarkerDropdownControl.cs:100-102) and anything our structural insert path
  * doesn't support (`isUsjMarkerSupported` — adapted divergence, excludes
  * `id`; PT9 does not filter deprecated markers, and neither do we).
+ *
+ * `\c` (chapter) is also skipped: the sheet types it `styleType: "paragraph"`, but it is a
+ * structural marker inserted via its own `getUsjMarkerAction` chapter action, not a paragraph
+ * style to retag/split into. Offering it in the paragraph menu let it be picked from the Enter
+ * split menu, where `$splitParagraphWithMarker("c")` produced a malformed `<para marker="c">`.
  */
 function includeMarker(marker: string): boolean {
-  return !marker.startsWith("zpa") && isUsjMarkerSupported(marker);
+  return !marker.startsWith("zpa") && marker !== "c" && isUsjMarkerSupported(marker);
 }
 
 function toStackEntry(styleInfo: StyleInfo, marker: string): ParaStackEntry | undefined {

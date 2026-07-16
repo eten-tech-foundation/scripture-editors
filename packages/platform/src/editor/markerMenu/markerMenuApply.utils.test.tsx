@@ -18,12 +18,14 @@ import {
 import { HistoryPlugin } from "@lexical/react/LexicalHistoryPlugin";
 import { act } from "@testing-library/react";
 import {
+  $createRangeSelection,
   $createTextNode,
   $getRoot,
   $getSelection,
   $getState,
   $isRangeSelection,
   $isTextNode,
+  $setSelection,
   $setState,
   BLUR_COMMAND,
   TextNode,
@@ -469,6 +471,54 @@ describe("$applyMarkerMenuSelection", () => {
         expect(markerChildren).toHaveLength(2);
         // No text was deleted - the full original words survive across the paragraph.
         expect(para.getTextContent()).toContain("say");
+        expect(para.getTextContent()).toContain("words");
+      });
+    });
+
+    it("wraps a MULTI-node selection without deleting earlier content (reused-wrapper regression)", async () => {
+      let first: TextNode;
+      let last: TextNode;
+      const { editor } = await testEnvironment(() => {
+        const para = $createParaNode("p");
+        first = $createTextNode("say holy");
+        last = $createTextNode(" words");
+        // Different format so Lexical keeps these as two separate inline nodes (not merged), giving
+        // the selection 2+ nodes and making `$wrapTextSelectionInInlineNode` reuse ONE wrapper.
+        last.toggleFormat("bold");
+        $getRoot().append(
+          para.append($createMarkerNode("p"), $createTrailingSpaceNode(), first, last),
+        );
+      });
+      // Select across BOTH text nodes: first[0] -> last[end].
+      await act(async () =>
+        editor.update(() => {
+          const selection = $createRangeSelection();
+          selection.anchor.set(first.getKey(), 0, "text");
+          selection.focus.set(last.getKey(), last.getTextContentSize(), "text");
+          $setSelection(selection);
+        }),
+      );
+
+      const item: MarkerMenuItem = { marker: "wj", kind: "character", isBasic: true };
+      await act(async () =>
+        editor.update(() => {
+          $applyMarkerMenuSelection(
+            item,
+            { trigger: "backslash", literalPrefixLanded: false },
+            reference,
+            makeDeps(),
+          );
+        }),
+      );
+
+      editor.getEditorState().read(() => {
+        const para = requireDefined(
+          $getRoot().getChildren().filter($isParaNode)[0],
+          "para missing",
+        );
+        // Before the fix the 2nd $wrapNode call stripped the first node's already-wrapped content,
+        // leaving only " words". Both selected pieces must survive.
+        expect(para.getTextContent()).toContain("say holy");
         expect(para.getTextContent()).toContain("words");
       });
     });

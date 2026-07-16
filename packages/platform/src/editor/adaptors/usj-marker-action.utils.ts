@@ -260,14 +260,18 @@ function $wrapTextSelectionInInlineNode(
       return;
     }
 
-    // Create or reuse wrapper node
+    // Create or reuse wrapper node. The wrapper is created ONCE and reused for every node of the
+    // selection, so only its FIRST use is "fresh" (carries the empty-content placeholder to discard);
+    // later uses already hold real content wrapped for earlier nodes.
+    let isFreshWrapper = false;
     if (!currentWrapper) {
       currentWrapper = createNode();
       targetNode.insertBefore(currentWrapper);
+      isFreshWrapper = true;
     }
 
     // Wrap the target node
-    $wrapNode(targetNode, currentWrapper);
+    $wrapNode(targetNode, currentWrapper, isFreshWrapper);
   });
 
   // Update selection
@@ -331,7 +335,7 @@ function handleTextNode(
   return splitNodes.length === 3 || end === textLength ? splitNodes[1] : splitNodes[0];
 }
 
-function $wrapNode(node: LexicalNode, wrapper: LexicalNode): void {
+function $wrapNode(node: LexicalNode, wrapper: LexicalNode, isFreshWrapper: boolean): void {
   if ($isTextNode(wrapper)) {
     const text = $moveLeadingSpaceToPreviousNode(node, wrapper);
     wrapper.setTextContent(text);
@@ -345,17 +349,27 @@ function $wrapNode(node: LexicalNode, wrapper: LexicalNode): void {
     // unwrapped again immediately (`$charNodeDeletionTransform`). Other marker modes don't
     // populate glyph children this way, so the original strip-everything behavior (append then
     // drop whatever pre-existing children there were) is unchanged for them.
+    //
+    // The placeholder/pre-existing children only exist on the FIRST use of the wrapper. When the
+    // SAME wrapper is reused for the next node of a multi-node selection it is NOT fresh, and its
+    // non-marker children are real content already wrapped for an earlier node — stripping them
+    // then would delete that content (keeping only the last node's).
     const existingChildren = wrapper.getChildren();
     const closer = existingChildren.find(
       (child) => $isMarkerNode(child) && child.getMarkerSyntax() !== "opening",
     );
     if (closer) {
       closer.insertBefore(node);
-      existingChildren.filter((child) => !$isMarkerNode(child)).forEach((child) => child.remove());
-    } else {
+      if (isFreshWrapper)
+        existingChildren
+          .filter((child) => !$isMarkerNode(child))
+          .forEach((child) => child.remove());
+    } else if (isFreshWrapper) {
       const wrapperChildrenCount = wrapper.getChildrenSize();
       wrapper.append(node);
       for (let i = 0; i < wrapperChildrenCount; i++) wrapper.getFirstChild()?.remove();
+    } else {
+      wrapper.append(node);
     }
     $moveLeadingSpaceToPreviousNode(node, wrapper);
   }
