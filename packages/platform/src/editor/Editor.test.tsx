@@ -8,7 +8,6 @@ import { ContentJsonPath, Usj } from "@eten-tech-foundation/scripture-utilities"
 import { act, render } from "@testing-library/react";
 import { createRef, RefObject } from "react";
 import { $getNodeByKey, $getRoot, $isTextNode, LexicalEditor, LexicalNode } from "lexical";
-import { $dfs } from "@lexical/utils";
 import { $isMarkerNode, $isNoteNode, MarkerNode } from "shared";
 import { getViewOptions, STANDARD_VIEW_MODE } from "shared-react";
 import { vi } from "vitest";
@@ -237,11 +236,13 @@ describe("insertMarker return value", () => {
   // here) double-count the editable VerseNode and land past the note.
   const noteReference = { book: "GEN", chapterNum: 1, verseNum: 1 };
 
-  /** Finds the first TextNode whose content includes `substring` (depth-first from the root). */
+  /** Finds the first TextNode whose content includes `substring`. `getAllTextNodes()` is the
+   * walk the sibling marker tests use; MarkerNode extends TextNode so markers are included too,
+   * but the seed text searched for here lives in a plain TextNode. */
   function $findTextNodeContaining(substring: string): LexicalNode | undefined {
-    return $dfs($getRoot())
-      .map(({ node }) => node)
-      .find((node) => $isTextNode(node) && node.getTextContent().includes(substring));
+    return $getRoot()
+      .getAllTextNodes()
+      .find((node) => node.getTextContent().includes(substring));
   }
 
   /** Mounts a standard-view (markerMode "editable") `Editor` with `MarkerEditPlugin` active
@@ -343,8 +344,8 @@ describe("commitPendingMarkerEdits (abandonment window)", () => {
     // window where a host save would serialize the OLD marker.
     await act(async () => {
       lexical.update(() => {
-        const glyph = $dfs($getRoot())
-          .map(({ node }) => node)
+        const glyph = $getRoot()
+          .getAllTextNodes()
           .find((node): node is MarkerNode => $isMarkerNode(node) && node.getMarker() === "p");
         if (!glyph) throw new Error("para marker glyph not found");
         glyph.setTextContent("\\q1");

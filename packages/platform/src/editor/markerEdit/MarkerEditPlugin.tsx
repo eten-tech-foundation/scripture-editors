@@ -56,19 +56,19 @@ import {
 import { getViewMode, STANDARD_VIEW_MODE, ViewOptions } from "shared-react";
 
 /**
- * Settle pending mid-edit markers NOW — the host dispatches this right before it reads the
- * USJ to save (abandonment-window fix). The BLUR sweep
- * deliberately excepts the caret's own node (a marker-menu click blurs the editor while the
- * caret still sits in the menu's literal trigger text), so a rename walked away from mid-edit
- * stays pending indefinitely and serialization shows the OLD marker while the screen shows
- * the new one. This command closes that window: it resolves every pending, excepting the
- * caret's node only while the editor still actually has DOM focus (a mid-typing pause must
- * not settle under the user) or while the caret is app-placed — moved programmatically by a
- * scrRef caret-sync, not by the user (the user's literal at `lastAnchorKey` stays protected).
- * The HOST is responsible
- * for not dispatching while a marker-palette session is open — the palette's apply must be
- * the one to consume the typed literal (otherwise a Tier 2 reformat turns it into corrupt
- * structure before apply runs).
+ * Internal command backing `EditorRef.commitPendingMarkerEdits` — dispatched from `Editor.tsx`
+ * and not exported for host use. Resolving a pending marker re-tokenizes its edited text into
+ * finished structure; this command resolves every pending marker so the serialized USJ matches
+ * what is on screen. Without it, a marker the user renamed but walked away from mid-edit stays
+ * pending forever and serializes its OLD text.
+ *
+ * The resolve-everything rule has one exception: the node the caret is in stays pending, but
+ * only while the user is genuinely editing it — while the editor still holds DOM focus (a
+ * mid-typing pause must not settle under the user). During a programmatic scrRef caret move
+ * (the "yank", defined below) the caret is not on a node the user chose, so the exception is
+ * instead the last node the user themselves placed the caret in. The caller's own obligations
+ * (e.g. do not call while a marker palette is open) are documented on
+ * `EditorRef.commitPendingMarkerEdits`.
  */
 export const COMMIT_PENDING_MARKERS_COMMAND: LexicalCommand<void> = createCommand(
   "COMMIT_PENDING_MARKERS_COMMAND",
@@ -284,13 +284,14 @@ export function MarkerEditPlugin({
       editor.registerCommand(
         COMMIT_PENDING_MARKERS_COMMAND,
         () => {
-          // See the command's doc comment. Except the caret's node only while the editor
-          // still has DOM focus: a live mid-typing pause must not settle under the user,
-          // but an abandoned (blurred) edit must settle so serialization matches the
-          // screen. During the app-placed-caret window the live selection sits where the
-          // scrRef caret-sync programmatically moved it, not on a node the user chose — so
-          // except `lastAnchorKey` (the last caret position the USER established) instead,
-          // mirroring the BLUR handler's fallback contract.
+          // See the command's doc comment. The rule is "resolve every pending marker"; the one
+          // exception is the node the caret is in — kept pending so we never settle a marker the
+          // user is still editing. Compute that exception only while the editor holds DOM focus:
+          // a live mid-typing pause must not settle under the user, but an abandoned (blurred)
+          // edit has no such node and settles fully. When the caret was moved programmatically
+          // (the scrRef "yank"), the current selection is not a node the user chose, so the
+          // exception is `lastAnchorKey` — the last node the user themselves placed the caret in
+          // — not the live selection. (Same fallback the BLUR handler uses.)
           const rootElement = editor.getRootElement();
           const doc = rootElement?.ownerDocument;
           const hasFocus =
@@ -300,8 +301,8 @@ export function MarkerEditPlugin({
             if (appPlacedCaret) exceptKey = lastAnchorKey;
             else {
               const selection = $getSelection();
-              // Focus, not anchor: the focus point is the caret's live end, so the correct
-              // node is excepted even when a range selection is extended backward.
+              // Focus, not anchor: the focus point is the caret's live end, so the exception is
+              // the right node even when a range selection is extended backward.
               exceptKey = $isRangeSelection(selection) ? selection.focus.key : lastAnchorKey;
             }
           }
@@ -313,24 +314,21 @@ export function MarkerEditPlugin({
       editor.registerCommand(
         BLUR_COMMAND,
         () => {
-          // Completion on focus loss — EXCEPT the node the caret is still parked in.
-          // Clicking a marker-menu item (or any host overlay taking focus)
-          // blurs the editor while the caret still sits in the menu's own literal `\...`
-          // trigger text; resolving that node here Tier-2-reformats the literal into
-          // structure BEFORE the menu's apply can clean it up (observed corruption:
-          // `the wic\ked,` became an unknown-marker paragraph whose prefix glyph then
-          // absorbed the "ked," word remainder as phantom marker text). PT9's dropdown
-          // never commits the typed run this way — selecting from it REPLACES the run
-          // (MarkerDropdownControl.cs:216-219). The caret's own node still completes via
-          // Enter or caret departure, the other two PT9-debounce-equivalent triggers.
+          // Focus loss resolves pending markers, with the same exception as the command above:
+          // the node the caret is still parked in stays pending. Clicking a marker-menu item (or
+          // any host overlay taking focus) blurs the editor while the caret still sits in the
+          // menu's own literal `\...` trigger text; resolving THAT node here would re-tokenize
+          // the literal into structure before the menu's apply can consume it (observed
+          // corruption: `the wic\ked,` became an unknown-marker paragraph whose prefix glyph then
+          // absorbed the "ked," remainder as phantom marker text). The caret's own node still
+          // finishes later — via Enter or the caret moving away.
           //
-          // Click path: a REAL cross-frame blur — clicking a renderer-overlay
-          // palette item outside the editor iframe — can null Lexical's live selection before this
-          // handler runs, so `$getSelection()` yields no anchor to except. Falling back to
-          // `undefined` would resolve EVERY pending, including the literal the palette apply is about
-          // to replace (the exact corruption this except-the-caret guard exists to prevent). Fall
-          // back to `lastAnchorKey` — the last COMMITTED real anchor, which the update listener keeps
-          // through null-selection commits — so the node the user was editing is still excepted.
+          // A real cross-frame blur — clicking a renderer-overlay palette item outside the editor
+          // iframe — can null Lexical's live selection before this handler runs, leaving no
+          // selection to read the exception from. Falling back to `undefined` would resolve EVERY
+          // pending, including the literal the palette is about to replace (the exact corruption
+          // this guard prevents), so fall back to `lastAnchorKey` — the last committed caret node,
+          // which the update listener preserves through null-selection commits.
           const selection = $getSelection();
           const anchorKey = $isRangeSelection(selection) ? selection.focus.key : lastAnchorKey;
           $resolvePendingMarkers(context, anchorKey);
