@@ -7,6 +7,7 @@ import Editorial from "../Editorial";
 import { flushQueuedEvents } from "./editor-test.utils";
 import { ContentJsonPath, Usj } from "@eten-tech-foundation/scripture-utilities";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
+import { EditorRefPlugin } from "@lexical/react/LexicalEditorRefPlugin";
 // Deep import: the marker-menu list component isn't exposed from shared-react's package entry.
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import { NodeSelectionMenu, OptionItem } from "../../../../libs/shared-react/src/plugins/NodesMenu";
@@ -29,7 +30,7 @@ import {
   LexicalNode,
   TextNode,
 } from "lexical";
-import { createRef, RefObject, useEffect, useState } from "react";
+import { createRef, ReactElement, RefObject, useEffect, useState } from "react";
 import {
   $isCharNode,
   $isMarkerNode,
@@ -163,16 +164,20 @@ function triggerMouseEnterOnMark(): void {
   });
 }
 
-/** Resolve the internal Lexical editor of a mounted black-box `<Editor>`. `<Editor>` owns its
- * own `LexicalComposer` and exposes no editor handle, so tests read it off the `.editor-input`
- * DOM node's `__lexicalEditor` back-reference. This reach-in into a Lexical implementation
- * detail is deliberately confined to this one helper rather than duplicated per test. */
-function getEmbeddedLexicalEditor(container: HTMLElement | undefined): LexicalEditor {
-  const editorInput = container?.querySelector(".editor-input");
-  if (!editorInput) throw new Error("editor-input element not found");
-  const lexical = (editorInput as unknown as { __lexicalEditor?: LexicalEditor }).__lexicalEditor;
-  if (!lexical) throw new Error("lexical editor handle not found");
-  return lexical;
+/** Captures the `LexicalEditor` from inside a black-box `<Editor>` without reaching for
+ * `.__lexicalEditor` on the DOM. `<Editor>` renders its `children` inside its own composer, so
+ * dropping Lexical's `EditorRefPlugin` in as a child reads the editor straight from composer
+ * context. Returns the element to render inside `<Editor>` and a getter for the captured editor
+ * (call it after the render has flushed). */
+function lexicalCapture(): { plugin: ReactElement; get: () => LexicalEditor } {
+  const ref = createRef<LexicalEditor>();
+  return {
+    plugin: <EditorRefPlugin editorRef={ref} />,
+    get: () => {
+      if (!ref.current) throw new Error("lexical editor was not captured");
+      return ref.current;
+    },
+  };
 }
 
 describe("setAnnotation overload", () => {
@@ -1440,21 +1445,21 @@ describe("insertMarker return value", () => {
    * (always mounted - see `Editor.tsx`), the same path `insertMarker` uses in the real app. */
   async function renderEditorWithVerseText() {
     const ref = createRef<EditorRef>();
-    let container: HTMLElement | undefined;
+    const capture = lexicalCapture();
     await act(async () => {
-      const result = render(
+      render(
         <Editor
           ref={ref}
           defaultUsj={sampleUsj}
           scrRef={noteReference}
           options={{ view: getViewOptions(STANDARD_VIEW_MODE) }}
-        />,
+        >
+          {capture.plugin}
+        </Editor>,
       );
-      container = result.container;
     });
     if (!ref.current) throw new Error("EditorRef did not mount");
-    const lexical = getEmbeddedLexicalEditor(container);
-    return { ref, lexical };
+    return { ref, lexical: capture.get() };
   }
 
   /** Collapses the caret right after "first" in the seed verse text. */
@@ -1517,18 +1522,19 @@ describe("commitPendingMarkerEdits (abandonment window)", () => {
 
   it("settles an abandoned mid-rename so getUsj returns what the screen shows", async () => {
     const ref = createRef<EditorRef>();
-    let container: HTMLElement | undefined;
+    const capture = lexicalCapture();
     await act(async () => {
-      const result = render(
+      render(
         <Editor
           ref={ref}
           defaultUsj={sampleUsj}
           options={{ view: getViewOptions(STANDARD_VIEW_MODE) }}
-        />,
+        >
+          {capture.plugin}
+        </Editor>,
       );
-      container = result.container;
     });
-    const lexical = getEmbeddedLexicalEditor(container);
+    const lexical = capture.get();
 
     // Rename the `\p` glyph in place to `\q1` (no terminator typed) with the caret left
     // inside the glyph, then walk away (blur): the rename stays pending - the exact
