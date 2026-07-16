@@ -119,6 +119,25 @@ function makeLogger() {
   return { messages, logger };
 }
 
+/** Reads the `LexicalEditor` out of the mounted editor via the `.editor-input` DOM node's
+ * `__lexicalEditor` back-reference.
+ *
+ * The cleaner handle (used in `Editor.test.tsx` and `CommandMenuPlugin.gate.test.tsx`) drops
+ * Lexical's `<EditorRefPlugin>` in as a child and reads it from composer context — but that needs
+ * the component to render `children` inside its composer. These tests intentionally go end-to-end
+ * through the public `<Editorial>` wrapper, which strips `children` before delegating to `<Editor>`,
+ * so the child-plugin handle isn't reachable here. Hence this DOM reach-in, confined to one helper. */
+function getEmbeddedLexicalEditor(container: HTMLElement | undefined): LexicalEditor {
+  const editorInput = requireDefined(
+    container?.querySelector(".editor-input"),
+    "editor input element",
+  );
+  return requireDefined(
+    (editorInput as unknown as { __lexicalEditor?: LexicalEditor }).__lexicalEditor,
+    "lexical editor handle",
+  );
+}
+
 async function renderEditor(options: EditorOptions, defaultUsj: Usj) {
   const ref = createRef<EditorRef>();
   let container: HTMLElement | undefined;
@@ -135,14 +154,7 @@ async function renderEditor(options: EditorOptions, defaultUsj: Usj) {
     container = result.container;
   });
   const editorRef = requireDefined(ref.current, "editor ref");
-  const editorInput = requireDefined(
-    container?.querySelector(".editor-input"),
-    "editor input element",
-  );
-  const lexical = requireDefined(
-    (editorInput as unknown as { __lexicalEditor?: LexicalEditor }).__lexicalEditor,
-    "lexical editor handle",
-  );
+  const lexical = getEmbeddedLexicalEditor(container);
   return { editorRef, lexical };
 }
 
