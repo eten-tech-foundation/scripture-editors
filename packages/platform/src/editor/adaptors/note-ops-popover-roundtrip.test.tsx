@@ -19,7 +19,8 @@ import { MarkerContent, MarkerObject, Usj } from "@eten-tech-foundation/scriptur
 import { act, render } from "@testing-library/react";
 import { deepEqual } from "fast-equals";
 import { createRef } from "react";
-import { $getRoot, $isTextNode, LexicalEditor, LexicalNode } from "lexical";
+import { $getRoot, $isElementNode, $isTextNode, LexicalEditor, LexicalNode } from "lexical";
+import { $dfs } from "@lexical/utils";
 import {
   $isCharNode,
   $isImmutableUnmatchedNode,
@@ -146,25 +147,22 @@ async function renderEditor(options: EditorOptions, defaultUsj: Usj) {
 }
 
 function $findNotes(): NoteNode[] {
-  const notes: NoteNode[] = [];
-  const walk = (node: LexicalNode) => {
-    if ($isNoteNode(node)) notes.push(node);
-    const element = node as unknown as { getChildren?: () => LexicalNode[] };
-    if (typeof element.getChildren === "function") element.getChildren().forEach(walk);
-  };
-  walk($getRoot());
-  return notes;
+  return $dfs($getRoot())
+    .map(({ node }) => node)
+    .filter($isNoteNode);
 }
 
 /** All descendants of the note (excluding the note itself). */
 function noteDescendants(note: NoteNode): LexicalNode[] {
   const out: LexicalNode[] = [];
-  const walk = (node: LexicalNode) => {
-    out.push(node);
-    const element = node as unknown as { getChildren?: () => LexicalNode[] };
-    if (typeof element.getChildren === "function") element.getChildren().forEach(walk);
+  const collect = (node: LexicalNode) => {
+    if ($isElementNode(node))
+      for (const child of node.getChildren()) {
+        out.push(child);
+        collect(child);
+      }
   };
-  note.getChildren().forEach(walk);
+  collect(note);
   return out;
 }
 

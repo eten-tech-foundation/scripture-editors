@@ -4,6 +4,7 @@ import { act, render } from "@testing-library/react";
 import { Usj } from "@eten-tech-foundation/scripture-utilities";
 import { createRef } from "react";
 import { KEY_DOWN_COMMAND, LexicalEditor } from "lexical";
+import { EditorRefPlugin } from "@lexical/react/LexicalEditorRefPlugin";
 import { FORMATTED_VIEW_MODE, getViewOptions, STANDARD_VIEW_MODE } from "shared-react";
 import { describe, expect, it } from "vitest";
 
@@ -33,21 +34,21 @@ const sampleUsj: Usj = {
   ],
 };
 
-/** Renders the real Editor in `viewMode` and returns its underlying Lexical editor. */
+/** Renders the real Editor in `viewMode` and returns its underlying Lexical editor. The editor
+ * is captured through a child `EditorRefPlugin` (which `<Editor>` renders inside its composer)
+ * rather than a `.__lexicalEditor` DOM reach-in. */
 async function renderEditor(viewMode: string): Promise<LexicalEditor> {
   const ref = createRef<EditorRef>();
-  let container: HTMLElement | undefined;
+  const lexicalRef = createRef<LexicalEditor>();
   await act(async () => {
-    const result = render(
-      <Editor ref={ref} defaultUsj={sampleUsj} options={{ view: getViewOptions(viewMode) }} />,
+    render(
+      <Editor ref={ref} defaultUsj={sampleUsj} options={{ view: getViewOptions(viewMode) }}>
+        <EditorRefPlugin editorRef={lexicalRef} />
+      </Editor>,
     );
-    container = result.container;
   });
-  const editorInput = container?.querySelector(".editor-input");
-  if (!editorInput) throw new Error("editor-input element not found");
-  const lexical = (editorInput as unknown as { __lexicalEditor?: LexicalEditor }).__lexicalEditor;
-  if (!lexical) throw new Error("lexical editor handle not found");
-  return lexical;
+  if (!lexicalRef.current) throw new Error("lexical editor was not captured");
+  return lexicalRef.current;
 }
 
 /**
