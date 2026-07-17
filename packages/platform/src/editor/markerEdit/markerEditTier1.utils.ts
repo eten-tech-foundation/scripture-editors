@@ -197,21 +197,12 @@ export function $markerNodeTransform(node: MarkerNode, context: MarkerEditContex
     context.pendingKeys.add(node.getKey());
     return;
   }
-  // Closer / selfClosing: one-way authority — closer edits never rename the span.
-  if (node.getMarkerSyntax() === "closing" && !CLOSER_FORM_REGEX.test(text)) {
-    // The glyph no longer parses as a closer at all (its `\` or `*` was deleted). Since closer
-    // edits can't rename, such damage has exactly one sensible meaning: delete the closer.
-    // Removing the glyph converges every partial deletion (forward-Delete on the `\` leaving
-    // `wj*`, Backspace on the `*` leaving `\wj`) to the whole-glyph-deletion outcome: the
-    // char-deletion transform routes the span to Tier 2 and it extends per tokenizer rules.
-    // Leaving the residue in place instead re-tokenized it into literal junk text inside the
-    // extended span (live-observed `Lordwj* …`). A RETYPED but still well-formed closer
-    // (`\nd*` → `\wj*`) keeps the Tier-2 path below: PT9 preserves those bytes as an
-    // unmatched-closer node.
-    context.pendingKeys.delete(node.getKey());
-    node.remove();
-    return;
-  }
+  // Closer / selfClosing: one-way authority — closer edits never rename the span. Damage or
+  // retype settles through Tier 2, whose tokenizer turns non-marker residue (`wj*` after the `\`
+  // is deleted) into PLAIN text and re-closes the span per its rules — a `*`-terminated form
+  // resolves now, anything else stays pending until the caret departs (mid-edit grace). A char
+  // span has no `closed="false"` representation in USJ (notes only), so an "unclosed" span
+  // auto-closes at the paragraph end rather than staying visibly closer-less.
   if (text.endsWith("*")) {
     context.pendingKeys.delete(node.getKey());
     $requestTier2ForNode(node, context);

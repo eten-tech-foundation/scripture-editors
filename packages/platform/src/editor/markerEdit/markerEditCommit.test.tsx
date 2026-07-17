@@ -16,14 +16,17 @@ import { act } from "@testing-library/react";
 import {
   $createTextNode,
   $getRoot,
+  $getState,
   $setState,
   BLUR_COMMAND,
   LexicalEditor,
   TextNode,
 } from "lexical";
 import {
+  $createCharNode,
   $createMarkerNode,
   $createParaNode,
+  $isCharNode,
   $isParaNode,
   CURSOR_CHANGE_TAG,
   MarkerNode,
@@ -148,4 +151,61 @@ describe("COMMIT_PENDING_MARKERS_COMMAND (abandonment window)", () => {
 
     expect(firstParaMarker(editor)).toBe("s1"); // suppression window respected
   }, 15000);
+});
+
+describe("pending para-marker rename resolution — red-letter paragraphs", () => {
+  it("keeps the marker-trailing separator when the para starts with a char span", async () => {
+    // Live repro: in a paragraph whose content STARTS with an inline char span, editing the
+    // paragraph glyph's text (delete chars, type a new marker — no terminator) and then moving
+    // the caret away resolved the pending rename but ATE the NBSP separator after the glyph.
+    // Subsequent retags then kept producing a separator-less prefix, and the retag caret
+    // (an element point at index 2) landed at the paragraph END. Plain-text-first paragraphs
+    // were unaffected.
+    let paraMarker: MarkerNode;
+    let bodyText: TextNode;
+    const { editor } = await testEnvironment(() => {
+      const sep = $createTextNode(NBSP);
+      $setState(sep, textTypeState, "marker-trailing-space");
+      const bodySep = $createTextNode(NBSP);
+      $setState(bodySep, textTypeState, "marker-trailing-space");
+      paraMarker = $createMarkerNode("p");
+      bodyText = $createTextNode("body");
+      const wj = $createCharNode("wj");
+      $getRoot().append(
+        $createParaNode("p").append(
+          paraMarker,
+          sep,
+          wj.append(
+            $createMarkerNode("wj"),
+            $createTextNode(`${NBSP}Jesus said`),
+            $createMarkerNode("wj", "closing"),
+          ),
+        ),
+        $createParaNode("p").append($createMarkerNode("p"), bodySep, bodyText),
+      );
+    });
+
+    // Delete glyph chars + type the new marker (no terminator space): `\p` → `\q1`, caret inside.
+    await act(async () =>
+      editor.update(() => {
+        paraMarker.setTextContent("\\q1");
+        paraMarker.select(3, 3);
+      }),
+    );
+    // Caret departs → the pending rename resolves.
+    await act(async () => editor.update(() => bodyText.select(0, 0)));
+
+    editor.getEditorState().read(() => {
+      const para = $getRoot().getChildren().filter($isParaNode)[0];
+      expect(para.getMarker()).toBe("q1");
+      const children = para.getChildren();
+      // The [glyph, separator, content] layout must survive the resolution.
+      expect(children[0].getTextContent()).toBe("\\q1");
+      const sep = children[1];
+      expect(sep.getTextContent()).toBe(NBSP);
+      expect($getState(sep, textTypeState)).toBe("marker-trailing-space");
+      expect($isCharNode(children[2])).toBe(true);
+      expect(para.getTextContent()).toContain("Jesus said");
+    });
+  });
 });

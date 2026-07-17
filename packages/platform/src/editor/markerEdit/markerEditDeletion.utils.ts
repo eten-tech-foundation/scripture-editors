@@ -58,9 +58,49 @@ export function $injectMarkerPrefix(para: ParaNode): void {
   $selectParaContentStart(para);
 }
 
+/**
+ * Re-asserts the marker-trailing NBSP separator between an intact paragraph prefix glyph and the
+ * content. The separator is presentation scaffolding OWNED by the engine, so any edit that eats
+ * it (a forward-delete at the glyph's end, a selection that swallowed it, …) heals on the next
+ * transform pass instead of leaving a separator-less prefix — which broke the `[glyph, separator,
+ * content]` layout every caret/retag computation assumes (live-observed: retag caret jumping to
+ * the paragraph end, "the space after the marker keeps disappearing"). A user-typed plain
+ * space/NBSP right after the glyph is intent for the same separator and is canonicalized in
+ * place rather than doubled.
+ */
+function $healMarkerTrailingSeparator(para: ParaNode): void {
+  const glyph = para.getFirstChild();
+  if (!glyph) return;
+  const second = glyph.getNextSibling();
+  if (
+    $isTextNode(second) &&
+    !$isMarkerNode(second) &&
+    $getState(second, textTypeState) === "marker-trailing-space"
+  )
+    return; // canonical separator present
+  if (
+    $isTextNode(second) &&
+    !$isMarkerNode(second) &&
+    /^[ \u00A0]$/.test(second.getTextContent())
+  ) {
+    // Canonicalize the user's typed space into the separator instead of inserting a second one.
+    second.setTextContent(NBSP);
+    $setState(second, textTypeState, "marker-trailing-space");
+    second.setMode("token");
+    return;
+  }
+  const spaceNode = $createTextNode(NBSP);
+  $setState(spaceNode, textTypeState, "marker-trailing-space");
+  spaceNode.setMode("token");
+  glyph.insertAfter(spaceNode);
+}
+
 export function $paraMarkerDeletionTransform(para: ParaNode, context: MarkerEditContext): void {
   if (para.isEmpty()) return; // transient mid-edit state (same rationale as the guard)
-  if ($isParaMarkerPrefix(para.getFirstChild())) return;
+  if ($isParaMarkerPrefix(para.getFirstChild())) {
+    $healMarkerTrailingSeparator(para);
+    return;
+  }
 
   if (context.splitExpected.current) {
     // Fresh paragraph from Enter: insertNewAfter cloned the marker; make it visible.
@@ -151,10 +191,10 @@ export function $noteDeletionTransform(note: NoteNode, context: MarkerEditContex
     if (hasOpener) return; // intact — unclosed expanded notes have no closer by construction
     // Recognize an editable-built note by ANY marker-glyph evidence: the editable caller text,
     // a closing glyph, or a MarkerNode anywhere in the subtree (content char spans carry their
-    // own glyphs). A single evidence anchor (caller only) was not enough: a RANGE deletion
-    // across `\f caller` removes the opener AND the caller in one edit, and the note then
-    // survived and regenerated `\f caller` on every save. Notes with no glyph evidence at all
-    // (shapes built by non-editable creation paths) are left alone, as for collapsed.
+    // own glyphs). A single evidence anchor (caller only) is not enough: a RANGE deletion
+    // across `\f caller` removes the opener AND the caller in one edit. Notes with no glyph
+    // evidence at all (shapes built by non-editable creation paths) are left alone, as for
+    // collapsed.
     const caller = note.getCaller();
     const hasEditableCaller =
       caller !== "" &&
@@ -166,8 +206,22 @@ export function $noteDeletionTransform(note: NoteNode, context: MarkerEditContex
       );
     const hasAnyMarkerGlyph = $dfs(note).some(({ node: n }) => $isMarkerNode(n));
     if (!hasEditableCaller && !hasAnyMarkerGlyph) return; // glyph-less shape — not ours
+    // UNWRAP, don't delete: an expanded note's content is visible inline (an unclosed note may
+    // have absorbed the rest of the verse), so deleting the `\f` marker deletes ONLY the marker.
+    // The note node dissolves: the editable caller returns to plain text (its structural NBSP
+    // becomes a plain space so it can't leak into USJ as `~`), remaining glyphs go with the
+    // note, and the content stays in the paragraph. Contrast: a COLLAPSED note is an atomic
+    // object — glyph damage removes the whole note (below).
+    children.forEach((child) => {
+      if ($isMarkerNode(child)) return; // closing glyph (if any) dissolves with the note
+      if ($isTextNode(child) && child.getTextContent() === getEditableCallerText(caller))
+        child.setTextContent(` ${caller} `);
+      note.insertBefore(child);
+    });
     note.remove();
-    context.logger?.debug(`[MarkerEdit] removed expanded note whose opening glyph was deleted`);
+    context.logger?.debug(
+      `[MarkerEdit] unwrapped expanded note whose opening glyph was deleted (content preserved)`,
+    );
     return;
   }
 
