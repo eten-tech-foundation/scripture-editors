@@ -246,6 +246,28 @@ describe("usfmFragmentToUsjContent — verse, chapter, note, milestone, attribut
       },
     ]);
   });
+
+  it("never lets an attribute named type/marker/content clobber the node's own keys", () => {
+    // A malformed/hostile attribute list must not overwrite the USJ node's structural keys —
+    // `type="x"` on a char span would otherwise break downstream node-type dispatch, and
+    // `content="y"` would replace the content array with a string.
+    expect(
+      usfmFragmentToUsjContent('\\p \\w foo|type="x" marker="y" content="z" lemma="ok"\\w*'),
+    ).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [{ type: "char", marker: "w", lemma: "ok", content: ["foo"] }],
+      },
+    ]);
+    expect(usfmFragmentToUsjContent('\\p one \\ts-s |type="x" sid="ts.GEN.1"\\* two')).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: ["one ", { type: "ms", marker: "ts-s", sid: "ts.GEN.1" }, " two"],
+      },
+    ]);
+  });
 });
 
 const projectSheet: StyleInfo = {
