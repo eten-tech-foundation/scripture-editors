@@ -6,13 +6,13 @@ import { BookNode } from "./BookNode.js";
 import { ChapterNode } from "./ChapterNode.js";
 import { CharNode } from "./CharNode.js";
 import { ImmutableChapterNode } from "./ImmutableChapterNode.js";
+import { ImmutableTableNode } from "./ImmutableTableNode.js";
+import { ImmutableTableRowNode } from "./ImmutableTableRowNode.js";
+import { ImmutableTableCellNode } from "./ImmutableTableCellNode.js";
 import { $createImpliedParaNode, ImpliedParaNode } from "./ImpliedParaNode.js";
 import { MilestoneNode } from "./MilestoneNode.js";
 import { NoteNode } from "./NoteNode.js";
 import { ParaNode } from "./ParaNode.js";
-import { TableNode } from "./TableNode.js";
-import { TableRowNode } from "./TableRowNode.js";
-import { TableCellNode } from "./TableCellNode.js";
 import { VerseNode } from "./VerseNode.js";
 import { Klass, LexicalNode, LexicalNodeReplacement, ParagraphNode } from "lexical";
 
@@ -20,15 +20,15 @@ export * from "./BookNode.js";
 export * from "./ChapterNode.js";
 export * from "./CharNode.js";
 export * from "./ImmutableChapterNode.js";
+export * from "./ImmutableTableNode.js";
+export * from "./ImmutableTableRowNode.js";
+export * from "./ImmutableTableCellNode.js";
 export * from "./ImpliedParaNode.js";
 export * from "./MilestoneNode.js";
 export * from "./node-constants.js";
 export * from "./node.utils.js";
 export * from "./NoteNode.js";
 export * from "./ParaNode.js";
-export * from "./TableNode.js";
-export * from "./TableRowNode.js";
-export * from "./TableCellNode.js";
 export * from "./VerseNode.js";
 
 export const usjBaseNodes: readonly (Klass<LexicalNode> | LexicalNodeReplacement)[] = [
@@ -45,9 +45,9 @@ export const usjBaseNodes: readonly (Klass<LexicalNode> | LexicalNodeReplacement
   ImmutableUnmatchedNode,
   ParaNode,
   ImpliedParaNode,
-  TableNode,
-  TableRowNode,
-  TableCellNode,
+  ImmutableTableNode,
+  ImmutableTableRowNode,
+  ImmutableTableCellNode,
   {
     replace: ParagraphNode,
     with: () => $createImpliedParaNode(),

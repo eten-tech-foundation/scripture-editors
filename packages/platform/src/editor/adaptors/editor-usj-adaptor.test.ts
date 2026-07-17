@@ -34,7 +34,7 @@ import {
   SerializedChapterNode,
   SerializedParaNode,
   SerializedVerseNode,
-  TableCellMarker,
+  ImmutableTableCellMarker,
   TypedMarkNode,
   VERSE_MARKER,
 } from "shared";
@@ -146,14 +146,14 @@ describe("Editor USJ Adaptor", () => {
         direction: null,
         children: [
           {
-            type: "table",
+            type: "immutable-table",
             format: "",
             indent: 0,
             version: 1,
             direction: null,
             children: [
               {
-                type: "table:row",
+                type: "immutable-table-row",
                 marker: "tr",
                 format: "",
                 indent: 0,
@@ -161,7 +161,7 @@ describe("Editor USJ Adaptor", () => {
                 direction: null,
                 children: [
                   {
-                    type: "table:cell",
+                    type: "immutable-table-cell",
                     marker: "tc1",
                     align: "start",
                     colspan: "2",
@@ -240,7 +240,7 @@ describe("Editor USJ Adaptor", () => {
                   marker: "tc1",
                   colspan: "2",
                   content: ["Total"],
-                } as TableCellMarker,
+                } as ImmutableTableCellMarker,
               ],
             },
           ],

@@ -2036,7 +2036,7 @@ export const editorStateWithUnknownItems = {
         ],
       },
       {
-        type: "table",
+        type: "immutable-table",
         unknownAttributes: { category: "watCat" },
         direction: null,
         format: "",
@@ -2044,7 +2044,7 @@ export const editorStateWithUnknownItems = {
         version: 1,
         children: [
           {
-            type: "table:row",
+            type: "immutable-table-row",
             marker: "tr",
             unknownAttributes: { category: "watCat" },
             direction: null,
@@ -2053,7 +2053,7 @@ export const editorStateWithUnknownItems = {
             version: 1,
             children: [
               {
-                type: "table:cell",
+                type: "immutable-table-cell",
                 marker: "tc1",
                 unknownAttributes: { category: "watCat" },
                 direction: null,
