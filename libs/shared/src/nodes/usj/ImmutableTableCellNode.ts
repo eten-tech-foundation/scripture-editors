@@ -13,7 +13,7 @@ import {
 } from "lexical";
 import { UnknownAttributes } from "./node-constants.js";
 
-export type SerializedTableCellNode = Spread<
+export type SerializedImmutableTableCellNode = Spread<
   {
     marker: string;
     align?: string;
@@ -23,18 +23,20 @@ export type SerializedTableCellNode = Spread<
   SerializedElementNode
 >;
 
+/** USJ marker type this node renders; the forward adaptor matches USJ input against it. */
 export const TABLE_CELL_TYPE = "table:cell";
-export const TABLE_CELL_VERSION = 1;
+export const IMMUTABLE_TABLE_CELL_TYPE = "immutable-table-cell";
+export const IMMUTABLE_TABLE_CELL_VERSION = 1;
 export const TABLE_CELL_DEFAULT_MARKER = "tc1";
 
 /**
  * A `MarkerObject` for a table cell. `colspan` is specific to table cells, so it lives here rather
  * than on the shared `MarkerObject`.
  */
-export type TableCellMarker = MarkerObject & { colspan?: string };
+export type ImmutableTableCellMarker = MarkerObject & { colspan?: string };
 
 /** List of known properties of a table cell `MarkerObject` */
-export const TABLE_CELL_MARKER_OBJECT_PROPS: (keyof TableCellMarker)[] = [
+export const TABLE_CELL_MARKER_OBJECT_PROPS: (keyof ImmutableTableCellMarker)[] = [
   "type",
   "marker",
   "align",
@@ -49,7 +51,7 @@ function toLogicalTextAlign(align: string | undefined): string | undefined {
   return align === "start" || align === "center" || align === "end" ? align : undefined;
 }
 
-export class TableCellNode extends ElementNode {
+export class ImmutableTableCellNode extends ElementNode {
   __marker: string;
   __align?: string;
   __colspan?: string;
@@ -70,19 +72,23 @@ export class TableCellNode extends ElementNode {
   }
 
   static override getType(): string {
-    return TABLE_CELL_TYPE;
+    return IMMUTABLE_TABLE_CELL_TYPE;
   }
 
-  static override clone(node: TableCellNode): TableCellNode {
+  static override clone(node: ImmutableTableCellNode): ImmutableTableCellNode {
     const { __marker, __align, __colspan, __unknownAttributes, __key } = node;
-    return new TableCellNode(__marker, __align, __colspan, __unknownAttributes, __key);
+    return new ImmutableTableCellNode(__marker, __align, __colspan, __unknownAttributes, __key);
   }
 
-  static override importJSON(serializedNode: SerializedTableCellNode): TableCellNode {
-    return $createTableCellNode().updateFromJSON(serializedNode);
+  static override importJSON(
+    serializedNode: SerializedImmutableTableCellNode,
+  ): ImmutableTableCellNode {
+    return $createImmutableTableCellNode().updateFromJSON(serializedNode);
   }
 
-  override updateFromJSON(serializedNode: LexicalUpdateJSON<SerializedTableCellNode>): this {
+  override updateFromJSON(
+    serializedNode: LexicalUpdateJSON<SerializedImmutableTableCellNode>,
+  ): this {
     return super
       .updateFromJSON(serializedNode)
       .setMarker(serializedNode.marker ?? TABLE_CELL_DEFAULT_MARKER)
@@ -154,18 +160,18 @@ export class TableCellNode extends ElementNode {
     );
   }
 
-  override exportJSON(): SerializedTableCellNode {
+  override exportJSON(): SerializedImmutableTableCellNode {
     const align = this.getAlign();
     const colspan = this.getColspan();
     const unknownAttributes = this.getUnknownAttributes();
     return {
       ...super.exportJSON(),
-      type: TABLE_CELL_TYPE,
+      type: IMMUTABLE_TABLE_CELL_TYPE,
       marker: this.getMarker(),
       ...(align !== undefined && { align }),
       ...(colspan !== undefined && { colspan }),
       ...(unknownAttributes !== undefined && { unknownAttributes }),
-      version: TABLE_CELL_VERSION,
+      version: IMMUTABLE_TABLE_CELL_VERSION,
     };
   }
 
@@ -175,21 +181,25 @@ export class TableCellNode extends ElementNode {
   }
 }
 
-export function $createTableCellNode(
+export function $createImmutableTableCellNode(
   marker?: string,
   align?: string,
   colspan?: string,
   unknownAttributes?: UnknownAttributes,
-): TableCellNode {
-  return $applyNodeReplacement(new TableCellNode(marker, align, colspan, unknownAttributes));
+): ImmutableTableCellNode {
+  return $applyNodeReplacement(
+    new ImmutableTableCellNode(marker, align, colspan, unknownAttributes),
+  );
 }
 
-export function $isTableCellNode(node: LexicalNode | null | undefined): node is TableCellNode {
-  return node instanceof TableCellNode;
+export function $isImmutableTableCellNode(
+  node: LexicalNode | null | undefined,
+): node is ImmutableTableCellNode {
+  return node instanceof ImmutableTableCellNode;
 }
 
-export function isSerializedTableCellNode(
+export function isSerializedImmutableTableCellNode(
   node: SerializedLexicalNode | null | undefined,
-): node is SerializedTableCellNode {
-  return node?.type === TABLE_CELL_TYPE;
+): node is SerializedImmutableTableCellNode {
+  return node?.type === IMMUTABLE_TABLE_CELL_TYPE;
 }

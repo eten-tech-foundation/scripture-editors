@@ -13,19 +13,21 @@ import {
 } from "lexical";
 import { UnknownAttributes } from "./node-constants.js";
 
-export type SerializedTableRowNode = Spread<
+export type SerializedImmutableTableRowNode = Spread<
   { marker: string; unknownAttributes?: UnknownAttributes },
   SerializedElementNode
 >;
 
+/** USJ marker type this node renders; the forward adaptor matches USJ input against it. */
 export const TABLE_ROW_TYPE = "table:row";
-export const TABLE_ROW_VERSION = 1;
+export const IMMUTABLE_TABLE_ROW_TYPE = "immutable-table-row";
+export const IMMUTABLE_TABLE_ROW_VERSION = 1;
 export const TABLE_ROW_DEFAULT_MARKER = "tr";
 
 /** List of known properties of `MarkerObject` */
 export const TABLE_ROW_MARKER_OBJECT_PROPS: (keyof MarkerObject)[] = ["type", "marker", "content"];
 
-export class TableRowNode extends ElementNode {
+export class ImmutableTableRowNode extends ElementNode {
   __marker: string;
   __unknownAttributes?: UnknownAttributes;
 
@@ -40,18 +42,22 @@ export class TableRowNode extends ElementNode {
   }
 
   static override getType(): string {
-    return TABLE_ROW_TYPE;
+    return IMMUTABLE_TABLE_ROW_TYPE;
   }
 
-  static override clone(node: TableRowNode): TableRowNode {
-    return new TableRowNode(node.__marker, node.__unknownAttributes, node.__key);
+  static override clone(node: ImmutableTableRowNode): ImmutableTableRowNode {
+    return new ImmutableTableRowNode(node.__marker, node.__unknownAttributes, node.__key);
   }
 
-  static override importJSON(serializedNode: SerializedTableRowNode): TableRowNode {
-    return $createTableRowNode().updateFromJSON(serializedNode);
+  static override importJSON(
+    serializedNode: SerializedImmutableTableRowNode,
+  ): ImmutableTableRowNode {
+    return $createImmutableTableRowNode().updateFromJSON(serializedNode);
   }
 
-  override updateFromJSON(serializedNode: LexicalUpdateJSON<SerializedTableRowNode>): this {
+  override updateFromJSON(
+    serializedNode: LexicalUpdateJSON<SerializedImmutableTableRowNode>,
+  ): this {
     return super
       .updateFromJSON(serializedNode)
       .setMarker(serializedNode.marker ?? TABLE_ROW_DEFAULT_MARKER)
@@ -90,14 +96,14 @@ export class TableRowNode extends ElementNode {
     return prevNode.__marker !== this.__marker;
   }
 
-  override exportJSON(): SerializedTableRowNode {
+  override exportJSON(): SerializedImmutableTableRowNode {
     const unknownAttributes = this.getUnknownAttributes();
     return {
       ...super.exportJSON(),
-      type: TABLE_ROW_TYPE,
+      type: IMMUTABLE_TABLE_ROW_TYPE,
       marker: this.getMarker(),
       ...(unknownAttributes !== undefined && { unknownAttributes }),
-      version: TABLE_ROW_VERSION,
+      version: IMMUTABLE_TABLE_ROW_VERSION,
     };
   }
 
@@ -107,19 +113,21 @@ export class TableRowNode extends ElementNode {
   }
 }
 
-export function $createTableRowNode(
+export function $createImmutableTableRowNode(
   marker?: string,
   unknownAttributes?: UnknownAttributes,
-): TableRowNode {
-  return $applyNodeReplacement(new TableRowNode(marker, unknownAttributes));
+): ImmutableTableRowNode {
+  return $applyNodeReplacement(new ImmutableTableRowNode(marker, unknownAttributes));
 }
 
-export function $isTableRowNode(node: LexicalNode | null | undefined): node is TableRowNode {
-  return node instanceof TableRowNode;
+export function $isImmutableTableRowNode(
+  node: LexicalNode | null | undefined,
+): node is ImmutableTableRowNode {
+  return node instanceof ImmutableTableRowNode;
 }
 
-export function isSerializedTableRowNode(
+export function isSerializedImmutableTableRowNode(
   node: SerializedLexicalNode | null | undefined,
-): node is SerializedTableRowNode {
-  return node?.type === TABLE_ROW_TYPE;
+): node is SerializedImmutableTableRowNode {
+  return node?.type === IMMUTABLE_TABLE_ROW_TYPE;
 }

@@ -46,16 +46,19 @@ import {
   SerializedMilestoneNode,
   SerializedNoteNode,
   SerializedParaNode,
-  SerializedTableCellNode,
-  SerializedTableNode,
-  SerializedTableRowNode,
+  SerializedImmutableTableCellNode,
+  SerializedImmutableTableNode,
+  SerializedImmutableTableRowNode,
   SerializedTypedMarkNode,
   SerializedUnknownNode,
   SerializedVerseNode,
   STARTING_MS_COMMENT_MARKER,
-  TableCellNode,
-  TableNode,
-  TableRowNode,
+  ImmutableTableCellNode,
+  ImmutableTableNode,
+  ImmutableTableRowNode,
+  TABLE_CELL_TYPE,
+  TABLE_ROW_TYPE,
+  TABLE_TYPE,
   TypedMarkNode,
   UnknownNode,
   UNMATCHED_TAG_NAME,
@@ -205,27 +208,34 @@ function createParaMarker(
 }
 
 function createTableMarker(
-  node: SerializedTableNode,
+  node: SerializedImmutableTableNode,
   content: MarkerContent[] | undefined,
 ): MarkerObject {
-  const { type, unknownAttributes } = node;
-  return removeUndefinedProperties({ type, ...unknownAttributes, content });
+  const { unknownAttributes } = node;
+  return removeUndefinedProperties({ type: TABLE_TYPE, ...unknownAttributes, content });
 }
 
 function createTableRowMarker(
-  node: SerializedTableRowNode,
+  node: SerializedImmutableTableRowNode,
   content: MarkerContent[] | undefined,
 ): MarkerObject {
-  const { type, marker, unknownAttributes } = node;
-  return removeUndefinedProperties({ type, marker, ...unknownAttributes, content });
+  const { marker, unknownAttributes } = node;
+  return removeUndefinedProperties({ type: TABLE_ROW_TYPE, marker, ...unknownAttributes, content });
 }
 
 function createTableCellMarker(
-  node: SerializedTableCellNode,
+  node: SerializedImmutableTableCellNode,
   content: MarkerContent[] | undefined,
 ): MarkerObject {
-  const { type, marker, align, colspan, unknownAttributes } = node;
-  return removeUndefinedProperties({ type, marker, align, colspan, ...unknownAttributes, content });
+  const { marker, align, colspan, unknownAttributes } = node;
+  return removeUndefinedProperties({
+    type: TABLE_CELL_TYPE,
+    marker,
+    align,
+    colspan,
+    ...unknownAttributes,
+    content,
+  });
 }
 
 function createNoteMarker(
@@ -412,27 +422,27 @@ function recurseNodes(
           createParaMarker(serializedParaNode, recurseNodes(serializedParaNode.children)),
         );
         break;
-      case TableNode.getType():
+      case ImmutableTableNode.getType():
         markers.push(
           createTableMarker(
-            node as SerializedTableNode,
-            recurseNodes((node as SerializedTableNode).children),
+            node as SerializedImmutableTableNode,
+            recurseNodes((node as SerializedImmutableTableNode).children),
           ),
         );
         break;
-      case TableRowNode.getType():
+      case ImmutableTableRowNode.getType():
         markers.push(
           createTableRowMarker(
-            node as SerializedTableRowNode,
-            recurseNodes((node as SerializedTableRowNode).children),
+            node as SerializedImmutableTableRowNode,
+            recurseNodes((node as SerializedImmutableTableRowNode).children),
           ),
         );
         break;
-      case TableCellNode.getType():
+      case ImmutableTableCellNode.getType():
         markers.push(
           createTableCellMarker(
-            node as SerializedTableCellNode,
-            recurseNodes((node as SerializedTableCellNode).children),
+            node as SerializedImmutableTableCellNode,
+            recurseNodes((node as SerializedImmutableTableCellNode).children),
           ),
         );
         break;

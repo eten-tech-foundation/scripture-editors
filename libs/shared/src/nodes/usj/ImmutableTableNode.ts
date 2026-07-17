@@ -13,18 +13,20 @@ import {
 } from "lexical";
 import { UnknownAttributes } from "./node-constants.js";
 
-export type SerializedTableNode = Spread<
+export type SerializedImmutableTableNode = Spread<
   { unknownAttributes?: UnknownAttributes },
   SerializedElementNode
 >;
 
+/** USJ marker type this node renders; the forward adaptor matches USJ input against it. */
 export const TABLE_TYPE = "table";
-export const TABLE_VERSION = 1;
+export const IMMUTABLE_TABLE_TYPE = "immutable-table";
+export const IMMUTABLE_TABLE_VERSION = 1;
 
 /** List of known properties of `MarkerObject` */
 export const TABLE_MARKER_OBJECT_PROPS: (keyof MarkerObject)[] = ["type", "marker", "content"];
 
-export class TableNode extends ElementNode {
+export class ImmutableTableNode extends ElementNode {
   __unknownAttributes?: UnknownAttributes;
 
   constructor(unknownAttributes?: UnknownAttributes, key?: NodeKey) {
@@ -33,18 +35,18 @@ export class TableNode extends ElementNode {
   }
 
   static override getType(): string {
-    return TABLE_TYPE;
+    return IMMUTABLE_TABLE_TYPE;
   }
 
-  static override clone(node: TableNode): TableNode {
-    return new TableNode(node.__unknownAttributes, node.__key);
+  static override clone(node: ImmutableTableNode): ImmutableTableNode {
+    return new ImmutableTableNode(node.__unknownAttributes, node.__key);
   }
 
-  static override importJSON(serializedNode: SerializedTableNode): TableNode {
-    return $createTableNode().updateFromJSON(serializedNode);
+  static override importJSON(serializedNode: SerializedImmutableTableNode): ImmutableTableNode {
+    return $createImmutableTableNode().updateFromJSON(serializedNode);
   }
 
-  override updateFromJSON(serializedNode: LexicalUpdateJSON<SerializedTableNode>): this {
+  override updateFromJSON(serializedNode: LexicalUpdateJSON<SerializedImmutableTableNode>): this {
     return super
       .updateFromJSON(serializedNode)
       .setUnknownAttributes(serializedNode.unknownAttributes);
@@ -70,13 +72,13 @@ export class TableNode extends ElementNode {
     return false;
   }
 
-  override exportJSON(): SerializedTableNode {
+  override exportJSON(): SerializedImmutableTableNode {
     const unknownAttributes = this.getUnknownAttributes();
     return {
       ...super.exportJSON(),
-      type: TABLE_TYPE,
+      type: IMMUTABLE_TABLE_TYPE,
       ...(unknownAttributes !== undefined && { unknownAttributes }),
-      version: TABLE_VERSION,
+      version: IMMUTABLE_TABLE_VERSION,
     };
   }
 
@@ -86,16 +88,20 @@ export class TableNode extends ElementNode {
   }
 }
 
-export function $createTableNode(unknownAttributes?: UnknownAttributes): TableNode {
-  return $applyNodeReplacement(new TableNode(unknownAttributes));
+export function $createImmutableTableNode(
+  unknownAttributes?: UnknownAttributes,
+): ImmutableTableNode {
+  return $applyNodeReplacement(new ImmutableTableNode(unknownAttributes));
 }
 
-export function $isTableNode(node: LexicalNode | null | undefined): node is TableNode {
-  return node instanceof TableNode;
+export function $isImmutableTableNode(
+  node: LexicalNode | null | undefined,
+): node is ImmutableTableNode {
+  return node instanceof ImmutableTableNode;
 }
 
-export function isSerializedTableNode(
+export function isSerializedImmutableTableNode(
   node: SerializedLexicalNode | null | undefined,
-): node is SerializedTableNode {
-  return node?.type === TABLE_TYPE;
+): node is SerializedImmutableTableNode {
+  return node?.type === IMMUTABLE_TABLE_TYPE;
 }

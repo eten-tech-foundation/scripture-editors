@@ -4655,14 +4655,14 @@ export const lexicalHidden2Sa: SerializedEditorState = {
         format: "",
         indent: 0,
         version: 1,
-        type: "table",
+        type: "immutable-table",
         children: [
           {
             direction: null,
             format: "",
             indent: 0,
             version: 1,
-            type: "table:row",
+            type: "immutable-table-row",
             marker: "tr",
             children: [
               {
@@ -4670,7 +4670,7 @@ export const lexicalHidden2Sa: SerializedEditorState = {
                 format: "",
                 indent: 0,
                 version: 1,
-                type: "table:cell",
+                type: "immutable-table-cell",
                 marker: "th1",
                 align: "start",
                 children: [
@@ -4690,7 +4690,7 @@ export const lexicalHidden2Sa: SerializedEditorState = {
                 format: "",
                 indent: 0,
                 version: 1,
-                type: "table:cell",
+                type: "immutable-table-cell",
                 marker: "th2",
                 align: "start",
                 children: [
@@ -4710,7 +4710,7 @@ export const lexicalHidden2Sa: SerializedEditorState = {
                 format: "",
                 indent: 0,
                 version: 1,
-                type: "table:cell",
+                type: "immutable-table-cell",
                 marker: "thc3",
                 align: "center",
                 colspan: "2",
@@ -4731,7 +4731,7 @@ export const lexicalHidden2Sa: SerializedEditorState = {
                 format: "",
                 indent: 0,
                 version: 1,
-                type: "table:cell",
+                type: "immutable-table-cell",
                 marker: "thr5",
                 align: "end",
                 children: [
@@ -4753,7 +4753,7 @@ export const lexicalHidden2Sa: SerializedEditorState = {
             format: "",
             indent: 0,
             version: 1,
-            type: "table:row",
+            type: "immutable-table-row",
             marker: "tr",
             children: [
               {
@@ -4761,7 +4761,7 @@ export const lexicalHidden2Sa: SerializedEditorState = {
                 format: "",
                 indent: 0,
                 version: 1,
-                type: "table:cell",
+                type: "immutable-table-cell",
                 marker: "tc1",
                 align: "start",
                 children: [
@@ -4781,7 +4781,7 @@ export const lexicalHidden2Sa: SerializedEditorState = {
                 format: "",
                 indent: 0,
                 version: 1,
-                type: "table:cell",
+                type: "immutable-table-cell",
                 marker: "tc2",
                 align: "start",
                 children: [
@@ -4801,7 +4801,7 @@ export const lexicalHidden2Sa: SerializedEditorState = {
                 format: "",
                 indent: 0,
                 version: 1,
-                type: "table:cell",
+                type: "immutable-table-cell",
                 marker: "thc3",
                 align: "center",
                 children: [
@@ -4821,7 +4821,7 @@ export const lexicalHidden2Sa: SerializedEditorState = {
                 format: "",
                 indent: 0,
                 version: 1,
-                type: "table:cell",
+                type: "immutable-table-cell",
                 marker: "thr4",
                 align: "end",
                 colspan: "2",
@@ -4844,7 +4844,7 @@ export const lexicalHidden2Sa: SerializedEditorState = {
             format: "",
             indent: 0,
             version: 1,
-            type: "table:row",
+            type: "immutable-table-row",
             marker: "tr",
             children: [
               {
@@ -4852,7 +4852,7 @@ export const lexicalHidden2Sa: SerializedEditorState = {
                 format: "",
                 indent: 0,
                 version: 1,
-                type: "table:cell",
+                type: "immutable-table-cell",
                 marker: "tcr1",
                 align: "end",
                 colspan: "4",
@@ -4873,7 +4873,7 @@ export const lexicalHidden2Sa: SerializedEditorState = {
                 format: "",
                 indent: 0,
                 version: 1,
-                type: "table:cell",
+                type: "immutable-table-cell",
                 marker: "tc5",
                 align: "start",
                 children: [
@@ -4918,14 +4918,14 @@ export const lexicalHidden2Sa: SerializedEditorState = {
         format: "",
         indent: 0,
         version: 1,
-        type: "table",
+        type: "immutable-table",
         children: [
           {
             direction: null,
             format: "",
             indent: 0,
             version: 1,
-            type: "table:row",
+            type: "immutable-table-row",
             marker: "tr",
             children: [
               {
@@ -4933,7 +4933,7 @@ export const lexicalHidden2Sa: SerializedEditorState = {
                 format: "",
                 indent: 0,
                 version: 1,
-                type: "table:cell",
+                type: "immutable-table-cell",
                 marker: "tc1",
                 align: "start",
                 children: [
@@ -4953,7 +4953,7 @@ export const lexicalHidden2Sa: SerializedEditorState = {
                 format: "",
                 indent: 0,
                 version: 1,
-                type: "table:cell",
+                type: "immutable-table-cell",
                 marker: "tc2",
                 align: "start",
                 children: [
@@ -5001,7 +5001,7 @@ export const lexicalHidden2Sa: SerializedEditorState = {
                 format: "",
                 indent: 0,
                 version: 1,
-                type: "table:cell",
+                type: "immutable-table-cell",
                 marker: "tc3",
                 align: "start",
                 children: [
@@ -5021,7 +5021,7 @@ export const lexicalHidden2Sa: SerializedEditorState = {
                 format: "",
                 indent: 0,
                 version: 1,
-                type: "table:cell",
+                type: "immutable-table-cell",
                 marker: "tc4",
                 align: "start",
                 children: [
@@ -5041,7 +5041,7 @@ export const lexicalHidden2Sa: SerializedEditorState = {
                 format: "",
                 indent: 0,
                 version: 1,
-                type: "table:cell",
+                type: "immutable-table-cell",
                 marker: "tc5",
                 align: "start",
                 children: [
@@ -5061,7 +5061,7 @@ export const lexicalHidden2Sa: SerializedEditorState = {
                 format: "",
                 indent: 0,
                 version: 1,
-                type: "table:cell",
+                type: "immutable-table-cell",
                 marker: "tc5",
                 align: "start",
                 children: [
@@ -5106,14 +5106,14 @@ export const lexicalHidden2Sa: SerializedEditorState = {
         format: "",
         indent: 0,
         version: 1,
-        type: "table",
+        type: "immutable-table",
         children: [
           {
             direction: null,
             format: "",
             indent: 0,
             version: 1,
-            type: "table:row",
+            type: "immutable-table-row",
             marker: "tr",
             children: [
               {
@@ -5121,7 +5121,7 @@ export const lexicalHidden2Sa: SerializedEditorState = {
                 format: "",
                 indent: 0,
                 version: 1,
-                type: "table:cell",
+                type: "immutable-table-cell",
                 marker: "tc1",
                 align: "start",
                 children: [
@@ -5141,7 +5141,7 @@ export const lexicalHidden2Sa: SerializedEditorState = {
                 format: "",
                 indent: 0,
                 version: 1,
-                type: "table:cell",
+                type: "immutable-table-cell",
                 marker: "tc2",
                 align: "start",
                 children: [
@@ -5183,7 +5183,7 @@ export const lexicalHidden2Sa: SerializedEditorState = {
                 format: "",
                 indent: 0,
                 version: 1,
-                type: "table:cell",
+                type: "immutable-table-cell",
                 marker: "tc3",
                 align: "start",
                 children: [
@@ -5203,7 +5203,7 @@ export const lexicalHidden2Sa: SerializedEditorState = {
                 format: "",
                 indent: 0,
                 version: 1,
-                type: "table:cell",
+                type: "immutable-table-cell",
                 marker: "tc4",
                 align: "start",
                 children: [
@@ -5223,7 +5223,7 @@ export const lexicalHidden2Sa: SerializedEditorState = {
                 format: "",
                 indent: 0,
                 version: 1,
-                type: "table:cell",
+                type: "immutable-table-cell",
                 marker: "tc5",
                 align: "start",
                 children: [
@@ -5243,7 +5243,7 @@ export const lexicalHidden2Sa: SerializedEditorState = {
                 format: "",
                 indent: 0,
                 version: 1,
-                type: "table:cell",
+                type: "immutable-table-cell",
                 marker: "tc5",
                 align: "start",
                 children: [

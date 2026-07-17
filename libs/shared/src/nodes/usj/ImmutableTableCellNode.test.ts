@@ -1,22 +1,22 @@
 import {
-  $createTableCellNode,
-  $isTableCellNode,
+  $createImmutableTableCellNode,
+  $isImmutableTableCellNode,
   TABLE_CELL_TYPE,
-  isSerializedTableCellNode,
-  TableCellNode,
-} from "./TableCellNode.js";
+  isSerializedImmutableTableCellNode,
+  ImmutableTableCellNode,
+} from "./ImmutableTableCellNode.js";
 import { withEditor } from "./test.utils.js";
 import { $getNodeByKey, $getRoot, createEditor } from "lexical";
 import { describe, expect, it } from "vitest";
 
-describe("TableCellNode", () => {
-  it("has type 'table:cell'", () => {
-    expect(TableCellNode.getType()).toBe("table:cell");
+describe("ImmutableTableCellNode", () => {
+  it("has type 'immutable-table-cell'", () => {
+    expect(ImmutableTableCellNode.getType()).toBe("immutable-table-cell");
   });
 
   it("renders a <td> with structural and marker classes for a tc marker", () => {
-    withEditor([TableCellNode], () => {
-      const node = $createTableCellNode("tc1", "start");
+    withEditor([ImmutableTableCellNode], () => {
+      const node = $createImmutableTableCellNode("tc1", "start");
       const dom = node.createDOM();
       expect(dom.tagName).toBe("TD");
       expect(dom.getAttribute("data-marker")).toBe("tc1");
@@ -27,8 +27,8 @@ describe("TableCellNode", () => {
   });
 
   it("renders a <th> for a th marker, keeps align logical (end), with colspan", () => {
-    withEditor([TableCellNode], () => {
-      const node = $createTableCellNode("thr5", "end", "2");
+    withEditor([ImmutableTableCellNode], () => {
+      const node = $createImmutableTableCellNode("thr5", "end", "2");
       const dom = node.createDOM();
       expect(dom.tagName).toBe("TH");
       expect(dom.style.textAlign).toBe("end");
@@ -37,51 +37,55 @@ describe("TableCellNode", () => {
   });
 
   it("uses logical text-align (start/end, not left/right) so cells mirror under RTL", () => {
-    withEditor([TableCellNode], () => {
+    withEditor([ImmutableTableCellNode], () => {
       // Physical left/right would break RTL scripts; the logical values flip with `dir`.
-      expect($createTableCellNode("tc1", "start").createDOM().style.textAlign).toBe("start");
-      expect($createTableCellNode("tcr1", "end").createDOM().style.textAlign).toBe("end");
+      expect($createImmutableTableCellNode("tc1", "start").createDOM().style.textAlign).toBe(
+        "start",
+      );
+      expect($createImmutableTableCellNode("tcr1", "end").createDOM().style.textAlign).toBe("end");
       // An unrecognized align value is ignored rather than written to the style.
-      expect($createTableCellNode("tc1", "left").createDOM().style.textAlign).toBe("");
+      expect($createImmutableTableCellNode("tc1", "left").createDOM().style.textAlign).toBe("");
     });
   });
 
   it("round-trips through JSON", () => {
-    withEditor([TableCellNode], () => {
-      const node = $createTableCellNode("thc3", "center", "2");
+    withEditor([ImmutableTableCellNode], () => {
+      const node = $createImmutableTableCellNode("thc3", "center", "2");
       const json = node.exportJSON();
-      expect(isSerializedTableCellNode(json)).toBe(true);
+      expect(isSerializedImmutableTableCellNode(json)).toBe(true);
       expect(json).toMatchObject({
-        type: "table:cell",
+        type: "immutable-table-cell",
         marker: "thc3",
         align: "center",
         colspan: "2",
       });
-      const restored = TableCellNode.importJSON(json);
-      expect($isTableCellNode(restored)).toBe(true);
+      const restored = ImmutableTableCellNode.importJSON(json);
+      expect($isImmutableTableCellNode(restored)).toBe(true);
       expect(restored.getMarker()).toBe("thc3");
       expect(restored.getAlign()).toBe("center");
       expect(restored.getColspan()).toBe("2");
     });
   });
 
-  it("TABLE_CELL_TYPE constant equals 'table:cell'", () => {
+  it("TABLE_CELL_TYPE constant equals the USJ marker type 'table:cell'", () => {
     expect(TABLE_CELL_TYPE).toBe("table:cell");
   });
 
   it("round-trips unknownAttributes through JSON", () => {
-    withEditor([TableCellNode], () => {
-      const node = $createTableCellNode("tc1", undefined, undefined, { category: "watCat" });
+    withEditor([ImmutableTableCellNode], () => {
+      const node = $createImmutableTableCellNode("tc1", undefined, undefined, {
+        category: "watCat",
+      });
       const json = node.exportJSON();
       expect(json).toMatchObject({ unknownAttributes: { category: "watCat" } });
-      const restored = TableCellNode.importJSON(json);
+      const restored = ImmutableTableCellNode.importJSON(json);
       expect(restored.getUnknownAttributes()).toEqual({ category: "watCat" });
     });
   });
 
   it("updateDOM recreates DOM when align changes (setAlign reflected in live element)", () => {
     const editor = createEditor({
-      nodes: [TableCellNode],
+      nodes: [ImmutableTableCellNode],
       onError: (e) => {
         throw e;
       },
@@ -93,7 +97,7 @@ describe("TableCellNode", () => {
 
     editor.update(
       () => {
-        const node = $createTableCellNode("tc1");
+        const node = $createImmutableTableCellNode("tc1");
         $getRoot().append(node);
         nodeKey = node.getKey();
       },
@@ -102,8 +106,8 @@ describe("TableCellNode", () => {
 
     editor.update(
       () => {
-        const node = $getNodeByKey<TableCellNode>(nodeKey);
-        if (!node) throw new Error("Expected TableCellNode to exist");
+        const node = $getNodeByKey<ImmutableTableCellNode>(nodeKey);
+        if (!node) throw new Error("Expected ImmutableTableCellNode to exist");
         node.setAlign("end");
       },
       { discrete: true },
