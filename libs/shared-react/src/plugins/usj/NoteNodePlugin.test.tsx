@@ -21,6 +21,7 @@ import {
 import {
   $createCharNode,
   $createImmutableChapterNode,
+  $createMarkerNode,
   $createNoteNode,
   $createParaNode,
   $isCharNode,
@@ -28,6 +29,7 @@ import {
   $isParaNode,
   EMPTY_CHAR_PLACEHOLDER_TEXT,
   GENERATOR_NOTE_CALLER,
+  getEditableCallerText,
   NBSP,
   NoteNode,
 } from "shared";
@@ -309,6 +311,82 @@ describe("NoteNodePlugin", () => {
         // Node should not be removed
         expect(noteNode).not.toBeNull();
         expect(noteNode?.isAttached()).toBe(true);
+      });
+    });
+  });
+
+  describe("Expanded editable caller retention", () => {
+    it("does not eject the editable caller text out of an expanded note", async () => {
+      // Editable+expanded: once the opening `\f` glyph is deleted, the caller TextNode
+      // (` caller<NBSP>`, see getEditableCallerText) becomes the note's FIRST child. The
+      // leading-text salvage must not eject it into the paragraph — doing so plants the caller
+      // word in body text (live-observed as a repeated `word~` spray), and MarkerEditPlugin's
+      // note-deletion transform needs the caller in place to recognize the damaged note.
+      let noteKey: string;
+      const callerText = getEditableCallerText("+");
+      const { editor } = await testEnvironment(
+        undefined,
+        { markerMode: "editable", noteMode: "expanded", hasSpacing: false, isFormattedFont: false },
+        () => {
+          const note = $createNoteNode("f", "+", false);
+          note.append(
+            $createTextNode(callerText), // opener glyph already deleted — caller is first
+            $createCharNode("ft").append($createMarkerNode("ft"), $createTextNode(`${NBSP}text`)),
+          );
+          noteKey = note.getKey();
+          $getRoot().append(
+            $createParaNode().append($createTextNode("before "), note, $createTextNode(" after")),
+          );
+        },
+      );
+
+      editor.getEditorState().read(() => {
+        const note = $getNodeByKey<NoteNode>(noteKey);
+        expect(note?.isAttached()).toBe(true);
+        // The caller text stays INSIDE the note...
+        const noteTexts = note
+          ?.getChildren()
+          .filter((child): child is TextNode => $isTextNode(child))
+          .map((child) => child.getTextContent());
+        expect(noteTexts).toContain(callerText);
+        // ...and never appears as a direct child of the paragraph.
+        const para = $getRoot().getChildren().filter($isParaNode)[0];
+        const paraTexts = para
+          .getChildren()
+          .filter((child): child is TextNode => $isTextNode(child) && !$isNoteNode(child))
+          .map((child) => child.getTextContent());
+        expect(paraTexts).not.toContain(callerText);
+      });
+    });
+
+    it("still ejects stray typed text at the start of a note (salvage preserved)", async () => {
+      let noteKey: string;
+      const { editor } = await testEnvironment(
+        undefined,
+        { markerMode: "editable", noteMode: "expanded", hasSpacing: false, isFormattedFont: false },
+        () => {
+          const note = $createNoteNode("f", "+", false);
+          note.append(
+            $createTextNode("zz"), // user-typed stray text, NOT the caller shape
+            $createMarkerNode("f"),
+            $createTextNode(getEditableCallerText("+")),
+            $createCharNode("ft").append($createMarkerNode("ft"), $createTextNode(`${NBSP}text`)),
+          );
+          noteKey = note.getKey();
+          $getRoot().append($createParaNode().append($createTextNode("before "), note));
+        },
+      );
+
+      editor.getEditorState().read(() => {
+        const note = $getNodeByKey<NoteNode>(noteKey);
+        expect(note?.isAttached()).toBe(true);
+        // The stray text was moved out to the paragraph, ahead of the note.
+        const para = $getRoot().getChildren().filter($isParaNode)[0];
+        const paraTexts = para
+          .getChildren()
+          .filter((child): child is TextNode => $isTextNode(child) && !$isNoteNode(child))
+          .map((child) => child.getTextContent());
+        expect(paraTexts.some((text) => text.includes("zz"))).toBe(true);
       });
     });
   });

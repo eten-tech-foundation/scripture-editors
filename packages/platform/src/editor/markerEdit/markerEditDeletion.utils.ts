@@ -13,6 +13,7 @@ import {
   $isParaMarkerPrefix,
   $isParaNode,
   CharNode,
+  getEditableCallerText,
   NBSP,
   NODE_ATTRIBUTE_PREFIX,
   NoteNode,
@@ -114,7 +115,7 @@ export function $unwrapCharNode(char: CharNode): void {
 }
 
 /**
- * A COLLAPSED note is an atomic object in the text —
+ * A note is an atomic object in the text —
  * PT9 deletes the whole footnote when any part of it is deleted. In editable marker mode a
  * collapsed note carries its `\f`/`\f*` glyphs as its first/last children; Backspace right
  * after the note deletes the closing glyph (and forward-Delete before it deletes the opener).
@@ -122,12 +123,20 @@ export function $unwrapCharNode(char: CharNode): void {
  * literal glyph text (`\fr 8.4 \ft \f*` — live-verified data corruption), which the
  * re-tokenizer would settle into phantom markers. A glyph pair that is damaged on one side
  * only means the user deleted "half the pair": remove the whole note, PT9-style. Notes with
- * NO glyphs at all (shapes built by non-editable creation paths) and expanded notes (an
- * inline-editable zone with its own content-rebuild semantics) are left alone.
+ * NO glyphs at all (shapes built by non-editable creation paths) are left alone.
+ *
+ * EXPANDED notes (inline-editable zone) get the same PT9 outcome for their only deletable
+ * marker handle: deleting the opening glyph removes the whole note. Damage is detected by the
+ * missing OPENER only — an UNCLOSED note (its normal shape after typing a bare `\f `)
+ * legitimately has no closing glyph, so a collapsed-style opener-XOR-closer rule would wrongly
+ * delete every intact unclosed note. The editable-built shape is recognized by its caller text
+ * (`getEditableCallerText`); without that anchor (caller-less or non-editable-built shapes)
+ * the note is left alone. Without this, the glyph-deleted NoteNode survived and serialization
+ * regenerated `\f caller` forever while the orphaned caller spilled into the paragraph
+ * (live-observed `tell,~tell,~…` accumulation).
  */
 export function $noteDeletionTransform(note: NoteNode, context: MarkerEditContext): void {
-  if (note.getIsCollapsed() !== true) return;
-  // Detect the glyph pair by PRESENCE among the direct children, not by first/last POSITION: a
+  // Detect glyphs by PRESENCE among the direct children, not by first/last POSITION: a
   // stray leading TextNode (the user typed at the note's start — the transient NoteNodePlugin's
   // `$noteNodeTransform` salvages by moving that text out) leaves the opener glyph intact but no
   // longer first. A first/last check would read that as "opener deleted" and remove the whole
@@ -136,6 +145,21 @@ export function $noteDeletionTransform(note: NoteNode, context: MarkerEditContex
   // footnote's `\fr`/`\ft` content on a single keystroke.
   const children = note.getChildren();
   const hasOpener = children.some((c) => $isMarkerNode(c) && c.getMarkerSyntax() === "opening");
+
+  if (note.getIsCollapsed() !== true) {
+    if (hasOpener) return; // intact — unclosed expanded notes have no closer by construction
+    const caller = note.getCaller();
+    if (caller === "") return; // no recognizable editable anchor — not ours
+    const hasEditableCaller = children.some(
+      (c) =>
+        $isTextNode(c) && !$isMarkerNode(c) && c.getTextContent() === getEditableCallerText(caller),
+    );
+    if (!hasEditableCaller) return; // glyph-less/non-editable-built shape — not ours
+    note.remove();
+    context.logger?.debug(`[MarkerEdit] removed expanded note whose opening glyph was deleted`);
+    return;
+  }
+
   const hasCloser = children.some((c) => $isMarkerNode(c) && c.getMarkerSyntax() === "closing");
   if (hasOpener === hasCloser) return; // intact pair, both-gone, or a glyph-less shape — not ours
   note.remove();
