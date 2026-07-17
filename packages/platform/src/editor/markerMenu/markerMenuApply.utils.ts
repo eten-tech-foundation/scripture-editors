@@ -14,7 +14,7 @@
  * Both are called from `EditorRef.applyMarkerMenuSelection`/`EditorRef.splitParagraphWithMarker`
  * (`Editor.tsx`) inside `editor.update(...)`.
  */
-import { getUsjMarkerAction } from "../adaptors/usj-marker-action.utils";
+import { $insertNoteForMarker, getUsjMarkerAction } from "../adaptors/usj-marker-action.utils";
 import { $closeCharSpanAtCaret } from "../markerEdit/charFormatting.utils";
 import {
   $injectMarkerPrefix,
@@ -24,7 +24,14 @@ import { MarkerMenuItem } from "./markerItemSource";
 import { $isAtParagraphContentStart } from "./markerMenuContext.utils";
 import { SerializedVerseRef } from "@sillsdev/scripture";
 import { $getEditor, $getSelection, $isRangeSelection, $isTextNode, LexicalNode } from "lexical";
-import { $isMarkerNode, $isParaNode, LoggerBasic, openingMarkerText, ParaNode } from "shared";
+import {
+  $isMarkerNode,
+  $isParaNode,
+  LoggerBasic,
+  NoteNode,
+  openingMarkerText,
+  ParaNode,
+} from "shared";
 import { UsjNodeOptions, ViewOptions } from "shared-react";
 import { MutableRefObject } from "react";
 
@@ -137,7 +144,7 @@ export function $applyMarkerMenuSelection(
   opts: { trigger: "backslash" | "enter"; literalPrefixLanded: boolean },
   reference: SerializedVerseRef,
   deps: ApplyMarkerMenuSelectionDeps,
-): void {
+): string | undefined {
   // Delete the literal `\marker` trigger prefix (when one landed) BEFORE any branch — including the
   // `closeTag` branch, so closing a char span via the passive `\` palette doesn't strand the trigger
   // `\` (and any typed filter chars) in the document. The wrap case (a non-collapsed selection)
@@ -158,6 +165,22 @@ export function $applyMarkerMenuSelection(
     return;
   }
 
+  // Note markers insert directly (we are already inside `editor.update()`, so the action
+  // wrapper's nested update would be QUEUED and its inserted-note key unavailable). The returned
+  // TRUE Lexical key feeds the host's popover editing session: the delta-doc-derived key
+  // (getInsertedNodeKey) double-counts editable VerseNodes and lands past the note, making
+  // replaceEmbedUpdate silently no-op — the same reason EditorRef.insertMarker returns it.
+  if (NoteNode.isValidMarker(item.marker)) {
+    return $insertNoteForMarker(
+      item.marker,
+      reference,
+      deps.expandedNoteKeyRef,
+      deps.viewOptions,
+      deps.nodeOptions,
+      deps.logger,
+    );
+  }
+
   const markerAction = getUsjMarkerAction(
     item.marker,
     deps.expandedNoteKeyRef,
@@ -166,6 +189,7 @@ export function $applyMarkerMenuSelection(
     deps.logger,
   );
   markerAction.action({ editor: $getEditor(), reference });
+  return undefined;
 }
 
 /**
