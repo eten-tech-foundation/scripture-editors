@@ -524,6 +524,57 @@ describe("$applyMarkerMenuSelection", () => {
     });
   });
 
+  describe("open kind — literal-prefix cleanup never eats a marker glyph", () => {
+    it("leaves a MarkerNode's glyph text intact when the caret sits on the glyph", async () => {
+      // The scrRef "yank" can park the caret at the end of a paragraph's marker glyph (`\q1`).
+      // The literal-prefix regex matches that whole glyph text, so without a MarkerNode guard
+      // the cleanup spliced the glyph away — and with a PREVIOUS paragraph present, the
+      // marker-deletion transform's merge branch then FUSED the two paragraphs (with no
+      // previous para the reset branch re-injects the prefix, self-healing and masking this).
+      let glyph: MarkerNode;
+      const { editor } = await testEnvironment(() => {
+        const intro = $createParaNode("p");
+        const qPara = $createParaNode("q1");
+        glyph = $createMarkerNode("q1");
+        $getRoot().append(
+          intro.append(
+            $createMarkerNode("p"),
+            $createTrailingSpaceNode(),
+            $createTextNode("intro text"),
+          ),
+          qPara.append(glyph, $createTrailingSpaceNode(), $createTextNode("poetry line")),
+        );
+      });
+      await act(async () =>
+        editor.update(() => {
+          const length = glyph.getTextContent().length;
+          glyph.select(length, length); // caret at the end of the `\q1` glyph text
+        }),
+      );
+
+      const item: MarkerMenuItem = { marker: "wj", kind: "character", isBasic: true };
+      await act(async () =>
+        editor.update(() => {
+          $applyMarkerMenuSelection(
+            item,
+            { trigger: "backslash", literalPrefixLanded: true },
+            reference,
+            makeDeps(),
+          );
+        }),
+      );
+
+      editor.getEditorState().read(() => {
+        const paras = $getRoot().getChildren().filter($isParaNode);
+        // Both paragraphs survive un-fused, the q1 keeps its marker, and its glyph text is intact.
+        expect(paras).toHaveLength(2);
+        expect(paras[1].getMarker()).toBe("q1");
+        const first = paras[1].getFirstChild();
+        expect($isMarkerNode(first) ? first.getTextContent() : undefined).toBe("\\q1");
+      });
+    });
+  });
+
   describe("paragraph kind — retag caret with element content (red-letter)", () => {
     it("puts the caret at CONTENT START when the first content child is a CharNode, not paragraph end", async () => {
       // Red-letter shape: `\p \wj Then Jesus said\wj*` — content child at index 2 is a CharNode
