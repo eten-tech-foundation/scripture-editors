@@ -38,7 +38,7 @@ describe("usfmFragmentToUsjContent — core", () => {
       {
         type: "para",
         marker: "p",
-        content: ["before ", { type: "char", marker: "nd", content: ["Lord"] }],
+        content: ["before ", { type: "char", marker: "nd", content: ["Lord"], closed: "false" }],
       },
     ]);
   });
@@ -49,8 +49,8 @@ describe("usfmFragmentToUsjContent — core", () => {
         type: "para",
         marker: "p",
         content: [
-          { type: "char", marker: "nd", content: ["Lord "] },
-          { type: "char", marker: "wj", content: ["said"] },
+          { type: "char", marker: "nd", content: ["Lord "], closed: "false" },
+          { type: "char", marker: "wj", content: ["said"], closed: "false" },
         ],
       },
     ]);
@@ -77,7 +77,7 @@ describe("usfmFragmentToUsjContent — core", () => {
       {
         type: "para",
         marker: "p",
-        content: [{ type: "char", marker: "nd", content: ["Lord "] }],
+        content: [{ type: "char", marker: "nd", content: ["Lord "], closed: "false" }],
       },
       { type: "para", marker: "q1", content: ["line"] },
     ]);
@@ -147,7 +147,7 @@ describe("usfmFragmentToUsjContent — verse, chapter, note, milestone, attribut
         type: "para",
         marker: "p",
         content: [
-          { type: "char", marker: "nd", content: ["Lord "] },
+          { type: "char", marker: "nd", content: ["Lord "], closed: "false" },
           { type: "verse", marker: "v", number: "2" },
           "next",
         ],
@@ -174,8 +174,8 @@ describe("usfmFragmentToUsjContent — verse, chapter, note, milestone, attribut
             marker: "f",
             caller: "+",
             content: [
-              { type: "char", marker: "fr", content: ["1.1 "] },
-              { type: "char", marker: "ft", content: ["A note."] },
+              { type: "char", marker: "fr", content: ["1.1 "], closed: "false" },
+              { type: "char", marker: "ft", content: ["A note."], closed: "false" },
             ],
           },
           " after",
@@ -195,7 +195,7 @@ describe("usfmFragmentToUsjContent — verse, chapter, note, milestone, attribut
             type: "note",
             marker: "f",
             caller: "+",
-            content: [{ type: "char", marker: "ft", content: ["open note"] }],
+            content: [{ type: "char", marker: "ft", content: ["open note"], closed: "false" }],
             closed: "false",
           },
         ],
@@ -245,6 +245,83 @@ describe("usfmFragmentToUsjContent — verse, chapter, note, milestone, attribut
         content: [{ type: "char", marker: "w", lemma: "grace", content: ["gracious"] }],
       },
     ]);
+  });
+
+  describe('closed="false" parity (ParatextData marks every implicitly-closed char span)', () => {
+    it("marks a char span auto-closed at the paragraph end", () => {
+      expect(usfmFragmentToUsjContent("\\p before \\nd Lord")).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: ["before ", { type: "char", marker: "nd", content: ["Lord"], closed: "false" }],
+        },
+      ]);
+    });
+
+    it("marks a char span auto-closed by the next non-nested char opener", () => {
+      expect(usfmFragmentToUsjContent("\\p \\it aa \\bd bb")).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: [
+            { type: "char", marker: "it", content: ["aa "], closed: "false" },
+            { type: "char", marker: "bd", content: ["bb"], closed: "false" },
+          ],
+        },
+      ]);
+    });
+
+    it("marks nested spans implicitly closed when the outer span closes explicitly", () => {
+      expect(usfmFragmentToUsjContent("\\p \\add aa \\+nd bb\\add* cc")).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: [
+            {
+              type: "char",
+              marker: "add",
+              content: ["aa ", { type: "char", marker: "nd", content: ["bb"], closed: "false" }],
+            },
+            " cc",
+          ],
+        },
+      ]);
+    });
+
+    it("marks note-content chars implicitly closed by the note's explicit end", () => {
+      // The classic footnote shape from real ParatextData USJ: \fr and \ft never carry their own
+      // closers, so both get closed="false"; the explicitly-terminated note itself does not.
+      expect(usfmFragmentToUsjContent("\\p \\f + \\fr 1.1 \\ft txt\\f* after")).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: [
+            {
+              type: "note",
+              marker: "f",
+              caller: "+",
+              content: [
+                { type: "char", marker: "fr", content: ["1.1 "], closed: "false" },
+                { type: "char", marker: "ft", content: ["txt"], closed: "false" },
+              ],
+            },
+            " after",
+          ],
+        },
+      ]);
+    });
+
+    it("leaves an explicitly closed char span unmarked", () => {
+      expect(usfmFragmentToUsjContent("\\p \\nd Lord\\nd* after")).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: ["", { type: "char", marker: "nd", content: ["Lord"] }, " after"].filter(
+            (c) => c !== "",
+          ),
+        },
+      ]);
+    });
   });
 
   it("never lets an attribute named type/marker/content clobber the node's own keys", () => {
@@ -323,7 +400,7 @@ describe("PT9 unknown-marker handling", () => {
         type: "para",
         marker: "p",
         content: [
-          { type: "char", marker: "ft", content: ["text "] },
+          { type: "char", marker: "ft", content: ["text "], closed: "false" },
           { type: "char", marker: "zfoo", content: ["word"] },
           " after",
         ],

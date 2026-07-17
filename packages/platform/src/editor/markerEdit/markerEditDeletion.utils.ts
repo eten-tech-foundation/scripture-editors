@@ -246,6 +246,10 @@ export function $charNodeDeletionTransform(char: CharNode, context: MarkerEditCo
     return;
   }
   const needsCloser =
+    // A closed="false" span has no explicit closer BY DESIGN (ParatextData emits the flag on
+    // every implicitly-closed char span; the adaptor renders no closing glyph for it) — its
+    // missing closer is its normal shape, not deletion damage.
+    char.getUnknownAttributes()?.closed !== "false" &&
     !CharNode.isValidFootnoteMarker(char.getMarker()) &&
     !CharNode.isValidCrossReferenceMarker(char.getMarker());
   const hasCloser = char

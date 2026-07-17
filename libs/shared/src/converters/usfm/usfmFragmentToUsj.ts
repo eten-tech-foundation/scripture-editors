@@ -282,11 +282,15 @@ interface CharFrame {
 }
 
 /**
- * `closed` is nonstandard derived USX/USJ metadata for an implicitly-closed note
+ * `closed` is nonstandard derived USX/USJ metadata for an implicitly-closed marker
  * (see `usx-to-usj.ts`'s "Not dropping attribs.closed for backwards compatibility");
  * it is not part of the published `MarkerObject` shape, so it is typed locally.
+ * ParatextData emits `closed="false"` on BOTH notes and char spans that have no explicit
+ * closing marker — near universal on footnote-content chars like `\fr`/`\ft`/`\xo` — so this
+ * tokenizer mirrors that for char spans too (real-life reference: paranext-core's
+ * `footnote-util-test.usj.data.ts`).
  */
-type NoteMarkerObject = MarkerObject & { closed?: string };
+type ClosableMarkerObject = MarkerObject & { closed?: string };
 
 export function usfmFragmentToUsjContent(
   fragment: string,
@@ -294,7 +298,7 @@ export function usfmFragmentToUsjContent(
 ): MarkerContent[] {
   const result: MarkerContent[] = [];
   let para: MarkerObject | undefined;
-  let note: NoteMarkerObject | undefined;
+  let note: ClosableMarkerObject | undefined;
   const charStack: CharFrame[] = [];
 
   const container = (): MarkerContent[] => {
@@ -316,7 +320,16 @@ export function usfmFragmentToUsjContent(
     }
   };
 
+  // Implicit close: every still-open char span gets closed="false", mirroring ParatextData
+  // (a span only stays unmarked when the user's own `\marker*` terminated it).
+  const markImplicitlyClosed = (fromIndex: number) => {
+    for (let i = fromIndex; i < charStack.length; i += 1) {
+      const object: ClosableMarkerObject = charStack[i].object;
+      object.closed = "false";
+    }
+  };
   const closeCharStack = () => {
+    markImplicitlyClosed(0);
     charStack.length = 0;
   };
   const closeNote = (terminated: boolean) => {
@@ -374,6 +387,8 @@ export function usfmFragmentToUsjContent(
         const frameIndex = charStack.findLastIndex((frame) => frame.object.marker === marker);
         if (frameIndex >= 0) {
           extractAttributes(charStack[frameIndex].object);
+          // Nested spans above the explicitly-closed frame are closed IMPLICITLY by it.
+          markImplicitlyClosed(frameIndex + 1);
           charStack.length = frameIndex;
         } else if (note && note.marker === marker) {
           // Explicit note close auto-closes any still-open char span within it

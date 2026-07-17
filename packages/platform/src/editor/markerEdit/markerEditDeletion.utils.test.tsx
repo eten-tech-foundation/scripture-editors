@@ -184,6 +184,41 @@ describe("deletion semantics", () => {
         .filter($isMarkerNode)
         .map((n) => n.getTextContent());
       expect(markerTexts).not.toContain("nd*");
+      // The span is now genuinely NOT CLOSED: closed="false" recorded, no regenerated closer
+      // glyph — deleting the closer no longer makes a phantom `\nd*` pop up at the span's end.
+      expect(char?.getUnknownAttributes()?.closed).toBe("false");
+      const charHasCloser = char
+        ?.getChildren()
+        .some((n) => $isMarkerNode(n) && n.getMarkerSyntax() === "closing");
+      expect(charHasCloser).toBe(false);
+    });
+  });
+
+  it('leaves an unclosed (closed="false") char span alone — no closer is its normal shape', async () => {
+    // ParatextData emits closed="false" on every implicitly-closed char span; the adaptor
+    // renders no closing glyph for those. The deletion transform must not read that as
+    // "closer deleted" and re-route the span through Tier 2 forever.
+    let char: ReturnType<typeof $createCharNode>;
+    const { editor } = await testEnvironment(() => {
+      const para = $createParaNode("p");
+      char = $createCharNode("nd");
+      char.setUnknownAttributes({ closed: "false" });
+      $getRoot().append(
+        para.append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          char.append($createMarkerNode("nd"), $createTextNode(`${NBSP}Lord`)),
+          $createTextNode(" of hosts"),
+        ),
+      );
+    });
+
+    editor.getEditorState().read(() => {
+      // Intact: still a char span with its opener, content untouched, " of hosts" outside.
+      expect(char.isAttached()).toBe(true);
+      expect(char.getMarker()).toBe("nd");
+      expect(char.getTextContent()).toContain("Lord");
+      expect(char.getTextContent()).not.toContain("of hosts");
     });
   });
 

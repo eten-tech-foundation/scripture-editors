@@ -353,7 +353,12 @@ function createChar(
   if (childNodes.length === 0) childNodes.push(createText(EMPTY_CHAR_PLACEHOLDER_TEXT));
   addOpeningMarker(markerObject.marker ?? "", children);
   children.push(...childNodes);
-  addClosingMarker(markerObject.marker ?? "", children);
+  // A closed="false" span has no explicit closing marker (ParatextData emits this on every
+  // implicitly-closed char span — near universal on footnote-content chars like \fr/\ft), so no
+  // closing glyph is rendered — mirroring the unclosed-note handling in $createNoteChildren. The
+  // flag itself rides through unknownAttributes below and round-trips on serialization.
+  const isUnclosedChar = (markerObject as MarkerObject & { closed?: string }).closed === "false";
+  if (!isUnclosedChar) addClosingMarker(markerObject.marker ?? "", children);
   const unknownAttributes = getUnknownAttributes(markerObject, CHAR_MARKER_OBJECT_PROPS);
 
   return removeUndefinedProperties({
