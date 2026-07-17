@@ -25,15 +25,35 @@ export function $createMarkerPrefix(marker: string) {
   const markerNode = $createMarkerNode(marker);
   const spaceNode = $createTextNode(NBSP);
   $setState(spaceNode, textTypeState, "marker-trailing-space");
+  // Token mode so typing at the separator's boundary can never insert INTO it. Without this, a
+  // fresh EMPTY paragraph (whose caret fallback below is the separator's end) absorbed typed text
+  // into this node ("<NBSP>asdf"), which the serializer — matching the separator by exact-NBSP
+  // text — then leaked into USJ content (`\p ~asdf` in USFM, and a non-convergent PDP echo loop
+  // in the host). With token mode, Lexical routes boundary insertions into a new plain sibling
+  // TextNode instead. Keep in sync with the forward adaptor's separator (`createText(NBSP,
+  // "marker-trailing-space", "token")` in usj-editor.adaptor.ts).
+  spaceNode.setMode("token");
   return [markerNode, spaceNode];
+}
+
+/**
+ * Places the caret at the content side of a paragraph's `[glyph, separator, ...content]` prefix.
+ * Text content selects at its own offset 0. Anything else — no content yet (fresh empty
+ * paragraph) or element content (e.g. a red-letter `\wj` CharNode first) — gets an element point
+ * at child index 2, the content boundary: typing there inserts plain text at content start
+ * instead of the caret jumping to the paragraph end (`selectEnd`), which is wrong for element
+ * content and, before the separator was token-mode, let typing merge into the separator itself.
+ */
+export function $selectParaContentStart(para: ParaNode): void {
+  const contentChild = para.getChildAtIndex(2);
+  if (contentChild && $isTextNode(contentChild)) contentChild.select(0, 0);
+  else para.select(2, 2);
 }
 
 export function $injectMarkerPrefix(para: ParaNode): void {
   para.splice(0, 0, $createMarkerPrefix(para.getMarker()));
   // Keep the caret on the content side of the injected prefix.
-  const third = para.getChildAtIndex(2);
-  if (third && $isTextNode(third)) third.select(0, 0);
-  else para.selectEnd();
+  $selectParaContentStart(para);
 }
 
 export function $paraMarkerDeletionTransform(para: ParaNode, context: MarkerEditContext): void {
