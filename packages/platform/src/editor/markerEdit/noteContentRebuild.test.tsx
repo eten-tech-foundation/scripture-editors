@@ -155,6 +155,42 @@ describe("note-scope Tier 2 rebuild", () => {
     });
   }, 15000); // generous timeout: a re-introduced cascade must fail loudly, not hang silently
 
+  it("keeps a freshly tokenized milestone's display glyphs (siblings, not the \\p wrapper prefix)", async () => {
+    // A terminated milestone literal typed into note content tokenizes into a MilestoneNode whose
+    // opening `\ts-s` and self-closing `\*` glyphs are SIBLINGS at the unwrap level. The unwrap
+    // must drop ONLY the tokenizer's leading `\p` wrapper prefix (glyph + trailing space) — a
+    // strip-every-MarkerNode filter also ate the milestone's glyphs, leaving it rendered
+    // glyph-less until reload.
+    const { editor } = await (async () => {
+      const environment = createBasicTestEnvironment([TypedMarkNode, ...usjReactNodes]);
+      environment.editor.setEditorState(
+        environment.editor.parseEditorState(
+          serializedState(noteUsx(`closed="false"`, `A note \\ts-s |sid="ts.GEN.1"\\* end`)),
+        ),
+      );
+      return environment;
+    })();
+
+    editor.update(
+      () => {
+        const note = findOnlyNote($getRoot());
+        expect($rebuildNoteContent(note, context)).toBe(true); // literal milestone → real rebuild
+      },
+      { discrete: true },
+    );
+
+    editor.getEditorState().read(() => {
+      const note = findOnlyNote($getRoot());
+      const children = note.getChildren();
+      // The milestone node materialized...
+      expect(children.some((c) => c.getType() === "ms")).toBe(true);
+      // ...and its display glyphs survived as siblings: the opening `\ts-s` and the `\*`.
+      const glyphTexts = children.filter((c) => $isMarkerNode(c)).map((c) => c.getTextContent());
+      expect(glyphTexts).toContain("\\ts-s");
+      expect(glyphTexts.some((t) => t.includes("*"))).toBe(true);
+    });
+  });
+
   it("refuses to rebuild a collapsed note's content (preserve-or-refuse)", async () => {
     // A closed note collapses in standard view; its content is not inline re-tokenizable.
     const { editor } = createBasicTestEnvironment([TypedMarkNode, ...usjReactNodes]);

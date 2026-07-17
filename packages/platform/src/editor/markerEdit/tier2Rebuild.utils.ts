@@ -645,12 +645,23 @@ export function $rebuildNoteContent(note: NoteNode, context: Tier2Context): bool
     return false;
   }
   // The editable \p wrapper prepends a visible para MarkerNode + marker-trailing-space
-  // that must NOT enter the note content; drop that prefix on unwrap.
-  const newNodes = wrapperChildren
-    .map((child) => $parseSerializedNode(child))
-    .filter(
-      (node) => !$isMarkerNode(node) && $getState(node, textTypeState) !== "marker-trailing-space",
-    );
+  // that must NOT enter the note content; drop ONLY that leading prefix pair on unwrap. Other
+  // MarkerNodes among the unwrapped children are real display glyphs — e.g. a freshly tokenized
+  // milestone's opening `\ts-s` and self-closing `\*` glyphs are SIBLINGS of the MilestoneNode —
+  // and a strip-every-MarkerNode filter ate them, leaving the milestone glyph-less until reload.
+  const parsed = wrapperChildren.map((child) => $parseSerializedNode(child));
+  let contentStart = 0;
+  if ($isMarkerNode(parsed[0]) && parsed[0].getMarkerSyntax() === "opening") {
+    contentStart = 1;
+    const second = parsed[1];
+    if (
+      $isTextNode(second) &&
+      !$isMarkerNode(second) &&
+      $getState(second, textTypeState) === "marker-trailing-space"
+    )
+      contentStart = 2;
+  }
+  const newNodes = parsed.slice(contentStart);
   if (newNodes.length === 0) {
     logger?.debug("[MarkerEdit] Note Tier 2 skipped: no content nodes after unwrap");
     return false;
