@@ -71,10 +71,11 @@ const closedNoteUsj: MarkerObject = {
   type: "note",
   marker: "f",
   caller: "+",
+  // Footnote-content chars carry closed="false" in real ParatextData USJ (no explicit closers).
   content: [
-    { type: "char", marker: "fr", content: ["1:1 "] },
-    { type: "char", marker: "ft", content: ["see verse "] },
-    { type: "char", marker: "fv", content: ["2"] },
+    { type: "char", marker: "fr", content: ["1:1 "], closed: "false" },
+    { type: "char", marker: "ft", content: ["see verse "], closed: "false" },
+    { type: "char", marker: "fv", content: ["2"], closed: "false" },
   ],
 };
 
@@ -85,8 +86,8 @@ const unclosedNoteUsj: MarkerObject & { closed?: string } = {
   caller: "+",
   closed: "false",
   content: [
-    { type: "char", marker: "fr", content: ["1:2 "] },
-    { type: "char", marker: "ft", content: ["unterminated"] },
+    { type: "char", marker: "fr", content: ["1:2 "], closed: "false" },
+    { type: "char", marker: "ft", content: ["unterminated"], closed: "false" },
   ],
 };
 

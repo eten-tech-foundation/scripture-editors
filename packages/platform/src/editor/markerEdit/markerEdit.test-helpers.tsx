@@ -126,7 +126,12 @@ export function $appendVersePara(): { verse: VerseNode } {
  * USX for a paragraph with an inline note. `closed` controls whether the note renders
  * expanded inline (`closed="false"` → PT9 `opennote`) or collapsed.
  */
-export function noteUsx(noteAttrs: string, noteContent = `<char style="ft">A note</char>`) {
+// Footnote-content chars carry closed="false" in real ParatextData USJ (they never have their
+// own closing markers) — fixtures mirror that so Tier-2 re-tokenization is a true fixed point.
+export function noteUsx(
+  noteAttrs: string,
+  noteContent = `<char style="ft" closed="false">A note</char>`,
+) {
   return usxStringToUsj(
     `<usx version="3.0"><book code="RUT" style="id">T</book><chapter number="1" style="c" />` +
       `<para style="p"><verse number="1" style="v" />text` +

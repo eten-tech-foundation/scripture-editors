@@ -28,6 +28,7 @@ import {
 } from "lexical";
 import {
   $isCharNode,
+  CharNode,
   $isMarkerNode,
   $isMilestoneNode,
   $isNoteNode,
@@ -137,12 +138,26 @@ function verseNeedsSentinel(node: VerseNode): boolean {
   );
 }
 
+/**
+ * True when a char span carries attribute BYTES that make it non-text-recoverable (`\w
+ * x|lemma="…"`). `closed` is excluded: it is derived metadata the tokenizer fully re-derives
+ * (`closed="false"` on every implicitly-closed span), so a span whose only unknown attribute is
+ * `closed` is still plain re-tokenizable text — treating it as atomic froze every
+ * footnote-content char (they all carry closed="false") and marker typing inside notes stopped
+ * splitting.
+ */
+function hasByteAttributes(node: CharNode): boolean {
+  const attributes = node.getUnknownAttributes();
+  if (!attributes) return false;
+  return Object.keys(attributes).some((name) => name !== "closed");
+}
+
 /** Mirrors `$appendChildrenFragment`'s "preserve this node atomically" classification. */
 function isRebuildSentinel(node: LexicalNode, getMarkerFn: MarkerLookup): boolean {
   if ($isMilestoneNode(node) || $isNoteNode(node) || $isUnknownNode(node)) return true;
   if ($isVerseNode(node)) return verseNeedsSentinel(node);
   if ($isCharNode(node))
-    return Boolean(node.getUnknownAttributes()) || getMarkerFn(node.getMarker()) === undefined;
+    return hasByteAttributes(node) || getMarkerFn(node.getMarker()) === undefined;
   return false;
 }
 
@@ -233,7 +248,7 @@ function $appendNodesFragment(
     } else if ($isCharNode(node)) {
       // Unknown-marker spans (custom.sty) are not text-recoverable: the
       // tokenizer would degrade them to literal text (preserve-or-refuse).
-      if (node.getUnknownAttributes() || getMarkerFn(node.getMarker()) === undefined)
+      if (hasByteAttributes(node) || getMarkerFn(node.getMarker()) === undefined)
         pushSentinel(out, [node]);
       else $appendChildrenFragment(node, out, getMarkerFn);
     } else if ($isLineBreakNode(node)) {

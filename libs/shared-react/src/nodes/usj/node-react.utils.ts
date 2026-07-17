@@ -211,6 +211,12 @@ function $createNoteContentChar(
   viewOptions: ViewOptions,
 ): CharNode {
   const char = $createCharNode(marker);
+  // Note-content chars are built without their own closing markers, i.e. they are implicitly
+  // closed — exactly what ParatextData records as closed="false" (near universal on \fr/\ft/
+  // \xo/\xt). Carrying the flag from creation keeps these nodes signature-identical to what
+  // Tier-2 re-tokenization produces (the rebuild's fixed-point refusal depends on that) and
+  // round-trips the correct USJ shape.
+  char.setUnknownAttributes({ closed: "false" });
   const isEditable = viewOptions?.markerMode === "editable";
   if (isEditable) char.append($createMarkerNode(marker));
   const text = content === "" ? EMPTY_CHAR_PLACEHOLDER_TEXT : isEditable ? NBSP + content : content;
