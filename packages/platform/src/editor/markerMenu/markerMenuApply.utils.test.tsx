@@ -524,6 +524,109 @@ describe("$applyMarkerMenuSelection", () => {
     });
   });
 
+  describe("paragraph kind — retag caret with element content (red-letter)", () => {
+    it("puts the caret at CONTENT START when the first content child is a CharNode, not paragraph end", async () => {
+      // Red-letter shape: `\p \wj Then Jesus said\wj*` — content child at index 2 is a CharNode
+      // (an element), not a TextNode. The old fallback jumped the caret to para end; the caret
+      // must land at the content boundary instead, so immediate typing inserts BEFORE the span.
+      let glyph: MarkerNode;
+      const { editor } = await testEnvironment(() => {
+        const para = $createParaNode("p");
+        glyph = $createMarkerNode("p");
+        const wj = $createCharNode("wj");
+        $getRoot().append(
+          para.append(
+            glyph,
+            $createTrailingSpaceNode(),
+            wj.append(
+              $createMarkerNode("wj"),
+              $createTextNode(`${NBSP}Then Jesus said`),
+              $createMarkerNode("wj", "closing"),
+            ),
+          ),
+        );
+      });
+      // Caret at the paragraph's content start (glyph offset 0 — the retag probe position).
+      await act(async () => editor.update(() => glyph.select(0, 0)));
+
+      const item: MarkerMenuItem = { marker: "q1", kind: "paragraph", isBasic: true };
+      await act(async () =>
+        editor.update(() => {
+          $applyMarkerMenuSelection(
+            item,
+            { trigger: "backslash", literalPrefixLanded: false },
+            reference,
+            makeDeps(),
+          );
+        }),
+      );
+
+      // Typing right after the retag must land at content START (before the \wj span) — the
+      // observable form of "the caret did not jump to the end".
+      await act(async () =>
+        editor.update(() => {
+          const selection = $getSelection();
+          if ($isRangeSelection(selection)) selection.insertText("X");
+        }),
+      );
+
+      editor.getEditorState().read(() => {
+        const para = requireDefined(
+          $getRoot().getChildren().filter($isParaNode)[0],
+          "para missing",
+        );
+        expect(para.getMarker()).toBe("q1"); // retag happened
+        const text = para.getTextContent();
+        // "X" precedes the red-letter content; with the old selectEnd fallback it trailed it.
+        expect(text.indexOf("X")).toBeLessThan(text.indexOf("Then"));
+      });
+    });
+  });
+
+  describe("$splitParagraphWithMarker — typing into the fresh paragraph", () => {
+    it("keeps typed text OUT of the marker-trailing-space separator (no NBSP leaks into USJ)", async () => {
+      // Repro of the live bug: Enter → pick `p` → type "asdf" produced USFM `\p ~asdf`. The new
+      // paragraph is EMPTY, so $injectMarkerPrefix's caret fallback (selectEnd) parks the caret at
+      // the END of the NBSP separator node; RangeSelection.insertText then appends INTO that node
+      // (" asdf"), and the serializer — which strips the separator by exact-NBSP text match —
+      // keeps the whole node, leaking the NBSP into USJ (→ `~` in USFM → a non-convergent PDP echo
+      // loop in the host). The separator must be a token node so typing at its boundary creates a
+      // fresh plain content node instead.
+      let text: TextNode;
+      const { editor } = await fullHarnessEnvironment(() => {
+        const para = $createParaNode("p");
+        text = $createTextNode("before");
+        $getRoot().append(para.append($createMarkerNode("p"), $createTrailingSpaceNode(), text));
+      });
+      await act(async () => editor.update(() => text.select(6, 6))); // caret at end of "before"
+      await act(async () => editor.update(() => $splitParagraphWithMarker("p")));
+      // Type like a user: RangeSelection.insertText follows the same token/canInsertText
+      // boundary rules as real keyboard input.
+      await act(async () =>
+        editor.update(() => {
+          const selection = $getSelection();
+          if ($isRangeSelection(selection)) selection.insertText("asdf");
+        }),
+      );
+
+      const usj = deserializeEditorState(editor.getEditorState(), viewOptions);
+      const usjJson = JSON.stringify(usj);
+      expect(usjJson).toContain('"asdf"'); // the typed text is EXACTLY the content — no separator residue
+      expect(usjJson).not.toContain("\u00A0"); // the NBSP separator did not leak into USJ
+      expect(usjJson).not.toContain('" asdf"'); // nor as an inverted leading space
+
+      // The typed text must also be a sibling of the separator, not merged into it — the editable
+      // layout [glyph, NBSP, content] is what every marker-edit transform assumes.
+      editor.getEditorState().read(() => {
+        const paras = $getRoot().getChildren().filter($isParaNode);
+        expect(paras).toHaveLength(2);
+        const newPara = paras[1];
+        const contentChild = newPara.getChildAtIndex(2);
+        expect($isTextNode(contentChild) ? contentChild.getTextContent() : undefined).toBe("asdf");
+      });
+    });
+  });
+
   describe("closeTag kind", () => {
     it("closes an 'nd*' span with the caret mid-span: left half styled, right half plain", async () => {
       let char: ReturnType<typeof $createCharNode>;

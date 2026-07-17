@@ -392,7 +392,10 @@ function createPara(
   marker = marker ?? PARA_MARKER_DEFAULT;
   const children: SerializedLexicalNode[] = [];
   if (_viewOptions?.markerMode === "editable")
-    children.push(createMarker(marker), createText(NBSP, "marker-trailing-space"));
+    // Token mode: typing at the separator's boundary must create a new plain TextNode, never
+    // insert into the separator itself (which leaked the NBSP into serialized USJ — `\p ~asdf`).
+    // Keep in sync with `$createMarkerPrefix` (markerEditDeletion.utils.ts).
+    children.push(createMarker(marker), createText(NBSP, "marker-trailing-space", "token"));
   else if (_viewOptions?.markerMode === "visible" || _viewOptions?.hasGutterParaMarkers)
     children.push(createImmutableTypedText("marker", openingMarkerText(marker) + NBSP));
   children.push(...childNodes);

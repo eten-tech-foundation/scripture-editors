@@ -16,7 +16,10 @@
  */
 import { getUsjMarkerAction } from "../adaptors/usj-marker-action.utils";
 import { $closeCharSpanAtCaret } from "../markerEdit/charFormatting.utils";
-import { $injectMarkerPrefix } from "../markerEdit/markerEditDeletion.utils";
+import {
+  $injectMarkerPrefix,
+  $selectParaContentStart,
+} from "../markerEdit/markerEditDeletion.utils";
 import { MarkerMenuItem } from "./markerItemSource";
 import { $isAtParagraphContentStart } from "./markerMenuContext.utils";
 import { SerializedVerseRef } from "@sillsdev/scripture";
@@ -74,10 +77,9 @@ function $retagParagraph(para: ParaNode, marker: string): void {
   // Place the caret at the content side of the retagged prefix. In editable marker mode a
   // paragraph's children are laid out as [0] the marker-glyph node, [1] the trailing NBSP space,
   // and [2] the first content node — so index 2 is the content (the same layout assumption as
-  // `$injectMarkerPrefix`). Fall back to the paragraph end when there is no content text node yet.
-  const contentChild = para.getChildAtIndex(2);
-  if (contentChild && $isTextNode(contentChild)) contentChild.select(0, 0);
-  else para.selectEnd();
+  // `$injectMarkerPrefix`). Element content (e.g. a red-letter `\wj` span first) and the
+  // no-content case get an element point at that boundary rather than jumping to paragraph end.
+  $selectParaContentStart(para);
 }
 
 /**
