@@ -524,6 +524,61 @@ describe("$applyMarkerMenuSelection", () => {
     });
   });
 
+  describe("open kind — caret lands INSIDE the inserted char span", () => {
+    it("puts the caret at the span's content position so typing fills the span (end of paragraph)", async () => {
+      // Live repro: type `\wj`, commit with Enter at the end of a paragraph — the caret landed at
+      // the OPENING glyph's offset 0 (selectStart descends to the first leaf), so typing went into
+      // the glyph (Tier-1 rename semantics) instead of the span content. PT9: after inserting a
+      // char marker at a collapsed caret, typing goes INTO the new span, after `\wj `.
+      let text: TextNode;
+      const { editor } = await fullHarnessEnvironment(() => {
+        const para = $createParaNode("p");
+        text = $createTextNode("word ");
+        $getRoot().append(para.append($createMarkerNode("p"), $createTrailingSpaceNode(), text));
+      });
+      await act(async () => editor.update(() => text.select(5, 5))); // caret at paragraph end
+
+      const item: MarkerMenuItem = { marker: "wj", kind: "character", isBasic: true };
+      await act(async () =>
+        editor.update(() => {
+          $applyMarkerMenuSelection(
+            item,
+            { trigger: "backslash", literalPrefixLanded: false },
+            reference,
+            makeDeps(),
+          );
+        }),
+      );
+
+      // Type like a user: the text must land INSIDE the span (CharNodePlugin then strips the
+      // empty-content placeholder), not in the opening glyph and not outside the span.
+      await act(async () =>
+        editor.update(() => {
+          const selection = $getSelection();
+          if ($isRangeSelection(selection)) selection.insertText("hi");
+        }),
+      );
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getChildren().filter($isParaNode)[0];
+        const char = para.getChildren().find($isCharNode);
+        expect($isCharNode(char)).toBe(true);
+        if (!$isCharNode(char)) throw new Error("expected a char span");
+        expect(char.getMarker()).toBe("wj"); // typing did NOT rename the marker via its glyph
+        const opener = char.getChildren().filter($isMarkerNode)[0];
+        expect(opener.getTextContent()).toBe("\\wj"); // glyph text untouched
+        // The typed text is the span's content...
+        const contentTexts = char
+          .getChildren()
+          .filter((c): c is TextNode => $isTextNode(c) && !$isMarkerNode(c))
+          .map((c) => c.getTextContent());
+        expect(contentTexts.join("")).toContain("hi");
+        // ...and did not land outside the span.
+        expect(para.getTextContent().replace(char.getTextContent(), "")).not.toContain("hi");
+      });
+    });
+  });
+
   describe("open kind — literal-prefix cleanup never eats a marker glyph", () => {
     it("leaves a MarkerNode's glyph text intact when the caret sits on the glyph", async () => {
       // The scrRef "yank" can park the caret at the end of a paragraph's marker glyph (`\q1`).

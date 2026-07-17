@@ -6,6 +6,7 @@
 
 import { $requestTier2ForNode } from "./tier2Rebuild.utils";
 import { MarkerEditContext } from "./markerEditTier1.utils";
+import { $dfs } from "@lexical/utils";
 import { $createTextNode, $getState, $setState, $isTextNode } from "lexical";
 import {
   $createMarkerNode,
@@ -148,13 +149,23 @@ export function $noteDeletionTransform(note: NoteNode, context: MarkerEditContex
 
   if (note.getIsCollapsed() !== true) {
     if (hasOpener) return; // intact — unclosed expanded notes have no closer by construction
+    // Recognize an editable-built note by ANY marker-glyph evidence: the editable caller text,
+    // a closing glyph, or a MarkerNode anywhere in the subtree (content char spans carry their
+    // own glyphs). A single evidence anchor (caller only) was not enough: a RANGE deletion
+    // across `\f caller` removes the opener AND the caller in one edit, and the note then
+    // survived and regenerated `\f caller` on every save. Notes with no glyph evidence at all
+    // (shapes built by non-editable creation paths) are left alone, as for collapsed.
     const caller = note.getCaller();
-    if (caller === "") return; // no recognizable editable anchor — not ours
-    const hasEditableCaller = children.some(
-      (c) =>
-        $isTextNode(c) && !$isMarkerNode(c) && c.getTextContent() === getEditableCallerText(caller),
-    );
-    if (!hasEditableCaller) return; // glyph-less/non-editable-built shape — not ours
+    const hasEditableCaller =
+      caller !== "" &&
+      children.some(
+        (c) =>
+          $isTextNode(c) &&
+          !$isMarkerNode(c) &&
+          c.getTextContent() === getEditableCallerText(caller),
+      );
+    const hasAnyMarkerGlyph = $dfs(note).some(({ node: n }) => $isMarkerNode(n));
+    if (!hasEditableCaller && !hasAnyMarkerGlyph) return; // glyph-less shape — not ours
     note.remove();
     context.logger?.debug(`[MarkerEdit] removed expanded note whose opening glyph was deleted`);
     return;

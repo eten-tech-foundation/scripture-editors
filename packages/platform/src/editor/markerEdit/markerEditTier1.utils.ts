@@ -198,6 +198,20 @@ export function $markerNodeTransform(node: MarkerNode, context: MarkerEditContex
     return;
   }
   // Closer / selfClosing: one-way authority — closer edits never rename the span.
+  if (node.getMarkerSyntax() === "closing" && !CLOSER_FORM_REGEX.test(text)) {
+    // The glyph no longer parses as a closer at all (its `\` or `*` was deleted). Since closer
+    // edits can't rename, such damage has exactly one sensible meaning: delete the closer.
+    // Removing the glyph converges every partial deletion (forward-Delete on the `\` leaving
+    // `wj*`, Backspace on the `*` leaving `\wj`) to the whole-glyph-deletion outcome: the
+    // char-deletion transform routes the span to Tier 2 and it extends per tokenizer rules.
+    // Leaving the residue in place instead re-tokenized it into literal junk text inside the
+    // extended span (live-observed `Lordwj* …`). A RETYPED but still well-formed closer
+    // (`\nd*` → `\wj*`) keeps the Tier-2 path below: PT9 preserves those bytes as an
+    // unmatched-closer node.
+    context.pendingKeys.delete(node.getKey());
+    node.remove();
+    return;
+  }
   if (text.endsWith("*")) {
     context.pendingKeys.delete(node.getKey());
     $requestTier2ForNode(node, context);

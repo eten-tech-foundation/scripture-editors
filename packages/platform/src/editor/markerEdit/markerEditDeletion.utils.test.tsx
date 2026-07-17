@@ -1,6 +1,12 @@
 import { $appendCharPara, $appendVersePara, testEnvironment } from "./markerEdit.test-helpers";
 import { act } from "@testing-library/react";
-import { $createTextNode, $getRoot, INSERT_PARAGRAPH_COMMAND, LexicalEditor } from "lexical";
+import {
+  $createTextNode,
+  $getRoot,
+  $isTextNode,
+  INSERT_PARAGRAPH_COMMAND,
+  LexicalEditor,
+} from "lexical";
 import { $dfs } from "@lexical/utils";
 import {
   $createCharNode,
@@ -127,6 +133,53 @@ describe("deletion semantics", () => {
       // PT9 leaves the attributes as literal bytes: `|lemma="grace"` survives.
       expect($getRoot().getTextContent()).toContain('|lemma="grace"');
       expect($getRoot().getTextContent()).toContain("grace");
+    });
+  });
+
+  it("treats a PARTIAL closer-glyph deletion as closer deletion (no marker residue text)", async () => {
+    // Live repro: forward-Delete on the `\` of `\wj*` left `wj*` behind as literal text inside
+    // the span while Tier 2 extended it and regenerated a closer at the paragraph end. Closer
+    // edits can never rename a span (one-way authority), so ANY modification to a closer glyph
+    // means "delete the closer": same outcome as deleting the whole glyph — span extends, no
+    // `wj*` junk.
+    const { editor } = await testEnvironment(() => {
+      const para = $createParaNode("p");
+      const char = $createCharNode("nd");
+      $getRoot().append(
+        para.append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          $createTextNode("say "),
+          char.append(
+            $createMarkerNode("nd"),
+            $createTextNode(`${NBSP}Lord`),
+            $createMarkerNode("nd", "closing"),
+          ),
+          $createTextNode(" of hosts"),
+        ),
+      );
+    });
+    await act(async () =>
+      editor.update(() => {
+        const closer = $getRoot()
+          .getAllTextNodes()
+          .find((n) => $isMarkerNode(n) && n.getMarkerSyntax() === "closing");
+        closer?.spliceText(0, 1, "", true); // delete ONLY the backslash: `\nd*` → `nd*`
+      }),
+    );
+    editor.getEditorState().read(() => {
+      const para = $getRoot().getChildren().filter($isParaNode)[0];
+      // Same outcome as whole-closer deletion: the span extends to the paragraph end...
+      const char = para.getChildren().find($isCharNode);
+      expect(char?.getTextContent()).toContain("of hosts");
+      // ...and the glyph residue does not survive in any PLAIN text (the regenerated closer
+      // glyph's own `\nd*` is legitimate — only backslash-less residue is the bug).
+      const plainTexts = $getRoot()
+        .getAllTextNodes()
+        .filter((n) => !$isMarkerNode(n))
+        .map((n) => n.getTextContent())
+        .join("");
+      expect(plainTexts).not.toContain("nd*");
     });
   });
 
@@ -314,6 +367,37 @@ describe("collapsed-note atomic deletion", () => {
       editor.getEditorState().read(() => expect($onlyNoteCount()).toBe(0));
       const text = paraText(editor);
       expect(text).not.toContain(`+${NBSP}`); // no caller spill into the paragraph
+      expect(text).toContain("before");
+      expect(text).toContain("after");
+    });
+
+    it("removes the expanded note when a range-delete took the opener AND the caller together", async () => {
+      // Live repro: selecting the visible `~\f tell,` and deleting removes the opening glyph and
+      // the editable caller text in ONE deletion. The earlier guard required the caller to still
+      // be present as evidence, so the note survived and regenerated `\f tell,` on every save —
+      // in both editors, forever. The note's content chars still carry their own marker glyphs,
+      // which is sufficient evidence of an editable-built note.
+      let note: NoteNode;
+      const { editor } = await testEnvironment(() => {
+        note = $appendParaWithExpandedUnclosedNote();
+      });
+
+      await act(async () =>
+        editor.update(() => {
+          const children = note.getChildren();
+          const opener = children
+            .filter($isMarkerNode)
+            .find((m) => m.getMarkerSyntax() === "opening");
+          const caller = children.find(
+            (c) => $isTextNode(c) && !$isMarkerNode(c) && c.getTextContent() === ` +${NBSP}`,
+          );
+          opener?.remove();
+          caller?.remove(); // what a range selection across `\f +<NBSP>` deletes in one go
+        }),
+      );
+
+      editor.getEditorState().read(() => expect($onlyNoteCount()).toBe(0));
+      const text = paraText(editor);
       expect(text).toContain("before");
       expect(text).toContain("after");
     });
