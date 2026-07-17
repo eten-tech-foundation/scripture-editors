@@ -9,12 +9,14 @@
 
 import { NBSP } from "../../nodes/usj/node-constants.js";
 
-/** Data → display: NBSP → `~`; spaces in runs of 2+ (and paragraph-leading spaces) → NBSP. */
-export function usjTextToDisplay(text: string, isAtParaStart = false): string {
-  let result = text.replaceAll(NBSP, "~");
-  result = result.replace(/ {2,}/g, (run) => NBSP.repeat(run.length));
-  if (isAtParaStart) result = result.replace(/^ +/, (lead) => NBSP.repeat(lead.length));
-  return result;
+/**
+ * Data → display: NBSP → `~`; spaces in runs of 2+ → NBSP. Paragraph-leading single-space
+ * display is NOT handled here — `createPara` (usj-editor.adaptor.ts) applies it to the first
+ * content text node directly, where "first in the paragraph" is actually known.
+ */
+export function usjTextToDisplay(text: string): string {
+  const result = text.replaceAll(NBSP, "~");
+  return result.replace(/ {2,}/g, (run) => NBSP.repeat(run.length));
 }
 
 /** Display → data: `~` → NBSP; display-NBSP → plain space. Does not collapse runs. */
