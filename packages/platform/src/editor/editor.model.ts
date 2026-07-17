@@ -15,6 +15,7 @@ import {
   DeltaSource,
   SelectionRange,
   StateChangeSnapshot,
+  StructureProtectionMode,
   TextDirection,
   UsjNodeOptions,
   ViewOptions,
@@ -189,14 +190,16 @@ export interface EditorProps<TLogger extends LoggerBasic> {
 export interface EditorOptions {
   /** Is the editor readonly or editable. */
   isReadonly?: boolean;
-  /** When true, paragraph and verse markers cannot be changed via keyboard input. */
-  isStructureProtected?: boolean;
   /**
-   * Whether the structure-protection feature applies at all. When false (e.g. Power interface
-   * mode), the structural keyboard handling — both protection-blocking and the two-step
-   * intentional delete — is disabled and editing is fully native. Defaults to active (true).
+   * Structure-protection mode for paragraph/verse markers via keyboard, paste, and drop.
+   * - "off": fully native editing, no protection or delete confirmation.
+   * - "guarded": two-step intentional delete (first press arms the marker, second press deletes
+   *   it); no hard blocking of paste/drop/typing.
+   * - "protected": structural keystrokes and paste/drop of structural markers are blocked
+   *   outright.
+   * Defaults to "off".
    */
-  isStructureProtectionActive?: boolean;
+  structureProtectionMode?: StructureProtectionMode;
   /** Does the editor have external UI controls so disable the built-in toolbar and marker menu. */
   hasExternalUI?: boolean;
   /** Is the editor enabled for spell checking. */

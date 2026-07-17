@@ -73,10 +73,9 @@ export interface EditorOptions {
     hasExternalUI?: boolean;
     hasSpellCheck?: boolean;
     isReadonly?: boolean;
-    isStructureProtected?: boolean;
-    isStructureProtectionActive?: boolean;
     markerMenuTrigger?: string;
     nodes?: UsjNodeOptions;
+    structureProtectionMode?: StructureProtectionMode;
     textDirection?: TextDirection;
     view?: ViewOptions;
 }
@@ -284,6 +283,9 @@ export interface StateChangeSnapshot {
     canUndo: boolean;
     contextMarker: string | undefined;
 }
+
+// @public
+export type StructureProtectionMode = "off" | "guarded" | "protected";
 
 // @public
 export type TextDirection = "ltr" | "rtl" | "auto";
