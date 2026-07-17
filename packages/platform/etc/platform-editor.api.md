@@ -147,7 +147,7 @@ export interface EditorRef {
     applyMarkerMenuSelection(item: MarkerMenuItem, opts: {
         trigger: "backslash" | "enter";
         literalPrefixLanded: boolean;
-    }): void;
+    }): string | undefined;
     applyUpdate(ops: DeltaOp[], source?: DeltaSource): void;
     commitPendingMarkerEdits(): void;
     copy(): void;
