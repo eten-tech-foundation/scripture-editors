@@ -325,6 +325,24 @@ export function getUsjMarkerAction(
             const nodeSelection = $createNodeSelection();
             nodeSelection.add(nodeToInsert.getKey());
             $setSelection(nodeSelection);
+          } else if ($isCharNode(nodeToInsert)) {
+            // A char span must receive the caret INSIDE, at its content position (PT9: after
+            // inserting `\wj ` you type the span's content). Both outside placements were wrong:
+            // selectStart() descends to the opening glyph's offset 0, so typing edited the glyph
+            // (Tier-1 rename); nextNode.selectStart() put typing after the whole span.
+            const contentText = nodeToInsert
+              .getChildren()
+              .find((child) => $isTextNode(child) && !$isMarkerNode(child));
+            if (contentText && $isTextNode(contentText)) {
+              // End of the empty-content placeholder: typed text appends after it and
+              // CharNodePlugin strips the placeholder prefix once real content exists.
+              contentText.select(
+                contentText.getTextContentSize(),
+                contentText.getTextContentSize(),
+              );
+            } else {
+              nodeToInsert.selectEnd();
+            }
           } else {
             const nextNode = nodeToInsert.getNextSibling();
             if (nextNode) nextNode.selectStart();
