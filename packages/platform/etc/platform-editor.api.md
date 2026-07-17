@@ -88,7 +88,7 @@ export interface ContextMenuOptionConfig {
     title: string;
 }
 
-// @public (undocumented)
+// @public
 export const defaultStyleInfo: StyleInfo;
 
 // @public
