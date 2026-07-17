@@ -300,6 +300,13 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
     replaceEmbedUpdate(embedNodeKey, insertEmbedOps) {
       const ops = editorRef.current?.read(() => $getReplaceEmbedOps(embedNodeKey, insertEmbedOps));
       if (ops) this.applyUpdate(ops);
+      // A missing/stale key must be LOUD: this is the footnote popover's save path, and a key
+      // invalidated by a full `setUsj` re-render (every Lexical key regenerates) otherwise turns
+      // Save into a silent no-op that looks like it worked.
+      else
+        logger?.warn(
+          `replaceEmbedUpdate: no embed found for key "${embedNodeKey}" — update dropped (stale key after a setUsj reload?)`,
+        );
     },
     getSelection() {
       return editorRef.current?.read($getUsjSelectionFromEditor);

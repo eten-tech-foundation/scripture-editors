@@ -35,6 +35,7 @@ import {
   CharNode,
   EMPTY_CHAR_PLACEHOLDER_TEXT,
   GENERATOR_NOTE_CALLER,
+  getEditableCallerText,
   LoggerBasic,
   NBSP,
   NoteNode,
@@ -187,7 +188,14 @@ function $noteNodeTransform(node: NoteNode, viewOptions: ViewOptions | undefined
   if (nodeChildren.length > 0) {
     const firstChild = nodeChildren[0];
     if ($isTextNode(firstChild) && !$isMarkerNode(firstChild)) {
-      node.insertBefore(firstChild);
+      // Never eject the expanded editable caller text (` caller<NBSP>`, getEditableCallerText):
+      // after the opening glyph is deleted it becomes the note's first child, and ejecting it
+      // plants the caller word in the paragraph on every serialization round (live-observed as a
+      // repeated `word~` spray). It must stay in place so MarkerEditPlugin's note-deletion
+      // transform can recognize the damaged editable note and remove it whole. User-typed stray
+      // text at the note's start (any other text) is still salvaged out.
+      if (firstChild.getTextContent() !== getEditableCallerText(node.getCaller()))
+        node.insertBefore(firstChild);
     }
   }
 }

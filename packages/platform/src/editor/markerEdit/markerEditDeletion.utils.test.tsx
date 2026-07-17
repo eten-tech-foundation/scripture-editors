@@ -271,6 +271,66 @@ describe("collapsed-note atomic deletion", () => {
     editor.getEditorState().read(() => expect($onlyNoteCount()).toBe(1));
   });
 
+  describe("expanded-note glyph deletion", () => {
+    /** A `\p` para with an EXPANDED (unclosed — no closing glyph, its normal shape) editable
+     * `\f` note: opener glyph, editable caller text (` +<NBSP>`), and `\ft` content. */
+    function $appendParaWithExpandedUnclosedNote(): NoteNode {
+      const note = $createNoteNode("f", "+", false);
+      $getRoot().append(
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(`${NBSP}before`),
+          note.append(
+            $createMarkerNode("f"),
+            $createTextNode(` +${NBSP}`), // getEditableCallerText("+")
+            $createCharNode("ft").append($createMarkerNode("ft"), $createTextNode(`${NBSP}stolen`)),
+          ),
+          $createTextNode(" after"),
+        ),
+      );
+      return note;
+    }
+
+    it("removes the whole expanded note when its opening glyph is deleted", async () => {
+      // Live-observed corruption this pins: deleting the visible `\f` of an expanded note left
+      // the NoteNode alive, so serialization regenerated `\f caller` forever, and the orphaned
+      // caller text spilled into the paragraph as `caller<NBSP>` on each attempt (the
+      // `tell,~tell,~…` spray). PT9 deletes the whole footnote when its marker is deleted.
+      let note: NoteNode;
+      const { editor } = await testEnvironment(() => {
+        note = $appendParaWithExpandedUnclosedNote();
+      });
+
+      await act(async () =>
+        editor.update(() => {
+          const opener = note
+            .getChildren()
+            .filter($isMarkerNode)
+            .find((m) => m.getMarkerSyntax() === "opening");
+          opener?.remove();
+        }),
+      );
+
+      editor.getEditorState().read(() => expect($onlyNoteCount()).toBe(0));
+      const text = paraText(editor);
+      expect(text).not.toContain(`+${NBSP}`); // no caller spill into the paragraph
+      expect(text).toContain("before");
+      expect(text).toContain("after");
+    });
+
+    it("leaves an intact unclosed expanded note alone (no closing glyph is its normal shape)", async () => {
+      // Regression guard: an unclosed note NEVER has a closing glyph, so a naive
+      // damaged-glyph-pair rule (opener XOR closer) would wrongly delete every intact
+      // unclosed note. Only a missing OPENER means the user deleted the marker.
+      const { editor } = await testEnvironment(() => {
+        $appendParaWithExpandedUnclosedNote();
+      });
+
+      editor.getEditorState().read(() => expect($onlyNoteCount()).toBe(1));
+      expect(paraText(editor)).toContain("stolen");
+    });
+  });
+
   it("keeps an intact note when a stray TextNode lands as its first child (typing at note start)", async () => {
     // Typing at the very start of a collapsed note anchors the typed char as the note's first
     // child, before the `\f` opener — the transient NoteNodePlugin's `$noteNodeTransform`
