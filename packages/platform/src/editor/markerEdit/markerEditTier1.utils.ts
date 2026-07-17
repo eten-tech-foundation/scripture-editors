@@ -200,9 +200,12 @@ export function $markerNodeTransform(node: MarkerNode, context: MarkerEditContex
   // Closer / selfClosing: one-way authority — closer edits never rename the span. Damage or
   // retype settles through Tier 2, whose tokenizer turns non-marker residue (`wj*` after the `\`
   // is deleted) into PLAIN text and re-closes the span per its rules — a `*`-terminated form
-  // resolves now, anything else stays pending until the caret departs (mid-edit grace). A char
-  // span has no `closed="false"` representation in USJ (notes only), so an "unclosed" span
-  // auto-closes at the paragraph end rather than staying visibly closer-less.
+  // resolves now, anything else stays pending until the caret departs (mid-edit grace). NOTE:
+  // USJ chars DO support `closed="false"` (ParatextData emits it whenever a char span has no
+  // explicit closer — see paranext-core's footnote-util test USJ), but our tokenizer does not
+  // yet set it on auto-closed char spans, so the rebuilt span currently re-closes at the
+  // paragraph end with a regenerated closer glyph. Emitting `closed="false"` there (and skipping
+  // the closer glyph for such spans) is the planned parity fix.
   if (text.endsWith("*")) {
     context.pendingKeys.delete(node.getKey());
     $requestTier2ForNode(node, context);

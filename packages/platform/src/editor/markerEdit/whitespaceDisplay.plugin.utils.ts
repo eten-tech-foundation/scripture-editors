@@ -35,6 +35,30 @@ export function $displayWhitespaceTransform(node: TextNode): void {
 }
 
 /**
+ * Standard-view PASTE normalization: a pasted data-NBSP must appear on screen as `~` (the
+ * display form; serialization inverts `~` back to a real NBSP, so the DATA stays an NBSP).
+ * Without this, a pasted NBSP landed as a raw NBSP — indistinguishable from a display-NBSP
+ * (which represents a plain space inside a run) — so nothing showed on screen live, and
+ * serialization then corrupted it into a plain space; the `~` only appeared after an app
+ * reload re-ran the load-time mapping. Internal pastes (application/x-lexical-editor payload)
+ * are already in display form and pass through untouched. For the rare NBSP-bearing external
+ * paste this inserts the normalized PLAIN text (foreign `text/html` formatting is dropped —
+ * preserving the NBSP data beats preserving formatting the sanitizer would mostly strip
+ * anyway).
+ */
+export function $handlePasteForStandardView(event: ClipboardEvent | null | undefined): boolean {
+  if (!event || !("clipboardData" in event) || !event.clipboardData) return false;
+  if (event.clipboardData.getData("application/x-lexical-editor")) return false;
+  const plain = event.clipboardData.getData("text/plain");
+  if (!plain || !plain.includes(NBSP)) return false;
+  const selection = $getSelection();
+  if (!$isRangeSelection(selection)) return false;
+  event.preventDefault();
+  selection.insertText(plain.replaceAll(NBSP, "~"));
+  return true;
+}
+
+/**
  * Payload builder: the currently-selected content, normalized so `text/plain` carries
  * plain spaces where the display shows NBSP. Shared by both the real-event and null-event
  * branches of `$handleCopyForStandardView` below so they stay byte-for-byte consistent.

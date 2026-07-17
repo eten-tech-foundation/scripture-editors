@@ -17,6 +17,7 @@ import { $textNodeTier2Transform } from "./markerEditTier2Trigger.utils";
 import {
   $displayWhitespaceTransform,
   $handleCopyForStandardView,
+  $handlePasteForStandardView,
 } from "./whitespaceDisplay.plugin.utils";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { mergeRegister } from "@lexical/utils";
@@ -35,6 +36,7 @@ import {
   INSERT_PARAGRAPH_COMMAND,
   KEY_DOWN_COMMAND,
   KEY_ENTER_COMMAND,
+  PASTE_COMMAND,
   LexicalCommand,
   NodeKey,
   TextNode,
@@ -215,6 +217,17 @@ export function MarkerEditPlugin({
                   event && typeof event === "object" && "clipboardData" in event ? event : null,
                   editor,
                   true,
+                ),
+              COMMAND_PRIORITY_HIGH,
+            ),
+            editor.registerCommand(
+              PASTE_COMMAND,
+              (event) =>
+                $handlePasteForStandardView(
+                  // Same jsdom-safe duck-check as COPY above.
+                  event && typeof event === "object" && "clipboardData" in event
+                    ? (event as ClipboardEvent)
+                    : null,
                 ),
               COMMAND_PRIORITY_HIGH,
             ),
