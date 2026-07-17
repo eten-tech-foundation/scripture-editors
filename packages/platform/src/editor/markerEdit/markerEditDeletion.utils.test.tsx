@@ -136,12 +136,11 @@ describe("deletion semantics", () => {
     });
   });
 
-  it("treats a PARTIAL closer-glyph deletion as closer deletion (no marker residue text)", async () => {
-    // Live repro: forward-Delete on the `\` of `\wj*` left `wj*` behind as literal text inside
-    // the span while Tier 2 extended it and regenerated a closer at the paragraph end. Closer
-    // edits can never rename a span (one-way authority), so ANY modification to a closer glyph
-    // means "delete the closer": same outcome as deleting the whole glyph — span extends, no
-    // `wj*` junk.
+  it("re-tokenizes a PARTIAL closer-glyph deletion via Tier 2: residue becomes PLAIN text", async () => {
+    // Deleting the `\` of `\nd*` degrades the glyph: the residue (`nd*`) must become NORMAL
+    // text via the Tier-2 re-tokenization — never stay marker-styled inside a MarkerNode — and
+    // the span re-closes per tokenizer rules (USJ has no closed="false" for char spans, so it
+    // auto-closes at the paragraph end).
     const { editor } = await testEnvironment(() => {
       const para = $createParaNode("p");
       const char = $createCharNode("nd");
@@ -169,17 +168,22 @@ describe("deletion semantics", () => {
     );
     editor.getEditorState().read(() => {
       const para = $getRoot().getChildren().filter($isParaNode)[0];
-      // Same outcome as whole-closer deletion: the span extends to the paragraph end...
+      // The span re-closes per tokenizer rules, extending to the paragraph end...
       const char = para.getChildren().find($isCharNode);
       expect(char?.getTextContent()).toContain("of hosts");
-      // ...and the glyph residue does not survive in any PLAIN text (the regenerated closer
-      // glyph's own `\nd*` is legitimate — only backslash-less residue is the bug).
+      // ...the residue survives as PLAIN text (PT9 keeps the user's bytes)...
       const plainTexts = $getRoot()
         .getAllTextNodes()
         .filter((n) => !$isMarkerNode(n))
         .map((n) => n.getTextContent())
         .join("");
-      expect(plainTexts).not.toContain("nd*");
+      expect(plainTexts).toContain("nd*");
+      // ...and NO MarkerNode carries the backslash-less residue as its glyph text.
+      const markerTexts = $getRoot()
+        .getAllTextNodes()
+        .filter($isMarkerNode)
+        .map((n) => n.getTextContent());
+      expect(markerTexts).not.toContain("nd*");
     });
   });
 
@@ -212,6 +216,59 @@ describe("deletion semantics", () => {
       // tokenizer auto-closes at para end: "of hosts" is now inside the span
       const char = $getRoot().getChildren().filter($isParaNode)[0].getChildren().find($isCharNode);
       expect(char?.getTextContent()).toContain("of hosts");
+    });
+  });
+
+  it("heals a missing marker-trailing separator behind an intact prefix glyph", async () => {
+    // The separator is engine-owned scaffolding: whatever ate it (forward-delete at the glyph
+    // end, a selection that swallowed it), the next transform pass re-asserts it so the
+    // [glyph, separator, content] layout — and the retag caret math — stays intact.
+    const { editor } = await testEnvironment(() => {
+      const wj = $createCharNode("wj");
+      $getRoot().append(
+        $createParaNode("q1").append(
+          $createMarkerNode("q1"), // NO separator — corrupted state
+          wj.append(
+            $createMarkerNode("wj"),
+            $createTextNode(`${NBSP}Jesus said`),
+            $createMarkerNode("wj", "closing"),
+          ),
+        ),
+      );
+    });
+
+    editor.getEditorState().read(() => {
+      const para = $getRoot().getChildren().filter($isParaNode)[0];
+      const second = para.getChildAtIndex(1);
+      expect($isTextNode(second) ? second.getTextContent() : undefined).toBe(NBSP);
+      expect($isTextNode(second) ? second.getMode() : undefined).toBe("token");
+    });
+  });
+
+  it("canonicalizes a user-typed plain space after the glyph into the separator (not doubled)", async () => {
+    const { editor } = await testEnvironment(() => {
+      const wj = $createCharNode("wj");
+      $getRoot().append(
+        $createParaNode("q1").append(
+          $createMarkerNode("q1"),
+          $createTextNode(" "), // user typed a plain space where the separator belongs
+          wj.append(
+            $createMarkerNode("wj"),
+            $createTextNode(`${NBSP}Jesus said`),
+            $createMarkerNode("wj", "closing"),
+          ),
+        ),
+      );
+    });
+
+    editor.getEditorState().read(() => {
+      const para = $getRoot().getChildren().filter($isParaNode)[0];
+      const children = para.getChildren();
+      const second = children[1];
+      expect($isTextNode(second) ? second.getTextContent() : undefined).toBe(NBSP);
+      // Converted in place — no second separator inserted before it.
+      expect($isCharNode(children[2])).toBe(true);
+      expect(children).toHaveLength(3);
     });
   });
 
@@ -344,11 +401,13 @@ describe("collapsed-note atomic deletion", () => {
       return note;
     }
 
-    it("removes the whole expanded note when its opening glyph is deleted", async () => {
-      // Live-observed corruption this pins: deleting the visible `\f` of an expanded note left
-      // the NoteNode alive, so serialization regenerated `\f caller` forever, and the orphaned
-      // caller text spilled into the paragraph as `caller<NBSP>` on each attempt (the
-      // `tell,~tell,~…` spray). PT9 deletes the whole footnote when its marker is deleted.
+    it("UNWRAPS the expanded note when its opening glyph is deleted (content preserved)", async () => {
+      // Deleting the visible `\f` of an EXPANDED note deletes only the marker, not the note's
+      // content: the user sees that content inline and deleting `\f` must not eat it (an
+      // unclosed note may have absorbed the whole rest of the verse). The note node dissolves:
+      // the caller returns to plain text (its structural NBSP becomes a plain space so nothing
+      // leaks as `~`) and the content stays in the paragraph. Contrast: a COLLAPSED note is an
+      // atomic object, so glyph deletion still removes the whole note (tests above).
       let note: NoteNode;
       const { editor } = await testEnvironment(() => {
         note = $appendParaWithExpandedUnclosedNote();
@@ -366,12 +425,14 @@ describe("collapsed-note atomic deletion", () => {
 
       editor.getEditorState().read(() => expect($onlyNoteCount()).toBe(0));
       const text = paraText(editor);
-      expect(text).not.toContain(`+${NBSP}`); // no caller spill into the paragraph
+      expect(text).not.toContain(`+${NBSP}`); // the editable-caller NBSP must not leak
+      expect(text).toContain("+"); // the caller word returns to plain text
+      expect(text).toContain("stolen"); // the note's content is PRESERVED in the paragraph
       expect(text).toContain("before");
       expect(text).toContain("after");
     });
 
-    it("removes the expanded note when a range-delete took the opener AND the caller together", async () => {
+    it("unwraps the expanded note when a range-delete took the opener AND the caller together", async () => {
       // Live repro: selecting the visible `~\f tell,` and deleting removes the opening glyph and
       // the editable caller text in ONE deletion. The earlier guard required the caller to still
       // be present as evidence, so the note survived and regenerated `\f tell,` on every save —
@@ -398,6 +459,7 @@ describe("collapsed-note atomic deletion", () => {
 
       editor.getEditorState().read(() => expect($onlyNoteCount()).toBe(0));
       const text = paraText(editor);
+      expect(text).toContain("stolen"); // only what the user selected is deleted — content stays
       expect(text).toContain("before");
       expect(text).toContain("after");
     });
