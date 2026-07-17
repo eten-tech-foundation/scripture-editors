@@ -145,6 +145,15 @@ export function $applyMarkerMenuSelection(
   reference: SerializedVerseRef,
   deps: ApplyMarkerMenuSelectionDeps,
 ): string | undefined {
+  // LOUD guard: without a range selection (e.g. the palette click blurred the editor and nulled
+  // it), the literal cleanup AND the insert paths below all silently no-op — the typed literal
+  // then strands in the document and reaches the host's save as data. Hosts should restore
+  // focus/selection before applying; this warning names the failure when they don't.
+  if (!$isRangeSelection($getSelection()))
+    deps.logger?.warn(
+      "$applyMarkerMenuSelection: no range selection — cleanup/insert will no-op (editor blurred?)",
+    );
+
   // Delete the literal `\marker` trigger prefix (when one landed) BEFORE any branch — including the
   // `closeTag` branch, so closing a char span via the passive `\` palette doesn't strand the trigger
   // `\` (and any typed filter chars) in the document. The wrap case (a non-collapsed selection)
