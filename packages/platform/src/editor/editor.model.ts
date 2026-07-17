@@ -176,11 +176,15 @@ export interface EditorRef {
    * @throws Will throw an error if the `scrRef` prop was not provided to the editor.
    * @throws Will throw an error if `item.kind` is not `"closeTag"` and `item.marker` is not a
    *   supported para, char, note, chapter, or verse marker.
+   *
+   * @returns the created note's TRUE Lexical node key when the applied item inserted a note
+   *   (hosts use it to track the note-editing session — the same contract as
+   *   {@link EditorRef.insertMarker}); `undefined` for every other item kind.
    */
   applyMarkerMenuSelection(
     item: MarkerMenuItem,
     opts: { trigger: "backslash" | "enter"; literalPrefixLanded: boolean },
-  ): void;
+  ): string | undefined;
   /**
    * Splits the paragraph at the current caret, giving the new paragraph `marker` with its
    * visible prefix injected in the same update (standard-view Enter-triggered marker menu

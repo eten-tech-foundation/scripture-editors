@@ -524,6 +524,46 @@ describe("$applyMarkerMenuSelection", () => {
     });
   });
 
+  describe("open kind — note insertion returns the created note's key", () => {
+    it("returns the inserted NoteNode's Lexical key so hosts can track the editing session", async () => {
+      // The popover flow needs the TRUE key of a palette-created note: the delta-doc-derived key
+      // (getInsertedNodeKey) double-counts editable VerseNodes and lands past the note, making
+      // the popover's replaceEmbedUpdate silently no-op. insertMarker already returns the true
+      // key; applyMarkerMenuSelection must too, so hosts reuse the same key correction.
+      let text: TextNode;
+      const { editor } = await fullHarnessEnvironment(() => {
+        const para = $createParaNode("p");
+        text = $createTextNode("body text");
+        $getRoot().append(para.append($createMarkerNode("p"), $createTrailingSpaceNode(), text));
+      });
+      await act(async () => editor.update(() => text.select(4, 4)));
+
+      let returnedKey: string | undefined;
+      await act(async () =>
+        editor.update(() => {
+          returnedKey = $applyMarkerMenuSelection(
+            { marker: "f", kind: "note", isBasic: true },
+            { trigger: "backslash", literalPrefixLanded: false },
+            reference,
+            makeDeps(),
+          );
+        }),
+      );
+
+      editor.getEditorState().read(() => {
+        const notes = $getRoot()
+          .getAllTextNodes()
+          .map((n) => n.getParent())
+          .filter((p2) => p2?.getType() === "note");
+        expect(notes.length).toBeGreaterThan(0);
+        expect(returnedKey).toBeDefined();
+        // The returned key is the actual NoteNode's key.
+        const anyNoteKey = notes[0]?.getKey();
+        expect(returnedKey).toBe(anyNoteKey);
+      });
+    });
+  });
+
   describe("open kind — caret lands INSIDE the inserted char span", () => {
     it("puts the caret at the span's content position so typing fills the span (end of paragraph)", async () => {
       // Live repro: type `\wj`, commit with Enter at the end of a paragraph — the caret landed at

@@ -103,6 +103,34 @@ export function isUsjMarkerSupported(marker: string): boolean {
   );
 }
 
+/**
+ * Inserts a note for `marker` at the current selection and returns the created NoteNode's TRUE
+ * Lexical key (or undefined when insertion bailed). Call inside `editor.update()`. Shared by the
+ * `getUsjMarkerAction` note action (which wraps it in its own update for the `insertMarker`
+ * entry point) and `$applyMarkerMenuSelection` (already inside an update — a nested update would
+ * be QUEUED, losing the key).
+ */
+export function $insertNoteForMarker(
+  marker: string,
+  reference: SerializedVerseRef,
+  expandedNoteKeyRef: React.MutableRefObject<string | undefined>,
+  viewOptions?: ViewOptions,
+  nodeOptions?: UsjNodeOptions,
+  logger?: LoggerBasic,
+): string | undefined {
+  const noteNode = $insertNote(
+    marker,
+    undefined,
+    undefined,
+    reference,
+    viewOptions ?? getDefaultViewOptions(),
+    nodeOptions ?? {},
+    logger,
+  );
+  if (noteNode && !noteNode.getIsCollapsed()) expandedNoteKeyRef.current = noteNode.getKey();
+  return noteNode?.getKey();
+}
+
 /** A function that returns a marker action for a given USJ marker */
 export function getUsjMarkerAction(
   marker: string,
@@ -116,22 +144,22 @@ export function getUsjMarkerAction(
   // Note markers are handled directly via $insertNote (no serialization round-trip).
   if (NoteNode.isValidMarker(marker)) {
     // Captured synchronously inside the `editor.update()` callback below - Lexical's callback
-    // always runs synchronously (only the DOM reconciliation/commit may be deferred), so this is
-    // populated by the time `action(...)` returns, regardless of `editorUpdateOptions`.
+    // runs synchronously when this is the OUTERMOST update (only the DOM reconciliation/commit
+    // may be deferred), so this is populated by the time `action(...)` returns for the
+    // `insertMarker` entry point. NOTE: a caller already inside an update must NOT go through
+    // this wrapper (the nested update is queued, not run) — use `$insertNoteForMarker` directly,
+    // as `$applyMarkerMenuSelection` does.
     let insertedNoteKey: string | undefined;
     const action = (currentEditor: { editor: LexicalEditor; reference: SerializedVerseRef }) => {
       currentEditor.editor.update(() => {
-        const noteNode = $insertNote(
+        insertedNoteKey = $insertNoteForMarker(
           marker,
-          undefined,
-          undefined,
           currentEditor.reference,
-          viewOptions ?? getDefaultViewOptions(),
-          nodeOptions ?? {},
+          expandedNoteKeyRef,
+          viewOptions,
+          nodeOptions,
           logger,
         );
-        insertedNoteKey = noteNode?.getKey();
-        if (noteNode && !noteNode.getIsCollapsed()) expandedNoteKeyRef.current = noteNode.getKey();
       }, editorUpdateOptions);
     };
     return { action, label: undefined, getInsertedNoteKey: () => insertedNoteKey };

@@ -412,20 +412,24 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
         throw new Error(
           "Cannot apply marker menu selection without a scripture reference (scrRef)",
         );
-      if (!editorRef.current) return;
+      if (!editorRef.current) return undefined;
 
       if (item.kind !== "closeTag" && !isUsjMarkerSupported(item.marker))
         throw new Error(`Unsupported marker '${item.marker}'`);
 
+      // The update callback runs synchronously; captures the created note's TRUE key (if the
+      // applied item inserted a note) so hosts can track the popover editing session.
+      let insertedNoteKey: string | undefined;
       const editor = editorRef.current;
       editor.update(() => {
-        $applyMarkerMenuSelection(item, opts, scrRef, {
+        insertedNoteKey = $applyMarkerMenuSelection(item, opts, scrRef, {
           expandedNoteKeyRef,
           viewOptions,
           nodeOptions,
           logger,
         });
       });
+      return insertedNoteKey;
     },
     splitParagraphWithMarker(marker) {
       if (isReadonly) throw new Error("Cannot split paragraph in readonly mode");
