@@ -129,12 +129,17 @@ export function $paraMarkerDeletionTransform(para: ParaNode, context: MarkerEdit
 }
 
 /** `|name="value" …` literal suffix for a span's unknown attributes (PT9 keeps these
- * as bytes when the span is unwrapped), or `undefined` when there are none. */
+ * as bytes when the span is unwrapped), or `undefined` when there are none. `closed` is
+ * excluded: it is derived USJ metadata (ParatextData emits `closed="false"` on char spans with
+ * no explicit closing marker — extremely common on footnote-content chars like `\fr`/`\ft`),
+ * not user bytes, and paranext-core's USFM writer likewise never emits it as an attribute
+ * (usj-reader-writer's attribute filter). Writing it as literal `|closed="false"` text on
+ * unwrap would corrupt the document. */
 function unknownAttributesText(char: CharNode): string | undefined {
   const attributes = char.getUnknownAttributes();
   if (!attributes) return undefined;
   const pairs = Object.entries(attributes)
-    .filter(([, value]) => value !== undefined)
+    .filter(([name, value]) => value !== undefined && name !== "closed")
     .map(([name, value]) => `${name}="${value}"`);
   return pairs.length > 0 ? NODE_ATTRIBUTE_PREFIX + pairs.join(" ") : undefined;
 }

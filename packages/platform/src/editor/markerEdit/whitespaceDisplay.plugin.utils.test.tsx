@@ -2,6 +2,7 @@ import { testEnvironment } from "./markerEdit.test-helpers";
 import {
   $getStandardViewClipboardData,
   $handleCopyForStandardView,
+  $handlePasteForStandardView,
 } from "./whitespaceDisplay.plugin.utils";
 import { act } from "@testing-library/react";
 import { LexicalClipboardData } from "@lexical/clipboard";
@@ -253,5 +254,73 @@ describe("clipboard normalization — null-event leg (ClipboardPlugin/ContextMen
     );
     expect(handled).toBe(false);
     expect(copyToClipboardSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("paste normalization ($handlePasteForStandardView)", () => {
+  function pasteEvent(payload: Record<string, string>): {
+    event: ClipboardEvent;
+    prevented: () => boolean;
+  } {
+    let prevented = false;
+    const clipboardData = { getData: (type: string) => payload[type] ?? "" };
+    const event = {
+      clipboardData,
+      preventDefault: () => {
+        prevented = true;
+      },
+    } as unknown as ClipboardEvent;
+    return { event, prevented: () => prevented };
+  }
+
+  it("rewrites a pasted data-NBSP to the `~` display form (data round-trips to a real NBSP)", async () => {
+    let text: TextNode;
+    const { editor } = await testEnvironment(() => {
+      const para = $createParaNode("p");
+      const sep = $createTextNode(NBSP);
+      $setState(sep, textTypeState, "marker-trailing-space");
+      text = $createTextNode("before after");
+      $getRoot().append(para.append($createMarkerNode("p"), sep, text));
+    });
+    await act(async () => editor.update(() => text.select(7, 7))); // between "before " and "after"
+
+    const { event, prevented } = pasteEvent({ "text/plain": `3${NBSP}000` });
+    let handled = false;
+    await act(async () =>
+      editor.update(() => {
+        handled = $handlePasteForStandardView(event);
+      }),
+    );
+
+    expect(handled).toBe(true);
+    expect(prevented()).toBe(true);
+    editor.getEditorState().read(() => {
+      // The NBSP shows as `~` on screen; serialization inverts `~` → NBSP, so the data keeps it.
+      expect($getRoot().getTextContent()).toContain("3~000");
+    });
+  });
+
+  it("passes through internal pastes (lexical payload) and NBSP-free plain text", async () => {
+    let text: TextNode;
+    const { editor } = await testEnvironment(() => {
+      const para = $createParaNode("p");
+      text = $createTextNode("body");
+      $getRoot().append(para.append($createMarkerNode("p"), text));
+    });
+    await act(async () => editor.update(() => text.select(0, 0)));
+
+    const internal = pasteEvent({
+      "application/x-lexical-editor": "{}",
+      "text/plain": `x${NBSP}y`,
+    });
+    const plain = pasteEvent({ "text/plain": "no nbsp here" });
+    await act(async () =>
+      editor.update(() => {
+        expect($handlePasteForStandardView(internal.event)).toBe(false);
+        expect($handlePasteForStandardView(plain.event)).toBe(false);
+      }),
+    );
+    expect(internal.prevented()).toBe(false);
+    expect(plain.prevented()).toBe(false);
   });
 });
