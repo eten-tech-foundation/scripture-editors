@@ -30,7 +30,7 @@ import { $createParaNode, $isParaNode, ParaNode } from "shared";
 describe("StructureKeyboardPlugin — keyboard", () => {
   it("blocks Backspace-at-start merge when protected", async () => {
     let t2: TextNode;
-    const { editor } = await testEnvironment(() => {
+    const { editor } = await protectedEnvironment(() => {
       t2 = $createTextNode("second");
       $getRoot().append(
         $createParaNode("p").append($createTextNode("first")),
@@ -48,7 +48,7 @@ describe("StructureKeyboardPlugin — keyboard", () => {
 
   it("blocks Enter (paragraph split) when protected", async () => {
     let t1: TextNode;
-    const { editor } = await testEnvironment(() => {
+    const { editor } = await protectedEnvironment(() => {
       t1 = $createTextNode("abcdef");
       $getRoot().append($createParaNode("p").append(t1));
     });
@@ -66,7 +66,7 @@ describe("StructureKeyboardPlugin — non-keydown vectors", () => {
   it("blocks controlled text insertion over a selection spanning a block boundary when protected", async () => {
     let t1: TextNode;
     let t2: TextNode;
-    const { editor } = await testEnvironment(() => {
+    const { editor } = await protectedEnvironment(() => {
       t1 = $createTextNode("first");
       t2 = $createTextNode("second");
       $getRoot().append($createParaNode("p").append(t1), $createParaNode("q").append(t2));
@@ -85,7 +85,7 @@ describe("StructureKeyboardPlugin — non-keydown vectors", () => {
   it("blocks insertion over a selection containing a verse marker when protected", async () => {
     let para: ParaNode;
     let t1: TextNode;
-    const { editor } = await testEnvironment(() => {
+    const { editor } = await protectedEnvironment(() => {
       para = $createParaNode("p");
       t1 = $createTextNode("text");
       $getRoot().append(para.append($createImmutableVerseNode("1"), t1));
@@ -109,7 +109,7 @@ describe("StructureKeyboardPlugin — non-keydown vectors", () => {
   it("consumes CUT over an unsafe selection when protected (low-priority spy not reached)", async () => {
     let t1: TextNode;
     let t2: TextNode;
-    const { editor } = await testEnvironment(() => {
+    const { editor } = await protectedEnvironment(() => {
       t1 = $createTextNode("first");
       t2 = $createTextNode("second");
       $getRoot().append($createParaNode("p").append(t1), $createParaNode("q").append(t2));
@@ -129,7 +129,7 @@ describe("StructureKeyboardPlugin — non-keydown vectors", () => {
   it("consumes DRAGSTART over an unsafe selection when protected (low-priority spy not reached)", async () => {
     let t1: TextNode;
     let t2: TextNode;
-    const { editor } = await testEnvironment(() => {
+    const { editor } = await protectedEnvironment(() => {
       t1 = $createTextNode("first");
       t2 = $createTextNode("second");
       $getRoot().append($createParaNode("p").append(t1), $createParaNode("q").append(t2));
@@ -168,7 +168,7 @@ const VERSE_HTML =
 describe("StructureKeyboardPlugin — paste/drop payload sanitization", () => {
   it("strips a verse marker from pasted HTML, inserting text only, when protected", async () => {
     let t1: TextNode;
-    const { editor } = await testEnvironment(() => {
+    const { editor } = await protectedEnvironment(() => {
       t1 = $createTextNode("hello world");
       $getRoot().append($createParaNode("p").append(t1));
     });
@@ -192,7 +192,7 @@ describe("StructureKeyboardPlugin — paste/drop payload sanitization", () => {
 
   it("strips a verse marker from dropped HTML, inserting text only, when protected", async () => {
     let t1: TextNode;
-    const { editor } = await testEnvironment(() => {
+    const { editor } = await protectedEnvironment(() => {
       t1 = $createTextNode("hello world");
       $getRoot().append($createParaNode("p").append(t1));
     });
@@ -215,7 +215,7 @@ describe("StructureKeyboardPlugin — paste/drop payload sanitization", () => {
 
   it("lets a plain-text-only paste pass through to the default handler when protected", async () => {
     let t1: TextNode;
-    const { editor } = await testEnvironment(() => {
+    const { editor } = await protectedEnvironment(() => {
       t1 = $createTextNode("hello world");
       $getRoot().append($createParaNode("p").append(t1));
     });
@@ -233,7 +233,7 @@ describe("StructureKeyboardPlugin — paste/drop payload sanitization", () => {
 
   it("consumes paste when there is no range selection, inserting nothing (structure-safe silent drop)", async () => {
     let t1: TextNode;
-    const { editor } = await testEnvironment(() => {
+    const { editor } = await protectedEnvironment(() => {
       t1 = $createTextNode("hello world");
       $getRoot().append($createParaNode("p").append(t1));
     });
@@ -267,7 +267,7 @@ describe("StructureKeyboardPlugin — paste/drop payload sanitization", () => {
   it("still hard-blocks paste over a selection spanning a block boundary when protected", async () => {
     let t1: TextNode;
     let t2: TextNode;
-    const { editor } = await testEnvironment(() => {
+    const { editor } = await protectedEnvironment(() => {
       t1 = $createTextNode("first");
       t2 = $createTextNode("second");
       $getRoot().append($createParaNode("p").append(t1), $createParaNode("q").append(t2));
@@ -292,7 +292,7 @@ describe("StructureKeyboardPlugin — two-step delete (unprotected)", () => {
   it("verse Backspace: first press node-selects the verse, second press removes it", async () => {
     let verse: ImmutableVerseNode;
     let t1: TextNode;
-    const { editor } = await unprotectedEnvironment(() => {
+    const { editor } = await guardedEnvironment(() => {
       verse = $createImmutableVerseNode("1");
       t1 = $createTextNode("text");
       $getRoot().append($createParaNode("p").append(verse, t1));
@@ -323,7 +323,7 @@ describe("StructureKeyboardPlugin — two-step delete (unprotected)", () => {
   it("verse Delete (forward): first press selects, second removes the following verse", async () => {
     let verse: ImmutableVerseNode;
     let t1: TextNode;
-    const { editor } = await unprotectedEnvironment(() => {
+    const { editor } = await guardedEnvironment(() => {
       t1 = $createTextNode("text");
       verse = $createImmutableVerseNode("2");
       $getRoot().append($createParaNode("p").append(t1, verse));
@@ -345,7 +345,7 @@ describe("StructureKeyboardPlugin — two-step delete (unprotected)", () => {
   it("paragraph Backspace at start: first press selects the block, second merges into previous", async () => {
     let q: ParaNode;
     let t2: TextNode;
-    const { editor } = await unprotectedEnvironment(() => {
+    const { editor } = await guardedEnvironment(() => {
       q = $createParaNode("q");
       t2 = $createTextNode("second");
       $getRoot().append($createParaNode("p").append($createTextNode("first")), q.append(t2));
@@ -370,7 +370,7 @@ describe("StructureKeyboardPlugin — two-step delete (unprotected)", () => {
 
   it("paragraph Delete at end: first press selects the next block, second merges it up", async () => {
     let t1: TextNode;
-    const { editor } = await unprotectedEnvironment(() => {
+    const { editor } = await guardedEnvironment(() => {
       t1 = $createTextNode("first");
       $getRoot().append(
         $createParaNode("p").append(t1),
@@ -389,7 +389,7 @@ describe("StructureKeyboardPlugin — two-step delete (unprotected)", () => {
 
   it("mid-text Backspace does nothing structural (handler returns false)", async () => {
     let t1: TextNode;
-    const { editor } = await unprotectedEnvironment(() => {
+    const { editor } = await guardedEnvironment(() => {
       t1 = $createTextNode("abcdef");
       $getRoot().append($createParaNode("p").append(t1));
     });
@@ -418,7 +418,7 @@ describe("StructureKeyboardPlugin — two-step delete guards", () => {
   it("latch resets when the caret moves between presses (no delete)", async () => {
     let verse: ImmutableVerseNode;
     let t1: TextNode;
-    const { editor } = await unprotectedEnvironment(() => {
+    const { editor } = await guardedEnvironment(() => {
       verse = $createImmutableVerseNode("1");
       t1 = $createTextNode("text");
       $getRoot().append($createParaNode("p").append(verse, t1));
@@ -444,7 +444,7 @@ describe("StructureKeyboardPlugin — two-step delete guards", () => {
   it("mismatched direction cancels without deleting", async () => {
     let verse: ImmutableVerseNode;
     let t1: TextNode;
-    const { editor } = await unprotectedEnvironment(() => {
+    const { editor } = await guardedEnvironment(() => {
       verse = $createImmutableVerseNode("1");
       t1 = $createTextNode("text");
       $getRoot().append($createParaNode("p").append(verse, t1));
@@ -463,7 +463,7 @@ describe("StructureKeyboardPlugin — two-step delete guards", () => {
 
   it("no-neighbor paragraph boundary does not arm (first para start)", async () => {
     let t1: TextNode;
-    const { editor } = await unprotectedEnvironment(() => {
+    const { editor } = await guardedEnvironment(() => {
       t1 = $createTextNode("first");
       $getRoot().append($createParaNode("p").append(t1));
     });
@@ -483,7 +483,7 @@ describe("StructureKeyboardPlugin — two-step delete guards", () => {
 
   it("protected mode never runs the two-step path (boundary delete is blocked)", async () => {
     let t2: TextNode;
-    const { editor } = await testEnvironment(() => {
+    const { editor } = await protectedEnvironment(() => {
       t2 = $createTextNode("second");
       $getRoot().append(
         $createParaNode("p").append($createTextNode("first")),
@@ -504,7 +504,7 @@ describe("StructureKeyboardPlugin — two-step delete guards", () => {
   it("manual whole-paragraph selection + Backspace is NOT hijacked into a merge", async () => {
     let q: ParaNode;
     let t2: TextNode;
-    const { editor } = await unprotectedEnvironment(() => {
+    const { editor } = await guardedEnvironment(() => {
       q = $createParaNode("q");
       t2 = $createTextNode("second");
       $getRoot().append($createParaNode("p").append($createTextNode("first")), q.append(t2));
@@ -535,7 +535,7 @@ describe("StructureKeyboardPlugin — two-step delete for range selections with 
     let t1: TextNode;
     let verse: ImmutableVerseNode;
     let t2: TextNode;
-    const { editor } = await unprotectedEnvironment(() => {
+    const { editor } = await guardedEnvironment(() => {
       t1 = $createTextNode("ab");
       verse = $createImmutableVerseNode("2");
       t2 = $createTextNode("cd");
@@ -562,7 +562,7 @@ describe("StructureKeyboardPlugin — two-step delete for range selections with 
     let t1: TextNode;
     let verse: ImmutableVerseNode;
     let t2: TextNode;
-    const { editor } = await unprotectedEnvironment(() => {
+    const { editor } = await guardedEnvironment(() => {
       t1 = $createTextNode("ab");
       verse = $createImmutableVerseNode("2");
       t2 = $createTextNode("cd");
@@ -578,7 +578,7 @@ describe("StructureKeyboardPlugin — two-step delete for range selections with 
     let t1: TextNode;
     let verse: ImmutableVerseNode;
     let t2: TextNode;
-    const { editor } = await unprotectedEnvironment(() => {
+    const { editor } = await guardedEnvironment(() => {
       t1 = $createTextNode("ab");
       verse = $createImmutableVerseNode("2");
       t2 = $createTextNode("cd");
@@ -603,7 +603,7 @@ describe("StructureKeyboardPlugin — two-step delete for range selections with 
 describe("StructureKeyboardPlugin — armed DOM signals for the host hint", () => {
   it("Backspace-armed verse marks intent=deleteBackward, kind=verse", async () => {
     let t1: TextNode;
-    const { editor } = await unprotectedEnvironment(() => {
+    const { editor } = await guardedEnvironment(() => {
       t1 = $createTextNode("text");
       $getRoot().append($createParaNode("p").append($createImmutableVerseNode("1"), t1));
     });
@@ -618,7 +618,7 @@ describe("StructureKeyboardPlugin — armed DOM signals for the host hint", () =
   it("Delete-armed range selection marks intent=deleteForward, kind=selection", async () => {
     let t1: TextNode;
     let t2: TextNode;
-    const { editor } = await unprotectedEnvironment(() => {
+    const { editor } = await guardedEnvironment(() => {
       t1 = $createTextNode("ab");
       t2 = $createTextNode("cd");
       $getRoot().append($createParaNode("p").append(t1, $createImmutableVerseNode("2"), t2));
@@ -633,7 +633,7 @@ describe("StructureKeyboardPlugin — armed DOM signals for the host hint", () =
 
   it("paragraph-merge arm sets no hint attributes (verse-marker scope only)", async () => {
     let t2: TextNode;
-    const { editor } = await unprotectedEnvironment(() => {
+    const { editor } = await guardedEnvironment(() => {
       t2 = $createTextNode("second");
       $getRoot().append(
         $createParaNode("p").append($createTextNode("first")),
@@ -649,7 +649,7 @@ describe("StructureKeyboardPlugin — armed DOM signals for the host hint", () =
   });
 
   it("sets no hint attributes when nothing is armed", async () => {
-    const { editor } = await unprotectedEnvironment(() => {
+    const { editor } = await guardedEnvironment(() => {
       $getRoot().append(
         $createParaNode("p").append($createImmutableVerseNode("1"), $createTextNode("text")),
       );
@@ -699,14 +699,14 @@ describe('StructureKeyboardPlugin — feature off (structureProtectionMode="off"
   });
 });
 
-async function testEnvironment($initialEditorState: () => void) {
+async function protectedEnvironment($initialEditorState: () => void) {
   return baseTestEnvironment(
     $initialEditorState,
     <StructureKeyboardPlugin structureProtectionMode="protected" />,
   );
 }
 
-async function unprotectedEnvironment($initialEditorState: () => void) {
+async function guardedEnvironment($initialEditorState: () => void) {
   return baseTestEnvironment(
     $initialEditorState,
     <StructureKeyboardPlugin structureProtectionMode="guarded" />,
