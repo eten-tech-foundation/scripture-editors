@@ -219,6 +219,14 @@ const DEFAULT_MARKER_ATTRIBUTES: { [marker: string]: string } = {
   jmp: "href",
 };
 
+/**
+ * USJ structural keys that a parsed attribute may never overwrite: the callers merge parsed
+ * attributes straight onto the node object (`Object.assign` / spread), so an attribute literally
+ * named `type`, `marker`, or `content` would clobber the node's own identity or replace its
+ * content array with a string. Such attributes are dropped.
+ */
+const RESERVED_NODE_KEYS = new Set(["type", "marker", "content"]);
+
 function parseAttributeText(
   attributeText: string,
   marker: string,
@@ -226,8 +234,10 @@ function parseAttributeText(
   const attributes: { [attributeName: string]: string } = {};
   const pairs = [...attributeText.matchAll(ATTRIBUTE_PAIR_REGEX)];
   if (pairs.length > 0) {
-    for (const [, name, value] of pairs) attributes[name] = value;
-    return attributes;
+    for (const [, name, value] of pairs) {
+      if (!RESERVED_NODE_KEYS.has(name)) attributes[name] = value;
+    }
+    return Object.keys(attributes).length > 0 ? attributes : undefined;
   }
   const bare = attributeText.trim();
   const defaultName = DEFAULT_MARKER_ATTRIBUTES[marker];
