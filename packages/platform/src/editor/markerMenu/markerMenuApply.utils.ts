@@ -42,7 +42,10 @@ function $removeLiteralTriggerPrefix(): void {
   if (!$isRangeSelection(selection) || !selection.isCollapsed()) return;
 
   const anchorNode = selection.anchor.getNode();
-  if (!$isTextNode(anchorNode)) return;
+  // A MarkerNode's own glyph text (`\q1`) matches the literal-prefix regex, and the scrRef
+  // "yank" can park the caret on a glyph — splicing there deletes the paragraph's marker and
+  // trips the marker-deletion transform's merge machinery. Only plain text holds a typed literal.
+  if (!$isTextNode(anchorNode) || $isMarkerNode(anchorNode)) return;
 
   const offset = selection.anchor.offset;
   const textBeforeCaret = anchorNode.getTextContent().slice(0, offset);
