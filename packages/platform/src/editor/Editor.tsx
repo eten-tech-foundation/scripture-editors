@@ -5,7 +5,7 @@ import { EditorOptions, EditorProps, EditorRef } from "./editor.model";
 import editorTheme from "./editor.theme";
 import { ActiveTextPlugin } from "./ActiveTextPlugin";
 import { ParaMarkerPrefixGuardPlugin } from "./ParaMarkerPrefixGuardPlugin";
-import ScriptureReferencePlugin from "./ScriptureReferencePlugin";
+import { ScriptureReferencePlugin } from "./ScriptureReferencePlugin";
 import TreeViewPlugin from "./TreeViewPlugin";
 import { ToolbarPlugin } from "./toolbar/ToolbarPlugin";
 import { InitialConfigType, LexicalComposer } from "@lexical/react/LexicalComposer";

@@ -27,6 +27,7 @@ import {
   MarginalRef,
   MarkerMode,
   NoteMode,
+  SelectionRange,
   TextDirection,
   UsjNodeOptions,
   ViewOptions,
@@ -116,6 +117,7 @@ export default function App() {
   const marginalRef = useRef<MarginalRef | null>(null);
   const noteEditorRef = useRef<EditorRef | null>(null);
   const noteNodeKeyRef = useRef<string | undefined>();
+  const selectionRef = useRef<SelectionRange | undefined>(undefined);
   const [isNoteEditorVisible, setIsNoteEditorVisible] = useState(false);
   const [isOptionsDefined, setIsOptionsDefined] = useState(false);
   const [isReadonly, setIsReadonly] = useState(false);
@@ -409,6 +411,34 @@ export default function App() {
               >
                 stand
               </button>
+              <button
+                id="insertAtSelection"
+                onClick={() => {
+                  const selection = selectionRef.current;
+                  if (
+                    selection?.start &&
+                    selection?.end &&
+                    marginalRef.current &&
+                    isUsjTextContentLocation(selection.start) &&
+                    isUsjTextContentLocation(selection.end)
+                  ) {
+                    // Demo-only id: could collide on same-millisecond clicks, which is fine here.
+                    const id = `sel-${Date.now()}`;
+                    marginalRef.current.setAnnotation(
+                      { start: selection.start, end: selection.end },
+                      annotationType,
+                      id,
+                      handleAnnotationOnClick,
+                      handleAnnotationOnRemove,
+                    );
+                    console.log("Inserted annotation at selection", { selection, id });
+                  } else {
+                    console.warn("No valid selection for annotation");
+                  }
+                }}
+              >
+                Insert at selection
+              </button>
             </div>
           </span>
           <pre title="contextMarker" style={{ color: "black" }}>
@@ -525,7 +555,10 @@ export default function App() {
           defaultUsj={EMPTY_USJ}
           scrRef={scrRef}
           onScrRefChange={setScrRef}
-          onSelectionChange={(selection) => console.log({ selection })}
+          onSelectionChange={(selection) => {
+            selectionRef.current = selection;
+            console.log({ selection });
+          }}
           onCommentChange={(comments) => console.log({ comments })}
           onUsjChange={handleUsjChange}
           onStateChange={({
