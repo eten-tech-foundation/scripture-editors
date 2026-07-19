@@ -1,26 +1,28 @@
 // Should only be used on nodes that are initialized in the test environment.
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 
-// Reaching inside only for tests.
-// eslint-disable-next-line @nx/enforce-module-boundaries
-import { updateSelection } from "../../../../../libs/shared/src/nodes/usj/test.utils";
-import { baseTestEnvironment, sutUpdate } from "./react-test.utils";
+import { baseTestEnvironment, sutUpdate, updateSelection } from "./react-test.utils";
 import { $createImmutableVerseNode } from "../../nodes/usj";
 import {
+  $adjacentVerseMarker,
   $caretAdjacentToVerseMarker,
   $caretAtParaEnd,
   $caretAtParaStart,
+  $isArmedSelection,
+  $mergeParaIntoPrevious,
   $sanitizeNodesForProtectedStructure,
   $selectionContainsVerseMarker,
   $selectionSpansBlockBoundary,
   $shouldBlockStructuralEdit,
+  $structuralDeleteTarget,
   keyDownToIntent,
-} from "./structureProtection.utils";
+} from "./structureKeyboard.utils";
 import {
   $createNodeSelection,
   $getRoot,
   $getSelection,
   $createTextNode,
+  $isRangeSelection,
   $isTextNode,
   $setSelection,
   TextNode,
@@ -37,7 +39,7 @@ import {
   ParaNode,
 } from "shared";
 
-describe("structureProtection.utils", () => {
+describe("structureKeyboard.utils", () => {
   it("$selectionSpansBlockBoundary: true across two paragraphs", async () => {
     let t1: TextNode;
     let t2: TextNode;
@@ -84,7 +86,8 @@ describe("structureProtection.utils", () => {
       verseNode = $createImmutableVerseNode("1");
       $getRoot().append($createParaNode("p").append(verseNode, $createTextNode("text")));
     });
-    editor.update(
+    await sutUpdate(
+      editor,
       () => {
         const ns = $createNodeSelection();
         ns.add(verseNode.getKey());
@@ -277,6 +280,290 @@ describe("$shouldBlockStructuralEdit (decision logic)", () => {
     updateSelection(editor, t1!, 0, t2!, 6);
     editor.getEditorState().read(() => {
       expect($shouldBlockStructuralEdit($getSelection()!, "insertText")).toBe(true);
+    });
+  });
+});
+
+describe("$adjacentVerseMarker", () => {
+  it("backward: returns the verse immediately before a collapsed caret", async () => {
+    let verse: ReturnType<typeof $createImmutableVerseNode>;
+    let t1: TextNode;
+    const { editor } = await baseTestEnvironment(() => {
+      verse = $createImmutableVerseNode("1");
+      t1 = $createTextNode("text");
+      $getRoot().append($createParaNode("p").append(verse, t1));
+    });
+    updateSelection(editor, t1!, 0);
+    editor.getEditorState().read(() => {
+      expect($adjacentVerseMarker($getSelection()!, "backward")?.getKey()).toBe(verse!.getKey());
+      expect($adjacentVerseMarker($getSelection()!, "forward")).toBeUndefined();
+    });
+  });
+
+  it("forward: returns the verse immediately after a collapsed caret", async () => {
+    let verse: ReturnType<typeof $createImmutableVerseNode>;
+    let t1: TextNode;
+    const { editor } = await baseTestEnvironment(() => {
+      t1 = $createTextNode("text");
+      verse = $createImmutableVerseNode("2");
+      $getRoot().append($createParaNode("p").append(t1, verse));
+    });
+    updateSelection(editor, t1!, 4);
+    editor.getEditorState().read(() => {
+      expect($adjacentVerseMarker($getSelection()!, "forward")?.getKey()).toBe(verse!.getKey());
+      expect($adjacentVerseMarker($getSelection()!, "backward")).toBeUndefined();
+    });
+  });
+
+  it("returns undefined mid-text", async () => {
+    let t1: TextNode;
+    const { editor } = await baseTestEnvironment(() => {
+      t1 = $createTextNode("text");
+      $getRoot().append($createParaNode("p").append($createImmutableVerseNode("1"), t1));
+    });
+    updateSelection(editor, t1!, 2);
+    editor.getEditorState().read(() => {
+      expect($adjacentVerseMarker($getSelection()!, "backward")).toBeUndefined();
+      expect($adjacentVerseMarker($getSelection()!, "forward")).toBeUndefined();
+    });
+  });
+});
+
+describe("$structuralDeleteTarget", () => {
+  it("deleteBackward after a verse → that verse", async () => {
+    let verse: ReturnType<typeof $createImmutableVerseNode>;
+    let t1: TextNode;
+    const { editor } = await baseTestEnvironment(() => {
+      verse = $createImmutableVerseNode("1");
+      t1 = $createTextNode("text");
+      $getRoot().append($createParaNode("p").append(verse, t1));
+    });
+    updateSelection(editor, t1!, 0);
+    editor.getEditorState().read(() => {
+      const target = $structuralDeleteTarget($getSelection()!, "deleteBackward");
+      expect(target).toEqual({ kind: "verse", node: expect.anything() });
+      expect(target?.node.getKey()).toBe(verse!.getKey());
+    });
+  });
+
+  it("deleteBackward at para start with a previous block → current para", async () => {
+    let para: ParaNode;
+    let t2: TextNode;
+    const { editor } = await baseTestEnvironment(() => {
+      para = $createParaNode("q");
+      t2 = $createTextNode("second");
+      $getRoot().append($createParaNode("p").append($createTextNode("first")), para.append(t2));
+    });
+    updateSelection(editor, t2!, 0);
+    editor.getEditorState().read(() => {
+      const target = $structuralDeleteTarget($getSelection()!, "deleteBackward");
+      expect(target?.kind).toBe("para");
+      expect(target?.node.getKey()).toBe(para!.getKey());
+    });
+  });
+
+  it("deleteForward at para end with a next block → the NEXT para", async () => {
+    let next: ParaNode;
+    let t1: TextNode;
+    const { editor } = await baseTestEnvironment(() => {
+      t1 = $createTextNode("first");
+      next = $createParaNode("q");
+      $getRoot().append($createParaNode("p").append(t1), next.append($createTextNode("second")));
+    });
+    updateSelection(editor, t1!, 5);
+    editor.getEditorState().read(() => {
+      const target = $structuralDeleteTarget($getSelection()!, "deleteForward");
+      expect(target?.kind).toBe("para");
+      expect(target?.node.getKey()).toBe(next!.getKey());
+    });
+  });
+
+  it("returns undefined at the first para start (nothing to merge)", async () => {
+    let t1: TextNode;
+    const { editor } = await baseTestEnvironment(() => {
+      t1 = $createTextNode("first");
+      $getRoot().append($createParaNode("p").append(t1));
+    });
+    updateSelection(editor, t1!, 0);
+    editor.getEditorState().read(() => {
+      expect($structuralDeleteTarget($getSelection()!, "deleteBackward")).toBeUndefined();
+    });
+  });
+
+  it("returns undefined mid-text", async () => {
+    let t1: TextNode;
+    const { editor } = await baseTestEnvironment(() => {
+      t1 = $createTextNode("abcdef");
+      $getRoot().append($createParaNode("p").append(t1));
+    });
+    updateSelection(editor, t1!, 3);
+    editor.getEditorState().read(() => {
+      expect($structuralDeleteTarget($getSelection()!, "deleteBackward")).toBeUndefined();
+      expect($structuralDeleteTarget($getSelection()!, "deleteForward")).toBeUndefined();
+    });
+  });
+});
+
+describe("$isArmedSelection", () => {
+  it("verse: true when a NodeSelection holds the armed verse key", async () => {
+    let verse: ReturnType<typeof $createImmutableVerseNode>;
+    const { editor } = await baseTestEnvironment(() => {
+      verse = $createImmutableVerseNode("1");
+      $getRoot().append($createParaNode("p").append(verse, $createTextNode("text")));
+    });
+    await sutUpdate(
+      editor,
+      () => {
+        const ns = $createNodeSelection();
+        ns.add(verse.getKey());
+        $setSelection(ns);
+      },
+      { discrete: true },
+    );
+    editor.getEditorState().read(() => {
+      expect(
+        $isArmedSelection($getSelection(), {
+          key: verse.getKey(),
+          kind: "verse",
+          intent: "deleteBackward",
+        }),
+      ).toBe(true);
+      expect(
+        $isArmedSelection($getSelection(), {
+          key: "nonexistent",
+          kind: "verse",
+          intent: "deleteBackward",
+        }),
+      ).toBe(false);
+    });
+  });
+
+  it("para: true when a non-collapsed range's anchor and focus both resolve to the armed para", async () => {
+    let para: ParaNode;
+    let t1: TextNode;
+    const { editor } = await baseTestEnvironment(() => {
+      para = $createParaNode("p");
+      t1 = $createTextNode("hello");
+      $getRoot().append(para.append(t1));
+    });
+    updateSelection(editor, t1!, 0, t1!, 5);
+    editor.getEditorState().read(() => {
+      expect(
+        $isArmedSelection($getSelection(), {
+          key: para!.getKey(),
+          kind: "para",
+          intent: "deleteBackward",
+        }),
+      ).toBe(true);
+    });
+  });
+
+  it("para: false for a collapsed caret (nothing armed)", async () => {
+    let para: ParaNode;
+    let t1: TextNode;
+    const { editor } = await baseTestEnvironment(() => {
+      para = $createParaNode("p");
+      t1 = $createTextNode("hello");
+      $getRoot().append(para.append(t1));
+    });
+    updateSelection(editor, t1!, 0);
+    editor.getEditorState().read(() => {
+      expect(
+        $isArmedSelection($getSelection(), {
+          key: para!.getKey(),
+          kind: "para",
+          intent: "deleteBackward",
+        }),
+      ).toBe(false);
+    });
+  });
+
+  it("$isArmedSelection: selection kind matches the same live range", async () => {
+    let t1: TextNode;
+    let t2: TextNode;
+    const { editor } = await baseTestEnvironment(() => {
+      t1 = $createTextNode("text");
+      t2 = $createTextNode("more");
+      $getRoot().append($createParaNode("p").append(t1, $createImmutableVerseNode("1"), t2));
+    });
+    // Endpoints are text points on the flanking text nodes — never on the verse DecoratorNode.
+    updateSelection(editor, t1!, 0, t2!, 2);
+
+    editor.getEditorState().read(() => {
+      const sel = $getSelection();
+      if (!$isRangeSelection(sel)) throw new Error("expected a RangeSelection");
+      const armed = {
+        kind: "selection" as const,
+        intent: "deleteBackward" as const,
+        key: "anchor-verse",
+        anchor: { key: sel.anchor.key, offset: sel.anchor.offset, type: sel.anchor.type },
+        focus: { key: sel.focus.key, offset: sel.focus.offset, type: sel.focus.type },
+      };
+      expect($isArmedSelection(sel, armed)).toBe(true);
+    });
+  });
+
+  it("$isArmedSelection: selection kind is false once the range moves", async () => {
+    let t1: TextNode;
+    const { editor } = await baseTestEnvironment(() => {
+      t1 = $createTextNode("hello");
+      $getRoot().append($createParaNode("p").append(t1));
+    });
+    updateSelection(editor, t1!, 0, t1!, 3);
+
+    const armed = {
+      kind: "selection" as const,
+      intent: "deleteBackward" as const,
+      key: "x",
+      anchor: { key: "different", offset: 0, type: "text" as const },
+      focus: { key: "different", offset: 3, type: "text" as const },
+    };
+    editor.getEditorState().read(() => {
+      expect($isArmedSelection($getSelection(), armed)).toBe(false);
+    });
+  });
+});
+
+describe("$mergeParaIntoPrevious", () => {
+  it("moves children into the previous block, drops the merged para and its marker, preserves text", async () => {
+    let p: ParaNode;
+    let q: ParaNode;
+    const { editor } = await baseTestEnvironment(() => {
+      p = $createParaNode("p");
+      q = $createParaNode("q");
+      $getRoot().append(p.append($createTextNode("first")), q.append($createTextNode("second")));
+    });
+
+    await sutUpdate(editor, () => {
+      $mergeParaIntoPrevious(q!);
+    });
+
+    editor.getEditorState().read(() => {
+      const root = $getRoot();
+      expect(root.getChildrenSize()).toBe(1);
+      const merged = root.getChildren()[0] as ParaNode;
+      expect(merged.getKey()).toBe(p!.getKey());
+      expect(merged.getMarker()).toBe("p"); // previous block's marker kept; "q" gone
+      expect(merged.getTextContent()).toBe("firstsecond");
+    });
+  });
+
+  it("merges an empty para by simply removing it", async () => {
+    let p: ParaNode;
+    let empty: ParaNode;
+    const { editor } = await baseTestEnvironment(() => {
+      p = $createParaNode("p");
+      empty = $createParaNode("q");
+      $getRoot().append(p.append($createTextNode("text")), empty);
+    });
+
+    await sutUpdate(editor, () => {
+      $mergeParaIntoPrevious(empty!);
+    });
+
+    editor.getEditorState().read(() => {
+      expect($getRoot().getChildrenSize()).toBe(1);
+      expect(($getRoot().getChildren()[0] as ParaNode).getTextContent()).toBe("text");
     });
   });
 });
