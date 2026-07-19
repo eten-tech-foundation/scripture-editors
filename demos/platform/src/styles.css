@@ -88,12 +88,50 @@ body {
   margin-bottom: 10px;
 }
 
+.defined-options .boolean-options {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.defined-options .boolean-options .checkbox {
+  padding-block: 0;
+}
+
+.defined-options .control {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  width: 126px;
+}
+
+.defined-options .text-direction-options {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 126px;
+}
+
+.defined-options .load-buttons {
+  display: flex;
+  flex-direction: row;
+  gap: 4px;
+  width: 100%;
+}
+
+.defined-options .load-buttons button {
+  flex: 1;
+  min-width: 0;
+}
+
 .custom-view-options {
   margin-bottom: 10px;
   display: flex;
   flex-direction: row;
   gap: 24px;
-  align-items: center;
+  align-items: flex-start;
   flex-wrap: wrap;
   justify-content: flex-end;
 
@@ -101,6 +139,17 @@ body {
     display: flex;
     align-items: center;
     gap: 4px;
+  }
+
+  .select-options {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .boolean-options {
+    display: flex;
+    flex-direction: column;
   }
 }
 
