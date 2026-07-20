@@ -470,12 +470,31 @@ describe("usfmFragmentToUsjContent — verse, chapter, note, milestone, attribut
       ]);
     });
 
-    it("folds \\va onto the preceding verse", () => {
+    it("folds \\va onto the preceding verse; the space after the closer is content", () => {
+      // Paratext treats spaces after attribute markers as text content (fixture v11 rule),
+      // so the following text keeps its leading space.
       expect(usfmFragmentToUsjContent("\\p \\v 4 \\va 5\\va* text")).toEqual([
         {
           type: "para",
           marker: "p",
-          content: [{ type: "verse", marker: "v", number: "4", altnumber: "5" }, "text"],
+          content: [{ type: "verse", marker: "v", number: "4", altnumber: "5" }, " text"],
+        },
+      ]);
+    });
+
+    it("a same-line space before \\vp blocks its fold (fixture v12 rule)", () => {
+      // `\va*` folds; the space between it and `\vp` is content per Paratext, so vp is no
+      // longer adjacent and stays a standalone marker.
+      expect(usfmFragmentToUsjContent("\\p \\v 12 \\va 12 va\\va* \\vp 12 vp\\vp*Text")).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: [
+            { type: "verse", marker: "v", number: "12", altnumber: "12 va" },
+            " ",
+            { type: "char", marker: "vp", content: ["12 vp"] },
+            "Text",
+          ],
         },
       ]);
     });
