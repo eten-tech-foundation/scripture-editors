@@ -55,7 +55,7 @@ import {
   textTypeState,
   VerseNode,
 } from "shared";
-import { getViewMode, STANDARD_VIEW_MODE, ViewOptions } from "shared-react";
+import { hasStandardViewWhitespace, ViewOptions } from "shared-react";
 
 /**
  * The command behind the public `EditorRef.commitPendingMarkerEdits()` method — `Editor.tsx`
@@ -99,7 +99,11 @@ export function MarkerEditPlugin({
 
   useEffect(() => {
     if (!isEnabled || !viewOptions) return;
-    const isStandardView = getViewMode(viewOptions) === STANDARD_VIEW_MODE;
+    // The standard-view whitespace transform + clipboard normalization travel with the editable
+    // marker engine, so they must be active whenever editable markers are on in a spaced+formatted
+    // view — for expanded notes too, not only the named `standard` (collapsed) mode. Still gated
+    // separately from the rest of this plugin so they do not leak into Unformatted view.
+    const isStandardView = hasStandardViewWhitespace(viewOptions);
     const context: MarkerEditContext = {
       viewOptions,
       getMarker: getMarker ?? bundledGetMarker,

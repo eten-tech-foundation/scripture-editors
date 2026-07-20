@@ -228,6 +228,42 @@ export function getViewMode(viewOptions: ViewOptions | undefined): ViewMode | un
 }
 
 /**
+ * Whether the standard-view whitespace/display normalization rules apply to these view options.
+ *
+ * These rules — the display NBSP/`~` mapping at load time, the live display-whitespace transform
+ * and clipboard normalization, and the inverse normalization on serialization — travel with the
+ * editable marker engine, which activates on `markerMode === "editable"`. They must stay in lockstep
+ * with that engine: whenever editable markers are on in a spacing+formatted view, these rules must be
+ * on too, otherwise the engine's NBSP separators are never inverted and leak into the data as
+ * NBSP/`~` corruption.
+ *
+ * This is the STANDARD view fingerprint with the `noteMode` axis dropped, so it is `true` for both
+ * collapsed (the named `standard` mode) and expanded notes, while the `hasSpacing`/`isFormattedFont`
+ * guards keep it `false` for the Unformatted view (editable but neither spaced nor formatted, where
+ * whitespace is shown literally). Deliberately NOT expressed via {@link getViewMode}: expanded is not
+ * the named `standard` mode, and overloading `getViewMode` would break its invertibility contract and
+ * the user-facing mode labels.
+ *
+ * @param viewOptions - View options of the editor.
+ * @returns `true` when standard-view whitespace normalization applies.
+ *
+ * @public
+ */
+export function hasStandardViewWhitespace(viewOptions: ViewOptions | undefined): boolean {
+  if (!viewOptions) return false;
+
+  const { markerMode, hasSpacing, isFormattedFont, hasGutterParaMarkers, hasActiveTextFocusBox } =
+    viewOptions;
+  return (
+    markerMode === "editable" &&
+    hasSpacing &&
+    isFormattedFont &&
+    !hasGutterParaMarkers &&
+    !hasActiveTextFocusBox
+  );
+}
+
+/**
  * Get the verse node class for the given view options.
  *
  * @param viewOptions - View options of the editor.

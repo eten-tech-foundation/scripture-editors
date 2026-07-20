@@ -291,6 +291,29 @@ describe("USJ Editor Adaptor", () => {
     expect(text.text).toBe("3~000 men");
   });
 
+  it("maps NBSP to tilde in editable+expanded standard view (noteMode expanded)", () => {
+    // Standard view with expanded notes is still standard-view text: the editable marker engine
+    // runs, so the same NBSP->tilde display mapping MUST run too. Before the gating fix,
+    // getViewMode returned undefined for editable+expanded, silently disabling this mapping while
+    // the marker engine kept producing NBSP separators -> NBSP/tilde corruption.
+    const usj = usxStringToUsj(
+      `<usx version="3.0"><book code="RUT" style="id" /><chapter number="1" style="c" /><para style="p"><verse number="1" style="v" />3${NBSP}000 men</para></usx>`,
+    );
+    initialize(undefined, undefined);
+    reset();
+
+    const standard = getViewOptions(STANDARD_VIEW_MODE);
+    if (!standard) throw new Error("standard view options not found");
+    const expandedStandard = { ...standard, noteMode: "expanded" as const };
+    const state = serializeEditorState(usj, expandedStandard);
+
+    const para = state.root.children[2] as SerializedParaNode;
+    const text = para.children.find(
+      (child) => isSerializedTextNode(child) && child.text.includes("000"),
+    ) as SerializedTextNode;
+    expect(text.text).toBe("3~000 men");
+  });
+
   it("does not map NBSP in formatted view", () => {
     const usj = usxStringToUsj(
       `<usx version="3.0"><book code="RUT" style="id" /><chapter number="1" style="c" /><para style="p"><verse number="1" style="v" />3${NBSP}000 men</para></usx>`,
