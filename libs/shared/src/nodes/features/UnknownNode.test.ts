@@ -116,6 +116,59 @@ describe("UnknownNode", () => {
     });
   });
 
+  // A key-reused UnknownNode whose tag or marker changed must sync its DOM in place: Lexical
+  // calls updateDOM (not createDOM) whenever a node keeps its key across a reconcile, so returning
+  // false WITHOUT syncing leaves stale data-tag/data-marker and the wrong inline-vs-block class on
+  // the mounted element.
+  describe("updateDOM()", () => {
+    it("syncs data-tag and the inline-vs-block class when the tag changes (block -> inline)", () => {
+      const { editor } = createBasicTestEnvironment([UnknownNode]);
+      editor.update(() => {
+        const prev = $createUnknownNode("table", "tbl");
+        const dom = prev.createDOM();
+        expect(dom.getAttribute("data-tag")).toBe("table");
+        expect(dom.classList.contains("unknown-block")).toBe(true);
+
+        const next = $createUnknownNode("ref", "tbl");
+        const needsReplace = next.updateDOM(prev, dom);
+
+        expect(needsReplace).toBe(false); // updated in place, not recreated
+        expect(dom.getAttribute("data-tag")).toBe("ref");
+        expect(dom.classList.contains("unknown-inline")).toBe(true);
+        expect(dom.classList.contains("unknown-block")).toBe(false);
+      });
+    });
+
+    it("syncs data-marker when only the marker changes (tag/class untouched)", () => {
+      const { editor } = createBasicTestEnvironment([UnknownNode]);
+      editor.update(() => {
+        const prev = $createUnknownNode("figure", "fig");
+        const dom = prev.createDOM();
+        expect(dom.getAttribute("data-marker")).toBe("fig");
+
+        const next = $createUnknownNode("figure", "fig2");
+        const needsReplace = next.updateDOM(prev, dom);
+
+        expect(needsReplace).toBe(false);
+        expect(dom.getAttribute("data-marker")).toBe("fig2");
+        expect(dom.classList.contains("unknown-block")).toBe(true);
+      });
+    });
+
+    it("clears data-marker when the marker becomes undefined", () => {
+      const { editor } = createBasicTestEnvironment([UnknownNode]);
+      editor.update(() => {
+        const prev = $createUnknownNode("figure", "fig");
+        const dom = prev.createDOM();
+
+        const next = $createUnknownNode("figure", undefined);
+        next.updateDOM(prev, dom);
+
+        expect(dom.getAttribute("data-marker")).toBe("");
+      });
+    });
+  });
+
   // Inline ref content: a ref's child text is real visible content — the
   // reconciler must keep it in the mounted editor DOM under the unknown-inline element (CSS
   // reveals it inline in standard view; the optbreak-only `//` label rule cannot match it).

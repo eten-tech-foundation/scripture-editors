@@ -324,6 +324,20 @@ function $replaceSentinels(roots: LexicalNode[], originals: LexicalNode[][]): vo
   roots.forEach(visit);
 }
 
+/** U+FFFC occurrences across a parsed node tree — must equal the preserved-run count. */
+function countSentinelNodes(nodes: LexicalNode[]): number {
+  let count = 0;
+  const visit = (node: LexicalNode): void => {
+    if ($isTextNode(node)) {
+      for (const ch of node.getTextContent()) if (ch === ATOMIC_SENTINEL) count++;
+    } else if ($isElementNode(node)) {
+      node.getChildren().forEach(visit);
+    }
+  };
+  nodes.forEach(visit);
+  return count;
+}
+
 /** U+FFFC occurrences across tokenized content — must equal the preserved-run count. */
 function countSentinels(content: MarkerContent[]): number {
   let count = 0;
@@ -503,6 +517,15 @@ export function $rebuildParas(paras: ParaNode[], context: Tier2Context): boolean
     viewOptions,
   );
   const newNodes = serialized.root.children.map((child) => $parseSerializedNode(child));
+
+  // Second sentinel check, now on the SERIALIZED->PARSED tree: the tokenizer-level count above
+  // guards the MarkerContent, but the serialize/parse round trip is a separate place a U+FFFC
+  // placeholder can vanish. If the parsed tree has fewer (or more) than the preserved-run count,
+  // $replaceSentinels would silently drop or mis-pair a preserved node. Abort untouched instead.
+  if (countSentinelNodes(newNodes) !== combined.sentinels.length) {
+    logger?.warn("[MarkerEdit] Tier 2 aborted: serialized sentinel/preserved-node count mismatch");
+    return false;
+  }
 
   // Fixed-point refusal (preserve-or-refuse). If the freshly-tokenized output is
   // structurally identical to the paragraphs it was derived from, this rebuild is a

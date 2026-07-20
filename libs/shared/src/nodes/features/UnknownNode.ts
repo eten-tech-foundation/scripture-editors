@@ -146,9 +146,21 @@ export class UnknownNode extends ElementNode {
     return dom;
   }
 
-  override updateDOM(): boolean {
-    // Returning false tells Lexical that this node does not need its DOM element replacing with a
-    // new copy from createDOM.
+  override updateDOM(prevNode: this, dom: HTMLElement): boolean {
+    // On a key-reused node whose tag/marker changed, sync the attributes and the inline-vs-block
+    // class in place so createDOM's discriminators (data-tag/data-marker, unknown-inline vs
+    // unknown-block) don't go stale. tag drives both data-tag and the class; marker drives
+    // data-marker (empty string when absent, mirroring createDOM).
+    if (prevNode.__tag !== this.__tag) {
+      dom.setAttribute("data-tag", this.__tag);
+      const inline = INLINE_UNKNOWN_TAGS.has(this.__tag);
+      dom.classList.toggle("unknown-inline", inline);
+      dom.classList.toggle("unknown-block", !inline);
+    }
+    if ((prevNode.__marker ?? "") !== (this.__marker ?? ""))
+      dom.setAttribute("data-marker", this.__marker ?? "");
+    // Returning false keeps the existing DOM element (updated in place, never recreated — this
+    // preserves contentEditable=false and the caret-skip behavior).
     return false;
   }
 
