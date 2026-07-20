@@ -46,7 +46,7 @@ export const usxGen1v1 = `
       <verse style="v" number="15" altnumber="3" sid="GEN 1:15"/>Tell the Israelites that I, the <char style="nd">Lord</char>, the God of their ancestors, the God of Abraham, Isaac, and Jacob,<char style="va">4</char><verse eid="GEN 1:15" />
     </para>
     <para style="b" />
-    <para style="q2"><verse style="v" number="16" sid="GEN 1:16"/>“There is no help for him in God.”<note style="f" caller="+"><char style="fr">3:2 </char><char style="fk" /><char style="ft">The Hebrew word rendered “God” is “אֱלֹהִ֑ים” (Elohim).</char></note> <unmatched marker="f*" /> <char style="qs">Selah.</char><verse eid="GEN 1:16" /></para>
+    <para style="q2"><verse style="v" number="16" sid="GEN 1:16"/>“There is no help for him in God.”<note style="f" caller="+"><char style="fr" closed="false">3:2 </char><char style="fk" closed="false" /><char style="ft" closed="false">The Hebrew word rendered “God” is “אֱלֹהִ֑ים” (Elohim).</char></note> <unmatched marker="f*" /> <char style="qs">Selah.</char><verse eid="GEN 1:16" /></para>
   <chapter eid="GEN 1" />
 </usx>
 `;
@@ -106,12 +106,13 @@ export const usjGen1v1: Usj = {
           marker: "f",
           caller: "+",
           content: [
-            { type: "char", marker: "fr", content: ["3:2 "] },
-            { type: "char", marker: "fk" },
+            { type: "char", marker: "fr", content: ["3:2 "], closed: "false" },
+            { type: "char", marker: "fk", closed: "false" },
             {
               type: "char",
               marker: "ft",
               content: ["The Hebrew word rendered “God” is “אֱלֹהִ֑ים” (Elohim)."],
+              closed: "false",
             },
           ],
         },
@@ -315,6 +316,7 @@ export const editorStateGen1v1 = {
               {
                 type: "char",
                 marker: "fr",
+                unknownAttributes: { closed: "false" },
                 direction: null,
                 format: "",
                 indent: 0,
@@ -343,6 +345,7 @@ export const editorStateGen1v1 = {
               {
                 type: "char",
                 marker: "fk",
+                unknownAttributes: { closed: "false" },
                 direction: null,
                 format: "",
                 indent: 0,
@@ -371,6 +374,7 @@ export const editorStateGen1v1 = {
               {
                 type: "char",
                 marker: "ft",
+                unknownAttributes: { closed: "false" },
                 direction: null,
                 format: "",
                 indent: 0,
@@ -470,11 +474,11 @@ export const opsGen1v1 = [
         caller: "+",
         contents: {
           ops: [
-            { insert: "3:2 ", attributes: { char: { style: "fr" } } },
-            { insert: "", attributes: { char: { style: "fk" } } },
+            { insert: "3:2 ", attributes: { char: { style: "fr", closed: "false" } } },
+            { insert: "", attributes: { char: { style: "fk", closed: "false" } } },
             {
               insert: "The Hebrew word rendered “God” is “אֱלֹהִ֑ים” (Elohim).",
-              attributes: { char: { style: "ft" } },
+              attributes: { char: { style: "ft", closed: "false" } },
             },
           ],
         },
@@ -838,6 +842,7 @@ export const editorStateGen1v1Editable = {
               {
                 type: "char",
                 marker: "fr",
+                unknownAttributes: { closed: "false" },
                 direction: null,
                 format: "",
                 indent: 0,
@@ -868,6 +873,7 @@ export const editorStateGen1v1Editable = {
               {
                 type: "char",
                 marker: "fk",
+                unknownAttributes: { closed: "false" },
                 direction: null,
                 format: "",
                 indent: 0,
@@ -898,6 +904,7 @@ export const editorStateGen1v1Editable = {
               {
                 type: "char",
                 marker: "ft",
+                unknownAttributes: { closed: "false" },
                 direction: null,
                 format: "",
                 indent: 0,
@@ -1045,11 +1052,11 @@ export const opsGen1v1Editable = [
         caller: "+",
         contents: {
           ops: [
-            { insert: "3:2 ", attributes: { char: { style: "fr" } } },
-            { insert: "", attributes: { char: { style: "fk" } } },
+            { insert: "3:2 ", attributes: { char: { style: "fr", closed: "false" } } },
+            { insert: "", attributes: { char: { style: "fk", closed: "false" } } },
             {
               insert: "The Hebrew word rendered “God” is “אֱלֹהִ֑ים” (Elohim).",
-              attributes: { char: { style: "ft" } },
+              attributes: { char: { style: "ft", closed: "false" } },
             },
           ],
         },
@@ -1414,6 +1421,7 @@ export const editorStateGen1v1Standard = {
               {
                 type: "char",
                 marker: "fr",
+                unknownAttributes: { closed: "false" },
                 children: [
                   {
                     type: "marker",
@@ -1453,6 +1461,7 @@ export const editorStateGen1v1Standard = {
               {
                 type: "char",
                 marker: "fk",
+                unknownAttributes: { closed: "false" },
                 children: [
                   {
                     type: "marker",
@@ -1492,6 +1501,7 @@ export const editorStateGen1v1Standard = {
               {
                 type: "char",
                 marker: "ft",
+                unknownAttributes: { closed: "false" },
                 children: [
                   {
                     type: "marker",
@@ -1663,11 +1673,11 @@ export const opsGen1v1Standard = [
         caller: "+",
         contents: {
           ops: [
-            { insert: "3:2 ", attributes: { char: { style: "fr" } } },
-            { insert: "", attributes: { char: { style: "fk" } } },
+            { insert: "3:2 ", attributes: { char: { style: "fr", closed: "false" } } },
+            { insert: "", attributes: { char: { style: "fk", closed: "false" } } },
             {
               insert: "The Hebrew word rendered “God” is “אֱלֹהִ֑ים” (Elohim).",
-              attributes: { char: { style: "ft" } },
+              attributes: { char: { style: "ft", closed: "false" } },
             },
           ],
         },
@@ -2313,7 +2323,7 @@ export const usxWithUnknownItems = `
   <book style="id" code="GEN" category="watCat" attr-unknown="watAttr" />
   <chapter style="c" number="1" sid="GEN 1" category="watCat" attr-unknown="watAttr" />
     <para style="p" category="watCat" attr-unknown="watAttr">
-      <verse style="v" number="1" category="watCat" attr-unknown="watAttr" />First part of the first verse <note style="f" caller="+" eid="watEid" attr-unknown="watAttr"><char style="fr" category="watCat" attr-unknown="watAttr">3:2 </char></note>
+      <verse style="v" number="1" category="watCat" attr-unknown="watAttr" />First part of the first verse <note style="f" caller="+" eid="watEid" attr-unknown="watAttr"><char style="fr" category="watCat" attr-unknown="watAttr" closed="false">3:2 </char></note>
         <ms style="ts" category="watCat" attr-unknown="watAttr"/>
         <wat style="z" category="watCat" attr-unknown="watAttr">wat content?</wat>
     </para>
@@ -2368,6 +2378,7 @@ export const usjWithUnknownItems = {
               marker: "fr",
               category: "watCat",
               "attr-unknown": "watAttr",
+              closed: "false",
               content: ["3:2 "],
             },
           ],
@@ -2508,7 +2519,11 @@ export const editorStateWithUnknownItems = {
               {
                 type: "char",
                 marker: "fr",
-                unknownAttributes: { category: "watCat", "attr-unknown": "watAttr" },
+                unknownAttributes: {
+                  category: "watCat",
+                  "attr-unknown": "watAttr",
+                  closed: "false",
+                },
                 direction: null,
                 format: "",
                 indent: 0,
