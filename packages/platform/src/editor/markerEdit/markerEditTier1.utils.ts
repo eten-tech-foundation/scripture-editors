@@ -22,11 +22,10 @@ import {
   ChapterNode,
   closingMarkerText,
   getVisibleOpenMarkerText,
-  isMilestoneCommentMarker,
+  isMilestoneHeuristicName,
   MarkerLookup,
   MarkerNode,
   MarkerType,
-  MilestoneNode,
   NoteNode,
   openingMarkerText,
   VerseNode,
@@ -62,21 +61,11 @@ function $markerCanonicalText(node: MarkerNode): string {
   return openingMarkerText(node.getMarker());
 }
 
-/** True for markers on USFM's fixed milestone list (`\ts-s`, `\qt1-e`, ...), not for arbitrary
- * z-namespace custom.sty markers: `MilestoneNode.isValidMarker` also accepts any `z`-prefixed
- * string so a milestone node can render an as-yet-unknown custom marker, but that same
- * allowance would misclassify a merely-unrecognized paragraph opener (e.g. `\zed`) as
- * positionally a milestone. Milestone markers all follow the `-s`/`-e` start/end suffix
- * convention, with bare `ts` as the sole exception. */
-function isKnownMilestoneMarker(marker: string): boolean {
-  return (
-    MilestoneNode.isValidMarker(marker) &&
-    (marker === "ts" ||
-      marker.endsWith("-s") ||
-      marker.endsWith("-e") ||
-      isMilestoneCommentMarker(marker))
-  );
-}
+// Milestone-name heuristic shared with the fragment tokenizer (`isMilestoneHeuristicName`):
+// only stylesheet-family milestone names (`\qt#-s/-e`, `\ts-s/-e`) plus annotation comment
+// markers — see its doc comment for why bare `ts`/`t-s`/`t-e` and the z-prefix wildcard are
+// deliberately excluded. Keeping one predicate here and in the tokenizer means Tier-1 kind
+// guards and Tier-2 re-tokenization can never disagree about what is positionally a milestone.
 
 /** Same-positional-kind rule for paragraph openers. Stylesheet-first:
  * a marker the effective sheet KNOWS classifies by its styleType; heuristics
@@ -87,7 +76,7 @@ function isParaKindMarker(marker: string, getMarkerFn: MarkerLookup): boolean {
   if (clean === "v" || clean === "c") return false;
   const kind = getMarkerFn(clean)?.type;
   if (kind !== undefined && kind !== MarkerType.Unknown) return kind === MarkerType.Paragraph;
-  if (NoteNode.isValidMarker(clean) || isKnownMilestoneMarker(clean)) return false;
+  if (NoteNode.isValidMarker(clean) || isMilestoneHeuristicName(clean)) return false;
   return true;
 }
 
@@ -97,7 +86,7 @@ function isCharKindMarker(marker: string, getMarkerFn: MarkerLookup): boolean {
   if (clean === "v" || clean === "c") return false;
   const kind = getMarkerFn(clean)?.type;
   if (kind !== undefined && kind !== MarkerType.Unknown) return kind === MarkerType.Character;
-  if (NoteNode.isValidMarker(clean) || isKnownMilestoneMarker(clean)) return false;
+  if (NoteNode.isValidMarker(clean) || isMilestoneHeuristicName(clean)) return false;
   return true;
 }
 

@@ -1909,7 +1909,7 @@ function $createNestedChars(
           charNode.append(child);
 
           const closingMarkers: LexicalNode[] = [];
-          $addClosingMarker(childMarker, closingMarkers, viewOptions);
+          $addCharNodeClosingMarker(child, closingMarkers, viewOptions);
           closingMarkers.forEach((marker) => charNode.append(marker));
         } else {
           // Just append the child (it's the innermost text node)
@@ -1923,7 +1923,7 @@ function $createNestedChars(
     // Add markers inside the outermost CharNode (as children)
     const outermostAttr = charAttr[0];
     $addOpeningMarker(outermostAttr.style, outermostCharNode, viewOptions);
-    $addClosingMarker(outermostAttr.style, outermostCharNode, viewOptions);
+    $addCharNodeClosingMarker(outermostCharNode, outermostCharNode, viewOptions);
 
     return [outermostCharNode];
   } else {
@@ -1943,10 +1943,38 @@ function $createNestedChars(
 
     // Add markers inside the CharNode (as children)
     $addOpeningMarker(charAttr.style, charNode, viewOptions);
-    $addClosingMarker(charAttr.style, charNode, viewOptions);
+    $addCharNodeClosingMarker(charNode, charNode, viewOptions);
 
     return [charNode];
   }
+}
+
+/**
+ * Add the closing glyph for a delta-materialized char span — or skip it when the span is not
+ * explicitly closed. Mirrors `createChar` in the platform USJ adaptor: a span carrying
+ * `closed="false"` renders WITHOUT a closing glyph (the glyph structure must agree with the
+ * node's state), as does a footnote/cross-ref content marker (`\fr`/`\ft`/`\xo`/…), which never
+ * has an explicit closer. Also mirrors the adaptor's honesty rule: whenever the glyph is
+ * skipped, `closed="false"` is recorded on the node so the span round-trips to USJ and the C#
+ * writer never invents a `\marker*` the source didn't have.
+ */
+function $addCharNodeClosingMarker(
+  charNode: CharNode,
+  target: LexicalNode[] | CharNode,
+  viewOptions: ViewOptions,
+) {
+  const marker = charNode.getMarker();
+  const isUnclosed = charNode.getUnknownAttributes()?.closed === "false";
+  if (
+    isUnclosed ||
+    CharNode.isValidFootnoteMarker(marker) ||
+    CharNode.isValidCrossReferenceMarker(marker)
+  ) {
+    if (!isUnclosed)
+      charNode.setUnknownAttributes({ ...charNode.getUnknownAttributes(), closed: "false" });
+    return;
+  }
+  $addClosingMarker(marker, target, viewOptions);
 }
 
 function $addOpeningMarker(

@@ -46,6 +46,7 @@ import {
   $createMilestoneNode,
   $createParaNode,
   $isCharNode,
+  $isImmutableUnmatchedNode,
   $isParaNode,
   MarkerNode,
   NBSP,
@@ -367,11 +368,10 @@ describe("genuine fixed-point refusal (no real progress possible)", () => {
     });
   }, 15000);
 
-  it("does not hang: a stray \\* (no opener) is a true no-op, refused rather than looping", async () => {
-    let pText: TextNode, qText: TextNode, pParaKey: string;
+  it("does not hang: a stray \\* (no opener) settles to an ImmutableUnmatchedNode, not a loop", async () => {
+    let pText: TextNode, qText: TextNode;
     const { editor } = await testEnvironment(() => {
       ({ pText, qText } = $twoParas("body", "second"));
-      pParaKey = pText.getParentOrThrow().getKey();
     });
 
     await act(async () =>
@@ -382,26 +382,32 @@ describe("genuine fixed-point refusal (no real progress possible)", () => {
     );
     await act(async () => editor.update(() => qText.select(0, 0)));
 
+    // A stray `\*` is PT9 sink.Unmatched: real structural progress (an ImmutableUnmatchedNode,
+    // serializing back to `\*`), and the unmatched node is a rebuild sentinel, so the next
+    // rebuild preserves it atomically — termination is by progress-then-sentinel, not refusal.
+    // The test returning at all proves no loop.
     editor.getEditorState().read(() => {
-      expect($getRoot().getTextContent()).toContain("body \\*"); // literal stray closer intact
+      expect($getRoot().getTextContent()).toContain("body"); // literal prefix text intact
       const paras = $getRoot().getChildren().filter($isParaNode);
       expect(paras).toHaveLength(2);
-      expect($getNodeByKey(pParaKey)?.isAttached()).toBe(true);
-      expect($getNodeByKey(pText.getKey())?.isAttached()).toBe(true);
+      const unmatched = paras[0].getChildren().filter($isImmutableUnmatchedNode);
+      expect(unmatched).toHaveLength(1);
+      expect(unmatched[0].getMarker()).toBe("*");
     });
   }, 15000);
 
-  it("does not hang: non-attribute content before a milestone \\* is a true no-op, refused rather than looping", async () => {
-    let pText: TextNode, qText: TextNode, pParaKey: string;
+  it("does not hang: non-attribute content before a milestone \\* settles literal + unmatched, not a loop", async () => {
+    let pText: TextNode, qText: TextNode;
     const { editor } = await testEnvironment(() => {
       ({ pText, qText } = $twoParas("body", "second"));
-      pParaKey = pText.getParentOrThrow().getKey();
     });
 
     await act(async () =>
       editor.update(() => {
         // `\ts-s x\*`: the `\*` closes, but the content before it is not a `|`-attribute run, so
-        // the tokenizer degrades the whole thing to literal (scanMilestone bails) — a fixed point.
+        // scanMilestone bails and the milestone run degrades to literal text — while the `\*`
+        // itself becomes an ImmutableUnmatchedNode (PT9 sink.Unmatched), which is real
+        // structural progress and then a rebuild sentinel. Termination, not refusal.
         pText.setTextContent("body \\ts-s x\\*");
         pText.select(pText.getTextContentSize(), pText.getTextContentSize());
       }),
@@ -409,11 +415,12 @@ describe("genuine fixed-point refusal (no real progress possible)", () => {
     await act(async () => editor.update(() => qText.select(0, 0)));
 
     editor.getEditorState().read(() => {
-      expect($getRoot().getTextContent()).toContain("\\ts-s x\\*"); // literal text intact
+      expect($getRoot().getTextContent()).toContain("\\ts-s x"); // literal run intact
       const paras = $getRoot().getChildren().filter($isParaNode);
       expect(paras).toHaveLength(2);
-      expect($getNodeByKey(pParaKey)?.isAttached()).toBe(true);
-      expect($getNodeByKey(pText.getKey())?.isAttached()).toBe(true);
+      const unmatched = paras[0].getChildren().filter($isImmutableUnmatchedNode);
+      expect(unmatched).toHaveLength(1);
+      expect(unmatched[0].getMarker()).toBe("*");
     });
   }, 15000);
 });

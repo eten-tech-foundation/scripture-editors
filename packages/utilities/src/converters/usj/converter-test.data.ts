@@ -1,5 +1,12 @@
 import type { SerializedEditorState } from "lexical";
-import { MarkerContent, Usj } from "./usj.model.js";
+import { MarkerContent, MarkerObject, Usj } from "./usj.model.js";
+
+/**
+ * `closed` is nonstandard derived USX/USJ metadata — ParatextData emits `closed="false"` on
+ * every implicitly-closed note/char span — and is not part of the published `MarkerObject`
+ * shape, so test data carrying it types the field locally.
+ */
+type ClosableMarkerObject = MarkerObject & { closed?: string };
 
 const NBSP = "\u00A0";
 const EMPTY_CHAR_PLACEHOLDER_TEXT = NBSP;
@@ -106,14 +113,19 @@ export const usjGen1v1: Usj = {
           marker: "f",
           caller: "+",
           content: [
-            { type: "char", marker: "fr", content: ["3:2 "], closed: "false" },
-            { type: "char", marker: "fk", closed: "false" },
+            {
+              type: "char",
+              marker: "fr",
+              content: ["3:2 "],
+              closed: "false",
+            } as ClosableMarkerObject,
+            { type: "char", marker: "fk", closed: "false" } as ClosableMarkerObject,
             {
               type: "char",
               marker: "ft",
               content: ["The Hebrew word rendered “God” is “אֱלֹהִ֑ים” (Elohim)."],
               closed: "false",
-            },
+            } as ClosableMarkerObject,
           ],
         },
         " ",
