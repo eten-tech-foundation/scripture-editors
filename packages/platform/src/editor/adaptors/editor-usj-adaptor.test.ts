@@ -31,7 +31,12 @@ import usjEditorAdaptor, {
   reset,
   serializeEditorState,
 } from "./usj-editor.adaptor";
-import { EMPTY_USJ, MarkerObject, usxStringToUsj } from "@eten-tech-foundation/scripture-utilities";
+import {
+  EMPTY_USJ,
+  MarkerContent,
+  MarkerObject,
+  usxStringToUsj,
+} from "@eten-tech-foundation/scripture-utilities";
 import { deepEqual } from "fast-equals";
 import { SerializedTextNode } from "lexical";
 import { getViewOptions, STANDARD_VIEW_MODE, usjReactNodes } from "shared-react";
@@ -126,6 +131,31 @@ describe("Editor USJ Adaptor", () => {
     const isEqual = deepEqual(usj, usjGen1v1);
     expect(usj).toEqual(usjGen1v1);
     expect(isEqual).toBe(true);
+  });
+
+  it("adds closed=false to a footnote-content char that lacks it (honesty rule)", () => {
+    // A \fr char with no `closed` attribute: the adaptor renders it WITHOUT a closing glyph
+    // (footnote/cross-ref content chars never get one), so the honest editor→USJ representation
+    // must carry closed="false". Otherwise the C# writer would emit an explicit \fr* closer the
+    // source never had.
+    const usj = usxStringToUsj(
+      `<usx version="3.0"><book code="RUT" style="id" /><chapter number="1" style="c" /><para style="p"><verse number="1" style="v" />Text<note caller="+" style="f"><char style="fr">1.1 </char></note></para></usx>`,
+    );
+    initializeSerialize(undefined, undefined);
+    reset();
+    initializeDeserialize(undefined);
+    const serializedEditorState = serializeEditorState(usj);
+    const editorState = editor.parseEditorState(serializedEditorState);
+
+    const result = editorUsjAdaptor.deserializeEditorState(editorState);
+
+    const flatten = (items: MarkerContent[] | undefined): MarkerObject[] =>
+      (items ?? []).flatMap((item) =>
+        typeof item === "string" ? [] : [item, ...flatten(item.content)],
+      );
+    const frChar = flatten(result?.content).find((m) => m.marker === "fr");
+    expect(frChar).toBeDefined();
+    expect((frChar as MarkerObject & { closed?: string }).closed).toBe("false");
   });
 
   it("should convert to USJ from Lexical editor state JSON with Marks", () => {

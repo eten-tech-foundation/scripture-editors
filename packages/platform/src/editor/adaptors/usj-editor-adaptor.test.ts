@@ -378,6 +378,36 @@ describe("USJ Editor Adaptor", () => {
     expect(JSON.stringify(char)).toContain(`"closed":"false"`);
   });
 
+  it('emits no closer and derives closed="false" for a footnote char with no closed attribute', () => {
+    // Honesty rule: a footnote/cross-ref content char (here \fr) never has an explicit closer, so
+    // the adaptor renders no closing glyph even when the source USJ omits `closed`. The derived
+    // closed="false" must ride along so a downstream USFM writer emits no \fr* the source lacked.
+    // The explicit-`closed` char case is pinned above; this pins the derived case.
+    const usj = usxStringToUsj(
+      `<usx version="3.0"><book code="RUT" style="id" /><chapter number="1" style="c" /><para style="p"><verse number="1" style="v" /><note caller="+" style="f"><char style="fr">1.1 </char></note></para></usx>`,
+    );
+    initialize(undefined, undefined);
+    reset();
+
+    // Editable mode renders closing glyphs for normal chars, so a missing closer is meaningful.
+    const state = serializeEditorState(usj, getViewOptions(UNFORMATTED_VIEW_MODE));
+
+    const para = state.root.children[2] as SerializedParaNode;
+    const note = para.children.find((c) => isSerializedNoteNode(c)) as SerializedNoteNode;
+    const frChar = note.children.find(
+      (c) => isSerializedCharNode(c) && c.marker === "fr",
+    ) as SerializedCharNode;
+    expect(
+      frChar.children.some((n) => isSerializedMarkerNode(n) && n.markerSyntax === "opening"),
+    ).toBe(true);
+    // no synthesized closer even though the source USJ carried no `closed` attribute
+    expect(
+      frChar.children.some((n) => isSerializedMarkerNode(n) && n.markerSyntax === "closing"),
+    ).toBe(false);
+    // the flag is derived (the source omitted it) and rides through unknownAttributes
+    expect(frChar.unknownAttributes?.closed).toBe("false");
+  });
+
   it("still collapses a closed note in collapsed noteMode", () => {
     const usj = usxStringToUsj(
       `<usx version="3.0"><book code="RUT" style="id" /><chapter number="1" style="c" /><para style="p"><verse number="1" style="v" />text<note caller="+" style="f"><char style="ft">closed note</char></note></para></usx>`,
