@@ -64,9 +64,15 @@ type Token =
 /** PT9 `IsNonSemanticWhiteSpace` approximation for fragments. */
 const WHITESPACE_RUN = /[\s\u200B]+/g;
 
-/** Collapse whitespace runs to single spaces (PT9 `RegularizeSpaces`); keep U+FFFC. */
+/**
+ * Collapse whitespace runs (PT9 `RegularizeSpaces`); keep U+FFFC. A run containing a line
+ * break collapses to `"\n"` instead of `" "` so the attribute-marker fold logic can tell
+ * STRUCTURAL whitespace (line-end, folds across: `\ca 1 ca\ca*` ⏎ `\cp 1 cp`) from same-line
+ * spaces (content per Paratext, blocking the fold: `\va 12 va\va* \vp` keeps vp standalone).
+ * Content text normalizes the `"\n"` back to `" "` in `toUsjText`.
+ */
 function regularizeSpaces(text: string): string {
-  return text.replace(WHITESPACE_RUN, " ");
+  return text.replace(WHITESPACE_RUN, (run) => (run.includes("\n") ? "\n" : " "));
 }
 
 /** Marker name chars per PT9 scan: stop at `\`, `|`, whitespace; `*` ends and is included. */
@@ -251,34 +257,12 @@ function tokenize(fragment: string, getMarkerFn: MarkerLookup, isNoteContext: bo
  * covers `f`/`fe`/`x`/`ef`/`efe`/`ex`).
  */
 const ATTRIBUTE_MARKERS: {
-  [marker: string]: {
-    attrName: string;
-    targetType: string;
-    shape: "char" | "para";
-    /** One space after the closing marker is structural (dropped) — true for the
-     * chapter/verse number markers, NOT for `\cat` (Paratext keeps that space as content). */
-    structuralSpaceAfterCloser?: boolean;
-  };
+  [marker: string]: { attrName: string; targetType: string; shape: "char" | "para" };
 } = {
-  ca: {
-    attrName: "altnumber",
-    targetType: "chapter",
-    shape: "char",
-    structuralSpaceAfterCloser: true,
-  },
+  ca: { attrName: "altnumber", targetType: "chapter", shape: "char" },
   cp: { attrName: "pubnumber", targetType: "chapter", shape: "para" },
-  va: {
-    attrName: "altnumber",
-    targetType: "verse",
-    shape: "char",
-    structuralSpaceAfterCloser: true,
-  },
-  vp: {
-    attrName: "pubnumber",
-    targetType: "verse",
-    shape: "char",
-    structuralSpaceAfterCloser: true,
-  },
+  va: { attrName: "altnumber", targetType: "verse", shape: "char" },
+  vp: { attrName: "pubnumber", targetType: "verse", shape: "char" },
   cat: { attrName: "category", targetType: "note", shape: "char" },
 };
 
@@ -364,9 +348,10 @@ function scanMilestone(
   return { token: { kind: "milestone", marker: name, attributes }, next: closeIndex + 2 };
 }
 
-/** Convert `~` to NBSP for USJ text content (PT9 read-side `UsfmParser` behavior). */
+/** Convert `~` to NBSP for USJ text content (PT9 read-side `UsfmParser` behavior), and
+ * normalize the line-break marker `regularizeSpaces` preserved back to a plain space. */
 function toUsjText(text: string): string {
-  return text.replaceAll("~", NBSP);
+  return text.replaceAll("\n", " ").replaceAll("~", NBSP);
 }
 
 /** Get (and lazily initialize) a marker object's content array without a non-null assertion. */
@@ -515,14 +500,11 @@ export function usfmFragmentToUsjContent(
         token.kind === "end" &&
         token.marker.replace(/^\+/, "") === attrCapture.marker
       ) {
-        // Explicit close with plain-text content: fold as the target's attribute.
+        // Explicit close with plain-text content: fold as the target's attribute. Any space
+        // AFTER the closer is content, not structural — Paratext keeps it in the text
+        // (`\vp 11 vp\vp* This…` → text starts with the space), per its
+        // treat-space-after-attribute-markers-as-content behavior.
         Object.assign(attrCapture.target, { [attrCapture.attrName]: toUsjText(attrCapture.value) });
-        if (ATTRIBUTE_MARKERS[attrCapture.marker]?.structuralSpaceAfterCloser) {
-          // One space after the closer is structural, not content (`\v 1 \va 1\va* Verse…`).
-          const nextToken = tokens[tokenIndex + 1];
-          if (nextToken?.kind === "text" && /^[ \u00A0]/.test(nextToken.text))
-            nextToken.text = nextToken.text.slice(1);
-        }
         attrCapture = undefined;
         continue;
       }
@@ -547,7 +529,11 @@ export function usfmFragmentToUsjContent(
 
     if (attrTarget) {
       if (token.kind === "text") {
-        if (/^[\s\u200B]*$/.test(token.text)) {
+        // Only LINE-BREAK whitespace between the target and its attribute marker is
+        // structural (`\ca 1 ca\ca*` \u23CE `\cp 1 cp` still folds cp). A same-line space is
+        // content per Paratext and BLOCKS the fold \u2014 `\va 12 va\va* \vp 12 vp\vp*` keeps
+        // altnumber but leaves vp a standalone marker with the space in the text.
+        if (token.text.includes("\n") && /^[\s\u200B]*$/.test(token.text)) {
           heldWhitespace += token.text;
           continue;
         }

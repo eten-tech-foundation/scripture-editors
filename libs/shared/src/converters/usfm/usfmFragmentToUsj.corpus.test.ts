@@ -16,9 +16,6 @@
  *   scope-out and degradation recovery.
  * - **Sidebars** (`\esb`/`\esbe`): flat paragraphs vs Paratext's `sidebar` wrapper (including
  *   its nested content paragraphs). Same scope-out.
- * - **`\va`/`\vp` whitespace edges**: a handful of text diffs around verse attribute markers
- *   where Paratext's structural-space accounting differs byte-for-byte (the fixture narrates
- *   each case). Attribute folding itself matches; only edge whitespace differs.
  * - **Unclosed `\ca` wrapper (2SA-2)**: Paratext strands the unfolded `\ca` char at the
  *   DOCUMENT top level (a root char — same invalid-shape family as the chapter-3 bug); the
  *   tokenizer wraps it in a paragraph. Fold/no-fold behavior itself agrees (unclosed attribute
@@ -179,7 +176,7 @@ const CASES: { label: string; usfm: string; usj: string; expectedDivergences: nu
     label: "testUSFM 2SA 1",
     usfm: "testUSFM-2SA-1.usfm",
     usj: "testUSFM-2SA-1.usj",
-    expectedDivergences: 59,
+    expectedDivergences: 54,
   },
   {
     label: "testUSFM 2SA 2",
