@@ -258,7 +258,7 @@ describe("clipboard normalization — null-event leg (ClipboardPlugin/ContextMen
 });
 
 describe("paste normalization ($handlePasteForStandardView)", () => {
-  function pasteEvent(payload: Record<string, string>): {
+  function pasteEvent(payload: { [key: string]: string }): {
     event: ClipboardEvent;
     prevented: () => boolean;
   } {

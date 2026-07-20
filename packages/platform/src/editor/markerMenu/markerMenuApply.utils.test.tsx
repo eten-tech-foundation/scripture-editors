@@ -734,7 +734,7 @@ describe("$applyMarkerMenuSelection", () => {
       // Repro of the live bug: Enter → pick `p` → type "asdf" produced USFM `\p ~asdf`. The new
       // paragraph is EMPTY, so $injectMarkerPrefix's caret fallback (selectEnd) parks the caret at
       // the END of the NBSP separator node; RangeSelection.insertText then appends INTO that node
-      // (" asdf"), and the serializer — which strips the separator by exact-NBSP text match —
+      // ("� asdf"), and the serializer — which strips the separator by exact-NBSP text match —
       // keeps the whole node, leaking the NBSP into USJ (→ `~` in USFM → a non-convergent PDP echo
       // loop in the host). The separator must be a token node so typing at its boundary creates a
       // fresh plain content node instead.

@@ -809,7 +809,10 @@ describe("Delta Utils $applyUpdate", () => {
         const charNode = p.getChildAtIndex(1);
         if (!$isCharNode(charNode)) throw new Error("charNode is not a CharNode");
         expect(charNode.getMarker()).toBe("xt");
-        expect(charNode.getUnknownAttributes()).toEqual({ bold: "true" });
+        // closed="false" is the honesty rule: xt is a cross-ref content marker materialized
+        // without a closing glyph, and the round-trip must record that (real-data shape —
+        // ParatextData emits closed="false" on every closer-less xt).
+        expect(charNode.getUnknownAttributes()).toEqual({ bold: "true", closed: "false" });
         expect($getState(charNode, charIdState)).toBe(cid);
 
         const innerTextNode = charNode.getFirstChild();
@@ -3534,6 +3537,58 @@ describe("Delta Utils $applyUpdate", () => {
             .getChildren()
             .some((child) => $isMarkerNode(child) && child.getMarkerSyntax() === "closing"),
         ).toBe(false);
+      });
+    });
+
+    it('should insert an unclosed editable-mode char span (closed="false") without a closer glyph', async () => {
+      const { editor } = await testEnvironment();
+      const viewOptions: ViewOptions = {
+        ...defaultViewOptions,
+        markerMode: "editable",
+      };
+      const ops: DeltaOp[] = [
+        { insert: "before " },
+        { insert: "unclosed", attributes: { char: { style: "wj", closed: "false" } } },
+      ];
+
+      await sutApplyUpdate(editor, ops, viewOptions);
+
+      editor.getEditorState().read(() => {
+        const p = $getRoot().getFirstChild();
+        if (!$isImpliedParaNode(p)) throw new Error("p is not an ImpliedParaNode");
+        const char = p.getChildAtIndex(1);
+        if (!$isCharNode(char)) throw new Error("Expected a CharNode");
+        expect(char.getMarker()).toBe("wj");
+        expect(char.getUnknownAttributes()).toEqual({ closed: "false" });
+        // Opening glyph only — the glyph structure must agree with closed="false"
+        // (mirrors the USJ adaptor's createChar; a phantom closer here would rewrite
+        // the span as explicitly closed on the next serialization).
+        const glyphs = char.getChildren().filter($isMarkerNode);
+        expect(glyphs.map((glyph) => glyph.getMarkerSyntax())).toEqual(["opening"]);
+      });
+    });
+
+    it('should stamp closed="false" on a closer-less footnote-content char span (honesty rule)', async () => {
+      const { editor } = await testEnvironment();
+      const viewOptions: ViewOptions = {
+        ...defaultViewOptions,
+        markerMode: "editable",
+      };
+      // No closed attribute on the op — the fr span's closer is skipped by marker identity,
+      // so the honesty rule must record closed="false" for a truthful USJ round-trip.
+      const ops: DeltaOp[] = [{ insert: "1:2", attributes: { char: { style: "fr" } } }];
+
+      await sutApplyUpdate(editor, ops, viewOptions);
+
+      editor.getEditorState().read(() => {
+        const p = $getRoot().getFirstChild();
+        if (!$isImpliedParaNode(p)) throw new Error("p is not an ImpliedParaNode");
+        const char = p.getFirstChild();
+        if (!$isCharNode(char)) throw new Error("Expected a CharNode");
+        expect(char.getMarker()).toBe("fr");
+        expect(char.getUnknownAttributes()).toEqual({ closed: "false" });
+        const glyphs = char.getChildren().filter($isMarkerNode);
+        expect(glyphs.map((glyph) => glyph.getMarkerSyntax())).toEqual(["opening"]);
       });
     });
 

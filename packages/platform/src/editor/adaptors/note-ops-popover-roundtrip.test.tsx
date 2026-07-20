@@ -67,27 +67,41 @@ const PARAGRAPH_USJ: Usj = { type: "USJ", version: "3.1", content: [{ type: "par
  * (The nested-char ops round-trip itself is covered by the editor-delta.adaptor unit
  * tests.)
  */
+/** `closed` is nonstandard derived USX/USJ metadata (ParatextData emits it on implicitly-closed
+ * spans); it is not part of the published `MarkerObject` shape, so test data types it locally. */
+type ClosableMarkerObject = MarkerObject & { closed?: string };
+
 const closedNoteUsj: MarkerObject = {
   type: "note",
   marker: "f",
   caller: "+",
   // Footnote-content chars carry closed="false" in real ParatextData USJ (no explicit closers).
   content: [
-    { type: "char", marker: "fr", content: ["1:1 "], closed: "false" },
-    { type: "char", marker: "ft", content: ["see verse "], closed: "false" },
-    { type: "char", marker: "fv", content: ["2"], closed: "false" },
+    { type: "char", marker: "fr", content: ["1:1 "], closed: "false" } as ClosableMarkerObject,
+    {
+      type: "char",
+      marker: "ft",
+      content: ["see verse "],
+      closed: "false",
+    } as ClosableMarkerObject,
+    { type: "char", marker: "fv", content: ["2"], closed: "false" } as ClosableMarkerObject,
   ],
 };
 
 /** Unterminated note (PT9 opennote): renders expanded inline, has no closer glyph. */
-const unclosedNoteUsj: MarkerObject & { closed?: string } = {
+const unclosedNoteUsj: ClosableMarkerObject = {
   type: "note",
   marker: "f",
   caller: "+",
   closed: "false",
   content: [
-    { type: "char", marker: "fr", content: ["1:2 "], closed: "false" },
-    { type: "char", marker: "ft", content: ["unterminated"], closed: "false" },
+    { type: "char", marker: "fr", content: ["1:2 "], closed: "false" } as ClosableMarkerObject,
+    {
+      type: "char",
+      marker: "ft",
+      content: ["unterminated"],
+      closed: "false",
+    } as ClosableMarkerObject,
   ],
 };
 
