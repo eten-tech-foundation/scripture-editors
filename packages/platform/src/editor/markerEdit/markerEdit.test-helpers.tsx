@@ -49,6 +49,9 @@ export const viewOptions = requireDefined(
   "Standard view options are required for these tests.",
 );
 
+/** Standard view but with expanded notes — the editable+expanded survivability combination. */
+export const expandedViewOptions = { ...viewOptions, noteMode: "expanded" as const };
+
 /** Mounts a headless editor with `MarkerEditPlugin` active in Standard view (markerMode "editable"). */
 export async function testEnvironment($initialEditorState: () => void) {
   initializeSerialize(undefined, undefined);
@@ -56,6 +59,20 @@ export async function testEnvironment($initialEditorState: () => void) {
   return baseTestEnvironment(
     $initialEditorState,
     <MarkerEditPlugin viewOptions={getViewOptions(STANDARD_VIEW_MODE)} />,
+  );
+}
+
+/**
+ * Like `testEnvironment`, but in Standard view with EXPANDED notes (`markerMode: "editable"`,
+ * `noteMode: "expanded"`) — the combination that used to make `getViewMode` return undefined and
+ * silently disable the standard-view whitespace machinery.
+ */
+export async function testEnvironmentExpanded($initialEditorState: () => void) {
+  initializeSerialize(undefined, undefined);
+  reset();
+  return baseTestEnvironment(
+    $initialEditorState,
+    <MarkerEditPlugin viewOptions={expandedViewOptions} />,
   );
 }
 

@@ -108,12 +108,11 @@ import {
   NoteCallerOnClick,
   SerializedImmutableNoteCallerNode,
   SerializedImmutableVerseNode,
-  STANDARD_VIEW_MODE,
   UsjNodeOptions,
   ViewOptions,
   getDefaultViewOptions,
   getVerseNodeClass,
-  getViewMode,
+  hasStandardViewWhitespace,
   isSomeSerializedVerseNode,
 } from "shared-react";
 
@@ -215,9 +214,14 @@ function setLogger(logger: LoggerBasic | undefined) {
   if (logger) _logger = logger;
 }
 
-/** Standard-view-only whitespace display rules; they must not leak into other modes. */
+/**
+ * Standard-view whitespace display rules; they must not leak into other modes. Gated on the
+ * standard-view whitespace fingerprint (editable + spaced + formatted, any `noteMode`) rather than
+ * the named `standard` mode, so it stays in lockstep with the editable marker engine even when notes
+ * are expanded — see {@link hasStandardViewWhitespace}.
+ */
 function isStandardView(): boolean {
-  return _viewOptions !== undefined && getViewMode(_viewOptions) === STANDARD_VIEW_MODE;
+  return hasStandardViewWhitespace(_viewOptions);
 }
 
 function getTextContent(markers: MarkerContent[] | undefined): string {

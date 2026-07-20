@@ -200,6 +200,20 @@ describe("Editor USJ Adaptor", () => {
     expect(JSON.stringify(roundTripped)).toContain(`in${NBSP}the days`);
   });
 
+  it("inverts display whitespace when deserializing editable+expanded standard view", () => {
+    // Expanded notes do not change that this is standard-view text: the display `~` (= data NBSP)
+    // and display-NBSP space run MUST invert on deserialization exactly as in collapsed standard
+    // view. Before the gating fix, editable+expanded skipped inversion, so a display `~` survived
+    // into the saved data as a literal tilde.
+    const state = buildPatchedStandardState(`in~the${NBSP}${NBSP}days`);
+    initializeDeserialize(undefined);
+    const standard = getViewOptions(STANDARD_VIEW_MODE);
+    if (!standard) throw new Error("standard view options not found");
+    const expandedStandard = { ...standard, noteMode: "expanded" as const };
+    const roundTripped = deserializeSerializedEditorState(state, expandedStandard);
+    expect(JSON.stringify(roundTripped)).toContain(`in${NBSP}the days`);
+  });
+
   it("leaves whitespace untouched when deserializing without standard viewOptions", () => {
     const state = buildPatchedStandardState(`in~the${NBSP}${NBSP}days`);
     initializeDeserialize(undefined);
