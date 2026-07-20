@@ -323,4 +323,163 @@ describe("paste normalization ($handlePasteForStandardView)", () => {
     expect(internal.prevented()).toBe(false);
     expect(plain.prevented()).toBe(false);
   });
+
+  it("rewrites an NBSP found only in a `text/html` payload (word-processor `&nbsp;`) to `~`, with no `text/plain` data", async () => {
+    let text: TextNode;
+    const { editor } = await testEnvironment(() => {
+      const para = $createParaNode("p");
+      const sep = $createTextNode(NBSP);
+      $setState(sep, textTypeState, "marker-trailing-space");
+      text = $createTextNode("before after");
+      $getRoot().append(para.append($createMarkerNode("p"), sep, text));
+    });
+    await act(async () => editor.update(() => text.select(7, 7))); // between "before " and "after"
+
+    // No `text/plain` key at all — some clipboard sources only populate `text/html`.
+    const { event, prevented } = pasteEvent({ "text/html": "<p>3&nbsp;000</p>" });
+    let handled = false;
+    await act(async () =>
+      editor.update(() => {
+        handled = $handlePasteForStandardView(event);
+      }),
+    );
+
+    expect(handled).toBe(true);
+    expect(prevented()).toBe(true);
+    editor.getEditorState().read(() => {
+      expect($getRoot().getTextContent()).toContain("3~000");
+    });
+  });
+
+  it("separates blocks (and `<br>`) with newlines so a multi-paragraph html paste doesn't merge words", async () => {
+    let text: TextNode;
+    const { editor } = await testEnvironment(() => {
+      const para = $createParaNode("p");
+      const sep = $createTextNode(NBSP);
+      $setState(sep, textTypeState, "marker-trailing-space");
+      text = $createTextNode("before after");
+      $getRoot().append(para.append($createMarkerNode("p"), sep, text));
+    });
+    await act(async () => editor.update(() => text.select(7, 7))); // between "before " and "after"
+
+    const { event } = pasteEvent({
+      "text/html": "<p>one&nbsp;two</p><p>three<br>four</p>",
+    });
+    let handled = false;
+    await act(async () =>
+      editor.update(() => {
+        handled = $handlePasteForStandardView(event);
+      }),
+    );
+
+    expect(handled).toBe(true);
+    editor.getEditorState().read(() => {
+      // Block boundaries and <br> become newlines — the same newline-joined shape a multi-line
+      // text/plain paste hands to insertText — so "two"/"three" don't fuse into one word.
+      expect($getRoot().getTextContent()).toContain("one~two\nthree\nfour");
+    });
+  });
+
+  it("excludes body-level style/script text from the inserted content", async () => {
+    let text: TextNode;
+    const { editor } = await testEnvironment(() => {
+      const para = $createParaNode("p");
+      const sep = $createTextNode(NBSP);
+      $setState(sep, textTypeState, "marker-trailing-space");
+      text = $createTextNode("before after");
+      $getRoot().append(para.append($createMarkerNode("p"), sep, text));
+    });
+    await act(async () => editor.update(() => text.select(7, 7)));
+
+    // A leading <style>/<script> would be hoisted into <head> by the parser (already excluded);
+    // placing them AFTER body content keeps them body-level — the case that leaked.
+    const { event } = pasteEvent({
+      "text/html": '<p>a&nbsp;b</p><style>p{color:red}</style><script>alert("x")</script>',
+    });
+    let handled = false;
+    await act(async () =>
+      editor.update(() => {
+        handled = $handlePasteForStandardView(event);
+      }),
+    );
+
+    expect(handled).toBe(true);
+    editor.getEditorState().read(() => {
+      const content = $getRoot().getTextContent();
+      expect(content).toContain("a~b");
+      expect(content).not.toContain("color");
+      expect(content).not.toContain("alert");
+    });
+  });
+
+  it("triggers on a literal NBSP byte in the raw html, not just the `&nbsp;` entity", async () => {
+    let text: TextNode;
+    const { editor } = await testEnvironment(() => {
+      const para = $createParaNode("p");
+      const sep = $createTextNode(NBSP);
+      $setState(sep, textTypeState, "marker-trailing-space");
+      text = $createTextNode("before after");
+      $getRoot().append(para.append($createMarkerNode("p"), sep, text));
+    });
+    await act(async () => editor.update(() => text.select(7, 7)));
+
+    const { event, prevented } = pasteEvent({ "text/html": `<p>3${NBSP}000</p>` });
+    let handled = false;
+    await act(async () =>
+      editor.update(() => {
+        handled = $handlePasteForStandardView(event);
+      }),
+    );
+
+    expect(handled).toBe(true);
+    expect(prevented()).toBe(true);
+    editor.getEditorState().read(() => {
+      expect($getRoot().getTextContent()).toContain("3~000");
+    });
+  });
+
+  it("falls through to default html handling when `text/html` carries no NBSP (raw or decoded)", async () => {
+    let text: TextNode;
+    const { editor } = await testEnvironment(() => {
+      const para = $createParaNode("p");
+      text = $createTextNode("body");
+      $getRoot().append(para.append($createMarkerNode("p"), text));
+    });
+    await act(async () => editor.update(() => text.select(0, 0)));
+
+    const { event, prevented } = pasteEvent({ "text/html": "<p><b>bold text</b></p>" });
+    let handled = true;
+    await act(async () =>
+      editor.update(() => {
+        handled = $handlePasteForStandardView(event);
+      }),
+    );
+
+    expect(handled).toBe(false);
+    expect(prevented()).toBe(false);
+  });
+
+  it("keeps current behavior (declines) when an `application/x-lexical-editor` payload is present, even if `text/html` carries NBSP", async () => {
+    let text: TextNode;
+    const { editor } = await testEnvironment(() => {
+      const para = $createParaNode("p");
+      text = $createTextNode("body");
+      $getRoot().append(para.append($createMarkerNode("p"), text));
+    });
+    await act(async () => editor.update(() => text.select(0, 0)));
+
+    const { event, prevented } = pasteEvent({
+      "application/x-lexical-editor": "{}",
+      "text/html": "<p>3&nbsp;000</p>",
+    });
+    let handled = true;
+    await act(async () =>
+      editor.update(() => {
+        handled = $handlePasteForStandardView(event);
+      }),
+    );
+
+    expect(handled).toBe(false);
+    expect(prevented()).toBe(false);
+  });
 });
