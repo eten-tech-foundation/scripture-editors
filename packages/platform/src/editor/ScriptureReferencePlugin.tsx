@@ -235,7 +235,12 @@ export function ScriptureReferencePlugin({
       const hasCreatedOrDestroyedVerse = [...nodeMutations.values()].some(
         (m) => m === "created" || m === "destroyed",
       );
-      if (hasCreatedOrDestroyedVerse) editor.dispatchCommand(SELECTION_CHANGE_COMMAND, undefined);
+      // Defer one microtask: dispatching synchronously inside a mutation listener runs a reentrant
+      // update while the triggering edit's history entry is still being recorded, corrupting the
+      // undo stack (PT-4102: undo did nothing after a verse-spanning delete). Same deferral rule as
+      // schedulePlacingCaretAtVerseStart below.
+      if (hasCreatedOrDestroyedVerse)
+        queueMicrotask(() => editor.dispatchCommand(SELECTION_CHANGE_COMMAND, undefined));
     };
     return mergeRegister(
       editor.registerMutationListener(ImmutableVerseNode, onVerseDestroyed),
