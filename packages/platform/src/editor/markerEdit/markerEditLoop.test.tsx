@@ -336,6 +336,86 @@ describe("genuine fixed-point refusal (no real progress possible)", () => {
       expect($getNodeByKey(pText.getKey())?.isAttached()).toBe(true);
     });
   }, 15000);
+
+  // Broaden the backstop past the single milestone case: the tokenizer's OTHER literal-degradation
+  // inputs (usfmFragmentToUsj's doc comment lists a bare `\`, a stray `\*`, and non-attribute
+  // content before a milestone's `\*`) must ALSO come back out unchanged and terminate via the
+  // fixed-point refusal rather than looping. Each of these only pends (or, for the `\*`-terminated
+  // milestone shape, routes on the typed run) and settles on caret departure; the mere fact each
+  // test RETURNS proves termination, and the node-identity pins prove nothing was mutated.
+  it("does not hang: a bare backslash is a true no-op, refused rather than looping", async () => {
+    let pText: TextNode, qText: TextNode, pParaKey: string;
+    const { editor } = await testEnvironment(() => {
+      ({ pText, qText } = $twoParas("body", "second"));
+      pParaKey = pText.getParentOrThrow().getKey();
+    });
+
+    await act(async () =>
+      editor.update(() => {
+        pText.setTextContent("body \\");
+        pText.select(pText.getTextContentSize(), pText.getTextContentSize());
+      }),
+    );
+    await act(async () => editor.update(() => qText.select(0, 0)));
+
+    editor.getEditorState().read(() => {
+      expect($getRoot().getTextContent()).toContain("body \\"); // literal backslash intact
+      const paras = $getRoot().getChildren().filter($isParaNode);
+      expect(paras).toHaveLength(2);
+      expect($getNodeByKey(pParaKey)?.isAttached()).toBe(true);
+      expect($getNodeByKey(pText.getKey())?.isAttached()).toBe(true);
+    });
+  }, 15000);
+
+  it("does not hang: a stray \\* (no opener) is a true no-op, refused rather than looping", async () => {
+    let pText: TextNode, qText: TextNode, pParaKey: string;
+    const { editor } = await testEnvironment(() => {
+      ({ pText, qText } = $twoParas("body", "second"));
+      pParaKey = pText.getParentOrThrow().getKey();
+    });
+
+    await act(async () =>
+      editor.update(() => {
+        pText.setTextContent("body \\*");
+        pText.select(pText.getTextContentSize(), pText.getTextContentSize());
+      }),
+    );
+    await act(async () => editor.update(() => qText.select(0, 0)));
+
+    editor.getEditorState().read(() => {
+      expect($getRoot().getTextContent()).toContain("body \\*"); // literal stray closer intact
+      const paras = $getRoot().getChildren().filter($isParaNode);
+      expect(paras).toHaveLength(2);
+      expect($getNodeByKey(pParaKey)?.isAttached()).toBe(true);
+      expect($getNodeByKey(pText.getKey())?.isAttached()).toBe(true);
+    });
+  }, 15000);
+
+  it("does not hang: non-attribute content before a milestone \\* is a true no-op, refused rather than looping", async () => {
+    let pText: TextNode, qText: TextNode, pParaKey: string;
+    const { editor } = await testEnvironment(() => {
+      ({ pText, qText } = $twoParas("body", "second"));
+      pParaKey = pText.getParentOrThrow().getKey();
+    });
+
+    await act(async () =>
+      editor.update(() => {
+        // `\ts-s x\*`: the `\*` closes, but the content before it is not a `|`-attribute run, so
+        // the tokenizer degrades the whole thing to literal (scanMilestone bails) — a fixed point.
+        pText.setTextContent("body \\ts-s x\\*");
+        pText.select(pText.getTextContentSize(), pText.getTextContentSize());
+      }),
+    );
+    await act(async () => editor.update(() => qText.select(0, 0)));
+
+    editor.getEditorState().read(() => {
+      expect($getRoot().getTextContent()).toContain("\\ts-s x\\*"); // literal text intact
+      const paras = $getRoot().getChildren().filter($isParaNode);
+      expect(paras).toHaveLength(2);
+      expect($getNodeByKey(pParaKey)?.isAttached()).toBe(true);
+      expect($getNodeByKey(pText.getKey())?.isAttached()).toBe(true);
+    });
+  }, 15000);
 });
 
 describe("glyph/content boundary restructure is not refused as a fixed point (Important, Fix 2)", () => {

@@ -8,8 +8,17 @@ function getMarker(marker: string): Marker | undefined {
   const overwrite = usfmMarkersOverwrites[marker];
 
   if (!baseMarker) {
-    // The overwrites file can ADD markers the generated data lacks.
-    if (overwrite?.type !== undefined) return overwrite as Marker;
+    // The overwrites file can ADD markers the generated data lacks — but with no base to fill
+    // gaps, only an overwrite carrying the FULL required Marker shape may stand alone. A partial
+    // overwrite (e.g. `type` set but no category/description/hasEndMarker) is not a valid Marker,
+    // so the `as Marker` cast would lie about it; refuse rather than return a malformed object.
+    if (
+      overwrite?.category !== undefined &&
+      overwrite.type !== undefined &&
+      overwrite.description !== undefined &&
+      overwrite.hasEndMarker !== undefined
+    )
+      return overwrite as Marker;
     return undefined;
   }
 

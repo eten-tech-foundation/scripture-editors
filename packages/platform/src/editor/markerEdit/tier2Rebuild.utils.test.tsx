@@ -7,6 +7,7 @@ import {
   deserializeSerializedEditorState,
   initialize as initializeDeserialize,
 } from "../adaptors/editor-usj.adaptor";
+import usjEditorAdaptor from "../adaptors/usj-editor.adaptor";
 import { $rebuildParas, Tier2Context } from "./tier2Rebuild.utils";
 import { usxStringToUsj } from "@eten-tech-foundation/scripture-utilities";
 import { $getRoot, $getSelection, $isRangeSelection, $isTextNode } from "lexical";
@@ -191,6 +192,48 @@ describe("$rebuildParas", () => {
     const usj = deserializeSerializedEditorState(editor.getEditorState().toJSON(), viewOptions);
     expect(JSON.stringify(usj)).toContain('"marker":"zx"'); // custom span intact
     expect(JSON.stringify(usj)).toContain('"marker":"nd"'); // typed span built
+  });
+
+  it("aborts untouched when the serialize->parse round trip drops a preserved-node placeholder", () => {
+    const editor = loadEditor(
+      usjFromUsx(`<verse number="1" style="v" />a <char style="zx">custom</char> b \\nd x\\nd* c`),
+    );
+    // The tokenizer-level count check (countSentinels on the MarkerContent) passes, but the
+    // serialize->parse round trip is a second place a U+FFFC placeholder can vanish. Simulate a
+    // lossy serialize that silently drops one placeholder: without the parsed-tree count guard,
+    // $replaceSentinels would then quietly drop the preserved custom span. The rebuild must abort
+    // untouched instead.
+    const original = usjEditorAdaptor.serializeEditorState;
+    const spy = vi
+      .spyOn(usjEditorAdaptor, "serializeEditorState")
+      .mockImplementation((usj, opts) =>
+        JSON.parse(JSON.stringify(original.call(usjEditorAdaptor, usj, opts)).replace("￼", "")),
+      );
+    try {
+      let charKey = "";
+      let returned: boolean | undefined;
+      editor.update(
+        () => {
+          const para = $lastPara();
+          charKey = requireDefined(
+            para.getChildren().find((n) => n.getType() === "char"),
+            "char node not found",
+          ).getKey();
+          returned = $rebuildParas([para], context);
+        },
+        { discrete: true },
+      );
+      expect(returned).toBe(false); // rebuild refused, not a lossy splice
+      editor.getEditorState().read(() => {
+        // Nothing was mutated: the preserved custom span is still the same attached instance.
+        const chars = $lastPara()
+          .getChildren()
+          .filter((n) => n.getType() === "char");
+        expect(chars.some((c) => c.getKey() === charKey)).toBe(true);
+      });
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   // The old guard refused ANY unknown para marker outright. The guard is
