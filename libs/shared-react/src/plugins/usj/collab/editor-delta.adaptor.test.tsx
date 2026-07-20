@@ -942,10 +942,10 @@ describe("getEditorDelta", () => {
       expect(delta.ops).toEqual(opsWithUnknownItems);
     });
 
-    // Skipped: `getEditorDelta` emits `closed: "false"` on unclosed (nonstandard) char markers,
-    // which the canonical `opsGen1v1Nonstandard` fixture omits. Un-skip once the adaptor stops
-    // emitting the `closed: "false"` attribute (emitting `closed` only when a char is actually
-    // closed) so nonstandard chars round-trip to the canonical ops.
+    // Skipped: emitting `closed: "false"` on implicitly-closed char spans is correct by design
+    // (it matches real ParatextData output; the serializer records it whenever the closing glyph
+    // is skipped). The canonical `opsGen1v1Nonstandard` fixture predates that attribute, so this
+    // test stays skipped until the fixture is updated to expect `closed: "false"`.
     it.skip("should roundtrip the editor state with nonstandard features", async () => {
       const { editor } = await testEnvironment();
       const editorState = editor.parseEditorState(editorStateGen1v1Nonstandard);
