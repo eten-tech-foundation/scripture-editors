@@ -9,8 +9,8 @@
  *
  * Markers the effective stylesheet does NOT know (`kind === undefined`) fall
  * back to name-pattern heuristics — `NoteNode.isValidMarker`, and for
- * milestones only names following the `-s`/`-e` suffix convention (bare `ts`
- * or the `zmsc-*` comment markers; NOT the bare `z`-prefix wildcard) — and
+ * milestones only the stylesheet-family names (`\qt#-s/-e`, `\ts-s/-e`, plus
+ * the `zmsc-*` comment markers; see `isMilestoneHeuristicName`) — and
  * failing those, resolve by context exactly like PT9's
  * `UsfmParser.DetermineUnknownTokenType`: PARAGRAPH in body text, CHARACTER
  * inside a note (`options.isNoteContext`), except `esb`/`esbe`, which PT9
