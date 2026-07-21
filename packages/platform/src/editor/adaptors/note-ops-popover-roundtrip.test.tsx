@@ -1,5 +1,5 @@
 /**
- * Note-serialization contract (Task 14): in editable marker mode, note contents ops carry
+ * Note-serialization contract: in editable marker mode, note contents ops carry
  * CONTENT only (canonical, glyph-free — same shape as non-editable modes), and
  * `$applyUpdate` re-materializes the exact well-formed note shape the USJ adaptor builds.
  *
@@ -19,7 +19,11 @@ import { MarkerContent, MarkerObject, Usj } from "@eten-tech-foundation/scriptur
 import { act, render } from "@testing-library/react";
 import { deepEqual } from "fast-equals";
 import { createRef } from "react";
-import { $getRoot, $isTextNode, LexicalEditor, LexicalNode } from "lexical";
+import { $getRoot, $isElementNode, $isTextNode, LexicalEditor, LexicalNode } from "lexical";
+import { $dfs } from "@lexical/utils";
+// Reaching inside only for tests.
+// eslint-disable-next-line @nx/enforce-module-boundaries
+import { getEmbeddedLexicalEditor } from "../../../../../libs/shared-react/src/plugins/usj/react-test.utils";
 import {
   $isCharNode,
   $isImmutableUnmatchedNode,
@@ -63,26 +67,41 @@ const PARAGRAPH_USJ: Usj = { type: "USJ", version: "3.1", content: [{ type: "par
  * (The nested-char ops round-trip itself is covered by the editor-delta.adaptor unit
  * tests.)
  */
+/** `closed` is nonstandard derived USX/USJ metadata (ParatextData emits it on implicitly-closed
+ * spans); it is not part of the published `MarkerObject` shape, so test data types it locally. */
+type ClosableMarkerObject = MarkerObject & { closed?: string };
+
 const closedNoteUsj: MarkerObject = {
   type: "note",
   marker: "f",
   caller: "+",
+  // Footnote-content chars carry closed="false" in real ParatextData USJ (no explicit closers).
   content: [
-    { type: "char", marker: "fr", content: ["1:1 "] },
-    { type: "char", marker: "ft", content: ["see verse "] },
-    { type: "char", marker: "fv", content: ["2"] },
+    { type: "char", marker: "fr", content: ["1:1 "], closed: "false" } as ClosableMarkerObject,
+    {
+      type: "char",
+      marker: "ft",
+      content: ["see verse "],
+      closed: "false",
+    } as ClosableMarkerObject,
+    { type: "char", marker: "fv", content: ["2"], closed: "false" } as ClosableMarkerObject,
   ],
 };
 
 /** Unterminated note (PT9 opennote): renders expanded inline, has no closer glyph. */
-const unclosedNoteUsj: MarkerObject & { closed?: string } = {
+const unclosedNoteUsj: ClosableMarkerObject = {
   type: "note",
   marker: "f",
   caller: "+",
   closed: "false",
   content: [
-    { type: "char", marker: "fr", content: ["1:2 "] },
-    { type: "char", marker: "ft", content: ["unterminated"] },
+    { type: "char", marker: "fr", content: ["1:2 "], closed: "false" } as ClosableMarkerObject,
+    {
+      type: "char",
+      marker: "ft",
+      content: ["unterminated"],
+      closed: "false",
+    } as ClosableMarkerObject,
   ],
 };
 
@@ -134,37 +153,29 @@ async function renderEditor(options: EditorOptions, defaultUsj: Usj) {
     container = result.container;
   });
   const editorRef = requireDefined(ref.current, "editor ref");
-  const editorInput = requireDefined(
-    container?.querySelector(".editor-input"),
-    "editor input element",
-  );
-  const lexical = requireDefined(
-    (editorInput as unknown as { __lexicalEditor?: LexicalEditor }).__lexicalEditor,
-    "lexical editor handle",
-  );
+  // This suite runs end-to-end through the public <Editorial> wrapper, which strips `children`, so
+  // the cleaner EditorRefPlugin-child handle isn't reachable — read the editor off the mounted DOM.
+  const lexical = getEmbeddedLexicalEditor(container);
   return { editorRef, lexical };
 }
 
 function $findNotes(): NoteNode[] {
-  const notes: NoteNode[] = [];
-  const walk = (node: LexicalNode) => {
-    if ($isNoteNode(node)) notes.push(node);
-    const element = node as unknown as { getChildren?: () => LexicalNode[] };
-    if (typeof element.getChildren === "function") element.getChildren().forEach(walk);
-  };
-  walk($getRoot());
-  return notes;
+  return $dfs($getRoot())
+    .map(({ node }) => node)
+    .filter($isNoteNode);
 }
 
 /** All descendants of the note (excluding the note itself). */
 function noteDescendants(note: NoteNode): LexicalNode[] {
   const out: LexicalNode[] = [];
-  const walk = (node: LexicalNode) => {
-    out.push(node);
-    const element = node as unknown as { getChildren?: () => LexicalNode[] };
-    if (typeof element.getChildren === "function") element.getChildren().forEach(walk);
+  const collect = (node: LexicalNode) => {
+    if ($isElementNode(node))
+      for (const child of node.getChildren()) {
+        out.push(child);
+        collect(child);
+      }
   };
-  note.getChildren().forEach(walk);
+  collect(note);
   return out;
 }
 
@@ -351,7 +362,7 @@ describe("popover note ops round-trip (canonical glyph-free contract)", () => {
     const noteCount = host.lexical.getEditorState().read(() => $findNotes().length);
     for (let i = 0; i < noteCount; i++) expectWellFormedEditableNote(host.lexical, i);
 
-    // Replace POSITION (Task 15): `$getReplaceEmbedOps` computes its retain in "apply"
+    // Replace POSITION: `$getReplaceEmbedOps` computes its retain in "apply"
     // coordinates — the coordinate system `$applyUpdate`'s insert/delete traversals use,
     // where an editable chapter is an opaque embed (1 unit, glyph text child not counted).
     // The replacement therefore lands exactly where the old note was:

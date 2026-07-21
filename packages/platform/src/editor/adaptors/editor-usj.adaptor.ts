@@ -58,11 +58,10 @@ import {
   VerseNode,
 } from "shared";
 import {
-  getViewMode,
+  hasStandardViewWhitespace,
   ImmutableNoteCallerNode,
   ImmutableVerseNode,
   SerializedImmutableVerseNode,
-  STANDARD_VIEW_MODE,
   ViewOptions,
 } from "shared-react";
 
@@ -78,9 +77,15 @@ export function initialize(logger: LoggerBasic | undefined) {
   if (logger) _logger = logger;
 }
 
-/** §4 whitespace display rules are Standard-view-only (spec: must not leak into other modes). */
+/**
+ * Standard-view whitespace display rules; they must not leak into other modes. Gated on the
+ * standard-view whitespace fingerprint (editable + spaced + formatted, any `noteMode`) rather than
+ * the named `standard` mode, so serialization inverts the display whitespace even when notes are
+ * expanded — keeping it in lockstep with the editable marker engine. See
+ * {@link hasStandardViewWhitespace}.
+ */
 function isStandardView(viewOptions: ViewOptions | undefined): boolean {
-  return viewOptions !== undefined && getViewMode(viewOptions) === STANDARD_VIEW_MODE;
+  return hasStandardViewWhitespace(viewOptions);
 }
 
 export function deserializeEditorState(
@@ -458,7 +463,7 @@ function recurseNodes(
           (!noteCaller || serializedTextNode.text !== getEditableCallerText(noteCaller))
         ) {
           let text = createTextMarker(serializedTextNode);
-          // §4: Standard view stores display text; invert and normalize on serialization. A
+          // Standard view stores display text; invert and normalize on serialization. A
           // char marker's leading NBSP separator (added by the forward adaptor's `createChar`)
           // must be stripped before inversion so it isn't misread as a collapsed space run.
           if (isStandardView(viewOptions)) {

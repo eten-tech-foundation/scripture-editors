@@ -1,6 +1,7 @@
 import { $removeCharFormattingFromSelection } from "./charFormatting.utils";
 import {
   $charNodeDeletionTransform,
+  $noteDeletionTransform,
   $paraMarkerDeletionTransform,
 } from "./markerEditDeletion.utils";
 import { $handleEnterInNote } from "./markerEditNote.utils";
@@ -16,6 +17,7 @@ import { $textNodeTier2Transform } from "./markerEditTier2Trigger.utils";
 import {
   $displayWhitespaceTransform,
   $handleCopyForStandardView,
+  $handlePasteForStandardView,
 } from "./whitespaceDisplay.plugin.utils";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { mergeRegister } from "@lexical/utils";
@@ -29,10 +31,13 @@ import {
   COMMAND_PRIORITY_HIGH,
   COMMAND_PRIORITY_LOW,
   COPY_COMMAND,
+  createCommand,
   CUT_COMMAND,
   INSERT_PARAGRAPH_COMMAND,
   KEY_DOWN_COMMAND,
   KEY_ENTER_COMMAND,
+  PASTE_COMMAND,
+  LexicalCommand,
   NodeKey,
   TextNode,
 } from "lexical";
@@ -45,17 +50,37 @@ import {
   LoggerBasic,
   MarkerLookup,
   MarkerNode,
+  NoteNode,
   ParaNode,
   textTypeState,
   VerseNode,
 } from "shared";
-import { getViewMode, STANDARD_VIEW_MODE, ViewOptions } from "shared-react";
+import { hasStandardViewWhitespace, ViewOptions } from "shared-react";
 
 /**
- * The Standard-view marker-editing engine (design spec §5). Tier 1 node
+ * The command behind the public `EditorRef.commitPendingMarkerEdits()` method — `Editor.tsx`
+ * dispatches it when a host calls that method. Resolving a pending marker re-tokenizes its
+ * edited text into finished structure; this command resolves every pending marker so the
+ * serialized USJ matches what is on screen. Without it, a marker the user renamed but walked
+ * away from mid-edit stays pending forever and serializes its OLD text.
+ *
+ * The resolve-everything rule has one exception: the node the caret is in stays pending, but
+ * only while the user is genuinely editing it — while the editor still holds DOM focus (a
+ * mid-typing pause must not settle under the user). During a programmatic scrRef caret move
+ * (the "yank", defined below) the caret is not on a node the user chose, so the exception is
+ * instead the last node the user themselves placed the caret in. The caller's own obligations
+ * (e.g. do not call while a marker palette is open) are documented on
+ * `EditorRef.commitPendingMarkerEdits`.
+ */
+export const COMMIT_PENDING_MARKERS_COMMAND: LexicalCommand<void> = createCommand(
+  "COMMIT_PENDING_MARKERS_COMMAND",
+);
+
+/**
+ * The Standard-view marker-editing engine. Tier 1 node
  * transforms keep structural state in sync with edited marker text; completion
- * commands (Enter/blur) resolve mid-edit markers; deletion transforms (§5.5)
- * handle marker-prefix removal (para merge, char unwrap); Ctrl+Space (§5.5)
+ * commands (Enter/blur) resolve mid-edit markers; deletion transforms
+ * handle marker-prefix removal (para merge, char unwrap); Ctrl+Space
  * strips character formatting at the caret/selection; Tier 2 re-tokenization
  * handles everything else. Active only when markers are editable text.
  */
@@ -74,7 +99,11 @@ export function MarkerEditPlugin({
 
   useEffect(() => {
     if (!isEnabled || !viewOptions) return;
-    const isStandardView = getViewMode(viewOptions) === STANDARD_VIEW_MODE;
+    // The standard-view whitespace transform + clipboard normalization travel with the editable
+    // marker engine, so they must be active whenever editable markers are on in a spaced+formatted
+    // view — for expanded notes too, not only the named `standard` (collapsed) mode. Still gated
+    // separately from the rest of this plugin so they do not leak into Unformatted view.
+    const isStandardView = hasStandardViewWhitespace(viewOptions);
     const context: MarkerEditContext = {
       viewOptions,
       getMarker: getMarker ?? bundledGetMarker,
@@ -83,20 +112,23 @@ export function MarkerEditPlugin({
       rebuildAttempted: new Set<string>(),
       logger,
     };
-    // Tracks the anchor key as of the most recent commit, updated synchronously by the
-    // update listener below (which never lags, unlike command handlers re-entered from
-    // Lexical's async native-DOM selectionchange handling). Read again at resolution time
-    // so the deferred resolution below always excepts the node the caret is CURRENTLY in.
+    // Tracks the caret's node key as of the most recent commit — keyed off the selection FOCUS
+    // (the live cursor end, so it stays correct even for a backward range selection), updated
+    // synchronously by the update listener below (which never lags, unlike command handlers
+    // re-entered from Lexical's async native-DOM selectionchange handling). Read again at
+    // resolution time so the deferred resolution below always excepts the node the caret is
+    // CURRENTLY in. (Named `*AnchorKey` for historical reasons; the value is the focus/caret node.)
     let lastAnchorKey: NodeKey | undefined;
-    // Task 15 cluster A: true while the live caret was placed by a programmatic scrRef sync
-    // (ScriptureReferencePlugin's CURSOR_CHANGE yank) and NOT yet re-established by user input.
-    // The runtime smoke proved the CURSOR_CHANGE tag-skip alone is insufficient — the yank ejects
+    // True while the live caret was placed by a programmatic scrRef sync — the CURSOR_CHANGE
+    // caret move ScriptureReferencePlugin makes to follow the active scripture reference, which
+    // the comments below call a "yank" — and NOT yet re-established by user input. The runtime
+    // smoke proved the CURSOR_CHANGE tag-skip alone is insufficient — the yank ejects
     // the caret to the para's marker glyph, then a FOLLOW-ON untagged commit (Lexical's own
     // selectionchange reconcile) sees the caret off the pending node and resolves it → paragraph
     // split. Suppressing resolution across that whole app-placed window (until real user input)
     // keeps the just-typed literal alive. Cleared by the KEY_DOWN and CLICK handlers below
-    // (round 3: a mouse click is user intent just like a keystroke — the earlier keydown-only
-    // clear left the window open across mouse-only interaction).
+    // (a mouse click is user intent just like a keystroke — a keydown-only clear would leave the
+    // window open across mouse-only interaction).
     let appPlacedCaret = false;
     // Anchor of the most recent commit (tagged or not) — the tagged-branch "did this commit move
     // the caret" comparison. Distinct from lastAnchorKey, which deliberately ignores tagged/
@@ -126,14 +158,18 @@ export function MarkerEditPlugin({
         if (editor.isComposing()) return;
         $charNodeDeletionTransform(node, context);
       }),
-      // Plain-TextNode catch-all for typed/pasted literal backslash sequences (§5.2).
+      editor.registerNodeTransform(NoteNode, (node) => {
+        if (editor.isComposing()) return;
+        $noteDeletionTransform(node, context);
+      }),
+      // Plain-TextNode catch-all for typed/pasted literal backslash sequences (Tier 2).
       // Lexical dispatches transforms by exact node type, so this never fires for
       // MarkerNode/VerseNode subclasses — TextSpacingPlugin relies on the same fact.
       editor.registerNodeTransform(TextNode, (node) => {
         if (editor.isComposing()) return;
         $textNodeTier2Transform(node, context);
       }),
-      // Finding #1 (Phase 0): plain TextNodes can't emit a DOM class from node state the way
+      // Plain TextNodes can't emit a DOM class from node state the way
       // ImmutableTypedTextNode does in createDOM(), so milestone attribute runs (`|sid="…"`,
       // textType "attribute") render without the `.attribute` dim-until-hover styling that
       // PT9 applies. DOM-only decoration from OUTSIDE the update cycle reconciles it post-render
@@ -154,7 +190,7 @@ export function MarkerEditPlugin({
         },
         { skipInitialization: false },
       ),
-      // §4/§5.6: Standard-view-only whitespace display invariant and clipboard
+      // Standard-view-only whitespace display invariant and clipboard
       // normalization. Gated separately from the rest of this plugin (which is
       // markerMode-gated and also active in Unformatted view) — must not leak there.
       ...(isStandardView
@@ -188,6 +224,17 @@ export function MarkerEditPlugin({
                 ),
               COMMAND_PRIORITY_HIGH,
             ),
+            editor.registerCommand(
+              PASTE_COMMAND,
+              (event) =>
+                $handlePasteForStandardView(
+                  // Same jsdom-safe duck-check as COPY above.
+                  event && typeof event === "object" && "clipboardData" in event
+                    ? (event as ClipboardEvent)
+                    : null,
+                ),
+              COMMAND_PRIORITY_HIGH,
+            ),
           ]
         : []),
       editor.registerCommand(
@@ -196,7 +243,7 @@ export function MarkerEditPlugin({
           // A mouse click re-establishes user intent over the caret, ending the app-placed
           // suppression window opened by a scrRef-sync yank — same contract as KEY_DOWN below.
           // Without this, literals typed before a yank could never settle via a mouse-only
-          // caret departure (QA run 3 cluster 3).
+          // caret departure.
           appPlacedCaret = false;
           return false;
         },
@@ -206,7 +253,7 @@ export function MarkerEditPlugin({
         KEY_DOWN_COMMAND,
         (event: KeyboardEvent) => {
           // Any real keystroke re-establishes user intent over the caret, ending the app-placed
-          // suppression window opened by a scrRef-sync yank (cluster A). Runs for every keydown,
+          // suppression window opened by a scrRef-sync yank. Runs for every keydown,
           // ahead of the Ctrl+Space handling below.
           appPlacedCaret = false;
           if (!event.ctrlKey || event.altKey || event.shiftKey || event.metaKey) return false;
@@ -221,16 +268,25 @@ export function MarkerEditPlugin({
       ),
       editor.registerCommand(
         KEY_ENTER_COMMAND,
-        () => {
-          // PT9 SmartEnter (§6): Enter inside expanded note content starts an `\fp`
-          // footnote-paragraph span instead of splitting the (inline, non-block) note.
-          if ($handleEnterInNote()) {
-            $resolvePendingMarkers(context);
-            return true; // note handled: suppress the paragraph split
-          }
-          const inMarker = $isSelectionInMarkerNode();
+        (event) => {
+          // PT9 SmartEnter: Enter inside expanded note content starts an `\fp`
+          // footnote-paragraph span instead of splitting the (inline, non-block) note; Enter
+          // inside marker glyph text is swallowed (complete the marker, don't split).
+          //
+          // Whenever this handler CLAIMS the key (returns true), it must also preventDefault the
+          // DOM event itself: returning true suppresses Lexical's RichText
+          // KEY_ENTER handler — including the preventDefault RichText would have issued — so
+          // without this the BROWSER's native contenteditable Enter still splits the DOM and
+          // Lexical reconciles that into a real paragraph split. Invisible in jsdom (no native
+          // editing engine); live it split the footnote popover's wrapper paragraph with the
+          // caret genuinely inside the note. Deriving `claimed` once keeps the preventDefault and
+          // the return value from drifting apart as claim paths are added. `||` preserves the
+          // ordering: `$handleEnterInNote` runs (and may insert the `\fp`) first; the in-marker
+          // check only runs when the note path did not claim.
+          const claimed = $handleEnterInNote() || $isSelectionInMarkerNode();
+          if (claimed) event?.preventDefault();
           $resolvePendingMarkers(context);
-          return inMarker; // swallow Enter inside marker text (complete, don't split)
+          return claimed;
         },
         COMMAND_PRIORITY_HIGH,
       ),
@@ -243,28 +299,55 @@ export function MarkerEditPlugin({
         COMMAND_PRIORITY_HIGH,
       ),
       editor.registerCommand(
+        COMMIT_PENDING_MARKERS_COMMAND,
+        () => {
+          // See the command's doc comment. The rule is "resolve every pending marker"; the one
+          // exception is the node the caret is in — kept pending so we never settle a marker the
+          // user is still editing. Compute that exception only while the editor holds DOM focus:
+          // a live mid-typing pause must not settle under the user, but an abandoned (blurred)
+          // edit has no such node and settles fully. When the caret was moved programmatically
+          // (the scrRef "yank"), the current selection is not a node the user chose, so the
+          // exception is `lastAnchorKey` — the last node the user themselves placed the caret in
+          // — not the live selection. (Same fallback the BLUR handler uses.)
+          const rootElement = editor.getRootElement();
+          const doc = rootElement?.ownerDocument;
+          const hasFocus =
+            !!rootElement && !!doc && doc.hasFocus() && rootElement.contains(doc.activeElement);
+          let exceptKey: NodeKey | undefined;
+          if (hasFocus) {
+            if (appPlacedCaret) exceptKey = lastAnchorKey;
+            else {
+              const selection = $getSelection();
+              // Focus, not anchor: the focus point is the caret's live end, so the exception is
+              // the right node even when a range selection is extended backward.
+              exceptKey = $isRangeSelection(selection) ? selection.focus.key : lastAnchorKey;
+            }
+          }
+          $resolvePendingMarkers(context, exceptKey);
+          return true;
+        },
+        COMMAND_PRIORITY_LOW,
+      ),
+      editor.registerCommand(
         BLUR_COMMAND,
         () => {
-          // §5.5 completion on focus loss — EXCEPT the node the caret is still parked in.
-          // Clicking a marker-menu item (or any host overlay taking focus, P10 spec §1.5)
-          // blurs the editor while the caret still sits in the menu's own literal `\...`
-          // trigger text; resolving that node here Tier-2-reformats the literal into
-          // structure BEFORE the menu's apply can clean it up (Task 8 QA items 1/4:
-          // `the wic\ked,` became an unknown-marker paragraph whose prefix glyph then
-          // absorbed the "ked," word remainder as phantom marker text). PT9's dropdown
-          // never commits the typed run this way — selecting from it REPLACES the run
-          // (MarkerDropdownControl.cs:216-219). The caret's own node still completes via
-          // Enter or caret departure, the other two PT9-debounce-equivalent triggers.
+          // Focus loss resolves pending markers, with the same exception as the command above:
+          // the node the caret is still parked in stays pending. Clicking a marker-menu item (or
+          // any host overlay taking focus) blurs the editor while the caret still sits in the
+          // menu's own literal `\...` trigger text; resolving THAT node here would re-tokenize
+          // the literal into structure before the menu's apply can consume it (observed
+          // corruption: `the wic\ked,` became an unknown-marker paragraph whose prefix glyph then
+          // absorbed the "ked," remainder as phantom marker text). The caret's own node still
+          // finishes later — via Enter or the caret moving away.
           //
-          // Task 15 cluster A (click path): a REAL cross-frame blur — clicking a renderer-overlay
-          // palette item outside the editor iframe — can null Lexical's live selection before this
-          // handler runs, so `$getSelection()` yields no anchor to except. Falling back to
-          // `undefined` would resolve EVERY pending, including the literal the palette apply is about
-          // to replace (the exact corruption this except-the-caret guard exists to prevent). Fall
-          // back to `lastAnchorKey` — the last COMMITTED real anchor, which the update listener keeps
-          // through null-selection commits — so the node the user was editing is still excepted.
+          // A real cross-frame blur — clicking a renderer-overlay palette item outside the editor
+          // iframe — can null Lexical's live selection before this handler runs, leaving no
+          // selection to read the exception from. Falling back to `undefined` would resolve EVERY
+          // pending, including the literal the palette is about to replace (the exact corruption
+          // this guard prevents), so fall back to `lastAnchorKey` — the last committed caret node,
+          // which the update listener preserves through null-selection commits.
           const selection = $getSelection();
-          const anchorKey = $isRangeSelection(selection) ? selection.anchor.key : lastAnchorKey;
+          const anchorKey = $isRangeSelection(selection) ? selection.focus.key : lastAnchorKey;
           $resolvePendingMarkers(context, anchorKey);
           return false;
         },
@@ -273,10 +356,10 @@ export function MarkerEditPlugin({
       editor.registerUpdateListener(({ editorState, tags }) => {
         context.splitExpected.current = false;
         context.rebuildAttempted.clear();
-        // Task 15 cluster A (typing path): ScriptureReferencePlugin's async scrRef echo re-enters
+        // Typing path: ScriptureReferencePlugin's async scrRef echo re-enters
         // `$moveCursorToVerseStart` and yanks the caret to the para/verse start via
-        // `editor.update(..., { tag: CURSOR_CHANGE_TAG })` ~90-190ms after a keystroke (QA run 2
-        // items 1-4 timeline: `\` lands, caret sits in the pending literal, then the caret is pulled
+        // `editor.update(..., { tag: CURSOR_CHANGE_TAG })` ~90-190ms after a keystroke (timeline:
+        // `\` lands, caret sits in the pending literal, then the caret is pulled
         // to the `\s1` glyph start). That is a PROGRAMMATIC cursor move, NOT a user caret departure,
         // so it must not update the tracked anchor nor queue resolution — otherwise the just-typed
         // literal is force-settled and the paragraph splits (`\p \` autosaved to disk). The popover
@@ -291,18 +374,18 @@ export function MarkerEditPlugin({
         // just for this one commit.
         const anchorKey = editorState.read(() => {
           const selection = $getSelection();
-          return $isRangeSelection(selection) ? selection.anchor.key : undefined;
+          return $isRangeSelection(selection) ? selection.focus.key : undefined;
         });
         // "Did THIS commit move the caret to a different node" — tracked per commit (tagged or
         // not) so the tagged-branch comparison below is never stale. NOT read from
         // prevEditorState inside this listener: entering another state's read() here taints
         // Lexical's active-state bookkeeping mid-commit and stalls the deferred resolution's
         // microtask (observed as departure settles never firing in jsdom — same frozen-state
-        // hazard family as the Task 9 bugs documented below).
+        // hazard family as the frozen-state bugs documented below).
         const prevCommitAnchorKey = lastCommitAnchorKey;
         lastCommitAnchorKey = anchorKey;
         if (tags.has(CURSOR_CHANGE_TAG)) {
-          // Round 3 narrowing (QA run 3): arm the suppression window only when the tagged commit
+          // Narrowing: arm the suppression window only when the tagged commit
           // actually MOVED the caret to a different node — an app-placed yank. Tagged commits
           // that leave the anchor where it was (or carry no selection) are bookkeeping, not
           // yanks; arming on them re-opened the window after every echo cycle and, combined with
@@ -336,7 +419,7 @@ export function MarkerEditPlugin({
         // state and throw — reachable in production because a commit can be force-flushed
         // MID-dispatch by any SELECTION_CHANGE handler calling editor.read() (e.g.
         // OnSelectionChangePlugin), leaving this listener's dispatch to short-circuit into
-        // the committed state (Task 9 QA bugs A/B). The microtask runs before any further
+        // the committed state (the frozen-state bugs documented above). The microtask runs before any further
         // input event, so completion stays deterministic. (Not editor.update() directly in
         // the listener — that nests a queued update mid-commit; see the repo rule.)
         //

@@ -3,6 +3,7 @@ import {
   getViewMode,
   getVerseNodeClass,
   getViewClassList,
+  hasStandardViewWhitespace,
   ViewOptions,
 } from "./view-options.utils";
 import {
@@ -63,5 +64,34 @@ describe("standard view mode", () => {
     const classList = getViewClassList(getViewOptions(UNFORMATTED_VIEW_MODE));
     expect(classList).toContain("marker-editable");
     expect(classList).not.toContain("formatted-font");
+  });
+});
+
+describe("standard-view whitespace gate", () => {
+  it("applies to the named standard mode (editable, collapsed notes)", () => {
+    expect(hasStandardViewWhitespace(getViewOptions(STANDARD_VIEW_MODE))).toBe(true);
+  });
+
+  it("applies to editable markers with EXPANDED notes (spaced + formatted)", () => {
+    // The whole point of the gate: expanded notes are still standard-view text, so the whitespace
+    // rules must stay on in lockstep with the editable marker engine.
+    const standard = getViewOptions(STANDARD_VIEW_MODE);
+    if (!standard) throw new Error("standard view options not found");
+    expect(hasStandardViewWhitespace({ ...standard, noteMode: "expanded" })).toBe(true);
+  });
+
+  it("does NOT apply to unformatted view (editable but unspaced/unformatted)", () => {
+    // Unformatted view is also editable + expanded, so the noteMode axis alone cannot separate it;
+    // the hasSpacing/isFormattedFont guards keep the whitespace rules from leaking there.
+    expect(hasStandardViewWhitespace(getViewOptions(UNFORMATTED_VIEW_MODE))).toBe(false);
+  });
+
+  it("does NOT apply to formatted or paragraph-structure view (hidden markers)", () => {
+    expect(hasStandardViewWhitespace(getViewOptions(FORMATTED_VIEW_MODE))).toBe(false);
+    expect(hasStandardViewWhitespace(getViewOptions(PARAGRAPH_STRUCTURE_VIEW_MODE))).toBe(false);
+  });
+
+  it("does NOT apply when view options are undefined", () => {
+    expect(hasStandardViewWhitespace(undefined)).toBe(false);
   });
 });

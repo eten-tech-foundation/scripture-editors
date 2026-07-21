@@ -16,7 +16,7 @@
     "outputPath": {
       "type": "string",
       "description": "Where to save the resulting file",
-      "default": "libs/shared/src/utils"
+      "default": "libs/shared/src/utils/usfm"
     }
   },
   "required": ["usfmStyleUrl"]

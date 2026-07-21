@@ -6,9 +6,10 @@ import { EditorRef } from "./editor.model";
 import Editorial from "../Editorial";
 import { ContentJsonPath, Usj } from "@eten-tech-foundation/scripture-utilities";
 import { act, render } from "@testing-library/react";
-import { createRef, RefObject } from "react";
+import { createRef, ReactElement, RefObject } from "react";
 import { $getNodeByKey, $getRoot, $isTextNode, LexicalEditor, LexicalNode } from "lexical";
-import { $isNoteNode } from "shared";
+import { EditorRefPlugin } from "@lexical/react/LexicalEditorRefPlugin";
+import { $isMarkerNode, $isNoteNode, MarkerNode } from "shared";
 import { getViewOptions, STANDARD_VIEW_MODE } from "shared-react";
 import { vi } from "vitest";
 
@@ -122,6 +123,22 @@ function triggerMouseEnterOnMark(): void {
   });
 }
 
+/** Captures the `LexicalEditor` from inside a black-box `<Editor>` without reaching for
+ * `.__lexicalEditor` on the DOM. `<Editor>` renders its `children` inside its own composer, so
+ * dropping Lexical's `EditorRefPlugin` in as a child reads the editor straight from composer
+ * context. Returns the element to render inside `<Editor>` and a getter for the captured editor
+ * (call it after the render has flushed). */
+function lexicalCapture(): { plugin: ReactElement; get: () => LexicalEditor } {
+  const ref = createRef<LexicalEditor>();
+  return {
+    plugin: <EditorRefPlugin editorRef={ref} />,
+    get: () => {
+      if (!ref.current) throw new Error("lexical editor was not captured");
+      return ref.current;
+    },
+  };
+}
+
 describe("setAnnotation overload", () => {
   it("accepts the deprecated positional form (onClick, onRemove)", async () => {
     const ref = await createEditorRefForTesting();
@@ -182,51 +199,76 @@ describe("setAnnotation overload", () => {
   });
 });
 
-describe("insertMarker return value (Task 14b)", () => {
+describe("isFocused()", () => {
+  // Editor-owned focus predicate: hosts must be able to ask THIS editor instance whether its
+  // content-editable root holds DOM focus, instead of guessing via a global
+  // `document.querySelector('.editor-input')` (which is coupled to the CSS class name and to the
+  // main editor being the first `.editor-input` in document order — a footnote-editor popover
+  // renders its own). `isFocused()` resolves the actual root of this instance and compares it to
+  // the active element.
+  it("is true only when the editor's own root holds DOM focus", async () => {
+    const ref = createRef<EditorRef>();
+    await act(async () => {
+      render(<Editor ref={ref} defaultUsj={sampleUsj} />);
+    });
+    const editor = ref.current;
+    if (!editor) throw new Error("Editor not mounted");
+
+    const root = document.querySelector<HTMLElement>(".editor-input");
+    if (!root) throw new Error("Editor root not found");
+
+    // An unrelated element holds focus: this editor is not focused.
+    const other = document.createElement("input");
+    document.body.appendChild(other);
+    await act(async () => other.focus());
+    expect(editor.isFocused()).toBe(false);
+
+    // The editor root holds focus: isFocused() is true.
+    await act(async () => root.focus());
+    expect(editor.isFocused()).toBe(true);
+
+    // Focus leaves the editor again: isFocused() is false.
+    await act(async () => other.focus());
+    expect(editor.isFocused()).toBe(false);
+
+    document.body.removeChild(other);
+  });
+});
+
+describe("insertMarker return value", () => {
   // GEN 1:1 with a verse preceding the seed text - the exact shape that makes the host's
   // "delta-doc" `getInsertedNodeKey` derivation (used only for the popover auto-open path, not
   // here) double-count the editable VerseNode and land past the note.
   const noteReference = { book: "GEN", chapterNum: 1, verseNum: 1 };
 
-  /** Walks the tree to find the first TextNode whose content includes `substring`. */
+  /** Finds the first TextNode whose content includes `substring`. `getAllTextNodes()` is the
+   * walk the sibling marker tests use; MarkerNode extends TextNode so markers are included too,
+   * but the seed text searched for here lives in a plain TextNode. */
   function $findTextNodeContaining(substring: string): LexicalNode | undefined {
-    const walk = (node: LexicalNode): LexicalNode | undefined => {
-      if ($isTextNode(node) && node.getTextContent().includes(substring)) return node;
-      const element = node as unknown as { getChildren?: () => LexicalNode[] };
-      if (typeof element.getChildren === "function") {
-        for (const child of element.getChildren()) {
-          const found = walk(child);
-          if (found) return found;
-        }
-      }
-      return undefined;
-    };
-    return walk($getRoot());
+    return $getRoot()
+      .getAllTextNodes()
+      .find((node) => node.getTextContent().includes(substring));
   }
 
   /** Mounts a standard-view (markerMode "editable") `Editor` with `MarkerEditPlugin` active
    * (always mounted - see `Editor.tsx`), the same path `insertMarker` uses in the real app. */
   async function renderEditorWithVerseText() {
     const ref = createRef<EditorRef>();
-    let container: HTMLElement | undefined;
+    const capture = lexicalCapture();
     await act(async () => {
-      const result = render(
+      render(
         <Editor
           ref={ref}
           defaultUsj={sampleUsj}
           scrRef={noteReference}
           options={{ view: getViewOptions(STANDARD_VIEW_MODE) }}
-        />,
+        >
+          {capture.plugin}
+        </Editor>,
       );
-      container = result.container;
     });
     if (!ref.current) throw new Error("EditorRef did not mount");
-    if (!container) throw new Error("Editor container did not mount");
-    const editorInput = container.querySelector(".editor-input");
-    if (!editorInput) throw new Error("editor-input element not found");
-    const lexical = (editorInput as unknown as { __lexicalEditor?: LexicalEditor }).__lexicalEditor;
-    if (!lexical) throw new Error("lexical editor handle not found");
-    return { ref, lexical };
+    return { ref, lexical: capture.get() };
   }
 
   /** Collapses the caret right after "first" in the seed verse text. */
@@ -276,5 +318,61 @@ describe("insertMarker return value (Task 14b)", () => {
     });
 
     expect(key).toBeUndefined();
+  });
+});
+
+describe("commitPendingMarkerEdits (abandonment window)", () => {
+  /** Marker of the `\p` para in a USJ doc shaped like `sampleUsj` (book, chapter, para). */
+  function paraMarkerOf(usj: Usj | undefined): string | undefined {
+    const para = usj?.content[2];
+    if (!para || typeof para === "string") return undefined;
+    return (para as { marker?: string }).marker;
+  }
+
+  it("settles an abandoned mid-rename so getUsj returns what the screen shows", async () => {
+    const ref = createRef<EditorRef>();
+    const capture = lexicalCapture();
+    await act(async () => {
+      render(
+        <Editor
+          ref={ref}
+          defaultUsj={sampleUsj}
+          options={{ view: getViewOptions(STANDARD_VIEW_MODE) }}
+        >
+          {capture.plugin}
+        </Editor>,
+      );
+    });
+    const lexical = capture.get();
+
+    // Rename the `\p` glyph in place to `\q1` (no terminator typed) with the caret left
+    // inside the glyph, then walk away (blur): the rename stays pending - the exact
+    // window where a host save would serialize the OLD marker.
+    await act(async () => {
+      lexical.update(() => {
+        const glyph = $getRoot()
+          .getAllTextNodes()
+          .find((node): node is MarkerNode => $isMarkerNode(node) && node.getMarker() === "p");
+        if (!glyph) throw new Error("para marker glyph not found");
+        glyph.setTextContent("\\q1");
+        glyph.select(3, 3);
+      });
+      // Flush Lexical's microtask-deferred commit so the in-place rename lands in the editor
+      // state before we blur: once for the (non-discrete) state commit, once for the React
+      // state updates that commit cascades into. Only then does getUsj() reflect the edit.
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const root = lexical.getRootElement();
+    if (!root) throw new Error("editor root not found");
+    act(() => root.blur());
+    expect(paraMarkerOf(ref.current?.getUsj())).toBe("p"); // stale: screen shows \q1
+
+    act(() => {
+      ref.current?.commitPendingMarkerEdits();
+    });
+
+    // Synchronously fresh - the host save reads getUsj() right after committing.
+    expect(paraMarkerOf(ref.current?.getUsj())).toBe("q1");
   });
 });

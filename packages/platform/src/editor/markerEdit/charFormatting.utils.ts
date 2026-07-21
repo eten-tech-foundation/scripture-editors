@@ -1,5 +1,5 @@
 /**
- * Ctrl+Space strips character formatting (design spec §5.5; PT9
+ * Ctrl+Space strips character formatting (PT9
  * KeyPressEditHandler.HandleCtrlSpace applies the blank character style).
  */
 
@@ -39,6 +39,13 @@ function $splitCharNodeAt(char: CharNode, textNode: TextNode, offset: number): C
     splitPoint = after;
   } else if (offset === 0) {
     splitPoint = textNode;
+  } else if (offset === textNode.getTextContentSize()) {
+    // Caret at this text node's END, but it isn't the span's last content node: the whole tail
+    // (the following content sibling(s)) moves to the right span. When it IS the last content
+    // node, the next sibling is the closer glyph or nothing, so splitPoint stays undefined and
+    // nothing moves — the span is already effectively closed at the caret.
+    const next = textNode.getNextSibling();
+    if ($isTextNode(next) && !$isMarkerNode(next)) splitPoint = next;
   }
   // move splitPoint and everything after it (except the closer glyph) to the right span
   const children = char.getChildren();
@@ -216,7 +223,7 @@ function $selectAfterCharNode(char: CharNode): void {
 
 /**
  * Closes the innermost open character span matching `endMarker` (e.g. `"nd*"`) at the caret —
- * the marker-menu `closeTag` apply (§5.5, PT9 `MarkerDropdownControl`'s close-tag entries).
+ * the marker-menu `closeTag` apply (PT9 `MarkerDropdownControl`'s close-tag entries).
  *
  * Splits the span at the caret via `$splitCharNodeAt` and unwraps the right half (content after
  * the caret leaves the span, becoming plain text) — mirroring Ctrl+Space's split shape. When the

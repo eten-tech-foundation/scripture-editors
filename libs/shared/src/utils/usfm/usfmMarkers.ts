@@ -1,4 +1,4 @@
-/** Generated file using `nx generate markers-data` with 'https://raw.githubusercontent.com/ubsicap/usfm/refs/heads/master/sty/usfm.sty' */
+/** Generated file using `nx generate markers-data` with 'tools/usfm-markers/src/generators/markers-data/data/usfm.sty' */
 
 import { CategoryType, MarkerType, Marker } from "./usfmTypes.js";
 
@@ -830,7 +830,7 @@ export const usfmMarkers: { [marker: string]: Marker } = {
   c: {
     category: CategoryType.DivisionMarks,
     type: MarkerType.Paragraph,
-    description: "Chapter number",
+    description: "Chapter number (necessary for normal Paratext operation)",
     hasEndMarker: false,
     children: {
       DivisionMarks: ["ca", "cp", "cl", "cd"],
@@ -917,7 +917,7 @@ export const usfmMarkers: { [marker: string]: Marker } = {
   v: {
     category: CategoryType.DivisionMarks,
     type: MarkerType.Character,
-    description: "A verse number",
+    description: "A verse number (Necessary for normal paratext operation) (basic)",
     hasEndMarker: false,
     children: undefined,
   },

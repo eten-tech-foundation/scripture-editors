@@ -49,6 +49,9 @@ export const viewOptions = requireDefined(
   "Standard view options are required for these tests.",
 );
 
+/** Standard view but with expanded notes — the editable+expanded survivability combination. */
+export const expandedViewOptions = { ...viewOptions, noteMode: "expanded" as const };
+
 /** Mounts a headless editor with `MarkerEditPlugin` active in Standard view (markerMode "editable"). */
 export async function testEnvironment($initialEditorState: () => void) {
   initializeSerialize(undefined, undefined);
@@ -56,6 +59,20 @@ export async function testEnvironment($initialEditorState: () => void) {
   return baseTestEnvironment(
     $initialEditorState,
     <MarkerEditPlugin viewOptions={getViewOptions(STANDARD_VIEW_MODE)} />,
+  );
+}
+
+/**
+ * Like `testEnvironment`, but in Standard view with EXPANDED notes (`markerMode: "editable"`,
+ * `noteMode: "expanded"`) — the combination that used to make `getViewMode` return undefined and
+ * silently disable the standard-view whitespace machinery.
+ */
+export async function testEnvironmentExpanded($initialEditorState: () => void) {
+  initializeSerialize(undefined, undefined);
+  reset();
+  return baseTestEnvironment(
+    $initialEditorState,
+    <MarkerEditPlugin viewOptions={expandedViewOptions} />,
   );
 }
 
@@ -124,9 +141,14 @@ export function $appendVersePara(): { verse: VerseNode } {
 
 /**
  * USX for a paragraph with an inline note. `closed` controls whether the note renders
- * expanded inline (Task 1: `closed="false"` → PT9 `opennote`) or collapsed.
+ * expanded inline (`closed="false"` → PT9 `opennote`) or collapsed.
  */
-export function noteUsx(noteAttrs: string, noteContent = `<char style="ft">A note</char>`) {
+// Footnote-content chars carry closed="false" in real ParatextData USJ (they never have their
+// own closing markers) — fixtures mirror that so Tier-2 re-tokenization is a true fixed point.
+export function noteUsx(
+  noteAttrs: string,
+  noteContent = `<char style="ft" closed="false">A note</char>`,
+) {
   return usxStringToUsj(
     `<usx version="3.0"><book code="RUT" style="id">T</book><chapter number="1" style="c" />` +
       `<para style="p"><verse number="1" style="v" />text` +

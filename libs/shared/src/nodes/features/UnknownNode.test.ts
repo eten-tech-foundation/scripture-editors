@@ -14,7 +14,7 @@ import {
 } from "lexical";
 
 describe("UnknownNode", () => {
-  // Regression pin: design spec §7 requires §7 opaque blocks to render as a subdued read-only
+  // Regression pin: opaque unknown blocks must render as a subdued read-only
   // block in standard view, gated purely by CSS (packages/platform/src/usj-nodes.css). createDOM
   // must NOT hard-code display:none (that hid the content in every view) — it emits a class and
   // data-marker attribute instead, and the CSS decides visibility per view mode.
@@ -41,9 +41,9 @@ describe("UnknownNode", () => {
       });
     });
 
-    // Verify-first (spec plan-verify item): `\optbreak` (USJ type "optbreak") becomes an
+    // `\optbreak` (USJ type "optbreak") becomes an
     // UnknownNode with tag "optbreak" (packages/utilities/src/converters/usj/
-    // converter-test.data.ts:2571, and the "optional line break (optbreak)" Phase 0 corpus
+    // converter-test.data.ts:2571, and the "optional line break (optbreak)" corpus
     // fixture). PT9 renders it as a literal `//` mid-sentence, so — unlike table/figure/
     // sidebar/periph — it must render inline, not as a block box breaking the paragraph.
     it("adds the 'unknown-inline' class instead of 'unknown-block' for the optbreak construct", () => {
@@ -57,9 +57,9 @@ describe("UnknownNode", () => {
       });
     });
 
-    // Coordinator adjudication of the Task 6 `\ref` flag: the §7 rationale ("a line-level box in
-    // the middle of a sentence would be visibly wrong") governs over the spec's literal block
-    // bucket. The "cross-reference ref target" corpus fixture nests <ref> INSIDE a paragraph's
+    // The `\ref` inline rationale — a line-level box in the middle of a sentence would be visibly
+    // wrong — governs over the literal block-level default. The "cross-reference ref target"
+    // corpus fixture nests <ref> INSIDE a paragraph's
     // running text (converter-test.data.ts:2581 shows it becoming UnknownNode tag "ref"), the
     // same mid-sentence placement as optbreak — so ref gets the inline class too. Unlike
     // optbreak it carries real child text, so it must NOT get the optbreak-only `//` label
@@ -93,8 +93,8 @@ describe("UnknownNode", () => {
       });
     });
 
-    // Pins the browser-primitive half of §7's caret contract; true caret-navigation skipping is
-    // browser-level behavior and is covered by Task 15 in-app QA.
+    // Pins the browser-primitive half of the opaque-block caret contract; true caret-navigation
+    // skipping is browser-level behavior and is covered by in-app QA.
     it("sets contentEditable to false", () => {
       const { editor } = createBasicTestEnvironment([UnknownNode]);
       editor.update(() => {
@@ -116,10 +116,63 @@ describe("UnknownNode", () => {
     });
   });
 
-  // Inline ref content (§7 adjudication): a ref's child text is real visible content — the
+  // A key-reused UnknownNode whose tag or marker changed must sync its DOM in place: Lexical
+  // calls updateDOM (not createDOM) whenever a node keeps its key across a reconcile, so returning
+  // false WITHOUT syncing leaves stale data-tag/data-marker and the wrong inline-vs-block class on
+  // the mounted element.
+  describe("updateDOM()", () => {
+    it("syncs data-tag and the inline-vs-block class when the tag changes (block -> inline)", () => {
+      const { editor } = createBasicTestEnvironment([UnknownNode]);
+      editor.update(() => {
+        const prev = $createUnknownNode("table", "tbl");
+        const dom = prev.createDOM();
+        expect(dom.getAttribute("data-tag")).toBe("table");
+        expect(dom.classList.contains("unknown-block")).toBe(true);
+
+        const next = $createUnknownNode("ref", "tbl");
+        const needsReplace = next.updateDOM(prev, dom);
+
+        expect(needsReplace).toBe(false); // updated in place, not recreated
+        expect(dom.getAttribute("data-tag")).toBe("ref");
+        expect(dom.classList.contains("unknown-inline")).toBe(true);
+        expect(dom.classList.contains("unknown-block")).toBe(false);
+      });
+    });
+
+    it("syncs data-marker when only the marker changes (tag/class untouched)", () => {
+      const { editor } = createBasicTestEnvironment([UnknownNode]);
+      editor.update(() => {
+        const prev = $createUnknownNode("figure", "fig");
+        const dom = prev.createDOM();
+        expect(dom.getAttribute("data-marker")).toBe("fig");
+
+        const next = $createUnknownNode("figure", "fig2");
+        const needsReplace = next.updateDOM(prev, dom);
+
+        expect(needsReplace).toBe(false);
+        expect(dom.getAttribute("data-marker")).toBe("fig2");
+        expect(dom.classList.contains("unknown-block")).toBe(true);
+      });
+    });
+
+    it("clears data-marker when the marker becomes undefined", () => {
+      const { editor } = createBasicTestEnvironment([UnknownNode]);
+      editor.update(() => {
+        const prev = $createUnknownNode("figure", "fig");
+        const dom = prev.createDOM();
+
+        const next = $createUnknownNode("figure", undefined);
+        next.updateDOM(prev, dom);
+
+        expect(dom.getAttribute("data-marker")).toBe("");
+      });
+    });
+  });
+
+  // Inline ref content: a ref's child text is real visible content — the
   // reconciler must keep it in the mounted editor DOM under the unknown-inline element (CSS
   // reveals it inline in standard view; the optbreak-only `//` label rule cannot match it).
-  describe("inline ref content (§7)", () => {
+  describe("inline ref content", () => {
     it("keeps a ref construct's child text in the mounted editor DOM", () => {
       let refKey = "";
       const { editor } = createBasicTestEnvironment([ParaNode, UnknownNode], () => {
@@ -143,13 +196,13 @@ describe("UnknownNode", () => {
     });
   });
 
-  // Design spec §7: "whole-block selection/deletion only... caret navigation skips over it like
-  // any decorator node." The skip-over-caret half of that contract is enforced by the browser
-  // via contentEditable=false (pinned above) — jsdom has no native caret/arrow-key semantics to
-  // exercise here. The whole-block-deletion half IS exercisable at the Lexical model level: a
-  // selection that starts/ends in the neighboring paragraphs (never inside the UnknownNode)
-  // must remove it entirely, with no partial edit to its children.
-  describe("whole-block selection and deletion (§7)", () => {
+  // The opaque-block contract: "whole-block selection/deletion only... caret navigation skips over
+  // it like any decorator node." The skip-over-caret half of that contract is enforced by the
+  // browser via contentEditable=false (pinned above) — jsdom has no native caret/arrow-key
+  // semantics to exercise here. The whole-block-deletion half IS exercisable at the Lexical model
+  // level: a selection that starts/ends in the neighboring paragraphs (never inside the
+  // UnknownNode) must remove it entirely, with no partial edit to its children.
+  describe("whole-block selection and deletion", () => {
     it("removes the UnknownNode entirely when a selection spanning both neighboring paragraphs is deleted", () => {
       let para1: ParaNode | null = null;
       let para2: ParaNode | null = null;
@@ -195,13 +248,13 @@ describe("UnknownNode", () => {
     });
   });
 
-  // The other half of §7's typing contract, model-level: with the caret collapsed at the
-  // boundaries adjacent to the opaque block (end of the preceding paragraph, start of the
+  // The other half of the opaque-block typing contract, model-level: with the caret collapsed at
+  // the boundaries adjacent to the opaque block (end of the preceding paragraph, start of the
   // following one), inserted text lands in the neighboring paragraphs, Lexical's selection
   // normalization never yields an anchor inside the UnknownNode, and the opaque subtree's
   // serialized bytes are untouched. (jsdom has no native caret, so this is the executable
   // formulation; the browser-level caret half is contentEditable=false, pinned above.)
-  describe("caret-adjacent typing (§7)", () => {
+  describe("caret-adjacent typing", () => {
     it("inserts text into the neighboring paragraphs and leaves the UnknownNode byte-unchanged", () => {
       let para1: ParaNode | null = null;
       let para2: ParaNode | null = null;

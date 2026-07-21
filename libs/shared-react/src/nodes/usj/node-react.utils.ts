@@ -200,7 +200,7 @@ export function $insertNoteWithSelect(
  * Build a single note-content char span matching the reverse adaptor's `createChar` output for
  * the active `markerMode`. In editable markerMode a char span MUST begin with its opening
  * MarkerNode glyph and carry a structural NBSP content prefix; otherwise the standard-view
- * marker-edit engine's `$charNodeDeletionTransform` (§5.5) treats it as "opener deleted" and
+ * marker-edit engine's `$charNodeDeletionTransform` treats it as "opener deleted" and
  * unwraps it back to plain text in the same commit — which was silently emptying freshly
  * inserted footnotes. `content === ""` yields the lone-NBSP empty-char placeholder (matching
  * `createChar`, which prepends the NBSP prefix only to real content, then adds the placeholder).
@@ -211,6 +211,12 @@ function $createNoteContentChar(
   viewOptions: ViewOptions,
 ): CharNode {
   const char = $createCharNode(marker);
+  // Note-content chars are built without their own closing markers, i.e. they are implicitly
+  // closed — exactly what ParatextData records as closed="false" (near universal on \fr/\ft/
+  // \xo/\xt). Carrying the flag from creation keeps these nodes signature-identical to what
+  // Tier-2 re-tokenization produces (the rebuild's fixed-point refusal depends on that) and
+  // round-trips the correct USJ shape.
+  char.setUnknownAttributes({ closed: "false" });
   const isEditable = viewOptions?.markerMode === "editable";
   if (isEditable) char.append($createMarkerNode(marker));
   const text = content === "" ? EMPTY_CHAR_PLACEHOLDER_TEXT : isEditable ? NBSP + content : content;

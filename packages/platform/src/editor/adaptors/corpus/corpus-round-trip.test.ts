@@ -15,14 +15,25 @@ import {
   PARAGRAPH_STRUCTURE_VIEW_MODE,
   STANDARD_VIEW_MODE,
   UNFORMATTED_VIEW_MODE,
+  ViewOptions,
 } from "shared-react";
 
-const VIEW_MODES = [
-  STANDARD_VIEW_MODE,
-  FORMATTED_VIEW_MODE,
-  UNFORMATTED_VIEW_MODE,
-  PARAGRAPH_STRUCTURE_VIEW_MODE,
-] as const;
+const standardViewOptions = getViewOptions(STANDARD_VIEW_MODE);
+if (!standardViewOptions) throw new Error("standard view options not found");
+
+// The named view modes, plus standard view with expanded notes — the combination that made
+// getViewMode return undefined and silently disabled the standard-view whitespace machinery. The
+// label doubles as the `skipModes` key prefix (`<label>: <reason>`).
+const VIEW_CONFIGS: { label: string; viewOptions: ViewOptions | undefined }[] = [
+  { label: STANDARD_VIEW_MODE, viewOptions: standardViewOptions },
+  { label: FORMATTED_VIEW_MODE, viewOptions: getViewOptions(FORMATTED_VIEW_MODE) },
+  { label: UNFORMATTED_VIEW_MODE, viewOptions: getViewOptions(UNFORMATTED_VIEW_MODE) },
+  {
+    label: PARAGRAPH_STRUCTURE_VIEW_MODE,
+    viewOptions: getViewOptions(PARAGRAPH_STRUCTURE_VIEW_MODE),
+  },
+  { label: "standard-expanded", viewOptions: { ...standardViewOptions, noteMode: "expanded" } },
+];
 
 describe("corpus round-trip (USJ -> editor state -> USJ)", () => {
   beforeEach(() => {
@@ -30,18 +41,15 @@ describe("corpus round-trip (USJ -> editor state -> USJ)", () => {
   });
 
   for (const fixture of corpusFixtures) {
-    for (const viewMode of VIEW_MODES) {
-      const skip = fixture.skipModes?.find((entry) => entry.startsWith(`${viewMode}:`));
+    for (const { label, viewOptions } of VIEW_CONFIGS) {
+      const skip = fixture.skipModes?.find((entry) => entry.startsWith(`${label}:`));
       const run = skip ? it.skip : it;
-      run(`${fixture.name} [${viewMode}]${skip ? ` (${skip})` : ""}`, () => {
+      run(`${fixture.name} [${label}]${skip ? ` (${skip})` : ""}`, () => {
         const usj = usxStringToUsj(fixture.usx);
         reset();
         initializeDeserialize(undefined);
-        const editorState = serializeEditorState(usj, getViewOptions(viewMode));
-        const roundTripped = deserializeSerializedEditorState(
-          editorState,
-          getViewOptions(viewMode),
-        );
+        const editorState = serializeEditorState(usj, viewOptions);
+        const roundTripped = deserializeSerializedEditorState(editorState, viewOptions);
         expect(roundTripped).toEqual(usj);
       });
     }

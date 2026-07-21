@@ -1,10 +1,10 @@
 /**
- * Tier 2 paragraph-scoped re-tokenization (design spec §5.2). Runs INSIDE the
+ * Tier 2 paragraph-scoped re-tokenization. Runs INSIDE the
  * triggering update (transform or command listener), so the rebuild and the
  * user's edit are one history entry. Blast radius is paragraph-local.
  *
  * Sentinel classification and the paragraph guard (`$buildParaFragment`) are
- * lookup-driven: both take a `MarkerLookup` (Task 1's `getMarker` seam) via
+ * lookup-driven: both take a `MarkerLookup` (the `getMarker` seam) via
  * `Tier2Context.getMarker`, so a project's custom.sty markers are classified —
  * and rebuild — exactly like standard usfm.sty markers whenever a project
  * `StyleInfo` is active, with the bundled table only as the no-project default.
@@ -28,6 +28,7 @@ import {
 } from "lexical";
 import {
   $isCharNode,
+  CharNode,
   $isMarkerNode,
   $isMilestoneNode,
   $isNoteNode,
@@ -99,7 +100,7 @@ function toFragmentText(text: string): string {
  * A TextNode's contribution to the rebuild fragment. The para-prefix trailing-space node is
  * structurally a single display separator, so it normally contributes a plain " " regardless of
  * its NBSP content — but when the user has TYPED INTO it (the content-start caret position lands
- * inside it), it carries a literal run that must reach the tokenizer (Task 15 QA run 3: `\zz `
+ * inside it), it carries a literal run that must reach the tokenizer (e.g. `\zz `
  * typed at content start was dropped here, so the rebuild reproduced the paragraph unchanged and
  * the literal never settled). Substitute the separator only while the node is pure whitespace.
  */
@@ -137,12 +138,26 @@ function verseNeedsSentinel(node: VerseNode): boolean {
   );
 }
 
+/**
+ * True when a char span carries attribute BYTES that make it non-text-recoverable (`\w
+ * x|lemma="…"`). `closed` is excluded: it is derived metadata the tokenizer fully re-derives
+ * (`closed="false"` on every implicitly-closed span), so a span whose only unknown attribute is
+ * `closed` is still plain re-tokenizable text — treating it as atomic froze every
+ * footnote-content char (they all carry closed="false") and marker typing inside notes stopped
+ * splitting.
+ */
+function hasByteAttributes(node: CharNode): boolean {
+  const attributes = node.getUnknownAttributes();
+  if (!attributes) return false;
+  return Object.keys(attributes).some((name) => name !== "closed");
+}
+
 /** Mirrors `$appendChildrenFragment`'s "preserve this node atomically" classification. */
 function isRebuildSentinel(node: LexicalNode, getMarkerFn: MarkerLookup): boolean {
   if ($isMilestoneNode(node) || $isNoteNode(node) || $isUnknownNode(node)) return true;
   if ($isVerseNode(node)) return verseNeedsSentinel(node);
   if ($isCharNode(node))
-    return Boolean(node.getUnknownAttributes()) || getMarkerFn(node.getMarker()) === undefined;
+    return hasByteAttributes(node) || getMarkerFn(node.getMarker()) === undefined;
   return false;
 }
 
@@ -233,7 +248,7 @@ function $appendNodesFragment(
     } else if ($isCharNode(node)) {
       // Unknown-marker spans (custom.sty) are not text-recoverable: the
       // tokenizer would degrade them to literal text (preserve-or-refuse).
-      if (node.getUnknownAttributes() || getMarkerFn(node.getMarker()) === undefined)
+      if (hasByteAttributes(node) || getMarkerFn(node.getMarker()) === undefined)
         pushSentinel(out, [node]);
       else $appendChildrenFragment(node, out, getMarkerFn);
     } else if ($isLineBreakNode(node)) {
@@ -254,7 +269,7 @@ function $buildParaFragment(
   para: ParaNode,
   getMarkerFn: MarkerLookup,
 ): FragmentAccumulator | undefined {
-  // §5.2 guard rails (preserve-or-refuse): a paragraph the engine cannot fully
+  // Guard rails (preserve-or-refuse): a paragraph the engine cannot fully
   // re-derive from its text is never rebuilt — edits inside it stay literal text.
   if (para.getUnknownAttributes()) return undefined;
   // Known non-paragraph kinds can't be re-derived as paragraphs. Unknown markers
@@ -267,7 +282,7 @@ function $buildParaFragment(
     paraKind !== MarkerType.Paragraph
   )
     return undefined;
-  // Paragraphs inside opaque blocks (§7: sidebars, periph, …) stay untouched.
+  // Paragraphs inside opaque blocks (sidebars, periph, …) stay untouched.
   for (let parent = para.getParent(); parent !== null; parent = parent.getParent())
     if ($isUnknownNode(parent)) return undefined;
   const out: FragmentAccumulator = { text: "", spans: [], sentinels: [] };
@@ -309,6 +324,20 @@ function $replaceSentinels(roots: LexicalNode[], originals: LexicalNode[][]): vo
   roots.forEach(visit);
 }
 
+/** U+FFFC occurrences across a parsed node tree — must equal the preserved-run count. */
+function countSentinelNodes(nodes: LexicalNode[]): number {
+  let count = 0;
+  const visit = (node: LexicalNode): void => {
+    if ($isTextNode(node)) {
+      for (const ch of node.getTextContent()) if (ch === ATOMIC_SENTINEL) count++;
+    } else if ($isElementNode(node)) {
+      node.getChildren().forEach(visit);
+    }
+  };
+  nodes.forEach(visit);
+  return count;
+}
+
 /** U+FFFC occurrences across tokenized content — must equal the preserved-run count. */
 function countSentinels(content: MarkerContent[]): number {
   let count = 0;
@@ -337,9 +366,9 @@ function $spansForNodes(nodes: LexicalNode[], getMarkerFn: MarkerLookup): Fragme
  * char). Cumulative — rather than raw `span.start` fragment-string — coordinates exclude
  * the non-span filler between spans (the inter-paragraph " " joiners), which a rebuild can
  * add or remove (e.g. a mid-paragraph marker splitting off its own paragraph). Span TEXT
- * itself is preserved by the tokenizer (§5.2 degradation property), so a cumulative offset
+ * itself is preserved by the tokenizer (the degradation property), so a cumulative offset
  * captured over the old spans lands on the same character over the new spans; a raw offset
- * would shift past every added joiner (Task 9 QA: caret restored INSIDE the new glyph,
+ * would shift past every added joiner (leaving the caret restored INSIDE the new glyph,
  * scrambling subsequent keystrokes).
  */
 function caretSpanTextOffset(
@@ -489,12 +518,22 @@ export function $rebuildParas(paras: ParaNode[], context: Tier2Context): boolean
   );
   const newNodes = serialized.root.children.map((child) => $parseSerializedNode(child));
 
+  // Second sentinel check, now on the SERIALIZED->PARSED tree: the tokenizer-level count above
+  // guards the MarkerContent, but the serialize/parse round trip is a separate place a U+FFFC
+  // placeholder can vanish. If the parsed tree has fewer (or more) than the preserved-run count,
+  // $replaceSentinels would silently drop or mis-pair a preserved node. Abort untouched instead.
+  if (countSentinelNodes(newNodes) !== combined.sentinels.length) {
+    logger?.warn("[MarkerEdit] Tier 2 aborted: serialized sentinel/preserved-node count mismatch");
+    return false;
+  }
+
   // Fixed-point refusal (preserve-or-refuse). If the freshly-tokenized output is
   // structurally identical to the paragraphs it was derived from, this rebuild is a
   // no-op: splicing it in would reproduce the same unresolved literal text (a bare
-  // `\`, a stray `\*`, or an unterminated milestone run — the tokenizer's remaining
-  // literal-degradation cases; most unknown markers now resolve structurally instead,
-  // see usfmFragmentToUsjContent's doc comment), re-arm the TextNode catch-all
+  // `\`, non-attribute content before a milestone's `\*`, or an unterminated milestone
+  // run — the tokenizer's remaining literal-degradation cases; a stray `\*` and most
+  // unknown markers now resolve structurally instead, see usfmFragmentToUsjContent's
+  // doc comment), re-arm the TextNode catch-all
   // transform, and — via the caret-departure/Enter completion path — drive an endless
   // resolve→rebuild→resolve cascade that hangs the main thread. Compare BEFORE any
   // mutation and bail. The signature normalizes preserved nodes and their U+FFFC
@@ -569,7 +608,7 @@ function $buildNoteFragment(
 }
 
 /**
- * Note-scoped Tier 2 re-tokenization (design spec §5.2/§6). Mirrors `$rebuildParas` but
+ * Note-scoped Tier 2 re-tokenization. Mirrors `$rebuildParas` but
  * operates on a single note's CONTENT children. The note node identity, its opening
  * marker(s), its caller, and its closing marker(s) are PRESERVED; only the content is
  * re-tokenized. Preserve-or-refuse: any guard-rail failure returns false with the note
@@ -630,12 +669,23 @@ export function $rebuildNoteContent(note: NoteNode, context: Tier2Context): bool
     return false;
   }
   // The editable \p wrapper prepends a visible para MarkerNode + marker-trailing-space
-  // that must NOT enter the note content; drop that prefix on unwrap.
-  const newNodes = wrapperChildren
-    .map((child) => $parseSerializedNode(child))
-    .filter(
-      (node) => !$isMarkerNode(node) && $getState(node, textTypeState) !== "marker-trailing-space",
-    );
+  // that must NOT enter the note content; drop ONLY that leading prefix pair on unwrap. Other
+  // MarkerNodes among the unwrapped children are real display glyphs — e.g. a freshly tokenized
+  // milestone's opening `\ts-s` and self-closing `\*` glyphs are SIBLINGS of the MilestoneNode —
+  // and a strip-every-MarkerNode filter ate them, leaving the milestone glyph-less until reload.
+  const parsed = wrapperChildren.map((child) => $parseSerializedNode(child));
+  let contentStart = 0;
+  if ($isMarkerNode(parsed[0]) && parsed[0].getMarkerSyntax() === "opening") {
+    contentStart = 1;
+    const second = parsed[1];
+    if (
+      $isTextNode(second) &&
+      !$isMarkerNode(second) &&
+      $getState(second, textTypeState) === "marker-trailing-space"
+    )
+      contentStart = 2;
+  }
+  const newNodes = parsed.slice(contentStart);
   if (newNodes.length === 0) {
     logger?.debug("[MarkerEdit] Note Tier 2 skipped: no content nodes after unwrap");
     return false;
@@ -671,10 +721,10 @@ export function $rebuildNoteContent(note: NoteNode, context: Tier2Context): bool
 export function $requestTier2ForNode(node: LexicalNode, context: Tier2Context): void {
   let current: LexicalNode | null = node;
   while (current) {
-    // Note content is its own re-tokenization scope (§5.2/§6): route to the note-scoped
+    // Note content is its own re-tokenization scope: route to the note-scoped
     // rebuild, which preserves the note node, its marker(s), and its caller.
     if ($isNoteNode(current)) return void $rebuildNoteContent(current, context);
-    if ($isUnknownNode(current)) return; // opaque-block interior (§7): stay literal
+    if ($isUnknownNode(current)) return; // opaque-block interior (sidebars, periph, …): stay literal
     if ($isParaNode(current)) {
       $rebuildParas([current], context);
       return;

@@ -38,7 +38,7 @@ describe("usfmFragmentToUsjContent — core", () => {
       {
         type: "para",
         marker: "p",
-        content: ["before ", { type: "char", marker: "nd", content: ["Lord"] }],
+        content: ["before ", { type: "char", marker: "nd", content: ["Lord"], closed: "false" }],
       },
     ]);
   });
@@ -49,8 +49,8 @@ describe("usfmFragmentToUsjContent — core", () => {
         type: "para",
         marker: "p",
         content: [
-          { type: "char", marker: "nd", content: ["Lord "] },
-          { type: "char", marker: "wj", content: ["said"] },
+          { type: "char", marker: "nd", content: ["Lord "], closed: "false" },
+          { type: "char", marker: "wj", content: ["said"], closed: "false" },
         ],
       },
     ]);
@@ -77,7 +77,7 @@ describe("usfmFragmentToUsjContent — core", () => {
       {
         type: "para",
         marker: "p",
-        content: [{ type: "char", marker: "nd", content: ["Lord "] }],
+        content: [{ type: "char", marker: "nd", content: ["Lord "], closed: "false" }],
       },
       { type: "para", marker: "q1", content: ["line"] },
     ]);
@@ -147,7 +147,7 @@ describe("usfmFragmentToUsjContent — verse, chapter, note, milestone, attribut
         type: "para",
         marker: "p",
         content: [
-          { type: "char", marker: "nd", content: ["Lord "] },
+          { type: "char", marker: "nd", content: ["Lord "], closed: "false" },
           { type: "verse", marker: "v", number: "2" },
           "next",
         ],
@@ -174,8 +174,8 @@ describe("usfmFragmentToUsjContent — verse, chapter, note, milestone, attribut
             marker: "f",
             caller: "+",
             content: [
-              { type: "char", marker: "fr", content: ["1.1 "] },
-              { type: "char", marker: "ft", content: ["A note."] },
+              { type: "char", marker: "fr", content: ["1.1 "], closed: "false" },
+              { type: "char", marker: "ft", content: ["A note."], closed: "false" },
             ],
           },
           " after",
@@ -195,7 +195,7 @@ describe("usfmFragmentToUsjContent — verse, chapter, note, milestone, attribut
             type: "note",
             marker: "f",
             caller: "+",
-            content: [{ type: "char", marker: "ft", content: ["open note"] }],
+            content: [{ type: "char", marker: "ft", content: ["open note"], closed: "false" }],
             closed: "false",
           },
         ],
@@ -246,6 +246,550 @@ describe("usfmFragmentToUsjContent — verse, chapter, note, milestone, attribut
       },
     ]);
   });
+
+  it("uses the USFM 3.0 default-attribute name link-href for xt and jmp (3.1 renamed it href)", () => {
+    expect(
+      usfmFragmentToUsjContent("\\p \\jmp here|2SA 1:1\\jmp* and \\xt 1 Kgs 2:35|ref\\xt*"),
+    ).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [
+          { type: "char", marker: "jmp", "link-href": "2SA 1:1", content: ["here"] },
+          " and ",
+          { type: "char", marker: "xt", "link-href": "ref", content: ["1 Kgs 2:35"] },
+        ],
+      },
+    ]);
+  });
+
+  it("keeps a bare default-attribute value byte-exact, trailing space included (ParatextData)", () => {
+    // `\w marker|stuff \w*` → lemma "stuff " — the space before the closer is part of the value.
+    expect(usfmFragmentToUsjContent("\\p \\w marker|stuff \\w*")).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [{ type: "char", marker: "w", lemma: "stuff ", content: ["marker"] }],
+      },
+    ]);
+    // Same rule for milestone default attributes: `\qt-s |TJ \*` → who "TJ ".
+    expect(usfmFragmentToUsjContent("\\p a \\qt-s |TJ \\*b")).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: ["a ", { type: "ms", marker: "qt-s", who: "TJ " }, "b"],
+      },
+    ]);
+  });
+
+  it("tokenizes // as an optbreak wherever it appears in text (PT9 spec-blind scan)", () => {
+    expect(usfmFragmentToUsjContent("\\p before // after //")).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: ["before ", { type: "optbreak" }, " after ", { type: "optbreak" }],
+      },
+    ]);
+  });
+
+  it("turns a stray \\* into an unmatched element (PT9 sink.Unmatched), not literal text", () => {
+    expect(usfmFragmentToUsjContent("\\p body \\* tail")).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: ["body ", { type: "unmatched", marker: "*" }, " tail"],
+      },
+    ]);
+  });
+
+  it("nests a note inside an open char span and continues the span after it (USX nesting)", () => {
+    expect(usfmFragmentToUsjContent("\\p \\wj a \\f + \\fr 1:1 \\ft txt\\f* b\\wj* c")).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [
+          {
+            type: "char",
+            marker: "wj",
+            content: [
+              "a ",
+              {
+                type: "note",
+                marker: "f",
+                caller: "+",
+                content: [
+                  { type: "char", marker: "fr", content: ["1:1 "], closed: "false" },
+                  { type: "char", marker: "ft", content: ["txt"], closed: "false" },
+                ],
+              },
+              " b",
+            ],
+          },
+          " c",
+        ],
+      },
+    ]);
+  });
+
+  it("does not let a closer inside a note close a span enclosing the note", () => {
+    const content = usfmFragmentToUsjContent("\\p \\wj a \\f + \\ft x\\wj* y\\f* b\\wj*");
+    // The in-note `\wj*` has no in-note frame to close → unmatched INSIDE the note; the
+    // enclosing wj span survives and is closed by the final `\wj*`.
+    expect(content).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [
+          {
+            type: "char",
+            marker: "wj",
+            content: [
+              "a ",
+              {
+                type: "note",
+                marker: "f",
+                caller: "+",
+                content: [
+                  {
+                    type: "char",
+                    marker: "ft",
+                    content: ["x", { type: "unmatched", marker: "wj*" }, " y"],
+                    closed: "false",
+                  },
+                ],
+              },
+              " b",
+            ],
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("treats bare ts/t-s/t-e as unknown markers (no stylesheet declares them), not milestones", () => {
+    // ParatextData parses these as unknown → paragraph in body text; the orphan `\*` becomes
+    // an unmatched element. Only `\qt#-s/-e` and `\ts-s/-e` are stylesheet-family milestones.
+    expect(usfmFragmentToUsjContent("\\p has ts \\ts \\* here")).toEqual([
+      { type: "para", marker: "p", content: ["has ts "] },
+      { type: "para", marker: "ts", content: [{ type: "unmatched", marker: "*" }, " here"] },
+    ]);
+    expect(usfmFragmentToUsjContent("\\p x \\ts-s |sec\\* y")).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: ["x ", { type: "ms", marker: "ts-s", sid: "sec" }, " y"],
+      },
+    ]);
+  });
+
+  describe("attribute-marker folding (ca/cp/va/vp/cat become attributes on their target)", () => {
+    it("folds adjacent \\ca and \\cp onto the chapter, across structural line whitespace", () => {
+      expect(usfmFragmentToUsjContent("\\c 1\n \\ca 1 ca\\ca*\n\\cp 1 cp\n\\p body")).toEqual([
+        { type: "chapter", marker: "c", number: "1", altnumber: "1 ca", pubnumber: "1 cp" },
+        { type: "para", marker: "p", content: ["body"] },
+      ]);
+    });
+
+    it("keeps a non-adjacent \\ca standalone (its own char marker)", () => {
+      expect(usfmFragmentToUsjContent("\\p a \\ca 2\\ca* b")).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: ["a ", { type: "char", marker: "ca", content: ["2"] }, " b"],
+        },
+      ]);
+    });
+
+    it("keeps \\cp with markers in its content standalone (spec rule; Paratext 9.5 gets this wrong)", () => {
+      expect(
+        usfmFragmentToUsjContent("\\c 3\n\\ca 3 ca\\ca*\n\\cp 3 cp \\wj wj marker \\wj*\n\\p b"),
+      ).toEqual([
+        { type: "chapter", marker: "c", number: "3", altnumber: "3 ca" },
+        {
+          type: "para",
+          marker: "cp",
+          // The trailing " " is the newline before \p regularized to a space — pre-existing
+          // paragraph-boundary behavior (engine fragments carry no line breaks).
+          content: ["3 cp ", { type: "char", marker: "wj", content: ["wj marker "] }],
+        },
+        { type: "para", marker: "p", content: ["b"] },
+      ]);
+    });
+
+    it("folds \\cat right after the note caller into the note's category attribute", () => {
+      expect(
+        usfmFragmentToUsjContent("\\p x\\f + \\cat things\\cat*\\fr 1:12 \\ft Some\\f* y"),
+      ).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: [
+            "x",
+            {
+              type: "note",
+              marker: "f",
+              caller: "+",
+              category: "things",
+              content: [
+                { type: "char", marker: "fr", content: ["1:12 "], closed: "false" },
+                { type: "char", marker: "ft", content: ["Some"], closed: "false" },
+              ],
+            },
+            " y",
+          ],
+        },
+      ]);
+    });
+
+    it("keeps \\cat with markup in its content standalone inside the note", () => {
+      const content = usfmFragmentToUsjContent(
+        "\\p \\f + \\cat \\+wj stuff \\+wj*\\cat* \\fr 1:2 \\ft t\\f*",
+      );
+      expect(content).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: [
+            {
+              type: "note",
+              marker: "f",
+              caller: "+",
+              content: [
+                {
+                  type: "char",
+                  marker: "cat",
+                  content: [{ type: "char", marker: "wj", content: ["stuff "] }],
+                },
+                " ",
+                { type: "char", marker: "fr", content: ["1:2 "], closed: "false" },
+                { type: "char", marker: "ft", content: ["t"], closed: "false" },
+              ],
+            },
+          ],
+        },
+      ]);
+    });
+
+    it("folds \\va onto the preceding verse; the space after the closer is content", () => {
+      // Paratext treats spaces after attribute markers as text content (fixture v11 rule),
+      // so the following text keeps its leading space.
+      expect(usfmFragmentToUsjContent("\\p \\v 4 \\va 5\\va* text")).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: [{ type: "verse", marker: "v", number: "4", altnumber: "5" }, " text"],
+        },
+      ]);
+    });
+
+    it("a same-line space before \\vp blocks its fold (fixture v12 rule)", () => {
+      // `\va*` folds; the space between it and `\vp` is content per Paratext, so vp is no
+      // longer adjacent and stays a standalone marker.
+      expect(usfmFragmentToUsjContent("\\p \\v 12 \\va 12 va\\va* \\vp 12 vp\\vp*Text")).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: [
+            { type: "verse", marker: "v", number: "12", altnumber: "12 va" },
+            " ",
+            { type: "char", marker: "vp", content: ["12 vp"] },
+            "Text",
+          ],
+        },
+      ]);
+    });
+
+    it("folds \\cp at fragment end (the cp paragraph ended with plain text)", () => {
+      expect(usfmFragmentToUsjContent("\\c 2\n\\cp 2 cp")).toEqual([
+        { type: "chapter", marker: "c", number: "2", pubnumber: "2 cp" },
+      ]);
+    });
+  });
+
+  describe("opaque-structure emission (figures, tables, sidebars → faithful USJ shapes)", () => {
+    it("emits an inline figure with src renamed to file and no content when empty", () => {
+      expect(
+        usfmFragmentToUsjContent(
+          '\\p a figure \\fig |src="f.png" size="col" ref="1.13"\\fig* here',
+        ),
+      ).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: [
+            "a figure ",
+            { type: "figure", marker: "fig", file: "f.png", size: "col", ref: "1.13" },
+            " here",
+          ],
+        },
+      ]);
+    });
+
+    it("emits a figure with caption content and all six named attributes", () => {
+      expect(
+        usfmFragmentToUsjContent(
+          '\\p x\\fig Caption Here|alt="D" src="f.png" size="span" loc="L" copy="C" ref="1.13"\\fig*. y',
+        ),
+      ).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: [
+            "x",
+            {
+              type: "figure",
+              marker: "fig",
+              alt: "D",
+              file: "f.png",
+              size: "span",
+              loc: "L",
+              copy: "C",
+              ref: "1.13",
+              content: ["Caption Here"],
+            },
+            ". y",
+          ],
+        },
+      ]);
+    });
+
+    it("assembles rows and cells into a table with name-derived align and span colspan", () => {
+      expect(
+        usfmFragmentToUsjContent(
+          "\\tr \\th1 Header 1\\thc3-4 H34 centered\\thr5 H5 right\n\\p after",
+        ),
+      ).toEqual([
+        {
+          type: "table",
+          content: [
+            {
+              type: "table:row",
+              marker: "tr",
+              content: [
+                { type: "table:cell", marker: "th1", align: "start", content: ["Header 1"] },
+                // Span syntax keeps the first column in the marker; colspan is a STRING
+                // (columns spanned): thc3-4 → thc3, colspan "2".
+                {
+                  type: "table:cell",
+                  marker: "thc3",
+                  align: "center",
+                  colspan: "2",
+                  content: ["H34 centered"],
+                },
+                { type: "table:cell", marker: "thr5", align: "end", content: ["H5 right"] },
+              ],
+            },
+          ],
+        },
+        { type: "para", marker: "p", content: ["after"] },
+      ]);
+    });
+
+    it("keeps char spans inside cells and multiple rows in one table", () => {
+      expect(
+        usfmFragmentToUsjContent("\\tr \\tc1 a\\tc2 b \\wj w\\wj* c\\tr \\tcr1-4 d\\tc5 e"),
+      ).toEqual([
+        {
+          type: "table",
+          content: [
+            {
+              type: "table:row",
+              marker: "tr",
+              content: [
+                { type: "table:cell", marker: "tc1", align: "start", content: ["a"] },
+                {
+                  type: "table:cell",
+                  marker: "tc2",
+                  align: "start",
+                  content: ["b ", { type: "char", marker: "wj", content: ["w"] }, " c"],
+                },
+              ],
+            },
+            {
+              type: "table:row",
+              marker: "tr",
+              content: [
+                { type: "table:cell", marker: "tcr1", align: "end", colspan: "4", content: ["d"] },
+                { type: "table:cell", marker: "tc5", align: "start", content: ["e"] },
+              ],
+            },
+          ],
+        },
+      ]);
+    });
+
+    it("wraps sidebar content in a sidebar with \\cat folded to its category", () => {
+      expect(
+        usfmFragmentToUsjContent(
+          "\\esb \\cat Test Category\\cat*\n\\p one\n\\p two\n\\esbe\n\\p after",
+        ),
+      ).toEqual([
+        {
+          type: "sidebar",
+          marker: "esb",
+          category: "Test Category",
+          content: [
+            { type: "para", marker: "p", content: ["one"] },
+            { type: "para", marker: "p", content: ["two"] },
+          ],
+        },
+        { type: "para", marker: "p", content: ["after"] },
+      ]);
+    });
+
+    it("a column beyond 12 is not a cell: it ends the table and the next \\tr starts fresh", () => {
+      // usfm.sty declares exactly th1–th12/tc1–tc12; ParatextData follows its stylesheet,
+      // so \tc13 is an unknown marker (paragraph) that breaks the table in two.
+      expect(usfmFragmentToUsjContent("\\tr \\tc1 a\\tc13 x\\tr \\tc2 b")).toEqual([
+        {
+          type: "table",
+          content: [
+            {
+              type: "table:row",
+              marker: "tr",
+              content: [{ type: "table:cell", marker: "tc1", align: "start", content: ["a"] }],
+            },
+          ],
+        },
+        { type: "para", marker: "tc13", content: ["x"] },
+        {
+          type: "table",
+          content: [
+            {
+              type: "table:row",
+              marker: "tr",
+              content: [{ type: "table:cell", marker: "tc2", align: "start", content: ["b"] }],
+            },
+          ],
+        },
+      ]);
+    });
+
+    it("loose content after a chapter lands at DOCUMENT ROOT, not in an implied paragraph", () => {
+      // ParatextData root scope: text typed after `\c 1` saves as its own ` text` line with no
+      // `\p`; an unclosed `\ca` there strands a root-level char (2SA-2's oracle shape).
+      expect(usfmFragmentToUsjContent("\\c 1\ntext after chapter\n\\s1 Heading")).toEqual([
+        { type: "chapter", marker: "c", number: "1" },
+        "text after chapter",
+        { type: "para", marker: "s1", content: ["Heading"] },
+      ]);
+      expect(usfmFragmentToUsjContent("\\c 2\n \\ca 2 ca\n\\p body")).toEqual([
+        { type: "chapter", marker: "c", number: "2" },
+        { type: "char", marker: "ca", content: ["2 ca"], closed: "false" },
+        { type: "para", marker: "p", content: ["body"] },
+      ]);
+    });
+
+    it('marks a sidebar unclosed at fragment end with closed="false"', () => {
+      expect(usfmFragmentToUsjContent("\\esb\n\\p in sidebar")).toEqual([
+        {
+          type: "sidebar",
+          marker: "esb",
+          closed: "false",
+          content: [{ type: "para", marker: "p", content: ["in sidebar"] }],
+        },
+      ]);
+    });
+  });
+
+  describe('closed="false" parity (ParatextData marks every implicitly-closed char span)', () => {
+    it("marks a char span auto-closed at the paragraph end", () => {
+      expect(usfmFragmentToUsjContent("\\p before \\nd Lord")).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: ["before ", { type: "char", marker: "nd", content: ["Lord"], closed: "false" }],
+        },
+      ]);
+    });
+
+    it("marks a char span auto-closed by the next non-nested char opener", () => {
+      expect(usfmFragmentToUsjContent("\\p \\it aa \\bd bb")).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: [
+            { type: "char", marker: "it", content: ["aa "], closed: "false" },
+            { type: "char", marker: "bd", content: ["bb"], closed: "false" },
+          ],
+        },
+      ]);
+    });
+
+    it("marks nested spans implicitly closed when the outer span closes explicitly", () => {
+      expect(usfmFragmentToUsjContent("\\p \\add aa \\+nd bb\\add* cc")).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: [
+            {
+              type: "char",
+              marker: "add",
+              content: ["aa ", { type: "char", marker: "nd", content: ["bb"], closed: "false" }],
+            },
+            " cc",
+          ],
+        },
+      ]);
+    });
+
+    it("marks note-content chars implicitly closed by the note's explicit end", () => {
+      // The classic footnote shape from real ParatextData USJ: \fr and \ft never carry their own
+      // closers, so both get closed="false"; the explicitly-terminated note itself does not.
+      expect(usfmFragmentToUsjContent("\\p \\f + \\fr 1.1 \\ft txt\\f* after")).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: [
+            {
+              type: "note",
+              marker: "f",
+              caller: "+",
+              content: [
+                { type: "char", marker: "fr", content: ["1.1 "], closed: "false" },
+                { type: "char", marker: "ft", content: ["txt"], closed: "false" },
+              ],
+            },
+            " after",
+          ],
+        },
+      ]);
+    });
+
+    it("leaves an explicitly closed char span unmarked", () => {
+      expect(usfmFragmentToUsjContent("\\p \\nd Lord\\nd* after")).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: ["", { type: "char", marker: "nd", content: ["Lord"] }, " after"].filter(
+            (c) => c !== "",
+          ),
+        },
+      ]);
+    });
+  });
+
+  it("never lets an attribute named type/marker/content clobber the node's own keys", () => {
+    // A malformed/hostile attribute list must not overwrite the USJ node's structural keys —
+    // `type="x"` on a char span would otherwise break downstream node-type dispatch, and
+    // `content="y"` would replace the content array with a string.
+    expect(
+      usfmFragmentToUsjContent('\\p \\w foo|type="x" marker="y" content="z" lemma="ok"\\w*'),
+    ).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [{ type: "char", marker: "w", lemma: "ok", content: ["foo"] }],
+      },
+    ]);
+    expect(usfmFragmentToUsjContent('\\p one \\ts-s |type="x" sid="ts.GEN.1"\\* two')).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: ["one ", { type: "ms", marker: "ts-s", sid: "ts.GEN.1" }, " two"],
+      },
+    ]);
+  });
 });
 
 const projectSheet: StyleInfo = {
@@ -256,7 +800,7 @@ const projectSheet: StyleInfo = {
   },
 };
 
-describe("stylesheet-first classification (Phase 4)", () => {
+describe("stylesheet-first classification", () => {
   it("classifies a custom.sty character marker that matches the z-milestone wildcard", () => {
     const content = usfmFragmentToUsjContent("\\p text \\zln word\\zln* after", {
       getMarker: createMarkerLookup(projectSheet),
@@ -281,7 +825,7 @@ describe("stylesheet-first classification (Phase 4)", () => {
   });
 });
 
-describe("PT9 unknown-marker handling (Phase 4)", () => {
+describe("PT9 unknown-marker handling", () => {
   it("unknown marker in body context becomes a paragraph (UsfmParser.DetermineUnknownTokenType)", () => {
     const content = usfmFragmentToUsjContent("\\p before \\zfoo after");
     expect(content).toEqual([
@@ -301,7 +845,7 @@ describe("PT9 unknown-marker handling (Phase 4)", () => {
         type: "para",
         marker: "p",
         content: [
-          { type: "char", marker: "ft", content: ["text "] },
+          { type: "char", marker: "ft", content: ["text "], closed: "false" },
           { type: "char", marker: "zfoo", content: ["word"] },
           " after",
         ],

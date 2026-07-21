@@ -14,6 +14,7 @@ import {
 } from "lexical";
 import {
   $createNodeFromSerializedNode,
+  $isCharNode,
   $isMarkerNode,
   $isNoteNode,
   $isTypedMarkNode,
@@ -59,7 +60,7 @@ interface UsjMarkerAction {
  * Exists so `EditorRef.insertMarker` (`Editor.tsx`) can hand the host the exact key of the note it
  * just created, bypassing the `"delta-doc"` OT coordinate derivation (`getInsertedNodeKey`) that
  * double-counts editable VerseNodes and can land past the note when one precedes the insertion
- * point (Task 14b) — without touching any OT coordinate code.
+ * point — without touching any OT coordinate code.
  */
 export interface UsjMarkerActionResult extends MarkerAction {
   getInsertedNoteKey?: () => string | undefined;
@@ -102,6 +103,34 @@ export function isUsjMarkerSupported(marker: string): boolean {
   );
 }
 
+/**
+ * Inserts a note for `marker` at the current selection and returns the created NoteNode's TRUE
+ * Lexical key (or undefined when insertion bailed). Call inside `editor.update()`. Shared by the
+ * `getUsjMarkerAction` note action (which wraps it in its own update for the `insertMarker`
+ * entry point) and `$applyMarkerMenuSelection` (already inside an update — a nested update would
+ * be QUEUED, losing the key).
+ */
+export function $insertNoteForMarker(
+  marker: string,
+  reference: SerializedVerseRef,
+  expandedNoteKeyRef: React.MutableRefObject<string | undefined>,
+  viewOptions?: ViewOptions,
+  nodeOptions?: UsjNodeOptions,
+  logger?: LoggerBasic,
+): string | undefined {
+  const noteNode = $insertNote(
+    marker,
+    undefined,
+    undefined,
+    reference,
+    viewOptions ?? getDefaultViewOptions(),
+    nodeOptions ?? {},
+    logger,
+  );
+  if (noteNode && !noteNode.getIsCollapsed()) expandedNoteKeyRef.current = noteNode.getKey();
+  return noteNode?.getKey();
+}
+
 /** A function that returns a marker action for a given USJ marker */
 export function getUsjMarkerAction(
   marker: string,
@@ -115,22 +144,22 @@ export function getUsjMarkerAction(
   // Note markers are handled directly via $insertNote (no serialization round-trip).
   if (NoteNode.isValidMarker(marker)) {
     // Captured synchronously inside the `editor.update()` callback below - Lexical's callback
-    // always runs synchronously (only the DOM reconciliation/commit may be deferred), so this is
-    // populated by the time `action(...)` returns, regardless of `editorUpdateOptions`.
+    // runs synchronously when this is the OUTERMOST update (only the DOM reconciliation/commit
+    // may be deferred), so this is populated by the time `action(...)` returns for the
+    // `insertMarker` entry point. NOTE: a caller already inside an update must NOT go through
+    // this wrapper (the nested update is queued, not run) — use `$insertNoteForMarker` directly,
+    // as `$applyMarkerMenuSelection` does.
     let insertedNoteKey: string | undefined;
     const action = (currentEditor: { editor: LexicalEditor; reference: SerializedVerseRef }) => {
       currentEditor.editor.update(() => {
-        const noteNode = $insertNote(
+        insertedNoteKey = $insertNoteForMarker(
           marker,
-          undefined,
-          undefined,
           currentEditor.reference,
-          viewOptions ?? getDefaultViewOptions(),
-          nodeOptions ?? {},
+          expandedNoteKeyRef,
+          viewOptions,
+          nodeOptions,
           logger,
         );
-        insertedNoteKey = noteNode?.getKey();
-        if (noteNode && !noteNode.getIsCollapsed()) expandedNoteKeyRef.current = noteNode.getKey();
       }, editorUpdateOptions);
     };
     return { action, label: undefined, getInsertedNoteKey: () => insertedNoteKey };
@@ -196,9 +225,29 @@ export function getUsjMarkerAction(
         } else {
           selection.insertNodes([nodeToInsert]);
           $moveVerseFollowingSpaceToPreviousNode(nodeToInsert);
-          const nextNode = nodeToInsert.getNextSibling();
-          if (nextNode) nextNode.selectStart();
-          else nodeToInsert.selectStart();
+          // A char span must receive the caret INSIDE, at its content position (PT9: after
+          // inserting `\wj ` you type the span's content). Both outside placements were wrong:
+          // selectStart() descends to the opening glyph's offset 0, so typing edited the glyph
+          // (Tier-1 rename); nextNode.selectStart() put typing after the whole span.
+          if ($isCharNode(nodeToInsert)) {
+            const contentText = nodeToInsert
+              .getChildren()
+              .find((child) => $isTextNode(child) && !$isMarkerNode(child));
+            if (contentText && $isTextNode(contentText)) {
+              // End of the empty-content placeholder: typed text appends after it and
+              // CharNodePlugin strips the placeholder prefix once real content exists.
+              contentText.select(
+                contentText.getTextContentSize(),
+                contentText.getTextContentSize(),
+              );
+            } else {
+              nodeToInsert.selectEnd();
+            }
+          } else {
+            const nextNode = nodeToInsert.getNextSibling();
+            if (nextNode) nextNode.selectStart();
+            else nodeToInsert.selectStart();
+          }
         }
       } else {
         // Insert the node directly
@@ -260,14 +309,18 @@ function $wrapTextSelectionInInlineNode(
       return;
     }
 
-    // Create or reuse wrapper node
+    // Create or reuse wrapper node. The wrapper is created ONCE and reused for every node of the
+    // selection, so only its FIRST use is "fresh" (carries the empty-content placeholder to discard);
+    // later uses already hold real content wrapped for earlier nodes.
+    let isFreshWrapper = false;
     if (!currentWrapper) {
       currentWrapper = createNode();
       targetNode.insertBefore(currentWrapper);
+      isFreshWrapper = true;
     }
 
     // Wrap the target node
-    $wrapNode(targetNode, currentWrapper);
+    $wrapNode(targetNode, currentWrapper, isFreshWrapper);
   });
 
   // Update selection
@@ -331,7 +384,7 @@ function handleTextNode(
   return splitNodes.length === 3 || end === textLength ? splitNodes[1] : splitNodes[0];
 }
 
-function $wrapNode(node: LexicalNode, wrapper: LexicalNode): void {
+function $wrapNode(node: LexicalNode, wrapper: LexicalNode, isFreshWrapper: boolean): void {
   if ($isTextNode(wrapper)) {
     const text = $moveLeadingSpaceToPreviousNode(node, wrapper);
     wrapper.setTextContent(text);
@@ -345,17 +398,27 @@ function $wrapNode(node: LexicalNode, wrapper: LexicalNode): void {
     // unwrapped again immediately (`$charNodeDeletionTransform`). Other marker modes don't
     // populate glyph children this way, so the original strip-everything behavior (append then
     // drop whatever pre-existing children there were) is unchanged for them.
+    //
+    // The placeholder/pre-existing children only exist on the FIRST use of the wrapper. When the
+    // SAME wrapper is reused for the next node of a multi-node selection it is NOT fresh, and its
+    // non-marker children are real content already wrapped for an earlier node — stripping them
+    // then would delete that content (keeping only the last node's).
     const existingChildren = wrapper.getChildren();
     const closer = existingChildren.find(
       (child) => $isMarkerNode(child) && child.getMarkerSyntax() !== "opening",
     );
     if (closer) {
       closer.insertBefore(node);
-      existingChildren.filter((child) => !$isMarkerNode(child)).forEach((child) => child.remove());
-    } else {
+      if (isFreshWrapper)
+        existingChildren
+          .filter((child) => !$isMarkerNode(child))
+          .forEach((child) => child.remove());
+    } else if (isFreshWrapper) {
       const wrapperChildrenCount = wrapper.getChildrenSize();
       wrapper.append(node);
       for (let i = 0; i < wrapperChildrenCount; i++) wrapper.getFirstChild()?.remove();
+    } else {
+      wrapper.append(node);
     }
     $moveLeadingSpaceToPreviousNode(node, wrapper);
   }

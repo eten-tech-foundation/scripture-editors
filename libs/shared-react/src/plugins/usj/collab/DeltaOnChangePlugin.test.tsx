@@ -24,6 +24,7 @@ import {
 import {
   $createBookNode,
   $createCharNode,
+  $createNoteNode,
   $createImmutableChapterNode,
   $createImpliedParaNode,
   $isImmutableChapterNode,
@@ -240,6 +241,44 @@ describe("OnChangePlugin", () => {
         const t2 = impliedPara.getChildAtIndex(3);
         if (!$isTextNode(t2)) throw new Error("Expected TextNode");
         expect(t2.getTextContent()).toBe("and all the brethren who are with me");
+      });
+    });
+  });
+
+  describe("Note-internal edits", () => {
+    it("falls back to the full diff for a text edit INSIDE a note (no bare insert at the note's outer position)", async () => {
+      // A note is ONE opaque embed unit in delta-doc coordinates — its `contents` are
+      // deliberately empty in the doc-delta stream ($getNoteOp), because note content flows via
+      // the replaceEmbedUpdate channel. A note-internal edit is therefore INEXPRESSIBLE here and
+      // the correct emission is NOTHING. The single-dirty-leaf fast path instead emitted
+      // `retain(notePos) + insert("a")` — landing the typed character AFTER the note in the
+      // shared doc.
+      let noteText: TextNode;
+      const { editor } = await testEnvironment(() => {
+        noteText = $createTextNode("note body");
+        const note = $createNoteNode("f", "+", false); // expanded — its text is editable inline
+        note.append(noteText);
+        $getRoot().append(
+          $createImpliedParaNode().append(
+            $createTextNode("before "),
+            note,
+            $createTextNode(" after"),
+          ),
+        );
+      });
+
+      updateOps = [];
+      // Defined by the test environment.
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      await typeTextAtSelection(editor, "a", noteText!, 0);
+
+      // No doc-delta ops for a note-internal edit — and in particular no stray text insert.
+      expect(updateOps).toEqual([]);
+      // The local edit itself still happened.
+      editor.getEditorState().read(() => {
+        // Defined by the test environment.
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+        expect(noteText!.getTextContent()).toBe("anote body");
       });
     });
   });

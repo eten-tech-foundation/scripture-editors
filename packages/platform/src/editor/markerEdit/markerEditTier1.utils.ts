@@ -1,5 +1,5 @@
 /**
- * Tier 1 of the marker-editing engine (design spec §5.1): in-place renames that
+ * Tier 1 of the marker-editing engine: in-place renames that
  * keep structural node state and visible marker text in agreement at rest.
  * Everything Tier 1 cannot express routes to Tier 2 ($requestTier2ForNode).
  */
@@ -22,11 +22,10 @@ import {
   ChapterNode,
   closingMarkerText,
   getVisibleOpenMarkerText,
-  isMilestoneCommentMarker,
+  isMilestoneHeuristicName,
   MarkerLookup,
   MarkerNode,
   MarkerType,
-  MilestoneNode,
   NoteNode,
   openingMarkerText,
   VerseNode,
@@ -37,7 +36,7 @@ export interface MarkerEditContext extends Tier2Context {
   splitExpected: { current: boolean };
   /**
    * Literal text already submitted to `$requestTier2ForNode` this commit.
-   * `$rebuildParas` is deterministic (design spec §5.2 degradation property): a paragraph
+   * `$rebuildParas` is deterministic (the degradation property): a paragraph
    * whose rebuild still contains a fragment the tokenizer cannot resolve into anything new
    * (e.g. an unterminated milestone run) reproduces the identical literal text on every
    * retry, so the TextNode catch-all transform ($textNodeTier2Transform) would otherwise
@@ -62,42 +61,32 @@ function $markerCanonicalText(node: MarkerNode): string {
   return openingMarkerText(node.getMarker());
 }
 
-/** True for markers on USFM's fixed milestone list (`\ts-s`, `\qt1-e`, ...), not for arbitrary
- * z-namespace custom.sty markers: `MilestoneNode.isValidMarker` also accepts any `z`-prefixed
- * string so a milestone node can render an as-yet-unknown custom marker, but that same
- * allowance would misclassify a merely-unrecognized paragraph opener (e.g. `\zed`) as
- * positionally a milestone. Milestone markers all follow the `-s`/`-e` start/end suffix
- * convention, with bare `ts` as the sole exception. */
-function isKnownMilestoneMarker(marker: string): boolean {
-  return (
-    MilestoneNode.isValidMarker(marker) &&
-    (marker === "ts" ||
-      marker.endsWith("-s") ||
-      marker.endsWith("-e") ||
-      isMilestoneCommentMarker(marker))
-  );
-}
+// Milestone-name heuristic shared with the fragment tokenizer (`isMilestoneHeuristicName`):
+// only stylesheet-family milestone names (`\qt#-s/-e`, `\ts-s/-e`) plus annotation comment
+// markers — see its doc comment for why bare `ts`/`t-s`/`t-e` and the z-prefix wildcard are
+// deliberately excluded. Keeping one predicate here and in the tokenizer means Tier-1 kind
+// guards and Tier-2 re-tokenization can never disagree about what is positionally a milestone.
 
-/** Spec §5.1 same-positional-kind rule for paragraph openers. Stylesheet-first:
+/** Same-positional-kind rule for paragraph openers. Stylesheet-first:
  * a marker the effective sheet KNOWS classifies by its styleType; heuristics
  * cover only markers absent from the sheet. Unknown markers stay as typed
- * (spec deviation #4: Tier-1 renames to unknown markers stay in place). */
+ * (Tier-1 renames to unknown markers stay in place). */
 function isParaKindMarker(marker: string, getMarkerFn: MarkerLookup): boolean {
   const clean = marker.replace(/^\+/, "");
   if (clean === "v" || clean === "c") return false;
   const kind = getMarkerFn(clean)?.type;
   if (kind !== undefined && kind !== MarkerType.Unknown) return kind === MarkerType.Paragraph;
-  if (NoteNode.isValidMarker(clean) || isKnownMilestoneMarker(clean)) return false;
+  if (NoteNode.isValidMarker(clean) || isMilestoneHeuristicName(clean)) return false;
   return true;
 }
 
-/** Spec §5.1 same-positional-kind rule for char openers (see isParaKindMarker). */
+/** Same-positional-kind rule for char openers (see isParaKindMarker). */
 function isCharKindMarker(marker: string, getMarkerFn: MarkerLookup): boolean {
   const clean = marker.replace(/^\+/, "");
   if (clean === "v" || clean === "c") return false;
   const kind = getMarkerFn(clean)?.type;
   if (kind !== undefined && kind !== MarkerType.Unknown) return kind === MarkerType.Character;
-  if (NoteNode.isValidMarker(clean) || isKnownMilestoneMarker(clean)) return false;
+  if (NoteNode.isValidMarker(clean) || isMilestoneHeuristicName(clean)) return false;
   return true;
 }
 
@@ -197,7 +186,14 @@ export function $markerNodeTransform(node: MarkerNode, context: MarkerEditContex
     context.pendingKeys.add(node.getKey());
     return;
   }
-  // Closer / selfClosing: one-way authority — closer edits never rename the span.
+  // Closer / selfClosing: one-way authority — closer edits never rename the span. Damage or
+  // retype settles through Tier 2, whose tokenizer turns non-marker residue (`wj*` after the `\`
+  // is deleted) into PLAIN text and re-closes the span per its rules — a `*`-terminated form
+  // resolves now, anything else stays pending until the caret departs (mid-edit grace). A char
+  // span the user leaves open re-closes WITHOUT a regenerated `\marker*` glyph: the tokenizer
+  // marks every implicitly-closed span `closed="false"` (ParatextData emits it whenever a char
+  // span has no explicit closer — see paranext-core's footnote-util test USJ), and the adaptor
+  // skips the closing glyph for such spans, exactly as it does for auto-closed notes.
   if (text.endsWith("*")) {
     context.pendingKeys.delete(node.getKey());
     $requestTier2ForNode(node, context);
@@ -246,7 +242,7 @@ export function $verseNodeTransform(node: VerseNode, context: MarkerEditContext)
 
 export function $chapterNodeTransform(node: ChapterNode, _context: MarkerEditContext): void {
   if (node.getChildrenSize() === 0) {
-    node.remove(); // §5.5: deleting the chapter marker deletes it
+    node.remove(); // deleting the chapter marker deletes it
     return;
   }
   const textNode = node.getFirstChild();

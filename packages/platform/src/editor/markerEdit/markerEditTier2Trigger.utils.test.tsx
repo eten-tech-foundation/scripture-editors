@@ -83,12 +83,12 @@ describe("Tier 2 literal-text triggers", () => {
   });
 
   it("keeps subsequent keystrokes in the glyph after a mid-paragraph marker split (no scramble)", async () => {
-    // Round 3 note: with caret-bounded termination, typing `\z` mid-paragraph no longer
+    // With caret-bounded termination, typing `\z` mid-paragraph no longer
     // terminates against the PRE-EXISTING following space (that was the phantom-marker
     // corruption class) — the literal builds up in the content text instead, and the split
     // happens when the user types the terminating space themselves. This test starts from a
     // state where the caret sits right after "\z" (as if just typed); the remaining
-    // keystrokes must still assemble `\zfoo ` in ORDER (the Task 9 no-scramble guarantee)
+    // keystrokes must still assemble `\zfoo ` in ORDER (the no-scramble guarantee)
     // and the terminating space still produces the `zfoo` paragraph.
     const { editor } = await testEnvironment(() => {
       const para = $createParaNode("p");
@@ -151,12 +151,12 @@ describe("Tier 2 literal-text triggers", () => {
     });
   });
 
-  it("mid-word fluent typing never absorbs the word remainder into a phantom marker (QA run 3 item 3)", async () => {
+  it("mid-word fluent typing never absorbs the word remainder into a phantom marker", async () => {
     // Caret at "li|ke" and the user types `\` `w` `j` char by char. Pre-fix, the FIRST
     // keystroke made the node read "…li\ke da…", and the remainder's own following space made
     // `\ke ` look terminated — an immediate rebuild split the paragraph with the phantom
     // marker "ke", the caret landed inside the glyph, w/j built "\wjke", and the palette apply
-    // then ATE "ke" (text loss, the Task-8 type-through corruption class). Only the user's
+    // then ATE "ke" (text loss, the type-through corruption class). Only the user's
     // typed run (text before the caret) may terminate a marker.
     let body: TextNode;
     const { editor } = await testEnvironment(() => {
@@ -198,10 +198,10 @@ describe("Tier 2 literal-text triggers", () => {
     expect(json).toContain("ke da watta"); // remainder NOT eaten
   });
 
-  it("pends a literal typed into the para-prefix trailing-space node and settles it on caret departure (QA run 3 items 2/6)", async () => {
+  it("pends a literal typed into the para-prefix trailing-space node and settles it on caret departure", async () => {
     // The content-start caret position lands INSIDE the marker-trailing-space NBSP node.
     // Pre-fix that node was exempt from the Tier 2 trigger, so literals typed there never
-    // pended — the Phase-4 departure settle had nothing to resolve and raw literals persisted
+    // pended — the caret-departure settle had nothing to resolve and raw literals persisted
     // indefinitely (serializing to disk).
     let trailing: TextNode, other: TextNode;
     const { editor } = await testEnvironment(() => {
@@ -228,7 +228,7 @@ describe("Tier 2 literal-text triggers", () => {
     await act(async () => editor.update(() => other.select(0, 0)));
     editor.getEditorState().read(() => {
       const paras = $getRoot().getChildren().filter($isParaNode);
-      expect(paras.some((para) => para.getMarker() === "zz")).toBe(true); // settled (§5.2)
+      expect(paras.some((para) => para.getMarker() === "zz")).toBe(true); // settled
     });
   });
 
@@ -261,7 +261,7 @@ describe("Tier 2 literal-text triggers", () => {
   });
 
   it("does not re-tokenize a COLLAPSED note's content (preserve-or-refuse)", async () => {
-    // The note skip is lifted (Phase 3): the trigger now fires inside note content and
+    // The note skip is lifted: the trigger now fires inside note content and
     // routes to `$rebuildNoteContent`. A collapsed note, however, is not inline-editable,
     // so its content re-tokenization is refused and the typed text stays literal.
     const { editor } = await testEnvironment(() => {

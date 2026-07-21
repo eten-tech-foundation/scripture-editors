@@ -31,7 +31,12 @@ import usjEditorAdaptor, {
   reset,
   serializeEditorState,
 } from "./usj-editor.adaptor";
-import { EMPTY_USJ, MarkerObject, usxStringToUsj } from "@eten-tech-foundation/scripture-utilities";
+import {
+  EMPTY_USJ,
+  MarkerContent,
+  MarkerObject,
+  usxStringToUsj,
+} from "@eten-tech-foundation/scripture-utilities";
 import { deepEqual } from "fast-equals";
 import { SerializedTextNode } from "lexical";
 import { getViewOptions, STANDARD_VIEW_MODE, usjReactNodes } from "shared-react";
@@ -128,6 +133,31 @@ describe("Editor USJ Adaptor", () => {
     expect(isEqual).toBe(true);
   });
 
+  it("adds closed=false to a footnote-content char that lacks it (honesty rule)", () => {
+    // A \fr char with no `closed` attribute: the adaptor renders it WITHOUT a closing glyph
+    // (footnote/cross-ref content chars never get one), so the honest editor→USJ representation
+    // must carry closed="false". Otherwise the C# writer would emit an explicit \fr* closer the
+    // source never had.
+    const usj = usxStringToUsj(
+      `<usx version="3.0"><book code="RUT" style="id" /><chapter number="1" style="c" /><para style="p"><verse number="1" style="v" />Text<note caller="+" style="f"><char style="fr">1.1 </char></note></para></usx>`,
+    );
+    initializeSerialize(undefined, undefined);
+    reset();
+    initializeDeserialize(undefined);
+    const serializedEditorState = serializeEditorState(usj);
+    const editorState = editor.parseEditorState(serializedEditorState);
+
+    const result = editorUsjAdaptor.deserializeEditorState(editorState);
+
+    const flatten = (items: MarkerContent[] | undefined): MarkerObject[] =>
+      (items ?? []).flatMap((item) =>
+        typeof item === "string" ? [] : [item, ...flatten(item.content)],
+      );
+    const frChar = flatten(result?.content).find((m) => m.marker === "fr");
+    expect(frChar).toBeDefined();
+    expect((frChar as MarkerObject & { closed?: string }).closed).toBe("false");
+  });
+
   it("should convert to USJ from Lexical editor state JSON with Marks", () => {
     const editorState = editor.parseEditorState(editorStateMarks);
 
@@ -167,6 +197,20 @@ describe("Editor USJ Adaptor", () => {
       state,
       getViewOptions(STANDARD_VIEW_MODE),
     );
+    expect(JSON.stringify(roundTripped)).toContain(`in${NBSP}the days`);
+  });
+
+  it("inverts display whitespace when deserializing editable+expanded standard view", () => {
+    // Expanded notes do not change that this is standard-view text: the display `~` (= data NBSP)
+    // and display-NBSP space run MUST invert on deserialization exactly as in collapsed standard
+    // view. Before the gating fix, editable+expanded skipped inversion, so a display `~` survived
+    // into the saved data as a literal tilde.
+    const state = buildPatchedStandardState(`in~the${NBSP}${NBSP}days`);
+    initializeDeserialize(undefined);
+    const standard = getViewOptions(STANDARD_VIEW_MODE);
+    if (!standard) throw new Error("standard view options not found");
+    const expandedStandard = { ...standard, noteMode: "expanded" as const };
+    const roundTripped = deserializeSerializedEditorState(state, expandedStandard);
     expect(JSON.stringify(roundTripped)).toContain(`in${NBSP}the days`);
   });
 

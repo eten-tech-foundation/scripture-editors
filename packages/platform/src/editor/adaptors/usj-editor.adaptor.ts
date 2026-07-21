@@ -108,12 +108,11 @@ import {
   NoteCallerOnClick,
   SerializedImmutableNoteCallerNode,
   SerializedImmutableVerseNode,
-  STANDARD_VIEW_MODE,
   UsjNodeOptions,
   ViewOptions,
   getDefaultViewOptions,
   getVerseNodeClass,
-  getViewMode,
+  hasStandardViewWhitespace,
   isSomeSerializedVerseNode,
 } from "shared-react";
 
@@ -215,9 +214,14 @@ function setLogger(logger: LoggerBasic | undefined) {
   if (logger) _logger = logger;
 }
 
-/** §4 whitespace display rules are Standard-view-only (spec: must not leak into other modes). */
+/**
+ * Standard-view whitespace display rules; they must not leak into other modes. Gated on the
+ * standard-view whitespace fingerprint (editable + spaced + formatted, any `noteMode`) rather than
+ * the named `standard` mode, so it stays in lockstep with the editable marker engine even when notes
+ * are expanded — see {@link hasStandardViewWhitespace}.
+ */
 function isStandardView(): boolean {
-  return _viewOptions !== undefined && getViewMode(_viewOptions) === STANDARD_VIEW_MODE;
+  return hasStandardViewWhitespace(_viewOptions);
 }
 
 function getTextContent(markers: MarkerContent[] | undefined): string {
@@ -353,8 +357,18 @@ function createChar(
   if (childNodes.length === 0) childNodes.push(createText(EMPTY_CHAR_PLACEHOLDER_TEXT));
   addOpeningMarker(markerObject.marker ?? "", children);
   children.push(...childNodes);
-  addClosingMarker(markerObject.marker ?? "", children);
-  const unknownAttributes = getUnknownAttributes(markerObject, CHAR_MARKER_OBJECT_PROPS);
+  // A char span with no explicit closing marker carries closed="false": ParatextData emits it on
+  // every implicitly-closed span — the explicit `closed="false"` attribute, and near-universally on
+  // footnote/cross-ref content chars like \fr/\ft, which never get a closer. Such spans render
+  // WITHOUT a closing glyph, mirroring the unclosed-note handling in `createNote`.
+  const isUnclosedChar = (markerObject as MarkerObject & { closed?: string }).closed === "false";
+  const isClosingGlyphSkipped = isUnclosedChar || isImplicitlyClosedCharMarker(marker);
+  if (!isUnclosedChar) addClosingMarker(markerObject.marker ?? "", children);
+  let unknownAttributes = getUnknownAttributes(markerObject, CHAR_MARKER_OBJECT_PROPS);
+  // Honesty rule: whenever the closing glyph is skipped, record closed="false" so it round-trips
+  // to USJ. Otherwise closer-less hand-written/legacy USJ that lacked the flag would serialize back
+  // without it and the C# writer would then emit a \marker* closer the source never had.
+  if (isClosingGlyphSkipped) unknownAttributes = { ...unknownAttributes, closed: "false" };
 
   return removeUndefinedProperties({
     type: CharNode.getType(),
@@ -392,12 +406,15 @@ function createPara(
   marker = marker ?? PARA_MARKER_DEFAULT;
   const children: SerializedLexicalNode[] = [];
   if (_viewOptions?.markerMode === "editable")
-    children.push(createMarker(marker), createText(NBSP, "marker-trailing-space"));
+    // Token mode: typing at the separator's boundary must create a new plain TextNode, never
+    // insert into the separator itself (which leaked the NBSP into serialized USJ — `\p ~asdf`).
+    // Keep in sync with `$createMarkerPrefix` (markerEditDeletion.utils.ts).
+    children.push(createMarker(marker), createText(NBSP, "marker-trailing-space", "token"));
   else if (_viewOptions?.markerMode === "visible" || _viewOptions?.hasGutterParaMarkers)
     children.push(createImmutableTypedText("marker", openingMarkerText(marker) + NBSP));
   children.push(...childNodes);
   if (isStandardView()) {
-    // §4: paragraph-leading spaces display as NBSP. First content text node only.
+    // Paragraph-leading spaces display as NBSP. First content text node only.
     const firstText = children.find(
       (node) => isSerializedTextNode(node) && node.text !== NBSP && !isSerializedMarkerNode(node),
     );
@@ -633,9 +650,16 @@ function addOpeningMarker(marker: string, nodes: SerializedLexicalNode[]) {
   }
 }
 
+/**
+ * Whether a char marker is implicitly closed — a footnote or cross-reference content marker that
+ * never has an explicit closing marker. ParatextData records `closed="false"` on such spans.
+ */
+function isImplicitlyClosedCharMarker(marker: string): boolean {
+  return CharNode.isValidFootnoteMarker(marker) || CharNode.isValidCrossReferenceMarker(marker);
+}
+
 function addClosingMarker(marker: string, nodes: SerializedLexicalNode[], isSelfClosing = false) {
-  if (CharNode.isValidFootnoteMarker(marker) || CharNode.isValidCrossReferenceMarker(marker))
-    return;
+  if (isImplicitlyClosedCharMarker(marker)) return;
 
   if (_viewOptions?.markerMode === "editable") {
     if (isSelfClosing) nodes.push(createMarker("", "selfClosing"));

@@ -41,6 +41,7 @@ import {
   isSerializedTextNode,
   NBSP,
   openingMarkerText,
+  SerializedCharNode,
   SerializedNoteNode,
   SerializedParaNode,
 } from "shared";
@@ -290,6 +291,29 @@ describe("USJ Editor Adaptor", () => {
     expect(text.text).toBe("3~000 men");
   });
 
+  it("maps NBSP to tilde in editable+expanded standard view (noteMode expanded)", () => {
+    // Standard view with expanded notes is still standard-view text: the editable marker engine
+    // runs, so the same NBSP->tilde display mapping MUST run too. Before the gating fix,
+    // getViewMode returned undefined for editable+expanded, silently disabling this mapping while
+    // the marker engine kept producing NBSP separators -> NBSP/tilde corruption.
+    const usj = usxStringToUsj(
+      `<usx version="3.0"><book code="RUT" style="id" /><chapter number="1" style="c" /><para style="p"><verse number="1" style="v" />3${NBSP}000 men</para></usx>`,
+    );
+    initialize(undefined, undefined);
+    reset();
+
+    const standard = getViewOptions(STANDARD_VIEW_MODE);
+    if (!standard) throw new Error("standard view options not found");
+    const expandedStandard = { ...standard, noteMode: "expanded" as const };
+    const state = serializeEditorState(usj, expandedStandard);
+
+    const para = state.root.children[2] as SerializedParaNode;
+    const text = para.children.find(
+      (child) => isSerializedTextNode(child) && child.text.includes("000"),
+    ) as SerializedTextNode;
+    expect(text.text).toBe("3~000 men");
+  });
+
   it("does not map NBSP in formatted view", () => {
     const usj = usxStringToUsj(
       `<usx version="3.0"><book code="RUT" style="id" /><chapter number="1" style="c" /><para style="p"><verse number="1" style="v" />3${NBSP}000 men</para></usx>`,
@@ -350,6 +374,61 @@ describe("USJ Editor Adaptor", () => {
     expect(hasClosingMarker).toBe(false);
     // round-trips the closed flag
     expect(JSON.stringify(note)).toContain(`"closed":"false"`);
+  });
+
+  it('renders no closing glyph for a closed="false" char span in editable mode', () => {
+    // ParatextData emits closed="false" on every char span with no explicit closing marker
+    // (near universal on footnote-content chars). Such spans must render WITHOUT a closing
+    // glyph — mirroring the unclosed-note handling above — and round-trip the flag.
+    const usj = usxStringToUsj(
+      `<usx version="3.0"><book code="RUT" style="id" /><chapter number="1" style="c" /><para style="p"><verse number="1" style="v" /><char style="nd" closed="false">Lord</char></para></usx>`,
+    );
+    initialize(undefined, undefined);
+    reset();
+
+    const state = serializeEditorState(usj, getViewOptions(STANDARD_VIEW_MODE));
+
+    const para = state.root.children[2] as SerializedParaNode;
+    const char = para.children.find((c) => isSerializedCharNode(c)) as SerializedCharNode;
+    expect(
+      char.children.some((n) => isSerializedMarkerNode(n) && n.markerSyntax === "opening"),
+    ).toBe(true);
+    // no synthesized closing marker for an unclosed span
+    expect(
+      char.children.some((n) => isSerializedMarkerNode(n) && n.markerSyntax === "closing"),
+    ).toBe(false);
+    // round-trips the closed flag
+    expect(JSON.stringify(char)).toContain(`"closed":"false"`);
+  });
+
+  it('emits no closer and derives closed="false" for a footnote char with no closed attribute', () => {
+    // Honesty rule: a footnote/cross-ref content char (here \fr) never has an explicit closer, so
+    // the adaptor renders no closing glyph even when the source USJ omits `closed`. The derived
+    // closed="false" must ride along so a downstream USFM writer emits no \fr* the source lacked.
+    // The explicit-`closed` char case is pinned above; this pins the derived case.
+    const usj = usxStringToUsj(
+      `<usx version="3.0"><book code="RUT" style="id" /><chapter number="1" style="c" /><para style="p"><verse number="1" style="v" /><note caller="+" style="f"><char style="fr">1.1 </char></note></para></usx>`,
+    );
+    initialize(undefined, undefined);
+    reset();
+
+    // Editable mode renders closing glyphs for normal chars, so a missing closer is meaningful.
+    const state = serializeEditorState(usj, getViewOptions(UNFORMATTED_VIEW_MODE));
+
+    const para = state.root.children[2] as SerializedParaNode;
+    const note = para.children.find((c) => isSerializedNoteNode(c)) as SerializedNoteNode;
+    const frChar = note.children.find(
+      (c) => isSerializedCharNode(c) && c.marker === "fr",
+    ) as SerializedCharNode;
+    expect(
+      frChar.children.some((n) => isSerializedMarkerNode(n) && n.markerSyntax === "opening"),
+    ).toBe(true);
+    // no synthesized closer even though the source USJ carried no `closed` attribute
+    expect(
+      frChar.children.some((n) => isSerializedMarkerNode(n) && n.markerSyntax === "closing"),
+    ).toBe(false);
+    // the flag is derived (the source omitted it) and rides through unknownAttributes
+    expect(frChar.unknownAttributes?.closed).toBe("false");
   });
 
   it("still collapses a closed note in collapsed noteMode", () => {

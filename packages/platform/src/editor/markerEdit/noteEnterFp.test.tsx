@@ -1,5 +1,5 @@
 /**
- * PT9 SmartEnter (design spec §6): pressing Enter inside expanded note content inserts an
+ * PT9 SmartEnter: pressing Enter inside expanded note content inserts an
  * `\fp` (footnote-paragraph) char span instead of splitting the paragraph — a NoteNode is
  * inline, so a paragraph split inside it would be structurally invalid.
  */
@@ -101,7 +101,7 @@ describe("Enter inside note content", () => {
         .map((c) => c.getMarker());
       expect(markers).toContain("fp");
       // The \fp span carries a real opening marker glyph, not just bare content — otherwise
-      // `$charNodeDeletionTransform` (§5.5) would treat it as "opener deleted" and unwrap it.
+      // `$charNodeDeletionTransform` would treat it as "opener deleted" and unwrap it.
       const fp = requireDefined(
         note
           .getChildren()
@@ -190,6 +190,26 @@ describe("Enter inside note content", () => {
       expect(markers).toEqual(markersBefore); // unchanged
       expect(markers).not.toContain("fp"); // no footnote-paragraph span inserted
     });
+  });
+
+  it("prevents the native browser Enter when it claims the key", async () => {
+    // Returning `true` from the KEY_ENTER handler suppresses Lexical's RichText handler —
+    // including the `event.preventDefault()` RichText would have called. Without our own
+    // preventDefault, the BROWSER's native contenteditable Enter still splits the DOM and
+    // Lexical reconciles that into a real paragraph split (live-verified: the popover
+    // wrapper split with the caret genuinely inside the note; invisible in jsdom, which has
+    // no native editing engine — hence the register's "jsdom-verified correct" mystery).
+    const { editor } = await renderStandardEditorWithUnclosedNote();
+    placeCaretAtEndOfNoteFt(editor);
+
+    const event = new KeyboardEvent("keydown", { key: "Enter", cancelable: true });
+    let handled = false;
+    await act(async () => {
+      handled = editor.dispatchCommand(KEY_ENTER_COMMAND, event);
+    });
+
+    expect(handled).toBe(true);
+    expect(event.defaultPrevented).toBe(true); // the browser's own split must not run
   });
 
   it("still splits the paragraph on Enter outside any note", async () => {

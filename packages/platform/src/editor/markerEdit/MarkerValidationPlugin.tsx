@@ -8,7 +8,7 @@ import { ViewOptions } from "shared-react";
 const STATUS_CLASSES = ["status_unknown", "status_invalid"] as const;
 
 /**
- * §5.1 marker validation decoration (design spec Phase 4). Runs a
+ * Marker validation decoration. Runs a
  * PT9-ValidateUsxStyles-shaped full-document pass after every committed update
  * and decorates marker glyph DOM elements with status_unknown/status_invalid.
  * Validity is DERIVED, VIEW-ONLY state: it lives in this plugin and the DOM,

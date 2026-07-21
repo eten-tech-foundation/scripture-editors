@@ -2085,15 +2085,16 @@
 .formatted-font.marker-editable .verse {
   white-space: nowrap;
   unicode-bidi: embed;
-  /* PT9 Standard view has no background badge on verse tokens (Phase 0 visual QA,
-     finding #6); the formatted (non-editable) view keeps its badge. */
+  /* PT9 Standard view has no background badge on verse tokens; the formatted
+     (non-editable) view keeps its badge. */
   background-color: transparent;
 }
 
-/* §5.1 validation states (PT9 ScriptureBase.css .status_unknown/.status_invalid;
-   design spec Phase 4). Applied to marker GLYPH spans only — body text stays
-   normal (PT9 Standard.xslt stamps status on the marker span, not the element).
-   Same error red as the unmatched-closer `.invalid` rule below. */
+/* Marker validation states (PT9 ScriptureBase.css .status_unknown/.status_invalid):
+   flag markers the project stylesheet reports as unknown or invalid. Applied to
+   marker GLYPH spans only — body text stays normal (PT9 Standard.xslt stamps status
+   on the marker span, not the element). Same error red as the unmatched-closer
+   `.invalid` rule below. */
 .marker-editable .status_unknown,
 .formatted-font.marker-editable .status_unknown {
   color: rgba(204, 30, 20, 1);
@@ -2106,13 +2107,13 @@
   border-bottom: 1px solid rgba(204, 30, 20, 1);
 }
 
-/* UnknownNode (§7): lossless carrier for content this editor doesn't model directly — tables,
+/* UnknownNode: lossless carrier for content this editor doesn't model directly — tables,
    figures, sidebars (\esb), \periph, \ref, \optbreak, etc. Hidden by default in every view
    (preserves today's behavior for formatted/markers views); standard view (.marker-editable)
    reveals it as a subdued read-only container with its lead marker shown as a label, so the
    content is visible/inert instead of silently invisible. Two corpus-proven mid-paragraph
    constructs get the inline treatment instead of a block box that would break the sentence
-   (§7: "a line-level box in the middle of a sentence would be visibly wrong"; see
+   (a line-level box in the middle of a sentence would be visibly wrong; see
    UnknownNode.ts's INLINE_UNKNOWN_TAGS — createDOM picks the class per construct):
    - \optbreak: no children; PT9 renders a literal `//`, supplied here via a ::before keyed
      off data-tag="optbreak".
@@ -2133,9 +2134,10 @@
   border: 1px dashed hsl(var(--muted-foreground, 215 16% 65%) / 0.5);
   background-color: hsl(var(--muted-foreground, 215 16% 65%) / 0.08);
   color: hsl(var(--muted-foreground, 215 16% 65%) / 0.85);
-  /* Whole-block selection/deletion only (§7) — a selection can be made within the container but
-     is contained by it rather than merging with the surrounding text. */
-  user-select: contain;
+  /* Whole-block selection/deletion: the containment (a selection stays within the box rather
+     than merging with surrounding text) is provided by the opaque/inert UnknownNode, not CSS.
+     `user-select: contain` is not implemented in Blink/Chromium (only auto | text | none | all),
+     so it was a no-op and is intentionally omitted. */
 }
 
 .marker-editable .unknown-block::before {
@@ -2150,9 +2152,8 @@
 .marker-editable .unknown-inline {
   display: inline;
   color: hsl(var(--muted-foreground, 215 16% 65%) / 0.85);
-  /* Same containment as the block variant: a selection inside the inert construct is contained
-     by it rather than merging with the surrounding sentence text. */
-  user-select: contain;
+  /* Same as the block variant: containment comes from the inert UnknownNode, not CSS
+     (`user-select: contain` is a Blink no-op), so no user-select is set here. */
 }
 
 /* \optbreak carries no USFM marker text of its own (data-marker is empty) — PT9 renders it as

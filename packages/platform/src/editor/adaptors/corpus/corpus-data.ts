@@ -1,7 +1,7 @@
 import { NBSP } from "shared";
 
 /**
- * Round-trip corpus for Standard view (spec §7/§10, Phase 0).
+ * Round-trip corpus for Standard view.
  * Fixtures are authored as USX and converted to USJ at test time via
  * `usxStringToUsj`, guaranteeing shape-valid USJ.
  *
@@ -46,7 +46,7 @@ export const corpusFixtures: CorpusFixture[] = [
   {
     name: "baseline: footnote and cross-reference",
     usx: book(
-      `<para style="p"><verse number="1" style="v" />Text before<note caller="+" style="f"><char style="fr">1.1 </char><char style="ft">A footnote text.</char></note> and after. <verse number="2" style="v" />More<note caller="-" style="x"><char style="xo">1.2 </char><char style="xt">Gen 1.1</char></note> text.</para>`,
+      `<para style="p"><verse number="1" style="v" />Text before<note caller="+" style="f"><char style="fr" closed="false">1.1 </char><char style="ft" closed="false">A footnote text.</char></note> and after. <verse number="2" style="v" />More<note caller="-" style="x"><char style="xo" closed="false">1.2 </char><char style="xt" closed="false">Gen 1.1</char></note> text.</para>`,
     ),
   },
   {
@@ -121,7 +121,15 @@ ${USX_FOOTER}`,
   {
     name: "unclosed note (closed=false)",
     usx: book(
-      `<para style="p"><verse number="1" style="v" />Text<note caller="+" style="f" closed="false"><char style="fr">1.1 </char><char style="ft">Unterminated note</char></note></para>`,
+      `<para style="p"><verse number="1" style="v" />Text<note caller="+" style="f" closed="false"><char style="fr" closed="false">1.1 </char><char style="ft" closed="false">Unterminated note</char></note></para>`,
+    ),
+  },
+  {
+    // A body char span with no explicit closing marker: ParatextData records closed="false".
+    // It must round-trip WITHOUT the editor synthesizing a \nd* closer the source never had.
+    name: "closed=false body char span (implicit close, no closer)",
+    usx: book(
+      `<para style="p"><verse number="1" style="v" />Tell the <char style="nd" closed="false">Lord</char> plainly.</para>`,
     ),
   },
   {
@@ -131,11 +139,11 @@ ${USX_FOOTER}`,
     ),
   },
   {
-    // §4 createPara leading-space display rule: a paragraph whose first content text starts
+    // Paragraph leading-space display rule: a paragraph whose first content text starts
     // with a single leading space. Standard view displays that space as NBSP; the reverse
     // adaptor inverts it back (and normalizeSpaceRuns leaves a lone space alone), so the pair
     // round-trips. The other three modes carry the leading space through untouched.
-    name: "paragraph-leading space (§4 display rule)",
+    name: "paragraph-leading space (display rule)",
     usx: book(`<para style="p"> Leading space precedes this text.</para>`),
   },
 ];

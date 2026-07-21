@@ -160,7 +160,11 @@ describe("USJ Marker Action Utils", () => {
         const tailTextNode = insertedNode.getNextSibling();
         if (!$isTextNode(tailTextNode)) throw new Error("Tail node is not text");
         expect(tailTextNode.getTextContent()).toBe("verse text ");
-        $expectSelectionToBe(tailTextNode, 0);
+        // Caret INSIDE the span at the placeholder's end (PT9: typing fills the new span);
+        // CharNodePlugin strips the placeholder once real content lands.
+        const placeholder = insertedNode.getFirstChild();
+        if (!$isTextNode(placeholder)) throw new Error("Placeholder is not text");
+        $expectSelectionToBe(placeholder, placeholder.getTextContentSize());
       });
     });
 
@@ -189,7 +193,10 @@ describe("USJ Marker Action Utils", () => {
         const tailTextNode = insertedNode.getNextSibling();
         if (!$isTextNode(tailTextNode)) throw new Error("Tail node is not text");
         expect(tailTextNode.getTextContent()).toBe(" verse text ");
-        $expectSelectionToBe(tailTextNode, 0);
+        // Caret INSIDE the span at the placeholder's end (PT9: typing fills the new span).
+        const placeholder = insertedNode.getFirstChild();
+        if (!$isTextNode(placeholder)) throw new Error("Placeholder is not text");
+        $expectSelectionToBe(placeholder, placeholder.getTextContentSize());
       });
     });
 
@@ -218,7 +225,9 @@ describe("USJ Marker Action Utils", () => {
         const charTextNode = insertedNode.getChildAtIndex(0);
         if (!$isTextNode(charTextNode))
           throw new Error("Inserted char node does not have a text node");
-        $expectSelectionToBe(charTextNode, 0);
+        // End of the placeholder, not offset 0: CharNodePlugin's placeholder strip matches a
+        // LEADING placeholder (`startsWith`), so typed text must land after it.
+        $expectSelectionToBe(charTextNode, charTextNode.getTextContentSize());
       });
     });
   });

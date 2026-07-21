@@ -1,5 +1,5 @@
 /**
- * Tier 2 triggers for literal backslash text (design spec section 5.2): typed or
+ * Tier 2 triggers for literal backslash text: typed or
  * pasted USFM that lands as plain TextNode content rather than being routed
  * through a MarkerNode/VerseNode transform. Lexical dispatches node
  * transforms by exact node type, so this transform never fires for
@@ -24,11 +24,11 @@ export function $textNodeTier2Transform(node: TextNode, context: MarkerEditConte
     return;
   }
   const textType = $getState(node, textTypeState);
-  // The para-prefix trailing-space node is NOT exempt (Task 15 QA run 3 items 2/6): it only
+  // The para-prefix trailing-space node is NOT exempt: it only
   // reaches this point when it carries a literal backslash run (a pure-NBSP prefix bails at the
   // includes check above), and that is exactly the node a caret at "content start" types into.
   // Exempting it made typed literals there invisible to the whole pend/settle machinery — `\zz `/
-  // `\zfoo ` persisted indefinitely and serialized raw to disk because the Phase-4 departure
+  // `\zfoo ` persisted indefinitely and serialized raw to disk because the caret-departure
   // settle had nothing pended to resolve. Attribute runs stay exempt (milestone attribute text
   // legitimately contains arbitrary characters).
   if (textType === "attribute") return;
@@ -38,8 +38,8 @@ export function $textNodeTier2Transform(node: TextNode, context: MarkerEditConte
     // literal text (degradation property).
     if ($isBookNode(parent) || $isChapterNode(parent) || $isUnknownNode(parent)) return;
   }
-  // Only the USER'S TYPED RUN can terminate a marker (Task 15 QA run 3 item 3 — the Task-8
-  // type-through corruption class): with the caret mid-word ("li|ke"), typing `\` yields
+  // Only the USER'S TYPED RUN can terminate a marker (the type-through corruption class): with
+  // the caret mid-word ("li|ke"), typing `\` yields
   // "li\ke …", and the word remainder's own following space made `\ke ` look terminated —
   // splitting immediately into a phantom paragraph whose marker absorbed the remainder ("ke"),
   // which the palette apply then consumed (text loss). When this node holds the collapsed
@@ -59,7 +59,7 @@ export function $textNodeTier2Transform(node: TextNode, context: MarkerEditConte
     if (context.rebuildAttempted.has(text)) {
       // $rebuildParas already produced this exact literal text once this commit and, being
       // deterministic, would only reproduce it again (e.g. an unterminated milestone run
-      // that stays literal per the §5.2 degradation property) — settle rather than
+      // that stays literal per the degradation property) — settle rather than
       // retrigger forever.
       return;
     }

@@ -1,4 +1,4 @@
-import { generateFiles, Tree } from "@nx/devkit";
+import { formatFiles, generateFiles, Tree } from "@nx/devkit";
 import * as path from "path";
 import { MarkersDataGeneratorSchema } from "./schema";
 
@@ -111,6 +111,10 @@ export async function markersDataGenerator(tree: Tree, options: MarkersDataGener
     simplifiedDictionaryString: String.raw`${simplifiedDictionaryString}`,
     styleInfoJson,
   });
+  // Prettier-format the generated output so a regeneration from the vendored .sty is a true
+  // no-op against the committed (formatted) files — the README's revert-if-unchanged workflow
+  // depends on that.
+  await formatFiles(tree);
 }
 
 export default markersDataGenerator;

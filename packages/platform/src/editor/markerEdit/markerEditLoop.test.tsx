@@ -14,7 +14,7 @@
  * RETURNS (pre-fix it hangs); the tests carry generous per-test timeouts so a
  * re-introduced loop fails loudly.
  *
- * Since Task 3's stylesheet-first tokenizer, most of these inputs (`\zzz`, a pasted
+ * Since the stylesheet-first tokenizer landed, most of these inputs (`\zzz`, a pasted
  * `C:\temp`) no longer hit the fixed-point path at all: an unknown marker now resolves
  * structurally (PT9 `DetermineUnknownTokenType` — a body-context paragraph split), so
  * the rebuild makes real forward progress on the FIRST attempt and the cascade
@@ -46,6 +46,7 @@ import {
   $createMilestoneNode,
   $createParaNode,
   $isCharNode,
+  $isImmutableUnmatchedNode,
   $isParaNode,
   MarkerNode,
   NBSP,
@@ -158,7 +159,7 @@ describe("Tier 2 resolve/rebuild fixed-point loop (Critical)", () => {
     await act(async () => editor.update(() => qText.select(0, 0)));
 
     editor.getEditorState().read(() => {
-      // "zzz" is unknown to the stylesheet, so per PT9 DetermineUnknownTokenType (Task 3)
+      // "zzz" is unknown to the stylesheet, so per PT9 DetermineUnknownTokenType
       // it resolves as a genuine body-context PARAGRAPH split, not literal text left in
       // place: a real, non-fixed-point rebuild. The cascade still terminates (this test
       // returns) via forward progress, not the fixed-point refusal.
@@ -191,7 +192,7 @@ describe("Tier 2 resolve/rebuild fixed-point loop (Critical)", () => {
     });
 
     editor.getEditorState().read(() => {
-      // As above, "zzz" resolves structurally rather than staying literal (Task 3). Two
+      // As above, "zzz" resolves structurally rather than staying literal. Two
       // deterministic discriminators pin the real rebuild: (1) the original literal
       // TextNode was destroyed by the paragraph rebuild — under the old literal behavior
       // (fixed-point refusal) or a regressed Enter path that resolves nothing, it would
@@ -221,7 +222,7 @@ describe("Tier 2 resolve/rebuild fixed-point loop (Critical)", () => {
     await act(async () => editor.update(() => qText.select(0, 0)));
 
     editor.getEditorState().read(() => {
-      // "temp" is unknown to the stylesheet, so per PT9 DetermineUnknownTokenType (Task 3)
+      // "temp" is unknown to the stylesheet, so per PT9 DetermineUnknownTokenType
       // it resolves as a genuine body-context PARAGRAPH split rather than staying literal —
       // a real, non-fixed-point rebuild. The termination guarantee here is forward progress
       // (a new paragraph), not the fixed-point refusal exercised by the other tests in this
@@ -275,7 +276,7 @@ describe("Tier 2 rebuild with a milestone display run (Critical, Fix 1)", () => 
 
     // Move the caret into the other paragraph -> the pending `\zzz` text resolves,
     // routing the WHOLE paragraph (milestone run + literal text) through $rebuildParas.
-    // "zzz" is unknown to the stylesheet, so per PT9 DetermineUnknownTokenType (Task 3) it
+    // "zzz" is unknown to the stylesheet, so per PT9 DetermineUnknownTokenType it
     // now resolves as a genuine body-context PARAGRAPH split rather than staying literal:
     // this is a real, non-fixed-point rebuild, not a loop. Fix 1 still matters here:
     // `$appendSignature` must collapse the milestone's display run into the SAME single
@@ -334,6 +335,94 @@ describe("genuine fixed-point refusal (no real progress possible)", () => {
       // not a structurally identical re-splice.
       expect($getNodeByKey(pParaKey)?.isAttached()).toBe(true);
       expect($getNodeByKey(pText.getKey())?.isAttached()).toBe(true);
+    });
+  }, 15000);
+
+  // Broaden the backstop past the single milestone case to the tokenizer's other hard-to-parse
+  // inputs: a bare `\`, a stray `\*`, and non-attribute content before a milestone's `\*`. Each
+  // must TERMINATE rather than loop, but by different routes. A bare `\` is a genuine literal
+  // no-op — one of usfmFragmentToUsjContent's remaining literal-degradation cases — so it
+  // terminates via `$rebuildParas`'s fixed-point refusal (nothing mutated; node-identity pins).
+  // A stray `\*` (and the `\*` left after a milestone run degrades to literal) instead makes real
+  // structural progress into an ImmutableUnmatchedNode that the next rebuild preserves as a
+  // sentinel. Either way the mere fact each test RETURNS proves termination.
+  it("does not hang: a bare backslash is a true no-op, refused rather than looping", async () => {
+    let pText: TextNode, qText: TextNode, pParaKey: string;
+    const { editor } = await testEnvironment(() => {
+      ({ pText, qText } = $twoParas("body", "second"));
+      pParaKey = pText.getParentOrThrow().getKey();
+    });
+
+    await act(async () =>
+      editor.update(() => {
+        pText.setTextContent("body \\");
+        pText.select(pText.getTextContentSize(), pText.getTextContentSize());
+      }),
+    );
+    await act(async () => editor.update(() => qText.select(0, 0)));
+
+    editor.getEditorState().read(() => {
+      expect($getRoot().getTextContent()).toContain("body \\"); // literal backslash intact
+      const paras = $getRoot().getChildren().filter($isParaNode);
+      expect(paras).toHaveLength(2);
+      expect($getNodeByKey(pParaKey)?.isAttached()).toBe(true);
+      expect($getNodeByKey(pText.getKey())?.isAttached()).toBe(true);
+    });
+  }, 15000);
+
+  it("does not hang: a stray \\* (no opener) settles to an ImmutableUnmatchedNode, not a loop", async () => {
+    let pText: TextNode, qText: TextNode;
+    const { editor } = await testEnvironment(() => {
+      ({ pText, qText } = $twoParas("body", "second"));
+    });
+
+    await act(async () =>
+      editor.update(() => {
+        pText.setTextContent("body \\*");
+        pText.select(pText.getTextContentSize(), pText.getTextContentSize());
+      }),
+    );
+    await act(async () => editor.update(() => qText.select(0, 0)));
+
+    // A stray `\*` is PT9 sink.Unmatched: real structural progress (an ImmutableUnmatchedNode,
+    // serializing back to `\*`), and the unmatched node is a rebuild sentinel, so the next
+    // rebuild preserves it atomically — termination is by progress-then-sentinel, not refusal.
+    // The test returning at all proves no loop.
+    editor.getEditorState().read(() => {
+      expect($getRoot().getTextContent()).toContain("body"); // literal prefix text intact
+      const paras = $getRoot().getChildren().filter($isParaNode);
+      expect(paras).toHaveLength(2);
+      const unmatched = paras[0].getChildren().filter($isImmutableUnmatchedNode);
+      expect(unmatched).toHaveLength(1);
+      expect(unmatched[0].getMarker()).toBe("*");
+    });
+  }, 15000);
+
+  it("does not hang: non-attribute content before a milestone \\* settles literal + unmatched, not a loop", async () => {
+    let pText: TextNode, qText: TextNode;
+    const { editor } = await testEnvironment(() => {
+      ({ pText, qText } = $twoParas("body", "second"));
+    });
+
+    await act(async () =>
+      editor.update(() => {
+        // `\ts-s x\*`: the `\*` closes, but the content before it is not a `|`-attribute run, so
+        // scanMilestone bails and the milestone run degrades to literal text — while the `\*`
+        // itself becomes an ImmutableUnmatchedNode (PT9 sink.Unmatched), which is real
+        // structural progress and then a rebuild sentinel. Termination, not refusal.
+        pText.setTextContent("body \\ts-s x\\*");
+        pText.select(pText.getTextContentSize(), pText.getTextContentSize());
+      }),
+    );
+    await act(async () => editor.update(() => qText.select(0, 0)));
+
+    editor.getEditorState().read(() => {
+      expect($getRoot().getTextContent()).toContain("\\ts-s x"); // literal run intact
+      const paras = $getRoot().getChildren().filter($isParaNode);
+      expect(paras).toHaveLength(2);
+      const unmatched = paras[0].getChildren().filter($isImmutableUnmatchedNode);
+      expect(unmatched).toHaveLength(1);
+      expect(unmatched[0].getMarker()).toBe("*");
     });
   }, 15000);
 });

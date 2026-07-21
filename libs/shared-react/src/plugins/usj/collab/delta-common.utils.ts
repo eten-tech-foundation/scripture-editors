@@ -76,11 +76,14 @@ export type EmbedNode =
  *   divergence, unchanged here: an editable `VerseNode` is a TextNode, so its glyph text is
  *   counted but its verse embed op is not, while the doc delta emits both.
  *
- * - `"apply"` — the counting `$applyUpdate`'s insert/delete traversals use: EVERY embed is
- *   opaque (1 unit; children never descended into; editable chapter = 1). Positions used in
- *   host-local produce→apply round trips (`$getReplaceEmbedOps`, and reverse lookups of
- *   where `$applyUpdate` actually placed a node) MUST use this system, or every op lands
- *   offset by the glyph text length of each preceding editable chapter.
+ * - `"apply"` — the counting `$applyUpdate`'s insert/delete traversals use: every ELEMENT embed
+ *   is opaque (1 unit; children never descended into; editable chapter = 1). An editable
+ *   `VerseNode` is a TextNode subclass, so `$getNodeOTContribution` counts it as text and it
+ *   still contributes its glyph-text length here rather than 1 — the same accepted pre-existing
+ *   divergence noted above. Positions used in host-local produce→apply round trips
+ *   (`$getReplaceEmbedOps`, and reverse lookups of where `$applyUpdate` actually placed a node)
+ *   MUST use this system, or every op lands offset by the glyph text length of each preceding
+ *   editable chapter.
  *
  * The divergence between the two systems is ACCEPTED for now: the OT collab path was never
  * fully completed, and unifying editable-mode doc-delta coordinates with the apply-side

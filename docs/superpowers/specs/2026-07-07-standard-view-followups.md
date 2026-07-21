@@ -373,3 +373,17 @@ cross-window current-verse highlighting; double-click trailing-space trim; liter
    (mid-rename glyph serialized stale on save); small, and it removes a whole latent class.
 5. **`LoadStatePlugin` reload cluster** (§4) — coordination item whose exposure the power-mode
    default raised.
+
+## Tokenizer ParatextData-fidelity pass (2026-07-20)
+
+The fragment tokenizer was cross-validated against paranext-core's testUSFM corpus (Paratext
+9.5's own USJ as oracle) and brought to parity: 3.0 `link-href` default attributes, byte-exact
+bare attribute values, `//` optbreak, stray-`\*` unmatched elements, note-in-char-span nesting,
+attribute-marker folding (`\ca`/`\cp`/`\va`/`\vp`/`\cat`), milestone heuristic narrowed to the
+stylesheet family, and delta-apply closer-glyph suppression for `closed="false"` char spans.
+The corpus now sits at ZERO divergence — every fixture (including the opaque tables/figures/
+sidebars) produces an empty diff, asserted in
+`libs/shared/src/converters/usfm/usfmFragmentToUsj.corpus.test.ts` (see also
+`libs/shared/src/converters/usfm/testUsfmCorpus/README.md`). The only remaining framing choices
+are the corrected 2SA-3 oracle (Paratext 9.5's acknowledged `\cp`-with-markers bug) and stripping
+`\id` lines (fragments are paragraph-scoped and never carry book identification).

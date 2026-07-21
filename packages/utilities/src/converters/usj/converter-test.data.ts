@@ -1,5 +1,12 @@
 import type { SerializedEditorState } from "lexical";
-import { MarkerContent, Usj } from "./usj.model.js";
+import { MarkerContent, MarkerObject, Usj } from "./usj.model.js";
+
+/**
+ * `closed` is nonstandard derived USX/USJ metadata — ParatextData emits `closed="false"` on
+ * every implicitly-closed note/char span — and is not part of the published `MarkerObject`
+ * shape, so test data carrying it types the field locally.
+ */
+type ClosableMarkerObject = MarkerObject & { closed?: string };
 
 const NBSP = "\u00A0";
 const EMPTY_CHAR_PLACEHOLDER_TEXT = NBSP;
@@ -46,7 +53,7 @@ export const usxGen1v1 = `
       <verse style="v" number="15" altnumber="3" sid="GEN 1:15"/>Tell the Israelites that I, the <char style="nd">Lord</char>, the God of their ancestors, the God of Abraham, Isaac, and Jacob,<char style="va">4</char><verse eid="GEN 1:15" />
     </para>
     <para style="b" />
-    <para style="q2"><verse style="v" number="16" sid="GEN 1:16"/>“There is no help for him in God.”<note style="f" caller="+"><char style="fr">3:2 </char><char style="fk" /><char style="ft">The Hebrew word rendered “God” is “אֱלֹהִ֑ים” (Elohim).</char></note> <unmatched marker="f*" /> <char style="qs">Selah.</char><verse eid="GEN 1:16" /></para>
+    <para style="q2"><verse style="v" number="16" sid="GEN 1:16"/>“There is no help for him in God.”<note style="f" caller="+"><char style="fr" closed="false">3:2 </char><char style="fk" closed="false" /><char style="ft" closed="false">The Hebrew word rendered “God” is “אֱלֹהִ֑ים” (Elohim).</char></note> <unmatched marker="f*" /> <char style="qs">Selah.</char><verse eid="GEN 1:16" /></para>
   <chapter eid="GEN 1" />
 </usx>
 `;
@@ -106,13 +113,19 @@ export const usjGen1v1: Usj = {
           marker: "f",
           caller: "+",
           content: [
-            { type: "char", marker: "fr", content: ["3:2 "] },
-            { type: "char", marker: "fk" },
+            {
+              type: "char",
+              marker: "fr",
+              content: ["3:2 "],
+              closed: "false",
+            } as ClosableMarkerObject,
+            { type: "char", marker: "fk", closed: "false" } as ClosableMarkerObject,
             {
               type: "char",
               marker: "ft",
               content: ["The Hebrew word rendered “God” is “אֱלֹהִ֑ים” (Elohim)."],
-            },
+              closed: "false",
+            } as ClosableMarkerObject,
           ],
         },
         " ",
@@ -315,6 +328,7 @@ export const editorStateGen1v1 = {
               {
                 type: "char",
                 marker: "fr",
+                unknownAttributes: { closed: "false" },
                 direction: null,
                 format: "",
                 indent: 0,
@@ -343,6 +357,7 @@ export const editorStateGen1v1 = {
               {
                 type: "char",
                 marker: "fk",
+                unknownAttributes: { closed: "false" },
                 direction: null,
                 format: "",
                 indent: 0,
@@ -371,6 +386,7 @@ export const editorStateGen1v1 = {
               {
                 type: "char",
                 marker: "ft",
+                unknownAttributes: { closed: "false" },
                 direction: null,
                 format: "",
                 indent: 0,
@@ -470,11 +486,11 @@ export const opsGen1v1 = [
         caller: "+",
         contents: {
           ops: [
-            { insert: "3:2 ", attributes: { char: { style: "fr" } } },
-            { insert: "", attributes: { char: { style: "fk" } } },
+            { insert: "3:2 ", attributes: { char: { style: "fr", closed: "false" } } },
+            { insert: "", attributes: { char: { style: "fk", closed: "false" } } },
             {
               insert: "The Hebrew word rendered “God” is “אֱלֹהִ֑ים” (Elohim).",
-              attributes: { char: { style: "ft" } },
+              attributes: { char: { style: "ft", closed: "false" } },
             },
           ],
         },
@@ -571,7 +587,7 @@ export const editorStateGen1v1Editable = {
             text: NBSP,
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
           },
@@ -750,7 +766,7 @@ export const editorStateGen1v1Editable = {
             text: NBSP,
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
           },
@@ -783,7 +799,7 @@ export const editorStateGen1v1Editable = {
             text: NBSP,
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
           },
@@ -838,6 +854,7 @@ export const editorStateGen1v1Editable = {
               {
                 type: "char",
                 marker: "fr",
+                unknownAttributes: { closed: "false" },
                 direction: null,
                 format: "",
                 indent: 0,
@@ -868,6 +885,7 @@ export const editorStateGen1v1Editable = {
               {
                 type: "char",
                 marker: "fk",
+                unknownAttributes: { closed: "false" },
                 direction: null,
                 format: "",
                 indent: 0,
@@ -898,6 +916,7 @@ export const editorStateGen1v1Editable = {
               {
                 type: "char",
                 marker: "ft",
+                unknownAttributes: { closed: "false" },
                 direction: null,
                 format: "",
                 indent: 0,
@@ -1010,14 +1029,13 @@ export const editorStateGen1v1Editable = {
 
 /**
  * Expected ops for `editorStateGen1v1Editable` (editable markers, expanded notes). Body ops
- * carry the editable marker glyph text verbatim (pinned Phase 2 contract), but the note's
+ * carry the editable marker glyph text verbatim (the pinned contract), but the note's
  * `contents.ops` are CANONICAL (glyph-free): the editable caller text, the char-span glyph
  * MarkerNodes, the structural NBSP content separators, and the closing `\f*` glyph are
  * presentation-only and are re-synthesized by `$applyUpdate` when the note is materialized,
  * so they must not flow into note contents ops (they used to, which doubled the glyphs and
- * materialized an unmatched `\f*` on every round-trip — see the Task 14 contract
- * redefinition). Note contents ops are therefore identical across marker modes (compare
- * `opsGen1v1`).
+ * materialized an unmatched `\f*` on every round-trip; the contract now excludes them). Note
+ * contents ops are therefore identical across marker modes (compare `opsGen1v1`).
  */
 export const opsGen1v1Editable = [
   { insert: "Some Scripture Version" },
@@ -1046,11 +1064,11 @@ export const opsGen1v1Editable = [
         caller: "+",
         contents: {
           ops: [
-            { insert: "3:2 ", attributes: { char: { style: "fr" } } },
-            { insert: "", attributes: { char: { style: "fk" } } },
+            { insert: "3:2 ", attributes: { char: { style: "fr", closed: "false" } } },
+            { insert: "", attributes: { char: { style: "fk", closed: "false" } } },
             {
               insert: "The Hebrew word rendered “God” is “אֱלֹהִ֑ים” (Elohim).",
-              attributes: { char: { style: "ft" } },
+              attributes: { char: { style: "ft", closed: "false" } },
             },
           ],
         },
@@ -1143,7 +1161,7 @@ export const editorStateGen1v1Standard = {
             text: NBSP,
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -1321,7 +1339,7 @@ export const editorStateGen1v1Standard = {
             text: NBSP,
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -1356,7 +1374,7 @@ export const editorStateGen1v1Standard = {
             text: NBSP,
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -1415,6 +1433,7 @@ export const editorStateGen1v1Standard = {
               {
                 type: "char",
                 marker: "fr",
+                unknownAttributes: { closed: "false" },
                 children: [
                   {
                     type: "marker",
@@ -1454,6 +1473,7 @@ export const editorStateGen1v1Standard = {
               {
                 type: "char",
                 marker: "fk",
+                unknownAttributes: { closed: "false" },
                 children: [
                   {
                     type: "marker",
@@ -1493,6 +1513,7 @@ export const editorStateGen1v1Standard = {
               {
                 type: "char",
                 marker: "ft",
+                unknownAttributes: { closed: "false" },
                 children: [
                   {
                     type: "marker",
@@ -1630,10 +1651,10 @@ export const editorStateGen1v1Standard = {
 /**
  * Expected ops for `editorStateGen1v1Standard` (standard view: editable markers, collapsed
  * notes). Identical to `opsGen1v1Editable`: body ops carry the editable marker glyph text
- * verbatim (pinned Phase 2 contract), while the note's `contents.ops` are CANONICAL
+ * verbatim (the pinned contract), while the note's `contents.ops` are CANONICAL
  * (glyph-free) — in standard view the caller is an `ImmutableNoteCallerNode` decorator and
  * the NBSP spacers produce no ops, and the char-span glyphs / NBSP separators / closing
- * `\f*` glyph are skipped as presentation-only (Task 14 contract redefinition; they are
+ * `\f*` glyph are skipped as presentation-only (the contract excludes them; they are
  * re-synthesized by `$applyUpdate`). Note contents ops are identical across marker modes
  * (compare `opsGen1v1`).
  */
@@ -1664,11 +1685,11 @@ export const opsGen1v1Standard = [
         caller: "+",
         contents: {
           ops: [
-            { insert: "3:2 ", attributes: { char: { style: "fr" } } },
-            { insert: "", attributes: { char: { style: "fk" } } },
+            { insert: "3:2 ", attributes: { char: { style: "fr", closed: "false" } } },
+            { insert: "", attributes: { char: { style: "fk", closed: "false" } } },
             {
               insert: "The Hebrew word rendered “God” is “אֱלֹהִ֑ים” (Elohim).",
-              attributes: { char: { style: "ft" } },
+              attributes: { char: { style: "ft", closed: "false" } },
             },
           ],
         },
@@ -2314,7 +2335,7 @@ export const usxWithUnknownItems = `
   <book style="id" code="GEN" category="watCat" attr-unknown="watAttr" />
   <chapter style="c" number="1" sid="GEN 1" category="watCat" attr-unknown="watAttr" />
     <para style="p" category="watCat" attr-unknown="watAttr">
-      <verse style="v" number="1" category="watCat" attr-unknown="watAttr" />First part of the first verse <note style="f" caller="+" eid="watEid" attr-unknown="watAttr"><char style="fr" category="watCat" attr-unknown="watAttr">3:2 </char></note>
+      <verse style="v" number="1" category="watCat" attr-unknown="watAttr" />First part of the first verse <note style="f" caller="+" eid="watEid" attr-unknown="watAttr"><char style="fr" category="watCat" attr-unknown="watAttr" closed="false">3:2 </char></note>
         <ms style="ts" category="watCat" attr-unknown="watAttr"/>
         <wat style="z" category="watCat" attr-unknown="watAttr">wat content?</wat>
     </para>
@@ -2369,6 +2390,7 @@ export const usjWithUnknownItems = {
               marker: "fr",
               category: "watCat",
               "attr-unknown": "watAttr",
+              closed: "false",
               content: ["3:2 "],
             },
           ],
@@ -2509,7 +2531,11 @@ export const editorStateWithUnknownItems = {
               {
                 type: "char",
                 marker: "fr",
-                unknownAttributes: { category: "watCat", "attr-unknown": "watAttr" },
+                unknownAttributes: {
+                  category: "watCat",
+                  "attr-unknown": "watAttr",
+                  closed: "false",
+                },
                 direction: null,
                 format: "",
                 indent: 0,
