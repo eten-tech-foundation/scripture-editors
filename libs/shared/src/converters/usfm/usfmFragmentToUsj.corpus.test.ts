@@ -176,7 +176,7 @@ const CASES: { label: string; usfm: string; usj: string; expectedDivergences: nu
     label: "testUSFM 2SA 2",
     usfm: "testUSFM-2SA-2.usfm",
     usj: "testUSFM-2SA-2.usj",
-    expectedDivergences: 2,
+    expectedDivergences: 0,
   },
   {
     label: "testUSFM 2SA 3 (corrected oracle)",
