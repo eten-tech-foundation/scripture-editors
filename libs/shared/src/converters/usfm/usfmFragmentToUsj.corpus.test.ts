@@ -4,23 +4,17 @@
  * `testUsfmCorpus/README.md`). This pins ParatextData parse fidelity — the tokenizer's reference
  * semantics — against a corpus that deliberately exercises USFM's edges.
  *
- * EXPECTED DIVERGENCES (pinned by count below; a new divergence OR a fixed one fails the test —
- * update the pin and this table together):
+ * The tokenizer diverges NOWHERE on this corpus — every fixture must produce an empty diff.
+ * Any new divergence fails its test with a self-describing entry list.
  *
- * - **2SA-1: NONE.** Figures, tables (including the column-13 table break — only `th1`–`th12`/
- *   `tc1`–`tc12` are cells, per usfm.sty's vocabulary), and sidebars all emit Paratext's own
- *   `figure`/`table`/`sidebar` shapes.
- * - **Unclosed `\ca` wrapper (2SA-2)**: Paratext strands the unfolded `\ca` char at the
- *   DOCUMENT top level (a root char — same invalid-shape family as the chapter-3 bug); the
- *   tokenizer wraps it in a paragraph. Fold/no-fold behavior itself agrees (unclosed attribute
- *   markers never fold).
- * - **2SA-3 vs Paratext's RAW output**: not tested — the corrected oracle is used instead
- *   (see README); against it the tokenizer diverges ZERO. This is a deliberate, documented
- *   divergence from Paratext 9.5's buggy `\cp`-with-markers handling: the serialized bytes are
- *   identical either way, so nothing breaks P9.
+ * Two deliberate framing choices:
  *
- * `\id` lines are stripped before tokenizing (with the oracle's `book` node): fragments are
- * paragraph-scoped by design and never contain book identification.
+ * - **2SA-3 uses the corrected oracle**, not Paratext's raw output (see README): the raw file
+ *   contains Paratext 9.5's acknowledged `\cp`-with-markers bug (partial `pubnumber` fold + a
+ *   stranded top-level char). The tokenizer intentionally produces the spec-correct shape; the
+ *   serialized bytes are identical either way, so nothing breaks P9.
+ * - **`\id` lines are stripped** before tokenizing (with the oracle's `book` node): fragments
+ *   are paragraph-scoped by design and never contain book identification.
  */
 import { usfmFragmentToUsjContent } from "./usfmFragmentToUsj.js";
 import { existsSync, readFileSync } from "node:fs";
@@ -164,51 +158,25 @@ function corpusDivergences(usfmFile: string, usjFile: string): string[] {
   return diffs;
 }
 
-/** Pinned divergence counts per fixture — see the header table for what each remainder is. */
-const CASES: { label: string; usfm: string; usj: string; expectedDivergences: number }[] = [
-  {
-    label: "testUSFM 2SA 1",
-    usfm: "testUSFM-2SA-1.usfm",
-    usj: "testUSFM-2SA-1.usj",
-    expectedDivergences: 0,
-  },
-  {
-    label: "testUSFM 2SA 2",
-    usfm: "testUSFM-2SA-2.usfm",
-    usj: "testUSFM-2SA-2.usj",
-    expectedDivergences: 0,
-  },
+const CASES: { label: string; usfm: string; usj: string }[] = [
+  { label: "testUSFM 2SA 1", usfm: "testUSFM-2SA-1.usfm", usj: "testUSFM-2SA-1.usj" },
+  { label: "testUSFM 2SA 2", usfm: "testUSFM-2SA-2.usfm", usj: "testUSFM-2SA-2.usj" },
   {
     label: "testUSFM 2SA 3 (corrected oracle)",
     usfm: "testUSFM-2SA-3.usfm",
     usj: "testUSFM-2SA-3-corrected.usj",
-    expectedDivergences: 0,
   },
-  {
-    label: "web matthew 1-2",
-    usfm: "web-matthew-1-and-2.usfm",
-    usj: "web-matthew-1-and-2.usj",
-    expectedDivergences: 0,
-  },
+  { label: "web matthew 1-2", usfm: "web-matthew-1-and-2.usfm", usj: "web-matthew-1-and-2.usj" },
   {
     label: "web matthew 5",
     usfm: "web-matthew-5-section-header.usfm",
     usj: "web-matthew-5-section-header.usj",
-    expectedDivergences: 0,
   },
 ];
 
 describe("usfmFragmentToUsjContent — testUSFM cross-oracle corpus (Paratext 9.5 USJ)", () => {
-  it.each(CASES)(
-    "$label: divergences match the documented allowlist",
-    ({ usfm, usj, expectedDivergences }) => {
-      const diffs = corpusDivergences(usfm, usj);
-      if (diffs.length !== expectedDivergences) {
-        // Print the full list so a failure is diagnosable without re-running by hand.
-        // eslint-disable-next-line no-console
-        console.error(`Divergences (${diffs.length}):\n${diffs.join("\n")}`);
-      }
-      expect(diffs.length).toBe(expectedDivergences);
-    },
-  );
+  it.each(CASES)("$label: zero divergence from ParatextData's own USJ", ({ usfm, usj }) => {
+    // Each diff entry names its path and both sides, so a failure is self-diagnosing.
+    expect(corpusDivergences(usfm, usj)).toEqual([]);
+  });
 });
