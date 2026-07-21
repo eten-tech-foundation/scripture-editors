@@ -20,9 +20,12 @@
  * `UsxUsfmParserSink.cs:262-266`), not literal text.
  *
  * Literal-text degradation remains only for fragments the
- * tokenizer cannot confidently parse at all: a bare `\`, a stray `\*`,
- * non-attribute content before a milestone's `\*`, or an unterminated
- * milestone (stylesheet-declared, or matching the suffix convention above).
+ * tokenizer cannot confidently parse at all: a bare `\`, non-attribute
+ * content before a milestone's `\*` (the milestone run degrades, while the
+ * `\*` itself becomes an unmatched element), or an unterminated milestone
+ * (stylesheet-declared, or matching the suffix convention above). A stray
+ * `\*` with no milestone to close is NOT literal — it becomes an unmatched
+ * element (see above).
  *
  * Figures, tables, and sidebars assemble to their faithful USJ shapes at the
  * assembly level, marker-name driven (they are parser-level structures in

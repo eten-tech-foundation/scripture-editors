@@ -530,9 +530,10 @@ export function $rebuildParas(paras: ParaNode[], context: Tier2Context): boolean
   // Fixed-point refusal (preserve-or-refuse). If the freshly-tokenized output is
   // structurally identical to the paragraphs it was derived from, this rebuild is a
   // no-op: splicing it in would reproduce the same unresolved literal text (a bare
-  // `\`, a stray `\*`, or an unterminated milestone run — the tokenizer's remaining
-  // literal-degradation cases; most unknown markers now resolve structurally instead,
-  // see usfmFragmentToUsjContent's doc comment), re-arm the TextNode catch-all
+  // `\`, non-attribute content before a milestone's `\*`, or an unterminated milestone
+  // run — the tokenizer's remaining literal-degradation cases; a stray `\*` and most
+  // unknown markers now resolve structurally instead, see usfmFragmentToUsjContent's
+  // doc comment), re-arm the TextNode catch-all
   // transform, and — via the caret-departure/Enter completion path — drive an endless
   // resolve→rebuild→resolve cascade that hangs the main thread. Compare BEFORE any
   // mutation and bail. The signature normalizes preserved nodes and their U+FFFC
