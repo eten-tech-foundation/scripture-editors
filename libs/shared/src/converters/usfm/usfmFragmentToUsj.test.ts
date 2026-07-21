@@ -665,6 +665,21 @@ describe("usfmFragmentToUsjContent — verse, chapter, note, milestone, attribut
       ]);
     });
 
+    it("loose content after a chapter lands at DOCUMENT ROOT, not in an implied paragraph", () => {
+      // ParatextData root scope: text typed after `\c 1` saves as its own ` text` line with no
+      // `\p`; an unclosed `\ca` there strands a root-level char (2SA-2's oracle shape).
+      expect(usfmFragmentToUsjContent("\\c 1\ntext after chapter\n\\s1 Heading")).toEqual([
+        { type: "chapter", marker: "c", number: "1" },
+        "text after chapter ",
+        { type: "para", marker: "s1", content: ["Heading"] },
+      ]);
+      expect(usfmFragmentToUsjContent("\\c 2\n \\ca 2 ca\n\\p body")).toEqual([
+        { type: "chapter", marker: "c", number: "2" },
+        { type: "char", marker: "ca", content: ["2 ca "], closed: "false" },
+        { type: "para", marker: "p", content: ["body"] },
+      ]);
+    });
+
     it('marks a sidebar unclosed at fragment end with closed="false"', () => {
       expect(usfmFragmentToUsjContent("\\esb\n\\p in sidebar")).toEqual([
         {

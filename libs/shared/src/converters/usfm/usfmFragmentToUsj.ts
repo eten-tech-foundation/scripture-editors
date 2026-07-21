@@ -441,6 +441,13 @@ export function usfmFragmentToUsjContent(
    * fragment result. */
   const blockTarget = (): MarkerContent[] => (sidebar ? getContent(sidebar) : result);
 
+  // True between a chapter token and the next opened block: loose content there sits at the
+  // DOCUMENT ROOT in ParatextData's output, not in an implied paragraph — text typed after
+  // `\c 1` saves as its own ` text` line, and 2SA-2's unclosed `\ca` strands a root char.
+  // Fragment-LEADING bare content keeps the implied-`\p` wrap (the note-content rebuild
+  // depends on unwrapping it), so this is scoped to post-chapter position only.
+  let atChapterRootScope = false;
+
   const container = (): MarkerContent[] => {
     if (note) {
       // Inside the note, only frames opened WITHIN it receive content; the enclosing
@@ -451,6 +458,7 @@ export function usfmFragmentToUsjContent(
     }
     if (charStack.length > 0) return getContent(charStack[charStack.length - 1].object);
     if (!para) {
+      if (atChapterRootScope && !isNoteContext) return blockTarget();
       para = { type: "para", marker: PARA_MARKER_DEFAULT, content: [] };
       blockTarget().push(para);
     }
@@ -550,6 +558,7 @@ export function usfmFragmentToUsjContent(
   /** Start an ordinary paragraph block. Any non-row/cell paragraph-kind marker also ends an
    * open table — ParatextData never resumes a table across another block. */
   const startParagraph = (marker: string, initialText?: string) => {
+    atChapterRootScope = false;
     endTable();
     closeCharStack();
     closeNote(false);
@@ -751,6 +760,7 @@ export function usfmFragmentToUsjContent(
           getContent(table).push(tableRow);
           // Content before the first cell marker (degenerate) lands in the row itself.
           para = tableRow;
+          atChapterRootScope = false;
           break;
         }
         if (tableEligible && tableRow) {
@@ -791,6 +801,7 @@ export function usfmFragmentToUsjContent(
           result.push(sidebar);
           para = undefined;
           attrTarget = sidebar; // receptive to \cat (directly after \esb only)
+          atChapterRootScope = false;
           break;
         }
         if (token.marker === SIDEBAR_END_MARKER && sidebar) {
@@ -828,6 +839,7 @@ export function usfmFragmentToUsjContent(
         };
         result.push(chapter);
         attrTarget = chapter; // receptive to \ca/\cp
+        atChapterRootScope = true;
         break;
       }
       case "note": {
