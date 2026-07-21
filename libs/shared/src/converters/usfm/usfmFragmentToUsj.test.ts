@@ -506,6 +506,177 @@ describe("usfmFragmentToUsjContent — verse, chapter, note, milestone, attribut
     });
   });
 
+  describe("opaque-structure emission (figures, tables, sidebars → faithful USJ shapes)", () => {
+    it("emits an inline figure with src renamed to file and no content when empty", () => {
+      expect(
+        usfmFragmentToUsjContent(
+          '\\p a figure \\fig |src="f.png" size="col" ref="1.13"\\fig* here',
+        ),
+      ).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: [
+            "a figure ",
+            { type: "figure", marker: "fig", file: "f.png", size: "col", ref: "1.13" },
+            " here",
+          ],
+        },
+      ]);
+    });
+
+    it("emits a figure with caption content and all six named attributes", () => {
+      expect(
+        usfmFragmentToUsjContent(
+          '\\p x\\fig Caption Here|alt="D" src="f.png" size="span" loc="L" copy="C" ref="1.13"\\fig*. y',
+        ),
+      ).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: [
+            "x",
+            {
+              type: "figure",
+              marker: "fig",
+              alt: "D",
+              file: "f.png",
+              size: "span",
+              loc: "L",
+              copy: "C",
+              ref: "1.13",
+              content: ["Caption Here"],
+            },
+            ". y",
+          ],
+        },
+      ]);
+    });
+
+    it("assembles rows and cells into a table with name-derived align and span colspan", () => {
+      expect(
+        usfmFragmentToUsjContent(
+          "\\tr \\th1 Header 1\\thc3-4 H34 centered\\thr5 H5 right\n\\p after",
+        ),
+      ).toEqual([
+        {
+          type: "table",
+          content: [
+            {
+              type: "table:row",
+              marker: "tr",
+              content: [
+                { type: "table:cell", marker: "th1", align: "start", content: ["Header 1"] },
+                // Span syntax keeps the first column in the marker; colspan is a STRING
+                // (columns spanned): thc3-4 → thc3, colspan "2".
+                {
+                  type: "table:cell",
+                  marker: "thc3",
+                  align: "center",
+                  colspan: "2",
+                  content: ["H34 centered"],
+                },
+                { type: "table:cell", marker: "thr5", align: "end", content: ["H5 right"] },
+              ],
+            },
+          ],
+        },
+        { type: "para", marker: "p", content: ["after"] },
+      ]);
+    });
+
+    it("keeps char spans inside cells and multiple rows in one table", () => {
+      expect(
+        usfmFragmentToUsjContent("\\tr \\tc1 a\\tc2 b \\wj w\\wj* c\\tr \\tcr1-4 d\\tc5 e"),
+      ).toEqual([
+        {
+          type: "table",
+          content: [
+            {
+              type: "table:row",
+              marker: "tr",
+              content: [
+                { type: "table:cell", marker: "tc1", align: "start", content: ["a"] },
+                {
+                  type: "table:cell",
+                  marker: "tc2",
+                  align: "start",
+                  content: ["b ", { type: "char", marker: "wj", content: ["w"] }, " c"],
+                },
+              ],
+            },
+            {
+              type: "table:row",
+              marker: "tr",
+              content: [
+                { type: "table:cell", marker: "tcr1", align: "end", colspan: "4", content: ["d"] },
+                { type: "table:cell", marker: "tc5", align: "start", content: ["e"] },
+              ],
+            },
+          ],
+        },
+      ]);
+    });
+
+    it("wraps sidebar content in a sidebar with \\cat folded to its category", () => {
+      expect(
+        usfmFragmentToUsjContent(
+          "\\esb \\cat Test Category\\cat*\n\\p one\n\\p two\n\\esbe\n\\p after",
+        ),
+      ).toEqual([
+        {
+          type: "sidebar",
+          marker: "esb",
+          category: "Test Category",
+          content: [
+            { type: "para", marker: "p", content: ["one"] },
+            { type: "para", marker: "p", content: ["two"] },
+          ],
+        },
+        { type: "para", marker: "p", content: ["after"] },
+      ]);
+    });
+
+    it("a column beyond 12 is not a cell: it ends the table and the next \\tr starts fresh", () => {
+      // usfm.sty declares exactly th1–th12/tc1–tc12; ParatextData follows its stylesheet,
+      // so \tc13 is an unknown marker (paragraph) that breaks the table in two.
+      expect(usfmFragmentToUsjContent("\\tr \\tc1 a\\tc13 x\\tr \\tc2 b")).toEqual([
+        {
+          type: "table",
+          content: [
+            {
+              type: "table:row",
+              marker: "tr",
+              content: [{ type: "table:cell", marker: "tc1", align: "start", content: ["a"] }],
+            },
+          ],
+        },
+        { type: "para", marker: "tc13", content: ["x"] },
+        {
+          type: "table",
+          content: [
+            {
+              type: "table:row",
+              marker: "tr",
+              content: [{ type: "table:cell", marker: "tc2", align: "start", content: ["b"] }],
+            },
+          ],
+        },
+      ]);
+    });
+
+    it('marks a sidebar unclosed at fragment end with closed="false"', () => {
+      expect(usfmFragmentToUsjContent("\\esb\n\\p in sidebar")).toEqual([
+        {
+          type: "sidebar",
+          marker: "esb",
+          closed: "false",
+          content: [{ type: "para", marker: "p", content: ["in sidebar"] }],
+        },
+      ]);
+    });
+  });
+
   describe('closed="false" parity (ParatextData marks every implicitly-closed char span)', () => {
     it("marks a char span auto-closed at the paragraph end", () => {
       expect(usfmFragmentToUsjContent("\\p before \\nd Lord")).toEqual([

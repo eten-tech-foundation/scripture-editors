@@ -7,15 +7,9 @@
  * EXPECTED DIVERGENCES (pinned by count below; a new divergence OR a fixed one fails the test —
  * update the pin and this table together):
  *
- * - **Tables** (`\tr`, `\th#`/`\tc#`/spanned `\tc1-2` …): the fragment tokenizer emits flat
- *   paragraphs; Paratext builds `table` → `table:row` → `table:cell`. Deliberate scope-out:
- *   tables are opaque blocks in Standard view (excluded from Tier-2 rebuilds), and pasted table
- *   USFM degrades to flat paras that ParatextData re-parses into proper tables on save. Real
- *   table node types are a registered follow-up.
- * - **Figures** (`\fig …\fig*`): char/para span vs Paratext's `figure` type. Same opaque-block
- *   scope-out and degradation recovery.
- * - **Sidebars** (`\esb`/`\esbe`): flat paragraphs vs Paratext's `sidebar` wrapper (including
- *   its nested content paragraphs). Same scope-out.
+ * - **2SA-1: NONE.** Figures, tables (including the column-13 table break — only `th1`–`th12`/
+ *   `tc1`–`tc12` are cells, per usfm.sty's vocabulary), and sidebars all emit Paratext's own
+ *   `figure`/`table`/`sidebar` shapes.
  * - **Unclosed `\ca` wrapper (2SA-2)**: Paratext strands the unfolded `\ca` char at the
  *   DOCUMENT top level (a root char — same invalid-shape family as the chapter-3 bug); the
  *   tokenizer wraps it in a paragraph. Fold/no-fold behavior itself agrees (unclosed attribute
@@ -176,7 +170,7 @@ const CASES: { label: string; usfm: string; usj: string; expectedDivergences: nu
     label: "testUSFM 2SA 1",
     usfm: "testUSFM-2SA-1.usfm",
     usj: "testUSFM-2SA-1.usj",
-    expectedDivergences: 54,
+    expectedDivergences: 0,
   },
   {
     label: "testUSFM 2SA 2",
