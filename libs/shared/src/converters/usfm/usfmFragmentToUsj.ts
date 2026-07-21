@@ -627,8 +627,12 @@ export function usfmFragmentToUsjContent(
         // fall through to process the boundary token normally
       } else {
         // Markup inside the span (or a mismatched closer): not foldable — materialize the
-        // standalone marker, then reprocess this token normally.
+        // standalone marker, then reprocess this token normally. A trailing line break in the
+        // captured value before a BLOCK boundary is structural, same as the text-case rule
+        // (`\ca 2 ca` ⏎ `\cp` materializes content "2 ca", not "2 ca ").
         attrTarget = undefined;
+        if ((token.kind === "para" || token.kind === "chapter") && attrCapture.value.endsWith("\n"))
+          attrCapture.value = attrCapture.value.slice(0, -1);
         if (attrCapture.shape === "para") materializeCaptureAsPara();
         else materializeCaptureAsChar();
         tokenIndex--;
@@ -729,13 +733,15 @@ export function usfmFragmentToUsjContent(
     switch (token.kind) {
       case "text": {
         let text = token.text;
-        // Inside table and sidebar assembly, a text run's trailing line break before a block
-        // boundary (a paragraph-kind or chapter token, or fragment end) is structural — the
-        // line ends where the next block marker begins, and ParatextData emits no content
-        // there. Elsewhere the pre-existing boundary behavior stands (a trailing line break
-        // becomes a space): engine fragments carry no line breaks, so only synthetic and
-        // corpus input reaches either path. `regularizeSpaces` collapsed the run to `"\n"`.
-        if ((tableRow || sidebar) && !note && text.endsWith("\n")) {
+        // A text run's trailing LINE BREAK before a block boundary (a paragraph-kind or
+        // chapter token, or fragment end) is structural — the line ends where the next block
+        // marker begins, and ParatextData emits no content there. A line break before an
+        // INLINE token (char/note/verse/milestone: an ordinary line wrap) stays a content
+        // space, as does any typed same-line space. Engine fragments carry no line breaks,
+        // so only whole-file/direct-converter input reaches this path; `regularizeSpaces`
+        // collapsed the run to `"\n"`. Note interiors keep the pre-existing space (a note
+        // terminated by a line-end block boundary is not corpus-attested).
+        if (!note && text.endsWith("\n")) {
           const next = tokens[tokenIndex + 1];
           if (next === undefined || next.kind === "para" || next.kind === "chapter")
             text = text.slice(0, -1);
@@ -913,6 +919,8 @@ export function usfmFragmentToUsjContent(
       });
       attrCapture = undefined;
     } else {
+      // Trailing line break at the fragment-end boundary is structural (text-case rule).
+      if (attrCapture.value.endsWith("\n")) attrCapture.value = attrCapture.value.slice(0, -1);
       materializeCaptureAsChar();
     }
   }

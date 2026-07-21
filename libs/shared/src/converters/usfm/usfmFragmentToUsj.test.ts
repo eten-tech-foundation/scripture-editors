@@ -410,7 +410,7 @@ describe("usfmFragmentToUsjContent — verse, chapter, note, milestone, attribut
           marker: "cp",
           // The trailing " " is the newline before \p regularized to a space — pre-existing
           // paragraph-boundary behavior (engine fragments carry no line breaks).
-          content: ["3 cp ", { type: "char", marker: "wj", content: ["wj marker "] }, " "],
+          content: ["3 cp ", { type: "char", marker: "wj", content: ["wj marker "] }],
         },
         { type: "para", marker: "p", content: ["b"] },
       ]);
@@ -670,12 +670,12 @@ describe("usfmFragmentToUsjContent — verse, chapter, note, milestone, attribut
       // `\p`; an unclosed `\ca` there strands a root-level char (2SA-2's oracle shape).
       expect(usfmFragmentToUsjContent("\\c 1\ntext after chapter\n\\s1 Heading")).toEqual([
         { type: "chapter", marker: "c", number: "1" },
-        "text after chapter ",
+        "text after chapter",
         { type: "para", marker: "s1", content: ["Heading"] },
       ]);
       expect(usfmFragmentToUsjContent("\\c 2\n \\ca 2 ca\n\\p body")).toEqual([
         { type: "chapter", marker: "c", number: "2" },
-        { type: "char", marker: "ca", content: ["2 ca "], closed: "false" },
+        { type: "char", marker: "ca", content: ["2 ca"], closed: "false" },
         { type: "para", marker: "p", content: ["body"] },
       ]);
     });

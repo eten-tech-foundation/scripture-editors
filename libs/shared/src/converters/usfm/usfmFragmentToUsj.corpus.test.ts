@@ -33,9 +33,10 @@ function readFixture(name: string): string {
   return readFileSync(join(CORPUS_DIR, name), "utf8");
 }
 
-/** Whitespace/positional normalization so the diff measures STRUCTURE and content bytes:
- * collapse whitespace runs (raw-USFM line joins), drop Paratext's positional attributes
- * (sid/eid/vid), and trim container-edge whitespace (line-break artifacts). */
+/** Minimal normalization so the diff measures STRUCTURE and content bytes: collapse
+ * whitespace runs (raw-USFM line joins) and drop Paratext's positional attributes
+ * (sid/eid/vid), which are derived metadata the writer never outputs. No edge trimming —
+ * content whitespace must match the oracle exactly. */
 function normalizeContent(items: MarkerContent[]): MarkerContent[] {
   const out: MarkerContent[] = [];
   for (const item of items) {
@@ -52,18 +53,6 @@ function normalizeContent(items: MarkerContent[]): MarkerContent[] {
       if (object.content) object.content = normalizeContent(object.content);
       out.push(object);
     }
-  }
-  const first = out[0];
-  if (typeof first === "string") {
-    const trimmed = first.replace(/^ +/, "");
-    if (trimmed === "") out.shift();
-    else out[0] = trimmed;
-  }
-  const last = out[out.length - 1];
-  if (typeof last === "string") {
-    const trimmed = last.replace(/ +$/, "");
-    if (trimmed === "") out.pop();
-    else out[out.length - 1] = trimmed;
   }
   return out;
 }
