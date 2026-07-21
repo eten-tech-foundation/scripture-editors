@@ -338,12 +338,14 @@ describe("genuine fixed-point refusal (no real progress possible)", () => {
     });
   }, 15000);
 
-  // Broaden the backstop past the single milestone case: the tokenizer's OTHER literal-degradation
-  // inputs (usfmFragmentToUsj's doc comment lists a bare `\`, a stray `\*`, and non-attribute
-  // content before a milestone's `\*`) must ALSO come back out unchanged and terminate via the
-  // fixed-point refusal rather than looping. Each of these only pends (or, for the `\*`-terminated
-  // milestone shape, routes on the typed run) and settles on caret departure; the mere fact each
-  // test RETURNS proves termination, and the node-identity pins prove nothing was mutated.
+  // Broaden the backstop past the single milestone case to the tokenizer's other hard-to-parse
+  // inputs: a bare `\`, a stray `\*`, and non-attribute content before a milestone's `\*`. Each
+  // must TERMINATE rather than loop, but by different routes. A bare `\` is a genuine literal
+  // no-op — one of usfmFragmentToUsjContent's remaining literal-degradation cases — so it
+  // terminates via `$rebuildParas`'s fixed-point refusal (nothing mutated; node-identity pins).
+  // A stray `\*` (and the `\*` left after a milestone run degrades to literal) instead makes real
+  // structural progress into an ImmutableUnmatchedNode that the next rebuild preserves as a
+  // sentinel. Either way the mere fact each test RETURNS proves termination.
   it("does not hang: a bare backslash is a true no-op, refused rather than looping", async () => {
     let pText: TextNode, qText: TextNode, pParaKey: string;
     const { editor } = await testEnvironment(() => {

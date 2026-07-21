@@ -381,6 +381,9 @@ The fragment tokenizer was cross-validated against paranext-core's testUSFM corp
 bare attribute values, `//` optbreak, stray-`\*` unmatched elements, note-in-char-span nesting,
 attribute-marker folding (`\ca`/`\cp`/`\va`/`\vp`/`\cat`), milestone heuristic narrowed to the
 stylesheet family, and delta-apply closer-glyph suppression for `closed="false"` char spans.
-Remaining deliberate divergences (opaque tables/figures/sidebars; the `\cp`-with-markers P9 bug)
-are pinned and documented in `libs/shared/src/converters/usfm/usfmFragmentToUsj.corpus.test.ts`
-and `libs/shared/src/converters/usfm/testUsfmCorpus/README.md`.
+The corpus now sits at ZERO divergence — every fixture (including the opaque tables/figures/
+sidebars) produces an empty diff, asserted in
+`libs/shared/src/converters/usfm/usfmFragmentToUsj.corpus.test.ts` (see also
+`libs/shared/src/converters/usfm/testUsfmCorpus/README.md`). The only remaining framing choices
+are the corrected 2SA-3 oracle (Paratext 9.5's acknowledged `\cp`-with-markers bug) and stripping
+`\id` lines (fragments are paragraph-scoped and never carry book identification).
