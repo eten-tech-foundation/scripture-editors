@@ -24,6 +24,18 @@
  * non-attribute content before a milestone's `\*`, or an unterminated
  * milestone (stylesheet-declared, or matching the suffix convention above).
  *
+ * Figures, tables, and sidebars assemble to their faithful USJ shapes at the
+ * assembly level, marker-name driven (they are parser-level structures in
+ * ParatextData, independent of stylesheet classification): `\fig …\fig*` folds
+ * to an inline `figure` object (USFM's `src` attribute renamed to USX/USJ's
+ * `file`), `\tr` plus `t[hc][rc]#(-#)` cell markers build `table` →
+ * `table:row` → `table:cell` with name-derived `align`/`colspan`, and
+ * `\esb`…`\esbe` wraps the following blocks in a `sidebar` (`\cat` directly
+ * after `\esb` folds to its `category`). Anything off the clean shapes —
+ * nested markup or positional (USFM 2.0) attributes in a figure, a missing
+ * `\fig*`, a cell marker with no open row — degrades to the plain char/para
+ * output the marker classification produces on its own.
+ *
  * Input is USFM text: `~` means NBSP; U+FFFC sentinels (atomic-node placeholders
  * from the Tier 2 fragment builder) ride through as ordinary text characters.
  */
@@ -49,6 +61,25 @@ export interface UsfmFragmentOptions {
 
 const VERSE_MARKER = "v";
 const CHAPTER_MARKER = "c";
+const FIGURE_MARKER = "fig";
+const TABLE_ROW_MARKER = "tr";
+const SIDEBAR_MARKER = "esb";
+const SIDEBAR_END_MARKER = "esbe";
+
+/**
+ * Table cell marker names: `t` + header/cell (`h`/`c`) + optional alignment infix (`r`/`c`) +
+ * starting column + optional span end column (`th1`, `tc13`, `thr5`, `thc3-4`, `tcr1-4`).
+ * ParatextData derives the whole cell shape from the name alone — no stylesheet entry needed.
+ */
+const TABLE_CELL_MARKER_REGEX = /^t[hc]([rc]?)(\d+)(?:-(\d+))?$/;
+
+/** Cell alignment from the marker-name infix after `t[hc]`: `th1`/`tc1` → start,
+ * `thc1`/`tcc1` → center, `thr1`/`tcr1` → end (ParatextData's name-derived alignment). */
+const TABLE_CELL_ALIGN_BY_INFIX: { [infix: string]: string } = {
+  "": "start",
+  c: "center",
+  r: "end",
+};
 
 type Token =
   | { kind: "text"; text: string }
@@ -238,7 +269,7 @@ function tokenize(fragment: string, getMarkerFn: MarkerLookup, isNoteContext: bo
       // A non-`+` char run closes any open char style unconditionally, same as
       // a known Character token (UsfmParser.cs:247).
       consumeSeparator();
-      if (!isNoteContext || name === "esb" || name === "esbe")
+      if (!isNoteContext || name === SIDEBAR_MARKER || name === SIDEBAR_END_MARKER)
         tokens.push({ kind: "para", marker: name });
       else tokens.push({ kind: "charOpen", marker: clean, isNested });
     }
@@ -252,18 +283,17 @@ function tokenize(fragment: string, getMarkerFn: MarkerLookup, isNoteContext: bo
  * `\c 1 \ca 2\ca*` → `chapter{altnumber:"2"}`. Standalone occurrences (not adjacent to a
  * supporting target, or carrying markup in their content) stay ordinary markers, exactly as
  * ParatextData emits them. The relation data is parser-level in ParatextData (not in any
- * stylesheet), so it is hardcoded here; `cat` also targets `esb` sidebars, which this
- * fragment tokenizer does not model (sidebars are opaque blocks — the open-note target
- * covers `f`/`fe`/`x`/`ef`/`efe`/`ex`).
+ * stylesheet), so it is hardcoded here; `cat` supports two target types — an open note
+ * (`f`/`fe`/`x`/`ef`/`efe`/`ex`) and an `esb` sidebar — so `targetTypes` is a list.
  */
 const ATTRIBUTE_MARKERS: {
-  [marker: string]: { attrName: string; targetType: string; shape: "char" | "para" };
+  [marker: string]: { attrName: string; targetTypes: readonly string[]; shape: "char" | "para" };
 } = {
-  ca: { attrName: "altnumber", targetType: "chapter", shape: "char" },
-  cp: { attrName: "pubnumber", targetType: "chapter", shape: "para" },
-  va: { attrName: "altnumber", targetType: "verse", shape: "char" },
-  vp: { attrName: "pubnumber", targetType: "verse", shape: "char" },
-  cat: { attrName: "category", targetType: "note", shape: "char" },
+  ca: { attrName: "altnumber", targetTypes: ["chapter"], shape: "char" },
+  cp: { attrName: "pubnumber", targetTypes: ["chapter"], shape: "para" },
+  va: { attrName: "altnumber", targetTypes: ["verse"], shape: "char" },
+  vp: { attrName: "pubnumber", targetTypes: ["verse"], shape: "char" },
+  cat: { attrName: "category", targetTypes: ["note", "sidebar"], shape: "char" },
 };
 
 const ATTRIBUTE_PAIR_REGEX = /([-\w]+)\s*=\s*"(.*?)"/g;
@@ -375,11 +405,18 @@ interface CharFrame {
  */
 type ClosableMarkerObject = MarkerObject & { closed?: string };
 
+/**
+ * `colspan` is USX/USJ's spanned-cell width (`\thc3-4` → colspan "2"); it is not part of the
+ * published `MarkerObject` shape, so it is typed locally like `closed` above.
+ */
+type TableCellObject = MarkerObject & { colspan?: string };
+
 export function usfmFragmentToUsjContent(
   fragment: string,
   options?: UsfmFragmentOptions,
 ): MarkerContent[] {
   const result: MarkerContent[] = [];
+  const isNoteContext = options?.isNoteContext ?? false;
   let para: MarkerObject | undefined;
   let note: ClosableMarkerObject | undefined;
   const charStack: CharFrame[] = [];
@@ -388,6 +425,21 @@ export function usfmFragmentToUsjContent(
   // puts both the note and " b" inside the wj span); frames AT/ABOVE it were opened inside
   // the note's content and close with it. Only meaningful while `note` is set.
   let noteBaseDepth = 0;
+  // ---- opaque-structure state (tables, sidebars) ----
+  // Current open table and its open row. `\tr` creates both (consecutive rows share one
+  // table); a cell marker then points `para` at the cell object, so ALL ordinary content
+  // handling (text, char spans, notes, verses) lands inside the cell unchanged. While the
+  // table is open, `para` is always its open row or a cell of that row.
+  let table: MarkerObject | undefined;
+  let tableRow: MarkerObject | undefined;
+  // Current open sidebar: `\esb`…`\esbe` wraps subsequent top-level blocks (paragraphs and
+  // tables). Implicit close (fragment end or a chapter token) marks it closed="false" —
+  // ParatextData auto-closes sidebars at the chapter boundary.
+  let sidebar: ClosableMarkerObject | undefined;
+
+  /** Where top-level blocks (paragraphs, tables) land: an open sidebar's content, else the
+   * fragment result. */
+  const blockTarget = (): MarkerContent[] => (sidebar ? getContent(sidebar) : result);
 
   const container = (): MarkerContent[] => {
     if (note) {
@@ -400,7 +452,7 @@ export function usfmFragmentToUsjContent(
     if (charStack.length > 0) return getContent(charStack[charStack.length - 1].object);
     if (!para) {
       para = { type: "para", marker: PARA_MARKER_DEFAULT, content: [] };
-      result.push(para);
+      blockTarget().push(para);
     }
     return getContent(para);
   };
@@ -438,6 +490,19 @@ export function usfmFragmentToUsjContent(
     if (!terminated) note.closed = "false";
     note = undefined;
   };
+  // Tables have no closing marker and no `closed` metadata: the table object is already in
+  // place, so ending one just drops the open-row state — rows/cells never resume.
+  const endTable = () => {
+    table = undefined;
+    tableRow = undefined;
+  };
+  const closeSidebar = (terminated: boolean) => {
+    if (!sidebar) return;
+    // Only `\esbe` terminates a sidebar explicitly; an implicit close (fragment end or a
+    // chapter boundary) gets closed="false", mirroring ParatextData's auto-close.
+    if (!terminated) sidebar.closed = "false";
+    sidebar = undefined;
+  };
 
   // ---- attribute-marker folding state (see ATTRIBUTE_MARKERS) ----
   // The most recent chapter/verse/note object, still "receptive": an adjacent attribute
@@ -463,6 +528,15 @@ export function usfmFragmentToUsjContent(
     if (heldWhitespace) pushContent(toUsjText(heldWhitespace));
     heldWhitespace = "";
   };
+  const clearAttrTarget = () => {
+    // Line-end whitespace held while a SIDEBAR was receptive is structural: sidebar content
+    // is block-level (paragraphs and tables), so the line break between `\esb`/`\cat` and
+    // the first block never becomes text — ParatextData emits none there. Held whitespace
+    // for the other targets (chapter/verse/note) keeps its existing flush-as-content path.
+    if (attrTarget?.type === "sidebar") heldWhitespace = "";
+    attrTarget = undefined;
+    flushHeldWhitespace();
+  };
   /** Abort a char-shaped capture: materialize the standalone open span (frame stays open —
    * nested markup and the eventual closer process normally). */
   const materializeCaptureAsChar = () => {
@@ -473,20 +547,46 @@ export function usfmFragmentToUsjContent(
     charStack.push({ object });
     attrCapture = undefined;
   };
+  /** Start an ordinary paragraph block. Any non-row/cell paragraph-kind marker also ends an
+   * open table — ParatextData never resumes a table across another block. */
+  const startParagraph = (marker: string, initialText?: string) => {
+    endTable();
+    closeCharStack();
+    closeNote(false);
+    para = { type: "para", marker, content: [] };
+    if (initialText) para.content = [toUsjText(initialText)];
+    blockTarget().push(para);
+  };
   /** Abort a para-shaped capture (`\cp` with markup): materialize the standalone paragraph. */
   const materializeCaptureAsPara = () => {
     if (!attrCapture) return;
-    para = { type: "para", marker: attrCapture.marker, content: [] };
-    if (attrCapture.value) para.content = [toUsjText(attrCapture.value)];
-    result.push(para);
+    startParagraph(attrCapture.marker, attrCapture.value);
     attrCapture = undefined;
   };
 
-  const tokens = tokenize(
-    fragment,
-    options?.getMarker ?? getMarker,
-    options?.isNoteContext ?? false,
-  );
+  // ---- figure capture state ----
+  // A `\fig …\fig*` span being collected for faithful `figure` emission (ParatextData turns
+  // the span into `{ type: "figure", … }`). Only a clean span folds: plain-text content with
+  // `name="value"` attributes and an explicit `\fig*`. Anything else — nested markup, USFM
+  // 2.0 positional attributes, no closer — degrades to exactly what the marker's own
+  // classification produced before figure support (a char span or an unknown paragraph).
+  let figCapture: { shape: "char" | "para"; value: string } | undefined;
+  /** Degrade an unfoldable figure span: a char frame (stays open — the eventual closer or
+   * auto-close processes normally) or an unknown paragraph, matching pre-figure output. */
+  const materializeFigCapture = () => {
+    if (!figCapture) return;
+    if (figCapture.shape === "para") {
+      startParagraph(FIGURE_MARKER, figCapture.value);
+    } else {
+      const object: MarkerObject = { type: "char", marker: FIGURE_MARKER, content: [] };
+      if (figCapture.value) object.content = [toUsjText(figCapture.value)];
+      container().push(object);
+      charStack.push({ object });
+    }
+    figCapture = undefined;
+  };
+
+  const tokens = tokenize(fragment, options?.getMarker ?? getMarker, isNoteContext);
   for (let tokenIndex = 0; tokenIndex < tokens.length; tokenIndex++) {
     const token = tokens[tokenIndex];
 
@@ -527,6 +627,46 @@ export function usfmFragmentToUsjContent(
       }
     }
 
+    if (figCapture) {
+      if (token.kind === "text") {
+        figCapture.value += token.text;
+        continue;
+      }
+      if (token.kind === "end" && token.marker.replace(/^\+/, "") === FIGURE_MARKER) {
+        const pipeIndex = figCapture.value.indexOf("|");
+        const attributes =
+          pipeIndex >= 0
+            ? parseAttributeText(figCapture.value.slice(pipeIndex + 1), FIGURE_MARKER)
+            : undefined;
+        if (attributes) {
+          // Clean span: emit the faithful figure. USFM's `src` attribute is `file` in
+          // USX/USJ (renamed in place to keep the author's attribute order); the pre-`|`
+          // description is the figure's content, omitted when empty (as ParatextData does).
+          const figureAttributes: { [attributeName: string]: string } = {};
+          for (const [name, value] of Object.entries(attributes))
+            figureAttributes[name === "src" ? "file" : name] = value;
+          const figure: MarkerObject = {
+            type: "figure",
+            marker: FIGURE_MARKER,
+            ...figureAttributes,
+          };
+          const description = figCapture.value.slice(0, pipeIndex);
+          if (description) figure.content = [toUsjText(description)];
+          pushContent(figure);
+          figCapture = undefined;
+          continue;
+        }
+        // No `name="value"` attributes (USFM 2.0 positional syntax, or no `|` at all): fall
+        // through to degrade — the reprocessed closer then closes the materialized char
+        // frame (or lands unmatched in the materialized paragraph), exactly as before.
+      }
+      // Markup inside the span, a foreign closer, or unfoldable attributes: degrade, then
+      // reprocess this token against the materialized span.
+      materializeFigCapture();
+      tokenIndex--;
+      continue;
+    }
+
     if (attrTarget) {
       if (token.kind === "text") {
         // Only LINE-BREAK whitespace between the target and its attribute marker is
@@ -537,12 +677,11 @@ export function usfmFragmentToUsjContent(
           heldWhitespace += token.text;
           continue;
         }
-        attrTarget = undefined;
-        flushHeldWhitespace();
+        clearAttrTarget();
       } else if (token.kind === "charOpen" || token.kind === "para") {
         const foldable =
           token.kind === "para" || !token.isNested ? ATTRIBUTE_MARKERS[token.marker] : undefined;
-        if (foldable && foldable.targetType === attrTarget.type) {
+        if (foldable && foldable.targetTypes.includes(attrTarget.type)) {
           // Whitespace between the target and its attribute marker is structural — dropped.
           heldWhitespace = "";
           attrCapture = {
@@ -555,23 +694,115 @@ export function usfmFragmentToUsjContent(
           // attrTarget stays receptive: a chapter takes BOTH \ca and \cp.
           continue;
         }
-        attrTarget = undefined;
-        flushHeldWhitespace();
+        clearAttrTarget();
       } else {
-        attrTarget = undefined;
-        flushHeldWhitespace();
+        clearAttrTarget();
       }
     }
 
+    // ---- `\fig` interception (marker-name driven, like ParatextData's parser figures) ----
+    // `\fig` reaches assembly as charOpen (a sheet that knows it as Character) or para
+    // (unknown marker); BOTH fold to a `figure` when the span is clean. Note content keeps
+    // the plain char behavior — this tokenizer does not build figures inside notes. Opening
+    // a figure auto-closes open char spans exactly as its Character classification would
+    // (UsfmParser.cs:247), so the success and degrade paths continue from the same stack.
+    if (
+      !note &&
+      !isNoteContext &&
+      ((token.kind === "charOpen" && !token.isNested && token.marker === FIGURE_MARKER) ||
+        (token.kind === "para" && token.marker === FIGURE_MARKER))
+    ) {
+      closeCharStack();
+      figCapture = { shape: token.kind === "charOpen" ? "char" : "para", value: "" };
+      continue;
+    }
+
     switch (token.kind) {
-      case "text":
-        pushContent(toUsjText(token.text));
+      case "text": {
+        let text = token.text;
+        // Inside table and sidebar assembly, a text run's trailing line break before a block
+        // boundary (a paragraph-kind or chapter token, or fragment end) is structural — the
+        // line ends where the next block marker begins, and ParatextData emits no content
+        // there. Elsewhere the pre-existing boundary behavior stands (a trailing line break
+        // becomes a space): engine fragments carry no line breaks, so only synthetic and
+        // corpus input reaches either path. `regularizeSpaces` collapsed the run to `"\n"`.
+        if ((tableRow || sidebar) && !note && text.endsWith("\n")) {
+          const next = tokens[tokenIndex + 1];
+          if (next === undefined || next.kind === "para" || next.kind === "chapter")
+            text = text.slice(0, -1);
+        }
+        if (text) pushContent(toUsjText(text));
         break;
+      }
       case "para": {
-        closeCharStack();
-        closeNote(false);
-        para = { type: "para", marker: token.marker, content: [] };
-        result.push(para);
+        // ---- table assembly ----
+        // Row/cell markers reach assembly as para tokens (paragraph styles, or unknown to
+        // the sheet). Table shapes never engage inside note content — a row/cell marker
+        // there keeps its plain resolution, and ParatextData builds no tables there either.
+        const tableEligible = !note && !isNoteContext;
+        if (tableEligible && token.marker === TABLE_ROW_MARKER) {
+          closeCharStack();
+          // Consecutive `\tr`s share one table; the first creates it.
+          if (!table) {
+            table = { type: "table", content: [] };
+            blockTarget().push(table);
+          }
+          tableRow = { type: "table:row", marker: TABLE_ROW_MARKER, content: [] };
+          getContent(table).push(tableRow);
+          // Content before the first cell marker (degenerate) lands in the row itself.
+          para = tableRow;
+          break;
+        }
+        if (tableEligible && tableRow) {
+          const cellMatch = TABLE_CELL_MARKER_REGEX.exec(token.marker);
+          // Only columns 1–12 are cells: usfm.sty declares exactly th1–th12/tc1–tc12 (and
+          // their r/c variants), and ParatextData follows its stylesheet — `\tc13` is an
+          // unknown marker that ENDS the table (and the next `\tr` starts a fresh one).
+          if (cellMatch && Number(cellMatch[2]) >= 1 && Number(cellMatch[2]) <= 12) {
+            closeCharStack();
+            const [, alignInfix, spanStart, spanEnd] = cellMatch;
+            // The cell keeps only the starting column in its marker (`thc3-4` → `thc3`);
+            // the span width becomes `colspan`, a string of columns spanned (`thc3-4` → "2").
+            const cell: TableCellObject = {
+              type: "table:cell",
+              marker: spanEnd ? token.marker.slice(0, token.marker.indexOf("-")) : token.marker,
+              align: TABLE_CELL_ALIGN_BY_INFIX[alignInfix],
+              content: [],
+            };
+            if (spanEnd) cell.colspan = String(Number(spanEnd) + 1 - Number(spanStart));
+            getContent(tableRow).push(cell);
+            // The cell becomes the current content container: text, char spans, notes, and
+            // verses flow into it through the ordinary `para`-based container logic.
+            para = cell;
+            break;
+          }
+        }
+        // Any other paragraph-kind token (esb/esbe included) ends an open table; the token
+        // itself then processes normally. A cell marker with NO open row is not table
+        // content — it stays an unknown paragraph, exactly as ParatextData splits it out.
+        endTable();
+        // ---- sidebar assembly ----
+        if (!isNoteContext && token.marker === SIDEBAR_MARKER) {
+          closeCharStack();
+          closeNote(false);
+          // Sidebars never nest: an unterminated previous sidebar closes implicitly.
+          closeSidebar(false);
+          sidebar = { type: "sidebar", marker: SIDEBAR_MARKER, content: [] };
+          result.push(sidebar);
+          para = undefined;
+          attrTarget = sidebar; // receptive to \cat (directly after \esb only)
+          break;
+        }
+        if (token.marker === SIDEBAR_END_MARKER && sidebar) {
+          closeCharStack();
+          closeNote(false);
+          // `\esbe` terminates the sidebar and is consumed — it emits nothing itself. With
+          // no open sidebar it falls through to today's unknown-paragraph behavior.
+          closeSidebar(true);
+          para = undefined;
+          break;
+        }
+        startParagraph(token.marker);
         break;
       }
       case "verse": {
@@ -585,6 +816,10 @@ export function usfmFragmentToUsjContent(
       case "chapter": {
         closeCharStack();
         closeNote(false);
+        // A chapter boundary ends any open table and implicitly closes an open sidebar
+        // (ParatextData auto-closes sidebars at the end of the chapter).
+        endTable();
+        closeSidebar(false);
         para = undefined;
         const chapter: MarkerObject = {
           type: "chapter",
@@ -654,6 +889,8 @@ export function usfmFragmentToUsjContent(
         break;
     }
   }
+  // Fragment ended mid-figure: no `\fig*` closer — degrade to the plain char/para span.
+  if (figCapture) materializeFigCapture();
   if (attrCapture) {
     // Fragment ended mid-capture. A para-shaped capture (`\cp 1 cp` at fragment end) folds —
     // the paragraph ended with plain-text content. A char-shaped capture never saw its
@@ -669,6 +906,8 @@ export function usfmFragmentToUsjContent(
   }
   closeCharStack();
   closeNote(false);
+  // Fragment ended without `\esbe`: the sidebar closes implicitly (closed="false").
+  closeSidebar(false);
 
   // Drop empty content arrays (USJ omits `content` for empty paras).
   const dropEmpty = (items: MarkerContent[]) => {
