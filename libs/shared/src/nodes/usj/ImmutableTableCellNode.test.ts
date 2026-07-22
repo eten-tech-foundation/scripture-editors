@@ -5,8 +5,8 @@ import {
   isSerializedImmutableTableCellNode,
   ImmutableTableCellNode,
 } from "./ImmutableTableCellNode.js";
-import { withEditor } from "./test.utils.js";
-import { $getNodeByKey, $getRoot, createEditor } from "lexical";
+import { createBasicTestEnvironment, withEditor } from "./test.utils.js";
+import { $getNodeByKey, $getRoot } from "lexical";
 import { describe, expect, it } from "vitest";
 
 describe("ImmutableTableCellNode", () => {
@@ -84,17 +84,11 @@ describe("ImmutableTableCellNode", () => {
   });
 
   it("updateDOM recreates DOM when align changes (setAlign reflected in live element)", () => {
-    const editor = createEditor({
-      nodes: [ImmutableTableCellNode],
-      onError: (e) => {
-        throw e;
-      },
-    });
-    const container = document.createElement("div");
-    editor.setRootElement(container);
+    const { editor } = createBasicTestEnvironment([ImmutableTableCellNode]);
 
     let nodeKey = "";
 
+    // First update creates the node (triggers createDOM).
     editor.update(
       () => {
         const node = $createImmutableTableCellNode("tc1");
@@ -104,6 +98,7 @@ describe("ImmutableTableCellNode", () => {
       { discrete: true },
     );
 
+    // Second update mutates the node to trigger updateDOM — must be separate from the first.
     editor.update(
       () => {
         const node = $getNodeByKey<ImmutableTableCellNode>(nodeKey);
