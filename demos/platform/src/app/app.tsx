@@ -28,6 +28,7 @@ import {
   MarkerMode,
   NoteMode,
   SelectionRange,
+  StructureProtectionMode,
   TextDirection,
   UsjNodeOptions,
   ViewOptions,
@@ -121,6 +122,8 @@ export default function App() {
   const [isNoteEditorVisible, setIsNoteEditorVisible] = useState(false);
   const [isOptionsDefined, setIsOptionsDefined] = useState(false);
   const [isReadonly, setIsReadonly] = useState(false);
+  const [structureProtectionMode, setStructureProtectionMode] =
+    useState<StructureProtectionMode>("off");
   const [hasExternalUI, setHasExternalUI] = useState(true);
   const [hasSpellCheck, setHasSpellCheck] = useState(false);
   const [textDirection, setTextDirection] = useState<TextDirection>("ltr");
@@ -129,6 +132,9 @@ export default function App() {
   const [noteMode, setNoteMode] = useState<NoteMode>("expandInline");
   const [hasSpacing, setHasSpacing] = useState(true);
   const [isFormattedFont, setIsFormattedFont] = useState(true);
+  const [showCharMarkerTitles, setShowCharMarkerTitles] = useState(true);
+  const [hasGutterParaMarkers, setHasGutterParaMarkers] = useState(false);
+  const [hasActiveTextFocusBox, setHasActiveTextFocusBox] = useState(false);
   const [nodesMode, setNodesMode] = useState<NodesMode>(CUSTOM_NODES_MODE);
   const [debug, setDebug] = useState(!isTesting);
   const [scrRef, setScrRef] = useState(defaultScrRef);
@@ -145,10 +151,28 @@ export default function App() {
 
   const viewOptions = useMemo<ViewOptions | undefined>(() => {
     if (viewMode === UNDEFINED_VIEW_MODE) return undefined;
-    if (viewMode === CUSTOM_VIEW_MODE) return { markerMode, noteMode, hasSpacing, isFormattedFont };
+    if (viewMode === CUSTOM_VIEW_MODE)
+      return {
+        markerMode,
+        noteMode,
+        hasSpacing,
+        isFormattedFont,
+        showCharMarkerTitles,
+        hasGutterParaMarkers,
+        hasActiveTextFocusBox,
+      };
 
     return getViewOptions(viewMode);
-  }, [viewMode, markerMode, noteMode, hasSpacing, isFormattedFont]);
+  }, [
+    viewMode,
+    markerMode,
+    noteMode,
+    hasSpacing,
+    isFormattedFont,
+    showCharMarkerTitles,
+    hasGutterParaMarkers,
+    hasActiveTextFocusBox,
+  ]);
 
   const customNodeOptions = useMemo<UsjNodeOptions>(
     () => ({
@@ -186,6 +210,7 @@ export default function App() {
       isOptionsDefined
         ? {
             isReadonly,
+            structureProtectionMode,
             hasExternalUI,
             hasSpellCheck,
             textDirection,
@@ -197,6 +222,7 @@ export default function App() {
     [
       isOptionsDefined,
       isReadonly,
+      structureProtectionMode,
       hasExternalUI,
       hasSpellCheck,
       textDirection,
@@ -448,82 +474,133 @@ export default function App() {
         {isOptionsDefined && (
           <>
             <div className="defined-options">
-              <div className="checkbox">
-                <input
-                  type="checkbox"
-                  id="isReadonlyCheckBox"
-                  checked={isReadonly}
-                  onChange={(e) => setIsReadonly(e.target.checked)}
-                />
-                <label htmlFor="isReadonlyCheckBox">Is readonly</label>
+              <div className="boolean-options">
+                <div className="checkbox">
+                  <input
+                    type="checkbox"
+                    id="isReadonlyCheckBox"
+                    checked={isReadonly}
+                    onChange={(e) => setIsReadonly(e.target.checked)}
+                  />
+                  <label htmlFor="isReadonlyCheckBox">Is readonly</label>
+                </div>
+                <div className="checkbox">
+                  <input
+                    type="checkbox"
+                    id="hasExternalUICheckBox"
+                    checked={hasExternalUI}
+                    onChange={(e) => setHasExternalUI(e.target.checked)}
+                  />
+                  <label htmlFor="hasExternalUICheckBox">Has external UI</label>
+                </div>
+                <div className="checkbox">
+                  <input
+                    type="checkbox"
+                    id="hasSpellCheckBox"
+                    checked={hasSpellCheck}
+                    onChange={(e) => setHasSpellCheck(e.target.checked)}
+                  />
+                  <label htmlFor="hasSpellCheckBox">Has spell check</label>
+                </div>
               </div>
-              <div className="checkbox">
-                <input
-                  type="checkbox"
-                  id="hasExternalUICheckBox"
-                  checked={hasExternalUI}
-                  onChange={(e) => setHasExternalUI(e.target.checked)}
-                />
-                <label htmlFor="hasExternalUICheckBox">Has external UI</label>
+              <div className="control">
+                <label htmlFor="structureProtectionModeSelect">Structure protection</label>
+                <select
+                  id="structureProtectionModeSelect"
+                  value={structureProtectionMode}
+                  onChange={(e) =>
+                    setStructureProtectionMode(e.target.value as StructureProtectionMode)
+                  }
+                >
+                  <option value="off">Off</option>
+                  <option value="guarded">Guarded</option>
+                  <option value="protected">Protected</option>
+                </select>
               </div>
-              <div className="checkbox">
-                <input
-                  type="checkbox"
-                  id="hasSpellCheckBox"
-                  checked={hasSpellCheck}
-                  onChange={(e) => setHasSpellCheck(e.target.checked)}
-                />
-                <label htmlFor="hasSpellCheckBox">Has spell check</label>
+              <div className="text-direction-options">
+                <TextDirectionDropDown textDirection={textDirection} onSelect={setTextDirection} />
+                <div className="load-buttons">
+                  <button onClick={handleLoadEnglish}>Load English</button>
+                  <button onClick={handleLoadArabic}>Load Arabic</button>
+                </div>
               </div>
-              <TextDirectionDropDown textDirection={textDirection} onSelect={setTextDirection} />
-              <button onClick={handleLoadEnglish}>Load English</button>
-              <button onClick={handleLoadArabic}>Load Arabic</button>
               <ViewModeDropDown viewMode={viewMode} onSelect={setViewMode} />
               <NodeOptionsDropDown nodesMode={nodesMode} onSelect={setNodesMode} />
             </div>
             {viewMode === CUSTOM_VIEW_MODE && (
               <div className="custom-view-options">
-                <div className="control">
-                  <label htmlFor="markerModeSelect">Marker mode</label>
-                  <select
-                    id="markerModeSelect"
-                    value={markerMode}
-                    onChange={(e) => setMarkerMode(e.target.value as MarkerMode)}
-                  >
-                    <option value="hidden">Hidden</option>
-                    <option value="visible">Visible</option>
-                    <option value="editable">Editable</option>
-                  </select>
+                <div className="select-options">
+                  <div className="control">
+                    <label htmlFor="markerModeSelect">Marker mode</label>
+                    <select
+                      id="markerModeSelect"
+                      value={markerMode}
+                      onChange={(e) => setMarkerMode(e.target.value as MarkerMode)}
+                    >
+                      <option value="hidden">Hidden</option>
+                      <option value="visible">Visible</option>
+                      <option value="editable">Editable</option>
+                    </select>
+                  </div>
+                  <div className="control">
+                    <label htmlFor="noteModeSelect">Note mode</label>
+                    <select
+                      id="noteModeSelect"
+                      value={noteMode}
+                      onChange={(e) => setNoteMode(e.target.value as NoteMode)}
+                    >
+                      <option value="collapsed">Collapsed</option>
+                      <option value="expandInline">Expand inline</option>
+                      <option value="expanded">Expanded</option>
+                    </select>
+                  </div>
                 </div>
-                <div className="control">
-                  <label htmlFor="noteModeSelect">Note mode</label>
-                  <select
-                    id="noteModeSelect"
-                    value={noteMode}
-                    onChange={(e) => setNoteMode(e.target.value as NoteMode)}
-                  >
-                    <option value="collapsed">Collapsed</option>
-                    <option value="expandInline">Expand inline</option>
-                    <option value="expanded">Expanded</option>
-                  </select>
-                </div>
-                <div className="control">
-                  <input
-                    type="checkbox"
-                    id="hasSpacingCheckBox"
-                    checked={hasSpacing}
-                    onChange={(e) => setHasSpacing(e.target.checked)}
-                  />
-                  <label htmlFor="hasSpacingCheckBox">Has spacing</label>
-                </div>
-                <div className="control">
-                  <input
-                    type="checkbox"
-                    id="isFormattedFontCheckBox"
-                    checked={isFormattedFont}
-                    onChange={(e) => setIsFormattedFont(e.target.checked)}
-                  />
-                  <label htmlFor="isFormattedFontCheckBox">Is formatted font</label>
+                <div className="boolean-options">
+                  <div className="control">
+                    <input
+                      type="checkbox"
+                      id="hasSpacingCheckBox"
+                      checked={hasSpacing}
+                      onChange={(e) => setHasSpacing(e.target.checked)}
+                    />
+                    <label htmlFor="hasSpacingCheckBox">Has spacing</label>
+                  </div>
+                  <div className="control">
+                    <input
+                      type="checkbox"
+                      id="isFormattedFontCheckBox"
+                      checked={isFormattedFont}
+                      onChange={(e) => setIsFormattedFont(e.target.checked)}
+                    />
+                    <label htmlFor="isFormattedFontCheckBox">Is formatted font</label>
+                  </div>
+                  <div className="control">
+                    <input
+                      type="checkbox"
+                      id="showCharMarkerTitlesCheckBox"
+                      checked={showCharMarkerTitles}
+                      onChange={(e) => setShowCharMarkerTitles(e.target.checked)}
+                    />
+                    <label htmlFor="showCharMarkerTitlesCheckBox">Show char marker titles</label>
+                  </div>
+                  <div className="control">
+                    <input
+                      type="checkbox"
+                      id="hasGutterParaMarkersCheckBox"
+                      checked={hasGutterParaMarkers}
+                      onChange={(e) => setHasGutterParaMarkers(e.target.checked)}
+                    />
+                    <label htmlFor="hasGutterParaMarkersCheckBox">Has gutter para markers</label>
+                  </div>
+                  <div className="control">
+                    <input
+                      type="checkbox"
+                      id="hasActiveTextFocusBoxCheckBox"
+                      checked={hasActiveTextFocusBox}
+                      onChange={(e) => setHasActiveTextFocusBox(e.target.checked)}
+                    />
+                    <label htmlFor="hasActiveTextFocusBoxCheckBox">Has active text focus box</label>
+                  </div>
                 </div>
               </div>
             )}
