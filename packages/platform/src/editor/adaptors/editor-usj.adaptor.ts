@@ -46,10 +46,19 @@ import {
   SerializedMilestoneNode,
   SerializedNoteNode,
   SerializedParaNode,
+  SerializedImmutableTableCellNode,
+  SerializedImmutableTableNode,
+  SerializedImmutableTableRowNode,
   SerializedTypedMarkNode,
   SerializedUnknownNode,
   SerializedVerseNode,
   STARTING_MS_COMMENT_MARKER,
+  ImmutableTableCellNode,
+  ImmutableTableNode,
+  ImmutableTableRowNode,
+  TABLE_CELL_TYPE,
+  TABLE_ROW_TYPE,
+  TABLE_TYPE,
   TypedMarkNode,
   UnknownNode,
   UNMATCHED_TAG_NAME,
@@ -193,6 +202,37 @@ function createParaMarker(
   return removeUndefinedProperties({
     type,
     marker,
+    ...unknownAttributes,
+    content,
+  });
+}
+
+function createTableMarker(
+  node: SerializedImmutableTableNode,
+  content: MarkerContent[] | undefined,
+): MarkerObject {
+  const { unknownAttributes } = node;
+  return removeUndefinedProperties({ type: TABLE_TYPE, ...unknownAttributes, content });
+}
+
+function createTableRowMarker(
+  node: SerializedImmutableTableRowNode,
+  content: MarkerContent[] | undefined,
+): MarkerObject {
+  const { marker, unknownAttributes } = node;
+  return removeUndefinedProperties({ type: TABLE_ROW_TYPE, marker, ...unknownAttributes, content });
+}
+
+function createTableCellMarker(
+  node: SerializedImmutableTableCellNode,
+  content: MarkerContent[] | undefined,
+): MarkerObject {
+  const { marker, align, colspan, unknownAttributes } = node;
+  return removeUndefinedProperties({
+    type: TABLE_CELL_TYPE,
+    marker,
+    align,
+    colspan,
     ...unknownAttributes,
     content,
   });
@@ -380,6 +420,30 @@ function recurseNodes(
       case ParaNode.getType():
         markers.push(
           createParaMarker(serializedParaNode, recurseNodes(serializedParaNode.children)),
+        );
+        break;
+      case ImmutableTableNode.getType():
+        markers.push(
+          createTableMarker(
+            node as SerializedImmutableTableNode,
+            recurseNodes((node as SerializedImmutableTableNode).children),
+          ),
+        );
+        break;
+      case ImmutableTableRowNode.getType():
+        markers.push(
+          createTableRowMarker(
+            node as SerializedImmutableTableRowNode,
+            recurseNodes((node as SerializedImmutableTableRowNode).children),
+          ),
+        );
+        break;
+      case ImmutableTableCellNode.getType():
+        markers.push(
+          createTableCellMarker(
+            node as SerializedImmutableTableCellNode,
+            recurseNodes((node as SerializedImmutableTableCellNode).children),
+          ),
         );
         break;
       case NoteNode.getType():

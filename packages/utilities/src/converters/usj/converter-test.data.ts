@@ -2036,8 +2036,7 @@ export const editorStateWithUnknownItems = {
         ],
       },
       {
-        type: "unknown",
-        tag: "table",
+        type: "immutable-table",
         unknownAttributes: { category: "watCat" },
         direction: null,
         format: "",
@@ -2045,8 +2044,7 @@ export const editorStateWithUnknownItems = {
         version: 1,
         children: [
           {
-            type: "unknown",
-            tag: "table:row",
+            type: "immutable-table-row",
             marker: "tr",
             unknownAttributes: { category: "watCat" },
             direction: null,
@@ -2055,8 +2053,7 @@ export const editorStateWithUnknownItems = {
             version: 1,
             children: [
               {
-                type: "unknown",
-                tag: "table:cell",
+                type: "immutable-table-cell",
                 marker: "tc1",
                 unknownAttributes: { category: "watCat" },
                 direction: null,
@@ -2069,7 +2066,7 @@ export const editorStateWithUnknownItems = {
                     text: "cell1",
                     detail: 0,
                     format: 0,
-                    mode: "token",
+                    mode: "normal",
                     style: "",
                     version: 1,
                   },

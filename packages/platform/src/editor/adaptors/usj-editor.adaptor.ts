@@ -50,6 +50,7 @@ import {
   ImpliedParaNode,
   isMilestoneCommentMarker,
   isSerializedBookNode,
+  isSerializedImmutableTableNode,
   isSerializedImmutableTypedTextNode,
   isSerializedParaNode,
   isSerializedTextNode,
@@ -86,6 +87,24 @@ import {
   SerializedUnknownNode,
   SerializedVerseNode,
   STARTING_MS_COMMENT_MARKER,
+  ImmutableTableCellNode,
+  ImmutableTableCellMarker,
+  TABLE_CELL_DEFAULT_MARKER,
+  TABLE_CELL_MARKER_OBJECT_PROPS,
+  TABLE_CELL_TYPE,
+  ImmutableTableNode,
+  TABLE_MARKER_OBJECT_PROPS,
+  TABLE_TYPE,
+  ImmutableTableRowNode,
+  TABLE_ROW_DEFAULT_MARKER,
+  TABLE_ROW_MARKER_OBJECT_PROPS,
+  TABLE_ROW_TYPE,
+  IMMUTABLE_TABLE_CELL_VERSION,
+  IMMUTABLE_TABLE_ROW_VERSION,
+  IMMUTABLE_TABLE_VERSION,
+  SerializedImmutableTableCellNode,
+  SerializedImmutableTableNode,
+  SerializedImmutableTableRowNode,
   TypedMarkNode,
   UNKNOWN_MARKER_OBJECT_PROPS,
   UNKNOWN_VERSION,
@@ -400,6 +419,71 @@ function createPara(
     textFormat: 0,
     textStyle: "",
     version: PARA_VERSION,
+  });
+}
+
+function createBaseElement() {
+  return {
+    direction: null as null,
+    format: "" as const,
+    indent: 0,
+  };
+}
+
+function createTable(
+  markerObject: MarkerObject,
+  childNodes: SerializedLexicalNode[] = [],
+): SerializedImmutableTableNode {
+  const unknownAttributes = getUnknownAttributes(markerObject, TABLE_MARKER_OBJECT_PROPS);
+  return removeUndefinedProperties({
+    ...createBaseElement(),
+    type: ImmutableTableNode.getType(),
+    unknownAttributes,
+    children: childNodes,
+    version: IMMUTABLE_TABLE_VERSION,
+  });
+}
+
+function createTableRow(
+  markerObject: MarkerObject,
+  childNodes: SerializedLexicalNode[] = [],
+): SerializedImmutableTableRowNode {
+  const unknownAttributes = getUnknownAttributes(markerObject, TABLE_ROW_MARKER_OBJECT_PROPS);
+  return removeUndefinedProperties({
+    ...createBaseElement(),
+    type: ImmutableTableRowNode.getType(),
+    marker: markerObject.marker ?? TABLE_ROW_DEFAULT_MARKER,
+    unknownAttributes,
+    children: childNodes,
+    version: IMMUTABLE_TABLE_ROW_VERSION,
+  });
+}
+
+function createTableCell(
+  markerObject: MarkerObject,
+  childNodes: SerializedLexicalNode[] = [],
+): SerializedImmutableTableCellNode {
+  const { marker, align, colspan } = markerObject as ImmutableTableCellMarker;
+  const children: SerializedLexicalNode[] = [];
+  const cellMarker = marker ?? TABLE_CELL_DEFAULT_MARKER;
+  if (_viewOptions?.markerMode === "editable")
+    children.push(createMarker(cellMarker), createText(NBSP, "marker-trailing-space"));
+  else if (_viewOptions?.markerMode === "visible" || _viewOptions?.hasGutterParaMarkers)
+    children.push(createImmutableTypedText("marker", openingMarkerText(cellMarker) + NBSP));
+  children.push(...childNodes);
+  const unknownAttributes = getUnknownAttributes<ImmutableTableCellMarker>(
+    markerObject,
+    TABLE_CELL_MARKER_OBJECT_PROPS,
+  );
+  return removeUndefinedProperties({
+    ...createBaseElement(),
+    type: ImmutableTableCellNode.getType(),
+    marker: cellMarker,
+    align,
+    colspan,
+    unknownAttributes,
+    children,
+    version: IMMUTABLE_TABLE_CELL_VERSION,
   });
 }
 
@@ -746,6 +830,15 @@ function recurseNodes(markers: MarkerContent[] | undefined): SerializedLexicalNo
         case ImmutableUnmatchedNode.getType():
           nodes.push(createUnmatched(markerContent.marker ?? ""));
           break;
+        case TABLE_TYPE:
+          nodes.push(createTable(markerContent, recurseNodes(markerContent.content)));
+          break;
+        case TABLE_ROW_TYPE:
+          nodes.push(createTableRow(markerContent, recurseNodes(markerContent.content)));
+          break;
+        case TABLE_CELL_TYPE:
+          nodes.push(createTableCell(markerContent, recurseNodes(markerContent.content)));
+          break;
         default:
           _logger?.warn(`Unknown type-marker '${markerContent.type}-${markerContent.marker}'!`);
           nodes.push(createUnknown(markerContent, recurseNodes(markerContent.content)));
@@ -763,7 +856,12 @@ function recurseNodes(markers: MarkerContent[] | undefined): SerializedLexicalNo
 function insertImpliedParasRecurse(nodes: SerializedLexicalNode[]): SerializedLexicalNode[] {
   const validRootNodeIndex = nodes.findIndex(
     (node) =>
-      isSerializedBookNode(node) || isSomeSerializedChapterNode(node) || isSerializedParaNode(node),
+      isSerializedBookNode(node) ||
+      isSomeSerializedChapterNode(node) ||
+      isSerializedParaNode(node) ||
+      // A table is a block root in its own right; without this it would be swept into an implied
+      // para alongside any sibling text/verse nodes.
+      isSerializedImmutableTableNode(node),
   );
   const isValidRootNodeFound = validRootNodeIndex >= 0;
   if (isValidRootNodeFound) {
