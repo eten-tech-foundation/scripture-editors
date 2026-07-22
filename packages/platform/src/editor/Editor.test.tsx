@@ -5,8 +5,10 @@ import Editor from "./Editor";
 import { EditorRef } from "./editor.model";
 import Editorial from "../Editorial";
 import { ContentJsonPath, Usj } from "@eten-tech-foundation/scripture-utilities";
+import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { act, render } from "@testing-library/react";
-import { createRef, RefObject } from "react";
+import { KEY_DOWN_COMMAND, LexicalEditor } from "lexical";
+import { createRef, RefObject, useEffect } from "react";
 import { vi } from "vitest";
 
 /** USJ with book PSA for Editor sync effect test (clone of usjGen1v1 with book code changed) */
@@ -176,5 +178,101 @@ describe("setAnnotation overload", () => {
 
     expect(() => triggerClickOnMark()).not.toThrow();
     expect(() => triggerMouseEnterOnMark()).not.toThrow();
+  });
+});
+
+/** Grabs the underlying Lexical editor so tests can dispatch commands the public ref doesn't expose. */
+function GrabEditor({ onEditor }: { onEditor: (editor: LexicalEditor) => void }): null {
+  const [editor] = useLexicalComposerContext();
+  useEffect(() => {
+    onEditor(editor);
+  }, [editor, onEditor]);
+  return null;
+}
+
+async function pressDelete(editor: LexicalEditor): Promise<void> {
+  await act(async () => {
+    editor.dispatchCommand(
+      KEY_DOWN_COMMAND,
+      new KeyboardEvent("keydown", { key: "Delete", bubbles: true, cancelable: true }),
+    );
+  });
+}
+
+/** Lets queued microtasks (e.g. the deferred scripture-reference recompute) settle. */
+async function flushMicrotasks(): Promise<void> {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
+const usjWithVerseInParagraphMiddle: Usj = {
+  type: "USJ",
+  version: "3.1",
+  content: [
+    { type: "book", marker: "id", code: "GEN", content: ["Test Book"] },
+    { type: "chapter", marker: "c", number: "1" },
+    {
+      type: "para",
+      marker: "p",
+      content: ["Alpha ", { type: "verse", marker: "v", number: "2" }, "Bravo"],
+    },
+  ],
+};
+
+describe("undo after a verse-spanning delete (PT-4102 regression)", () => {
+  // A guarded two-step delete over a range containing a verse marker used to leave undo dead:
+  // ScriptureReferencePlugin's verse mutation listener dispatched SELECTION_CHANGE_COMMAND
+  // synchronously mid-commit, corrupting the history stack. A single deletion must be a single
+  // undoable step that a single undo fully restores.
+  it("restores the deleted text and verse marker with a single undo", async () => {
+    const ref = createRef<EditorRef>();
+    let editor: LexicalEditor | undefined;
+    await act(async () => {
+      render(
+        <Editor
+          ref={ref}
+          defaultUsj={usjWithVerseInParagraphMiddle}
+          scrRef={{ book: "GEN", chapterNum: 1, verseNum: 1 }}
+          onScrRefChange={vi.fn()}
+          options={{ structureProtectionMode: "guarded" }}
+        >
+          <GrabEditor onEditor={(e) => (editor = e)} />
+        </Editor>,
+      );
+    });
+    await flushMicrotasks();
+    if (!ref.current || !editor) throw new Error("EditorRef did not mount");
+    const lexicalEditor = editor;
+    const editorRef = ref.current;
+
+    // Select "pha " + verse marker + "Bra" — a range that spans the verse marker.
+    await act(async () => {
+      editorRef.setSelection({
+        start: { jsonPath: "$.content[2].content[0]", offset: 2 },
+        end: { jsonPath: "$.content[2].content[2]", offset: 3 },
+      });
+    });
+
+    // Guarded two-step delete: the first Delete arms the range, the second removes it.
+    await pressDelete(lexicalEditor);
+    await pressDelete(lexicalEditor);
+    await flushMicrotasks();
+
+    // Precondition: the range (verse marker + surrounding text) was actually deleted.
+    const afterDelete = JSON.stringify(editorRef.getUsj());
+    expect(afterDelete).not.toContain('"number":"2"');
+    expect(afterDelete).not.toContain("Alpha ");
+
+    // A single undo must bring the text and the verse marker back.
+    await act(async () => {
+      editorRef.undo();
+    });
+    await flushMicrotasks();
+
+    const afterUndo = JSON.stringify(editorRef.getUsj());
+    expect(afterUndo).toContain("Alpha ");
+    expect(afterUndo).toContain("Bravo");
+    expect(afterUndo).toContain('"number":"2"');
   });
 });
