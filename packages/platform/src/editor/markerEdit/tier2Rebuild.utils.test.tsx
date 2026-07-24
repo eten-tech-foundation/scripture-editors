@@ -382,6 +382,43 @@ describe("$rebuildParas", () => {
     });
   });
 
+  it("lands the caret AFTER a typed closer glyph, on the following content (not inside it)", () => {
+    // The user typed a complete `\nd Lord\nd*` span; the caret sits right after the just-typed
+    // closer `\nd*`, before " after". After the rebuild builds the real CharNode span, the caret
+    // must land on the following content (" after"), not inside the closer glyph — otherwise
+    // continued typing edits the `\nd*` glyph instead of the paragraph text. A closer is a
+    // COMPLETE marker (unlike a half-typed opener, whose caret stays in the glyph to extend it).
+    const editor = loadEditor(usjFromUsx(`<verse number="1" style="v" />before  after`));
+    editor.update(
+      () => {
+        const para = $lastPara();
+        const text = requireDefined(
+          para
+            .getChildren()
+            .filter($isTextNode)
+            .find((node) => node.getTextContent().includes("before")),
+          "text node containing 'before' not found",
+        );
+        text.setTextContent("before \\nd Lord\\nd* after");
+        const offset = "before \\nd Lord\\nd*".length; // right after the typed closer
+        text.select(offset, offset);
+        expect($rebuildParas([para], context)).toBe(true);
+      },
+      { discrete: true },
+    );
+    editor.getEditorState().read(() => {
+      const selection = $getSelection();
+      expect($isRangeSelection(selection)).toBe(true);
+      if ($isRangeSelection(selection)) {
+        const anchorNode = selection.anchor.getNode();
+        // Not parked inside the closer glyph…
+        expect($isMarkerNode(anchorNode)).toBe(false);
+        // …but on the content that follows it.
+        expect(anchorNode.getTextContent()).toMatch(/after/);
+      }
+    });
+  });
+
   it("restores the caret to the END of a marker glyph split out mid-paragraph (no scramble)", () => {
     // Typing `\z` mid-paragraph immediately terminates against the pre-existing following
     // space, so the rebuild splits the paragraph. The caret sat right after the just-typed
