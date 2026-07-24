@@ -16,6 +16,7 @@ import {
   $isMarkerNode,
   getMarker as bundledGetMarker,
   $isParaNode,
+  NBSP,
   ParaNode,
   TypedMarkNode,
 } from "shared";
@@ -167,6 +168,33 @@ describe("$rebuildParas", () => {
           .getChildren()
           .some((n) => n.getType() === "unmatched"),
       ).toBe(false);
+    });
+  });
+
+  // Text that FOLLOWS a nested closing marker inside a char span must not get the structural
+  // leading-NBSP separator — that prefix belongs only to the content right after the OPENING
+  // glyph. Otherwise the NBSP leaks to the file and Tier-2 accumulates a fresh one each rebuild.
+  it("does not put a structural NBSP before text after a nested closer, and stays a fixed point", () => {
+    const editor = loadEditor(
+      usjFromUsx(`asdf <char style="wj">li<char style="nd">g</char>ht</char>`),
+    );
+    editor.getEditorState().read(() => {
+      const wj = requireDefined(
+        $lastPara()
+          .getChildren()
+          .find((n) => $isCharNode(n) && n.getMarker() === "wj"),
+        "wj char span not found",
+      );
+      const texts = $isCharNode(wj)
+        ? wj.getChildren().filter((n) => $isTextNode(n) && !$isMarkerNode(n))
+        : [];
+      // "li" (right after the \wj opener) keeps its structural NBSP prefix; "ht" (after the
+      // nested \+nd*) must NOT — its content is a plain "ht", never an NBSP-prefixed one.
+      expect(texts.map((t) => t.getTextContent())).toEqual([`${NBSP}li`, "ht"]);
+    });
+    // A no-edit rebuild is a fixed point: no accumulation of a leading space before "ht".
+    editor.update(() => expect($rebuildParas([$lastPara()], context)).toBe(false), {
+      discrete: true,
     });
   });
 
