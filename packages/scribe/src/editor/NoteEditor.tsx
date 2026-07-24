@@ -36,7 +36,7 @@ export const NoteEditor = ({
   nodeOptions = {},
   scrollId,
 }: NoteEditorProps) => {
-  const expandedNoteKeyRef = useRef<string | undefined>();
+  const expandedNoteKeyRef = useRef<string | undefined>(undefined);
 
   const initialConfig = {
     namespace: "ScribeNoteEditor",

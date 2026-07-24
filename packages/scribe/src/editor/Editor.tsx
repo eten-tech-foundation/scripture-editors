@@ -110,7 +110,7 @@ const Editor = forwardRef(function Editor(
 ): ReactElement {
   const editorRef = useRef<LexicalEditor>(null);
   const editedUsjRef = useRef<Usj | undefined>(undefined);
-  const expandedNoteKeyRef = useRef<string | undefined>();
+  const expandedNoteKeyRef = useRef<string | undefined>(undefined);
   const [usj, setUsj] = useState(usjInput);
   const [loadedUsj] = useDeferredState(usj);
   const autoNumbering = false;

@@ -117,7 +117,7 @@ function handleAnnotationOnRemove(type: string, id: string, cause: string, textC
 export default function App() {
   const marginalRef = useRef<MarginalRef | null>(null);
   const noteEditorRef = useRef<EditorRef | null>(null);
-  const noteNodeKeyRef = useRef<string | undefined>();
+  const noteNodeKeyRef = useRef<string | undefined>(undefined);
   const selectionRef = useRef<SelectionRange | undefined>(undefined);
   const [isNoteEditorVisible, setIsNoteEditorVisible] = useState(false);
   const [isOptionsDefined, setIsOptionsDefined] = useState(false);

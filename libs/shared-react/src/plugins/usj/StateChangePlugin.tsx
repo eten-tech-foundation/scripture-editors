@@ -45,8 +45,8 @@ export function StateChangePlugin({ onStateChange }: { onStateChange?: OnStateCh
   const [activeEditor, setActiveEditor] = useState(editor);
   const canUndoRef = useRef(false);
   const canRedoRef = useRef(false);
-  const blockMarkerRef = useRef<string | undefined>();
-  const contextMarkerRef = useRef<string | undefined>();
+  const blockMarkerRef = useRef<string | undefined>(undefined);
+  const contextMarkerRef = useRef<string | undefined>(undefined);
 
   const $updateState = useCallback(() => {
     const selection = $getSelection();
