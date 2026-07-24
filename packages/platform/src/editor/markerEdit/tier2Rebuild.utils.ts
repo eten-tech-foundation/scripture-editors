@@ -386,6 +386,18 @@ function caretSpanTextOffset(
   return undefined;
 }
 
+/**
+ * Whether a span is a CLOSING (or self-closing) marker glyph. The caret never lands on such a
+ * glyph: a completed closer (`\nd*`) has the caret belong on the content AFTER it, not inside the
+ * glyph where continued typing would edit the marker. An OPENING glyph is deliberately NOT matched
+ * here — a half-typed opener keeps the caret in the glyph so the user can extend the marker name.
+ */
+function $isClosingMarkerSpan(span: FragmentSpan): boolean {
+  if (span.isSentinel) return false;
+  const node = $getNodeByKey(span.key);
+  return $isMarkerNode(node) && node.getMarkerSyntax() !== "opening";
+}
+
 /** Place the collapsed caret at cumulative span-text `offset` (see `caretSpanTextOffset`)
  * within `spans`, falling back to the first element. */
 function $selectAtFragmentOffset(
@@ -397,16 +409,20 @@ function $selectAtFragmentOffset(
   let cumulative = 0;
   for (const span of spans) {
     const length = span.end - span.start;
-    // Skip sentinels (their inner text is not addressable); an offset that fell inside
-    // one resolves to the start of the next non-sentinel span.
-    if (!span.isSentinel && offset <= cumulative + length) {
+    // Skip sentinels (their inner text is not addressable) and closing marker glyphs (see
+    // $isClosingMarkerSpan); an offset that fell on either resolves to the start of the next
+    // addressable span. Both still advance `cumulative` so the offset stays aligned with the
+    // captured text offset.
+    if (!span.isSentinel && !$isClosingMarkerSpan(span) && offset <= cumulative + length) {
       best = { key: span.key, offset: Math.max(offset - cumulative, 0) };
       break;
     }
     cumulative += length;
   }
   if (!best) {
-    const last = [...spans].reverse().find((span) => !span.isSentinel);
+    const last = [...spans]
+      .reverse()
+      .find((span) => !span.isSentinel && !$isClosingMarkerSpan(span));
     if (last) best = { key: last.key, offset: last.end - last.start };
   }
   if (best) {
