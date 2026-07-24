@@ -85,11 +85,14 @@ const STYLE_TYPE_TO_MARKER_TYPE: { [K in StyleType]: MarkerType } = {
 
 /**
  * StyleInfo-backed replacement for the bundled `getMarker`. With `styleInfo`,
- * the project sheet is authoritative: markers absent from it return
- * `undefined` (PT9: unknown to the stylesheet), and `usfmMarkersOverwrites`
- * never applies. Without `styleInfo`, the bundled `getMarker` (table +
- * overwrites) is returned unchanged so non-project consumers keep today's
- * behavior exactly.
+ * the project sheet is authoritative for a marker's existence and
+ * classification: markers absent from it return `undefined` (PT9: unknown to
+ * the stylesheet), and `usfmMarkersOverwrites` never overrides those fields.
+ * `children` (submenu structure) is editor data keyed by marker name, not
+ * stylesheet data, so it still comes from the bundled path (table +
+ * overwrites) — children-dependent consumers keep working. Without
+ * `styleInfo`, the bundled `getMarker` is returned unchanged so non-project
+ * consumers keep today's behavior exactly.
  */
 export function createMarkerLookup(styleInfo?: StyleInfo): MarkerLookup {
   if (!styleInfo) return getMarker;
@@ -103,6 +106,7 @@ export function createMarkerLookup(styleInfo?: StyleInfo): MarkerLookup {
           type: STYLE_TYPE_TO_MARKER_TYPE[entry.styleType] ?? MarkerType.Unknown,
           description: entry.description ?? "",
           hasEndMarker: Boolean(entry.endMarker),
+          children: getMarker(marker)?.children,
         }
       : undefined;
     cache.set(marker, result);
