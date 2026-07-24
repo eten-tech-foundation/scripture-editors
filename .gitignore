@@ -64,5 +64,10 @@ vitest.config.*.timestamp*
 .cursor/
 .superpowers
 docs/superpowers
-.claude
+.claude/*
+# settings.json and skills/ are shared team config (tracked in git), so keep them out of the
+# .claude ignore above. The /* glob (rather than a bare `.claude`) is what lets these negations
+# re-include the paths.
+!.claude/settings.json
+!.claude/skills/
 .review
