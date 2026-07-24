@@ -993,6 +993,74 @@ describe("$applyMarkerMenuSelection", () => {
         });
       });
 
+      /** A body paragraph `\p before \nd Lord\nd* after` (the \nd span carries an explicit closer). */
+      async function setUpBodyCharSpan() {
+        let ndCharRef: CharNode | undefined;
+        let ndContentRef: TextNode | undefined;
+        let paraRef: ParaNode | undefined;
+        const environment = await fullHarnessEnvironment(() => {
+          const para = $createParaNode("p");
+          const ndChar = $createCharNode("nd");
+          const ndContent = $createTextNode(`${NBSP}Lord`);
+          ndChar.append($createMarkerNode("nd"), ndContent, $createMarkerNode("nd", "closing"));
+          $getRoot().append(
+            para.append(
+              $createMarkerNode("p"),
+              $createTrailingSpaceNode(),
+              $createTextNode("before "),
+              ndChar,
+              $createTextNode(" after"),
+            ),
+          );
+          ndCharRef = ndChar;
+          ndContentRef = ndContent;
+          paraRef = para;
+        });
+        return {
+          ...environment,
+          ndChar: requireDefined(ndCharRef, "nd char missing"),
+          ndContent: requireDefined(ndContentRef, "nd content missing"),
+          para: requireDefined(paraRef, "para missing"),
+        };
+      }
+
+      it("nests an applied NEST-able \\w INSIDE a BODY \\nd span (not split to paragraph level)", async () => {
+        // PT9 StyleApplicator parity is not note-specific: applying a NEST-able style with the
+        // caret inside a BODY char span nests it in place too. The generic insertNodes fallback
+        // instead split the \nd span (its closer-less left half then triggering a destructive
+        // Tier-2 rebuild), so this branch must fire for body char spans, not only in-note ones.
+        const { editor, ndChar, ndContent, para } = await setUpBodyCharSpan();
+        await act(async () =>
+          editor.update(() =>
+            ndContent.select(ndContent.getTextContentSize(), ndContent.getTextContentSize()),
+          ),
+        );
+
+        await act(async () =>
+          editor.update(() => {
+            $applyMarkerMenuSelection(
+              wItem,
+              { trigger: "backslash", literalPrefixLanded: false },
+              reference,
+              makeDeps(),
+            );
+          }),
+        );
+
+        editor.getEditorState().read(() => {
+          // Nothing split out to paragraph level: the paragraph still holds exactly the one \nd.
+          expect(childCharMarkers(para)).toEqual(["nd"]);
+          // The \w nested INSIDE \nd, with an explicit closer, and — because its parent is now a
+          // char — its editable glyphs carry the `+` so a Tier-2 re-tokenization keeps the nesting.
+          const ndChildChars = ndChar.getChildren().filter($isCharNode);
+          expect(ndChildChars.map((c) => c.getMarker())).toEqual(["w"]);
+          const w = ndChildChars[0];
+          const wMarkers = w.getChildren().filter($isMarkerNode);
+          expect(wMarkers.map((m) => m.getTextContent())).toEqual(["\\+w", "\\+w*"]);
+          expect(w.getUnknownAttributes()?.closed).toBeUndefined();
+        });
+      });
+
       it("nests the new \\w INSIDE the \\ft span at a mid-content caret (\\ft not split)", async () => {
         const { editor, note, ftChar, ftContent } = await setUpExpandedFootnote();
         // Caret between "A " and "note" (content text is NBSP + "A note").
