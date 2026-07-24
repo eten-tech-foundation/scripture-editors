@@ -282,6 +282,31 @@ describe("usfmFragmentToUsjContent — verse, chapter, note, milestone, attribut
     ]);
   });
 
+  it("parses attribute values wrapped across a line break as if the break were a space", () => {
+    // ParatextData never lets a line break reach attribute parsing: UsfmToken.Tokenize
+    // regularizes the text FIRST (RegularizeSpaces turns control whitespace into plain
+    // deduplicated spaces) and only then hands it to HandleAttributes, so a wrapped
+    // attribute value parses with a space where the line break was.
+    expect(usfmFragmentToUsjContent('\\p one \\ts-s |sid="a\nb"\\* two')).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: ["one ", { type: "ms", marker: "ts-s", sid: "a b" }, " two"],
+      },
+    ]);
+    expect(usfmFragmentToUsjContent('\\p x\\fig cap|src="f.png" ref="1\n2"\\fig* y')).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [
+          "x",
+          { type: "figure", marker: "fig", file: "f.png", ref: "1 2", content: ["cap"] },
+          " y",
+        ],
+      },
+    ]);
+  });
+
   it("tokenizes // as an optbreak wherever it appears in text (PT9 spec-blind scan)", () => {
     expect(usfmFragmentToUsjContent("\\p before // after //")).toEqual([
       {
@@ -499,9 +524,97 @@ describe("usfmFragmentToUsjContent — verse, chapter, note, milestone, attribut
       ]);
     });
 
+    it("trims a folded \\ca value: the space before the closer never reaches the attribute", () => {
+      // ParatextData trims every folded chapter/verse-alternate value
+      // (UsfmParser.FindOtherVerseOrChapterNumber: `tokens[index + skip + 2].Text.Trim()`),
+      // so `\ca 2 \ca*` yields altnumber exactly "2", not "2 ".
+      expect(usfmFragmentToUsjContent("\\c 1\n\\ca 2 \\ca*\n\\p x")).toEqual([
+        { type: "chapter", marker: "c", number: "1", altnumber: "2" },
+        { type: "para", marker: "p", content: ["x"] },
+      ]);
+    });
+
+    it("trims a folded \\cat category the same way", () => {
+      // The note-category lookup trims too (UsfmParser: `noteCategory =
+      // tokens[index + 2].Text.Trim()`), so `\cat things \cat*` folds to exactly "things".
+      expect(
+        usfmFragmentToUsjContent("\\p x\\f + \\cat things \\cat*\\fr 1:12 \\ft Some\\f* y"),
+      ).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: [
+            "x",
+            {
+              type: "note",
+              marker: "f",
+              caller: "+",
+              category: "things",
+              content: [
+                { type: "char", marker: "fr", content: ["1:12 "], closed: "false" },
+                { type: "char", marker: "ft", content: ["Some"], closed: "false" },
+              ],
+            },
+            " y",
+          ],
+        },
+      ]);
+    });
+
     it("folds \\cp at fragment end (the cp paragraph ended with plain text)", () => {
       expect(usfmFragmentToUsjContent("\\c 2\n\\cp 2 cp")).toEqual([
         { type: "chapter", marker: "c", number: "2", pubnumber: "2 cp" },
+      ]);
+    });
+
+    it("drops the line break after a folded \\ca at a paragraph boundary (no stray root text)", () => {
+      // ParatextData strips the space a line break leaves behind when the next token is a
+      // paragraph/book/chapter (UsfmParser Text case, "strip final space"), so nothing lands
+      // between the chapter and the paragraph — see 2SA-1 in paranext-core's
+      // usj-reader-writer test data for the real ParatextData shape.
+      expect(usfmFragmentToUsjContent("\\c 1\n\\ca 2\\ca*\n\\p In the beginning")).toEqual([
+        { type: "chapter", marker: "c", number: "1", altnumber: "2" },
+        { type: "para", marker: "p", content: ["In the beginning"] },
+      ]);
+    });
+
+    it("drops the line break after a folded \\ca at a chapter boundary", () => {
+      expect(usfmFragmentToUsjContent("\\c 1\n\\ca 2\\ca*\n\\c 2\n\\p body")).toEqual([
+        { type: "chapter", marker: "c", number: "1", altnumber: "2" },
+        { type: "chapter", marker: "c", number: "2" },
+        { type: "para", marker: "p", content: ["body"] },
+      ]);
+    });
+
+    it("drops the line break after a folded \\va at a paragraph boundary", () => {
+      expect(usfmFragmentToUsjContent("\\p \\v 1 \\va 2\\va*\n\\p next")).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: [{ type: "verse", marker: "v", number: "1", altnumber: "2" }],
+        },
+        { type: "para", marker: "p", content: ["next"] },
+      ]);
+    });
+
+    it("keeps the line-wrap space after a folded \\cat before the note's first char marker", () => {
+      // INTENTIONAL space: ParatextData's strip-final-space rule applies only before
+      // paragraph/book/chapter tokens. `\ft` is a character token, so the line break between
+      // `\cat*` and `\ft` stays a content space inside the note (sink.Text receives " ").
+      expect(usfmFragmentToUsjContent("\\p \\f + \\cat x\\cat*\n\\ft t\\f*")).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: [
+            {
+              type: "note",
+              marker: "f",
+              caller: "+",
+              category: "x",
+              content: [" ", { type: "char", marker: "ft", content: ["t"], closed: "false" }],
+            },
+          ],
+        },
       ]);
     });
   });
@@ -659,6 +772,131 @@ describe("usfmFragmentToUsjContent — verse, chapter, note, milestone, attribut
               type: "table:row",
               marker: "tr",
               content: [{ type: "table:cell", marker: "tc2", align: "start", content: ["b"] }],
+            },
+          ],
+        },
+      ]);
+    });
+
+    it("rejects a leading-zero cell column: \\tc01 is an unknown marker that ends the table", () => {
+      // ParatextData's tag lookup is by LITERAL name (usfm.sty declares exactly
+      // th1–th12/tc1–tc12; ScrStylesheet.GetTagIndex is a string-keyed dictionary, no
+      // numeric parse), so `\tc01` and `\thc007` are unknown markers — paragraphs that
+      // end the table, exactly like `\tc13`.
+      expect(usfmFragmentToUsjContent("\\tr \\tc1 a\\tc01 x\\tr \\tc2 b")).toEqual([
+        {
+          type: "table",
+          content: [
+            {
+              type: "table:row",
+              marker: "tr",
+              content: [{ type: "table:cell", marker: "tc1", align: "start", content: ["a"] }],
+            },
+          ],
+        },
+        { type: "para", marker: "tc01", content: ["x"] },
+        {
+          type: "table",
+          content: [
+            {
+              type: "table:row",
+              marker: "tr",
+              content: [{ type: "table:cell", marker: "tc2", align: "start", content: ["b"] }],
+            },
+          ],
+        },
+      ]);
+      expect(usfmFragmentToUsjContent("\\tr \\th1 a\\thc007 x")).toEqual([
+        {
+          type: "table",
+          content: [
+            {
+              type: "table:row",
+              marker: "tr",
+              content: [{ type: "table:cell", marker: "th1", align: "start", content: ["a"] }],
+            },
+          ],
+        },
+        { type: "para", marker: "thc007", content: ["x"] },
+      ]);
+    });
+
+    it("rejects a reversed or non-growing cell span (ParatextData: unknown marker ends the table)", () => {
+      // ScrStylesheet.IsCellRange (cellRangeRegex `^(t[ch][cr]?[1-5])-([2-5])$`, colSpan >= 2):
+      // a reversed span (`thc4-2`, colSpan -1) or a span that doesn't grow (`tc2-2`, colSpan 1)
+      // is NOT a cell range, so ParatextData sees an unknown marker — a paragraph that ends
+      // the table, exactly like `\tc13`.
+      expect(usfmFragmentToUsjContent("\\tr \\th1 a\\thc4-2 x")).toEqual([
+        {
+          type: "table",
+          content: [
+            {
+              type: "table:row",
+              marker: "tr",
+              content: [{ type: "table:cell", marker: "th1", align: "start", content: ["a"] }],
+            },
+          ],
+        },
+        { type: "para", marker: "thc4-2", content: ["x"] },
+      ]);
+      expect(usfmFragmentToUsjContent("\\tr \\tc1 a\\tc2-2 x")).toEqual([
+        {
+          type: "table",
+          content: [
+            {
+              type: "table:row",
+              marker: "tr",
+              content: [{ type: "table:cell", marker: "tc1", align: "start", content: ["a"] }],
+            },
+          ],
+        },
+        { type: "para", marker: "tc2-2", content: ["x"] },
+      ]);
+    });
+
+    it("rejects a cell span outside ParatextData's single-digit 1–5 → 2–5 range", () => {
+      // cellRangeRegex takes only single-digit columns: start 1–5, end 2–5. `\thc11-13` and
+      // `\tc6-7` don't match, so both are unknown markers (paragraphs) even though their
+      // rangeless bases (`thc11`, `tc6`) would be valid cells.
+      expect(usfmFragmentToUsjContent("\\tr \\th1 a\\thc11-13 x")).toEqual([
+        {
+          type: "table",
+          content: [
+            {
+              type: "table:row",
+              marker: "tr",
+              content: [{ type: "table:cell", marker: "th1", align: "start", content: ["a"] }],
+            },
+          ],
+        },
+        { type: "para", marker: "thc11-13", content: ["x"] },
+      ]);
+      expect(usfmFragmentToUsjContent("\\tr \\tc1 a\\tc6-7 x")).toEqual([
+        {
+          type: "table",
+          content: [
+            {
+              type: "table:row",
+              marker: "tr",
+              content: [{ type: "table:cell", marker: "tc1", align: "start", content: ["a"] }],
+            },
+          ],
+        },
+        { type: "para", marker: "tc6-7", content: ["x"] },
+      ]);
+    });
+
+    it("accepts the widest ParatextData cell span, columns 1–5", () => {
+      expect(usfmFragmentToUsjContent("\\tr \\tc1-5 a")).toEqual([
+        {
+          type: "table",
+          content: [
+            {
+              type: "table:row",
+              marker: "tr",
+              content: [
+                { type: "table:cell", marker: "tc1", align: "start", colspan: "5", content: ["a"] },
+              ],
             },
           ],
         },

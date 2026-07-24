@@ -84,6 +84,25 @@ const TABLE_CELL_ALIGN_BY_INFIX: { [infix: string]: string } = {
   r: "end",
 };
 
+/**
+ * Whether a cell-marker name match is a cell ParatextData recognizes. A rangeless cell
+ * covers columns 1–12 spelled with no leading zeros: usfm.sty declares exactly
+ * th1–th12/tc1–tc12 (and their r/c variants) and ParatextData's tag lookup is by LITERAL
+ * name (`ScrStylesheet.GetTagIndex` is a string-keyed dictionary, no numeric parse), so
+ * `\tc13` and `\tc01` are both unknown markers. A RANGED cell is narrower: ParatextData's
+ * range test (`ScrStylesheet.IsCellRange`, regex `^(t[ch][cr]?[1-5])-([2-5])$` plus
+ * `colSpan >= 2`) takes only single-digit spans that start in columns 1–5, end in 2–5, and
+ * grow left-to-right — `\thc4-2` (reversed), `\tc2-2` (no growth), and `\thc11-13`
+ * (multi-digit columns) are all unknown markers too.
+ */
+function isRecognizedTableCell(cellMatch: RegExpExecArray): boolean {
+  const [, , spanStart, spanEnd] = cellMatch;
+  if (!spanEnd) return /^(?:[1-9]|1[0-2])$/.test(spanStart);
+  return (
+    /^[1-5]$/.test(spanStart) && /^[2-5]$/.test(spanEnd) && Number(spanEnd) > Number(spanStart)
+  );
+}
+
 type Token =
   | { kind: "text"; text: string }
   | { kind: "para"; marker: string }
@@ -302,6 +321,19 @@ const ATTRIBUTE_MARKERS: {
 const ATTRIBUTE_PAIR_REGEX = /([-\w]+)\s*=\s*"(.*?)"/g;
 
 /**
+ * Whitespace run containing a line break, inside attribute text. ParatextData regularizes
+ * text BEFORE attribute parsing ever sees it (`UsfmToken.Tokenize` calls `RegularizeSpaces`
+ * — control whitespace becomes deduplicated plain spaces — and only then hands the text to
+ * `HandleAttributes`), so a line break inside an attribute span reaches its `.*?`-based
+ * value pattern as a plain space, never as a newline. Milestone and figure attribute text
+ * here is sliced from the raw fragment (or still carries the collapsed `"\n"` run marker),
+ * so the same normalization must run before matching — without it the value capture (`.`
+ * never matches a line terminator) fails on a wrapped value and the whole string would
+ * leak into the default attribute.
+ */
+const ATTRIBUTE_LINE_BREAK_RUN_REGEX = /[\s\u200B]*[\n\r][\s\u200B]*/g;
+
+/**
  * USFM 3 default attribute per marker (subset; unmapped bare values stay literal).
  *
  * `xt`/`jmp` use the USFM/USX/USJ **3.0** name `link-href`: this pipeline pins USJ 3.0 (chapter
@@ -329,20 +361,22 @@ function parseAttributeText(
   marker: string,
   defaultAttributeName = DEFAULT_MARKER_ATTRIBUTES[marker],
 ): { [attributeName: string]: string } | undefined {
+  const regularizedText = attributeText.replace(ATTRIBUTE_LINE_BREAK_RUN_REGEX, " ");
   const attributes: { [attributeName: string]: string } = {};
-  const pairs = [...attributeText.matchAll(ATTRIBUTE_PAIR_REGEX)];
+  const pairs = [...regularizedText.matchAll(ATTRIBUTE_PAIR_REGEX)];
   if (pairs.length > 0) {
     for (const [, name, value] of pairs) {
       if (!RESERVED_NODE_KEYS.has(name)) attributes[name] = value;
     }
     return Object.keys(attributes).length > 0 ? attributes : undefined;
   }
-  // Bare (default-attribute) value: keep it byte-exact, whitespace included — ParatextData
-  // treats the space before the closing marker as part of the value (`\w marker|stuff \w*` →
-  // lemma="stuff "; `\qt-s |TJ \*` → who="TJ "). The USFM 3 spec calls that space structural,
-  // but Paratext keeps it as content, and this pipeline round-trips through ParatextData.
-  if (attributeText.trim() && defaultAttributeName)
-    return { [defaultAttributeName]: attributeText };
+  // Bare (default-attribute) value: keep it byte-exact (past the line-break regularization
+  // above), whitespace included — ParatextData treats the space before the closing marker as
+  // part of the value (`\w marker|stuff \w*` → lemma="stuff "; `\qt-s |TJ \*` → who="TJ ").
+  // The USFM 3 spec calls that space structural, but Paratext keeps it as content, and this
+  // pipeline round-trips through ParatextData.
+  if (regularizedText.trim() && defaultAttributeName)
+    return { [defaultAttributeName]: regularizedText };
   return undefined;
 }
 
@@ -539,12 +573,19 @@ export function usfmFragmentToUsjContent(
     if (heldWhitespace) pushContent(toUsjText(heldWhitespace));
     heldWhitespace = "";
   };
-  const clearAttrTarget = () => {
+  const clearAttrTarget = (atBlockBoundary = false) => {
     // Line-end whitespace held while a SIDEBAR was receptive is structural: sidebar content
     // is block-level (paragraphs and tables), so the line break between `\esb`/`\cat` and
     // the first block never becomes text — ParatextData emits none there. Held whitespace
-    // for the other targets (chapter/verse/note) keeps its existing flush-as-content path.
+    // for the other targets (chapter/verse/note) flushes as content, EXCEPT its trailing
+    // line break at a block boundary: ParatextData strips the space a line break leaves
+    // behind when the next token is a paragraph/book/chapter (UsfmParser's Text case,
+    // "strip final space"), so `\c 1` ⏎ `\ca 2\ca*` ⏎ `\p` puts no stray text at the root.
+    // Before an INLINE token the space survives — a `\cat` fold followed by `\ft` keeps its
+    // space inside the note.
     if (attrTarget?.type === "sidebar") heldWhitespace = "";
+    else if (atBlockBoundary && heldWhitespace.endsWith("\n"))
+      heldWhitespace = heldWhitespace.slice(0, -1);
     attrTarget = undefined;
     flushHeldWhitespace();
   };
@@ -612,11 +653,16 @@ export function usfmFragmentToUsjContent(
         token.kind === "end" &&
         token.marker.replace(/^\+/, "") === attrCapture.marker
       ) {
-        // Explicit close with plain-text content: fold as the target's attribute. Any space
+        // Explicit close with plain-text content: fold as the target's attribute, TRIMMED —
+        // ParatextData trims every folded value (`FindOtherVerseOrChapterNumber` reads
+        // `tokens[index + skip + 2].Text.Trim()`, and the note/sidebar category lookups do
+        // `tokens[index + 2].Text.Trim()`), so `\ca 2 \ca*` yields altnumber "2". Any space
         // AFTER the closer is content, not structural — Paratext keeps it in the text
         // (`\vp 11 vp\vp* This…` → text starts with the space), per its
         // treat-space-after-attribute-markers-as-content behavior.
-        Object.assign(attrCapture.target, { [attrCapture.attrName]: toUsjText(attrCapture.value) });
+        Object.assign(attrCapture.target, {
+          [attrCapture.attrName]: toUsjText(attrCapture.value.trim()),
+        });
         attrCapture = undefined;
         continue;
       }
@@ -710,9 +756,9 @@ export function usfmFragmentToUsjContent(
           // attrTarget stays receptive: a chapter takes BOTH \ca and \cp.
           continue;
         }
-        clearAttrTarget();
+        clearAttrTarget(token.kind === "para");
       } else {
-        clearAttrTarget();
+        clearAttrTarget(token.kind === "chapter");
       }
     }
 
@@ -774,10 +820,10 @@ export function usfmFragmentToUsjContent(
         }
         if (tableEligible && tableRow) {
           const cellMatch = TABLE_CELL_MARKER_REGEX.exec(token.marker);
-          // Only columns 1–12 are cells: usfm.sty declares exactly th1–th12/tc1–tc12 (and
-          // their r/c variants), and ParatextData follows its stylesheet — `\tc13` is an
-          // unknown marker that ENDS the table (and the next `\tr` starts a fresh one).
-          if (cellMatch && Number(cellMatch[2]) >= 1 && Number(cellMatch[2]) <= 12) {
+          // A name outside what ParatextData recognizes as a cell (see
+          // isRecognizedTableCell) is an unknown marker that ENDS the table (and the next
+          // `\tr` starts a fresh one).
+          if (cellMatch && isRecognizedTableCell(cellMatch)) {
             closeCharStack();
             const [, alignInfix, spanStart, spanEnd] = cellMatch;
             // The cell keeps only the starting column in its marker (`thc3-4` → `thc3`);
