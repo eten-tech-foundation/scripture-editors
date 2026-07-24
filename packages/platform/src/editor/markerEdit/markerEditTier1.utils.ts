@@ -119,6 +119,13 @@ export function $applyOpenerRename(
   newMarker: string,
   context: MarkerEditContext,
 ): void {
+  // A typed `+` prefix is a NEST instruction, not a rename: only Tier 2 (re-tokenizing the
+  // visible glyph text, which now carries the `+`) can express the resulting nesting. Tier 1's
+  // in-place rename would strip the `+` and silently discard the nest intent, so route to Tier 2.
+  if (newMarker.startsWith("+")) {
+    $requestTier2ForNode(node, context);
+    return;
+  }
   const parent = node.getParent();
   if ($isParaNode(parent)) {
     if (!isParaKindMarker(newMarker, context.getMarker)) {
