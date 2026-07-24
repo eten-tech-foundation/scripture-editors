@@ -56,7 +56,9 @@ import {
   $hasSameCharAttributes,
   $isBookNode,
   $isCharNode,
+  $isImmutableTypedTextNode,
   $isImpliedParaNode,
+  $isMarkerNode,
   $isMilestoneNode,
   $isNoteNode,
   $isParaLikeNode,
@@ -80,6 +82,7 @@ import {
   ParaNode,
   segmentState,
   SomeChapterNode,
+  textTypeState,
   UnknownNode,
 } from "shared";
 
@@ -363,8 +366,9 @@ function $applyAttributes(
           }
           // Only set attributes if needed
           if (charAttrItem) {
-            // Update the CharNode's marker and attributes to match the retain attributes
-            currentNode.setMarker(charAttrItem.style);
+            // Update the CharNode's marker (and its glyphs, in editable marker mode) and
+            // attributes to match the retain attributes
+            $syncCharMarkerGlyphs(currentNode, charAttrItem.style);
             if (typeof charAttrItem.cid === "string") {
               $setState(currentNode, charIdState, () => charAttrItem.cid);
             }
@@ -428,7 +432,9 @@ function $applyAttributes(
       ) {
         if (!$isImpliedParaNode(currentNode)) $applyEmbedAttributes(currentNode, attributes);
         else if (hasParaAttributes(attributes)) {
-          const newPara = $createPara(attributes.para);
+          const newPara = $createPara(attributes.para, viewOptions);
+          // `replace(…, true)` appends the implied para's children AFTER the new paragraph's
+          // marker prefix, so content stays on the content side of the glyphs.
           if (newPara) currentNode.replace(newPara, true);
         }
         lengthToFormat -= blockClosingOtLength;
@@ -529,6 +535,84 @@ function $wrapInNestedCharNodes(
   return newCharNodes;
 }
 
+/**
+ * Sets a paragraph's marker and rewrites its visible marker-glyph prefix to match, when one is
+ * present. In editable marker mode a paragraph carries its marker as an editable `MarkerNode`
+ * first child (`\q1`); in visible marker mode and gutter para-marker rendering it carries an
+ * immutable typed-text first child instead (`\q1` glyph + NBSP separator in one node). Either
+ * way, marker state and glyph text must change together: a stale editable glyph re-tokenizes
+ * as a DIFFERENT marker than the paragraph claims on the next serialization, and a stale
+ * typed-text glyph keeps displaying the old marker. Purely structural — trees whose paragraphs
+ * carry no glyph prefix (hidden marker rendering) get the bare marker state change, and a
+ * missing prefix is never injected. The glyph text is restored unconditionally so drifted
+ * glyph text (an abandoned in-glyph rename literal) canonicalizes even when the marker value
+ * itself is unchanged.
+ *
+ * @param para - The paragraph to retag. Must be called inside `editor.update()`.
+ * @param marker - The new paragraph marker (e.g. `"q1"`).
+ *
+ * @public
+ */
+export function $syncParaMarkerGlyph(para: ParaNode, marker: string): void {
+  para.setMarker(marker);
+  const glyph = para.getFirstChild();
+  if ($isMarkerNode(glyph)) {
+    glyph.setMarker(marker);
+    glyph.setTextContent(openingMarkerText(marker));
+  } else if ($isImmutableTypedTextNode(glyph) && glyph.getTextType() === "marker") {
+    // Keep in sync with the adaptor's visible/gutter para-prefix shape in `createPara`
+    // (usj-editor.adaptor.ts): opening marker text + NBSP.
+    glyph.setTextContent(openingMarkerText(marker) + NBSP);
+  }
+}
+
+/**
+ * Sets a char span's marker and rewrites its own opening/closing marker glyphs to match, when
+ * present. In editable marker mode a char span carries its `\wj`…`\wj*` glyph pair as
+ * `MarkerNode` children; renaming the span without rewriting the pair leaves glyph text that
+ * re-tokenizes as a different span than the node claims. In visible marker mode the pair is
+ * immutable typed-text nodes instead (bare `\wj` opener and `\wj*` closer, as the USJ adaptor
+ * and `$addOpeningMarker`/`$addClosingMarker` build them); their display text still names the
+ * marker, so it is rewritten too. Only DIRECT children matching the span's OLD marker are
+ * rewritten: glyphs that an ancestor span carries for a nested child (the delta-materialized
+ * flattened shape) name the nested span's marker, not this one's, and are deliberately left
+ * alone — the marker-edit engine's in-place rename refuses that shape for the same reason.
+ * Glyph-less trees (hidden marker mode) get the bare marker state change only, and a missing
+ * glyph (e.g. an unclosed span's absent closer) is never injected.
+ *
+ * @param char - The char span to retag. Must be called inside `editor.update()`.
+ * @param marker - The new char marker (e.g. `"nd"`).
+ *
+ * @public
+ */
+export function $syncCharMarkerGlyphs(char: CharNode, marker: string): void {
+  const oldMarker = char.getMarker();
+  char.setMarker(marker);
+  if (marker === oldMarker) return;
+  char.getChildren().forEach((child) => {
+    if ($isMarkerNode(child) && child.getMarker() === oldMarker) child.setMarker(marker);
+  });
+  // Visible-mode typed-text pair: the span's own opener/closer are its first/last children
+  // (a flattened nested child's glyphs sit between them). Matching the OLD marker's exact
+  // glyph text keeps this to the span's own pair, like the MarkerNode path above.
+  const opener = char.getFirstChild();
+  if (
+    $isImmutableTypedTextNode(opener) &&
+    opener.getTextType() === "marker" &&
+    opener.getTextContent() === openingMarkerText(oldMarker)
+  ) {
+    opener.setTextContent(openingMarkerText(marker));
+  }
+  const closer = char.getLastChild();
+  if (
+    $isImmutableTypedTextNode(closer) &&
+    closer.getTextType() === "marker" &&
+    closer.getTextContent() === closingMarkerText(oldMarker)
+  ) {
+    closer.setTextContent(closingMarkerText(marker));
+  }
+}
+
 // Apply attributes to the given embed node
 function $applyEmbedAttributes(
   node: EmbedNode | CharNode | NoteNode | UnknownNode | ParaNode | BookNode,
@@ -540,7 +624,7 @@ function $applyEmbedAttributes(
     // Special handling for char attributes on CharNodes
     if (key === "char" && $isCharNode(node) && hasCharAttributes(attributes)) {
       const charAttributes = value as OTCharItem;
-      node.setMarker(charAttributes.style);
+      $syncCharMarkerGlyphs(node, charAttributes.style);
 
       // Set charIdState if cid is present
       if (typeof charAttributes.cid === "string") {
@@ -576,8 +660,10 @@ function $applyEmbedAttributes(
         [key]: value,
       });
     } else if ($isBookNode(node) || $isParaNode(node) || $isCharNode(node)) {
-      if (key === "style" && !$isBookNode(node)) {
-        node.setMarker(value);
+      if (key === "style" && $isParaNode(node)) {
+        $syncParaMarkerGlyph(node, value);
+      } else if (key === "style" && $isCharNode(node)) {
+        $syncCharMarkerGlyphs(node, value);
       } else if (key === "code" && $isBookNode(node)) {
         node.setCode(value as BookCode);
       } else {
@@ -799,7 +885,7 @@ function $insertTextAtCurrentIndex(
   logger: LoggerBasic | undefined,
 ): number {
   if (textToInsert === LF) {
-    return $handleNewline(targetIndex, attributes, logger);
+    return $handleNewline(targetIndex, attributes, viewOptions, logger);
   } else if (textToInsert.endsWith(LF) && !hasParaAttributes(attributes)) {
     // Split the operation: insert text without LF, then handle the LF separately as an implied para
     const textWithoutLF = textToInsert.slice(0, -1);
@@ -810,7 +896,7 @@ function $insertTextAtCurrentIndex(
 
       deltaOTLength += $insertRichText(targetIndex, textWithoutLF, attributes, logger);
     }
-    deltaOTLength += $handleNewline(targetIndex + deltaOTLength, attributes, logger);
+    deltaOTLength += $handleNewline(targetIndex + deltaOTLength, attributes, viewOptions, logger);
     return deltaOTLength;
   } else if (hasCharAttributes(attributes)) {
     return $handleCharText(targetIndex, textToInsert, attributes, viewOptions, logger);
@@ -1483,17 +1569,19 @@ function $insertEmbedAtCurrentIndex(
  * part and keeps the second part as a ParaNode.
  * @param targetIndex - The index in the document's flat representation.
  * @param attributes - The attributes to use for creating the ParaNode or BookNode.
+ * @param viewOptions - View options of the editor (determines the new paragraph's marker prefix).
  * @param logger - Logger to use, if any.
  * @returns Always returns 1 (the LF character's OT length).
  */
 function $handleNewline(
   targetIndex: number,
   attributes: AttributeMap | undefined,
+  viewOptions: ViewOptions,
   logger: LoggerBasic | undefined,
 ): number {
   let _newBlockNode: ParaNode | BookNode | ImpliedParaNode | undefined;
   if (hasParaAttributes(attributes)) {
-    _newBlockNode = $createPara(attributes.para);
+    _newBlockNode = $createPara(attributes.para, viewOptions);
   } else if (hasBookAttributes(attributes)) {
     const attributesWithBook: AttributeMapWithBook = attributes;
     _newBlockNode = $createBook(attributesWithBook.book);
@@ -1525,17 +1613,17 @@ function $handleNewline(
           const splitOffset = targetIndex - currentIndex;
           const [headNode] = splitOffset > 0 ? currentNode.splitText(splitOffset) : [undefined];
 
-          // Move all content before the split to the new ParaNode
+          // Move all content before the split to the new ParaNode. Anchor on the first MOVED
+          // node, not the block's first child: the new paragraph may already carry its marker
+          // prefix, and content must land after those glyphs, not before them.
+          let firstMovedNode: LexicalNode | undefined;
           let prevSibling = headNode?.getPreviousSibling();
           while (prevSibling) {
             const siblingToMove = prevSibling;
             prevSibling = prevSibling.getPreviousSibling();
-            const firstChild = newBlockNode.getFirstChild();
-            if (firstChild) {
-              firstChild.insertBefore(siblingToMove);
-            } else {
-              newBlockNode.append(siblingToMove);
-            }
+            if (firstMovedNode) firstMovedNode.insertBefore(siblingToMove);
+            else newBlockNode.append(siblingToMove);
+            firstMovedNode = siblingToMove;
           }
 
           if (headNode) newBlockNode.append(headNode);
@@ -1639,12 +1727,32 @@ function $createBook(bookAttributes: OTBookAttribute) {
   return $createBookNode(code, unknownAttributes);
 }
 
-function $createPara(paraAttributes: OTParaAttribute) {
+/**
+ * Creates a delta-materialized paragraph with the marker-mode-appropriate prefix the USJ
+ * adaptor builds at load time (`createPara` in the platform adaptor): editable marker mode gets
+ * the `[MarkerNode glyph, exact-NBSP token separator]` pair — without it the paragraph renders
+ * bare AND the marker-edit engine's deletion transform reads the missing prefix as "marker
+ * deleted" and merges the paragraph into its predecessor; visible marker mode and gutter
+ * para-marker rendering get the immutable typed-text `\marker + NBSP` prefix; hidden markers
+ * get no prefix.
+ */
+function $createPara(paraAttributes: OTParaAttribute, viewOptions: ViewOptions) {
   const { style } = paraAttributes;
   if (!style) return;
 
   const unknownAttributes = getUnknownAttributes(paraAttributes, OT_PARA_PROPS);
-  return $createParaNode(style, unknownAttributes);
+  const para = $createParaNode(style, unknownAttributes);
+  if (viewOptions.markerMode === "editable") {
+    const separator = $createTextNode(NBSP);
+    // Token mode plus the marker-trailing-space tag keep typed text out of the separator (and
+    // out of serialized USJ), exactly as the adaptor's separator does.
+    $setState(separator, textTypeState, "marker-trailing-space");
+    separator.setMode("token");
+    para.append($createMarkerNode(style), separator);
+  } else if (viewOptions.markerMode === "visible" || viewOptions.hasGutterParaMarkers) {
+    para.append($createImmutableTypedTextNode("marker", openingMarkerText(style) + NBSP));
+  }
+  return para;
 }
 
 function $createChapter(chapterData: OTChapterEmbed | null, viewOptions: ViewOptions) {
@@ -1749,7 +1857,7 @@ function $createNote(
         viewOptions,
         $createTextNode(text),
         undefined,
-        contentNodes,
+        mergeableNodesForContentOp(childOp.attributes.char, contentNodes),
       );
       contentNodes.push(...charNodes);
     } else {
@@ -1816,7 +1924,7 @@ function $createInlineNodesFromOps(
           viewOptions,
           textNode,
           undefined,
-          nodes,
+          mergeableNodesForContentOp(childOp.attributes.char, nodes),
         );
         nodes.push(...charNodes);
       } else {
@@ -1856,6 +1964,26 @@ function $createImmutableUnmatched(unmatchedData: OTUnmatchedEmbed | null) {
   if (!marker) return;
 
   return $createImmutableUnmatchedNode(marker);
+}
+
+/**
+ * The already-materialized sibling nodes a CONTENT op (a note's or unknown embed's contents)
+ * may merge into when it continues the previous op's char span — or `undefined` when the op
+ * must start its own span. `\fp` (footnote-paragraph) spans never merge by style alone: `\fp`
+ * has no closer, so consecutive attribute-identical `\fp` ops are consecutive footnote
+ * PARAGRAPHS, not one split span — merging them collapses two paragraphs into one in the
+ * serialized USJ (the same reason `CharNodePlugin` exempts `\fp` from combining adjacent
+ * spans). A `cid` restores merging: ops naming the same char id ARE the same span. Nested-char
+ * arrays keep merging, since their outer item continues the enclosing span around a nested
+ * child. Positioned edits (retain/insert-at-index) are untouched — there the merge target is
+ * the span containing the edit position, not a preceding sibling op's span.
+ */
+function mergeableNodesForContentOp(
+  charAttr: OTCharAttribute,
+  materializedNodes: LexicalNode[],
+): LexicalNode[] | undefined {
+  if (!Array.isArray(charAttr) && charAttr.style === "fp" && !charAttr.cid) return undefined;
+  return materializedNodes;
 }
 
 // Helper to create nested CharNodes from OTCharAttribute (array or single)

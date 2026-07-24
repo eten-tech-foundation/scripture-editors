@@ -24,7 +24,7 @@ import { $createTextNode, $getRoot, SELECTION_CHANGE_COMMAND, TextNode } from "l
 import { $createParaNode } from "shared";
 
 describe("OnSelectionChangePlugin (no-flush regression, frozen-commit crash class)", () => {
-  it("does not throw and still reports the last COMMITTED selection when a nested SELECTION_CHANGE dispatch occurs mid-update", async () => {
+  it("does not throw and reports the CURRENT (in-flight) selection when a nested SELECTION_CHANGE dispatch occurs mid-update", async () => {
     let textA: TextNode;
     let textB: TextNode;
     const onChange = vi.fn();
@@ -66,11 +66,14 @@ describe("OnSelectionChangePlugin (no-flush regression, frozen-commit crash clas
     });
 
     expect(thrown).toBeUndefined();
-    // Reported from inside the nested dispatch: the last COMMITTED selection (textA, offset 0),
-    // not the not-yet-committed in-flight move to textB.
+    // Reported from inside the nested dispatch: the CURRENT selection (the in-flight caret move
+    // to textB) — command listeners run inside the active update, so `$getSelection()` sees the
+    // fresh caret without forcing a commit. Reporting the stale committed selection instead
+    // would leave every ordinary selection change one interaction behind, because Lexical's
+    // normal DOM path also dispatches SELECTION_CHANGE from inside an uncommitted update.
     expect(onChange).toHaveBeenCalledTimes(1);
     expect(onChange).toHaveBeenCalledWith({
-      start: { jsonPath: "$.content[0].content[0]", offset: 0 },
+      start: { jsonPath: "$.content[1].content[0]", offset: 3 },
     });
 
     // The outer update itself still completes and commits normally.

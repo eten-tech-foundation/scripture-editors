@@ -231,18 +231,20 @@ export function getViewMode(viewOptions: ViewOptions | undefined): ViewMode | un
  * Whether the standard-view whitespace/display normalization rules apply to these view options.
  *
  * These rules — the display NBSP/`~` mapping at load time, the live display-whitespace transform
- * and clipboard normalization, and the inverse normalization on serialization — travel with the
- * editable marker engine, which activates on `markerMode === "editable"`. They must stay in lockstep
- * with that engine: whenever editable markers are on in a spacing+formatted view, these rules must be
- * on too, otherwise the engine's NBSP separators are never inverted and leak into the data as
- * NBSP/`~` corruption.
+ * and clipboard normalization, and the inverse normalization on serialization — are all gated on
+ * this ONE predicate, so a document always serializes under the same whitespace regime it was
+ * loaded with; no combination of options can apply the display mapping without its inversion.
  *
- * This is the STANDARD view fingerprint with the `noteMode` axis dropped, so it is `true` for both
- * collapsed (the named `standard` mode) and expanded notes, while the `hasSpacing`/`isFormattedFont`
- * guards keep it `false` for the Unformatted view (editable but neither spaced nor formatted, where
- * whitespace is shown literally). Deliberately NOT expressed via {@link getViewMode}: expanded is not
- * the named `standard` mode, and overloading `getViewMode` would break its invertibility contract and
- * the user-facing mode labels.
+ * The invariant is the STANDARD view fingerprint with the `noteMode` axis dropped: editable
+ * markers in a spacing+formatted view with NEITHER `hasGutterParaMarkers` NOR
+ * `hasActiveTextFocusBox`. It is `true` for both collapsed (the named `standard` mode) and
+ * expanded notes. It is `false` for the Unformatted view (editable but neither spaced nor
+ * formatted, where whitespace is shown literally) and for gutter/focus-box views: those render
+ * paragraph markers as immutable typed text — a different whitespace regime with no
+ * display-mapped text to invert (their named mode hides markers entirely, so the editable
+ * engine's separators never combine with them). Deliberately NOT expressed via
+ * {@link getViewMode}: expanded is not the named `standard` mode, and overloading `getViewMode`
+ * would break its invertibility contract and the user-facing mode labels.
  *
  * @param viewOptions - View options of the editor.
  * @returns `true` when standard-view whitespace normalization applies.

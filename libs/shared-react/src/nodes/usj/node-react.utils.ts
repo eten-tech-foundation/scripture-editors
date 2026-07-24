@@ -1,6 +1,6 @@
 import { SelectionRange } from "../../plugins/usj/annotation/selection.model";
 import { $getRangeFromUsjSelection } from "../../plugins/usj/annotation/selection.utils";
-import { ViewOptions } from "../../views/view-options.utils";
+import { NoteMode, ViewOptions } from "../../views/view-options.utils";
 import {
   $createImmutableNoteCallerNode,
   $isImmutableNoteCallerNode,
@@ -174,7 +174,31 @@ export function $insertNote(
 }
 
 /**
+ * Whether notes BUILD collapsed under the given note mode: only `"expanded"` builds expanded
+ * notes; `"collapsed"`, `"expandInline"`, and an unset mode all build collapsed ones (under
+ * `expandInline` the NoteNodePlugin expands a note only while the caret is adjacent).
+ *
+ * This is the ONE predicate for constructing a note's collapsed flag and child layout — used at
+ * document load (the platform adaptor's `createNote`) and at insert time (`$createWholeNote`,
+ * `$insertNoteWithSelect`) so a freshly inserted note is indistinguishable from a loaded one.
+ * When the two ever disagree, the flag and the layout drift apart (e.g. a collapsed-layout note
+ * flagged expanded). Note: this governs CONSTRUCTION only — `$selectNote` intentionally uses a
+ * different rule for expanding an existing note on selection.
+ *
+ * @param noteMode - The note display mode from the editor view options.
+ * @returns `true` when notes are built collapsed under this mode.
+ */
+export function isCollapsedNoteMode(noteMode: NoteMode | undefined): boolean {
+  return noteMode !== "expanded";
+}
+
+/**
  * Insert note node at the given selection, and select the note content if expanded.
+ *
+ * Whether the note lands collapsed is `isCollapsedNoteMode` — the same predicate that governs
+ * both the child structure and the collapsed flag when notes are built at document load — so a
+ * freshly inserted note matches a loaded one.
+ *
  * @param noteNode - The note node to insert.
  * @param selection - The selection where to insert the note.
  * @param viewOptions - The current editor view options.
@@ -184,7 +208,7 @@ export function $insertNoteWithSelect(
   selection: RangeSelection,
   viewOptions: ViewOptions | undefined,
 ) {
-  const isCollapsed = viewOptions?.noteMode === "collapsed";
+  const isCollapsed = isCollapsedNoteMode(viewOptions?.noteMode);
   noteNode.setIsCollapsed(isCollapsed);
 
   if (!selection.isCollapsed()) $moveSelectionToEnd(selection);
@@ -219,6 +243,10 @@ function $createNoteContentChar(
   char.setUnknownAttributes({ closed: "false" });
   const isEditable = viewOptions?.markerMode === "editable";
   if (isEditable) char.append($createMarkerNode(marker));
+  // Visible marker mode shows a bare opening glyph inside the span, matching `createChar` in
+  // the load adaptor (implicitly-closed note-content chars get no closer there either).
+  else if (viewOptions?.markerMode === "visible")
+    char.append($createImmutableTypedTextNode("marker", openingMarkerText(marker)));
   const text = content === "" ? EMPTY_CHAR_PLACEHOLDER_TEXT : isEditable ? NBSP + content : content;
   char.append($createTextNode(text));
   return char;
@@ -307,7 +335,7 @@ export function $createWholeNote(
   // Unclosed notes (closed="false") render expanded inline (PT9 `opennote`); only closed
   // notes honor noteMode collapse.
   const isUnclosed = closed === "false";
-  const isCollapsed = isUnclosed ? false : viewOptions?.noteMode !== "expanded";
+  const isCollapsed = isUnclosed ? false : isCollapsedNoteMode(viewOptions?.noteMode);
   const note = $createNoteNode(marker, caller, isCollapsed);
   if (segment) $setState(note, segmentState, () => segment);
 
@@ -318,9 +346,12 @@ export function $createWholeNote(
     // An unclosed note has no closer to display.
     if (!isUnclosed) closingMarkerNode = $createMarkerNode(marker, "closing");
   } else if (viewOptions?.markerMode === "visible") {
-    openingMarkerNode = $createImmutableTypedTextNode("marker", openingMarkerText(marker) + NBSP);
+    // Same glyph text shapes as the load path (`createNote`): opening glyph with a plain
+    // trailing space, closer bare. Glyphs are presentation-only (never serialized), so a
+    // reloaded note shows the load path's shape — an inserted note must look identical.
+    openingMarkerNode = $createImmutableTypedTextNode("marker", openingMarkerText(marker) + " ");
     if (!isUnclosed)
-      closingMarkerNode = $createImmutableTypedTextNode("marker", closingMarkerText(marker) + NBSP);
+      closingMarkerNode = $createImmutableTypedTextNode("marker", closingMarkerText(marker));
   }
 
   let callerNode: ImmutableNoteCallerNode | TextNode;
@@ -375,6 +406,12 @@ export function $getNoteByKeyOrIndex(noteKeyOrIndex: string | number): NoteNode 
 
 /**
  * Selects the given note node, expanding or collapsing it based on the current view options.
+ *
+ * Deliberately NOT `isCollapsedNoteMode` (nor its inverse): that predicate is for CONSTRUCTING
+ * notes, where `expandInline` builds collapsed. Here the user is navigating INTO the note, so
+ * `expandInline` must expand it (the caret is about to be adjacent — the same condition under
+ * which the NoteNodePlugin keeps it open); only an always-`"collapsed"` mode keeps it closed.
+ *
  * @param noteNode - The note node to select.
  * @param viewOptions - The current editor view options.
  */

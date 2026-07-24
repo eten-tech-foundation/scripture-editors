@@ -351,6 +351,34 @@ describe("CharNodePlugin", () => {
     });
   });
 
+  it("should NOT combine adjacent \\fp (footnote-paragraph) CharNodes", async () => {
+    // Each `\fp` span IS a footnote-paragraph break: adjacency is the normal shape (Enter or a
+    // multi-line paste inside a note makes consecutive `\fp` spans), and merging them destroys
+    // the break in the serialized USJ (observed: two breaks collapsed into one
+    // `\fp somethingsomething else`). Formatting chars merge as before — `fp` adjacency is
+    // content structure, not equivalent formatting runs.
+    const { editor } = await testEnvironment(() => {
+      $getRoot().append(
+        $createParaNode().append(
+          $createCharNode("fp").append($createTextNode("first paragraph ")),
+          $createCharNode("fp").append($createTextNode("second paragraph ")),
+        ),
+      );
+    });
+
+    editor.getEditorState().read(() => {
+      const p = $getRoot().getFirstChild();
+      if (!$isParaNode(p)) throw new Error("Expected a ParaNode");
+      expect(p.getChildrenSize()).toBe(2);
+      const [first, second] = p.getChildren();
+      if (!$isCharNode(first) || !$isCharNode(second)) throw new Error("Expected CharNodes");
+      expect(first.getMarker()).toBe("fp");
+      expect(second.getMarker()).toBe("fp");
+      expect(first.getTextContent()).toBe("first paragraph ");
+      expect(second.getTextContent()).toBe("second paragraph ");
+    });
+  });
+
   it("should combine 3 adjacent CharNodes with same marker on update", async () => {
     let ndCharNode: CharNode;
     const { editor } = await testEnvironment(() => {

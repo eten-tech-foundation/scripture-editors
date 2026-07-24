@@ -17,6 +17,7 @@ import { $dfs, DFSNode } from "@lexical/utils";
 import { $getRoot, $getState, $isTextNode, EditorState, LexicalNode, TextNode } from "lexical";
 import Delta from "quill-delta";
 import {
+  $findFirstAncestorNoteNode,
   $isBookNode,
   $isCharNode,
   $isImmutableUnmatchedNode,
@@ -207,14 +208,6 @@ function $handleBlockNodes(
   }
 }
 
-/** Whether any ancestor of the node is a NoteNode. */
-function $hasNoteAncestor(node: LexicalNode): boolean {
-  for (let parent = node.getParent(); parent !== null; parent = parent.getParent()) {
-    if ($isNoteNode(parent)) return true;
-  }
-  return false;
-}
-
 function $handleTextNodes(
   currentNode: LexicalNode,
   ops: DeltaOp[],
@@ -236,7 +229,9 @@ function $handleTextNodes(
   // - MarkerNode glyphs (char-span openers/closers and the note's own closing glyph);
   // - the expanded editable caller text (presentation of the note's `caller` attribute).
   // MarkerNodes only exist in editable marker mode, so these rules are inert elsewhere.
-  const isInNote = $hasNoteAncestor(currentNode);
+  // `currentNode` is a TextNode (guarded above), never itself a NoteNode, so the shared
+  // helper's inclusive start-node check reduces to a pure ancestor walk here.
+  const isInNote = $findFirstAncestorNoteNode(currentNode) !== undefined;
   if (isInNote && $isMarkerNode(currentNode)) return;
   let text = currentNode.getTextContent();
   // A glyph-fronted note (first child is a MarkerNode) is the editable-mode shape; only
