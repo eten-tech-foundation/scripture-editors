@@ -45,6 +45,12 @@ function $charNodeTransform(node: CharNode): void {
   }
 
   const style = node.getMarker();
+  // `\fp` (footnote-paragraph) spans are exempt from combining: each span IS a paragraph
+  // break inside the note (Enter and a multi-line paste there create consecutive `\fp`
+  // spans), so adjacency is content structure — combining collapsed two footnote paragraphs
+  // into one in the serialized USJ. Formatting chars keep combining: for them adjacent
+  // same-attribute runs really are equivalent.
+  if (style === "fp") return;
   const cid = $getState(node, charIdState);
   const unknownAttributes = node.getUnknownAttributes();
   const nextNode = node.getNextSibling();

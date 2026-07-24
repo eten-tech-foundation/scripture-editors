@@ -141,6 +141,10 @@ describe("NoteNodePlugin", () => {
     });
 
     it("should default cross-ref-callers counter-style symbols to '†' when crossRefCallers is not set", async () => {
+      // Seed a non-default value so a pass requires the plugin to actively write the default —
+      // the beforeEach seeds the default itself, which would also satisfy a no-op plugin.
+      crossRefCallersRule.symbols = '"sentinel"';
+
       await testEnvironment({ noteCallers: defaultNoteCallers });
 
       expect(defaultCrossRefCallers).toEqual(["†"]);

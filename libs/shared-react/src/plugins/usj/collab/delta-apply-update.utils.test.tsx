@@ -25,6 +25,7 @@ import { baseTestEnvironment, removeNoteCallerOnClick } from "../react-test.util
 import { getDefaultViewOptions, ViewOptions } from "../../../views/view-options.utils";
 import { $applyUpdate } from "./delta-apply-update.utils";
 import { DeltaOp, LF } from "./delta-common.utils";
+import { getEditorDelta } from "./editor-delta.adaptor";
 import { act } from "@testing-library/react";
 import {
   $createTextNode,
@@ -40,7 +41,9 @@ import {
   $createBookNode,
   $createCharNode,
   $createImmutableChapterNode,
+  $createImmutableTypedTextNode,
   $createImpliedParaNode,
+  $createMarkerNode,
   $createNoteNode,
   $createParaNode,
   $isBookNode,
@@ -63,6 +66,7 @@ import {
   segmentState,
   SerializedNoteNode,
   SerializedParaNode,
+  textTypeState,
 } from "shared";
 import { MockInstance } from "vitest";
 
@@ -329,6 +333,162 @@ describe("Delta Utils $applyUpdate", () => {
         const q1 = $getRoot().getFirstChild();
         if (!$isParaNode(q1)) throw new Error("q1 is not a ParaNode");
         expect(q1.getMarker()).toBe("q1");
+      });
+    });
+
+    // Editable marker mode renders markers as editable MarkerNode glyph text, and that glyph
+    // text COUNTS in $applyUpdate's traversal coordinates (MarkerNode is a TextNode subclass).
+    // A remote style change must rewrite the glyphs along with the node's marker state, or the
+    // tree claims one marker while its visible (and serialized) glyph text says another.
+    it("should rewrite the paragraph's prefix glyph when a retained para style change retags it (editable mode)", async () => {
+      const viewOptions: ViewOptions = { ...defaultViewOptions, markerMode: "editable" };
+      const paraText = "quiet waters";
+      const { editor } = await testEnvironment(() => {
+        const para = $createParaNode("q1");
+        $getRoot().append(
+          para.append($createMarkerNode("q1"), $createTextNode(NBSP), $createTextNode(paraText)),
+        );
+      });
+      // Glyph "\q1" (3) + NBSP separator (1) + content (12) = 16; the para closing is at 16.
+      const ops: DeltaOp[] = [{ retain: 16 }, { retain: 1, attributes: { style: "m" } }];
+
+      await sutApplyUpdate(editor, ops, viewOptions);
+
+      expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        expect(para.getMarker()).toBe("m");
+        const glyph = para.getFirstChild();
+        if (!$isMarkerNode(glyph)) throw new Error("expected a MarkerNode prefix glyph");
+        expect(glyph.getMarker()).toBe("m");
+        expect(glyph.getTextContent()).toBe("\\m");
+        expect(para.getTextContent()).toContain(paraText);
+      });
+    });
+
+    // Visible marker mode (and Standard View's gutter para markers) render a paragraph's marker
+    // as an immutable typed-text prefix instead of an editable MarkerNode. The decorator carries
+    // no OT length, but its display text still names the marker — a remote retag must rewrite it
+    // or the paragraph keeps displaying the old marker (e.g. "\q1" on a now-\m paragraph).
+    it("should rewrite the paragraph's typed-text prefix when a retained para style change retags it (visible mode)", async () => {
+      const viewOptions: ViewOptions = { ...defaultViewOptions, markerMode: "visible" };
+      const paraText = "quiet waters";
+      const { editor } = await testEnvironment(() => {
+        const para = $createParaNode("q1");
+        $getRoot().append(
+          // The adaptor's visible/gutter para-prefix shape: marker glyph + NBSP separator in
+          // one typed-text node.
+          para.append(
+            $createImmutableTypedTextNode("marker", `\\q1${NBSP}`),
+            $createTextNode(paraText),
+          ),
+        );
+      });
+      // The typed-text prefix is a decorator with no OT length, so content (12) puts the para
+      // closing at 12.
+      const ops: DeltaOp[] = [{ retain: 12 }, { retain: 1, attributes: { style: "m" } }];
+
+      await sutApplyUpdate(editor, ops, viewOptions);
+
+      expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        expect(para.getMarker()).toBe("m");
+        const prefix = para.getFirstChild();
+        if (!$isImmutableTypedTextNode(prefix))
+          throw new Error("expected an ImmutableTypedTextNode prefix");
+        expect(prefix.getTextType()).toBe("marker");
+        expect(prefix.getTextContent()).toBe(`\\m${NBSP}`);
+        expect(para.getTextContent()).toContain(paraText);
+      });
+    });
+
+    it("should rewrite a char span's opener and closer glyphs when a retained char style change retags it (editable mode)", async () => {
+      const viewOptions: ViewOptions = { ...defaultViewOptions, markerMode: "editable" };
+      const { editor } = await testEnvironment(() => {
+        const para = $createParaNode("p");
+        const char = $createCharNode("wj");
+        char.append(
+          $createMarkerNode("wj"),
+          $createTextNode(`${NBSP}words of Jesus`),
+          $createMarkerNode("wj", "closing"),
+        );
+        $getRoot().append(
+          para.append(
+            $createMarkerNode("p"),
+            $createTextNode(NBSP),
+            $createTextNode("before "),
+            char,
+          ),
+        );
+      });
+      // "\p" (2) + NBSP (1) + "before " (7) = 10 to the char span; its own extent is
+      // "\wj" (3) + NBSP+content (15) + "\wj*" (4) = 22.
+      const ops: DeltaOp[] = [
+        { retain: 10 },
+        { retain: 22, attributes: { char: { style: "nd" } } },
+      ];
+
+      await sutApplyUpdate(editor, ops, viewOptions);
+
+      expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        const char = para.getLastChild();
+        if (!$isCharNode(char)) throw new Error("expected a CharNode");
+        expect(char.getMarker()).toBe("nd");
+        const glyphs = char.getChildren().filter($isMarkerNode);
+        expect(glyphs.map((glyph) => glyph.getMarkerSyntax())).toEqual(["opening", "closing"]);
+        expect(glyphs.map((glyph) => glyph.getMarker())).toEqual(["nd", "nd"]);
+        expect(glyphs.map((glyph) => glyph.getTextContent())).toEqual(["\\nd", "\\nd*"]);
+        expect(char.getTextContent()).toContain("words of Jesus");
+      });
+    });
+
+    // Visible marker mode renders a char span's opener/closer pair as immutable typed-text
+    // nodes (no OT length) instead of editable MarkerNodes. Their display text still names the
+    // marker, so a remote retag must rewrite BOTH glyphs or the span keeps displaying the old
+    // marker around its content.
+    it("should rewrite a char span's typed-text opener and closer glyphs when a retained char style change retags it (visible mode)", async () => {
+      const viewOptions: ViewOptions = { ...defaultViewOptions, markerMode: "visible" };
+      const { editor } = await testEnvironment(() => {
+        const para = $createParaNode("p");
+        const char = $createCharNode("wj");
+        // The adaptor's visible-mode char shape: bare opener "\wj" and closer "\wj*" typed-text
+        // glyphs around plain content text (no NBSP separator in visible mode).
+        char.append(
+          $createImmutableTypedTextNode("marker", "\\wj"),
+          $createTextNode("words of Jesus"),
+          $createImmutableTypedTextNode("marker", "\\wj*"),
+        );
+        $getRoot().append(
+          para.append(
+            $createImmutableTypedTextNode("marker", `\\p${NBSP}`),
+            $createTextNode("before "),
+            char,
+          ),
+        );
+      });
+      // Typed-text glyphs carry no OT length, so "before " (7) reaches the char span and its
+      // extent is its content text alone (14).
+      const ops: DeltaOp[] = [{ retain: 7 }, { retain: 14, attributes: { char: { style: "nd" } } }];
+
+      await sutApplyUpdate(editor, ops, viewOptions);
+
+      expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        const char = para.getLastChild();
+        if (!$isCharNode(char)) throw new Error("expected a CharNode");
+        expect(char.getMarker()).toBe("nd");
+        const glyphs = char.getChildren().filter($isImmutableTypedTextNode);
+        expect(glyphs.map((glyph) => glyph.getTextType())).toEqual(["marker", "marker"]);
+        expect(glyphs.map((glyph) => glyph.getTextContent())).toEqual(["\\nd", "\\nd*"]);
+        expect(char.getTextContent()).toContain("words of Jesus");
       });
     });
 
@@ -3192,7 +3352,7 @@ describe("Delta Utils $applyUpdate", () => {
         if (!$isImmutableTypedTextNode(openingMarker))
           throw new Error("Expected a ImmutableTypedTextNode");
         expect(openingMarker.getTextType()).toBe("marker");
-        expect(openingMarker.getTextContent()).toBe(`\\f${NBSP}`);
+        expect(openingMarker.getTextContent()).toBe("\\f ");
 
         const caller = note.getChildAtIndex(1);
         if (!$isImmutableNoteCallerNode(caller))
@@ -3247,7 +3407,7 @@ describe("Delta Utils $applyUpdate", () => {
         if (!$isImmutableTypedTextNode(closingMarker))
           throw new Error("Expected a ImmutableTypedTextNode");
         expect(closingMarker.getTextType()).toBe("marker");
-        expect(closingMarker.getTextContent()).toBe(`\\f*${NBSP}`);
+        expect(closingMarker.getTextContent()).toBe("\\f*");
       });
     });
 
@@ -3309,7 +3469,7 @@ describe("Delta Utils $applyUpdate", () => {
         if (!$isImmutableTypedTextNode(openingMarker))
           throw new Error("Expected a ImmutableTypedTextNode");
         expect(openingMarker.getTextType()).toBe("marker");
-        expect(openingMarker.getTextContent()).toBe(`\\f${NBSP}`);
+        expect(openingMarker.getTextContent()).toBe("\\f ");
 
         const caller = note.getChildAtIndex(1);
         if (!$isImmutableNoteCallerNode(caller))
@@ -3389,7 +3549,7 @@ describe("Delta Utils $applyUpdate", () => {
         if (!$isImmutableTypedTextNode(closingMarker))
           throw new Error("Expected a ImmutableTypedTextNode");
         expect(closingMarker.getTextType()).toBe("marker");
-        expect(closingMarker.getTextContent()).toBe(`\\f*${NBSP}`);
+        expect(closingMarker.getTextContent()).toBe("\\f*");
       });
     });
 
@@ -3482,6 +3642,60 @@ describe("Delta Utils $applyUpdate", () => {
         if (!$isMarkerNode(closingGlyph)) throw new Error("Expected closing MarkerNode glyph");
         expect(closingGlyph.getMarker()).toBe("f");
         expect(closingGlyph.getMarkerSyntax()).toBe("closing");
+      });
+    });
+
+    it("should keep consecutive attribute-identical \\fp note-content ops as separate spans", async () => {
+      const { editor } = await testEnvironment();
+      const viewOptions: ViewOptions = {
+        ...defaultViewOptions,
+        markerMode: "editable",
+        noteMode: "expanded",
+      };
+      // `\fp` (footnote-paragraph) has no closer: PT9 separates footnote paragraphs solely by
+      // the next `\fp` marker, so consecutive attribute-identical `\fp` ops (same style, no
+      // cid) are consecutive PARAGRAPHS, not one split span. Merging them into one CharNode
+      // collapses two paragraphs into one in the serialized USJ.
+      const ops: DeltaOp[] = [
+        {
+          insert: {
+            note: {
+              style: "f",
+              caller: GENERATOR_NOTE_CALLER,
+              contents: {
+                ops: [
+                  { insert: "1:1 ", attributes: { char: { style: "fr" } } },
+                  { insert: "first ", attributes: { char: { style: "ft" } } },
+                  { insert: "second ", attributes: { char: { style: "fp" } } },
+                  { insert: "third", attributes: { char: { style: "fp" } } },
+                ],
+              },
+            },
+          },
+        },
+      ];
+
+      await sutApplyUpdate(editor, ops, viewOptions);
+
+      editor.getEditorState().read(() => {
+        const p = $getRoot().getFirstChild();
+        if (!$isImpliedParaNode(p)) throw new Error("p is not an ImpliedParaNode");
+        const note = p.getFirstChild();
+        if (!$isNoteNode(note)) throw new Error("note is not a NoteNode");
+
+        const fpSpans = note
+          .getChildren()
+          .filter($isCharNode)
+          .filter((char) => char.getMarker() === "fp");
+        expect(fpSpans).toHaveLength(2);
+        fpSpans.forEach((span) => {
+          const glyph = span.getFirstChild();
+          if (!$isMarkerNode(glyph)) throw new Error("Expected fp opening MarkerNode glyph");
+          expect(glyph.getMarker()).toBe("fp");
+        });
+        const [firstFp, secondFp] = fpSpans;
+        expect(firstFp.getChildAtIndex(1)?.getTextContent()).toBe(`${NBSP}second `);
+        expect(secondFp.getChildAtIndex(1)?.getTextContent()).toBe(`${NBSP}third`);
       });
     });
 
@@ -3960,6 +4174,83 @@ describe("Delta Utils $applyUpdate", () => {
           if (!$isParaNode(paraNode)) throw new Error("paraNode is not a ParaNode");
           expect(paraNode.getMarker()).toBe("q1");
           expect(paraNode.getChildrenSize()).toBe(0); // Empty para
+        });
+      });
+
+      // A remotely inserted paragraph must materialize with the same editable-mode prefix the
+      // adaptor builds at load time: a MarkerNode glyph plus the exact-NBSP token separator
+      // tagged marker-trailing-space. A bare paragraph not only renders without its marker —
+      // the marker-edit engine's deletion transform reads a missing prefix as "marker deleted"
+      // and merges the paragraph into its predecessor on the next transform pass.
+      it("should materialize an inserted paragraph's marker prefix (editable mode)", async () => {
+        const viewOptions: ViewOptions = { ...defaultViewOptions, markerMode: "editable" };
+        const paraText = "quiet waters";
+        const { editor } = await testEnvironment(() => {
+          const para = $createParaNode("p");
+          $getRoot().append(
+            para.append($createMarkerNode("p"), $createTextNode(NBSP), $createTextNode(paraText)),
+          );
+        });
+        // Glyph "\p" (2) + NBSP separator (1) + content (12) = 15; the para closing is at 15,
+        // so the position after the paragraph is 16.
+        const ops: DeltaOp[] = [
+          { retain: 16 },
+          { insert: LF, attributes: { para: { style: "q1" } } },
+        ];
+
+        await sutApplyUpdate(editor, ops, viewOptions);
+
+        expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
+        editor.getEditorState().read(() => {
+          const para = $getRoot().getChildAtIndex(1);
+          if (!$isParaNode(para)) throw new Error("expected a new ParaNode");
+          expect(para.getMarker()).toBe("q1");
+          const glyph = para.getFirstChild();
+          if (!$isMarkerNode(glyph)) throw new Error("expected a MarkerNode prefix glyph");
+          expect(glyph.getMarker()).toBe("q1");
+          expect(glyph.getTextContent()).toBe("\\q1");
+          const separator = para.getChildAtIndex(1);
+          if (!$isTextNode(separator)) throw new Error("expected a separator TextNode");
+          expect(separator.getTextContent()).toBe(NBSP);
+          expect(separator.getMode()).toBe("token");
+          expect($getState(separator, textTypeState)).toBe("marker-trailing-space");
+        });
+      });
+
+      // Visible marker mode (and gutter para-marker rendering) shows a paragraph's marker as an
+      // immutable typed-text prefix; a remotely inserted paragraph must carry it too or it
+      // renders unlabeled until the document is reloaded.
+      it("should materialize an inserted paragraph's typed-text prefix (visible mode)", async () => {
+        const viewOptions: ViewOptions = { ...defaultViewOptions, markerMode: "visible" };
+        const paraText = "quiet waters";
+        const { editor } = await testEnvironment(() => {
+          const para = $createParaNode("p");
+          $getRoot().append(
+            para.append(
+              $createImmutableTypedTextNode("marker", `\\p${NBSP}`),
+              $createTextNode(paraText),
+            ),
+          );
+        });
+        // The typed-text prefix has no OT length: content (12) + para closing (1) puts the
+        // position after the paragraph at 13.
+        const ops: DeltaOp[] = [
+          { retain: 13 },
+          { insert: LF, attributes: { para: { style: "q1" } } },
+        ];
+
+        await sutApplyUpdate(editor, ops, viewOptions);
+
+        expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
+        editor.getEditorState().read(() => {
+          const para = $getRoot().getChildAtIndex(1);
+          if (!$isParaNode(para)) throw new Error("expected a new ParaNode");
+          expect(para.getMarker()).toBe("q1");
+          const prefix = para.getFirstChild();
+          if (!$isImmutableTypedTextNode(prefix))
+            throw new Error("expected an ImmutableTypedTextNode prefix");
+          expect(prefix.getTextType()).toBe("marker");
+          expect(prefix.getTextContent()).toBe(`\\q1${NBSP}`);
         });
       });
 
@@ -4690,6 +4981,137 @@ describe("Delta Utils $applyUpdate", () => {
       const serializedEditorState = editor.getEditorState().toJSON();
       cleanupSerializedEditorState(serializedEditorState, null);
       expect(serializedEditorState).toEqual(editorStateGen1v1ImpliedPara);
+    });
+  });
+
+  // OT convergence hygiene: two replicas holding identical content must emit byte-identical
+  // deltas. One replica here is built in the load-path shape (structural NBSP glued onto every
+  // direct text child of a glyph-fronted char span); the other is materialized from the first
+  // replica's emitted ops. Leading whitespace is the sensitive spot: the op-emission NBSP strip
+  // must be the exact inverse of the structural NBSP prefix `$createNote` re-adds, including
+  // for a content text run whose own first character is a plain space (which happens right
+  // after a nested span's closer).
+  describe("Op-Emission Stability Across Materialization", () => {
+    const editableExpandedViewOptions: ViewOptions = {
+      ...defaultViewOptions,
+      markerMode: "editable",
+      noteMode: "expanded",
+    };
+
+    it("emits byte-identical note ops for a nested char span followed by a text run", async () => {
+      // Note shape f [ fr("1:1 "), ft [ "A ", nd("holy"), " B" ] ]: the text run after the
+      // nested \nd* closer starts with a plain space, preceded in its text node only by the
+      // structural NBSP separator.
+      const { editor: host } = await testEnvironment(() => {
+        $getRoot().append(
+          $createImpliedParaNode().append(
+            $createTextNode("When"),
+            $createNoteNode("f", GENERATOR_NOTE_CALLER, false).append(
+              $createMarkerNode("f"),
+              $createTextNode(getEditableCallerText(GENERATOR_NOTE_CALLER)),
+              $createCharNode("fr", { closed: "false" }).append(
+                $createMarkerNode("fr"),
+                $createTextNode(`${NBSP}1:1 `),
+              ),
+              $createCharNode("ft", { closed: "false" }).append(
+                $createMarkerNode("ft"),
+                $createTextNode(`${NBSP}A `),
+                $createCharNode("nd").append(
+                  $createMarkerNode("nd"),
+                  $createTextNode(`${NBSP}holy`),
+                  $createMarkerNode("nd", "closing"),
+                ),
+                $createTextNode(`${NBSP} B`),
+              ),
+              $createMarkerNode("f", "closing"),
+            ),
+          ),
+        );
+      });
+      const hostOps: DeltaOp[] = getEditorDelta(host.getEditorState()).ops;
+
+      const { editor: replica } = await testEnvironment();
+      await sutApplyUpdate(replica, hostOps, editableExpandedViewOptions);
+      const replicaOps: DeltaOp[] = getEditorDelta(replica.getEditorState()).ops;
+
+      // Byte-level comparison: `toEqual` treats " " (U+0020) and NBSP (U+00A0) as different
+      // strings anyway, but stringifying makes a whitespace mismatch visible in the diff.
+      expect(JSON.stringify(replicaOps)).toBe(JSON.stringify(hostOps));
+    });
+
+    it("emits byte-identical note ops when the nested char span leads its enclosing span", async () => {
+      // Nested-first content (no preceding same-style text run) exercises the nested-char
+      // materialization branch that cannot merge into an existing span.
+      const { editor: host } = await testEnvironment(() => {
+        $getRoot().append(
+          $createImpliedParaNode().append(
+            $createTextNode("When"),
+            $createNoteNode("f", GENERATOR_NOTE_CALLER, false).append(
+              $createMarkerNode("f"),
+              $createTextNode(getEditableCallerText(GENERATOR_NOTE_CALLER)),
+              $createCharNode("ft", { closed: "false" }).append(
+                $createMarkerNode("ft"),
+                $createCharNode("nd").append(
+                  $createMarkerNode("nd"),
+                  $createTextNode(`${NBSP}holy`),
+                  $createMarkerNode("nd", "closing"),
+                ),
+                $createTextNode(`${NBSP} B`),
+              ),
+              $createMarkerNode("f", "closing"),
+            ),
+          ),
+        );
+      });
+      const hostOps: DeltaOp[] = getEditorDelta(host.getEditorState()).ops;
+
+      const { editor: replica } = await testEnvironment();
+      await sutApplyUpdate(replica, hostOps, editableExpandedViewOptions);
+      const replicaOps: DeltaOp[] = getEditorDelta(replica.getEditorState()).ops;
+
+      expect(JSON.stringify(replicaOps)).toBe(JSON.stringify(hostOps));
+    });
+
+    it("emits byte-identical note ops across materialization in collapsed note mode", async () => {
+      // Standard view hosts collapsed notes; the collapsed layout inserts NBSP separator text
+      // nodes between note children, which op emission must keep out of the contents ops.
+      const editableCollapsedViewOptions: ViewOptions = {
+        ...defaultViewOptions,
+        markerMode: "editable",
+        noteMode: "collapsed",
+      };
+      const seedOps: DeltaOp[] = [
+        { insert: "When" },
+        {
+          insert: {
+            note: {
+              style: "f",
+              caller: GENERATOR_NOTE_CALLER,
+              contents: {
+                ops: [
+                  { insert: "1:1 ", attributes: { char: { style: "fr", closed: "false" } } },
+                  { insert: "A ", attributes: { char: { style: "ft", closed: "false" } } },
+                  {
+                    insert: "holy",
+                    attributes: { char: [{ style: "ft", closed: "false" }, { style: "nd" }] },
+                  },
+                  { insert: " B", attributes: { char: { style: "ft", closed: "false" } } },
+                ],
+              },
+            },
+          },
+        },
+      ];
+
+      const { editor: host } = await testEnvironment();
+      await sutApplyUpdate(host, seedOps, editableCollapsedViewOptions);
+      const hostOps: DeltaOp[] = getEditorDelta(host.getEditorState()).ops;
+
+      const { editor: replica } = await testEnvironment();
+      await sutApplyUpdate(replica, hostOps, editableCollapsedViewOptions);
+      const replicaOps: DeltaOp[] = getEditorDelta(replica.getEditorState()).ops;
+
+      expect(JSON.stringify(replicaOps)).toBe(JSON.stringify(hostOps));
     });
   });
 });

@@ -12,7 +12,9 @@ import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext
 import { $findMatchingParent } from "@lexical/utils";
 import {
   $getSelection,
+  $isElementNode,
   $isRangeSelection,
+  $isTextNode,
   COMMAND_PRIORITY_HIGH,
   KEY_DOWN_COMMAND,
   LexicalEditor,
@@ -25,11 +27,13 @@ import {
   $getNextNode,
   $getPreviousNode,
   $isBookNode,
+  $isCharNode,
   $isImmutableChapterNode,
   $isImmutableTypedTextNode,
   $isMarkerNode,
   $isNoteNode,
   $isSomeParaNode,
+  CharNode,
   ImmutableChapterNode,
   NoteNode,
 } from "shared";
@@ -211,11 +215,18 @@ function useArrowKeys(editor: LexicalEditor, viewOptions: ViewOptions | undefine
       if (!inputDiv) return false;
 
       const direction = inputDiv.dir || "ltr";
+      // The `\fp` boundary hops apply only to plain arrow moves: modified arrows (shift range
+      // extension, word/line jumps) keep native semantics.
+      const hasModifier = event.shiftKey || event.altKey || event.ctrlKey || event.metaKey;
       let isHandled = false;
       if (isMovingForward(direction, event.key)) {
-        isHandled = $handleForwardNavigation(selection);
+        isHandled =
+          (!hasModifier && $handleForwardFpNavigation(selection)) ||
+          $handleForwardNavigation(selection);
       } else if (isMovingBackward(direction, event.key)) {
-        isHandled = $handleBackwardNavigation(selection, viewOptions);
+        isHandled =
+          (!hasModifier && $handleBackwardFpNavigation(selection)) ||
+          $handleBackwardNavigation(selection, viewOptions);
       }
 
       if (isHandled) event.preventDefault();
@@ -238,6 +249,98 @@ function isMovingBackward(direction: string, key: string): boolean {
   return (
     (direction === "ltr" && key === "ArrowLeft") || (direction === "rtl" && key === "ArrowRight")
   );
+}
+
+// --- Two caret stops around the `\fp` visual line break ---
+//
+// An expanded note's `\fp` (footnote paragraph) span renders with a CSS-generated line break
+// before it (`.note.expanded .usfm_fp::before`). The pseudo content has no DOM position, so the
+// browser collapses the caret positions on either side of the visual newline and skips one stop:
+// moving forward it jumps from the end of the previous line straight past the start of the `\fp`
+// span, and moving backward it can skip the span start on the way out. These handlers restore the
+// two stops: end of the previous line, then the very start of the `\fp` span on the new line.
+
+/** The given node if it is a `\fp` span whose leading line break renders (expanded note). */
+function $getFpBoundaryCharNode(node: LexicalNode | null | undefined): CharNode | undefined {
+  if (!$isCharNode(node) || node.getMarker() !== "fp") return undefined;
+  const note = $findFirstAncestorNoteNode(node);
+  if (!note || note.getIsCollapsed()) return undefined;
+  return node;
+}
+
+/** Helper to handle the forward hop onto the start of a `\fp` span at its visual line break. */
+function $handleForwardFpNavigation(selection: RangeSelection): boolean {
+  const fpNode = $getFpBoundaryCharNode($getNextNode(selection));
+  if (!fpNode) return false;
+
+  // A text caret is only at the boundary when it sits at the very end of its text.
+  const anchor = selection.anchor;
+  if (anchor.type === "text" && anchor.offset !== anchor.getNode().getTextContentSize()) {
+    return false;
+  }
+
+  const firstChild = fpNode.getFirstChild();
+  // Land at the start of the new visual line: offset 0 of the span's first text (the editable
+  // marker glyph, or content text when glyphs are hidden). A non-text first child (the
+  // non-editable marker glyph) takes an element point before it instead.
+  if ($isTextNode(firstChild)) firstChild.select(0, 0);
+  else fpNode.select(0, 0);
+  return true;
+}
+
+/** Helper to handle backward hops at the start of a `\fp` span and its visual line break. */
+function $handleBackwardFpNavigation(selection: RangeSelection): boolean {
+  const anchor = selection.anchor;
+  const anchorNode = anchor.getNode();
+
+  if (anchor.type === "text") {
+    const fpNode = $getFpBoundaryCharNode(anchorNode.getParent());
+    if (!fpNode || !anchorNode.is(fpNode.getFirstChild())) return false;
+
+    if (anchor.offset === 1) {
+      // caret after first character of the span's first text → stop at the span start (start of
+      // the new visual line) instead of letting the browser collapse the boundary and skip it
+      anchorNode.select(0, 0);
+      return true;
+    }
+    if (anchor.offset !== 0) return false;
+    // caret at span start → hop over the visual newline to the end of the previous line
+    return $selectBeforeFpSpan(fpNode);
+  }
+
+  // Element caret at the very start of the `\fp` span (before a non-text first child, e.g. the
+  // non-editable marker glyph).
+  if (anchor.offset === 0) {
+    const fpNode = $getFpBoundaryCharNode(anchorNode);
+    if (!fpNode) return false;
+    return $selectBeforeFpSpan(fpNode);
+  }
+  return false;
+}
+
+/** Place the caret at the end of the content preceding the `\fp` span (end of the previous line). */
+function $selectBeforeFpSpan(fpNode: CharNode): boolean {
+  const prevNode = fpNode.getPreviousSibling();
+  if (!prevNode) return false;
+
+  if ($isTextNode(prevNode)) {
+    prevNode.select();
+    return true;
+  }
+  if ($isElementNode(prevNode)) {
+    // end of the previous span's content (e.g. the `\ft` span, or a preceding `\fp`)
+    const lastDescendant = prevNode.getLastDescendant();
+    if ($isTextNode(lastDescendant)) lastDescendant.select();
+    else prevNode.selectEnd();
+    return true;
+  }
+  // Decorator sibling (e.g. the note caller): place the caret between it and the `\fp` span so
+  // the existing note-boundary handling can take over from there on the next press.
+  const parent = fpNode.getParent();
+  if (!parent) return false;
+  const fpIndex = fpNode.getIndexWithinParent();
+  parent.select(fpIndex, fpIndex);
+  return true;
 }
 
 /** Helper to handle forward arrow key navigation logic */
@@ -326,6 +429,10 @@ function $handleBackwardNavigation(
     return true;
   }
 
+  // Deliberately gated on the always-"collapsed" MODE, not just the note's own collapsed flag:
+  // under "expandInline" the caret must instead land inside the note's end (Lexical's default
+  // move), where the NoteNodePlugin expands it for inline editing — hopping over the note here
+  // would defeat that enter-and-expand behavior.
   if ($isSomeParaNode(prevNode) && viewOptions?.noteMode === "collapsed") {
     // caret at beginning of para after collapsed note → move to start in previous para
     const lastChild = prevNode.getLastChild();

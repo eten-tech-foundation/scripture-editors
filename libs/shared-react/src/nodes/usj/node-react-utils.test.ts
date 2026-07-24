@@ -16,6 +16,7 @@ import {
   $isSomeVerseNode,
   $selectNextVerse,
   $selectPreviousVerse,
+  isCollapsedNoteMode,
 } from "./node-react.utils";
 import { UsjNodeOptions } from "./usj-node-options.model";
 import {
@@ -883,6 +884,19 @@ describe("$getEffectiveVerseForBcv()", () => {
   });
 });
 
+describe("isCollapsedNoteMode()", () => {
+  it("collapses every mode except 'expanded' — the ONE predicate shared by load and insert paths", () => {
+    // "collapsed", "expandInline", and unset all build collapsed notes; only "expanded" builds
+    // expanded. $createWholeNote, $insertNoteWithSelect, and the platform adaptor's createNote
+    // must all agree on this, or a freshly inserted note's structure/flag drifts from a loaded
+    // one's (the flag/layout mismatch class of bug).
+    expect(isCollapsedNoteMode("collapsed")).toBe(true);
+    expect(isCollapsedNoteMode("expandInline")).toBe(true);
+    expect(isCollapsedNoteMode(undefined)).toBe(true);
+    expect(isCollapsedNoteMode("expanded")).toBe(false);
+  });
+});
+
 describe("$insertNote()", () => {
   const requiredNodes = [ParaNode, NoteNode, CharNode, ImmutableNoteCallerNode, MarkerNode];
   const viewOptions: ViewOptions = {
@@ -1106,6 +1120,82 @@ describe("$insertNote()", () => {
 
       expect(noteNode).toBeDefined();
       expect(noteNode?.getIsCollapsed()).toBe(true);
+    });
+  });
+
+  it("should insert a collapsed note under expandInline noteMode (structure and flag agree with a loaded note)", () => {
+    // expandInline notes start collapsed and only expand while the caret is adjacent
+    // (NoteNodePlugin), exactly like notes built at document load (`createNote`), where
+    // `noteMode !== "expanded"` governs BOTH the child structure and the collapsed flag.
+    const expandInlineViewOptions: ViewOptions = {
+      markerMode: "editable",
+      noteMode: "expandInline",
+      hasSpacing: true,
+      isFormattedFont: true,
+    };
+
+    const { editor } = createBasicTestEnvironment(requiredNodes);
+    editor.update(
+      () => {
+        const t1 = $createTextNode("text");
+        $getRoot().append($createParaNode().append(t1));
+        t1.select(2, 2);
+      },
+      { discrete: true },
+    );
+
+    editor.update(() => {
+      const noteNode = $insertNote(
+        "f",
+        GENERATOR_NOTE_CALLER,
+        undefined,
+        { book: "GEN", chapterNum: 1, verseNum: 1 },
+        expandInlineViewOptions,
+        nodeOptions,
+        undefined,
+      );
+
+      if (!noteNode) throw new Error("noteNode not inserted");
+      // Collapsed layout: caller widget, not editable caller text.
+      expect(noteNode.getChildren().some($isImmutableNoteCallerNode)).toBe(true);
+      // The flag must agree with the layout.
+      expect(noteNode.getIsCollapsed()).toBe(true);
+    });
+  });
+
+  it("should insert a collapsed note when noteMode is undefined (structure and flag agree with a loaded note)", () => {
+    const noNoteModeViewOptions: ViewOptions = {
+      markerMode: "editable",
+      hasSpacing: true,
+      isFormattedFont: true,
+    };
+
+    const { editor } = createBasicTestEnvironment(requiredNodes);
+    editor.update(
+      () => {
+        const t1 = $createTextNode("text");
+        $getRoot().append($createParaNode().append(t1));
+        t1.select(2, 2);
+      },
+      { discrete: true },
+    );
+
+    editor.update(() => {
+      const noteNode = $insertNote(
+        "f",
+        GENERATOR_NOTE_CALLER,
+        undefined,
+        { book: "GEN", chapterNum: 1, verseNum: 1 },
+        noNoteModeViewOptions,
+        nodeOptions,
+        undefined,
+      );
+
+      if (!noteNode) throw new Error("noteNode not inserted");
+      // Collapsed layout: caller widget, not editable caller text.
+      expect(noteNode.getChildren().some($isImmutableNoteCallerNode)).toBe(true);
+      // The flag must agree with the layout.
+      expect(noteNode.getIsCollapsed()).toBe(true);
     });
   });
 
