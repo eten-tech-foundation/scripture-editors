@@ -158,15 +158,22 @@ describe("usfmFragmentToUsjContent — verse, chapter, note, milestone, attribut
     ]);
   });
 
-  it("closes an open char span at a verse marker", () => {
+  it("keeps an open char span open across a verse marker (≤3.0: the verse nests inside)", () => {
+    // PT9 UsfmParser Verse case: `if (!RequiresPlusOnNestedStyles()) CloseCharStyles()`, and
+    // RequiresPlusOnNestedStyles() is true for USFM ≤3.0 — so ≤3.0 does NOT close char styles at a
+    // verse. The unclosed `\nd` continues across `\v 2`, with the verse and following text nested
+    // inside it. (USFM 3.1 inverts this; guarded by the ParatextData-upgrade tripwire.)
     expect(usfmFragmentToUsjContent("\\p \\nd Lord \\v 2 next")).toEqual([
       {
         type: "para",
         marker: "p",
         content: [
-          { type: "char", marker: "nd", content: ["Lord "], closed: "false" },
-          { type: "verse", marker: "v", number: "2" },
-          "next",
+          {
+            type: "char",
+            marker: "nd",
+            content: ["Lord ", { type: "verse", marker: "v", number: "2" }, "next"],
+            closed: "false",
+          },
         ],
       },
     ]);

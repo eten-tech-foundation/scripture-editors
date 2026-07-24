@@ -136,6 +136,40 @@ describe("$rebuildParas", () => {
     });
   });
 
+  // D5: a char span that crosses a verse boundary (the verse nests inside it, PT9 ≤3.0) must
+  // survive an unrelated Tier-2 pass. The tokenizer keeps char styles open across a verse for
+  // ≤3.0, so re-tokenizing the visible text reproduces the same structure — a fixed point.
+  it("treats a char span crossing a verse boundary as a Tier-2 fixed point (D5)", () => {
+    const editor = loadEditor(
+      usjFromUsx(`before <char style="nd">Lord<verse number="2" style="v" />next</char> after`),
+    );
+    editor.update(
+      () => {
+        expect($rebuildParas([$lastPara()], context)).toBe(false);
+      },
+      { discrete: true },
+    );
+    editor.getEditorState().read(() => {
+      const nd = requireDefined(
+        $lastPara()
+          .getChildren()
+          .find((n) => $isCharNode(n) && n.getMarker() === "nd"),
+        "nd char span not found",
+      );
+      // The verse is still INSIDE the nd span (not flattened out to paragraph level), and no
+      // unmatched node was produced by a bogus rebuild.
+      const hasVerse = $isCharNode(nd)
+        ? nd.getChildren().some((n) => n.getType() === "verse")
+        : false;
+      expect(hasVerse).toBe(true);
+      expect(
+        $lastPara()
+          .getChildren()
+          .some((n) => n.getType() === "unmatched"),
+      ).toBe(false);
+    });
+  });
+
   it("splits the paragraph when the text contains a literal \\p", () => {
     const editor = loadEditor(usjFromUsx(`<verse number="1" style="v" />one \\p two`));
     editor.update(() => expect($rebuildParas([$lastPara()], context)).toBe(true), {

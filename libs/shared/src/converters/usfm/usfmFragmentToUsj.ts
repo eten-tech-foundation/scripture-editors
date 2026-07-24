@@ -872,7 +872,12 @@ export function usfmFragmentToUsjContent(
         break;
       }
       case "verse": {
-        closeCharStack();
+        // A verse closes an open note but — for USFM ≤3.0 — does NOT close open char styles: the
+        // unclosed span continues across the verse and the verse milestone nests inside it (PT9
+        // UsfmParser Verse case: `if (!RequiresPlusOnNestedStyles()) CloseCharStyles()`, and
+        // RequiresPlusOnNestedStyles() is true for ≤3.0). This pipeline targets ≤3.0; when the
+        // ParatextData dependency moves past 9.6 the close-at-verse must become version-switched
+        // (guarded by the upgrade tripwire, alongside close-on-bare and `+` emission).
         closeNote(false);
         const verse: MarkerObject = { type: "verse", marker: VERSE_MARKER, number: token.number };
         pushContent(verse);
