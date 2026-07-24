@@ -100,6 +100,23 @@ describe("usfmFragmentToUsjContent — core", () => {
     ]);
   });
 
+  it("closes the open char span before flagging an unmatched closer (PT9 pop-until-match)", () => {
+    // PT9 (UsfmParser End token) pops open char styles until it matches or hits a non-char
+    // boundary; a mismatched `\qt*` still closes the open `\nd` (closed="false"), then flags the
+    // stray closer. Text after it lands in the paragraph, not swallowed into a zombie `\nd`.
+    expect(usfmFragmentToUsjContent("\\p \\nd a \\qt* b")).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [
+          { type: "char", marker: "nd", content: ["a "], closed: "false" },
+          { type: "unmatched", marker: "qt*" },
+          " b",
+        ],
+      },
+    ]);
+  });
+
   it("maps ~ to NBSP in text content", () => {
     expect(usfmFragmentToUsjContent("\\p 3~000 men")).toEqual([
       { type: "para", marker: "p", content: [`3${NBSP}000 men`] },
@@ -358,8 +375,11 @@ describe("usfmFragmentToUsjContent — verse, chapter, note, milestone, attribut
 
   it("does not let a closer inside a note close a span enclosing the note", () => {
     const content = usfmFragmentToUsjContent("\\p \\wj a \\f + \\ft x\\wj* y\\f* b\\wj*");
-    // The in-note `\wj*` has no in-note frame to close → unmatched INSIDE the note; the
-    // enclosing wj span survives and is closed by the final `\wj*`.
+    // PT9 (UsfmParser End token) pops char styles down to the note boundary: the in-note `\wj*`
+    // closes the open `\ft` (closed="false"), then — hitting the Note element without a match —
+    // flags an unmatched element at the note level, and " y" follows it there. The closer never
+    // reaches the enclosing `\wj` below the note boundary; that span survives and is closed by
+    // the final `\wj*`.
     expect(content).toEqual([
       {
         type: "para",
@@ -378,9 +398,11 @@ describe("usfmFragmentToUsjContent — verse, chapter, note, milestone, attribut
                   {
                     type: "char",
                     marker: "ft",
-                    content: ["x", { type: "unmatched", marker: "wj*" }, " y"],
+                    content: ["x"],
                     closed: "false",
                   },
+                  { type: "unmatched", marker: "wj*" },
+                  " y",
                 ],
               },
               " b",
