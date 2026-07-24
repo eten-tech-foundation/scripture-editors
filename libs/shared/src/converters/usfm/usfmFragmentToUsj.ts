@@ -941,9 +941,16 @@ export function usfmFragmentToUsjContent(
           // frames enclosing the note survive (closeNote truncates to the note boundary).
           closeNote(true);
         } else {
-          // Unmatched closer: PT9 sink.Unmatched (UsxUsfmParserSink.cs:262-266)
-          // — an unmatched element, rendered as ImmutableUnmatchedNode with the
-          // existing `.invalid` styling; serializes back to the same text.
+          // Unmatched closer: PT9 first pops every open char style above the note/para boundary
+          // (UsfmParser End token: the while-loop closes each Char element on top of the stack
+          // until it matches or hits a non-char element; with no match here they all close as
+          // closed="false"), THEN flags the stray closer (PT9 sink.Unmatched,
+          // UsxUsfmParserSink.cs:262-266) — an unmatched element rendered as ImmutableUnmatchedNode
+          // with the existing `.invalid` styling that serializes back to the same text. Closing
+          // the open frames first keeps the following text in the paragraph/note instead of
+          // swallowing it into a span PT9 has already terminated.
+          markImplicitlyClosed(searchBase);
+          charStack.length = searchBase;
           pushContent({ type: "unmatched", marker: `${token.marker}*` });
         }
         break;
