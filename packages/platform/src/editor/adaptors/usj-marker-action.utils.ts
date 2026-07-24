@@ -21,6 +21,7 @@ import {
 import { $splitCharNodeAt } from "../markerEdit/charFormatting.utils";
 import {
   $createCharNode,
+  $createMarkerNode,
   $createNodeFromSerializedNode,
   $findChapter,
   $isCharNode,
@@ -391,6 +392,11 @@ export function getUsjMarkerAction(
             } else {
               $splitCharNodeAt(charSpan, node, selection.anchor.offset);
               charSpan.insertAfter(nodeToInsert);
+              // Applied inside a NESTED span (the host span itself nests in another char): the new
+              // span is now nested too, so give it `+` glyphs and an explicit closer — otherwise a
+              // closer-less `\+fq` swallows the following nested sibling on serialization (see
+              // $ensureNestedSpanClosed). At the note level the closer-less convention stays.
+              if ($isCharNode(nodeToInsert.getParent())) $ensureNestedSpanClosed(nodeToInsert);
               // A split before all content leaves the left span glyph-only; drop it (the same
               // emptied-half cleanup Ctrl+Space's split performs).
               if (charSpan.getChildren().every($isMarkerNode)) charSpan.remove();
@@ -483,6 +489,33 @@ function isNestInPlaceCharNode(charNode: CharNode): boolean {
   return occursUnder.includes("NEST") && charNode.getUnknownAttributes()?.closed !== "false";
 }
 
+/**
+ * Make a char span that now nests inside another char span (its parent is a CharNode) carry the
+ * `+` on its glyphs AND an EXPLICIT closer. Implicitly-closed content markers (\fq, \xt, ...) are
+ * normally built closer-less (closed="false") — the note-content convention where the following
+ * bare marker closes them — but nested that convention breaks two ways: on serialization a
+ * closer-less `\+fq` runs to the parent span's closer and swallows any following nested sibling
+ * (`\ft A \+nd ho\+nd*\+fq\+nd ly\+nd*` re-parses with the second `\+nd` INSIDE `\+fq`); and a
+ * selection wrap into a fresh closer-less span strips its opener glyph and gets unwrapped as a
+ * "deleted opener" (a silent no-op). An explicit closer fixes both, matching PT9's requirement
+ * that an applied nested span be explicitly terminated.
+ */
+function $ensureNestedSpanClosed(charNode: CharNode): void {
+  charNode.getChildren().forEach((child) => {
+    if ($isMarkerNode(child)) child.setNested(true);
+  });
+  const hasCloser = charNode
+    .getChildren()
+    .some((child) => $isMarkerNode(child) && child.getMarkerSyntax() === "closing");
+  if (!hasCloser) charNode.append($createMarkerNode(charNode.getMarker(), "closing", true));
+  const attributes = charNode.getUnknownAttributes();
+  if (attributes?.closed === "false") {
+    const rest = { ...attributes };
+    delete rest.closed;
+    charNode.setUnknownAttributes(Object.keys(rest).length > 0 ? rest : undefined);
+  }
+}
+
 function getMarkerAction(marker: string): UsjMarkerAction | undefined {
   let markerAction = markerActions[marker];
   if (!markerAction) {
@@ -542,6 +575,12 @@ function $wrapTextSelectionInInlineNode(
       currentWrapper = createNode();
       targetNode.insertBefore(currentWrapper);
       isFreshWrapper = true;
+      // A wrapper nested inside another char span needs `+` glyphs and an explicit closer, so
+      // $wrapNode inserts content before a real closer instead of stripping the lone opener of a
+      // closer-less span (which leaves a glyph-less span the marker-edit engine unwraps — a silent
+      // no-op). At other levels the wrapper keeps whatever convention it was built with.
+      if ($isCharNode(currentWrapper) && $isCharNode(currentWrapper.getParent()))
+        $ensureNestedSpanClosed(currentWrapper);
     }
 
     // Wrap the target node
