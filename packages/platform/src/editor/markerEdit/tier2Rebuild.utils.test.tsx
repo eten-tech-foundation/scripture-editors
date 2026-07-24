@@ -11,7 +11,14 @@ import usjEditorAdaptor from "../adaptors/usj-editor.adaptor";
 import { $rebuildParas, Tier2Context } from "./tier2Rebuild.utils";
 import { usxStringToUsj } from "@eten-tech-foundation/scripture-utilities";
 import { $getRoot, $getSelection, $isRangeSelection, $isTextNode } from "lexical";
-import { $isParaNode, getMarker as bundledGetMarker, ParaNode, TypedMarkNode } from "shared";
+import {
+  $isCharNode,
+  $isMarkerNode,
+  getMarker as bundledGetMarker,
+  $isParaNode,
+  ParaNode,
+  TypedMarkNode,
+} from "shared";
 // Reaching inside only for tests.
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import { createBasicTestEnvironment } from "../../../../../libs/shared/src/nodes/usj/test.utils";
@@ -87,6 +94,45 @@ describe("$rebuildParas", () => {
         { type: "char", marker: "nd", content: ["Lord"] },
         " after",
       ],
+    });
+  });
+
+  // The single most important pin: a loaded, structurally-nested char span must survive an
+  // unrelated Tier-2 pass in the same paragraph. Depth-aware glyphs render the inner span as
+  // `\+w …\+w*`, so the re-tokenized fragment reproduces the SAME nesting and the rebuild
+  // recognizes the fixed point and refuses. Without the `+` the fragment reads `\nd Lo\w rd\nd*`,
+  // which close-on-bare flattens (w exits nd; `\nd*` becomes unmatched) — a silent corruption.
+  it("treats a loaded nested char span as a Tier-2 fixed point (no-edit rebuild is a no-op)", () => {
+    const editor = loadEditor(
+      usjFromUsx(`before <char style="nd">Lo<char style="w">rd</char></char> after`),
+    );
+    editor.update(
+      () => {
+        expect($rebuildParas([$lastPara()], context)).toBe(false);
+      },
+      { discrete: true },
+    );
+    editor.getEditorState().read(() => {
+      const nd = requireDefined(
+        $lastPara()
+          .getChildren()
+          .find((n) => $isCharNode(n) && n.getMarker() === "nd"),
+        "nd char span not found",
+      );
+      // w is still NESTED inside nd (not flattened into a sibling), and no unmatched node was
+      // produced by a bogus rebuild.
+      const nested = $isCharNode(nd)
+        ? nd.getChildren().filter((n) => $isCharNode(n) && n.getMarker() === "w")
+        : [];
+      expect(nested).toHaveLength(1);
+      expect(
+        $lastPara()
+          .getChildren()
+          .some((n) => n.getType() === "unmatched"),
+      ).toBe(false);
+      // The inner span's editable glyphs carry the `+` (depth-aware): \+w … \+w*.
+      const markers = $isCharNode(nested[0]) ? nested[0].getChildren().filter($isMarkerNode) : [];
+      expect(markers.map((m) => m.getTextContent())).toEqual(["\\+w", "\\+w*"]);
     });
   });
 

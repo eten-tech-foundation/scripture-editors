@@ -346,6 +346,7 @@ function createVerse(
 function createChar(
   markerObject: MarkerObject,
   childNodes: SerializedLexicalNode[] = [],
+  isNested = false,
 ): SerializedCharNode {
   let { marker } = markerObject;
   if (!CharNode.isValidMarker(marker, _nodeOptions?.extraValidMarkers)) {
@@ -358,7 +359,10 @@ function createChar(
       if (isSerializedTextNode(node)) node.text = NBSP + node.text;
     });
   if (childNodes.length === 0) childNodes.push(createText(EMPTY_CHAR_PLACEHOLDER_TEXT));
-  addOpeningMarker(markerObject.marker ?? "", children);
+  // A char span nested inside another char span carries the `+` prefix in its editable glyphs
+  // (`\+w …\+w*`) — ParatextData's writer rule and PT9's on-screen display for USFM ≤3.0. This
+  // keeps the visible glyph text truthful so a Tier-2 re-tokenization reproduces the same nesting.
+  addOpeningMarker(markerObject.marker ?? "", children, isNested);
   children.push(...childNodes);
   // A char span with no explicit closing marker carries closed="false": ParatextData emits it on
   // every implicitly-closed span — the explicit `closed="false"` attribute, and near-universally on
@@ -366,7 +370,7 @@ function createChar(
   // WITHOUT a closing glyph, mirroring the unclosed-note handling in `createNote`.
   const isUnclosedChar = (markerObject as MarkerObject & { closed?: string }).closed === "false";
   const isClosingGlyphSkipped = isUnclosedChar || isImplicitlyClosedCharMarker(marker);
-  if (!isUnclosedChar) addClosingMarker(markerObject.marker ?? "", children);
+  if (!isUnclosedChar) addClosingMarker(markerObject.marker ?? "", children, false, isNested);
   let unknownAttributes = getUnknownAttributes(markerObject, CHAR_MARKER_OBJECT_PROPS);
   // Honesty rule: whenever the closing glyph is skipped, record closed="false" so it round-trips
   // to USJ. Otherwise closer-less hand-written/legacy USJ that lacked the flag would serialize back
@@ -605,11 +609,14 @@ function createUnmatched(marker: string): SerializedImmutableUnmatchedNode {
 function createMarker(
   marker: string,
   markerSyntax: MarkerSyntax = "opening",
+  nested = false,
 ): SerializedMarkerNode {
   return {
     type: MarkerNode.getType(),
     marker,
     markerSyntax,
+    // Emit the flag only for nested glyphs; absence means non-nested (see MarkerNode.exportJSON).
+    ...(nested ? { nested: true } : {}),
     text: "",
     detail: 0,
     format: 0,
@@ -651,11 +658,11 @@ function createImmutableTypedText(
   };
 }
 
-function addOpeningMarker(marker: string, nodes: SerializedLexicalNode[]) {
+function addOpeningMarker(marker: string, nodes: SerializedLexicalNode[], nested = false) {
   if (_viewOptions?.markerMode === "editable") {
-    nodes.push(createMarker(marker));
+    nodes.push(createMarker(marker, "opening", nested));
   } else if (_viewOptions?.markerMode === "visible") {
-    nodes.push(createImmutableTypedText("marker", openingMarkerText(marker)));
+    nodes.push(createImmutableTypedText("marker", openingMarkerText(marker, nested)));
   }
 }
 
@@ -667,14 +674,24 @@ function isImplicitlyClosedCharMarker(marker: string): boolean {
   return CharNode.isValidFootnoteMarker(marker) || CharNode.isValidCrossReferenceMarker(marker);
 }
 
-function addClosingMarker(marker: string, nodes: SerializedLexicalNode[], isSelfClosing = false) {
+function addClosingMarker(
+  marker: string,
+  nodes: SerializedLexicalNode[],
+  isSelfClosing = false,
+  nested = false,
+) {
   if (isImplicitlyClosedCharMarker(marker)) return;
 
   if (_viewOptions?.markerMode === "editable") {
     if (isSelfClosing) nodes.push(createMarker("", "selfClosing"));
-    else nodes.push(createMarker(marker, "closing"));
+    else nodes.push(createMarker(marker, "closing", nested));
   } else if (_viewOptions?.markerMode === "visible") {
-    nodes.push(createImmutableTypedText("marker", closingMarkerText(isSelfClosing ? "" : marker)));
+    nodes.push(
+      createImmutableTypedText(
+        "marker",
+        isSelfClosing ? closingMarkerText("") : closingMarkerText(marker, nested),
+      ),
+    );
   }
 }
 
@@ -759,7 +776,12 @@ function replaceMilestonesWithMarkRecurse(
   return [...nodesBefore, markNode, ...nodesAfter];
 }
 
-function recurseNodes(markers: MarkerContent[] | undefined): SerializedLexicalNode[] {
+function recurseNodes(
+  markers: MarkerContent[] | undefined,
+  // True when these markers are the CONTENT of a char span: any char among them nests inside that
+  // parent char and therefore renders its glyphs with the `+` prefix (see `createChar`).
+  parentIsChar = false,
+): SerializedLexicalNode[] {
   const msCommentIndexes: number[] = [];
   const nodes: SerializedLexicalNode[] = [];
   markers?.forEach((markerContent) => {
@@ -781,7 +803,9 @@ function recurseNodes(markers: MarkerContent[] | undefined): SerializedLexicalNo
           nodes.push(createVerse(markerContent));
           break;
         case CharNode.getType():
-          nodes.push(createChar(markerContent, recurseNodes(markerContent.content)));
+          nodes.push(
+            createChar(markerContent, recurseNodes(markerContent.content, true), parentIsChar),
+          );
           break;
         case ParaNode.getType():
           nodes.push(createPara(markerContent, recurseNodes(markerContent.content)));

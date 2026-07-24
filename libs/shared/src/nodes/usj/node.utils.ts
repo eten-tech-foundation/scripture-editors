@@ -404,19 +404,24 @@ export function removeNodesBeforeNode(
 /**
  * Gets the opening marker text.
  * @param marker - The USFM marker.
+ * @param nested - Whether the span nests inside another char span. A nested span's marker carries
+ *   the `+` prefix (`\+w`) — ParatextData's writer rule and PT9's on-screen display for USFM ≤3.0,
+ *   where `+` is what makes a bare char marker nest instead of closing the enclosing span. The
+ *   glyph must show it so a re-tokenization of the visible text reproduces the same nesting.
  * @returns the opening marker text.
  */
-export function openingMarkerText(marker: string): string {
-  return `\\${marker}`;
+export function openingMarkerText(marker: string, nested = false): string {
+  return `\\${nested ? "+" : ""}${marker}`;
 }
 
 /**
  * Gets the closing marker text.
  * @param marker - The USFM marker.
+ * @param nested - Whether the span nests inside another char span (see {@link openingMarkerText}).
  * @returns the closing marker text.
  */
-export function closingMarkerText(marker: string): string {
-  return `\\${marker}*`;
+export function closingMarkerText(marker: string, nested = false): string {
+  return `\\${nested ? "+" : ""}${marker}*`;
 }
 
 /**
