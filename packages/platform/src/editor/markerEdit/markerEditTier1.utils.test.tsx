@@ -293,6 +293,21 @@ describe("Tier 1 char/note opener rename", () => {
     });
   });
 
+  it("routes a typed + opener to Tier 2 instead of stripping the + (nest instruction)", async () => {
+    let parts: ReturnType<typeof $appendCharPara>;
+    const { editor } = await testEnvironment(() => (parts = $appendCharPara()));
+    // Typing `\+w ` is a NEST instruction, not a rename. Tier 1 must not strip the `+` and rename
+    // the span in place to "w"; it routes to Tier 2, which re-tokenizes the visible glyph text
+    // (now carrying the `+`). This span sits at paragraph level with nothing to nest into, so the
+    // tokenizer opens "w" and the stranded `\nd*` becomes an unmatched element — proof the `+`
+    // reached the tokenizer instead of being silently discarded by an in-place rename (which would
+    // have produced a clean `\w Lord\w*` with no unmatched node).
+    await act(async () => editor.update(() => parts.marker.setTextContent("\\+w ")));
+    const json = JSON.stringify(editor.getEditorState().toJSON());
+    expect(json).toContain('"type":"unmatched"');
+    expect(json).toContain('"marker":"nd*"');
+  });
+
   it("routes a para-kind marker typed in char position to Tier 2", async () => {
     let parts: ReturnType<typeof $appendCharPara>;
     const { editor } = await testEnvironment(() => (parts = $appendCharPara()));
