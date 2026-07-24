@@ -1576,11 +1576,10 @@ describe("$applyMarkerMenuSelection", () => {
       });
     });
 
-    describe("non-NEST apply from INSIDE a nested span gets an explicit closer", () => {
+    describe("non-NEST apply from INSIDE a char span closes and reopens (PT9 StyleApplicator)", () => {
       /** A footnote whose \ft content holds `A \+nd holy\+nd* B` — a nested \nd with text after. */
       async function setUpNestedNd() {
-        let ftCharRef: CharNode | undefined;
-        let ndCharRef: CharNode | undefined;
+        let noteRef: NoteNodeClass | undefined;
         const environment = await fullHarnessEnvironment(() => {
           const para = $createParaNode("p");
           const note = $createNoteNode("f", "+", false);
@@ -1588,9 +1587,9 @@ describe("$applyMarkerMenuSelection", () => {
           ftChar.setUnknownAttributes({ closed: "false" });
           const ndChar = $createCharNode("nd");
           ndChar.append(
-            $createMarkerNode("nd"),
+            $createMarkerNode("nd", "opening", true),
             $createTextNode("holy"),
-            $createMarkerNode("nd", "closing"),
+            $createMarkerNode("nd", "closing", true),
           );
           ftChar.append(
             $createMarkerNode("ft"),
@@ -1612,38 +1611,35 @@ describe("$applyMarkerMenuSelection", () => {
               note,
             ),
           );
-          ftCharRef = ftChar;
-          ndCharRef = ndChar;
+          noteRef = note;
         });
-        return {
-          ...environment,
-          ftChar: requireDefined(ftCharRef, "ft missing"),
-          ndChar: requireDefined(ndCharRef, "nd missing"),
-        };
+        return { ...environment, note: requireDefined(noteRef, "note missing") };
       }
 
       const nonNestItem: MarkerMenuItem = { marker: "fq", kind: "character", isBasic: true };
 
-      /** The content text node of a char span (the non-marker child). */
       function $spanText(charNode: CharNode): TextNode {
         return requireDefined(
           charNode.getChildren().find((c): c is TextNode => $isTextNode(c) && !$isMarkerNode(c)),
           "span text missing",
         );
       }
-
-      /** A span's own marker glyph texts, opener then closer. */
-      function glyphs(charNode: CharNode): string[] {
-        return charNode
-          .getChildren()
-          .filter($isMarkerNode)
-          .map((m) => m.getTextContent());
+      /** Marker names of a span's direct CharNode children. */
+      function childChars(charNode: CharNode): CharNode[] {
+        return charNode.getChildren().filter($isCharNode);
+      }
+      /** Direct CharNode children of the note. */
+      function noteChars(note: NoteNodeClass): CharNode[] {
+        return note.getChildren().filter($isCharNode);
+      }
+      function $nestedNd(note: NoteNodeClass): CharNode {
+        return childChars(noteChars(note)[0])[0];
       }
 
-      it("(collapsed caret) gives the applied \\fq an explicit \\+fq* closer so it can't swallow the following \\nd", async () => {
-        const { editor, ftChar, ndChar } = await setUpNestedNd();
-        // Caret between "ho" and "ly" inside the nested \nd span.
-        await act(async () => editor.update(() => $spanText(ndChar).select(2, 2)));
+      it("(selection) closes \\nd and \\ft, puts \\fq at the note level, and reopens \\ft after it", async () => {
+        const { editor, note } = await setUpNestedNd();
+        // Select "ly" (the tail of the nested \nd's "holy").
+        await act(async () => editor.update(() => $spanText($nestedNd(note)).select(2, 4)));
 
         await act(async () =>
           editor.update(() =>
@@ -1657,21 +1653,30 @@ describe("$applyMarkerMenuSelection", () => {
         );
 
         editor.getEditorState().read(() => {
-          // \ft now holds [nd(ho), fq, nd(ly), " B"] — the \fq is a SIBLING of the split \nd
-          // halves, not a container that swallows them.
-          const ftChars = ftChar.getChildren().filter($isCharNode);
-          expect(ftChars.map((c) => c.getMarker())).toEqual(["nd", "fq", "nd"]);
-          const fq = ftChars[1];
-          // Nested glyphs with an EXPLICIT closer, and closed="false" cleared (TJ's criterion).
-          expect(glyphs(fq)).toEqual(["\\+fq", "\\+fq*"]);
-          expect(fq.getUnknownAttributes()?.closed).toBeUndefined();
+          // Note content is now \ft (holding \+nd ho) | \fq (ly) | \ft (B): the \fq is a NOTE-level
+          // sibling of the split \ft halves — NOT nested inside \nd or \ft (which would swallow it).
+          const chars = noteChars(note);
+          expect(chars.map((c) => c.getMarker())).toEqual(["ft", "fq", "ft"]);
+          const [ftLeft, fq, ftRight] = chars;
+          // \fq holds only "ly", with a bare (non-nested) glyph.
+          expect(fq.getTextContent()).toContain("ly");
+          expect(
+            fq
+              .getChildren()
+              .filter($isMarkerNode)
+              .map((m) => m.getTextContent()),
+          ).toEqual(["\\fq"]);
+          // \nd survives inside the FIRST \ft, holding only "ho"; the reopened \ft holds " B".
+          expect(childChars(ftLeft)[0]?.getMarker()).toBe("nd");
+          expect(childChars(ftLeft)[0]?.getTextContent()).toContain("ho");
+          expect(ftRight.getTextContent()).toContain("B");
         });
       });
 
-      it("(selection) wraps the selected text in \\fq with an explicit closer instead of silently no-opping", async () => {
-        const { editor, ndChar } = await setUpNestedNd();
-        // Select the whole "holy" inside the nested \nd span.
-        await act(async () => editor.update(() => $spanText(ndChar).select(0, 4)));
+      it("(collapsed caret) closes and reopens around an empty \\fq, reopening \\nd for the tail", async () => {
+        const { editor, note } = await setUpNestedNd();
+        // Caret between "ho" and "ly" inside the nested \nd.
+        await act(async () => editor.update(() => $spanText($nestedNd(note)).select(2, 2)));
 
         await act(async () =>
           editor.update(() =>
@@ -1685,15 +1690,62 @@ describe("$applyMarkerMenuSelection", () => {
         );
 
         editor.getEditorState().read(() => {
-          // The apply is NOT a no-op: \fq wraps "holy" INSIDE the \nd, with an explicit nested
-          // closer (a closer-less fresh wrapper would have had its lone opener stripped and been
-          // unwrapped again).
-          const inner = ndChar.getChildren().filter($isCharNode);
-          expect(inner.map((c) => c.getMarker())).toEqual(["fq"]);
-          const fq = inner[0];
-          expect(fq.getTextContent()).toContain("holy");
-          expect(glyphs(fq)).toEqual(["\\+fq", "\\+fq*"]);
-          expect(fq.getUnknownAttributes()?.closed).toBeUndefined();
+          const chars = noteChars(note);
+          expect(chars.map((c) => c.getMarker())).toEqual(["ft", "fq", "ft"]);
+          const [ftLeft, , ftRight] = chars;
+          // \nd["ho"] stays in the first \ft; \nd["ly"] REOPENS inside the second \ft.
+          expect(childChars(ftLeft)[0]?.getTextContent()).toContain("ho");
+          expect(childChars(ftRight)[0]?.getMarker()).toBe("nd");
+          expect(childChars(ftRight)[0]?.getTextContent()).toContain("ly");
+        });
+      });
+
+      it("(flat span) closes \\ft, puts \\fq at the note level, reopens \\ft", async () => {
+        let noteRef: NoteNodeClass | undefined;
+        const { editor } = await fullHarnessEnvironment(() => {
+          const para = $createParaNode("p");
+          const note = $createNoteNode("f", "+", false);
+          const ftChar = $createCharNode("ft");
+          ftChar.setUnknownAttributes({ closed: "false" });
+          ftChar.append($createMarkerNode("ft"), $createTextNode(`${NBSP}A holy B`));
+          note.append(
+            $createMarkerNode("f"),
+            $createTextNode(getEditableCallerText("+")),
+            ftChar,
+            $createMarkerNode("f", "closing"),
+          );
+          $getRoot().append(
+            para.append(
+              $createMarkerNode("p"),
+              $createTrailingSpaceNode(),
+              $createTextNode("text "),
+              note,
+            ),
+          );
+          noteRef = note;
+        });
+        const note = requireDefined(noteRef, "note missing");
+        await act(async () =>
+          editor.update(() => {
+            const t = $spanText(noteChars(note)[0]);
+            const i = t.getTextContent().indexOf("holy");
+            t.select(i, i + 4);
+          }),
+        );
+        await act(async () =>
+          editor.update(() =>
+            $applyMarkerMenuSelection(
+              nonNestItem,
+              { trigger: "backslash", literalPrefixLanded: false },
+              reference,
+              makeDeps(),
+            ),
+          ),
+        );
+        editor.getEditorState().read(() => {
+          const chars = noteChars(note);
+          expect(chars.map((c) => c.getMarker())).toEqual(["ft", "fq", "ft"]);
+          expect(chars[1].getTextContent()).toContain("holy"); // \fq at note level, not nested
         });
       });
     });
