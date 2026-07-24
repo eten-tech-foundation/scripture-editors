@@ -373,10 +373,15 @@ function createChar(
   }
   marker = marker ?? "";
   const children: SerializedLexicalNode[] = [];
-  if (_viewOptions?.markerMode === "editable")
-    childNodes.forEach((node) => {
-      if (isSerializedTextNode(node)) node.text = NBSP + node.text;
-    });
+  if (_viewOptions?.markerMode === "editable") {
+    // The structural leading NBSP is the display separator between the opening glyph and its
+    // content, so it applies ONLY to the FIRST content node when that is text — never to text
+    // that follows a nested closer (e.g. the `ht` in `\wj li\+nd g\+nd*ht\wj*`). Prefixing every
+    // text child leaked the NBSP to the file and let Tier-2 accumulate a fresh one each rebuild.
+    // Mirrors `$splitCharNodeAt`, which prefixes only its right span's first text child.
+    const [firstChild] = childNodes;
+    if (isSerializedTextNode(firstChild)) firstChild.text = NBSP + firstChild.text;
+  }
   if (childNodes.length === 0) childNodes.push(createText(EMPTY_CHAR_PLACEHOLDER_TEXT));
   // A char span nested inside another char span carries the `+` prefix in its editable glyphs
   // (`\+w …\+w*`) — ParatextData's writer rule and PT9's on-screen display for USFM ≤3.0. This
