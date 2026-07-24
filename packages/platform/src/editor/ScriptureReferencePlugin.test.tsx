@@ -939,10 +939,10 @@ describe("BookNode-created cursor positioning vs same-document reloads", () => {
     editor.getEditorState().read(() => {
       const selection = $getSelection();
       expect(selection).not.toBeNull();
-      if (selection && $isRangeSelection(selection)) {
-        expect(selection.anchor.getNode().getTextContent()).toBe("chapter two verse ");
-        expect(selection.anchor.offset).toBe(0);
-      }
+      expect($isRangeSelection(selection)).toBe(true);
+      if (!$isRangeSelection(selection)) throw new Error("expected a range selection");
+      expect(selection.anchor.getNode().getTextContent()).toBe("chapter two verse ");
+      expect(selection.anchor.offset).toBe(0);
     });
   });
 });

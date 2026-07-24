@@ -6,16 +6,8 @@ import {
 } from "./whitespaceDisplay.plugin.utils";
 import { act } from "@testing-library/react";
 import { LexicalClipboardData } from "@lexical/clipboard";
-import {
-  $createTextNode,
-  $getRoot,
-  $setState,
-  COPY_COMMAND,
-  CUT_COMMAND,
-  LexicalEditor,
-  TextNode,
-} from "lexical";
-import { $createMarkerNode, $createParaNode, NBSP, textTypeState } from "shared";
+import { $createTextNode, $getRoot, $setState, COPY_COMMAND, CUT_COMMAND, TextNode } from "lexical";
+import { $createCharNode, $createMarkerNode, $createParaNode, NBSP, textTypeState } from "shared";
 
 /**
  * Null-event leg: ClipboardPlugin/ContextMenuPlugin/EditorRef dispatch COPY_COMMAND/
@@ -26,12 +18,7 @@ import { $createMarkerNode, $createParaNode, NBSP, textTypeState } from "shared"
  * `$getLexicalContent` (also from this module) stay real via the `importOriginal` spread, so the
  * payload-builder unit tests below exercise genuine HTML/Lexical-JSON generation.
  */
-const copyToClipboardSpy = vi.hoisted(() =>
-  vi.fn(
-    async (_editor: LexicalEditor, _event: ClipboardEvent | null, _data?: LexicalClipboardData) =>
-      true,
-  ),
-);
+const copyToClipboardSpy = vi.hoisted(() => vi.fn(async () => true));
 vi.mock("@lexical/clipboard", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@lexical/clipboard")>();
   return { ...actual, copyToClipboard: copyToClipboardSpy };
@@ -98,6 +85,48 @@ describe("typing invariant", () => {
     });
     await act(async () => editor.update(() => text.setTextContent("a   b")));
     editor.getEditorState().read(() => expect(text.getTextContent().length).toBe(5));
+  });
+
+  // A char span's text children carry a STRUCTURAL leading NBSP (the glyph separator glued on by
+  // the adaptor/materializer). It must not act as left context for the run mapping: a genuine
+  // content-leading single space stays plain in the clean-loaded shape, and mapping it here made
+  // edited (dirty) nodes emit different collab ops than clean-loaded ones for identical content.
+  it("keeps a char span's content-leading space plain after the structural NBSP prefix", async () => {
+    let text: TextNode;
+    const { editor } = await testEnvironment(() => {
+      text = $createTextNode(`${NBSP} Bx`);
+      // Complete span (opening + closing glyphs) — a closer-less span would trigger the
+      // missing-closer Tier-2 rebuild and replace the captured node reference.
+      const span = $createCharNode("nd").append(
+        $createMarkerNode("nd", "opening"),
+        text,
+        $createMarkerNode("nd", "closing"),
+      );
+      const sep = $createTextNode(NBSP);
+      $setState(sep, textTypeState, "marker-trailing-space");
+      $getRoot().append($createParaNode("p").append($createMarkerNode("p"), sep, span));
+    });
+    await act(async () => editor.update(() => text.setTextContent(`${NBSP} B`)));
+    editor.getEditorState().read(() => expect(text.getTextContent()).toBe(`${NBSP} B`));
+  });
+
+  it("still maps space runs INSIDE char span content beyond the structural prefix", async () => {
+    let text: TextNode;
+    const { editor } = await testEnvironment(() => {
+      text = $createTextNode(`${NBSP}a b`);
+      const span = $createCharNode("nd").append(
+        $createMarkerNode("nd", "opening"),
+        text,
+        $createMarkerNode("nd", "closing"),
+      );
+      const sep = $createTextNode(NBSP);
+      $setState(sep, textTypeState, "marker-trailing-space");
+      $getRoot().append($createParaNode("p").append($createMarkerNode("p"), sep, span));
+    });
+    await act(async () => editor.update(() => text.setTextContent(`${NBSP}a  b`)));
+    editor
+      .getEditorState()
+      .read(() => expect(text.getTextContent()).toBe(`${NBSP}a${NBSP}${NBSP}b`));
   });
 });
 

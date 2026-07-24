@@ -4,7 +4,11 @@ import {
   $noteDeletionTransform,
   $paraMarkerDeletionTransform,
 } from "./markerEditDeletion.utils";
-import { $handleEnterInNote } from "./markerEditNote.utils";
+import {
+  $adoptDomCaretInExpandedNote,
+  $handleEnterInNote,
+  $handlePasteLinesInNote,
+} from "./markerEditNote.utils";
 import {
   $chapterNodeTransform,
   $isSelectionInMarkerNode,
@@ -18,6 +22,7 @@ import {
   $displayWhitespaceTransform,
   $handleCopyForStandardView,
   $handlePasteForStandardView,
+  htmlPasteText,
 } from "./whitespaceDisplay.plugin.utils";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { mergeRegister } from "@lexical/utils";
@@ -28,6 +33,7 @@ import {
   $isRangeSelection,
   BLUR_COMMAND,
   CLICK_COMMAND,
+  COMMAND_PRIORITY_CRITICAL,
   COMMAND_PRIORITY_HIGH,
   COMMAND_PRIORITY_LOW,
   COPY_COMMAND,
@@ -50,6 +56,7 @@ import {
   LoggerBasic,
   MarkerLookup,
   MarkerNode,
+  NBSP,
   NoteNode,
   ParaNode,
   textTypeState,
@@ -281,9 +288,19 @@ export function MarkerEditPlugin({
           // editing engine); live it split the footnote popover's wrapper paragraph with the
           // caret genuinely inside the note. Deriving `claimed` once keeps the preventDefault and
           // the return value from drifting apart as claim paths are added. `||` preserves the
-          // ordering: `$handleEnterInNote` runs (and may insert the `\fp`) first; the in-marker
-          // check only runs when the note path did not claim.
-          const claimed = $handleEnterInNote() || $isSelectionInMarkerNode();
+          // ordering: `$handleEnterInNote` runs (and may edit the note) first; the in-marker
+          // check only runs when the note path declined.
+          const noteOutcome = $handleEnterInNote();
+          // The note path removed a selection but left the caret with no intact note at it
+          // (a boundary-crossing range, or the removal destroyed the note's opening glyph):
+          // Enter finishes as a NORMAL paragraph split. Claiming the key bypasses RichText's
+          // KEY_ENTER — which would have dispatched exactly this — so dispatch it here: the
+          // INSERT_PARAGRAPH handler below sets `splitExpected` and RichText's own handler
+          // performs the split, giving the new paragraph its marker prefix instead of letting
+          // the paragraph transform merge it straight back.
+          if (noteOutcome === "needs-plain-split")
+            editor.dispatchCommand(INSERT_PARAGRAPH_COMMAND, undefined);
+          const claimed = noteOutcome !== "declined" || $isSelectionInMarkerNode();
           if (claimed) event?.preventDefault();
           $resolvePendingMarkers(context);
           return claimed;
@@ -297,6 +314,92 @@ export function MarkerEditPlugin({
           return false;
         },
         COMMAND_PRIORITY_HIGH,
+      ),
+      editor.registerCommand(
+        PASTE_COMMAND,
+        (event) => {
+          // Inside EXPANDED note content a pasted line break is an `\fp` (footnote-paragraph)
+          // break — the same break Enter makes there — never a paragraph split: the generic
+          // fall-through would let @lexical/clipboard's per-newline `insertParagraph()` (or its
+          // html branch's node insertion) split the paragraph THROUGH the (inline, non-block)
+          // note, threading `\p` paragraphs into the footnote. So multi-line pastes whose
+          // selection touches an expanded note are claimed and replayed with note semantics.
+          //
+          // Registered at COMMAND_PRIORITY_CRITICAL: with structure protection on (the
+          // Simple-mode default) StructureProtectionPlugin handles PASTE at HIGH and
+          // sanitize-inserts any html-bearing payload before a lower-priority claim could run —
+          // but an `\fp` break edits NOTE CONTENT, not document structure, so the in-note claim
+          // must win. Outranking the standard-view NBSP normalization at HIGH is fine because
+          // the claim applies the same NBSP → `~` display mapping itself (below).
+          //
+          // The claim covers editor-internal rich pastes (application/x-lexical-editor) too:
+          // an internal copy of multi-paragraph text replays REAL paragraph nodes, which
+          // inside a note is the very split this claim prevents — its text/plain lines become
+          // `\fp` breaks like any other source's. Outside notes (and for single-line pastes)
+          // the note gate declines and internal pastes keep their rich node semantics.
+          const clipboardData =
+            event && typeof event === "object" && "clipboardData" in event
+              ? (event as ClipboardEvent).clipboardData
+              : null;
+          if (!clipboardData) return false;
+          // text/plain is authoritative when present; some sources (word processors,
+          // intermediaries) ship text/html alone, so fall back to its decoded text — otherwise
+          // those pastes reach RichText's html branch and split paragraphs through the note.
+          // Line endings normalize BEFORE the multi-line check so `\r\n` (and bare-`\r`)
+          // clipboards break correctly and no `\r` ever reaches note content.
+          const plainText = clipboardData.getData("text/plain");
+          const rawText = plainText || htmlPasteText(clipboardData.getData("text/html"));
+          const pastedText = rawText.replace(/\r\n?/g, "\n");
+          if (pastedText.includes("\n")) {
+            // Standard view: a pasted data-NBSP takes its `~` display form here, exactly as
+            // `$handlePasteForStandardView` does for the pastes that reach it — inserted raw
+            // it is indistinguishable from a display-NBSP (a plain space in a run), so
+            // serialization would corrupt it into a plain space. A pasted literal `~` is
+            // already the display form and passes through in both paths.
+            const noteText = isStandardView ? pastedText.replaceAll(NBSP, "~") : pastedText;
+            const lines = noteText.split("\n");
+            let outcome = $handlePasteLinesInNote(lines, context.getMarker);
+            if (outcome === "declined" && $adoptDomCaretInExpandedNote(editor)) {
+              // The editor-state caret had strayed from the user-visible one (a live paste is
+              // dispatched async — ClipboardPlugin reads the clipboard first — and selection
+              // processing in that gap can park the state caret outside the note, observed on
+              // the popover wrapper's marker glyph). The DOM caret was inside expanded note
+              // content, so it was adopted; re-run the claim against it.
+              outcome = $handlePasteLinesInNote(lines, context.getMarker);
+            }
+            if (outcome === "handled") {
+              // Same contract as the Enter handler: claiming must also preventDefault the DOM
+              // event itself, or the browser's native paste still lands after Lexical's
+              // (preventDefault-issuing) RichText handler is bypassed.
+              event?.preventDefault();
+              return true;
+            }
+            // "needs-plain-split" falls through with the selection removal already applied:
+            // the caret's note did not survive, so the rest of the paste is the ordinary
+            // paragraph-splitting insertion below — exactly the outside-note behavior.
+          }
+          return false;
+        },
+        COMMAND_PRIORITY_CRITICAL,
+      ),
+      editor.registerCommand(
+        PASTE_COMMAND,
+        () => {
+          // A multi-line paste splits paragraphs WITHOUT the Enter path: @lexical/clipboard's
+          // text/plain handling calls `selection.insertParagraph()` directly per newline (never
+          // INSERT_PARAGRAPH_COMMAND), so the INSERT_PARAGRAPH handler above can't arm the flag
+          // for it. Arm it here instead — the whole paste (RichText's handler runs below this
+          // one, at COMMAND_PRIORITY_EDITOR) lands in the same update, so every fresh
+          // prefix-less paragraph it creates gets its marker prefix injected instead of being
+          // read as marker-deleted and merged straight back into the paragraph above (a paste
+          // of three lines collapsed into one). The update listener below resets the flag after
+          // the commit, exactly as for Enter. Kept at LOW — BELOW the handlers at HIGH — so a
+          // paste consumed there never arms the flag, exactly as before the in-note claim moved
+          // up to CRITICAL.
+          context.splitExpected.current = true;
+          return false;
+        },
+        COMMAND_PRIORITY_LOW,
       ),
       editor.registerCommand(
         COMMIT_PENDING_MARKERS_COMMAND,

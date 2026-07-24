@@ -139,6 +139,18 @@ ${USX_FOOTER}`,
     ),
   },
   {
+    // Book \id description text follows the same display mapping as body text: the reverse
+    // adaptor inverts display whitespace on ALL text nodes (book children included), so the
+    // forward adaptor must display-encode book text too or a stored NBSP corrupts to a plain
+    // space on save.
+    name: "NBSP in book id description text",
+    usx: `<usx version="3.0">
+  <book code="RUT" style="id">Ruth A${NBSP}B</book>
+  <chapter number="1" style="c" />
+  <para style="p"><verse number="1" style="v" />Verse text.</para>
+${USX_FOOTER}`,
+  },
+  {
     // Paragraph leading-space display rule: a paragraph whose first content text starts
     // with a single leading space. Standard view displays that space as NBSP; the reverse
     // adaptor inverts it back (and normalizeSpaceRuns leaves a lone space alone), so the pair

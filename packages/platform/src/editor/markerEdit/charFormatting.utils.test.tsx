@@ -201,6 +201,254 @@ describe("Ctrl+Space", () => {
     });
   });
 
+  it("carries a nested char span after the split point into the right half (document order)", async () => {
+    // `\add foo` + nested `\nd bar\nd*` + ` baz`: splitting inside "foo" must move
+    // EVERYTHING after the caret — the rest of the text, the nested span, and the tail — into
+    // the right half in document order. Collecting only text nodes stranded the nested span in
+    // the LEFT half while the text around it moved right, scrambling the reading order.
+    let addChar: ReturnType<typeof $createCharNode>;
+    let foo: TextNode;
+    const { editor } = await testEnvironment(() => {
+      const para = $createParaNode("p");
+      addChar = $createCharNode("add");
+      foo = $createTextNode(`${NBSP}foo`);
+      const nd = $createCharNode("nd");
+      $getRoot().append(
+        para.append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          addChar.append(
+            $createMarkerNode("add"),
+            foo,
+            nd.append(
+              $createMarkerNode("nd"),
+              $createTextNode(`${NBSP}bar`),
+              $createMarkerNode("nd", "closing"),
+            ),
+            $createTextNode(" baz"),
+            $createMarkerNode("add", "closing"),
+          ),
+        ),
+      );
+    });
+    // caret between "fo" and "o" (content text is NBSP + "foo")
+    await act(async () => editor.update(() => foo.select(3, 3)));
+    await act(async () => {
+      editor.dispatchCommand(
+        KEY_DOWN_COMMAND,
+        new KeyboardEvent("keydown", { key: " ", ctrlKey: true }),
+      );
+    });
+    editor.getEditorState().read(() => {
+      const para = requireDefined($getRoot().getChildren().filter($isParaNode)[0], "para missing");
+      const addChars = para
+        .getChildren()
+        .filter($isCharNode)
+        .filter((c) => c.getMarker() === "add");
+      expect(addChars).toHaveLength(2);
+      const [left, right] = addChars;
+      // Left keeps only the text before the caret; the nested `\nd` span moved out.
+      expect(left.getTextContent()).toContain("fo");
+      expect(left.getTextContent()).not.toContain("bar");
+      // Right half holds, in document order: split-off text, the intact nested span, the tail.
+      const rightContent = right.getChildren().filter((c) => !$isMarkerNode(c));
+      expect(rightContent).toHaveLength(3);
+      expect($isTextNode(rightContent[0]) && rightContent[0].getTextContent().includes("o")).toBe(
+        true,
+      );
+      expect($isCharNode(rightContent[1]) && rightContent[1].getMarker() === "nd").toBe(true);
+      expect(rightContent[1].getTextContent()).toContain("bar");
+      expect($isTextNode(rightContent[2]) && rightContent[2].getTextContent()).toBe(" baz");
+      // Full paragraph reading order is preserved: never "fo bar o baz".
+      const readingOrder = $collectPlainTextNodes(para)
+        .map((n) => n.getTextContent())
+        .join("")
+        .replaceAll(NBSP, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+      expect(readingOrder).toBe("fo o bar baz");
+    });
+  });
+
+  it("splits at the end of a text node when a nested span still follows (mid-span)", async () => {
+    // `\add foo` + nested `\nd bar\nd*` + ` baz`, caret exactly at the end of "foo": PT9's
+    // flat USFM has no text-node boundaries — the caret is simply mid-span (content still
+    // follows), so Ctrl+Space must close `\add` AT the caret, put the plain space there, and
+    // re-open `\add` for the remainder (StyleApplicator closes all char styles before the
+    // space and re-opens the ones still active after it). Treating end-of-text-node as
+    // span end would drop the space after " baz" instead — past content the caret never
+    // crossed.
+    let addChar: ReturnType<typeof $createCharNode>;
+    let foo: TextNode;
+    const { editor } = await testEnvironment(() => {
+      const para = $createParaNode("p");
+      addChar = $createCharNode("add");
+      foo = $createTextNode(`${NBSP}foo`);
+      const nd = $createCharNode("nd");
+      $getRoot().append(
+        para.append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          addChar.append(
+            $createMarkerNode("add"),
+            foo,
+            nd.append(
+              $createMarkerNode("nd"),
+              $createTextNode(`${NBSP}bar`),
+              $createMarkerNode("nd", "closing"),
+            ),
+            $createTextNode(" baz"),
+            $createMarkerNode("add", "closing"),
+          ),
+        ),
+      );
+    });
+    await act(async () =>
+      editor.update(() => foo.select(foo.getTextContentSize(), foo.getTextContentSize())),
+    );
+    await act(async () => {
+      editor.dispatchCommand(
+        KEY_DOWN_COMMAND,
+        new KeyboardEvent("keydown", { key: " ", ctrlKey: true }),
+      );
+    });
+    editor.getEditorState().read(() => {
+      const para = requireDefined($getRoot().getChildren().filter($isParaNode)[0], "para missing");
+      const addChars = para
+        .getChildren()
+        .filter($isCharNode)
+        .filter((c) => c.getMarker() === "add");
+      expect(addChars).toHaveLength(2);
+      const [left, right] = addChars;
+      expect(left.getTextContent()).toContain("foo");
+      expect(left.getTextContent()).not.toContain("bar");
+      // a single plain space separates the halves; the caret sits after it
+      const between = left.getNextSibling();
+      expect(between?.is(right.getPreviousSibling())).toBe(true);
+      const separator = requireDefined(
+        $isTextNode(between) && !$isMarkerNode(between) ? between : undefined,
+        "separator between the split spans is not a plain text node",
+      );
+      expect(separator.getTextContent()).toBe(" ");
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) throw new Error("expected a range selection");
+      expect(selection.anchor.getNode().is(separator)).toBe(true);
+      expect(selection.anchor.offset).toBe(1);
+      // Right half holds the intact nested span, then the tail. " baz" keeps its leading
+      // space: PT9's reuse-next-space only applies to the char directly at the caret, and
+      // the nested span sits between the caret and this space.
+      const rightContent = right.getChildren().filter((c) => !$isMarkerNode(c));
+      expect(rightContent).toHaveLength(2);
+      expect($isCharNode(rightContent[0]) && rightContent[0].getMarker() === "nd").toBe(true);
+      expect(rightContent[0].getTextContent()).toContain("bar");
+      expect($isTextNode(rightContent[1]) && rightContent[1].getTextContent()).toBe(" baz");
+      const readingOrder = $collectPlainTextNodes(para)
+        .map((n) => n.getTextContent())
+        .join("")
+        .replaceAll(NBSP, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+      expect(readingOrder).toBe("foo bar baz");
+    });
+  });
+
+  it("keeps a right half whose only content is a nested span", async () => {
+    // `\add foo\nd bar\nd*\add*`, caret at the end of "foo": the right half of the split holds
+    // ONLY the nested `\nd` span — no direct text child at all. An emptiness check that counts
+    // just direct text children would judge the half empty and delete it, silently discarding
+    // "bar" from the document.
+    let addChar: ReturnType<typeof $createCharNode>;
+    let foo: TextNode;
+    const { editor } = await testEnvironment(() => {
+      const para = $createParaNode("p");
+      addChar = $createCharNode("add");
+      foo = $createTextNode(`${NBSP}foo`);
+      const nd = $createCharNode("nd");
+      $getRoot().append(
+        para.append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          addChar.append(
+            $createMarkerNode("add"),
+            foo,
+            nd.append(
+              $createMarkerNode("nd"),
+              $createTextNode(`${NBSP}bar`),
+              $createMarkerNode("nd", "closing"),
+            ),
+            $createMarkerNode("add", "closing"),
+          ),
+        ),
+      );
+    });
+    await act(async () =>
+      editor.update(() => foo.select(foo.getTextContentSize(), foo.getTextContentSize())),
+    );
+    await act(async () => {
+      editor.dispatchCommand(
+        KEY_DOWN_COMMAND,
+        new KeyboardEvent("keydown", { key: " ", ctrlKey: true }),
+      );
+    });
+    editor.getEditorState().read(() => {
+      const para = requireDefined($getRoot().getChildren().filter($isParaNode)[0], "para missing");
+      const addChars = para
+        .getChildren()
+        .filter($isCharNode)
+        .filter((c) => c.getMarker() === "add");
+      expect(addChars).toHaveLength(2);
+      const [left, right] = addChars;
+      expect(left.getTextContent()).toContain("foo");
+      const between = left.getNextSibling();
+      expect(between?.is(right.getPreviousSibling())).toBe(true);
+      expect($isTextNode(between) && between.getTextContent()).toBe(" ");
+      // "bar" survived, still wrapped in its nested span inside the right half
+      const rightContent = right.getChildren().filter((c) => !$isMarkerNode(c));
+      expect(rightContent).toHaveLength(1);
+      expect($isCharNode(rightContent[0]) && rightContent[0].getMarker() === "nd").toBe(true);
+      expect(rightContent[0].getTextContent()).toContain("bar");
+      const readingOrder = $collectPlainTextNodes(para)
+        .map((n) => n.getTextContent())
+        .join("")
+        .replaceAll(NBSP, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+      expect(readingOrder).toBe("foo bar");
+    });
+  });
+
+  it("inserts the plain space after the span when the caret is at the true span end", async () => {
+    // Caret at the very end of the span's LAST content — only the closer glyph follows. The
+    // span is already effectively closed at the caret, so no split: the plain space goes
+    // after the whole span (a split's right half would be empty and dropped anyway).
+    let parts: ReturnType<typeof $appendCharPara>;
+    const { editor } = await testEnvironment(() => (parts = $appendCharPara()));
+    await act(async () =>
+      editor.update(() => {
+        const content = $charContent(parts.char);
+        content.select(content.getTextContentSize(), content.getTextContentSize());
+      }),
+    );
+    await act(async () => {
+      editor.dispatchCommand(
+        KEY_DOWN_COMMAND,
+        new KeyboardEvent("keydown", { key: " ", ctrlKey: true }),
+      );
+    });
+    editor.getEditorState().read(() => {
+      const para = requireDefined($getRoot().getChildren().filter($isParaNode)[0], "para missing");
+      const chars = para.getChildren().filter($isCharNode);
+      expect(chars).toHaveLength(1);
+      expect($charContent(chars[0]).getTextContent()).toBe(`${NBSP}Lord`);
+      const after = chars[0].getNextSibling();
+      expect($isTextNode(after) && after.getTextContent()).toBe(" ");
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) throw new Error("expected a range selection");
+      expect(after && selection.anchor.getNode().is(after)).toBe(true);
+      expect(selection.anchor.offset).toBe(1);
+    });
+  });
+
   it("keeps unknown attributes on only one half when a span is split", async () => {
     let char: ReturnType<typeof $createCharNode>;
     const { editor } = await testEnvironment(() => {
@@ -259,6 +507,202 @@ describe("Ctrl+Space", () => {
 });
 
 describe("$closeCharSpanAtCaret", () => {
+  it("returns false and mutates nothing for a non-collapsed selection", async () => {
+    let parts: ReturnType<typeof $appendCharPara>;
+    const { editor } = await testEnvironment(() => (parts = $appendCharPara()));
+    const stateBefore = JSON.stringify(editor.getEditorState().toJSON());
+    let closed: boolean | undefined;
+    await act(async () =>
+      editor.update(() => {
+        $charContent(parts.char).select(1, 3); // a range, not a caret
+        closed = $closeCharSpanAtCaret("nd*");
+      }),
+    );
+    expect(closed).toBe(false);
+    // Nothing changed: no split, no unwrap, no caret-past-span move side effects.
+    expect(JSON.stringify(editor.getEditorState().toJSON())).toBe(stateBefore);
+  });
+
+  it("returns false when no open span matches the end marker", async () => {
+    let parts: ReturnType<typeof $appendCharPara>;
+    const { editor } = await testEnvironment(() => (parts = $appendCharPara()));
+    const stateBefore = JSON.stringify(editor.getEditorState().toJSON());
+    let closed: boolean | undefined;
+    await act(async () =>
+      editor.update(() => {
+        $charContent(parts.char).select(3, 3); // collapsed caret inside the \nd span
+        closed = $closeCharSpanAtCaret("bd*"); // no \bd span is open here
+      }),
+    );
+    expect(closed).toBe(false);
+    expect(JSON.stringify(editor.getEditorState().toJSON())).toBe(stateBefore);
+  });
+
+  it("does not split at the span's content end — the caret just moves past the span", async () => {
+    let parts: ReturnType<typeof $appendCharPara>;
+    const { editor } = await testEnvironment(() => (parts = $appendCharPara()));
+    let closed: boolean | undefined;
+    await act(async () =>
+      editor.update(() => {
+        const content = $charContent(parts.char);
+        content.select(content.getTextContentSize(), content.getTextContentSize());
+        closed = $closeCharSpanAtCaret("nd*");
+      }),
+    );
+    editor.getEditorState().read(() => {
+      expect(closed).toBe(true);
+      const para = requireDefined($getRoot().getChildren().filter($isParaNode)[0], "para missing");
+      const chars = para.getChildren().filter($isCharNode);
+      // The span is already effectively closed at the caret: no split, so no second span —
+      // and in particular no EMPTY right span left behind.
+      expect(chars).toHaveLength(1);
+      expect($charContent(chars[0]).getTextContent()).toBe(`${NBSP}Lord`);
+      expect(
+        chars[0].getChildren().some((c) => $isMarkerNode(c) && c.getMarkerSyntax() === "closing"),
+      ).toBe(true);
+      // The caret landed after the span (an element point on the paragraph, past the span's
+      // child index — the span has no next sibling in this fixture).
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) throw new Error("expected a range selection");
+      expect(selection.isCollapsed()).toBe(true);
+      expect(selection.anchor.type).toBe("element");
+      expect(selection.anchor.getNode().is(para)).toBe(true);
+      expect(selection.anchor.offset).toBe(chars[0].getIndexWithinParent() + 1);
+    });
+  });
+
+  it("closes the span before a nested char span at the end of the preceding text node", async () => {
+    // `\add foo\nd bar\nd* baz\add*` with the caret exactly at the end of "foo": the caret is
+    // NOT at the span's content end — a nested element span (and the tail after it) still
+    // follows. The close must split there, the right half — the intact `\nd` span, then
+    // " baz" — leaving the span in document order. Recognizing a split point only when the
+    // next sibling is a TEXT node treated this caret as content end and moved nothing.
+    let addChar: ReturnType<typeof $createCharNode>;
+    let foo: TextNode;
+    const { editor } = await testEnvironment(() => {
+      const para = $createParaNode("p");
+      addChar = $createCharNode("add");
+      foo = $createTextNode(`${NBSP}foo`);
+      const nd = $createCharNode("nd");
+      $getRoot().append(
+        para.append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          addChar.append(
+            $createMarkerNode("add"),
+            foo,
+            nd.append(
+              $createMarkerNode("nd"),
+              $createTextNode(`${NBSP}bar`),
+              $createMarkerNode("nd", "closing"),
+            ),
+            $createTextNode(" baz"),
+            $createMarkerNode("add", "closing"),
+          ),
+        ),
+      );
+    });
+    // Caret exactly at the END of "foo", whose next sibling is the nested \nd ELEMENT.
+    await act(async () =>
+      editor.update(() => foo.select(foo.getTextContentSize(), foo.getTextContentSize())),
+    );
+    let closed: boolean | undefined;
+    await act(async () => editor.update(() => (closed = $closeCharSpanAtCaret("add*"))));
+    editor.getEditorState().read(() => {
+      expect(closed).toBe(true);
+      const para = requireDefined($getRoot().getChildren().filter($isParaNode)[0], "para missing");
+      const addChars = para
+        .getChildren()
+        .filter($isCharNode)
+        .filter((c) => c.getMarker() === "add");
+      // The surviving \add span holds only the content before the caret.
+      expect(addChars).toHaveLength(1);
+      expect(addChars[0].getTextContent()).toContain("foo");
+      expect(addChars[0].getTextContent()).not.toContain("bar");
+      // The right half, unwrapped to plain paragraph content after the closed span: the
+      // intact nested \nd span, then the plain tail — document order preserved.
+      const next = addChars[0].getNextSibling();
+      expect($isCharNode(next) && next.getMarker() === "nd").toBe(true);
+      expect(next?.getTextContent()).toContain("bar");
+      const tail = next?.getNextSibling();
+      expect($isTextNode(tail) && !$isMarkerNode(tail)).toBe(true);
+      expect(tail?.getTextContent()).toContain("baz");
+      const readingOrder = $collectPlainTextNodes(para)
+        .map((n) => n.getTextContent())
+        .join("")
+        .replaceAll(NBSP, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+      expect(readingOrder).toBe("foo bar baz");
+    });
+  });
+
+  it("splits when a trailing nested span is the only content after the caret", async () => {
+    // `\add foo\nd bar\nd*\add*` with the caret at the end of "foo": no plain text follows
+    // inside `\add`, but the nested `\nd` span does — so the caret is NOT at the span's
+    // content end. Typing the literal `\add*` there ends `\add` at the caret (the tokenizer
+    // pops the char style at its end marker), leaving `\nd bar\nd*` OUTSIDE it:
+    // `\add foo\add*\nd bar\nd*`. A content-end check that looks only at plain TEXT children
+    // sees "foo" as last and skips the split, stranding `\nd` inside `\add`.
+    let addChar: ReturnType<typeof $createCharNode>;
+    let foo: TextNode;
+    const { editor } = await testEnvironment(() => {
+      const para = $createParaNode("p");
+      addChar = $createCharNode("add");
+      foo = $createTextNode(`${NBSP}foo`);
+      const nd = $createCharNode("nd");
+      $getRoot().append(
+        para.append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          addChar.append(
+            $createMarkerNode("add"),
+            foo,
+            nd.append(
+              $createMarkerNode("nd"),
+              $createTextNode(`${NBSP}bar`),
+              $createMarkerNode("nd", "closing"),
+            ),
+            $createMarkerNode("add", "closing"),
+          ),
+        ),
+      );
+    });
+    await act(async () =>
+      editor.update(() => foo.select(foo.getTextContentSize(), foo.getTextContentSize())),
+    );
+    let closed: boolean | undefined;
+    await act(async () => editor.update(() => (closed = $closeCharSpanAtCaret("add*"))));
+    editor.getEditorState().read(() => {
+      expect(closed).toBe(true);
+      const para = requireDefined($getRoot().getChildren().filter($isParaNode)[0], "para missing");
+      const addChars = para
+        .getChildren()
+        .filter($isCharNode)
+        .filter((c) => c.getMarker() === "add");
+      // Exactly one \add span survives, closed at the caret, holding only "foo".
+      expect(addChars).toHaveLength(1);
+      expect(addChars[0].getTextContent()).toContain("foo");
+      expect(addChars[0].getTextContent()).not.toContain("bar");
+      expect(
+        addChars[0]
+          .getChildren()
+          .some((c) => $isMarkerNode(c) && c.getMarkerSyntax() === "closing"),
+      ).toBe(true);
+      // The nested span now sits OUTSIDE the closed span, intact, directly after it.
+      const next = addChars[0].getNextSibling();
+      expect($isCharNode(next) && next.getMarker() === "nd").toBe(true);
+      expect(next?.getTextContent()).toContain("bar");
+      const readingOrder = $collectPlainTextNodes(para)
+        .map((n) => n.getTextContent())
+        .join("")
+        .replaceAll(NBSP, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+      expect(readingOrder).toBe("foo bar");
+    });
+  });
+
   it("closes the span at the end of a NON-last content node, unwrapping the tail into plain text", async () => {
     let char: ReturnType<typeof $createCharNode>;
     let head: TextNode;

@@ -23,23 +23,29 @@ import {
   $getRoot,
   $getSelection,
   $getState,
+  $isElementNode,
   $isRangeSelection,
   $isTextNode,
   $setSelection,
   $setState,
   BLUR_COMMAND,
+  LexicalNode,
   TextNode,
   UNDO_COMMAND,
 } from "lexical";
 import {
   $createCharNode,
   $createMarkerNode,
+  $createNoteNode,
   $createParaNode,
   $isCharNode,
   $isMarkerNode,
   $isParaNode,
+  CharNode,
+  getEditableCallerText,
   MarkerNode,
   NBSP,
+  NoteNode,
   textTypeState,
 } from "shared";
 import { CharNodePlugin, TextSpacingPlugin } from "shared-react";
@@ -517,9 +523,16 @@ describe("$applyMarkerMenuSelection", () => {
           "para missing",
         );
         // Before the fix the 2nd $wrapNode call stripped the first node's already-wrapped content,
-        // leaving only " words". Both selected pieces must survive.
-        expect(para.getTextContent()).toContain("say holy");
-        expect(para.getTextContent()).toContain("words");
+        // leaving only " words". A single reused wj wrapper must hold BOTH selected pieces —
+        // checking the para's text alone would also pass on a no-op that wrapped nothing.
+        const chars = para.getChildren().filter($isCharNode);
+        expect(chars).toHaveLength(1);
+        expect(chars[0].getMarker()).toBe("wj");
+        expect(chars[0].getTextContent()).toContain("say holy");
+        expect(chars[0].getTextContent()).toContain("words");
+        // The reused wrapper keeps its opener/closer glyphs like the single-node path does.
+        const markerChildren = chars[0].getChildren().filter($isMarkerNode);
+        expect(markerChildren).toHaveLength(2);
       });
     });
   });
@@ -615,6 +628,608 @@ describe("$applyMarkerMenuSelection", () => {
         expect(contentTexts.join("")).toContain("hi");
         // ...and did not land outside the span.
         expect(para.getTextContent().replace(char.getTextContent(), "")).not.toContain("hi");
+      });
+    });
+  });
+
+  describe("open kind — char apply INSIDE an expanded note", () => {
+    /**
+     * Expanded footnote in `createNote`'s editable-expanded layout: [\f opener glyph, caller
+     * text, \ft content span, \f* closer glyph]. The \ft span carries the note-content
+     * convention (opening glyph + NBSP-prefixed content, closed="false", no closer glyph).
+     */
+    async function setUpExpandedFootnote() {
+      let noteRef: NoteNode | undefined;
+      let ftCharRef: CharNode | undefined;
+      let ftContentRef: TextNode | undefined;
+      let callerTextRef: TextNode | undefined;
+      const environment = await fullHarnessEnvironment(() => {
+        const para = $createParaNode("p");
+        const note = $createNoteNode("f", "+", false);
+        const ftChar = $createCharNode("ft");
+        ftChar.setUnknownAttributes({ closed: "false" });
+        const ftContent = $createTextNode(`${NBSP}A note`);
+        const callerText = $createTextNode(getEditableCallerText("+"));
+        note.append(
+          $createMarkerNode("f"),
+          callerText,
+          ftChar.append($createMarkerNode("ft"), ftContent),
+          $createMarkerNode("f", "closing"),
+        );
+        $getRoot().append(
+          para.append(
+            $createMarkerNode("p"),
+            $createTrailingSpaceNode(),
+            $createTextNode("text "),
+            note,
+            $createTextNode(" after"),
+          ),
+        );
+        noteRef = note;
+        ftCharRef = ftChar;
+        ftContentRef = ftContent;
+        callerTextRef = callerText;
+      });
+      return {
+        ...environment,
+        note: requireDefined(noteRef, "note missing"),
+        ftChar: requireDefined(ftCharRef, "ft char missing"),
+        ftContent: requireDefined(ftContentRef, "ft content missing"),
+        callerText: requireDefined(callerTextRef, "caller text missing"),
+      };
+    }
+
+    /** The wrapper paragraph (exactly one in these fixtures). */
+    function $onlyPara() {
+      return requireDefined($getRoot().getChildren().filter($isParaNode)[0], "para missing");
+    }
+
+    const fqItem: MarkerMenuItem = { marker: "fq", kind: "character", isBasic: true };
+
+    it("places the new \\fq INSIDE the note, after \\ft and before the \\f* closer (caret at \\ft content end)", async () => {
+      // Live repro: caret at the end of an expanded footnote's \ft content, apply `fq` from the
+      // palette — the span landed OUTSIDE the note as a wrapper-paragraph child after \f*
+      // (Lexical's insertNodes splices at the nearest BLOCK ancestor; NoteNode and CharNode are
+      // both inline), rendering red/invalid.
+      //
+      // Assertions run against COMMITTED state, not same-update: the char action performs its
+      // mutation in a nested `editor.update` which Lexical QUEUES until the outer update's
+      // callback returns.
+      const { editor, note, ftChar, ftContent } = await setUpExpandedFootnote();
+      let paraChildrenBefore = 0;
+      await act(async () =>
+        editor.update(() => {
+          paraChildrenBefore = $onlyPara().getChildrenSize();
+          ftContent.select(ftContent.getTextContentSize(), ftContent.getTextContentSize());
+        }),
+      );
+
+      await act(async () =>
+        editor.update(() => {
+          $applyMarkerMenuSelection(
+            fqItem,
+            { trigger: "backslash", literalPrefixLanded: false },
+            reference,
+            makeDeps(),
+          );
+        }),
+      );
+
+      editor.getEditorState().read(() => {
+        // NOTHING landed at paragraph level.
+        expect($onlyPara().getChildrenSize()).toBe(paraChildrenBefore);
+        expect($onlyPara().getChildren().filter($isCharNode)).toHaveLength(0);
+
+        // The new \fq is a NOTE child: after the \ft span, before the closing \f* glyph.
+        const chars = note.getChildren().filter($isCharNode);
+        expect(chars.map((c) => c.getMarker())).toEqual(["ft", "fq"]);
+        const fq = chars[1];
+        expect(fq.getPreviousSibling()?.is(ftChar)).toBe(true);
+        const closer = fq.getNextSibling();
+        expect($isMarkerNode(closer) && closer.getMarkerSyntax() === "closing").toBe(true);
+
+        // Note-content span convention ($createNoteContentChar/createChar): opening glyph
+        // first, no closing glyph (implicitly closed), closed="false" recorded.
+        const fqChildren = fq.getChildren();
+        expect($isMarkerNode(fqChildren[0]) && fqChildren[0].getMarkerSyntax() === "opening").toBe(
+          true,
+        );
+        expect(fqChildren.some((c) => $isMarkerNode(c) && c.getMarkerSyntax() === "closing")).toBe(
+          false,
+        );
+        expect(fq.getUnknownAttributes()?.closed).toBe("false");
+      });
+
+      // Type like a user — the observable form of "the caret landed INSIDE the new span": the
+      // quotation text fills the \fq, still inside the note, nothing at paragraph level.
+      await act(async () =>
+        editor.update(() => {
+          const selection = $getSelection();
+          if ($isRangeSelection(selection)) selection.insertText("quoted");
+        }),
+      );
+      editor.getEditorState().read(() => {
+        const fq = note
+          .getChildren()
+          .filter($isCharNode)
+          .find((c) => c.getMarker() === "fq");
+        expect(fq?.getTextContent()).toContain("quoted");
+        expect($onlyPara().getChildren().filter($isCharNode)).toHaveLength(0);
+      });
+
+      // The USJ round-trip agrees: the \fq (with its typed content) serializes INSIDE the
+      // note's content, and the paragraph gains no char object of its own.
+      const usj = deserializeEditorState(editor.getEditorState(), viewOptions);
+      const paraObj = usj.content?.find(
+        (child) => typeof child === "object" && child.type === "para",
+      );
+      if (typeof paraObj !== "object") throw new Error("expected a para in USJ");
+      const paraChars = (paraObj.content ?? []).filter(
+        (child) => typeof child === "object" && child.type === "char",
+      );
+      expect(paraChars).toHaveLength(0);
+      const noteObj = (paraObj.content ?? []).find(
+        (child) => typeof child === "object" && child.type === "note",
+      );
+      const noteJson = JSON.stringify(noteObj);
+      expect(noteJson).toContain('"fq"');
+      expect(noteJson).toContain("quoted");
+    });
+
+    it("splits the \\ft at a mid-content caret and inserts the new \\fq between the halves, all inside the note", async () => {
+      const { editor, note, ftChar, ftContent } = await setUpExpandedFootnote();
+      let paraChildrenBefore = 0;
+      await act(async () =>
+        editor.update(() => {
+          paraChildrenBefore = $onlyPara().getChildrenSize();
+          ftContent.select(3, 3); // between "A " and "note" (content text is NBSP + "A note")
+        }),
+      );
+
+      await act(async () =>
+        editor.update(() => {
+          $applyMarkerMenuSelection(
+            fqItem,
+            { trigger: "backslash", literalPrefixLanded: false },
+            reference,
+            makeDeps(),
+          );
+        }),
+      );
+
+      // Committed state (the char action's nested update is queued — see the test above).
+      editor.getEditorState().read(() => {
+        // NOTHING landed at paragraph level.
+        expect($onlyPara().getChildrenSize()).toBe(paraChildrenBefore);
+        expect($onlyPara().getChildren().filter($isCharNode)).toHaveLength(0);
+
+        // The \ft split at the caret with the new \fq between the halves.
+        const chars = note.getChildren().filter($isCharNode);
+        expect(chars.map((c) => c.getMarker())).toEqual(["ft", "fq", "ft"]);
+        expect(chars[0].is(ftChar)).toBe(true);
+        expect(chars[0].getTextContent()).toContain("A ");
+        expect(chars[0].getTextContent()).not.toContain("note");
+        expect(chars[2].getTextContent()).toContain("note");
+        // The right half is a valid editable span (fresh opening glyph), so the engine's
+        // char-deletion transform won't unwrap it back to plain text.
+        const rightFirst = chars[2].getFirstChild();
+        expect($isMarkerNode(rightFirst) && rightFirst.getMarkerSyntax() === "opening").toBe(true);
+      });
+
+      // Typing probe: the caret landed INSIDE the new \fq between the halves.
+      await act(async () =>
+        editor.update(() => {
+          const selection = $getSelection();
+          if ($isRangeSelection(selection)) selection.insertText("X");
+        }),
+      );
+      editor.getEditorState().read(() => {
+        const chars = note.getChildren().filter($isCharNode);
+        expect(chars.map((c) => c.getMarker())).toEqual(["ft", "fq", "ft"]);
+        expect(chars[1].getTextContent()).toContain("X");
+        expect(chars[0].getTextContent()).not.toContain("X");
+        expect(chars[2].getTextContent()).not.toContain("X");
+      });
+    });
+
+    it("still inserts right after the anchor text when the caret is directly under the note (shallow case pin)", async () => {
+      const { editor, note, callerText } = await setUpExpandedFootnote();
+      await act(async () =>
+        editor.update(() =>
+          callerText.select(callerText.getTextContentSize(), callerText.getTextContentSize()),
+        ),
+      );
+
+      await act(async () =>
+        editor.update(() => {
+          $applyMarkerMenuSelection(
+            fqItem,
+            { trigger: "backslash", literalPrefixLanded: false },
+            reference,
+            makeDeps(),
+          );
+        }),
+      );
+
+      editor.getEditorState().read(() => {
+        // The pre-existing shallow branch: the new \fq goes right after the caller text,
+        // before the \ft span — still a note child.
+        const chars = note.getChildren().filter($isCharNode);
+        expect(chars.map((c) => c.getMarker())).toEqual(["fq", "ft"]);
+        expect(chars[0].getPreviousSibling()?.is(callerText)).toBe(true);
+        expect($onlyPara().getChildren().filter($isCharNode)).toHaveLength(0);
+      });
+    });
+
+    describe("NEST-able char markers nest IN PLACE (PT9 StyleApplicator semantics)", () => {
+      // PT9's StyleApplicator.ApplyCharacterStyle treats styles whose OccursUnder contains NEST
+      // (\w, \nd, \wj, ...) differently from note-content styles (\fq, \fk, ...): with a
+      // collapsed caret it emits `\+marker` AT the caret and closes it immediately with
+      // `\+marker*`, leaving every open span open (StyleApplicator.cs:277-285 opens without
+      // closing anything; :377-387 closes ONLY the just-opened style). Only non-NEST styles get
+      // the close-all-and-reopen shape the split-based path mirrors. Verified in real Paratext 9:
+      // applying \w with the caret inside \+wj > \nd > \ft adds only the nested span.
+      const wItem: MarkerMenuItem = { marker: "w", kind: "character", isBasic: true };
+
+      /**
+       * Expanded footnote whose \ft content holds a nested chain, as loading
+       * `\f + \ft A \+nd holy \+wj words here\+wj*\+nd*\f*` builds it: \ft (note-content
+       * convention: no closer, closed="false") > \nd > \wj, the nested spans with explicit
+       * closer glyphs.
+       */
+      async function setUpNestedExpandedFootnote() {
+        let noteRef: NoteNode | undefined;
+        let ftCharRef: CharNode | undefined;
+        let ndCharRef: CharNode | undefined;
+        let wjCharRef: CharNode | undefined;
+        let wjContentRef: TextNode | undefined;
+        const environment = await fullHarnessEnvironment(() => {
+          const para = $createParaNode("p");
+          const note = $createNoteNode("f", "+", false);
+          const ftChar = $createCharNode("ft");
+          ftChar.setUnknownAttributes({ closed: "false" });
+          const ndChar = $createCharNode("nd");
+          const wjChar = $createCharNode("wj");
+          const wjContent = $createTextNode("words here");
+          wjChar.append($createMarkerNode("wj"), wjContent, $createMarkerNode("wj", "closing"));
+          ndChar.append(
+            $createMarkerNode("nd"),
+            $createTextNode("holy "),
+            wjChar,
+            $createMarkerNode("nd", "closing"),
+          );
+          ftChar.append($createMarkerNode("ft"), $createTextNode(`${NBSP}A `), ndChar);
+          note.append(
+            $createMarkerNode("f"),
+            $createTextNode(getEditableCallerText("+")),
+            ftChar,
+            $createMarkerNode("f", "closing"),
+          );
+          $getRoot().append(
+            para.append(
+              $createMarkerNode("p"),
+              $createTrailingSpaceNode(),
+              $createTextNode("text "),
+              note,
+              $createTextNode(" after"),
+            ),
+          );
+          noteRef = note;
+          ftCharRef = ftChar;
+          ndCharRef = ndChar;
+          wjCharRef = wjChar;
+          wjContentRef = wjContent;
+        });
+        return {
+          ...environment,
+          note: requireDefined(noteRef, "note missing"),
+          ftChar: requireDefined(ftCharRef, "ft char missing"),
+          ndChar: requireDefined(ndCharRef, "nd char missing"),
+          wjChar: requireDefined(wjCharRef, "wj char missing"),
+          wjContent: requireDefined(wjContentRef, "wj content missing"),
+        };
+      }
+
+      /** Marker names of `parent`'s direct CharNode children. */
+      function childCharMarkers(parent: CharNode | NoteNode): string[] {
+        return parent
+          .getChildren()
+          .filter($isCharNode)
+          .map((c) => c.getMarker());
+      }
+
+      it("nests the new \\w INSIDE the innermost \\wj of \\ft > \\nd > \\wj without splitting anything", async () => {
+        const { editor, note, ftChar, ndChar, wjChar, wjContent } =
+          await setUpNestedExpandedFootnote();
+        await act(async () => editor.update(() => wjContent.select(3, 3))); // "wor|ds here"
+
+        await act(async () =>
+          editor.update(() => {
+            $applyMarkerMenuSelection(
+              wItem,
+              { trigger: "backslash", literalPrefixLanded: false },
+              reference,
+              makeDeps(),
+            );
+          }),
+        );
+
+        editor.getEditorState().read(() => {
+          // The open span chain is untouched: one \ft at note level, one \nd inside it, ONE
+          // \wj inside that (not split into halves), exactly as PT9 leaves them.
+          expect(childCharMarkers(note)).toEqual(["ft"]);
+          expect(childCharMarkers(ftChar)).toEqual(["nd"]);
+          expect(childCharMarkers(ndChar)).toEqual(["wj"]);
+          // The new \w is a CHILD of \wj at the caret, between the split text runs, with an
+          // explicit closer — the serializer's nested-prefix pass writes it as `\+w ...\+w*`.
+          const wjChars = wjChar.getChildren().filter($isCharNode);
+          expect(wjChars.map((c) => c.getMarker())).toEqual(["w"]);
+          const w = wjChars[0];
+          expect(
+            w.getChildren().some((c) => $isMarkerNode(c) && c.getMarkerSyntax() === "closing"),
+          ).toBe(true);
+          expect(w.getUnknownAttributes()?.closed).toBeUndefined();
+        });
+
+        // Typing probe: the caret landed INSIDE the new \w; the host \wj text is intact
+        // around it.
+        await act(async () =>
+          editor.update(() => {
+            const selection = $getSelection();
+            if ($isRangeSelection(selection)) selection.insertText("X");
+          }),
+        );
+        editor.getEditorState().read(() => {
+          const w = wjChar.getChildren().filter($isCharNode)[0];
+          expect(w.getTextContent()).toContain("X");
+          const wjTexts = wjChar
+            .getChildren()
+            .filter((c): c is TextNode => $isTextNode(c) && !$isMarkerNode(c))
+            .map((c) => c.getTextContent())
+            .join("|");
+          expect(wjTexts).toContain("wor");
+          expect(wjTexts).toContain("ds here");
+          expect(wjTexts).not.toContain("X");
+        });
+      });
+
+      it("nests the new \\w INSIDE the \\ft span at a mid-content caret (\\ft not split)", async () => {
+        const { editor, note, ftChar, ftContent } = await setUpExpandedFootnote();
+        // Caret between "A " and "note" (content text is NBSP + "A note").
+        await act(async () => editor.update(() => ftContent.select(3, 3)));
+
+        await act(async () =>
+          editor.update(() => {
+            $applyMarkerMenuSelection(
+              wItem,
+              { trigger: "backslash", literalPrefixLanded: false },
+              reference,
+              makeDeps(),
+            );
+          }),
+        );
+
+        editor.getEditorState().read(() => {
+          // PT9 writes `\ft A \+w \+w*note` — the \w nests inside the STILL-OPEN \ft; it does
+          // not close \ft and reopen it after (that shape is reserved for non-NEST styles
+          // like \fq).
+          expect(childCharMarkers(note)).toEqual(["ft"]);
+          expect(childCharMarkers(ftChar)).toEqual(["w"]);
+          expect(ftChar.getTextContent()).toContain("A ");
+          expect(ftChar.getTextContent()).toContain("note");
+        });
+
+        // Typing probe: the caret landed INSIDE the new \w.
+        await act(async () =>
+          editor.update(() => {
+            const selection = $getSelection();
+            if ($isRangeSelection(selection)) selection.insertText("X");
+          }),
+        );
+        editor.getEditorState().read(() => {
+          const w = ftChar.getChildren().filter($isCharNode)[0];
+          expect(w.getTextContent()).toContain("X");
+        });
+      });
+
+      it("keeps the split shape for \\xt — NEST-able but implicitly closed (no closer glyph)", async () => {
+        // \xt is the one NEST-able marker whose editor span carries the implicit-close
+        // convention (closed="false", no closing glyph). Nesting such a span in place would
+        // swallow the rest of the host span's content on serialization (`\+xt` with no `\+xt*`
+        // runs to the parent's closer), so it keeps the split-and-reopen shape — same rendered
+        // semantics as PT9's nesting, expressed with the implicit-close convention.
+        const { editor, note, ftContent } = await setUpExpandedFootnote();
+        await act(async () => editor.update(() => ftContent.select(3, 3)));
+
+        await act(async () =>
+          editor.update(() => {
+            $applyMarkerMenuSelection(
+              { marker: "xt", kind: "character", isBasic: true },
+              { trigger: "backslash", literalPrefixLanded: false },
+              reference,
+              makeDeps(),
+            );
+          }),
+        );
+
+        editor.getEditorState().read(() => {
+          expect(childCharMarkers(note)).toEqual(["ft", "xt", "ft"]);
+        });
+      });
+    });
+
+    describe("fp — the footnote-paragraph BREAK, not a span insertion", () => {
+      // Inside an expanded note, `fp` is not "open an \fp span here" like \fq — it is the
+      // footnote-paragraph BREAK, the exact thing Enter does there: everything after the
+      // caret within the span moves into the new \fp (in document order) and the caret lands
+      // at the break point. Routing it through the generic char-span insertion instead
+      // produced a split-\ft sandwich ([\ft head, \fp empty, \ft tail]) with the tail
+      // stranded on the wrong side of the break.
+      const fpItem: MarkerMenuItem = { marker: "fp", kind: "character", isBasic: true };
+
+      it("backslash session with a typed literal: consumes '\\fp' and breaks exactly like Enter (tail moves into \\fp)", async () => {
+        const { editor, note, ftContent } = await setUpExpandedFootnote();
+        // The passive palette's literal has landed at the caret: "A n\fp|ote".
+        await act(async () =>
+          editor.update(() => {
+            const insertAt = ftContent.getTextContent().indexOf("ote");
+            expect(insertAt).toBeGreaterThan(0);
+            ftContent.spliceText(insertAt, 0, "\\fp");
+            ftContent.select(insertAt + 3, insertAt + 3);
+          }),
+        );
+
+        await act(async () =>
+          editor.update(() => {
+            $applyMarkerMenuSelection(
+              fpItem,
+              { trigger: "backslash", literalPrefixLanded: true },
+              reference,
+              makeDeps(),
+            );
+          }),
+        );
+
+        editor.getEditorState().read(() => {
+          // The typed literal is consumed — no raw "\fp" survives in CONTENT text (the new
+          // span's own marker glyph legitimately renders "\fp", so glyph nodes don't count).
+          const strandedLiterals: string[] = [];
+          const walk = (node: LexicalNode): void => {
+            if ($isTextNode(node) && !$isMarkerNode(node) && node.getTextContent().includes("\\fp"))
+              strandedLiterals.push(node.getTextContent());
+            if ($isElementNode(node)) node.getChildren().forEach(walk);
+          };
+          walk($getRoot());
+          expect(strandedLiterals).toEqual([]);
+          // Enter-equivalent break: [\ft "A n", \fp "ote"] — no empty span, no \ft tail
+          // stranded after the break.
+          const chars = note.getChildren().filter($isCharNode);
+          expect(chars.map((c) => c.getMarker())).toEqual(["ft", "fp"]);
+          const [ft, fp] = chars;
+          expect(ft.getTextContent()).toContain("A n");
+          expect(ft.getTextContent()).not.toContain("ote");
+          expect(fp.getTextContent()).toContain("ote");
+          // Nothing leaked to paragraph level.
+          expect($onlyPara().getChildren().filter($isCharNode)).toHaveLength(0);
+        });
+
+        // Caret probe: typing continues at the BREAK POINT (start of the \fp content),
+        // exactly where Enter leaves it.
+        await act(async () =>
+          editor.update(() => {
+            const selection = $getSelection();
+            if ($isRangeSelection(selection)) selection.insertText("X");
+          }),
+        );
+        editor.getEditorState().read(() => {
+          const fp = note
+            .getChildren()
+            .filter($isCharNode)
+            .find((c) => c.getMarker() === "fp");
+          const fpText = requireDefined(fp, "\\fp span missing").getTextContent();
+          expect(fpText.indexOf("X")).toBeLessThan(fpText.indexOf("ote"));
+        });
+      });
+
+      it("commit without a literal (selection-shaped palette options): breaks at the caret like Enter", async () => {
+        // The popover always applies with `trigger: "backslash"`; a focused (selection-kind)
+        // session arrives with `literalPrefixLanded: false` — no literal to clean up.
+        const { editor, note, ftContent } = await setUpExpandedFootnote();
+        await act(async () =>
+          editor.update(() => {
+            const offset = ftContent.getTextContent().indexOf("ote");
+            expect(offset).toBeGreaterThan(0);
+            ftContent.select(offset, offset);
+          }),
+        );
+
+        await act(async () =>
+          editor.update(() => {
+            $applyMarkerMenuSelection(
+              fpItem,
+              { trigger: "backslash", literalPrefixLanded: false },
+              reference,
+              makeDeps(),
+            );
+          }),
+        );
+
+        editor.getEditorState().read(() => {
+          const chars = note.getChildren().filter($isCharNode);
+          expect(chars.map((c) => c.getMarker())).toEqual(["ft", "fp"]);
+          const [ft, fp] = chars;
+          expect(ft.getTextContent()).toContain("A n");
+          expect(ft.getTextContent()).not.toContain("ote");
+          expect(fp.getTextContent()).toContain("ote");
+          expect($onlyPara().getChildren().filter($isCharNode)).toHaveLength(0);
+        });
+      });
+
+      it("caret at the END of the \\ft content: opens an empty, typing-ready \\fp — same as Enter there", async () => {
+        const { editor, note, ftContent } = await setUpExpandedFootnote();
+        await act(async () =>
+          editor.update(() =>
+            ftContent.select(ftContent.getTextContentSize(), ftContent.getTextContentSize()),
+          ),
+        );
+
+        await act(async () =>
+          editor.update(() => {
+            $applyMarkerMenuSelection(
+              fpItem,
+              { trigger: "backslash", literalPrefixLanded: false },
+              reference,
+              makeDeps(),
+            );
+            const selection = $getSelection();
+            if ($isRangeSelection(selection)) selection.insertText("X");
+          }),
+        );
+
+        editor.getEditorState().read(() => {
+          const chars = note.getChildren().filter($isCharNode);
+          expect(chars.map((c) => c.getMarker())).toEqual(["ft", "fp"]);
+          // The break is typing-ready: the typed text became the \fp's content (structural
+          // NBSP separator + typed text — the placeholder-consumption convention).
+          const fp = chars[1];
+          const fpContent = fp
+            .getChildren()
+            .find((child): child is TextNode => $isTextNode(child) && !$isMarkerNode(child));
+          expect(requireDefined(fpContent, "\\fp content missing").getTextContent()).toBe(
+            `${NBSP}X`,
+          );
+        });
+      });
+
+      it("falls back to the generic char insertion when the caret is NOT in expanded note content", async () => {
+        // Outside a note the break semantic does not apply; `fp` keeps the pre-existing
+        // structural behavior (it is a CharNode-valid marker) rather than being swallowed.
+        let text: TextNode;
+        const { editor } = await fullHarnessEnvironment(() => {
+          const para = $createParaNode("p");
+          text = $createTextNode("body text");
+          $getRoot().append(para.append($createMarkerNode("p"), $createTrailingSpaceNode(), text));
+        });
+        await act(async () => editor.update(() => text.select(4, 4)));
+
+        await act(async () =>
+          editor.update(() => {
+            $applyMarkerMenuSelection(
+              fpItem,
+              { trigger: "backslash", literalPrefixLanded: false },
+              reference,
+              makeDeps(),
+            );
+          }),
+        );
+
+        editor.getEditorState().read(() => {
+          // No note machinery ran (nothing to decline into silence): a \fp char span landed
+          // in the paragraph via the generic insertion path.
+          const para = requireDefined($getRoot().getChildren().filter($isParaNode)[0], "para");
+          const chars = para.getChildren().filter($isCharNode);
+          expect(chars.map((c) => c.getMarker())).toEqual(["fp"]);
+        });
       });
     });
   });
@@ -734,7 +1349,7 @@ describe("$applyMarkerMenuSelection", () => {
       // Repro of the live bug: Enter → pick `p` → type "asdf" produced USFM `\p ~asdf`. The new
       // paragraph is EMPTY, so $injectMarkerPrefix's caret fallback (selectEnd) parks the caret at
       // the END of the NBSP separator node; RangeSelection.insertText then appends INTO that node
-      // ("� asdf"), and the serializer — which strips the separator by exact-NBSP text match —
+      // ("\u00A0asdf"), and the serializer — which strips the separator by exact-NBSP text match —
       // keeps the whole node, leaking the NBSP into USJ (→ `~` in USFM → a non-convergent PDP echo
       // loop in the host). The separator must be a token node so typing at its boundary creates a
       // fresh plain content node instead.

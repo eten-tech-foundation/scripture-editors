@@ -7,7 +7,14 @@
 import { $requestTier2ForNode } from "./tier2Rebuild.utils";
 import { MarkerEditContext } from "./markerEditTier1.utils";
 import { $dfs } from "@lexical/utils";
-import { $createTextNode, $getState, $setState, $isTextNode } from "lexical";
+import {
+  $createTextNode,
+  $getSelection,
+  $getState,
+  $isRangeSelection,
+  $isTextNode,
+  $setState,
+} from "lexical";
 import {
   $createMarkerNode,
   $isMarkerNode,
@@ -52,9 +59,53 @@ export function $selectParaContentStart(para: ParaNode): void {
   else para.select(2, 2);
 }
 
+/**
+ * Whether the collapsed caret sits at the START of a (still prefix-less) paragraph — the shape
+ * `selection.insertParagraph()` leaves behind: an element point on the paragraph at offset 0
+ * (empty clone from an end-of-content split), or offset 0 of its first child (the moved tail
+ * content). Evaluated BEFORE the prefix splice, while "start of the paragraph" and "start of the
+ * content" are still the same place.
+ */
+function $isCaretAtParaStart(para: ParaNode): boolean {
+  const selection = $getSelection();
+  if (!$isRangeSelection(selection) || !selection.isCollapsed()) return false;
+  const { anchor } = selection;
+  if (anchor.type === "element") return anchor.key === para.getKey() && anchor.offset === 0;
+  const first = para.getFirstChild();
+  return first !== null && anchor.key === first.getKey() && anchor.offset === 0;
+}
+
 export function $injectMarkerPrefix(para: ParaNode): void {
+  // The caret follows the injection only when it sat at the paragraph's start (the Enter-split
+  // shape): the splice lands the prefix UNDER such a caret, which would otherwise be left on the
+  // marker side of it (an element point at offset 0 now points before the glyph — typing there
+  // inserts into the marker prefix). A caret elsewhere — mid-text or at the end of a pasted
+  // line, where one paste can inject several paragraphs' prefixes in a single update — is not
+  // disturbed by the splice and must stay exactly where the user's edit put it.
+  const caretAtStart = $isCaretAtParaStart(para);
   para.splice(0, 0, $createMarkerPrefix(para.getMarker()));
-  // Keep the caret on the content side of the injected prefix.
+  if (caretAtStart) $selectParaContentStart(para);
+}
+
+/**
+ * Retags a PREFIX-LESS paragraph: sets its marker AND injects the matching visible
+ * `[glyph, separator]` prefix (editable marker mode) as one step. The two must land in the same
+ * update — a paragraph whose marker state and visible prefix disagree hits
+ * `$paraMarkerDeletionTransform`'s no-prefix branches (merge into the previous paragraph, or
+ * reset to `\p`) on the next transform pass. Callers own the "no prefix present" precondition
+ * (freshly split paragraph, or its prefix was just deleted); a paragraph that still has its
+ * prefix wants an in-place glyph rewrite instead (see `$retagParagraph`,
+ * `../markerMenu/markerMenuApply.utils.ts`), since injecting again would double the prefix.
+ *
+ * Always parks the caret on the content side of the new prefix: retagging is a deliberate
+ * "make THIS paragraph a `\q1`" act (palette apply, reset-to-`\p`), so the user's next
+ * keystroke belongs in that paragraph's content wherever the caret sat before — unlike
+ * `$injectMarkerPrefix` alone, whose caret handling is conditional because a paste can inject
+ * several paragraphs' prefixes far away from the caret.
+ */
+export function $setParaMarkerWithPrefix(para: ParaNode, marker: string): void {
+  para.setMarker(marker);
+  $injectMarkerPrefix(para);
   $selectParaContentStart(para);
 }
 
@@ -96,18 +147,33 @@ function $healMarkerTrailingSeparator(para: ParaNode): void {
 }
 
 export function $paraMarkerDeletionTransform(para: ParaNode, context: MarkerEditContext): void {
-  if (para.isEmpty()) return; // transient mid-edit state (same rationale as the guard)
+  // Branch order is load-bearing. Heal-first is the termination anchor: injecting a prefix
+  // (below) re-dirties the paragraph and re-enters this transform, and that re-entry must land
+  // here and stop — with the injection branch checked first, every re-entry re-injected and the
+  // transform looped endlessly.
   if ($isParaMarkerPrefix(para.getFirstChild())) {
     $healMarkerTrailingSeparator(para);
     return;
   }
 
   if (context.splitExpected.current) {
-    // Fresh paragraph from Enter: insertNewAfter cloned the marker; make it visible.
+    // Fresh paragraph from an expected split (Enter, or a multi-line paste — both arm the
+    // flag): insertNewAfter cloned the marker; make it visible. This runs
+    // ahead of the isEmpty guard because an Enter split at a paragraph's content edge leaves a
+    // DURABLY empty paragraph (the clone at the end, or the emptied original at the start) that
+    // the user is about to type into. Skipping it as transient left it prefix-less, so the first
+    // typed character made it non-empty without a prefix — read below as "marker deleted" and
+    // merged straight back into the previous paragraph. The flag is deliberately NOT consumed
+    // here: this transform is its only reader, both halves of a split can pass through in the
+    // same commit, and the update listener resets it after every commit anyway.
     $injectMarkerPrefix(para);
     context.logger?.debug(`[MarkerEdit] injected prefix for split para "${para.getMarker()}"`);
     return;
   }
+
+  // Transient mid-edit emptiness (a select-all-delete, a rebuild emptying a paragraph before
+  // refilling it): not a marker deletion, so leave it for the pass that repopulates it.
+  if (para.isEmpty()) return;
 
   const previous = para.getPreviousSibling();
   if ($isParaNode(previous)) {
@@ -124,8 +190,7 @@ export function $paraMarkerDeletionTransform(para: ParaNode, context: MarkerEdit
   }
 
   // No previous paragraph to merge into: fall back to the default marker, visibly.
-  para.setMarker(PARA_MARKER_DEFAULT);
-  $injectMarkerPrefix(para);
+  $setParaMarkerWithPrefix(para, PARA_MARKER_DEFAULT);
 }
 
 /** `|name="value" …` literal suffix for a span's unknown attributes (PT9 keeps these

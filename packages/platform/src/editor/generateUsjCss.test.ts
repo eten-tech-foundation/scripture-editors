@@ -46,6 +46,15 @@ describe("generateUsjCss (PT9 CSSCreator port)", () => {
     );
   });
 
+  // Review-fix coverage: the "both" → justify mapping is unexercised by the fixtures (which only
+  // use "center"/"left"/"right"). Pin it so a regression in the justify branch can't slip through.
+  it('maps justification "both" to text-align: justify', () => {
+    const justifyStyleInfo: StyleInfo = {
+      markers: { pmo: { marker: "pmo", styleType: "paragraph", justification: "both" } },
+    };
+    expect(generateUsjCss(justifyStyleInfo)).toContain("text-align: justify");
+  });
+
   it("flips margins and justification under rtl and scales with zoom", () => {
     const css = generateUsjCss(styleInfo, { zoom: 2, rtl: true });
     expect(css).toContain('.editor-input.usfm { font-family: "Charis SIL"; font-size: 24pt; }');
@@ -139,6 +148,28 @@ describe("generateUsjCss (PT9 CSSCreator port)", () => {
       expect(css).toContain("font-weight: bold"); // the rest of the rule still emits
       expect(warn).toHaveBeenCalled();
       warn.mockRestore();
+    });
+
+    // The generated CSS may be injected as element text (e.g. a <style> tag via innerHTML),
+    // where the HTML parser ends the style element at any literal "</style" regardless of CSS
+    // string context — so angle brackets must never survive into the output.
+    it("escapes angle brackets so a defaultFont cannot close an injected <style> element", () => {
+      const css = generateUsjCss({
+        defaultFont: "</style><script>alert(1)</script>",
+        defaultFontSize: 12,
+        markers: {},
+      });
+      expect(css).not.toContain("</style>");
+      expect(css).not.toContain("<script>");
+      expect(css).toContain('font-family: "\\3C /style\\3E \\3C script\\3E ');
+    });
+
+    it("escapes angle brackets in a marker fontName", () => {
+      const css = generateUsjCss({
+        markers: { x: { marker: "x", styleType: "character", fontName: "</style>" } },
+      });
+      expect(css).not.toContain("</style>");
+      expect(css).toContain('font-family: "\\3C /style\\3E "');
     });
 
     it("escapes special characters in the marker used for the .usfm_<marker> selector", () => {

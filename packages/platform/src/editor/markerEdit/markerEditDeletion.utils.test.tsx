@@ -1,11 +1,24 @@
-import { $appendCharPara, $appendVersePara, testEnvironment } from "./markerEdit.test-helpers";
+import { serializeEditorState } from "../adaptors/usj-editor.adaptor";
+import {
+  $appendCharPara,
+  $appendVersePara,
+  testEnvironment,
+  viewOptions as standardViewOptions,
+} from "./markerEdit.test-helpers";
+import { $createMarkerPrefix, $setParaMarkerWithPrefix } from "./markerEditDeletion.utils";
 import { act } from "@testing-library/react";
+import { EMPTY_USJ, MarkerObject } from "@eten-tech-foundation/scripture-utilities";
 import {
   $createTextNode,
   $getRoot,
+  $getSelection,
+  $getState,
+  $isRangeSelection,
   $isTextNode,
   INSERT_PARAGRAPH_COMMAND,
   LexicalEditor,
+  NODE_STATE_KEY,
+  PASTE_COMMAND,
 } from "lexical";
 import { $dfs } from "@lexical/utils";
 import {
@@ -17,11 +30,15 @@ import {
   $isMarkerNode,
   $isNoteNode,
   $isParaNode,
+  isSerializedMarkerNode,
+  isSerializedParaNode,
+  isSerializedTextNode,
   MarkerNode,
   NBSP,
   NoteNode,
   PARA_MARKER_DEFAULT,
   ParaNode,
+  textTypeState,
   VerseNode,
 } from "shared";
 
@@ -82,22 +99,166 @@ describe("deletion semantics", () => {
     });
   });
 
-  it("injects a marker prefix into the Enter-split paragraph (cloned marker)", async () => {
-    let para: ParaNode;
+  it("retags a paragraph and injects its visible prefix as one step", async () => {
+    // $setParaMarkerWithPrefix is the single entry point for "give this prefix-less paragraph a
+    // marker": marker state, [glyph, separator] prefix, and content-side caret must all land
+    // together, or the deletion transform reads the half-built paragraph as marker-deleted.
+    let para: ParaNode, text: ReturnType<typeof $createTextNode>;
     const { editor } = await testEnvironment(() => {
-      para = $createParaNode("q1");
-      const text = $createTextNode("one two");
-      $getRoot().append(para.append($createMarkerNode("q1"), $createTextNode(NBSP), text));
-      text.select(3, 3);
+      $getRoot().append(
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          $createTextNode("one"),
+        ),
+      );
     });
-    await act(async () => {
-      editor.dispatchCommand(INSERT_PARAGRAPH_COMMAND, undefined);
+
+    await act(async () =>
+      editor.update(() => {
+        para = $createParaNode("p");
+        text = $createTextNode("content");
+        $getRoot().append(para.append(text));
+        $setParaMarkerWithPrefix(para, "q1");
+      }),
+    );
+
+    editor.getEditorState().read(() => {
+      expect(para.getMarker()).toBe("q1");
+      const first = para.getFirstChild();
+      expect($isMarkerNode(first)).toBe(true);
+      expect($isMarkerNode(first) ? first.getMarker() : undefined).toBe("q1");
+      expect($isMarkerNode(first) ? first.getTextContent() : undefined).toBe("\\q1");
+      // The engine-owned separator: exact NBSP, token mode, tagged as marker-trailing-space.
+      const second = para.getChildAtIndex(1);
+      expect($isTextNode(second) ? second.getTextContent() : undefined).toBe(NBSP);
+      expect($isTextNode(second) ? second.getMode() : undefined).toBe("token");
+      expect($isTextNode(second) ? $getState(second, textTypeState) : undefined).toBe(
+        "marker-trailing-space",
+      );
+      // Caret parks on the content side of the prefix, not inside/before it.
+      const selection = $getSelection();
+      expect($isRangeSelection(selection) ? selection.anchor.key : undefined).toBe(text.getKey());
+      expect($isRangeSelection(selection) ? selection.anchor.offset : undefined).toBe(0);
     });
+  });
+
+  it("injects a marker prefix into the Enter-split paragraph (cloned marker)", async () => {
+    // A genuine MID-CONTENT Enter split: the tail content moves to the fresh paragraph while
+    // the original prefix glyph stays behind, so the fresh paragraph's prefix can only come
+    // from the engine's injection. The caret is placed inside the dispatch-time update — a
+    // mount-seeded selection is clobbered by jsdom's focus/selection sync (the caret snaps to
+    // the glyph start), which silently turns the split into a paragraph-START one where the
+    // ORIGINAL glyph travels with the content and no injection is exercised at all.
+    let originalGlyphKey: string | undefined;
+    const { editor } = await testEnvironment(() => {
+      $getRoot().append(
+        $createParaNode("q1").append(
+          $createMarkerNode("q1"),
+          $createTextNode(NBSP),
+          $createTextNode("one two"),
+        ),
+      );
+    });
+    await act(async () =>
+      editor.update(() => {
+        // Re-query the nodes here — the initial commit's transforms may have rewritten the
+        // mount-time nodes.
+        const para = $getRoot().getChildren().filter($isParaNode)[0];
+        const glyph = para.getFirstChild();
+        if (!$isMarkerNode(glyph)) throw new Error("expected the paragraph's marker glyph");
+        originalGlyphKey = glyph.getKey();
+        const text = para.getLastChild();
+        if (!$isTextNode(text)) throw new Error("expected the paragraph's content text");
+        // Compute the offset instead of hardcoding it: the initial commit merges the mount-time
+        // NBSP separator into this text node (heal re-inserts a fresh separator before it), so
+        // the content may carry a leading NBSP.
+        const offset = text.getTextContent().indexOf("one") + "one".length;
+        text.select(offset, offset); // caret MID-CONTENT: "one| two"
+        editor.dispatchCommand(INSERT_PARAGRAPH_COMMAND, undefined);
+      }),
+    );
     editor.getEditorState().read(() => {
       const paras = $getRoot().getChildren().filter($isParaNode);
       expect(paras).toHaveLength(2);
+      // The content split at the caret...
+      expect(paras[0].getTextContent()).toContain("one");
+      expect(paras[0].getTextContent()).not.toContain("two");
+      expect(paras[1].getTextContent()).toContain("two");
+      // ...the ORIGINAL glyph stayed with the first paragraph...
+      const firstGlyph = paras[0].getFirstChild();
+      expect($isMarkerNode(firstGlyph) ? firstGlyph.getKey() : undefined).toBe(originalGlyphKey);
+      // ...and the fresh paragraph carries the marker cloned by insertNewAfter with a freshly
+      // INJECTED prefix glyph — a new node, not the migrated original.
+      expect(paras[1].getMarker()).toBe("q1");
+      const injectedGlyph = paras[1].getFirstChild();
+      expect($isMarkerNode(injectedGlyph)).toBe(true);
+      expect($isMarkerNode(injectedGlyph) ? injectedGlyph.getKey() : undefined).not.toBe(
+        originalGlyphKey,
+      );
+      // The caret lands on the content side of the injected prefix, ready to keep typing.
+      // Asserted semantically (anchor node text + offset), not by node key: under parallel-suite
+      // CPU load Lexical's post-transform normalization can recreate the content node, so key
+      // identity flakes while the caret's semantic position is unchanged.
+      const selection = $getSelection();
+      const anchorNode = $isRangeSelection(selection) ? selection.anchor.getNode() : undefined;
+      expect(anchorNode?.getTextContent()).toContain("two");
+      expect($isRangeSelection(selection) ? selection.anchor.offset : undefined).toBe(0);
+    });
+  });
+
+  it("claims an END-of-paragraph Enter split: the empty clone gets its prefix, typing stays in it", async () => {
+    // Enter at the very end of a paragraph clones a durably EMPTY paragraph (insertNewAfter
+    // copies the marker, no content follows the caret) — the user's next act is typing into it.
+    // If the engine treats that emptiness as transient and skips the prefix injection, the first
+    // typed character produces a prefix-less non-empty paragraph, which the deletion transform
+    // reads as "marker deleted" and merges straight back into the previous paragraph — Enter
+    // then typing reunites the paragraphs instead of continuing in the new one.
+    const { editor } = await testEnvironment(() => {
+      $getRoot().append(
+        $createParaNode("q1").append(
+          $createMarkerNode("q1"),
+          $createTextNode(NBSP),
+          $createTextNode("one two"),
+        ),
+      );
+    });
+    // Select inside the SAME update as the dispatch (the harness's pressEnterAtSelection
+    // pattern): a selection seeded at mount is clobbered by jsdom's focus/selection sync, which
+    // parks the caret at the first text position instead. Re-query the nodes here — the initial
+    // commit's transforms may have rewritten the mount-time text nodes.
+    await act(async () =>
+      editor.update(() => {
+        const para = $getRoot().getChildren().filter($isParaNode)[0];
+        const last = para.getLastChild();
+        // Caret at the very END of the paragraph's content.
+        if ($isTextNode(last)) last.select(last.getTextContentSize(), last.getTextContentSize());
+        else para.selectEnd();
+        editor.dispatchCommand(INSERT_PARAGRAPH_COMMAND, undefined);
+      }),
+    );
+    editor.getEditorState().read(() => {
+      const paras = $getRoot().getChildren().filter($isParaNode);
+      expect(paras).toHaveLength(2);
+      expect(paras[0].getTextContent()).toContain("one two"); // content stays in the original
       expect(paras[1].getMarker()).toBe("q1"); // cloned by insertNewAfter
-      expect($isMarkerNode(paras[1].getFirstChild())).toBe(true); // engine injected the prefix
+      expect($isMarkerNode(paras[1].getFirstChild())).toBe(true); // prefix injected while empty
+    });
+    // Typing in the fresh paragraph — it must NOT merge back into the first.
+    await act(async () =>
+      editor.update(() => {
+        const paras = $getRoot().getChildren().filter($isParaNode);
+        const fresh = paras[paras.length - 1];
+        fresh.selectEnd();
+        const selection = $getSelection();
+        if ($isRangeSelection(selection)) selection.insertText("x");
+      }),
+    );
+    editor.getEditorState().read(() => {
+      const paras = $getRoot().getChildren().filter($isParaNode);
+      expect(paras).toHaveLength(2);
+      expect(paras[0].getTextContent()).not.toContain("x");
+      expect(paras[1].getTextContent()).toContain("x");
     });
   });
 
@@ -536,5 +697,216 @@ describe("collapsed-note atomic deletion", () => {
     expect(text).toContain("before");
     expect(text).toContain("after");
     expect(text).toContain("x");
+  });
+});
+
+describe("internal paste of prefixed paragraphs", () => {
+  // Internal Lexical copy of whole paragraphs pastes ParaNodes that carry their own
+  // `[glyph, separator]` prefixes. The deletion transform must read those prefixes as intact
+  // (heal branch) and keep the paragraphs — NOT treat them as marker-deleted and merge them
+  // away. Note Lexical's own `insertNodes` merges the FIRST pasted block's children into the
+  // caret paragraph (so its glyph lands inline there — standard Lexical splice semantics,
+  // upstream of any transform); every subsequent pasted paragraph must survive whole.
+  it("keeps a pasted paragraph that carries its own marker prefix", async () => {
+    const { editor } = await testEnvironment(() => {
+      $getRoot().append(
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          $createTextNode("one"),
+        ),
+      );
+    });
+
+    await act(async () =>
+      editor.update(() => {
+        // Select inside the same update (a mount-seeded selection is clobbered by jsdom's
+        // focus/selection sync — see the Enter-split test above).
+        const para = $getRoot().getChildren().filter($isParaNode)[0];
+        const last = para.getLastChild();
+        if ($isTextNode(last)) last.select(last.getTextContentSize(), last.getTextContentSize());
+        else para.selectEnd();
+        const selection = $getSelection();
+        if (!$isRangeSelection(selection)) throw new Error("no range selection");
+        const pasted1 = $createParaNode("q1").append(
+          $createMarkerNode("q1"),
+          $createTextNode(NBSP),
+          $createTextNode("pasted one"),
+        );
+        const pasted2 = $createParaNode("q2").append(
+          $createMarkerNode("q2"),
+          $createTextNode(NBSP),
+          $createTextNode("pasted two"),
+        );
+        selection.insertNodes([pasted1, pasted2]);
+      }),
+    );
+
+    editor.getEditorState().read(() => {
+      const paras = $getRoot().getChildren().filter($isParaNode);
+      // The first pasted block merged into the caret para (Lexical insertNodes); the second
+      // pasted paragraph survived as its own paragraph with its prefix intact.
+      expect(paras.map((para) => para.getMarker())).toEqual(["p", "q2"]);
+      const survivor = paras[1];
+      expect($isMarkerNode(survivor.getFirstChild())).toBe(true);
+      expect(survivor.getTextContent()).toContain("pasted two");
+      // The caret paragraph kept its own prefix (heal branch) and the merged block's content.
+      expect($isMarkerNode(paras[0].getFirstChild())).toBe(true);
+      expect(paras[0].getTextContent()).toContain("pasted one");
+    });
+  });
+});
+
+describe("multi-line plain-text paste", () => {
+  // jsdom implements neither `ClipboardEvent` nor `DragEvent`, but Lexical's paste path
+  // (`eventFiles`/`onPasteForRichText`) references both as bare globals for its klass checks, so
+  // the identifiers must at least resolve. The stubs never have to MATCH: the mock event below is
+  // a plain object (the same duck-typing the plugin's own clipboard handlers use), so Lexical's
+  // constructor-name comparisons all decline and it falls through to the `event.clipboardData`
+  // read — the exact path a real browser ClipboardEvent takes.
+  const globalStubs: { DragEvent?: unknown; ClipboardEvent?: unknown } = globalThis;
+  if (typeof globalStubs.DragEvent === "undefined")
+    globalStubs.DragEvent = class DragEvent extends Event {};
+  if (typeof globalStubs.ClipboardEvent === "undefined")
+    globalStubs.ClipboardEvent = class ClipboardEvent extends Event {};
+
+  /** A paste event whose only payload is `text/plain` — what pasting from a plain-text source
+   * (terminal, text editor, address bar) delivers. */
+  function plainTextPasteEvent(text: string): ClipboardEvent {
+    const clipboardData = {
+      types: ["text/plain"],
+      files: [],
+      getData: (type: string) => (type === "text/plain" ? text : ""),
+    };
+    return { clipboardData, preventDefault: () => undefined } as unknown as ClipboardEvent;
+  }
+
+  it("keeps every pasted line as its own prefixed paragraph, caret at the end of the paste", async () => {
+    // @lexical/clipboard's text/plain path calls `selection.insertParagraph()` directly per
+    // newline — never INSERT_PARAGRAPH_COMMAND — so the engine's Enter handler can't arm
+    // `splitExpected` for it. Without the PASTE_COMMAND handler arming the flag, every fresh
+    // prefix-less paragraph was read as marker-deleted and merged straight back: the whole
+    // paste collapsed into ONE paragraph (`\p onefirstsecondthird`).
+    const { editor } = await testEnvironment(() => {
+      $getRoot().append(
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          $createTextNode("one"),
+        ),
+      );
+    });
+
+    await act(async () =>
+      editor.update(() => {
+        // Select inside the same update as the dispatch (a mount-seeded selection is clobbered
+        // by jsdom's focus/selection sync — see the Enter-split tests above).
+        const para = $getRoot().getChildren().filter($isParaNode)[0];
+        const last = para.getLastChild();
+        if ($isTextNode(last)) last.select(last.getTextContentSize(), last.getTextContentSize());
+        else para.selectEnd();
+        editor.dispatchCommand(PASTE_COMMAND, plainTextPasteEvent("first\nsecond\nthird"));
+      }),
+    );
+
+    editor.getEditorState().read(() => {
+      const paras = $getRoot().getChildren().filter($isParaNode);
+      // The first pasted line merges into the host paragraph (standard Lexical first-block
+      // semantics — same as the internal-paste pin above); each later line becomes its own
+      // paragraph with the host's marker cloned by insertNewAfter and its prefix injected.
+      expect(paras.map((para) => para.getMarker())).toEqual(["p", "p", "p"]);
+      paras.forEach((para) => expect($isMarkerNode(para.getFirstChild())).toBe(true));
+      expect(paras[0].getTextContent()).toContain("onefirst");
+      expect(paras[1].getTextContent()).toContain("second");
+      expect(paras[1].getTextContent()).not.toContain("third");
+      expect(paras[2].getTextContent()).toContain("third");
+      // Caret discipline: after a paste the caret stays at the END of the pasted content.
+      // Prefix injection must not yank it to a freshly injected paragraph's content start.
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) throw new Error("no range selection after paste");
+      expect(selection.isCollapsed()).toBe(true);
+      const anchorNode = selection.anchor.getNode();
+      expect($isTextNode(anchorNode) ? anchorNode.getTextContent() : undefined).toBe("third");
+      expect(selection.anchor.offset).toBe("third".length);
+      expect(anchorNode.getParent()?.getKey()).toBe(paras[2].getKey());
+    });
+  });
+});
+
+describe("load/engine para prefix drift pin", () => {
+  // The adaptor's `createPara` (load) and the marker-edit engine's `$createMarkerPrefix`
+  // (heal/inject) both build the editable `[glyph, separator]` paragraph prefix. Every layout
+  // and caret computation assumes the two shapes are identical — most critically the
+  // separator's exact-NBSP text, token mode, and marker-trailing-space tag, which keep typed
+  // text out of the separator and out of serialized USJ. This pin makes disagreement a test
+  // failure instead of a "keep in sync" comment.
+  it("$createMarkerPrefix builds the same [glyph, separator] pair the adaptor loads", async () => {
+    interface PrefixShape {
+      glyphMarker?: string;
+      glyphSyntax?: string;
+      separatorText?: string;
+      separatorMode?: string;
+      separatorTextType?: unknown;
+    }
+
+    // Engine side: the pair `$injectMarkerPrefix`/`$setParaMarkerWithPrefix` splice in.
+    let engine: PrefixShape = {};
+    const { editor } = await testEnvironment(() => {
+      $getRoot().append(
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          $createTextNode("hi"),
+        ),
+      );
+    });
+    await act(async () =>
+      editor.update(() => {
+        const [glyphNode, separatorNode] = $createMarkerPrefix("q1");
+        if ($isMarkerNode(glyphNode))
+          engine = { glyphMarker: glyphNode.getMarker(), glyphSyntax: glyphNode.getMarkerSyntax() };
+        if ($isTextNode(separatorNode) && !$isMarkerNode(separatorNode))
+          engine = {
+            ...engine,
+            separatorText: separatorNode.getTextContent(),
+            separatorMode: separatorNode.getMode(),
+            separatorTextType: $getState(separatorNode, textTypeState),
+          };
+      }),
+    );
+
+    // Load side: the same `\q1` paragraph serialized by the adaptor in standard view.
+    const usj = {
+      ...EMPTY_USJ,
+      content: [{ type: "para", marker: "q1", content: ["hi"] } as MarkerObject],
+    };
+    const state = serializeEditorState(usj, standardViewOptions);
+    const para = state.root.children[0];
+    if (!isSerializedParaNode(para)) throw new Error("No para node found");
+    const [glyph, separator] = para.children;
+    if (!isSerializedMarkerNode(glyph)) throw new Error("No para marker glyph found");
+    if (!isSerializedTextNode(separator)) throw new Error("No separator found");
+    const stateObject: unknown = separator[NODE_STATE_KEY];
+    const loaded: PrefixShape = {
+      glyphMarker: glyph.marker,
+      glyphSyntax: glyph.markerSyntax,
+      separatorText: separator.text,
+      separatorMode: separator.mode,
+      separatorTextType:
+        stateObject && typeof stateObject === "object" && "textType" in stateObject
+          ? stateObject.textType
+          : undefined,
+    };
+
+    // Sanity-pin the load shape itself so both sides drifting together still fails loudly.
+    expect(loaded).toEqual({
+      glyphMarker: "q1",
+      glyphSyntax: "opening",
+      separatorText: NBSP,
+      separatorMode: "token",
+      separatorTextType: "marker-trailing-space",
+    });
+
+    expect(engine).toEqual(loaded);
   });
 });

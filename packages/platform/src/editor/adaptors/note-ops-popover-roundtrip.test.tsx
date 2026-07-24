@@ -19,7 +19,16 @@ import { MarkerContent, MarkerObject, Usj } from "@eten-tech-foundation/scriptur
 import { act, render } from "@testing-library/react";
 import { deepEqual } from "fast-equals";
 import { createRef } from "react";
-import { $getRoot, $isElementNode, $isTextNode, LexicalEditor, LexicalNode } from "lexical";
+import {
+  $getRoot,
+  $getSelection,
+  $isElementNode,
+  $isRangeSelection,
+  $isTextNode,
+  KEY_ENTER_COMMAND,
+  LexicalEditor,
+  LexicalNode,
+} from "lexical";
 import { $dfs } from "@lexical/utils";
 // Reaching inside only for tests.
 // eslint-disable-next-line @nx/enforce-module-boundaries
@@ -33,7 +42,7 @@ import {
   LoggerBasic,
   NoteNode,
 } from "shared";
-import { DeltaOp, getViewOptions, STANDARD_VIEW_MODE } from "shared-react";
+import { DeltaOp, DeltaOpInsertNoteEmbed, getViewOptions, STANDARD_VIEW_MODE } from "shared-react";
 
 function requireDefined<T>(value: T | undefined | null, message: string): T {
   if (value === undefined || value === null) throw new Error(message);
@@ -105,6 +114,39 @@ const unclosedNoteUsj: ClosableMarkerObject = {
   ],
 };
 
+/**
+ * Note holding two ADJACENT `\fp` (footnote-paragraph) spans. `\fp` has no closer, so PT9
+ * separates footnote paragraphs solely by the next `\fp` marker — the two entries are two
+ * paragraphs, and their char ops are attribute-identical (same style, no `cid`). The round
+ * trip must keep them separate spans; merging them collapses two paragraphs into one.
+ */
+const twoFpNoteUsj: MarkerObject = {
+  type: "note",
+  marker: "f",
+  caller: "+",
+  content: [
+    { type: "char", marker: "fr", content: ["1:3 "], closed: "false" } as ClosableMarkerObject,
+    {
+      type: "char",
+      marker: "ft",
+      content: ["first paragraph "],
+      closed: "false",
+    } as ClosableMarkerObject,
+    {
+      type: "char",
+      marker: "fp",
+      content: ["second paragraph "],
+      closed: "false",
+    } as ClosableMarkerObject,
+    {
+      type: "char",
+      marker: "fp",
+      content: ["third paragraph"],
+      closed: "false",
+    } as ClosableMarkerObject,
+  ],
+};
+
 const sampleUsj: Usj = {
   type: "USJ",
   version: "3.1",
@@ -120,7 +162,9 @@ const sampleUsj: Usj = {
         closedNoteUsj,
         "verse text ",
         unclosedNoteUsj,
-        "tail",
+        "tail ",
+        twoFpNoteUsj,
+        "end",
       ],
     },
   ],
@@ -290,6 +334,59 @@ async function expectRebuildFixedPoint(popover: { lexical: LexicalEditor }) {
   expect(messages.some((m) => m.includes("excluded by guard rails"))).toBe(false);
 }
 
+/** Place the popover caret at the end of note 0's `\ft` content text. */
+function $selectEndOfFtContent(): void {
+  const note = requireDefined($findNotes()[0], "popover note");
+  const ftChar = requireDefined(
+    note
+      .getChildren()
+      .filter($isCharNode)
+      .find((char) => char.getMarker() === "ft"),
+    "popover ft char",
+  );
+  const contentText = requireDefined(
+    ftChar
+      .getChildren()
+      .filter($isTextNode)
+      .find((child) => !$isMarkerNode(child)),
+    "popover ft content text",
+  );
+  contentText.select(contentText.getTextContentSize(), contentText.getTextContentSize());
+}
+
+/**
+ * Start a footnote paragraph the way the engine does — Enter inside expanded note content is
+ * the `\fp` break (PT9 SmartEnter) — then type the paragraph's text at the break caret.
+ */
+async function typeFpParagraph(popover: { lexical: LexicalEditor }, text: string): Promise<void> {
+  await act(async () => {
+    popover.lexical.dispatchCommand(KEY_ENTER_COMMAND, null);
+  });
+  await act(async () => {
+    popover.lexical.update(() => {
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) throw new Error("expected a range selection after Enter");
+      selection.insertText(text);
+    });
+  });
+}
+
+/** Whether the op is a text insert attributed as a plain (non-nested) `\fp` char span. */
+function isFpContentOp(op: DeltaOp): boolean {
+  if (typeof op.insert !== "string") return false;
+  const char = op.attributes?.char;
+  if (typeof char !== "object" || char === null || Array.isArray(char)) return false;
+  return "style" in char && char.style === "fp";
+}
+
+/** The note USJ's direct `\fp` char entries, in document order. */
+function fpCharEntries(noteUsj: MarkerObject): MarkerObject[] {
+  return (noteUsj.content ?? []).filter(
+    (item): item is MarkerObject =>
+      typeof item !== "string" && item.type === "char" && item.marker === "fp",
+  );
+}
+
 describe("popover note ops round-trip (canonical glyph-free contract)", () => {
   it("is idempotent for a standard-view note with \\fr/\\ft spans and a \\fv verse-ref char", async () => {
     const { popover } = await roundtripNote(0, closedNoteUsj);
@@ -375,5 +472,70 @@ describe("popover note ops round-trip (canonical glyph-free contract)", () => {
     const expectedUsj = JSON.parse(JSON.stringify(preSaveUsj)) as Usj;
     expect(replaceUsjNote(expectedUsj, 0, popoverNoteUsj)).toBe(true);
     expect(hostUsj).toEqual(expectedUsj);
+  }, 30000);
+
+  it("is idempotent for a note with two adjacent \\fp paragraphs (spans stay separate)", async () => {
+    const { host, popover, popoverNoteOps } = await roundtripNote(2, twoFpNoteUsj);
+    await expectRebuildFixedPoint(popover);
+
+    // Save WITHOUT edits (open the popover, hit Save): the host must still hold the exact
+    // source note — two `\fp` paragraphs, not one merged span.
+    const hostNoteKey = host.lexical
+      .getEditorState()
+      .read(() => requireDefined($findNotes()[2], "host two-fp note").getKey());
+    await act(async () => {
+      host.editorRef.replaceEmbedUpdate(hostNoteKey, popoverNoteOps);
+    });
+    const hostUsj = requireDefined(host.editorRef.getUsj(), "host USJ after no-edit save");
+    expect(findUsjNotes(hostUsj)[2]).toEqual(twoFpNoteUsj);
+  }, 30000);
+
+  it("keeps two engine-created \\fp paragraphs separate through the popover save path", async () => {
+    const { host, popover } = await roundtripNote(0, closedNoteUsj);
+
+    // Create two footnote paragraphs the way a user does in the popover: Enter (the `\fp`
+    // break), type; Enter, type.
+    await act(async () => {
+      popover.lexical.update(() => $selectEndOfFtContent(), { discrete: true });
+    });
+    await typeFpParagraph(popover, "second paragraph");
+    await typeFpParagraph(popover, "third paragraph");
+
+    // The popover TREE holds two separate `\fp` spans (in-editor combining exempts `\fp`)…
+    popover.lexical.getEditorState().read(() => {
+      const note = requireDefined($findNotes()[0], "popover note");
+      const fpSpans = note
+        .getChildren()
+        .filter($isCharNode)
+        .filter((char) => char.getMarker() === "fp");
+      expect(fpSpans).toHaveLength(2);
+    });
+
+    // …and so do the ops the popover Save path sends to the host.
+    const popoverNoteOps = requireDefined(
+      popover.editorRef.getNoteOps(0),
+      "popover note ops",
+    ) as DeltaOpInsertNoteEmbed[];
+    const contentsOps = requireDefined(
+      popoverNoteOps[0]?.insert.note?.contents?.ops,
+      "popover note contents ops",
+    );
+    expect(contentsOps.filter(isFpContentOp)).toHaveLength(2);
+
+    const hostNoteKey = host.lexical
+      .getEditorState()
+      .read(() => requireDefined($findNotes()[0], "host note").getKey());
+    await act(async () => {
+      host.editorRef.replaceEmbedUpdate(hostNoteKey, popoverNoteOps);
+    });
+
+    // The USJ the host serializes for the save path must still hold TWO `\fp` char entries —
+    // PT9 keeps them separate paragraphs; merging collapses them into one.
+    const hostUsj = requireDefined(host.editorRef.getUsj(), "host USJ after save");
+    const noteUsj = requireDefined(findUsjNotes(hostUsj)[0], "host note USJ");
+    expect(fpCharEntries(noteUsj).map((entry) => entry.content)).toEqual([
+      ["second paragraph"],
+      ["third paragraph"],
+    ]);
   }, 30000);
 });

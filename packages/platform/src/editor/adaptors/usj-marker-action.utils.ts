@@ -18,10 +18,12 @@ import {
   RangeSelection,
   TextNode,
 } from "lexical";
+import { $splitCharNodeAt } from "../markerEdit/charFormatting.utils";
 import {
   $createCharNode,
   $createNodeFromSerializedNode,
   $findChapter,
+  $findFirstAncestorNoteNode,
   $isCharNode,
   $isMarkerNode,
   $isNoteNode,
@@ -32,6 +34,7 @@ import {
   $setCharNodeMarker,
   CharNode,
   createLexicalUsjNode,
+  defaultStyleInfo,
   EMPTY_CHAR_PLACEHOLDER_TEXT,
   getNextVerse,
   getSelectionStartNode,
@@ -342,6 +345,66 @@ export function getUsjMarkerAction(
           // leaves it after the empty-char placeholder, which the placeholder transform strips on
           // the first keystroke.
           if ($isElementNode(lastInsertedNode)) lastInsertedNode.selectEnd();
+        } else if (
+          $isCharNode(nodeToInsert) &&
+          $isTextNode(node) &&
+          !$isMarkerNode(node) &&
+          $isCharNode(node.getParent()) &&
+          $findFirstAncestorNoteNode(node) !== undefined &&
+          selection.isCollapsed()
+        ) {
+          // Caret inside a note's char span (e.g. the \ft content of an expanded footnote).
+          // The generic `selection.insertNodes` fallback below splices at the nearest BLOCK
+          // ancestor — NoteNode and CharNode are both inline — landing the new span on the
+          // wrapper paragraph AFTER the note, outside \f*, as invalid note-less content.
+          // Instead splice at the span's own level, following PT9's per-style split
+          // (StyleApplicator.ApplyCharacterStyle):
+          // - NEST-able styles (OccursUnder contains NEST: \w, \nd, \wj, ...) nest IN PLACE —
+          //   PT9 emits `\+marker` at the caret and closes it immediately, leaving every open
+          //   span open. Split only the anchor TEXT and put the new span between the halves,
+          //   INSIDE the span holding the caret.
+          // - Note-content styles (\fq, \fk, ...) get PT9's close-all-and-reopen shape: split
+          //   the span at the caret and put the new span between the halves. At the span's
+          //   content end `$splitCharNodeAt` attaches nothing and the new span simply follows
+          //   the whole span — still before the note's closing glyph, which sits after all
+          //   content children.
+          //
+          // `nodeToInsert` already carries the note-content span convention that
+          // `$createNoteContentChar` builds and `createChar` loads: an opening glyph with
+          // placeholder content, and for implicitly-closed footnote/cross-reference content
+          // markers (\fq, \xt, ...) no closing glyph plus closed="false" recorded.
+          const charSpan = node.getParent();
+          if ($isCharNode(charSpan)) {
+            if (isNestInPlaceCharNode(nodeToInsert)) {
+              const offset = selection.anchor.offset;
+              if (offset === 0) node.insertBefore(nodeToInsert);
+              else if (offset >= node.getTextContentSize()) node.insertAfter(nodeToInsert);
+              else {
+                const [leftHalf] = node.splitText(offset);
+                leftHalf.insertAfter(nodeToInsert);
+              }
+            } else {
+              $splitCharNodeAt(charSpan, node, selection.anchor.offset);
+              charSpan.insertAfter(nodeToInsert);
+              // A split before all content leaves the left span glyph-only; drop it (the same
+              // emptied-half cleanup Ctrl+Space's split performs).
+              if (charSpan.getChildren().every($isMarkerNode)) charSpan.remove();
+            }
+            // Caret INSIDE the new span at its content position — same convention as the
+            // generic char path below: typed text appends after the placeholder and
+            // CharNodePlugin strips the placeholder once real content exists.
+            const contentText = nodeToInsert
+              .getChildren()
+              .find((child) => $isTextNode(child) && !$isMarkerNode(child));
+            if (contentText && $isTextNode(contentText)) {
+              contentText.select(
+                contentText.getTextContentSize(),
+                contentText.getTextContentSize(),
+              );
+            } else {
+              nodeToInsert.selectEnd();
+            }
+          }
         } else {
           selection.insertNodes([nodeToInsert]);
           $moveVerseFollowingSpaceToPreviousNode(nodeToInsert);
@@ -399,6 +462,20 @@ function $collectSiblingsFromCaret(node: TextNode, offset: number): LexicalNode[
   else tailStart = node.splitText(offset)[1] ?? node.getNextSibling();
   if (!tailStart) return [];
   return [tailStart, ...tailStart.getNextSiblings()];
+}
+
+/**
+ * Whether an in-note char apply should NEST the new span in place — inside the span holding the
+ * caret — rather than split that span. PT9's StyleApplicator nests exactly the styles whose
+ * OccursUnder contains NEST (\w, \nd, \wj, ...); other styles get the close-all-and-reopen
+ * shape the split path produces. Nesting additionally requires the built span to carry an
+ * explicit closer: a span with the implicit-close convention (closed="false", no closing glyph —
+ * \xt is the one NEST-able such marker) would swallow the rest of the host span's content on
+ * serialization, since without its own closer the marker runs to the parent's.
+ */
+function isNestInPlaceCharNode(charNode: CharNode): boolean {
+  const occursUnder = defaultStyleInfo.markers[charNode.getMarker()]?.occursUnder ?? [];
+  return occursUnder.includes("NEST") && charNode.getUnknownAttributes()?.closed !== "false";
 }
 
 function getMarkerAction(marker: string): UsjMarkerAction | undefined {

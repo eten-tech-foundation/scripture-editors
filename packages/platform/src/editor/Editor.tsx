@@ -22,6 +22,7 @@ import {
   $splitParagraphWithMarker,
 } from "./markerMenu/markerMenuApply.utils";
 import { $getMarkerMenuContext } from "./markerMenu/markerMenuContext.utils";
+import { $applyParaMarker } from "./markerEdit/applyParaMarker.utils";
 import { COMMIT_PENDING_MARKERS_COMMAND, MarkerEditPlugin } from "./markerEdit/MarkerEditPlugin";
 import { MarkerValidationPlugin } from "./markerEdit/MarkerValidationPlugin";
 import { ParaMarkerPrefixGuardPlugin } from "./ParaMarkerPrefixGuardPlugin";
@@ -62,12 +63,14 @@ import {
 } from "react";
 import {
   $createParaNode,
+  $isParaNode,
   blackListedChangeTags,
   createMarkerLookup,
   defaultStyleInfo,
   DELTA_CHANGE_TAG,
   externalTypedMarkType,
   LoggerBasic,
+  ParaNode,
   SELECTION_CHANGE_TAG,
   TypedMarkNode,
   TypedMarkOnClick,
@@ -419,9 +422,20 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
     formatPara(blockMarker) {
       editorRef.current?.update(() => {
         const selection = $getSelection();
-        if ($isRangeSelection(selection)) {
-          $setBlocksType(selection, () => $createParaNode(blockMarker));
-        }
+        if (!$isRangeSelection(selection)) return;
+        $setBlocksType(selection, () => $createParaNode(blockMarker));
+        // `$setBlocksType` MOVES each old block's children into its fresh ParaNode, so in
+        // editable marker mode the old marker's prefix glyph migrates over still reading the
+        // old marker. Re-apply the marker on every affected paragraph so glyph text (or a
+        // missing prefix) is brought back into agreement with the new marker state.
+        const updated = $getSelection();
+        if (!$isRangeSelection(updated)) return;
+        const affectedParas = new Set<ParaNode>();
+        updated.getNodes().forEach((node) => {
+          const block = node.getTopLevelElement();
+          if ($isParaNode(block)) affectedParas.add(block);
+        });
+        affectedParas.forEach((para) => $applyParaMarker(para, blockMarker, viewOptions));
       });
     },
     getElementByKey(nodeKey: string): HTMLElement | undefined {

@@ -297,8 +297,17 @@ describe("Tier 1 char/note opener rename", () => {
     let parts: ReturnType<typeof $appendCharPara>;
     const { editor } = await testEnvironment(() => (parts = $appendCharPara()));
     await act(async () => editor.update(() => parts.marker.setTextContent("\\q1 ")));
-    const json = JSON.stringify(editor.getEditorState().toJSON());
-    expect(json).toContain('"marker":"q1"'); // re-tokenized into a q1 paragraph
+    editor.getEditorState().read(() => {
+      // Tier 2 re-tokenized `\q1` into a real PARAGRAPH that now owns the text...
+      const paras = $getRoot().getChildren().filter($isParaNode);
+      const q1Para = paras.find((p) => p.getMarker() === "q1");
+      expect(q1Para).toBeDefined();
+      expect(q1Para?.getTextContent()).toContain("Lord");
+      // ...and no char span wraps it any more — a broken kind guard would instead have
+      // renamed the "nd" CharNode to "q1" in place and left the text inside it.
+      const chars = paras.flatMap((p) => p.getChildren()).filter($isCharNode);
+      expect(chars.some((c) => c.getMarker() === "nd" || c.getMarker() === "q1")).toBe(false);
+    });
   });
 });
 
