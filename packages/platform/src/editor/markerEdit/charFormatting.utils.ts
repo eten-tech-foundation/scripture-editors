@@ -29,10 +29,15 @@ import {
  */
 export function $splitCharNodeAt(char: CharNode, textNode: TextNode, offset: number): CharNode {
   const marker = char.getMarker();
+  // The right half stays in the same parent as `char` (`char.insertAfter(right)` below), so it
+  // shares `char`'s nesting: if `char` is itself nested inside another char span its glyphs carry
+  // the `+`, and the right half's fresh opener/closer must too — otherwise a Tier-2 re-tokenization
+  // of the visible text reads the bare `\w` as close-on-bare and flattens the nesting.
+  const nested = $isCharNode(char.getParent());
   // Keep any unknown attributes on the LEFT half only (`char`); duplicating them into
   // both halves would double the `|name="value"` bytes on serialization.
   const right = $createCharNode(marker);
-  const rightOpener = $createMarkerNode(marker);
+  const rightOpener = $createMarkerNode(marker, "opening", nested);
   const rightChildren: LexicalNode[] = [];
 
   let splitPoint: LexicalNode | undefined;
@@ -70,7 +75,7 @@ export function $splitCharNodeAt(char: CharNode, textNode: TextNode, offset: num
     if ($isTextNode(first) && !first.getTextContent().startsWith(NBSP))
       first.setTextContent(NBSP + first.getTextContent());
     right.append(rightOpener, ...rightChildren);
-    if (hasCloser) right.append($createMarkerNode(marker, "closing"));
+    if (hasCloser) right.append($createMarkerNode(marker, "closing", nested));
     char.insertAfter(right);
   }
   return right;

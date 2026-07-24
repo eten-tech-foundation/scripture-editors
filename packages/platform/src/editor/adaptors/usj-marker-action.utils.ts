@@ -278,7 +278,18 @@ export function getUsjMarkerAction(
       if ($isRangeSelection(selection)) {
         const node = selection.anchor.getNode();
         const nodeParent = node.getParent();
-        if (selection.getTextContent().length > 0) {
+        const innermostChar = $innermostCharAncestor(node);
+        const sameNode = selection.anchor.key === selection.focus.key;
+        if (
+          $isCharNode(nodeToInsert) &&
+          innermostChar &&
+          sameNode &&
+          !isNestInPlaceCharNode(nodeToInsert)
+        ) {
+          // A non-NEST style applied INSIDE an open char span: PT9 closes the enclosing char
+          // styles and reopens the ones with content after the point — it never nests the span.
+          $applyNonNestInsideChar(selection, nodeToInsert, node, innermostChar);
+        } else if (selection.getTextContent().length > 0) {
           // If the selection has text content, wrap the text selection in an inline node
           $wrapTextSelectionInInlineNode(selection, () =>
             $createNodeFromSerializedNode(serializedLexicalNode),
@@ -390,13 +401,12 @@ export function getUsjMarkerAction(
                 if ($isMarkerNode(child)) child.setNested(true);
               });
             } else {
+              // A note-content non-NEST style at a caret directly in a note-level span (not nested
+              // in another char): split the span and drop the new span between the halves. Non-NEST
+              // styles inside a NESTED span are handled earlier by $applyNonNestInsideChar (PT9
+              // close-and-reopen), so they never reach here.
               $splitCharNodeAt(charSpan, node, selection.anchor.offset);
               charSpan.insertAfter(nodeToInsert);
-              // Applied inside a NESTED span (the host span itself nests in another char): the new
-              // span is now nested too, so give it `+` glyphs and an explicit closer — otherwise a
-              // closer-less `\+fq` swallows the following nested sibling on serialization (see
-              // $ensureNestedSpanClosed). At the note level the closer-less convention stays.
-              if ($isCharNode(nodeToInsert.getParent())) $ensureNestedSpanClosed(nodeToInsert);
               // A split before all content leaves the left span glyph-only; drop it (the same
               // emptied-half cleanup Ctrl+Space's split performs).
               if (charSpan.getChildren().every($isMarkerNode)) charSpan.remove();
@@ -514,6 +524,126 @@ function $ensureNestedSpanClosed(charNode: CharNode): void {
     delete rest.closed;
     charNode.setUnknownAttributes(Object.keys(rest).length > 0 ? rest : undefined);
   }
+}
+
+/** Nearest CharNode at or above `node` (the innermost char span the point sits in), or undefined. */
+function $innermostCharAncestor(node: LexicalNode): CharNode | undefined {
+  let current: LexicalNode | null = node;
+  while (current) {
+    if ($isCharNode(current)) return current;
+    current = current.getParent();
+  }
+  return undefined;
+}
+
+/** The nearest non-char ancestor of `char` — the note or paragraph a bare char marker lands in. */
+function $charContainer(char: CharNode): LexicalNode | null {
+  let parent: LexicalNode | null = char.getParent();
+  while (parent && $isCharNode(parent)) parent = parent.getParent();
+  return parent;
+}
+
+/**
+ * Lift `node` OUT of the char span `char` to `char`'s parent, splitting `char` around it: content
+ * before `node` stays in `char` (its "before" half), content after `node` moves to a fresh
+ * reopened clone inserted after `node`, and `node` itself becomes a sibling of `char`. A "before"
+ * half left with only glyphs is dropped. The reopened clone keeps `char`'s marker, closer
+ * convention, and nesting (its glyphs carry the `+` when `char` was itself nested).
+ */
+function $liftOutOfChar(node: LexicalNode, char: CharNode): void {
+  const marker = char.getMarker();
+  const nested = $isCharNode(char.getParent());
+  const hasCloser = char
+    .getChildren()
+    .some((child) => $isMarkerNode(child) && child.getMarkerSyntax() === "closing");
+  // Content strictly after `node`, excluding char's own closing glyph.
+  const after: LexicalNode[] = [];
+  for (let sibling = node.getNextSibling(); sibling; ) {
+    const next = sibling.getNextSibling();
+    if (!($isMarkerNode(sibling) && sibling.getMarkerSyntax() === "closing")) after.push(sibling);
+    sibling = next;
+  }
+  char.insertAfter(node); // node leaves char, becomes its next sibling
+  if (after.length > 0) {
+    const right = $createCharNode(marker);
+    right.append($createMarkerNode(marker, "opening", nested), ...after);
+    if (hasCloser) right.append($createMarkerNode(marker, "closing", nested));
+    // Structural NBSP only when the first content node is text (mirrors createChar).
+    const [firstContent] = after;
+    if (
+      $isTextNode(firstContent) &&
+      !$isMarkerNode(firstContent) &&
+      !firstContent.getTextContent().startsWith(NBSP)
+    )
+      firstContent.setTextContent(NBSP + firstContent.getTextContent());
+    node.insertAfter(right);
+  }
+  if (char.getChildren().every($isMarkerNode)) char.remove();
+}
+
+/**
+ * Apply a non-NEST char style at a point or selection that sits INSIDE an open char span, following
+ * PT9's StyleApplicator: close every enclosing char style before the point and reopen the ones with
+ * content after it (never nest the new span). The new span — and every reopened right half — is
+ * lifted to the nearest non-char container (the note or paragraph a bare marker would land in).
+ * Handles a collapsed caret and a selection within a single text node; other multi-node selections
+ * fall back to the caller's generic wrap.
+ */
+function $applyNonNestInsideChar(
+  selection: RangeSelection,
+  newSpan: CharNode,
+  anchorNode: LexicalNode,
+  innermostChar: CharNode,
+): void {
+  const container = $charContainer(innermostChar);
+  let liftTarget: LexicalNode = newSpan;
+  if (selection.isCollapsed() || !$isTextNode(anchorNode)) {
+    // Caret: place the (empty) new span at the caret inside the innermost span.
+    const offset = selection.anchor.offset;
+    if ($isTextNode(anchorNode) && offset > 0 && offset < anchorNode.getTextContentSize()) {
+      const [left] = anchorNode.splitText(offset);
+      left.insertAfter(newSpan);
+    } else if ($isTextNode(anchorNode) && offset >= anchorNode.getTextContentSize()) {
+      anchorNode.insertAfter(newSpan);
+    } else {
+      anchorNode.insertBefore(newSpan);
+    }
+  } else {
+    // Selection within one text node: isolate the selected text so it can be lifted out and wrapped.
+    const [start, end] = getSelectionOffsets(selection);
+    let selected: TextNode = anchorNode;
+    if (start > 0) {
+      const parts = selected.splitText(start);
+      selected = parts[parts.length - 1];
+    }
+    if (selected.getTextContentSize() > end - start) selected = selected.splitText(end - start)[0];
+    liftTarget = selected;
+  }
+  while (
+    liftTarget.getParent() &&
+    liftTarget.getParent() !== container &&
+    $isCharNode(liftTarget.getParent())
+  )
+    $liftOutOfChar(liftTarget, liftTarget.getParent() as CharNode);
+  if (liftTarget !== newSpan) {
+    // Wrap the lifted selection text in the new span (now at container level), replacing its
+    // empty-content placeholder and taking the structural NBSP as the span's first content.
+    liftTarget.insertBefore(newSpan);
+    if ($isTextNode(liftTarget) && !liftTarget.getTextContent().startsWith(NBSP))
+      liftTarget.setTextContent(NBSP + liftTarget.getTextContent());
+    const placeholder = newSpan
+      .getChildren()
+      .find((child) => $isTextNode(child) && !$isMarkerNode(child));
+    if (placeholder) placeholder.replace(liftTarget);
+    else newSpan.append(liftTarget);
+  }
+  // Caret inside the new span's content, so typing fills it.
+  const contentText = newSpan
+    .getChildren()
+    .find((child) => $isTextNode(child) && !$isMarkerNode(child));
+  if ($isTextNode(contentText))
+    contentText.select(contentText.getTextContentSize(), contentText.getTextContentSize());
+  else newSpan.selectEnd();
 }
 
 function getMarkerAction(marker: string): UsjMarkerAction | undefined {
