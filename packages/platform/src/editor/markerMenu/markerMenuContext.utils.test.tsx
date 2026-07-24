@@ -16,6 +16,7 @@ import {
   $createBookNode,
   $createChapterNode,
   $createCharNode,
+  $createImmutableChapterNode,
   $createMarkerNode,
   $createParaNode,
   getVisibleOpenMarkerText,
@@ -67,6 +68,29 @@ describe("$getMarkerMenuContext", () => {
     expect(context?.previousParaMarkers).toEqual(["id", "c", "p"]);
     // jsdom's Range has no getBoundingClientRect - the documented headless fallback.
     expect(context?.anchorRect).toBeUndefined();
+  });
+
+  it("includes 'c' in previousParaMarkers when the preceding chapter is an ImmutableChapterNode", async () => {
+    let content: TextNode;
+    const { editor } = await testEnvironment(() => {
+      const pPara = $createParaNode("p");
+      const pPrefix = $createMarkerNode("p");
+      const pTrailing = $createTextNode(NBSP);
+      $setState(pTrailing, textTypeState, "marker-trailing-space");
+      content = $createTextNode("In the days");
+      // Decorator chapter variant (non-editable chapter rendering) — it carries the same \c
+      // marker as the mutable ChapterNode and must count in the paragraph-stack replay.
+      $getRoot().append(
+        $createBookNode("RUT"),
+        $createImmutableChapterNode("1"),
+        pPara.append(pPrefix, pTrailing, content),
+      );
+    });
+
+    await act(async () => editor.update(() => content.select(3, 3)));
+
+    const context = editor.getEditorState().read(() => $getMarkerMenuContext());
+    expect(context?.previousParaMarkers).toEqual(["id", "c"]);
   });
 
   it("reports character source for a mid-text caret", async () => {

@@ -22,18 +22,20 @@ import {
 } from "shared";
 
 /**
- * Split `char` before offset `offset` of its content text node `textNode`;
- * returns the new right-hand span (with fresh opener/closer glyphs).
+ * Split `char` before offset `offset` of its content text node `textNode`; returns the new
+ * right-hand span (with fresh opener/closer glyphs). When nothing follows the offset — the
+ * caret sits at the span's content end — nothing moves and the returned span is NOT attached
+ * to the tree; check `isAttached()` before relying on it.
  */
-function $splitCharNodeAt(char: CharNode, textNode: TextNode, offset: number): CharNode {
+export function $splitCharNodeAt(char: CharNode, textNode: TextNode, offset: number): CharNode {
   const marker = char.getMarker();
   // Keep any unknown attributes on the LEFT half only (`char`); duplicating them into
   // both halves would double the `|name="value"` bytes on serialization.
   const right = $createCharNode(marker);
   const rightOpener = $createMarkerNode(marker);
-  const rightChildren: TextNode[] = [];
+  const rightChildren: LexicalNode[] = [];
 
-  let splitPoint: TextNode | undefined;
+  let splitPoint: LexicalNode | undefined;
   if (offset > 0 && offset < textNode.getTextContentSize()) {
     const [, after] = textNode.splitText(offset) as [TextNode, TextNode];
     splitPoint = after;
@@ -41,26 +43,31 @@ function $splitCharNodeAt(char: CharNode, textNode: TextNode, offset: number): C
     splitPoint = textNode;
   } else if (offset === textNode.getTextContentSize()) {
     // Caret at this text node's END, but it isn't the span's last content node: the whole tail
-    // (the following content sibling(s)) moves to the right span. When it IS the last content
-    // node, the next sibling is the closer glyph or nothing, so splitPoint stays undefined and
-    // nothing moves — the span is already effectively closed at the caret.
+    // (any following content sibling — a later text run OR a nested element span) moves to the
+    // right span. When it IS the last content node, the next sibling is the closer glyph or
+    // nothing, so splitPoint stays undefined and nothing moves — the span is already
+    // effectively closed at the caret.
     const next = textNode.getNextSibling();
-    if ($isTextNode(next) && !$isMarkerNode(next)) splitPoint = next;
+    if (next && !$isMarkerNode(next)) splitPoint = next;
   }
   // move splitPoint and everything after it (except the closer glyph) to the right span
   const children = char.getChildren();
   const startIndex = splitPoint ? children.findIndex((c) => c.is(splitPoint)) : -1;
   const hasCloser = children.some((c) => $isMarkerNode(c) && c.getMarkerSyntax() === "closing");
   if (startIndex >= 0) {
+    // Everything after the split point moves — nested element spans included. Collecting only
+    // text nodes stranded a nested char span in the LEFT half while the text around it moved
+    // right, scrambling the content's reading order. Only the span's own closer glyph stays
+    // (the right span gets a fresh one below).
     for (const child of children.slice(startIndex)) {
       if ($isMarkerNode(child) && child.getMarkerSyntax() === "closing") continue;
-      if ($isTextNode(child)) rightChildren.push(child);
+      rightChildren.push(child);
     }
   }
   if (rightChildren.length > 0) {
     // structural NBSP prefix for the right span's first text
     const first = rightChildren[0];
-    if (!first.getTextContent().startsWith(NBSP))
+    if ($isTextNode(first) && !first.getTextContent().startsWith(NBSP))
       first.setTextContent(NBSP + first.getTextContent());
     right.append(rightOpener, ...rightChildren);
     if (hasCloser) right.append($createMarkerNode(marker, "closing"));
@@ -82,13 +89,24 @@ export function $removeCharFormattingFromSelection(): boolean {
       // PT9 (HandleCtrlSpace) always splits at the caret, even when a space
       // already sits right there — it just REUSES that space as the plain
       // separator (moved out of the span) instead of inserting a second one.
-      if (offset < content.length) {
+      // The caret counts as mid-span whenever content still follows it: mid-text, OR at this
+      // text node's end with a later content sibling (a further text run or a nested element
+      // span). PT9's flat USFM has no text-node boundaries, so both are the same "content
+      // after the caret" case — the style closes at the caret and re-opens for the remainder
+      // (StyleApplicator closes all char styles before the blank-styled space and re-opens
+      // the still-active ones after it).
+      const nextInSpan = anchorNode.getNextSibling();
+      const hasContentAfterCaret =
+        offset < content.length || (nextInSpan !== null && !$isMarkerNode(nextInSpan));
+      if (hasContentAfterCaret) {
         const right = $splitCharNodeAt(char, anchorNode, offset);
         // If the split carried an existing space into the right span (as its
         // first content char, after the structural NBSP prefix), strip it
-        // there — the plain space inserted below takes its place.
+        // there — the plain space inserted below takes its place. Only a leading TEXT child
+        // qualifies: when the right span starts with a nested element span, any space-leading
+        // text after that element is not adjacent to the caret, so it keeps its space.
         const rightFirst = right.isAttached()
-          ? right.getChildren().find((c) => $isTextNode(c) && !$isMarkerNode(c))
+          ? right.getChildren().find((c) => !$isMarkerNode(c))
           : undefined;
         if (rightFirst && $isTextNode(rightFirst)) {
           const rightText = rightFirst.getTextContent();
@@ -98,14 +116,15 @@ export function $removeCharFormattingFromSelection(): boolean {
         }
         const space = $createTextNode(" ");
         char.insertAfter(space);
-        // drop halves emptied by the split (only glyphs left)
+        // Drop halves emptied by the split (only glyphs left). A nested element span counts
+        // as content even though it contributes no direct text child — deleting such a half
+        // would silently discard the nested span's text.
         [char, right].forEach((span) => {
-          const spanContent = span
+          const isEmptied = span
             .getChildren()
-            .filter((c) => $isTextNode(c) && !$isMarkerNode(c))
-            .map((c) => c.getTextContent().replace(NBSP, ""))
-            .join("");
-          if (spanContent === "") span.remove();
+            .filter((c) => !$isMarkerNode(c))
+            .every((c) => $isTextNode(c) && c.getTextContent().replace(NBSP, "") === "");
+          if (isEmptied) span.remove();
         });
         space.select(1, 1);
         return true;
@@ -198,12 +217,15 @@ function $findCharNodeByEndMarker(node: LexicalNode, endMarker: string): CharNod
   return undefined;
 }
 
-/** Whether `node` is the last plain (non-marker) text child of `char` — i.e. its content end. */
-function $isLastPlainTextChild(char: CharNode, node: TextNode): boolean {
-  const plainChildren = char
-    .getChildren()
-    .filter((c): c is TextNode => $isTextNode(c) && !$isMarkerNode(c));
-  const last = plainChildren[plainChildren.length - 1];
+/**
+ * Whether `node` is the last content (non-marker) child of `char` — i.e. its content end.
+ * Nested element spans count as content: with a trailing nested span after `node`, the span's
+ * content does NOT end at `node`, so closing there must still split (the tokenizer would put
+ * everything after the literal end marker — the nested span included — outside the style).
+ */
+function $isLastContentChild(char: CharNode, node: TextNode): boolean {
+  const contentChildren = char.getChildren().filter((c) => !$isMarkerNode(c));
+  const last = contentChildren[contentChildren.length - 1];
   return !!last && last.is(node);
 }
 
@@ -242,7 +264,7 @@ export function $closeCharSpanAtCaret(endMarker: string): boolean {
   const offset = selection.anchor.offset;
   if ($isTextNode(anchorNode) && anchorNode.getParent()?.is(char)) {
     const isContentEnd =
-      offset === anchorNode.getTextContentSize() && $isLastPlainTextChild(char, anchorNode);
+      offset === anchorNode.getTextContentSize() && $isLastContentChild(char, anchorNode);
     if (!isContentEnd) {
       const right = $splitCharNodeAt(char, anchorNode, offset);
       $unwrapCharNode(right);

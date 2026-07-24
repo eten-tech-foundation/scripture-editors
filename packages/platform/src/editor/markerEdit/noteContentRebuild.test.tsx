@@ -191,6 +191,61 @@ describe("note-scope Tier 2 rebuild", () => {
     });
   });
 
+  it("keeps a preserved byte-attribute char span through a note-content rebuild", async () => {
+    // A cross-reference char carrying a `link-href` byte attribute is not text-recoverable, so
+    // the rebuild rides it through as a preserved sentinel node. That node is ALSO a direct
+    // member of the note's OLD content list — removing the old content after the splice must
+    // not delete the very node that was just moved into the rebuilt content.
+    const { editor } = createBasicTestEnvironment([TypedMarkNode, ...usjReactNodes]);
+    editor.setEditorState(
+      editor.parseEditorState(
+        serializedState(
+          noteUsx(
+            `closed="false"`,
+            `<char style="ft" closed="false">A note \\fq quote\\fq* </char>` +
+              `<char style="xt" link-href="GEN 1:1" closed="false">Gen 1:1</char>`,
+          ),
+        ),
+      ),
+    );
+
+    let xtKey = "";
+    editor.update(
+      () => {
+        const note = findOnlyNote($getRoot());
+        const xt = requireDefined(
+          note
+            .getChildren()
+            .filter($isCharNode)
+            .find((c) => c.getMarker() === "xt"),
+          "xt char not found",
+        );
+        xtKey = xt.getKey();
+        // The literal `\fq quote\fq*` in the `\ft` text makes this a real (non-fixed-point)
+        // rebuild: the literal resolves into a `\fq` char span.
+        expect($rebuildNoteContent(note, context)).toBe(true);
+      },
+      { discrete: true },
+    );
+
+    editor.getEditorState().read(() => {
+      const note = findOnlyNote($getRoot());
+      // The literal resolved into a `\fq` span AND the preserved `\xt` span survived as the
+      // SAME node instance, still in the note with its content and byte attribute intact.
+      expect(noteCharMarkers(note)).toEqual(["ft", "fq", "xt"]);
+      const xt = requireDefined(
+        note
+          .getChildren()
+          .filter($isCharNode)
+          .find((c) => c.getMarker() === "xt"),
+        "xt char lost by the rebuild",
+      );
+      expect(xt.getKey()).toBe(xtKey);
+      expect(xt.getTextContent()).toContain("Gen 1:1");
+      expect(xt.getUnknownAttributes()?.["link-href"]).toBe("GEN 1:1");
+    });
+  });
+
   it("refuses to rebuild a collapsed note's content (preserve-or-refuse)", async () => {
     // A closed note collapses in standard view; its content is not inline re-tokenizable.
     const { editor } = createBasicTestEnvironment([TypedMarkNode, ...usjReactNodes]);

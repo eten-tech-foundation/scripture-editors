@@ -8,6 +8,9 @@
  *   paragraph kinds retag the current paragraph at content start or split it mid-text (PT9
  *   reformat semantics — see `$applyParagraphSelection`); `closeTag` kind closes the matching
  *   open character span instead (`$closeCharSpanAtCaret`, `../markerEdit/charFormatting.utils`).
+ *   One in-note special case: `fp` picked with the caret in expanded note content performs the
+ *   footnote-paragraph BREAK (`$handleEnterInNote` — the same break Enter makes there), not a
+ *   span insertion.
  * - `splitParagraphWithMarker` — the Enter-triggered marker menu's apply step: splits the
  *   paragraph at the caret and gives the new paragraph the chosen marker.
  *
@@ -15,23 +18,18 @@
  * (`Editor.tsx`) inside `editor.update(...)`.
  */
 import { $insertNoteForMarker, getUsjMarkerAction } from "../adaptors/usj-marker-action.utils";
+import { $applyParaMarker } from "../markerEdit/applyParaMarker.utils";
 import { $closeCharSpanAtCaret } from "../markerEdit/charFormatting.utils";
+import { $handleEnterInNote } from "../markerEdit/markerEditNote.utils";
 import {
-  $injectMarkerPrefix,
   $selectParaContentStart,
+  $setParaMarkerWithPrefix,
 } from "../markerEdit/markerEditDeletion.utils";
 import { MarkerMenuItem } from "./markerItemSource";
 import { $isAtParagraphContentStart } from "./markerMenuContext.utils";
 import { SerializedVerseRef } from "@sillsdev/scripture";
 import { $getEditor, $getSelection, $isRangeSelection, $isTextNode, LexicalNode } from "lexical";
-import {
-  $isMarkerNode,
-  $isParaNode,
-  LoggerBasic,
-  NoteNode,
-  openingMarkerText,
-  ParaNode,
-} from "shared";
+import { $isMarkerNode, $isParaNode, LoggerBasic, NoteNode, ParaNode } from "shared";
 import { UsjNodeOptions, ViewOptions } from "shared-react";
 import { MutableRefObject } from "react";
 
@@ -76,14 +74,11 @@ function $findNearestParaNode(node: LexicalNode): ParaNode | undefined {
  * Retags `para` in place: marker state AND the visible prefix glyph text change together,
  * content untouched — the PT9 reformat outcome for typing `\q1 `-style at a paragraph's
  * content start (committing the marker retags the paragraph itself; it does not create one).
+ * `$applyParaMarker` owns the state/glyph agreement (including healing a paragraph whose
+ * prefix went missing, when the marker mode is known).
  */
-function $retagParagraph(para: ParaNode, marker: string): void {
-  para.setMarker(marker);
-  const first = para.getFirstChild();
-  if ($isMarkerNode(first)) {
-    first.setMarker(marker);
-    first.setTextContent(openingMarkerText(marker));
-  }
+function $retagParagraph(para: ParaNode, marker: string, viewOptions?: ViewOptions): void {
+  $applyParaMarker(para, marker, viewOptions);
   // Place the caret at the content side of the retagged prefix. In editable marker mode a
   // paragraph's children are laid out as [0] the marker-glyph node, [1] the trailing NBSP space,
   // and [2] the first content node — so index 2 is the content (the same layout assumption as
@@ -108,7 +103,11 @@ function $retagParagraph(para: ParaNode, marker: string): void {
  * start); their primary entry point is `EditorRef.splitParagraphWithMarker`, but a paragraph
  * item arriving here with `trigger: "enter"` routes to the split for the same reason.
  */
-function $applyParagraphSelection(marker: string, trigger: "backslash" | "enter"): void {
+function $applyParagraphSelection(
+  marker: string,
+  trigger: "backslash" | "enter",
+  viewOptions?: ViewOptions,
+): void {
   const selection = $getSelection();
   if (!$isRangeSelection(selection)) return;
 
@@ -119,7 +118,7 @@ function $applyParagraphSelection(marker: string, trigger: "backslash" | "enter"
     para &&
     $isAtParagraphContentStart(para, anchorNode, selection.anchor.offset)
   ) {
-    $retagParagraph(para, marker);
+    $retagParagraph(para, marker, viewOptions);
     return;
   }
   $splitParagraphWithMarker(marker);
@@ -166,11 +165,23 @@ export function $applyMarkerMenuSelection(
     return;
   }
 
+  // Inside an expanded note, `fp` is the footnote-paragraph BREAK — the same thing Enter does
+  // there — not "open an \fp span at the caret". Routing it through the generic char-span
+  // insertion instead split the \ft into a [head, empty \fp, tail] sandwich with the tail
+  // stranded on the wrong side of the break, and the empty span then degraded to literal
+  // `\fp` text under the note-content re-tokenization (a visual no-op with the typed literal
+  // left in the content). `fp` is the only offered in-note marker with break semantics.
+  // Outside expanded note content the handler declines without mutating and the generic
+  // insertion below still applies; after a selection removal that destroyed the note
+  // ("needs-plain-split") there is no note left to break, so the apply stops there rather
+  // than inserting an \fp span outside any note.
+  if (item.marker === "fp" && $handleEnterInNote() !== "declined") return;
+
   // Paragraph-kind picks that are real ParaNode markers retag or split (PT9 reformat
   // semantics). The sheet also types some non-para structural markers as "paragraph" (`c` —
   // chapter); those keep the structural action below, which handles them specially.
   if (item.kind === "paragraph" && ParaNode.isValidMarker(item.marker)) {
-    $applyParagraphSelection(item.marker, opts.trigger);
+    $applyParagraphSelection(item.marker, opts.trigger, deps.viewOptions);
     return;
   }
 
@@ -220,6 +231,5 @@ export function $splitParagraphWithMarker(marker: string): void {
   const newPara = selection.insertParagraph();
   if (!$isParaNode(newPara)) return;
 
-  newPara.setMarker(marker);
-  $injectMarkerPrefix(newPara);
+  $setParaMarkerWithPrefix(newPara, marker);
 }

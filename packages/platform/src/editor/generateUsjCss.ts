@@ -32,12 +32,19 @@ function formatLength(value: number): string {
   return value.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
 }
 
-/** Escape a value for safe embedding inside a double-quoted CSS `<string>` (e.g. font-family). */
+/**
+ * Escape a value for safe embedding inside a double-quoted CSS `<string>` (e.g. font-family).
+ * Angle brackets are hex-escaped too: the generated CSS may be injected as `<style>` element
+ * text, where the HTML parser ends the element at any literal `</style` regardless of CSS
+ * string context.
+ */
 function escapeCssString(value: string): string {
-  return value.replace(/["\\\n\r\f]/g, (ch) => {
+  return value.replace(/["\\\n\r\f<>]/g, (ch) => {
     if (ch === "\n") return "\\a ";
     if (ch === "\r") return "\\d ";
     if (ch === "\f") return "\\c ";
+    if (ch === "<") return "\\3C ";
+    if (ch === ">") return "\\3E ";
     return `\\${ch}`;
   });
 }

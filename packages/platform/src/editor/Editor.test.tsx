@@ -9,7 +9,7 @@ import { act, render } from "@testing-library/react";
 import { createRef, ReactElement, RefObject } from "react";
 import { $getNodeByKey, $getRoot, $isTextNode, LexicalEditor, LexicalNode } from "lexical";
 import { EditorRefPlugin } from "@lexical/react/LexicalEditorRefPlugin";
-import { $isMarkerNode, $isNoteNode, MarkerNode } from "shared";
+import { $isMarkerNode, $isNoteNode, $isParaNode, MarkerNode } from "shared";
 import { getViewOptions, STANDARD_VIEW_MODE } from "shared-react";
 import { vi } from "vitest";
 
@@ -318,6 +318,59 @@ describe("insertMarker return value", () => {
     });
 
     expect(key).toBeUndefined();
+  });
+});
+
+describe("formatPara (standard view)", () => {
+  // `$setBlocksType` MOVES the old paragraph's children into the fresh ParaNode, so in editable
+  // marker mode the old marker's prefix glyph migrates over still reading the old marker.
+  // Without a glyph sync the paragraph then claims one marker while its visible (and
+  // serialized) glyph text says another.
+  it("rewrites the migrated prefix glyph to the new block marker", async () => {
+    const ref = createRef<EditorRef>();
+    const capture = lexicalCapture();
+    await act(async () => {
+      render(
+        <Editor
+          ref={ref}
+          defaultUsj={sampleUsj}
+          options={{ view: getViewOptions(STANDARD_VIEW_MODE) }}
+        >
+          {capture.plugin}
+        </Editor>,
+      );
+    });
+    const lexical = capture.get();
+
+    // Park the caret in the paragraph's verse text, then format the block to `\m`.
+    act(() => {
+      lexical.update(() => {
+        const textNode = $getRoot()
+          .getAllTextNodes()
+          .find((node) => node.getTextContent().includes("first verse text"));
+        if (!textNode || !$isTextNode(textNode)) throw new Error("seed text node not found");
+        textNode.select(0, 0);
+      });
+    });
+    await act(async () => {
+      ref.current?.formatPara("m");
+      // Flush Lexical's microtask-deferred commit (and the React updates it cascades into)
+      // so the committed state below includes the format and any transform reactions to it.
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    lexical.getEditorState().read(() => {
+      const para = $getRoot().getChildren().find($isParaNode);
+      if (!para) throw new Error("expected a ParaNode");
+      expect(para.getMarker()).toBe("m");
+      const glyph = para.getFirstChild();
+      if (!$isMarkerNode(glyph)) throw new Error("expected a MarkerNode prefix glyph");
+      expect(glyph.getMarker()).toBe("m");
+      expect(glyph.getTextContent()).toBe("\\m");
+      // Content survived the block conversion.
+      expect(para.getTextContent()).toContain("first verse text");
+    });
   });
 });
 

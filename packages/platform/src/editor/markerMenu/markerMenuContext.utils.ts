@@ -25,10 +25,10 @@ import {
   $findFirstAncestorNoteNode,
   $isBookNode,
   $isCharNode,
-  $isChapterNode,
   $isMarkerNode,
   $isParaMarkerPrefix,
   $isParaNode,
+  $isSomeChapterNode,
   ParaNode,
   textTypeState,
 } from "shared";
@@ -72,16 +72,18 @@ function $collectOpenCharMarkers(node: LexicalNode): string[] {
 
 /**
  * Root's block-level children before the top-level element containing `node`, in document
- * order: `ParaNode`/`ChapterNode`/`BookNode` markers (the stack replay in
+ * order: `ParaNode`/chapter/`BookNode` markers (the stack replay in
  * `markerItemSource.ts` filters to styleType-paragraph entries itself - `c`/`id` ARE
- * paragraph-typed in the sheet).
+ * paragraph-typed in the sheet). Chapters match via `$isSomeChapterNode` — the same
+ * predicate the validation walk uses — so a decorator `ImmutableChapterNode` contributes
+ * its `\c` just like the mutable variant.
  */
 function $collectPreviousParaMarkers(node: LexicalNode): string[] {
   const topLevel = node.getTopLevelElement();
   const markers: string[] = [];
   for (const child of $getRoot().getChildren()) {
     if (topLevel && child.is(topLevel)) break;
-    if ($isBookNode(child) || $isChapterNode(child) || $isParaNode(child)) {
+    if ($isBookNode(child) || $isSomeChapterNode(child) || $isParaNode(child)) {
       markers.push(child.getMarker());
     }
   }

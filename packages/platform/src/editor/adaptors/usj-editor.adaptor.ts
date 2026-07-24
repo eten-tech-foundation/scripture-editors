@@ -113,6 +113,7 @@ import {
   getDefaultViewOptions,
   getVerseNodeClass,
   hasStandardViewWhitespace,
+  isCollapsedNoteMode,
   isSomeSerializedVerseNode,
 } from "shared-react";
 
@@ -251,7 +252,9 @@ function createBook(markerObject: MarkerObject): SerializedBookNode {
     children.push(createImmutableTypedText("marker", openingMarkerText(marker) + NBSP));
   }
   const text = getTextContent(markerObject.content);
-  if (text) children.push(createText(text));
+  // Display-encode like any other text content: the reverse adaptor inverts display whitespace
+  // on all text nodes (book children included), so raw book text would corrupt on save.
+  if (text) children.push(createText(isStandardView() ? usjTextToDisplay(text) : text));
   const unknownAttributes = getUnknownAttributes(markerObject, BOOK_MARKER_OBJECT_PROPS);
 
   return removeUndefinedProperties({
@@ -414,12 +417,18 @@ function createPara(
     children.push(createImmutableTypedText("marker", openingMarkerText(marker) + NBSP));
   children.push(...childNodes);
   if (isStandardView()) {
-    // Paragraph-leading spaces display as NBSP. First content text node only.
-    const firstText = children.find(
-      (node) => isSerializedTextNode(node) && node.text !== NBSP && !isSerializedMarkerNode(node),
+    // Paragraph-leading spaces display as NBSP so they stay visible and typable at the start of
+    // the paragraph. Only genuinely paragraph-leading text qualifies: skip the marker glyph and
+    // its NBSP separator token, then the first content node must itself be text. When other
+    // inline content (verse, char, note, ...) comes first, a later text node's leading space
+    // sits mid-paragraph where it is already visible, and an NBSP there would wrongly forbid
+    // line-wrap at that point.
+    const firstContent = children.find(
+      (node) =>
+        !isSerializedMarkerNode(node) && !(isSerializedTextNode(node) && node.text === NBSP),
     );
-    if (firstText && isSerializedTextNode(firstText))
-      firstText.text = firstText.text.replace(/^ +/, (lead) => NBSP.repeat(lead.length));
+    if (isSerializedTextNode(firstContent))
+      firstContent.text = firstContent.text.replace(/^ +/, (lead) => NBSP.repeat(lead.length));
   }
   const unknownAttributes = getUnknownAttributes(markerObject, PARA_MARKER_OBJECT_PROPS);
 
@@ -469,7 +478,7 @@ function createNote(
   // Unclosed notes (closed="false") render expanded inline (PT9 `opennote`); only closed
   // notes honor noteMode collapse.
   const isUnclosed = (markerObject as MarkerObject & { closed?: string }).closed === "false";
-  const isCollapsed = isUnclosed ? false : _viewOptions?.noteMode !== "expanded";
+  const isCollapsed = isUnclosed ? false : isCollapsedNoteMode(_viewOptions?.noteMode);
   const unknownAttributes = getUnknownAttributes(markerObject, NOTE_MARKER_OBJECT_PROPS);
 
   let openingMarkerNode: SerializedTextNode | SerializedImmutableTypedTextNode | undefined;

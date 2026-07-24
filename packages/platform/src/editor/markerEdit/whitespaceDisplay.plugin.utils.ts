@@ -14,7 +14,14 @@ import {
   LexicalClipboardData,
 } from "@lexical/clipboard";
 import { $getSelection, $getState, $isRangeSelection, LexicalEditor, TextNode } from "lexical";
-import { $isBookNode, $isChapterNode, $isUnknownNode, NBSP, textTypeState } from "shared";
+import {
+  $isBookNode,
+  $isChapterNode,
+  $isCharNode,
+  $isUnknownNode,
+  NBSP,
+  textTypeState,
+} from "shared";
 
 /** Spaces in runs display as NBSP so they are visible while typing. */
 export function $displayWhitespaceTransform(node: TextNode): void {
@@ -28,9 +35,18 @@ export function $displayWhitespaceTransform(node: TextNode): void {
     // as Tier 2.
     if ($isBookNode(parent) || $isChapterNode(parent) || $isUnknownNode(parent)) return;
   }
-  const mapped = text
-    .replace(/ (?=[ \u00A0])/g, NBSP) // space followed by space/NBSP
-    .replace(/(?<=\u00A0) /g, NBSP); // space preceded by NBSP
+  // A char span's text children carry a STRUCTURAL leading NBSP (the glyph separator the
+  // adaptor/materializer glues onto content). It is not a display space-run member, so it must
+  // not act as left context for the mapping: a genuine content-leading single space stays plain
+  // in the clean-loaded shape, and mapping it here would make edited (dirty) nodes emit
+  // different collab ops than clean-loaded ones for identical content.
+  const hasStructuralPrefix = text.startsWith(NBSP) && $isCharNode(node.getParent());
+  const body = hasStructuralPrefix ? text.slice(1) : text;
+  const mapped =
+    (hasStructuralPrefix ? NBSP : "") +
+    body
+      .replace(/ (?=[ \u00A0])/g, NBSP) // space followed by space/NBSP
+      .replace(/(?<=\u00A0) /g, NBSP); // space preceded by NBSP
   if (mapped !== text) node.setTextContent(mapped); // length-preserving: caret stays valid
 }
 
@@ -41,9 +57,11 @@ export function $displayWhitespaceTransform(node: TextNode): void {
  * content. So: script/style/template text is dropped (code, not content), and block boundaries
  * plus `<br>` become newlines — the same newline-joined shape a multi-line `text/plain` paste
  * hands to `insertText` in `$handlePasteForStandardView` below. Deliberately minimal — not a
- * general html-to-text conversion.
+ * general html-to-text conversion. Exported for the in-note paste claim
+ * (`MarkerEditPlugin`), which falls back to this decoding when a clipboard carries `text/html`
+ * without any `text/plain`.
  */
-function htmlPasteText(html: string): string {
+export function htmlPasteText(html: string): string {
   const { body } = new DOMParser().parseFromString(html, "text/html");
   body.querySelectorAll("script,style,template").forEach((element) => element.remove());
   body.querySelectorAll("br").forEach((element) => element.replaceWith("\n"));

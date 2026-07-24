@@ -712,7 +712,14 @@ export function $rebuildNoteContent(note: NoteNode, context: Tier2Context): bool
     newNodes.forEach((node) => (closing ? closing.insertBefore(node) : note.append(node)));
   }
   $replaceSentinels(newNodes, out.sentinels);
-  contentNodes.forEach((node) => node.remove());
+  // Unlike `$rebuildParas` (which removes container PARAGRAPHS the preserved nodes were
+  // already moved out of), the old content list here contains the preserved sentinel nodes
+  // THEMSELVES — `$replaceSentinels` just moved them into the rebuilt content, so removing
+  // them here would silently delete them from their new home. Skip them.
+  const preservedKeys = new Set(out.sentinels.flat().map((node) => node.getKey()));
+  contentNodes.forEach((node) => {
+    if (!preservedKeys.has(node.getKey())) node.remove();
+  });
   $restoreSelectionInNoteContent(newNodes, caretOffset, anchorInNote, getMarkerFn);
   return true;
 }
