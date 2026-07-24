@@ -56,9 +56,13 @@ const CLOSER_FORM_REGEX = /^\\\+?[\w-]*\*$/;
 
 function $markerCanonicalText(node: MarkerNode): string {
   const syntax = node.getMarkerSyntax();
-  if (syntax === "closing") return closingMarkerText(node.getMarker());
+  // A nested char span's glyphs carry the `+` prefix (`\+w …\+w*`); the canonical text must derive
+  // the same `+` from the node's stored nesting so a rest-state nested glyph is not mistaken for a
+  // mid-edit rename.
+  const nested = node.getNested();
+  if (syntax === "closing") return closingMarkerText(node.getMarker(), nested);
   if (syntax === "selfClosing") return closingMarkerText("");
-  return openingMarkerText(node.getMarker());
+  return openingMarkerText(node.getMarker(), nested);
 }
 
 // Milestone-name heuristic shared with the fragment tokenizer (`isMilestoneHeuristicName`):
@@ -153,7 +157,9 @@ export function $applyOpenerRename(
       .filter((child) => child.getMarkerSyntax() === "closing" && child.getMarker() === oldMarker)
       .at(-1);
     if (closer) {
-      $clampSelectionToLength(closer, closingMarkerText(clean).length);
+      // A nested span's closer is `\+marker*`; clamp to the nested-aware length so the `+` is
+      // counted (`setMarker` below re-derives the closer text from its own stored nesting).
+      $clampSelectionToLength(closer, closingMarkerText(clean, closer.getNested()).length);
       closer.setMarker(clean); // same update: opener authority rewrites the closer
     }
     node.setMarker(clean);
