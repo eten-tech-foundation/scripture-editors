@@ -146,8 +146,8 @@ export default function App() {
     useState<RefObject<HTMLElement | null> | null>(null);
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
-  const [blockMarker, setBlockMarker] = useState<string | undefined>();
-  const [contextMarker, setContextMarker] = useState<string | undefined>();
+  const [blockMarker, setBlockMarker] = useState<string>();
+  const [contextMarker, setContextMarker] = useState<string>();
 
   const viewOptions = useMemo<ViewOptions | undefined>(() => {
     if (viewMode === UNDEFINED_VIEW_MODE) return undefined;

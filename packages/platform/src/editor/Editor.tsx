@@ -137,7 +137,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
   const expandedNoteKeyRef = useRef<string>(undefined);
   const [usj, setUsj] = useState(defaultUsj);
   const [loadTrigger, setLoadTrigger] = useState(0);
-  const [contextMarker, setContextMarker] = useState<string | undefined>();
+  const [contextMarker, setContextMarker] = useState<string>();
 
   const {
     isReadonly = false,
