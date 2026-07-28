@@ -208,6 +208,18 @@ nx run-many -t lint # to check linting
 nx run-many -t typecheck # to check types
 ```
 
+## Dependency Updates
+
+Dependabot is configured to open **security PRs only**, so any dependabot PR on this repo is an
+advisory rather than a routine bump. We supersede those PRs with a single hand-made batch commit,
+because dependabot resolves pnpm monorepo trees poorly and because a version bump often fails to
+clear the advisory on its own.
+
+See [docs/dependency-updates.md](/docs/dependency-updates.md) for the procedure, how to write the
+`pnpm-workspace.yaml` overrides, and why a green CI run is not evidence that a vulnerability is
+fixed. Claude Code users can invoke the
+[`update-dependencies`](/.claude/skills/update-dependencies) skill, which follows that doc.
+
 ## TypeScript Code Intelligence
 
 This repo gives Claude Code a TypeScript language server (jump-to-definition, find-references, and
