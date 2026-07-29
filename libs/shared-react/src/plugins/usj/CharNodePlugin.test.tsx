@@ -546,6 +546,43 @@ describe("CharNodePlugin", () => {
       });
     });
 
+    it("lets the user delete a separator spacer while the caret sits at the deletion point", async () => {
+      // Deleting is always allowed: while the collapsed caret sits at the deletion point the
+      // sync must NOT instantly re-add the spacer (mid-edit grace) — the marker-edit engine
+      // settles it back canonically on caret departure.
+      let outerChar: CharNode;
+      let spacer: ReturnType<typeof $createTextNode>;
+      let opener: ReturnType<typeof $createMarkerNode>;
+      const { editor } = await testEnvironment(() => {
+        outerChar = $createCharNode("nd");
+        opener = $createMarkerNode("nd");
+        spacer = $createTextNode(NBSP);
+        const inner = $createCharNode("wj");
+        inner.append(
+          $createMarkerNode("wj", "opening", true),
+          $createTextNode(`${NBSP}on`),
+          $createMarkerNode("wj", "closing", true),
+        );
+        outerChar.append(opener, spacer, inner, $createMarkerNode("nd", "closing"));
+        $getRoot().append($createParaNode().append(outerChar));
+      });
+
+      await act(async () => {
+        editor.update(() => {
+          // Simulate deleting the spacer: it is removed and the caret lands on the glyph end.
+          spacer.remove();
+          opener.select(opener.getTextContentSize(), opener.getTextContentSize());
+        });
+      });
+
+      editor.getEditorState().read(() => {
+        const children = outerChar.getChildren();
+        // The deletion stuck: opener is directly followed by the nested span, no spacer.
+        expect($isMarkerNode(children[0]) && children[0].getTextContent()).toBe("\\nd");
+        expect($isCharNode(children[1]) && children[1].getMarker()).toBe("wj");
+      });
+    });
+
     it("leaves a milestone's glyph run inside a char span alone (no bogus +)", async () => {
       let outerChar: CharNode;
       let msOpening: ReturnType<typeof $createMarkerNode>;
