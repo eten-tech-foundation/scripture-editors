@@ -22,10 +22,18 @@ export type SerializedMarkerNode = Spread<
     markerSyntax?: MarkerSyntax;
     /**
      * Whether this glyph belongs to a char span nested inside another char span. A nested span's
-     * marker text carries the `+` prefix (`\+w …\+w*`) — ParatextData's writer rule and PT9's
-     * on-screen display for USFM ≤3.0. Stored (not derived live from the tree) so the visible
-     * glyph text and the node's structural role stay in agreement at rest; every path that changes
-     * a span's nesting (Tier-2 rebuild, collab materialize) rebuilds the glyph through the adaptor.
+     * glyph text carries the `+` prefix (`\+w …\+w*`) — ParatextData's writer rule and PT9's
+     * on-screen display for USFM ≤3.0.
+     *
+     * This is a CACHE of tree-derived state (nesting truth is parent-is-CharNode; markers stay
+     * clean everywhere), stored because Lexical renders a TextNode's stored `__text` — there is
+     * no computed-text hook, and nothing re-runs when an ANCESTOR moves — so the `+` must be
+     * baked into `__text` at write time (see `getMarkerText`). Serialized only when `true`
+     * because transforms do not run on `setEditorState`: a restored state renders straight from
+     * `__text`, so the flag must survive serialization for `setMarker`/`setMarkerSyntax` to
+     * re-derive the text correctly later. Glyph builders set it at construction, and the
+     * `$syncNestedGlyphs` CharNode transform re-derives it from tree position whenever a span is
+     * dirtied — see nestedGlyphs.utils.ts for the full representation rules.
      */
     nested?: boolean;
   },
@@ -163,6 +171,13 @@ export function isSerializedMarkerNode(
   return node?.type === MarkerNode.getType();
 }
 
+/**
+ * The single writer of a glyph's `__text` — the ONLY place the `+` becomes literal characters.
+ * `marker` is always clean (`"w"`); `nested` contributes the `+` (`\+w`). Called from the
+ * constructor and every setter, so `__text` always reflects (marker, syntax, nested) — keeping
+ * the cached text honest is therefore exactly the job of keeping `nested` honest, which
+ * `$syncNestedGlyphs` (nestedGlyphs.utils.ts) does from tree position.
+ */
 function getMarkerText(marker: string, markerSyntax: MarkerSyntax, nested = false) {
   // The self-closing form is a milestone terminator (`\*`); milestones never nest inside a char
   // span, so the `+` prefix does not apply to it.
