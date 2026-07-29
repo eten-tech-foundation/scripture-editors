@@ -481,6 +481,41 @@ describe("$applyMarkerMenuSelection", () => {
       });
     });
 
+    it("shows the display separator on a freshly wrapped span (structural NBSP before content)", async () => {
+      // Selecting text and applying a char style must render `\nd one`, not `\ndone`: the wrapped
+      // content carries the structural NBSP separator like every other editable char span (the
+      // saved bytes were already right — this pins the DISPLAY).
+      let text: TextNode;
+      const { editor } = await testEnvironment(() => {
+        const para = $createParaNode("p");
+        text = $createTextNode("one two");
+        $getRoot().append(para.append($createMarkerNode("p"), $createTrailingSpaceNode(), text));
+      });
+      await act(async () => editor.update(() => text.select(0, 3))); // select "one"
+
+      const item: MarkerMenuItem = { marker: "nd", kind: "character", isBasic: true };
+      await act(async () =>
+        editor.update(() => {
+          $applyMarkerMenuSelection(
+            item,
+            { trigger: "backslash", literalPrefixLanded: false },
+            reference,
+            makeDeps(),
+          );
+        }),
+      );
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getChildren().filter($isParaNode)[0];
+        const nd = para.getChildren().filter($isCharNode)[0];
+        expect(nd.getMarker()).toBe("nd");
+        const content = nd
+          .getChildren()
+          .find((c): c is TextNode => $isTextNode(c) && !$isMarkerNode(c));
+        expect(content?.getTextContent()).toBe(`${NBSP}one`);
+      });
+    });
+
     it("wraps a MULTI-node selection without deleting earlier content (reused-wrapper regression)", async () => {
       let first: TextNode;
       let last: TextNode;
@@ -890,11 +925,13 @@ describe("$applyMarkerMenuSelection", () => {
           ftChar.setUnknownAttributes({ closed: "false" });
           const ndChar = $createCharNode("nd");
           const wjChar = $createCharNode("wj");
-          const wjContent = $createTextNode("words here");
+          // Content texts carry the structural NBSP separator, as loaded spans do (the
+          // markerSeparators sync would otherwise add it at mount and shift select offsets).
+          const wjContent = $createTextNode(`${NBSP}words here`);
           wjChar.append($createMarkerNode("wj"), wjContent, $createMarkerNode("wj", "closing"));
           ndChar.append(
             $createMarkerNode("nd"),
-            $createTextNode("holy "),
+            $createTextNode(`${NBSP}holy `),
             wjChar,
             $createMarkerNode("nd", "closing"),
           );
@@ -941,7 +978,7 @@ describe("$applyMarkerMenuSelection", () => {
       it("nests the new \\w INSIDE the innermost \\wj of \\ft > \\nd > \\wj without splitting anything", async () => {
         const { editor, note, ftChar, ndChar, wjChar, wjContent } =
           await setUpNestedExpandedFootnote();
-        await act(async () => editor.update(() => wjContent.select(3, 3))); // "wor|ds here"
+        await act(async () => editor.update(() => wjContent.select(4, 4))); // NBSP + "wor|ds here"
 
         await act(async () =>
           editor.update(() => {
@@ -1586,9 +1623,10 @@ describe("$applyMarkerMenuSelection", () => {
           const ftChar = $createCharNode("ft");
           ftChar.setUnknownAttributes({ closed: "false" });
           const ndChar = $createCharNode("nd");
+          // NBSP: the structural separator loaded spans carry (see markerSeparators.utils.ts).
           ndChar.append(
             $createMarkerNode("nd", "opening", true),
-            $createTextNode("holy"),
+            $createTextNode(`${NBSP}holy`),
             $createMarkerNode("nd", "closing", true),
           );
           ftChar.append(
@@ -1638,8 +1676,8 @@ describe("$applyMarkerMenuSelection", () => {
 
       it("(selection) closes \\nd and \\ft, puts \\fq at the note level, and reopens \\ft after it", async () => {
         const { editor, note } = await setUpNestedNd();
-        // Select "ly" (the tail of the nested \nd's "holy").
-        await act(async () => editor.update(() => $spanText($nestedNd(note)).select(2, 4)));
+        // Select "ly" (the tail of the nested \nd's NBSP + "holy").
+        await act(async () => editor.update(() => $spanText($nestedNd(note)).select(3, 5)));
 
         await act(async () =>
           editor.update(() =>
@@ -1675,8 +1713,8 @@ describe("$applyMarkerMenuSelection", () => {
 
       it("(collapsed caret) closes and reopens around an empty \\fq, reopening \\nd for the tail", async () => {
         const { editor, note } = await setUpNestedNd();
-        // Caret between "ho" and "ly" inside the nested \nd.
-        await act(async () => editor.update(() => $spanText($nestedNd(note)).select(2, 2)));
+        // Caret between "ho" and "ly" inside the nested \nd (NBSP + "holy").
+        await act(async () => editor.update(() => $spanText($nestedNd(note)).select(3, 3)));
 
         await act(async () =>
           editor.update(() =>

@@ -673,6 +673,20 @@ function $wrapNode(node: LexicalNode, wrapper: LexicalNode, isFreshWrapper: bool
       wrapper.append(node);
     }
     $moveLeadingSpaceToPreviousNode(node, wrapper);
+    // The span's first content carries the display separator after the opening glyph (`\nd one`,
+    // not `\ndone`) — the structural NBSP convention in markerSeparators.utils.ts. Only the FIRST
+    // wrapped node takes it (later nodes of a multi-node selection are mid-span content), and only
+    // in the editable-glyph shape (an opening MarkerNode child); other marker modes carry no
+    // display separator.
+    if (
+      isFreshWrapper &&
+      $isCharNode(wrapper) &&
+      wrapper.getChildren().some((child) => $isMarkerNode(child)) &&
+      $isTextNode(node) &&
+      !$isMarkerNode(node) &&
+      !node.getTextContent().startsWith(NBSP)
+    )
+      node.setTextContent(NBSP + node.getTextContent());
   }
 }
 

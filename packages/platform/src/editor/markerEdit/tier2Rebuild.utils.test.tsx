@@ -198,6 +198,42 @@ describe("$rebuildParas", () => {
     });
   });
 
+  // The display separator after an opening glyph must exist even when the span's FIRST content is
+  // an element (a nested char): `\nd \+wj on\+wj*e\nd*` renders a spacer NBSP between `\nd` and
+  // `\+wj`. The spacer is display-only (dropped on save) and the paragraph stays a fixed point.
+  it("shows a separator after an opener whose first content is a nested char, and stays a fixed point", () => {
+    const editor = loadEditor(
+      usjFromUsx(`x <char style="nd"><char style="wj">on</char>e</char> after`),
+    );
+    editor.getEditorState().read(() => {
+      const nd = requireDefined(
+        $lastPara()
+          .getChildren()
+          .find((n) => $isCharNode(n) && n.getMarker() === "nd"),
+        "nd char span not found",
+      );
+      if (!$isCharNode(nd)) throw new Error("nd is not a CharNode");
+      const children = nd.getChildren();
+      // [opener \nd, spacer NBSP, wj span, "e", closer \nd*]
+      expect($isMarkerNode(children[0]) && children[0].getTextContent()).toBe("\\nd");
+      expect($isTextNode(children[1]) && children[1].getTextContent()).toBe(NBSP);
+      expect($isCharNode(children[2]) && children[2].getMarker()).toBe("wj");
+    });
+    // The spacer is presentation-only: the USJ round trip carries no stray space.
+    const usj = deserializeSerializedEditorState(editor.getEditorState().toJSON(), viewOptions);
+    const para = $firstPara(usj);
+    expect(para).toMatchObject({
+      content: [
+        "x ",
+        { type: "char", marker: "nd", content: [{ type: "char", marker: "wj" }, "e"] },
+        " after",
+      ],
+    });
+    editor.update(() => expect($rebuildParas([$lastPara()], context)).toBe(false), {
+      discrete: true,
+    });
+  });
+
   it("splits the paragraph when the text contains a literal \\p", () => {
     const editor = loadEditor(usjFromUsx(`<verse number="1" style="v" />one \\p two`));
     editor.update(() => expect($rebuildParas([$lastPara()], context)).toBe(true), {

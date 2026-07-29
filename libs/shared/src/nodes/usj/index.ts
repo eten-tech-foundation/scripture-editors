@@ -21,6 +21,7 @@ export * from "./ImpliedParaNode.js";
 export * from "./MilestoneNode.js";
 export * from "./node-constants.js";
 export * from "./node.utils.js";
+export * from "./markerSeparators.utils.js";
 export * from "./nestedGlyphs.utils.js";
 export * from "./NoteNode.js";
 export * from "./ParaNode.js";

@@ -11,6 +11,7 @@ import {
   $isParaNode,
   charIdState,
   CharNode,
+  NBSP,
 } from "shared";
 
 describe("CharNodePlugin", () => {
@@ -494,6 +495,54 @@ describe("CharNodePlugin", () => {
 
       editor.getEditorState().read(() => {
         expect(glyphTexts(ndChar)).toEqual(["\\+nd", "\\+nd*"]);
+      });
+    });
+
+    it("heals a missing display separator after an opener (text-first and element-first)", async () => {
+      let textFirstChar: CharNode;
+      let elementFirstChar: CharNode;
+      const { editor } = await testEnvironment(() => {
+        // Text-first span missing its structural NBSP prefix (`\ndone` instead of `\nd one`).
+        textFirstChar = $createCharNode("nd");
+        textFirstChar.append(
+          $createMarkerNode("nd"),
+          $createTextNode("one"),
+          $createMarkerNode("nd", "closing"),
+        );
+        // Element-first span missing the spacer between its opener and the nested span.
+        elementFirstChar = $createCharNode("add");
+        const inner = $createCharNode("wj");
+        inner.append(
+          $createMarkerNode("wj", "opening", true),
+          $createTextNode(`${NBSP}in`),
+          $createMarkerNode("wj", "closing", true),
+        );
+        elementFirstChar.append(
+          $createMarkerNode("add"),
+          inner,
+          $createMarkerNode("add", "closing"),
+        );
+        $getRoot().append($createParaNode().append(textFirstChar, elementFirstChar));
+      });
+
+      await act(async () => {
+        editor.update(() => {
+          textFirstChar.getWritable();
+          elementFirstChar.getWritable();
+        });
+      });
+
+      editor.getEditorState().read(() => {
+        // Text-first: the content text gained the structural NBSP prefix.
+        const content = textFirstChar
+          .getChildren()
+          .find((c) => $isTextNode(c) && !$isMarkerNode(c));
+        expect(content?.getTextContent()).toBe(`${NBSP}one`);
+        // Element-first: a standalone NBSP spacer sits between the opener and the nested span.
+        const children = elementFirstChar.getChildren();
+        expect($isMarkerNode(children[0]) && children[0].getTextContent()).toBe("\\add");
+        expect($isTextNode(children[1]) && children[1].getTextContent()).toBe(NBSP);
+        expect($isCharNode(children[2]) && children[2].getMarker()).toBe("wj");
       });
     });
 
