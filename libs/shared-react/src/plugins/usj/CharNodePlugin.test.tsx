@@ -4,8 +4,10 @@ import { act } from "@testing-library/react";
 import { $getRoot, $createTextNode, $isTextNode, $setState } from "lexical";
 import {
   $createCharNode,
+  $createMarkerNode,
   $createParaNode,
   $isCharNode,
+  $isMarkerNode,
   $isParaNode,
   charIdState,
   CharNode,
@@ -412,6 +414,118 @@ describe("CharNodePlugin", () => {
       if (!$isCharNode(add)) throw new Error("Expected a CharNode");
       expect(add.getMarker()).toBe("add");
       expect(add.getTextContent()).toBe("add text1 nd text add text2 ");
+    });
+  });
+
+  // Self-healing nested glyphs: the tree is the source of truth for nesting; each glyph's cached
+  // `+` (MarkerNode.__text via the `nested` flag) must follow the span when structure changes.
+  describe("nested glyph healing ($syncNestedGlyphs transform)", () => {
+    /** A char span's own marker glyph texts, in order. */
+    function glyphTexts(char: CharNode): string[] {
+      return char
+        .getChildren()
+        .filter($isMarkerNode)
+        .map((m) => m.getTextContent());
+    }
+
+    it("drops the + from a nested span's glyphs when the span moves to paragraph level", async () => {
+      let ndChar: CharNode;
+      let outerChar: CharNode;
+      const { editor } = await testEnvironment(() => {
+        outerChar = $createCharNode("add");
+        ndChar = $createCharNode("nd");
+        ndChar.append(
+          $createMarkerNode("nd", "opening", true),
+          $createTextNode("holy"),
+          $createMarkerNode("nd", "closing", true),
+        );
+        outerChar.append(
+          $createMarkerNode("add"),
+          $createTextNode("before "),
+          ndChar,
+          $createMarkerNode("add", "closing"),
+        );
+        $getRoot().append($createParaNode().append(outerChar));
+      });
+
+      await act(async () => {
+        editor.update(() => {
+          // Structure surgery that forgets to refresh glyphs (the drift the transform heals):
+          // the nested span moves OUT to the paragraph level with its `\+nd` glyphs intact.
+          outerChar.insertAfter(ndChar);
+        });
+      });
+
+      editor.getEditorState().read(() => {
+        expect(glyphTexts(ndChar)).toEqual(["\\nd", "\\nd*"]);
+      });
+    });
+
+    it("adds the + to a bare span's glyphs when the span moves inside another char", async () => {
+      let ndChar: CharNode;
+      let outerChar: CharNode;
+      const { editor } = await testEnvironment(() => {
+        outerChar = $createCharNode("add");
+        outerChar.append(
+          $createMarkerNode("add"),
+          $createTextNode("before "),
+          $createMarkerNode("add", "closing"),
+        );
+        ndChar = $createCharNode("nd");
+        ndChar.append(
+          $createMarkerNode("nd"),
+          $createTextNode("holy"),
+          $createMarkerNode("nd", "closing"),
+        );
+        $getRoot().append($createParaNode().append(outerChar, ndChar));
+      });
+
+      await act(async () => {
+        editor.update(() => {
+          // The bare span moves INSIDE the other char (before its closer) — its glyphs must
+          // gain the `+`.
+          const closer = outerChar
+            .getChildren()
+            .find((c) => $isMarkerNode(c) && c.getMarkerSyntax() === "closing");
+          if (!closer) throw new Error("outer closer missing");
+          closer.insertBefore(ndChar);
+        });
+      });
+
+      editor.getEditorState().read(() => {
+        expect(glyphTexts(ndChar)).toEqual(["\\+nd", "\\+nd*"]);
+      });
+    });
+
+    it("leaves a milestone's glyph run inside a char span alone (no bogus +)", async () => {
+      let outerChar: CharNode;
+      let msOpening: ReturnType<typeof $createMarkerNode>;
+      const { editor } = await testEnvironment(() => {
+        outerChar = $createCharNode("wj");
+        // The adaptor renders a milestone INSIDE a char span as sibling glyphs of the milestone
+        // node: an opening `\qt-s` MarkerNode and a self-closing `\*`. They are direct MarkerNode
+        // children of the char but do NOT describe a nested char span — no `+` belongs on them.
+        msOpening = $createMarkerNode("qt-s");
+        outerChar.append(
+          $createMarkerNode("wj"),
+          $createTextNode("words "),
+          msOpening,
+          $createMarkerNode("", "selfClosing"),
+          $createMarkerNode("wj", "closing"),
+        );
+        $getRoot().append($createParaNode().append(outerChar));
+      });
+
+      await act(async () => {
+        editor.update(() => {
+          // Any edit that dirties the span re-runs the transform.
+          outerChar.getWritable();
+        });
+      });
+
+      editor.getEditorState().read(() => {
+        expect(msOpening.getTextContent()).toBe("\\qt-s");
+      });
     });
   });
 });

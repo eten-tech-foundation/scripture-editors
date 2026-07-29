@@ -6,6 +6,7 @@ import { useEffect } from "react";
 import {
   $hasSameCharAttributes,
   $isCharNode,
+  $syncNestedGlyphs,
   charIdState,
   CharNode,
   EMPTY_CHAR_PLACEHOLDER_TEXT,
@@ -26,6 +27,10 @@ function useCharNode(editor: LexicalEditor) {
 
     return mergeRegister(
       editor.registerNodeTransform(CharNode, $charNodeTransform),
+      // Self-healing nested glyphs: whenever a char span is dirtied (created, moved, merged,
+      // unwrapped), re-derive its glyphs' `+` from tree position — see nestedGlyphs.utils.ts
+      // (`shared`) for the full representation rules this enforces.
+      editor.registerNodeTransform(CharNode, $syncNestedGlyphs),
       editor.registerNodeTransform(TextNode, $charTextNodeTransform),
     );
   }, [editor]);
