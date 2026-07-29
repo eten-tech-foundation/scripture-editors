@@ -1,4 +1,5 @@
 import { $isSomeVerseNode, SomeVerseNode } from "../../nodes/usj";
+import { $advancePastParaPrefixes } from "./ParaMarkerPrefixCursorGuardPlugin";
 import { $findMatchingParent } from "@lexical/utils";
 import {
   $createTextNode,
@@ -303,7 +304,7 @@ export function $mergeParaIntoPrevious(para: SomeParaNode): void {
   // When `prev` had content, the junction is the end of its last child; when it was empty the
   // junction is its start — so the caret lands where the two paragraphs joined, not at the end.
   if (junction) $placeCaretAtEnd(junction);
-  else prev.selectStart();
+  else if (!$advancePastParaPrefixes(prev)) prev.selectStart();
 }
 
 /**

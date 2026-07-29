@@ -24,7 +24,7 @@ import {
   removeNodesBeforeNode,
   ScriptureReference,
 } from "shared";
-import { $findThisVerse, $findVerseOrPara } from "shared-react";
+import { $advancePastParaPrefixes, $findThisVerse, $findVerseOrPara } from "shared-react";
 
 /**
  * A component (plugin) that keeps the Scripture reference updated.
@@ -131,7 +131,7 @@ function $moveCursorToVerseStart(
   if ($isParaNode(verseOrParaNode)) {
     const firstChild = verseOrParaNode.getFirstChild();
     if ($isTextNode(firstChild)) firstChild.select(0, 0);
-    else verseOrParaNode.select(0, 0);
+    else if (!$advancePastParaPrefixes(verseOrParaNode)) verseOrParaNode.select(0, 0);
   } else verseOrParaNode.selectNext(0, 0);
   hasCursorMovedRef.current = true;
 }
