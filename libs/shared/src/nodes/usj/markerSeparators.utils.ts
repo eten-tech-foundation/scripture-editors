@@ -27,23 +27,81 @@
  * transform in CharNodePlugin — re-derives it whenever a span is dirtied, healing paths that
  * restructure spans without rebuilding them through an adaptor. Deleting the separator is
  * semantically a no-op (the writer emits the space regardless), so healing it back is display
- * canonicalization, exactly like Tier-2's rebuild produces.
+ * canonicalization, exactly like Tier-2's rebuild produces — but deleting must still be
+ * ALLOWED: while the collapsed caret sits at the deletion point the sync leaves the gap alone
+ * (mid-edit grace), and the marker-edit engine settles it back on caret departure by pending
+ * spans reported by {@link $hasCaretHeldSeparatorGap} into its Tier-2 completion path.
  *
  * Only char-span glyphs take a separator — a milestone's display run inside a span is left
  * alone — so which glyphs qualify is decided by the same classifier the nested-`+` sync uses
  * ({@link $charGlyphNestedValue}).
  */
 
-import { $isMarkerNode } from "../features/MarkerNode.js";
+import { $isMarkerNode, MarkerNode } from "../features/MarkerNode.js";
 import { CharNode } from "./CharNode.js";
 import { $charGlyphNestedValue } from "./nestedGlyphs.utils.js";
 import { NBSP } from "./node-constants.js";
-import { $createTextNode, $isTextNode, LexicalNode, TextNode } from "lexical";
+import {
+  $createTextNode,
+  $getSelection,
+  $isRangeSelection,
+  $isTextNode,
+  LexicalNode,
+  TextNode,
+} from "lexical";
+
+/**
+ * Where a separator is missing after `opener` (a direct child of `char`):
+ *
+ * - `"prefix"` — the glyph is followed by plain text that lacks the NBSP prefix;
+ * - `"spacer"` — the glyph is followed by an element (or, in the collab-flattened shape, a nested
+ *   span's opening glyph) with no standalone NBSP spacer between them;
+ * - `undefined` — no separator is owed: the glyph is not a char-span glyph (a milestone's display
+ *   run), has nothing after it, sits directly before a non-nested glyph, or its separator exists.
+ */
+function $openerSeparatorGap(opener: MarkerNode, char: CharNode): "prefix" | "spacer" | undefined {
+  if (opener.getMarkerSyntax() !== "opening") return undefined;
+  // Only char-span glyphs take a separator (not a milestone's display run).
+  if ($charGlyphNestedValue(opener, char) === undefined) return undefined;
+  const next = opener.getNextSibling();
+  if (next === null) return undefined;
+  if ($isMarkerNode(next)) {
+    // Opening glyph directly before another glyph: in the collab-flattened shape that next glyph
+    // opens a nested span (`\add\+wj …`) and the separator goes between them. Any other adjacent
+    // glyph (the span's own closer on a degenerate empty span) takes none.
+    return $charGlyphNestedValue(next, char) === true ? "spacer" : undefined;
+  }
+  // Plain text directly after the glyph carries the separator as its prefix. TextNode SUBCLASSES
+  // (VerseNode) render their own marker text and fall through to the spacer case.
+  if ($isTextNode(next) && next.getType() === TextNode.getType())
+    return next.getTextContent().startsWith(NBSP) ? undefined : "prefix";
+  // Element content (nested char span, note, milestone, verse): standalone NBSP spacer.
+  return "spacer";
+}
+
+/**
+ * Whether the collapsed caret sits at `opener`'s separator site — on the glyph itself, on the
+ * span (an element point), or at the very start of the node after the glyph. This is where the
+ * caret lands when the user deletes the separator, and deleting must always be allowed: while
+ * the caret stays here the sync leaves the gap alone (mid-edit grace), and the marker-edit
+ * engine settles the span back to canonical on caret departure (it pends spans reported by
+ * {@link $hasCaretHeldSeparatorGap} and routes them to a Tier-2 rebuild, the same completion
+ * path as a pending marker literal).
+ */
+function $isCaretAtOpenerBoundary(opener: MarkerNode, char: CharNode): boolean {
+  const selection = $getSelection();
+  if (!$isRangeSelection(selection) || !selection.isCollapsed()) return false;
+  const anchorNode = selection.anchor.getNode();
+  if (anchorNode.is(opener) || anchorNode.is(char)) return true;
+  const next = opener.getNextSibling();
+  return next !== null && anchorNode.is(next) && selection.anchor.offset === 0;
+}
 
 /**
  * Ensure every opening char glyph among `char`'s direct children is followed by its display
- * separator. Idempotent — a healed span passes untouched, so the registering transform
- * converges.
+ * separator — except one whose separator site holds the collapsed caret (see
+ * {@link $isCaretAtOpenerBoundary}). Idempotent — a healed span passes untouched, so the
+ * registering transform converges.
  *
  * @param char - The char span whose separators to sync. Must be called inside `editor.update()`.
  */
@@ -51,26 +109,32 @@ export function $syncOpenerSeparators(char: CharNode): void {
   // An earlier transform in the same pass may have merged/removed the span.
   if (!char.isAttached()) return;
   char.getChildren().forEach((child: LexicalNode) => {
-    if (!$isMarkerNode(child) || child.getMarkerSyntax() !== "opening") return;
-    // Only char-span glyphs take a separator (not a milestone's display run).
-    if ($charGlyphNestedValue(child, char) === undefined) return;
-    const next = child.getNextSibling();
-    if (next === null) return;
-    if ($isMarkerNode(next)) {
-      // Opening glyph directly before another glyph: in the collab-flattened shape that next
-      // glyph opens a nested span (`\add\+wj …`) and the separator goes between them. Any other
-      // adjacent glyph (the span's own closer on a degenerate empty span) takes none.
-      if ($charGlyphNestedValue(next, char) === true) child.insertAfter($createTextNode(NBSP));
-      return;
+    if (!$isMarkerNode(child)) return;
+    const gap = $openerSeparatorGap(child, char);
+    if (gap === undefined) return;
+    if ($isCaretAtOpenerBoundary(child, char)) return;
+    if (gap === "prefix") {
+      const next = child.getNextSibling();
+      if ($isTextNode(next)) next.setTextContent(NBSP + next.getTextContent());
+    } else {
+      child.insertAfter($createTextNode(NBSP));
     }
-    // Plain text directly after the glyph carries the separator as its prefix. TextNode
-    // SUBCLASSES (VerseNode) render their own marker text and fall through to the spacer case.
-    if ($isTextNode(next) && next.getType() === TextNode.getType()) {
-      const text = next.getTextContent();
-      if (!text.startsWith(NBSP)) next.setTextContent(NBSP + text);
-      return;
-    }
-    // Element content (nested char span, note, milestone, verse): standalone NBSP spacer.
-    child.insertAfter($createTextNode(NBSP));
   });
+}
+
+/**
+ * True when `char` has a separator gap the sync is deliberately leaving alone because the caret
+ * sits at it (a just-deleted separator). The marker-edit engine pends such spans so caret
+ * departure settles them back to canonical via Tier-2.
+ */
+export function $hasCaretHeldSeparatorGap(char: CharNode): boolean {
+  if (!char.isAttached()) return false;
+  return char
+    .getChildren()
+    .some(
+      (child: LexicalNode) =>
+        $isMarkerNode(child) &&
+        $openerSeparatorGap(child, char) !== undefined &&
+        $isCaretAtOpenerBoundary(child, char),
+    );
 }

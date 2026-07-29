@@ -15,6 +15,7 @@ import {
   NodeKey,
 } from "lexical";
 import {
+  $hasCaretHeldSeparatorGap,
   $isCharNode,
   $isMarkerNode,
   $isNoteNode,
@@ -287,6 +288,11 @@ export function $resolvePendingMarkers(context: MarkerEditContext, exceptKey?: N
       const bare = BARE_OPENER_REGEX.exec(text);
       if (node.getMarkerSyntax() === "opening" && bare) $applyOpenerRename(node, bare[1], context);
       else $requestTier2ForNode(node, context);
+    } else if ($isCharNode(node) && $hasCaretHeldSeparatorGap(node)) {
+      // A deleted opener separator stays pending while the caret still sits at the gap (the
+      // exceptKey protection covers only the anchor node itself, not its parent span) — mid-edit
+      // grace, markerSeparators.utils.ts. It settles once the caret has actually departed.
+      context.pendingKeys.add(key);
     } else {
       // Pending plain-text / verse nodes (registered by later tasks) re-tokenize.
       $requestTier2ForNode(node, context);

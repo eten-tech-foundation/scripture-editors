@@ -49,6 +49,7 @@ import {
 } from "lexical";
 import { useEffect } from "react";
 import {
+  $hasCaretHeldSeparatorGap,
   ChapterNode,
   CharNode,
   CURSOR_CHANGE_TAG,
@@ -164,6 +165,12 @@ export function MarkerEditPlugin({
       editor.registerNodeTransform(CharNode, (node) => {
         if (editor.isComposing()) return;
         $charNodeDeletionTransform(node, context);
+        // A just-deleted opener separator is left alone by the CharNodePlugin sync while the
+        // caret sits at it (mid-edit grace, markerSeparators.utils.ts); pend the span so caret
+        // departure settles it back to canonical via the Tier-2 completion path, exactly like a
+        // pending marker literal.
+        if (node.isAttached() && $hasCaretHeldSeparatorGap(node))
+          context.pendingKeys.add(node.getKey());
       }),
       editor.registerNodeTransform(NoteNode, (node) => {
         if (editor.isComposing()) return;
