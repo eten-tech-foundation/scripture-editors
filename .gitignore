@@ -64,5 +64,13 @@ vitest.config.*.timestamp*
 .cursor/
 .superpowers
 docs/superpowers
-.claude
+.claude/*
+# settings.json and skills/ are shared team config (tracked in git), so keep them out of the
+# .claude ignore above. The /* glob (rather than a bare `.claude`) is what lets these negations
+# re-include the paths.
+!.claude/settings.json
+!.claude/skills/
+# NOTE: contrary to the "reflect in .prettierignore" convention in this file's header, these
+# re-included .claude paths are intentionally NOT mirrored in .prettierignore — we want these
+# shared config files formatted by prettier/lint-staged.
 .review

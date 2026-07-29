@@ -38,7 +38,7 @@ export const ToolbarPlugin = forwardRef<HTMLDivElement, ToolbarPluginProps>(func
 ): ReactElement {
   const [editor] = useLexicalComposerContext();
   const [activeEditor, setActiveEditor] = useState(editor);
-  const [blockMarker, setBlockMarker] = useState<string | undefined>();
+  const [blockMarker, setBlockMarker] = useState<string>();
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
 

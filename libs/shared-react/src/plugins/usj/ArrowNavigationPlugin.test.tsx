@@ -3,15 +3,12 @@
 
 // Reaching inside only for tests.
 // eslint-disable-next-line @nx/enforce-module-boundaries
-import {
-  $expectSelectionToBe,
-  updateSelection,
-} from "../../../../../libs/shared/src/nodes/usj/test.utils";
+import { $expectSelectionToBe } from "../../../../../libs/shared/src/nodes/usj/test.utils";
 import { $createImmutableNoteCallerNode, $createImmutableVerseNode } from "../../nodes/usj";
 import { getDefaultViewOptions } from "../../views/view-options.utils";
 import { ArrowNavigationPlugin } from "./ArrowNavigationPlugin";
 import { TextDirectionPlugin } from "./TextDirectionPlugin";
-import { baseTestEnvironment, pressKey } from "./react-test.utils";
+import { baseTestEnvironment, pressKey, updateSelection } from "./react-test.utils";
 import { $createLineBreakNode, $createTextNode, $getRoot, TextNode } from "lexical";
 import {
   $createCharNode,

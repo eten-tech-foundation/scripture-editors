@@ -5,7 +5,7 @@ import { EditorOptions, EditorProps, EditorRef } from "./editor.model";
 import editorTheme from "./editor.theme";
 import { ActiveTextPlugin } from "./ActiveTextPlugin";
 import { ParaMarkerPrefixGuardPlugin } from "./ParaMarkerPrefixGuardPlugin";
-import ScriptureReferencePlugin from "./ScriptureReferencePlugin";
+import { ScriptureReferencePlugin } from "./ScriptureReferencePlugin";
 import TreeViewPlugin from "./TreeViewPlugin";
 import { ToolbarPlugin } from "./toolbar/ToolbarPlugin";
 import { InitialConfigType, LexicalComposer } from "@lexical/react/LexicalComposer";
@@ -85,7 +85,7 @@ import {
   pasteSelectionAsPlainText,
   StateChangePlugin,
   StateChangeSnapshot,
-  StructureProtectionPlugin,
+  StructureKeyboardPlugin,
   TextDirectionPlugin,
   TextSpacingPlugin,
   UsjNodeOptions,
@@ -134,14 +134,14 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
   const annotationRef = useRef<AnnotationRef | null>(null);
   const toolbarEndRef = useRef<HTMLDivElement>(null);
   const editedUsjRef = useRef(defaultUsj);
-  const expandedNoteKeyRef = useRef<string | undefined>();
+  const expandedNoteKeyRef = useRef<string>(undefined);
   const [usj, setUsj] = useState(defaultUsj);
   const [loadTrigger, setLoadTrigger] = useState(0);
-  const [contextMarker, setContextMarker] = useState<string | undefined>();
+  const [contextMarker, setContextMarker] = useState<string>();
 
   const {
     isReadonly = false,
-    isStructureProtected = false,
+    structureProtectionMode = "off",
     hasExternalUI = false,
     hasSpellCheck = false,
     textDirection = "ltr",
@@ -463,7 +463,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
           />
           <ParaMarkerPrefixGuardPlugin viewOptions={viewOptions} logger={logger} />
           <ParaNodePlugin />
-          <StructureProtectionPlugin isStructureProtected={isStructureProtected} />
+          <StructureKeyboardPlugin structureProtectionMode={structureProtectionMode} />
           <TextDirectionPlugin textDirection={textDirection} />
           <TextSpacingPlugin />
           {children}

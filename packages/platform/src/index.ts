@@ -81,6 +81,7 @@ export type {
   OTVerseEmbed,
   SelectionRange,
   StateChangeSnapshot,
+  StructureProtectionMode,
   TextDirection,
   UsjLocation,
   UsjNodeOptions,

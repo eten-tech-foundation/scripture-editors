@@ -2,6 +2,7 @@
 
 import {
   $applyNodeReplacement,
+  BaseSelection,
   DOMConversionMap,
   DOMConversionOutput,
   DOMExportOutput,
@@ -14,11 +15,25 @@ import {
   Spread,
   isHTMLElement,
 } from "lexical";
+import { useLexicalNodeSelection } from "@lexical/react/useLexicalNodeSelection";
 import { ReactElement } from "react";
-import { getVisibleOpenMarkerText, UnknownAttributes, VERSE_CLASS_NAME, ZWSP } from "shared";
+import {
+  getVisibleOpenMarkerText,
+  isSelectionStartNodeExpectedError,
+  UnknownAttributes,
+  VERSE_CLASS_NAME,
+  ZWSP,
+} from "shared";
 
 export const VERSE_MARKER = "v";
 export const IMMUTABLE_VERSE_VERSION = 1;
+
+/**
+ * Class applied to the rendered verse marker while it is in a NodeSelection (e.g. armed for the
+ * two-step intentional delete). Themeable by the host app; a default selection-style background
+ * ships in the platform stylesheet.
+ */
+export const VERSE_SELECTED_CLASS_NAME = "verse-selected";
 
 type VerseMarker = typeof VERSE_MARKER;
 
@@ -226,14 +241,11 @@ export class ImmutableVerseNode extends DecoratorNode<ReactElement> {
   }
 
   override decorate(): ReactElement {
-    return (
-      <span>
-        {this.getShowMarker()
-          ? getVisibleOpenMarkerText(this.getMarker(), this.getNumber())
-          : // ZWSP added so double click word selection works without including this number.
-            ZWSP + this.getNumber() + ZWSP}
-      </span>
-    );
+    const text = this.getShowMarker()
+      ? getVisibleOpenMarkerText(this.getMarker(), this.getNumber())
+      : // ZWSP added so double click word selection works without including this number.
+        ZWSP + this.getNumber() + ZWSP;
+    return <VerseDecorator nodeKey={this.getKey()} text={text} />;
   }
 
   override exportJSON(): SerializedImmutableVerseNode {
@@ -250,11 +262,35 @@ export class ImmutableVerseNode extends DecoratorNode<ReactElement> {
     };
   }
 
+  override isSelected(selection?: BaseSelection | null): boolean {
+    // The base implementation calls `selection.getNodes()`, which throws when a RangeSelection
+    // has an element-type point anchored on this DecoratorNode (the "cursor on the verse number"
+    // case). Treat that expected throw as "not selected", consistent with how
+    // `getSelectionStartNode` handles the same selection shape.
+    try {
+      return super.isSelected(selection);
+    } catch (err) {
+      if (isSelectionStartNodeExpectedError(err)) return false;
+      throw err;
+    }
+  }
+
   // Mutation
 
   override isKeyboardSelectable(): false {
     return false;
   }
+}
+
+/**
+ * Renders the verse marker text and reflects its node-selection state. DecoratorNodes do not get
+ * selection styling for free, so this subscribes to the node's selection and toggles
+ * {@link VERSE_SELECTED_CLASS_NAME}.
+ */
+function VerseDecorator({ nodeKey, text }: { nodeKey: NodeKey; text: string }): ReactElement {
+  const [isSelected] = useLexicalNodeSelection(nodeKey);
+  // ZWSPs stay inside this span so double-click word selection still excludes the number.
+  return <span className={isSelected ? VERSE_SELECTED_CLASS_NAME : undefined}>{text}</span>;
 }
 
 function $convertImmutableVerseElement(element: HTMLElement): DOMConversionOutput {

@@ -58,7 +58,7 @@ export default function UsjNodesMenuPlugin({
 }
 
 function useContextMarker(editor: LexicalEditor) {
-  const [contextMarker, setContextMarker] = useState<string | undefined>();
+  const [contextMarker, setContextMarker] = useState<string>();
   useEffect(
     () =>
       editor.registerCommand(
