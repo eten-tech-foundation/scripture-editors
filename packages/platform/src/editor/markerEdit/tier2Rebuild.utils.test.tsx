@@ -234,6 +234,60 @@ describe("$rebuildParas", () => {
     });
   });
 
+  // A preserved (sentinel) node directly after an opening glyph must not corrupt the fragment:
+  // without a separator, the U+FFFC placeholder would EXTEND the marker name (`\wj` + U+FFFC
+  // scans as unknown marker "wj￼"), vanish from the text, and trip the sentinel-count abort —
+  // so a deleted separator before a sentinel span could never settle back. The fragment builder
+  // now emits a separator space before a placeholder that would otherwise glue onto a marker.
+  it("rebuilds (not aborts) when a sentinel span directly follows an opening glyph", () => {
+    const editor = loadEditor(
+      usjFromUsx(`x <char style="wj">a<char style="w" lemma="stuff">dsa</char>e</char> after`),
+    );
+    let preservedKey = "";
+    editor.update(
+      () => {
+        const wj = requireDefined(
+          $lastPara()
+            .getChildren()
+            .find((n) => $isCharNode(n) && n.getMarker() === "wj"),
+          "wj span not found",
+        );
+        if (!$isCharNode(wj)) throw new Error("wj is not a CharNode");
+        // Make the attribute span (a Tier-2 sentinel: byte attributes are not
+        // text-recoverable) directly follow the opener: remove everything between them,
+        // simulating the user deleting the separator/leading text.
+        const attrSpan = requireDefined(
+          wj.getChildren().find((n) => $isCharNode(n)),
+          "attribute span not found",
+        );
+        preservedKey = attrSpan.getKey();
+        for (const child of wj.getChildren()) {
+          if ($isMarkerNode(child) || child.is(attrSpan)) continue;
+          if (child.getTextContent().includes("e")) continue; // keep the tail text
+          child.remove();
+        }
+        expect($rebuildParas([$lastPara()], context)).toBe(true);
+      },
+      { discrete: true },
+    );
+    editor.getEditorState().read(() => {
+      const wj = requireDefined(
+        $lastPara()
+          .getChildren()
+          .find((n) => $isCharNode(n) && n.getMarker() === "wj"),
+        "wj span not found after rebuild",
+      );
+      if (!$isCharNode(wj)) throw new Error("wj is not a CharNode");
+      // The preserved span survived as the SAME instance (moved, not recreated)...
+      const attrSpan = wj.getChildren().find((n) => $isCharNode(n));
+      expect(attrSpan?.getKey()).toBe(preservedKey);
+      // ...and the display separator is restored between the opener and the span.
+      const children = wj.getChildren();
+      expect($isMarkerNode(children[0]) && children[0].getTextContent()).toBe("\\wj");
+      expect($isTextNode(children[1]) && children[1].getTextContent()).toBe(NBSP);
+    });
+  });
+
   it("splits the paragraph when the text contains a literal \\p", () => {
     const editor = loadEditor(usjFromUsx(`<verse number="1" style="v" />one \\p two`));
     editor.update(() => expect($rebuildParas([$lastPara()], context)).toBe(true), {
