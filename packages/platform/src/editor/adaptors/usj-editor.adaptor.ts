@@ -375,12 +375,15 @@ function createChar(
   const children: SerializedLexicalNode[] = [];
   if (_viewOptions?.markerMode === "editable") {
     // The structural leading NBSP is the display separator between the opening glyph and its
-    // content, so it applies ONLY to the FIRST content node when that is text — never to text
-    // that follows a nested closer (e.g. the `ht` in `\wj li\+nd g\+nd*ht\wj*`). Prefixing every
-    // text child leaked the NBSP to the file and let Tier-2 accumulate a fresh one each rebuild.
-    // Mirrors `$splitCharNodeAt`, which prefixes only its right span's first text child.
+    // content (the convention lives in markerSeparators.utils.ts), so it applies ONLY at the
+    // span's start — never to text that follows a nested closer (e.g. the `ht` in
+    // `\wj li\+nd g\+nd*ht\wj*`), which leaked to the file and accumulated on each rebuild.
+    // Text-first content carries it as a prefix; element-first content (a nested char, note,
+    // milestone, or verse: `\nd \+wj …`) gets a standalone NBSP spacer, which the editor→USJ
+    // conversion drops as presentation-only.
     const [firstChild] = childNodes;
     if (isSerializedTextNode(firstChild)) firstChild.text = NBSP + firstChild.text;
+    else if (firstChild) childNodes.unshift(createText(NBSP));
   }
   if (childNodes.length === 0) childNodes.push(createText(EMPTY_CHAR_PLACEHOLDER_TEXT));
   // A char span nested inside another char span carries the `+` prefix in its editable glyphs

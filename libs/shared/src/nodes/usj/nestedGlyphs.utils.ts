@@ -51,9 +51,13 @@ export function $isNestedCharNode(char: CharNode): boolean {
  * - Neither — e.g. a milestone's display run (`\qt-s` … `\*`) rendered inside the span. Not a
  *   char glyph at all: milestones never take the `+`, so it is left untouched.
  *
+ * Exported as the shared "is this a char-span glyph, and of which span?" classifier — the
+ * display-separator sync (markerSeparators.utils.ts) uses the same distinction to know which
+ * opening glyphs take a separator.
+ *
  * @returns the nested value the glyph must carry, or `undefined` to leave the glyph alone.
  */
-function $glyphNestedValue(glyph: MarkerNode, char: CharNode): boolean | undefined {
+export function $charGlyphNestedValue(glyph: MarkerNode, char: CharNode): boolean | undefined {
   if (glyph.getMarkerSyntax() === "selfClosing") return undefined;
   const marker = glyph.getMarker();
   if (marker === char.getMarker()) return $isNestedCharNode(char);
@@ -76,7 +80,7 @@ export function $syncNestedGlyphs(char: CharNode): void {
   if (!char.isAttached()) return;
   char.getChildren().forEach((child: LexicalNode) => {
     if (!$isMarkerNode(child)) return;
-    const nested = $glyphNestedValue(child, char);
+    const nested = $charGlyphNestedValue(child, char);
     if (nested !== undefined) child.setNested(nested);
   });
 }

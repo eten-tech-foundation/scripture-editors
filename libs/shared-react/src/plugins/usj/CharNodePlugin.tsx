@@ -7,6 +7,7 @@ import {
   $hasSameCharAttributes,
   $isCharNode,
   $syncNestedGlyphs,
+  $syncOpenerSeparators,
   charIdState,
   CharNode,
   EMPTY_CHAR_PLACEHOLDER_TEXT,
@@ -31,6 +32,9 @@ function useCharNode(editor: LexicalEditor) {
       // unwrapped), re-derive its glyphs' `+` from tree position — see nestedGlyphs.utils.ts
       // (`shared`) for the full representation rules this enforces.
       editor.registerNodeTransform(CharNode, $syncNestedGlyphs),
+      // Self-healing display separators: every opening char glyph is followed by its NBSP
+      // separator (text prefix or standalone spacer) — see markerSeparators.utils.ts (`shared`).
+      editor.registerNodeTransform(CharNode, $syncOpenerSeparators),
       editor.registerNodeTransform(TextNode, $charTextNodeTransform),
     );
   }, [editor]);
