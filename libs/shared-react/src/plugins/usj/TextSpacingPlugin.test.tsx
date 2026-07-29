@@ -262,6 +262,35 @@ describe("TextSpacingPlugin", () => {
     });
   });
 
+  it("should not add a space between adjacent text nodes of the same run", async () => {
+    // IME composition (complex scripts) and annotation-wrap splits can leave a verse's text as
+    // multiple adjacent TextNodes that Lexical does not merge (e.g. a segmented composition
+    // node). They are one logical text run, so no structural space belongs between them —
+    // inserting one corrupts the word itself (#513), e.g. Gujarati "કર્યું" becoming "કર્ય ું".
+    const { editor } = await testEnvironment(() => {
+      $getRoot().append(
+        $createParaNode().append(
+          $createImmutableVerseNode("1"),
+          $createTextNode("ab"),
+          $createTextNode("cd").setMode("segmented"),
+          $createImmutableVerseNode("2"),
+        ),
+      );
+    });
+
+    // Trigger an update (transforms run).
+    await act(async () => editor.update(() => undefined));
+
+    editor.getEditorState().read(() => {
+      const para = $getRoot().getFirstChild();
+      if (!$isParaNode(para)) throw new Error("Expected a ParaNode");
+      // One intact logical run. No canonical pre-verse space yet either: the tail is a
+      // composition segment, and text must never be mutated mid-composition — the space
+      // arrives from this same transform once the segment settles to a normal TextNode.
+      expect(para.getTextContent()).toBe("abcd");
+    });
+  });
+
   it("should not remove a space if it precedes a verse", async () => {
     const { editor } = await testEnvironment(() => {
       $getRoot().append(
