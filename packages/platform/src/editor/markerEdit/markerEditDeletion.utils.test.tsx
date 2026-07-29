@@ -114,14 +114,27 @@ describe("deletion semantics", () => {
       );
     });
 
-    await act(async () =>
-      editor.update(() => {
-        para = $createParaNode("p");
-        text = $createTextNode("content");
-        $getRoot().append(para.append(text));
-        $setParaMarkerWithPrefix(para, "q1");
-      }),
-    );
+    // Snapshot the caret synchronously after the discrete commit, before act's async flush —
+    // jsdom's ASYNC focus/selection sync can clobber the live selection afterwards (a
+    // test-environment artifact; real browsers don't do this). The engine's guarantee is where
+    // the caret lands AS PART OF the retag commit, which the snapshot captures exactly.
+    let caretAfterRetag: { key: string; offset: number } | undefined;
+    await act(async () => {
+      editor.update(
+        () => {
+          para = $createParaNode("p");
+          text = $createTextNode("content");
+          $getRoot().append(para.append(text));
+          $setParaMarkerWithPrefix(para, "q1");
+        },
+        { discrete: true },
+      );
+      caretAfterRetag = editor.getEditorState().read(() => {
+        const selection = $getSelection();
+        if (!$isRangeSelection(selection)) return undefined;
+        return { key: selection.anchor.key, offset: selection.anchor.offset };
+      });
+    });
 
     editor.getEditorState().read(() => {
       expect(para.getMarker()).toBe("q1");
@@ -136,11 +149,11 @@ describe("deletion semantics", () => {
       expect($isTextNode(second) ? $getState(second, textTypeState) : undefined).toBe(
         "marker-trailing-space",
       );
-      // Caret parks on the content side of the prefix, not inside/before it.
-      const selection = $getSelection();
-      expect($isRangeSelection(selection) ? selection.anchor.key : undefined).toBe(text.getKey());
-      expect($isRangeSelection(selection) ? selection.anchor.offset : undefined).toBe(0);
     });
+    // Caret parks on the content side of the prefix, not inside/before it — asserted from the
+    // commit-time snapshot (see above).
+    expect(caretAfterRetag?.key).toBe(text!.getKey());
+    expect(caretAfterRetag?.offset).toBe(0);
   });
 
   it("injects a marker prefix into the Enter-split paragraph (cloned marker)", async () => {
@@ -160,24 +173,41 @@ describe("deletion semantics", () => {
         ),
       );
     });
-    await act(async () =>
-      editor.update(() => {
-        // Re-query the nodes here — the initial commit's transforms may have rewritten the
-        // mount-time nodes.
-        const para = $getRoot().getChildren().filter($isParaNode)[0];
-        const glyph = para.getFirstChild();
-        if (!$isMarkerNode(glyph)) throw new Error("expected the paragraph's marker glyph");
-        originalGlyphKey = glyph.getKey();
-        const text = para.getLastChild();
-        if (!$isTextNode(text)) throw new Error("expected the paragraph's content text");
-        // Compute the offset instead of hardcoding it: the initial commit merges the mount-time
-        // NBSP separator into this text node (heal re-inserts a fresh separator before it), so
-        // the content may carry a leading NBSP.
-        const offset = text.getTextContent().indexOf("one") + "one".length;
-        text.select(offset, offset); // caret MID-CONTENT: "one| two"
-        editor.dispatchCommand(INSERT_PARAGRAPH_COMMAND, undefined);
-      }),
-    );
+    // The caret is snapshotted SYNCHRONOUSLY after the discrete commit, before act's async
+    // flush: jsdom emulates focus/selection sync with ASYNC events that can clobber the live
+    // selection after the fact (a test-environment artifact — in a real browser Lexical drives
+    // the DOM selection). The engine's guarantee under test is where the caret lands AS PART OF
+    // the operation's commit, which is exactly what the snapshot captures.
+    let caretAfterSplit: { text: string; offset: number } | undefined;
+    await act(async () => {
+      editor.update(
+        () => {
+          // Re-query the nodes here — the initial commit's transforms may have rewritten the
+          // mount-time nodes.
+          const para = $getRoot().getChildren().filter($isParaNode)[0];
+          const glyph = para.getFirstChild();
+          if (!$isMarkerNode(glyph)) throw new Error("expected the paragraph's marker glyph");
+          originalGlyphKey = glyph.getKey();
+          const text = para.getLastChild();
+          if (!$isTextNode(text)) throw new Error("expected the paragraph's content text");
+          // Compute the offset instead of hardcoding it: the initial commit merges the mount-time
+          // NBSP separator into this text node (heal re-inserts a fresh separator before it), so
+          // the content may carry a leading NBSP.
+          const offset = text.getTextContent().indexOf("one") + "one".length;
+          text.select(offset, offset); // caret MID-CONTENT: "one| two"
+          editor.dispatchCommand(INSERT_PARAGRAPH_COMMAND, undefined);
+        },
+        { discrete: true },
+      );
+      caretAfterSplit = editor.getEditorState().read(() => {
+        const selection = $getSelection();
+        if (!$isRangeSelection(selection)) return undefined;
+        return {
+          text: selection.anchor.getNode().getTextContent(),
+          offset: selection.anchor.offset,
+        };
+      });
+    });
     editor.getEditorState().read(() => {
       const paras = $getRoot().getChildren().filter($isParaNode);
       expect(paras).toHaveLength(2);
@@ -196,15 +226,13 @@ describe("deletion semantics", () => {
       expect($isMarkerNode(injectedGlyph) ? injectedGlyph.getKey() : undefined).not.toBe(
         originalGlyphKey,
       );
-      // The caret lands on the content side of the injected prefix, ready to keep typing.
-      // Asserted semantically (anchor node text + offset), not by node key: under parallel-suite
-      // CPU load Lexical's post-transform normalization can recreate the content node, so key
-      // identity flakes while the caret's semantic position is unchanged.
-      const selection = $getSelection();
-      const anchorNode = $isRangeSelection(selection) ? selection.anchor.getNode() : undefined;
-      expect(anchorNode?.getTextContent()).toContain("two");
-      expect($isRangeSelection(selection) ? selection.anchor.offset : undefined).toBe(0);
     });
+    // The caret lands on the content side of the injected prefix, ready to keep typing.
+    // Asserted from the commit-time snapshot (see above), semantically (anchor text + offset)
+    // rather than by node key: post-transform normalization can recreate the content node while
+    // the caret's semantic position is unchanged.
+    expect(caretAfterSplit?.text).toContain("two");
+    expect(caretAfterSplit?.offset).toBe(0);
   });
 
   it("claims an END-of-paragraph Enter split: the empty clone gets its prefix, typing stays in it", async () => {
