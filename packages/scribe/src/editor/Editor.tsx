@@ -28,6 +28,7 @@ import {
   LoadStatePlugin,
   NoteNodePlugin,
   OnSelectionChangePlugin,
+  ParaMarkerPrefixCursorGuardPlugin,
   ParaNodePlugin,
   SelectionRange,
   TextDirectionPlugin,
@@ -206,6 +207,7 @@ const Editor = forwardRef(function Editor(
       <ArrowNavigationPlugin viewOptions={viewOptions} />
       <CommandMenuPlugin />
       <OnSelectionChangePlugin onChange={onSelectionChange} />
+      <ParaMarkerPrefixCursorGuardPlugin />
       <ParaNodePlugin />
       <TextDirectionPlugin textDirection="auto" />
       <TextSpacingPlugin />
