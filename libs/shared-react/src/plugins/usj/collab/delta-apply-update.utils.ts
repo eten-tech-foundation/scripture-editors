@@ -594,22 +594,24 @@ export function $syncCharMarkerGlyphs(char: CharNode, marker: string): void {
   });
   // Visible-mode typed-text pair: the span's own opener/closer are its first/last children
   // (a flattened nested child's glyphs sit between them). Matching the OLD marker's exact
-  // glyph text keeps this to the span's own pair, like the MarkerNode path above.
+  // glyph text keeps this to the span's own pair, like the MarkerNode path above. A span nested
+  // inside another char renders `\+marker`, so match and rewrite the nested-aware text.
+  const nested = $isCharNode(char.getParent());
   const opener = char.getFirstChild();
   if (
     $isImmutableTypedTextNode(opener) &&
     opener.getTextType() === "marker" &&
-    opener.getTextContent() === openingMarkerText(oldMarker)
+    opener.getTextContent() === openingMarkerText(oldMarker, nested)
   ) {
-    opener.setTextContent(openingMarkerText(marker));
+    opener.setTextContent(openingMarkerText(marker, nested));
   }
   const closer = char.getLastChild();
   if (
     $isImmutableTypedTextNode(closer) &&
     closer.getTextType() === "marker" &&
-    closer.getTextContent() === closingMarkerText(oldMarker)
+    closer.getTextContent() === closingMarkerText(oldMarker, nested)
   ) {
-    closer.setTextContent(closingMarkerText(marker));
+    closer.setTextContent(closingMarkerText(marker, nested));
   }
 }
 
@@ -623,7 +625,7 @@ function $applyEmbedAttributes(
 
     // Special handling for char attributes on CharNodes
     if (key === "char" && $isCharNode(node) && hasCharAttributes(attributes)) {
-      const charAttributes = value as OTCharItem;
+      const charAttributes = cleanCharStyle(value as OTCharItem);
       $syncCharMarkerGlyphs(node, charAttributes.style);
 
       // Set charIdState if cid is present
@@ -1989,26 +1991,50 @@ function mergeableNodesForContentOp(
 // Helper to create nested CharNodes from OTCharAttribute (array or single)
 // Returns an array of nodes: [opening marker?, CharNode, closing marker?]
 // If existingNodes is provided, will merge with the last CharNode if style/cid match
+/**
+ * Defensively normalize an OT char style to a CLEAN marker. Nesting is conveyed by the char
+ * ARRAY's position (outermost-first), never by a `+` in the style — the `+` belongs only to the
+ * rendered glyph text. No production producer emits a `+`-prefixed style ($buildCharItem sends
+ * the CharNode's clean marker verbatim), so this only guards against hand-authored or legacy
+ * deltas polluting node markers (and, from there, the saved USJ).
+ */
+function cleanCharStyle<T extends OTCharItem>(item: T): T {
+  return item.style.startsWith("+") ? { ...item, style: item.style.slice(1) } : item;
+}
+
 function $createNestedChars(
   charAttr: OTCharAttribute,
   viewOptions: ViewOptions,
   innerNode?: LexicalNode,
   segment?: string,
   existingNodes?: LexicalNode[],
+  // True when the OUTERMOST span created here nests inside an already-open parent char (the
+  // merge recursion below appends into an existing outer span), so its own glyphs need the `+`.
+  // Every span deeper than the outermost is nested by construction and always gets the `+`.
+  nestedInParent = false,
 ): LexicalNode[] {
   if ($isTextNode(innerNode) && innerNode.getTextContentSize() === 0) {
     innerNode.setTextContent(EMPTY_CHAR_PLACEHOLDER_TEXT);
   }
   if (Array.isArray(charAttr)) {
     if (charAttr.length === 0) throw new Error("Empty charAttr array");
+    const cleanAttrs = charAttr.map(cleanCharStyle);
 
     // Check if we can merge with existing CharNode
-    const outerAttr = charAttr[0];
+    const outerAttr = cleanAttrs[0];
     const lastNode = existingNodes?.[existingNodes.length - 1];
     if ($isCharNode(lastNode) && $hasSameCharAttributes(outerAttr, lastNode)) {
-      // Merge into existing CharNode by creating inner nodes only
-      if (charAttr.length > 1) {
-        const innerCharNodes = $createNestedChars(charAttr.slice(1), viewOptions, innerNode);
+      // Merge into existing CharNode by creating inner nodes only. The inner spans nest inside
+      // that existing outer char, so their outermost gets the `+` too (nestedInParent = true).
+      if (cleanAttrs.length > 1) {
+        const innerCharNodes = $createNestedChars(
+          cleanAttrs.slice(1),
+          viewOptions,
+          innerNode,
+          undefined,
+          undefined,
+          true,
+        );
         innerCharNodes.forEach((node) => lastNode.append(node));
       } else {
         // Just append the innerNode
@@ -2019,25 +2045,27 @@ function $createNestedChars(
 
     // Build nested CharNodes from innermost to outermost using reduceRight
     // At each level, we add markers as children if needed
-    const outermostCharNode = charAttr.reduceRight((child, attr, idx) => {
+    const outermostCharNode = cleanAttrs.reduceRight((child, attr, idx) => {
       const charNode = $createCharNode(attr.style, getUnknownAttributes(attr, OT_CHAR_PROPS));
       if (typeof attr.cid === "string") $setState(charNode, charIdState, () => attr.cid);
-      if (segment && idx === charAttr.length - 1) $setState(charNode, segmentState, () => segment);
+      if (segment && idx === cleanAttrs.length - 1)
+        $setState(charNode, segmentState, () => segment);
 
       // If there's a child, append it (with markers if it's a CharNode)
       if (child) {
-        // If the child is a CharNode, it needs markers around it
+        // If the child is a CharNode, it needs markers around it. The child nests inside this
+        // span, so its glyphs carry the `+`.
         if ($isCharNode(child)) {
           // The child was created from attr at idx+1, so get its marker
           const childMarker = child.getMarker();
           const childMarkers: LexicalNode[] = [];
-          $addOpeningMarker(childMarker, childMarkers, viewOptions);
+          $addOpeningMarker(childMarker, childMarkers, viewOptions, true);
           childMarkers.forEach((marker) => charNode.append(marker));
 
           charNode.append(child);
 
           const closingMarkers: LexicalNode[] = [];
-          $addCharNodeClosingMarker(child, closingMarkers, viewOptions);
+          $addCharNodeClosingMarker(child, closingMarkers, viewOptions, true);
           closingMarkers.forEach((marker) => charNode.append(marker));
         } else {
           // Just append the child (it's the innermost text node)
@@ -2048,30 +2076,34 @@ function $createNestedChars(
       return charNode;
     }, innerNode) as CharNode;
 
-    // Add markers inside the outermost CharNode (as children)
-    const outermostAttr = charAttr[0];
-    $addOpeningMarker(outermostAttr.style, outermostCharNode, viewOptions);
-    $addCharNodeClosingMarker(outermostCharNode, outermostCharNode, viewOptions);
+    // Add markers inside the outermost CharNode (as children). The outermost gets the `+` only
+    // when it in turn nests inside an existing parent char (the merge case above).
+    $addOpeningMarker(outerAttr.style, outermostCharNode, viewOptions, nestedInParent);
+    $addCharNodeClosingMarker(outermostCharNode, outermostCharNode, viewOptions, nestedInParent);
 
     return [outermostCharNode];
   } else {
+    const cleanAttr = cleanCharStyle(charAttr);
     // Single char attribute
     // Check if we can merge with existing CharNode
     const lastNode = existingNodes?.[existingNodes.length - 1];
-    if ($isCharNode(lastNode) && $hasSameCharAttributes(charAttr, lastNode)) {
+    if ($isCharNode(lastNode) && $hasSameCharAttributes(cleanAttr, lastNode)) {
       // Merge into existing CharNode
       if (innerNode) lastNode.append(innerNode);
       return []; // Return empty array since we merged into existing node
     }
 
-    const charNode = $createCharNode(charAttr.style, getUnknownAttributes(charAttr, OT_CHAR_PROPS));
-    if (typeof charAttr.cid === "string") $setState(charNode, charIdState, () => charAttr.cid);
+    const charNode = $createCharNode(
+      cleanAttr.style,
+      getUnknownAttributes(cleanAttr, OT_CHAR_PROPS),
+    );
+    if (typeof cleanAttr.cid === "string") $setState(charNode, charIdState, () => cleanAttr.cid);
     if (segment) $setState(charNode, segmentState, () => segment);
     if (innerNode) charNode.append(innerNode);
 
     // Add markers inside the CharNode (as children)
-    $addOpeningMarker(charAttr.style, charNode, viewOptions);
-    $addCharNodeClosingMarker(charNode, charNode, viewOptions);
+    $addOpeningMarker(cleanAttr.style, charNode, viewOptions, nestedInParent);
+    $addCharNodeClosingMarker(charNode, charNode, viewOptions, nestedInParent);
 
     return [charNode];
   }
@@ -2090,6 +2122,7 @@ function $addCharNodeClosingMarker(
   charNode: CharNode,
   target: LexicalNode[] | CharNode,
   viewOptions: ViewOptions,
+  nested = false,
 ) {
   const marker = charNode.getMarker();
   const isUnclosed = charNode.getUnknownAttributes()?.closed === "false";
@@ -2102,19 +2135,23 @@ function $addCharNodeClosingMarker(
       charNode.setUnknownAttributes({ ...charNode.getUnknownAttributes(), closed: "false" });
     return;
   }
-  $addClosingMarker(marker, target, viewOptions);
+  $addClosingMarker(marker, target, viewOptions, false, nested);
 }
 
 function $addOpeningMarker(
   marker: string,
   target: LexicalNode[] | CharNode,
   viewOptions: ViewOptions,
+  // A span nested inside another char span renders its glyph with the `+` prefix (`\+w`) — the
+  // delta conveys nesting by char-array position, and the glyph must show it (see
+  // nestedGlyphs.utils.ts in `shared` for the representation rules).
+  nested = false,
 ) {
   let markerNode: LexicalNode | undefined;
   if (viewOptions?.markerMode === "editable") {
-    markerNode = $createMarkerNode(marker);
+    markerNode = $createMarkerNode(marker, "opening", nested);
   } else if (viewOptions?.markerMode === "visible") {
-    markerNode = $createImmutableTypedTextNode("marker", openingMarkerText(marker));
+    markerNode = $createImmutableTypedTextNode("marker", openingMarkerText(marker, nested));
   }
 
   if (markerNode) {
@@ -2137,6 +2174,7 @@ function $addClosingMarker(
   target: LexicalNode[] | CharNode,
   viewOptions: ViewOptions,
   isSelfClosing = false,
+  nested = false,
 ) {
   if (CharNode.isValidFootnoteMarker(marker) || CharNode.isValidCrossReferenceMarker(marker))
     return;
@@ -2144,11 +2182,11 @@ function $addClosingMarker(
   let markerNode: LexicalNode | undefined;
   if (viewOptions?.markerMode === "editable") {
     if (isSelfClosing) markerNode = $createMarkerNode("", "selfClosing");
-    else markerNode = $createMarkerNode(marker, "closing");
+    else markerNode = $createMarkerNode(marker, "closing", nested);
   } else if (viewOptions?.markerMode === "visible") {
     markerNode = $createImmutableTypedTextNode(
       "marker",
-      closingMarkerText(isSelfClosing ? "" : marker),
+      isSelfClosing ? closingMarkerText("") : closingMarkerText(marker, nested),
     );
   }
 
