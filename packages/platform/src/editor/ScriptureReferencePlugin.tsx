@@ -116,6 +116,7 @@ import {
   VerseNode,
 } from "shared";
 import {
+  $advancePastParaPrefixes,
   $findThisVerse,
   $findVerseOrPara,
   $getEffectiveVerseForBcv,
@@ -425,7 +426,7 @@ function $moveCaretToVerseStart(chapterNum: number, verseNum: number) {
   if ($isParaNode(verseOrParaNode)) {
     const firstChild = verseOrParaNode.getFirstChild();
     if ($isTextNode(firstChild)) firstChild.select(0, 0);
-    else verseOrParaNode.select(0, 0);
+    else if (!$advancePastParaPrefixes(verseOrParaNode)) verseOrParaNode.select(0, 0);
   } else verseOrParaNode.selectNext(0, 0);
 }
 

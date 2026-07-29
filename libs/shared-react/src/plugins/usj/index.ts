@@ -12,6 +12,7 @@ export * from "./EditablePlugin";
 export * from "./LoadStatePlugin";
 export * from "./NoteNodePlugin";
 export * from "./OnSelectionChangePlugin";
+export * from "./ParaMarkerPrefixCursorGuardPlugin";
 export * from "./ParaNodePlugin";
 export * from "./StateChangePlugin";
 export * from "./structure-protection.model";
