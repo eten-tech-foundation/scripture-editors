@@ -80,7 +80,19 @@ function pushText(out: FragmentAccumulator, node: LexicalNode, text: string): vo
   out.text += text;
 }
 
+/** Fragment tail that is an unterminated marker token (`\wj`, `\+`, or a bare `\`): the
+ * tokenizer's name scan stops only at `\`, `|`, whitespace, or `*`, so ANY other character —
+ * the U+FFFC placeholder included — would extend the marker name. */
+const UNTERMINATED_MARKER_TAIL = /\\\+?[\w-]*$/;
+
 function pushSentinel(out: FragmentAccumulator, nodes: LexicalNode[]): void {
+  // A placeholder glued to an unterminated marker token would be absorbed into the marker NAME
+  // (`\wj` + U+FFFC scans as unknown marker "wj￼"), vanishing from the tokenized text and
+  // tripping the sentinel-count abort — so a deleted separator before a preserved node (a note,
+  // milestone, or attribute span right after an opener) could never settle. Emit the separator
+  // the tokenizer expects after an opening marker; it is structural there (consumed by the
+  // opener's separator scan), and mid-word placements (`wa` + note + `tta`) are unaffected.
+  if (UNTERMINATED_MARKER_TAIL.test(out.text)) out.text += " ";
   out.spans.push({
     key: nodes[0].getKey(),
     start: out.text.length,
