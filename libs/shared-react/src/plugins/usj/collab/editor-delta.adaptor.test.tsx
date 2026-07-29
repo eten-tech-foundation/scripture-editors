@@ -628,7 +628,9 @@ describe("getEditorDelta", () => {
       $setState(frChar, charIdState, "char-id1");
       const ftChar = $createCharNode("ft");
       $setState(ftChar, charIdState, "char-id2");
-      const bdChar = $createCharNode("+bd");
+      // CLEAN marker on the nested span — the `+` lives only in the glyph text below, exactly as
+      // the load adaptor builds nested chars. The emitted delta style must be clean too.
+      const bdChar = $createCharNode("bd");
       $setState(bdChar, charIdState, "char-id3");
       $getRoot().append(
         $createImpliedParaNode().append(
@@ -673,7 +675,7 @@ describe("getEditorDelta", () => {
                   attributes: {
                     char: [
                       { style: "ft", cid: "char-id2" },
-                      { style: "+bd", cid: "char-id3" },
+                      { style: "bd", cid: "char-id3" },
                     ],
                   },
                 },

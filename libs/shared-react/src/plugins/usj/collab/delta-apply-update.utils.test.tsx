@@ -34,6 +34,7 @@ import {
   $isTextNode,
   $setState,
   LexicalEditor,
+  LexicalNode,
   SerializedEditorState,
 } from "lexical";
 import Delta from "quill-delta";
@@ -658,6 +659,47 @@ describe("Delta Utils $applyUpdate", () => {
         const t1 = char2.getFirstChild();
         if (!$isTextNode(t1)) throw new Error("t1 is not a TextNode");
         expect(t1.getTextContent()).toBe(wordsOfJesus);
+      });
+    });
+
+    it("materializes nested char glyphs with the + prefix from CLEAN delta styles (editable mode)", async () => {
+      // The delta conveys nesting by ARRAY POSITION with clean styles ({style:"add"},{style:"wj"});
+      // the materializer must derive the `+` for the inner span's glyphs from that nesting —
+      // otherwise a remote-created nested span renders bare `\wj`, which the next Tier-2
+      // re-tokenization reads as close-on-bare and flattens.
+      const viewOptions: ViewOptions = { ...defaultViewOptions, markerMode: "editable" };
+      const wordsOfJesus = "It is finished.";
+      const { editor } = await testEnvironment(() => {
+        $getRoot().append($createParaNode("p").append($createTextNode(wordsOfJesus)));
+      });
+      const ops: DeltaOp[] = [
+        {
+          retain: wordsOfJesus.length,
+          attributes: { char: [{ style: "add" }, { style: "wj" }] },
+        },
+      ];
+
+      await sutApplyUpdate(editor, ops, viewOptions);
+
+      expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        const add = para.getChildren().find($isCharNode);
+        if (!$isCharNode(add)) throw new Error("outer add span not found");
+        expect(add.getMarker()).toBe("add");
+        // Marker glyphs in document order across the span's subtree: the inner wj nests inside
+        // add, so its glyphs carry the `+`; add's own glyphs stay bare (its parent is the para).
+        const markerText: string[] = [];
+        const collect = (node: LexicalNode) => {
+          if ($isMarkerNode(node)) markerText.push(node.getTextContent());
+          if ($isCharNode(node)) node.getChildren().forEach(collect);
+        };
+        add.getChildren().forEach(collect);
+        expect(markerText).toEqual(["\\add", "\\+wj", "\\+wj*", "\\add*"]);
+        // Both markers stay CLEAN — the `+` is display-only.
+        const wj = add.getChildren().find($isCharNode);
+        expect($isCharNode(wj) && wj.getMarker()).toBe("wj");
       });
     });
 
@@ -3432,9 +3474,12 @@ describe("Delta Utils $applyUpdate", () => {
                   {
                     insert: "time",
                     attributes: {
+                      // Nesting is conveyed by ARRAY POSITION (outermost-first) with CLEAN styles —
+                      // matching what $buildCharItem actually emits. The `+` belongs only to the
+                      // rendered glyph text, derived from the nesting.
                       char: [
                         { style: "ft", cid: "char-id2" },
-                        { style: "+bd", cid: "char-id3" },
+                        { style: "bd", cid: "char-id3" },
                       ],
                     },
                   },
@@ -3516,10 +3561,10 @@ describe("Delta Utils $applyUpdate", () => {
         if (!$isTextNode(char2Text)) throw new Error("char2Text is not a TextNode");
         expect(char2Text.getTextContent()).toBe("in ");
 
-        // +bd CharNode now has its markers inside
+        // nested bd CharNode: CLEAN marker, `+` only in the rendered glyph text
         const char3 = char2.getChildAtIndex(2);
         if (!$isCharNode(char3)) throw new Error("char3 is not a CharNode");
-        expect(char3.getMarker()).toBe("+bd");
+        expect(char3.getMarker()).toBe("bd");
         expect(char3.getTextContent()).toBe("\\+bdtime\\+bd*");
         expect($getState(char3, charIdState)).toBe("char-id3");
         expect(char3.getChildrenSize()).toBe(3);
