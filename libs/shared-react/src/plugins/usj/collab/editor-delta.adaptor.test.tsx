@@ -1249,11 +1249,17 @@ describe("getEditorDelta", () => {
       expect(delta.ops).toEqual(opsGen1v1ImpliedPara);
     });
 
-    // Skipped: `getEditorDelta` does not yet normalize unknown items to the canonical delta shape
-    // `opsWithUnknownItems` expects. It currently emits extra fields the fixture omits — a
-    // chapter `sid` ("GEN 1") and the round-tripped `attr-unknown`/`category` attributes on notes
-    // and chars. Un-skip once the adaptor strips those unknown/derived attributes so the round
-    // trip lands on the canonical ops.
+    // Skipped pending a decision on the canonical delta shape for unknown items — two independent
+    // gaps, not a single missing normalization:
+    //   1. Attribute/id noise: the adaptor round-trips a chapter `sid` ("GEN 1"), a note `eid`,
+    //      and `attr-unknown`/`category`/`closed` on notes and chars that the fixture omits.
+    //   2. Shape divergence (the larger one): `opsWithUnknownItems` collapses every unknown item
+    //      (z/wat, optbreak, ref, sidebar, periph, figure, cell) into one flat text insert, while
+    //      the adaptor now emits a structured `unknown` insert per item (tag, attributes, nested
+    //      contents). Regenerating the fixture to the structured shape would just assert whatever
+    //      the code emits, so it needs the collab wire-contract owner to confirm structured
+    //      unknown-node ops are the intended canonical form (or normalize the adaptor to the flat
+    //      shape) before un-skipping — do not blindly regenerate.
     it.skip("should roundtrip the editor state with unknown items", async () => {
       const { editor } = await testEnvironment();
       const editorState = editor.parseEditorState(editorStateWithUnknownItems);
@@ -1263,11 +1269,10 @@ describe("getEditorDelta", () => {
       expect(delta.ops).toEqual(opsWithUnknownItems);
     });
 
-    // Skipped: emitting `closed: "false"` on implicitly-closed char spans is correct by design
-    // (it matches real ParatextData output; the serializer records it whenever the closing glyph
-    // is skipped). The canonical `opsGen1v1Nonstandard` fixture predates that attribute, so this
-    // test stays skipped until the fixture is updated to expect `closed: "false"`.
-    it.skip("should roundtrip the editor state with nonstandard features", async () => {
+    // Emitting `closed: "false"` on implicitly-closed char spans is correct by design (it matches
+    // real ParatextData output; the serializer records it whenever the closing glyph is skipped).
+    // The `opsGen1v1Nonstandard` fixture now expects that attribute on its nd spans.
+    it("should roundtrip the editor state with nonstandard features", async () => {
       const { editor } = await testEnvironment();
       const editorState = editor.parseEditorState(editorStateGen1v1Nonstandard);
 

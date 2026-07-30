@@ -3104,11 +3104,14 @@ export const opsGen1v1Nonstandard = [
   { insert: { chapter: { style: "c", number: "1", sid: "GEN 1" } } },
   { insert: { verse: { style: "v", number: "1", sid: "GEN 1:1" } } },
   { insert: "the " },
-  { insert: "first verse ", attributes: { char: { style: "nd" } } },
+  // The nd spans are implicitly closed (their closing glyph is skipped), so the serializer marks
+  // them closed: "false" — ParatextData's own output for a span with no explicit closing marker.
+  // ca (chapter-alternate) is not a closable char span, so it carries no closed flag.
+  { insert: "first verse ", attributes: { char: { style: "nd", closed: "false" } } },
   // TODO: v2 should have something to indicate it's inside the char:nd
   { insert: { verse: { style: "v", number: "2", sid: "GEN 1:2" } } },
-  { insert: "the second verse ", attributes: { char: { style: "nd" } } },
-  { insert: "4", attributes: { char: [{ style: "nd" }, { style: "ca" }] } },
+  { insert: "the second verse ", attributes: { char: { style: "nd", closed: "false" } } },
+  { insert: "4", attributes: { char: [{ style: "nd", closed: "false" }, { style: "ca" }] } },
   { insert: "\n", attributes: { para: { style: "p" } } },
   { insert: "This should not be here" },
   { insert: "\n", attributes: { para: { style: "b" } } },
