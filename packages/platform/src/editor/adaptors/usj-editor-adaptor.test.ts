@@ -1272,7 +1272,10 @@ describe("unknown-node display (USFM byte runs, editable mode)", () => {
     return node.children;
   }
 
-  it("figure: opening marker, attribute run, content, closing marker, in order and byte-exact", () => {
+  it("figure: opening marker, caption content, then attributes folded into the closing — byte-exact", () => {
+    // USFM 3.0 figure syntax is `\fig caption|src="…"\fig*` — caption FIRST. The attribute
+    // bytes therefore ride in the closing part (unknownDisplayParts folds them in), so the
+    // assembled display reads correct USFM rather than stranding the caption after the pipes.
     const children = unknownChildren(
       usjWithUnknown({
         type: "figure",
@@ -1285,20 +1288,17 @@ describe("unknown-node display (USFM byte runs, editable mode)", () => {
       getViewOptions(STANDARD_VIEW_MODE),
     );
 
-    expect(children).toHaveLength(4);
-    const [opening, attributes, content, closing] = children;
+    expect(children).toHaveLength(3);
+    const [opening, content, closing] = children;
     if (!isSerializedImmutableTypedTextNode(opening)) throw new Error("No opening marker found");
     expect(opening.textType).toBe("marker");
     expect(opening.text).toBe("\\fig ");
-    if (!isSerializedImmutableTypedTextNode(attributes)) throw new Error("No attribute run found");
-    expect(attributes.textType).toBe("attribute");
-    expect(attributes.text).toBe('|src="image.jpg" size="span" ref="1.18"');
     if (!isSerializedTextNode(content)) throw new Error("No content text node found");
     expect(content.text).toBe("figure content");
     expect(content.mode).toBe("token");
     if (!isSerializedImmutableTypedTextNode(closing)) throw new Error("No closing marker found");
     expect(closing.textType).toBe("marker");
-    expect(closing.text).toBe("\\fig*");
+    expect(closing.text).toBe('|src="image.jpg" size="span" ref="1.18"\\fig*');
   });
 
   it("sidebar: opening carries no separator space; a category attribute rides as its own \\cat run", () => {

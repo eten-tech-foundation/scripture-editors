@@ -171,7 +171,7 @@ describe("clipboard normalization", () => {
 });
 
 describe("copy across an UnknownNode (figure) — full USFM byte display", () => {
-  it("copies the figure's exact opening marker, attribute run, content, and closing marker", async () => {
+  it("copies the figure's exact USFM: opening marker, caption, then attributes and closer", async () => {
     const usj = usxStringToUsj(
       `<usx version="3.0"><book code="RUT" style="id" /><chapter number="1" style="c" />` +
         `<para style="p">Before <figure style="fig" file="cn01617.jpg" size="span" ref="1.18">caption</figure> after.</para></usx>`,
@@ -209,11 +209,11 @@ describe("copy across an UnknownNode (figure) — full USFM byte display", () =>
     });
 
     // The whole span, marker glyphs included: the figure's ImmutableTypedTextNode display
-    // children (opening marker, attribute run, content, closing marker — createUnknown's fixed
-    // order) are real Lexical text to a range selection, so the copy carries the figure's
-    // complete USFM, not just its "caption" content.
+    // children (opening marker before the caption; attributes folded into the closing after it,
+    // matching USFM 3.0's caption-first figure syntax) are real Lexical text to a range
+    // selection, so the copy carries the figure's complete, valid USFM — not just its caption.
     expect(getData("text/plain")).toBe(
-      'Before \\fig |src="cn01617.jpg" size="span" ref="1.18"caption\\fig* after.',
+      'Before \\fig caption|src="cn01617.jpg" size="span" ref="1.18"\\fig* after.',
     );
   });
 });

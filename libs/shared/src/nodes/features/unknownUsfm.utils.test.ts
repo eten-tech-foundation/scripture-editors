@@ -13,12 +13,17 @@ interface Case {
 // unknownDisplayParts computes for Task 13 to render around an UnknownNode's existing content
 // children), plus attribute-less variants of the kinds that carry real attribute bytes.
 const cases: Case[] = [
+  // USFM pipe attributes come AFTER a span's content, directly before the closer
+  // (`\zzz content|foo="bar"\zzz*` — the char-span shape, matching addCharAttributes'
+  // placement). The attribute bytes therefore fold into the `closing` part; the middle
+  // `attributes` part is reserved for bytes that belong BETWEEN the opening and the content
+  // (sidebar's `\cat` run, periph's pipe pairs on the marker line).
   {
-    name: "generic unknown kind with named-pair attributes (no default-attribute collapse)",
+    name: "generic unknown kind folds named-pair attributes into the closing (no default-attribute collapse)",
     tag: "unknown-para",
     marker: "zzz",
     unknownAttributes: { foo: "bar", baz: "qux" },
-    expected: { opening: "\\zzz ", attributes: '|foo="bar" baz="qux"', closing: "\\zzz*" },
+    expected: { opening: "\\zzz ", attributes: "", closing: '|foo="bar" baz="qux"\\zzz*' },
   },
   {
     name: "generic unknown kind with no attributes",
@@ -34,15 +39,18 @@ const cases: Case[] = [
     unknownAttributes: undefined,
     expected: { opening: "//", attributes: "", closing: "" },
   },
+  // A figure's caption comes FIRST in USFM 3.0 (`\fig caption|src="…"\fig*`), so its attribute
+  // bytes fold into the closing part — rendering them in the middle would strand the caption
+  // after the attribute list, which is invalid USFM.
   {
-    name: "figure renames the USJ 'file' attribute back to USFM 'src'",
+    name: "figure folds attributes into the closing, renaming the USJ 'file' attribute back to USFM 'src'",
     tag: "figure",
     marker: "fig",
     unknownAttributes: { file: "image.jpg", size: "span", ref: "1.18" },
     expected: {
       opening: "\\fig ",
-      attributes: '|src="image.jpg" size="span" ref="1.18"',
-      closing: "\\fig*",
+      attributes: "",
+      closing: '|src="image.jpg" size="span" ref="1.18"\\fig*',
     },
   },
   {
