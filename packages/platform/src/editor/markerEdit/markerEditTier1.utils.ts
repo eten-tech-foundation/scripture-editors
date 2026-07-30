@@ -15,13 +15,16 @@ import {
   NodeKey,
 } from "lexical";
 import {
+  $hasCaretHeldAttributeRun,
   $hasCaretHeldSeparatorGap,
   $isCharNode,
   $isMarkerNode,
   $isNoteNode,
   $isParaNode,
+  canonicalAttributeText,
   ChapterNode,
   closingMarkerText,
+  defaultMarkerAttribute,
   getVisibleOpenMarkerText,
   isMilestoneHeuristicName,
   MarkerLookup,
@@ -292,6 +295,21 @@ export function $resolvePendingMarkers(context: MarkerEditContext, exceptKey?: N
       // A deleted opener separator stays pending while the caret still sits at the gap (the
       // exceptKey protection covers only the anchor node itself, not its parent span) — mid-edit
       // grace, markerSeparators.utils.ts. It settles once the caret has actually departed.
+      context.pendingKeys.add(key);
+    } else if (
+      $isCharNode(node) &&
+      $hasCaretHeldAttributeRun(
+        node,
+        canonicalAttributeText(
+          node.getUnknownAttributes() ?? {},
+          defaultMarkerAttribute(node.getMarker()),
+        ),
+      )
+    ) {
+      // Same mid-edit grace for a span's edited/deleted attribute display run (the exceptKey
+      // protection covers only the run TextNode the caret is in, not the parent span's pended
+      // key) — attributeDisplay.utils.ts. Settling now would re-tokenize the run out from under
+      // the user's caret; it settles once the caret has actually departed.
       context.pendingKeys.add(key);
     } else {
       // Pending plain-text / verse nodes (registered by later tasks) re-tokenize.
