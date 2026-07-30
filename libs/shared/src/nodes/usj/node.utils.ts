@@ -2,12 +2,14 @@
 
 import { MARKER_OBJECT_PROPS, MarkerObject } from "@eten-tech-foundation/scripture-utilities";
 import {
+  $createTextNode,
   $getCommonAncestor,
   $getState,
   $isElementNode,
   $isLineBreakNode,
   $isRangeSelection,
   $isTextNode,
+  $setState,
   BaseSelection,
   ElementNode,
   LexicalEditor,
@@ -19,7 +21,11 @@ import {
   SerializedTextNode,
   TextNode,
 } from "lexical";
-import { charIdState, textTypeState } from "../collab/delta.state.js";
+import {
+  charIdState,
+  MARKER_TRAILING_SPACE_TEXT_TYPE,
+  textTypeState,
+} from "../collab/delta.state.js";
 import {
   $isImmutableTypedTextNode,
   ImmutableTypedTextNode,
@@ -892,7 +898,7 @@ export function $shouldIgnoreNodeForContentIndexes(node: LexicalNode | null | un
   if ($isImmutableTypedTextNode(node) && node.getTextType() === "attribute") return true;
   if ($isTextNode(node)) {
     const textType = $getState(node, textTypeState);
-    if (textType === "marker-trailing-space" || textType === "attribute") return true;
+    if (textType === MARKER_TRAILING_SPACE_TEXT_TYPE || textType === "attribute") return true;
 
     const text = node.getTextContent();
     // "" / NBSP are presentation-only; a bare cursor host (EmptyVerseCaretGuardPlugin) likewise
@@ -900,6 +906,39 @@ export function $shouldIgnoreNodeForContentIndexes(node: LexicalNode | null | un
     if (text === "" || text === NBSP || isCursorPlaceholderOnly(text)) return true;
   }
   return false;
+}
+
+/**
+ * Creates the engine-owned NBSP separator that sits between an editable marker glyph and its
+ * content (the `[glyph, separator, ...content]` prefix layout). Token mode so typing at the
+ * separator's boundary can never insert INTO it — Lexical routes boundary insertions into a new
+ * plain sibling TextNode instead. Without token mode, a fresh empty paragraph (whose caret
+ * fallback is the separator's end) absorbed typed text into this node (`<NBSP>asdf`), which the
+ * serializer — matching the separator by exact-NBSP text — then leaked into USJ content (`\p
+ * ~asdf` in USFM, and a non-convergent PDP echo loop in the host). The forward adaptor builds the
+ * SERIALIZED twin of this node with the same {@link MARKER_TRAILING_SPACE_TEXT_TYPE} tag and
+ * token mode.
+ *
+ * Mutating factory (creates a node): call inside `editor.update()`.
+ */
+export function $createMarkerTrailingSeparator(): TextNode {
+  const separator = $createTextNode(NBSP);
+  $setState(separator, textTypeState, MARKER_TRAILING_SPACE_TEXT_TYPE);
+  separator.setMode("token");
+  return separator;
+}
+
+/**
+ * Whether `node` is the engine-owned marker-trailing NBSP separator (see
+ * {@link $createMarkerTrailingSeparator}). Read-only: call inside
+ * `editor.getEditorState().read(...)` or an update.
+ *
+ * Deliberately NOT a `node is TextNode` type predicate: a false result must not narrow the node
+ * away from `TextNode` (an untagged plain text node also returns false), which a type predicate's
+ * false branch would wrongly do.
+ */
+export function $isMarkerTrailingSeparator(node: LexicalNode | null | undefined): boolean {
+  return $isTextNode(node) && $getState(node, textTypeState) === MARKER_TRAILING_SPACE_TEXT_TYPE;
 }
 
 /**

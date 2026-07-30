@@ -36,6 +36,7 @@ import {
   $isParaNode,
   $isUnknownNode,
   $isVerseNode,
+  $isMarkerTrailingSeparator,
   $milestoneAttributeRunPieces,
   $verseAttributeRunPieces,
   getEditableCallerText,
@@ -124,7 +125,7 @@ export function toFragmentText(text: string): string {
  */
 function $textNodeFragmentText(node: TextNode): string {
   const text = node.getTextContent();
-  if ($getState(node, textTypeState) !== "marker-trailing-space") return text;
+  if (!$isMarkerTrailingSeparator(node)) return text;
   return /^[\s\u00A0]*$/.test(text) ? " " : text;
 }
 
@@ -1110,12 +1111,7 @@ export function $rebuildNoteContent(note: NoteNode, context: Tier2Context): bool
   if ($isMarkerNode(parsed[0]) && parsed[0].getMarkerSyntax() === "opening") {
     contentStart = 1;
     const second = parsed[1];
-    if (
-      $isTextNode(second) &&
-      !$isMarkerNode(second) &&
-      $getState(second, textTypeState) === "marker-trailing-space"
-    )
-      contentStart = 2;
+    if ($isMarkerTrailingSeparator(second)) contentStart = 2;
   }
   const newNodes = parsed.slice(contentStart);
   if (newNodes.length === 0) {

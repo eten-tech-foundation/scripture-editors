@@ -56,6 +56,7 @@ import {
   $createImmutableUnmatchedNode,
   $createImpliedParaNode,
   $createMarkerNode,
+  $createMarkerTrailingSeparator,
   $createMilestoneNode,
   $createParaNode,
   $createUnknownNode,
@@ -90,7 +91,6 @@ import {
   ParaNode,
   segmentState,
   SomeChapterNode,
-  textTypeState,
   UnknownNode,
 } from "shared";
 
@@ -1753,12 +1753,7 @@ function $createPara(paraAttributes: OTParaAttribute, viewOptions: ViewOptions) 
   const unknownAttributes = getUnknownAttributes(paraAttributes, OT_PARA_PROPS);
   const para = $createParaNode(style, unknownAttributes);
   if (viewOptions.markerMode === "editable") {
-    const separator = $createTextNode(NBSP);
-    // Token mode plus the marker-trailing-space tag keep typed text out of the separator (and
-    // out of serialized USJ), exactly as the adaptor's separator does.
-    $setState(separator, textTypeState, "marker-trailing-space");
-    separator.setMode("token");
-    para.append($createMarkerNode(style), separator);
+    para.append($createMarkerNode(style), $createMarkerTrailingSeparator());
   } else if (viewOptions.markerMode === "visible" || viewOptions.hasGutterParaMarkers) {
     // A gutter glyph is a non-selectable aid, so it must carry the flag the caret guard keys on —
     // a paragraph arriving from a peer has to be as unclickable as one the load adaptor built.

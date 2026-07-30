@@ -19,6 +19,7 @@ import {
   $isChapterNode,
   $isCharNode,
   $isUnknownNode,
+  MARKER_TRAILING_SPACE_TEXT_TYPE,
   NBSP,
   textTypeState,
 } from "shared";
@@ -28,7 +29,7 @@ export function $displayWhitespaceTransform(node: TextNode): void {
   const text = node.getTextContent();
   if (!text.includes(" ")) return;
   const textType = $getState(node, textTypeState);
-  if (textType === "attribute" || textType === "marker-trailing-space") return;
+  if (textType === "attribute" || textType === MARKER_TRAILING_SPACE_TEXT_TYPE) return;
   for (let parent = node.getParent(); parent; parent = parent.getParent()) {
     // Note content displays space runs as NBSP like any other content;
     // books/chapters/unknowns keep literal text (degradation property) — same skip-list

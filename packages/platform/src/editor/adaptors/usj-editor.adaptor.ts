@@ -63,6 +63,7 @@ import {
   isSerializedTextNode,
   isSomeSerializedChapterNode,
   LoggerBasic,
+  MARKER_TRAILING_SPACE_TEXT_TYPE,
   MarkerNode,
   MarkerSyntax,
   MILESTONE_VERSION,
@@ -453,10 +454,10 @@ function createPara(
   marker = marker ?? PARA_MARKER_DEFAULT;
   const children: SerializedLexicalNode[] = [];
   if (_viewOptions?.markerMode === "editable")
-    // Token mode: typing at the separator's boundary must create a new plain TextNode, never
-    // insert into the separator itself (which leaked the NBSP into serialized USJ — `\p ~asdf`).
-    // Keep in sync with `$createMarkerPrefix` (markerEditDeletion.utils.ts).
-    children.push(createMarker(marker), createText(NBSP, "marker-trailing-space", "token"));
+    // The SERIALIZED twin of $createMarkerTrailingSeparator (node.utils.ts) — same tag, same
+    // token mode, and the doc there explains why. This is the only place the serialized form is
+    // built.
+    children.push(createMarker(marker), createText(NBSP, MARKER_TRAILING_SPACE_TEXT_TYPE, "token"));
   else if (_viewOptions?.markerMode === "visible" || _viewOptions?.hasGutterParaMarkers)
     // The gutter flag rides on the glyph, so whether this paragraph's marker is an aid in the
     // gutter or inline text stays legible from the node alone, wherever it is read later.

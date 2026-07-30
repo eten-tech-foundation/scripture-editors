@@ -11,26 +11,17 @@
  * `OnSelectionChangePlugin`.
  */
 import { MarkerMenuContext } from "./markerItemSource";
-import {
-  $getRoot,
-  $getSelection,
-  $getState,
-  $isElementNode,
-  $isRangeSelection,
-  $isTextNode,
-  LexicalNode,
-  TextNode,
-} from "lexical";
+import { $getRoot, $getSelection, $isElementNode, $isRangeSelection, LexicalNode } from "lexical";
 import {
   $findFirstAncestorNoteNode,
   $isBookNode,
   $isCharNode,
   $isMarkerNode,
+  $isMarkerTrailingSeparator,
   $isSynthesizedMarkerNode,
   $isParaNode,
   $isSomeChapterNode,
   ParaNode,
-  textTypeState,
 } from "shared";
 
 /**
@@ -90,11 +81,6 @@ function $collectPreviousParaMarkers(node: LexicalNode): string[] {
   return markers;
 }
 
-/** A plain `TextNode` tagged as the NBSP separator following a paragraph's marker prefix. */
-function $isTrailingSpaceNode(node: LexicalNode | null | undefined): node is TextNode {
-  return $isTextNode(node) && $getState(node, textTypeState) === "marker-trailing-space";
-}
-
 /** First leaf of `node`: descend through first children of element nodes (the node itself
  * when it is already a leaf or an empty element). */
 function $getFirstLeaf(node: LexicalNode): LexicalNode {
@@ -134,7 +120,7 @@ export function $isAtParagraphContentStart(
   if ($isSynthesizedMarkerNode(firstChild)) {
     if (anchorNode.is(firstChild)) return true;
     contentStart = firstChild.getNextSibling();
-    if ($isTrailingSpaceNode(contentStart)) {
+    if (contentStart && $isMarkerTrailingSeparator(contentStart)) {
       if (anchorNode.is(contentStart)) return true;
       contentStart = contentStart.getNextSibling();
     }

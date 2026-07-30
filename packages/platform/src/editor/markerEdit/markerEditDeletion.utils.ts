@@ -7,17 +7,12 @@
 import { $requestTier2ForNode } from "./tier2Rebuild.utils";
 import { MarkerEditContext } from "./markerEditTier1.utils";
 import { $dfs } from "@lexical/utils";
-import {
-  $createTextNode,
-  $getSelection,
-  $getState,
-  $isRangeSelection,
-  $isTextNode,
-  $setState,
-} from "lexical";
+import { $createTextNode, $getSelection, $isRangeSelection, $isTextNode, $setState } from "lexical";
 import {
   $createMarkerNode,
+  $createMarkerTrailingSeparator,
   $isMarkerNode,
+  $isMarkerTrailingSeparator,
   $isSynthesizedMarkerNode,
   $isParaNode,
   $placeCaretAtBoundary,
@@ -25,6 +20,7 @@ import {
   CharNode,
   defaultMarkerAttribute,
   getEditableCallerText,
+  MARKER_TRAILING_SPACE_TEXT_TYPE,
   NBSP,
   NoteNode,
   PARA_MARKER_DEFAULT,
@@ -33,18 +29,9 @@ import {
 } from "shared";
 
 export function $createMarkerPrefix(marker: string) {
-  const markerNode = $createMarkerNode(marker);
-  const spaceNode = $createTextNode(NBSP);
-  $setState(spaceNode, textTypeState, "marker-trailing-space");
-  // Token mode so typing at the separator's boundary can never insert INTO it. Without this, a
-  // fresh EMPTY paragraph (whose caret fallback below is the separator's end) absorbed typed text
-  // into this node ("<NBSP>asdf"), which the serializer — matching the separator by exact-NBSP
-  // text — then leaked into USJ content (`\p ~asdf` in USFM, and a non-convergent PDP echo loop
-  // in the host). With token mode, Lexical routes boundary insertions into a new plain sibling
-  // TextNode instead. Keep in sync with the forward adaptor's separator (`createText(NBSP,
-  // "marker-trailing-space", "token")` in usj-editor.adaptor.ts).
-  spaceNode.setMode("token");
-  return [markerNode, spaceNode];
+  // The separator's shape (token mode, textType tag) and the reasons for it live with
+  // $createMarkerTrailingSeparator.
+  return [$createMarkerNode(marker), $createMarkerTrailingSeparator()];
 }
 
 /**
@@ -128,12 +115,7 @@ function $healMarkerTrailingSeparator(para: ParaNode): void {
   const glyph = para.getFirstChild();
   if (!glyph) return;
   const second = glyph.getNextSibling();
-  if (
-    $isTextNode(second) &&
-    !$isMarkerNode(second) &&
-    $getState(second, textTypeState) === "marker-trailing-space"
-  )
-    return; // canonical separator present
+  if ($isMarkerTrailingSeparator(second)) return; // canonical separator present
   if (
     $isTextNode(second) &&
     !$isMarkerNode(second) &&
@@ -141,14 +123,11 @@ function $healMarkerTrailingSeparator(para: ParaNode): void {
   ) {
     // Canonicalize the user's typed space into the separator instead of inserting a second one.
     second.setTextContent(NBSP);
-    $setState(second, textTypeState, "marker-trailing-space");
+    $setState(second, textTypeState, MARKER_TRAILING_SPACE_TEXT_TYPE);
     second.setMode("token");
     return;
   }
-  const spaceNode = $createTextNode(NBSP);
-  $setState(spaceNode, textTypeState, "marker-trailing-space");
-  spaceNode.setMode("token");
-  glyph.insertAfter(spaceNode);
+  glyph.insertAfter($createMarkerTrailingSeparator());
 }
 
 export function $paraMarkerDeletionTransform(para: ParaNode, context: MarkerEditContext): void {
@@ -184,8 +163,7 @@ export function $paraMarkerDeletionTransform(para: ParaNode, context: MarkerEdit
   if ($isParaNode(previous)) {
     // Deleting a para's marker text merges its content into the previous para.
     const children = para.getChildren().filter((child) => {
-      if ($isTextNode(child) && $getState(child, textTypeState) === "marker-trailing-space")
-        return false; // drop the orphaned separator
+      if ($isMarkerTrailingSeparator(child)) return false; // drop the orphaned separator
       return true;
     });
     previous.append(...children); // moved nodes keep their keys; selection follows
