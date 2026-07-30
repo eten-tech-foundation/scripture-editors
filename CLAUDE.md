@@ -50,6 +50,12 @@ npx prettier --write <files>       # Use prettier directly, NOT `nx format:write
 # API extraction (run after changing a package's public API)
 nx extract-api <package-name>      # Update API report for specific package
 nx run-many -t extract-api         # Update API reports for all packages
+# extract-api does DOUBLE DUTY: it updates the API report AND regenerates the package's
+# self-contained rolled-up dist/index.d.ts. A raw `nx build` leaves dist/index.d.ts with bare
+# workspace type imports (e.g. `from "shared-react"`) that consumers cannot resolve — the symptom
+# is "Cannot find module 'shared-react'" typecheck errors inside the CONSUMER's node_modules. When
+# hand-producing a consumable dist, always run extract-api AFTER build (the devpub script already
+# orders this correctly).
 
 # Development environments
 nx dev perf-react                  # React-based PERF editor
