@@ -7,6 +7,9 @@
  * fact. A backslash sequence completed by a space/NBSP separator or a `*`
  * closer re-tokenizes immediately; an unterminated one waits in
  * `pendingKeys` for Enter/blur/caret-departure via `$resolvePendingMarkers`.
+ * Attribute-run text (textType "attribute") is a third case: it always
+ * pends and never re-tokenizes from here, regardless of backslashes or
+ * termination-looking content — see the attribute branch below.
  */
 
 import { $requestTier2ForNode } from "./tier2Rebuild.utils";
@@ -19,19 +22,28 @@ const TERMINATED_MARKER_IN_TEXT_REGEX = /\\\+?[\w-]+(?:\*|[ \u00A0])/;
 
 export function $textNodeTier2Transform(node: TextNode, context: MarkerEditContext): void {
   const text = node.getTextContent();
+  const textType = $getState(node, textTypeState);
+  // Attribute runs (char and milestone alike) always pend and never re-tokenize from here:
+  // their bytes legitimately contain arbitrary characters, so neither the backslash check below
+  // nor the termination regex further down means anything for them — a `\`-free edit is just as
+  // much a divergence from canonical as a "terminated"-looking one. The marker-edit engine
+  // settles the run back to canonical on caret departure via `context.pendingKeys` (see
+  // `$hasCaretHeldAttributeRun`, MarkerEditPlugin.tsx) instead of this trigger ever
+  // re-tokenizing it directly.
+  if (textType === "attribute") {
+    context.pendingKeys.add(node.getKey());
+    return;
+  }
   if (!text.includes("\\")) {
     context.pendingKeys.delete(node.getKey());
     return;
   }
-  const textType = $getState(node, textTypeState);
   // The para-prefix trailing-space node is NOT exempt: it only
   // reaches this point when it carries a literal backslash run (a pure-NBSP prefix bails at the
   // includes check above), and that is exactly the node a caret at "content start" types into.
   // Exempting it made typed literals there invisible to the whole pend/settle machinery — `\zz `/
   // `\zfoo ` persisted indefinitely and serialized raw to disk because the caret-departure
-  // settle had nothing pended to resolve. Attribute runs stay exempt (milestone attribute text
-  // legitimately contains arbitrary characters).
-  if (textType === "attribute") return;
+  // settle had nothing pended to resolve.
   for (let parent = node.getParent(); parent; parent = parent.getParent()) {
     // Note content now routes to the note-scoped rebuild (`$rebuildNoteContent`) via
     // `$requestTier2ForNode`, so it is NOT skipped here; books/chapters/unknowns keep

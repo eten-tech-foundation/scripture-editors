@@ -49,10 +49,13 @@ import {
 } from "lexical";
 import { useEffect } from "react";
 import {
+  $hasCaretHeldAttributeRun,
   $hasCaretHeldSeparatorGap,
+  canonicalAttributeText,
   ChapterNode,
   CharNode,
   CURSOR_CHANGE_TAG,
+  defaultMarkerAttribute,
   getMarker as bundledGetMarker,
   LoggerBasic,
   MarkerLookup,
@@ -170,6 +173,15 @@ export function MarkerEditPlugin({
         // departure settles it back to canonical via the Tier-2 completion path, exactly like a
         // pending marker literal.
         if (node.isAttached() && $hasCaretHeldSeparatorGap(node))
+          context.pendingKeys.add(node.getKey());
+        // Same grace/pend pairing for a deleted or diverged attribute display run
+        // (attributeDisplay.utils.ts): while the caret holds it, CharNodePlugin's sync leaves it
+        // alone, so pend the span here for the caret-departure settle.
+        const expectedText = canonicalAttributeText(
+          node.getUnknownAttributes() ?? {},
+          defaultMarkerAttribute(node.getMarker()),
+        );
+        if (node.isAttached() && $hasCaretHeldAttributeRun(node, expectedText))
           context.pendingKeys.add(node.getKey());
       }),
       editor.registerNodeTransform(NoteNode, (node) => {

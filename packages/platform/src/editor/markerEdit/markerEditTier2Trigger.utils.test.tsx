@@ -1,4 +1,6 @@
-import { historyTestEnvironment, testEnvironment } from "./markerEdit.test-helpers";
+import { MarkerEditContext } from "./markerEditTier1.utils";
+import { $textNodeTier2Transform } from "./markerEditTier2Trigger.utils";
+import { historyTestEnvironment, testEnvironment, viewOptions } from "./markerEdit.test-helpers";
 import { act } from "@testing-library/react";
 import {
   $createTextNode,
@@ -7,6 +9,7 @@ import {
   $isRangeSelection,
   $setState,
   KEY_ENTER_COMMAND,
+  NodeKey,
   TextNode,
   UNDO_COMMAND,
 } from "lexical";
@@ -15,9 +18,13 @@ import {
   $createNoteNode,
   $createParaNode,
   $isParaNode,
+  getMarker as bundledGetMarker,
   NBSP,
   textTypeState,
 } from "shared";
+// Reaching inside only for tests.
+// eslint-disable-next-line @nx/enforce-module-boundaries
+import { createBasicTestEnvironment } from "../../../../../libs/shared/src/nodes/usj/test.utils";
 
 describe("Tier 2 literal-text triggers", () => {
   it("re-tokenizes a terminated typed char marker", async () => {
@@ -290,5 +297,77 @@ describe("Tier 2 literal-text triggers", () => {
     );
     // literal text preserved — no CharNode created inside the collapsed note
     expect(JSON.stringify(editor.getEditorState().toJSON())).toContain("\\\\bd");
+  });
+});
+
+describe("$textNodeTier2Transform on attribute-run text", () => {
+  /**
+   * A standalone `MarkerEditContext` — bypassing the mounted `MarkerEditPlugin` — so
+   * `pendingKeys` is a plain `Set` these tests can inspect directly, the same direct-call
+   * technique `tier2Rebuild.utils.test.tsx` uses for `$rebuildParas`.
+   */
+  function buildContext(): MarkerEditContext {
+    return {
+      viewOptions,
+      getMarker: bundledGetMarker,
+      pendingKeys: new Set<NodeKey>(),
+      splitExpected: { current: false },
+      rebuildAttempted: new Set<string>(),
+    };
+  }
+
+  it("pends an edited attribute run whose text contains a backslash, without re-tokenizing it", () => {
+    const { editor } = createBasicTestEnvironment();
+    let attrText: TextNode;
+    editor.update(
+      () => {
+        attrText = $createTextNode('|lemma="grace"');
+        $setState(attrText, textTypeState, "attribute");
+        const para = $createParaNode("p");
+        $getRoot().append(para.append($createMarkerNode("p"), attrText));
+      },
+      { discrete: true },
+    );
+    const context = buildContext();
+    editor.update(
+      () => {
+        // A stray marker sequence lands in the attribute value. `\nd ` alone would look
+        // TERMINATED to the plain-text trigger's regex, but attribute bytes legitimately
+        // contain arbitrary characters — this must wait for caret departure, not re-tokenize
+        // now.
+        attrText.setTextContent('|lemma="\\nd grace"');
+        $textNodeTier2Transform(attrText, context);
+        expect(context.pendingKeys.has(attrText.getKey())).toBe(true);
+        // $requestTier2ForNode (via $rebuildParas) was never invoked.
+        expect(context.rebuildAttempted.size).toBe(0);
+        expect(attrText.getTextContent()).toBe('|lemma="\\nd grace"');
+      },
+      { discrete: true },
+    );
+  });
+
+  it("pends an edited attribute run with no backslash too", () => {
+    const { editor } = createBasicTestEnvironment();
+    let attrText: TextNode;
+    editor.update(
+      () => {
+        attrText = $createTextNode('|lemma="grace"');
+        $setState(attrText, textTypeState, "attribute");
+        const para = $createParaNode("p");
+        $getRoot().append(para.append($createMarkerNode("p"), attrText));
+      },
+      { discrete: true },
+    );
+    const context = buildContext();
+    editor.update(
+      () => {
+        // Divergence from canonical is what matters, not backslashes: the early
+        // `!text.includes("\\")` return must not skip attribute runs.
+        attrText.setTextContent('|lemma="gra');
+        $textNodeTier2Transform(attrText, context);
+        expect(context.pendingKeys.has(attrText.getKey())).toBe(true);
+      },
+      { discrete: true },
+    );
   });
 });
