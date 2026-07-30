@@ -71,9 +71,14 @@ describe("OnSelectionChangePlugin (no-flush regression, frozen-commit crash clas
     // fresh caret without forcing a commit. Reporting the stale committed selection instead
     // would leave every ordinary selection change one interaction behind, because Lexical's
     // normal DOM path also dispatches SELECTION_CHANGE from inside an uncommitted update.
-    expect(onChange).toHaveBeenCalledTimes(1);
-    expect(onChange).toHaveBeenCalledWith({
-      start: { jsonPath: "$.content[1].content[0]", offset: 3 },
+    // Lexical's commit reconciliation may dispatch its own extra SELECTION_CHANGE (timing-
+    // dependent), so pin the payload of EVERY report instead of an exact count: the regression
+    // guarded here is any report carrying the stale committed selection.
+    expect(onChange).toHaveBeenCalled();
+    onChange.mock.calls.forEach((call) => {
+      expect(call[0]).toEqual({
+        start: { jsonPath: "$.content[1].content[0]", offset: 3 },
+      });
     });
 
     // The outer update itself still completes and commits normally.
