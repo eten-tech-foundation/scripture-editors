@@ -27,7 +27,12 @@ import {
   VERSE_PARA_INDEX,
 } from "../../../../utilities/src/converters/usj/converter-test.data";
 import { serializeEditorState, reset, initialize } from "./usj-editor.adaptor";
-import { EMPTY_USJ, MarkerObject, usxStringToUsj } from "@eten-tech-foundation/scripture-utilities";
+import {
+  EMPTY_USJ,
+  MarkerObject,
+  Usj,
+  usxStringToUsj,
+} from "@eten-tech-foundation/scripture-utilities";
 import {
   $createTextNode,
   $getRoot,
@@ -911,5 +916,138 @@ describe("load/delta para prefix drift pin", () => {
     });
 
     expect(delta).toEqual(loaded);
+  });
+});
+
+describe("char-span attribute display (editable mode)", () => {
+  /** The node-state `textType` tag of a serialized text node, or `undefined` for anything else. */
+  function textTypeOf(node: SerializedLexicalNode): unknown {
+    if (!isSerializedTextNode(node)) return undefined;
+    const stateObject: unknown = node[NODE_STATE_KEY];
+    return stateObject && typeof stateObject === "object" && "textType" in stateObject
+      ? stateObject.textType
+      : undefined;
+  }
+
+  /** A one-paragraph USJ document wrapping a single char span. */
+  function usjWithChar(charObject: MarkerObject): Usj {
+    return {
+      ...EMPTY_USJ,
+      content: [{ type: "para", marker: "p", content: [charObject] } as MarkerObject],
+    };
+  }
+
+  /** Serializes `usj` and returns its paragraph's single char span. */
+  function firstChar(usj: Usj, viewOptions?: ViewOptions): SerializedCharNode {
+    initialize(undefined, undefined);
+    reset();
+    const state = serializeEditorState(usj, viewOptions);
+    const para = state.root.children[0];
+    if (!isSerializedParaNode(para)) throw new Error("No para node found");
+    const char = para.children.find((c) => isSerializedCharNode(c));
+    if (!isSerializedCharNode(char)) throw new Error("No char node found");
+    return char;
+  }
+
+  it("renders a lone default attribute collapsed, between content and closer", () => {
+    const char = firstChar(
+      usjWithChar({
+        type: "char",
+        marker: "w",
+        lemma: "grace",
+        content: ["word"],
+      } as MarkerObject),
+      getViewOptions(STANDARD_VIEW_MODE),
+    );
+
+    expect(char.children).toHaveLength(4);
+    const [opening, content, attribute, closing] = char.children;
+    expect(isSerializedMarkerNode(opening) && opening.markerSyntax === "opening").toBe(true);
+    if (!isSerializedTextNode(content)) throw new Error("No content text node found");
+    expect(content.text).toBe(`${NBSP}word`);
+    if (!isSerializedTextNode(attribute)) throw new Error("No attribute text node found");
+    expect(attribute.text).toBe("|grace");
+    expect(textTypeOf(attribute)).toBe("attribute");
+    expect(isSerializedMarkerNode(closing) && closing.markerSyntax === "closing").toBe(true);
+  });
+
+  it("renders multiple attributes named, insertion order", () => {
+    const char = firstChar(
+      usjWithChar({
+        type: "char",
+        marker: "w",
+        lemma: "grace",
+        strong: "G5485",
+        content: ["word"],
+      } as MarkerObject),
+      getViewOptions(STANDARD_VIEW_MODE),
+    );
+
+    const attribute = char.children.find((n) => textTypeOf(n) === "attribute");
+    if (!isSerializedTextNode(attribute)) throw new Error("No attribute text node found");
+    expect(attribute.text).toBe('|lemma="grace" strong="G5485"');
+  });
+
+  it("renders named form for a non-default lone attribute", () => {
+    const char = firstChar(
+      usjWithChar({
+        type: "char",
+        marker: "nd",
+        "x-custom": "y",
+        content: ["Lord"],
+      } as MarkerObject),
+      getViewOptions(STANDARD_VIEW_MODE),
+    );
+
+    const attribute = char.children.find((n) => textTypeOf(n) === "attribute");
+    if (!isSerializedTextNode(attribute)) throw new Error("No attribute text node found");
+    expect(attribute.text).toBe('|x-custom="y"');
+  });
+
+  it("builds no run for closed-only unknownAttributes (footnote content chars)", () => {
+    const char = firstChar(
+      usjWithChar({
+        type: "char",
+        marker: "ft",
+        closed: "false",
+        content: ["note"],
+      } as MarkerObject),
+      getViewOptions(STANDARD_VIEW_MODE),
+    );
+
+    expect(char.children.some((n) => textTypeOf(n) === "attribute")).toBe(false);
+    expect(
+      char.children.some((n) => isSerializedMarkerNode(n) && n.markerSyntax === "closing"),
+    ).toBe(false);
+  });
+
+  it("builds no run on an unclosed span", () => {
+    const char = firstChar(
+      usjWithChar({
+        type: "char",
+        marker: "nd",
+        closed: "false",
+        lemma: "x",
+        content: ["a"],
+      } as MarkerObject),
+      getViewOptions(STANDARD_VIEW_MODE),
+    );
+
+    expect(char.children.some((n) => textTypeOf(n) === "attribute")).toBe(false);
+  });
+
+  it("builds no run in visible/hidden marker modes", () => {
+    const usj = usjWithChar({
+      type: "char",
+      marker: "w",
+      lemma: "grace",
+      content: ["word"],
+    } as MarkerObject);
+
+    const visibleChar = firstChar(usj, { ...getDefaultViewOptions(), markerMode: "visible" });
+    expect(visibleChar.children.some((n) => textTypeOf(n) === "attribute")).toBe(false);
+
+    const hiddenChar = firstChar(usj, { ...getDefaultViewOptions(), markerMode: "hidden" });
+    expect(hiddenChar.children.some((n) => textTypeOf(n) === "attribute")).toBe(false);
   });
 });
