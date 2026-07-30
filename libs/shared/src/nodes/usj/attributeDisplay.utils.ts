@@ -84,6 +84,29 @@ function $charClosingGlyph(char: CharNode): MarkerNode | undefined {
 }
 
 /**
+ * True when `char` carries attribute bytes that Tier-2 re-tokenization can never recover: real
+ * (non-`closed`) attributes with NEITHER a closing glyph ({@link $charClosingGlyph}) NOR an
+ * existing display run ({@link $charAttributeDisplayNode}) anywhere among its children. EITHER
+ * anchor alone is enough to recover: a live display run carries the bytes into the fragment
+ * regardless of the closer (a closer edit — deleted, damaged — re-tokenizes and settles, possibly
+ * degrading to literal content, exactly like any other char content); a live closing glyph gives
+ * `extractAttributes` a well-defined close event even if the run itself was just deleted (settles
+ * to no attributes). Only when BOTH are absent — implicitly-closed footnote/cross-reference
+ * content (`\fr`/`\ft`/`\xt`…) and explicit `closed="false"` spans skip the glyph AND never get a
+ * run built for them — does an attribute such as `link-href` on an auto-closed `\xt` have no
+ * visible representation anywhere in the tree for the Tier-2 fragment builder to pick up. Such a
+ * span must stay a Tier-2 sentinel (preserve-or-refuse, tier2Rebuild.utils.ts): recursing into it
+ * would silently drop the attribute.
+ */
+export function $hasUnrecoverableAttributes(char: CharNode): boolean {
+  const attributes = char.getUnknownAttributes();
+  if (!attributes) return false;
+  const hasRealAttributes = Object.keys(attributes).some((name) => name !== "closed");
+  if (!hasRealAttributes) return false;
+  return $charClosingGlyph(char) === undefined && $charAttributeDisplayNode(char) === undefined;
+}
+
+/**
  * `char`'s direct-child display run — the TextNode tagged textType "attribute" — or `undefined`
  * if none exists.
  */
