@@ -11,6 +11,8 @@ import {
 const testParaMarker = "p";
 const testVerseMarker = "v";
 const testChapterMarker = "c";
+// Nesting is a char-span concept, so the nested cases use a char marker.
+const testCharMarker = "w";
 
 describe("MarkerNode", () => {
   describe("constructor", () => {
@@ -44,6 +46,34 @@ describe("MarkerNode", () => {
         expect(node.getMarker()).toBe(testParaMarker);
         expect(node.getMarkerSyntax()).toBe("selfClosing");
         expect(node.getTextContent()).toBe(`\\*`);
+      });
+    });
+
+    it("should create a nested opening marker with the '+' prefix", () => {
+      const { editor } = createBasicTestEnvironment([MarkerNode]);
+      editor.update(() => {
+        const node = $createMarkerNode(testCharMarker, "opening", true);
+        expect(node.getNested()).toBe(true);
+        expect(node.getTextContent()).toBe("\\+w");
+      });
+    });
+
+    it("should create a nested closing marker with the '+' prefix", () => {
+      const { editor } = createBasicTestEnvironment([MarkerNode]);
+      editor.update(() => {
+        const node = $createMarkerNode(testCharMarker, "closing", true);
+        expect(node.getNested()).toBe(true);
+        expect(node.getTextContent()).toBe("\\+w*");
+      });
+    });
+
+    it("should keep the self-closing terminator bare even when nested", () => {
+      // The self-closing form is a milestone terminator (`\*`); milestones never nest inside a
+      // char span, so the `+` prefix does not apply to it.
+      const { editor } = createBasicTestEnvironment([MarkerNode]);
+      editor.update(() => {
+        const node = $createMarkerNode(testCharMarker, "selfClosing", true);
+        expect(node.getTextContent()).toBe("\\*");
       });
     });
   });
@@ -84,6 +114,39 @@ describe("MarkerNode", () => {
         expect(node.getTextContent()).toBe(`\\*`);
       });
     });
+
+    it("should import JSON correctly for a nested marker", () => {
+      const { editor } = createBasicTestEnvironment([MarkerNode]);
+      editor.update(() => {
+        const serializedNode = createSerializedMarkerNode(testCharMarker, "opening", true);
+
+        const node = MarkerNode.importJSON(serializedNode);
+        expect(node.getNested()).toBe(true);
+        expect(node.getTextContent()).toBe("\\+w");
+      });
+    });
+
+    it("should import JSON correctly for a nested closing marker", () => {
+      const { editor } = createBasicTestEnvironment([MarkerNode]);
+      editor.update(() => {
+        const serializedNode = createSerializedMarkerNode(testCharMarker, "closing", true);
+
+        const node = MarkerNode.importJSON(serializedNode);
+        expect(node.getNested()).toBe(true);
+        expect(node.getTextContent()).toBe("\\+w*");
+      });
+    });
+
+    it("should default to non-nested when the flag is absent", () => {
+      const { editor } = createBasicTestEnvironment([MarkerNode]);
+      editor.update(() => {
+        const serializedNode = createSerializedMarkerNode(testCharMarker, "opening");
+
+        const node = MarkerNode.importJSON(serializedNode);
+        expect(node.getNested()).toBe(false);
+        expect(node.getTextContent()).toBe("\\w");
+      });
+    });
   });
 
   describe("updateFromJSON()", () => {
@@ -112,6 +175,74 @@ describe("MarkerNode", () => {
         expect(updatedNode.getMarker()).toBe(testChapterMarker);
         expect(updatedNode.getMarkerSyntax()).toBe("selfClosing");
         expect(updatedNode.getTextContent()).toBe(`\\*`);
+      });
+    });
+
+    it("should update from JSON correctly to nested", () => {
+      const { editor } = createBasicTestEnvironment([MarkerNode]);
+      editor.update(() => {
+        const node = $createMarkerNode(testCharMarker, "opening");
+        expect(node.getTextContent()).toBe("\\w");
+
+        const updateData = createSerializedMarkerNode(testCharMarker, "opening", true);
+
+        const updatedNode = node.updateFromJSON(updateData);
+        expect(updatedNode.getNested()).toBe(true);
+        expect(updatedNode.getTextContent()).toBe("\\+w");
+      });
+    });
+
+    it("should update from JSON back to non-nested when the flag is absent", () => {
+      const { editor } = createBasicTestEnvironment([MarkerNode]);
+      editor.update(() => {
+        const node = $createMarkerNode(testCharMarker, "opening", true);
+        expect(node.getTextContent()).toBe("\\+w");
+
+        const updateData = createSerializedMarkerNode(testCharMarker, "opening");
+
+        const updatedNode = node.updateFromJSON(updateData);
+        expect(updatedNode.getNested()).toBe(false);
+        expect(updatedNode.getTextContent()).toBe("\\w");
+      });
+    });
+  });
+
+  describe("exportJSON()", () => {
+    it("should serialize the nested flag only when nested", () => {
+      const { editor } = createBasicTestEnvironment([MarkerNode]);
+      editor.update(() => {
+        const nestedNode = $createMarkerNode(testCharMarker, "opening", true);
+        expect(nestedNode.exportJSON()).toEqual({
+          type: "marker",
+          text: "\\+w",
+          marker: testCharMarker,
+          markerSyntax: "opening",
+          nested: true,
+          detail: 0,
+          format: 0,
+          mode: "normal",
+          style: "",
+          version: MARKER_VERSION,
+        });
+
+        // Absence means non-nested: the overwhelmingly common non-nested markers (and
+        // pre-existing states) serialize without the property, not with `nested: false`.
+        const plainNode = $createMarkerNode(testCharMarker, "opening");
+        expect(plainNode.exportJSON()).not.toHaveProperty("nested");
+      });
+    });
+
+    it("should round-trip the nested flag through exportJSON and importJSON", () => {
+      const { editor } = createBasicTestEnvironment([MarkerNode]);
+      editor.update(() => {
+        const node = $createMarkerNode(testCharMarker, "closing", true);
+
+        const roundTripped = MarkerNode.importJSON(node.exportJSON());
+
+        expect(roundTripped.getMarker()).toBe(testCharMarker);
+        expect(roundTripped.getMarkerSyntax()).toBe("closing");
+        expect(roundTripped.getNested()).toBe(true);
+        expect(roundTripped.getTextContent()).toBe("\\+w*");
       });
     });
   });
@@ -147,6 +278,20 @@ describe("MarkerNode", () => {
 
         node.setMarkerSyntax("selfClosing");
         expect(node.getTextContent()).toBe(`\\*`);
+      });
+    });
+
+    it("should update text content when nested changes", () => {
+      const { editor } = createBasicTestEnvironment([MarkerNode]);
+      editor.update(() => {
+        const node = $createMarkerNode(testCharMarker, "opening");
+        expect(node.getTextContent()).toBe("\\w");
+
+        node.setNested(true);
+        expect(node.getTextContent()).toBe("\\+w");
+
+        node.setNested(false);
+        expect(node.getTextContent()).toBe("\\w");
       });
     });
   });
@@ -277,11 +422,14 @@ function $updateDomFor(editor: LexicalEditor, from: MarkerSpec, to: MarkerSpec):
 function createSerializedMarkerNode(
   marker: string,
   markerSyntax: MarkerSyntax = "opening",
+  nested?: boolean,
 ): SerializedMarkerNode {
   return {
     type: "marker",
     marker,
     markerSyntax,
+    // Match the wire format: the flag is present only when nested (absence means non-nested).
+    ...(nested ? { nested: true } : {}),
     text: "",
     detail: 0,
     format: 0,

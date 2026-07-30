@@ -250,6 +250,21 @@ describe("Editor Node Utilities", () => {
     });
   });
 
+  describe("openingMarkerText() / closingMarkerText()", () => {
+    it("should render bare markers when not nested", () => {
+      expect(openingMarkerText("w")).toBe("\\w");
+      expect(closingMarkerText("w")).toBe("\\w*");
+    });
+
+    it("should carry the '+' prefix when nested", () => {
+      // A nested char span's marker carries the `+` (`\+w …\+w*`): in USFM the `+` is what makes
+      // a char marker nest inside the enclosing span instead of closing it, so the glyph text
+      // must show it for a re-tokenization of the visible text to reproduce the same nesting.
+      expect(openingMarkerText("w", true)).toBe("\\+w");
+      expect(closingMarkerText("w", true)).toBe("\\+w*");
+    });
+  });
+
   describe("getUnknownAttributes()", () => {
     it("should return all unknown properties", () => {
       const unknownAttributes = getUnknownAttributes({

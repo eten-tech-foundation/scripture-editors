@@ -28,6 +28,8 @@ import {
 import {
   $createImmutableVerseNode,
   $isImmutableVerseNode,
+  getViewOptions,
+  STANDARD_VIEW_MODE,
   usjReactNodes,
   ViewOptions,
 } from "shared-react";
@@ -40,6 +42,7 @@ import {
   $createParaNode,
   $isCharNode,
   $isImmutableChapterNode,
+  $isMarkerNode,
   $isNoteNode,
   $isParaNode,
   CharNode,
@@ -2667,6 +2670,66 @@ describe("USJ Marker Action Utils", () => {
         if (!$isCharNode(span)) throw new Error("Inserted node is not a char");
         expect(span.getMarker()).toBe("nd");
         expect(span.getUnknownAttributes()?.closed).toBeUndefined();
+      });
+    });
+  });
+
+  describe("should wrap selection inside an existing char span", () => {
+    it("builds the fresh wrapper nested: `+` glyphs, an explicit closer, and no closed flag", () => {
+      // Wrapping a selection that sits INSIDE another char span nests the new span, so its
+      // glyphs must carry the `+` (`\+wj …\+wj*`) and it must keep an explicit closer — a
+      // closer-less nested span would run to the parent's closer on serialization and swallow
+      // the host span's remaining content.
+      let host: TextNode | undefined;
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        host = $createTextNode("the Lord God");
+        $getRoot().append(
+          $createImmutableChapterNode("1"),
+          $createParaNode().append(
+            $createImmutableVerseNode("1"),
+            $createCharNode("nd").append(host),
+          ),
+        );
+      });
+      if (!host) throw new Error("Expected host text to exist");
+      const hostText = host;
+      // Editable marker mode so the wrapper is built with glyph children.
+      const markerAction = getUsjMarkerAction(
+        "wj",
+        expandedNoteKeyRef,
+        getViewOptions(STANDARD_VIEW_MODE),
+        undefined,
+        undefined,
+        { discrete: true },
+      );
+      // select "Lord" inside the host span
+      updateSelection(editor, hostText, 4, hostText, 8);
+
+      markerAction.action({ editor, reference });
+
+      editor.getEditorState().read(() => {
+        expect(hostText.getTextContent()).toBe("the ");
+        const wrapper = hostText.getNextSibling();
+        if (!$isCharNode(wrapper)) throw new Error("Wrapped node is not a char");
+        expect($isCharNode(wrapper.getParent())).toBe(true);
+        expect(wrapper.getMarker()).toBe("wj");
+        expect(wrapper.getChildrenSize()).toBe(3);
+        const [openingGlyph, content, closingGlyph] = wrapper.getChildren();
+        if (!$isMarkerNode(openingGlyph)) throw new Error("No opening glyph found");
+        expect(openingGlyph.getNested()).toBe(true);
+        expect(openingGlyph.getTextContent()).toBe("\\+wj");
+        if (!$isTextNode(content) || $isMarkerNode(content))
+          throw new Error("No content text found");
+        expect(content.getTextContent()).toBe(`${NBSP}Lord`);
+        if (!$isMarkerNode(closingGlyph)) throw new Error("No closing glyph found");
+        expect(closingGlyph.getMarkerSyntax()).toBe("closing");
+        expect(closingGlyph.getNested()).toBe(true);
+        expect(closingGlyph.getTextContent()).toBe("\\+wj*");
+        // Explicitly closed, so no implicit-close bookkeeping rides along.
+        expect(wrapper.getUnknownAttributes()?.closed).toBeUndefined();
+        const tail = wrapper.getNextSibling();
+        if (!$isTextNode(tail)) throw new Error("Tail node is not text");
+        expect(tail.getTextContent()).toBe(" God");
       });
     });
   });

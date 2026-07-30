@@ -64,6 +64,7 @@ import {
   isSerializedImmutableChapterNode,
   isSerializedImmutableTypedTextNode,
   isSerializedMarkerNode,
+  isSerializedMilestoneNode,
   isSerializedNoteNode,
   isSerializedParaNode,
   isSerializedTextNode,
@@ -95,6 +96,7 @@ import {
   PARAGRAPH_STRUCTURE_VIEW_MODE,
   STANDARD_VIEW_MODE,
   UNFORMATTED_VIEW_MODE,
+  usjReactNodes,
   ViewOptions,
 } from "shared-react";
 import { MockInstance } from "vitest";
@@ -492,6 +494,43 @@ describe("USJ Editor Adaptor", () => {
     expect(JSON.stringify(note)).toContain(`"closed":"false"`);
   });
 
+  it('renders no closing glyph for an unclosed note (closed="false") in visible marker mode', () => {
+    // The editable-mode unclosed-note shape is pinned above; visible mode builds its glyphs as
+    // immutable typed text instead of MarkerNodes and must skip the closer the same way.
+    const noteUsx = (closedAttribute: string) =>
+      usxStringToUsj(
+        `<usx version="3.0"><book code="RUT" style="id" /><chapter number="1" style="c" /><para style="p"><verse number="1" style="v" />text<note caller="+" style="f"${closedAttribute}><char style="ft">note text</char></note> after</para></usx>`,
+      );
+    /** Marker glyph texts (typed-text "marker" nodes) of a serialized subtree, in order. */
+    const glyphTexts = (nodes: SerializedLexicalNode[]): string[] =>
+      nodes.flatMap((node) => {
+        const own =
+          isSerializedImmutableTypedTextNode(node) && node.textType === "marker" ? [node.text] : [];
+        const children = (node as Partial<SerializedElementNode>).children;
+        return [...own, ...(children ? glyphTexts(children) : [])];
+      });
+    const noteOf = (state: ReturnType<typeof serializeEditorState>): SerializedNoteNode => {
+      const para = state.root.children[2];
+      if (!isSerializedParaNode(para)) throw new Error("No para node found");
+      const note = para.children.find((child) => isSerializedNoteNode(child));
+      if (!isSerializedNoteNode(note)) throw new Error("No note node found");
+      return note;
+    };
+    initialize(undefined, undefined);
+    reset();
+    const visibleView: ViewOptions = { ...getDefaultViewOptions(), markerMode: "visible" };
+
+    // Positive control: the same note WITHOUT closed="false" carries the closing glyph.
+    const closedNote = noteOf(serializeEditorState(noteUsx(""), visibleView));
+    expect(glyphTexts(closedNote.children)).toEqual(["\\f ", "\\ft", "\\f*"]);
+
+    reset();
+    const unclosedNote = noteOf(serializeEditorState(noteUsx(' closed="false"'), visibleView));
+    // Unclosed: the opening glyph keeps its plain-space separator, and no closer is synthesized.
+    expect(glyphTexts(unclosedNote.children)).toEqual(["\\f ", "\\ft"]);
+    expect(unclosedNote.isCollapsed).toBe(false);
+  });
+
   it('renders no closing glyph for a closed="false" char span in editable mode', () => {
     // ParatextData emits closed="false" on every char span with no explicit closing marker
     // (near universal on footnote-content chars). Such spans must render WITHOUT a closing
@@ -692,6 +731,137 @@ describe("USJ Editor Adaptor", () => {
     expect(consoleWarnSpy).not.toHaveBeenCalledWith(
       expect.stringContaining("Unexpected char marker"),
     );
+  });
+
+  it("renders a char nested inside a char with `\\+` glyphs and the serialized nested flag", () => {
+    // A char span nested inside another char span carries the `+` on its glyphs (`\+nd …\+nd*`)
+    // while its `marker` stays clean — ParatextData's writer rule and PT9's on-screen display
+    // for USFM <=3.0, where `+` is what makes a bare char marker nest instead of closing the
+    // enclosing span.
+    initialize(undefined, undefined);
+    reset();
+    const usj = {
+      ...EMPTY_USJ,
+      content: [
+        {
+          type: "para",
+          marker: "p",
+          content: [
+            {
+              type: "char",
+              marker: "add",
+              content: ["added ", { type: "char", marker: "nd", content: ["Lord"] }],
+            },
+          ],
+        } as MarkerObject,
+      ],
+    };
+
+    const state = serializeEditorState(usj, getViewOptions(STANDARD_VIEW_MODE));
+
+    const para = state.root.children[0];
+    if (!isSerializedParaNode(para)) throw new Error("No para node found");
+    const outerChar = para.children.find((child) => isSerializedCharNode(child));
+    if (!isSerializedCharNode(outerChar)) throw new Error("No outer char found");
+    const innerChar = outerChar.children.find((child) => isSerializedCharNode(child));
+    if (!isSerializedCharNode(innerChar)) throw new Error("No inner char found");
+
+    // Positive control: the outer (top-level) char's glyphs carry no nested flag at all.
+    const outerGlyphs = outerChar.children.filter((child) => isSerializedMarkerNode(child));
+    expect(
+      outerGlyphs.map((glyph) => ({ marker: glyph.marker, markerSyntax: glyph.markerSyntax })),
+    ).toEqual([
+      { marker: "add", markerSyntax: "opening" },
+      { marker: "add", markerSyntax: "closing" },
+    ]);
+    outerGlyphs.forEach((glyph) => expect(glyph).not.toHaveProperty("nested"));
+
+    const innerGlyphs = innerChar.children.filter((child) => isSerializedMarkerNode(child));
+    expect(
+      innerGlyphs.map((glyph) => ({
+        marker: glyph.marker,
+        markerSyntax: glyph.markerSyntax,
+        nested: glyph.nested,
+      })),
+    ).toEqual([
+      { marker: "nd", markerSyntax: "opening", nested: true },
+      { marker: "nd", markerSyntax: "closing", nested: true },
+    ]);
+
+    // The editable glyph TEXT itself carries the `+`: the serialized glyph text is empty and
+    // derived at import from (marker, syntax, nested), so read it off a parsed live tree.
+    const { editor } = createBasicTestEnvironment(usjReactNodes);
+    editor.parseEditorState(state).read(() => {
+      const livePara = $getRoot().getFirstChild();
+      if (!$isElementNode(livePara)) throw new Error("No live para node found");
+      const liveOuter = livePara.getChildren().find($isCharNode);
+      if (!liveOuter) throw new Error("No live outer char found");
+      const liveInner = liveOuter.getChildren().find($isCharNode);
+      if (!liveInner) throw new Error("No live inner char found");
+      expect(
+        liveInner
+          .getChildren()
+          .filter($isMarkerNode)
+          .map((glyph) => glyph.getTextContent()),
+      ).toEqual(["\\+nd", "\\+nd*"]);
+      expect(liveInner.getTextContent()).toBe(`\\+nd${NBSP}Lord\\+nd*`);
+      // Positive control: the outer span's glyph texts stay bare.
+      expect(
+        liveOuter
+          .getChildren()
+          .filter($isMarkerNode)
+          .map((glyph) => glyph.getTextContent()),
+      ).toEqual(["\\add", "\\add*"]);
+    });
+  });
+
+  it("renders a milestone as an opening glyph plus the bare `\\*` self-closing terminator", () => {
+    // A milestone's terminator is the shared self-closing form `\*` — it carries no marker name
+    // of its own, so its glyph node has an empty marker and the selfClosing syntax.
+    initialize(undefined, undefined);
+    reset();
+    const usj = {
+      ...EMPTY_USJ,
+      content: [
+        {
+          type: "para",
+          marker: "p",
+          content: [{ type: "ms", marker: "ts-s" }, "after milestone"],
+        } as MarkerObject,
+      ],
+    };
+
+    const state = serializeEditorState(usj, getViewOptions(STANDARD_VIEW_MODE));
+
+    const para = state.root.children[0];
+    if (!isSerializedParaNode(para)) throw new Error("No para node found");
+    const milestoneIndex = para.children.findIndex((child) => isSerializedMilestoneNode(child));
+    const milestone = para.children[milestoneIndex];
+    if (!isSerializedMilestoneNode(milestone)) throw new Error("No milestone node found");
+    expect(milestone.marker).toBe("ts-s");
+    const [openingGlyph, terminatorGlyph] = para.children.slice(
+      milestoneIndex + 1,
+      milestoneIndex + 3,
+    );
+    if (!isSerializedMarkerNode(openingGlyph)) throw new Error("No milestone opening glyph found");
+    expect(openingGlyph.marker).toBe("ts-s");
+    expect(openingGlyph.markerSyntax).toBe("opening");
+    if (!isSerializedMarkerNode(terminatorGlyph)) throw new Error("No terminator glyph found");
+    expect(terminatorGlyph.marker).toBe("");
+    expect(terminatorGlyph.markerSyntax).toBe("selfClosing");
+
+    // The terminator's editable glyph text is the bare `\*` (derived at import).
+    const { editor } = createBasicTestEnvironment(usjReactNodes);
+    editor.parseEditorState(state).read(() => {
+      const livePara = $getRoot().getFirstChild();
+      if (!$isElementNode(livePara)) throw new Error("No live para node found");
+      expect(
+        livePara
+          .getChildren()
+          .filter($isMarkerNode)
+          .map((glyph) => glyph.getTextContent()),
+      ).toEqual(["\\p", "\\ts-s", "\\*"]);
+    });
   });
 });
 
