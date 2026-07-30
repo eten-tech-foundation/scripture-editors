@@ -20,6 +20,26 @@ export interface TestEnv {
 }
 
 /**
+ * Run `fn` inside a discrete update of a throwaway editor registered with `nodes`. Handy for
+ * node-level unit tests that just need an active editor context (e.g. to call `createDOM`).
+ *
+ * @param nodes - Node classes to register.
+ * @param fn - Callback run inside `editor.update`.
+ */
+export function withEditor(
+  nodes: readonly (Klass<LexicalNode> | LexicalNodeReplacement)[],
+  fn: () => void,
+) {
+  const editor = createEditor({
+    nodes,
+    onError: (e) => {
+      throw e;
+    },
+  });
+  editor.update(fn, { discrete: true });
+}
+
+/**
  * Create basic Lexical test environment.
  *
  * @param nodes - Array of nodes for the test environment.

@@ -6,6 +6,9 @@ import { BookNode } from "./BookNode.js";
 import { ChapterNode } from "./ChapterNode.js";
 import { CharNode } from "./CharNode.js";
 import { ImmutableChapterNode } from "./ImmutableChapterNode.js";
+import { ImmutableTableNode } from "./ImmutableTableNode.js";
+import { ImmutableTableRowNode } from "./ImmutableTableRowNode.js";
+import { ImmutableTableCellNode } from "./ImmutableTableCellNode.js";
 import { $createImpliedParaNode, ImpliedParaNode } from "./ImpliedParaNode.js";
 import { MilestoneNode } from "./MilestoneNode.js";
 import { NoteNode } from "./NoteNode.js";
@@ -17,6 +20,9 @@ export * from "./BookNode.js";
 export * from "./ChapterNode.js";
 export * from "./CharNode.js";
 export * from "./ImmutableChapterNode.js";
+export * from "./ImmutableTableNode.js";
+export * from "./ImmutableTableRowNode.js";
+export * from "./ImmutableTableCellNode.js";
 export * from "./ImpliedParaNode.js";
 export * from "./MilestoneNode.js";
 export * from "./node-constants.js";
@@ -39,6 +45,9 @@ export const usjBaseNodes: readonly (Klass<LexicalNode> | LexicalNodeReplacement
   ImmutableUnmatchedNode,
   ParaNode,
   ImpliedParaNode,
+  ImmutableTableNode,
+  ImmutableTableRowNode,
+  ImmutableTableCellNode,
   {
     replace: ParagraphNode,
     with: () => $createImpliedParaNode(),

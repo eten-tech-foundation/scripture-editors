@@ -49,6 +49,9 @@ export default defineConfig({
     rollupOptions: {
       external: [
         "react/jsx-runtime",
+        // Also externalize the dev JSX runtime so a dev-mode build can never bundle a
+        // second React copy (its React-18 variant reads internals removed in React 19).
+        "react/jsx-dev-runtime",
         ...Object.keys(packageData.peerDependencies ?? {}),
         ...Object.keys(packageData.dependencies ?? {}),
         // Exclude all Lexical packages and their sub-modules

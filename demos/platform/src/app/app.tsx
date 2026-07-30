@@ -117,8 +117,8 @@ function handleAnnotationOnRemove(type: string, id: string, cause: string, textC
 export default function App() {
   const marginalRef = useRef<MarginalRef | null>(null);
   const noteEditorRef = useRef<EditorRef | null>(null);
-  const noteNodeKeyRef = useRef<string | undefined>();
-  const selectionRef = useRef<SelectionRange | undefined>(undefined);
+  const noteNodeKeyRef = useRef<string>(undefined);
+  const selectionRef = useRef<SelectionRange>(undefined);
   const [isNoteEditorVisible, setIsNoteEditorVisible] = useState(false);
   const [isOptionsDefined, setIsOptionsDefined] = useState(false);
   const [isReadonly, setIsReadonly] = useState(false);
@@ -146,8 +146,8 @@ export default function App() {
     useState<RefObject<HTMLElement | null> | null>(null);
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
-  const [blockMarker, setBlockMarker] = useState<string | undefined>();
-  const [contextMarker, setContextMarker] = useState<string | undefined>();
+  const [blockMarker, setBlockMarker] = useState<string>();
+  const [contextMarker, setContextMarker] = useState<string>();
 
   const viewOptions = useMemo<ViewOptions | undefined>(() => {
     if (viewMode === UNDEFINED_VIEW_MODE) return undefined;
