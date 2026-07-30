@@ -272,11 +272,11 @@ describe("$rebuildParas", () => {
   // so a deleted separator before a sentinel span could never settle back. The fragment builder
   // now emits a separator space before a placeholder that would otherwise glue onto a marker.
   //
-  // Was authored against an ATTRIBUTE-bearing nested span (byte attributes made a char span a
-  // Tier-2 sentinel) — Task 7 removed that classification, so an attribute span no longer
-  // exercises this code path at all (it re-tokenizes like any other known-marker char). Retargeted
-  // at an UNKNOWN-marker nested span (`zx`, custom.sty), which is still a sentinel today and is
-  // exactly the case this separator-insertion logic guards.
+  // A char span with a closing glyph renders its attributes as an ordinary display run among its
+  // children, so an ATTRIBUTE-bearing nested span no longer exercises this code path at all — it
+  // re-tokenizes like any other known-marker char instead of riding through as a sentinel.
+  // Retargeted at an UNKNOWN-marker nested span (`zx`, custom.sty), which is still a sentinel and
+  // is exactly the case this separator-insertion logic guards.
   it("rebuilds (not aborts) when a sentinel span directly follows an opening glyph", () => {
     const editor = loadEditor(
       usjFromUsx(`x <char style="wj">a<char style="zx">dsa</char>e</char> after`),
@@ -707,14 +707,14 @@ describe("attribute-bearing char spans re-tokenize", () => {
     });
   });
 
-  // The deferred finding this task exists to fix: while an attribute-bearing span was a whole-node
-  // Tier-2 sentinel, ANYTHING edited inside it — including its own nested closer glyph — was
-  // preserved verbatim (moved, never re-derived), so the edit could never settle: $rebuildParas
-  // kept refusing as a "fixed point" no matter how many times it ran, because the sentinel
-  // comparison never looked past the placeholder. Deleting the nested closer glyph now flows into
-  // the paragraph fragment like any other glyph text, so the tokenizer sees the still-open span and
-  // genuinely resolves it (implicitly closed, its `|stuff` bytes literal — no closer ever matched
-  // to run `extractAttributes`).
+  // Treating an attribute-bearing span as a whole-node Tier-2 sentinel meant ANYTHING edited
+  // inside it — including its own nested closer glyph — was preserved verbatim (moved, never
+  // re-derived), so the edit could never settle: $rebuildParas kept refusing as a "fixed point" no
+  // matter how many times it ran, because the sentinel comparison never looked past the
+  // placeholder. Deleting the nested closer glyph now flows into the paragraph fragment like any
+  // other glyph text, so the tokenizer sees the still-open span and genuinely resolves it
+  // (implicitly closed, its `|stuff` bytes literal — no closer ever matched to run
+  // `extractAttributes`).
   it("editing a nested closer glyph inside an attribute span settles (deferred finding 2)", () => {
     const editor = loadEditor(
       usjFromUsx(`<char style="wj"><char style="w" lemma="stuff">dsa</char>e</char>`),
