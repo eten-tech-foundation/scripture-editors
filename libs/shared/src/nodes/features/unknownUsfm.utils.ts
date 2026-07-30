@@ -17,6 +17,10 @@
  *
  * ## Per-kind shapes
  *
+ * The `attributes` part is OPAQUE bytes for the consumer to concatenate after the opening, never
+ * to parse: its shape varies per kind (`|name="value"` pipe pairs for most kinds, a leading-space
+ * `\cat …\cat*` marker run for sidebar, `""` for the kinds with no attribute bytes at all).
+ *
  * - **Generic default** (any kind without a special case below): `\{marker} ` opening,
  *   {@link canonicalAttributeText} named pairs — always explicit `name="value"`, never the
  *   default-attribute collapse, because unknown kinds carry no StyleInfo default to collapse
@@ -27,9 +31,11 @@
  *   rename in the other direction; usfmFragmentToUsj.ts). Rendering reverses it back so the
  *   attribute bytes match what a `\fig …\fig*` span actually carries in the file.
  * - **table / table:row / table:cell** — tables have no USFM pipe-attribute syntax at all; a
- *   cell's `align`/`colspan` are ENCODED in the marker name itself (`\thc3-4`), not rendered as
- *   attribute bytes. The container contributes no bytes of its own; a row opens with `\tr `; a
- *   cell opens with its own marker (`\tc1 `, `\th2 `); neither ever closes.
+ *   cell's `align`/`colspan` are ENCODED in the marker name itself (`\thc3-4`), never rendered
+ *   as attribute bytes. The container contributes no bytes of its own; a row opens with `\tr `;
+ *   a cell opens with its own marker, re-encoding a `colspan` back into the span suffix the
+ *   tokenizer trimmed off (marker `thc3` + colspan `2` → `\thc3-4 `; see
+ *   {@link tableCellMarkerWithSpan}); neither ever closes.
  * - **sidebar** — `\esb`/`\esbe` bracket the block. A `category` attribute is not a pipe
  *   attribute at all but its own char-shaped marker directly after `\esb`
  *   (`\esb \cat Missions\cat*`), mirroring how the tokenizer folds a `\cat` onto a receptive
@@ -60,6 +66,10 @@ export interface UnknownDisplayParts {
 const FIGURE_FILE_ATTRIBUTE = "file";
 const FIGURE_SRC_ATTRIBUTE = "src";
 
+/** The cell attribute holding the span COUNT the tokenizer derived from the marker's trimmed
+ * span suffix; re-encoded back into the opening marker rather than rendered as a pipe pair. */
+const TABLE_CELL_COLSPAN_ATTRIBUTE = "colspan";
+
 /** The sidebar attribute that renders as its own `\cat …\cat*` marker rather than a pipe pair. */
 const SIDEBAR_CATEGORY_ATTRIBUTE = "category";
 
@@ -77,6 +87,28 @@ function renameFigureFileToSrc(attributes: UnknownAttributes): UnknownAttributes
       value,
     ]),
   );
+}
+
+/**
+ * The cell's opening marker with its span suffix re-encoded from `colspan`. The tokenizer
+ * (usfmFragmentToUsj.ts, table-cell assembly) splits a spanning cell marker apart on the way in —
+ * `\thc3-4` becomes marker `thc3` (span suffix trimmed off after the start column) plus colspan
+ * `"2"` (the COUNT of columns spanned, end − start + 1) — so rendering the stored marker bare
+ * would silently narrow the cell to a single column. Re-encoding reverses the split: end column =
+ * start + count − 1. A `colspan` that is not a real span (absent, non-numeric, or below 2) or a
+ * marker with no trailing start column to count from yields the bare marker rather than a garbage
+ * suffix.
+ */
+function tableCellMarkerWithSpan(
+  marker: string | undefined,
+  colspan: string | undefined,
+): string | undefined {
+  if (marker === undefined) return undefined;
+  const spanCount = Number(colspan);
+  if (!Number.isInteger(spanCount) || spanCount < 2) return marker;
+  const startColumnMatch = /(\d+)$/.exec(marker);
+  if (!startColumnMatch) return marker;
+  return `${marker}-${Number(startColumnMatch[1]) + spanCount - 1}`;
 }
 
 /**
@@ -108,10 +140,18 @@ export function unknownDisplayParts(
       return { opening: "", attributes: "", closing: "" };
 
     case "table:row":
-    case "table:cell":
-      // The marker itself IS the cell's shape (`\tc1`, `\thc3-4`, …); align/colspan are derived
-      // from that name, not rendered again as pipe attributes.
       return { opening: `\\${marker} `, attributes: "", closing: "" };
+
+    case "table:cell":
+      // The marker name itself IS the cell's shape (`\tc1`, `\thc3-4`, …): `align` is already
+      // encoded in it, and a `colspan` re-encodes into its span suffix (see
+      // tableCellMarkerWithSpan) — neither ever renders as pipe-attribute bytes, which USFM
+      // tables do not have.
+      return {
+        opening: `\\${tableCellMarkerWithSpan(marker, attributes[TABLE_CELL_COLSPAN_ATTRIBUTE])} `,
+        attributes: "",
+        closing: "",
+      };
 
     case "figure":
       return {

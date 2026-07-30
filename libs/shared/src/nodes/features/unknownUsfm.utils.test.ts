@@ -67,18 +67,36 @@ const cases: Case[] = [
     expected: { opening: "\\tr ", attributes: "", closing: "" },
   },
   {
-    name: "table:cell opens with its own marker (\\tc1) and never closes; align/colspan are not rendered as pipe attributes",
+    name: "table:cell opens with its own marker (\\tc1) and never closes; align is not rendered as a pipe attribute",
     tag: "table:cell",
     marker: "tc1",
     unknownAttributes: { align: "start" },
     expected: { opening: "\\tc1 ", attributes: "", closing: "" },
   },
+  // Spanning cells: the tokenizer trims the span suffix off the marker and stores the span COUNT
+  // as colspan (`\thc3-4` -> marker "thc3", colspan "2"; usfmFragmentToUsj.ts's table-cell
+  // assembly), so the renderer must re-encode end = start + count - 1 back into the opening or
+  // the cell's span is silently lost (`\thc3 ` is a different, single-column cell).
   {
-    name: "table:cell opens with its own marker (\\th2) and never closes",
+    name: "table:cell re-encodes colspan as the span suffix (marker tc1 + colspan 2 -> \\tc1-2)",
     tag: "table:cell",
-    marker: "th2",
+    marker: "tc1",
+    unknownAttributes: { align: "start", colspan: "2" },
+    expected: { opening: "\\tc1-2 ", attributes: "", closing: "" },
+  },
+  {
+    name: "table:cell span re-encoding round-trips the tokenizer's own example (thc3 + colspan 2 -> \\thc3-4)",
+    tag: "table:cell",
+    marker: "thc3",
     unknownAttributes: { align: "center", colspan: "2" },
-    expected: { opening: "\\th2 ", attributes: "", closing: "" },
+    expected: { opening: "\\thc3-4 ", attributes: "", closing: "" },
+  },
+  {
+    name: "table:cell with a colspan but no trailing start column stays bare rather than emitting a garbage suffix",
+    tag: "table:cell",
+    marker: "tc",
+    unknownAttributes: { colspan: "2" },
+    expected: { opening: "\\tc ", attributes: "", closing: "" },
   },
   {
     name: "sidebar with a category renders \\cat as its own char-shaped marker after \\esb",
@@ -100,6 +118,15 @@ const cases: Case[] = [
     marker: undefined,
     unknownAttributes: { alt: "Title Page", id: "titlepage" },
     expected: { opening: "\\periph Title Page", attributes: '|id="titlepage"', closing: "" },
+  },
+  // Deliberate pin: with no `alt` the opening keeps its marker-separator space (`\periph `) —
+  // the same shape every other marker opening uses, and harmless before the node's content.
+  {
+    name: "periph with no attributes keeps the bare opening with its separator space",
+    tag: "periph",
+    marker: undefined,
+    unknownAttributes: undefined,
+    expected: { opening: "\\periph ", attributes: "", closing: "" },
   },
   {
     name: "ref is a generated wrapper with no USFM bytes of its own",
