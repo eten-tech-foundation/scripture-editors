@@ -1114,3 +1114,142 @@ describe("milestone attribute display", () => {
     expect(attribute.text).toBe(`${NBSP}|sid="x" who="Jesus"`);
   });
 });
+
+describe("verse attribute display (\\va/\\vp runs)", () => {
+  /** The node-state `textType` tag of a serialized text node, or `undefined` for anything else. */
+  function textTypeOf(node: SerializedLexicalNode): unknown {
+    if (!isSerializedTextNode(node)) return undefined;
+    const stateObject: unknown = node[NODE_STATE_KEY];
+    return stateObject && typeof stateObject === "object" && "textType" in stateObject
+      ? stateObject.textType
+      : undefined;
+  }
+
+  /** A one-paragraph USJ document wrapping a single verse. */
+  function usjWithVerse(verseObject: MarkerObject): Usj {
+    return {
+      ...EMPTY_USJ,
+      content: [{ type: "para", marker: "p", content: [verseObject] } as MarkerObject],
+    };
+  }
+
+  /** Serializes `usj` and returns the paragraph's children: a verse's display runs ride
+   * alongside it as siblings, not inside it (a verse has no children of its own). */
+  function paraChildren(usj: Usj, viewOptions?: ViewOptions): SerializedLexicalNode[] {
+    initialize(undefined, undefined);
+    reset();
+    const state = serializeEditorState(usj, viewOptions);
+    const para = state.root.children[0];
+    if (!isSerializedParaNode(para)) throw new Error("No para node found");
+    return para.children;
+  }
+
+  /** The verse node and everything from it onward — skips the paragraph's own opening glyphs
+   * (editable mode prepends its own `\p` marker + separator ahead of any content). */
+  function versesFrom(children: SerializedLexicalNode[]): SerializedLexicalNode[] {
+    const index = children.findIndex((n) => isSomeSerializedVerseNode(n));
+    if (index < 0) throw new Error("No verse node found");
+    return children.slice(index);
+  }
+
+  it("serializes both runs after the verse node, in \\va-then-\\vp order, exact glyph bytes", () => {
+    const children = versesFrom(
+      paraChildren(
+        usjWithVerse({
+          type: "verse",
+          marker: "v",
+          number: "1",
+          altnumber: "2",
+          pubnumber: "1b",
+        } as MarkerObject),
+        getViewOptions(STANDARD_VIEW_MODE),
+      ),
+    );
+
+    expect(children).toHaveLength(7);
+    const [verse, vaOpen, vaValue, vaClose, vpOpen, vpValue, vpClose] = children;
+    expect(isSomeSerializedVerseNode(verse)).toBe(true);
+
+    expect(isSerializedMarkerNode(vaOpen) && vaOpen.markerSyntax === "opening").toBe(true);
+    if (!isSerializedMarkerNode(vaOpen)) throw new Error("No \\va opening marker found");
+    expect(vaOpen.marker).toBe("va");
+    if (!isSerializedTextNode(vaValue)) throw new Error("No \\va value text node found");
+    expect(vaValue.text).toBe(`${NBSP}2`);
+    expect(textTypeOf(vaValue)).toBe("attribute");
+    if (!isSerializedMarkerNode(vaClose)) throw new Error("No \\va closing marker found");
+    expect(vaClose.marker).toBe("va");
+    expect(vaClose.markerSyntax).toBe("closing");
+
+    if (!isSerializedMarkerNode(vpOpen)) throw new Error("No \\vp opening marker found");
+    expect(vpOpen.marker).toBe("vp");
+    expect(vpOpen.markerSyntax).toBe("opening");
+    if (!isSerializedTextNode(vpValue)) throw new Error("No \\vp value text node found");
+    expect(vpValue.text).toBe(`${NBSP}1b`);
+    expect(textTypeOf(vpValue)).toBe("attribute");
+    if (!isSerializedMarkerNode(vpClose)) throw new Error("No \\vp closing marker found");
+    expect(vpClose.marker).toBe("vp");
+    expect(vpClose.markerSyntax).toBe("closing");
+  });
+
+  it("builds only the \\va run when pubnumber is absent", () => {
+    const children = versesFrom(
+      paraChildren(
+        usjWithVerse({ type: "verse", marker: "v", number: "1", altnumber: "2" } as MarkerObject),
+        getViewOptions(STANDARD_VIEW_MODE),
+      ),
+    );
+
+    expect(children).toHaveLength(4);
+    const [, vaOpen] = children;
+    expect(isSerializedMarkerNode(vaOpen) && vaOpen.marker === "va").toBe(true);
+    expect(children.some((n) => isSerializedMarkerNode(n) && n.marker === "vp")).toBe(false);
+  });
+
+  it("builds only the \\vp run when altnumber is absent", () => {
+    const children = versesFrom(
+      paraChildren(
+        usjWithVerse({ type: "verse", marker: "v", number: "1", pubnumber: "1b" } as MarkerObject),
+        getViewOptions(STANDARD_VIEW_MODE),
+      ),
+    );
+
+    expect(children).toHaveLength(4);
+    const [, vpOpen] = children;
+    expect(isSerializedMarkerNode(vpOpen) && vpOpen.marker === "vp").toBe(true);
+    expect(children.some((n) => isSerializedMarkerNode(n) && n.marker === "va")).toBe(false);
+  });
+
+  it("serializes a plain verse (no altnumber/pubnumber) unchanged", () => {
+    const children = versesFrom(
+      paraChildren(
+        usjWithVerse({ type: "verse", marker: "v", number: "1" } as MarkerObject),
+        getViewOptions(STANDARD_VIEW_MODE),
+      ),
+    );
+
+    expect(children).toHaveLength(1);
+    expect(isSomeSerializedVerseNode(children[0])).toBe(true);
+  });
+
+  it("builds no runs in visible/hidden marker modes", () => {
+    const usj = usjWithVerse({
+      type: "verse",
+      marker: "v",
+      number: "1",
+      altnumber: "2",
+      pubnumber: "1b",
+    } as MarkerObject);
+
+    const visibleChildren = versesFrom(
+      paraChildren(usj, { ...getDefaultViewOptions(), markerMode: "visible" }),
+    );
+    expect(visibleChildren).toHaveLength(1);
+    expect(visibleChildren.some((n) => textTypeOf(n) === "attribute")).toBe(false);
+
+    const hiddenChildren = versesFrom(
+      paraChildren(usj, { ...getDefaultViewOptions(), markerMode: "hidden" }),
+    );
+    expect(hiddenChildren).toHaveLength(1);
+    expect(hiddenChildren.some((n) => textTypeOf(n) === "attribute")).toBe(false);
+  });
+});

@@ -447,4 +447,53 @@ describe("Editor USJ Adaptor — caret-host placeholder", () => {
     expect(char.lemma).toBe("grace");
     expect(char.content).toEqual(["word"]);
   });
+
+  it("excludes a verse's \\va/\\vp display runs from saved USJ content", () => {
+    // \v 1 \va 2\va*\vp 1b\vp* — altnumber/pubnumber belong in USJ as verse MarkerObject props,
+    // not as literal glyph/value text riding alongside the verse in the paragraph's content.
+    const usj: Usj = {
+      ...EMPTY_USJ,
+      content: [
+        {
+          type: "para",
+          marker: "p",
+          content: [
+            {
+              type: "verse",
+              marker: "v",
+              number: "1",
+              altnumber: "2",
+              pubnumber: "1b",
+            } as MarkerObject,
+            "text after",
+          ],
+        } as MarkerObject,
+      ],
+    };
+    initializeSerialize(undefined, undefined);
+    reset();
+    const standardViewOptions = getViewOptions(STANDARD_VIEW_MODE);
+    const state = serializeEditorState(usj, standardViewOptions);
+    // Sanity check: the intermediate serialized state genuinely carries the display runs (the
+    // round-trip assertion below would pass vacuously if there were nothing to exclude).
+    const serializedPara = state.root.children[0] as SerializedParaNode;
+    expect(
+      serializedPara.children.some(
+        (n) => n.type === "marker" && "marker" in n && n.marker === "va",
+      ),
+    ).toBe(true);
+    const editorState = editor.parseEditorState(state);
+    initializeDeserialize(undefined);
+
+    const result = editorUsjAdaptor.deserializeEditorState(editorState, standardViewOptions);
+
+    const para = result?.content?.[0] as MarkerObject;
+    const verse = para.content?.[0] as MarkerObject & { altnumber?: string; pubnumber?: string };
+    expect(verse.altnumber).toBe("2");
+    expect(verse.pubnumber).toBe("1b");
+    expect(para.content).toEqual([
+      { type: "verse", marker: "v", number: "1", altnumber: "2", pubnumber: "1b" },
+      "text after",
+    ]);
+  });
 });

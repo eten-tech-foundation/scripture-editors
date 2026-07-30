@@ -7,32 +7,39 @@
  * ## The representations (who owns what)
  *
  * - **Node state is the truth.** Char-span attributes live in `CharNode.__unknownAttributes`;
- *   milestone attributes in `MilestoneNode` props + `__unknownAttributes`. The display run is a
- *   derived cache, never a second store.
+ *   milestone attributes in `MilestoneNode` props + `__unknownAttributes`; a verse's `\va`/`\vp`
+ *   values in `VerseNode.__altnumber`/`__pubnumber`. The display run is a derived cache, never a
+ *   second store.
  * - **The display run** is a TextNode tagged textType "attribute" holding the canonical PT9 byte
  *   form produced by {@link canonicalAttributeText}: a lone default attribute collapses to
  *   `|value`; anything else is `|name="value" …` (double quotes, single spaces, insertion
  *   order). `closed` is derived metadata, never displayed. Char runs are bare `|…` directly
  *   before the closing glyph (PT9's shape; an NBSP prefix would flatten to a space and leak
  *   into span content on a Tier-2 rebuild). Milestone runs keep the NBSP+`|` prefix — that NBSP
- *   flattens to the space genuinely in the file (`\qt-s |sid="…"\*`).
+ *   flattens to the space genuinely in the file (`\qt-s |sid="…"\*`). A verse's `\va`/`\vp`
+ *   values aren't `name="value"` attribute bytes at all — PT9 displays them as their own
+ *   `MarkerNode` open + NBSP-prefixed value TextNode + `MarkerNode` close triplet, riding as the
+ *   verse's FOLLOWING SIBLINGS (a `VerseNode` is itself a TextNode, not a container).
  * - **Excluded from data paths**: textType "attribute" text never enters OT content ops or the
  *   editor→USJ conversion; the Tier-2 fragment is the one place it DOES flow, so edited bytes
  *   re-tokenize back into node state (extractAttributes / scanMilestone).
  *
  * ## Keeping the cache honest
  *
- * Builders construct the run (usj-editor.adaptor's `createChar`/`addAttributes`; transforms do
- * not run on `setEditorState`), and {@link $syncCharAttributeDisplay} — registered as a CharNode
- * transform in CharNodePlugin — re-derives it whenever a span is dirtied, healing remote collab
+ * Builders construct the run (usj-editor.adaptor's `createChar`/`addAttributes`/
+ * `addVerseAttributes`; transforms do not run on `setEditorState`), and
+ * {@link $syncCharAttributeDisplay}/{@link $syncVerseAttributeDisplay} — registered as CharNode/
+ * VerseNode transforms — re-derive it whenever a span or verse is dirtied, healing remote collab
  * updates and structure surgery. While the collapsed caret sits inside the run the sync leaves
  * it alone (mid-edit grace); the marker-edit engine settles it on caret departure by pending
  * the edited run into its Tier-2 completion path.
  */
 
-import { $isMarkerNode, MarkerNode } from "../features/MarkerNode.js";
+import { $createMarkerNode, $isMarkerNode, MarkerNode } from "../features/MarkerNode.js";
 import { textTypeState } from "../collab/delta.state.js";
 import { CharNode } from "./CharNode.js";
+import { NBSP } from "./node-constants.js";
+import { VerseNode } from "./VerseNode.js";
 import {
   $createTextNode,
   $getSelection,
@@ -40,6 +47,7 @@ import {
   $isRangeSelection,
   $isTextNode,
   $setState,
+  LexicalNode,
   TextNode,
 } from "lexical";
 
@@ -192,4 +200,158 @@ export function $hasCaretHeldAttributeRun(char: CharNode, expectedText: string):
   const run = $charAttributeDisplayNode(char);
   if ((run?.getTextContent() ?? "") === targetText) return false;
   return $isCaretAtAttributeRunBoundary(run, closingGlyph);
+}
+
+/**
+ * A verse's `\va`/`\vp` display triplet — PT9's shape (`MarkerNode` open + value `TextNode` +
+ * `MarkerNode` close). Unlike a char span's attribute run, `VerseNode` is itself a `TextNode`,
+ * not a container, so its runs are FOLLOWING SIBLINGS rather than children: `\va`'s triplet sits
+ * directly after the verse, and `\vp`'s directly after `\va`'s closer (back-to-back, no
+ * separator between them — a same-line space there blocks the tokenizer's attrCapture fold onto
+ * the verse, per its "space before \vp blocks its fold" rule).
+ */
+type VerseAttributeMarker = "va" | "vp";
+
+interface VerseAttributeTriplet {
+  opener: MarkerNode;
+  value: TextNode;
+  closer: MarkerNode;
+}
+
+/** The triplet starting AT `candidate`, if `candidate` is a matching opener with a well-formed
+ * value + closer immediately following it. */
+function $verseAttributeTriplet(
+  candidate: LexicalNode | null,
+  marker: VerseAttributeMarker,
+): VerseAttributeTriplet | undefined {
+  if (
+    !$isMarkerNode(candidate) ||
+    candidate.getMarkerSyntax() !== "opening" ||
+    candidate.getMarker() !== marker
+  )
+    return undefined;
+  const value = candidate.getNextSibling();
+  if (!$isTextNode(value) || $getState(value, textTypeState) !== "attribute") return undefined;
+  const closer = value.getNextSibling();
+  if (
+    !$isMarkerNode(closer) ||
+    closer.getMarkerSyntax() !== "closing" ||
+    closer.getMarker() !== marker
+  )
+    return undefined;
+  return { opener: candidate, value, closer };
+}
+
+/** The display text a triplet's value should hold for `value`, or `undefined` for no triplet at
+ * all — NBSP-prefixed (not bare, unlike a char's `|…` run) because the byte between `\va` and its
+ * value is the file's real separator (`\va 2\va*`), and Tier-2's NBSP→space flattening reproduces
+ * it exactly rather than leaking a display-only space into the captured attribute value. */
+function $verseAttributeTargetText(value: string | undefined): string | undefined {
+  return value ? NBSP + value : undefined;
+}
+
+/** True when `triplet`'s value diverges from what `value` should render as — including "no
+ * triplet, no value wanted" comparing equal (not diverging). */
+function $verseAttributeDiverges(
+  triplet: VerseAttributeTriplet | undefined,
+  value: string | undefined,
+): boolean {
+  return triplet?.value.getTextContent() !== $verseAttributeTargetText(value);
+}
+
+/** True when the collapsed caret sits inside `triplet`'s value — the mid-edit grace the sync
+ * leaves alone rather than fighting the user's in-progress edit. */
+function $isCaretInVerseAttributeValue(triplet: VerseAttributeTriplet): boolean {
+  const selection = $getSelection();
+  return (
+    $isRangeSelection(selection) &&
+    selection.isCollapsed() &&
+    selection.anchor.getNode().is(triplet.value)
+  );
+}
+
+/**
+ * Heal a single marker's triplet (insert missing, rewrite stale, or remove leftover), anchored
+ * immediately after `after`. Returns the node the NEXT marker's triplet should anchor after —
+ * `after` itself when no triplet exists there, else this triplet's closer — so `\va` and `\vp`
+ * chain correctly regardless of which are present.
+ */
+function $syncVerseAttributeRun(
+  after: LexicalNode,
+  marker: VerseAttributeMarker,
+  value: string | undefined,
+): LexicalNode {
+  const triplet = $verseAttributeTriplet(after.getNextSibling(), marker);
+  if (!$verseAttributeDiverges(triplet, value)) return triplet?.closer ?? after;
+  if (triplet && $isCaretInVerseAttributeValue(triplet)) return triplet.closer;
+  const targetText = $verseAttributeTargetText(value);
+  if (targetText === undefined) {
+    triplet?.opener.remove();
+    triplet?.value.remove();
+    triplet?.closer.remove();
+    return after;
+  }
+  if (triplet) {
+    triplet.value.setTextContent(targetText);
+    return triplet.closer;
+  }
+  const opener = $createMarkerNode(marker, "opening");
+  after.insertAfter(opener);
+  const newValue = $createTextNode(targetText);
+  $setState(newValue, textTypeState, "attribute");
+  opener.insertAfter(newValue);
+  const closer = $createMarkerNode(marker, "closing");
+  newValue.insertAfter(closer);
+  return closer;
+}
+
+/**
+ * Heal `verse`'s `\va`/`\vp` display triplets to match `altnumber`/`pubnumber`: insert a missing
+ * triplet, rewrite a stale one, or remove a leftover one — except while the collapsed caret sits
+ * inside a triplet's value (mid-edit grace), which the sync leaves alone for the marker-edit
+ * engine to settle on caret departure. Idempotent — writes only on change, so the registering
+ * transform converges.
+ *
+ * @param verse - The verse whose display triplets to sync. Must be called inside `editor.update()`.
+ * @param altnumber - The `\va` value `verse` should display, or `undefined` for none.
+ * @param pubnumber - The `\vp` value `verse` should display, or `undefined` for none.
+ */
+export function $syncVerseAttributeDisplay(
+  verse: VerseNode,
+  altnumber: string | undefined,
+  pubnumber: string | undefined,
+): void {
+  if (!verse.isAttached()) return;
+  const afterVa = $syncVerseAttributeRun(verse, "va", altnumber);
+  $syncVerseAttributeRun(afterVa, "vp", pubnumber);
+}
+
+/**
+ * True when `verse`'s `\va` or `\vp` triplet diverges from `altnumber`/`pubnumber` but the sync
+ * is deliberately leaving it alone because the caret holds it. The marker-edit engine pends such
+ * verses so caret departure settles them back to canonical.
+ */
+export function $hasCaretHeldVerseAttributeRun(
+  verse: VerseNode,
+  altnumber: string | undefined,
+  pubnumber: string | undefined,
+): boolean {
+  if (!verse.isAttached()) return false;
+  const vaTriplet = $verseAttributeTriplet(verse.getNextSibling(), "va");
+  if (
+    $verseAttributeDiverges(vaTriplet, altnumber) &&
+    vaTriplet &&
+    $isCaretInVerseAttributeValue(vaTriplet)
+  )
+    return true;
+  // A diverging \va the caret does NOT hold is not "caret-held" (it would just heal in place),
+  // but that must not short-circuit the \vp check — the two triplets are independent, and the
+  // caret can only ever be in one of them at a time.
+  const afterVa = vaTriplet?.closer ?? verse;
+  const vpTriplet = $verseAttributeTriplet(afterVa.getNextSibling(), "vp");
+  return Boolean(
+    $verseAttributeDiverges(vpTriplet, pubnumber) &&
+    vpTriplet &&
+    $isCaretInVerseAttributeValue(vpTriplet),
+  );
 }

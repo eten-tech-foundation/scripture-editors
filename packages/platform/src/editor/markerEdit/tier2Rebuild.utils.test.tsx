@@ -934,3 +934,35 @@ describe("milestones re-tokenize", () => {
     });
   });
 });
+
+// Verses stay Tier-2 sentinels (verseNeedsSentinel, untouched by this task) whenever they carry
+// altnumber/pubnumber, but their \va/\vp display runs (attributeDisplay.utils.ts) now ride as
+// ordinary paragraph siblings after the verse, not children of it — the fragment/signature
+// builders must absorb the run into the SAME sentinel unit as the verse (mirroring
+// $milestoneDisplayRun), or the tokenizer sees `\va`/`\vp` with no verse to fold onto and
+// degrades them into unrelated markers, breaking the no-edit fixed point.
+describe("verses with \\va/\\vp display runs", () => {
+  it("no-edit rebuild of a paragraph containing a verse with \\va/\\vp runs is a fixed point", () => {
+    const editor = loadEditor(
+      usjFromUsx(`<verse number="1" style="v" altnumber="2" pubnumber="1b" />text after`),
+    );
+    editor.update(
+      () => {
+        expect($rebuildParas([$lastPara()], context)).toBe(false);
+      },
+      { discrete: true },
+    );
+    editor.getEditorState().read(() => {
+      const children = $lastPara().getChildren();
+      const verseIndex = children.findIndex((n) => n.getType() === "verse");
+      expect(verseIndex).toBeGreaterThanOrEqual(0);
+      // The \va/\vp runs still ride directly after the verse, unchanged by the no-op rebuild.
+      expect(children[verseIndex + 1]?.getTextContent()).toBe("\\va");
+      expect(children[verseIndex + 2]?.getTextContent()).toBe(`${NBSP}2`);
+      expect(children[verseIndex + 3]?.getTextContent()).toBe("\\va*");
+      expect(children[verseIndex + 4]?.getTextContent()).toBe("\\vp");
+      expect(children[verseIndex + 5]?.getTextContent()).toBe(`${NBSP}1b`);
+      expect(children[verseIndex + 6]?.getTextContent()).toBe("\\vp*");
+    });
+  });
+});

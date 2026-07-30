@@ -210,6 +210,24 @@ function $handleBlockNodes(
   }
 }
 
+/**
+ * True when `node` is a MarkerNode glyph belonging to a BARE attribute-display triplet — a
+ * milestone's or a verse's `\va`/`\vp` opening/closing glyph, sitting as a plain sibling next to
+ * its own textType "attribute" value (attributeDisplay.utils.ts), never wrapped in a CharNode.
+ * A char span's OWN glyphs (parent IS a CharNode) are never matched here, even when the span also
+ * carries an adjacent bare `|…` attribute run — they flow through under the ordinary editable-mode
+ * literal-text rule instead.
+ */
+function $isBareAttributeGlyph(node: LexicalNode): boolean {
+  if ($isCharNode(node.getParent())) return false;
+  const previousSibling = node.getPreviousSibling();
+  const nextSibling = node.getNextSibling();
+  return (
+    ($isTextNode(previousSibling) && $getState(previousSibling, textTypeState) === "attribute") ||
+    ($isTextNode(nextSibling) && $getState(nextSibling, textTypeState) === "attribute")
+  );
+}
+
 function $handleTextNodes(
   currentNode: LexicalNode,
   ops: DeltaOp[],
@@ -230,11 +248,15 @@ function $handleTextNodes(
   // `$createNestedChars`) must not flow into ops, otherwise a round-trip doubles them:
   // - MarkerNode glyphs (char-span openers/closers and the note's own closing glyph);
   // - the expanded editable caller text (presentation of the note's `caller` attribute).
-  // MarkerNodes only exist in editable marker mode, so these rules are inert elsewhere.
-  // `currentNode` is a TextNode (guarded above), never itself a NoteNode, so the shared
-  // helper's inclusive start-node check reduces to a pure ancestor walk here.
+  // A char span's OWN opener/closer glyphs OUTSIDE a note legitimately flow through as literal
+  // editable-mode text (the `char` attribute wrapper is layered on top, not a substitute) — only
+  // a BARE attribute-display triplet's glyphs (a milestone's, or a verse's \va/\vp: presentation
+  // riding as plain siblings next to their own attribute-tagged value, not wrapped in a CharNode,
+  // so they duplicate state the embed op already carries) must never leak, in or out of a note.
+  // `currentNode` is a TextNode (guarded above), never itself a NoteNode, so the shared helper's
+  // inclusive start-node check reduces to a pure ancestor walk here.
   const isInNote = $findFirstAncestorNoteNode(currentNode) !== undefined;
-  if (isInNote && $isMarkerNode(currentNode)) return;
+  if ($isMarkerNode(currentNode) && (isInNote || $isBareAttributeGlyph(currentNode))) return;
   let text = currentNode.getTextContent();
   // A bare cursor host (EmptyVerseCaretGuardPlugin) is collab-invisible: its insertion is never
   // emitted, so it must never appear in a delta op either.
@@ -284,7 +306,10 @@ function $handleTextNodes(
     if (!text || text === NBSP || isNodeAttributeText) return;
     activeEmbed.contentsOps?.push(textOp);
   } else {
-    const shouldSkipTextOp = isPlaceholderText || (isNodeAttributeText && !!parentCharNode);
+    // Attribute display text is presentation-only regardless of WHERE it rides — inside a char
+    // span (the original, narrower rule) or, like a milestone's or a verse's \va/\vp value, as a
+    // plain sibling with no CharNode parent at all.
+    const shouldSkipTextOp = isPlaceholderText || isNodeAttributeText;
     if (!shouldSkipTextOp) {
       ops.push(textOp);
     }

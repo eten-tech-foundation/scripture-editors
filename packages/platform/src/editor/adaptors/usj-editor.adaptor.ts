@@ -829,6 +829,31 @@ function addAttributes(markerObject: MarkerObject, nodes: SerializedLexicalNode[
   }
 }
 
+/** Verse attribute display: PT9's `\va`/`\vp` shape — an opening `MarkerNode` + an NBSP-prefixed
+ * value TextNode + a closing `MarkerNode`, va before vp, pushed directly after the verse with no
+ * separator between the two triplets (a same-line space there blocks the tokenizer's attrCapture
+ * fold onto the verse — see usfmFragmentToUsj.ts's attribute-marker handling). The NBSP is the
+ * file's real separator between the marker and its value (`\va 2\va*`), so Tier-2's NBSP→space
+ * flattening reproduces it exactly rather than leaking a display-only space into the captured
+ * value. Editable mode only: `\va`/`\vp` never render as glyphs in visible/hidden mode, matching
+ * how a char span's attribute run is editable-only. */
+function addVerseAttributeRun(
+  marker: "va" | "vp",
+  value: string | undefined,
+  nodes: SerializedLexicalNode[],
+) {
+  if (!value) return;
+  nodes.push(createMarker(marker, "opening"));
+  nodes.push(createText(NBSP + value, "attribute"));
+  nodes.push(createMarker(marker, "closing"));
+}
+
+function addVerseAttributes(markerObject: MarkerObject, nodes: SerializedLexicalNode[]) {
+  if (_viewOptions?.markerMode !== "editable") return;
+  addVerseAttributeRun("va", markerObject.altnumber, nodes);
+  addVerseAttributeRun("vp", markerObject.pubnumber, nodes);
+}
+
 function reIndex(indexes: number[], offset: number): number[] {
   if (indexes.length <= 0 || offset === 0) return indexes;
 
@@ -919,6 +944,7 @@ function recurseNodes(
         case VerseNode.getType():
           if (!_viewOptions?.hasSpacing) nodes.push(serializedLineBreakNode);
           nodes.push(createVerse(markerContent));
+          addVerseAttributes(markerContent, nodes);
           break;
         case CharNode.getType():
           nodes.push(

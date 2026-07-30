@@ -7,7 +7,14 @@ import {
 } from "../../nodes/usj/node-react.utils";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { mergeRegister } from "@lexical/utils";
-import { $createTextNode, $isTextNode, LexicalEditor, LexicalNode, TextNode } from "lexical";
+import {
+  $createTextNode,
+  $getState,
+  $isTextNode,
+  LexicalEditor,
+  LexicalNode,
+  TextNode,
+} from "lexical";
 import { useEffect } from "react";
 import {
   $isCharNode,
@@ -16,8 +23,10 @@ import {
   $isSynthesizedMarkerNode,
   $isTypedMarkNode,
   $isUnknownNode,
+  $syncVerseAttributeDisplay,
   CharNode,
   NoteNode,
+  textTypeState,
   VerseNode,
 } from "shared";
 
@@ -46,8 +55,25 @@ function useTextSpacing(editor: LexicalEditor) {
       editor.registerNodeTransform(TextNode, (node) => $textNodeInUnknownTransform(node, editor)),
       editor.registerNodeTransform(VerseNode, $verseNodeTransform),
       editor.registerNodeTransform(ImmutableVerseNode, $verseNodeTransform),
+      // Self-healing \va/\vp display triplets: re-derive them from altnumber/pubnumber whenever
+      // a verse is dirtied — heals remote collab updates (delta-apply only calls setAltnumber/
+      // setPubnumber) and structure surgery. Registered here (not a dedicated VerseNodePlugin,
+      // which doesn't exist) because this is already the shared-react home that registers
+      // VerseNode transforms (the spacing transform above) — same one-node-type-owns-its-syncs
+      // shape CharNodePlugin uses for chars. See attributeDisplay.utils.ts (`shared`).
+      editor.registerNodeTransform(VerseNode, $syncVerseAttributeDisplayNode),
     );
   }, [editor]);
+}
+
+/**
+ * Wraps {@link $syncVerseAttributeDisplay} with the verse's own current values — unlike the char
+ * sync, no import-cycle concern forces these to be computed at the call site; kept as a thin
+ * wrapper anyway to mirror `CharNodePlugin`'s established shape.
+ * @param node - VerseNode whose \va/\vp display triplets need updating.
+ */
+function $syncVerseAttributeDisplayNode(node: VerseNode): void {
+  $syncVerseAttributeDisplay(node, node.getAltnumber(), node.getPubnumber());
 }
 
 /**
@@ -86,7 +112,12 @@ function $textNodeTrailingSpaceTransform(node: TextNode): void {
     // won't merge). No structural space belongs inside a run — inserting one corrupts the
     // word itself (#513, complex scripts worst). This also protects a space-only node from
     // the placeholder cleanup below: between two text nodes it is real content.
-    $isTextNode(nextSibling)
+    $isTextNode(nextSibling) ||
+    // An attribute display run (char/milestone/verse — attributeDisplay.utils.ts) is engine-owned
+    // presentation, not paragraph prose: it must never gain a trailing space of its own, even
+    // when it sits directly in a paragraph (a verse's \va/\vp value has no CharNode parent to
+    // exempt it the way a char span's own run is already protected).
+    $getState(node, textTypeState) === "attribute"
   )
     return;
 

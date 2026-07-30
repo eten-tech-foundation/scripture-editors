@@ -13,17 +13,29 @@ import {
   typeTextAtSelection,
 } from "./react-test.utils";
 import { act } from "@testing-library/react";
-import { $createTextNode, $getRoot, $isTextNode, TextNode, $setSelection } from "lexical";
+import {
+  $createTextNode,
+  $getRoot,
+  $isTextNode,
+  $setState,
+  LexicalNode,
+  TextNode,
+  $setSelection,
+} from "lexical";
 import {
   $createCharNode,
   $createImmutableChapterNode,
   $createImmutableTypedTextNode,
+  $createMarkerNode,
   $createNoteNode,
   $createParaNode,
   $createTypedMarkNode,
   $createUnknownNode,
+  $createVerseNode,
   $getLogicalContentItems,
+  $hasCaretHeldVerseAttributeRun,
   $isCharNode,
+  $isMarkerNode,
   $isParaNode,
   $isTypedMarkNode,
   $isUnknownNode,
@@ -31,7 +43,9 @@ import {
   NBSP,
   openingMarkerText,
   ParaNode,
+  textTypeState,
   UnknownNode,
+  VerseNode,
 } from "shared";
 
 let v1Node: ImmutableVerseNode;
@@ -653,6 +667,258 @@ describe("TextSpacingPlugin", () => {
       const typedTextNode = para.getChildAtIndex(2);
       if (!$isTextNode(typedTextNode)) throw new Error("Expected a TextNode");
       $expectSelectionToBe(typedTextNode, 1); // Selection after the typed 'a'
+    });
+  });
+
+  // Self-healing verse attribute display runs: VerseNode.__altnumber/__pubnumber are the truth,
+  // and the \va/\vp triplets riding as its following siblings are a derived cache that must
+  // follow them — including remote collab updates (delta-apply calls only setAltnumber/
+  // setPubnumber, never touches the runs) and structure surgery. Registered here because this is
+  // the shared-react home that already registers VerseNode transforms (the spacing transform
+  // above) — matching the CharNodePlugin precedent of one plugin owning all of a node type's
+  // self-healing display syncs.
+  describe("attribute run healing ($syncVerseAttributeDisplay transform)", () => {
+    /** A marker's opening/value/closing triplet immediately following `after`, if any. */
+    function attributeRun(
+      after: LexicalNode,
+      marker: "va" | "vp",
+    ): { open: TextNode; value: TextNode; close: TextNode } | undefined {
+      const open = after.getNextSibling();
+      if (!$isMarkerNode(open) || open.getMarker() !== marker) return undefined;
+      const value = open.getNextSibling();
+      if (!$isTextNode(value)) return undefined;
+      const close = value.getNextSibling();
+      if (!$isMarkerNode(close) || close.getMarker() !== marker) return undefined;
+      return { open, value, close };
+    }
+
+    it("heals missing \\va and \\vp runs from altnumber/pubnumber, va before vp", async () => {
+      let verse: VerseNode;
+      const { editor } = await testEnvironment(() => {
+        verse = $createVerseNode("1", "\\v 1", undefined, "2", "1b");
+        $getRoot().append($createParaNode().append(verse));
+      });
+
+      await act(async () => {
+        editor.update(() => {
+          // Force the transform to re-run on this already-constructed verse.
+          verse.getWritable();
+        });
+      });
+
+      editor.getEditorState().read(() => {
+        const va = attributeRun(verse, "va");
+        expect(va?.open.getTextContent()).toBe("\\va");
+        expect(va?.value.getTextContent()).toBe(`${NBSP}2`);
+        expect(va?.close.getTextContent()).toBe("\\va*");
+        if (!va) throw new Error("No \\va run found");
+        const vp = attributeRun(va.close, "vp");
+        expect(vp?.open.getTextContent()).toBe("\\vp");
+        expect(vp?.value.getTextContent()).toBe(`${NBSP}1b`);
+        expect(vp?.close.getTextContent()).toBe("\\vp*");
+      });
+    });
+
+    it("heals only a \\va run when pubnumber is absent, without disturbing later siblings", async () => {
+      let verse: VerseNode;
+      const { editor } = await testEnvironment(() => {
+        verse = $createVerseNode("1", "\\v 1", undefined, "2", undefined);
+        $getRoot().append($createParaNode().append(verse, $createTextNode(" after")));
+      });
+
+      await act(async () => {
+        editor.update(() => {
+          verse.getWritable();
+        });
+      });
+
+      editor.getEditorState().read(() => {
+        const va = attributeRun(verse, "va");
+        expect(va?.value.getTextContent()).toBe(`${NBSP}2`);
+        if (!va) throw new Error("No \\va run found");
+        expect(attributeRun(va.close, "vp")).toBeUndefined();
+        expect(va.close.getNextSibling()?.getTextContent()).toBe(" after");
+      });
+    });
+
+    it("does not disturb an existing \\vp run while inserting a missing \\va run before it", async () => {
+      let verse: VerseNode;
+      let vpOpen: ReturnType<typeof $createMarkerNode>;
+      const { editor } = await testEnvironment(() => {
+        verse = $createVerseNode("1", "\\v 1", undefined, "2", "1b");
+        vpOpen = $createMarkerNode("vp");
+        const vpValue = $createTextNode(`${NBSP}1b`);
+        $setState(vpValue, textTypeState, "attribute");
+        verse.setPubnumber("1b");
+        $getRoot().append(
+          $createParaNode().append(verse, vpOpen, vpValue, $createMarkerNode("vp", "closing")),
+        );
+      });
+
+      await act(async () => {
+        editor.update(() => {
+          verse.getWritable();
+        });
+      });
+
+      editor.getEditorState().read(() => {
+        const va = attributeRun(verse, "va");
+        expect(va?.value.getTextContent()).toBe(`${NBSP}2`);
+        // The pre-existing \vp opener is the SAME node instance — not torn down and rebuilt.
+        if (!va) throw new Error("No \\va run found");
+        expect(va.close.getNextSibling()?.getKey()).toBe(vpOpen.getKey());
+      });
+    });
+
+    it("heals stale run text after altnumber changes (remote update)", async () => {
+      let verse: VerseNode;
+      const { editor } = await testEnvironment(() => {
+        verse = $createVerseNode("1", "\\v 1", undefined, "2", undefined);
+        const open = $createMarkerNode("va");
+        const value = $createTextNode(`${NBSP}2`);
+        $setState(value, textTypeState, "attribute");
+        $getRoot().append(
+          $createParaNode().append(verse, open, value, $createMarkerNode("va", "closing")),
+        );
+      });
+
+      await act(async () => {
+        editor.update(() => {
+          // Remote collab update: delta-apply touches only the node's own field, never the run.
+          verse.setAltnumber("3");
+        });
+      });
+
+      editor.getEditorState().read(() => {
+        expect(attributeRun(verse, "va")?.value.getTextContent()).toBe(`${NBSP}3`);
+      });
+    });
+
+    it("removes a leftover run when its value is cleared", async () => {
+      let verse: VerseNode;
+      const { editor } = await testEnvironment(() => {
+        verse = $createVerseNode("1", "\\v 1", undefined, "2", undefined);
+        const open = $createMarkerNode("va");
+        const value = $createTextNode(`${NBSP}2`);
+        $setState(value, textTypeState, "attribute");
+        $getRoot().append(
+          $createParaNode().append(verse, open, value, $createMarkerNode("va", "closing")),
+        );
+      });
+
+      await act(async () => {
+        editor.update(() => {
+          verse.setAltnumber(undefined);
+        });
+      });
+
+      editor.getEditorState().read(() => {
+        expect(attributeRun(verse, "va")).toBeUndefined();
+      });
+    });
+
+    it("leaves an edited run alone while the collapsed caret is inside it, and reports it caret-held", async () => {
+      let verse: VerseNode;
+      let value: ReturnType<typeof $createTextNode>;
+      const { editor } = await testEnvironment(() => {
+        verse = $createVerseNode("1", "\\v 1", undefined, "2", undefined);
+        const open = $createMarkerNode("va");
+        value = $createTextNode(`${NBSP}2`);
+        $setState(value, textTypeState, "attribute");
+        $getRoot().append(
+          $createParaNode().append(verse, open, value, $createMarkerNode("va", "closing")),
+        );
+      });
+
+      await act(async () => {
+        editor.update(() => {
+          // Mid-edit: the user has typed into the run, so its text has drifted from canonical
+          // while the caret still sits inside it.
+          value.setTextContent(`${NBSP}23`);
+          value.select(value.getTextContentSize(), value.getTextContentSize());
+          verse.getWritable();
+        });
+      });
+
+      editor.getEditorState().read(() => {
+        expect(attributeRun(verse, "va")?.value.getTextContent()).toBe(`${NBSP}23`);
+        expect($hasCaretHeldVerseAttributeRun(verse, "2", undefined)).toBe(true);
+      });
+    });
+
+    it("reports \\vp caret-held even when \\va independently diverges with the caret elsewhere", async () => {
+      // \va missing (diverges from altnumber) but the caret is nowhere near it — the sync would
+      // heal it on its own, given the chance. \vp is mid-edit with the caret inside it. The two
+      // triplets are independent: \va's divergence (without the caret) must not short-circuit
+      // the \vp check. Asserted INSIDE the same update as construction, before the mounted sync
+      // transform gets a chance to heal the un-held \va divergence away.
+      const { editor } = await testEnvironment(() => undefined);
+      let reportedCaretHeld: boolean | undefined;
+
+      await act(async () => {
+        editor.update(
+          () => {
+            const verse = $createVerseNode("1", "\\v 1", undefined, "2", "1b");
+            const vpOpen = $createMarkerNode("vp");
+            const vpValue = $createTextNode(`${NBSP}1b`);
+            $setState(vpValue, textTypeState, "attribute");
+            $getRoot().append(
+              $createParaNode().append(verse, vpOpen, vpValue, $createMarkerNode("vp", "closing")),
+            );
+            vpValue.setTextContent(`${NBSP}1c`);
+            vpValue.select(vpValue.getTextContentSize(), vpValue.getTextContentSize());
+            reportedCaretHeld = $hasCaretHeldVerseAttributeRun(verse, "2", "1b");
+          },
+          { discrete: true },
+        );
+      });
+
+      expect(reportedCaretHeld).toBe(true);
+    });
+
+    it("is idempotent on a canonical verse", async () => {
+      let verse: VerseNode;
+      let originalValue: ReturnType<typeof $createTextNode>;
+      const { editor } = await testEnvironment(() => {
+        verse = $createVerseNode("1", "\\v 1", undefined, "2", undefined);
+        const open = $createMarkerNode("va");
+        originalValue = $createTextNode(`${NBSP}2`);
+        $setState(originalValue, textTypeState, "attribute");
+        $getRoot().append(
+          $createParaNode().append(verse, open, originalValue, $createMarkerNode("va", "closing")),
+        );
+      });
+
+      await act(async () => {
+        editor.update(() => {
+          verse.getWritable();
+        });
+      });
+
+      editor.getEditorState().read(() => {
+        const run = attributeRun(verse, "va");
+        // Same node instance, untouched — proof the sync writes only on change.
+        expect(run?.value.getKey()).toBe(originalValue.getKey());
+        expect(run?.value.getTextContent()).toBe(`${NBSP}2`);
+      });
+    });
+
+    it("serializes a plain verse (no altnumber/pubnumber) unchanged", async () => {
+      let verse: VerseNode;
+      const { editor } = await testEnvironment(() => {
+        verse = $createVerseNode("1", "\\v 1");
+        $getRoot().append($createParaNode().append(verse));
+      });
+
+      await act(async () => {
+        editor.update(() => {
+          verse.getWritable();
+        });
+      });
+
+      editor.getEditorState().read(() => {
+        expect(verse.getNextSibling()).toBeNull();
+      });
     });
   });
 });
