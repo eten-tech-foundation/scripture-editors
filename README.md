@@ -197,16 +197,19 @@ The generated API report files should be committed alongside your changes.
 
 ## Formatting, Linting and Typechecking
 
-Formatting happens automatically when you commit. If you use VS Code with this repo's recommended extensions, files will be formatted when you save.
+Formatting happens automatically when you commit — the pre-commit hook runs Prettier over your staged files, and that is the gate. If you use VS Code with this repo's recommended extensions, files will also be formatted when you save. You shouldn't normally need to format anything by hand.
 
-To check TypeScript for readability, maintainability, and functionality errors, and to check a few other files for proper formatting, run the following from the repo root (or just use VS Code with this repo's recommended extensions).
+To check TypeScript for readability, maintainability, and functionality errors, run the following from the repo root (or just use VS Code with this repo's recommended extensions).
 
 ```bash
-nx format:check # to check formatting
-nx format:write # to fix formatting
 nx run-many -t lint # to check linting
 nx run-many -t typecheck # to check types
+npx prettier --write <files> # only if you need to format something by hand
 ```
+
+Use Prettier directly rather than `nx format:write`. CI runs `nx format:check` purely as a backstop for commits that bypassed the hook; it exists because `nx format` once resolved a Prettier configuration that didn't quite match invoking Prettier directly. Several Nx majors have passed and that may well be fixed, but it has never been reconfirmed — so prefer the tool the hook uses.
+
+Note `.prettierignore` excludes some files that still get staged, notably `pnpm-lock.yaml` and `**/tsconfig*.json`. Prettier leaves those alone by design; that isn't the hook failing.
 
 ## TypeScript Code Intelligence
 
