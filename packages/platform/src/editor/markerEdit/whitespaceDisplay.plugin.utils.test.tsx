@@ -1,4 +1,5 @@
-import { testEnvironment } from "./markerEdit.test-helpers";
+import { MarkerEditPlugin } from "./MarkerEditPlugin";
+import { serializedState, testEnvironment, viewOptions } from "./markerEdit.test-helpers";
 import {
   $getStandardViewClipboardData,
   $handleCopyForStandardView,
@@ -6,7 +7,23 @@ import {
 } from "./whitespaceDisplay.plugin.utils";
 import { act } from "@testing-library/react";
 import { LexicalClipboardData } from "@lexical/clipboard";
-import { $createTextNode, $getRoot, $setState, COPY_COMMAND, CUT_COMMAND, TextNode } from "lexical";
+// Reaching inside only for tests.
+// eslint-disable-next-line @nx/enforce-module-boundaries
+import { baseTestEnvironment } from "../../../../../libs/shared-react/src/plugins/usj/react-test.utils";
+import { usxStringToUsj } from "@eten-tech-foundation/scripture-utilities";
+import { $dfs } from "@lexical/utils";
+import {
+  $createPoint,
+  $createRangeSelection,
+  $createTextNode,
+  $getRoot,
+  $isTextNode,
+  $setSelection,
+  $setState,
+  COPY_COMMAND,
+  CUT_COMMAND,
+  TextNode,
+} from "lexical";
 import { $createCharNode, $createMarkerNode, $createParaNode, NBSP, textTypeState } from "shared";
 
 /**
@@ -150,6 +167,54 @@ describe("clipboard normalization", () => {
     // The real (event-carrying) branch writes directly via clipboardData.setData; it must NOT
     // route through the null-event copyToClipboard path (which mock would otherwise mask).
     expect(copyToClipboardSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("copy across an UnknownNode (figure) — full USFM byte display", () => {
+  it("copies the figure's exact opening marker, attribute run, content, and closing marker", async () => {
+    const usj = usxStringToUsj(
+      `<usx version="3.0"><book code="RUT" style="id" /><chapter number="1" style="c" />` +
+        `<para style="p">Before <figure style="fig" file="cn01617.jpg" size="span" ref="1.18">caption</figure> after.</para></usx>`,
+    );
+    const { editor } = await baseTestEnvironment(
+      serializedState(usj),
+      <MarkerEditPlugin viewOptions={viewOptions} />,
+    );
+
+    let beforeText: TextNode | undefined;
+    let afterText: TextNode | undefined;
+    editor.getEditorState().read(() => {
+      const textNodes = $dfs($getRoot())
+        .map(({ node }) => node)
+        .filter($isTextNode);
+      beforeText = textNodes.find((node) => node.getTextContent() === "Before ");
+      afterText = textNodes.find((node) => node.getTextContent() === " after.");
+    });
+    if (!beforeText || !afterText) throw new Error("Expected surrounding text nodes to exist");
+    const before = beforeText;
+    const after = afterText;
+
+    await act(async () =>
+      editor.update(() => {
+        const selection = $createRangeSelection();
+        selection.anchor = $createPoint(before.getKey(), 0, "text");
+        selection.focus = $createPoint(after.getKey(), after.getTextContentSize(), "text");
+        $setSelection(selection);
+      }),
+    );
+
+    const { event, getData } = copyEvent();
+    await act(async () => {
+      editor.dispatchCommand(COPY_COMMAND, event);
+    });
+
+    // The whole span, marker glyphs included: the figure's ImmutableTypedTextNode display
+    // children (opening marker, attribute run, content, closing marker — createUnknown's fixed
+    // order) are real Lexical text to a range selection, so the copy carries the figure's
+    // complete USFM, not just its "caption" content.
+    expect(getData("text/plain")).toBe(
+      'Before \\fig |src="cn01617.jpg" size="span" ref="1.18"caption\\fig* after.',
+    );
   });
 });
 

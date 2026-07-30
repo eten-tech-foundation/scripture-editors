@@ -65,6 +65,7 @@ import {
   isSerializedNoteNode,
   isSerializedParaNode,
   isSerializedTextNode,
+  isSerializedUnknownNode,
   MarkerNode,
   NBSP,
   NoteNode,
@@ -1251,5 +1252,193 @@ describe("verse attribute display (\\va/\\vp runs)", () => {
     );
     expect(hiddenChildren).toHaveLength(1);
     expect(hiddenChildren.some((n) => textTypeOf(n) === "attribute")).toBe(false);
+  });
+});
+
+describe("unknown-node display (USFM byte runs, editable mode)", () => {
+  /** A one-item USJ document; `createUnknown` doesn't look at its parent, so top-level content
+   * exercises the same code path a nested unknown construct would. */
+  function usjWithUnknown(markerObject: MarkerObject): Usj {
+    return { ...EMPTY_USJ, content: [markerObject] };
+  }
+
+  /** Serializes `usj` and returns the first (only) top-level node's children. */
+  function unknownChildren(usj: Usj, viewOptions?: ViewOptions): SerializedLexicalNode[] {
+    initialize(undefined, undefined);
+    reset();
+    const state = serializeEditorState(usj, viewOptions);
+    const node = state.root.children[0];
+    if (!isSerializedUnknownNode(node)) throw new Error("No unknown node found");
+    return node.children;
+  }
+
+  it("figure: opening marker, attribute run, content, closing marker, in order and byte-exact", () => {
+    const children = unknownChildren(
+      usjWithUnknown({
+        type: "figure",
+        marker: "fig",
+        file: "image.jpg",
+        size: "span",
+        ref: "1.18",
+        content: ["figure content"],
+      } as MarkerObject),
+      getViewOptions(STANDARD_VIEW_MODE),
+    );
+
+    expect(children).toHaveLength(4);
+    const [opening, attributes, content, closing] = children;
+    if (!isSerializedImmutableTypedTextNode(opening)) throw new Error("No opening marker found");
+    expect(opening.textType).toBe("marker");
+    expect(opening.text).toBe("\\fig ");
+    if (!isSerializedImmutableTypedTextNode(attributes)) throw new Error("No attribute run found");
+    expect(attributes.textType).toBe("attribute");
+    expect(attributes.text).toBe('|src="image.jpg" size="span" ref="1.18"');
+    if (!isSerializedTextNode(content)) throw new Error("No content text node found");
+    expect(content.text).toBe("figure content");
+    expect(content.mode).toBe("token");
+    if (!isSerializedImmutableTypedTextNode(closing)) throw new Error("No closing marker found");
+    expect(closing.textType).toBe("marker");
+    expect(closing.text).toBe("\\fig*");
+  });
+
+  it("sidebar: opening carries no separator space; a category attribute rides as its own \\cat run", () => {
+    const children = unknownChildren(
+      usjWithUnknown({
+        type: "sidebar",
+        marker: "esb",
+        category: "History",
+        content: ["Sidebar text"],
+      } as MarkerObject),
+      getViewOptions(STANDARD_VIEW_MODE),
+    );
+
+    expect(children).toHaveLength(4);
+    const [opening, attributes, , closing] = children;
+    if (!isSerializedImmutableTypedTextNode(opening)) throw new Error("No opening marker found");
+    expect(opening.text).toBe("\\esb");
+    if (!isSerializedImmutableTypedTextNode(attributes)) throw new Error("No attribute run found");
+    expect(attributes.text).toBe(" \\cat History\\cat*");
+    if (!isSerializedImmutableTypedTextNode(closing)) throw new Error("No closing marker found");
+    expect(closing.text).toBe("\\esbe");
+  });
+
+  it("periph: alt renders as opening marker content; periph never closes, so there is no closing run", () => {
+    const children = unknownChildren(
+      usjWithUnknown({
+        type: "periph",
+        alt: "Title Page",
+        id: "titlepage",
+        content: ["The Title"],
+      } as MarkerObject),
+      getViewOptions(STANDARD_VIEW_MODE),
+    );
+
+    expect(children).toHaveLength(3);
+    const [opening, attributes, content] = children;
+    if (!isSerializedImmutableTypedTextNode(opening)) throw new Error("No opening marker found");
+    expect(opening.text).toBe("\\periph Title Page");
+    if (!isSerializedImmutableTypedTextNode(attributes)) throw new Error("No attribute run found");
+    expect(attributes.text).toBe('|id="titlepage"');
+    if (!isSerializedTextNode(content)) throw new Error("No content text node found");
+    expect(content.text).toBe("The Title");
+  });
+
+  it("table:row opens with \\tr and never closes; a spanning table:cell re-encodes colspan into its opening", () => {
+    const children = unknownChildren(
+      usjWithUnknown({
+        type: "table",
+        content: [
+          {
+            type: "table:row",
+            marker: "tr",
+            content: [
+              {
+                type: "table:cell",
+                marker: "tc1",
+                colspan: "2",
+                content: ["cell1"],
+              } as MarkerObject,
+            ],
+          } as MarkerObject,
+        ],
+      } as MarkerObject),
+      getViewOptions(STANDARD_VIEW_MODE),
+    );
+
+    // The "table" container itself carries no bytes of its own — no display children.
+    expect(children).toHaveLength(1);
+    const [row] = children;
+    if (!isSerializedUnknownNode(row)) throw new Error("No table:row node found");
+    expect(row.children).toHaveLength(2); // opening marker + the cell (no closer, no attributes)
+    const [rowOpening, cell] = row.children;
+    if (!isSerializedImmutableTypedTextNode(rowOpening))
+      throw new Error("No row opening marker found");
+    expect(rowOpening.text).toBe("\\tr ");
+    if (!isSerializedUnknownNode(cell)) throw new Error("No table:cell node found");
+    expect(cell.children).toHaveLength(2); // opening marker + content (no closer, no attributes)
+    const [cellOpening, cellContent] = cell.children;
+    if (!isSerializedImmutableTypedTextNode(cellOpening))
+      throw new Error("No cell opening marker found");
+    expect(cellOpening.text).toBe("\\tc1-2 ");
+    if (!isSerializedTextNode(cellContent)) throw new Error("No cell content text node found");
+    expect(cellContent.text).toBe("cell1");
+  });
+
+  it("optbreak renders the real '//' token as its only child — no attribute or closing run", () => {
+    const children = unknownChildren(
+      usjWithUnknown({ type: "optbreak" } as MarkerObject),
+      getViewOptions(STANDARD_VIEW_MODE),
+    );
+
+    expect(children).toHaveLength(1);
+    const [opening] = children;
+    if (!isSerializedImmutableTypedTextNode(opening)) throw new Error("No opening marker found");
+    expect(opening.textType).toBe("marker");
+    expect(opening.text).toBe("//");
+  });
+
+  it("ref and the table container carry no USFM bytes of their own — no display children at all", () => {
+    const refChildren = unknownChildren(
+      usjWithUnknown({
+        type: "ref",
+        loc: "MRK 9:50",
+        content: ["Mk 9.50"],
+      } as MarkerObject),
+      getViewOptions(STANDARD_VIEW_MODE),
+    );
+    expect(refChildren).toHaveLength(1);
+    expect(refChildren.some(isSerializedImmutableTypedTextNode)).toBe(false);
+
+    const tableChildren = unknownChildren(
+      usjWithUnknown({
+        type: "table",
+        content: [{ type: "table:row", marker: "tr", content: [] } as MarkerObject],
+      } as MarkerObject),
+      getViewOptions(STANDARD_VIEW_MODE),
+    );
+    expect(tableChildren.some(isSerializedImmutableTypedTextNode)).toBe(false);
+  });
+
+  it("builds no display children in visible or hidden marker modes", () => {
+    const usj = usjWithUnknown({
+      type: "figure",
+      marker: "fig",
+      file: "image.jpg",
+      content: ["figure content"],
+    } as MarkerObject);
+
+    const visibleChildren = unknownChildren(usj, {
+      ...getDefaultViewOptions(),
+      markerMode: "visible",
+    });
+    expect(visibleChildren).toHaveLength(1);
+    expect(visibleChildren.some(isSerializedImmutableTypedTextNode)).toBe(false);
+
+    const hiddenChildren = unknownChildren(usj, {
+      ...getDefaultViewOptions(),
+      markerMode: "hidden",
+    });
+    expect(hiddenChildren).toHaveLength(1);
+    expect(hiddenChildren.some(isSerializedImmutableTypedTextNode)).toBe(false);
   });
 });

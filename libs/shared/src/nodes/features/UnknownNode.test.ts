@@ -62,8 +62,9 @@ describe("UnknownNode", () => {
     // corpus fixture nests <ref> INSIDE a paragraph's
     // running text (converter-test.data.ts:2581 shows it becoming UnknownNode tag "ref"), the
     // same mid-sentence placement as optbreak — so ref gets the inline class too. Unlike
-    // optbreak it carries real child text, so it must NOT get the optbreak-only `//` label
-    // (pinned by the data-tag test below — the label selector keys off [data-tag="optbreak"]).
+    // optbreak, ref carries no USFM bytes of its own (unknownDisplayParts returns all-empty
+    // parts for it), so only its real child text ever renders — no marker/attribute display
+    // children.
     it("adds the 'unknown-inline' class instead of 'unknown-block' for the ref construct", () => {
       const { editor } = createBasicTestEnvironment([UnknownNode]);
       editor.update(() => {
@@ -75,12 +76,9 @@ describe("UnknownNode", () => {
       });
     });
 
-    // The `//` label is optbreak-specific: usj-nodes.css keys it off [data-tag="optbreak"], so
-    // the ::before rule can never match a ref (or any other construct). jsdom doesn't render
-    // pseudo-elements, so the DOM-level contract pinned here is the discriminator attribute the
-    // CSS selector depends on. data-tag is also the attribute importDOM's $convertUnknownElement
-    // reads, so emitting it keeps createDOM symmetric with the conversion map.
-    it("stamps data-tag with the construct tag so CSS can key the optbreak-only label off it", () => {
+    // data-tag is the attribute importDOM's $convertUnknownElement reads back, so emitting it
+    // keeps createDOM symmetric with the conversion map.
+    it("stamps data-tag with the construct tag, symmetric with importDOM's conversion map", () => {
       const { editor } = createBasicTestEnvironment([UnknownNode]);
       editor.update(() => {
         const optbreakElement = $createUnknownNode("optbreak", undefined).createDOM();

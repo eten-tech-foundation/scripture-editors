@@ -2115,14 +2115,16 @@
 /* UnknownNode: lossless carrier for content this editor doesn't model directly — tables,
    figures, sidebars (\esb), \periph, \ref, \optbreak, etc. Hidden by default in every view
    (preserves today's behavior for formatted/markers views); standard view (.marker-editable)
-   reveals it as a subdued read-only container with its lead marker shown as a label, so the
-   content is visible/inert instead of silently invisible. Two corpus-proven mid-paragraph
-   constructs get the inline treatment instead of a block box that would break the sentence
-   (a line-level box in the middle of a sentence would be visibly wrong; see
-   UnknownNode.ts's INLINE_UNKNOWN_TAGS — createDOM picks the class per construct):
-   - \optbreak: no children; PT9 renders a literal `//`, supplied here via a ::before keyed
-     off data-tag="optbreak".
-   - \ref: real child text shown inline; NO label (the optbreak selector cannot match it). */
+   reveals it as a subdued read-only container. Its own USFM bytes (opening marker, attribute
+   run, closing marker — unknownUsfm.utils.ts) render as ordinary `.marker`/`.attribute`
+   ImmutableTypedTextNode children flanking its content (usj-editor.adaptor.ts's
+   `createUnknown`), already styled by the `.formatted-font.marker-editable .marker`/`.attribute`
+   rules below — so no CSS-generated label is needed here (a generated label would duplicate
+   that real text). Two corpus-proven mid-paragraph constructs get the inline treatment instead
+   of a block box that would break the sentence (a line-level box in the middle of a sentence
+   would be visibly wrong; see UnknownNode.ts's INLINE_UNKNOWN_TAGS — createDOM picks the class
+   per construct): \optbreak (PT9's literal `//` token, now real text) and \ref (a generated
+   cross-reference wrapper with real child text and no marker bytes of its own). */
 .unknown-block,
 .unknown-inline {
   display: none;
@@ -2132,9 +2134,9 @@
   display: block;
   margin: 0.25em 0;
   padding: 0.25em 0.5em;
-  /* An EMPTY opaque block (e.g. a bare \fig) must stay visible/selectable: without content the
-     box collapses to 0 height. One line-height of room keeps the dashed frame and the ::before
-     marker label renderable. */
+  /* An EMPTY opaque block (e.g. the bare "table" container, which contributes no bytes of its
+     own) must stay visible/selectable: without content the box collapses to 0 height. One
+     line-height of room keeps the dashed frame renderable. */
   min-height: 1.5em;
   border: 1px dashed hsl(var(--muted-foreground, 215 16% 65%) / 0.5);
   background-color: hsl(var(--muted-foreground, 215 16% 65%) / 0.08);
@@ -2145,29 +2147,11 @@
      so it was a no-op and is intentionally omitted. */
 }
 
-.marker-editable .unknown-block::before {
-  content: "\\" attr(data-marker);
-  display: block;
-  font-size: 0.7em;
-  font-weight: bold;
-  color: rgba(140, 140, 140, 1);
-  margin-bottom: 0.2em;
-}
-
 .marker-editable .unknown-inline {
   display: inline;
   color: hsl(var(--muted-foreground, 215 16% 65%) / 0.85);
   /* Same as the block variant: containment comes from the inert UnknownNode, not CSS
      (`user-select: contain` is a Blink no-op), so no user-select is set here. */
-}
-
-/* \optbreak carries no USFM marker text of its own (data-marker is empty) — PT9 renders it as
-   a literal `//` token, so the label is hard-coded rather than driven by attr(data-marker).
-   Keyed off data-tag so it applies ONLY to optbreak: \ref shares the unknown-inline class but
-   displays its own child text and must not grow a `//` prefix. */
-.marker-editable .unknown-inline[data-tag="optbreak"]::before {
-  content: "//";
-  color: rgba(140, 140, 140, 1);
 }
 
 .notetext {
