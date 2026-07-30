@@ -71,8 +71,24 @@ export function $selectionSpansBlockBoundary(selection: BaseSelection): boolean 
   return paraKeys.size > 1;
 }
 
-/** True when the selection includes any verse marker node. */
+/**
+ * True when the selection includes any verse marker node. A collapsed caret at an element-type
+ * point never counts — that is adjacency, not containment (see {@link $adjacentVerseMarker}).
+ */
 export function $selectionContainsVerseMarker(selection: BaseSelection): boolean {
+  // A collapsed range covers no nodes, so a non-empty getNodes() for one is Lexical emulating "the
+  // descendant at the caret" — i.e. adjacency, not containment. Only element-type points hit that
+  // fallback, and only they can be stranded with no TextNode to live in (an empty verse, since
+  // ImmutableVerseNode is a childless decorator leaf) — so typing there was wrongly blocked
+  // (PT-4122). Text-type points are excluded deliberately: a mutable VerseNode IS a TextNode, so a
+  // caret inside one is genuine containment and must keep blocking. Adjacency for deletes is
+  // handled separately by $adjacentVerseMarker.
+  if (
+    $isRangeSelection(selection) &&
+    selection.isCollapsed() &&
+    selection.anchor.type === "element"
+  )
+    return false;
   if (!$isRangeSelection(selection) && !$isNodeSelection(selection)) return false;
   return selection.getNodes().some((n) => $isSomeVerseNode(n));
 }

@@ -13,6 +13,7 @@ import {
   $sanitizeNodesForProtectedStructure,
   $selectionContainsVerseMarker,
   $selectionSpansBlockBoundary,
+  $shouldBlockSelectionReplacement,
   $shouldBlockStructuralEdit,
   $structuralDeleteTarget,
   keyDownToIntent,
@@ -33,6 +34,7 @@ import {
   $createNoteNode,
   $createParaNode,
   $createImpliedParaNode,
+  $createVerseNode,
   $isCharNode,
   $isNoteNode,
   $isSomeParaNode,
@@ -651,6 +653,113 @@ describe("$sanitizeNodesForProtectedStructure", () => {
     await sutUpdate(editor, () => {
       const result = $sanitizeNodesForProtectedStructure([$createImmutableVerseNode("1")]);
       expect(result).toHaveLength(0);
+    });
+  });
+});
+
+// PT-4122: an empty verse has no TextNode to host the caret (ImmutableVerseNode is a leaf
+// DecoratorNode, and TextSpacingPlugin deliberately inserts no spacer between two verse markers),
+// so Lexical represents the caret as a collapsed ELEMENT-type point on the paragraph. Lexical's
+// getNodes() fallback returns the adjacent node for a collapsed range, which used to make
+// $selectionContainsVerseMarker report mere adjacency as containment and block typing.
+// Build the caret with `updateSelection(editor, para, childIndex)` — passing the para yields the
+// element-type point that reproduces this; passing a TextNode yields a text point and does not.
+describe("empty verse carets (PT-4122)", () => {
+  /** `verse(1) | verse(2) text` — caret in empty verse 1, between the two markers. */
+  async function shapeAdjacentEmptyVerses() {
+    let para: ParaNode;
+    const { editor } = await baseTestEnvironment(() => {
+      para = $createParaNode("p");
+      $getRoot().append(
+        para.append(
+          $createImmutableVerseNode("1"),
+          $createImmutableVerseNode("2"),
+          $createTextNode("second verse text "),
+        ),
+      );
+    });
+    updateSelection(editor, para!, 1);
+    return { editor, para: para! };
+  }
+
+  /** `text verse(5) |` — caret in verse 5's empty body, at the end of the paragraph. */
+  async function shapeTrailingEmptyVerse() {
+    let para: ParaNode;
+    const { editor } = await baseTestEnvironment(() => {
+      para = $createParaNode("p");
+      $getRoot().append(para.append($createTextNode("some text "), $createImmutableVerseNode("5")));
+    });
+    updateSelection(editor, para!, 2);
+    return { editor, para: para! };
+  }
+
+  /** `verse(1) |` — caret in an empty verse that is its paragraph's only child. */
+  async function shapeLoneVerse() {
+    let para: ParaNode;
+    const { editor } = await baseTestEnvironment(() => {
+      para = $createParaNode("p");
+      $getRoot().append(para.append($createImmutableVerseNode("1")));
+    });
+    updateSelection(editor, para!, 1);
+    return { editor, para: para! };
+  }
+
+  const shapes = [
+    ["between two adjacent empty verses", shapeAdjacentEmptyVerses],
+    ["in verse 5's empty body at para end", shapeTrailingEmptyVerse],
+    ["in an empty verse that is the para's only child", shapeLoneVerse],
+  ] as const;
+
+  describe.each(shapes)("caret %s", (_label, buildShape) => {
+    it("$selectionContainsVerseMarker is false (adjacency is not containment)", async () => {
+      const { editor } = await buildShape();
+      editor.getEditorState().read(() => {
+        expect($selectionContainsVerseMarker($getSelection()!)).toBe(false);
+      });
+    });
+
+    it("ALLOWS insertText (the user-facing symptom: typing must work)", async () => {
+      const { editor } = await buildShape();
+      editor.getEditorState().read(() => {
+        expect($shouldBlockStructuralEdit($getSelection()!, "insertText")).toBe(false);
+      });
+    });
+
+    it("ALLOWS selection replacement (paste/cut/drop/IME)", async () => {
+      const { editor } = await buildShape();
+      editor.getEditorState().read(() => {
+        expect($shouldBlockSelectionReplacement($getSelection()!)).toBe(false);
+      });
+    });
+
+    it("still BLOCKS insertParagraph (Enter) and deleteBackward", async () => {
+      const { editor } = await buildShape();
+      editor.getEditorState().read(() => {
+        expect($shouldBlockStructuralEdit($getSelection()!, "insertParagraph")).toBe(true);
+        expect($shouldBlockStructuralEdit($getSelection()!, "deleteBackward")).toBe(true);
+      });
+    });
+  });
+
+  // A mutable VerseNode extends TextNode, so unlike ImmutableVerseNode a caret CAN sit inside it as
+  // a text-type point. That is real containment: editing there would rewrite the verse number, so
+  // it must stay blocked. Guards against the collapsed-caret fix being widened to text points.
+  it("still BLOCKS edits with the caret inside a mutable VerseNode", async () => {
+    let verse: ReturnType<typeof $createVerseNode>;
+    const { editor } = await baseTestEnvironment(() => {
+      verse = $createVerseNode("12");
+      $getRoot().append(
+        $createParaNode("q").append($createTextNode("prev")),
+        $createParaNode("p").append(verse, $createTextNode("text ")),
+      );
+    });
+    // One character into the marker's own text ("12"), so this is a text-type point.
+    updateSelection(editor, verse!, 1);
+    editor.getEditorState().read(() => {
+      const selection = $getSelection()!;
+      expect($selectionContainsVerseMarker(selection)).toBe(true);
+      expect($shouldBlockStructuralEdit(selection, "insertText")).toBe(true);
+      expect($shouldBlockStructuralEdit(selection, "deleteBackward")).toBe(true);
     });
   });
 });
