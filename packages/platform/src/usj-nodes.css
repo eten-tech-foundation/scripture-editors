@@ -2590,6 +2590,8 @@ span.read img {
 .psc-gutter-markers.text-spacing .usfm_io1,
 .psc-gutter-markers.text-spacing .usfm_ili,
 .psc-gutter-markers.text-spacing .usfm_ili1,
+.psc-gutter-markers.text-spacing .usfm_li,
+.psc-gutter-markers.text-spacing .usfm_li1,
 .psc-gutter-markers.text-spacing .usfm_pi2 {
   --para-indent: 10vw;
 }
@@ -2600,16 +2602,26 @@ span.read img {
 .psc-gutter-markers.text-spacing .usfm_q4,
 .psc-gutter-markers.text-spacing .usfm_io2,
 .psc-gutter-markers.text-spacing .usfm_ili2,
+.psc-gutter-markers.text-spacing .usfm_li2,
+.psc-gutter-markers.text-spacing .usfm_lim,
+.psc-gutter-markers.text-spacing .usfm_lim1,
 .psc-gutter-markers.text-spacing .usfm_pi3 {
   --para-indent: 15vw;
 }
 .psc-gutter-markers.text-spacing .usfm_qm,
 .psc-gutter-markers.text-spacing .usfm_qm1,
-.psc-gutter-markers.text-spacing .usfm_io3 {
+.psc-gutter-markers.text-spacing .usfm_io3,
+.psc-gutter-markers.text-spacing .usfm_li3,
+.psc-gutter-markers.text-spacing .usfm_lim2 {
   --para-indent: 20vw;
 }
-.psc-gutter-markers.text-spacing .usfm_io4 {
+.psc-gutter-markers.text-spacing .usfm_io4,
+.psc-gutter-markers.text-spacing .usfm_li4,
+.psc-gutter-markers.text-spacing .usfm_lim3 {
   --para-indent: 25vw;
+}
+.psc-gutter-markers.text-spacing .usfm_lim4 {
+  --para-indent: 30vw;
 }
 .psc-gutter-markers.text-spacing .usfm_ipi,
 .psc-gutter-markers.text-spacing .usfm_imi,
@@ -2652,7 +2664,17 @@ span.read img {
 }
 .psc-gutter-markers.text-spacing .usfm_ili,
 .psc-gutter-markers.text-spacing .usfm_ili1,
-.psc-gutter-markers.text-spacing .usfm_ili2 {
+.psc-gutter-markers.text-spacing .usfm_ili2,
+.psc-gutter-markers.text-spacing .usfm_li,
+.psc-gutter-markers.text-spacing .usfm_li1,
+.psc-gutter-markers.text-spacing .usfm_li2,
+.psc-gutter-markers.text-spacing .usfm_li3,
+.psc-gutter-markers.text-spacing .usfm_li4,
+.psc-gutter-markers.text-spacing .usfm_lim,
+.psc-gutter-markers.text-spacing .usfm_lim1,
+.psc-gutter-markers.text-spacing .usfm_lim2,
+.psc-gutter-markers.text-spacing .usfm_lim3,
+.psc-gutter-markers.text-spacing .usfm_lim4 {
   --verse-text-start: -7.5vw;
 }
 .psc-gutter-markers.text-spacing .usfm_iq,
