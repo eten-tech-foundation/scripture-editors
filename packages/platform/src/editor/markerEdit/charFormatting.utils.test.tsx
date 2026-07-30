@@ -711,11 +711,14 @@ describe("$closeCharSpanAtCaret", () => {
       char = $createCharNode("nd");
       head = $createTextNode(`${NBSP}ab`);
       const tail = $createTextNode("cd");
-      // The tail carries a distinct NodeState purely so Lexical's adjacent-text normalization
-      // doesn't merge the two content nodes into one on commit (same trick as the whitespace
-      // suite's `$appendMarkerAndText`); a span with two content text children is the shape
-      // under test. The close logic itself is state-agnostic.
-      $setState(tail, textTypeState, "attribute");
+      // The tail carries a distinct FORMAT bit purely so Lexical's adjacent-text normalization
+      // doesn't merge the two content nodes into one on commit; a span with two content text
+      // children is the shape under test. The close logic itself is format-agnostic. A textType
+      // NodeState (the whitespace suite's `$appendMarkerAndText` trick) won't do here: textType
+      // "attribute" now carries real pend/settle semantics (an attribute-run edit always pends),
+      // and this span has no unknown attributes at all — borrowing that textType would route this
+      // plain content through the attribute machinery it isn't part of.
+      tail.toggleFormat("bold");
       $getRoot().append(
         para.append(
           $createMarkerNode("p"),
