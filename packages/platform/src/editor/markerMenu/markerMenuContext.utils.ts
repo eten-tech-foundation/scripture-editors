@@ -158,8 +158,10 @@ function getAnchorRect(): MarkerMenuContextSnapshot["anchorRect"] {
 
 /**
  * Builds a `MarkerMenuContext` snapshot from the current selection. Call inside
- * `editor.read()`/`editor.getEditorState().read()`. Returns `undefined` when there is no range
- * selection (e.g. a `NodeSelection`, or none at all).
+ * `editor.getEditorState().read(...)` — NOT `editor.read(...)`, which force-flushes an in-flight
+ * update when dispatched mid-update (see the module doc above; this hazard class caused real
+ * frozen-state crashes, fixed for `OnSelectionChangePlugin`). Returns `undefined` when there is no
+ * range selection (e.g. a `NodeSelection`, or none at all).
  */
 export function $getMarkerMenuContext(): MarkerMenuContextSnapshot | undefined {
   const selection = $getSelection();

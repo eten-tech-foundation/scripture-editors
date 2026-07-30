@@ -134,8 +134,20 @@ function $moveCaretPastMarker(node: MarkerNode): void {
   else node.select(node.getTextContentSize(), node.getTextContentSize());
 }
 
-/** Returns whether the editor state was mutated — a rename applied, or a routed Tier 2 rebuild
- * that spliced (a refused rebuild mutates nothing). */
+/**
+ * Tier 1's in-place rename: applies a terminated opener edit (`\s1` retyped to `\s2 `) by
+ * renaming the structural parent and rewriting the glyph(s) to canonical form — para markers
+ * rename the ParaNode, char/note openers also rewrite the matching closer in the same update
+ * (one-way opener authority). Routes to Tier 2 instead whenever the rename cannot be expressed
+ * in place: a typed `+` nest instruction, a positional-kind change, or a tree shape that breaks
+ * the opener-owns-parent assumption (e.g. collab-flattened nested spans).
+ *
+ * Mutating: call inside `editor.update()` (runs from node transforms and
+ * {@link $resolvePendingMarkers}).
+ *
+ * @returns Whether the editor state was mutated — a rename applied, or a routed Tier 2 rebuild
+ *   that spliced (a refused rebuild mutates nothing).
+ */
 export function $applyOpenerRename(
   node: MarkerNode,
   newMarker: string,
@@ -442,11 +454,14 @@ export function $settlePendedDisplayOwner(
  * reformat; our deterministic equivalents are Enter, blur, and the caret
  * leaving the node (`exceptKey` keeps the node still being edited pending).
  *
- * Returns whether anything actually MUTATED the editor state. A pass that only consumed
- * keys and REFUSED every routed rebuild (fixed points) changes nothing visible — but each
- * refused `$rebuildParas` probe still created parse orphans that count as dirty leaves, so
- * the deferred-resolution caller uses this to merge the visually-no-op commit into the
- * current history entry instead of letting it push a phantom undo step.
+ * Mutating (settles pending nodes via {@link $applyOpenerRename} / Tier 2 rebuilds): call inside
+ * `editor.update()` — never synchronously from an update/mutation listener.
+ *
+ * @returns Whether anything actually MUTATED the editor state. A pass that only consumed
+ *   keys and REFUSED every routed rebuild (fixed points) changes nothing visible — but each
+ *   refused `$rebuildParas` probe still created parse orphans that count as dirty leaves, so
+ *   the deferred-resolution caller uses this to merge the visually-no-op commit into the
+ *   current history entry instead of letting it push a phantom undo step.
  */
 export function $resolvePendingMarkers(context: MarkerEditContext, exceptKey?: NodeKey): boolean {
   let mutated = false;
@@ -529,6 +544,11 @@ export function $resolvePendingMarkers(context: MarkerEditContext, exceptKey?: N
   return mutated;
 }
 
+/**
+ * Whether a collapsed-or-not range selection's anchor sits inside marker glyph text — the guard
+ * `MarkerEditPlugin` and `UsjNodesMenuPlugin` use to swallow Enter presses inside a marker.
+ * Read-only: call inside `editor.getEditorState().read(...)` or an update.
+ */
 export function $isSelectionInMarkerNode(): boolean {
   const selection = $getSelection();
   return $isRangeSelection(selection) && $isMarkerNode(selection.anchor.getNode());

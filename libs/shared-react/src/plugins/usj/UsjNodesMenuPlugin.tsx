@@ -19,8 +19,11 @@ import { GetMarkerAction, ScriptureReference } from "shared";
  * structurally assignable here and flows through unmodified.
  */
 export interface MarkerMenuItemLike {
+  /** The USFM marker this entry offers, e.g. `"q1"`, `"nd"`, `"f"`. */
   marker: string;
+  /** What applying the entry does, e.g. `"paragraph"`, `"character"`, `"note"`, `"closeTag"`. */
   kind: string;
+  /** Human-readable description shown beside the marker in the menu. */
   description?: string;
 }
 
@@ -62,10 +65,15 @@ export interface EditableMarkerMenuHarness {
   ) => void;
 }
 
+/** Props for {@link UsjNodesMenuPlugin}. */
 export interface UsjNodesMenuPluginProps {
+  /** The character that opens the menu when typed, e.g. `"\\"`. */
   trigger: string;
+  /** Current Scripture reference — inserted markers (e.g. a footnote's origin) derive from it. */
   scrRef: ScriptureReference;
+  /** Marker of the node containing the caret, used to filter the offered markers. */
   contextMarker: string | undefined;
+  /** Resolves a chosen marker to the structural action that inserts it. */
   getMarkerAction: GetMarkerAction;
   /**
    * QA-ONLY editable-mode branch (see the doc comment on {@link EditableMarkerMenu}). When
@@ -74,6 +82,17 @@ export interface UsjNodesMenuPluginProps {
    */
   editableHarness?: EditableMarkerMenuHarness;
 }
+
+/**
+ * Renders the in-editor marker menu. Two mutually exclusive branches:
+ *
+ * - Legacy typeahead (default): `UsfmNodesMenuPlugin`'s trigger-character menu, used by
+ *   non-editable marker modes.
+ * - QA-only editable-mode harness: when {@link UsjNodesMenuPluginProps.editableHarness} is
+ *   provided, a document-first `\`/Enter marker menu driven entirely by the host-supplied
+ *   harness (see {@link EditableMarkerMenu} — production hosts render marker menus via their
+ *   own overlay UI instead and never pass a harness).
+ */
 
 export function UsjNodesMenuPlugin({
   trigger,
@@ -101,19 +120,24 @@ export function UsjNodesMenuPlugin({
   );
 }
 
+/** An open harness menu's session state, captured when the trigger key opened it. */
 interface MenuState {
+  /** Which key opened the menu — decides the apply semantics (retag-or-split vs split-only). */
   trigger: "backslash" | "enter";
   /** Whether a literal `\marker` trigger prefix landed before the caret (backslash trigger,
    * collapsed selection only) - passed straight through to `apply`. */
   literalPrefixLanded: boolean;
+  /** The entries the menu offers, from the harness's item source. */
   items: MarkerMenuItemLike[];
 }
 
+/** A menu {@link OptionItem} carrying its source item + apply options for `onSelectOption`. */
 interface HarnessOptionItem extends OptionItem {
   markerMenuItem: MarkerMenuItemLike;
   applyOpts: { trigger: "backslash" | "enter"; literalPrefixLanded: boolean };
 }
 
+/** Adapts one harness menu entry to the {@link NodeSelectionMenu}'s option-item shape. */
 function toHarnessOptionItem(
   item: MarkerMenuItemLike,
   applyOpts: HarnessOptionItem["applyOpts"],

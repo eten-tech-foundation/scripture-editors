@@ -32,6 +32,8 @@ import {
  * marker-EDIT operation (Ctrl+Space, the close-tag palette item), and those only run in
  * markerMode "editable" — `MarkerEditPlugin` gates on it and `Editor.tsx` builds the marker menu
  * only there. There is no non-editable caller to render glyph-free for.
+ *
+ * Mutating: call inside `editor.update()`.
  */
 export function $splitCharNodeAt(char: CharNode, textNode: TextNode, offset: number): CharNode {
   // The right half is a CONTINUATION of `char`: it keeps `char`'s marker, its `closed` state (an
@@ -81,6 +83,19 @@ export function $splitCharNodeAt(char: CharNode, textNode: TextNode, offset: num
   return right;
 }
 
+/**
+ * Strips character formatting from the current selection — the Ctrl+Space apply (PT9
+ * `KeyPressEditHandler.HandleCtrlSpace`'s blank character style).
+ *
+ * A range selection unwraps fully covered char spans and splits partially covered ones at the
+ * selection boundary (an interior range yields PT9's three segments: left styled, middle plain,
+ * right styled). A collapsed caret inside a span splits the span at the caret and inserts (or
+ * reuses) one plain space as the separator, PT9's insert-and-clear-a-space behavior. Returns
+ * `false` when there is no range selection or, for a collapsed caret, nothing to strip.
+ *
+ * Mutating: call inside `editor.update()` (dispatched from `MarkerEditPlugin`'s KEY_DOWN
+ * command handler).
+ */
 export function $removeCharFormattingFromSelection(): boolean {
   const selection = $getSelection();
   if (!$isRangeSelection(selection)) return false;
@@ -257,6 +272,8 @@ function $selectAfterCharNode(char: CharNode): void {
  * caret already sits at the span's content end, the span is already effectively closed: no split
  * is performed, the selection just moves past it. Returns `false` when there is no open span
  * matching `endMarker` at the caret, or the selection isn't a collapsed range selection.
+ *
+ * Mutating: call inside `editor.update()`.
  */
 export function $closeCharSpanAtCaret(endMarker: string): boolean {
   const selection = $getSelection();

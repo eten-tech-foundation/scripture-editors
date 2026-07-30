@@ -74,6 +74,9 @@ export type NoteEnterOutcome = "handled" | "needs-plain-split" | "declined";
  * resulting caret — an in-note `\fp` break when the caret's note survived intact, a normal
  * paragraph split (performed by the caller) otherwise. Declines when no endpoint touches an
  * EXPANDED NoteNode's content.
+ *
+ * Mutating: call inside `editor.update()` (dispatched from `MarkerEditPlugin`'s KEY_ENTER
+ * command handler).
  */
 export function $handleEnterInNote(): NoteEnterOutcome {
   const selection = $getSelection();
@@ -129,6 +132,9 @@ function stripLeadingParagraphMarker(line: string, getMarker: MarkerLookup | und
  * `"needs-plain-split"` with the removal applied but NO lines inserted — the caller finishes
  * the paste as the ordinary paragraph-splitting insertion. Declines (mutating nothing) when
  * the selection does not touch expanded note content.
+ *
+ * Mutating: call inside `editor.update()` (dispatched from `MarkerEditPlugin`'s PASTE command
+ * handler).
  */
 export function $handlePasteLinesInNote(
   lines: string[],
@@ -166,6 +172,8 @@ export function $handlePasteLinesInNote(
  * (DOM) caret is authoritative, so adopt it. Returns true when the selection was moved;
  * declines (false, nothing mutated) when there is no usable DOM caret, it is outside this
  * editor, it does not map into expanded note CONTENT, or it maps to a non-content node.
+ *
+ * Mutating (moves the selection): call inside `editor.update()`.
  */
 export function $adoptDomCaretInExpandedNote(editor: LexicalEditor): boolean {
   const rootElement = editor.getRootElement();

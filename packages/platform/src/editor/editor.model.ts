@@ -352,15 +352,25 @@ export interface EditorRef {
     | (MarkerMenuContext & { anchorRect?: { x: number; y: number; width: number; height: number } })
     | undefined;
   /**
-   * Apply a marker-menu selection at the current editor selection (standard-view `\`/Enter
-   * marker menus). Mirrors PT9's `MarkerDropdownEditHandler`/`KeyPressEditHandler` apply step:
-   * paragraph/character/note kinds run the structural insert action used by
-   * {@link EditorRef.insertMarker} (optionally cleaning up a literal `\marker` trigger prefix
-   * typed before the caret); `closeTag` kind closes the matching open character span instead.
+   * Apply a marker-menu selection at the current editor selection — the apply step for the
+   * BACKSLASH-triggered marker menu. Mirrors PT9's `MarkerDropdownEditHandler` apply step:
+   * paragraph kinds retag the paragraph in place when the caret is at paragraph content start
+   * and split otherwise; character/note kinds run the structural insert action used by
+   * {@link EditorRef.insertMarker}; `closeTag` kind closes the matching open character span.
+   * When `literalPrefixLanded` is set, the typed literal `\marker` trigger prefix is deleted
+   * before any of the above.
+   *
+   * Which method for which menu: route a backslash-menu selection here; route an
+   * Enter-menu selection through {@link EditorRef.splitParagraphWithMarker} instead — the Enter
+   * menu is paragraph-split-only (PT9 SmartEnter always starts a new paragraph, never retags),
+   * has no typed literal prefix to clean up, and never inserts notes/chars. A paragraph item
+   * passed here with `trigger: "enter"` does route to the split for that reason, but the
+   * narrower method is the honest contract for the Enter path.
    *
    * @param item - The selected marker-menu item (from {@link getMarkerMenuItems} /
    *   {@link getEnterMenuItems}).
-   * @param opts - `trigger` is which UI trigger produced the menu (`"backslash"` or `"enter"`).
+   * @param opts - `trigger` is which UI trigger produced the menu (`"backslash"` or `"enter"`);
+   *   paragraph items with an `"enter"` trigger always split, never retag.
    *   `literalPrefixLanded` is whether a literal `\marker` trigger prefix was typed before the
    *   caret and must be deleted before applying the action; ignored for `closeTag` items.
    * @throws Will throw an error if the editor is in readonly mode.
@@ -371,6 +381,7 @@ export interface EditorRef {
    * @returns the created note's TRUE Lexical node key when the applied item inserted a note
    *   (hosts use it to track the note-editing session — the same contract as
    *   {@link EditorRef.insertMarker}); `undefined` for every other item kind.
+   * @see {@link EditorRef.splitParagraphWithMarker} for the Enter-menu apply step.
    */
   applyMarkerMenuSelection(
     item: MarkerMenuItem,
@@ -378,11 +389,21 @@ export interface EditorRef {
   ): string | undefined;
   /**
    * Splits the paragraph at the current caret, giving the new paragraph `marker` with its
-   * visible prefix injected in the same update (standard-view Enter-triggered marker menu
-   * apply step).
+   * visible prefix injected in the same update — the apply step for the ENTER-triggered
+   * paragraph-marker menu (PT9 SmartEnter semantics: Enter always starts a new paragraph, even
+   * at paragraph content start where the backslash menu would retag instead).
+   *
+   * This deliberately does NOT go through {@link EditorRef.applyMarkerMenuSelection}: the split
+   * calls `selection.insertParagraph()` directly (bypassing `INSERT_PARAGRAPH_COMMAND`, so the
+   * marker engine's split bookkeeping stays untouched) and sets the marker + visible prefix
+   * before the update commits, so the engine's deletion transform cannot misread the fresh
+   * paragraph as marker-less and merge it away. The Enter menu also has no literal `\marker`
+   * prefix to clean up and offers only paragraph items, so this narrower method is its whole
+   * contract.
    *
    * @param marker - A USFM paragraph marker string, e.g. `"q1"`, `"p"`.
    * @throws Will throw an error if the editor is in readonly mode.
+   * @see {@link EditorRef.applyMarkerMenuSelection} for the backslash-menu apply step.
    */
   splitParagraphWithMarker(marker: string): void;
   /**

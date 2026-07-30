@@ -69,6 +69,30 @@ export type EmbedNode =
  * The OT coordinate system in which positions are counted.
  *
  * @remarks
+ * Vocabulary used throughout this module:
+ *
+ * - GLYPH TEXT — the literal marker characters rendered as editable text in editable marker mode
+ *   (`"\c 1 "`, `"\q1 "`). Presentation-only: structure (the node's own `marker`/`number`
+ *   state), not this text, is what serializes. Not all glyph text is COUNTED: in `"delta-doc"`
+ *   a paragraph's own prefix glyph, the marker-trailing NBSP separator, and anything inside a
+ *   display run contribute 0, mirroring the ops stream's exclusions in `editor-delta.adaptor.ts`.
+ * - BODY TEXT — actual Scripture content characters, which serialize into USJ content.
+ * - EMBED — a node represented in a delta as a single embedded item of length 1 (the Quill-delta
+ *   convention): chapter, verse, milestone, note, unmatched closer. Most are elements, but an
+ *   editable `VerseNode` is a TextNode subclass that still counts as an embed — classify with
+ *   {@link $isEmbedNode}/{@link $isOTTextNode}, never with a bare `$isTextNode` text branch
+ *   placed before the embed branch. A note is ONE opaque embed: its caller and content are not
+ *   addressable by document position, so an edit inside a note must be expressed as replacing
+ *   the whole note embed.
+ * - LOCALLY PRODUCED OPS — op arrays this client generated from its own editor state (an
+ *   `onChange` diff, a replace-embed built for a popover save), as opposed to ops from a
+ *   remote collaborator.
+ * - PRODUCE→APPLY ROUND TRIP — producing ops locally and immediately feeding them back into
+ *   `$applyUpdate` on the same editor (e.g. the footnote popover's Save). Both ends must count
+ *   positions the same way.
+ * - REVERSE LOOKUP — mapping a numeric position back to the node at that position
+ *   (`$getNodeFromOTPosition`), e.g. to find where `$applyUpdate` actually placed a node.
+ *
  * The editor has TWO OT coordinate systems. They differ only in editable marker mode
  * (`markerMode: "editable"`), where an embed carries presentation glyph text — an editable
  * `ChapterNode`'s glyph text child (e.g. `"\c 1 "`, 5 chars). In every other marker mode
@@ -81,11 +105,19 @@ export type EmbedNode =
  * {@link $isOTTextNode}), and `$applyUpdate`'s traversals treat it as a 1-unit embed too. Only
  * the editable chapter's glyph text is counted differently between the systems.
  *
+ * Worked example — editable-mode document `[Chapter "\c 1 "][Para "\p " "In the beginning"]`,
+ * asking for the paragraph text's position: `"delta-doc"` counts the chapter embed (1) plus its
+ * glyph text (5) = position 6; `"apply"` counts the chapter as one opaque embed = position 1.
+ * Producing an op in one system and applying/reverse-looking it up in the other lands it offset
+ * by 5 — the glyph text length of each preceding editable chapter. (That offset was a real bug:
+ * popover Save ops displaced by `"\c 1 "` before the systems were made explicit.)
+ *
  * - `"delta-doc"` — the counting that matches the doc delta `getEditorDelta` serializes for
  *   chapters: the chapter embed contributes 1 AND its glyph text child is counted as body text
  *   (editable chapter = 6). This is the coordinate system of the diff op stream
- *   `DeltaOnChangePlugin` emits to the host, and therefore of retains found in locally produced
- *   ops (e.g. `getInsertedNodeKey` over `onChange` ops).
+ *   `DeltaOnChangePlugin` emits to the host — its single-text-node fast path must agree with its
+ *   `getEditorDelta` diff fallback — and therefore of retains found in locally produced ops
+ *   (e.g. `getInsertedNodeKey` over `onChange` ops).
  *
  * - `"apply"` — the counting `$applyUpdate`'s insert/delete traversals use: every ELEMENT embed
  *   is opaque (1 unit; children never descended into; editable chapter = 1). Positions used in
@@ -93,9 +125,17 @@ export type EmbedNode =
  *   `$applyUpdate` actually placed a node) MUST use this system, or every op lands offset by
  *   the glyph text length of each preceding editable chapter.
  *
+ * Which system to pass, by caller:
+ *
+ * - Reading positions out of (or agreeing with) the `DeltaOnChangePlugin`/`getEditorDelta` op
+ *   stream → `"delta-doc"`.
+ * - Building ops for `$applyUpdate`, or reverse-looking-up where it placed a node →
+ *   `"apply"`.
+ *
  * The remaining editable-chapter divergence is ACCEPTED: the OT collab path was never fully
- * completed, and no live flow currently routes ops across an editable chapter into
- * `$applyUpdate`.
+ * completed, no live flow currently routes ops across an editable chapter into `$applyUpdate`,
+ * and unifying editable-mode doc-delta coordinates with the apply-side traversals belongs to
+ * future collab work.
  */
 export type OTCoordinateSystem = "delta-doc" | "apply";
 
