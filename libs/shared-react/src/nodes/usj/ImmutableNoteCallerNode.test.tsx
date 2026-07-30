@@ -122,6 +122,13 @@ describe("decorate - caller label", () => {
     const dom = await renderCaller("a", true);
     expect(dom.querySelector("button")?.textContent).toBe("a");
   });
+
+  it("renders a hidden caller (-) literally when the note is expanded", async () => {
+    // PT9's `-` → `*` display substitution applies only while the note is collapsed; an
+    // expanded note shows the hidden caller as itself.
+    const dom = await renderCaller("-", false);
+    expect(dom.querySelector("button")?.textContent).toBe("-");
+  });
 });
 
 describe("decorate - caller tooltip", () => {

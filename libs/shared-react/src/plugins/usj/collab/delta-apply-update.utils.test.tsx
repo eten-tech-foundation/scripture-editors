@@ -4284,6 +4284,60 @@ describe("Delta Utils $applyUpdate", () => {
         });
       });
 
+      // A mid-paragraph LF split in editable mode: the new first paragraph materializes with its
+      // own [glyph, NBSP] prefix, and everything before the LF — in OT space the original
+      // paragraph's glyph text is content too — moves in AFTER that prefix. Anchoring the move
+      // on the block's first child instead would land the moved content BEFORE the new glyph,
+      // producing a paragraph whose visible prefix is buried mid-content.
+      it("should land mid-paragraph split content after the new paragraph's glyph prefix (editable mode)", async () => {
+        const viewOptions: ViewOptions = { ...defaultViewOptions, markerMode: "editable" };
+        const { editor } = await testEnvironment(() => {
+          const para = $createParaNode("p");
+          $getRoot().append(
+            para.append(
+              $createMarkerNode("p"),
+              $createTextNode(NBSP),
+              $createTextNode("quiet waters"),
+            ),
+          );
+        });
+        // Glyph "\p" (2) + NBSP separator (1) + "quiet " (6) = 9: the LF lands mid-content,
+        // splitting "quiet waters" after "quiet ".
+        const ops: DeltaOp[] = [
+          { retain: 9 },
+          { insert: LF, attributes: { para: { style: "q1" } } },
+        ];
+
+        await sutApplyUpdate(editor, ops, viewOptions);
+
+        expect(consoleErrorSpy).toHaveBeenCalledTimes(0);
+        editor.getEditorState().read(() => {
+          const root = $getRoot();
+          expect(root.getChildrenSize()).toBe(2);
+
+          const firstPara = root.getFirstChild();
+          if (!$isParaNode(firstPara)) throw new Error("firstPara is not a ParaNode");
+          expect(firstPara.getMarker()).toBe("q1"); // LF attributes go to FIRST paragraph
+          // The new paragraph's own prefix comes first…
+          const glyph = firstPara.getFirstChild();
+          if (!$isMarkerNode(glyph)) throw new Error("expected a MarkerNode prefix glyph");
+          expect(glyph.getMarker()).toBe("q1");
+          const separator = firstPara.getChildAtIndex(1);
+          if (!$isTextNode(separator)) throw new Error("expected a separator TextNode");
+          expect(separator.getTextContent()).toBe(NBSP);
+          expect(separator.getMode()).toBe("token");
+          expect($getState(separator, textTypeState)).toBe("marker-trailing-space");
+          // …then the moved head content in document order (including the original paragraph's
+          // glyph text, which is plain OT content on this side of the LF).
+          expect(firstPara.getTextContent()).toBe(`\\q1${NBSP}\\p${NBSP}quiet `);
+
+          const secondPara = root.getChildAtIndex(1);
+          if (!$isParaNode(secondPara)) throw new Error("secondPara is not a ParaNode");
+          expect(secondPara.getMarker()).toBe("p"); // Original attributes stay on SECOND paragraph
+          expect(secondPara.getTextContent()).toBe("waters");
+        });
+      });
+
       // Visible marker mode (and gutter para-marker rendering) shows a paragraph's marker as an
       // immutable typed-text prefix; a remotely inserted paragraph must carry it too or it
       // renders unlabeled until the document is reloaded.

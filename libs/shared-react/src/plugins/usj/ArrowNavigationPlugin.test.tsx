@@ -861,6 +861,30 @@ describe("\\fp boundary in expanded note", () => {
       });
     });
 
+    it("should not claim shift+ArrowLeft at the fp span start so backward range extension stays native", async () => {
+      // The caret at the very start of the fp glyph is the exact position the unmodified
+      // ArrowLeft hop intercepts (see the backward test above), so staying put here pins the
+      // modifier guard on the backward path specifically.
+      const { editor, fpGlyph } = await fpGlyphEnvironment();
+      updateSelection(editor, fpGlyph, 0);
+
+      await act(async () => {
+        editor.dispatchCommand(
+          KEY_DOWN_COMMAND,
+          new KeyboardEvent("keydown", {
+            key: "ArrowLeft",
+            shiftKey: true,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      });
+
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(fpGlyph, 0);
+      });
+    });
+
     it("should stop at the start of the fp glyph when moving forward in RTL", async () => {
       const { editor, ftText, fpGlyph } = await fpGlyphEnvironment("rtl");
       updateSelection(editor, ftText);

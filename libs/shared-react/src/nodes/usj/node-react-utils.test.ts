@@ -1437,6 +1437,95 @@ describe("$insertNote()", () => {
     });
   });
 
+  it("substitutes the project verse-range separator into a bridged \\fr reference", () => {
+    const { editor } = createBasicTestEnvironment(requiredNodes);
+    editor.update(
+      () => {
+        const t1 = $createTextNode("text");
+        $getRoot().append($createParaNode().append(t1));
+        t1.select(2, 2);
+      },
+      { discrete: true },
+    );
+
+    editor.update(() => {
+      // `verse` carries the raw "-" bridge; without a project separator it passes through as-is.
+      const bridgedDefault = $insertNote(
+        "f",
+        GENERATOR_NOTE_CALLER,
+        undefined,
+        { book: "MAT", chapterNum: 1, verseNum: 16, verse: "16-18" },
+        viewOptions,
+        nodeOptions,
+        undefined,
+      );
+      const frDefault = bridgedDefault
+        ?.getChildren()
+        .filter($isCharNode)
+        .find((c) => c.getMarker() === "fr");
+      expect(frDefault?.getTextContent()).toBe("1:16-18 ");
+
+      // The project's configured verse-range separator replaces the raw bridge "-"
+      // (PT9 GetFormattedVerse), while verseNum alone would have shown only "16".
+      const bridged = $insertNote(
+        "f",
+        GENERATOR_NOTE_CALLER,
+        undefined,
+        { book: "MAT", chapterNum: 1, verseNum: 16, verse: "16-18" },
+        viewOptions,
+        { verseRangeSeparator: "–" },
+        undefined,
+      );
+      const fr = bridged
+        ?.getChildren()
+        .filter($isCharNode)
+        .find((c) => c.getMarker() === "fr");
+      expect(fr?.getTextContent()).toBe("1:16–18 ");
+    });
+  });
+
+  it("classifies 'ex' as a cross-reference when resolving the project default caller", () => {
+    const { editor } = createBasicTestEnvironment(requiredNodes);
+    editor.update(
+      () => {
+        const t1 = $createTextNode("text");
+        $getRoot().append($createParaNode().append(t1));
+        t1.select(2, 2);
+      },
+      { discrete: true },
+    );
+
+    editor.update(() => {
+      const projectCallers: UsjNodeOptions = {
+        defaultCrossRefCaller: "†",
+        defaultFootnoteCaller: "‡",
+      };
+      const extendedCrossRef = $insertNote(
+        "ex",
+        undefined,
+        undefined,
+        { book: "GEN", chapterNum: 1, verseNum: 1 },
+        viewOptions,
+        projectCallers,
+        undefined,
+      );
+      expect(extendedCrossRef?.getCaller()).toBe("†");
+
+      // Positive control: "ef" also starts with "e" but is a footnote — it must take the
+      // footnote default, proving the cross-reference classification matches "ex" exactly.
+      const studyNote = $insertNote(
+        "ef",
+        undefined,
+        undefined,
+        { book: "GEN", chapterNum: 1, verseNum: 1 },
+        viewOptions,
+        projectCallers,
+        undefined,
+      );
+      expect(studyNote?.getCaller()).toBe("‡");
+    });
+  });
+
   it("resolves the footnote default caller from defaultFootnoteCaller when caller is undefined", () => {
     const { editor } = createBasicTestEnvironment(requiredNodes);
     editor.update(

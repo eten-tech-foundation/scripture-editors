@@ -3,10 +3,13 @@
 import { createBasicTestEnvironment } from "../../../../../libs/shared/src/nodes/usj/test.utils";
 import { $stripSelectionToQuotation } from "./note.utils";
 import {
+  $createPoint,
+  $createRangeSelection,
   $createTextNode,
   $getRoot,
   $getSelection,
   $isRangeSelection,
+  $setSelection,
   RangeSelection,
 } from "lexical";
 import {
@@ -96,6 +99,48 @@ describe("$stripSelectionToQuotation()", () => {
     });
 
     expect(quotation).toBe("ell");
+  });
+
+  it("slices only the selected substrings of the first and last nodes across multiple nodes", () => {
+    // Three text nodes with the selection starting and ending mid-word: only the first node's
+    // tail and the last node's head may contribute; the middle node contributes whole.
+    const quotation = stripQuotationFor(() => {
+      const first = $createTextNode("say hello");
+      const middle = $createTextNode(" brave ");
+      const last = $createTextNode("world today");
+      $getRoot().append($createParaNode().append(first, middle, last));
+      const rangeSelection = $createRangeSelection();
+      // Anchor mid-"hello" (after "say hel"), focus mid-"world" (after "wor").
+      rangeSelection.anchor = $createPoint(first.getKey(), 7, "text");
+      rangeSelection.focus = $createPoint(last.getKey(), 3, "text");
+      $setSelection(rangeSelection);
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) throw new Error("expected range selection");
+      return selection;
+    });
+
+    expect(quotation).toBe("lo brave wor");
+  });
+
+  it("returns the same quotation for a backward selection (focus before anchor)", () => {
+    // Same range as the forward multi-node test, but selected right-to-left: the anchor sits in
+    // the LAST node and the focus in the FIRST, so the first/last-node offset slicing must swap
+    // which point it reads for each end.
+    const quotation = stripQuotationFor(() => {
+      const first = $createTextNode("say hello");
+      const middle = $createTextNode(" brave ");
+      const last = $createTextNode("world today");
+      $getRoot().append($createParaNode().append(first, middle, last));
+      const rangeSelection = $createRangeSelection();
+      rangeSelection.anchor = $createPoint(last.getKey(), 3, "text");
+      rangeSelection.focus = $createPoint(first.getKey(), 7, "text");
+      $setSelection(rangeSelection);
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) throw new Error("expected range selection");
+      return selection;
+    });
+
+    expect(quotation).toBe("lo brave wor");
   });
 
   it("returns empty string when selection is not a range selection", () => {

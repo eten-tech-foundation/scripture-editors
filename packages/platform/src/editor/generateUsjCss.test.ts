@@ -94,6 +94,31 @@ describe("generateUsjCss (PT9 CSSCreator port)", () => {
     );
   });
 
+  // The per-marker percentage divisor is fixed at 12 BY DESIGN, not derived from the project's
+  // defaultFontSize: .sty FontSize values are expressed against the nominal 12pt base (PT9
+  // CSSCreator divides by 12 unconditionally), while the project's actual base size applies
+  // through the container rule's font-size in pt, which the percentages then scale against.
+  it("keeps the marker font-size divisor fixed at 12 when defaultFontSize differs", () => {
+    const smallBaseStyleInfo: StyleInfo = {
+      defaultFont: "Charis SIL",
+      defaultFontSize: 10,
+      markers: {
+        s1: { marker: "s1", styleType: "paragraph", fontSize: 14 },
+        sc: { marker: "sc", styleType: "character", fontSize: 9 },
+      },
+    };
+    expect(generateUsjCss(smallBaseStyleInfo)).toBe(
+      [
+        // The base rule carries the non-default project size…
+        '.editor-input.usfm { font-family: "Charis SIL"; font-size: 10pt; }',
+        // …and the marker percentages stay /12: floor(14*100/12) = 116, NOT floor(14*100/10) = 140.
+        ".editor-input.usfm .usfm_s1 { font-size: 116%; }",
+        // floor(9*100/12) = 75, NOT floor(9*100/10) = 90.
+        ".editor-input.usfm .usfm_sc { font-size: 75%; }",
+      ].join("\n"),
+    );
+  });
+
   it("swaps rightMargin and left-justification under rtl", () => {
     const css = generateUsjCss(branchStyleInfo, { rtl: true });
     expect(css).toContain(".editor-input.usfm .usfm_pr { margin-left: 5vw; text-align: right; }");

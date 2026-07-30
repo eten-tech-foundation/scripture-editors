@@ -3,6 +3,7 @@
 import { usjGen1v1 } from "../../../utilities/src/converters/usj/converter-test.data";
 import Editor from "./Editor";
 import { EditorOptions, EditorRef } from "./editor.model";
+import { MarkerMenuItem } from "./markerMenu/markerItemSource";
 import Editorial from "../Editorial";
 import { flushQueuedEvents } from "./editor-test.utils";
 import { ContentJsonPath, Usj } from "@eten-tech-foundation/scripture-utilities";
@@ -38,10 +39,12 @@ import {
   $isParaNode,
   $isSomeParaNode,
   $isSynthesizedMarkerNode,
+  $isVerseNode,
   closingMarkerText,
   MarkerNode,
   NBSP,
   openingMarkerText,
+  StyleInfo,
 } from "shared";
 import { getViewOptions, STANDARD_VIEW_MODE } from "shared-react";
 import { vi } from "vitest";
@@ -1637,5 +1640,233 @@ describe("commitPendingMarkerEdits (abandonment window)", () => {
 
     // Synchronously fresh - the host save reads getUsj() right after committing.
     expect(paraMarkerOf(ref.current?.getUsj())).toBe("q1");
+  });
+});
+
+describe("options.styleInfo threading (marker validation)", () => {
+  /** `sampleUsj` with the verse text wrapped in a `\wj` char span — the marker whose presence
+   * in (or absence from) the effective stylesheet the tests below observe. */
+  const usjWithWjSpan: Usj = {
+    type: "USJ",
+    version: "3.1",
+    content: [
+      { type: "book", marker: "id", code: "GEN", content: ["Test Book"] },
+      { type: "chapter", marker: "c", number: "1" },
+      {
+        type: "para",
+        marker: "p",
+        content: [
+          { type: "verse", marker: "v", number: "1" },
+          { type: "char", marker: "wj", content: ["red letter text"] },
+        ],
+      },
+    ],
+  };
+
+  /** A project sheet covering everything the document uses EXCEPT `wj` (entries without
+   * `occursUnder` are valid anywhere, so nothing else gets flagged). */
+  const sheetWithoutWj: StyleInfo = {
+    markers: {
+      id: { marker: "id", styleType: "paragraph" },
+      c: { marker: "c", styleType: "paragraph" },
+      p: { marker: "p", styleType: "paragraph" },
+      v: { marker: "v", styleType: "character" },
+    },
+  };
+
+  /** Mounts a standard-view `Editor` and returns the DOM element of the `\wj` opener glyph, the
+   * decoration target of `MarkerValidationPlugin`'s validation pass. */
+  async function renderAndGetWjGlyphElement(styleInfo?: StyleInfo): Promise<HTMLElement> {
+    const ref = createRef<EditorRef>();
+    const capture = lexicalCapture();
+    await act(async () => {
+      render(
+        <Editor
+          ref={ref}
+          defaultUsj={usjWithWjSpan}
+          options={{ view: getViewOptions(STANDARD_VIEW_MODE), styleInfo }}
+        >
+          {capture.plugin}
+        </Editor>,
+      );
+    });
+    const lexical = capture.get();
+    // Flush Lexical's microtask-deferred commit and the validation pass it triggers.
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const glyphKey = lexical.getEditorState().read(() => {
+      const glyph = $getRoot()
+        .getAllTextNodes()
+        .find((node): node is MarkerNode => $isMarkerNode(node) && node.getMarker() === "wj");
+      if (!glyph) throw new Error("wj marker glyph not found");
+      return glyph.getKey();
+    });
+    const element = lexical.getElementByKey(glyphKey);
+    if (!element) throw new Error("wj glyph element not found");
+    return element;
+  }
+
+  it("decorates a marker missing from a custom options.styleInfo as unknown", async () => {
+    const element = await renderAndGetWjGlyphElement(sheetWithoutWj);
+    expect(element.classList.contains("status_unknown")).toBe(true);
+  });
+
+  it("leaves the same marker undecorated under the bundled default stylesheet", async () => {
+    // Positive control for the custom-sheet test: `wj` is a known marker valid under `\p` in
+    // the default sheet, so a flag here would mean validation is not reading the right sheet.
+    const element = await renderAndGetWjGlyphElement(undefined);
+    expect(element.classList.contains("status_unknown")).toBe(false);
+    expect(element.classList.contains("status_invalid")).toBe(false);
+  });
+});
+
+describe("marker-menu ref methods (standard view)", () => {
+  const menuReference = { book: "GEN", chapterNum: 1, verseNum: 1 };
+  const backslashOpts = { trigger: "backslash", literalPrefixLanded: false } as const;
+  const q1Item: MarkerMenuItem = { marker: "q1", kind: "paragraph", isBasic: false };
+
+  async function renderStandardEditor(options?: { isReadonly?: boolean; withScrRef?: boolean }) {
+    const ref = createRef<EditorRef>();
+    const capture = lexicalCapture();
+    await act(async () => {
+      render(
+        <Editor
+          ref={ref}
+          defaultUsj={sampleUsj}
+          scrRef={options?.withScrRef === false ? undefined : menuReference}
+          options={{
+            view: getViewOptions(STANDARD_VIEW_MODE),
+            isReadonly: options?.isReadonly ?? false,
+          }}
+        >
+          {capture.plugin}
+        </Editor>,
+      );
+    });
+    if (!ref.current) throw new Error("EditorRef did not mount");
+    return { editor: ref.current, lexical: capture.get() };
+  }
+
+  /** Collapses the caret right after "first" in the seed verse text (mid-content), flushing
+   * Lexical's microtask-deferred commit so `getEditorState()` reads see the selection. */
+  async function selectMidVerseText(lexical: LexicalEditor): Promise<void> {
+    await act(async () => {
+      lexical.update(() => {
+        const textNode = $getRoot()
+          .getAllTextNodes()
+          .find((node) => node.getTextContent().includes("first verse text"));
+        if (!textNode || !$isTextNode(textNode)) throw new Error("seed text node not found");
+        textNode.select(5, 5);
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  }
+
+  it("getMarkerMenuContext returns a character-source snapshot mid-verse-text", async () => {
+    const { editor, lexical } = await renderStandardEditor();
+    await selectMidVerseText(lexical);
+
+    const context = editor.getMarkerMenuContext();
+
+    if (!context) throw new Error("expected a marker-menu context");
+    expect(context.source).toBe("character");
+    expect(context.paraMarker).toBe("p");
+    expect(context.previousParaMarkers).toEqual(["id", "c"]);
+    expect(context.openCharMarkers).toEqual([]);
+    expect(context.noteMarker).toBeUndefined();
+    expect(context.hasTextSelection).toBe(false);
+    expect(context.inMarkerText).toBe(false);
+  });
+
+  it("getMarkerMenuContext returns undefined in readonly mode", async () => {
+    // Same seeded selection as the happy path above (its defined result is the positive
+    // control), so the only variable is the readonly gate.
+    const { editor, lexical } = await renderStandardEditor({ isReadonly: true });
+    await selectMidVerseText(lexical);
+
+    expect(editor.getMarkerMenuContext()).toBeUndefined();
+  });
+
+  it("applyMarkerMenuSelection retags the paragraph for a paragraph pick at content start", async () => {
+    const { editor, lexical } = await renderStandardEditor();
+    // Park the caret at offset 0 of the verse glyph — the paragraph's visible content start,
+    // where PT9 semantics retag the current paragraph instead of splitting it.
+    act(() => {
+      lexical.update(() => {
+        const verse = $getRoot().getAllTextNodes().find($isVerseNode);
+        if (!verse) throw new Error("verse node not found");
+        verse.select(0, 0);
+      });
+    });
+
+    let insertedNoteKey: string | undefined;
+    await act(async () => {
+      insertedNoteKey = editor.applyMarkerMenuSelection(q1Item, backslashOpts);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // Only note-inserting items return a key.
+    expect(insertedNoteKey).toBeUndefined();
+    lexical.getEditorState().read(() => {
+      const paras = $getRoot().getChildren().filter($isParaNode);
+      expect(paras.length).toBe(1); // retagged in place, not split
+      expect(paras[0].getMarker()).toBe("q1");
+      const glyph = paras[0].getFirstChild();
+      if (!$isMarkerNode(glyph)) throw new Error("expected a MarkerNode prefix glyph");
+      expect(glyph.getTextContent()).toBe("\\q1");
+      expect(paras[0].getTextContent()).toContain("first verse text");
+    });
+  });
+
+  it("splitParagraphWithMarker splits at the caret and prefixes the new paragraph", async () => {
+    const { editor, lexical } = await renderStandardEditor();
+    await selectMidVerseText(lexical);
+
+    await act(async () => {
+      editor.splitParagraphWithMarker("q1");
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    lexical.getEditorState().read(() => {
+      const paras = $getRoot().getChildren().filter($isParaNode);
+      expect(paras.length).toBe(2);
+      expect(paras[0].getMarker()).toBe("p");
+      expect(paras[0].getTextContent()).toContain("first");
+      expect(paras[0].getTextContent()).not.toContain("verse text");
+      expect(paras[1].getMarker()).toBe("q1");
+      const glyph = paras[1].getFirstChild();
+      if (!$isMarkerNode(glyph)) throw new Error("expected a MarkerNode prefix glyph");
+      expect(glyph.getTextContent()).toBe("\\q1");
+      expect(paras[1].getTextContent()).toContain(" verse text");
+    });
+  });
+
+  it("applyMarkerMenuSelection throws in readonly mode", async () => {
+    const { editor } = await renderStandardEditor({ isReadonly: true });
+
+    expect(() => editor.applyMarkerMenuSelection(q1Item, backslashOpts)).toThrow(
+      "Cannot apply marker menu selection in readonly mode",
+    );
+  });
+
+  it("applyMarkerMenuSelection throws without a scripture reference", async () => {
+    const { editor } = await renderStandardEditor({ withScrRef: false });
+
+    expect(() => editor.applyMarkerMenuSelection(q1Item, backslashOpts)).toThrow(
+      "Cannot apply marker menu selection without a scripture reference (scrRef)",
+    );
+  });
+
+  it("splitParagraphWithMarker throws in readonly mode", async () => {
+    const { editor } = await renderStandardEditor({ isReadonly: true });
+
+    expect(() => editor.splitParagraphWithMarker("q1")).toThrow(
+      "Cannot split paragraph in readonly mode",
+    );
   });
 });
