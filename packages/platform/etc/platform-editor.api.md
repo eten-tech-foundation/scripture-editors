@@ -372,7 +372,7 @@ export interface NodeOptions {
 }
 
 // @public
-export type NoteCallerOnClick = (event: MouseEvent_2<HTMLButtonElement>, noteNodeKey: string, isCollapsed: boolean | undefined, getCaller: () => string, setCaller: (caller: string) => void, getNoteOps: () => DeltaOpInsertNoteEmbed[] | undefined) => void;
+export type NoteCallerOnClick = (event: MouseEvent_2<HTMLButtonElement>, noteNodeKey: string, isCollapsed: boolean | undefined, getCaller: () => string, setCaller: (caller: string) => void, getNoteOps: () => DeltaOpInsertNoteEmbed[] | undefined, getNoteIndex: () => number | undefined) => void;
 
 // @public
 export type NoteMode =

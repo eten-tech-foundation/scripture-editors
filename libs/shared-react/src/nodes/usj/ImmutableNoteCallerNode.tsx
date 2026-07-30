@@ -2,6 +2,7 @@
 
 import { $getParticularNodeOps } from "../../plugins/usj/collab/editor-delta.adaptor";
 import { DeltaOpInsertNoteEmbed } from "../../plugins/usj/collab/rich-text-ot.model";
+import { $dfs } from "@lexical/utils";
 import {
   $applyNodeReplacement,
   $getNodeByKey,
@@ -30,6 +31,11 @@ import { $isNoteNode, GENERATOR_NOTE_CALLER, HIDDEN_NOTE_CALLER, NoteNode } from
  * @param setCaller - A function to update the caller string. Valid callers are '+'
  *   (auto-generated caller), '-' (hidden caller), or a custom value.
  * @param getNoteOps - A function to retrieve the Operational Transform delta ops of the note.
+ * @param getNoteIndex - A function to retrieve the clicked note's document-order index among all
+ *   of the document's notes (the coordinate a USJ-built notes list addresses notes by, e.g. a
+ *   footnotes pane), or `undefined` if the note is no longer attached. Computed inside the editor
+ *   at call time — hosts should not re-derive it by content comparison, which cannot distinguish
+ *   identical notes.
  *
  * @public
  */
@@ -40,6 +46,7 @@ export type NoteCallerOnClick = (
   getCaller: () => string,
   setCaller: (caller: string) => void,
   getNoteOps: () => DeltaOpInsertNoteEmbed[] | undefined,
+  getNoteIndex: () => number | undefined,
 ) => void;
 
 export type SerializedImmutableNoteCallerNode = Spread<
@@ -187,6 +194,7 @@ export class ImmutableNoteCallerNode extends DecoratorNode<ReactNode> {
         () => getNoteCaller(editor, noteNodeKey),
         (caller) => setNoteCaller(editor, noteNodeKey, callerNodeKey, caller),
         () => getNoteOps(editor, noteNodeKey),
+        () => getNoteIndex(editor, noteNodeKey),
       );
     const callerId = `${this.__caller}_${this.__previewText}}`.replace(/\s+/g, "").substring(0, 25);
     return (
@@ -291,6 +299,23 @@ function getNoteOps(
     if (!$isNoteNode(noteNode)) throw new Error(`getNoteOps: Note node not found: ${noteNodeKey}`);
 
     return $getParticularNodeOps(noteNode) as DeltaOpInsertNoteEmbed[];
+  });
+}
+
+/**
+ * The note's document-order index among all of the document's notes — the same order a USJ walk
+ * yields them, so it addresses the corresponding entry of a USJ-built notes list (e.g. a footnotes
+ * pane). `undefined` when the note is no longer attached.
+ */
+function getNoteIndex(editor: LexicalEditor, noteNodeKey: NodeKey): number | undefined {
+  return editor.read(() => {
+    let index = 0;
+    for (const { node } of $dfs()) {
+      if (!$isNoteNode(node)) continue;
+      if (node.getKey() === noteNodeKey) return index;
+      index += 1;
+    }
+    return undefined;
   });
 }
 
