@@ -741,6 +741,42 @@ describe("empty verse carets (PT-4122)", () => {
     });
   });
 
+  it("still BLOCKS deleteForward when a verse marker follows the caret", async () => {
+    const { editor } = await shapeAdjacentEmptyVerses();
+    editor.getEditorState().read(() => {
+      expect($shouldBlockStructuralEdit($getSelection()!, "deleteForward")).toBe(true);
+    });
+  });
+
+  it("ALLOWS deleteForward when nothing follows the caret", async () => {
+    const { editor } = await shapeTrailingEmptyVerse();
+    editor.getEditorState().read(() => {
+      expect($shouldBlockStructuralEdit($getSelection()!, "deleteForward")).toBe(false);
+    });
+  });
+
+  it("insertText lands in the first verse's slot, keeping both markers", async () => {
+    const { editor, para } = await shapeAdjacentEmptyVerses();
+    await sutUpdate(
+      editor,
+      () => {
+        const selection = $getSelection();
+        if ($isRangeSelection(selection)) selection.insertText("X");
+      },
+      { discrete: true },
+    );
+    editor.getEditorState().read(() => {
+      const children = para.getChildren();
+      expect(children.map((n) => n.getType())).toEqual([
+        "immutable-verse",
+        "text",
+        "immutable-verse",
+        "text",
+      ]);
+      expect(children[1].getTextContent()).toBe("X");
+    });
+  });
+
   // A mutable VerseNode extends TextNode, so unlike ImmutableVerseNode a caret CAN sit inside it as
   // a text-type point. That is real containment: editing there would rewrite the verse number, so
   // it must stay blocked. Guards against the collapsed-caret fix being widened to text points.
