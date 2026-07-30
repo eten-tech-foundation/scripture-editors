@@ -181,6 +181,34 @@ describe("clipboard normalization", () => {
     // route through the null-event copyToClipboard path (which mock would otherwise mask).
     expect(copyToClipboardSpy).not.toHaveBeenCalled();
   });
+
+  it("cuts via the real-event branch: payload written through clipboardData.setData, selected text removed", async () => {
+    // Same partial-interior selection as the null-event cut test: cutting a TextNode's ENTIRE
+    // content leaves it empty and Lexical garbage-collects empty text nodes on commit, killing
+    // the captured reference — a partial cut asserts real removal via the surviving node.
+    let text: TextNode;
+    const { editor } = await testEnvironment(() => {
+      text = $createTextNode(`a${NBSP}${NBSP}b`);
+      $appendMarkerAndText(text);
+    });
+    await act(async () => editor.update(() => text.select(1, 3)));
+    const { event, getData } = copyEvent();
+    copyToClipboardSpy.mockClear();
+    let handled: boolean | undefined;
+    await act(async () => {
+      handled = editor.dispatchCommand(CUT_COMMAND, event);
+    });
+    expect(handled).toBe(true);
+    // The two display-NBSPs invert to plain spaces in the written payload — a cut that skipped
+    // the normalization (or wrote nothing) would fail here.
+    expect(getData("text/plain")).toBe("  ");
+    expect(event.preventDefault).toHaveBeenCalledTimes(1);
+    // The real-event branch writes directly; routing a live event into copyToClipboard would
+    // re-enter execCommand mid-dispatch (the exact hazard the branch split exists for).
+    expect(copyToClipboardSpy).not.toHaveBeenCalled();
+    // isCut removed exactly the selected text — a copy-shaped regression would leave it intact.
+    editor.getEditorState().read(() => expect(text.getTextContent()).toBe("ab"));
+  });
 });
 
 describe("copy across an UnknownNode (figure) — full USFM byte display", () => {

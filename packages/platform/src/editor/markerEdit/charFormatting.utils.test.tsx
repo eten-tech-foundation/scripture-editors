@@ -486,6 +486,129 @@ describe("Ctrl+Space", () => {
     });
   });
 
+  it("unwraps BOTH spans of a selection fully covering two sibling char spans", async () => {
+    // `\add foo\add* mid \nd bar\nd*` selected from the start of "foo" to the end of "bar":
+    // every span the selection touches must unwrap (the multi-span loop) — a loop that stopped
+    // after the first span would leave "bar" styled, and one that unwrapped only the
+    // anchor's span would do the same.
+    let fooText: TextNode;
+    let barText: TextNode;
+    const { editor } = await testEnvironment(() => {
+      const para = $createParaNode("p");
+      const addChar = $createCharNode("add");
+      fooText = $createTextNode(`${NBSP}foo`);
+      const ndChar = $createCharNode("nd");
+      barText = $createTextNode(`${NBSP}bar`);
+      $getRoot().append(
+        para.append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          addChar.append($createMarkerNode("add"), fooText, $createMarkerNode("add", "closing")),
+          $createTextNode(" mid "),
+          ndChar.append($createMarkerNode("nd"), barText, $createMarkerNode("nd", "closing")),
+        ),
+      );
+    });
+    await act(async () =>
+      editor.update(() => {
+        fooText.select(0, 0);
+        const selection = $getSelection();
+        if (!$isRangeSelection(selection)) throw new Error("expected a range selection");
+        selection.focus.set(barText.getKey(), barText.getTextContentSize(), "text");
+      }),
+    );
+    await act(async () => {
+      editor.dispatchCommand(
+        KEY_DOWN_COMMAND,
+        new KeyboardEvent("keydown", { key: " ", ctrlKey: true }),
+      );
+    });
+    editor.getEditorState().read(() => {
+      const para = requireDefined($getRoot().getChildren().filter($isParaNode)[0], "para missing");
+      // No char span survives anywhere in the paragraph...
+      expect(para.getChildren().filter($isCharNode)).toHaveLength(0);
+      // ...and the spans' glyphs went with them — only the paragraph's own prefix remains.
+      const glyphs = para
+        .getChildren()
+        .filter($isMarkerNode)
+        .map((g) => g.getTextContent());
+      expect(glyphs).toEqual(["\\p"]);
+      // Reading order preserved as plain text.
+      const readingOrder = $collectPlainTextNodes(para)
+        .map((n) => n.getTextContent())
+        .join("")
+        .replaceAll(NBSP, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+      expect(readingOrder).toBe("foo mid bar");
+    });
+  });
+
+  it("splits both boundary spans of a selection running from mid-span to mid-span", async () => {
+    // `\add foo\add* mid \nd bar\nd*` with the selection from "fo|o" to "ba|r": the loop
+    // handles each span by its own boundary shape — the START span keeps its left part styled
+    // and unwraps the rest, the END span unwraps its head and keeps the tail styled. The
+    // unknown attributes on `\add` must survive on exactly ONE half (the styled left one):
+    // duplicating them into the split-off half would also dump literal `|lemma="…"` bytes
+    // into the paragraph when that half unwraps.
+    let fooText: TextNode;
+    let barText: TextNode;
+    const { editor } = await testEnvironment(() => {
+      const para = $createParaNode("p");
+      const addChar = $createCharNode("add", { lemma: "grace" });
+      fooText = $createTextNode(`${NBSP}foo`);
+      const ndChar = $createCharNode("nd");
+      barText = $createTextNode(`${NBSP}bar`);
+      $getRoot().append(
+        para.append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          addChar.append($createMarkerNode("add"), fooText, $createMarkerNode("add", "closing")),
+          $createTextNode(" mid "),
+          ndChar.append($createMarkerNode("nd"), barText, $createMarkerNode("nd", "closing")),
+        ),
+      );
+    });
+    // Anchor between "fo" and "o" (content is NBSP + "foo"), focus between "ba" and "r".
+    await act(async () =>
+      editor.update(() => {
+        fooText.select(3, 3);
+        const selection = $getSelection();
+        if (!$isRangeSelection(selection)) throw new Error("expected a range selection");
+        selection.focus.set(barText.getKey(), 3, "text");
+      }),
+    );
+    await act(async () => {
+      editor.dispatchCommand(
+        KEY_DOWN_COMMAND,
+        new KeyboardEvent("keydown", { key: " ", ctrlKey: true }),
+      );
+    });
+    editor.getEditorState().read(() => {
+      const para = requireDefined($getRoot().getChildren().filter($isParaNode)[0], "para missing");
+      const chars = para.getChildren().filter($isCharNode);
+      // Exactly two styled remnants: the add head and the nd tail.
+      expect(chars.map((c) => c.getMarker())).toEqual(["add", "nd"]);
+      const [addLeft, ndTail] = chars;
+      expect(addLeft.getTextContent()).toContain("fo");
+      expect(addLeft.getTextContent()).not.toContain("o mid");
+      expect(ndTail.getTextContent()).toContain("r");
+      expect(ndTail.getTextContent()).not.toContain("ba");
+      // Attributes are not duplicated: only the styled add head carries them, and no literal
+      // `|lemma` bytes leaked into the paragraph from an attribute-bearing unwrapped half.
+      expect(chars.filter((c) => c.getUnknownAttributes() !== undefined)).toEqual([addLeft]);
+      expect(para.getTextContent()).not.toContain("|lemma");
+      // Reading order preserved across styled and unwrapped segments: the concatenated content
+      // (structural NBSP separators stripped) is character-for-character the original — the
+      // range flow inserts no separator spaces, it only moves the style boundaries.
+      const readingOrder = $collectPlainTextNodes(para)
+        .map((n) => n.getTextContent())
+        .join("")
+        .replaceAll(NBSP, "");
+      expect(readingOrder).toBe("foo mid bar");
+    });
+  });
+
   it("inserts a plain space when the caret is in plain text (PT9 parity)", async () => {
     let text: TextNode;
     const { editor } = await testEnvironment(() => {
@@ -700,6 +823,53 @@ describe("$closeCharSpanAtCaret", () => {
         .replace(/\s+/g, " ")
         .trim();
       expect(readingOrder).toBe("foo bar");
+    });
+  });
+
+  it("degrades to a caret move past the span when the caret is nested deeper than its own content", async () => {
+    // `\add foo` + nested `\nd bar\nd*` with the caret INSIDE the nested "bar": the ancestor
+    // walk matches `\add` for "add*", but the anchor's PARENT is the inner `\nd` span, not
+    // `\add` itself — no split is attempted; the structure stays byte-identical and only the
+    // caret moves past the matched span. A regression that split at the inner text's offset
+    // anyway would tear "bar"'s tail out of the nested span.
+    let addChar: ReturnType<typeof $createCharNode>;
+    let barText: TextNode;
+    const { editor } = await testEnvironment(() => {
+      const para = $createParaNode("p");
+      addChar = $createCharNode("add");
+      const nd = $createCharNode("nd");
+      barText = $createTextNode(`${NBSP}bar`);
+      $getRoot().append(
+        para.append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          addChar.append(
+            $createMarkerNode("add"),
+            $createTextNode(`${NBSP}foo`),
+            nd.append($createMarkerNode("nd"), barText, $createMarkerNode("nd", "closing")),
+            $createMarkerNode("add", "closing"),
+          ),
+        ),
+      );
+    });
+    const stateBefore = JSON.stringify(editor.getEditorState().toJSON());
+    // Caret between "ba" and "r" inside the NESTED span's content.
+    await act(async () => editor.update(() => barText.select(3, 3)));
+    let closed: boolean | undefined;
+    await act(async () => editor.update(() => (closed = $closeCharSpanAtCaret("add*"))));
+    expect(closed).toBe(true);
+    // Document structure untouched (selection is not part of the serialized state).
+    expect(JSON.stringify(editor.getEditorState().toJSON())).toBe(stateBefore);
+    editor.getEditorState().read(() => {
+      const para = requireDefined($getRoot().getChildren().filter($isParaNode)[0], "para missing");
+      // The caret landed after the `\add` span (element point on the paragraph — the span has
+      // no next sibling in this fixture).
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) throw new Error("expected a range selection");
+      expect(selection.isCollapsed()).toBe(true);
+      expect(selection.anchor.type).toBe("element");
+      expect(selection.anchor.getNode().is(para)).toBe(true);
+      expect(selection.anchor.offset).toBe(addChar.getIndexWithinParent() + 1);
     });
   });
 

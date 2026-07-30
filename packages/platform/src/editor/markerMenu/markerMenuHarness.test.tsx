@@ -40,6 +40,7 @@ import {
   $getRoot,
   $getSelection,
   $isRangeSelection,
+  $setSelection,
   $setState,
   ElementNode,
   INSERT_PARAGRAPH_COMMAND,
@@ -492,6 +493,77 @@ describe("editable-mode marker menu harness", () => {
         editor.dispatchCommand(INSERT_PARAGRAPH_COMMAND, undefined);
       });
       await waitForMenu();
+    });
+  });
+
+  describe("editable-menu guards", () => {
+    it("passes `\\` and INSERT_PARAGRAPH through when getContext() returns undefined (no selection)", async () => {
+      // With no range selection at all, $getMarkerMenuContext — and so harness.getContext —
+      // returns undefined; both handlers must decline before touching the context. Were the
+      // guard dropped, they would read fields off `undefined` (a loud crash) or open a menu —
+      // the surrounding tests are the positive controls proving these same dispatches DO open
+      // the menu once a caret exists.
+      const { editor } = await harnessTestEnvironment(() => {
+        $buildBackslashMenuFixture();
+      });
+      await act(async () => editor.update(() => $setSelection(null)));
+
+      // The dispatch's return value is not asserted for `\`: Lexical CORE routes every KEY_DOWN
+      // at EDITOR priority, so it reads handled either way. Pass-through shows in the
+      // event and the DOM: not preventDefaulted, and no menu (not even an empty container).
+      const keyEvent = new KeyboardEvent("keydown", { key: "\\", bubbles: true, cancelable: true });
+      await act(async () => {
+        editor.dispatchCommand(KEY_DOWN_COMMAND, keyEvent);
+      });
+      expect(keyEvent.defaultPrevented).toBe(false);
+      expect(document.querySelector(".autocomplete-menu-container")).toBeNull();
+
+      let parasBefore = 0;
+      editor.getEditorState().read(() => (parasBefore = countParagraphs($getRoot())));
+      let enterHandled = false;
+      await act(async () => {
+        enterHandled = editor.dispatchCommand(INSERT_PARAGRAPH_COMMAND, undefined);
+      });
+      // INSERT_PARAGRAPH has no core router: the guard's decline falls all the way through
+      // (downstream rich-text also declines without a selection), so nothing splits and no
+      // menu — not even an empty container — appears.
+      expect(enterHandled).toBe(false);
+      expect(document.querySelector(".autocomplete-menu-container")).toBeNull();
+      editor.getEditorState().read(() => expect(countParagraphs($getRoot())).toBe(parasBefore));
+    });
+
+    it("ignores a second trigger while the menu is already open (re-entrancy guard)", async () => {
+      let text: TextNode | undefined;
+      const { editor } = await harnessTestEnvironment(() => {
+        text = $buildBackslashMenuFixture().text;
+      });
+      await act(async () => editor.update(() => requireDefined(text, "text").select(5, 5)));
+
+      await dispatchKeyDown(editor, "\\");
+      const itemsBefore = await waitForMenu();
+      const firstLabelBefore = menuItemLabel(itemsBefore[0]);
+
+      // Second `\` while open: the harness handler passes it through and the open menu's own
+      // query capture claims it instead (preventDefault). Had the harness re-handled the
+      // collapsed-caret trigger — which never preventDefaults — the event would NOT be
+      // prevented and the menu state would have been rebuilt mid-session.
+      const second = await dispatchKeyDown(editor, "\\");
+      expect(second.defaultPrevented).toBe(true);
+      const itemsAfter = screen.getAllByRole("menuitem");
+      expect(itemsAfter).toHaveLength(itemsBefore.length);
+      expect(menuItemLabel(itemsAfter[0])).toBe(firstLabelBefore);
+
+      // INSERT_PARAGRAPH while open is equally guarded: it passes through to the stock split
+      // (paragraph count grows) instead of being swallowed into a replacement Enter menu —
+      // which would have suppressed the split and put the SmartEnter paragraph choice first.
+      let parasBefore = 0;
+      editor.getEditorState().read(() => (parasBefore = countParagraphs($getRoot())));
+      await act(async () => {
+        editor.dispatchCommand(INSERT_PARAGRAPH_COMMAND, undefined);
+      });
+      editor.getEditorState().read(() => expect(countParagraphs($getRoot())).toBe(parasBefore + 1));
+      const itemsFinal = screen.getAllByRole("menuitem");
+      expect(menuItemLabel(itemsFinal[0])).toBe(firstLabelBefore);
     });
   });
 });

@@ -216,10 +216,15 @@ describe("Tier 1 paragraph-marker rename", () => {
     const { editor } = await testEnvironment(() => ({ marker } = $appendHeadingPara()));
     await act(async () => editor.update(() => marker.setTextContent("\\add ")));
     editor.getEditorState().read(() => {
-      // Tier 2 wrapped the heading text in a char span inside a default para
-      const paras = $getRoot().getChildren();
-      expect(JSON.stringify(editor.getEditorState().toJSON())).toContain('"marker":"add"');
-      expect(paras.some((p) => p.getType() === "para")).toBe(true);
+      // Tier 2 re-tokenized `\add` into a real CHAR SPAN that now owns the heading text...
+      const paras = $getRoot().getChildren().filter($isParaNode);
+      const chars = paras.flatMap((p) => p.getChildren()).filter($isCharNode);
+      const addChar = chars.find((c) => c.getMarker() === "add");
+      expect(addChar).toBeDefined();
+      expect(addChar?.getTextContent()).toContain("Heading");
+      // ...and NO paragraph carries "add" — a broken char-kind guard would instead have
+      // renamed the s1 para to "add" in place and left the text as bare paragraph content.
+      expect(paras.some((p) => p.getMarker() === "add")).toBe(false);
     });
   });
 

@@ -568,8 +568,12 @@ describe("Tier 2 literal-text triggers", () => {
         text?.setTextContent(`${NBSP}note \\bd bold\\bd* text`);
       }),
     );
-    // literal text preserved — no CharNode created inside the collapsed note
-    expect(JSON.stringify(editor.getEditorState().toJSON())).toContain("\\\\bd");
+    // Literal text preserved AND no "bd" structure was built anywhere — asserting the literal
+    // alone would also pass if the refusal broke and tokenization kept the literal's bytes in
+    // a glyph while wrapping "bold" in a real CharNode.
+    const json = JSON.stringify(editor.getEditorState().toJSON());
+    expect(json).toContain("\\\\bd");
+    expect(json).not.toContain('"marker":"bd"');
   });
 
   it("settles a typed `//` into an optbreak on caret departure, preserving the flanking spaces", async () => {

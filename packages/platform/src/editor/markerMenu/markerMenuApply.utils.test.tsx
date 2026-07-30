@@ -44,6 +44,7 @@ import {
   CharNode,
   defaultStyleInfo,
   getEditableCallerText,
+  LoggerBasic,
   MarkerNode,
   NBSP,
   NoteNode,
@@ -1657,6 +1658,59 @@ describe("$applyMarkerMenuSelection", () => {
       });
     });
 
+    it("deletes the typed `\\` trigger literal before closing (literalPrefixLanded: true)", async () => {
+      // Closing via the ACTIVE `\` palette: the trigger backslash landed as literal text in the
+      // span's content before the pick. The cleanup runs BEFORE the closeTag branch — a
+      // branch-order regression (closeTag returning before the cleanup) strands the `\` in the
+      // styled half and the close then splits at the wrong offset.
+      let content: TextNode;
+      const { editor } = await testEnvironment(() => {
+        const para = $createParaNode("p");
+        const char = $createCharNode("nd");
+        content = $createTextNode(`${NBSP}Lo\\rd`);
+        $getRoot().append(
+          para.append(
+            $createMarkerNode("p"),
+            $createTextNode(NBSP),
+            char.append($createMarkerNode("nd"), content, $createMarkerNode("nd", "closing")),
+          ),
+        );
+      });
+      // Caret right after the just-typed `\` (between "Lo\" and "rd").
+      await act(async () => editor.update(() => content.select(4, 4)));
+
+      const item: MarkerMenuItem = { marker: "nd*", kind: "closeTag", isBasic: false };
+      await act(async () =>
+        editor.update(() => {
+          $applyMarkerMenuSelection(
+            item,
+            { trigger: "backslash", literalPrefixLanded: true },
+            reference,
+            makeDeps(),
+          );
+        }),
+      );
+
+      editor.getEditorState().read(() => {
+        const para = requireDefined(
+          $getRoot().getChildren().filter($isParaNode)[0],
+          "para missing",
+        );
+        // The literal trigger is gone from CONTENT text everywhere (glyph nodes legitimately
+        // carry backslashes, so plain text nodes are checked, not the flattened paragraph).
+        const plainTexts = para.getAllTextNodes().filter((node) => !$isMarkerNode(node));
+        expect(plainTexts.some((node) => node.getTextContent().includes("\\"))).toBe(false);
+        // The close then split at the CLEANED-UP caret: "Lo" stays styled, "rd" leaves.
+        const chars = para.getChildren().filter($isCharNode);
+        expect(chars).toHaveLength(1);
+        expect(chars[0].getTextContent()).toContain("Lo");
+        expect(chars[0].getTextContent()).not.toContain("rd");
+        const after = chars[0].getNextSibling();
+        expect($isTextNode(after) && !$isMarkerNode(after)).toBe(true);
+        expect($isTextNode(after) ? after.getTextContent() : undefined).toBe("rd");
+      });
+    });
+
     describe("non-NEST apply from INSIDE a char span closes and reopens (PT9 StyleApplicator)", () => {
       /** A footnote whose \ft content holds `A \+nd holy\+nd* B` — a nested \nd with text after. */
       async function setUpNestedNd() {
@@ -1830,6 +1884,42 @@ describe("$applyMarkerMenuSelection", () => {
           expect(chars[1].getTextContent()).toContain("holy"); // \fq at note level, not nested
         });
       });
+    });
+  });
+
+  describe("no-range-selection guard", () => {
+    it("warns through the provided logger and mutates nothing when there is no range selection", async () => {
+      // The palette click can blur the editor and null its selection before the apply runs;
+      // every path below then silently no-ops and the typed literal strands as data. The LOUD
+      // warning is the only signal hosts get — if the guard stops firing (or starts mutating),
+      // that failure goes silent again.
+      let text: TextNode;
+      const { editor } = await testEnvironment(() => {
+        const para = $createParaNode("p");
+        text = $createTextNode("Hello \\q");
+        $getRoot().append(para.append($createMarkerNode("p"), $createTrailingSpaceNode(), text));
+      });
+      const stateBefore = JSON.stringify(editor.getEditorState().toJSON());
+      const warn = vi.fn();
+      const logger: LoggerBasic = { error: vi.fn(), warn, info: vi.fn(), debug: vi.fn() };
+
+      const item: MarkerMenuItem = { marker: "q1", kind: "paragraph", isBasic: true };
+      await act(async () =>
+        editor.update(() => {
+          $setSelection(null);
+          $applyMarkerMenuSelection(
+            item,
+            { trigger: "backslash", literalPrefixLanded: true },
+            reference,
+            { ...makeDeps(), logger },
+          );
+        }),
+      );
+
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0][0]).toContain("no range selection");
+      // No cleanup, no retag, no split — the literal `\q` and the single paragraph survive.
+      expect(JSON.stringify(editor.getEditorState().toJSON())).toBe(stateBefore);
     });
   });
 });

@@ -179,6 +179,22 @@ describe("getEnterMenuItems (KeyPressEditHandler.cs:189-201 SmartEnter choice)",
     expect(markers[0]).toBe("p");
   });
 
+  it("returns the paragraph ordering unchanged when the SmartEnter choice is not offered", () => {
+    // Mid-book (a `c` was collected), so SmartEnter chooses `p` — but this sheet carries no
+    // `p` entry at all, so the chosen marker is absent from the offered items. The list must
+    // come back exactly as the plain paragraph source ordered it: a front-move that ran
+    // anyway on the "not found" index would instead splice the LAST item to the front.
+    const sheetWithoutP: StyleInfo = { markers: { ...sheet.markers } };
+    delete sheetWithoutP.markers.p;
+    const context = makeContext({ source: "paragraph", previousParaMarkers: ["id", "c"] });
+    const enter = getEnterMenuItems(sheetWithoutP, context).map((item) => item.marker);
+    const plain = getMarkerMenuItems(sheetWithoutP, context).map((item) => item.marker);
+    expect(enter).toEqual(plain);
+    // `ip` is offered here (rank-less sheet, `id` on the stack) but must NOT be promoted:
+    // mid-book the SmartEnter choice is `p`, and `p` alone is what this sheet lacks.
+    expect(enter).toEqual(["ip", "q1", "q2", "s1"]);
+  });
+
   it("chooses p (not ip) once a chapter has started, even on a rank-less sheet", () => {
     // The realistic snapshot: book id is pinned at the stack bottom for the whole book, and this
     // fixture's `ip`/`c` carry no `rank` (both optional). Pre-fix, the rank-0 bypass in
