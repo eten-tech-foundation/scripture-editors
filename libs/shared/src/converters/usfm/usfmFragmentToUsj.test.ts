@@ -630,6 +630,18 @@ describe("usfmFragmentToUsjContent — verse, chapter, note, milestone, attribut
       ]);
     });
 
+    it("folds \\va directly onto a bare verse fragment (Tier-2 re-tokenization pin)", () => {
+      // Pins the exact fragment Tier-2's verse-attribute run rebuilds re-tokenize: no leading
+      // \p, no trailing content — just the verse and its \va triplet.
+      expect(usfmFragmentToUsjContent("\\v 1 \\va 2\\va*")).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: [{ type: "verse", marker: "v", number: "1", altnumber: "2" }],
+        },
+      ]);
+    });
+
     it("keeps the line-wrap space after a folded \\cat before the note's first char marker", () => {
       // INTENTIONAL space: ParatextData's strip-final-space rule applies only before
       // paragraph/book/chapter tokens. `\ft` is a character token, so the line break between
