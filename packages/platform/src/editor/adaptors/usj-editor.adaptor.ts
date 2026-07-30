@@ -22,6 +22,7 @@ import {
   BOOK_VERSION,
   BookMarker,
   BookNode,
+  canonicalAttributeText,
   CHAPTER_MARKER,
   CHAPTER_MARKER_OBJECT_PROPS,
   CHAPTER_VERSION,
@@ -33,6 +34,7 @@ import {
   closingMarkerText,
   COMMENT_MARK_TYPE,
   DEFAULT_NOTE_MARKER,
+  defaultMarkerAttribute,
   EditorAdaptor,
   EMPTY_CHAR_PLACEHOLDER_TEXT,
   ENDING_MS_COMMENT_MARKER,
@@ -109,6 +111,7 @@ import {
   TypedMarkNode,
   UNKNOWN_MARKER_OBJECT_PROPS,
   UNKNOWN_VERSION,
+  UnknownAttributes,
   UnknownNode,
   usjTextToDisplay,
   VERSE_MARKER,
@@ -397,8 +400,9 @@ function createChar(
   // WITHOUT a closing glyph, mirroring the unclosed-note handling in `createNote`.
   const isUnclosedChar = (markerObject as MarkerObject & { closed?: string }).closed === "false";
   const isClosingGlyphSkipped = isUnclosedChar || isImplicitlyClosedCharMarker(marker);
-  if (!isUnclosedChar) addClosingMarker(markerObject.marker ?? "", children, false, isNested);
   let unknownAttributes = getUnknownAttributes(markerObject, CHAR_MARKER_OBJECT_PROPS);
+  if (!isClosingGlyphSkipped) addCharAttributes(marker, unknownAttributes, children);
+  if (!isUnclosedChar) addClosingMarker(markerObject.marker ?? "", children, false, isNested);
   // Honesty rule: whenever the closing glyph is skipped, record closed="false" so it round-trips
   // to USJ. Otherwise closer-less hand-written/legacy USJ that lacked the flag would serialize back
   // without it and the C# writer would then emit a \marker* closer the source never had.
@@ -786,6 +790,18 @@ function addClosingMarker(
       ),
     );
   }
+}
+
+/** Char-span attribute display: bare canonical `|…` directly before the closing glyph — PT9's
+ * shape, and NBSP-free so Tier-2's NBSP→space flattening cannot leak a space into content. */
+function addCharAttributes(
+  marker: string,
+  unknownAttributes: UnknownAttributes | undefined,
+  nodes: SerializedLexicalNode[],
+) {
+  if (_viewOptions?.markerMode !== "editable" || !unknownAttributes) return;
+  const text = canonicalAttributeText(unknownAttributes, defaultMarkerAttribute(marker));
+  if (text) nodes.push(createText(text, "attribute"));
 }
 
 function addAttributes(markerObject: MarkerObject, nodes: SerializedLexicalNode[]) {
