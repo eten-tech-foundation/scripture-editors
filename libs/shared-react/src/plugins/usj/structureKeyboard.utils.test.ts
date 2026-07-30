@@ -2,7 +2,7 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 
 import { baseTestEnvironment, sutUpdate, updateSelection } from "./react-test.utils";
-import { $createImmutableVerseNode } from "../../nodes/usj";
+import { $createImmutableVerseNode, $isSomeVerseNode } from "../../nodes/usj";
 import {
   $adjacentVerseMarker,
   $caretAdjacentToVerseMarker,
@@ -748,14 +748,22 @@ describe("empty verse carets (PT-4122)", () => {
     });
   });
 
-  it("ALLOWS deleteForward when nothing follows the caret", async () => {
+  // Carries more weight than its permissive assertion suggests: this shape ([text, verse], caret at
+  // the end) is the only one where a forward off-by-one in $adjacentVerseMarker's element branch is
+  // observable — in the adjacent-verses shape an off-by-one still lands on a marker, so the test
+  // above stays green. It also pins the $hasNeighborBlock half of the rule (no next block to merge).
+  it("ALLOWS deleteForward at the end of the last paragraph (no block to merge)", async () => {
     const { editor } = await shapeTrailingEmptyVerse();
     editor.getEditorState().read(() => {
       expect($shouldBlockStructuralEdit($getSelection()!, "deleteForward")).toBe(false);
     });
   });
 
-  it("insertText lands in the first verse's slot, keeping both markers", async () => {
+  // Characterizes Lexical's element-point insertion, not this module's guard logic (the
+  // describe.each above covers the guard). It answers the question the guard alone cannot: once
+  // typing is allowed, does the text land in the RIGHT verse? Hence no structureKeyboard.utils call
+  // in the body — and why it is insensitive to changes in this repo's own decision logic.
+  it("insertText lands in the first verse's slot, keeping both markers intact", async () => {
     const { editor, para } = await shapeAdjacentEmptyVerses();
     await sutUpdate(
       editor,
@@ -774,6 +782,13 @@ describe("empty verse carets (PT-4122)", () => {
         "text",
       ]);
       expect(children[1].getTextContent()).toBe("X");
+      // Not just "two markers survive" — the same two, still numbered 1 and 2, and verse 2's text
+      // untouched. Guards against a marker being replaced or renumbered by the insertion.
+      expect(children.filter($isSomeVerseNode).map((verse) => verse.getNumber())).toEqual([
+        "1",
+        "2",
+      ]);
+      expect(children[3].getTextContent()).toBe("second verse text ");
     });
   });
 
