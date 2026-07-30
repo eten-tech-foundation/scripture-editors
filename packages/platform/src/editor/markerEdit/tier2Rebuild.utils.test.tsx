@@ -499,21 +499,23 @@ describe("$rebuildParas", () => {
     });
   });
 
-  it("carries a milestone's display run through the rebuild", () => {
+  // `ts-s` is a stylesheet-family milestone name the tokenizer classifies on its own (no
+  // project StyleInfo needed, see `isMilestoneHeuristicName`), so it now genuinely
+  // re-tokenizes through the rebuild rather than riding through as a preserved sentinel —
+  // a fresh MilestoneNode is built from the re-tokenized fragment, so it does NOT keep the
+  // original node's key. Only the visible glyph/attribute TEXT is asserted here; the
+  // key-identity assertion this test used to make belonged to the old whole-node-sentinel
+  // classification and no longer holds.
+  it("re-tokenizes a milestone's display run through the rebuild", () => {
     const editor = loadEditor(
       usjFromUsx(
         `<verse number="1" style="v" /><ms style="ts-s" sid="ts.RUT.1" />text \\nd x\\nd* end`,
       ),
     );
-    let msKey = "";
     editor.update(
       () => {
         const para = $lastPara();
-        const msNode = requireDefined(
-          para.getChildren().find((n) => n.getType() === "ms"),
-          "milestone node not found",
-        );
-        msKey = msNode.getKey();
+        expect(para.getChildren().some((n) => n.getType() === "ms")).toBe(true);
         expect($rebuildParas([para], context)).toBe(true);
       },
       { discrete: true },
@@ -521,10 +523,10 @@ describe("$rebuildParas", () => {
     editor.getEditorState().read(() => {
       const children = $lastPara().getChildren();
       const msIndex = children.findIndex((n) => n.getType() === "ms");
-      expect(children[msIndex]?.getKey()).toBe(msKey);
-      // display glyphs survived: opening \ts-s, attribute text, self-closing \*
+      // display glyphs materialize fresh: opening \ts-s, attribute text (sid is ts-s's default
+      // attribute, so it collapses to the bare value), self-closing \*
       expect(children[msIndex + 1]?.getTextContent()).toBe("\\ts-s");
-      expect(children[msIndex + 2]?.getTextContent()).toContain('sid="ts.RUT.1"');
+      expect(children[msIndex + 2]?.getTextContent()).toContain("ts.RUT.1");
       expect(children[msIndex + 3]?.getTextContent()).toBe("\\*");
     });
   });
@@ -844,6 +846,85 @@ describe("attribute-bearing char spans re-tokenize", () => {
       // "w"'s default attribute IS lemma: the bare value resolves to lemma="gloss".
       const w = requireDefined($findCharDescendant($lastPara(), "w"), "w char span not found");
       expect(w.getUnknownAttributes()).toMatchObject({ lemma: "gloss" });
+    });
+  });
+});
+
+describe("milestones re-tokenize", () => {
+  it("no-edit rebuild of a paragraph containing a sid-bearing milestone is a fixed point", () => {
+    const editor = loadEditor(usjFromUsx(`before <ms style="qt-s" sid="q1" /> after`));
+    editor.update(
+      () => {
+        expect($rebuildParas([$lastPara()], context)).toBe(false);
+      },
+      { discrete: true },
+    );
+    editor.getEditorState().read(() => {
+      const children = $lastPara().getChildren();
+      const msIndex = children.findIndex((n) => n.getType() === "ms");
+      expect(msIndex).toBeGreaterThanOrEqual(0);
+      expect(children[msIndex + 2]?.getTextContent()).toBe(`${NBSP}|sid="q1"`);
+    });
+  });
+
+  // THE edit-loss regression: before this task, a milestone was ALWAYS a Tier-2 sentinel, so
+  // an edit made directly to its displayed attribute text (the only way to edit a milestone's
+  // attributes at all) could never settle — $rebuildParas kept refusing as a "fixed point" no
+  // matter how many times it ran, because the sentinel comparison never looked past the
+  // placeholder. Editing the run's `sid` value must now flow through re-tokenization and land
+  // in the rebuilt MilestoneNode's own state, which the editor->USJ conversion then reflects.
+  it("editing the run's sid value settles into the milestone's serialized USJ", () => {
+    const editor = loadEditor(usjFromUsx(`before <ms style="qt-s" sid="q1" /> after`));
+    editor.update(
+      () => {
+        const para = $lastPara();
+        const children = para.getChildren();
+        const msIndex = children.findIndex((n) => n.getType() === "ms");
+        const attributeNode = children[msIndex + 2];
+        if (!$isTextNode(attributeNode)) throw new Error("attribute display run not found");
+        attributeNode.setTextContent('|sid="q2"'); // simulates the user editing the sid value
+        expect($rebuildParas([para], context)).toBe(true);
+      },
+      { discrete: true },
+    );
+    const usj = deserializeSerializedEditorState(editor.getEditorState().toJSON(), viewOptions);
+    const para = $firstPara(usj);
+    expect(JSON.stringify(para)).toContain('"sid":"q2"');
+    expect(JSON.stringify(para)).not.toContain('"sid":"q1"');
+  });
+
+  // Bare `ts` is syntactically a valid milestone marker (`MilestoneNode.isValidMarker`), but no
+  // stylesheet — bundled or project — declares it as one, and the tokenizer's own heuristic
+  // deliberately excludes it (`isMilestoneHeuristicName`: only `-s`/`-e` suffixed names, since
+  // ParatextData itself parses standalone `ts` as an unknown marker). A milestone the tokenizer
+  // could never re-derive as a milestone must stay an atomic sentinel, or re-tokenizing it would
+  // silently change what it is.
+  it("a milestone whose marker cannot be classified (bare `ts`) stays atomic", () => {
+    const editor = loadEditor(usjFromUsx(`before <ms style="ts" /> after \\nd x\\nd* end`));
+    let msKey = "";
+    editor.update(
+      () => {
+        const para = $lastPara();
+        const msNode = requireDefined(
+          para.getChildren().find((n) => n.getType() === "ms"),
+          "milestone node not found",
+        );
+        msKey = msNode.getKey();
+        // The literal `\nd x\nd*` elsewhere in the paragraph still tokenizes into a CharNode,
+        // so the rebuild as a whole is not a no-op even though the milestone itself is untouched.
+        expect($rebuildParas([para], context)).toBe(true);
+      },
+      { discrete: true },
+    );
+    editor.getEditorState().read(() => {
+      const msNode = requireDefined(
+        $lastPara()
+          .getChildren()
+          .find((n) => n.getType() === "ms"),
+        "milestone node not found after rebuild",
+      );
+      // Same node, moved (not recreated) — the sentinel-preservation path.
+      expect(msNode.getKey()).toBe(msKey);
     });
   });
 });

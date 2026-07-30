@@ -61,10 +61,10 @@ import {
   MarkerNode,
   MarkerSyntax,
   MILESTONE_VERSION,
+  milestoneDefaultAttribute,
   MilestoneNode,
   MS_MARKER_OBJECT_PROPS,
   NBSP,
-  NODE_ATTRIBUTE_PREFIX,
   NOTE_MARKER_OBJECT_PROPS,
   NOTE_VERSION,
   NoteNode,
@@ -719,18 +719,27 @@ function addCharAttributes(
   if (text) nodes.push(createText(text, "attribute"));
 }
 
+/** Milestone attribute display: NBSP + the canonical `|…` bytes. The NBSP is the file's real
+ * separator before the attributes (`\qt-s |sid="…"\*`), so Tier-2's NBSP→space flattening
+ * reproduces it exactly rather than leaking a display-only space into content. Unlike a char
+ * span's attributes, `sid`/`eid` are explicit USJ props rather than `unknownAttributes`
+ * entries, so they are folded in first (in that order) before whatever else the marker carries
+ * (chiefly `who`) — the full set, not just sid/eid, or an edit to a non-sid/eid attribute would
+ * have nowhere to display and no way to ever be edited. */
 function addAttributes(markerObject: MarkerObject, nodes: SerializedLexicalNode[]) {
   if (markerObject.type !== "ms") return;
+  if (_viewOptions?.markerMode !== "editable" && _viewOptions?.markerMode !== "visible") return;
 
-  const attributes: string[] = [];
-  if (markerObject.sid) attributes.push(`sid="${markerObject.sid}"`);
-  if (markerObject.eid) attributes.push(`eid="${markerObject.eid}"`);
-  if (attributes.length <= 0) return;
+  const { marker, sid, eid } = markerObject;
+  const unknownAttributes = getUnknownAttributes(markerObject, MS_MARKER_OBJECT_PROPS);
+  const attributes = { ...(sid && { sid }), ...(eid && { eid }), ...unknownAttributes };
+  const text = canonicalAttributeText(attributes, milestoneDefaultAttribute(marker ?? ""));
+  if (!text) return;
 
-  const attributesText = NODE_ATTRIBUTE_PREFIX + attributes.join(" ");
+  const attributesText = NBSP + text;
   if (_viewOptions?.markerMode === "editable") {
     nodes.push(createText(attributesText, "attribute"));
-  } else if (_viewOptions?.markerMode === "visible") {
+  } else {
     nodes.push(createImmutableTypedText("attribute", attributesText));
   }
 }

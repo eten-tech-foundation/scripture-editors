@@ -103,9 +103,13 @@ function $anchorIsInParaOf(anchor: LexicalNode, qText: TextNode): boolean {
  * A `\p` paragraph P holding a milestone's display run (opening MarkerNode, attribute
  * text, self-closing MarkerNode — same shape `$milestoneDisplayRun` matches) immediately
  * followed by unterminated `\zzz` literal text, plus a second plain `\p` paragraph Q to
- * depart the caret to. `$appendChildrenFragment` absorbs the display run into ONE
- * sentinel; `$appendSignature` must do the same (Fix 1) or the fixed-point comparison
- * never matches and the resolve/rebuild loop stays reachable for any milestone paragraph.
+ * depart the caret to. The milestone's marker is bare `ts` — syntactically valid
+ * (`MilestoneNode.isValidMarker`) but NOT one the tokenizer's own classification resolves
+ * as a milestone (`isMilestoneHeuristicName` requires a `-s`/`-e` suffix), so it stays a
+ * Tier-2 sentinel rather than re-tokenizing. `$appendChildrenFragment` absorbs the display
+ * run into ONE sentinel; `$appendSignature` must do the same (Fix 1) or the fixed-point
+ * comparison never matches and the resolve/rebuild loop stays reachable for any sentinel
+ * milestone's paragraph.
  */
 function $milestoneZzzParaAndSecond(): {
   zzzText: TextNode;
@@ -114,8 +118,8 @@ function $milestoneZzzParaAndSecond(): {
 } {
   const pTrailing = $createTextNode(NBSP);
   $setState(pTrailing, textTypeState, "marker-trailing-space");
-  const milestone = $createMilestoneNode("ts-s", "ts.RUT.1");
-  const opening = $createMarkerNode("ts-s");
+  const milestone = $createMilestoneNode("ts", "ts.RUT.1");
+  const opening = $createMarkerNode("ts");
   const attribute = $createTextNode(`${NODE_ATTRIBUTE_PREFIX}sid="ts.RUT.1"`);
   $setState(attribute, textTypeState, "attribute");
   const closing = $createMarkerNode("", "selfClosing");
@@ -279,10 +283,11 @@ describe("Tier 2 rebuild with a milestone display run (Critical, Fix 1)", () => 
     // "zzz" is unknown to the stylesheet, so per PT9 DetermineUnknownTokenType it
     // now resolves as a genuine body-context PARAGRAPH split rather than staying literal:
     // this is a real, non-fixed-point rebuild, not a loop. Fix 1 still matters here:
-    // `$appendSignature` must collapse the milestone's display run into the SAME single
-    // sentinel `$appendChildrenFragment` uses when building the fragment, or the milestone
-    // run would be torn down and rebuilt (or worse, mismatch the sentinel/placeholder count
-    // and abort) even though its own paragraph content is otherwise unchanged.
+    // `$appendSignature` must collapse the sentinel milestone's display run into the SAME
+    // single sentinel `$appendChildrenFragment` uses when building the fragment, or the
+    // milestone run would be torn down and rebuilt (or worse, mismatch the
+    // sentinel/placeholder count and abort) even though its own paragraph content is
+    // otherwise unchanged.
     await act(async () => editor.update(() => qText.select(0, 0)));
 
     editor.getEditorState().read(() => {
@@ -293,8 +298,8 @@ describe("Tier 2 rebuild with a milestone display run (Critical, Fix 1)", () => 
       expect(paras).toHaveLength(3);
       expect(paras[1].getMarker()).toBe("zzz");
       // ...while the milestone in the FIRST paragraph survived as the SAME instance
-      // (preserved via its Tier 2 sentinel, not recreated), since that paragraph's own
-      // content was otherwise unchanged.
+      // (preserved via its Tier 2 sentinel — bare `ts` is not a re-tokenizable marker,
+      // not recreated), since that paragraph's own content was otherwise unchanged.
       expect(paras[0].getChildren().some((n) => n.getKey() === msKey)).toBe(true);
       const selection = $getSelection();
       expect($isRangeSelection(selection)).toBe(true);

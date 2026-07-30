@@ -1051,3 +1051,69 @@ describe("char-span attribute display (editable mode)", () => {
     expect(hiddenChar.children.some((n) => textTypeOf(n) === "attribute")).toBe(false);
   });
 });
+
+describe("milestone attribute display", () => {
+  /** The node-state `textType` tag of a serialized text node, or `undefined` for anything else. */
+  function textTypeOf(node: SerializedLexicalNode): unknown {
+    if (!isSerializedTextNode(node)) return undefined;
+    const stateObject: unknown = node[NODE_STATE_KEY];
+    return stateObject && typeof stateObject === "object" && "textType" in stateObject
+      ? stateObject.textType
+      : undefined;
+  }
+
+  /** A one-paragraph USJ document wrapping a single milestone. */
+  function usjWithMilestone(msObject: MarkerObject): Usj {
+    return {
+      ...EMPTY_USJ,
+      content: [{ type: "para", marker: "p", content: [msObject] } as MarkerObject],
+    };
+  }
+
+  /** Serializes `usj` and returns the paragraph's children: a milestone's glyphs and attribute
+   * text ride alongside it as siblings, not inside it (a milestone has no children of its own). */
+  function paraChildren(usj: Usj, viewOptions?: ViewOptions): SerializedLexicalNode[] {
+    initialize(undefined, undefined);
+    reset();
+    const state = serializeEditorState(usj, viewOptions);
+    const para = state.root.children[0];
+    if (!isSerializedParaNode(para)) throw new Error("No para node found");
+    return para.children;
+  }
+
+  it("collapses a lone default `who` attribute on a `qt*-s` milestone (editable mode)", () => {
+    const children = paraChildren(
+      usjWithMilestone({ type: "ms", marker: "qt-s", who: "Jesus" } as MarkerObject),
+      getViewOptions(STANDARD_VIEW_MODE),
+    );
+
+    const attribute = children.find((n) => textTypeOf(n) === "attribute");
+    if (!isSerializedTextNode(attribute)) throw new Error("No attribute text node found");
+    expect(attribute.text).toBe(`${NBSP}|Jesus`);
+  });
+
+  it("renders named form, sid first, when sid and who are both present (editable mode)", () => {
+    const children = paraChildren(
+      usjWithMilestone({ type: "ms", marker: "qt-s", sid: "x", who: "Jesus" } as MarkerObject),
+      getViewOptions(STANDARD_VIEW_MODE),
+    );
+
+    const attribute = children.find((n) => textTypeOf(n) === "attribute");
+    if (!isSerializedTextNode(attribute)) throw new Error("No attribute text node found");
+    expect(attribute.text).toBe(`${NBSP}|sid="x" who="Jesus"`);
+  });
+
+  it("shows the same completed text via ImmutableTypedTextNode in visible mode", () => {
+    const children = paraChildren(
+      usjWithMilestone({ type: "ms", marker: "qt-s", sid: "x", who: "Jesus" } as MarkerObject),
+      { ...getDefaultViewOptions(), markerMode: "visible" },
+    );
+
+    const attribute = children.find(
+      (n) => isSerializedImmutableTypedTextNode(n) && n.textType === "attribute",
+    );
+    if (!isSerializedImmutableTypedTextNode(attribute))
+      throw new Error("No attribute typed-text node found");
+    expect(attribute.text).toBe(`${NBSP}|sid="x" who="Jesus"`);
+  });
+});
