@@ -22,6 +22,7 @@ import {
   $charAttributeDisplayNode,
   $isCharNode,
   $isMarkerNode,
+  $isVerseNode,
   CharNode,
   getMarker as bundledGetMarker,
   $isParaNode,
@@ -935,12 +936,13 @@ describe("milestones re-tokenize", () => {
   });
 });
 
-// Verses stay Tier-2 sentinels (verseNeedsSentinel, untouched by this task) whenever they carry
-// altnumber/pubnumber, but their \va/\vp display runs (attributeDisplay.utils.ts) now ride as
-// ordinary paragraph siblings after the verse, not children of it — the fragment/signature
-// builders must absorb the run into the SAME sentinel unit as the verse (mirroring
-// $milestoneDisplayRun), or the tokenizer sees `\va`/`\vp` with no verse to fold onto and
-// degrades them into unrelated markers, breaking the no-edit fixed point.
+// A verse carrying altnumber/pubnumber re-tokenizes (verseNeedsSentinel: only unknownAttributes
+// forces atomicity now); its \va/\vp display runs (attributeDisplay.utils.ts) ride as ordinary
+// paragraph siblings after the verse, not children of it, so the fragment/signature builders
+// recurse into them like any other content and fold the verse's own altnumber/pubnumber state in
+// alongside (mirroring $milestoneDisplayRun's re-tokenizable branch). An untouched verse+run is
+// still a genuine no-edit fixed point — now because re-tokenizing it reproduces the same bytes
+// and the same state, not because the whole unit rides as an opaque sentinel.
 describe("verses with \\va/\\vp display runs", () => {
   it("no-edit rebuild of a paragraph containing a verse with \\va/\\vp runs is a fixed point", () => {
     const editor = loadEditor(
@@ -963,6 +965,114 @@ describe("verses with \\va/\\vp display runs", () => {
       expect(children[verseIndex + 4]?.getTextContent()).toBe("\\vp");
       expect(children[verseIndex + 5]?.getTextContent()).toBe(`${NBSP}1b`);
       expect(children[verseIndex + 6]?.getTextContent()).toBe("\\vp*");
+    });
+  });
+});
+
+describe("verses re-tokenize", () => {
+  it("no-edit rebuild of a paragraph with `\\v 1 \\va 2\\va*` is a fixed point", () => {
+    const editor = loadEditor(usjFromUsx(`<verse number="1" style="v" altnumber="2" />text`));
+    editor.update(() => expect($rebuildParas([$lastPara()], context)).toBe(false), {
+      discrete: true,
+    });
+  });
+
+  it("sid-bearing verses rebuild (no longer sentinels) and keep their sid when the number is unchanged", () => {
+    const editor = loadEditor(
+      usjFromUsx(`<verse number="1" style="v" sid="RUT 1:1" />text \\nd x\\nd* end`),
+    );
+    editor.update(
+      () => {
+        const para = $lastPara();
+        const verse = requireDefined(para.getChildren().find($isVerseNode), "verse node not found");
+        // Not a sentinel: a bare sid carries no unknownAttributes.
+        expect(verse.getUnknownAttributes()).toBeUndefined();
+        // The literal `\nd x\nd*` elsewhere in the paragraph forces a genuine (non-fixed-point)
+        // rebuild even though the verse itself is untouched.
+        expect($rebuildParas([para], context)).toBe(true);
+      },
+      { discrete: true },
+    );
+    const usj = deserializeSerializedEditorState(editor.getEditorState().toJSON(), viewOptions);
+    const para = $firstPara(usj);
+    expect(para).toMatchObject({
+      content: [
+        { type: "verse", number: "1", sid: "RUT 1:1" },
+        "text ",
+        { type: "char", marker: "nd", content: ["x"] },
+        " end",
+      ],
+    });
+  });
+
+  // The verse's own text is retyped to a new number, but nothing has resynced the `__number`
+  // field yet (the state $rebuildParas actually sees mid-edit) — the fragment re-tokenizes the
+  // NEW number, and the old-paragraph snapshot for carry-over reads the STILL-STALE field, so
+  // the old and new numbers genuinely disagree: no sid is synthesized for the renumbered verse.
+  it("an edited verse number drops the stale sid", () => {
+    const editor = loadEditor(usjFromUsx(`<verse number="1" style="v" sid="RUT 1:1" />text`));
+    editor.update(
+      () => {
+        const para = $lastPara();
+        const verse = requireDefined(para.getChildren().find($isVerseNode), "verse node not found");
+        verse.setTextContent("\\v 2 ");
+        expect($rebuildParas([para], context)).toBe(true);
+      },
+      { discrete: true },
+    );
+    const usj = deserializeSerializedEditorState(editor.getEditorState().toJSON(), viewOptions);
+    const para = $firstPara(usj);
+    expect(para).toMatchObject({ content: [{ type: "verse", number: "2" }, "text"] });
+    expect(JSON.stringify(para)).not.toContain("RUT 1:1");
+  });
+
+  // The state-lags-run direction, applied to verse the same way a milestone's own sid/eid state
+  // is folded into its fixed-point signature: a real in-place value edit keeps the triplet's
+  // structural leading NBSP and changes only the value bytes, so the edited run text is
+  // byte-identical to what re-tokenizing it would regenerate — only the verse's own stale
+  // `altnumber` field can reveal the rebuild is not a no-op.
+  it("editing a \\va value settles into the verse's altnumber", () => {
+    const editor = loadEditor(usjFromUsx(`<verse number="1" style="v" altnumber="2" />text`));
+    editor.update(
+      () => {
+        const para = $lastPara();
+        const children = para.getChildren();
+        const verseIndex = children.findIndex((n) => n.getType() === "verse");
+        const attributeNode = children[verseIndex + 2];
+        if (!$isTextNode(attributeNode)) throw new Error("va attribute display run not found");
+        attributeNode.setTextContent(`${NBSP}3`);
+        expect($rebuildParas([para], context)).toBe(true);
+      },
+      { discrete: true },
+    );
+    const usj = deserializeSerializedEditorState(editor.getEditorState().toJSON(), viewOptions);
+    const para = $firstPara(usj);
+    expect(para).toMatchObject({
+      content: [{ type: "verse", number: "1", altnumber: "3" }, "text"],
+    });
+  });
+
+  it("a verse with arbitrary unknownAttributes stays atomic", () => {
+    const editor = loadEditor(usjFromUsx(`<verse number="1" style="v" /> after \\nd x\\nd* end`));
+    let verseKey = "";
+    editor.update(
+      () => {
+        const para = $lastPara();
+        const verse = requireDefined(para.getChildren().find($isVerseNode), "verse node not found");
+        verse.setUnknownAttributes({ foo: "bar" });
+        verseKey = verse.getKey();
+        expect($rebuildParas([para], context)).toBe(true);
+      },
+      { discrete: true },
+    );
+    editor.getEditorState().read(() => {
+      const verse = requireDefined(
+        $lastPara().getChildren().find($isVerseNode),
+        "verse node not found after rebuild",
+      );
+      // Same instance, moved (not recreated) — the sentinel-preservation path.
+      expect(verse.getKey()).toBe(verseKey);
+      expect(verse.getUnknownAttributes()).toEqual({ foo: "bar" });
     });
   });
 });

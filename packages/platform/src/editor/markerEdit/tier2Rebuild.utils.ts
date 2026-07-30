@@ -148,10 +148,13 @@ function $milestoneDisplayRun(children: LexicalNode[], index: number): LexicalNo
  * Display siblings after a VerseNode that belong to its \va/\vp display triplets: an opening
  * MarkerNode, an attribute TextNode, and a closing MarkerNode for `\va`, then the same shape for
  * `\vp` (attributeDisplay.utils.ts's `$syncVerseAttributeDisplay`/usj-editor.adaptor's
- * `addVerseAttributes`). They ride inside the verse's sentinel — see `$milestoneDisplayRun` for
- * the same shape applied to a milestone's run — so the tokenizer, run on the fragment AFTER the
- * verse's own opaque placeholder, never sees `\va`/`\vp` with no verse to fold onto (which would
- * degrade them into unrelated standalone markers instead of leaving the paragraph untouched).
+ * `addVerseAttributes`). A verse that re-tokenizes (the common case — see `verseNeedsSentinel`)
+ * flows the run as ordinary fragment content right after the verse's own glyph text, so the
+ * tokenizer's attrCapture folds `\va`/`\vp` back onto the freshly re-derived verse exactly as it
+ * would for literal typed text. Only a still-sentinel verse (`unknownAttributes`) absorbs the run
+ * into its OWN sentinel — see `$milestoneDisplayRun`'s non-re-tokenizable branch for the same
+ * shape — so the tokenizer never sees `\va`/`\vp` immediately after an opaque U+FFFC placeholder
+ * with no verse to fold onto (which would degrade them into unrelated standalone markers).
  */
 function $verseAttributeRun(children: LexicalNode[], index: number): LexicalNode[] {
   const run: LexicalNode[] = [];
@@ -177,11 +180,16 @@ function $verseAttributeRun(children: LexicalNode[], index: number): LexicalNode
   return run;
 }
 
-/** A verse whose state is not fully recoverable from its visible text stays atomic. */
+/**
+ * A verse whose state is not fully recoverable from its visible text stays atomic.
+ * altnumber/pubnumber round-trip through the \va/\vp display run
+ * (attributeDisplay.utils.ts's `$syncVerseAttributeDisplay`, usj-editor.adaptor's
+ * `addVerseAttributes`), and `sid` is reconciled separately by carry-over in `$rebuildParas`
+ * (pairing old and new verses by position/number) rather than kept alive by atomicity — only
+ * `unknownAttributes`, which has no display representation at all, forces the sentinel.
+ */
 function verseNeedsSentinel(node: VerseNode): boolean {
-  return Boolean(
-    node.getSid() ?? node.getAltnumber() ?? node.getPubnumber() ?? node.getUnknownAttributes(),
-  );
+  return Boolean(node.getUnknownAttributes());
 }
 
 /**
@@ -210,7 +218,12 @@ function $isReTokenizableMilestone(marker: string, getMarkerFn: MarkerLookup): b
  * attribute set. A span with NO closing glyph (implicitly-closed footnote/cross-reference content,
  * or explicit `closed="false"`) never gets a display run at all, so any OTHER attribute it carries
  * (`link-href` on an auto-closed `\xt`, say) has no visible bytes to re-derive from —
- * `$hasUnrecoverableAttributes` keeps exactly that shape atomic.
+ * `$hasUnrecoverableAttributes` keeps exactly that shape atomic. A verse is classified the same
+ * way (`verseNeedsSentinel`): its \va/\vp display run is ordinary content among its paragraph
+ * siblings when the verse re-tokenizes, and only `unknownAttributes` — which has no visible
+ * representation at all — forces the sentinel. `sid` plays no part in this classification: it is
+ * derived data, invisible in display bytes, reconciled by carry-over in `$rebuildParas` after the
+ * rebuild rather than by atomicity.
  */
 function $isRebuildSentinel(node: LexicalNode, getMarkerFn: MarkerLookup): boolean {
   if ($isMilestoneNode(node)) return !$isReTokenizableMilestone(node.getMarker(), getMarkerFn);
@@ -274,13 +287,39 @@ function $appendSignature(children: LexicalNode[], out: string[], getMarkerFn: M
       // sentinel `$appendNodesFragment` produces for it — same reasoning as the non-re-
       // tokenizable milestone case above: the post-splice NEW side's sentinel already stands in
       // for verse + run together, so the pre-splice OLD side must collapse them the same way.
-      // A non-sentinel verse never has a run (`addVerseAttributes` only builds one alongside
-      // `verseNeedsSentinel`'s own altnumber/pubnumber trigger), so its plain "verse" signature
-      // span never needs one either.
       const run = $verseAttributeRun(children, index);
       if (verseNeedsSentinel(node)) out.push(ATOMIC_SENTINEL);
-      else
-        out.push(SIGNATURE_OPEN, "verse", toFragmentText(node.getTextContent()), SIGNATURE_CLOSE);
+      else {
+        // The run text is a DERIVED CACHE ($syncVerseAttributeDisplay, attributeDisplay.utils.ts)
+        // that can lag the verse's own altnumber/pubnumber state — an in-place value edit that
+        // keeps the triplet's structural NBSP and changes only the value bytes produces run text
+        // byte-identical on both sides of this comparison (it was edited directly on the live OLD
+        // node, and re-tokenizing that same edited text regenerates the identical NEW run), so
+        // only the verse's own STALE field reveals the rebuild is not a no-op — the same reason
+        // a re-tokenizable milestone folds its own sid/eid/unknownAttributes in alongside its
+        // recursed run above. Fold number/altnumber/pubnumber in alongside the recursed run.
+        // `unknownAttributes` is omitted: this branch runs only when `verseNeedsSentinel` is
+        // false, so it is always undefined here by construction.
+        //
+        // `sid` is DELIBERATELY excluded. This comparison runs on the OLD side (still carrying
+        // its sid) against the freshly re-tokenized NEW side, which never has one — sid
+        // carry-over (`$rebuildParas`, after the splice) runs strictly AFTER this fixed-point
+        // check has already decided whether a rebuild happens at all. Folding raw sid in here
+        // would make every sid-bearing verse compare unequal forever (a real value vs. an
+        // always-absent one), forcing an endless splice-then-refuse rebuild on every unrelated
+        // edit anywhere else in the same paragraph.
+        out.push(
+          SIGNATURE_OPEN,
+          "verse",
+          JSON.stringify({
+            number: node.getNumber(),
+            altnumber: node.getAltnumber() ?? null,
+            pubnumber: node.getPubnumber() ?? null,
+          }),
+        );
+        $appendSignature(run, out, getMarkerFn);
+        out.push(SIGNATURE_CLOSE);
+      }
       index += run.length;
     } else if ($isMarkerNode(node)) {
       // Delimited and tagged (not bare glyph text) so text moving across the
@@ -356,9 +395,16 @@ function $appendNodesFragment(
       // above. Re-tokenizing the run's bytes on their own (after the verse's own opaque
       // placeholder) would hand the tokenizer `\va`/`\vp` with no verse to fold onto, degrading
       // them into unrelated standalone markers instead of leaving the paragraph untouched.
+      // Otherwise (the common case) the verse's own glyph text flows into the fragment like any
+      // other content, immediately followed by its run's bytes as ordinary siblings — the
+      // tokenizer's attrCapture folds `\va`/`\vp` right back onto the freshly re-derived verse.
       const run = $verseAttributeRun(children, index);
-      if (verseNeedsSentinel(node)) pushSentinel(out, [node, ...run]);
-      else pushText(out, node, toFragmentText(node.getTextContent()));
+      if (verseNeedsSentinel(node)) {
+        pushSentinel(out, [node, ...run]);
+      } else {
+        pushText(out, node, toFragmentText($textNodeFragmentText(node)));
+        $appendNodesFragment(run, out, getMarkerFn);
+      }
       index += run.length;
     } else if ($isCharNode(node)) {
       // Unknown-marker spans (custom.sty) are not text-recoverable: the tokenizer would degrade
@@ -441,6 +487,20 @@ function $replaceSentinels(roots: LexicalNode[], originals: LexicalNode[][]): vo
     }
   };
   roots.forEach(visit);
+}
+
+/**
+ * Every VerseNode under `nodes`, depth-first in document order (including a verse nested inside
+ * a char span that crosses it, per USFM ≤3.0 — see the tier2Rebuild.utils.test.tsx D5 fixed-point
+ * test). Backs sid carry-over in `$rebuildParas`: the OLD side is read into plain data before the
+ * splice moves or destroys anything; the NEW side is read once the splice has settled.
+ */
+function $collectVerseNodes(nodes: LexicalNode[], out: VerseNode[] = []): VerseNode[] {
+  for (const node of nodes) {
+    if ($isVerseNode(node)) out.push(node);
+    else if ($isElementNode(node)) $collectVerseNodes(node.getChildren(), out);
+  }
+  return out;
 }
 
 /** U+FFFC occurrences across a parsed node tree — must equal the preserved-run count. */
@@ -681,11 +741,33 @@ export function $rebuildParas(paras: ParaNode[], context: Tier2Context): boolean
     return false;
   }
 
+  // Snapshot the old paragraphs' verse number/sid pairs, in document order, as plain data —
+  // BEFORE the splice below moves or destroys the old paragraphs (a removed node's fields are
+  // not safe to read afterward). Sid carry-over (below) pairs this against the freshly
+  // re-tokenized tree's verses once the splice has settled.
+  const oldVerseSids = $collectVerseNodes(paras).map((verse) => ({
+    number: verse.getNumber(),
+    sid: verse.getSid(),
+  }));
+
   const firstPara = paras[0];
   newNodes.forEach((node) => firstPara.insertBefore(node));
   // Move originals BEFORE removing the old paragraphs (removal destroys leftovers).
   $replaceSentinels(newNodes, combined.sentinels);
   paras.forEach((para) => para.remove());
+  // Sid carry-over: a freshly re-tokenized verse never has a sid — the tokenizer cannot derive
+  // one from visible bytes — so pair the old and new
+  // verses positionally in document order and copy the old sid onto its partner wherever the
+  // verse NUMBER is unchanged. A renumbered verse (the pair's numbers disagree) gets no sid
+  // synthesized; a sentinel verse (unknownAttributes) is the SAME instance on both sides of the
+  // pairing, so this is a harmless no-op for it. Runs strictly AFTER the fixed-point check above,
+  // which deliberately never looks at sid (see the `$appendSignature` verse branch) — sid is
+  // reconciled here, once, only when a rebuild is already happening for some other reason.
+  const newVerses = $collectVerseNodes(newNodes);
+  for (let i = 0; i < oldVerseSids.length && i < newVerses.length; i++) {
+    if (newVerses[i].getNumber() === oldVerseSids[i].number)
+      newVerses[i].setSid(oldVerseSids[i].sid);
+  }
   $restoreSelectionAtOffset(newNodes, caretOffset, anchorInParas, getMarkerFn);
   return true;
 }
