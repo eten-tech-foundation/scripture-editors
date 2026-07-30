@@ -61,6 +61,7 @@ export interface MarkerObject {
     altnumber?: string;
     caller?: string;
     category?: string;
+    closed?: string;
     code?: BookCode;
     content?: MarkerContent[];
     eid?: string;

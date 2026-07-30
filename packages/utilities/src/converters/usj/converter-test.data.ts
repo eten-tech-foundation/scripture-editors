@@ -2950,8 +2950,6 @@ export const usjGen1v1Nonstandard: Usj = {
         {
           type: "char",
           marker: "nd",
-          // @ts-expect-error the types aren't open enough to allow any attribute, but the
-          // conversion code allows most any attribute. Let's fix the types when we have clarity.
           closed: "false",
           content: [
             "first verse ",
