@@ -36,6 +36,7 @@ import {
   $isUnknownNode,
   $isVerseNode,
   getEditableCallerText,
+  isMilestoneHeuristicName,
   LoggerBasic,
   MarkerLookup,
   MarkerType,
@@ -151,18 +152,36 @@ function verseNeedsSentinel(node: VerseNode): boolean {
 }
 
 /**
- * Mirrors `$appendChildrenFragment`'s "preserve this node atomically" classification. A char
- * span's attribute bytes are no longer classified wholesale: a span WITH a closing glyph renders
- * its attributes as an ordinary `|…` display run among its children (attributeDisplay.utils.ts),
- * so the fragment builder re-tokenizes it like any other char content and `extractAttributes`
- * re-derives the attribute set — a genuine round trip, not a preserved blob. A span with NO
- * closing glyph (implicitly-closed footnote/cross-reference content, or explicit `closed="false"`)
- * never gets a display run at all, so any OTHER attribute it carries (`link-href` on an
- * auto-closed `\xt`, say) has no visible bytes to re-derive from — `$hasUnrecoverableAttributes`
- * keeps exactly that shape atomic.
+ * Whether `marker` re-tokenizes as a milestone, mirroring the tokenizer's OWN classification
+ * (`usfmFragmentToUsjContent`) exactly: stylesheet-declared `MarkerType.Milestone`, or — when the
+ * effective stylesheet doesn't know the marker at all (the bundled table has no milestone
+ * entries; a project `StyleInfo` might) — the same stylesheet-family name heuristic the tokenizer
+ * falls back to. A name the heuristic deliberately excludes (a heuristic-gap name like bare `ts`,
+ * valid per `MilestoneNode.isValidMarker` but not a stylesheet-declared milestone name) would
+ * tokenize back as something else entirely — such a marker must stay atomic.
+ */
+function $isReTokenizableMilestone(marker: string, getMarkerFn: MarkerLookup): boolean {
+  const kind = getMarkerFn(marker)?.type;
+  return kind === MarkerType.Milestone || (kind === undefined && isMilestoneHeuristicName(marker));
+}
+
+/**
+ * Mirrors `$appendChildrenFragment`'s "preserve this node atomically" classification. A milestone
+ * re-tokenizes exactly when its marker classifies as one (`$isReTokenizableMilestone`): its
+ * display run (opening glyph, optional attribute text, self-closing glyph) is ordinary text among
+ * its paragraph siblings, and the tokenizer's `scanMilestone` re-derives sid/eid/unknownAttributes
+ * from it — a genuine round trip, not a preserved blob. A char span's attribute bytes are
+ * similarly no longer classified wholesale: a span WITH a closing glyph renders its attributes as
+ * an ordinary `|…` display run among its children (attributeDisplay.utils.ts), so the fragment
+ * builder re-tokenizes it like any other char content and `extractAttributes` re-derives the
+ * attribute set. A span with NO closing glyph (implicitly-closed footnote/cross-reference content,
+ * or explicit `closed="false"`) never gets a display run at all, so any OTHER attribute it carries
+ * (`link-href` on an auto-closed `\xt`, say) has no visible bytes to re-derive from —
+ * `$hasUnrecoverableAttributes` keeps exactly that shape atomic.
  */
 function $isRebuildSentinel(node: LexicalNode, getMarkerFn: MarkerLookup): boolean {
-  if ($isMilestoneNode(node) || $isNoteNode(node) || $isUnknownNode(node)) return true;
+  if ($isMilestoneNode(node)) return !$isReTokenizableMilestone(node.getMarker(), getMarkerFn);
+  if ($isNoteNode(node) || $isUnknownNode(node)) return true;
   if ($isVerseNode(node)) return verseNeedsSentinel(node);
   if ($isCharNode(node))
     return $hasUnrecoverableAttributes(node) || getMarkerFn(node.getMarker()) === undefined;
@@ -189,14 +208,19 @@ function $appendSignature(children: LexicalNode[], out: string[], getMarkerFn: M
   for (let index = 0; index < children.length; index++) {
     const node = children[index];
     if ($isMilestoneNode(node)) {
-      // Mirror `$appendChildrenFragment`: the milestone's display run (opening
-      // MarkerNode, optional attribute text, self-closing MarkerNode) is absorbed
-      // into the SAME single sentinel the fragment builder produces for it — the
-      // post-splice NEW side's sentinel already stands in for the whole run, so the
-      // pre-splice OLD side must collapse the run the same way or the signatures
-      // never compare equal and the fixed-point refusal never fires.
+      // Mirror `$appendChildrenFragment`: a re-tokenizable milestone's display run (opening
+      // MarkerNode, optional attribute text, self-closing MarkerNode) is ordinary signature
+      // content — the run's attribute text IS the canonical serialization of sid/eid/
+      // unknownAttributes (`addAttributes`/`canonicalAttributeText`), so recursing into it
+      // captures an edited attribute value with no separate node-state comparison needed. A
+      // non-re-tokenizable milestone's run is absorbed into the SAME single sentinel the
+      // fragment builder produces for it — the post-splice NEW side's sentinel already stands
+      // in for the whole run, so the pre-splice OLD side must collapse the run the same way or
+      // the signatures never compare equal and the fixed-point refusal never fires.
       const run = $milestoneDisplayRun(children, index);
-      out.push(ATOMIC_SENTINEL);
+      if ($isReTokenizableMilestone(node.getMarker(), getMarkerFn))
+        $appendSignature(run, out, getMarkerFn);
+      else out.push(ATOMIC_SENTINEL);
       index += run.length;
     } else if ($isMarkerNode(node)) {
       // Delimited and tagged (not bare glyph text) so text moving across the
@@ -255,8 +279,16 @@ function $appendNodesFragment(
     if ($isMarkerNode(node)) {
       pushText(out, node, toFragmentText(node.getTextContent()));
     } else if ($isMilestoneNode(node)) {
+      // The MilestoneNode itself contributes no bytes (an invisible decorator); its display
+      // run is the marker's actual USFM representation. A re-tokenizable milestone's run flows
+      // into the fragment as ordinary text — `scanMilestone` re-derives sid/eid/unknownAttributes
+      // from it on tokenize, closing the loop that let an edited attribute value settle. A
+      // milestone the tokenizer would not re-derive as one (`$isReTokenizableMilestone`) stays a
+      // preserved sentinel, node and run together, exactly as before.
       const run = $milestoneDisplayRun(children, index);
-      pushSentinel(out, [node, ...run]);
+      if ($isReTokenizableMilestone(node.getMarker(), getMarkerFn))
+        $appendNodesFragment(run, out, getMarkerFn);
+      else pushSentinel(out, [node, ...run]);
       index += run.length;
     } else if ($isNoteNode(node) || $isUnknownNode(node)) {
       pushSentinel(out, [node]);
