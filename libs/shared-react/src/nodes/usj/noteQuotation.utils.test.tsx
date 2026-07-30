@@ -1,7 +1,7 @@
 // Reaching inside only for tests.
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import { createBasicTestEnvironment } from "../../../../../libs/shared/src/nodes/usj/test.utils";
-import { $stripSelectionToQuotation } from "./noteQuotation.utils";
+import { $stripSelectionToQuotation } from "./note.utils";
 import {
   $createTextNode,
   $getRoot,

@@ -1,9 +1,6 @@
 import { $createImmutableVerseNode } from "../../../nodes/usj/ImmutableVerseNode";
-import {
-  $createWholeNote,
-  $isSomeVerseNode,
-  SomeVerseNode,
-} from "../../../nodes/usj/node-react.utils";
+import { $isSomeVerseNode, SomeVerseNode } from "../../../nodes/usj/node-react.utils";
+import { $createWholeNote } from "../../../nodes/usj/note.utils";
 import { UsjNodeOptions } from "../../../nodes/usj/usj-node-options.model";
 import { ViewOptions } from "../../../views/view-options.utils";
 import {

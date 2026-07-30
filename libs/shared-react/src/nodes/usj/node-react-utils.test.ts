@@ -12,12 +12,11 @@ import {
   $findLastVerse,
   $findThisVerse,
   $getEffectiveVerseForBcv,
-  $insertNote,
   $isSomeVerseNode,
   $selectNextVerse,
   $selectPreviousVerse,
-  isCollapsedNoteMode,
 } from "./node-react.utils";
+import { $insertNote, isCollapsedNoteMode } from "./note.utils";
 import { UsjNodeOptions } from "./usj-node-options.model";
 import {
   $createPoint,

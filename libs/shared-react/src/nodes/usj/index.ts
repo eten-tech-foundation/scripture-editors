@@ -6,6 +6,7 @@ import { usjBaseNodes } from "shared";
 export * from "./ImmutableNoteCallerNode";
 export * from "./ImmutableVerseNode";
 export * from "./node-react.utils";
+export * from "./note.utils";
 export * from "./usj-node-options.model";
 
 // AttributeRunNode rides in via usjBaseNodes (shared) — every USJ-shaped editor needs it, not only
