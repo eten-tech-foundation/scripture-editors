@@ -46,6 +46,7 @@ import {
   ParaNode,
   segmentState,
   SomeChapterNode,
+  textTypeState,
   UnknownAttributes,
   UnknownNode,
   VERSE_MARKER,
@@ -265,7 +266,12 @@ function $handleTextNodes(
     text = text.slice(1);
   }
 
-  const isNodeAttributeText = text.startsWith(NODE_ATTRIBUTE_PREFIX);
+  // Char-span attribute display runs (bare `|…`, no NBSP prefix — see usj-editor.adaptor's
+  // `addCharAttributes`) carry no NBSP prefix to strip against, so the prefix check alone can't
+  // catch them; the textType state tag is the other signal, kept alongside the prefix check for
+  // the legacy NBSP-prefixed (milestone) attribute text.
+  const isNodeAttributeText =
+    text.startsWith(NODE_ATTRIBUTE_PREFIX) || $getState(currentNode, textTypeState) === "attribute";
   const isPlaceholderText =
     !!parentCharNode &&
     text === EMPTY_CHAR_PLACEHOLDER_TEXT &&

@@ -41,6 +41,7 @@ import {
   getEditableCallerText,
   NBSP,
   segmentState,
+  textTypeState,
 } from "shared";
 
 describe("getEditorDelta", () => {
@@ -452,6 +453,49 @@ describe("getEditorDelta", () => {
                 },
                 { insert: " more", attributes: { char: { style: "ft" } } },
               ],
+            },
+          },
+        },
+      },
+      { insert: LF, attributes: { para: { style: "q1" } } },
+    ]);
+  });
+
+  it("should exclude a char span's attribute display run from canonical contents ops", async () => {
+    // \w word|gloss\w* — the display run is engine-owned presentation, re-synthesized by
+    // $applyUpdate from the char's own unknownAttributes; it must not shift content length.
+    const { editor } = await testEnvironment(() => {
+      const attribute = $createTextNode("|gloss");
+      $setState(attribute, textTypeState, "attribute");
+      $getRoot().append(
+        $createParaNode("q1").append(
+          $createTextNode("When"),
+          $createNoteNode("f", GENERATOR_NOTE_CALLER, false).append(
+            $createMarkerNode("f"),
+            $createTextNode(getEditableCallerText(GENERATOR_NOTE_CALLER)),
+            $createCharNode("w").append(
+              $createMarkerNode("w"),
+              $createTextNode(`${NBSP}word`),
+              attribute,
+              $createMarkerNode("w", "closing"),
+            ),
+            $createMarkerNode("f", "closing"),
+          ),
+        ),
+      );
+    });
+
+    const delta = getEditorDelta(editor.getEditorState());
+
+    expect(delta.ops).toEqual([
+      { insert: "When" },
+      {
+        insert: {
+          note: {
+            style: "f",
+            caller: GENERATOR_NOTE_CALLER,
+            contents: {
+              ops: [{ insert: "word", attributes: { char: { style: "w" } } }],
             },
           },
         },

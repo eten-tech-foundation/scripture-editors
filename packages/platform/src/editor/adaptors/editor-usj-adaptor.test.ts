@@ -417,4 +417,34 @@ describe("Editor USJ Adaptor — caret-host placeholder", () => {
     const asDefault = deserializeSerializedEditorState(standardState, undefined);
     expect(JSON.stringify(asDefault)).toContain(`3~000 men`);
   });
+
+  it("excludes a char span's attribute display run from saved USJ content", () => {
+    // \w word|lemma="grace"\w* — the attribute belongs in USJ as a MarkerObject prop
+    // (unknownAttributes), not as literal `|…` text in the char's content array.
+    const usj: Usj = {
+      ...EMPTY_USJ,
+      content: [
+        {
+          type: "para",
+          marker: "p",
+          content: [
+            { type: "char", marker: "w", lemma: "grace", content: ["word"] } as MarkerObject,
+          ],
+        } as MarkerObject,
+      ],
+    };
+    initializeSerialize(undefined, undefined);
+    reset();
+    const standardViewOptions = getViewOptions(STANDARD_VIEW_MODE);
+    const state = serializeEditorState(usj, standardViewOptions);
+    const editorState = editor.parseEditorState(state);
+    initializeDeserialize(undefined);
+
+    const result = editorUsjAdaptor.deserializeEditorState(editorState, standardViewOptions);
+
+    const para = result?.content?.[0] as MarkerObject;
+    const char = para.content?.[0] as MarkerObject & { lemma?: string };
+    expect(char.lemma).toBe("grace");
+    expect(char.content).toEqual(["word"]);
+  });
 });
