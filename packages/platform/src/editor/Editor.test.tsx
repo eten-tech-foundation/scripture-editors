@@ -4,6 +4,7 @@ import { usjGen1v1 } from "../../../utilities/src/converters/usj/converter-test.
 import Editor from "./Editor";
 import { EditorRef } from "./editor.model";
 import Editorial from "../Editorial";
+import { flushQueuedEvents } from "./editor-test.utils";
 import { ContentJsonPath, Usj } from "@eten-tech-foundation/scripture-utilities";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { act, render } from "@testing-library/react";
@@ -199,13 +200,6 @@ async function pressDelete(editor: LexicalEditor): Promise<void> {
   });
 }
 
-/** Lets queued microtasks (e.g. the deferred scripture-reference recompute) settle. */
-async function flushMicrotasks(): Promise<void> {
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
-}
-
 const usjWithVerseInParagraphMiddle: Usj = {
   type: "USJ",
   version: "3.1",
@@ -241,7 +235,7 @@ describe("undo after a verse-spanning delete (PT-4102 regression)", () => {
         </Editor>,
       );
     });
-    await flushMicrotasks();
+    await flushQueuedEvents();
     if (!ref.current || !editor) throw new Error("EditorRef did not mount");
     const lexicalEditor = editor;
     const editorRef = ref.current;
@@ -257,7 +251,7 @@ describe("undo after a verse-spanning delete (PT-4102 regression)", () => {
     // Guarded two-step delete: the first Delete arms the range, the second removes it.
     await pressDelete(lexicalEditor);
     await pressDelete(lexicalEditor);
-    await flushMicrotasks();
+    await flushQueuedEvents();
 
     // Precondition: the range (verse marker + surrounding text) was actually deleted.
     const afterDelete = JSON.stringify(editorRef.getUsj());
@@ -268,7 +262,7 @@ describe("undo after a verse-spanning delete (PT-4102 regression)", () => {
     await act(async () => {
       editorRef.undo();
     });
-    await flushMicrotasks();
+    await flushQueuedEvents();
 
     const afterUndo = JSON.stringify(editorRef.getUsj());
     expect(afterUndo).toContain("Alpha ");
