@@ -1,8 +1,10 @@
+import { $resolvePendingMarkers, MarkerEditContext } from "./markerEditTier1.utils";
 import {
   $appendCharPara,
   $appendVersePara,
   testEnvironment,
   testEnvironmentWithSheet,
+  viewOptions,
 } from "./markerEdit.test-helpers";
 import { act } from "@testing-library/react";
 import {
@@ -12,10 +14,12 @@ import {
   $isRangeSelection,
   $isTextNode,
   $setSelection,
+  $setState,
   BLUR_COMMAND,
   CLICK_COMMAND,
   KEY_DOWN_COMMAND,
   KEY_ENTER_COMMAND,
+  NodeKey,
   TextNode,
 } from "lexical";
 import {
@@ -29,14 +33,19 @@ import {
   ChapterNode,
   CharNode,
   CURSOR_CHANGE_TAG,
+  getMarker as bundledGetMarker,
   getVisibleOpenMarkerText,
   MarkerNode,
   NBSP,
   NoteNode as NoteNodeClass,
   ParaNode,
   StyleInfo,
+  textTypeState,
   VerseNode,
 } from "shared";
+// Reaching inside only for tests.
+// eslint-disable-next-line @nx/enforce-module-boundaries
+import { createBasicTestEnvironment } from "../../../../../libs/shared/src/nodes/usj/test.utils";
 
 function $appendHeadingPara(): { para: ParaNode; marker: MarkerNode } {
   const para = $createParaNode("s1");
@@ -678,5 +687,82 @@ describe("async scrRef caret-yank and cross-frame blur", () => {
       expect(para1.getMarker()).toBe("s1"); // caret's own pending preserved (lastAnchorKey except)
       expect(para2.getMarker()).toBe("s2"); // the other pending still completes on blur
     });
+  });
+});
+
+describe("$resolvePendingMarkers attribute-run re-pend guard", () => {
+  /**
+   * A standalone `MarkerEditContext` — bypassing the mounted `MarkerEditPlugin` — so
+   * `pendingKeys` is a plain `Set` this test can inspect directly, the same direct-call
+   * technique the Tier-2 trigger and `$rebuildParas` suites use.
+   */
+  function buildContext(): MarkerEditContext {
+    return {
+      viewOptions,
+      getMarker: bundledGetMarker,
+      pendingKeys: new Set<NodeKey>(),
+      splitExpected: { current: false },
+      rebuildAttempted: new Set<string>(),
+    };
+  }
+
+  it("keeps a caret-held edited attribute run pending, then consumes the key on departure", () => {
+    const { editor } = createBasicTestEnvironment();
+    let ndChar: CharNode;
+    let run: TextNode;
+    let other: TextNode;
+    editor.update(
+      () => {
+        ndChar = $createCharNode("nd", { lemma: "grace" });
+        run = $createTextNode('|lemma="grace"');
+        $setState(run, textTypeState, "attribute");
+        ndChar.append(
+          $createMarkerNode("nd"),
+          $createTextNode(`${NBSP}holy`),
+          run,
+          $createMarkerNode("nd", "closing"),
+        );
+        other = $createTextNode("elsewhere");
+        $getRoot().append(
+          $createParaNode("p").append($createMarkerNode("p"), $createTextNode(NBSP), ndChar),
+          $createParaNode("p").append($createMarkerNode("p"), other),
+        );
+      },
+      { discrete: true },
+    );
+    const context = buildContext();
+    editor.update(
+      () => {
+        // Mid-edit: the run diverges from canonical with the collapsed caret inside it; the
+        // engine's CharNode transform pends the SPAN key for exactly this shape.
+        run.setTextContent('|lemma="gra');
+        run.select(run.getTextContentSize(), run.getTextContentSize());
+        context.pendingKeys.add(ndChar.getKey());
+      },
+      { discrete: true },
+    );
+    editor.update(
+      () => {
+        // Resolve while the caret still holds the run. `exceptKey` shields only the anchor
+        // node itself (the run TextNode) — NOT the parent span's pended key — so without the
+        // re-pend guard this settles the span out from under the user's mid-edit caret.
+        $resolvePendingMarkers(context, run.getKey());
+        expect(context.pendingKeys.has(ndChar.getKey())).toBe(true);
+        // Nothing settled: the in-progress edit is untouched.
+        expect(run.getTextContent()).toBe('|lemma="gra');
+      },
+      { discrete: true },
+    );
+    editor.update(
+      () => {
+        // Caret departure: the next resolve consumes the key. The settle itself may refuse as
+        // a fixed point while attribute-bearing spans are still Tier-2 sentinels — key
+        // consumption (no re-pend, no leak) is the observable contract here, not the rebuild.
+        other.select(0, 0);
+        $resolvePendingMarkers(context);
+        expect(context.pendingKeys.has(ndChar.getKey())).toBe(false);
+      },
+      { discrete: true },
+    );
   });
 });
