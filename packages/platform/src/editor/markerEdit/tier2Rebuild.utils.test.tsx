@@ -10,10 +10,19 @@ import {
 import usjEditorAdaptor from "../adaptors/usj-editor.adaptor";
 import { $rebuildParas, Tier2Context } from "./tier2Rebuild.utils";
 import { usxStringToUsj } from "@eten-tech-foundation/scripture-utilities";
-import { $getRoot, $getSelection, $isRangeSelection, $isTextNode } from "lexical";
 import {
+  $getRoot,
+  $getSelection,
+  $isElementNode,
+  $isRangeSelection,
+  $isTextNode,
+  LexicalNode,
+} from "lexical";
+import {
+  $charAttributeDisplayNode,
   $isCharNode,
   $isMarkerNode,
+  CharNode,
   getMarker as bundledGetMarker,
   $isParaNode,
   NBSP,
@@ -63,6 +72,29 @@ function $firstPara(usj: ReturnType<typeof deserializeSerializedEditorState>) {
     defined.content.find((c) => typeof c !== "string" && c.type === "para"),
     "no para in reconstructed USJ",
   );
+}
+
+/** Depth-first search for a CharNode by marker anywhere under `root` (nested spans included). */
+function $findCharDescendant(root: LexicalNode, marker: string): CharNode | undefined {
+  if ($isCharNode(root) && root.getMarker() === marker) return root;
+  if (!$isElementNode(root)) return undefined;
+  for (const child of root.getChildren()) {
+    const found = $findCharDescendant(child, marker);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+/** A char span's plain-text content, excluding its glyph MarkerNode children (MarkerNode is
+ * itself a TextNode subclass) and the structural leading NBSP separator — just the text a user
+ * would see/type as the span's content. */
+function $charContentText(char: CharNode): string {
+  return char
+    .getChildren()
+    .filter((node) => $isTextNode(node) && !$isMarkerNode(node))
+    .map((node) => node.getTextContent())
+    .join("")
+    .replace(NBSP, "");
 }
 
 describe("$rebuildParas", () => {
@@ -239,9 +271,15 @@ describe("$rebuildParas", () => {
   // scans as unknown marker "wj￼"), vanish from the text, and trip the sentinel-count abort —
   // so a deleted separator before a sentinel span could never settle back. The fragment builder
   // now emits a separator space before a placeholder that would otherwise glue onto a marker.
+  //
+  // Was authored against an ATTRIBUTE-bearing nested span (byte attributes made a char span a
+  // Tier-2 sentinel) — Task 7 removed that classification, so an attribute span no longer
+  // exercises this code path at all (it re-tokenizes like any other known-marker char). Retargeted
+  // at an UNKNOWN-marker nested span (`zx`, custom.sty), which is still a sentinel today and is
+  // exactly the case this separator-insertion logic guards.
   it("rebuilds (not aborts) when a sentinel span directly follows an opening glyph", () => {
     const editor = loadEditor(
-      usjFromUsx(`x <char style="wj">a<char style="w" lemma="stuff">dsa</char>e</char> after`),
+      usjFromUsx(`x <char style="wj">a<char style="zx">dsa</char>e</char> after`),
     );
     let preservedKey = "";
     editor.update(
@@ -253,16 +291,16 @@ describe("$rebuildParas", () => {
           "wj span not found",
         );
         if (!$isCharNode(wj)) throw new Error("wj is not a CharNode");
-        // Make the attribute span (a Tier-2 sentinel: byte attributes are not
+        // Make the unknown-marker span (a Tier-2 sentinel: custom.sty markers are not
         // text-recoverable) directly follow the opener: remove everything between them,
         // simulating the user deleting the separator/leading text.
-        const attrSpan = requireDefined(
+        const zxSpan = requireDefined(
           wj.getChildren().find((n) => $isCharNode(n)),
-          "attribute span not found",
+          "zx span not found",
         );
-        preservedKey = attrSpan.getKey();
+        preservedKey = zxSpan.getKey();
         for (const child of wj.getChildren()) {
-          if ($isMarkerNode(child) || child.is(attrSpan)) continue;
+          if ($isMarkerNode(child) || child.is(zxSpan)) continue;
           if (child.getTextContent().includes("e")) continue; // keep the tail text
           child.remove();
         }
@@ -279,8 +317,8 @@ describe("$rebuildParas", () => {
       );
       if (!$isCharNode(wj)) throw new Error("wj is not a CharNode");
       // The preserved span survived as the SAME instance (moved, not recreated)...
-      const attrSpan = wj.getChildren().find((n) => $isCharNode(n));
-      expect(attrSpan?.getKey()).toBe(preservedKey);
+      const zxSpan = wj.getChildren().find((n) => $isCharNode(n));
+      expect(zxSpan?.getKey()).toBe(preservedKey);
       // ...and the display separator is restored between the opener and the span.
       const children = wj.getChildren();
       expect($isMarkerNode(children[0]) && children[0].getTextContent()).toBe("\\wj");
@@ -631,6 +669,181 @@ describe("unknown-para rebuild round-trip", () => {
       const para = $lastPara();
       expect(para.getMarker()).toBe("zfoo"); // preserved, not rewrapped as a default \p
       expect(para.getChildren().some((n) => n.getType() === "char")).toBe(true); // "nd" span built
+    });
+  });
+});
+
+describe("attribute-bearing char spans re-tokenize", () => {
+  it('no-edit rebuild of `\\w x|lemma="y"\\w*` is a fixed point', () => {
+    // Loaded from USJ, the span already carries its canonical collapsed run (`|y`, since lemma
+    // is "w"'s default attribute) — the same materialized shape a settle would produce from the
+    // literal source `\w x|lemma="y"\w*`. An untouched rebuild must not perturb it.
+    const editor = loadEditor(usjFromUsx(`before <char style="w" lemma="y">x</char> after`));
+    editor.update(
+      () => {
+        expect($rebuildParas([$lastPara()], context)).toBe(false);
+      },
+      { discrete: true },
+    );
+    editor.getEditorState().read(() => {
+      const w = requireDefined($findCharDescendant($lastPara(), "w"), "w char span not found");
+      expect(w.getUnknownAttributes()).toMatchObject({ lemma: "y" });
+    });
+  });
+
+  it("no-edit rebuild of the nested zzz6 shape `\\wj \\+w dsa|stuff\\+w*` is a fixed point", () => {
+    const editor = loadEditor(
+      usjFromUsx(`<char style="wj"><char style="w" lemma="stuff">dsa</char>e</char>`),
+    );
+    editor.update(
+      () => {
+        expect($rebuildParas([$lastPara()], context)).toBe(false);
+      },
+      { discrete: true },
+    );
+    editor.getEditorState().read(() => {
+      const w = requireDefined($findCharDescendant($lastPara(), "w"), "w char span not found");
+      expect(w.getUnknownAttributes()).toMatchObject({ lemma: "stuff" });
+    });
+  });
+
+  // The deferred finding this task exists to fix: while an attribute-bearing span was a whole-node
+  // Tier-2 sentinel, ANYTHING edited inside it — including its own nested closer glyph — was
+  // preserved verbatim (moved, never re-derived), so the edit could never settle: $rebuildParas
+  // kept refusing as a "fixed point" no matter how many times it ran, because the sentinel
+  // comparison never looked past the placeholder. Deleting the nested closer glyph now flows into
+  // the paragraph fragment like any other glyph text, so the tokenizer sees the still-open span and
+  // genuinely resolves it (implicitly closed, its `|stuff` bytes literal — no closer ever matched
+  // to run `extractAttributes`).
+  it("editing a nested closer glyph inside an attribute span settles (deferred finding 2)", () => {
+    const editor = loadEditor(
+      usjFromUsx(`<char style="wj"><char style="w" lemma="stuff">dsa</char>e</char>`),
+    );
+    editor.update(
+      () => {
+        const wSpan = requireDefined(
+          $findCharDescendant($lastPara(), "w"),
+          "w char span not found",
+        );
+        const closer = requireDefined(
+          wSpan.getChildren().find((n) => $isMarkerNode(n) && n.getMarkerSyntax() === "closing"),
+          "w closing glyph not found",
+        );
+        closer.remove(); // simulates the user backspacing through the whole `\+w*` glyph
+        expect($rebuildParas([$lastPara()], context)).toBe(true);
+      },
+      { discrete: true },
+    );
+    editor.getEditorState().read(() => {
+      const w = requireDefined($findCharDescendant($lastPara(), "w"), "w char span not found");
+      // Never explicitly closed: no frame ran extractAttributes, so the lemma attribute was
+      // never derived and the `|stuff` bytes are ordinary content, merged with the trailing "e".
+      // `closed: "false"` is the honesty-rule flag every implicitly-closed span carries.
+      expect(w.getUnknownAttributes()).toEqual({ closed: "false" });
+      expect(w.getTextContent().replace(NBSP, "")).toContain("dsa|stuffe");
+    });
+    const usj = deserializeSerializedEditorState(editor.getEditorState().toJSON(), viewOptions);
+    const para = $firstPara(usj);
+    // closed="false": the span round-trips as implicitly closed, exactly like an unclosed note.
+    expect(JSON.stringify(para)).toContain('"closed":"false"');
+  });
+
+  it('`|lemma="gloss"` settles to `|gloss` on rebuild (PT9 settle-time simplification)', () => {
+    const editor = loadEditor(usjFromUsx(`<char style="w" lemma="grace">x</char>`));
+    editor.update(
+      () => {
+        const w = requireDefined($findCharDescendant($lastPara(), "w"), "w char span not found");
+        const run = requireDefined($charAttributeDisplayNode(w), "attribute display run not found");
+        // Simulate the user having typed the explicit (non-canonical) form directly.
+        run.setTextContent('|lemma="gloss"');
+        expect($rebuildParas([$lastPara()], context)).toBe(true);
+      },
+      { discrete: true },
+    );
+    editor.getEditorState().read(() => {
+      const w = requireDefined($findCharDescendant($lastPara(), "w"), "w char span not found");
+      expect(w.getUnknownAttributes()).toMatchObject({ lemma: "gloss" });
+      // Re-tokenize + re-materialize collapses back to the canonical bare-value form.
+      const run = requireDefined(
+        $charAttributeDisplayNode(w),
+        "attribute display run not found after rebuild",
+      );
+      expect(run.getTextContent()).toBe("|gloss");
+    });
+  });
+
+  it("deleting the whole run settles to a span with no attributes", () => {
+    const editor = loadEditor(usjFromUsx(`<char style="w" lemma="grace">x</char>`));
+    editor.update(
+      () => {
+        const w = requireDefined($findCharDescendant($lastPara(), "w"), "w char span not found");
+        const run = requireDefined($charAttributeDisplayNode(w), "attribute display run not found");
+        run.remove(); // the user deleted the entire `|grace` run
+        expect($rebuildParas([$lastPara()], context)).toBe(true);
+      },
+      { discrete: true },
+    );
+    editor.getEditorState().read(() => {
+      const w = requireDefined($findCharDescendant($lastPara(), "w"), "w char span not found");
+      expect(w.getUnknownAttributes()).toBeUndefined();
+      expect($charAttributeDisplayNode(w)).toBeUndefined();
+    });
+  });
+
+  it("malformed attribute text settles to literal span content (no default: `\\nd a|x=\\nd*`)", () => {
+    // "nd" has no default attribute (defaultMarkerAttribute("nd") is undefined), so a bare
+    // (non-"name=value") chunk after `|` can never resolve to an attribute — PT9 leaves it as
+    // literal span content.
+    const editor = loadEditor(usjFromUsx(`<char style="nd" foo="bar">a</char>`));
+    editor.update(
+      () => {
+        const nd = requireDefined($findCharDescendant($lastPara(), "nd"), "nd char span not found");
+        const run = requireDefined(
+          $charAttributeDisplayNode(nd),
+          "attribute display run not found",
+        );
+        run.setTextContent("|x="); // malformed: "x=" has no closing quote, no "=value" pair
+        expect($rebuildParas([$lastPara()], context)).toBe(true);
+      },
+      { discrete: true },
+    );
+    editor.getEditorState().read(() => {
+      const nd = requireDefined($findCharDescendant($lastPara(), "nd"), "nd char span not found");
+      expect(nd.getUnknownAttributes()).toBeUndefined(); // "foo" is gone, "x" was never derived
+      expect($charContentText(nd)).toBe("a|x=");
+    });
+  });
+
+  it("`|gloss` typed before `\\nd*` stays literal content; before `\\w*` becomes lemma", () => {
+    const editor = loadEditor(
+      usjFromUsx(`<char style="nd" foo="bar">a</char> <char style="w" lemma="grace">x</char>`),
+    );
+    editor.update(
+      () => {
+        const nd = requireDefined($findCharDescendant($lastPara(), "nd"), "nd char span not found");
+        const ndRun = requireDefined(
+          $charAttributeDisplayNode(nd),
+          "nd attribute display run not found",
+        );
+        ndRun.setTextContent("|gloss");
+        const w = requireDefined($findCharDescendant($lastPara(), "w"), "w char span not found");
+        const wRun = requireDefined(
+          $charAttributeDisplayNode(w),
+          "w attribute display run not found",
+        );
+        wRun.setTextContent("|gloss");
+        expect($rebuildParas([$lastPara()], context)).toBe(true);
+      },
+      { discrete: true },
+    );
+    editor.getEditorState().read(() => {
+      // "nd" has no default attribute: the bare value stays literal content, not an attribute.
+      const nd = requireDefined($findCharDescendant($lastPara(), "nd"), "nd char span not found");
+      expect(nd.getUnknownAttributes()).toBeUndefined();
+      expect($charContentText(nd)).toBe("a|gloss");
+      // "w"'s default attribute IS lemma: the bare value resolves to lemma="gloss".
+      const w = requireDefined($findCharDescendant($lastPara(), "w"), "w char span not found");
+      expect(w.getUnknownAttributes()).toMatchObject({ lemma: "gloss" });
     });
   });
 });

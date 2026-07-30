@@ -27,8 +27,8 @@ import {
   TextNode,
 } from "lexical";
 import {
+  $hasUnrecoverableAttributes,
   $isCharNode,
-  CharNode,
   $isMarkerNode,
   $isMilestoneNode,
   $isNoteNode,
@@ -151,25 +151,21 @@ function verseNeedsSentinel(node: VerseNode): boolean {
 }
 
 /**
- * True when a char span carries attribute BYTES that make it non-text-recoverable (`\w
- * x|lemma="…"`). `closed` is excluded: it is derived metadata the tokenizer fully re-derives
- * (`closed="false"` on every implicitly-closed span), so a span whose only unknown attribute is
- * `closed` is still plain re-tokenizable text — treating it as atomic froze every
- * footnote-content char (they all carry closed="false") and marker typing inside notes stopped
- * splitting.
+ * Mirrors `$appendChildrenFragment`'s "preserve this node atomically" classification. A char
+ * span's attribute bytes are no longer classified wholesale: a span WITH a closing glyph renders
+ * its attributes as an ordinary `|…` display run among its children (attributeDisplay.utils.ts),
+ * so the fragment builder re-tokenizes it like any other char content and `extractAttributes`
+ * re-derives the attribute set — a genuine round trip, not a preserved blob. A span with NO
+ * closing glyph (implicitly-closed footnote/cross-reference content, or explicit `closed="false"`)
+ * never gets a display run at all, so any OTHER attribute it carries (`link-href` on an
+ * auto-closed `\xt`, say) has no visible bytes to re-derive from — `$hasUnrecoverableAttributes`
+ * keeps exactly that shape atomic.
  */
-function hasByteAttributes(node: CharNode): boolean {
-  const attributes = node.getUnknownAttributes();
-  if (!attributes) return false;
-  return Object.keys(attributes).some((name) => name !== "closed");
-}
-
-/** Mirrors `$appendChildrenFragment`'s "preserve this node atomically" classification. */
-function isRebuildSentinel(node: LexicalNode, getMarkerFn: MarkerLookup): boolean {
+function $isRebuildSentinel(node: LexicalNode, getMarkerFn: MarkerLookup): boolean {
   if ($isMilestoneNode(node) || $isNoteNode(node) || $isUnknownNode(node)) return true;
   if ($isVerseNode(node)) return verseNeedsSentinel(node);
   if ($isCharNode(node))
-    return hasByteAttributes(node) || getMarkerFn(node.getMarker()) === undefined;
+    return $hasUnrecoverableAttributes(node) || getMarkerFn(node.getMarker()) === undefined;
   return false;
 }
 
@@ -207,7 +203,7 @@ function $appendSignature(children: LexicalNode[], out: string[], getMarkerFn: M
       // glyph/content boundary — e.g. glyph "\q extra" vs. glyph "\q" + content
       // "extra" — changes the signature instead of silently canceling out.
       out.push(SIGNATURE_OPEN, "marker", toFragmentText(node.getTextContent()), SIGNATURE_CLOSE);
-    } else if (isRebuildSentinel(node, getMarkerFn)) {
+    } else if ($isRebuildSentinel(node, getMarkerFn)) {
       out.push(ATOMIC_SENTINEL);
     } else if ($isVerseNode(node)) {
       out.push(SIGNATURE_OPEN, "verse", toFragmentText(node.getTextContent()), SIGNATURE_CLOSE);
@@ -215,6 +211,16 @@ function $appendSignature(children: LexicalNode[], out: string[], getMarkerFn: M
       out.push(" ");
     } else if ($isTextNode(node)) {
       out.push(toFragmentText($textNodeFragmentText(node)));
+    } else if ($isCharNode(node)) {
+      // A known-marker span that reaches here is NOT a sentinel ($isRebuildSentinel already
+      // filtered unknown markers) — fold its own stored `unknownAttributes` into the signature
+      // alongside its recursed children. The attribute display run is a DERIVED CACHE
+      // (attributeDisplay.utils.ts) that can lag the node's true attribute state — e.g. the run
+      // was deleted but the field is still stale — so comparing children text alone could
+      // mistake a genuine attribute change for a fixed point.
+      out.push(SIGNATURE_OPEN, "char", JSON.stringify(node.getUnknownAttributes() ?? null));
+      $appendSignature(node.getChildren(), out, getMarkerFn);
+      out.push(SIGNATURE_CLOSE);
     } else if ($isElementNode(node)) {
       out.push(SIGNATURE_OPEN, node.getType());
       $appendSignature(node.getChildren(), out, getMarkerFn);
@@ -258,9 +264,13 @@ function $appendNodesFragment(
       if (verseNeedsSentinel(node)) pushSentinel(out, [node]);
       else pushText(out, node, toFragmentText(node.getTextContent()));
     } else if ($isCharNode(node)) {
-      // Unknown-marker spans (custom.sty) are not text-recoverable: the
-      // tokenizer would degrade them to literal text (preserve-or-refuse).
-      if (hasByteAttributes(node) || getMarkerFn(node.getMarker()) === undefined)
+      // Unknown-marker spans (custom.sty) are not text-recoverable: the tokenizer would degrade
+      // them to literal text (preserve-or-refuse). Likewise a span whose attributes have no
+      // closing glyph to anchor a display run (`$hasUnrecoverableAttributes`) carries bytes with
+      // no visible representation to re-derive from. Otherwise a KNOWN marker's attribute display
+      // run (if any) is ordinary text among its children — it re-tokenizes and re-derives via
+      // `extractAttributes` like the rest of the span's content.
+      if ($hasUnrecoverableAttributes(node) || getMarkerFn(node.getMarker()) === undefined)
         pushSentinel(out, [node]);
       else $appendChildrenFragment(node, out, getMarkerFn);
     } else if ($isLineBreakNode(node)) {
