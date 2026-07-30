@@ -17,19 +17,24 @@
  *
  * ## Per-kind shapes
  *
- * The `attributes` part is OPAQUE bytes for the consumer to concatenate after the opening, never
- * to parse: its shape varies per kind (`|name="value"` pipe pairs for most kinds, a leading-space
- * `\cat …\cat*` marker run for sidebar, `""` for the kinds with no attribute bytes at all).
+ * All three parts are OPAQUE bytes for the consumer to concatenate around the node's content,
+ * never to parse. The `attributes` part carries only bytes that belong BETWEEN the opening and
+ * the content (sidebar's `\cat …\cat*` marker run, periph's marker-line pipe pairs; `""` for
+ * every other kind). USFM pipe attributes on span-shaped kinds (the generic default, figure)
+ * come AFTER content, directly before the closer, so those kinds fold their attribute bytes
+ * into the `closing` part instead.
  *
- * - **Generic default** (any kind without a special case below): `\{marker} ` opening,
- *   {@link canonicalAttributeText} named pairs — always explicit `name="value"`, never the
- *   default-attribute collapse, because unknown kinds carry no StyleInfo default to collapse
- *   against — and `\{marker}*` closing.
+ * - **Generic default** (any kind without a special case below): `\{marker} ` opening, and a
+ *   closing of {@link canonicalAttributeText} named pairs — always explicit `name="value"`,
+ *   never the default-attribute collapse, because unknown kinds carry no StyleInfo default to
+ *   collapse against — followed by `\{marker}*` (the char-span shape:
+ *   `\zzz content|foo="bar"\zzz*`).
  * - **optbreak** — PT9 renders `\optbreak` as the literal token `//`, not a marker: the opening
  *   IS the bare text `//`, with no attributes and no closing glyph.
- * - **figure** — USX/USJ's `file` attribute is USFM's `src` (the tokenizer performs the same
- *   rename in the other direction; usfmFragmentToUsj.ts). Rendering reverses it back so the
- *   attribute bytes match what a `\fig …\fig*` span actually carries in the file.
+ * - **figure** — USFM 3.0 puts the caption first (`\fig caption|src="…"\fig*`), so the attribute
+ *   bytes fold into the closing. USX/USJ's `file` attribute is USFM's `src` (the tokenizer
+ *   performs the same rename in the other direction; usfmFragmentToUsj.ts); rendering reverses
+ *   it back so the bytes match what a `\fig …\fig*` span actually carries in the file.
  * - **table / table:row / table:cell** — tables have no USFM pipe-attribute syntax at all; a
  *   cell's `align`/`colspan` are ENCODED in the marker name itself (`\thc3-4`), never rendered
  *   as attribute bytes. The container contributes no bytes of its own; a row opens with `\tr `;
@@ -53,8 +58,10 @@ import { canonicalAttributeText } from "../usj/attributeDisplay.utils.js";
 import { UnknownAttributes } from "../usj/node-constants.js";
 
 /** The three USFM byte spans {@link unknownDisplayParts} computes around an `UnknownNode`'s
- * existing content children: the marker-opening bytes, the attribute bytes, and the
- * marker-closing bytes — `""` for any that don't apply to the kind. */
+ * existing content children, in render order: the marker-opening bytes, the between-opening-
+ * and-content bytes (sidebar's `\cat` run, periph's marker-line pipe pairs), and the after-
+ * content bytes (any span-trailing pipe attributes plus the closing glyph) — `""` for any part
+ * that doesn't apply to the kind. */
 export interface UnknownDisplayParts {
   opening: string;
   attributes: string;
@@ -112,11 +119,11 @@ function tableCellMarkerWithSpan(
 }
 
 /**
- * The USFM byte strings to render immediately before and after an `UnknownNode`'s existing
- * content children — the marker opening, the attribute bytes, and the marker closing — computed
- * purely from the node's stored `tag` (USJ `type`), `marker`, and `unknownAttributes`. Pure
- * function; read-only display only (see module doc for why these bytes carry no round-trip
- * obligation).
+ * The USFM byte strings to render around an `UnknownNode`'s existing content children —
+ * `opening` and `attributes` before the content, `closing` after it (see
+ * {@link UnknownDisplayParts} for what each part carries per kind) — computed purely from the
+ * node's stored `tag` (USJ `type`), `marker`, and `unknownAttributes`. Pure function; read-only
+ * display only (see module doc for why these bytes carry no round-trip obligation).
  *
  * @param tag - The `UnknownNode`'s USJ type (e.g. "figure", "table:row", "optbreak").
  * @param marker - The node's stored USFM marker, when the USJ shape carries one.
@@ -154,10 +161,13 @@ export function unknownDisplayParts(
       };
 
     case "figure":
+      // USFM 3.0 figures put the caption FIRST (`\fig caption|src="…"\fig*`), so the attribute
+      // bytes fold into the closing — rendering them between the opening and the caption would
+      // strand the caption after the attribute list, which is invalid USFM.
       return {
         opening: `\\${marker} `,
-        attributes: canonicalAttributeText(renameFigureFileToSrc(attributes), undefined),
-        closing: `\\${marker}*`,
+        attributes: "",
+        closing: `${canonicalAttributeText(renameFigureFileToSrc(attributes), undefined)}\\${marker}*`,
       };
 
     case "sidebar": {
@@ -180,10 +190,13 @@ export function unknownDisplayParts(
     }
 
     default:
+      // Char-span shape is the natural default for an attributed unknown span: content first,
+      // pipe attributes directly before the closer (`\zzz content|foo="bar"\zzz*`), so the
+      // attribute bytes fold into the closing here too.
       return {
         opening: `\\${marker} `,
-        attributes: canonicalAttributeText(attributes, undefined),
-        closing: `\\${marker}*`,
+        attributes: "",
+        closing: `${canonicalAttributeText(attributes, undefined)}\\${marker}*`,
       };
   }
 }
