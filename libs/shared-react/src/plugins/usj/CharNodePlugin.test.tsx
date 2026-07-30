@@ -1,7 +1,7 @@
 import { CharNodePlugin } from "./CharNodePlugin";
 import { baseTestEnvironment } from "./react-test.utils";
 import { act } from "@testing-library/react";
-import { $getRoot, $createTextNode, $isTextNode, $setState } from "lexical";
+import { $getRoot, $createTextNode, $getState, $isTextNode, $setState, TextNode } from "lexical";
 import {
   $createCharNode,
   $createMarkerNode,
@@ -12,6 +12,7 @@ import {
   charIdState,
   CharNode,
   NBSP,
+  textTypeState,
 } from "shared";
 
 describe("CharNodePlugin", () => {
@@ -611,6 +612,215 @@ describe("CharNodePlugin", () => {
 
       editor.getEditorState().read(() => {
         expect(msOpening.getTextContent()).toBe("\\qt-s");
+      });
+    });
+  });
+
+  // Self-healing attribute display runs: node state (CharNode.__unknownAttributes) is the truth,
+  // and the display run is a derived cache that must follow it — including remote collab updates
+  // (delta-apply calls only setUnknownAttributes, never touches the run) and structure surgery.
+  describe("attribute run healing ($syncCharAttributeDisplay transform)", () => {
+    /** `char`'s direct-child display run — the TextNode tagged textType "attribute" — if any. */
+    function attributeRun(char: CharNode): TextNode | undefined {
+      return char
+        .getChildren()
+        .find((c): c is TextNode => $isTextNode(c) && $getState(c, textTypeState) === "attribute");
+    }
+
+    it("heals a missing run from unknownAttributes", async () => {
+      let wChar: CharNode;
+      const { editor } = await testEnvironment(() => {
+        // "w" has a default attribute ("lemma"), exercising the wrapper's default-collapse wiring.
+        wChar = $createCharNode("w", { lemma: "grace" });
+        wChar.append(
+          $createMarkerNode("w"),
+          $createTextNode("word"),
+          $createMarkerNode("w", "closing"),
+        );
+        $getRoot().append($createParaNode().append(wChar));
+      });
+
+      await act(async () => {
+        editor.update(() => {
+          // Force the transform to re-run on this already-constructed span.
+          wChar.getWritable();
+        });
+      });
+
+      editor.getEditorState().read(() => {
+        const run = attributeRun(wChar);
+        expect(run?.getTextContent()).toBe("|grace");
+        // The run sits directly before the closing glyph.
+        expect(run?.getNextSibling()?.getTextContent()).toBe("\\w*");
+      });
+    });
+
+    it("heals stale run text after unknownAttributes change (remote update)", async () => {
+      let ndChar: CharNode;
+      const { editor } = await testEnvironment(() => {
+        ndChar = $createCharNode("nd", { lemma: "grace" });
+        const run = $createTextNode('|lemma="grace"');
+        $setState(run, textTypeState, "attribute");
+        ndChar.append(
+          $createMarkerNode("nd"),
+          $createTextNode("holy"),
+          run,
+          $createMarkerNode("nd", "closing"),
+        );
+        $getRoot().append($createParaNode().append(ndChar));
+      });
+
+      await act(async () => {
+        editor.update(() => {
+          // Remote collab update: delta-apply-update.utils.ts calls only setUnknownAttributes,
+          // never touches the display run itself.
+          ndChar.setUnknownAttributes({ lemma: "mercy" });
+        });
+      });
+
+      editor.getEditorState().read(() => {
+        expect(attributeRun(ndChar)?.getTextContent()).toBe('|lemma="mercy"');
+      });
+    });
+
+    it("removes the run when attributes are cleared", async () => {
+      let ndChar: CharNode;
+      const { editor } = await testEnvironment(() => {
+        ndChar = $createCharNode("nd", { lemma: "grace" });
+        const run = $createTextNode('|lemma="grace"');
+        $setState(run, textTypeState, "attribute");
+        ndChar.append(
+          $createMarkerNode("nd"),
+          $createTextNode("holy"),
+          run,
+          $createMarkerNode("nd", "closing"),
+        );
+        $getRoot().append($createParaNode().append(ndChar));
+      });
+
+      await act(async () => {
+        editor.update(() => {
+          ndChar.setUnknownAttributes(undefined);
+        });
+      });
+
+      editor.getEditorState().read(() => {
+        expect(attributeRun(ndChar)).toBeUndefined();
+        // The content text is untouched (the sibling separator sync owns the leading NBSP).
+        expect(ndChar.getTextContent()).toContain("holy");
+      });
+    });
+
+    it("leaves an edited run alone while the collapsed caret is inside it", async () => {
+      let ndChar: CharNode;
+      let run: ReturnType<typeof $createTextNode>;
+      const { editor } = await testEnvironment(() => {
+        ndChar = $createCharNode("nd", { lemma: "grace" });
+        run = $createTextNode('|lemma="grace"');
+        $setState(run, textTypeState, "attribute");
+        ndChar.append(
+          $createMarkerNode("nd"),
+          $createTextNode("holy"),
+          run,
+          $createMarkerNode("nd", "closing"),
+        );
+        $getRoot().append($createParaNode().append(ndChar));
+      });
+
+      await act(async () => {
+        editor.update(() => {
+          // Mid-edit: the user has typed into the run (Task 6 re-tokenizes on caret departure),
+          // so its text has drifted from canonical while the caret still sits inside it.
+          run.setTextContent('|lemma="gra');
+          run.select(run.getTextContentSize(), run.getTextContentSize());
+          // Editing a child TextNode's content alone does not dirty its parent element; force
+          // the CharNode transform to re-run, as the other spans in this span do.
+          ndChar.getWritable();
+        });
+      });
+
+      editor.getEditorState().read(() => {
+        expect(attributeRun(ndChar)?.getTextContent()).toBe('|lemma="gra');
+      });
+    });
+
+    it("leaves the insertion point alone while the caret sits where a deleted run used to be", async () => {
+      let ndChar: CharNode;
+      let content: ReturnType<typeof $createTextNode>;
+      let run: ReturnType<typeof $createTextNode>;
+      const { editor } = await testEnvironment(() => {
+        ndChar = $createCharNode("nd", { lemma: "grace" });
+        content = $createTextNode("holy");
+        run = $createTextNode('|lemma="grace"');
+        $setState(run, textTypeState, "attribute");
+        ndChar.append($createMarkerNode("nd"), content, run, $createMarkerNode("nd", "closing"));
+        $getRoot().append($createParaNode().append(ndChar));
+      });
+
+      await act(async () => {
+        editor.update(() => {
+          // Simulate deleting the whole run: it is removed and the caret lands at the end of the
+          // content immediately before its slot — exactly where a re-inserted run would go.
+          run.remove();
+          content.select(content.getTextContentSize(), content.getTextContentSize());
+        });
+      });
+
+      editor.getEditorState().read(() => {
+        // The deletion stuck: no run reappeared while the caret still holds the insertion point.
+        expect(attributeRun(ndChar)).toBeUndefined();
+      });
+    });
+
+    it("is idempotent on a canonical span", async () => {
+      let ndChar: CharNode;
+      let originalRun: ReturnType<typeof $createTextNode>;
+      const { editor } = await testEnvironment(() => {
+        ndChar = $createCharNode("nd", { lemma: "grace" });
+        originalRun = $createTextNode('|lemma="grace"');
+        $setState(originalRun, textTypeState, "attribute");
+        ndChar.append(
+          $createMarkerNode("nd"),
+          $createTextNode("holy"),
+          originalRun,
+          $createMarkerNode("nd", "closing"),
+        );
+        $getRoot().append($createParaNode().append(ndChar));
+      });
+
+      await act(async () => {
+        editor.update(() => {
+          ndChar.getWritable();
+        });
+      });
+
+      editor.getEditorState().read(() => {
+        const run = attributeRun(ndChar);
+        // Same node instance, untouched — proof the sync writes only on change.
+        expect(run?.getKey()).toBe(originalRun.getKey());
+        expect(run?.getTextContent()).toBe('|lemma="grace"');
+      });
+    });
+
+    it("never inserts a run into a span whose closing glyph is skipped", async () => {
+      // Implicitly-closed spans (e.g. footnote content markers) never render a closing glyph, so
+      // the adaptor never builds a run for them (see addCharAttributes in the platform adaptor) —
+      // the sync must not fabricate one either, no matter what unknownAttributes says.
+      let frChar: CharNode;
+      const { editor } = await testEnvironment(() => {
+        frChar = $createCharNode("fr", { closed: "false" });
+        frChar.append($createMarkerNode("fr"), $createTextNode("1.1 "));
+        $getRoot().append($createParaNode().append(frChar));
+      });
+
+      await act(async () => {
+        editor.update(() => {
+          frChar.setUnknownAttributes({ closed: "false", lemma: "grace" });
+        });
+      });
+
+      editor.getEditorState().read(() => {
+        expect(attributeRun(frChar)).toBeUndefined();
       });
     });
   });
