@@ -349,6 +349,15 @@ const DEFAULT_MARKER_ATTRIBUTES: { [marker: string]: string } = {
 };
 
 /**
+ * Character marker default attribute lookup for USFM 3 (shared with display builders).
+ * Returns the default attribute name for a given character marker, or undefined if the marker
+ * has no default attribute.
+ */
+export function defaultMarkerAttribute(marker: string): string | undefined {
+  return DEFAULT_MARKER_ATTRIBUTES[marker];
+}
+
+/**
  * USJ structural keys that a parsed attribute may never overwrite: the callers merge parsed
  * attributes straight onto the node object (`Object.assign` / spread), so an attribute literally
  * named `type`, `marker`, or `content` would clobber the node's own identity or replace its
@@ -384,7 +393,7 @@ function parseAttributeText(
  * Default attribute for stylesheet-family milestone names (USFM 3.0): quotation starts take
  * `who`, every `-e` end takes `eid`, and other starts (`\ts-s`, comment markers) take `sid`.
  */
-function milestoneDefaultAttribute(name: string): string {
+export function milestoneDefaultAttribute(name: string): string {
   if (name.endsWith("-e")) return "eid";
   return name.startsWith("qt") ? "who" : "sid";
 }

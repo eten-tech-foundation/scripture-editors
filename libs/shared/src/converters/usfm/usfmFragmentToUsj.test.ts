@@ -1,4 +1,8 @@
-import { usfmFragmentToUsjContent } from "./usfmFragmentToUsj.js";
+import {
+  usfmFragmentToUsjContent,
+  defaultMarkerAttribute,
+  milestoneDefaultAttribute,
+} from "./usfmFragmentToUsj.js";
 import { NBSP } from "../../nodes/usj/node-constants.js";
 import { createMarkerLookup, StyleInfo } from "../../utils/usfm/styleInfo.js";
 
@@ -1157,5 +1161,21 @@ describe("PT9 unknown-marker handling", () => {
   it("esb stays a paragraph even in note context (UsfmToken.cs special case)", () => {
     const content = usfmFragmentToUsjContent("\\ft text \\esb more", { isNoteContext: true });
     expect(content[content.length - 1]).toMatchObject({ type: "para", marker: "esb" });
+  });
+});
+
+describe("default-attribute lookups (shared with attribute display)", () => {
+  it("char defaults match PT9 ≤3.0", () => {
+    expect(defaultMarkerAttribute("w")).toBe("lemma");
+    expect(defaultMarkerAttribute("rb")).toBe("gloss");
+    expect(defaultMarkerAttribute("xt")).toBe("link-href");
+    expect(defaultMarkerAttribute("jmp")).toBe("link-href");
+    expect(defaultMarkerAttribute("fig")).toBeUndefined();
+    expect(defaultMarkerAttribute("nd")).toBeUndefined();
+  });
+  it("milestone defaults match PT9 ≤3.0", () => {
+    expect(milestoneDefaultAttribute("qt1-s")).toBe("who");
+    expect(milestoneDefaultAttribute("qt1-e")).toBe("eid");
+    expect(milestoneDefaultAttribute("ts-s")).toBe("sid");
   });
 });
