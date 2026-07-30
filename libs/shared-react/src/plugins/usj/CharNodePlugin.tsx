@@ -6,10 +6,13 @@ import { useEffect } from "react";
 import {
   $hasSameCharAttributes,
   $isCharNode,
+  $syncCharAttributeDisplay,
   $syncNestedGlyphs,
   $syncOpenerSeparators,
+  canonicalAttributeText,
   charIdState,
   CharNode,
+  defaultMarkerAttribute,
   EMPTY_CHAR_PLACEHOLDER_TEXT,
 } from "shared";
 
@@ -35,9 +38,29 @@ function useCharNode(editor: LexicalEditor) {
       // Self-healing display separators: every opening char glyph is followed by its NBSP
       // separator (text prefix or standalone spacer) — see markerSeparators.utils.ts (`shared`).
       editor.registerNodeTransform(CharNode, $syncOpenerSeparators),
+      // Self-healing attribute display run: re-derive the `|…` run from unknownAttributes
+      // whenever a span is dirtied — heals remote collab updates (delta-apply only calls
+      // setUnknownAttributes) and structure surgery. See attributeDisplay.utils.ts (`shared`).
+      editor.registerNodeTransform(CharNode, $syncCharAttributeDisplayNode),
       editor.registerNodeTransform(TextNode, $charTextNodeTransform),
     );
   }, [editor]);
+}
+
+/**
+ * Wraps {@link $syncCharAttributeDisplay} with the expected canonical text, computed here rather
+ * than inside `shared`'s attributeDisplay.utils.ts: `defaultMarkerAttribute` lives in the
+ * converters, and `shared`'s nodes/usj module graph must not import from there (converters/usfm
+ * already imports FROM nodes/usj, so the reverse import would cycle) — see
+ * attributeDisplay.utils.ts for the ownership rules this enforces.
+ * @param node - CharNode whose display run needs updating.
+ */
+function $syncCharAttributeDisplayNode(node: CharNode): void {
+  const expectedText = canonicalAttributeText(
+    node.getUnknownAttributes() ?? {},
+    defaultMarkerAttribute(node.getMarker()),
+  );
+  $syncCharAttributeDisplay(node, expectedText);
 }
 
 /**
