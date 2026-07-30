@@ -309,7 +309,7 @@ describe("MarkerNode", () => {
       });
     });
 
-    it("adds the 'opening' class and data-marker attribute for an opening marker", () => {
+    it("should add the 'opening' class and data-marker attribute for an opening marker", () => {
       const { editor } = createBasicTestEnvironment([MarkerNode]);
       editor.update(() => {
         const element = $createMarkerNode(testParaMarker, "opening").createDOM(testConfig(editor));
@@ -318,7 +318,7 @@ describe("MarkerNode", () => {
       });
     });
 
-    it("adds the 'selfClosing' class and data-marker attribute for a self-closing marker", () => {
+    it("should add the 'selfClosing' class and data-marker attribute for a self-closing marker", () => {
       const { editor } = createBasicTestEnvironment([MarkerNode]);
       editor.update(() => {
         const element = $createMarkerNode(testParaMarker, "selfClosing").createDOM(
@@ -329,7 +329,7 @@ describe("MarkerNode", () => {
       });
     });
 
-    it("does not add a 'marker' class", () => {
+    it("should not add a 'marker' class", () => {
       const { editor } = createBasicTestEnvironment([MarkerNode]);
       editor.update(() => {
         const element = $createMarkerNode(testParaMarker, "opening").createDOM(testConfig(editor));

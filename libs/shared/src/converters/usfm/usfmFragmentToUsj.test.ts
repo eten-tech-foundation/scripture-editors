@@ -1398,9 +1398,7 @@ describe("usfmFragmentToUsjContent — verse, chapter, note, milestone, attribut
         {
           type: "para",
           marker: "p",
-          content: ["", { type: "char", marker: "nd", content: ["Lord"] }, " after"].filter(
-            (c) => c !== "",
-          ),
+          content: [{ type: "char", marker: "nd", content: ["Lord"] }, " after"],
         },
       ]);
     });
@@ -1476,7 +1474,7 @@ describe("PT9 unknown-marker handling", () => {
       isNoteContext: true,
     });
     // Flat siblings, not nesting: PT9 closes open char styles unconditionally for any
-    // non-`+` Character token (UsfmParser.cs:247, CharacterStyleShouldAutomaticallyClose).
+    // non-`+` Character token (ParatextData UsfmParser, CharacterStyleShouldAutomaticallyClose).
     expect(content).toEqual([
       {
         type: "para",

@@ -19,7 +19,7 @@ import {
   VerseNode,
 } from "shared";
 
-/** The stylesheet from the brief, shared across cases. */
+/** The stylesheet shared across these cases. */
 const sheet: StyleInfo = {
   markers: {
     id: { marker: "id", styleType: "paragraph" },
@@ -359,7 +359,7 @@ describe("$validateDocument — xq exemption and note exclusion", () => {
 });
 
 describe("$validateDocument — paragraph stack semantics (PT9 discriminators)", () => {
-  it("an unknown para does NOT join the stack (PT9 TagValidator.cs:28-30)", async () => {
+  it("an unknown para does NOT join the stack (PT9 TagValidator empty-occursUnder early return)", async () => {
     const probeSheet: StyleInfo = {
       markers: {
         id: { marker: "id", styleType: "paragraph" },
@@ -390,7 +390,7 @@ describe("$validateDocument — paragraph stack semantics (PT9 discriminators)",
     });
   });
 
-  it("a known empty-occursUnder para does NOT join the stack (PT9 TagValidator.cs:28-30)", async () => {
+  it("a known empty-occursUnder para does NOT join the stack (PT9 TagValidator empty-occursUnder early return)", async () => {
     const noPushSheet: StyleInfo = {
       markers: {
         id: { marker: "id", styleType: "paragraph" },

@@ -4,14 +4,14 @@
  * `EditorRef`-equivalent methods (`$getMarkerMenuContext` / `$applyMarkerMenuSelection` /
  * `$splitParagraphWithMarker`) plus the module-level marker-item source
  * (`getMarkerMenuItems`/`getEnterMenuItems`), `defaultStyleInfo`-backed. Platform-level
- * per the brief: this composition only makes sense assembled from the platform's real
+ * on purpose: this composition only makes sense assembled from the platform's real
  * marker-menu machinery, not a stub.
  *
  * jsdom has no `Range.prototype.getBoundingClientRect` (confirmed against this repo's own
  * `markerMenuContext.utils.test.tsx`, which asserts `anchorRect` is `undefined` for exactly
  * this reason) - `@floating-ui/dom`'s `computePosition` rejects without it, so
  * `FloatingBoxAtCursor` never resolves coords and the menu never mounts. The harness reuses
- * that exact component (brief: don't rebuild `NodeSelectionMenu`), so a scoped polyfill below
+ * that exact component (rather than rebuilding `NodeSelectionMenu`), so a scoped polyfill below
  * is what makes the menu observable at all in this environment.
  */
 import {

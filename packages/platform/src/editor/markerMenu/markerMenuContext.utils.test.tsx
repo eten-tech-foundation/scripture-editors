@@ -1,7 +1,7 @@
 /**
  * Marker-menu context — selection-derived snapshot feeding the `\`/Enter marker
- * menus. Port of PT9's `MarkerDropdownEditHandler.HandleBackslash` selection-shape rule
- * (`MarkerDropdownEditHandler.cs:96-139`), adapted to the Lexical tree.
+ * menus. Port of PT9's `MarkerDropdownEditHandler.HandleBackslash` selection-shape rule,
+ * adapted to the Lexical tree.
  */
 import { $getMarkerMenuContext } from "./markerMenuContext.utils";
 import {

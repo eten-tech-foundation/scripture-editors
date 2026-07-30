@@ -245,7 +245,7 @@ describe("Editor Node Utilities", () => {
       expect(parseNumberFromMarkerText("v", `\\v${NBSP}`, "9")).toBe("9");
     });
 
-    it("preserves multi-letter segments instead of truncating (finding #5)", () => {
+    it("preserves multi-letter segments instead of truncating", () => {
       expect(parseNumberFromMarkerText("v", `\\v${NBSP}5abc `, "9")).toBe("5abc");
     });
   });

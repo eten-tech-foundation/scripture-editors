@@ -1,6 +1,6 @@
 /**
- * Regression tests for the resolve/rebuild fixed-point loop (Critical finding) and
- * the caret-hijack-on-completion finding (Important #1).
+ * Regression tests for the resolve/rebuild infinite loop (fixed by the fixed-point
+ * refusal) and the caret hijack on marker completion.
  *
  * The loop: an unterminated backslash sequence lands as pending literal text; a caret
  * departure or Enter routes it to Tier 2; the rebuild reproduces an unchanged fragment
@@ -107,7 +107,7 @@ function $anchorIsInParaOf(anchor: LexicalNode, qText: TextNode): boolean {
  * (`MilestoneNode.isValidMarker`) but NOT one the tokenizer's own classification resolves
  * as a milestone (`isMilestoneHeuristicName` requires a `-s`/`-e` suffix), so it stays a
  * Tier-2 sentinel rather than re-tokenizing. `$appendChildrenFragment` absorbs the display
- * run into ONE sentinel; `$appendSignature` must do the same (Fix 1) or the fixed-point
+ * run into ONE sentinel; `$appendSignature` must do the same, or the fixed-point
  * comparison never matches and the resolve/rebuild loop stays reachable for any sentinel
  * milestone's paragraph.
  */
@@ -145,7 +145,7 @@ function $milestoneZzzParaAndSecond(): {
   return { zzzText, qText, milestone };
 }
 
-describe("Tier 2 resolve/rebuild fixed-point loop (Critical)", () => {
+describe("Tier 2 resolve/rebuild fixed-point loop", () => {
   it("does not hang: unterminated \\zzz + caret departure resolves via a real rebuild", async () => {
     let pText: TextNode, qText: TextNode;
     const { editor } = await testEnvironment(
@@ -239,7 +239,7 @@ describe("Tier 2 resolve/rebuild fixed-point loop (Critical)", () => {
   }, 15000);
 });
 
-describe("caret hijack on pending completion (Important #1)", () => {
+describe("caret hijack on pending completion", () => {
   it("leaves the caret in another paragraph when a real rebuild fires elsewhere", async () => {
     let pText: TextNode, qText: TextNode;
     const { editor } = await testEnvironment(
@@ -268,7 +268,7 @@ describe("caret hijack on pending completion (Important #1)", () => {
   }, 15000);
 });
 
-describe("Tier 2 rebuild with a milestone display run (Critical, Fix 1)", () => {
+describe("Tier 2 rebuild with a milestone display run", () => {
   it("does not hang and preserves the milestone: unterminated \\zzz splits into its own paragraph", async () => {
     let zzzKey: string, qText: TextNode, msKey: string;
     const { editor } = await testEnvironment(() => {
@@ -282,7 +282,7 @@ describe("Tier 2 rebuild with a milestone display run (Critical, Fix 1)", () => 
     // routing the WHOLE paragraph (milestone run + literal text) through $rebuildParas.
     // "zzz" is unknown to the stylesheet, so per PT9 DetermineUnknownTokenType it
     // now resolves as a genuine body-context PARAGRAPH split rather than staying literal:
-    // this is a real, non-fixed-point rebuild, not a loop. Fix 1 still matters here:
+    // this is a real, non-fixed-point rebuild, not a loop. Sentinel parity still matters here:
     // `$appendSignature` must collapse the sentinel milestone's display run into the SAME
     // single sentinel `$appendChildrenFragment` uses when building the fragment, or the
     // milestone run would be torn down and rebuilt (or worse, mismatch the
@@ -432,7 +432,7 @@ describe("genuine fixed-point refusal (no real progress possible)", () => {
   }, 15000);
 });
 
-describe("glyph/content boundary restructure is not refused as a fixed point (Important, Fix 2)", () => {
+describe("glyph/content boundary restructure is not refused as a fixed point", () => {
   it("rebuilds (not refuses) when a paragraph's own marker glyph is retyped past its canonical text", async () => {
     let paraMarker: MarkerNode, qText: TextNode;
     const { editor } = await testEnvironment(() => {

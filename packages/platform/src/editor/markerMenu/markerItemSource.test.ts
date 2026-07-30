@@ -7,14 +7,14 @@ import {
 import { StyleInfo } from "shared";
 
 /**
- * Fixture per the brief, with one addition: a `c` (chapter) paragraph marker.
- * The brief's fixture list omits `c` even though `p`/`q1`/`q2`/`s1` all
- * declare `occursUnder: ["c"]` — without a `c` entry the validity stack
- * (built by replaying `previousParaMarkers`) can never contain "c", so none
- * of those candidates could ever validate (`isParagraphTagValid` only
- * bypasses the occursUnder check when the stack is completely empty,
- * TagValidator.cs:21-26). Added `c` (paragraph, occursUnder ["id"]) to make
- * the stack-replay mechanics work as the brief's assertions require.
+ * Shared fixture stylesheet. It deliberately includes a `c` (chapter)
+ * paragraph marker: `p`/`q1`/`q2`/`s1` all declare `occursUnder: ["c"]`, and
+ * without a `c` entry the validity stack (built by replaying
+ * `previousParaMarkers`) could never contain "c", so none of those candidates
+ * could ever validate (`isParagraphTagValid`, like PT9's
+ * `TagValidator.IsParagraphTagValid`, only bypasses the occursUnder check
+ * when the stack is completely empty). The `c` entry (paragraph, occursUnder
+ * ["id"]) makes the stack-replay mechanics work as these cases require.
  */
 const sheet: StyleInfo = {
   markers: {
@@ -59,7 +59,7 @@ function makeContext(overrides: Partial<MarkerMenuContext>): MarkerMenuContext {
   };
 }
 
-describe("getMarkerMenuItems — paragraph source (MarkerItemSource.cs:168-199)", () => {
+describe("getMarkerMenuItems — paragraph source (PT9 MarkerItemSource.GetParagraphTags)", () => {
   it("offers paragraph markers valid on the replayed stack, not character markers", () => {
     const context = makeContext({ source: "paragraph", previousParaMarkers: ["c", "p"] });
     const markers = getMarkerMenuItems(sheet, context).map((item) => item.marker);
@@ -91,7 +91,7 @@ describe("getMarkerMenuItems — paragraph source (MarkerItemSource.cs:168-199)"
   });
 });
 
-describe("getMarkerMenuItems — character source (MarkerItemSource.cs:109-147)", () => {
+describe("getMarkerMenuItems — character source (PT9 MarkerItemSource.GetCharacterMarkerItems)", () => {
   it("offers character/note entries valid under the current paragraph", () => {
     const context = makeContext({ source: "character", paraMarker: "p" });
     const markers = getMarkerMenuItems(sheet, context).map((item) => item.marker);
@@ -110,7 +110,8 @@ describe("getMarkerMenuItems — character source (MarkerItemSource.cs:109-147)"
 
   it(
     "floats basic items above close tags via the final stable basic-first pass; close tags " +
-      "keep innermost-first order, +-prefixed unless outermost (MarkerItemSource.cs:100,149-159)",
+      "keep innermost-first order, +-prefixed unless outermost (PT9 MarkerItemSource close-tag " +
+      "insertion and basic-first OrderBy)",
     () => {
       const context = makeContext({
         source: "character",
@@ -142,7 +143,7 @@ describe("getMarkerMenuItems — character source (MarkerItemSource.cs:109-147)"
   });
 });
 
-describe("getMarkerMenuItems — ordering (TagComparer, MarkerItemSource.cs:201-294)", () => {
+describe("getMarkerMenuItems — ordering (PT9 MarkerItemSource.TagComparer)", () => {
   it("sorts basic markers first (p), then the rest in natural alphanumeric order", () => {
     const context = makeContext({ source: "paragraph", previousParaMarkers: ["c", "p"] });
     const markers = getMarkerMenuItems(sheet, context).map((item) => item.marker);
@@ -166,7 +167,7 @@ describe("getMarkerMenuItems — ordering (TagComparer, MarkerItemSource.cs:201-
   });
 });
 
-describe("getEnterMenuItems (KeyPressEditHandler.cs:189-201 SmartEnter choice)", () => {
+describe("getEnterMenuItems (PT9 KeyPressEditHandler SmartEnter marker choice)", () => {
   it("moves ip to the front when valid at the current stack (right after \\id)", () => {
     const context = makeContext({ source: "paragraph", previousParaMarkers: ["id"] });
     const markers = getEnterMenuItems(sheet, context).map((item) => item.marker);

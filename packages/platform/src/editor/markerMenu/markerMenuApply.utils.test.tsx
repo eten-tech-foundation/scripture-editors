@@ -919,8 +919,9 @@ describe("$applyMarkerMenuSelection", () => {
       // PT9's StyleApplicator.ApplyCharacterStyle treats styles whose OccursUnder contains NEST
       // (\w, \nd, \wj, ...) differently from note-content styles (\fq, \fk, ...): with a
       // collapsed caret it emits `\+marker` AT the caret and closes it immediately with
-      // `\+marker*`, leaving every open span open (StyleApplicator.cs:277-285 opens without
-      // closing anything; :377-387 closes ONLY the just-opened style). Only non-NEST styles get
+      // `\+marker*`, leaving every open span open (ApplyCharacterStyle's NEST path emits the
+      // opener without closing anything, and its after-pass stops closing at the just-opened
+      // style). Only non-NEST styles get
       // the close-all-and-reopen shape the split-based path mirrors. Verified in real Paratext 9:
       // applying \w with the caret inside \+wj > \nd > \ft adds only the nested span.
       const wItem: MarkerMenuItem = { marker: "w", kind: "character", isBasic: true };

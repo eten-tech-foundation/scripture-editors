@@ -41,10 +41,9 @@ describe("UnknownNode", () => {
       });
     });
 
-    // `\optbreak` (USJ type "optbreak") becomes an
-    // UnknownNode with tag "optbreak" (packages/utilities/src/converters/usj/
-    // converter-test.data.ts:2571, and the "optional line break (optbreak)" corpus
-    // fixture). PT9 renders it as a literal `//` mid-sentence, so — unlike table/figure/
+    // `\optbreak` (USJ type "optbreak") becomes an UnknownNode with tag "optbreak"
+    // (per the "optional line break (optbreak)" corpus fixture in the usj converter
+    // test data). PT9 renders it as a literal `//` mid-sentence, so — unlike table/figure/
     // sidebar/periph — it must render inline, not as a block box breaking the paragraph.
     it("adds the 'unknown-inline' class instead of 'unknown-block' for the optbreak construct", () => {
       const { editor } = createBasicTestEnvironment([UnknownNode]);
@@ -59,8 +58,8 @@ describe("UnknownNode", () => {
 
     // The `\ref` inline rationale — a line-level box in the middle of a sentence would be visibly
     // wrong — governs over the literal block-level default. The "cross-reference ref target"
-    // corpus fixture nests <ref> INSIDE a paragraph's
-    // running text (converter-test.data.ts:2581 shows it becoming UnknownNode tag "ref"), the
+    // corpus fixture nests <ref> INSIDE a paragraph's running text (where it becomes an
+    // UnknownNode with tag "ref"), the
     // same mid-sentence placement as optbreak — so ref gets the inline class too. Unlike
     // optbreak, ref carries no USFM bytes of its own (unknownDisplayParts returns all-empty
     // parts for it), so only its real child text ever renders — no marker/attribute display
