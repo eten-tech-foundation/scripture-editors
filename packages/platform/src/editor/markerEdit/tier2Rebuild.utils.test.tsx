@@ -1023,7 +1023,13 @@ describe("verses re-tokenize", () => {
     const usj = deserializeSerializedEditorState(editor.getEditorState().toJSON(), viewOptions);
     const para = $firstPara(usj);
     expect(para).toMatchObject({ content: [{ type: "verse", number: "2" }, "text"] });
-    expect(JSON.stringify(para)).not.toContain("RUT 1:1");
+    // No synthesis: the renumbered verse gets no sid at all, not even a different one.
+    if (typeof para === "string") throw new Error("para is unexpectedly a string");
+    const verseContent = requireDefined(
+      para.content?.find((c) => typeof c !== "string" && c.type === "verse"),
+      "verse not found in rebuilt para",
+    );
+    expect(verseContent).not.toHaveProperty("sid");
   });
 
   // The state-lags-run direction, applied to verse the same way a milestone's own sid/eid state
