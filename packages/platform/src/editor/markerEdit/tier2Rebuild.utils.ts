@@ -144,6 +144,39 @@ function $milestoneDisplayRun(children: LexicalNode[], index: number): LexicalNo
   return run;
 }
 
+/**
+ * Display siblings after a VerseNode that belong to its \va/\vp display triplets: an opening
+ * MarkerNode, an attribute TextNode, and a closing MarkerNode for `\va`, then the same shape for
+ * `\vp` (attributeDisplay.utils.ts's `$syncVerseAttributeDisplay`/usj-editor.adaptor's
+ * `addVerseAttributes`). They ride inside the verse's sentinel — see `$milestoneDisplayRun` for
+ * the same shape applied to a milestone's run — so the tokenizer, run on the fragment AFTER the
+ * verse's own opaque placeholder, never sees `\va`/`\vp` with no verse to fold onto (which would
+ * degrade them into unrelated standalone markers instead of leaving the paragraph untouched).
+ */
+function $verseAttributeRun(children: LexicalNode[], index: number): LexicalNode[] {
+  const run: LexicalNode[] = [];
+  for (const marker of ["va", "vp"] as const) {
+    const opening = children[index + run.length + 1];
+    if (
+      !$isMarkerNode(opening) ||
+      opening.getMarkerSyntax() !== "opening" ||
+      opening.getMarker() !== marker
+    )
+      break;
+    const value = children[index + run.length + 2];
+    if (!$isTextNode(value) || $getState(value, textTypeState) !== "attribute") break;
+    const closing = children[index + run.length + 3];
+    if (
+      !$isMarkerNode(closing) ||
+      closing.getMarkerSyntax() !== "closing" ||
+      closing.getMarker() !== marker
+    )
+      break;
+    run.push(opening, value, closing);
+  }
+  return run;
+}
+
 /** A verse whose state is not fully recoverable from its visible text stays atomic. */
 function verseNeedsSentinel(node: VerseNode): boolean {
   return Boolean(
@@ -236,6 +269,19 @@ function $appendSignature(children: LexicalNode[], out: string[], getMarkerFn: M
         out.push(SIGNATURE_CLOSE);
       } else out.push(ATOMIC_SENTINEL);
       index += run.length;
+    } else if ($isVerseNode(node)) {
+      // A sentinel verse's \va/\vp display run (if any) is absorbed into the SAME single
+      // sentinel `$appendNodesFragment` produces for it — same reasoning as the non-re-
+      // tokenizable milestone case above: the post-splice NEW side's sentinel already stands in
+      // for verse + run together, so the pre-splice OLD side must collapse them the same way.
+      // A non-sentinel verse never has a run (`addVerseAttributes` only builds one alongside
+      // `verseNeedsSentinel`'s own altnumber/pubnumber trigger), so its plain "verse" signature
+      // span never needs one either.
+      const run = $verseAttributeRun(children, index);
+      if (verseNeedsSentinel(node)) out.push(ATOMIC_SENTINEL);
+      else
+        out.push(SIGNATURE_OPEN, "verse", toFragmentText(node.getTextContent()), SIGNATURE_CLOSE);
+      index += run.length;
     } else if ($isMarkerNode(node)) {
       // Delimited and tagged (not bare glyph text) so text moving across the
       // glyph/content boundary — e.g. glyph "\q extra" vs. glyph "\q" + content
@@ -243,8 +289,6 @@ function $appendSignature(children: LexicalNode[], out: string[], getMarkerFn: M
       out.push(SIGNATURE_OPEN, "marker", toFragmentText(node.getTextContent()), SIGNATURE_CLOSE);
     } else if ($isRebuildSentinel(node, getMarkerFn)) {
       out.push(ATOMIC_SENTINEL);
-    } else if ($isVerseNode(node)) {
-      out.push(SIGNATURE_OPEN, "verse", toFragmentText(node.getTextContent()), SIGNATURE_CLOSE);
     } else if ($isLineBreakNode(node)) {
       out.push(" ");
     } else if ($isTextNode(node)) {
@@ -307,8 +351,15 @@ function $appendNodesFragment(
     } else if ($isNoteNode(node) || $isUnknownNode(node)) {
       pushSentinel(out, [node]);
     } else if ($isVerseNode(node)) {
-      if (verseNeedsSentinel(node)) pushSentinel(out, [node]);
+      // A sentinel verse's \va/\vp display run (attributeDisplay.utils.ts) rides inside its
+      // sentinel, node and run together — exactly like a non-re-tokenizable milestone's run
+      // above. Re-tokenizing the run's bytes on their own (after the verse's own opaque
+      // placeholder) would hand the tokenizer `\va`/`\vp` with no verse to fold onto, degrading
+      // them into unrelated standalone markers instead of leaving the paragraph untouched.
+      const run = $verseAttributeRun(children, index);
+      if (verseNeedsSentinel(node)) pushSentinel(out, [node, ...run]);
       else pushText(out, node, toFragmentText(node.getTextContent()));
+      index += run.length;
     } else if ($isCharNode(node)) {
       // Unknown-marker spans (custom.sty) are not text-recoverable: the tokenizer would degrade
       // them to literal text (preserve-or-refuse). Likewise a span whose attributes have no

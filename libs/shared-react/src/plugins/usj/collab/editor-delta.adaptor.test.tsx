@@ -34,6 +34,7 @@ import {
   $createNoteNode,
   $createParaNode,
   $createUnknownNode,
+  $createVerseNode,
   charIdState,
   EMPTY_CHAR_PLACEHOLDER_TEXT,
   GENERATOR_NOTE_CALLER,
@@ -118,6 +119,44 @@ describe("getEditorDelta", () => {
       { insert: { milestone: { style: "ts-s", sid: "TS1" } } },
       { insert: LF, attributes: { para: { style: "q1" } } },
     ]);
+  });
+
+  it("should exclude a verse's \\va/\\vp display runs from canonical ops (not nested in a note/char)", async () => {
+    // \v 1 \va 2\va*\vp 1b\vp* — the display runs are engine-owned presentation riding as the
+    // verse's own following siblings (not inside a note or char span, so the note/char-scoped
+    // exclusion paths don't apply here); altnumber/pubnumber already flow through the verse's own
+    // embed op, so the glyph/value siblings must not shift content length or duplicate them.
+    //
+    // Compared against a bare verse's ops (rather than an exact literal `toEqual`) because an
+    // editable VerseNode's own `__text` ("\v 1 ") independently produces its own text op — a
+    // pre-existing gap unrelated to attribute display (a bare `$createVerseNode("1", "\v 1 ")`
+    // with no runs at all already leaks it the same way); asserting the runs add NO further ops
+    // isolates this task's concern from that separate, un-fixed gap.
+    const bareVerseOps = await getOpsFor(() => {
+      const verse = $createVerseNode("1", "\\v 1 ", undefined, "2", "1b");
+      $getRoot().append($createParaNode("q1").append(verse));
+    });
+
+    const withRunsOps = await getOpsFor(() => {
+      const verse = $createVerseNode("1", "\\v 1 ", undefined, "2", "1b");
+      const vaValue = $createTextNode(`${NBSP}2`);
+      $setState(vaValue, textTypeState, "attribute");
+      const vpValue = $createTextNode(`${NBSP}1b`);
+      $setState(vpValue, textTypeState, "attribute");
+      $getRoot().append(
+        $createParaNode("q1").append(
+          verse,
+          $createMarkerNode("va"),
+          vaValue,
+          $createMarkerNode("va", "closing"),
+          $createMarkerNode("vp"),
+          vpValue,
+          $createMarkerNode("vp", "closing"),
+        ),
+      );
+    });
+
+    expect(withRunsOps).toEqual(bareVerseOps);
   });
 
   it("should return the correct ops for nested chars", async () => {
@@ -1023,4 +1062,10 @@ describe("getEditorDelta", () => {
 
 async function testEnvironment($initialEditorState?: () => void) {
   return baseTestEnvironment($initialEditorState);
+}
+
+/** Builds an editor state from `$initialEditorState` and returns its canonical delta ops. */
+async function getOpsFor($initialEditorState: () => void) {
+  const { editor } = await testEnvironment($initialEditorState);
+  return getEditorDelta(editor.getEditorState()).ops;
 }
