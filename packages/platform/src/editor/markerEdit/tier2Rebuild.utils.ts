@@ -210,17 +210,31 @@ function $appendSignature(children: LexicalNode[], out: string[], getMarkerFn: M
     if ($isMilestoneNode(node)) {
       // Mirror `$appendChildrenFragment`: a re-tokenizable milestone's display run (opening
       // MarkerNode, optional attribute text, self-closing MarkerNode) is ordinary signature
-      // content — the run's attribute text IS the canonical serialization of sid/eid/
-      // unknownAttributes (`addAttributes`/`canonicalAttributeText`), so recursing into it
-      // captures an edited attribute value with no separate node-state comparison needed. A
-      // non-re-tokenizable milestone's run is absorbed into the SAME single sentinel the
-      // fragment builder produces for it — the post-splice NEW side's sentinel already stands
-      // in for the whole run, so the pre-splice OLD side must collapse the run the same way or
-      // the signatures never compare equal and the fixed-point refusal never fires.
+      // content. The run text ALONE is not enough, though — like a char span's display run
+      // (see the char branch below), it is a derived cache that can lag the node's true
+      // attribute state: an in-place value edit (the leading NBSP kept, only the value bytes
+      // changed) produces run text byte-identical to what re-tokenizing it would regenerate,
+      // so both comparison sides render the same bytes and only the milestone's own STALE
+      // sid/eid/unknownAttributes reveal that the rebuild is not a no-op. Fold that state in
+      // alongside the recursed run, or the fixed-point refusal silently discards the edit. A
+      // non-re-tokenizable milestone's run is instead absorbed into the SAME single sentinel
+      // the fragment builder produces for it — the post-splice NEW side's sentinel already
+      // stands in for the whole run, so the pre-splice OLD side must collapse the run the
+      // same way or the signatures never compare equal and the refusal never fires.
       const run = $milestoneDisplayRun(children, index);
-      if ($isReTokenizableMilestone(node.getMarker(), getMarkerFn))
+      if ($isReTokenizableMilestone(node.getMarker(), getMarkerFn)) {
+        out.push(
+          SIGNATURE_OPEN,
+          "ms",
+          JSON.stringify({
+            sid: node.getSid() ?? null,
+            eid: node.getEid() ?? null,
+            unknownAttributes: node.getUnknownAttributes() ?? null,
+          }),
+        );
         $appendSignature(run, out, getMarkerFn);
-      else out.push(ATOMIC_SENTINEL);
+        out.push(SIGNATURE_CLOSE);
+      } else out.push(ATOMIC_SENTINEL);
       index += run.length;
     } else if ($isMarkerNode(node)) {
       // Delimited and tagged (not bare glyph text) so text moving across the

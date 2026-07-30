@@ -882,7 +882,13 @@ describe("milestones re-tokenize", () => {
         const msIndex = children.findIndex((n) => n.getType() === "ms");
         const attributeNode = children[msIndex + 2];
         if (!$isTextNode(attributeNode)) throw new Error("attribute display run not found");
-        attributeNode.setTextContent('|sid="q2"'); // simulates the user editing the sid value
+        // A real in-place value edit KEEPS the run's leading NBSP (the user changes only the
+        // "q1" bytes). This is the demanding shape for fixed-point detection: the edited run
+        // text is byte-identical to what re-tokenizing it would regenerate, so ONLY the
+        // milestone's own stale node state (still sid="q1") can reveal that this rebuild is
+        // not a no-op — the signature must fold that state in, or the rebuild refuses and the
+        // edit is silently lost.
+        attributeNode.setTextContent(`${NBSP}|sid="q2"`);
         expect($rebuildParas([para], context)).toBe(true);
       },
       { discrete: true },
