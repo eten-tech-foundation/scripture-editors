@@ -894,6 +894,43 @@ describe("getEditorDelta", () => {
     ]);
   });
 
+  it("excludes an unknown node's marker/attribute display children from its contents ops", async () => {
+    // ImmutableTypedTextNode is a DecoratorNode, not a Lexical TextNode: `createUnknown`
+    // (usj-editor.adaptor.ts) flanks an unknown node's content with `.marker`/`.attribute`
+    // ImmutableTypedTextNode display children in editable mode, but `$handleTextNodes` never
+    // even sees them (its `$isTextNode` guard excludes DecoratorNode), so they contribute no
+    // ops here. The expected `contents.ops` below is byte-identical to "should include child
+    // contents for an unknown node" above, which has no display children at all — proving the
+    // display children are invisible to the delta, not merely deduplicated.
+    const { editor } = await testEnvironment(() => {
+      $getRoot().append(
+        $createImpliedParaNode().append(
+          $createUnknownNode("wat", "z", { "attr-unknown": "watAttr" }).append(
+            $createImmutableTypedTextNode("marker", "\\z "),
+            $createTextNode("child text"),
+            $createImmutableTypedTextNode("marker", "\\z*"),
+          ),
+        ),
+      );
+    });
+
+    const delta = getEditorDelta(editor.getEditorState());
+
+    expect(delta.ops).toEqual([
+      {
+        insert: {
+          unknown: {
+            tag: "wat",
+            marker: "z",
+            "attr-unknown": "watAttr",
+            contents: { ops: [{ insert: "child text" }] },
+          },
+        },
+      },
+      { insert: LF },
+    ]);
+  });
+
   it("should return the correct ops for a complex editor state", async () => {
     const { editor } = await testEnvironment(() => {
       const bookText = $createTextNode("John ");

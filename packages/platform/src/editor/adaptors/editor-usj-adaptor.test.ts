@@ -44,7 +44,9 @@ import { getViewOptions, STANDARD_VIEW_MODE, usjReactNodes } from "shared-react"
 import {
   CHAPTER_MARKER,
   getVisibleOpenMarkerText,
+  isSerializedImmutableTypedTextNode,
   isSerializedTextNode,
+  isSerializedUnknownNode,
   NBSP,
   SerializedChapterNode,
   SerializedParaNode,
@@ -321,6 +323,57 @@ describe("Editor USJ Adaptor", () => {
     expect(para.content).toEqual([
       { type: "verse", marker: "v", number: "1", altnumber: "2", pubnumber: "1b" },
       "text after",
+    ]);
+  });
+
+  it("excludes an unknown node's display marker/attribute runs from saved USJ content", () => {
+    // \fig caption|src="image.jpg" size="span" ref="1.18"\fig* — the marker/attribute display
+    // children `createUnknown` adds in editable mode are presentation only; they must not leak
+    // into the saved USJ's unknownAttributes or content array.
+    const usj: Usj = {
+      ...EMPTY_USJ,
+      content: [
+        {
+          type: "para",
+          marker: "p",
+          content: [
+            {
+              type: "figure",
+              marker: "fig",
+              file: "image.jpg",
+              size: "span",
+              ref: "1.18",
+              content: ["figure content"],
+            } as MarkerObject,
+          ],
+        } as MarkerObject,
+      ],
+    };
+    initializeSerialize(undefined, undefined);
+    reset();
+    const standardViewOptions = getViewOptions(STANDARD_VIEW_MODE);
+    const state = serializeEditorState(usj, standardViewOptions);
+    // Sanity check: the intermediate serialized state genuinely carries the display children
+    // (the round-trip assertion below would pass vacuously if there were nothing to exclude).
+    const serializedPara = state.root.children[0] as SerializedParaNode;
+    const serializedUnknown = serializedPara.children.find(isSerializedUnknownNode);
+    if (!serializedUnknown) throw new Error("No unknown node found in the serialized state");
+    expect(serializedUnknown.children.some(isSerializedImmutableTypedTextNode)).toBe(true);
+    const editorState = editor.parseEditorState(state);
+    initializeDeserialize(undefined);
+
+    const result = editorUsjAdaptor.deserializeEditorState(editorState, standardViewOptions);
+
+    const para = result?.content?.[0] as MarkerObject;
+    expect(para.content).toEqual([
+      {
+        type: "figure",
+        marker: "fig",
+        file: "image.jpg",
+        size: "span",
+        ref: "1.18",
+        content: ["figure content"],
+      },
     ]);
   });
 });

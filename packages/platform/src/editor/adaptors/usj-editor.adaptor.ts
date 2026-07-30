@@ -93,6 +93,7 @@ import {
   UNKNOWN_MARKER_OBJECT_PROPS,
   UNKNOWN_VERSION,
   UnknownAttributes,
+  unknownDisplayParts,
   UnknownNode,
   usjTextToDisplay,
   VERSE_MARKER,
@@ -593,7 +594,21 @@ function createUnknown(
   const { marker } = markerObject;
   const tag = markerObject.type;
   const unknownAttributes = getUnknownAttributes(markerObject, UNKNOWN_MARKER_OBJECT_PROPS);
-  const children: SerializedLexicalNode[] = [...childNodes];
+  const children: SerializedLexicalNode[] = [];
+  if (_viewOptions?.markerMode === "editable") {
+    // Read-only USFM byte display flanking the existing content: selectable and copyable but
+    // never editable (ImmutableTypedTextNode), excluded from editor->USJ like any other display
+    // run (the ImmutableTypedTextNode case in editor-usj.adaptor's recurseNodes), and invisible
+    // to the collab delta because it isn't a Lexical TextNode. UnknownNode stays a Tier-2
+    // sentinel — these bytes never re-tokenize back into node state.
+    const { opening, attributes, closing } = unknownDisplayParts(tag, marker, unknownAttributes);
+    if (opening) children.push(createImmutableTypedText("marker", opening));
+    if (attributes) children.push(createImmutableTypedText("attribute", attributes));
+    children.push(...childNodes);
+    if (closing) children.push(createImmutableTypedText("marker", closing));
+  } else {
+    children.push(...childNodes);
+  }
   children.forEach((node) => {
     if (isSerializedTextNode(node)) node.mode = "token";
   });

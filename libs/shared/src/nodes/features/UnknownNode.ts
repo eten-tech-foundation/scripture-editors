@@ -37,10 +37,11 @@ export const UNKNOWN_VERSION = 1;
  * `packages/utilities/src/converters/usj/converter-test.data.ts:2571,2581` shows both becoming
  * `UnknownNode`s (tags "optbreak" and "ref"):
  *
- * - `\optbreak` — PT9 renders it as a literal `//` token mid-sentence; it has no children, so
- *   the CSS supplies the `//` label (keyed off `data-tag="optbreak"`).
- * - `\ref` — a cross-reference target with real child text that must display inline; it gets
- *   NO label (the optbreak label selector cannot match it).
+ * - `\optbreak` — PT9 renders it as a literal `//` token mid-sentence; `createUnknown`
+ *   (usj-editor.adaptor.ts) renders that token as the node's own display child in editable
+ *   mode, via `unknownDisplayParts` (unknownUsfm.utils.ts).
+ * - `\ref` — a cross-reference target with real child text that must display inline; it carries
+ *   no USFM bytes of its own, so it gets no display children at all.
  *
  * Everything else (table/figure/sidebar/periph/...) stays block-level.
  */
