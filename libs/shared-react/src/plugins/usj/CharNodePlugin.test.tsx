@@ -6,6 +6,7 @@ import {
   $createCharNode,
   $createMarkerNode,
   $createParaNode,
+  $hasCaretHeldAttributeRun,
   $isCharNode,
   $isMarkerNode,
   $isParaNode,
@@ -769,6 +770,36 @@ describe("CharNodePlugin", () => {
       editor.getEditorState().read(() => {
         // The deletion stuck: no run reappeared while the caret still holds the insertion point.
         expect(attributeRun(ndChar)).toBeUndefined();
+      });
+    });
+
+    it("leaves the gap alone while the caret sits on the closing glyph, and reports it caret-held", async () => {
+      let ndChar: CharNode;
+      let run: ReturnType<typeof $createTextNode>;
+      let closer: ReturnType<typeof $createMarkerNode>;
+      const { editor } = await testEnvironment(() => {
+        ndChar = $createCharNode("nd", { lemma: "grace" });
+        run = $createTextNode('|lemma="grace"');
+        $setState(run, textTypeState, "attribute");
+        closer = $createMarkerNode("nd", "closing");
+        ndChar.append($createMarkerNode("nd"), $createTextNode(`${NBSP}holy`), run, closer);
+        $getRoot().append($createParaNode().append(ndChar));
+      });
+
+      await act(async () => {
+        editor.update(() => {
+          // Deleting the run can also land the caret ON the closing glyph (e.g. a forward
+          // delete): the other caret shape the insertion-point grace rule must honor.
+          run.remove();
+          closer.select(0, 0);
+        });
+      });
+
+      editor.getEditorState().read(() => {
+        // The deletion stuck: no run reappeared while the caret still holds the glyph.
+        expect(attributeRun(ndChar)).toBeUndefined();
+        // And the pend signal reports the held divergence for the settle path to pick up.
+        expect($hasCaretHeldAttributeRun(ndChar, '|lemma="grace"')).toBe(true);
       });
     });
 
