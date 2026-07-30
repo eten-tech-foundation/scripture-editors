@@ -10,6 +10,7 @@ import {
 import {
   EditorState,
   LineBreakNode,
+  NODE_STATE_KEY,
   SerializedEditorState,
   SerializedLexicalNode,
   SerializedTextNode,
@@ -460,6 +461,10 @@ function recurseNodes(
           serializedTextNode.text &&
           serializedTextNode.text !== NBSP &&
           !serializedTextNode.text.startsWith(NODE_ATTRIBUTE_PREFIX) &&
+          // Char-span attribute display runs (bare `|…`, no NBSP prefix — see
+          // usj-editor.adaptor's `addCharAttributes`) carry no NBSP prefix to strip against, so
+          // the prefix check above can't catch them; the textType state tag is the only signal.
+          serializedTextNode[NODE_STATE_KEY]?.textType !== "attribute" &&
           (!noteCaller || serializedTextNode.text !== getEditableCallerText(noteCaller))
         ) {
           let text = createTextMarker(serializedTextNode);
