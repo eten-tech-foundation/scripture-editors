@@ -121,7 +121,6 @@ import {
   UnknownAttributes,
   unknownDisplayParts,
   UnknownNode,
-  usjTextToDisplay,
   VERSE_MARKER,
   VERSE_MARKER_OBJECT_PROPS,
   VERSE_VERSION,
@@ -146,6 +145,7 @@ import {
   isCollapsedNoteMode,
   isSomeSerializedVerseNode,
 } from "shared-react";
+import { usjTextToDisplay } from "../markerEdit/whitespaceDisplay.utils";
 
 interface UsjEditorAdaptor extends EditorAdaptor {
   initialize: typeof initialize;

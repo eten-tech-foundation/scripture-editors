@@ -1047,6 +1047,12 @@ export function $buildNoteFragment(
  * re-tokenized. Preserve-or-refuse: any guard-rail failure returns false with the note
  * untouched (never a partial mutation, never an infinite loop). A NoteNode inside a
  * PARAGRAPH rebuild stays an atomic sentinel; only this path descends into its content.
+ *
+ * Deliberately a parallel algorithm rather than a shared core with `$rebuildParas`: the two
+ * differ in exactly the load-bearing parts — the rebuild scope (note content vs whole
+ * paragraphs), what is preserved (the note shell vs nothing), the tokenizer options (note
+ * context, expanded notes), and the splice shape (unwrap the tokenizer's default `\p` wrapper vs
+ * replace paragraphs). Parameterizing those out would obscure both.
  */
 export function $rebuildNoteContent(note: NoteNode, context: Tier2Context): boolean {
   const { viewOptions, getMarker: getMarkerFn, logger } = context;

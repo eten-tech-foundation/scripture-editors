@@ -24,18 +24,13 @@ import {
   $findFirstAncestorNoteNode,
   $isCharNode,
   $isMarkerNode,
+  $withCharContentNbspPrefix,
   EMPTY_CHAR_PLACEHOLDER_TEXT,
   MarkerLookup,
   MarkerType,
   NBSP,
   NoteNode,
 } from "shared";
-
-/** Structural NBSP prefix convention for char-span content (mirrors `$splitCharNodeAt`). */
-function withNbspPrefix(node: TextNode): void {
-  const text = node.getTextContent();
-  if (!text.startsWith(NBSP)) node.setTextContent(NBSP + text);
-}
 
 /**
  * The in-span content after `from` that rides along with an `\fp` break — every later sibling
@@ -325,7 +320,8 @@ function $startFpAtCaret(): boolean {
   } else {
     // Only a plain text run takes the structural NBSP prefix; a nested span leading the
     // moved content keeps its own internal convention (mirrors `$splitCharNodeAt`).
-    if ($isTextNode(firstMoved) && !$isMarkerNode(firstMoved)) withNbspPrefix(firstMoved);
+    if ($isTextNode(firstMoved) && !$isMarkerNode(firstMoved))
+      $withCharContentNbspPrefix(firstMoved);
     fp.append(...afterCaret);
   }
   // A CharNode always retains its opening MarkerNode glyph, so `getChildrenSize()` is never

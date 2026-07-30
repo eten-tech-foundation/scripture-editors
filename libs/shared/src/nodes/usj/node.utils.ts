@@ -469,12 +469,6 @@ export function getVisibleOpenMarkerText(marker: string, content: string | undef
   return text;
 }
 
-/**
- * Recursively extracts text content from a serialized Lexical node and its descendants.
- * Excludes marker nodes (both MarkerNode and ImmutableTypedTextNode with type "marker").
- * @param node - The serialized node to process.
- * @returns The concatenated text content.
- */
 /** The `textType` NodeState of a serialized node, if any — the serialize-only mirror of the live
  * `$getState(node, textTypeState)`. */
 function serializedTextType(node: SerializedLexicalNode): string | undefined {
@@ -486,7 +480,16 @@ function serializedTextType(node: SerializedLexicalNode): string | undefined {
   return undefined;
 }
 
-// Keep this function in sync with `$getTextContentExcludingMarkers`.
+/**
+ * Recursively extracts text content from a serialized Lexical node and its descendants.
+ * Excludes marker nodes (both MarkerNode and ImmutableTypedTextNode with type "marker").
+ * @param node - The serialized node to process.
+ * @returns The concatenated text content.
+ */
+// Keep this function in sync with `$getTextContentExcludingMarkers`. The two are deliberately
+// parallel rather than merged: this one walks SERIALIZED nodes (plain objects, `children` arrays),
+// the other walks LIVE nodes (Lexical accessors inside a read) — a shared core would need a
+// node-accessor abstraction that costs more than the ~20 duplicated lines it would save.
 function extractTextFromNode(node: SerializedLexicalNode): string {
   // Skip marker nodes - they're structural/formatting elements, not content
   if (isSerializedMarkerNode(node)) return "";
@@ -926,6 +929,21 @@ export function $createMarkerTrailingSeparator(): TextNode {
   $setState(separator, textTypeState, MARKER_TRAILING_SPACE_TEXT_TYPE);
   separator.setMode("token");
   return separator;
+}
+
+/**
+ * Prepends the structural NBSP that leads an editable char span's text content (after the opening
+ * glyph), if not already present. The prefix separates the glyph from the content so caret
+ * placement and Tier-2 fragment building can address the content boundary; the reverse adaptor
+ * strips it on serialization. String-building code paths (the forward adaptor,
+ * `$createNoteContentChar`, the delta materializer) prepend the same `NBSP` when constructing
+ * content text.
+ *
+ * Mutating: call inside `editor.update()`.
+ */
+export function $withCharContentNbspPrefix(node: TextNode): void {
+  const text = node.getTextContent();
+  if (!text.startsWith(NBSP)) node.setTextContent(NBSP + text);
 }
 
 /**

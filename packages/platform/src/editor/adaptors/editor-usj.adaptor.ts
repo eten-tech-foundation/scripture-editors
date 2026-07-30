@@ -22,7 +22,6 @@ import {
   ChapterNode,
   CharNode,
   COMMENT_MARK_TYPE,
-  displayTextToUsj,
   ENDING_MS_COMMENT_MARKER,
   getEditableCallerText,
   ImmutableChapterNode,
@@ -37,7 +36,6 @@ import {
   MilestoneNode,
   NBSP,
   NODE_ATTRIBUTE_PREFIX,
-  normalizeSpaceRuns,
   NoteNode,
   ParaNode,
   parseNumberFromMarkerText,
@@ -76,6 +74,7 @@ import {
   SerializedImmutableVerseNode,
   ViewOptions,
 } from "shared-react";
+import { displayTextToUsj, normalizeSpaceRuns } from "../markerEdit/whitespaceDisplay.utils";
 
 interface EditorUsjAdaptor {
   initialize: typeof initialize;
@@ -95,6 +94,11 @@ export function initialize(logger: LoggerBasic | undefined) {
  * the named `standard` mode, so serialization inverts the display whitespace even when notes are
  * expanded — keeping it in lockstep with the editable marker engine. See
  * {@link hasStandardViewWhitespace}.
+ *
+ * The forward adaptor carries its own two-line twin of this wrapper (reading its module-scoped
+ * view options instead of a parameter). Deliberately not merged: the substance is already the ONE
+ * shared {@link hasStandardViewWhitespace}; the wrappers differ only in where the view options
+ * come from.
  */
 function isStandardView(viewOptions: ViewOptions | undefined): boolean {
   return hasStandardViewWhitespace(viewOptions);

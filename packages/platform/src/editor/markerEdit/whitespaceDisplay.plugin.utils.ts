@@ -1,6 +1,10 @@
 /**
- * Standard-view whitespace display invariant and clipboard normalization. While typing, spaces
- * in a run are kept visible as display-NBSP (the same mapping
+ * Standard-view whitespace display invariant and clipboard normalization — the LIVE-EDITING half
+ * of the whitespace feature (typing/copy/cut/paste boundaries: `$`-prefixed tree and
+ * clipboard-event code). The pure string half — the load/serialize mapping and the full
+ * architecture map of the feature — is `whitespaceDisplay.utils.ts` beside this file.
+ *
+ * While typing, spaces in a run are kept visible as display-NBSP (the same mapping
  * `usjTextToDisplay` applies at load time, applied incrementally as the user types); copying
  * or cutting selected text inverts display-NBSP back to plain spaces for `text/plain` so pasted
  * text elsewhere isn't polluted with NBSP. Both pieces are gated to Standard view only by the
