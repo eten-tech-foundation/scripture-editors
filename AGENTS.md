@@ -22,6 +22,18 @@
 
 <!-- nx configuration end-->
 
+# Formatting
+
+**Don't run formatting as a verification step, and don't hand-format.** The pre-commit hook runs
+`prettier --write` over staged files (see `lint-staged.config.js`), so anything you commit is
+formatted for you.
+
+If you need to format explicitly, use `prettier` directly, not `nx format:write`. `nx format:check`
+exists in CI only as a historical backstop against commits that bypassed the hook.
+
+`.prettierignore` excludes some staged files, notably `pnpm-lock.yaml` and `**/tsconfig*.json` —
+prettier leaves those alone, so don't reformat them by hand.
+
 # Code Style
 
 - Prefer `undefined` over `null` when representing missing values unless an API explicitly requires `null`.
