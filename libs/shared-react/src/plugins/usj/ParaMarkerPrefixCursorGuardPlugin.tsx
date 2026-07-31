@@ -11,16 +11,17 @@ import {
 } from "lexical";
 import { useEffect } from "react";
 import { $isMarkerNode, $isParaMarkerPrefix, $isSomeParaNode, NBSP, SomeParaNode } from "shared";
-import { $isImmutableVerseNode, $isSomeVerseNode } from "../../nodes/usj";
+import { $isSomeVerseNode } from "../../nodes/usj";
 
 /**
  * Corrects the cursor when it lands before or inside a para-marker prefix at the start of a
  * paragraph. Two bad positions are handled:
  *
  * 1. Element-typed anchor at offset 0 in a `ParaNode` whose first child is a para-marker prefix
- *    (`MarkerNode` or `ImmutableTypedTextNode`) or an `ImmutableVerseNode`. This happens when
- *    the user clicks in the hanging-indent gutter of any marker that sets a negative
- *    `text-indent` (e.g. `\li`, `\li1`, `\li2`, `\ili`, `\ili1`, `\ili2`, and poetry markers).
+ *    (`MarkerNode` or `ImmutableTypedTextNode`) or any verse node (`VerseNode` or
+ *    `ImmutableVerseNode`). This happens when the user clicks in the hanging-indent gutter of any
+ *    marker that sets a negative `text-indent` (e.g. `\li`, `\li1`, `\li2`, `\ili`, `\ili1`,
+ *    `\ili2`, and poetry markers).
  *
  * 2. Text-typed anchor inside a `MarkerNode` that is the first child of a `ParaNode`. This
  *    happens in Power mode when the user clicks on the visible marker text.
@@ -40,7 +41,7 @@ export function $guardCursorAtParaStart(selection: RangeSelection): boolean {
     const para = $getNodeByKey(anchor.key);
     if (!$isSomeParaNode(para)) return false;
     const first = para.getFirstChild();
-    if (!$isParaMarkerPrefix(first) && !$isImmutableVerseNode(first)) return false;
+    if (!$isParaMarkerPrefix(first) && !$isSomeVerseNode(first)) return false;
     return $advancePastParaPrefixes(para);
   }
 
