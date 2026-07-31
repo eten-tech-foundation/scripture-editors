@@ -5,6 +5,7 @@ import {
   updateSelection,
 } from "../../../../libs/shared/src/nodes/usj/test.utils";
 import { ScriptureReferencePlugin } from "./ScriptureReferencePlugin";
+import { flushQueuedEvents } from "./editor-test.utils";
 import type { BookCode } from "@eten-tech-foundation/scripture-utilities";
 import { LexicalComposer } from "@lexical/react/LexicalComposer";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
@@ -923,19 +924,6 @@ async function testEnvironment(
   // `editor` is defined on React render.
   // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   return { editor: editor!, setScrRef };
-}
-
-/**
- * Flush queued macrotasks + microtasks inside act(). jsdom fires native `selectionchange` via
- * setTimeout(0), and the plugin defers cursor placement by a microtask, so tests that assert
- * "nothing further happens" must flush both before asserting quiescence.
- */
-async function flushQueuedEvents() {
-  await act(async () => {
-    await new Promise((resolve) => {
-      setTimeout(resolve, 0);
-    });
-  });
 }
 
 /**
