@@ -657,14 +657,16 @@ describe("$sanitizeNodesForProtectedStructure", () => {
   });
 });
 
-// PT-4122: an empty verse has no TextNode to host the caret (ImmutableVerseNode is a leaf
-// DecoratorNode, and TextSpacingPlugin deliberately inserts no spacer between two verse markers),
-// so Lexical represents the caret as a collapsed ELEMENT-type point on the paragraph. Lexical's
-// getNodes() fallback returns the adjacent node for a collapsed range, which used to make
-// $selectionContainsVerseMarker report mere adjacency as containment and block typing.
-// Build the caret with `updateSelection(editor, para, childIndex)` — passing the para yields the
-// element-type point that reproduces this; passing a TextNode yields a text point and does not.
-describe("empty verse carets (PT-4122)", () => {
+// An empty verse has no TextNode to host the caret: a verse marker holds no text of its own,
+// ImmutableVerseNode is a childless DecoratorNode, and TextSpacingPlugin deliberately inserts no
+// spacer between two verse markers. Lexical therefore places the caret at a collapsed ELEMENT-type
+// point on the paragraph, where getNodes() reports the ADJACENT node — so these carets are the ones
+// where adjacency can be mistaken for containment, and typing must still be allowed.
+//
+// Build the caret with `updateSelection(editor, para, childIndex)`: passing the paragraph yields the
+// element-type point these tests are about. Passing a TextNode yields a text point instead, which
+// exercises a different code path and will pass regardless of the behavior under test.
+describe("empty verse carets", () => {
   /** `verse(1) | verse(2) text` — caret in empty verse 1, between the two markers. */
   async function shapeAdjacentEmptyVerses() {
     let para: ParaNode;
@@ -748,10 +750,12 @@ describe("empty verse carets (PT-4122)", () => {
     });
   });
 
-  // Carries more weight than its permissive assertion suggests: this shape ([text, verse], caret at
+  // Carries more weight than its permissive assertion suggests. This shape ([text, verse], caret at
   // the end) is the only one where a forward off-by-one in $adjacentVerseMarker's element branch is
-  // observable — in the adjacent-verses shape an off-by-one still lands on a marker, so the test
-  // above stays green. It also pins the $hasNeighborBlock half of the rule (no next block to merge).
+  // observable: in the adjacent-verses shape, an off-by-one still lands on a verse marker, so the
+  // test above stays green either way. It also pins the $hasNeighborBlock half of the deleteForward
+  // rule — there is no next block to merge here. Keep it even though it asserts the permissive
+  // direction.
   it("ALLOWS deleteForward at the end of the last paragraph (no block to merge)", async () => {
     const { editor } = await shapeTrailingEmptyVerse();
     editor.getEditorState().read(() => {
@@ -759,10 +763,11 @@ describe("empty verse carets (PT-4122)", () => {
     });
   });
 
-  // Characterizes Lexical's element-point insertion, not this module's guard logic (the
-  // describe.each above covers the guard). It answers the question the guard alone cannot: once
-  // typing is allowed, does the text land in the RIGHT verse? Hence no structureKeyboard.utils call
-  // in the body — and why it is insensitive to changes in this repo's own decision logic.
+  // Characterizes Lexical's element-point insertion rather than this module's decision logic (the
+  // describe.each above covers that). It answers what a boolean guard assertion cannot: once typing
+  // is allowed, does the text land in the RIGHT verse? That is why the body calls nothing from
+  // structureKeyboard.utils, and why it is insensitive to changes in this repo's own logic — it will
+  // trip on a change in Lexical's insertion behavior instead.
   it("insertText lands in the first verse's slot, keeping both markers intact", async () => {
     const { editor, para } = await shapeAdjacentEmptyVerses();
     await sutUpdate(
@@ -782,8 +787,8 @@ describe("empty verse carets (PT-4122)", () => {
         "text",
       ]);
       expect(children[1].getTextContent()).toBe("X");
-      // Not just "two markers survive" — the same two, still numbered 1 and 2, and verse 2's text
-      // untouched. Guards against a marker being replaced or renumbered by the insertion.
+      // Not just "two markers survive" but the same two, still numbered 1 and 2, with verse 2's text
+      // untouched — a marker replaced or renumbered by the insertion would pass a types-only check.
       expect(children.filter($isSomeVerseNode).map((verse) => verse.getNumber())).toEqual([
         "1",
         "2",
@@ -792,9 +797,10 @@ describe("empty verse carets (PT-4122)", () => {
     });
   });
 
-  // A mutable VerseNode extends TextNode, so unlike ImmutableVerseNode a caret CAN sit inside it as
-  // a text-type point. That is real containment: editing there would rewrite the verse number, so
-  // it must stay blocked. Guards against the collapsed-caret fix being widened to text points.
+  // The mutable VerseNode extends TextNode, so unlike ImmutableVerseNode a caret CAN sit inside it,
+  // as a text-type point. That is real containment: editing there would rewrite the verse number, so
+  // it must stay blocked. This is the boundary that keeps $selectionContainsVerseMarker's collapsed
+  // exemption limited to element-type points — widening it to every collapsed caret breaks this.
   it("still BLOCKS edits with the caret inside a mutable VerseNode", async () => {
     let verse: ReturnType<typeof $createVerseNode>;
     const { editor } = await baseTestEnvironment(() => {
