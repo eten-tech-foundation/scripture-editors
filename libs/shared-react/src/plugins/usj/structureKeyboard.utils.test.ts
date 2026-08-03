@@ -2,7 +2,7 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 
 import { baseTestEnvironment, sutUpdate, updateSelection } from "./react-test.utils";
-import { $createImmutableVerseNode } from "../../nodes/usj";
+import { $createImmutableVerseNode, $isSomeVerseNode } from "../../nodes/usj";
 import {
   $adjacentVerseMarker,
   $caretAdjacentToVerseMarker,
@@ -13,6 +13,7 @@ import {
   $sanitizeNodesForProtectedStructure,
   $selectionContainsVerseMarker,
   $selectionSpansBlockBoundary,
+  $shouldBlockSelectionReplacement,
   $shouldBlockStructuralEdit,
   $structuralDeleteTarget,
   keyDownToIntent,
@@ -33,6 +34,7 @@ import {
   $createNoteNode,
   $createParaNode,
   $createImpliedParaNode,
+  $createVerseNode,
   $isCharNode,
   $isNoteNode,
   $isSomeParaNode,
@@ -651,6 +653,170 @@ describe("$sanitizeNodesForProtectedStructure", () => {
     await sutUpdate(editor, () => {
       const result = $sanitizeNodesForProtectedStructure([$createImmutableVerseNode("1")]);
       expect(result).toHaveLength(0);
+    });
+  });
+});
+
+// An empty verse has no TextNode to host the caret: a verse marker holds no text of its own,
+// ImmutableVerseNode is a childless DecoratorNode, and TextSpacingPlugin deliberately inserts no
+// spacer between two verse markers. Lexical therefore places the caret at a collapsed ELEMENT-type
+// point on the paragraph, where getNodes() reports the ADJACENT node — so these carets are the ones
+// where adjacency can be mistaken for containment, and typing must still be allowed.
+//
+// Build the caret with `updateSelection(editor, para, childIndex)`: passing the paragraph yields the
+// element-type point these tests are about. Passing a TextNode yields a text point instead, which
+// exercises a different code path and will pass regardless of the behavior under test.
+describe("empty verse carets", () => {
+  /** `verse(1) | verse(2) text` — caret in empty verse 1, between the two markers. */
+  async function shapeAdjacentEmptyVerses() {
+    let para: ParaNode;
+    const { editor } = await baseTestEnvironment(() => {
+      para = $createParaNode("p");
+      $getRoot().append(
+        para.append(
+          $createImmutableVerseNode("1"),
+          $createImmutableVerseNode("2"),
+          $createTextNode("second verse text "),
+        ),
+      );
+    });
+    updateSelection(editor, para!, 1);
+    return { editor, para: para! };
+  }
+
+  /** `text verse(5) |` — caret in verse 5's empty body, at the end of the paragraph. */
+  async function shapeTrailingEmptyVerse() {
+    let para: ParaNode;
+    const { editor } = await baseTestEnvironment(() => {
+      para = $createParaNode("p");
+      $getRoot().append(para.append($createTextNode("some text "), $createImmutableVerseNode("5")));
+    });
+    updateSelection(editor, para!, 2);
+    return { editor, para: para! };
+  }
+
+  /** `verse(1) |` — caret in an empty verse that is its paragraph's only child. */
+  async function shapeLoneVerse() {
+    let para: ParaNode;
+    const { editor } = await baseTestEnvironment(() => {
+      para = $createParaNode("p");
+      $getRoot().append(para.append($createImmutableVerseNode("1")));
+    });
+    updateSelection(editor, para!, 1);
+    return { editor, para: para! };
+  }
+
+  const shapes = [
+    ["between two adjacent empty verses", shapeAdjacentEmptyVerses],
+    ["in verse 5's empty body at para end", shapeTrailingEmptyVerse],
+    ["in an empty verse that is the para's only child", shapeLoneVerse],
+  ] as const;
+
+  describe.each(shapes)("caret %s", (_label, buildShape) => {
+    it("$selectionContainsVerseMarker is false (adjacency is not containment)", async () => {
+      const { editor } = await buildShape();
+      editor.getEditorState().read(() => {
+        expect($selectionContainsVerseMarker($getSelection()!)).toBe(false);
+      });
+    });
+
+    it("ALLOWS insertText (the user-facing symptom: typing must work)", async () => {
+      const { editor } = await buildShape();
+      editor.getEditorState().read(() => {
+        expect($shouldBlockStructuralEdit($getSelection()!, "insertText")).toBe(false);
+      });
+    });
+
+    it("ALLOWS selection replacement (paste/cut/drop/IME)", async () => {
+      const { editor } = await buildShape();
+      editor.getEditorState().read(() => {
+        expect($shouldBlockSelectionReplacement($getSelection()!)).toBe(false);
+      });
+    });
+
+    it("still BLOCKS insertParagraph (Enter) and deleteBackward", async () => {
+      const { editor } = await buildShape();
+      editor.getEditorState().read(() => {
+        expect($shouldBlockStructuralEdit($getSelection()!, "insertParagraph")).toBe(true);
+        expect($shouldBlockStructuralEdit($getSelection()!, "deleteBackward")).toBe(true);
+      });
+    });
+  });
+
+  it("still BLOCKS deleteForward when a verse marker follows the caret", async () => {
+    const { editor } = await shapeAdjacentEmptyVerses();
+    editor.getEditorState().read(() => {
+      expect($shouldBlockStructuralEdit($getSelection()!, "deleteForward")).toBe(true);
+    });
+  });
+
+  // Carries more weight than its permissive assertion suggests. This shape ([text, verse], caret at
+  // the end) is the only one where a forward off-by-one in $adjacentVerseMarker's element branch is
+  // observable: in the adjacent-verses shape, an off-by-one still lands on a verse marker, so the
+  // test above stays green either way. It also pins the $hasNeighborBlock half of the deleteForward
+  // rule — there is no next block to merge here. Keep it even though it asserts the permissive
+  // direction.
+  it("ALLOWS deleteForward at the end of the last paragraph (no block to merge)", async () => {
+    const { editor } = await shapeTrailingEmptyVerse();
+    editor.getEditorState().read(() => {
+      expect($shouldBlockStructuralEdit($getSelection()!, "deleteForward")).toBe(false);
+    });
+  });
+
+  // Characterizes Lexical's element-point insertion rather than this module's decision logic (the
+  // describe.each above covers that). It answers what a boolean guard assertion cannot: once typing
+  // is allowed, does the text land in the RIGHT verse? That is why the body calls nothing from
+  // structureKeyboard.utils, and why it is insensitive to changes in this repo's own logic — it will
+  // trip on a change in Lexical's insertion behavior instead.
+  it("insertText lands in the first verse's slot, keeping both markers intact", async () => {
+    const { editor, para } = await shapeAdjacentEmptyVerses();
+    await sutUpdate(
+      editor,
+      () => {
+        const selection = $getSelection();
+        if ($isRangeSelection(selection)) selection.insertText("X");
+      },
+      { discrete: true },
+    );
+    editor.getEditorState().read(() => {
+      const children = para.getChildren();
+      expect(children.map((n) => n.getType())).toEqual([
+        "immutable-verse",
+        "text",
+        "immutable-verse",
+        "text",
+      ]);
+      expect(children[1].getTextContent()).toBe("X");
+      // Not just "two markers survive" but the same two, still numbered 1 and 2, with verse 2's text
+      // untouched — a marker replaced or renumbered by the insertion would pass a types-only check.
+      expect(children.filter($isSomeVerseNode).map((verse) => verse.getNumber())).toEqual([
+        "1",
+        "2",
+      ]);
+      expect(children[3].getTextContent()).toBe("second verse text ");
+    });
+  });
+
+  // The mutable VerseNode extends TextNode, so unlike ImmutableVerseNode a caret CAN sit inside it,
+  // as a text-type point. That is real containment: editing there would rewrite the verse number, so
+  // it must stay blocked. This is the boundary that keeps $selectionContainsVerseMarker's collapsed
+  // exemption limited to element-type points — widening it to every collapsed caret breaks this.
+  it("still BLOCKS edits with the caret inside a mutable VerseNode", async () => {
+    let verse: ReturnType<typeof $createVerseNode>;
+    const { editor } = await baseTestEnvironment(() => {
+      verse = $createVerseNode("12");
+      $getRoot().append(
+        $createParaNode("q").append($createTextNode("prev")),
+        $createParaNode("p").append(verse, $createTextNode("text ")),
+      );
+    });
+    // One character into the marker's own text ("12"), so this is a text-type point.
+    updateSelection(editor, verse!, 1);
+    editor.getEditorState().read(() => {
+      const selection = $getSelection()!;
+      expect($selectionContainsVerseMarker(selection)).toBe(true);
+      expect($shouldBlockStructuralEdit(selection, "insertText")).toBe(true);
+      expect($shouldBlockStructuralEdit(selection, "deleteBackward")).toBe(true);
     });
   });
 });
