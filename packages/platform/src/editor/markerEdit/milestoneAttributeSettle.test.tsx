@@ -4,27 +4,53 @@
  * siblings — before the self-heal transform (attributeDisplay.utils.ts's
  * $syncMilestoneDisplayRun, registered on MilestoneNode in MarkerEditPlugin.tsx), such a milestone
  * stayed a Tier-2 sentinel forever (tier2Rebuild.utils.ts's run.length > 0 guard): never editable,
- * never re-tokenizable. Mounting MarkerEditPlugin heals a bare milestone into a full display run
- * on construction (a freshly created node is dirty); this test proves the paragraph now flows the
- * milestone's bytes through Tier-2 re-tokenization instead of falling back to the sentinel, and
- * that the result is a genuine fixed point.
+ * never re-tokenizable. These tests prove: (1) a bare milestone heals into a full display run and
+ * re-tokenizes through Tier 2 as ordinary content; (2) the settle rule is uniform — the DISPLAYED
+ * BYTES win, so a remote field change that arrived while the caret held the run loses locally and
+ * the user's typed bytes are never clobbered mid-sweep; (3) deleting the whole run (the
+ * milestone's entire byte representation) deletes the milestone rather than resurrecting the run.
+ *
+ * Environment note: jsdom's selection reconciliation is unreliable across commits — a
+ * programmatically placed caret can be yanked to an unrelated node by a follow-on native
+ * selectionchange echo. Grace-dependent assertions therefore run SYNCHRONOUSLY after a discrete
+ * update (before the deferred resolution microtask can fire), and every settle assertion is
+ * phantom-independent: it holds whether the pended milestone settles via the scripted departure
+ * or via an earlier echo-induced caret move.
  */
 
+import {
+  deserializeSerializedEditorState,
+  initialize as initializeDeserialize,
+} from "../adaptors/editor-usj.adaptor";
+import {
+  initialize as initializeSerialize,
+  reset as resetSerialize,
+} from "../adaptors/usj-editor.adaptor";
 import { requireDefined, testEnvironment, viewOptions } from "./markerEdit.test-helpers";
 import { $createMarkerPrefix } from "./markerEditDeletion.utils";
+import { $resolvePendingMarkers, MarkerEditContext } from "./markerEditTier1.utils";
 import { $rebuildParas, Tier2Context } from "./tier2Rebuild.utils";
 import { act } from "@testing-library/react";
-import { $createTextNode, $getRoot, $isTextNode } from "lexical";
+import { $createTextNode, $getRoot, $isTextNode, $setState, TextNode } from "lexical";
 import {
+  $createMarkerNode,
   $createMilestoneNode,
   $createParaNode,
   $isCharNode,
+  $isMarkerNode,
   $isMilestoneNode,
   $isParaNode,
   getMarker as bundledGetMarker,
+  MilestoneNode,
   NBSP,
   ParaNode,
+  textTypeState,
+  TypedMarkNode,
 } from "shared";
+// Reaching inside only for tests.
+// eslint-disable-next-line @nx/enforce-module-boundaries
+import { createBasicTestEnvironment } from "../../../../../libs/shared/src/nodes/usj/test.utils";
+import { usjReactNodes } from "shared-react";
 
 // jsdom doesn't implement `getBoundingClientRect` on `Range`; a commit that touches selection
 // (Tier 2's own restore-selection-at-offset) gives the editor root DOM focus, and Lexical's
@@ -53,6 +79,46 @@ const context: Tier2Context = { viewOptions, getMarker: bundledGetMarker };
 function $lastPara(): ParaNode {
   const paras = $getRoot().getChildren().filter($isParaNode);
   return paras[paras.length - 1];
+}
+
+function $firstPara(): ParaNode {
+  return $getRoot().getChildren().filter($isParaNode)[0];
+}
+
+function $milestoneInFirstPara(): MilestoneNode {
+  return requireDefined($firstPara().getChildren().find($isMilestoneNode), "milestone missing");
+}
+
+/** The milestone's attribute display TextNode (the run's middle piece), re-queried per commit. */
+function $attributeRun(): TextNode {
+  const opening = $milestoneInFirstPara().getNextSibling();
+  const run = opening?.getNextSibling();
+  if (!$isTextNode(run) || $isMarkerNode(run)) throw new Error("attribute run missing");
+  return run;
+}
+
+/** The second paragraph's body text node — the caret-departure target. */
+function $bodyText(): TextNode {
+  const paras = $getRoot().getChildren().filter($isParaNode);
+  const body = paras[1]?.getLastChild();
+  if (!$isTextNode(body)) throw new Error("body text node missing");
+  return body;
+}
+
+/** Two paragraphs: "before <ms qt-s sid=q1> after" and a plain "body" paragraph to depart to. */
+function $twoParaFixture(): void {
+  const [glyph, separator] = $createMarkerPrefix("p");
+  const [glyph2, separator2] = $createMarkerPrefix("p");
+  $getRoot().append(
+    $createParaNode("p").append(
+      glyph,
+      separator,
+      $createTextNode("before "),
+      $createMilestoneNode("qt-s", "q1"),
+      $createTextNode(" after"),
+    ),
+    $createParaNode("p").append(glyph2, separator2, $createTextNode("body")),
+  );
 }
 
 describe("collab-materialized milestone settles into a re-tokenizable run", () => {
@@ -134,5 +200,176 @@ describe("collab-materialized milestone settles into a re-tokenizable run", () =
       );
       expect(msNode.getKey()).toBe(settledKey);
     });
+  });
+
+  it("a remote field update under caret grace loses to the displayed bytes on settle", async () => {
+    // A remote collab update rewrites the milestone's fields while the local caret holds the
+    // display run. The mid-edit grace must leave the DISPLAYED bytes untouched at the moment the
+    // update lands, and the eventual settle (caret departure) must apply the uniform rule: the
+    // displayed bytes win — Tier-2 re-tokenizes what the user sees, so the remote field value
+    // loses locally (it converges through the normal save/OT path), and the run's bytes are
+    // never rewritten from the milestone's fields.
+    const { editor } = await testEnvironment($twoParaFixture);
+
+    editor.getEditorState().read(() => {
+      expect($attributeRun().getTextContent()).toBe(`${NBSP}|sid="q1"`);
+    });
+
+    // Caret into the run and the remote field write land in ONE discrete update, so the grace
+    // check inside this commit's transform pass reliably sees the caret (jsdom cannot echo the
+    // selection away mid-commit). Assertions run synchronously after the commit, BEFORE the
+    // deferred resolution microtask can settle anything.
+    editor.update(
+      () => {
+        const run = $attributeRun();
+        run.select(run.getTextContentSize(), run.getTextContentSize());
+        $milestoneInFirstPara().setSid("q9");
+      },
+      { discrete: true },
+    );
+    editor.getEditorState().read(() => {
+      // Grace held: the displayed bytes were NOT rewritten from the remote fields.
+      expect($attributeRun().getTextContent()).toBe(`${NBSP}|sid="q1"`);
+      expect($milestoneInFirstPara().getSid()).toBe("q9");
+    });
+
+    // Caret departs; the pended milestone settles. Whether the settle fires on this scripted
+    // departure or on an earlier jsdom selection echo, the outcome must be the same: the
+    // displayed bytes re-tokenize back into the milestone's fields.
+    await act(async () => editor.update(() => $bodyText().select(0, 0)));
+
+    editor.getEditorState().read(() => {
+      expect($milestoneInFirstPara().getSid()).toBe("q1");
+      expect($attributeRun().getTextContent()).toBe(`${NBSP}|sid="q1"`);
+    });
+    // The remote value lost locally — it must appear nowhere in the settled state.
+    expect(JSON.stringify(editor.getEditorState().toJSON())).not.toContain("q9");
+  });
+
+  // The both-keys race, driven deterministically through the REAL settle sweep
+  // ($resolvePendingMarkers → Tier-2): a remote update landed under grace (pending the
+  // MILESTONE's key, fields = remote value) while the user had edited the run's text (pending
+  // the RUN's key, bytes = user value). jsdom's unreliable cross-commit selection echo makes the
+  // multi-commit pend choreography unscriptable at the plugin level, so the sweep is driven
+  // directly with an explicitly ordered pend set — both orderings, since a settle that rewrote
+  // the run from the milestone's fields would clobber the user's bytes when the milestone key
+  // comes first. (The plugin-level pend wiring itself is covered by the grace test above and the
+  // deletion test below.)
+  describe.each([
+    ["milestone key first", true],
+    ["run key first", false],
+  ])("settle sweep with both keys pended (%s)", (_label, milestoneFirst) => {
+    it("settles the USER'S edited bytes into the milestone fields, clobbering nothing", () => {
+      initializeSerialize(undefined, undefined);
+      resetSerialize();
+      const { editor } = createBasicTestEnvironment([TypedMarkNode, ...usjReactNodes]);
+      let msKey = "";
+      let runKey = "";
+      editor.update(
+        () => {
+          const [glyph, separator] = $createMarkerPrefix("p");
+          // The milestone's FIELDS hold the remote value that landed under grace…
+          const milestone = $createMilestoneNode("qt-s", "q9");
+          msKey = milestone.getKey();
+          const opening = $createMarkerNode("qt-s", "opening");
+          // …while the displayed run holds the USER'S edited bytes.
+          const run = $createTextNode(`${NBSP}|sid="q1-user"`);
+          $setState(run, textTypeState, "attribute");
+          runKey = run.getKey();
+          const closer = $createMarkerNode("", "selfClosing");
+          $getRoot().append(
+            $createParaNode("p").append(
+              glyph,
+              separator,
+              $createTextNode("before "),
+              milestone,
+              opening,
+              run,
+              closer,
+              $createTextNode(" after"),
+            ),
+          );
+        },
+        { discrete: true },
+      );
+
+      const settleContext: MarkerEditContext = {
+        viewOptions,
+        getMarker: bundledGetMarker,
+        pendingKeys: new Set(milestoneFirst ? [msKey, runKey] : [runKey, msKey]),
+        splitExpected: { current: false },
+        rebuildAttempted: new Set(),
+      };
+      editor.update(
+        () => {
+          $resolvePendingMarkers(settleContext);
+        },
+        { discrete: true },
+      );
+
+      editor.getEditorState().read(() => {
+        const msNode = requireDefined(
+          $firstPara().getChildren().find($isMilestoneNode),
+          "milestone missing after settle",
+        );
+        expect(msNode.getSid()).toBe("q1-user");
+        expect($attributeRun().getTextContent()).toBe(`${NBSP}|sid="q1-user"`);
+      });
+      // The remote value must not have clobbered the run at any point in the sweep: had it been
+      // written into the run before the run's own key re-tokenized, it would have settled into
+      // the fields and appear here.
+      expect(JSON.stringify(editor.getEditorState().toJSON())).not.toContain("q9");
+    });
+  });
+
+  it("deleting the whole display run deletes the milestone on caret departure (no resurrection)", async () => {
+    // The run is the milestone's ENTIRE visible byte representation — deleting all of it must
+    // delete the milestone, exactly as deleting every byte of any other construct removes it.
+    // Without the deleted-run grace the sync would rebuild the run from the milestone's intact
+    // fields the instant the glyph deletion dirtied it, making the run undeletable.
+    const { editor } = await testEnvironment($twoParaFixture);
+
+    editor.getEditorState().read(() => {
+      expect($attributeRun().getTextContent()).toBe(`${NBSP}|sid="q1"`);
+    });
+
+    // Delete the whole run with the caret parked at the deletion site (end of the text before
+    // the milestone — where a backspace-through-the-run deletion leaves it), all in one discrete
+    // update so the transform-pass grace check reliably sees the caret. Grace assertions run
+    // synchronously after the commit, BEFORE the deferred resolution microtask can settle.
+    editor.update(
+      () => {
+        const msNode = $milestoneInFirstPara();
+        const opening = msNode.getNextSibling();
+        const attribute = opening?.getNextSibling();
+        const closer = attribute?.getNextSibling();
+        closer?.remove();
+        attribute?.remove();
+        opening?.remove();
+        const previous = msNode.getPreviousSibling();
+        if (!$isTextNode(previous)) throw new Error("text before milestone missing");
+        previous.select(previous.getTextContentSize(), previous.getTextContentSize());
+      },
+      { discrete: true },
+    );
+
+    // Grace holds while the caret sits at the site: no resurrection, milestone still attached.
+    editor.getEditorState().read(() => {
+      const msNode = $milestoneInFirstPara();
+      expect($isMarkerNode(msNode.getNextSibling())).toBe(false);
+      expect(msNode.getNextSibling()?.getTextContent()).toBe(" after");
+    });
+
+    // Caret departs → the pended milestone settles: all its bytes are gone, so it is removed.
+    // (Phantom-independent: an earlier jsdom selection echo settling it sooner removes it too.)
+    await act(async () => editor.update(() => $bodyText().select(0, 0)));
+
+    editor.getEditorState().read(() => {
+      expect($firstPara().getChildren().some($isMilestoneNode)).toBe(false);
+    });
+    // And it is gone from the editor→USJ output too, not just the live tree.
+    initializeDeserialize(undefined);
+    const usj = deserializeSerializedEditorState(editor.getEditorState().toJSON(), viewOptions);
+    expect(JSON.stringify(usj)).not.toContain('"type":"ms"');
   });
 });

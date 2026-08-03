@@ -1,5 +1,6 @@
 import {
   $hasCaretHeldMilestoneRun,
+  $milestoneRunEntirelyAbsent,
   $syncMilestoneDisplayRun,
   canonicalAttributeText,
   milestoneAttributes,
@@ -285,6 +286,167 @@ describe("milestone display run ($syncMilestoneDisplayRun / $hasCaretHeldMilesto
 
     editor.getEditorState().read(() => {
       expect($hasCaretHeldMilestoneRun(milestone, canonicalText)).toBe(false);
+    });
+  });
+
+  it("leaves a just-deleted run alone while the caret sits at its insertion point, and reports it caret-held", () => {
+    // The user deleted the whole run (opening glyph, attribute text, self-closing glyph),
+    // leaving the caret at the deletion site — the end of the text before the milestone. The
+    // run is the milestone's ENTIRE visible byte representation; without a deleted-run grace
+    // the sync would instantly rebuild it from the milestone's intact fields, making the run
+    // undeletable (the deletion visibly undoing itself).
+    const { editor, milestone } = buildBareMilestone("qt-s", "q1");
+    const canonicalText = `${NBSP}|sid="q1"`;
+    editor.update(
+      () => {
+        $syncMilestoneDisplayRun(milestone, canonicalText);
+      },
+      { discrete: true },
+    );
+
+    editor.update(
+      () => {
+        const opening = milestone.getNextSibling();
+        const attribute = opening?.getNextSibling();
+        const closer = attribute?.getNextSibling();
+        closer?.remove();
+        attribute?.remove();
+        opening?.remove();
+        const previous = milestone.getPreviousSibling();
+        if (!$isTextNode(previous)) throw new Error("text before milestone missing");
+        previous.select(previous.getTextContentSize(), previous.getTextContentSize());
+      },
+      { discrete: true },
+    );
+
+    editor.update(
+      () => {
+        $syncMilestoneDisplayRun(milestone, canonicalText);
+      },
+      { discrete: true },
+    );
+
+    editor.getEditorState().read(() => {
+      // Grace held: nothing was re-inserted — the deletion did not undo itself.
+      expect($isMarkerNode(milestone.getNextSibling())).toBe(false);
+      expect(milestone.getNextSibling()?.getTextContent()).toBe(" after");
+      expect($hasCaretHeldMilestoneRun(milestone, canonicalText)).toBe(true);
+      expect($milestoneRunEntirelyAbsent(milestone)).toBe(true);
+    });
+  });
+
+  it("also graces the deleted-run site from the start of the following sibling", () => {
+    // A forward range deletion collapses the caret at the START of the content after the run
+    // rather than the end of the content before the milestone — both flanks are the same
+    // insertion point and both must hold the grace.
+    const { editor, milestone } = buildBareMilestone("qt-s", "q1");
+    const canonicalText = `${NBSP}|sid="q1"`;
+    editor.update(
+      () => {
+        $syncMilestoneDisplayRun(milestone, canonicalText);
+      },
+      { discrete: true },
+    );
+
+    editor.update(
+      () => {
+        const opening = milestone.getNextSibling();
+        const attribute = opening?.getNextSibling();
+        const closer = attribute?.getNextSibling();
+        closer?.remove();
+        attribute?.remove();
+        opening?.remove();
+        const next = milestone.getNextSibling();
+        if (!$isTextNode(next)) throw new Error("text after milestone missing");
+        next.select(0, 0);
+      },
+      { discrete: true },
+    );
+
+    editor.update(
+      () => {
+        $syncMilestoneDisplayRun(milestone, canonicalText);
+      },
+      { discrete: true },
+    );
+
+    editor.getEditorState().read(() => {
+      expect($isMarkerNode(milestone.getNextSibling())).toBe(false);
+      expect($hasCaretHeldMilestoneRun(milestone, canonicalText)).toBe(true);
+    });
+  });
+
+  it("re-inserts only the missing opening glyph when leftover run pieces remain (no duplicates)", () => {
+    // Partial mangle: only the opening glyph was deleted; the attribute text and self-closing
+    // glyph remain as debris. The heal must repair AROUND the leftovers — inserting just the
+    // missing opening — never duplicate them (which would render the attribute bytes twice and
+    // corrupt the next Tier-2 re-tokenization).
+    const { editor, milestone } = buildBareMilestone("qt-s", "q1");
+    const canonicalText = `${NBSP}|sid="q1"`;
+    editor.update(
+      () => {
+        $syncMilestoneDisplayRun(milestone, canonicalText);
+      },
+      { discrete: true },
+    );
+
+    let attributeKey = "";
+    let closerKey = "";
+    editor.update(
+      () => {
+        const opening = milestone.getNextSibling();
+        const attribute = opening?.getNextSibling();
+        const closer = attribute?.getNextSibling();
+        if (!attribute || !closer) throw new Error("healed run pieces missing");
+        attributeKey = attribute.getKey();
+        closerKey = closer.getKey();
+        opening?.remove();
+      },
+      { discrete: true },
+    );
+
+    editor.update(
+      () => {
+        $syncMilestoneDisplayRun(milestone, canonicalText);
+      },
+      { discrete: true },
+    );
+
+    editor.getEditorState().read(() => {
+      const run = readRun(milestone);
+      expect(run.openingText).toBe("\\qt-s");
+      // The leftover attribute and closer are the SAME instances — repaired around, not
+      // duplicated.
+      expect(run.attributeKey).toBe(attributeKey);
+      expect(run.closingKey).toBe(closerKey);
+      expect(run.afterRunText).toBe(" after");
+      expect($milestoneRunEntirelyAbsent(milestone)).toBe(false);
+    });
+  });
+
+  it("does not report the run entirely absent while any piece remains", () => {
+    const { editor, milestone } = buildBareMilestone("qt-s", "q1");
+    const canonicalText = `${NBSP}|sid="q1"`;
+    editor.update(
+      () => {
+        $syncMilestoneDisplayRun(milestone, canonicalText);
+      },
+      { discrete: true },
+    );
+
+    editor.update(
+      () => {
+        // Delete the opening glyph and the attribute text; keep only the self-closing glyph.
+        const opening = milestone.getNextSibling();
+        const attribute = opening?.getNextSibling();
+        attribute?.remove();
+        opening?.remove();
+      },
+      { discrete: true },
+    );
+
+    editor.getEditorState().read(() => {
+      expect($milestoneRunEntirelyAbsent(milestone)).toBe(false);
     });
   });
 });

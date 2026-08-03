@@ -204,11 +204,13 @@ export function MarkerEditPlugin({
       // an ungated shared-react plugin registration safe — this sync is registered HERE, gated by
       // this whole plugin's markerMode-"editable" check, so visible/hidden mode's
       // ImmutableTypedTextNode-based milestone runs (built by the adaptor, never edited) are never
-      // touched. Same grace/pend pairing as the char/verse cases: while the caret holds the
-      // attribute text, the sync leaves it alone, so pend the milestone for the caret-departure
-      // settle — reachable when a remote collab update changes sid/eid/unknownAttributes
-      // (delta-apply-update.utils.ts calls `setUnknownAttributes` directly, never touching the
-      // run) while the local caret is mid-editing that same run.
+      // touched. Same grace/pend pairing as the char/verse cases: while the caret holds the run's
+      // site — inside the attribute text (reachable when a remote collab update changes
+      // sid/eid/unknownAttributes while the local caret is mid-editing that same run), or at a
+      // just-deleted run's insertion point (the run is the milestone's entire byte
+      // representation, so deleting all of it must delete the milestone, not resurrect the run)
+      // — the sync leaves it alone and the milestone is pended for the caret-departure settle
+      // ($resolvePendingMarkers).
       editor.registerNodeTransform(MilestoneNode, (node) => {
         if (editor.isComposing()) return;
         const expectedText = $milestoneAttributeDisplayText(node);

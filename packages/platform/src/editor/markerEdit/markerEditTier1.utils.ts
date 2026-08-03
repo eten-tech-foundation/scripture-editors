@@ -25,7 +25,7 @@ import {
   $isNoteNode,
   $isParaNode,
   $isVerseNode,
-  $syncMilestoneDisplayRun,
+  $milestoneRunEntirelyAbsent,
   canonicalAttributeText,
   ChapterNode,
   closingMarkerText,
@@ -346,18 +346,32 @@ export function $resolvePendingMarkers(context: MarkerEditContext, exceptKey?: N
       // pended key. Settling now would re-tokenize the run out from under the caret; it settles
       // once the caret has actually departed and the run's bytes are absent from the fragment.
       context.pendingKeys.add(key);
-    } else if ($isMilestoneNode(node)) {
-      // A milestone's own field state (sid/eid/unknownAttributes) is already the source of
-      // truth — unlike a char/verse pend, which re-tokenizes typed literal bytes INTO node state,
-      // a milestone pend here exists only because a remote update changed that state while the
-      // caret held the display run (mid-edit grace above skipped the sync). Re-tokenizing via
-      // Tier 2 would derive state FROM the now-stale displayed bytes instead, undoing the remote
-      // update; re-running the sync directly settles the run to match the state it already has.
-      const expectedText = $milestoneAttributeDisplayText(node);
-      if ($hasCaretHeldMilestoneRun(node, expectedText)) context.pendingKeys.add(key);
-      else $syncMilestoneDisplayRun(node, expectedText);
+    } else if (
+      $isMilestoneNode(node) &&
+      $hasCaretHeldMilestoneRun(node, $milestoneAttributeDisplayText(node))
+    ) {
+      // Same mid-edit grace for a milestone's diverged or deleted display run: the exceptKey
+      // protection covers only the node the caret is in (the run TextNode, or the flanking text
+      // for a just-deleted run), not the milestone's pended key — attributeDisplay.utils.ts.
+      // Settling now would rewrite or re-tokenize the run out from under the caret; it settles
+      // once the caret has actually departed.
+      context.pendingKeys.add(key);
+    } else if ($isMilestoneNode(node) && $milestoneRunEntirelyAbsent(node)) {
+      // The display run is a milestone's ENTIRE visible byte representation, so deleting all of
+      // it deletes the milestone itself — displayed bytes win, exactly as deleting every byte of
+      // any other construct removes it. Guarded to the fully-absent shape: a partial mangle
+      // (any glyph or attribute text still present) falls through and re-tokenizes instead.
+      // Without this arm the paragraph rebuild would preserve the bare milestone as an atomic
+      // sentinel (tier2Rebuild.utils.ts's empty-run guard) and the deletion could never finish.
+      node.remove();
     } else {
-      // Pending plain-text nodes and departed verses re-tokenize.
+      // Pending plain-text nodes and departed verses/milestones re-tokenize. The settle rule is
+      // uniform: the DISPLAYED BYTES win — Tier 2 re-tokenizes what the user sees (for a
+      // milestone, scanMilestone re-derives sid/eid/unknownAttributes from its run's bytes), the
+      // same last-write-wins convergence chars and verses use. A remote field change that
+      // arrived while the caret held the run (mid-edit grace) loses locally and converges
+      // through the normal save/OT path; settling from node state instead would rewrite the
+      // run's displayed bytes and could clobber text the user just typed there.
       $requestTier2ForNode(node, context);
     }
   }
