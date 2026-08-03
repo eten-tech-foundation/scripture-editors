@@ -12,6 +12,7 @@ import {
   ElementNode,
   LexicalEditor,
   LexicalNode,
+  NODE_STATE_KEY,
   NodeKey,
   RangeSelection,
   SerializedLexicalNode,
@@ -468,11 +469,25 @@ export function getVisibleOpenMarkerText(marker: string, content: string | undef
  * @param node - The serialized node to process.
  * @returns The concatenated text content.
  */
+/** The `textType` NodeState of a serialized node, if any — the serialize-only mirror of the live
+ * `$getState(node, textTypeState)`. */
+function serializedTextType(node: SerializedLexicalNode): string | undefined {
+  const state = (node as { [NODE_STATE_KEY]?: unknown })[NODE_STATE_KEY];
+  if (state && typeof state === "object" && "textType" in state) {
+    const textType = (state as { textType?: unknown }).textType;
+    if (typeof textType === "string") return textType;
+  }
+  return undefined;
+}
+
 // Keep this function in sync with `$getTextContentExcludingMarkers`.
 function extractTextFromNode(node: SerializedLexicalNode): string {
   // Skip marker nodes - they're structural/formatting elements, not content
   if (isSerializedMarkerNode(node)) return "";
   if (isSerializedImmutableTypedTextNode(node) && node.textType === "marker") return "";
+  // The attribute display run (textType "attribute") is engine-owned presentation, not content —
+  // exclude its bytes (`|gloss`) from note-preview text.
+  if (isSerializedTextNode(node) && serializedTextType(node) === "attribute") return "";
 
   if (isSerializedTextNode(node) && node.text !== NBSP) return node.text;
 
@@ -543,6 +558,8 @@ function $getTextContentExcludingMarkers(node: LexicalNode): string {
   // Skip marker nodes
   if ($isMarkerNode(node)) return "";
   if ($isVisibleMarkerNode(node)) return "";
+  // The attribute display run (textType "attribute") is engine-owned presentation, not content.
+  if ($isTextNode(node) && $getState(node, textTypeState) === "attribute") return "";
 
   // For text nodes, return the text
   if ($isTextNode(node)) return node.getTextContent();

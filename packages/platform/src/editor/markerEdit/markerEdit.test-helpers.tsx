@@ -35,7 +35,7 @@ import {
 // Reaching inside only for tests.
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import { baseTestEnvironment } from "../../../../../libs/shared-react/src/plugins/usj/react-test.utils";
-import { getViewOptions, STANDARD_VIEW_MODE } from "shared-react";
+import { getViewOptions, STANDARD_VIEW_MODE, TextSpacingPlugin } from "shared-react";
 
 /** Narrow away `T | undefined` without a banned non-null assertion. */
 export function requireDefined<T>(value: T | undefined, message: string): T {
@@ -59,6 +59,24 @@ export async function testEnvironment($initialEditorState: () => void) {
   return baseTestEnvironment(
     $initialEditorState,
     <MarkerEditPlugin viewOptions={getViewOptions(STANDARD_VIEW_MODE)} />,
+  );
+}
+
+/**
+ * Like `testEnvironment`, but also mounts `TextSpacingPlugin` — the shared-react home of the
+ * self-healing `\va`/`\vp` display-run sync. Needed for verse attribute-run tests where the sync
+ * (which would re-derive a just-deleted run from the still-set altnumber/pubnumber) and the
+ * marker-edit engine's pend/settle must interact, matching the real app's plugin stack.
+ */
+export async function testEnvironmentWithSpacing($initialEditorState: () => void) {
+  initializeSerialize(undefined, undefined);
+  reset();
+  return baseTestEnvironment(
+    $initialEditorState,
+    <>
+      <MarkerEditPlugin viewOptions={getViewOptions(STANDARD_VIEW_MODE)} />
+      <TextSpacingPlugin />
+    </>,
   );
 }
 

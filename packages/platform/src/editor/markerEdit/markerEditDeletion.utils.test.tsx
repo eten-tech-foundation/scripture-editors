@@ -15,6 +15,7 @@ import {
   $getState,
   $isRangeSelection,
   $isTextNode,
+  $setState,
   INSERT_PARAGRAPH_COMMAND,
   LexicalEditor,
   NODE_STATE_KEY,
@@ -302,7 +303,7 @@ describe("deletion semantics", () => {
     });
   });
 
-  it("preserves an unwrapped span's unknown attributes as literal text", async () => {
+  it("preserves an unwrapped span's unknown attributes as canonical literal text", async () => {
     let char: ReturnType<typeof $createCharNode>, opener: MarkerNode;
     const { editor } = await testEnvironment(() => {
       const para = $createParaNode("p");
@@ -312,16 +313,56 @@ describe("deletion semantics", () => {
         para.append(
           $createMarkerNode("p"),
           $createTextNode(NBSP),
-          char.append(opener, $createTextNode(`${NBSP}grace`), $createMarkerNode("w", "closing")),
+          char.append(opener, $createTextNode(`${NBSP}word`), $createMarkerNode("w", "closing")),
         ),
       );
     });
     await act(async () => editor.update(() => opener.remove()));
     editor.getEditorState().read(() => {
       expect(char.isAttached()).toBe(false); // span unwrapped
-      // PT9 leaves the attributes as literal bytes: `|lemma="grace"` survives.
-      expect($getRoot().getTextContent()).toContain('|lemma="grace"');
-      expect($getRoot().getTextContent()).toContain("grace");
+      // PT9 leaves the attributes as literal bytes, in the canonical PT9 form: a lone default
+      // attribute (`lemma` for `\w`) collapses to bare `|value`, matching the span's display run.
+      const text = $getRoot().getTextContent();
+      expect(text).toContain("word|grace");
+      expect(text).not.toContain('lemma="grace"');
+    });
+  });
+
+  it("emits a single canonical attribute representation when unwrapping a span WITH a display run", async () => {
+    // \w word|grace\w* — the span carries BOTH the derived display run (textType "attribute") and
+    // its own unknownAttributes. Deleting the opener unwraps it; the display run must be dropped
+    // (a derived cache, not content) so the reconstruction is the ONLY attribute bytes left —
+    // previously the run persisted AND the reconstruction re-emitted the bytes, yielding
+    // `word|grace |lemma="grace"` (duplicated attribute bytes) after settle.
+    let char: ReturnType<typeof $createCharNode>, opener: MarkerNode;
+    const { editor } = await testEnvironment(() => {
+      const para = $createParaNode("p");
+      char = $createCharNode("w", { lemma: "grace" });
+      opener = $createMarkerNode("w");
+      const run = $createTextNode("|grace");
+      $setState(run, textTypeState, "attribute");
+      $getRoot().append(
+        para.append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          char.append(
+            opener,
+            $createTextNode(`${NBSP}word`),
+            run,
+            $createMarkerNode("w", "closing"),
+          ),
+        ),
+      );
+    });
+    await act(async () => editor.update(() => opener.remove()));
+    editor.getEditorState().read(() => {
+      expect(char.isAttached()).toBe(false); // span unwrapped
+      const text = $getRoot().getTextContent();
+      // Exactly one `|grace` — the display run did not survive as a second copy, and the
+      // reconstruction was NOT the explicit `|lemma="grace"` form.
+      expect(text).toContain("word|grace");
+      expect((text.match(/\|grace/g) ?? []).length).toBe(1);
+      expect(text).not.toContain("lemma=");
     });
   });
 
