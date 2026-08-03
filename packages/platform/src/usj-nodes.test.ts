@@ -5,7 +5,8 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const dir = dirname(fileURLToPath(import.meta.url));
-const css = readFileSync(resolve(dir, "usj-nodes.css"), "utf-8");
+// Strip CSS comments so their text can't be mistaken for selectors or declarations.
+const css = readFileSync(resolve(dir, "usj-nodes.css"), "utf-8").replace(/\/\*[\s\S]*?\*\//g, "");
 
 /**
  * Collects all `.usfm_<marker>` names that appear in a `.psc-gutter-markers`
@@ -17,7 +18,10 @@ function getGutterMarkers(property: string): Set<string> {
   let match;
   while ((match = ruleBlock.exec(css)) !== null) {
     const [, selectors, declarations] = match;
-    if (!selectors.includes("psc-gutter-markers") || !declarations.includes(property)) continue;
+    // `${property}:` matches a rule that SETS the custom property, not one that only reads it
+    // via var(--property).
+    if (!selectors.includes("psc-gutter-markers") || !declarations.includes(`${property}:`))
+      continue;
     const markerName = /\.usfm_([a-z0-9]+)/g;
     let m;
     while ((m = markerName.exec(selectors)) !== null) markers.add(m[1]);
@@ -107,6 +111,8 @@ const VERSE_TEXT_START_MARKERS = new Set([
 describe("usj-nodes.css .psc-gutter-markers.text-spacing coverage", () => {
   it("every USFM indented marker has a --para-indent entry", () => {
     const covered = getGutterMarkers("--para-indent");
+    // Guard against a silently-broken parser (no matches → every marker would look "missing").
+    expect(covered.size, "no --para-indent gutter markers parsed").toBeGreaterThan(0);
     const missing = [...PARA_INDENT_MARKERS].filter((m) => !covered.has(m));
     expect(
       missing,
@@ -116,6 +122,8 @@ describe("usj-nodes.css .psc-gutter-markers.text-spacing coverage", () => {
 
   it("every hanging-indent marker has a --verse-text-start entry", () => {
     const covered = getGutterMarkers("--verse-text-start");
+    // Guard against a silently-broken parser (no matches → every marker would look "missing").
+    expect(covered.size, "no --verse-text-start gutter markers parsed").toBeGreaterThan(0);
     const missing = [...VERSE_TEXT_START_MARKERS].filter((m) => !covered.has(m));
     expect(
       missing,

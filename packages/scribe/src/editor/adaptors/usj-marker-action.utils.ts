@@ -28,6 +28,7 @@ import {
   $addTrailingSpace,
   $isSomeVerseNode,
   $removeLeadingSpace,
+  $selectParaContentStart,
   ViewOptions,
 } from "shared-react";
 import usjEditorAdaptor from "./usj-editor.adaptor";
@@ -152,14 +153,12 @@ export function getUsjMarkerAction(
             const paragraphContent = paragraph.getChildren();
             nodeToInsert.append(...paragraphContent);
             paragraph.replace(nodeToInsert);
-            nodeToInsert.selectStart();
+            $selectParaContentStart(nodeToInsert);
           }
         } else {
           selection.insertNodes([nodeToInsert]);
           $moveVerseFollowingSpaceToPreviousNode(nodeToInsert);
-          const nextNode = nodeToInsert.getNextSibling();
-          if (nextNode) nextNode.selectStart();
-          else nodeToInsert.selectStart();
+          $selectParaContentStart(nodeToInsert.getNextSibling() ?? nodeToInsert);
         }
       } else {
         // Insert the node directly

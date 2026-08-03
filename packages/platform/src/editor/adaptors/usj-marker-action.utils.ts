@@ -16,7 +16,6 @@ import {
   $createNodeFromSerializedNode,
   $isMarkerNode,
   $isNoteNode,
-  $isSomeParaNode,
   $isTypedMarkNode,
   $isVisibleMarkerNode,
   CharNode,
@@ -31,10 +30,10 @@ import {
 } from "shared";
 import {
   $addTrailingSpace,
-  $advancePastParaPrefixes,
   $insertNote,
   $isSomeVerseNode,
   $removeLeadingSpace,
+  $selectParaContentStart,
   getDefaultViewOptions,
   UsjNodeOptions,
   ViewOptions,
@@ -149,8 +148,7 @@ export function getUsjMarkerAction(
             const paragraphContent = paragraph.getChildren();
             nodeToInsert.append(...paragraphContent);
             paragraph.replace(nodeToInsert);
-            if (!($isSomeParaNode(nodeToInsert) && $advancePastParaPrefixes(nodeToInsert)))
-              nodeToInsert.selectStart();
+            $selectParaContentStart(nodeToInsert);
           }
         } else if (
           $isTextNode(node) &&
@@ -179,9 +177,7 @@ export function getUsjMarkerAction(
         } else {
           selection.insertNodes([nodeToInsert]);
           $moveVerseFollowingSpaceToPreviousNode(nodeToInsert);
-          const nextNode = nodeToInsert.getNextSibling();
-          if (nextNode) nextNode.selectStart();
-          else nodeToInsert.selectStart();
+          $selectParaContentStart(nodeToInsert.getNextSibling() ?? nodeToInsert);
         }
       } else {
         // Insert the node directly

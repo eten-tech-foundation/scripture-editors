@@ -31,6 +31,7 @@ import {
 import {
   $advancePastParaPrefixes,
   $guardCursorAtParaStart,
+  $guardCursorAtParaStartOnClick,
 } from "./ParaMarkerPrefixCursorGuardPlugin";
 
 const nodes = [ParaNode, VerseNode, ImmutableVerseNode, MarkerNode, ImmutableTypedTextNode];
@@ -285,16 +286,9 @@ describe("ParaMarkerPrefixCursorGuardPlugin (CLICK_COMMAND integration)", () => 
       $getRoot().append(para.append($createImmutableVerseNode("7"), content));
     });
 
-    // Register the same CLICK_COMMAND handler the plugin mounts via useEffect.
-    editor.registerCommand(
-      CLICK_COMMAND,
-      () => {
-        const selection = $getSelection();
-        if ($isRangeSelection(selection)) $guardCursorAtParaStart(selection);
-        return false;
-      },
-      COMMAND_PRIORITY_EDITOR,
-    );
+    // Exercise the plugin's exported CLICK_COMMAND handler directly — the headless test env
+    // can't mount the React plugin, but this is the same function the plugin registers.
+    editor.registerCommand(CLICK_COMMAND, $guardCursorAtParaStartOnClick, COMMAND_PRIORITY_EDITOR);
 
     // Put cursor in the bad position a click in the hanging-indent gutter produces.
     updateSelection(editor, para, 0);
@@ -322,15 +316,7 @@ describe("ParaMarkerPrefixCursorGuardPlugin (CLICK_COMMAND integration)", () => 
       $getRoot().append(para.append($createImmutableVerseNode("7"), content));
     });
 
-    editor.registerCommand(
-      CLICK_COMMAND,
-      () => {
-        const selection = $getSelection();
-        if ($isRangeSelection(selection)) $guardCursorAtParaStart(selection);
-        return false;
-      },
-      COMMAND_PRIORITY_EDITOR,
-    );
+    editor.registerCommand(CLICK_COMMAND, $guardCursorAtParaStartOnClick, COMMAND_PRIORITY_EDITOR);
 
     updateSelection(editor, content, 4);
     editor.update(
