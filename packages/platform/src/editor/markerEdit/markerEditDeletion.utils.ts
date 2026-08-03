@@ -20,10 +20,11 @@ import {
   $isMarkerNode,
   $isParaMarkerPrefix,
   $isParaNode,
+  canonicalAttributeText,
   CharNode,
+  defaultMarkerAttribute,
   getEditableCallerText,
   NBSP,
-  NODE_ATTRIBUTE_PREFIX,
   NoteNode,
   PARA_MARKER_DEFAULT,
   ParaNode,
@@ -193,32 +194,36 @@ export function $paraMarkerDeletionTransform(para: ParaNode, context: MarkerEdit
   $setParaMarkerWithPrefix(para, PARA_MARKER_DEFAULT);
 }
 
-/** `|name="value" …` literal suffix for a span's unknown attributes (PT9 keeps these
- * as bytes when the span is unwrapped), or `undefined` when there are none. `closed` is
- * excluded: it is derived USJ metadata (ParatextData emits `closed="false"` on char spans with
- * no explicit closing marker — extremely common on footnote-content chars like `\fr`/`\ft`),
- * not user bytes, and paranext-core's USFM writer likewise never emits it as an attribute
- * (usj-reader-writer's attribute filter). Writing it as literal `|closed="false"` text on
- * unwrap would corrupt the document. */
+/** The canonical `|…` attribute bytes for a span whose glyphs are being dropped (PT9 keeps these
+ * as literal bytes when the span is unwrapped), or `undefined` when there are none. Routed through
+ * {@link canonicalAttributeText} — the one PT9 serializer — so the reconstructed bytes are
+ * byte-identical to the span's own display run (a lone default attribute collapses to `|value`,
+ * everything else is `|name="value" …`) rather than a second, divergent rendering. `closed` is
+ * excluded there: it is derived USJ metadata (ParatextData emits `closed="false"` on char spans
+ * with no explicit closing marker — extremely common on footnote-content chars like `\fr`/`\ft`),
+ * not user bytes, and paranext-core's USFM writer likewise never emits it as an attribute. */
 function unknownAttributesText(char: CharNode): string | undefined {
   const attributes = char.getUnknownAttributes();
   if (!attributes) return undefined;
-  const pairs = Object.entries(attributes)
-    .filter(([name, value]) => value !== undefined && name !== "closed")
-    .map(([name, value]) => `${name}="${value}"`);
-  return pairs.length > 0 ? NODE_ATTRIBUTE_PREFIX + pairs.join(" ") : undefined;
+  const text = canonicalAttributeText(attributes, defaultMarkerAttribute(char.getMarker()));
+  return text === "" ? undefined : text;
 }
 
 /** Move a char span's content out and drop the span (opener deleted / Ctrl+Space). */
 export function $unwrapCharNode(char: CharNode): void {
-  const children = char.getChildren().filter((child) => !$isMarkerNode(child));
+  // Drop the display run (textType "attribute") alongside the marker glyphs: it is a derived
+  // cache of the span's attribute state, not content. Keeping it would leave its bytes in the
+  // paragraph AND have the reconstruction below re-emit the same bytes — duplicating the
+  // attribute text on every opener-deletion unwrap.
+  const children = char
+    .getChildren()
+    .filter((child) => !$isMarkerNode(child) && $getState(child, textTypeState) !== "attribute");
   const first = children[0];
   if (first && $isTextNode(first) && first.getTextContent().startsWith(NBSP))
     first.setTextContent(first.getTextContent().slice(1)); // structural NBSP prefix
-  // PT9 leaves an unknown-attribute span's attributes as literal bytes on unwrap.
-  // The char node is about to be dropped, so reconstruct the `|name="value"` suffix
-  // as plain text after the content (where the closer glyph used to be) so the bytes
-  // survive serialization.
+  // PT9 leaves an unknown-attribute span's attributes as literal bytes on unwrap. The char node
+  // is about to be dropped, so reconstruct the canonical `|…` suffix as plain text after the
+  // content (where the closer glyph used to be) so the bytes survive serialization.
   const attributesText = unknownAttributesText(char);
   if (attributesText) children.push($createTextNode(attributesText));
   children.forEach((child) => char.insertBefore(child));

@@ -17,10 +17,12 @@ import {
 import {
   $hasCaretHeldAttributeRun,
   $hasCaretHeldSeparatorGap,
+  $hasCaretHeldVerseAttributeRun,
   $isCharNode,
   $isMarkerNode,
   $isNoteNode,
   $isParaNode,
+  $isVerseNode,
   canonicalAttributeText,
   ChapterNode,
   closingMarkerText,
@@ -311,8 +313,17 @@ export function $resolvePendingMarkers(context: MarkerEditContext, exceptKey?: N
       // key) — attributeDisplay.utils.ts. Settling now would re-tokenize the run out from under
       // the user's caret; it settles once the caret has actually departed.
       context.pendingKeys.add(key);
+    } else if (
+      $isVerseNode(node) &&
+      $hasCaretHeldVerseAttributeRun(node, node.getAltnumber(), node.getPubnumber())
+    ) {
+      // Same mid-edit grace for a verse's deleted/diverged \va/\vp attribute run: the exceptKey
+      // protection covers only the run TextNode (or verse text) the caret is in, not the verse's
+      // pended key. Settling now would re-tokenize the run out from under the caret; it settles
+      // once the caret has actually departed and the run's bytes are absent from the fragment.
+      context.pendingKeys.add(key);
     } else {
-      // Pending plain-text / verse nodes (registered by later tasks) re-tokenize.
+      // Pending plain-text nodes and departed verses re-tokenize.
       $requestTier2ForNode(node, context);
     }
   }

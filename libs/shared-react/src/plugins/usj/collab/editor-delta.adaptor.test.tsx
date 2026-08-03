@@ -159,6 +159,50 @@ describe("getEditorDelta", () => {
     expect(withRunsOps).toEqual(bareVerseOps);
   });
 
+  it("excludes a nested verse's \\va glyphs from a cross-verse char span's ops (byte-identical to no runs)", async () => {
+    // Legal ≤3.0: a char span (\wj) crosses a verse boundary, so the VerseNode — and its \va
+    // attribute-run glyphs — genuinely nest inside the CharNode. Those \va/\va* glyphs describe
+    // the VERSE, not the char span, so they are bare attribute-run glyphs that must stay out of
+    // content ops. altnumber already rides on the verse's own embed op, so adding the display run
+    // must not change the ops at all — the parent-CharNode glyph exemption used to let them leak.
+    const withRunsOps = await getOpsFor(() => {
+      const verse = $createVerseNode("2", "\\v 2 ", undefined, "3", undefined);
+      const vaValue = $createTextNode(`${NBSP}3`);
+      $setState(vaValue, textTypeState, "attribute");
+      $getRoot().append(
+        $createParaNode("q1").append(
+          $createCharNode("wj").append(
+            $createMarkerNode("wj"),
+            $createTextNode("before "),
+            verse,
+            $createMarkerNode("va"),
+            vaValue,
+            $createMarkerNode("va", "closing"),
+            $createTextNode("after"),
+            $createMarkerNode("wj", "closing"),
+          ),
+        ),
+      );
+    });
+
+    const bareOps = await getOpsFor(() => {
+      const verse = $createVerseNode("2", "\\v 2 ", undefined, "3", undefined);
+      $getRoot().append(
+        $createParaNode("q1").append(
+          $createCharNode("wj").append(
+            $createMarkerNode("wj"),
+            $createTextNode("before "),
+            verse,
+            $createTextNode("after"),
+            $createMarkerNode("wj", "closing"),
+          ),
+        ),
+      );
+    });
+
+    expect(withRunsOps).toEqual(bareOps);
+  });
+
   it("should return the correct ops for nested chars", async () => {
     const { editor } = await testEnvironment(() => {
       const qtChar = $createCharNode("qt");
@@ -500,8 +544,10 @@ describe("getEditorDelta", () => {
   });
 
   it("should exclude a char span's attribute display run from canonical contents ops", async () => {
-    // \w word|gloss\w* — the display run is engine-owned presentation, re-synthesized by
-    // $applyUpdate from the char's own unknownAttributes; it must not shift content length.
+    // \w word|gloss\w* — the display run is engine-owned presentation, re-derived from the char's
+    // own unknownAttributes by the CharNodePlugin sync ($syncCharAttributeDisplay), not by
+    // $applyUpdate (milestones, by contrast, have no such sync yet). Either way it must not shift
+    // content length.
     const { editor } = await testEnvironment(() => {
       const attribute = $createTextNode("|gloss");
       $setState(attribute, textTypeState, "attribute");

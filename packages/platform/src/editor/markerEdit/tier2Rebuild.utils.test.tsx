@@ -9,8 +9,10 @@ import {
 } from "../adaptors/editor-usj.adaptor";
 import usjEditorAdaptor from "../adaptors/usj-editor.adaptor";
 import { $rebuildParas, Tier2Context } from "./tier2Rebuild.utils";
+import { $createMarkerPrefix } from "./markerEditDeletion.utils";
 import { usxStringToUsj } from "@eten-tech-foundation/scripture-utilities";
 import {
+  $createTextNode,
   $getRoot,
   $getSelection,
   $isElementNode,
@@ -20,11 +22,14 @@ import {
 } from "lexical";
 import {
   $charAttributeDisplayNode,
+  $createMilestoneNode,
+  $createParaNode,
   $isCharNode,
   $isMarkerNode,
   $isVerseNode,
   CharNode,
   getMarker as bundledGetMarker,
+  getVisibleOpenMarkerText,
   $isParaNode,
   NBSP,
   ParaNode,
@@ -934,6 +939,52 @@ describe("milestones re-tokenize", () => {
       expect(msNode.getKey()).toBe(msKey);
     });
   });
+
+  // The collab materializer ($createMilestone in delta-apply-update.utils.ts) builds bare
+  // MilestoneNodes with NO display-run siblings; the adaptor always builds a run, so only the
+  // collab path produces this shape. A re-tokenizable milestone whose run is empty contributes
+  // ZERO bytes to the rebuild fragment, so the rebuild would splice it away entirely (silent
+  // deletion). With no displayable bytes it must degrade to an atomic sentinel and survive —
+  // the spec's "no displayable bytes → atomic" self-protection.
+  it("preserves a bare collab-shaped milestone (no display run) as a sentinel", () => {
+    const { editor } = createBasicTestEnvironment([TypedMarkNode, ...usjReactNodes]);
+    let msKey = "";
+    editor.update(
+      () => {
+        const [glyph, separator] = $createMarkerPrefix("p");
+        const ms = $createMilestoneNode("qt-s", "q1");
+        msKey = ms.getKey();
+        $getRoot().append(
+          $createParaNode("p").append(
+            glyph,
+            separator,
+            $createTextNode("before "),
+            ms,
+            $createTextNode(" \\nd x\\nd* after"),
+          ),
+        );
+      },
+      { discrete: true },
+    );
+    editor.update(
+      () => {
+        // The literal `\nd x\nd*` tokenizes into a CharNode, so the rebuild as a whole is not a
+        // no-op even though the milestone itself is untouched.
+        expect($rebuildParas([$lastPara()], context)).toBe(true);
+      },
+      { discrete: true },
+    );
+    editor.getEditorState().read(() => {
+      const msNode = requireDefined(
+        $lastPara()
+          .getChildren()
+          .find((n) => n.getType() === "ms"),
+        "milestone must survive the rebuild (not be silently deleted)",
+      );
+      // Same node, moved (not recreated) — the sentinel-preservation path.
+      expect(msNode.getKey()).toBe(msKey);
+    });
+  });
 });
 
 // A verse carrying altnumber/pubnumber re-tokenizes (verseNeedsSentinel: only unknownAttributes
@@ -1055,6 +1106,64 @@ describe("verses re-tokenize", () => {
     const para = $firstPara(usj);
     expect(para).toMatchObject({
       content: [{ type: "verse", number: "1", altnumber: "3" }, "text"],
+    });
+  });
+
+  it("deleting the whole \\va triplet settles the verse to no altnumber (does not resurrect)", () => {
+    // The settle-on-departure endpoint for a deleted \va/\vp run: with the triplet's bytes absent
+    // from the re-tokenized fragment, the rebuild must drop altnumber. The tokenizer already does
+    // this — the verse just needs to actually rebuild (which the pend/settle wiring now drives in
+    // the live app). This pins that the rebuild clears it and no triplet resurrects.
+    const editor = loadEditor(usjFromUsx(`<verse number="1" style="v" altnumber="2" />text`));
+    editor.update(
+      () => {
+        const para = $lastPara();
+        const verse = requireDefined(para.getChildren().find($isVerseNode), "verse node not found");
+        // The user deleted the whole `\va 2\va*` triplet (the verse's following siblings).
+        const open = verse.getNextSibling();
+        const value = open?.getNextSibling();
+        const close = value?.getNextSibling();
+        close?.remove();
+        value?.remove();
+        open?.remove();
+        // altnumber is still "2" on the node here; the rebuild re-tokenizes the fragment (which no
+        // longer carries `\va` bytes) and drops it.
+        expect($rebuildParas([para], context)).toBe(true);
+      },
+      { discrete: true },
+    );
+    editor.getEditorState().read(() => {
+      const verse = requireDefined(
+        $lastPara().getChildren().find($isVerseNode),
+        "verse node not found after rebuild",
+      );
+      expect(verse.getAltnumber()).toBeUndefined();
+      // No triplet resurrected: the verse's next sibling is plain content, not a `\va` glyph.
+      expect(verse.getNextSibling()?.getTextContent()).not.toBe("\\va");
+    });
+  });
+
+  it("a whitespace-only verse glyph edit settles (glyph text folded into the fixed-point signature)", () => {
+    // A VerseNode is a TextNode; the signature's verse branch shortcuts the generic text case, so
+    // without folding the glyph text a whitespace-only edit that leaves number/altnumber/pubnumber
+    // unchanged would compare equal to its canonical re-tokenization and refuse forever.
+    const editor = loadEditor(usjFromUsx(`<verse number="2" style="v" />`));
+    editor.update(
+      () => {
+        const para = $lastPara();
+        const verse = requireDefined(para.getChildren().find($isVerseNode), "verse node not found");
+        verse.setTextContent(`${verse.getTextContent()} `); // extra trailing space, nothing else
+        expect($rebuildParas([para], context)).toBe(true);
+      },
+      { discrete: true },
+    );
+    editor.getEditorState().read(() => {
+      const verse = requireDefined(
+        $lastPara().getChildren().find($isVerseNode),
+        "verse node not found after rebuild",
+      );
+      // The glyph settled back to its canonical single-separator form.
+      expect(verse.getTextContent()).toBe(getVisibleOpenMarkerText("v", "2"));
     });
   });
 

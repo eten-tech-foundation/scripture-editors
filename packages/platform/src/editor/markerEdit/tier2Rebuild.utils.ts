@@ -268,7 +268,12 @@ function $appendSignature(children: LexicalNode[], out: string[], getMarkerFn: M
       // stands in for the whole run, so the pre-splice OLD side must collapse the run the
       // same way or the signatures never compare equal and the refusal never fires.
       const run = $milestoneDisplayRun(children, index);
-      if ($isReTokenizableMilestone(node.getMarker(), getMarkerFn)) {
+      // An empty run (the collab materializer builds bare MilestoneNodes with no display-run
+      // siblings) has NO displayable bytes to re-tokenize, so it must collapse to the same single
+      // sentinel `$appendNodesFragment` produces for it — else this side would fold in the
+      // milestone's state while the fragment side dropped it, and the fixed-point check would
+      // spuriously diverge (mirror the fragment builder's `run.length > 0` gate below).
+      if ($isReTokenizableMilestone(node.getMarker(), getMarkerFn) && run.length > 0) {
         out.push(
           SIGNATURE_OPEN,
           "ms",
@@ -308,9 +313,16 @@ function $appendSignature(children: LexicalNode[], out: string[], getMarkerFn: M
         // would make every sid-bearing verse compare unequal forever (a real value vs. an
         // always-absent one), forcing an endless splice-then-refuse rebuild on every unrelated
         // edit anywhere else in the same paragraph.
+        //
+        // The verse's own GLYPH TEXT is folded in (fragment-normalized, so its NBSP separator
+        // matches the re-tokenized NEW side's): a VerseNode is a TextNode, and this branch
+        // shortcuts the generic TextNode case below, so without this a whitespace-only glyph edit
+        // (`\v 2 ` → `\v 2  `) that leaves number/altnumber/pubnumber unchanged would compare equal
+        // to its canonical re-tokenization and refuse forever — a permanent non-settling state.
         out.push(
           SIGNATURE_OPEN,
           "verse",
+          toFragmentText(node.getTextContent()),
           JSON.stringify({
             number: node.getNumber(),
             altnumber: node.getAltnumber() ?? null,
@@ -383,7 +395,12 @@ function $appendNodesFragment(
       // milestone the tokenizer would not re-derive as one (`$isReTokenizableMilestone`) stays a
       // preserved sentinel, node and run together, exactly as before.
       const run = $milestoneDisplayRun(children, index);
-      if ($isReTokenizableMilestone(node.getMarker(), getMarkerFn))
+      // Require a non-empty run for the re-tokenizable path: a bare MilestoneNode (the collab
+      // materializer `$createMilestone` builds these with no display-run siblings) would
+      // contribute ZERO bytes here, so the rebuild would splice it away entirely — a silent
+      // deletion. With no displayable bytes it degrades to an atomic sentinel and survives
+      // (the spec's "state not recoverable from displayed bytes → atomic" self-protection).
+      if ($isReTokenizableMilestone(node.getMarker(), getMarkerFn) && run.length > 0)
         $appendNodesFragment(run, out, getMarkerFn);
       else pushSentinel(out, [node, ...run]);
       index += run.length;

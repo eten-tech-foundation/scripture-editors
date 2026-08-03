@@ -51,6 +51,7 @@ import { useEffect } from "react";
 import {
   $hasCaretHeldAttributeRun,
   $hasCaretHeldSeparatorGap,
+  $hasCaretHeldVerseAttributeRun,
   canonicalAttributeText,
   ChapterNode,
   CharNode,
@@ -156,6 +157,16 @@ export function MarkerEditPlugin({
       editor.registerNodeTransform(VerseNode, (node) => {
         if (editor.isComposing()) return;
         $verseNodeTransform(node, context);
+        // Same grace/pend pairing for a deleted or diverged \va/\vp attribute run
+        // (attributeDisplay.utils.ts): while the caret holds the run's site, TextSpacingPlugin's
+        // sync leaves it alone, so pend the verse here for the caret-departure settle — otherwise
+        // a full-triplet deletion never re-tokenizes and the sync just re-derives the run from the
+        // still-set altnumber/pubnumber (the deletion silently undoes itself).
+        if (
+          node.isAttached() &&
+          $hasCaretHeldVerseAttributeRun(node, node.getAltnumber(), node.getPubnumber())
+        )
+          context.pendingKeys.add(node.getKey());
       }),
       editor.registerNodeTransform(ChapterNode, (node) => {
         if (editor.isComposing()) return;

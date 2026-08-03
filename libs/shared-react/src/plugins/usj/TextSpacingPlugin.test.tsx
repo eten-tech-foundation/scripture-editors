@@ -723,6 +723,55 @@ describe("TextSpacingPlugin", () => {
       });
     });
 
+    it("leaves a just-deleted run alone while the caret sits at its insertion site, and reports it caret-held", async () => {
+      // The user deleted the whole `\va 2\va*` triplet, leaving the caret at the verse's end (the
+      // run's insertion point). altnumber is still "2", so without a missing-run grace the sync
+      // would immediately re-derive the triplet — the deletion visibly undoing itself. The grace
+      // must leave it alone and report it caret-held so the marker-edit engine settles it on
+      // departure.
+      let verse: VerseNode;
+      const { editor } = await testEnvironment(() => {
+        verse = $createVerseNode("1", "\\v 1 ", undefined, "2", undefined);
+        const open = $createMarkerNode("va");
+        const value = $createTextNode(`${NBSP}2`);
+        $setState(value, textTypeState, "attribute");
+        $getRoot().append(
+          $createParaNode().append(
+            verse,
+            open,
+            value,
+            $createMarkerNode("va", "closing"),
+            $createTextNode(" after"),
+          ),
+        );
+      });
+
+      let reportedCaretHeld: boolean | undefined;
+      await act(async () => {
+        editor.update(
+          () => {
+            // Delete the whole \va triplet and park the caret at the verse's end (its site).
+            const open = verse.getNextSibling();
+            const value = open?.getNextSibling();
+            const close = value?.getNextSibling();
+            close?.remove();
+            value?.remove();
+            open?.remove();
+            verse.select(verse.getTextContentSize(), verse.getTextContentSize());
+            reportedCaretHeld = $hasCaretHeldVerseAttributeRun(verse, "2", undefined);
+          },
+          { discrete: true },
+        );
+      });
+
+      expect(reportedCaretHeld).toBe(true);
+      editor.getEditorState().read(() => {
+        // The sync ran after this commit's mutations and did NOT re-insert the triplet.
+        expect(attributeRun(verse, "va")).toBeUndefined();
+        expect(verse.getNextSibling()?.getTextContent()).toBe(" after");
+      });
+    });
+
     it("reports \\vp caret-held even when \\va independently diverges with the caret elsewhere", async () => {
       // \va missing (diverges from altnumber) but the caret is nowhere near it — the sync would
       // heal it on its own, given the chance. \vp is mid-edit with the caret inside it. The two

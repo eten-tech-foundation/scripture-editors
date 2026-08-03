@@ -32,7 +32,7 @@
 
 **Interfaces:**
 - Produces: `canonicalAttributeText(attributes: { [name: string]: string | undefined }, defaultAttributeName?: string): string` — returns `""` when no displayable attributes; else `|value` (lone default) or `|name="value" …`. Skips `closed` and `undefined` values. Insertion order preserved.
-- Produces: `CHAR_ATTRIBUTE_EXCLUDED_KEYS: ReadonlySet<string>` — `new Set(["closed"])`.
+- Produces: `ATTRIBUTE_EXCLUDED_KEYS: ReadonlySet<string>` — `new Set(["closed"])`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -109,7 +109,7 @@ describe("canonicalAttributeText", () => {
  */
 
 /** USJ artifacts that are not USFM attribute bytes and must never display. */
-export const CHAR_ATTRIBUTE_EXCLUDED_KEYS: ReadonlySet<string> = new Set(["closed"]);
+export const ATTRIBUTE_EXCLUDED_KEYS: ReadonlySet<string> = new Set(["closed"]);
 
 /**
  * The canonical PT9 byte form of an attribute set, including the leading `|` — or `""` when
@@ -122,7 +122,7 @@ export function canonicalAttributeText(
   defaultAttributeName?: string,
 ): string {
   const entries = Object.entries(attributes).filter(
-    ([name, value]) => value !== undefined && !CHAR_ATTRIBUTE_EXCLUDED_KEYS.has(name),
+    ([name, value]) => value !== undefined && !ATTRIBUTE_EXCLUDED_KEYS.has(name),
   );
   if (entries.length === 0) return "";
   if (entries.length === 1 && entries[0][0] === defaultAttributeName) return `|${entries[0][1]}`;
@@ -179,7 +179,7 @@ describe("default-attribute lookups (shared with attribute display)", () => {
 - Test: `packages/platform/src/editor/adaptors/usj-editor-adaptor.test.ts`
 
 **Interfaces:**
-- Consumes: `canonicalAttributeText`, `CHAR_ATTRIBUTE_EXCLUDED_KEYS` (Task 1), `defaultMarkerAttribute` (Task 2).
+- Consumes: `canonicalAttributeText`, `ATTRIBUTE_EXCLUDED_KEYS` (Task 1), `defaultMarkerAttribute` (Task 2).
 - Produces: in editable mode, a char span with displayable attributes serializes children as `[opening MarkerNode, …content…, TextNode(text: canonical "|…", state textType "attribute"), closing MarkerNode]`. New helper `addCharAttributes(markerObject: MarkerObject, nodes: SerializedLexicalNode[])` in the adaptor.
 
 Placement facts: the run goes AFTER `children.push(...childNodes)` (:374) and BEFORE the `addClosingMarker` call (:381); build it only when the closing glyph is NOT skipped (`!isClosingGlyphSkipped`, computed :379-380 — hoist the computation above the insertion point) and only in editable mode. Derive from `getUnknownAttributes(markerObject, CHAR_MARKER_OBJECT_PROPS)` — call it once, reuse for both the run and the existing :382 assignment.

@@ -52,7 +52,7 @@ import {
 } from "lexical";
 
 /** USJ artifacts that are not USFM attribute bytes and must never display. */
-export const CHAR_ATTRIBUTE_EXCLUDED_KEYS: ReadonlySet<string> = new Set(["closed"]);
+export const ATTRIBUTE_EXCLUDED_KEYS: ReadonlySet<string> = new Set(["closed"]);
 
 /**
  * The canonical PT9 byte form of an attribute set, including the leading `|` — or `""` when
@@ -65,7 +65,7 @@ export function canonicalAttributeText(
   defaultAttributeName?: string,
 ): string {
   const entries = Object.entries(attributes).filter(
-    ([name, value]) => value !== undefined && !CHAR_ATTRIBUTE_EXCLUDED_KEYS.has(name),
+    ([name, value]) => value !== undefined && !ATTRIBUTE_EXCLUDED_KEYS.has(name),
   );
   if (entries.length === 0) return "";
   if (entries.length === 1 && entries[0][0] === defaultAttributeName) return `|${entries[0][1]}`;
@@ -259,15 +259,27 @@ function $verseAttributeDiverges(
   return triplet?.value.getTextContent() !== $verseAttributeTargetText(value);
 }
 
-/** True when the collapsed caret sits inside `triplet`'s value — the mid-edit grace the sync
- * leaves alone rather than fighting the user's in-progress edit. */
-function $isCaretInVerseAttributeValue(triplet: VerseAttributeTriplet): boolean {
+/**
+ * Whether the collapsed caret holds a verse attribute run's SITE — inside `triplet`'s value when
+ * the triplet exists (the mid-edit grace, leaving the user's in-progress edit alone), or, when the
+ * triplet is MISSING (the user just deleted the whole `\va …\va*` run), at the run's insertion
+ * point: the end of `after` (the verse, or a preceding `\va` closer) or the very start of `after`'s
+ * next content sibling, where a range deletion collapses the caret. Mirrors the char side's
+ * {@link $isCaretAtAttributeRunBoundary}. Without the missing-triplet arm, the sync would re-derive
+ * the run from the still-set altnumber/pubnumber the instant the triplet is deleted and the
+ * deletion would visibly undo itself.
+ */
+function $isCaretAtVerseAttributeSite(
+  after: LexicalNode,
+  triplet: VerseAttributeTriplet | undefined,
+): boolean {
   const selection = $getSelection();
-  return (
-    $isRangeSelection(selection) &&
-    selection.isCollapsed() &&
-    selection.anchor.getNode().is(triplet.value)
-  );
+  if (!$isRangeSelection(selection) || !selection.isCollapsed()) return false;
+  const anchorNode = selection.anchor.getNode();
+  if (triplet) return anchorNode.is(triplet.value);
+  if (anchorNode.is(after) && selection.anchor.offset === after.getTextContentSize()) return true;
+  const next = after.getNextSibling();
+  return next !== null && anchorNode.is(next) && selection.anchor.offset === 0;
 }
 
 /**
@@ -283,7 +295,9 @@ function $syncVerseAttributeRun(
 ): LexicalNode {
   const triplet = $verseAttributeTriplet(after.getNextSibling(), marker);
   if (!$verseAttributeDiverges(triplet, value)) return triplet?.closer ?? after;
-  if (triplet && $isCaretInVerseAttributeValue(triplet)) return triplet.closer;
+  // Mid-edit grace: the caret holds the run's site (inside a live value, or at a just-deleted
+  // run's insertion point). Leave it alone — the marker-edit engine settles it on departure.
+  if ($isCaretAtVerseAttributeSite(after, triplet)) return triplet?.closer ?? after;
   const targetText = $verseAttributeTargetText(value);
   if (targetText === undefined) {
     triplet?.opener.remove();
@@ -340,8 +354,7 @@ export function $hasCaretHeldVerseAttributeRun(
   const vaTriplet = $verseAttributeTriplet(verse.getNextSibling(), "va");
   if (
     $verseAttributeDiverges(vaTriplet, altnumber) &&
-    vaTriplet &&
-    $isCaretInVerseAttributeValue(vaTriplet)
+    $isCaretAtVerseAttributeSite(verse, vaTriplet)
   )
     return true;
   // A diverging \va the caret does NOT hold is not "caret-held" (it would just heal in place),
@@ -351,7 +364,6 @@ export function $hasCaretHeldVerseAttributeRun(
   const vpTriplet = $verseAttributeTriplet(afterVa.getNextSibling(), "vp");
   return Boolean(
     $verseAttributeDiverges(vpTriplet, pubnumber) &&
-    vpTriplet &&
-    $isCaretInVerseAttributeValue(vpTriplet),
+    $isCaretAtVerseAttributeSite(afterVa, vpTriplet),
   );
 }
