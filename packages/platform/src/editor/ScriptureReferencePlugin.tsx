@@ -187,10 +187,12 @@ export function ScriptureReferencePlugin({
   // skipInitialization: false replays the mounted document so mount-time placement and the
   // mount-time book correction work. Reads the FIRST BookNode of the root only - stray extra
   // BookNodes (malformed USJ, cross-editor paste) must not drive contradictory corrections.
-  // Must register BEFORE the verse-node listener below: Lexical delivers mutation listeners in
-  // registration order, and a document swap must flip phase to "navigating" here before the
-  // verse listener's synchronous SELECTION_CHANGE_COMMAND dispatch is classified - reordering
-  // reintroduces the R2 clobber (pinned by the swap-correction and view-option-toggle tests).
+  // Registered before the verse-node listener below, but that ordering is no longer load-bearing:
+  // the verse listener's SELECTION_CHANGE_COMMAND dispatch is now deferred one microtask (see
+  // there), so it runs only after every mutation listener for the commit has settled - including
+  // this one flipping phase to "navigating" on a document swap. R2-safety therefore no longer
+  // depends on registration order (it did when that dispatch ran synchronously). R2 itself is
+  // still pinned by the swap-correction and view-option-toggle tests.
   useEffect(
     () =>
       editor.registerMutationListener(
@@ -228,14 +230,25 @@ export function ScriptureReferencePlugin({
 
   // Verse node destroyed - SELECTION_CHANGE_COMMAND won't fire if the cursor position didn't
   // change (e.g. cursor was at offset 0 of the node after the verse, and stays there after
-  // deletion of the non-keyboard-selectable DecoratorNode). Must register AFTER the BookNode
-  // listener above - see the registration-order note there.
+  // deletion of the non-keyboard-selectable DecoratorNode). Registration order relative to the
+  // BookNode listener above is not load-bearing now that this dispatch is deferred - see the note
+  // there.
   useEffect(() => {
     const onVerseDestroyed = (nodeMutations: Map<string, "created" | "updated" | "destroyed">) => {
       const hasCreatedOrDestroyedVerse = [...nodeMutations.values()].some(
         (m) => m === "created" || m === "destroyed",
       );
-      if (hasCreatedOrDestroyedVerse) editor.dispatchCommand(SELECTION_CHANGE_COMMAND, undefined);
+      // Defer one microtask: dispatching synchronously inside a mutation listener runs a reentrant
+      // update while the triggering edit's history entry is still being recorded, corrupting the
+      // undo stack (PT-4102: undo did nothing after a verse-spanning delete). Same deferral rule as
+      // schedulePlacingCaretAtVerseStart below.
+      // INVARIANT this now relies on: no SELECTION_CHANGE_COMMAND listener may create or destroy a
+      // verse node. If one did, this would loop (verse mutation -> microtask -> dispatch -> verse
+      // mutation -> ...); because each hop is a fresh microtask the stack unwinds every iteration,
+      // so Lexical's "Maximum update depth exceeded" guard never trips and the tab silently freezes
+      // (the old synchronous dispatch would at least throw). Nothing does today - keep it that way.
+      if (hasCreatedOrDestroyedVerse)
+        queueMicrotask(() => editor.dispatchCommand(SELECTION_CHANGE_COMMAND, undefined));
     };
     return mergeRegister(
       editor.registerMutationListener(ImmutableVerseNode, onVerseDestroyed),

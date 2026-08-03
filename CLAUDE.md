@@ -43,8 +43,9 @@ nx test <package-name> --watch     # Run tests in watch mode
 # Linting and Type Checking
 nx run-many -t lint                # Lint all packages
 nx run-many -t typecheck           # Type check all packages
-nx format:check                    # Check formatting
-nx format:write                    # Fix formatting
+
+# Formatting — you normally never run this; see "Formatting" below
+npx prettier --write <files>       # Use prettier directly, NOT `nx format:write`
 
 # API extraction (run after changing a package's public API)
 nx extract-api <package-name>      # Update API report for specific package
@@ -216,6 +217,22 @@ When working with scripture data:
 - The `nx-generate` skill handles generator discovery internally - don't call nx_docs just to look up generator syntax
 
 <!-- nx configuration end-->
+
+# Formatting
+
+**Don't run formatting as a verification step, and don't hand-format.** The pre-commit hook runs
+`prettier --write` over staged files (see `lint-staged.config.js`), so anything you commit is
+formatted for you. Adding a format check to your own workflow is wasted work.
+
+If you do need to format explicitly, **use `prettier` directly, not `nx format:write`**. `nx format`
+exists in CI (`nx format:check` in `test-publish.yml`) only as a historical backstop: Nx once
+resolved a prettier configuration that didn't quite match invoking prettier directly, and the check
+guards against commits that bypassed the hook. It has not caught a real failure in a long time, and
+several Nx majors have passed since, but the mismatch has never been reconfirmed either way — so
+prefer the tool the hook uses.
+
+Note `.prettierignore` excludes some files that are otherwise staged, notably `pnpm-lock.yaml` and
+`**/tsconfig*.json`. Prettier leaves those alone; don't reformat them by hand to "fix" them.
 
 # Code Style
 
