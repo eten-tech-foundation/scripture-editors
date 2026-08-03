@@ -10,6 +10,7 @@ import {
   ArmedDelete,
   keyDownToIntent,
 } from "./structureKeyboard.utils";
+import { $selectParaContentStart } from "./ParaMarkerPrefixCursorGuardPlugin";
 import { $generateNodesFromDOM } from "@lexical/html";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import DOMPurify from "dompurify";
@@ -110,7 +111,9 @@ export function StructureKeyboardPlugin({
             node.remove();
             if (prev) $placeCaretAtEnd(prev);
             else if (next && $isTextNode(next)) next.select(0, 0);
-            else parent?.selectStart();
+            // No text sibling to land on: advance past any remaining prefix/verse in the parent
+            // paragraph rather than resting the caret before it.
+            else $selectParaContentStart(parent);
           }
         } else if (armed.kind === "selection") {
           if ($isRangeSelection(selection)) selection.removeText(); // deletes the whole range, verse included
