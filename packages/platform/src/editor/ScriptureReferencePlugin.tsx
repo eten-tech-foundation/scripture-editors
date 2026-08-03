@@ -481,7 +481,19 @@ export default function ScriptureReferencePlugin({
 function $moveCursorToVerseStart(chapterNum: number, verseNum: number) {
   const startNode = getSelectionStartNode($getSelection());
   const selectedVerse = $findThisVerse(startNode)?.getNumber();
-  if (selectedVerse && isVerseRange(selectedVerse) && verseInRangeSafe(verseNum, selectedVerse)) {
+  // Already parked in the verse being navigated to: moving to its start would eject a caret the
+  // user is actively typing in. The scrRef echo of this editor's own save fires ~90-190ms after a
+  // keystroke; without this guard it yanks the caret out of a freshly typed marker span, so the
+  // trailing bytes land outside the span and the literal never re-tokenizes (`\nd text|x="y"\nd*`
+  // stays literal forever). A range that contains the target, or a single verse whose number is
+  // the target, both mean "already here", so leave the caret untouched. Genuine cross-verse
+  // navigation still moves, since the caret is not in the target verse.
+  if (
+    selectedVerse &&
+    (isVerseRange(selectedVerse)
+      ? verseInRangeSafe(verseNum, selectedVerse)
+      : parseInt(selectedVerse, 10) === verseNum)
+  ) {
     return;
   }
 

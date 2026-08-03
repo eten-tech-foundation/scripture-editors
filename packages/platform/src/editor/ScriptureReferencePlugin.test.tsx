@@ -256,6 +256,24 @@ describe("ScriptureReferencePlugin", () => {
       expect(mockOnScrRefChange).toHaveBeenCalled();
     });
 
+    it("should not eject a caret already in the target single verse (non-echo)", async () => {
+      // The live typed-attribute repro: the caret sits mid-content in verse 2 while the user
+      // types; the scrRef echo of that same edit returns targeting verse 2, but arrives too late
+      // to be recognized as an echo (no report was queued here, so it reaches the placement path
+      // directly). Moving the caret to the verse start would eject it out of a freshly typed
+      // marker span, so the trailing bytes land outside the span and never re-tokenize. Already
+      // being in the target verse means "already here" — leave the caret untouched.
+      const { editor, setScrRef } = await testEnvironment(scrRef, mockOnScrRefChange);
+      updateSelection(editor, secondVerseTextNode, 2);
+
+      await setScrRef({ ...scrRef, verseNum: 2 });
+
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(secondVerseTextNode, 2);
+      });
+      expect(mockOnScrRefChange).not.toHaveBeenCalled();
+    });
+
     it("should move the cursor into the start of range", async () => {
       const { editor, setScrRef } = await testEnvironment(scrRef, mockOnScrRefChange);
       updateSelection(editor, firstVerseTextNode, 2);

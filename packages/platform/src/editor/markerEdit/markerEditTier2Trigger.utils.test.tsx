@@ -6,18 +6,26 @@ import {
   $createTextNode,
   $getRoot,
   $getSelection,
+  $getState,
+  $isElementNode,
   $isRangeSelection,
+  $isTextNode,
   $setState,
   KEY_ENTER_COMMAND,
+  LexicalNode,
   NodeKey,
   TextNode,
   UNDO_COMMAND,
 } from "lexical";
 import {
+  $charAttributeDisplayNode,
   $createMarkerNode,
   $createNoteNode,
   $createParaNode,
+  $isCharNode,
+  $isMarkerNode,
   $isParaNode,
+  CharNode,
   getMarker as bundledGetMarker,
   NBSP,
   textTypeState,
@@ -25,6 +33,23 @@ import {
 // Reaching inside only for tests.
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import { createBasicTestEnvironment } from "../../../../../libs/shared/src/nodes/usj/test.utils";
+
+/** Narrow away `T | undefined` without a banned non-null assertion. */
+function requireDefinedInTest<T>(value: T | undefined, message: string): T {
+  if (value === undefined) throw new Error(message);
+  return value;
+}
+
+/** Depth-first search for the first CharNode with `marker` anywhere under `root`. */
+function $findFirstChar(root: LexicalNode, marker: string): CharNode | undefined {
+  if ($isCharNode(root) && root.getMarker() === marker) return root;
+  if (!$isElementNode(root)) return undefined;
+  for (const child of root.getChildren()) {
+    const found = $findFirstChar(child, marker);
+    if (found) return found;
+  }
+  return undefined;
+}
 
 describe("Tier 2 literal-text triggers", () => {
   it("re-tokenizes a terminated typed char marker", async () => {
@@ -265,6 +290,67 @@ describe("Tier 2 literal-text triggers", () => {
       expect(paras.some((para) => para.getMarker() === "q1")).toBe(true);
     });
     expect(json).toContain("God Make Da World"); // heading text preserved
+  });
+
+  it('settles an attributed char span typed one keystroke at a time (`\\nd text|stuff="thing"\\nd*`)', async () => {
+    // The live repro: typing the whole `\nd text|stuff="thing"\nd*` sequence character by
+    // character. `\nd ` first materializes an OPEN (closed="false") char span; the content and
+    // then the `\nd*` closer are typed INTO that span. When the closer lands inside the span as
+    // one contiguous run, the Tier 2 trigger re-tokenizes it: extractAttributes parses
+    // `stuff="thing"` into a real attribute, the span closes, and the `|stuff="thing"` bytes
+    // become the canonical attribute display run — never persisting as literal span content.
+    let content: TextNode;
+    let other: TextNode;
+    const { editor } = await testEnvironment(() => {
+      content = $createTextNode(NBSP);
+      other = $createTextNode("elsewhere");
+      $getRoot().append(
+        $createParaNode("p").append($createMarkerNode("p"), content),
+        $createParaNode("p").append($createMarkerNode("p"), other),
+      );
+    });
+    await act(async () => editor.update(() => content.select(1, 1))); // caret at content start
+    for (const character of `\\nd text|stuff="thing"\\nd*`) {
+      await act(async () =>
+        editor.update(() => {
+          const selection = $getSelection();
+          if ($isRangeSelection(selection)) selection.insertText(character);
+        }),
+      );
+    }
+
+    const assertSettled = () =>
+      editor.getEditorState().read(() => {
+        const nd = requireDefinedInTest($findFirstChar($getRoot(), "nd"), "nd char span not found");
+        // Closed span carrying the parsed attribute — no lingering closed="false".
+        expect(nd.getUnknownAttributes()).toEqual({ stuff: "thing" });
+        expect(
+          nd.getChildren().some((c) => $isMarkerNode(c) && c.getMarkerSyntax() === "closing"),
+        ).toBe(true);
+        // `|stuff="thing"` is now the canonical attribute display run, not literal content.
+        const run = requireDefinedInTest(
+          $charAttributeDisplayNode(nd),
+          "attribute display run not found",
+        );
+        expect(run.getTextContent()).toBe('|stuff="thing"');
+        expect($getState(run, textTypeState)).toBe("attribute");
+        // No plain (non-attribute) content text node still holds the raw `|stuff` literal.
+        const plainContent = nd
+          .getChildren()
+          .filter(
+            (c) =>
+              $isTextNode(c) && !$isMarkerNode(c) && $getState(c, textTypeState) !== "attribute",
+          )
+          .map((c) => c.getTextContent())
+          .join("");
+        expect(plainContent).not.toContain("|stuff");
+      });
+
+    assertSettled(); // settled during typing, at the moment the closer was typed
+    // Caret departure to the other paragraph must not perturb the already-settled span.
+    await act(async () => editor.update(() => other.select(0, 0)));
+    await new Promise((resolve) => queueMicrotask(() => resolve(undefined)));
+    assertSettled();
   });
 
   it("does not re-tokenize a COLLAPSED note's content (preserve-or-refuse)", async () => {
