@@ -16,13 +16,16 @@ import {
 } from "lexical";
 import {
   $hasCaretHeldAttributeRun,
+  $hasCaretHeldMilestoneRun,
   $hasCaretHeldSeparatorGap,
   $hasCaretHeldVerseAttributeRun,
   $isCharNode,
   $isMarkerNode,
+  $isMilestoneNode,
   $isNoteNode,
   $isParaNode,
   $isVerseNode,
+  $syncMilestoneDisplayRun,
   canonicalAttributeText,
   ChapterNode,
   closingMarkerText,
@@ -32,6 +35,10 @@ import {
   MarkerLookup,
   MarkerNode,
   MarkerType,
+  milestoneAttributes,
+  milestoneDefaultAttribute,
+  MilestoneNode,
+  NBSP,
   NoteNode,
   openingMarkerText,
   VerseNode,
@@ -276,6 +283,23 @@ export function $chapterNodeTransform(node: ChapterNode, _context: MarkerEditCon
 }
 
 /**
+ * The canonical NBSP+`|…` bytes `node` should display between its glyphs — shared between
+ * `MarkerEditPlugin`'s registered transform and this file's pend resolution so both always agree
+ * on what "canonical" means for a milestone. `milestoneAttributes` (attributeDisplay.utils.ts)
+ * folds sid/eid/unknownAttributes into the same object usj-editor.adaptor's `addAttributes` builds
+ * from a `MarkerObject`. Computed here rather than inside `shared`'s attributeDisplay.utils.ts:
+ * `milestoneDefaultAttribute` lives in the converters, and `shared`'s nodes/usj module graph must
+ * not import from there (converters/usfm already imports FROM nodes/usj, so the reverse import
+ * would cycle) — same reason `$syncCharAttributeDisplayNode` lives in CharNodePlugin.tsx.
+ * @param node - MilestoneNode whose display run needs updating.
+ */
+export function $milestoneAttributeDisplayText(node: MilestoneNode): string {
+  const attributes = milestoneAttributes(node.getSid(), node.getEid(), node.getUnknownAttributes());
+  const text = canonicalAttributeText(attributes, milestoneDefaultAttribute(node.getMarker()));
+  return text ? NBSP + text : "";
+}
+
+/**
  * Completion trigger. PT9 completes mid-edit markers via its 1s debounced
  * reformat; our deterministic equivalents are Enter, blur, and the caret
  * leaving the node (`exceptKey` keeps the node still being edited pending).
@@ -322,6 +346,16 @@ export function $resolvePendingMarkers(context: MarkerEditContext, exceptKey?: N
       // pended key. Settling now would re-tokenize the run out from under the caret; it settles
       // once the caret has actually departed and the run's bytes are absent from the fragment.
       context.pendingKeys.add(key);
+    } else if ($isMilestoneNode(node)) {
+      // A milestone's own field state (sid/eid/unknownAttributes) is already the source of
+      // truth — unlike a char/verse pend, which re-tokenizes typed literal bytes INTO node state,
+      // a milestone pend here exists only because a remote update changed that state while the
+      // caret held the display run (mid-edit grace above skipped the sync). Re-tokenizing via
+      // Tier 2 would derive state FROM the now-stale displayed bytes instead, undoing the remote
+      // update; re-running the sync directly settles the run to match the state it already has.
+      const expectedText = $milestoneAttributeDisplayText(node);
+      if ($hasCaretHeldMilestoneRun(node, expectedText)) context.pendingKeys.add(key);
+      else $syncMilestoneDisplayRun(node, expectedText);
     } else {
       // Pending plain-text nodes and departed verses re-tokenize.
       $requestTier2ForNode(node, context);

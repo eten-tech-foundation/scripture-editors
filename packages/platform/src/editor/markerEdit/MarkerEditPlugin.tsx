@@ -13,6 +13,7 @@ import {
   $chapterNodeTransform,
   $isSelectionInMarkerNode,
   $markerNodeTransform,
+  $milestoneAttributeDisplayText,
   $resolvePendingMarkers,
   $verseNodeTransform,
   MarkerEditContext,
@@ -50,8 +51,10 @@ import {
 import { useEffect } from "react";
 import {
   $hasCaretHeldAttributeRun,
+  $hasCaretHeldMilestoneRun,
   $hasCaretHeldSeparatorGap,
   $hasCaretHeldVerseAttributeRun,
+  $syncMilestoneDisplayRun,
   canonicalAttributeText,
   ChapterNode,
   CharNode,
@@ -61,6 +64,7 @@ import {
   LoggerBasic,
   MarkerLookup,
   MarkerNode,
+  MilestoneNode,
   NBSP,
   NoteNode,
   ParaNode,
@@ -193,6 +197,23 @@ export function MarkerEditPlugin({
           defaultMarkerAttribute(node.getMarker()),
         );
         if (node.isAttached() && $hasCaretHeldAttributeRun(node, expectedText))
+          context.pendingKeys.add(node.getKey());
+      }),
+      // Self-healing milestone display run (attributeDisplay.utils.ts): a `MilestoneNode` exists
+      // in every markerMode, so — unlike CharNode/VerseNode, whose editable-only node types make
+      // an ungated shared-react plugin registration safe — this sync is registered HERE, gated by
+      // this whole plugin's markerMode-"editable" check, so visible/hidden mode's
+      // ImmutableTypedTextNode-based milestone runs (built by the adaptor, never edited) are never
+      // touched. Same grace/pend pairing as the char/verse cases: while the caret holds the
+      // attribute text, the sync leaves it alone, so pend the milestone for the caret-departure
+      // settle — reachable when a remote collab update changes sid/eid/unknownAttributes
+      // (delta-apply-update.utils.ts calls `setUnknownAttributes` directly, never touching the
+      // run) while the local caret is mid-editing that same run.
+      editor.registerNodeTransform(MilestoneNode, (node) => {
+        if (editor.isComposing()) return;
+        const expectedText = $milestoneAttributeDisplayText(node);
+        $syncMilestoneDisplayRun(node, expectedText);
+        if (node.isAttached() && $hasCaretHeldMilestoneRun(node, expectedText))
           context.pendingKeys.add(node.getKey());
       }),
       editor.registerNodeTransform(NoteNode, (node) => {
