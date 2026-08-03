@@ -19,7 +19,12 @@
  *   flattens to the space genuinely in the file (`\qt-s |sid="…"\*`). A verse's `\va`/`\vp`
  *   values aren't `name="value"` attribute bytes at all — PT9 displays them as their own
  *   `MarkerNode` open + NBSP-prefixed value TextNode + `MarkerNode` close triplet, riding as the
- *   verse's FOLLOWING SIBLINGS (a `VerseNode` is itself a TextNode, not a container).
+ *   verse's FOLLOWING SIBLINGS (a `VerseNode` is itself a TextNode, not a container). A
+ *   milestone's run is shaped the same way — opening `MarkerNode` + optional NBSP-prefixed
+ *   attribute TextNode + self-closing `MarkerNode` `\*`, riding as the `MilestoneNode`'s
+ *   FOLLOWING SIBLINGS (a `MilestoneNode` is a `DecoratorNode`, so it cannot hold children
+ *   either) — except the glyphs themselves are unconditional: a milestone always shows its
+ *   opening/self-closing pair, with only the middle attribute text coming and going.
  * - **Excluded from data paths**: textType "attribute" text never enters OT content ops or the
  *   editor→USJ conversion; the Tier-2 fragment is the one place it DOES flow, so edited bytes
  *   re-tokenize back into node state (extractAttributes / scanMilestone).
@@ -28,17 +33,25 @@
  *
  * Builders construct the run (usj-editor.adaptor's `createChar`/`addAttributes`/
  * `addVerseAttributes`; transforms do not run on `setEditorState`), and
- * {@link $syncCharAttributeDisplay}/{@link $syncVerseAttributeDisplay} — registered as CharNode/
- * VerseNode transforms — re-derive it whenever a span or verse is dirtied, healing remote collab
- * updates and structure surgery. While the collapsed caret sits inside the run the sync leaves
- * it alone (mid-edit grace); the marker-edit engine settles it on caret departure by pending
- * the edited run into its Tier-2 completion path.
+ * {@link $syncCharAttributeDisplay}/{@link $syncVerseAttributeDisplay}/
+ * {@link $syncMilestoneDisplayRun} — registered as CharNode/VerseNode/MilestoneNode transforms —
+ * re-derive it whenever a span, verse, or milestone is dirtied, healing remote collab updates
+ * (the collab materializer's `$createMilestone` builds a BARE `MilestoneNode` with no run at
+ * all — delta-apply-update.utils.ts) and structure surgery. While the collapsed caret sits
+ * inside the run the sync leaves it alone (mid-edit grace); the marker-edit engine settles it on
+ * caret departure by pending the edited run into its Tier-2 completion path. Unlike the char/
+ * verse syncs (registered in shared-react plugins that always run, relying on the char/verse
+ * EDITABLE node types never appearing outside editable mode), `MilestoneNode` is the SAME type
+ * in every mode — so its sync is registered only in `MarkerEditPlugin.tsx`, which is itself
+ * markerMode-"editable"-gated, to keep visible/hidden mode's `ImmutableTypedTextNode`-based
+ * milestone runs (built by the adaptor, never edited) untouched.
  */
 
 import { $createMarkerNode, $isMarkerNode, MarkerNode } from "../features/MarkerNode.js";
 import { textTypeState } from "../collab/delta.state.js";
 import { CharNode } from "./CharNode.js";
-import { NBSP } from "./node-constants.js";
+import { MilestoneNode } from "./MilestoneNode.js";
+import { NBSP, UnknownAttributes } from "./node-constants.js";
 import { VerseNode } from "./VerseNode.js";
 import {
   $createTextNode,
@@ -70,6 +83,22 @@ export function canonicalAttributeText(
   if (entries.length === 0) return "";
   if (entries.length === 1 && entries[0][0] === defaultAttributeName) return `|${entries[0][1]}`;
   return `|${entries.map(([name, value]) => `${name}="${value}"`).join(" ")}`;
+}
+
+/**
+ * The attribute object a milestone's canonical display text is derived from: `sid`/`eid` folded
+ * in first (their real USJ-object positions), then whatever else the marker carries (chiefly
+ * `who`). Shared by usj-editor.adaptor's `addAttributes` (building the run from a `MarkerObject`)
+ * and {@link $syncMilestoneDisplayRun} (healing it from a live `MilestoneNode`'s fields) so the
+ * two sites — one USJ-shaped, one node-shaped — can never drift on WHICH fields make up a
+ * milestone's displayed attributes.
+ */
+export function milestoneAttributes(
+  sid: string | undefined,
+  eid: string | undefined,
+  unknownAttributes: UnknownAttributes | undefined,
+): UnknownAttributes {
+  return { ...(sid && { sid }), ...(eid && { eid }), ...unknownAttributes };
 }
 
 /**
@@ -366,4 +395,135 @@ export function $hasCaretHeldVerseAttributeRun(
     $verseAttributeDiverges(vpTriplet, pubnumber) &&
     $isCaretAtVerseAttributeSite(afterVa, vpTriplet),
   );
+}
+
+/**
+ * A milestone's display-run glyphs found directly after it, if a well-formed opening glyph is
+ * there at all: the opening `MarkerNode` (matching `milestone`'s own marker), an optional
+ * attribute TextNode, and — only recognized when it immediately follows the opening (or the
+ * attribute, when present) — the self-closing `MarkerNode`. Any of the three can be individually
+ * absent (a bare collab-materialized milestone has none of them; a mid-edit tree may have some but
+ * not others), so callers repair only the missing/stale pieces rather than tearing down and
+ * rebuilding ones already in place.
+ */
+function $milestoneAttributeRunPieces(milestone: MilestoneNode): {
+  opening?: MarkerNode;
+  attribute?: TextNode;
+  closing?: MarkerNode;
+} {
+  const opening = milestone.getNextSibling();
+  if (
+    !$isMarkerNode(opening) ||
+    opening.getMarkerSyntax() !== "opening" ||
+    opening.getMarker() !== milestone.getMarker()
+  )
+    return {};
+  const afterOpening = opening.getNextSibling();
+  if ($isMarkerNode(afterOpening) && afterOpening.getMarkerSyntax() === "selfClosing")
+    return { opening, closing: afterOpening };
+  if ($isTextNode(afterOpening) && $getState(afterOpening, textTypeState) === "attribute") {
+    const afterAttribute = afterOpening.getNextSibling();
+    if ($isMarkerNode(afterAttribute) && afterAttribute.getMarkerSyntax() === "selfClosing")
+      return { opening, attribute: afterOpening, closing: afterAttribute };
+    return { opening, attribute: afterOpening };
+  }
+  return { opening };
+}
+
+/**
+ * Whether the collapsed caret sits where a milestone's attribute TextNode already is, or — when
+ * that text node is missing — at its would-be insertion point (the self-closing glyph, if one is
+ * already there, or the end of the opening glyph's own text otherwise). Mirrors
+ * {@link $isCaretAtAttributeRunBoundary} (the char version): the opening/self-closing glyphs
+ * themselves are never caret-graced here — inserting a missing structural glyph beside existing
+ * content cannot corrupt anything the user is mid-typing, unlike overwriting the attribute text.
+ */
+function $isCaretAtMilestoneRunBoundary(
+  attribute: TextNode | undefined,
+  opening: MarkerNode | undefined,
+  closing: MarkerNode | undefined,
+): boolean {
+  const selection = $getSelection();
+  if (!$isRangeSelection(selection) || !selection.isCollapsed()) return false;
+  const anchorNode = selection.anchor.getNode();
+  if (attribute) return anchorNode.is(attribute);
+  if (!opening) return false;
+  if (closing) return anchorNode.is(closing);
+  return anchorNode.is(opening) && selection.anchor.offset === opening.getTextContentSize();
+}
+
+/**
+ * Heal `milestone`'s display run to `expectedAttributeText`: build the opening/self-closing glyph
+ * pair when either is missing (the collab materializer's bare `MilestoneNode` has neither), and
+ * insert/rewrite/remove the attribute TextNode between them to match — except while the collapsed
+ * caret holds the attribute text (mid-edit grace, see {@link $isCaretAtMilestoneRunBoundary}),
+ * which the sync leaves alone for the marker-edit engine to settle on caret departure. Unlike a
+ * char span or verse, a milestone's opening/self-closing glyphs are UNCONDITIONAL — only the
+ * attribute text in between comes and goes with `expectedAttributeText`. Idempotent — writes only
+ * on change, so the registering transform converges.
+ *
+ * @param milestone - The milestone whose display run to sync. Must be called inside
+ *   `editor.update()`.
+ * @param expectedAttributeText - The canonical NBSP+`|…` bytes `milestone` should display between
+ *   its glyphs, or `""` for none.
+ */
+export function $syncMilestoneDisplayRun(
+  milestone: MilestoneNode,
+  expectedAttributeText: string,
+): void {
+  if (!milestone.isAttached()) return;
+  const { opening, attribute, closing } = $milestoneAttributeRunPieces(milestone);
+  const currentText = attribute?.getTextContent() ?? "";
+  // A missing self-closing glyph disqualifies the run as canonical even when the text already
+  // matches: the run is not fully repaired until both glyphs are in place.
+  if (opening !== undefined && closing !== undefined && currentText === expectedAttributeText)
+    return;
+  if ($isCaretAtMilestoneRunBoundary(attribute, opening, closing)) return;
+
+  const openingGlyph =
+    opening ??
+    (() => {
+      const created = $createMarkerNode(milestone.getMarker(), "opening");
+      milestone.insertAfter(created);
+      return created;
+    })();
+
+  let workingAttribute = attribute;
+  if (currentText !== expectedAttributeText) {
+    if (expectedAttributeText === "") {
+      workingAttribute?.remove();
+      workingAttribute = undefined;
+    } else if (workingAttribute) {
+      workingAttribute.setTextContent(expectedAttributeText);
+    } else {
+      workingAttribute = $createTextNode(expectedAttributeText);
+      $setState(workingAttribute, textTypeState, "attribute");
+      openingGlyph.insertAfter(workingAttribute);
+    }
+  }
+
+  if (!closing) {
+    const closingGlyph = $createMarkerNode("", "selfClosing");
+    (workingAttribute ?? openingGlyph).insertAfter(closingGlyph);
+  }
+}
+
+/**
+ * True when `milestone`'s display run diverges from `expectedAttributeText` but the sync is
+ * deliberately leaving it alone because the caret holds the attribute text. The marker-edit
+ * engine pends such milestones so caret departure settles them back to canonical — reachable when
+ * a remote collab update changes `sid`/`eid`/`unknownAttributes` (delta-apply-update.utils.ts's
+ * `$applyEmbedAttributes` calls `setUnknownAttributes` directly, never touching the run) while the
+ * local caret happens to be mid-editing that same run's text.
+ */
+export function $hasCaretHeldMilestoneRun(
+  milestone: MilestoneNode,
+  expectedAttributeText: string,
+): boolean {
+  if (!milestone.isAttached()) return false;
+  const { opening, attribute, closing } = $milestoneAttributeRunPieces(milestone);
+  const currentText = attribute?.getTextContent() ?? "";
+  if (opening !== undefined && closing !== undefined && currentText === expectedAttributeText)
+    return false;
+  return $isCaretAtMilestoneRunBoundary(attribute, opening, closing);
 }

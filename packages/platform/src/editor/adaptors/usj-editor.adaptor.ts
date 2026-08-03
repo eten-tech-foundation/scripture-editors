@@ -61,6 +61,7 @@ import {
   MarkerNode,
   MarkerSyntax,
   MILESTONE_VERSION,
+  milestoneAttributes,
   milestoneDefaultAttribute,
   MilestoneNode,
   MS_MARKER_OBJECT_PROPS,
@@ -736,18 +737,18 @@ function addCharAttributes(
 
 /** Milestone attribute display: NBSP + the canonical `|…` bytes. The NBSP is the file's real
  * separator before the attributes (`\qt-s |sid="…"\*`), so Tier-2's NBSP→space flattening
- * reproduces it exactly rather than leaking a display-only space into content. Unlike a char
- * span's attributes, `sid`/`eid` are explicit USJ props rather than `unknownAttributes`
- * entries, so they are folded in first (in that order) before whatever else the marker carries
- * (chiefly `who`) — the full set, not just sid/eid, or an edit to a non-sid/eid attribute would
- * have nowhere to display and no way to ever be edited. */
+ * reproduces it exactly rather than leaking a display-only space into content. `milestoneAttributes`
+ * (attributeDisplay.utils.ts) folds `sid`/`eid` in first (in that order) before whatever else the
+ * marker carries (chiefly `who`) — the full set, not just sid/eid, or an edit to a non-sid/eid
+ * attribute would have nowhere to display and no way to ever be edited — shared with
+ * `$syncMilestoneDisplayRun`'s node-state healing so the two computations cannot drift. */
 function addAttributes(markerObject: MarkerObject, nodes: SerializedLexicalNode[]) {
   if (markerObject.type !== "ms") return;
   if (_viewOptions?.markerMode !== "editable" && _viewOptions?.markerMode !== "visible") return;
 
   const { marker, sid, eid } = markerObject;
   const unknownAttributes = getUnknownAttributes(markerObject, MS_MARKER_OBJECT_PROPS);
-  const attributes = { ...(sid && { sid }), ...(eid && { eid }), ...unknownAttributes };
+  const attributes = milestoneAttributes(sid, eid, unknownAttributes);
   const text = canonicalAttributeText(attributes, milestoneDefaultAttribute(marker ?? ""));
   if (!text) return;
 
