@@ -1,6 +1,12 @@
 // Reaching inside only for tests.
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import { createBasicTestEnvironment } from "../../../../../libs/shared/src/nodes/usj/test.utils";
+// Reaching inside only for tests.
+// eslint-disable-next-line @nx/enforce-module-boundaries
+import {
+  baseTestEnvironment,
+  deleteTextAtSelection,
+} from "../../../../../libs/shared-react/src/plugins/usj/react-test.utils";
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import {
   CHAPTER_1_INDEX,
@@ -39,15 +45,24 @@ import {
   usxStringToUsj,
 } from "@eten-tech-foundation/scripture-utilities";
 import { deepEqual } from "fast-equals";
-import { $createTextNode, $getRoot, SerializedEditorState, SerializedTextNode } from "lexical";
+import {
+  $createTextNode,
+  $getRoot,
+  $isTextNode,
+  SerializedEditorState,
+  SerializedTextNode,
+  TextNode,
+} from "lexical";
 import {
   $createImmutableVerseNode,
   getViewOptions,
   STANDARD_VIEW_MODE,
+  TextSpacingPlugin,
   usjReactNodes,
 } from "shared-react";
 import {
   $createParaNode,
+  $isParaNode,
   CHAPTER_MARKER,
   CURSOR_PLACEHOLDER_CHAR,
   getVisibleOpenMarkerText,
@@ -623,5 +638,68 @@ describe("Editor USJ Adaptor — caret-host placeholder", () => {
 
     const para = result?.content?.[0] as MarkerObject;
     expect(para.content).toEqual(content);
+  });
+
+  // Hardening pin composing the two pins above with TextSpacingPlugin.test.tsx's live "delete the
+  // space before an optbreak" pin: a user deleting the space in a LIVE editor (TextSpacingPlugin
+  // mounted, so the trailing-space transform is active and must not re-add what was just deleted)
+  // must survive all the way to the editor -> USJ export — not just to the in-memory TextNode's
+  // content, which TextSpacingPlugin.test.tsx already covers on its own.
+  it("keeps a user-deleted space before an optbreak out of the serialized USJ", async () => {
+    // Starting point: the "leading space only" variant pinned above.
+    const usj: Usj = {
+      ...EMPTY_USJ,
+      content: [
+        {
+          type: "para",
+          marker: "p",
+          content: ["one ", { type: "optbreak" }, "two"],
+        } as MarkerObject,
+      ],
+    };
+    initializeSerialize(undefined, undefined);
+    reset();
+    const standardViewOptions = getViewOptions(STANDARD_VIEW_MODE);
+    const initialState = serializeEditorState(usj, standardViewOptions);
+
+    const { editor: liveEditor } = await baseTestEnvironment(
+      JSON.stringify({ root: initialState.root }),
+      <TextSpacingPlugin />,
+    );
+
+    let textBeforeOptbreak: TextNode | undefined;
+    let spaceOffset = 0;
+    liveEditor.getEditorState().read(() => {
+      const para = $getRoot().getFirstChild();
+      if (!$isParaNode(para)) throw new Error("Expected a ParaNode");
+      const found = para
+        .getChildren()
+        .find((child) => $isTextNode(child) && child.getTextContent() === "one ");
+      if (!$isTextNode(found))
+        throw new Error("Expected to find the 'one ' TextNode before the optbreak");
+      textBeforeOptbreak = found;
+      spaceOffset = found.getTextContentSize() - 1;
+    });
+    if (!textBeforeOptbreak) throw new Error("Failed to locate the TextNode before the optbreak");
+
+    // Delete the trailing space live, with TextSpacingPlugin mounted — it must not re-add it.
+    await deleteTextAtSelection(
+      liveEditor,
+      textBeforeOptbreak,
+      spaceOffset,
+      textBeforeOptbreak,
+      spaceOffset + 1,
+    );
+
+    initializeDeserialize(undefined);
+    const result = editorUsjAdaptor.deserializeEditorState(
+      liveEditor.getEditorState(),
+      standardViewOptions,
+    );
+
+    // The deletion survives the export: the space-less "tight" form pinned above, not "one "
+    // reappearing because the transform re-added it.
+    const para = result?.content?.[0] as MarkerObject;
+    expect(para.content).toEqual(["one", { type: "optbreak" }, "two"]);
   });
 });

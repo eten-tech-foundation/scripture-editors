@@ -581,6 +581,33 @@ describe("TextSpacingPlugin", () => {
     });
   });
 
+  // `ref` is an inline UnknownNode (isInlineTag()) just like optbreak, so the same "leave the
+  // adjacent text exactly as authored" exemption governs it. This pins that the exemption's
+  // next-sibling check isn't accidentally scoped to optbreak specifically.
+  it("should not add a trailing space to text before a ref", async () => {
+    let textNode: TextNode;
+    const { editor } = await testEnvironment(() => {
+      textNode = $createTextNode("one");
+      $getRoot().append(
+        $createParaNode().append(textNode, $createUnknownNode("ref"), $createTextNode("two")),
+      );
+    });
+
+    // Force the transform to run on the text node.
+    // `textNode` defined by the test environment.
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    await act(async () => editor.update(() => textNode!.getWritable()));
+
+    editor.getEditorState().read(() => {
+      const para = $getRoot().getFirstChild();
+      if (!$isParaNode(para)) throw new Error("Expected a ParaNode");
+      const text = para.getChildAtIndex(0);
+      if (!$isTextNode(text)) throw new Error("Expected a TextNode");
+      // `one`, not `one ` — authored (space-less) spacing survives, same as optbreak.
+      expect(text.getTextContent()).toBe("one");
+    });
+  });
+
   it("should not insert a space before a verse if preceded by a gutter paragraph marker prefix", async () => {
     // Regression test for PT-3835 Gen 2: gutter mode (`hasGutterParaMarkers: true`) renders the
     // paragraph's `\p` marker as a visible-marker ImmutableTypedTextNode (textType "marker") that is
