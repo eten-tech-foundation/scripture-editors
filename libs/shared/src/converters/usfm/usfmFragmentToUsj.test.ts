@@ -345,6 +345,73 @@ describe("usfmFragmentToUsjContent — verse, chapter, note, milestone, attribut
     ]);
   });
 
+  it("never turns // inside an attribute value into an optbreak (named attribute)", () => {
+    // ParatextData strips the `|…` attribute segment out of the text run at tokenize-time
+    // (UsfmToken.HandleAttributes) BEFORE the `//`→optbreak split ever runs (UsfmParser's Text
+    // case), so `//` after the `|` is attribute-value bytes, never a discretionary break.
+    expect(usfmFragmentToUsjContent('\\p \\jmp go|link-href="http://x.y"\\jmp*')).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [{ type: "char", marker: "jmp", "link-href": "http://x.y", content: ["go"] }],
+      },
+    ]);
+  });
+
+  it("never turns // inside a bare default-attribute value into an optbreak", () => {
+    // The collapsed default-attribute spelling the editor's own attribute display produces.
+    expect(usfmFragmentToUsjContent("\\p \\jmp go|http://x.y\\jmp*")).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [{ type: "char", marker: "jmp", "link-href": "http://x.y", content: ["go"] }],
+      },
+    ]);
+  });
+
+  it("still converts // in span content BEFORE the | while keeping the attribute value intact", () => {
+    // Pre-pipe `//` is ordinary content text — ParatextData's optbreak split applies to it.
+    expect(usfmFragmentToUsjContent('\\p \\w a//b|lemma="c"\\w*')).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [
+          {
+            type: "char",
+            marker: "w",
+            lemma: "c",
+            content: ["a", { type: "optbreak" }, "b"],
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("splits the attribute segment at the run's FIRST pipe even when // follows it", () => {
+    // PT9 finds the attribute boundary with `text.IndexOf('|')` on the whole run, so everything
+    // after the first `|` — later pipes and `//` included — is one attribute segment.
+    expect(usfmFragmentToUsjContent("\\p \\w a|x//y\\w*")).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [{ type: "char", marker: "w", lemma: "x//y", content: ["a"] }],
+      },
+    ]);
+  });
+
+  it("keeps an unparseable attribute segment literal, split optbreaks included (PT9 bail)", () => {
+    // `\nd` has no default attribute, so the bare segment fails to parse — PT9's SetAttributes
+    // returns false, the run stays TEXT with the pipe, and its post-pipe `//` then genuinely
+    // becomes an optbreak in the parser's text pass. The literal + split shape is correct here.
+    expect(usfmFragmentToUsjContent("\\p \\nd a|//\\nd*")).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [{ type: "char", marker: "nd", content: ["a|", { type: "optbreak" }] }],
+      },
+    ]);
+  });
+
   it("turns a stray \\* into an unmatched element (PT9 sink.Unmatched), not literal text", () => {
     expect(usfmFragmentToUsjContent("\\p body \\* tail")).toEqual([
       {

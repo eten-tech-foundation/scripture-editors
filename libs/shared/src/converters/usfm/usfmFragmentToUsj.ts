@@ -1034,18 +1034,45 @@ export function usfmFragmentToUsjContent(
   return result;
 }
 
-/** On explicit close, split a trailing `|attributes` chunk off the span's last text. */
+/**
+ * On explicit close, split a trailing `|attributes` chunk off the span's trailing text run.
+ *
+ * The tokenizer splits `//` into optbreak tokens spec-blind, so an attribute segment whose
+ * VALUE contains `//` (a URL in `link-href`, say) arrives here as interleaved strings and
+ * optbreak objects. ParatextData never does that: `UsfmToken.HandleAttributes` strips the
+ * attribute segment out of the text run at tokenize-time — splitting the run at its FIRST `|` —
+ * and only the remaining content text ever reaches the `//`→optbreak pass (UsfmParser's Text
+ * case). So the trailing run (the maximal contiguous string/optbreak suffix, which by
+ * construction came from ONE original text run) is rejoined byte-exact — each optbreak was a
+ * literal `//` — before attribute parsing, and only pre-pipe optbreaks survive as content.
+ * When the segment does not parse, the content stays as-is, split optbreaks included: that too
+ * is ParatextData (a failed `SetAttributes` leaves the run literal TEXT, whose post-pipe `//`
+ * then genuinely becomes optional breaks).
+ */
 function extractAttributes(object: MarkerObject): void {
   const content = object.content;
   if (!content || content.length === 0) return;
-  const last = content[content.length - 1];
-  if (typeof last !== "string") return;
-  const pipeIndex = last.indexOf("|");
-  if (pipeIndex < 0) return;
-  const attributes = parseAttributeText(last.slice(pipeIndex + 1), object.marker ?? "");
+  // Trailing text run: the maximal contiguous suffix of strings and optbreak objects.
+  let runStart = content.length;
+  while (runStart > 0) {
+    const item = content[runStart - 1];
+    if (typeof item !== "string" && item.type !== "optbreak") break;
+    runStart--;
+  }
+  // First pipe-carrying string within the run (PT9: `text.IndexOf('|')` on the whole run).
+  const pipeItemIndex = content.findIndex(
+    (item, index) => index >= runStart && typeof item === "string" && item.includes("|"),
+  );
+  if (pipeItemIndex < 0) return;
+  const rejoined = content
+    .slice(pipeItemIndex)
+    .map((item) => (typeof item === "string" ? item : "//"))
+    .join("");
+  const pipeIndex = rejoined.indexOf("|");
+  const attributes = parseAttributeText(rejoined.slice(pipeIndex + 1), object.marker ?? "");
   if (!attributes) return;
-  const text = last.slice(0, pipeIndex);
-  if (text) content[content.length - 1] = text;
-  else content.pop();
+  const text = rejoined.slice(0, pipeIndex);
+  content.length = pipeItemIndex;
+  if (text) content.push(text);
   Object.assign(object, attributes);
 }

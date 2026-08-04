@@ -726,6 +726,35 @@ describe("attribute-bearing char spans re-tokenize", () => {
     });
   });
 
+  it("no-edit rebuild of a span whose attribute value contains // is a fixed point", () => {
+    // The span's display run collapses to `|http://x.y` (link-href is jmp's default attribute),
+    // so the re-tokenized fragment carries `//` INSIDE the attribute segment. That `//` is
+    // attribute-value bytes (ParatextData parses attributes from the raw segment between the `|`
+    // and the closer), not a discretionary break — a no-edit rebuild must reproduce the same
+    // span instead of splitting the URL around an optbreak and dropping the attribute.
+    const editor = loadEditor(
+      usjFromUsx(`go to <char style="jmp" link-href="http://x.y">go</char> now`),
+    );
+    editor.update(
+      () => {
+        expect($rebuildParas([$lastPara()], context)).toBe(false);
+      },
+      { discrete: true },
+    );
+    editor.getEditorState().read(() => {
+      const jmp = requireDefined(
+        $findCharDescendant($lastPara(), "jmp"),
+        "jmp char span not found",
+      );
+      expect(jmp.getUnknownAttributes()).toMatchObject({ "link-href": "http://x.y" });
+      // The attribute display run survives as one intact `|value` — the URL is not split.
+      const run = requireDefined($charAttributeDisplayNode(jmp), "attribute display run not found");
+      expect(run.getTextContent()).toBe("|http://x.y");
+      // And the span's visible text is exactly content + that run (no stray literal bytes).
+      expect($charContentText(jmp)).toBe(`go${run.getTextContent()}`);
+    });
+  });
+
   it("no-edit rebuild of the nested zzz6 shape `\\wj \\+w dsa|stuff\\+w*` is a fixed point", () => {
     const editor = loadEditor(
       usjFromUsx(`<char style="wj"><char style="w" lemma="stuff">dsa</char>e</char>`),
