@@ -32,6 +32,7 @@ import {
   $getSelection,
   $getState,
   $isRangeSelection,
+  $isTextNode,
   BLUR_COMMAND,
   CLICK_COMMAND,
   COMMAND_PRIORITY_CRITICAL,
@@ -54,8 +55,11 @@ import {
   $hasCaretHeldMilestoneRun,
   $hasCaretHeldSeparatorGap,
   $hasCaretHeldVerseAttributeRun,
+  $isMarkerNode,
   $isMilestoneNode,
+  $isVerseNode,
   $syncMilestoneDisplayRun,
+  $syncVerseAttributeDisplay,
   canonicalAttributeText,
   ChapterNode,
   CharNode,
@@ -122,6 +126,50 @@ function $milestoneOfOpeningGlyph(node: MarkerNode): MilestoneNode | undefined {
   return $isMilestoneNode(previous) && previous.getMarker() === node.getMarker()
     ? previous
     : undefined;
+}
+
+/**
+ * Sync `node`'s verse `\va`/`\vp` display runs to its altnumber/pubnumber, and pend it while the
+ * caret holds a run's site (mid-edit grace) so caret departure settles it ($resolvePendingMarkers).
+ * The verse analogue of {@link $syncAndPendMilestone}: a verse's runs ride as its FOLLOWING
+ * SIBLINGS, so an edit that touches only a run — deleting just its value TextNode — dirties the
+ * flanking `\va`/`\vp` glyphs but NOT the VerseNode (a TextNode whose own transform fires only when
+ * the verse node itself is dirtied). Running this off the dirtied glyph (via
+ * {@link $verseOfAttributeGlyph}) gives value-only deletion the pend path it needs; without it the
+ * deleted run would silently resurrect from the still-set altnumber/pubnumber on the next unrelated
+ * dirtying.
+ */
+function $syncAndPendVerse(node: VerseNode, context: MarkerEditContext): void {
+  const altnumber = node.getAltnumber();
+  const pubnumber = node.getPubnumber();
+  $syncVerseAttributeDisplay(node, altnumber, pubnumber);
+  if (node.isAttached() && $hasCaretHeldVerseAttributeRun(node, altnumber, pubnumber))
+    context.pendingKeys.add(node.getKey());
+}
+
+/**
+ * The VerseNode whose `\va`/`\vp` display run `node` is an OPENING glyph of — walking back over any
+ * preceding run pieces (a `\va` run sitting before a `\vp`) to the verse the run rides on — or
+ * `undefined`. Lets the MarkerNode transform re-drive the owning verse's sync/pend when a run-only
+ * edit dirties a run glyph but leaves the verse itself clean (see {@link $syncAndPendVerse}).
+ */
+function $verseOfAttributeGlyph(node: MarkerNode): VerseNode | undefined {
+  if (node.getMarkerSyntax() !== "opening") return undefined;
+  const marker = node.getMarker();
+  if (marker !== "va" && marker !== "vp") return undefined;
+  for (
+    let previous = node.getPreviousSibling();
+    previous;
+    previous = previous.getPreviousSibling()
+  ) {
+    if ($isVerseNode(previous)) return previous;
+    const isRunPiece =
+      ($isMarkerNode(previous) &&
+        (previous.getMarker() === "va" || previous.getMarker() === "vp")) ||
+      ($isTextNode(previous) && $getState(previous, textTypeState) === "attribute");
+    if (!isRunPiece) return undefined;
+  }
+  return undefined;
 }
 
 /**
@@ -196,6 +244,12 @@ export function MarkerEditPlugin({
         // instead of silently resurrecting from the milestone's still-set fields.
         const milestone = $milestoneOfOpeningGlyph(node);
         if (milestone) $syncAndPendMilestone(milestone, context);
+        // Same reasoning for a verse's \va/\vp run: deleting only its value TextNode dirties the
+        // flanking glyph but not the VerseNode (a TextNode dirtied only when the verse itself
+        // changes), so its own transform below never fires. Re-drive the owning verse's sync/pend
+        // off the dirtied opening glyph so a value-only deletion settles on caret departure.
+        const verse = $verseOfAttributeGlyph(node);
+        if (verse) $syncAndPendVerse(verse, context);
       }),
       editor.registerNodeTransform(VerseNode, (node) => {
         if (editor.isComposing()) return;
