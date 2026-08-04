@@ -411,14 +411,26 @@ function schedulePlacingCaretAtVerseStart(machine: Machine, editor: LexicalEdito
 function $moveCaretToVerseStart(chapterNum: number, verseNum: number) {
   const startNode = getSelectionStartNode($getSelection());
   const selectedVerse = $findThisVerse(startNode)?.getNumber();
+  // Resolve the caret's CHAPTER too, mirroring $resolvePosition's counting (content before the
+  // first chapter of a loaded document addresses as chapter 1). The verse-number match alone is
+  // chapter-blind: in a multi-chapter document, navigating chapter N verse K -> chapter M verse K
+  // keeps the verse number but is a genuine cross-chapter move, and a number-only "already here"
+  // guard would wrongly no-op and strand the caret in the wrong chapter.
+  const selectedChapterNode = $findThisChapter(startNode);
+  const selectedChapterNum = selectedChapterNode
+    ? parseInt(selectedChapterNode.getNumber() ?? "1", 10)
+    : 1;
   // Already parked in the verse being navigated to: moving to its start would eject a caret the
   // user is actively typing in. The scrRef echo of this editor's own save fires ~90-190ms after a
   // keystroke; without this guard it yanks the caret out of a freshly typed marker span, so the
   // trailing bytes land outside the span and the literal never re-tokenizes (`\nd text|x="y"\nd*`
   // stays literal forever). A range that contains the target, or a single verse whose number is
-  // the target, both mean "already here", so leave the caret untouched. Genuine cross-verse
-  // navigation still moves, since the caret is not in the target verse.
+  // the target — IN THE SAME CHAPTER — both mean "already here", so leave the caret untouched. This
+  // is also the deliberate UX no-op for clicking the verse the caret is already in: it is left
+  // where the user placed it, not snapped to the verse start. Genuine cross-verse OR cross-chapter
+  // navigation still moves, since the caret is not in the target chapter's target verse.
   if (
+    selectedChapterNum === chapterNum &&
     selectedVerse &&
     (isVerseRange(selectedVerse)
       ? verseInRangeSafe(verseNum, selectedVerse)
