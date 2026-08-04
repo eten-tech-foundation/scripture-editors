@@ -396,19 +396,21 @@ function createChar(
   // keeps the visible glyph text truthful so a Tier-2 re-tokenization reproduces the same nesting.
   addOpeningMarker(markerObject.marker ?? "", children, isNested);
   children.push(...childNodes);
-  // A char span with no explicit closing marker carries closed="false": ParatextData emits it on
-  // every implicitly-closed span — the explicit `closed="false"` attribute, and near-universally on
-  // footnote/cross-ref content chars like \fr/\ft, which never get a closer. Such spans render
-  // WITHOUT a closing glyph, mirroring the unclosed-note handling in `createNote`.
+  // Closer display keys on the span's ACTUAL closed state, never on the marker family: a span
+  // renders its closing glyph iff its USJ does NOT carry closed="false". ParatextData stamps
+  // closed="false" on every genuinely-unclosed span — including footnote/cross-ref content chars
+  // like \fr/\ft that never get an explicit closer — so those still render closer-less, mirroring
+  // the unclosed-note handling in `createNote`. An explicitly-closed \xt (no closed="false")
+  // instead keeps its closing glyph, so its attribute run is built and the span round-trips its
+  // `\xt*` byte-identically rather than losing it to a phantom closed="false".
   const isUnclosedChar = (markerObject as MarkerObject & { closed?: string }).closed === "false";
-  const isClosingGlyphSkipped = isUnclosedChar || isImplicitlyClosedCharMarker(marker);
-  let unknownAttributes = getUnknownAttributes(markerObject, CHAR_MARKER_OBJECT_PROPS);
-  if (!isClosingGlyphSkipped) addCharAttributes(marker, unknownAttributes, children);
+  const unknownAttributes = getUnknownAttributes(markerObject, CHAR_MARKER_OBJECT_PROPS);
+  if (!isUnclosedChar) addCharAttributes(marker, unknownAttributes, children);
   if (!isUnclosedChar) addClosingMarker(markerObject.marker ?? "", children, false, isNested);
-  // Honesty rule: whenever the closing glyph is skipped, record closed="false" so it round-trips
-  // to USJ. Otherwise closer-less hand-written/legacy USJ that lacked the flag would serialize back
-  // without it and the C# writer would then emit a \marker* closer the source never had.
-  if (isClosingGlyphSkipped) unknownAttributes = { ...unknownAttributes, closed: "false" };
+  // The closed="false" flag stays exactly as the source USJ supplied it (bucketed into
+  // unknownAttributes above): it is retained on a genuinely-unclosed span so a downstream USFM
+  // writer emits no closer the source lacked, and is NEVER synthesized onto an explicitly-closed
+  // span merely because of its marker family.
 
   return removeUndefinedProperties({
     type: CharNode.getType(),
@@ -778,23 +780,12 @@ function addOpeningMarker(marker: string, nodes: SerializedLexicalNode[], nested
   }
 }
 
-/**
- * Whether a char marker is implicitly closed — a footnote or cross-reference content marker that
- * never has an explicit closing marker. ParatextData records `closed="false"` on such spans.
- */
-function isImplicitlyClosedCharMarker(marker: string): boolean {
-  return CharNode.isNoteContentMarker(marker);
-}
-
 function addClosingMarker(
   marker: string,
   nodes: SerializedLexicalNode[],
   isSelfClosing = false,
   nested = false,
 ) {
-  // Note-content markers are written without a closing marker.
-  if (isImplicitlyClosedCharMarker(marker)) return;
-
   if (_viewOptions?.markerMode === "editable") {
     if (isSelfClosing) nodes.push(createMarker("", "selfClosing"));
     else nodes.push(createMarker(marker, "closing", nested));

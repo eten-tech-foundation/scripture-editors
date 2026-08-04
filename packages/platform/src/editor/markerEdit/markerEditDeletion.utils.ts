@@ -315,13 +315,12 @@ export function $charNodeDeletionTransform(char: CharNode, context: MarkerEditCo
     context.logger?.debug(`[MarkerEdit] unwrapped char span "${char.getMarker()}"`);
     return;
   }
-  const needsCloser =
-    // A closed="false" span has no explicit closer BY DESIGN (ParatextData emits the flag on
-    // every implicitly-closed char span; the adaptor renders no closing glyph for it) — its
-    // missing closer is its normal shape, not deletion damage.
-    char.getUnknownAttributes()?.closed !== "false" &&
-    !CharNode.isValidFootnoteMarker(char.getMarker()) &&
-    !CharNode.isValidCrossReferenceMarker(char.getMarker());
+  // A span "needs" a closer iff it is not marked closed="false": that flag (which ParatextData
+  // emits on every genuinely-unclosed span, footnote/cross-ref content included) means the missing
+  // closer is the span's normal shape, not deletion damage. Closer-ness keys on this actual state,
+  // never on the marker family — an explicitly-closed \xt DOES need its closer, so deleting it must
+  // still re-route through Tier 2.
+  const needsCloser = char.getUnknownAttributes()?.closed !== "false";
   const hasCloser = char
     .getChildren()
     .some((child) => $isMarkerNode(child) && child.getMarkerSyntax() === "closing");

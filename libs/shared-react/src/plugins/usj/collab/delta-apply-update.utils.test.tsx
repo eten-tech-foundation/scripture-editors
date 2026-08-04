@@ -1011,10 +1011,12 @@ describe("Delta Utils $applyUpdate", () => {
         const charNode = p.getChildAtIndex(1);
         if (!$isCharNode(charNode)) throw new Error("charNode is not a CharNode");
         expect(charNode.getMarker()).toBe("xt");
-        // closed="false" is the honesty rule: xt is a cross-ref content marker materialized
-        // without a closing glyph, and the round-trip must record that (real-data shape —
-        // ParatextData emits closed="false" on every closer-less xt).
-        expect(charNode.getUnknownAttributes()).toEqual({ bold: "true", closed: "false" });
+        // Closer/closed keys on the span's ACTUAL state, never on the marker family: this char op
+        // carried no closed="false", so it materializes as an EXPLICITLY-closed \xt and NO derived
+        // closed flag is stamped. (A genuinely-unclosed \xt would arrive with closed="false" in the
+        // op — `$buildCharItem` copies it — and keep it; this default view is hidden marker mode, so
+        // no glyphs render either way.)
+        expect(charNode.getUnknownAttributes()).toEqual({ bold: "true" });
         expect($getState(charNode, charIdState)).toBe(cid);
 
         const innerTextNode = charNode.getFirstChild();
@@ -3469,8 +3471,18 @@ describe("Delta Utils $applyUpdate", () => {
               caller: GENERATOR_NOTE_CALLER,
               contents: {
                 ops: [
-                  { insert: "2.1 ", attributes: { char: { style: "fr", cid: "char-id1" } } },
-                  { insert: "in ", attributes: { char: { style: "ft", cid: "char-id2" } } },
+                  // fr/ft are genuinely-unclosed note content — closed="false" travels on the op
+                  // (`$buildCharItem` copies it) so the materializer renders them closer-less
+                  // (closer display keys on state, not the marker family). The nested \bd is
+                  // explicitly closed, so it carries no flag and gets a `\+bd*`.
+                  {
+                    insert: "2.1 ",
+                    attributes: { char: { style: "fr", cid: "char-id1", closed: "false" } },
+                  },
+                  {
+                    insert: "in ",
+                    attributes: { char: { style: "ft", cid: "char-id2", closed: "false" } },
+                  },
                   {
                     insert: "time",
                     attributes: {
@@ -3478,7 +3490,7 @@ describe("Delta Utils $applyUpdate", () => {
                       // matching what $buildCharItem actually emits. The `+` belongs only to the
                       // rendered glyph text, derived from the nesting.
                       char: [
-                        { style: "ft", cid: "char-id2" },
+                        { style: "ft", cid: "char-id2", closed: "false" },
                         { style: "bd", cid: "char-id3" },
                       ],
                     },
@@ -3617,10 +3629,13 @@ describe("Delta Utils $applyUpdate", () => {
               style: "f",
               caller: GENERATOR_NOTE_CALLER,
               contents: {
+                // Genuinely-unclosed note content: closed="false" travels on each op
+                // (`$buildCharItem` copies it), so the materializer renders them closer-less —
+                // closer display keys on state, not the footnote marker family.
                 ops: [
-                  { insert: "2.1 ", attributes: { char: { style: "fr" } } },
-                  { insert: "", attributes: { char: { style: "fk" } } },
-                  { insert: "in time.", attributes: { char: { style: "ft" } } },
+                  { insert: "2.1 ", attributes: { char: { style: "fr", closed: "false" } } },
+                  { insert: "", attributes: { char: { style: "fk", closed: "false" } } },
+                  { insert: "in time.", attributes: { char: { style: "ft", closed: "false" } } },
                 ],
               },
             },
@@ -3827,15 +3842,20 @@ describe("Delta Utils $applyUpdate", () => {
       });
     });
 
-    it('should stamp closed="false" on a closer-less footnote-content char span (honesty rule)', async () => {
+    it("materializes a closed=false footnote-content char closer-less (state, not marker family)", async () => {
       const { editor } = await testEnvironment();
       const viewOptions: ViewOptions = {
         ...defaultViewOptions,
         markerMode: "editable",
       };
-      // No closed attribute on the op — the fr span's closer is skipped by marker identity,
-      // so the honesty rule must record closed="false" for a truthful USJ round-trip.
-      const ops: DeltaOp[] = [{ insert: "1:2", attributes: { char: { style: "fr" } } }];
+      // A genuinely-unclosed \fr arrives with closed="false" in the op (`$buildCharItem` copies it
+      // from the node's unknownAttributes), so it materializes closer-less and keeps the flag —
+      // in-note content is unchanged by keying the closer on state rather than the marker family.
+      // (An explicitly-closed footnote/cross-ref span with NO closed flag instead gains a closing
+      // glyph and no derived flag — pinned in the xt transform case above.)
+      const ops: DeltaOp[] = [
+        { insert: "1:2", attributes: { char: { style: "fr", closed: "false" } } },
+      ];
 
       await sutApplyUpdate(editor, ops, viewOptions);
 

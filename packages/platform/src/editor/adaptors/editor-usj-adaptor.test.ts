@@ -144,13 +144,14 @@ describe("Editor USJ Adaptor", () => {
     expect(isEqual).toBe(true);
   });
 
-  it("adds closed=false to a footnote-content char that lacks it (honesty rule)", () => {
-    // A \fr char with no `closed` attribute: the adaptor renders it WITHOUT a closing glyph
-    // (footnote/cross-ref content chars never get one), so the honest editor→USJ representation
-    // must carry closed="false". Otherwise the C# writer would emit an explicit \fr* closer the
-    // source never had.
+  it("keys footnote-content closer/closed on state, not the marker family", () => {
+    // Closer display keys on the span's ACTUAL closed state. A \fr the source marked
+    // closed="false" (real ParatextData's genuinely-unclosed shape) renders closer-less and keeps
+    // closed="false" on the round trip; a \fr the source did NOT mark closed is an explicitly-closed
+    // span — it renders its \fr* closer and must NOT acquire a phantom closed="false" that a C#
+    // writer would then use to DROP the real closer.
     const usj = usxStringToUsj(
-      `<usx version="3.0"><book code="RUT" style="id" /><chapter number="1" style="c" /><para style="p"><verse number="1" style="v" />Text<note caller="+" style="f"><char style="fr">1.1 </char></note></para></usx>`,
+      `<usx version="3.0"><book code="RUT" style="id" /><chapter number="1" style="c" /><para style="p"><verse number="1" style="v" />Text<note caller="+" style="f"><char style="fr" closed="false">1.1 </char><char style="xt">Gen 1:1</char></note></para></usx>`,
     );
     initializeSerialize(undefined, undefined);
     reset();
@@ -164,9 +165,13 @@ describe("Editor USJ Adaptor", () => {
       (items ?? []).flatMap((item) =>
         typeof item === "string" ? [] : [item, ...flatten(item.content)],
       );
-    const frChar = flatten(result?.content).find((m) => m.marker === "fr");
+    const flat = flatten(result?.content);
+    const frChar = flat.find((m) => m.marker === "fr");
+    const xtChar = flat.find((m) => m.marker === "xt");
     expect(frChar).toBeDefined();
     expect((frChar as MarkerObject & { closed?: string }).closed).toBe("false");
+    expect(xtChar).toBeDefined();
+    expect((xtChar as MarkerObject & { closed?: string }).closed).toBeUndefined();
   });
 
   it("should convert to USJ from Lexical editor state JSON with Marks", () => {

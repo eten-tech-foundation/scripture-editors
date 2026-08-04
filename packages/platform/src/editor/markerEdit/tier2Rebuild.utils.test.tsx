@@ -699,6 +699,33 @@ describe("attribute-bearing char spans re-tokenize", () => {
     });
   });
 
+  it('no-edit rebuild of an explicitly-closed `\\xt Gen 1:1|link-href="GEN 1:1"\\xt*` is a fixed point', () => {
+    // \xt is a cross-reference content marker, but this span is EXPLICITLY closed (the source USJ
+    // carries no closed="false"): closer display keys on state, not the marker family, so the span
+    // renders its `\xt*` closer, its `link-href` attribute run (`|GEN 1:1`, link-href being xt's
+    // default) is built, and the span is text-recoverable — no longer an atomic sentinel. An
+    // untouched rebuild must recognize it as a fixed point and leave the attribute intact.
+    const editor = loadEditor(
+      usjFromUsx(`See <char style="xt" link-href="GEN 1:1">Gen 1:1</char> here.`),
+    );
+    editor.update(
+      () => {
+        expect($rebuildParas([$lastPara()], context)).toBe(false);
+      },
+      { discrete: true },
+    );
+    editor.getEditorState().read(() => {
+      const xt = requireDefined($findCharDescendant($lastPara(), "xt"), "xt char span not found");
+      expect(xt.getUnknownAttributes()).toMatchObject({ "link-href": "GEN 1:1" });
+      // No phantom closed flag stamped onto the explicitly-closed span.
+      expect(xt.getUnknownAttributes()?.closed).toBeUndefined();
+      // The closing glyph is present (the recoverability anchor for the attribute run).
+      expect(
+        xt.getChildren().some((c) => $isMarkerNode(c) && c.getMarkerSyntax() === "closing"),
+      ).toBe(true);
+    });
+  });
+
   it("no-edit rebuild of the nested zzz6 shape `\\wj \\+w dsa|stuff\\+w*` is a fixed point", () => {
     const editor = loadEditor(
       usjFromUsx(`<char style="wj"><char style="w" lemma="stuff">dsa</char>e</char>`),

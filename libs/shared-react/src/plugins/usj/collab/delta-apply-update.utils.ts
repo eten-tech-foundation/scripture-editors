@@ -2111,12 +2111,13 @@ function $createNestedChars(
 
 /**
  * Add the closing glyph for a delta-materialized char span — or skip it when the span is not
- * explicitly closed. Mirrors `createChar` in the platform USJ adaptor: a span carrying
- * `closed="false"` renders WITHOUT a closing glyph (the glyph structure must agree with the
- * node's state), as does a footnote/cross-ref content marker (`\fr`/`\ft`/`\xo`/…), which never
- * has an explicit closer. Also mirrors the adaptor's honesty rule: whenever the glyph is
- * skipped, `closed="false"` is recorded on the node so the span round-trips to USJ and the C#
- * writer never invents a `\marker*` the source didn't have.
+ * explicitly closed. Mirrors `createChar` in the platform USJ adaptor: closer display keys on the
+ * span's ACTUAL closed state, never on the marker family. A span carrying `closed="false"` renders
+ * WITHOUT a closing glyph (the glyph structure must agree with the node's state) — the delta
+ * carries that flag for every genuinely-unclosed span, including footnote/cross-ref content chars
+ * (`$buildCharItem` copies `unknownAttributes` into the char op, and `getUnknownAttributes(…,
+ * OT_CHAR_PROPS)` reads it back here) — while an explicitly-closed `\xt` (no `closed="false"`)
+ * keeps its closing glyph.
  */
 function $addCharNodeClosingMarker(
   charNode: CharNode,
@@ -2124,18 +2125,9 @@ function $addCharNodeClosingMarker(
   viewOptions: ViewOptions,
   nested = false,
 ) {
-  const marker = charNode.getMarker();
   const isUnclosed = charNode.getUnknownAttributes()?.closed === "false";
-  if (
-    isUnclosed ||
-    CharNode.isValidFootnoteMarker(marker) ||
-    CharNode.isValidCrossReferenceMarker(marker)
-  ) {
-    if (!isUnclosed)
-      charNode.setUnknownAttributes({ ...charNode.getUnknownAttributes(), closed: "false" });
-    return;
-  }
-  $addClosingMarker(marker, target, viewOptions, false, nested);
+  if (isUnclosed) return;
+  $addClosingMarker(charNode.getMarker(), target, viewOptions, false, nested);
 }
 
 function $addOpeningMarker(
@@ -2176,9 +2168,6 @@ function $addClosingMarker(
   isSelfClosing = false,
   nested = false,
 ) {
-  if (CharNode.isValidFootnoteMarker(marker) || CharNode.isValidCrossReferenceMarker(marker))
-    return;
-
   let markerNode: LexicalNode | undefined;
   if (viewOptions?.markerMode === "editable") {
     if (isSelfClosing) markerNode = $createMarkerNode("", "selfClosing");

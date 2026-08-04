@@ -107,10 +107,11 @@ export function milestoneAttributes(
 /**
  * `char`'s own closing glyph among its direct children, if any — the display run's insertion
  * anchor, and the tree signal for whether a run may exist at all. A span whose closing glyph is
- * skipped (implicitly-closed footnote/cross-ref content, or `closed="false"`) or simply absent
- * never renders one: `createChar` (usj-editor.adaptor) never builds a run there, so the sync must
- * not fabricate one either — deriving the rule from tree shape rather than viewOptions also keeps
- * the sync a no-op outside editable mode, where char spans carry no MarkerNode glyphs at all.
+ * skipped (a `closed="false"` span — the state that makes footnote/cross-ref content chars and any
+ * other genuinely-unclosed span render closer-less) or simply absent never renders one: `createChar`
+ * (usj-editor.adaptor) never builds a run there, so the sync must not fabricate one either —
+ * deriving the rule from tree shape rather than viewOptions also keeps the sync a no-op outside
+ * editable mode, where char spans carry no MarkerNode glyphs at all.
  */
 function $charClosingGlyph(char: CharNode): MarkerNode | undefined {
   return char
@@ -131,12 +132,12 @@ function $charClosingGlyph(char: CharNode): MarkerNode | undefined {
  * regardless of the closer (a closer edit — deleted, damaged — re-tokenizes and settles, possibly
  * degrading to literal content, exactly like any other char content); a live closing glyph gives
  * `extractAttributes` a well-defined close event even if the run itself was just deleted (settles
- * to no attributes). Only when BOTH are absent — implicitly-closed footnote/cross-reference
- * content (`\fr`/`\ft`/`\xt`…) and explicit `closed="false"` spans skip the glyph AND never get a
- * run built for them — does an attribute such as `link-href` on an auto-closed `\xt` have no
- * visible representation anywhere in the tree for the Tier-2 fragment builder to pick up. Such a
- * span must stay a Tier-2 sentinel (preserve-or-refuse, tier2Rebuild.utils.ts): recursing into it
- * would silently drop the attribute.
+ * to no attributes). Only when BOTH are absent — a `closed="false"` span skips the glyph AND never
+ * gets a run built for it — does an attribute such as `link-href` on an unclosed span have no
+ * visible representation anywhere in the tree for the Tier-2 fragment builder to pick up. (An
+ * explicitly-closed `\xt`, by contrast, renders its closing glyph, so its attribute run IS built
+ * and the span is recoverable.) A span with unrecoverable attributes must stay a Tier-2 sentinel
+ * (preserve-or-refuse, tier2Rebuild.utils.ts): recursing into it would silently drop the attribute.
  */
 export function $hasUnrecoverableAttributes(char: CharNode): boolean {
   const attributes = char.getUnknownAttributes();
