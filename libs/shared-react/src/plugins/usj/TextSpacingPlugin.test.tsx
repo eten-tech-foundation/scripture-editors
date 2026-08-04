@@ -383,6 +383,81 @@ describe("TextSpacingPlugin", () => {
     });
   });
 
+  // An optbreak (`//`) is an inline UnknownNode. The spaces around it are SIGNIFICANT (Paratext 9
+  // preserves them byte-for-byte), so the trailing-space transform must treat a text node ADJACENT
+  // to an optbreak the same way it already treats text adjacent to a note/char/typed-mark: leave it
+  // exactly as authored. The transform's own doc comment promises this ("adjacent to ... UnknownNode
+  // content"), but the code only checked `$isUnknownNode(parent)` (inside), not the next sibling.
+  it("should not add a trailing space to text before an optbreak", async () => {
+    let textNode: TextNode;
+    const { editor } = await testEnvironment(() => {
+      textNode = $createTextNode("one");
+      $getRoot().append(
+        $createParaNode().append(textNode, $createUnknownNode("optbreak"), $createTextNode("two")),
+      );
+    });
+
+    // Force the transform to run on the text node.
+    // `textNode` defined by the test environment.
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    await act(async () => editor.update(() => textNode!.getWritable()));
+
+    editor.getEditorState().read(() => {
+      const para = $getRoot().getFirstChild();
+      if (!$isParaNode(para)) throw new Error("Expected a ParaNode");
+      const text = para.getChildAtIndex(0);
+      if (!$isTextNode(text)) throw new Error("Expected a TextNode");
+      // `one`, not `one ` — the tight `one//two` form must survive.
+      expect(text.getTextContent()).toBe("one");
+    });
+  });
+
+  it("should let the user delete the space before an optbreak (it is not re-added)", async () => {
+    let textNode: TextNode;
+    const { editor } = await testEnvironment(() => {
+      textNode = $createTextNode("one ");
+      $getRoot().append(
+        $createParaNode().append(textNode, $createUnknownNode("optbreak"), $createTextNode("two")),
+      );
+    });
+
+    // Delete the trailing space before the optbreak. `textNode` defined by the test environment.
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    await deleteTextAtSelection(editor, textNode!, 3, textNode!, 4);
+
+    editor.getEditorState().read(() => {
+      const para = $getRoot().getFirstChild();
+      if (!$isParaNode(para)) throw new Error("Expected a ParaNode");
+      const text = para.getChildAtIndex(0);
+      if (!$isTextNode(text)) throw new Error("Expected a TextNode");
+      // The deleted space stays deleted — the transform must not re-append it.
+      expect(text.getTextContent()).toBe("one");
+    });
+  });
+
+  it("should preserve a lone space-only TextNode before an optbreak", async () => {
+    let spaceNode: TextNode;
+    const { editor } = await testEnvironment(() => {
+      spaceNode = $createTextNode(" ");
+      $getRoot().append(
+        $createParaNode().append(spaceNode, $createUnknownNode("optbreak"), $createTextNode("two")),
+      );
+    });
+
+    // Force the transform to run on the space node.
+    // `spaceNode` defined by the test environment.
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    await act(async () => editor.update(() => spaceNode!.getWritable()));
+
+    editor.getEditorState().read(() => {
+      const para = $getRoot().getFirstChild();
+      if (!$isParaNode(para)) throw new Error("Expected a ParaNode");
+      const space = para.getChildAtIndex(0);
+      // The leading-space `//two` form must survive — not stripped to empty.
+      expect($isTextNode(space) && space.getTextContent() === " ").toBe(true);
+    });
+  });
+
   it("should not insert a space before a verse if preceded by a gutter paragraph marker prefix", async () => {
     // Regression test for PT-3835 Gen 2: gutter mode (`hasGutterParaMarkers: true`) renders the
     // paragraph's `\p` marker as a visible-marker ImmutableTypedTextNode (textType "marker") that is

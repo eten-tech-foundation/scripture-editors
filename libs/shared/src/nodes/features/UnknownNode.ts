@@ -106,6 +106,16 @@ export class UnknownNode extends ElementNode {
     return self.__tag;
   }
 
+  /**
+   * Whether this unknown renders inline (optbreak, ref) rather than as a block box (figure,
+   * sidebar, periph, ...). Inline unknowns sit within paragraph prose and carry SIGNIFICANT
+   * surrounding whitespace — the spaces Paratext 9 preserves byte-for-byte around `//` — so
+   * callers must not add or strip spaces next to them.
+   */
+  isInlineTag(): boolean {
+    return INLINE_UNKNOWN_TAGS.has(this.getTag());
+  }
+
   setMarker(marker: string | undefined): this {
     if (this.__marker === marker) return this;
 
@@ -138,7 +148,7 @@ export class UnknownNode extends ElementNode {
     // node (see createUnknown in usj-editor.adaptor.ts), not a CSS-generated label.
     dom.setAttribute("data-tag", this.getTag());
     dom.setAttribute("data-marker", this.getMarker() ?? "");
-    dom.classList.add(INLINE_UNKNOWN_TAGS.has(this.getTag()) ? "unknown-inline" : "unknown-block");
+    dom.classList.add(this.isInlineTag() ? "unknown-inline" : "unknown-block");
     // Read-only whole-block: no inline display:none here (that hid the content in every view).
     // Visibility is CSS-mode-gated in usj-nodes.css (hidden by default, revealed as a subdued
     // block/token in standard view's .marker-editable scope). contentEditable=false stops the
@@ -155,7 +165,7 @@ export class UnknownNode extends ElementNode {
     // data-marker (empty string when absent, mirroring createDOM).
     if (prevNode.__tag !== this.__tag) {
       dom.setAttribute("data-tag", this.__tag);
-      const inline = INLINE_UNKNOWN_TAGS.has(this.__tag);
+      const inline = this.isInlineTag();
       dom.classList.toggle("unknown-inline", inline);
       dom.classList.toggle("unknown-block", !inline);
     }

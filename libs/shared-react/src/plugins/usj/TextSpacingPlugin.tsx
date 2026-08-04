@@ -105,6 +105,14 @@ function $textNodeTrailingSpaceTransform(node: TextNode): void {
     $isTypedMarkNode(parent) ||
     $isTypedMarkNode(nextSibling) ||
     $isUnknownNode(parent) ||
+    // An optbreak (`//`) — like a ref — is an inline UnknownNode carrying SIGNIFICANT surrounding
+    // whitespace (Paratext 9 preserves the spaces around `//` byte-for-byte). Forcing a trailing
+    // space onto the text before one — or removing a lone space there — corrupts the authored form
+    // and makes the space impossible to delete (the transform re-adds it every keystroke). Text
+    // adjacent to an inline unknown is left exactly as authored, the same next-sibling exemption
+    // already applied to notes, chars, and typed marks. Block-level unknowns (figures, sidebars)
+    // keep the existing spacing behavior.
+    ($isUnknownNode(nextSibling) && nextSibling.isInlineTag()) ||
     // An attribute display run (char/milestone/verse — attributeDisplay.utils.ts) is engine-owned
     // presentation, not paragraph prose: it must never gain a trailing space of its own, even
     // when it sits directly in a paragraph (a verse's \va/\vp value has no CharNode parent to
