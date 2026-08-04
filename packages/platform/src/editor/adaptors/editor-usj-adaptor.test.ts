@@ -381,4 +381,47 @@ describe("Editor USJ Adaptor", () => {
       },
     ]);
   });
+
+  it("round-trips a `//` optbreak to a single clean {type:'optbreak'} — one `//` child, no duplicate", () => {
+    // Live bug: a single `//` optbreak DISPLAYED as `////` and drove an endless PDP deferral loop.
+    // This pins the editor's contract from both angles:
+    //   (1) standard view renders the optbreak's `//` token as exactly ONE real
+    //       ImmutableTypedTextNode child — so any extra `//` on screen (the observed `////`) comes
+    //       from OUTSIDE the editor (a stale vendored CSS `::before`), not from the editor emitting
+    //       it twice; and
+    //   (2) the editor -> USJ round-trip is idempotent: `{type:'optbreak'}` in yields
+    //       `{type:'optbreak'}` out — no `marker`/`content` added, no second optbreak — so the
+    //       editor is NOT the source of any editorUsj-vs-PDP difference that would sustain the loop
+    //       (that difference is the PDP's USFM round-trip of `//`, not the editor's).
+    const usj: Usj = {
+      ...EMPTY_USJ,
+      content: [
+        {
+          type: "para",
+          marker: "p",
+          content: [{ type: "optbreak" } as MarkerObject],
+        } as MarkerObject,
+      ],
+    };
+    initializeSerialize(undefined, undefined);
+    reset();
+    const standardViewOptions = getViewOptions(STANDARD_VIEW_MODE);
+    const state = serializeEditorState(usj, standardViewOptions);
+    // (1) Display pin: exactly one `//` marker text node renders for the optbreak.
+    const serializedPara = state.root.children[0] as SerializedParaNode;
+    const serializedUnknown = serializedPara.children.find(isSerializedUnknownNode);
+    if (!serializedUnknown) throw new Error("No unknown node found in the serialized state");
+    const slashChildren = serializedUnknown.children.filter(
+      (child) => isSerializedImmutableTypedTextNode(child) && child.text === "//",
+    );
+    expect(slashChildren).toHaveLength(1);
+    const editorState = editor.parseEditorState(state);
+    initializeDeserialize(undefined);
+
+    const result = editorUsjAdaptor.deserializeEditorState(editorState, standardViewOptions);
+
+    // (2) Round-trip pin: a single clean optbreak, no duplicate and no added props.
+    const para = result?.content?.[0] as MarkerObject;
+    expect(para.content).toEqual([{ type: "optbreak" }]);
+  });
 });
