@@ -80,8 +80,11 @@ function $syncVerseAttributeDisplayNode(node: VerseNode): void {
  * Ensures a TextNode has trailing spacing when needed for inline scripture content.
  *
  * The transform does nothing when the node is not editable, already has meaningful trailing
- * whitespace, precedes a note, or is inside or adjacent to CharNode, TypedMarkNode, or UnknownNode
- * content.
+ * whitespace, precedes a note, or is inside or adjacent to CharNode or TypedMarkNode content. It
+ * also does nothing for a node that is inside any UnknownNode (block or inline), or that
+ * immediately precedes an INLINE UnknownNode (e.g. an optbreak `//` or a `ref`) — a block-level
+ * UnknownNode's PRECEDING text (figures, sidebars, etc.) still gets the ordinary trailing-space
+ * treatment.
  *
  * If the node contains only a single space and is not followed by a verse node, that placeholder
  * space is removed instead of preserved.
