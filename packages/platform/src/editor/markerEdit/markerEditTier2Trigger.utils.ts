@@ -160,7 +160,9 @@ export function $textNodeTier2Transform(node: TextNode, context: MarkerEditConte
  *
  * Where a transform would REBUILD immediately (a terminated literal), the scan only
  * pends: a history restore is not a user edit, so the settle waits for the next real
- * caret departure exactly like every other pend.
+ * caret departure exactly like every other pend. The scan's divergence set is therefore
+ * deliberately BROADER than the transforms' immediate-rebuild set — everything
+ * restore-divergent pends, and nothing rebuilds until the user genuinely departs.
  */
 export function $rependPendShapedNodes(context: MarkerEditContext): void {
   const visit = (node: LexicalNode): void => {

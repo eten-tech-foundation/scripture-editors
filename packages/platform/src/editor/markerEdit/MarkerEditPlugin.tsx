@@ -580,6 +580,13 @@ export function MarkerEditPlugin({
       editor.registerCommand(
         BLUR_COMMAND,
         () => {
+          // While the app-placed-caret window is armed (a scrRef-sync yank or an undo/redo
+          // restore), focus loss carries no user intent over the restored content: clicking
+          // ANOTHER PANEL right after an undo would otherwise re-settle the explicitly-undone
+          // literal behind the user's back. The literal stays pending — it serializes as
+          // literal bytes, which ParatextData parses — and the user's next in-editor gesture
+          // (click or keystroke) releases the window so departure/blur settle normally again.
+          if (appPlacedCaret) return false;
           // Focus loss resolves pending markers, with the same exception as the command above:
           // the node the caret is still parked in stays pending. Clicking a marker-menu item (or
           // any host overlay taking focus) blurs the editor while the caret still sits in the
