@@ -80,6 +80,8 @@ let sectionTextNode: TextNode;
 let firstVerseTextNode: TextNode;
 let secondVerseTextNode: TextNode;
 let thirdVerseTextNode: TextNode;
+let chapter1Verse2Text: TextNode;
+let chapter2Verse2Text: TextNode;
 
 beforeAll(() => {
   // jsdom's Range lacks getBoundingClientRect; Lexical's post-commit scroll-into-view calls it
@@ -270,6 +272,46 @@ describe("ScriptureReferencePlugin", () => {
 
       editor.getEditorState().read(() => {
         $expectSelectionToBe(secondVerseTextNode, 2);
+      });
+      expect(mockOnScrRefChange).not.toHaveBeenCalled();
+    });
+
+    it("moves the caret across chapters to the same verse number (chapter-aware no-eject)", async () => {
+      // The no-eject guard must check the CHAPTER, not just the verse number. In a multi-chapter
+      // document, navigating chapter 1 verse 2 -> chapter 2 verse 2 keeps the verse NUMBER but is a
+      // genuine cross-chapter move: a chapter-blind "already in verse 2" guard would wrongly no-op
+      // and strand the caret in chapter 1.
+      const { editor, setScrRef } = await testEnvironment(
+        { book: "GEN", chapterNum: 1, verseNum: 1 },
+        mockOnScrRefChange,
+        $twoChapterState,
+      );
+      updateSelection(editor, chapter1Verse2Text, 2); // caret in chapter 1, verse 2
+
+      await setScrRef({ book: "GEN", chapterNum: 2, verseNum: 2 });
+
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(chapter2Verse2Text, 0); // moved to chapter 2, verse 2 start
+      });
+      expect(mockOnScrRefChange).not.toHaveBeenCalled();
+    });
+
+    it("does not reset the caret when navigating to the SAME chapter and verse (deliberate no-op)", async () => {
+      // The counterpart UX decision (Minor 6): navigating to the verse the caret is already in —
+      // SAME chapter AND verse — must NOT snap the caret to the verse start. Clicking the current
+      // verse leaves a mid-content caret where it is; only a genuine cross-verse or cross-chapter
+      // move repositions it.
+      const { editor, setScrRef } = await testEnvironment(
+        { book: "GEN", chapterNum: 1, verseNum: 1 },
+        mockOnScrRefChange,
+        $twoChapterState,
+      );
+      updateSelection(editor, chapter2Verse2Text, 5); // caret mid-content in chapter 2, verse 2
+
+      await setScrRef({ book: "GEN", chapterNum: 2, verseNum: 2 });
+
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(chapter2Verse2Text, 5); // stayed put — not reset to verse start
       });
       expect(mockOnScrRefChange).not.toHaveBeenCalled();
     });
@@ -1041,6 +1083,28 @@ function $appendScrRefPluginFixture(bookCode: BookCode | "") {
       $createImmutableVerseNode("3-4"),
       $createTextNode("third verse text "),
     ),
+  );
+}
+
+/** A GEN document holding TWO chapters, each with a verse numbered "2" — so a chapter N verse 2 ->
+ * chapter M verse 2 navigation exercises the chapter dimension of the no-eject guard. */
+function $twoChapterState() {
+  chapter1Verse2Text = $createTextNode("chapter one verse two ");
+  chapter2Verse2Text = $createTextNode("chapter two verse two ");
+  $getRoot().append(
+    $createBookNode("GEN").append($createTextNode("Test Book")),
+    $createImmutableChapterNode("1"),
+    $createParaNode().append(
+      $createImmutableVerseNode("1"),
+      $createTextNode("chapter one verse one "),
+    ),
+    $createParaNode().append($createImmutableVerseNode("2"), chapter1Verse2Text),
+    $createImmutableChapterNode("2"),
+    $createParaNode().append(
+      $createImmutableVerseNode("1"),
+      $createTextNode("chapter two verse one "),
+    ),
+    $createParaNode().append($createImmutableVerseNode("2"), chapter2Verse2Text),
   );
 }
 
