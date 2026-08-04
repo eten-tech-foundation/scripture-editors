@@ -104,7 +104,11 @@ describe("deletion semantics", () => {
     // $setParaMarkerWithPrefix is the single entry point for "give this prefix-less paragraph a
     // marker": marker state, [glyph, separator] prefix, and content-side caret must all land
     // together, or the deletion transform reads the half-built paragraph as marker-deleted.
-    let para: ParaNode, text: ReturnType<typeof $createTextNode>;
+    // `text` is a definite-assignment declaration (`!`): it's only ever assigned inside the
+    // `editor.update` callback below, so TS's control-flow analysis can't see the assignment as
+    // unconditional from this scope — the alternative, a postfix `text!` at each read site, is
+    // exactly what @typescript-eslint/no-non-null-assertion forbids.
+    let para: ParaNode, text!: ReturnType<typeof $createTextNode>;
     const { editor } = await testEnvironment(() => {
       $getRoot().append(
         $createParaNode("p").append(
@@ -153,7 +157,7 @@ describe("deletion semantics", () => {
     });
     // Caret parks on the content side of the prefix, not inside/before it — asserted from the
     // commit-time snapshot (see above).
-    expect(caretAfterRetag?.key).toBe(text!.getKey());
+    expect(caretAfterRetag?.key).toBe(text.getKey());
     expect(caretAfterRetag?.offset).toBe(0);
   });
 
