@@ -18,6 +18,11 @@ export default [
       "**/coverage",
       "**/vite.config.*.timestamp*",
       "**/vitest.config.*.timestamp*",
+      // These projects' own configs ignore `**/lib` (build outputs, and demos/platform's
+      // vendored paranext-core copies), so their nx lint never sees those files. Mirror the
+      // ignores here, scoped per project, so a root-invoked `npx eslint` skips them too.
+      "demos/platform/lib",
+      "packages/platform/lib",
     ],
   },
   {
@@ -49,6 +54,24 @@ export default [
       "@typescript-eslint/consistent-indexed-object-style": ["error", "index-signature"],
     },
   },
+  // The React projects' shared overrides, scoped to their directories so a root-invoked
+  // `npx eslint` (which resolves only THIS config — flat-config discovery searches upward from
+  // the working directory, not per linted file) reports the same results as each project's own
+  // lint. Each React project's eslint.config.mjs spreads the same `nx.configs["flat/react"]`
+  // block unscoped for its project-local runs; there this scoped copy is inert, because flat
+  // config evaluates `files` patterns relative to the config file's directory. The AND-array
+  // entries (`[<project dir>, <original pattern>]`) preserve each config's own file coverage
+  // while restricting it to the React projects.
+  ...nx.configs["flat/react"].map((config) => ({
+    ...config,
+    files: [
+      "demos/perf-react/**",
+      "demos/platform/**",
+      "libs/shared-react/**",
+      "packages/platform/**",
+      "packages/scribe/**",
+    ].flatMap((projectDir) => (config.files ?? ["**/*"]).map((pattern) => [projectDir, pattern])),
+  })),
   {
     files: [
       "**/*.ts",
