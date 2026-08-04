@@ -597,4 +597,31 @@ describe("Editor USJ Adaptor — caret-host placeholder", () => {
     const para = result?.content?.[0] as MarkerObject;
     expect(para.content).toEqual([{ type: "optbreak" }]);
   });
+
+  // The spaces around an optbreak are SIGNIFICANT (Paratext 9 preserves them byte-for-byte). Each
+  // of the four spacing variants must round-trip through the editor unchanged and stay distinct
+  // from the others — a lone single space next to the optbreak stays a plain space (Standard view
+  // only maps runs of 2+ spaces to NBSP), so it survives the serialize -> parse -> deserialize trip.
+  it.each([
+    { name: "tight (one//two)", content: ["one", { type: "optbreak" }, "two"] },
+    { name: "spaced both sides (one // two)", content: ["one ", { type: "optbreak" }, " two"] },
+    { name: "leading space only (one //two)", content: ["one ", { type: "optbreak" }, "two"] },
+    { name: "trailing space only (one// two)", content: ["one", { type: "optbreak" }, " two"] },
+  ])("round-trips optbreak spacing variant $name unchanged", ({ content }) => {
+    const usj: Usj = {
+      ...EMPTY_USJ,
+      content: [{ type: "para", marker: "p", content } as MarkerObject],
+    };
+    initializeSerialize(undefined, undefined);
+    reset();
+    const standardViewOptions = getViewOptions(STANDARD_VIEW_MODE);
+    const state = serializeEditorState(usj, standardViewOptions);
+    const editorState = editor.parseEditorState(state);
+    initializeDeserialize(undefined);
+
+    const result = editorUsjAdaptor.deserializeEditorState(editorState, standardViewOptions);
+
+    const para = result?.content?.[0] as MarkerObject;
+    expect(para.content).toEqual(content);
+  });
 });
