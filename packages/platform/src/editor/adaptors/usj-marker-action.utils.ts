@@ -1,11 +1,13 @@
 import { MarkerContent } from "@eten-tech-foundation/scripture-utilities";
 import { SerializedVerseRef } from "@sillsdev/scripture";
 import {
+  $createNodeSelection,
   $createTextNode,
   $getSelection,
   $isElementNode,
   $isRangeSelection,
   $isTextNode,
+  $setSelection,
   EditorUpdateOptions,
   LexicalEditor,
   LexicalNode,
@@ -21,6 +23,7 @@ import {
   CharNode,
   createLexicalUsjNode,
   getNextVerse,
+  getSelectionStartNode,
   LoggerBasic,
   MarkerAction,
   NBSP,
@@ -30,6 +33,8 @@ import {
 } from "shared";
 import {
   $addTrailingSpace,
+  $findNextVerseAfter,
+  $findThisVerse,
   $insertNote,
   $isSomeVerseNode,
   $removeLeadingSpace,
@@ -39,6 +44,13 @@ import {
 } from "shared-react";
 import usjEditorAdaptor from "./usj-editor.adaptor";
 
+interface UsjMarkerActionResult {
+  content: MarkerContent[];
+  /** When true, the outer handler selects the freshly-inserted node (`NodeSelection`) instead of
+   * placing the caret after it - used by the verse action's "no numeric slot" highlight cue. */
+  highlightInserted?: boolean;
+}
+
 interface UsjMarkerAction {
   label?: string;
   action: (currentEditor: {
@@ -47,7 +59,7 @@ interface UsjMarkerAction {
     autoNumbering?: boolean;
     newVerseRChapterNum?: number;
     noteText?: string;
-  }) => MarkerContent[];
+  }) => UsjMarkerActionResult;
 }
 
 const markerActions: { [marker: string]: UsjMarkerAction } = {
@@ -60,19 +72,39 @@ const markerActions: { [marker: string]: UsjMarkerAction } = {
         marker: "c",
         number: `${nextChapter}`,
       };
-      return [content];
+      return { content: [content] };
     },
   },
   v: {
-    action: (currentEditor) => {
-      const { verseNum, verse } = currentEditor.reference;
-      const nextVerse = getNextVerse(verseNum, verse);
+    action: () => {
+      const selection = $getSelection();
+      const anchorNode = getSelectionStartNode(selection);
+      const precedingVerse = $findThisVerse(anchorNode);
+
+      let nextVerseNumber: string;
+      let highlightInserted = false;
+      if (!precedingVerse) {
+        nextVerseNumber = "1";
+      } else {
+        const precedingVerseString = precedingVerse.getNumber();
+        nextVerseNumber = getNextVerse(parseInt(precedingVerseString, 10), precedingVerseString);
+        const followingVerse = $findNextVerseAfter(precedingVerse);
+        if (followingVerse) {
+          const precedingNum = parseInt(precedingVerseString, 10);
+          const followingNum = parseInt(followingVerse.getNumber(), 10);
+          highlightInserted =
+            !Number.isNaN(precedingNum) &&
+            !Number.isNaN(followingNum) &&
+            followingNum - precedingNum === 1;
+        }
+      }
+
       const content: MarkerContent = {
         type: "verse",
         marker: "v",
-        number: `${nextVerse}`,
+        number: nextVerseNumber,
       };
-      return [content];
+      return { content: [content], highlightInserted };
     },
   },
 };
@@ -127,7 +159,7 @@ export function getUsjMarkerAction(
     currentEditor.editor.update(() => {
       const selection = $getSelection();
       if ($isRangeSelection(selection)) currentEditor.noteText = selection.getTextContent();
-      const content = markerAction.action(currentEditor);
+      const { content, highlightInserted } = markerAction.action(currentEditor);
 
       const serializedLexicalNode = createLexicalUsjNode(content, usjEditorAdaptor, viewOptions);
       const nodeToInsert = $createNodeFromSerializedNode(serializedLexicalNode);
@@ -176,9 +208,15 @@ export function getUsjMarkerAction(
         } else {
           selection.insertNodes([nodeToInsert]);
           $moveVerseFollowingSpaceToPreviousNode(nodeToInsert);
-          const nextNode = nodeToInsert.getNextSibling();
-          if (nextNode) nextNode.selectStart();
-          else nodeToInsert.selectStart();
+          if (highlightInserted) {
+            const nodeSelection = $createNodeSelection();
+            nodeSelection.add(nodeToInsert.getKey());
+            $setSelection(nodeSelection);
+          } else {
+            const nextNode = nodeToInsert.getNextSibling();
+            if (nextNode) nextNode.selectStart();
+            else nodeToInsert.selectStart();
+          }
         }
       } else {
         // Insert the node directly
@@ -196,14 +234,14 @@ function getMarkerAction(marker: string): UsjMarkerAction | undefined {
       markerAction = {
         action: () => {
           const content: MarkerContent = { type: ParaNode.getType(), marker, content: [] };
-          return [content];
+          return { content: [content] };
         },
       };
     } else if (CharNode.isValidMarker(marker)) {
       markerAction = {
         action: () => {
           const content: MarkerContent = { type: CharNode.getType(), marker };
-          return [content];
+          return { content: [content] };
         },
       };
     }
