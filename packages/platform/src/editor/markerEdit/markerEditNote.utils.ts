@@ -274,7 +274,12 @@ function $startFpAtCaret(): boolean {
     noteChild = parent;
   }
 
-  const fp = $createCharNode("fp");
+  // The break carries the note-content convention from creation: closed="false" (matching
+  // `$createNoteContentChar` and real ParatextData — an \fp is genuinely unclosed; the next
+  // marker or the note's end closes it). Closer-ness keys on this state, so without the flag
+  // `$charNodeDeletionTransform` would read the (correct) missing closer as deletion damage and
+  // route a spurious Tier-2 note-content rebuild on every Enter-in-note.
+  const fp = $createCharNode("fp", { closed: "false" });
   // A visible opener glyph is required, not optional decoration: `$charNodeDeletionTransform`
   // treats any CharNode whose first child isn't an opening MarkerNode as "opener
   // deleted" and immediately unwraps it back to plain text in the same commit.
