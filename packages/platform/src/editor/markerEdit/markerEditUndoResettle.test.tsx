@@ -20,6 +20,7 @@ import {
   $getSelection,
   $isElementNode,
   $isRangeSelection,
+  BLUR_COMMAND,
   CLICK_COMMAND,
   LexicalNode,
   REDO_COMMAND,
@@ -255,6 +256,53 @@ describe("undo → departure → re-settle (pipe attribute in a closed span)", (
     await flushResolution();
     assertPipeLiteral(editor);
     await userDeparture(editor, "elsewhere", 4);
+    assertPipeSettled(editor);
+  });
+});
+
+describe("blur vs the historic suppression window", () => {
+  it("blur during the undo window does NOT re-settle the undone literal (no phantom entry either)", async () => {
+    // Clicking ANOTHER PANEL right after an undo blurs the editor with no in-editor
+    // gesture: that is not user intent over the restored content, so the explicitly-undone
+    // literal must stay literal (it serializes as literal bytes — ParatextData parses
+    // them). Pre-fix, the BLUR handler resolved pendings unconditionally and the undone
+    // literal re-settled behind the user's back.
+    const { editor } = await settledPipeEnvironment();
+    await act(async () => {
+      editor.dispatchCommand(UNDO_COMMAND, undefined);
+    });
+    await flushResolution();
+    assertPipeLiteral(editor);
+    await act(async () => {
+      editor.dispatchCommand(BLUR_COMMAND, null as never);
+    });
+    await flushResolution();
+    assertPipeLiteral(editor); // literal survives the blur
+    // No phantom history entry rode the gated blur: one more undo reaches pre-typing
+    // directly (a phantom would make this undo revert nothing visible instead).
+    await act(async () => {
+      editor.dispatchCommand(UNDO_COMMAND, undefined);
+    });
+    await flushResolution();
+    assertPipePreTyping(editor);
+  });
+
+  it("an in-editor gesture releases the window; blur then settles normally", async () => {
+    const { editor } = await settledPipeEnvironment();
+    await act(async () => {
+      editor.dispatchCommand(UNDO_COMMAND, undefined);
+    });
+    await flushResolution();
+    assertPipeLiteral(editor);
+    // The user interacts INSIDE the editor (a mouse click — same signal that ends the
+    // scrRef-yank window), then focus leaves: blur-settles-pendings applies as always.
+    await act(async () => {
+      editor.dispatchCommand(CLICK_COMMAND, new MouseEvent("click"));
+    });
+    await act(async () => {
+      editor.dispatchCommand(BLUR_COMMAND, null as never);
+    });
+    await flushResolution();
     assertPipeSettled(editor);
   });
 });
