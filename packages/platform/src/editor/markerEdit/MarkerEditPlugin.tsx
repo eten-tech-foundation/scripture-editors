@@ -18,7 +18,7 @@ import {
   $verseNodeTransform,
   MarkerEditContext,
 } from "./markerEditTier1.utils";
-import { $textNodeTier2Transform } from "./markerEditTier2Trigger.utils";
+import { $rependPendShapedNodes, $textNodeTier2Transform } from "./markerEditTier2Trigger.utils";
 import {
   $displayWhitespaceTransform,
   $handleCopyForStandardView,
@@ -28,6 +28,7 @@ import {
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { mergeRegister } from "@lexical/utils";
 import {
+  $addUpdateTag,
   $getNodeByKey,
   $getSelection,
   $getState,
@@ -41,6 +42,8 @@ import {
   COPY_COMMAND,
   createCommand,
   CUT_COMMAND,
+  HISTORIC_TAG,
+  HISTORY_MERGE_TAG,
   INSERT_PARAGRAPH_COMMAND,
   KEY_DOWN_COMMAND,
   KEY_ENTER_COMMAND,
@@ -630,6 +633,30 @@ export function MarkerEditPlugin({
         // hazard family as the frozen-state bugs documented below).
         const prevCommitAnchorKey = lastCommitAnchorKey;
         lastCommitAnchorKey = anchorKey;
+        if (tags.has(HISTORIC_TAG)) {
+          // Undo/redo: Lexical restores this state via setEditorState, which never runs node
+          // transforms — so a restored literal (an undone settle's `\nd …\nd*` bytes, a closed
+          // span's `|attrs` text, a diverged glyph or attribute run) would never re-pend itself,
+          // and caret departure would settle NOTHING, leaving it literal forever (reviving only
+          // when typed inside). Re-derive the pend set from the restored bytes with a strictly
+          // READ-ONLY scan: keys land in the plain pendingKeys Set, no node is mutated, so this
+          // commit produces no history entry and the undo/redo stacks stay intact. Stale keys
+          // are cleared first — they describe the pre-restore document, and a leftover key
+          // pointing at a now-canonical node would drive a pointless refused rebuild later.
+          context.pendingKeys.clear();
+          editorState.read(() => $rependPendShapedNodes(context));
+          // The restored caret is app-placed (history put it there, not a fresh user gesture),
+          // and a historic restore is NOT a departure: resolving now — or on any follow-on
+          // bookkeeping commit — would re-settle the just-undone literal immediately, making
+          // the undo look dead and burying the user's next undo under the re-settle (the undo
+          // trap). Arm the same suppression window the scrRef yank uses; the user's next
+          // keystroke or mouse click clears it, and the normal departure settle takes over.
+          appPlacedCaret = true;
+          // Keep the anchor fresh so the BLUR/Enter except-the-user's-node fallbacks and the
+          // next departure comparison read the restored caret, not a pre-undo one.
+          if (anchorKey !== undefined) lastAnchorKey = anchorKey;
+          return;
+        }
         if (tags.has(CURSOR_CHANGE_TAG)) {
           // Narrowing: arm the suppression window only when the tagged commit
           // actually MOVED the caret to a different node — an app-placed yank. Tagged commits
@@ -692,7 +719,17 @@ export function MarkerEditPlugin({
           if (disposed) return;
           // lastAnchorKey is re-read here: if further commits landed before this microtask,
           // the freshest anchor wins (never except a node the caret has already left).
-          editor.update(() => $resolvePendingMarkers(context, lastAnchorKey));
+          editor.update(() => {
+            const mutated = $resolvePendingMarkers(context, lastAnchorKey);
+            // A resolve pass that only REFUSED (fixed-point rebuilds — e.g. a re-pended
+            // degradation literal after an undo, or a canonical attribute run) changes nothing
+            // visible, but each refused $rebuildParas probe still created parse orphans that
+            // count as dirty leaves — without this tag that visually-no-op commit PUSHES a
+            // phantom undo entry (one dead Ctrl+Z press) and wipes the redo stack. Merge it
+            // into the current history entry instead; a resolve that actually settled anything
+            // keeps its own entry (undo must restore the pre-settle literal).
+            if (!mutated) $addUpdateTag(HISTORY_MERGE_TAG);
+          });
         });
       }),
     );

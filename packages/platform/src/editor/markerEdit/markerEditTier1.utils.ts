@@ -67,7 +67,11 @@ const TERMINATED_OPENER_REGEX = /^\\(\+?[\w-]+)[ \u00A0]$/;
 const BARE_OPENER_REGEX = /^\\(\+?[\w-]+)$/;
 const CLOSER_FORM_REGEX = /^\\\+?[\w-]*\*$/;
 
-function $markerCanonicalText(node: MarkerNode): string {
+/** The rest-state display text a marker glyph should carry — derived from the node's stored
+ * marker, syntax, and nesting. A glyph whose text differs is mid-edit (pend-shaped). Exported for
+ * the historic re-pend scan ($rependPendShapedNodes), which must classify glyph divergence with
+ * the same rule the MarkerNode transform and `$resolvePendingMarkers` use. */
+export function $markerCanonicalText(node: MarkerNode): string {
   const syntax = node.getMarkerSyntax();
   // A nested char span's glyphs carry the `+` prefix (`\+w …\+w*`); the canonical text must derive
   // the same `+` from the node's stored nesting so a rest-state nested glyph is not mistaken for a
@@ -127,29 +131,29 @@ function $moveCaretPastMarker(node: MarkerNode): void {
   else node.select(node.getTextContentSize(), node.getTextContentSize());
 }
 
+/** Returns whether the editor state was mutated — a rename applied, or a routed Tier 2 rebuild
+ * that spliced (a refused rebuild mutates nothing). */
 export function $applyOpenerRename(
   node: MarkerNode,
   newMarker: string,
   context: MarkerEditContext,
-): void {
+): boolean {
   // A typed `+` prefix is a NEST instruction, not a rename: only Tier 2 (re-tokenizing the
   // visible glyph text, which now carries the `+`) can express the resulting nesting. Tier 1's
   // in-place rename would strip the `+` and silently discard the nest intent, so route to Tier 2.
   if (newMarker.startsWith("+")) {
-    $requestTier2ForNode(node, context);
-    return;
+    return $requestTier2ForNode(node, context);
   }
   const parent = node.getParent();
   if ($isParaNode(parent)) {
     if (!isParaKindMarker(newMarker, context.getMarker)) {
-      $requestTier2ForNode(node, context);
-      return;
+      return $requestTier2ForNode(node, context);
     }
     parent.setMarker(newMarker);
     node.setMarker(newMarker); // rewrites __text to canonical, absorbing the typed terminator
     $moveCaretPastMarker(node);
     context.logger?.debug(`[MarkerEdit] para marker renamed to "${newMarker}"`);
-    return;
+    return true;
   }
   if ($isCharNode(parent) || $isNoteNode(parent)) {
     const clean = newMarker.replace(/^\+/, "");
@@ -157,8 +161,7 @@ export function $applyOpenerRename(
       ? isCharKindMarker(newMarker, context.getMarker)
       : NoteNode.isValidMarker(clean);
     if (!isValidKind) {
-      $requestTier2ForNode(node, context);
-      return;
+      return $requestTier2ForNode(node, context);
     }
     const oldMarker = node.getMarker();
     if (parent.getMarker() !== oldMarker) {
@@ -167,8 +170,7 @@ export function $applyOpenerRename(
       // direct parent is the outer CharNode, not an inner one. Renaming in place under that
       // assumption would target the wrong closer, so refuse and let Tier 2 rebuild proper
       // nesting from the glyph text via the tokenizer.
-      $requestTier2ForNode(node, context);
-      return;
+      return $requestTier2ForNode(node, context);
     }
     parent.setMarker(clean);
     const closer = parent
@@ -185,9 +187,9 @@ export function $applyOpenerRename(
     node.setMarker(clean);
     $moveCaretPastMarker(node);
     context.logger?.debug(`[MarkerEdit] ${parent.getType()} marker renamed to "${clean}"`);
-    return;
+    return true;
   }
-  $requestTier2ForNode(node, context);
+  return $requestTier2ForNode(node, context);
 }
 
 export function $markerNodeTransform(node: MarkerNode, context: MarkerEditContext): void {
@@ -306,9 +308,16 @@ export function $milestoneAttributeDisplayText(node: MilestoneNode): string {
  * Completion trigger. PT9 completes mid-edit markers via its 1s debounced
  * reformat; our deterministic equivalents are Enter, blur, and the caret
  * leaving the node (`exceptKey` keeps the node still being edited pending).
+ *
+ * Returns whether anything actually MUTATED the editor state. A pass that only consumed
+ * keys and REFUSED every routed rebuild (fixed points) changes nothing visible — but each
+ * refused `$rebuildParas` probe still created parse orphans that count as dirty leaves, so
+ * the deferred-resolution caller uses this to merge the visually-no-op commit into the
+ * current history entry instead of letting it push a phantom undo step.
  */
-export function $resolvePendingMarkers(context: MarkerEditContext, exceptKey?: NodeKey): void {
-  if (context.pendingKeys.size === 0) return;
+export function $resolvePendingMarkers(context: MarkerEditContext, exceptKey?: NodeKey): boolean {
+  let mutated = false;
+  if (context.pendingKeys.size === 0) return mutated;
   const keys = [...context.pendingKeys].filter((key) => key !== exceptKey);
   for (const key of keys) {
     context.pendingKeys.delete(key);
@@ -318,8 +327,9 @@ export function $resolvePendingMarkers(context: MarkerEditContext, exceptKey?: N
       const text = node.getTextContent();
       if (text === $markerCanonicalText(node)) continue;
       const bare = BARE_OPENER_REGEX.exec(text);
-      if (node.getMarkerSyntax() === "opening" && bare) $applyOpenerRename(node, bare[1], context);
-      else $requestTier2ForNode(node, context);
+      if (node.getMarkerSyntax() === "opening" && bare)
+        mutated = $applyOpenerRename(node, bare[1], context) || mutated;
+      else mutated = $requestTier2ForNode(node, context) || mutated;
     } else if ($isCharNode(node) && $hasCaretHeldSeparatorGap(node)) {
       // A deleted opener separator stays pending while the caret still sits at the gap (the
       // exceptKey protection covers only the anchor node itself, not its parent span) — mid-edit
@@ -367,6 +377,7 @@ export function $resolvePendingMarkers(context: MarkerEditContext, exceptKey?: N
       // Without this arm the paragraph rebuild would preserve the bare milestone as an atomic
       // sentinel (tier2Rebuild.utils.ts's empty-run guard) and the deletion could never finish.
       node.remove();
+      mutated = true;
     } else {
       // Pending plain-text nodes and departed verses/milestones re-tokenize. The settle rule is
       // uniform: the DISPLAYED BYTES win — Tier 2 re-tokenizes what the user sees (for a
@@ -375,9 +386,10 @@ export function $resolvePendingMarkers(context: MarkerEditContext, exceptKey?: N
       // arrived while the caret held the run (mid-edit grace) loses locally and converges
       // through the normal save/OT path; settling from node state instead would rewrite the
       // run's displayed bytes and could clobber text the user just typed there.
-      $requestTier2ForNode(node, context);
+      mutated = $requestTier2ForNode(node, context) || mutated;
     }
   }
+  return mutated;
 }
 
 export function $isSelectionInMarkerNode(): boolean {

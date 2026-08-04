@@ -961,18 +961,20 @@ export function $rebuildNoteContent(note: NoteNode, context: Tier2Context): bool
   return true;
 }
 
-/** Route a Tier 1-unexpressible edit to Tier 2 via the node's paragraph or note. */
-export function $requestTier2ForNode(node: LexicalNode, context: Tier2Context): void {
+/** Route a Tier 1-unexpressible edit to Tier 2 via the node's paragraph or note. Returns whether
+ * the routed rebuild actually SPLICED — a guard-rail or fixed-point refusal mutates nothing, and
+ * the deferred-resolution history bookkeeping ($resolvePendingMarkers callers) needs to tell the
+ * two apart. */
+export function $requestTier2ForNode(node: LexicalNode, context: Tier2Context): boolean {
   let current: LexicalNode | null = node;
   while (current) {
     // Note content is its own re-tokenization scope: route to the note-scoped
     // rebuild, which preserves the note node, its marker(s), and its caller.
-    if ($isNoteNode(current)) return void $rebuildNoteContent(current, context);
-    if ($isUnknownNode(current)) return; // opaque-block interior (sidebars, periph, …): stay literal
-    if ($isParaNode(current)) {
-      $rebuildParas([current], context);
-      return;
-    }
+    if ($isNoteNode(current)) return $rebuildNoteContent(current, context);
+    // Opaque-block interior (sidebars, periph, …): stay literal.
+    if ($isUnknownNode(current)) return false;
+    if ($isParaNode(current)) return $rebuildParas([current], context);
     current = current.getParent();
   }
+  return false;
 }
