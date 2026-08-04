@@ -82,9 +82,15 @@ function $getUpdateOps(
     const isInsideNote = dirtyNode !== null && $findFirstAncestorNoteNode(dirtyNode) !== undefined;
     if (dirtyLeaves.size === 1 && $isTextNode(dirtyNode) && !isInsideNote) {
       // Handle the most common case of text changing in a single text node.
-      // Default "delta-doc" coordinates (NOT "apply"): this fast path must produce the same
-      // retain the `getEditorDelta` diff fallback below would, since both feed the same
-      // doc-delta op stream emitted to the host via `onChange`.
+      // Default "delta-doc" coordinates (NOT "apply"): this fast path and the `getEditorDelta`
+      // diff fallback below feed the same doc-delta op stream emitted to the host via
+      // `onChange`, so they should agree. They currently DON'T when an editable verse precedes
+      // the dirty node: the doc delta counts a verse as its 1-unit embed op only (the glyph
+      // text is engine-owned display, excluded from content ops), while `$getOTPositionOfNode`
+      // still counts an editable VerseNode as text of glyph length (5 for "\v 1 ") and never
+      // as an embed — this retain overshoots the fallback's coordinates by (glyph length − 1)
+      // per preceding editable verse. See `OTCoordinateSystem` in delta-common.utils.ts; the
+      // follow-up that unifies verse counting on the embed's 1 unit resolves this.
       const retain = $getOTPositionOfNode(dirtyNode);
       if (retain !== undefined) {
         const prevTextDoc = prevEditorState.read(() => {

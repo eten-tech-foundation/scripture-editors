@@ -5180,25 +5180,15 @@ describe("Delta Utils $applyUpdate", () => {
       expect(JSON.stringify(replicaOps)).toBe(JSON.stringify(hostOps));
     });
 
-    // Skipped: exposes a PRE-EXISTING apply-side gap, not a regression from excluding the
-    // verse's own glyph text out of `getEditorDelta`'s content ops (W2-F). `$applyUpdate`'s
-    // insert traversals ($insertRichText's tree search, `$insertNodeAtCharacterOffset`, and
-    // others — see every `$isTextNode(...)` check in delta-apply-update.utils.ts and
-    // delta-common.utils.ts's `$getNodeOTContribution`) check `$isTextNode` before
-    // `$isEmbedNode`. An editable VerseNode is BOTH (VerseNode extends TextNode so its glyph
-    // can sit inline for caret placement), so every one of those traversals measures an
-    // already-inserted verse by its glyph TEXT LENGTH instead of treating it as an opaque
-    // 1-unit embed — the same divergence `delta-common.utils.ts`'s `OTCoordinateSystem` doc
-    // comment already documents and defers for chapter ("unifying editable-mode doc-delta
-    // coordinates with the apply-side traversals belongs to future collab work"), which this
-    // proves also applies to verse, and unlike chapter (fixed for "apply" coordinates in
-    // bbc4c7a9) has NO existing apply-side handling at all for verse's dual nature. Concretely,
-    // applying this test's host ops to a fresh replica corrupts the tree: the trailing content
-    // text gets spliced INTO the verse node's own glyph ("the first versev 1 " / "\" observed),
-    // and the paragraph fails to materialize as a real ParaNode. Fixing this requires auditing
-    // and changing ~8 traversal call sites with no existing coverage of editable-verse
-    // interaction — out of scope for W2-F; un-skip once that follow-up unifies VerseNode's OT
-    // contribution across delta-doc and apply coordinates.
+    // Skipped: exposes a pre-existing apply-side gap. `$applyUpdate`'s traversals check
+    // `$isTextNode` before `$isEmbedNode`, and an editable VerseNode is BOTH, so an
+    // already-inserted verse is measured by its glyph TEXT LENGTH instead of as an opaque
+    // 1-unit embed (see `OTCoordinateSystem` in delta-common.utils.ts). Applying this test's
+    // host ops to a fresh replica therefore corrupts the tree: the trailing content text gets
+    // spliced INTO the verse's own glyph ("the first versev 1 " / "\" observed) and the
+    // paragraph never materializes as a real ParaNode. Un-skip once the follow-up unifies an
+    // editable verse's OT contribution on the embed's 1 unit across the doc delta, the
+    // delta-doc position helpers, and the apply traversals.
     it.skip("converges an editable verse followed by content text into an identical tree", async () => {
       const { editor: host } = await testEnvironment(() => {
         const verse = $createVerseNode("1", "\\v 1 ");
