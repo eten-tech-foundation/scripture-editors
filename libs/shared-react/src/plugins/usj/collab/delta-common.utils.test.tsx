@@ -3,6 +3,7 @@ import {
   $createImmutableVerseNode,
   $isImmutableVerseNode,
 } from "../../../nodes/usj/ImmutableVerseNode";
+import { $isSomeVerseNode } from "../../../nodes/usj/node-react.utils";
 import { getDefaultViewOptions, ViewOptions } from "../../../views/view-options.utils";
 import { CharNodePlugin } from "../CharNodePlugin";
 import { baseTestEnvironment } from "../react-test.utils";
@@ -27,6 +28,7 @@ import {
   $createNoteNode,
   $createParaNode,
   $createUnknownNode,
+  $createVerseNode,
   $isBookNode,
   $isImmutableChapterNode,
   $isImpliedParaNode,
@@ -1193,6 +1195,124 @@ describe("apply coordinates (opaque element embeds)", () => {
 
       // `getInsertedNodeKey` in apply coordinates resolves the retain to the NEW note —
       // the reverse lookup `Editor.applyUpdate` uses to report the inserted node.
+      expect(getInsertedNodeKey(ops, editor.getEditorState(), "apply")).toBe(notes[0].getKey());
+    });
+  });
+});
+
+/**
+ * An editable `VerseNode` (a TextNode subclass whose `__text` IS the "\v 1 " glyph) counts as ONE
+ * opaque OT unit — the same 1 unit as the doc delta's verse embed op and as `$applyUpdate`'s
+ * traversals — NOT its glyph-text length. So the two coordinate systems coincide across a verse,
+ * and the footnote-popover save path (`$getReplaceEmbedOps` → retain via
+ * `$getOTPositionOfNode("apply")` → `$applyUpdate`) lands on the SAME node whether the retain
+ * crosses a verse or not.
+ */
+describe("editable verse counts as one OT unit (embed)", () => {
+  let noteNode: NoteNode | undefined;
+
+  /**
+   * Editable-mode document shape:
+   *
+   * ```
+   * root
+   * └─ ParaNode "p"
+   *    ├─ VerseNode "1" ── "\v 1 "   (glyph; ONE OT unit, not its 5-char glyph length)
+   *    ├─ TextNode "first "          (6 chars)
+   *    ├─ NoteNode f (caller, \fr span, \ft span)
+   *    └─ TextNode " tail"
+   * ```
+   *
+   * Both coordinate systems: verse (1) + "first " (6) → note at 7.
+   */
+  function $buildEditableVerseDoc() {
+    const note = $createNoteNode("f", GENERATOR_NOTE_CALLER);
+    noteNode = note;
+    $getRoot().append(
+      $createParaNode("p").append(
+        $createVerseNode("1", "\\v 1 "),
+        $createTextNode("first "),
+        note.append(
+          $createImmutableNoteCallerNode(GENERATOR_NOTE_CALLER, "1:1 note text"),
+          $createCharNode("fr").append($createTextNode("1:1 ")),
+          $createCharNode("ft").append($createTextNode("note text")),
+        ),
+        $createTextNode(" tail"),
+      ),
+    );
+  }
+
+  function requireNote(): NoteNode {
+    if (!noteNode) throw new Error("noteNode not initialized");
+    return noteNode;
+  }
+
+  it("counts a preceding editable verse as 1 unit in both coordinate systems", async () => {
+    const { editor } = await testEnvironment($buildEditableVerseDoc);
+    const note = requireNote();
+
+    editor.getEditorState().read(() => {
+      // verse (1) + "first " (6) = 7 in BOTH systems — no glyph-length drift.
+      expect($getOTPositionOfNode(note, "apply")).toBe(7);
+      expect($getOTPositionOfNode(note)).toBe(7);
+      // Forward/reverse agree in both systems.
+      expect($getNodeFromOTPosition(7, "apply")).toBe(note);
+      expect($getNodeFromOTPosition(7)).toBe(note);
+    });
+  });
+
+  it("replaces a note after an editable verse via $getReplaceEmbedOps + $applyUpdate (retain crosses the verse)", async () => {
+    const { editor } = await testEnvironment($buildEditableVerseDoc, <CharNodePlugin />);
+    const note = requireNote();
+    const editableView: ViewOptions = { ...getDefaultViewOptions(), markerMode: "editable" };
+
+    const insertEmbedOps: DeltaOp[] = [
+      {
+        insert: {
+          note: {
+            style: "f",
+            caller: GENERATOR_NOTE_CALLER,
+            contents: { ops: [{ insert: "replaced", attributes: { char: { style: "ft" } } }] },
+          },
+        },
+      },
+    ];
+    const ops = editor
+      .getEditorState()
+      .read(() => $getReplaceEmbedOps(note.getKey(), insertEmbedOps));
+    if (!ops) throw new Error("replace embed ops not produced");
+    // The retain crosses the verse as ONE unit: verse (1) + "first " (6) = 7.
+    expect(ops[0]).toEqual({ retain: 7 });
+
+    await act(async () => {
+      editor.update(() => {
+        $applyUpdate(ops, editableView, {});
+      });
+    });
+
+    editor.getEditorState().read(() => {
+      const para = $getRoot().getFirstChild();
+      if (!$isParaNode(para)) throw new Error("para not found");
+
+      // The old note is REPLACED in place: still exactly one note.
+      const notes = para.getChildren().filter($isNoteNode);
+      expect(notes).toHaveLength(1);
+      expect(notes[0].getTextContent()).toContain("replaced");
+
+      // The verse embed is untouched — its glyph is intact and nothing was spliced into it.
+      const verse = para.getChildren().find($isSomeVerseNode);
+      if (!verse) throw new Error("verse not found");
+      expect(verse.getTextContent()).toBe("\\v 1 ");
+
+      // No character was eaten from the text on either side of the note.
+      const firstText = para.getChildAtIndex(1);
+      if (!$isTextNode(firstText)) throw new Error("leading text not found");
+      expect(firstText.getTextContent()).toBe("first ");
+      const lastText = para.getLastChild();
+      if (!$isTextNode(lastText)) throw new Error("trailing text not found");
+      expect(lastText.getTextContent()).toBe(" tail");
+
+      // The reverse lookup in apply coordinates resolves the retain to the NEW note.
       expect(getInsertedNodeKey(ops, editor.getEditorState(), "apply")).toBe(notes[0].getKey());
     });
   });

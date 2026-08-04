@@ -11,6 +11,7 @@ import {
   ElementNode,
   LexicalNode,
   NodeKey,
+  TextNode,
 } from "lexical";
 import { Op } from "quill-delta";
 import {
@@ -62,37 +63,33 @@ export type EmbedNode =
  * The OT coordinate system in which positions are counted.
  *
  * @remarks
- * The editor currently has TWO OT coordinate systems. They differ only in editable marker
- * mode (`markerMode: "editable"`), where embeds carry presentation glyph text — an editable
- * `ChapterNode`'s glyph text child (e.g. `"\c 1 "`, 5 chars), or an editable `VerseNode`'s
- * own text (`VerseNode` extends TextNode; its `__text` IS the glyph, e.g. `"\v 1 "`). In
- * every other marker mode embeds have no glyph text and the systems coincide.
+ * The editor has TWO OT coordinate systems. They differ only in editable marker mode
+ * (`markerMode: "editable"`), where an embed carries presentation glyph text — an editable
+ * `ChapterNode`'s glyph text child (e.g. `"\c 1 "`, 5 chars). In every other marker mode
+ * embeds have no glyph text and the systems coincide.
  *
- * - `"delta-doc"` — the legacy counting that matches the doc delta `getEditorDelta`
- *   serializes for chapters: the chapter embed contributes 1 AND its glyph text child is
- *   counted as body text (editable chapter = 6). This is the coordinate system of the diff
- *   op stream `DeltaOnChangePlugin` emits to the host, and therefore of retains found in
- *   locally produced ops (e.g. `getInsertedNodeKey` over `onChange` ops). Known divergence
- *   WITHIN this system for verse: the doc delta emits ONLY the verse embed op (verse = 1
- *   unit; the glyph text is engine-owned display, excluded from content ops), while this
- *   file's position helpers (`$getNodeOTContribution`, so `$getOTPositionOfNode` and
- *   `$getNodeFromOTPosition`) still count an editable `VerseNode` as TEXT of glyph length
- *   (5 for `"\v 1 "`) and never as an embed — helper positions drift from doc-delta
- *   positions by (glyph length − 1) per preceding editable verse.
+ * An editable `VerseNode` also carries glyph text (`VerseNode` extends TextNode; its `__text`
+ * IS the glyph, e.g. `"\v 1 "`), but a verse counts as ONE opaque OT unit in BOTH systems: its
+ * glyph is engine-owned display, excluded from content ops, so the doc delta emits only the
+ * verse embed op, this file's position helpers classify it via {@link $isEmbedNode} (see
+ * {@link $isOTTextNode}), and `$applyUpdate`'s traversals treat it as a 1-unit embed too. Only
+ * the editable chapter's glyph text is counted differently between the systems.
+ *
+ * - `"delta-doc"` — the counting that matches the doc delta `getEditorDelta` serializes for
+ *   chapters: the chapter embed contributes 1 AND its glyph text child is counted as body text
+ *   (editable chapter = 6). This is the coordinate system of the diff op stream
+ *   `DeltaOnChangePlugin` emits to the host, and therefore of retains found in locally produced
+ *   ops (e.g. `getInsertedNodeKey` over `onChange` ops).
  *
  * - `"apply"` — the counting `$applyUpdate`'s insert/delete traversals use: every ELEMENT embed
- *   is opaque (1 unit; children never descended into; editable chapter = 1). An editable
- *   `VerseNode` is a TextNode subclass, so those traversals also measure it by glyph-text
- *   length rather than 1 — the same verse drift as `"delta-doc"`'s helpers. Positions used in
+ *   is opaque (1 unit; children never descended into; editable chapter = 1). Positions used in
  *   host-local produce→apply round trips (`$getReplaceEmbedOps`, and reverse lookups of where
  *   `$applyUpdate` actually placed a node) MUST use this system, or every op lands offset by
  *   the glyph text length of each preceding editable chapter.
  *
- * These divergences are ACCEPTED for now: the OT collab path was never fully completed, and no
- * live flow currently routes ops across an editable verse into `$applyUpdate`. The follow-up
- * that completes it should unify an editable verse's counting on the embed's 1 unit in all
- * three places at once: the doc delta (already 1), this file's position helpers, and
- * `$applyUpdate`'s traversals.
+ * The remaining editable-chapter divergence is ACCEPTED: the OT collab path was never fully
+ * completed, and no live flow currently routes ops across an editable chapter into
+ * `$applyUpdate`.
  */
 export type OTCoordinateSystem = "delta-doc" | "apply";
 
@@ -193,8 +190,9 @@ export function $getOTPositionOfNode(
 
     // Check if we've found the target node
     if (currentNode.getKey() === targetKey) {
-      // For text nodes, return the start position
-      if ($isTextNode(currentNode)) return currentIndex;
+      // For text nodes, return the start position (an editable verse is an embed, not text —
+      // see $isOTTextNode — so it falls to the embed check below)
+      if ($isOTTextNode(currentNode)) return currentIndex;
 
       // For embed nodes, return their position
       if ($isEmbedNode(currentNode)) return currentIndex;
@@ -334,8 +332,9 @@ export function $getNodeFromOTPosition(
     // Calculate OT length contribution of current node
     const contribution = $getNodeOTContribution(currentNode);
 
-    // For text nodes, check if the position falls within this node's range
-    if ($isTextNode(currentNode) && contribution > 0) {
+    // For text nodes, check if the position falls within this node's range (an editable verse is
+    // an embed, not text — see $isOTTextNode — so it is matched by the embed check below instead)
+    if ($isOTTextNode(currentNode) && contribution > 0) {
       if (otPosition >= currentIndex && otPosition < currentIndex + contribution) {
         return currentNode;
       }
@@ -381,6 +380,20 @@ export function $isElementNodeClosing(
 
   // Check if the next node is a descendant of the current node
   return !$isDescendantOf(nextDfsNode.node, node.getKey());
+}
+
+/**
+ * Type guard for a node that contributes its glyph TEXT to OT length — a genuine text node, and
+ * NOT an embed that merely subclasses `TextNode`.
+ *
+ * The only embed that is also a `TextNode` is an editable `VerseNode` (its `__text` IS the
+ * `"\v 1 "` glyph). Like every embed it counts as ONE opaque OT unit, so OT-counting traversals
+ * must classify it via {@link $isEmbedNode} and never measure or split its glyph text. Use this
+ * in place of `$isTextNode` wherever a text branch precedes an embed branch, so an editable
+ * verse falls through to the embed branch. See {@link OTCoordinateSystem}.
+ */
+export function $isOTTextNode(node: LexicalNode | null | undefined): node is TextNode {
+  return $isTextNode(node) && !$isEmbedNode(node);
 }
 
 /**
@@ -463,15 +476,12 @@ function $isOpaqueContentNode(
 
 /** Calculate the OT length contribution of a single node. */
 function $getNodeOTContribution(node: LexicalNode): number {
-  // An editable VerseNode is a TextNode subclass, so it lands in THIS branch and is counted by its
-  // glyph-text length (e.g. 5 for "\v 1 "), NOT as an embed's 1 unit — the documented "verse
-  // drift" (see {@link OTCoordinateSystem}). This helper is ONE of the three places that count an
-  // editable verse; the follow-up that unifies a verse on the embed's 1 unit must change all three
-  // AT ONCE — the doc delta (already 1), this helper, and `$applyUpdate`'s traversals — or
-  // produce→apply round trips desync. Do NOT special-case a verse to 1 here in isolation.
-  if ($isTextNode(node)) return node.getTextContentSize();
-
+  // Embeds are checked FIRST: an editable VerseNode is a TextNode subclass but counts as one
+  // opaque OT unit (its glyph text is engine-owned display, excluded from content ops), the same
+  // as it counts in the doc delta and in `$applyUpdate`'s traversals. See {@link $isOTTextNode}.
   if ($isEmbedNode(node)) return 1;
+
+  if ($isTextNode(node)) return node.getTextContentSize();
 
   // CharNodes and other nodes don't contribute to OT length
   return 0;
