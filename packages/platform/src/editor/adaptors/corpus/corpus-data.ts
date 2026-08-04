@@ -69,6 +69,17 @@ export const corpusFixtures: CorpusFixture[] = [
 ${USX_FOOTER}`,
   },
   {
+    name: "empty va char element coexisting with a folded verse altnumber",
+    // PT9 empty leading-attribute-marker semantics: an EMPTY `\va` (`<char style="va" />`) is a
+    // first-class char element, never an empty attribute — it must round-trip as an ordinary
+    // (empty) char span, NOT get folded into the verse's `\va` display run. And a verse that DOES
+    // carry an `altnumber` (its folded run) coexists in the same paragraph with a separate,
+    // later `va` char span: the two representations are independent.
+    usx: book(
+      `<para style="p"><verse number="1" style="v" altnumber="2" />Alt-numbered text with a later <char style="va">standalone</char> span. <verse number="2" style="v" /><char style="va" />after an empty va marker.</para>`,
+    ),
+  },
+  {
     name: "cross-reference ref target",
     usx: book(
       `<para style="p"><verse number="1" style="v" />See <ref loc="GEN 1:1">Genesis 1:1</ref> for details.</para>`,

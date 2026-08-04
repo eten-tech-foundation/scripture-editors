@@ -245,34 +245,53 @@ export function $hasCaretHeldAttributeRun(char: CharNode, expectedText: string):
  */
 type VerseAttributeMarker = "va" | "vp";
 
-interface VerseAttributeTriplet {
-  opener: MarkerNode;
-  value: TextNode;
-  closer: MarkerNode;
+/** A verse attribute marker's display-run pieces found among the siblings after its anchor. */
+interface VerseAttributeRunPieces {
+  opener?: MarkerNode;
+  value?: TextNode;
+  closer?: MarkerNode;
 }
 
-/** The triplet starting AT `candidate`, if `candidate` is a matching opener with a well-formed
- * value + closer immediately following it. */
-function $verseAttributeTriplet(
-  candidate: LexicalNode | null,
+/**
+ * A verse attribute marker's run pieces — opener `MarkerNode` (matching `marker`), value TextNode
+ * (textType "attribute"), closer `MarkerNode` — scanned tolerantly in their fixed order starting
+ * immediately after `after`, with EACH piece individually optional. Mirrors
+ * {@link $milestoneAttributeRunPieces}: a mid-edit tree can be missing any subset — deleting just
+ * the value leaves opener + closer debris — and the tolerant scan lets callers recognize and grace
+ * that partial state and repair only the genuinely missing pieces around whatever survives, never
+ * duplicating a leftover. The old all-or-nothing model returned "no run at all" for a
+ * value-deleted run and re-derived a whole new opener/value/closer over the surviving debris on the
+ * next sync (the value-deletion resurrect/duplicate bug).
+ */
+function $verseAttributeRunPieces(
+  after: LexicalNode,
   marker: VerseAttributeMarker,
-): VerseAttributeTriplet | undefined {
+): VerseAttributeRunPieces {
+  let opener: MarkerNode | undefined;
+  let value: TextNode | undefined;
+  let closer: MarkerNode | undefined;
+  let cursor: LexicalNode | null = after.getNextSibling();
   if (
-    !$isMarkerNode(candidate) ||
-    candidate.getMarkerSyntax() !== "opening" ||
-    candidate.getMarker() !== marker
-  )
-    return undefined;
-  const value = candidate.getNextSibling();
-  if (!$isTextNode(value) || $getState(value, textTypeState) !== "attribute") return undefined;
-  const closer = value.getNextSibling();
+    $isMarkerNode(cursor) &&
+    cursor.getMarkerSyntax() === "opening" &&
+    cursor.getMarker() === marker
+  ) {
+    opener = cursor;
+    cursor = cursor.getNextSibling();
+  }
+  // A MarkerNode is itself a TextNode subclass, so the attribute-state check (never set on a
+  // glyph) is what keeps a closer from being misread as the value.
+  if ($isTextNode(cursor) && $getState(cursor, textTypeState) === "attribute") {
+    value = cursor;
+    cursor = cursor.getNextSibling();
+  }
   if (
-    !$isMarkerNode(closer) ||
-    closer.getMarkerSyntax() !== "closing" ||
-    closer.getMarker() !== marker
+    $isMarkerNode(cursor) &&
+    cursor.getMarkerSyntax() === "closing" &&
+    cursor.getMarker() === marker
   )
-    return undefined;
-  return { opener: candidate, value, closer };
+    closer = cursor;
+  return { opener, value, closer };
 }
 
 /** The display text a triplet's value should hold for `value`, or `undefined` for no triplet at
@@ -283,42 +302,61 @@ function $verseAttributeTargetText(value: string | undefined): string | undefine
   return value ? NBSP + value : undefined;
 }
 
-/** True when `triplet`'s value diverges from what `value` should render as — including "no
- * triplet, no value wanted" comparing equal (not diverging). */
+/**
+ * True when `pieces` diverge from what `value` should render as. When `value` is undefined the run
+ * must be ENTIRELY absent — any surviving piece (opener/value/closer debris) diverges. When `value`
+ * is wanted the run must be complete AND its value byte-exact — a missing opener, missing value,
+ * missing closer, or stale value text all diverge. "No pieces, no value wanted" compares equal.
+ */
 function $verseAttributeDiverges(
-  triplet: VerseAttributeTriplet | undefined,
+  pieces: VerseAttributeRunPieces,
   value: string | undefined,
 ): boolean {
-  return triplet?.value.getTextContent() !== $verseAttributeTargetText(value);
+  const { opener, value: valueNode, closer } = pieces;
+  if (value === undefined) return Boolean(opener || valueNode || closer);
+  return !(opener && closer && valueNode?.getTextContent() === $verseAttributeTargetText(value));
 }
 
 /**
- * Whether the collapsed caret holds a verse attribute run's SITE — inside `triplet`'s value when
- * the triplet exists (the mid-edit grace, leaving the user's in-progress edit alone), or, when the
- * triplet is MISSING (the user just deleted the whole `\va …\va*` run), at the run's insertion
- * point: the end of `after` (the verse, or a preceding `\va` closer) or the very start of `after`'s
- * next content sibling, where a range deletion collapses the caret. Mirrors the char side's
- * {@link $isCaretAtAttributeRunBoundary}. Without the missing-triplet arm, the sync would re-derive
- * the run from the still-set altnumber/pubnumber the instant the triplet is deleted and the
- * deletion would visibly undo itself.
+ * Whether the collapsed caret holds a verse attribute run's SITE — inside the value TextNode when
+ * it exists (the mid-edit grace, leaving the user's in-progress edit alone); or, when the run is
+ * ENTIRELY absent (the user just deleted the whole `\va …\va*` run), at the run's insertion point —
+ * the end of `after` (the verse, or a preceding `\va` closer) or the very start of `after`'s next
+ * content sibling, where a range deletion collapses the caret; or, when only the VALUE was deleted
+ * beside a surviving opener glyph, at the opener glyph's own end or on the closer glyph, where a
+ * delete-through-the-value leaves it. Mirrors {@link $isCaretAtMilestoneRunBoundary}. Without these
+ * arms the sync would re-derive the run from the still-set altnumber/pubnumber the instant the run
+ * (or its value) is deleted and the deletion would visibly undo itself.
  */
 function $isCaretAtVerseAttributeSite(
   after: LexicalNode,
-  triplet: VerseAttributeTriplet | undefined,
+  pieces: VerseAttributeRunPieces,
 ): boolean {
   const selection = $getSelection();
   if (!$isRangeSelection(selection) || !selection.isCollapsed()) return false;
   const anchorNode = selection.anchor.getNode();
-  if (triplet) return anchorNode.is(triplet.value);
-  if (anchorNode.is(after) && selection.anchor.offset === after.getTextContentSize()) return true;
-  const next = after.getNextSibling();
-  return next !== null && anchorNode.is(next) && selection.anchor.offset === 0;
+  const { opener, value, closer } = pieces;
+  if (value) return anchorNode.is(value);
+  if (!opener && !closer) {
+    if (anchorNode.is(after) && selection.anchor.offset === after.getTextContentSize()) return true;
+    const next = after.getNextSibling();
+    return next !== null && anchorNode.is(next) && selection.anchor.offset === 0;
+  }
+  if (!opener) return false;
+  // Value missing beside a surviving opener glyph: the caret can hold the site at the closer glyph
+  // OR at the end of the opener glyph's own text (where deleting only the value collapses it).
+  const atOpenerEnd =
+    anchorNode.is(opener) && selection.anchor.offset === opener.getTextContentSize();
+  if (closer) return atOpenerEnd || anchorNode.is(closer);
+  return atOpenerEnd;
 }
 
 /**
- * Heal a single marker's triplet (insert missing, rewrite stale, or remove leftover), anchored
- * immediately after `after`. Returns the node the NEXT marker's triplet should anchor after —
- * `after` itself when no triplet exists there, else this triplet's closer — so `\va` and `\vp`
+ * Heal a single marker's run (insert missing pieces, rewrite a stale value, or remove leftover
+ * debris), anchored immediately after `after`. Partial mangles are repaired AROUND the surviving
+ * pieces — a leftover opener/value/closer is reused in place, never duplicated (the tolerant-pieces
+ * fix for the value-deletion resurrect bug). Returns the node the NEXT marker's run should anchor
+ * after — `after` itself when no run exists there, else this run's closer — so `\va` and `\vp`
  * chain correctly regardless of which are present.
  */
 function $syncVerseAttributeRun(
@@ -326,30 +364,46 @@ function $syncVerseAttributeRun(
   marker: VerseAttributeMarker,
   value: string | undefined,
 ): LexicalNode {
-  const triplet = $verseAttributeTriplet(after.getNextSibling(), marker);
-  if (!$verseAttributeDiverges(triplet, value)) return triplet?.closer ?? after;
-  // Mid-edit grace: the caret holds the run's site (inside a live value, or at a just-deleted
-  // run's insertion point). Leave it alone — the marker-edit engine settles it on departure.
-  if ($isCaretAtVerseAttributeSite(after, triplet)) return triplet?.closer ?? after;
+  const pieces = $verseAttributeRunPieces(after, marker);
+  if (!$verseAttributeDiverges(pieces, value)) return pieces.closer ?? after;
+  // Mid-edit grace: the caret holds the run's site (inside a live value, at a just-deleted run's
+  // insertion point, or beside a surviving glyph whose value was deleted). Leave it alone — the
+  // marker-edit engine settles it on caret departure.
+  if ($isCaretAtVerseAttributeSite(after, pieces)) return pieces.closer ?? after;
+  const { opener, value: valueNode, closer } = pieces;
   const targetText = $verseAttributeTargetText(value);
   if (targetText === undefined) {
-    triplet?.opener.remove();
-    triplet?.value.remove();
-    triplet?.closer.remove();
+    // No run wanted: remove whatever debris survives.
+    opener?.remove();
+    valueNode?.remove();
+    closer?.remove();
     return after;
   }
-  if (triplet) {
-    triplet.value.setTextContent(targetText);
-    return triplet.closer;
+  // Repair around survivors, in fixed order: opener directly after `after`, then value, then
+  // closer. Each found piece already sits in its correct position (the tolerant scan reads them
+  // in order), so a missing one is inserted into its gap.
+  const openerGlyph =
+    opener ??
+    (() => {
+      const created = $createMarkerNode(marker, "opening");
+      after.insertAfter(created);
+      return created;
+    })();
+  let workingValue = valueNode;
+  if (workingValue) workingValue.setTextContent(targetText);
+  else {
+    workingValue = $createTextNode(targetText);
+    $setState(workingValue, textTypeState, "attribute");
+    openerGlyph.insertAfter(workingValue);
   }
-  const opener = $createMarkerNode(marker, "opening");
-  after.insertAfter(opener);
-  const newValue = $createTextNode(targetText);
-  $setState(newValue, textTypeState, "attribute");
-  opener.insertAfter(newValue);
-  const closer = $createMarkerNode(marker, "closing");
-  newValue.insertAfter(closer);
-  return closer;
+  return (
+    closer ??
+    (() => {
+      const created = $createMarkerNode(marker, "closing");
+      workingValue.insertAfter(created);
+      return created;
+    })()
+  );
 }
 
 /**
@@ -384,20 +438,16 @@ export function $hasCaretHeldVerseAttributeRun(
   pubnumber: string | undefined,
 ): boolean {
   if (!verse.isAttached()) return false;
-  const vaTriplet = $verseAttributeTriplet(verse.getNextSibling(), "va");
-  if (
-    $verseAttributeDiverges(vaTriplet, altnumber) &&
-    $isCaretAtVerseAttributeSite(verse, vaTriplet)
-  )
+  const vaPieces = $verseAttributeRunPieces(verse, "va");
+  if ($verseAttributeDiverges(vaPieces, altnumber) && $isCaretAtVerseAttributeSite(verse, vaPieces))
     return true;
   // A diverging \va the caret does NOT hold is not "caret-held" (it would just heal in place),
-  // but that must not short-circuit the \vp check — the two triplets are independent, and the
+  // but that must not short-circuit the \vp check — the two runs are independent, and the
   // caret can only ever be in one of them at a time.
-  const afterVa = vaTriplet?.closer ?? verse;
-  const vpTriplet = $verseAttributeTriplet(afterVa.getNextSibling(), "vp");
+  const afterVa = vaPieces.closer ?? verse;
+  const vpPieces = $verseAttributeRunPieces(afterVa, "vp");
   return Boolean(
-    $verseAttributeDiverges(vpTriplet, pubnumber) &&
-    $isCaretAtVerseAttributeSite(afterVa, vpTriplet),
+    $verseAttributeDiverges(vpPieces, pubnumber) && $isCaretAtVerseAttributeSite(afterVa, vpPieces),
   );
 }
 
