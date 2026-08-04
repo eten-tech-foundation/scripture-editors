@@ -426,6 +426,32 @@ export function $findPreviousVerseInSiblings(
 }
 
 /**
+ * Find the next verse node after `verseNode` in document order, stopping at the next chapter
+ * boundary (or the end of the document). Forward counterpart to `$findPreviousVerseInSiblings` /
+ * the backward walk in `$findThisVerse`.
+ * @param verseNode - The verse node to search forward from.
+ * @returns The next verse node, or `undefined` if none exists before the next chapter/document end.
+ */
+export function $findNextVerseAfter(verseNode: SomeVerseNode): SomeVerseNode | undefined {
+  const parent = verseNode.getParent();
+  if (parent && $isElementNode(parent)) {
+    const children = parent.getChildren();
+    for (let i = verseNode.getIndexWithinParent() + 1; i < children.length; i++) {
+      const child = children[i];
+      if ($isSomeVerseNode(child)) return child;
+    }
+  }
+
+  let nextPara = parent?.getNextSibling();
+  while (nextPara && !$isSomeChapterNode(nextPara)) {
+    const verse = $findNextVerseInNode(nextPara);
+    if (verse) return verse;
+    nextPara = nextPara.getNextSibling();
+  }
+  return undefined;
+}
+
+/**
  * Find the last verse in the children of the node.
  * @param node - Node with potential verses in children.
  * @returns the verse node if found, `undefined` otherwise.
