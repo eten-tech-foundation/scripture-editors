@@ -132,9 +132,10 @@ export class UnknownNode extends ElementNode {
 
   override createDOM(): HTMLElement {
     const dom = document.createElement(UNKNOWN_TAG_NAME);
-    // data-tag doubles as the CSS discriminator for construct-specific treatment (the
-    // optbreak-only `//` label keys off [data-tag="optbreak"]) and mirrors what importDOM's
-    // $convertUnknownElement reads back.
+    // data-tag records the UnknownNode's USJ type so importDOM's $convertUnknownElement can read it
+    // back on a DOM round-trip. The inline-vs-block CSS treatment is driven by the class chosen from
+    // INLINE_UNKNOWN_TAGS below, not by data-tag; optbreak's `//` token renders as a real child text
+    // node (see createUnknown in usj-editor.adaptor.ts), not a CSS-generated label.
     dom.setAttribute("data-tag", this.getTag());
     dom.setAttribute("data-marker", this.getMarker() ?? "");
     dom.classList.add(INLINE_UNKNOWN_TAGS.has(this.getTag()) ? "unknown-inline" : "unknown-block");
