@@ -30,6 +30,7 @@ import {
   $isParaNode,
   $isSomeChapterNode,
   $isUnknownNode,
+  $isVerseNode,
   BOOK_MARKER,
   BookNode,
   CHAPTER_MARKER,
@@ -248,6 +249,14 @@ function $handleTextNodes(
   charContentProduced: Set<CharNode>,
 ) {
   if (!$isTextNode(currentNode)) return;
+  // An editable VerseNode's own `__text` is its marker glyph (`\v 1 `) — VerseNode extends
+  // TextNode so the glyph can sit inline for caret placement, but the glyph is engine-owned
+  // display, not content. The verse is already conveyed by its own embed op ($getVerseOp,
+  // pushed by the caller once $isSomeVerseNode matches). Skip the glyph here so it never ALSO
+  // surfaces as a content text op, which would double-count the verse's length in the OT
+  // content stream (once as the embed's implicit 1 unit, once as the leaked glyph bytes) and
+  // shift every offset that follows it.
+  if ($isVerseNode(currentNode)) return;
   // Skip a note's first text child: in editable modes this is the note's opening marker glyph
   // (MarkerNode extends TextNode), which shouldn't flow into ops. Caller text, when present as a
   // plain text child (expanded editable mode), is never the first child and is not skipped here.

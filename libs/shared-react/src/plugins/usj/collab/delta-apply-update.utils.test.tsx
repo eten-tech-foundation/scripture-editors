@@ -47,6 +47,7 @@ import {
   $createMarkerNode,
   $createNoteNode,
   $createParaNode,
+  $createVerseNode,
   $isBookNode,
   $isCharNode,
   $isImmutableTypedTextNode,
@@ -5177,6 +5178,56 @@ describe("Delta Utils $applyUpdate", () => {
       const replicaOps: DeltaOp[] = getEditorDelta(replica.getEditorState()).ops;
 
       expect(JSON.stringify(replicaOps)).toBe(JSON.stringify(hostOps));
+    });
+
+    // Skipped: exposes a PRE-EXISTING apply-side gap, not a regression from excluding the
+    // verse's own glyph text out of `getEditorDelta`'s content ops (W2-F). `$applyUpdate`'s
+    // insert traversals ($insertRichText's tree search, `$insertNodeAtCharacterOffset`, and
+    // others — see every `$isTextNode(...)` check in delta-apply-update.utils.ts and
+    // delta-common.utils.ts's `$getNodeOTContribution`) check `$isTextNode` before
+    // `$isEmbedNode`. An editable VerseNode is BOTH (VerseNode extends TextNode so its glyph
+    // can sit inline for caret placement), so every one of those traversals measures an
+    // already-inserted verse by its glyph TEXT LENGTH instead of treating it as an opaque
+    // 1-unit embed — the same divergence `delta-common.utils.ts`'s `OTCoordinateSystem` doc
+    // comment already documents and defers for chapter ("unifying editable-mode doc-delta
+    // coordinates with the apply-side traversals belongs to future collab work"), which this
+    // proves also applies to verse, and unlike chapter (fixed for "apply" coordinates in
+    // bbc4c7a9) has NO existing apply-side handling at all for verse's dual nature. Concretely,
+    // applying this test's host ops to a fresh replica corrupts the tree: the trailing content
+    // text gets spliced INTO the verse node's own glyph ("the first versev 1 " / "\" observed),
+    // and the paragraph fails to materialize as a real ParaNode. Fixing this requires auditing
+    // and changing ~8 traversal call sites with no existing coverage of editable-verse
+    // interaction — out of scope for W2-F; un-skip once that follow-up unifies VerseNode's OT
+    // contribution across delta-doc and apply coordinates.
+    it.skip("converges an editable verse followed by content text into an identical tree", async () => {
+      const { editor: host } = await testEnvironment(() => {
+        const verse = $createVerseNode("1", "\\v 1 ");
+        $getRoot().append($createParaNode("p").append(verse, $createTextNode("the first verse")));
+      });
+      const hostOps: DeltaOp[] = getEditorDelta(host.getEditorState()).ops;
+
+      const { editor: replica } = await testEnvironment();
+      await sutApplyUpdate(replica, hostOps, editableExpandedViewOptions);
+
+      const hostState = host.getEditorState().toJSON();
+      const replicaState = replica.getEditorState().toJSON();
+      cleanupSerializedEditorState(hostState, null);
+      cleanupSerializedEditorState(replicaState, null);
+      expect(replicaState).toEqual(hostState);
+
+      replica.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        expect(para.getChildrenSize()).toBe(2);
+
+        const verse = para.getFirstChild();
+        if (!$isSomeVerseNode(verse)) throw new Error("expected a verse embed");
+        expect(verse.getNumber()).toBe("1");
+
+        const content = para.getChildAtIndex(1);
+        if (!$isTextNode(content)) throw new Error("expected trailing content text");
+        expect(content.getTextContent()).toBe("the first verse");
+      });
     });
   });
 });
