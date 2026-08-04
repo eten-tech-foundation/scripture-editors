@@ -402,7 +402,7 @@ export function $hasCaretHeldVerseAttributeRun(
 }
 
 /** A milestone's display-run pieces found among its immediate following siblings. */
-interface MilestoneRunPieces {
+export interface MilestoneRunPieces {
   opening?: MarkerNode;
   attribute?: TextNode;
   closing?: MarkerNode;
@@ -416,9 +416,11 @@ interface MilestoneRunPieces {
  * deleted leaves attribute + closer debris; only the closer deleted leaves opening + attribute).
  * The tolerant scan lets callers repair only the genuinely missing/stale pieces around whatever
  * survives — never duplicating a leftover — and lets {@link $milestoneRunEntirelyAbsent}
- * distinguish "every byte of the run deleted" from a partial mangle.
+ * distinguish "every byte of the run deleted" from a partial mangle. Exported as the single
+ * definition of "a milestone's run" — the Tier-2 rebuild's `$milestoneDisplayRun` delegates to it
+ * so the sync and the rebuild can never disagree about which siblings make up the run.
  */
-function $milestoneAttributeRunPieces(milestone: MilestoneNode): MilestoneRunPieces {
+export function $milestoneAttributeRunPieces(milestone: MilestoneNode): MilestoneRunPieces {
   let opening: MarkerNode | undefined;
   let attribute: TextNode | undefined;
   let closing: MarkerNode | undefined;
@@ -483,8 +485,14 @@ function $isCaretAtMilestoneRunBoundary(
     return next !== null && anchorNode.is(next) && selection.anchor.offset === 0;
   }
   if (!opening) return false;
-  if (closing) return anchorNode.is(closing);
-  return anchorNode.is(opening) && selection.anchor.offset === opening.getTextContentSize();
+  // Attribute text missing beside a surviving opening glyph: the caret can hold the site at the
+  // self-closing glyph OR at the end of the opening glyph's own text (where deleting only the
+  // attribute text collapses it). Grace BOTH — the documented contract, and the anchor a
+  // delete-through-the-run actually lands on when the closer is left intact.
+  const atOpeningEnd =
+    anchorNode.is(opening) && selection.anchor.offset === opening.getTextContentSize();
+  if (closing) return atOpeningEnd || anchorNode.is(closing);
+  return atOpeningEnd;
 }
 
 /**
