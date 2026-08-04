@@ -113,7 +113,7 @@ export function milestoneAttributes(
  * deriving the rule from tree shape rather than viewOptions also keeps the sync a no-op outside
  * editable mode, where char spans carry no MarkerNode glyphs at all.
  */
-function $charClosingGlyph(char: CharNode): MarkerNode | undefined {
+export function $charClosingGlyph(char: CharNode): MarkerNode | undefined {
   return char
     .getChildren()
     .find(

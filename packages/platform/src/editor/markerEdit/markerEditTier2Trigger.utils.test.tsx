@@ -19,6 +19,7 @@ import {
 } from "lexical";
 import {
   $charAttributeDisplayNode,
+  $createCharNode,
   $createMarkerNode,
   $createNoteNode,
   $createParaNode,
@@ -353,6 +354,155 @@ describe("Tier 2 literal-text triggers", () => {
     assertSettled();
   });
 
+  it("settles `|attrs` typed into an ALREADY-closed char span on caret departure (5a repro)", async () => {
+    // TJ's corrected repro: the `\nd text\nd*` span is already closed (the closer glyph exists as
+    // its own MarkerNode) BEFORE the user types the pipe. Typing `|stuff="thing"` at the end of
+    // "text" lands in the span's plain content node with NO backslash, so the immediate-rebuild
+    // path never fires. Pre-fix, the no-backslash early return DELETED the node's pending key, so
+    // nothing pended and caret departure had nothing to settle — the literal `|stuff="thing"`
+    // persisted forever. The fix pends such a node so departure re-tokenizes it: PT9 re-parses
+    // `|…` before an explicit closer as attributes (extractAttributes).
+    let content: TextNode;
+    let other: TextNode;
+    const { editor } = await testEnvironment(() => {
+      const para = $createParaNode("p");
+      const char = $createCharNode("nd");
+      content = $createTextNode(`${NBSP}text`);
+      para.append(
+        $createMarkerNode("p"),
+        $createTextNode(NBSP),
+        char.append($createMarkerNode("nd"), content, $createMarkerNode("nd", "closing")),
+      );
+      other = $createTextNode("elsewhere");
+      $getRoot().append(para, $createParaNode("p").append($createMarkerNode("p"), other));
+    });
+    // Caret at the end of "text", immediately before the `\nd*` closer glyph.
+    await act(async () => editor.update(() => content.select(5, 5)));
+    for (const character of `|stuff="thing"`) {
+      await act(async () =>
+        editor.update(() => {
+          const selection = $getSelection();
+          if ($isRangeSelection(selection)) selection.insertText(character);
+        }),
+      );
+    }
+    // Mid-typing: pended, NOT yet re-tokenized. The span still carries no attribute and the pipe
+    // text is still literal content — no immediate rebuild happened.
+    editor.getEditorState().read(() => {
+      const nd = requireDefinedInTest($findFirstChar($getRoot(), "nd"), "nd char span not found");
+      expect(nd.getUnknownAttributes()).toBeUndefined();
+      expect($charAttributeDisplayNode(nd)).toBeUndefined();
+      expect($getRoot().getTextContent()).toContain('|stuff="thing"');
+    });
+    // Caret departure to the other paragraph settles the pending node via Tier 2.
+    await act(async () => editor.update(() => other.select(0, 0)));
+    await new Promise((resolve) => queueMicrotask(() => resolve(undefined)));
+    editor.getEditorState().read(() => {
+      const nd = requireDefinedInTest($findFirstChar($getRoot(), "nd"), "nd char span not found");
+      expect(nd.getUnknownAttributes()).toEqual({ stuff: "thing" });
+      expect(
+        nd.getChildren().some((c) => $isMarkerNode(c) && c.getMarkerSyntax() === "closing"),
+      ).toBe(true);
+      const run = requireDefinedInTest(
+        $charAttributeDisplayNode(nd),
+        "attribute display run not found",
+      );
+      expect(run.getTextContent()).toBe('|stuff="thing"');
+      expect($getState(run, textTypeState)).toBe("attribute");
+      const plainContent = nd
+        .getChildren()
+        .filter(
+          (c) => $isTextNode(c) && !$isMarkerNode(c) && $getState(c, textTypeState) !== "attribute",
+        )
+        .map((c) => c.getTextContent())
+        .join("");
+      expect(plainContent).not.toContain("|stuff");
+      expect(plainContent).toContain("text");
+    });
+  });
+
+  it("collapses a bare default-attribute value (`|gloss` into closed `\\w`) on departure", async () => {
+    // `w`'s default attribute is `lemma`, so a bare `|gloss` re-parses to `{lemma:"gloss"}` and the
+    // canonical display run collapses back to the bare `|gloss` form.
+    let content: TextNode;
+    let other: TextNode;
+    const { editor } = await testEnvironment(() => {
+      const para = $createParaNode("p");
+      const char = $createCharNode("w");
+      content = $createTextNode(`${NBSP}word`);
+      para.append(
+        $createMarkerNode("p"),
+        $createTextNode(NBSP),
+        char.append($createMarkerNode("w"), content, $createMarkerNode("w", "closing")),
+      );
+      other = $createTextNode("elsewhere");
+      $getRoot().append(para, $createParaNode("p").append($createMarkerNode("p"), other));
+    });
+    await act(async () => editor.update(() => content.select(5, 5)));
+    for (const character of "|gloss") {
+      await act(async () =>
+        editor.update(() => {
+          const selection = $getSelection();
+          if ($isRangeSelection(selection)) selection.insertText(character);
+        }),
+      );
+    }
+    await act(async () => editor.update(() => other.select(0, 0)));
+    await new Promise((resolve) => queueMicrotask(() => resolve(undefined)));
+    editor.getEditorState().read(() => {
+      const w = requireDefinedInTest($findFirstChar($getRoot(), "w"), "w char span not found");
+      expect(w.getUnknownAttributes()).toEqual({ lemma: "gloss" });
+      const run = requireDefinedInTest(
+        $charAttributeDisplayNode(w),
+        "attribute display run not found",
+      );
+      expect(run.getTextContent()).toBe("|gloss");
+    });
+  });
+
+  it("keeps a bare value literal when the marker has no default attribute, and settles (PT9)", async () => {
+    // `nd` has NO default attribute, so PT9 cannot promote a bare `|gloss` to an attribute — it
+    // stays literal content. The settle must still TERMINATE: the pending key is consumed and the
+    // fixed-point rebuild refusal stops any resolve/rebuild churn.
+    let content: TextNode;
+    let other: TextNode;
+    const { editor } = await testEnvironment(() => {
+      const para = $createParaNode("p");
+      const char = $createCharNode("nd");
+      content = $createTextNode(`${NBSP}a`);
+      para.append(
+        $createMarkerNode("p"),
+        $createTextNode(NBSP),
+        char.append($createMarkerNode("nd"), content, $createMarkerNode("nd", "closing")),
+      );
+      other = $createTextNode("elsewhere");
+      $getRoot().append(para, $createParaNode("p").append($createMarkerNode("p"), other));
+    });
+    await act(async () => editor.update(() => content.select(2, 2)));
+    for (const character of "|gloss") {
+      await act(async () =>
+        editor.update(() => {
+          const selection = $getSelection();
+          if ($isRangeSelection(selection)) selection.insertText(character);
+        }),
+      );
+    }
+    await act(async () => editor.update(() => other.select(0, 0)));
+    // Flush twice: prove the resolve settles and does NOT re-queue an endless cascade.
+    await new Promise((resolve) => queueMicrotask(() => resolve(undefined)));
+    await new Promise((resolve) => queueMicrotask(() => resolve(undefined)));
+    editor.getEditorState().read(() => {
+      const nd = requireDefinedInTest($findFirstChar($getRoot(), "nd"), "nd char span not found");
+      // No attribute promoted; the bare value stays literal span content.
+      const realAttributes = Object.keys(nd.getUnknownAttributes() ?? {}).filter(
+        (name) => name !== "closed",
+      );
+      expect(realAttributes).toEqual([]);
+      expect($charAttributeDisplayNode(nd)).toBeUndefined();
+      expect(nd.getTextContent()).toContain("|gloss");
+    });
+  });
+
   it("does not re-tokenize a COLLAPSED note's content (preserve-or-refuse)", async () => {
     // The note skip is lifted: the trigger now fires inside note content and
     // routes to `$rebuildNoteContent`. A collapsed note, however, is not inline-editable,
@@ -452,6 +602,97 @@ describe("$textNodeTier2Transform on attribute-run text", () => {
         attrText.setTextContent('|lemma="gra');
         $textNodeTier2Transform(attrText, context);
         expect(context.pendingKeys.has(attrText.getKey())).toBe(true);
+      },
+      { discrete: true },
+    );
+  });
+});
+
+describe("$textNodeTier2Transform on pipe-text in plain content", () => {
+  function buildContext(): MarkerEditContext {
+    return {
+      viewOptions,
+      getMarker: bundledGetMarker,
+      pendingKeys: new Set<NodeKey>(),
+      splitExpected: { current: false },
+      rebuildAttempted: new Set<string>(),
+    };
+  }
+
+  it("pends `|…` plain content inside a CLOSED span (without re-tokenizing it)", () => {
+    const { editor } = createBasicTestEnvironment();
+    let content: TextNode;
+    editor.update(
+      () => {
+        content = $createTextNode(`${NBSP}text|stuff="thing"`);
+        const char = $createCharNode("nd");
+        const para = $createParaNode("p");
+        $getRoot().append(
+          para.append(
+            $createMarkerNode("p"),
+            char.append($createMarkerNode("nd"), content, $createMarkerNode("nd", "closing")),
+          ),
+        );
+      },
+      { discrete: true },
+    );
+    const context = buildContext();
+    editor.update(
+      () => {
+        $textNodeTier2Transform(content, context);
+        // A closer glyph is present, so the pipe text is a pending attribute edit — it pends and
+        // waits for caret departure rather than re-tokenizing now.
+        expect(context.pendingKeys.has(content.getKey())).toBe(true);
+        expect(context.rebuildAttempted.size).toBe(0);
+      },
+      { discrete: true },
+    );
+  });
+
+  it("does NOT pend `|…` plain content in an UNCLOSED span (no closing glyph)", () => {
+    const { editor } = createBasicTestEnvironment();
+    let content: TextNode;
+    editor.update(
+      () => {
+        content = $createTextNode(`${NBSP}text|x="y"`);
+        const char = $createCharNode("nd").setUnknownAttributes({ closed: "false" });
+        const para = $createParaNode("p");
+        // No closing MarkerNode child: an unclosed span can carry no attributes, so `|…` stays
+        // literal (PT9 semantics).
+        $getRoot().append(
+          para.append($createMarkerNode("p"), char.append($createMarkerNode("nd"), content)),
+        );
+      },
+      { discrete: true },
+    );
+    const context = buildContext();
+    editor.update(
+      () => {
+        context.pendingKeys.add(content.getKey()); // prove the transform clears it, not just skips
+        $textNodeTier2Transform(content, context);
+        expect(context.pendingKeys.has(content.getKey())).toBe(false);
+      },
+      { discrete: true },
+    );
+  });
+
+  it("does NOT pend `|…` plain paragraph text (no CharNode ancestor)", () => {
+    const { editor } = createBasicTestEnvironment();
+    let content: TextNode;
+    editor.update(
+      () => {
+        content = $createTextNode(`${NBSP}text|x="y"`);
+        const para = $createParaNode("p");
+        $getRoot().append(para.append($createMarkerNode("p"), content));
+      },
+      { discrete: true },
+    );
+    const context = buildContext();
+    editor.update(
+      () => {
+        context.pendingKeys.add(content.getKey());
+        $textNodeTier2Transform(content, context);
+        expect(context.pendingKeys.has(content.getKey())).toBe(false);
       },
       { discrete: true },
     );
