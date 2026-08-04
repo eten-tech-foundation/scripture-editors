@@ -64,31 +64,36 @@ export type EmbedNode =
  *
  * @remarks
  * The editor currently has TWO OT coordinate systems. They differ only in editable marker
- * mode (`markerMode: "editable"`), where an element-based embed — an editable `ChapterNode`
- * — carries a presentation glyph text child (e.g. `"\c 1 "`, 5 chars). In every other
- * marker mode embeds have no text children and the two systems coincide.
+ * mode (`markerMode: "editable"`), where embeds carry presentation glyph text — an editable
+ * `ChapterNode`'s glyph text child (e.g. `"\c 1 "`, 5 chars), or an editable `VerseNode`'s
+ * own text (`VerseNode` extends TextNode; its `__text` IS the glyph, e.g. `"\v 1 "`). In
+ * every other marker mode embeds have no glyph text and the systems coincide.
  *
  * - `"delta-doc"` — the legacy counting that matches the doc delta `getEditorDelta`
  *   serializes for chapters: the chapter embed contributes 1 AND its glyph text child is
  *   counted as body text (editable chapter = 6). This is the coordinate system of the diff
- *   op stream `DeltaOnChangePlugin` emits to the host — its single-text-node fast path must
- *   agree with its `getEditorDelta` diff fallback — and therefore of retains found in
- *   locally produced ops (e.g. `getInsertedNodeKey` over `onChange` ops). Known pre-existing
- *   divergence, unchanged here: an editable `VerseNode` is a TextNode, so its glyph text is
- *   counted but its verse embed op is not, while the doc delta emits both.
+ *   op stream `DeltaOnChangePlugin` emits to the host, and therefore of retains found in
+ *   locally produced ops (e.g. `getInsertedNodeKey` over `onChange` ops). Known divergence
+ *   WITHIN this system for verse: the doc delta emits ONLY the verse embed op (verse = 1
+ *   unit; the glyph text is engine-owned display, excluded from content ops), while this
+ *   file's position helpers (`$getNodeOTContribution`, so `$getOTPositionOfNode` and
+ *   `$getNodeFromOTPosition`) still count an editable `VerseNode` as TEXT of glyph length
+ *   (5 for `"\v 1 "`) and never as an embed — helper positions drift from doc-delta
+ *   positions by (glyph length − 1) per preceding editable verse.
  *
  * - `"apply"` — the counting `$applyUpdate`'s insert/delete traversals use: every ELEMENT embed
  *   is opaque (1 unit; children never descended into; editable chapter = 1). An editable
- *   `VerseNode` is a TextNode subclass, so `$getNodeOTContribution` counts it as text and it
- *   still contributes its glyph-text length here rather than 1 — the same accepted pre-existing
- *   divergence noted above. Positions used in host-local produce→apply round trips
- *   (`$getReplaceEmbedOps`, and reverse lookups of where `$applyUpdate` actually placed a node)
- *   MUST use this system, or every op lands offset by the glyph text length of each preceding
- *   editable chapter.
+ *   `VerseNode` is a TextNode subclass, so those traversals also measure it by glyph-text
+ *   length rather than 1 — the same verse drift as `"delta-doc"`'s helpers. Positions used in
+ *   host-local produce→apply round trips (`$getReplaceEmbedOps`, and reverse lookups of where
+ *   `$applyUpdate` actually placed a node) MUST use this system, or every op lands offset by
+ *   the glyph text length of each preceding editable chapter.
  *
- * The divergence between the two systems is ACCEPTED for now: the OT collab path was never
- * fully completed, and unifying editable-mode doc-delta coordinates with the apply-side
- * traversals belongs to future collab work.
+ * These divergences are ACCEPTED for now: the OT collab path was never fully completed, and no
+ * live flow currently routes ops across an editable verse into `$applyUpdate`. The follow-up
+ * that completes it should unify an editable verse's counting on the embed's 1 unit in all
+ * three places at once: the doc delta (already 1), this file's position helpers, and
+ * `$applyUpdate`'s traversals.
  */
 export type OTCoordinateSystem = "delta-doc" | "apply";
 
