@@ -6,7 +6,14 @@ import {
 } from "../../../nodes/usj/node-react.utils";
 import { UsjNodeOptions } from "../../../nodes/usj/usj-node-options.model";
 import { ViewOptions } from "../../../views/view-options.utils";
-import { $isEmbedNode, DeltaOp, EmbedNode, isInsertEmbedOpOfType, LF } from "./delta-common.utils";
+import {
+  $isEmbedNode,
+  $isOTTextNode,
+  DeltaOp,
+  EmbedNode,
+  isInsertEmbedOpOfType,
+  LF,
+} from "./delta-common.utils";
 import {
   DeltaOpInsertNoteEmbed,
   OT_BOOK_PROPS,
@@ -222,7 +229,7 @@ function $applyAttributes(
   function $traverseAndApplyAttributesRecursive(currentNode: LexicalNode): boolean {
     if (lengthToFormat <= 0) return true;
 
-    if ($isTextNode(currentNode)) {
+    if ($isOTTextNode(currentNode)) {
       const textLength = currentNode.getTextContentSize();
       if (targetIndex < currentIndex + textLength && currentIndex < targetIndex + retain) {
         const offsetInNode = Math.max(0, targetIndex - currentIndex);
@@ -696,7 +703,7 @@ function $delete(targetIndex: number, otLength: number, logger: LoggerBasic | un
   ): boolean /* true if deletion is complete */ {
     if (remainingToDelete <= 0) return true;
 
-    if ($isTextNode(currentNode)) {
+    if ($isOTTextNode(currentNode)) {
       let textLength = currentNode.getTextContentSize();
       if (
         targetIndex < currentIndex + textLength &&
@@ -808,7 +815,7 @@ function $delete(targetIndex: number, otLength: number, logger: LoggerBasic | un
                 break;
               }
 
-              if ($isTextNode(nextChild)) {
+              if ($isOTTextNode(nextChild)) {
                 tempCurrentIndex += nextChild.getTextContentSize();
               } else if ($isEmbedNode(nextChild)) {
                 tempCurrentIndex += 1;
@@ -933,7 +940,7 @@ function $handleCharText(
     const root = $getRoot();
     let currentIndex = 0;
     function findParentCharNode(node: LexicalNode): boolean {
-      if ($isTextNode(node)) {
+      if ($isOTTextNode(node)) {
         const textLength = node.getTextContentSize();
         if (targetIndex >= currentIndex && targetIndex < currentIndex + textLength) {
           const parent = node.getParent();
@@ -1067,7 +1074,7 @@ function $insertRichText(
   function $findAndInsertRecursive(currentNode: LexicalNode): boolean {
     if (insertionPointFound) return true;
 
-    if ($isTextNode(currentNode)) {
+    if ($isOTTextNode(currentNode)) {
       const textLength = currentNode.getTextContentSize();
       // Check if targetIndex is within this TextNode's range
       if (targetIndex >= currentIndex && targetIndex <= currentIndex + textLength) {
@@ -1328,7 +1335,7 @@ function $insertNodeAtCharacterOffset(
       }
 
       // Case 2: Process current `child` to advance `currentIndex` or insert within/after it.
-      if ($isTextNode(child)) {
+      if ($isOTTextNode(child)) {
         const textLength = child.getTextContentSize();
         // Case 2a: Insert *within* this TextNode
         if (!wasInserted && targetIndex > currentIndex && targetIndex < currentIndex + textLength) {
@@ -1598,7 +1605,7 @@ function $handleNewline(
   function $traverseAndHandleNewline(currentNode: LexicalNode): boolean {
     if (foundTargetBlock) return true;
 
-    if ($isTextNode(currentNode)) {
+    if ($isOTTextNode(currentNode)) {
       const textLength = currentNode.getTextContentSize();
       // Check if targetIndex is within this text node
       if (targetIndex >= currentIndex && targetIndex <= currentIndex + textLength) {
