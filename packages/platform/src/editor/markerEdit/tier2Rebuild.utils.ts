@@ -35,6 +35,7 @@ import {
   $isParaNode,
   $isUnknownNode,
   $isVerseNode,
+  $milestoneAttributeRunPieces,
   getEditableCallerText,
   isMilestoneHeuristicName,
   LoggerBasic,
@@ -127,20 +128,22 @@ function $textNodeFragmentText(node: TextNode): string {
  * Display siblings after a MilestoneNode that belong to its run: opening
  * MarkerNode, optional attribute TextNode, self-closing MarkerNode. They ride
  * inside the milestone's sentinel so the visible glyphs survive the rebuild.
+ *
+ * Delegates to the shared {@link $milestoneAttributeRunPieces} — the single definition of "a
+ * milestone's run" — so the rebuild and the self-healing sync (attributeDisplay.utils.ts) can
+ * never disagree about which siblings make up the run. The rebuild consumes a CONTIGUOUS run
+ * starting at the opening glyph (it advances the loop index past `run.length`), so a milestone
+ * with no opening glyph contributes no run here; the tolerant scanner can also surface a detached
+ * attribute/closer with no opening, but that partial shape never reaches a settled rebuild.
  */
 function $milestoneDisplayRun(children: LexicalNode[], index: number): LexicalNode[] {
-  const run: LexicalNode[] = [];
-  const opening = children[index + 1];
-  if (!$isMarkerNode(opening) || opening.getMarkerSyntax() !== "opening") return run;
-  run.push(opening);
-  let nextIndex = index + 2;
-  const maybeAttribute = children[nextIndex];
-  if ($isTextNode(maybeAttribute) && $getState(maybeAttribute, textTypeState) === "attribute") {
-    run.push(maybeAttribute);
-    nextIndex++;
-  }
-  const closing = children[nextIndex];
-  if ($isMarkerNode(closing) && closing.getMarkerSyntax() === "selfClosing") run.push(closing);
+  const milestone = children[index];
+  if (!$isMilestoneNode(milestone)) return [];
+  const { opening, attribute, closing } = $milestoneAttributeRunPieces(milestone);
+  if (!opening) return [];
+  const run: LexicalNode[] = [opening];
+  if (attribute) run.push(attribute);
+  if (closing) run.push(closing);
   return run;
 }
 

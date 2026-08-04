@@ -322,6 +322,67 @@ describe("collab-materialized milestone settles into a re-tokenizable run", () =
     });
   });
 
+  it("deleting ONLY the attribute text clears the milestone's fields on caret departure (no resurrection)", async () => {
+    // Deleting just the run's attribute TextNode (both glyphs left intact) must, on caret
+    // departure, settle the milestone to NO attributes: Tier-2 re-tokenizes `\qt-s \*` (no
+    // attribute bytes) into a milestone with sid/eid/unknownAttributes cleared — NOT silently
+    // resurrect `|sid="q1"` from the milestone's still-set fields. Removing a sibling TextNode
+    // never dirties the DecoratorNode-based MilestoneNode, so its own transform never fires; the
+    // deletion must still find a pend path (off the flanking glyph the removal DOES dirty), and
+    // the grace must hold while the caret sits at the opening glyph's own end — where a
+    // delete-through-the-run leaves it.
+    const { editor } = await testEnvironment($twoParaFixture);
+
+    editor.getEditorState().read(() => {
+      expect($attributeRun().getTextContent()).toBe(`${NBSP}|sid="q1"`);
+    });
+
+    // Remove ONLY the attribute TextNode; park the caret at the end of the opening glyph, all in
+    // one discrete update so the transform-pass grace check reliably sees the caret. Grace
+    // assertions run synchronously after the commit, BEFORE the deferred resolution microtask.
+    editor.update(
+      () => {
+        const msNode = $milestoneInFirstPara();
+        const opening = msNode.getNextSibling();
+        const attribute = opening?.getNextSibling();
+        attribute?.remove();
+        if (!$isMarkerNode(opening)) throw new Error("opening glyph missing");
+        opening.select(opening.getTextContentSize(), opening.getTextContentSize());
+      },
+      { discrete: true },
+    );
+
+    // Grace holds while the caret sits at the site: the attribute run was NOT rebuilt from the
+    // fields (the self-closing glyph sits immediately after the opening glyph), and the
+    // milestone's own fields are untouched (the deletion is pending, not settled).
+    editor.getEditorState().read(() => {
+      const msNode = $milestoneInFirstPara();
+      const afterOpening = msNode.getNextSibling()?.getNextSibling();
+      expect($isMarkerNode(afterOpening) && afterOpening.getMarkerSyntax() === "selfClosing").toBe(
+        true,
+      );
+      expect(msNode.getSid()).toBe("q1");
+    });
+
+    // Caret departs → the pended milestone settles via Tier-2: `\qt-s \*` re-tokenizes to a
+    // milestone with no attributes, so sid/unknownAttributes clear and the run does not resurrect.
+    // (Phantom-independent: an earlier jsdom selection echo settling it sooner clears it too.)
+    await act(async () => editor.update(() => $bodyText().select(0, 0)));
+
+    editor.getEditorState().read(() => {
+      const msNode = $milestoneInFirstPara();
+      expect(msNode.getSid()).toBeUndefined();
+      expect(msNode.getUnknownAttributes()).toBeUndefined();
+      // The milestone survives with its glyphs, but no attribute run resurrected between them.
+      const afterOpening = msNode.getNextSibling()?.getNextSibling();
+      expect($isMarkerNode(afterOpening) && afterOpening.getMarkerSyntax() === "selfClosing").toBe(
+        true,
+      );
+    });
+    // The resurrected value must appear nowhere in the settled state.
+    expect(JSON.stringify(editor.getEditorState().toJSON())).not.toContain("q1");
+  });
+
   it("deleting the whole display run deletes the milestone on caret departure (no resurrection)", async () => {
     // The run is the milestone's ENTIRE visible byte representation — deleting all of it must
     // delete the milestone, exactly as deleting every byte of any other construct removes it.

@@ -54,6 +54,7 @@ import {
   $hasCaretHeldMilestoneRun,
   $hasCaretHeldSeparatorGap,
   $hasCaretHeldVerseAttributeRun,
+  $isMilestoneNode,
   $syncMilestoneDisplayRun,
   canonicalAttributeText,
   ChapterNode,
@@ -91,6 +92,37 @@ import { hasStandardViewWhitespace, ViewOptions } from "shared-react";
 export const COMMIT_PENDING_MARKERS_COMMAND: LexicalCommand<void> = createCommand(
   "COMMIT_PENDING_MARKERS_COMMAND",
 );
+
+/**
+ * Sync `node`'s milestone display run to its fields, and pend it while the caret holds the run's
+ * site (mid-edit grace) so caret departure settles it ($resolvePendingMarkers). Shared by the
+ * MilestoneNode transform and the MarkerNode transform (via {@link $milestoneOfOpeningGlyph}): a
+ * milestone's run rides as its FOLLOWING SIBLINGS, so an edit that touches only the run — deleting
+ * just its attribute TextNode — dirties the flanking glyphs but never the DecoratorNode-based
+ * MilestoneNode, whose own transform would then never fire. Running this off the dirtied opening
+ * glyph gives attribute-only deletion the pend path it needs; without it the run silently
+ * resurrects from the still-set fields on the next unrelated dirtying.
+ */
+function $syncAndPendMilestone(node: MilestoneNode, context: MarkerEditContext): void {
+  const expectedText = $milestoneAttributeDisplayText(node);
+  $syncMilestoneDisplayRun(node, expectedText);
+  if (node.isAttached() && $hasCaretHeldMilestoneRun(node, expectedText))
+    context.pendingKeys.add(node.getKey());
+}
+
+/**
+ * The MilestoneNode that `node` is the OPENING display glyph of — the glyph rides as the
+ * milestone's direct next sibling — or `undefined`. Lets the MarkerNode transform re-drive the
+ * owning milestone's sync/pend when a run-only edit dirties the glyph but leaves the milestone
+ * itself clean (see {@link $syncAndPendMilestone}).
+ */
+function $milestoneOfOpeningGlyph(node: MarkerNode): MilestoneNode | undefined {
+  if (node.getMarkerSyntax() !== "opening") return undefined;
+  const previous = node.getPreviousSibling();
+  return $isMilestoneNode(previous) && previous.getMarker() === node.getMarker()
+    ? previous
+    : undefined;
+}
 
 /**
  * The Standard-view marker-editing engine. Tier 1 node
@@ -157,6 +189,13 @@ export function MarkerEditPlugin({
       editor.registerNodeTransform(MarkerNode, (node) => {
         if (editor.isComposing()) return;
         $markerNodeTransform(node, context);
+        // A milestone's display run rides as its FOLLOWING SIBLINGS, so deleting only the run's
+        // attribute TextNode dirties this flanking glyph but NOT the DecoratorNode-based
+        // MilestoneNode — its own transform never fires. Re-run the owning milestone's sync/pend
+        // off the dirtied opening glyph so an attribute-only deletion settles on caret departure
+        // instead of silently resurrecting from the milestone's still-set fields.
+        const milestone = $milestoneOfOpeningGlyph(node);
+        if (milestone) $syncAndPendMilestone(milestone, context);
       }),
       editor.registerNodeTransform(VerseNode, (node) => {
         if (editor.isComposing()) return;
@@ -213,10 +252,7 @@ export function MarkerEditPlugin({
       // ($resolvePendingMarkers).
       editor.registerNodeTransform(MilestoneNode, (node) => {
         if (editor.isComposing()) return;
-        const expectedText = $milestoneAttributeDisplayText(node);
-        $syncMilestoneDisplayRun(node, expectedText);
-        if (node.isAttached() && $hasCaretHeldMilestoneRun(node, expectedText))
-          context.pendingKeys.add(node.getKey());
+        $syncAndPendMilestone(node, context);
       }),
       editor.registerNodeTransform(NoteNode, (node) => {
         if (editor.isComposing()) return;
