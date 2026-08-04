@@ -463,6 +463,12 @@ function $isOpaqueContentNode(
 
 /** Calculate the OT length contribution of a single node. */
 function $getNodeOTContribution(node: LexicalNode): number {
+  // An editable VerseNode is a TextNode subclass, so it lands in THIS branch and is counted by its
+  // glyph-text length (e.g. 5 for "\v 1 "), NOT as an embed's 1 unit — the documented "verse
+  // drift" (see {@link OTCoordinateSystem}). This helper is ONE of the three places that count an
+  // editable verse; the follow-up that unifies a verse on the embed's 1 unit must change all three
+  // AT ONCE — the doc delta (already 1), this helper, and `$applyUpdate`'s traversals — or
+  // produce→apply round trips desync. Do NOT special-case a verse to 1 here in isolation.
   if ($isTextNode(node)) return node.getTextContentSize();
 
   if ($isEmbedNode(node)) return 1;
