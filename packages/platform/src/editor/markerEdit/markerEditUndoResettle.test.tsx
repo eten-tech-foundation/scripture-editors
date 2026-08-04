@@ -35,8 +35,10 @@ import {
   $isCharNode,
   $isMarkerNode,
   $isParaNode,
+  $isUnknownNode,
   CharNode,
   NBSP,
+  UnknownNode,
 } from "shared";
 
 // The test environments don't implement `getBoundingClientRect`; undo/redo restore a
@@ -78,6 +80,17 @@ function $findFirstChar(root: LexicalNode, marker: string): CharNode | undefined
     if (found) return found;
   }
   return undefined;
+}
+
+/** Every UnknownNode with the given `tag` (USJ `type`) anywhere under `root`. */
+function $unknownsWithTag(root: LexicalNode, tag: string): UnknownNode[] {
+  const out: UnknownNode[] = [];
+  const visit = (node: LexicalNode): void => {
+    if ($isUnknownNode(node) && node.getTag() === tag) out.push(node);
+    if ($isElementNode(node)) node.getChildren().forEach(visit);
+  };
+  visit(root);
+  return out;
 }
 
 /** Flush the deferred (microtask) pending-marker resolution twice, inside act. */
@@ -356,6 +369,55 @@ describe("undo → departure → re-settle (typed `\\nd hello\\nd*` char span �
     // …and a user departure must re-settle it (pre-fix: nothing pended, nothing settled).
     await userDeparture(editor, "elsewhere", 4);
     assertSettled();
+  });
+});
+
+describe("undo → departure → re-settle (typed `//` optbreak — the same divergence class)", () => {
+  it("re-settles the optbreak after settle → undo → caret departure", async () => {
+    // An undone optbreak settle restores the literal `//` text, which is the same
+    // divergence class as a restored `\nd`/`|attrs` literal: the historic re-pend scan must
+    // re-pend it so the next user departure re-settles it. Pre-fix, undo's setEditorState path
+    // ran no transforms, nothing re-pended the restored `//`, and the departure resolved nothing.
+    let content: TextNode;
+    let other: TextNode;
+    const { editor } = await historyTestEnvironment(() => {
+      const para = $createParaNode("p");
+      content = $createTextNode(`${NBSP}one // two`);
+      para.append($createMarkerNode("p"), content);
+      other = $createTextNode("elsewhere");
+      $getRoot().append(para, $createParaNode("p").append($createMarkerNode("p"), other));
+    });
+    // `//` pends on commit (no immediate rebuild) — the settle rides the DEPARTURE, a separate
+    // history entry from the edit, which is what makes it undoable back to the literal.
+    editor.getEditorState().read(() => {
+      expect($unknownsWithTag($getRoot(), "optbreak")).toHaveLength(0);
+    });
+    await act(async () => editor.update(() => other.select(0, 0)));
+    await flushResolution();
+    const assertOptbreakSettled = () =>
+      editor.getEditorState().read(() => {
+        // Exactly one optbreak display node — the `//` became the discretionary line break, and
+        // no plain TextNode still carries a literal `//`.
+        expect($unknownsWithTag($getRoot(), "optbreak")).toHaveLength(1);
+        const literalSlashes = $getRoot()
+          .getAllTextNodes()
+          .filter((node) => node.getType() === TextNode.getType())
+          .some((node) => node.getTextContent().includes("//"));
+        expect(literalSlashes).toBe(false);
+      });
+    assertOptbreakSettled(); // positive control: the departure settle worked
+    // Undo restores the literal `//` (no optbreak display node, the `//` back as plain text)…
+    await act(async () => {
+      editor.dispatchCommand(UNDO_COMMAND, undefined);
+    });
+    await flushResolution();
+    editor.getEditorState().read(() => {
+      expect($unknownsWithTag($getRoot(), "optbreak")).toHaveLength(0);
+      expect($getRoot().getTextContent()).toContain("one // two");
+    });
+    // …and a user departure must re-settle it (pre-fix: nothing pended, nothing settled).
+    await userDeparture(editor, "elsewhere", 4);
+    assertOptbreakSettled();
   });
 });
 

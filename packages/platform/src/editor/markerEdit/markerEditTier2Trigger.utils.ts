@@ -14,6 +14,9 @@
  * no backslash, so the immediate path never fires, yet it is a pending
  * attribute edit (PT9 re-parses `|…` before an explicit closer), so it pends
  * for the same caret-departure settle rather than being discarded as inert text.
+ * Typed `//` is a fifth case: USFM's discretionary line break (optbreak) carries
+ * no backslash or pipe either, but the tokenizer maps it to an optbreak wherever
+ * plain text appears, so it pends for the same caret-departure settle.
  */
 
 import { $requestTier2ForNode } from "./tier2Rebuild.utils";
@@ -70,6 +73,20 @@ function $isInClosedCharSpan(node: LexicalNode): boolean {
   return false;
 }
 
+/**
+ * Whether `node` sits inside a block whose text the tokenizer keeps literal — a book id, a
+ * chapter, or an opaque UnknownNode block (sidebar, periph, figure, …). These are the
+ * degradation-property contexts `$rebuildParas` refuses to re-tokenize (the paragraph guard
+ * rails and `$requestTier2ForNode`'s opaque-block bail), so a divergence there can never
+ * settle. Both the backslash path and the `//` optbreak path below skip such nodes: pending
+ * a literal the engine will never rebuild would only leave a stuck key.
+ */
+function $inLiteralOnlyBlock(node: LexicalNode): boolean {
+  for (let parent = node.getParent(); parent; parent = parent.getParent())
+    if ($isBookNode(parent) || $isChapterNode(parent) || $isUnknownNode(parent)) return true;
+  return false;
+}
+
 export function $textNodeTier2Transform(node: TextNode, context: MarkerEditContext): void {
   const text = node.getTextContent();
   const textType = $getState(node, textTypeState);
@@ -98,6 +115,16 @@ export function $textNodeTier2Transform(node: TextNode, context: MarkerEditConte
     // pipe-text in an unclosed span carries no attribute, and pipe-text in bare paragraph content
     // is not an attribute site at all — `$isInClosedCharSpan` keeps both out.
     if (text.includes("|") && $isInClosedCharSpan(node)) context.pendingKeys.add(node.getKey());
+    // `//` is USFM's discretionary line break (optbreak). The tokenizer maps it to an optbreak
+    // wherever plain text appears — body paragraphs and char-span content alike (the split is
+    // flat, run before char-stack assembly). No backslash, pipe, or termination ever re-triggers
+    // on its own, so without pending here a typed `//` would delete its key and stay literal text
+    // forever (the live bug: it never became an optbreak and editorUsj diverged from the PDP).
+    // Pend so caret departure routes it through `$rebuildParas`, which re-tokenizes `//` into an
+    // optbreak while keeping the significant flanking spaces byte-exact. Skip the literal-only
+    // blocks the tokenizer never re-tokenizes — a settle there could never happen.
+    else if (text.includes("//") && !$inLiteralOnlyBlock(node))
+      context.pendingKeys.add(node.getKey());
     else context.pendingKeys.delete(node.getKey());
     return;
   }
@@ -107,12 +134,11 @@ export function $textNodeTier2Transform(node: TextNode, context: MarkerEditConte
   // Exempting it made typed literals there invisible to the whole pend/settle machinery — `\zz `/
   // `\zfoo ` persisted indefinitely and serialized raw to disk because the caret-departure
   // settle had nothing pended to resolve.
-  for (let parent = node.getParent(); parent; parent = parent.getParent()) {
-    // Note content now routes to the note-scoped rebuild (`$rebuildNoteContent`) via
-    // `$requestTier2ForNode`, so it is NOT skipped here; books/chapters/unknowns keep
-    // literal text (degradation property).
-    if ($isBookNode(parent) || $isChapterNode(parent) || $isUnknownNode(parent)) return;
-  }
+  //
+  // Note content now routes to the note-scoped rebuild (`$rebuildNoteContent`) via
+  // `$requestTier2ForNode`, so it is NOT skipped here; books/chapters/unknowns keep
+  // literal text (degradation property).
+  if ($inLiteralOnlyBlock(node)) return;
   // Only the USER'S TYPED RUN can terminate a marker (the type-through corruption class): with
   // the caret mid-word ("li|ke"), typing `\` yields
   // "li\ke …", and the word remainder's own following space made `\ke ` look terminated —
@@ -201,9 +227,17 @@ export function $rependPendShapedNodes(context: MarkerEditContext): void {
       // only reachable mid-edit, i.e. caret-held.
       if ($getState(node, textTypeState) === "attribute") return;
       const text = node.getTextContent();
-      // Both literal shapes pend: backslash runs (terminated or not), and pipe bytes in a
-      // closed char span (the pipe branch above).
-      if (text.includes("\\") || (text.includes("|") && $isInClosedCharSpan(node)))
+      // Three literal shapes pend, mirroring the transform's TextNode branches: backslash runs
+      // (terminated or not), pipe bytes in a closed char span (the pipe branch), and `//`
+      // optbreak text (the optbreak branch). Undoing an optbreak settle restores the literal
+      // `//`, which is the same divergence class and must re-pend so the next departure
+      // re-settles it. No literal-only-block guard is needed here: the scan never descends into
+      // books/chapters/unknowns (handled below), so a `//` there is never visited.
+      if (
+        text.includes("\\") ||
+        (text.includes("|") && $isInClosedCharSpan(node)) ||
+        text.includes("//")
+      )
         context.pendingKeys.add(node.getKey());
       return;
     }

@@ -1,6 +1,10 @@
 import { MarkerEditContext } from "./markerEditTier1.utils";
 import { $textNodeTier2Transform } from "./markerEditTier2Trigger.utils";
 import { historyTestEnvironment, testEnvironment, viewOptions } from "./markerEdit.test-helpers";
+import editorUsjAdaptor, {
+  initialize as initializeDeserialize,
+} from "../adaptors/editor-usj.adaptor";
+import { MarkerObject } from "@eten-tech-foundation/scripture-utilities";
 import { act } from "@testing-library/react";
 import {
   $createTextNode,
@@ -23,13 +27,16 @@ import {
   $createMarkerNode,
   $createNoteNode,
   $createParaNode,
+  $createUnknownNode,
   $isCharNode,
   $isMarkerNode,
   $isParaNode,
+  $isUnknownNode,
   CharNode,
   getMarker as bundledGetMarker,
   NBSP,
   textTypeState,
+  UnknownNode,
 } from "shared";
 // Reaching inside only for tests.
 // eslint-disable-next-line @nx/enforce-module-boundaries
@@ -50,6 +57,27 @@ function $findFirstChar(root: LexicalNode, marker: string): CharNode | undefined
     if (found) return found;
   }
   return undefined;
+}
+
+/** Every UnknownNode with the given `tag` (USJ `type`) anywhere under `root`. */
+function $unknownsWithTag(root: LexicalNode, tag: string): UnknownNode[] {
+  const out: UnknownNode[] = [];
+  const visit = (node: LexicalNode): void => {
+    if ($isUnknownNode(node) && node.getTag() === tag) out.push(node);
+    if ($isElementNode(node)) node.getChildren().forEach(visit);
+  };
+  visit(root);
+  return out;
+}
+
+type EditorHandle = Awaited<ReturnType<typeof testEnvironment>>["editor"];
+
+/** The first paragraph's USJ content array, via the editor -> USJ deserialize adaptor. */
+function paraUsjContent(editor: EditorHandle): MarkerObject["content"] {
+  initializeDeserialize(undefined);
+  const usj = editorUsjAdaptor.deserializeEditorState(editor.getEditorState(), viewOptions);
+  const para = usj?.content?.[0] as MarkerObject | undefined;
+  return para?.content;
 }
 
 describe("Tier 2 literal-text triggers", () => {
@@ -534,6 +562,136 @@ describe("Tier 2 literal-text triggers", () => {
     // literal text preserved — no CharNode created inside the collapsed note
     expect(JSON.stringify(editor.getEditorState().toJSON())).toContain("\\\\bd");
   });
+
+  it("settles a typed `//` into an optbreak on caret departure, preserving the flanking spaces", async () => {
+    // Typing `//` is USFM's discretionary line break (optbreak). No backslash, pipe, or
+    // termination ever re-triggers on its own, so pre-fix the `//` stayed literal text forever
+    // (the live bug: it never became an optbreak, and editorUsj-vs-PDP diverged). The fix pends
+    // the node so caret departure re-tokenizes it — the tokenizer maps `//` to an optbreak
+    // wherever plain text appears. The spaces around `//` are SIGNIFICANT (PT9 keeps them
+    // byte-for-byte), so `one // two` settles to `["one ", {optbreak}, " two"]`.
+    let content: TextNode;
+    let other: TextNode;
+    const { editor } = await testEnvironment(() => {
+      content = $createTextNode(NBSP);
+      other = $createTextNode("elsewhere");
+      $getRoot().append(
+        $createParaNode("p").append($createMarkerNode("p"), content),
+        $createParaNode("p").append($createMarkerNode("p"), other),
+      );
+    });
+    await act(async () => editor.update(() => content.select(1, 1))); // caret at content start
+    for (const character of "one // two") {
+      await act(async () =>
+        editor.update(() => {
+          const selection = $getSelection();
+          if ($isRangeSelection(selection)) selection.insertText(character);
+        }),
+      );
+      // No mid-typing rebuild: the `//` pends but never re-tokenizes while the caret is inside.
+      editor.getEditorState().read(() => {
+        expect($unknownsWithTag($getRoot(), "optbreak")).toHaveLength(0);
+      });
+    }
+    editor.getEditorState().read(() => {
+      expect($getRoot().getTextContent()).toContain("one // two");
+    });
+    // Caret departure to the other paragraph settles the pending `//` into an optbreak.
+    await act(async () => editor.update(() => other.select(0, 0)));
+    await new Promise((resolve) => queueMicrotask(() => resolve(undefined)));
+    editor.getEditorState().read(() => {
+      // Display: exactly one optbreak display node, whose `//` token renders once (no `////`).
+      const optbreaks = $unknownsWithTag($getRoot(), "optbreak");
+      expect(optbreaks).toHaveLength(1);
+      expect(optbreaks[0].getTextContent()).toBe("//");
+    });
+    expect(paraUsjContent(editor)).toEqual(["one ", { type: "optbreak" }, " two"]);
+
+    // Damping: a second departure must not re-pend or double the optbreak (no resolve/rebuild
+    // loop, no `////`). The state stays the settled shape and the test RETURNING proves no loop.
+    // The rebuild replaced the original nodes, so re-locate live ones for the departure.
+    await act(async () =>
+      editor.update(() => {
+        const oneNode = $getRoot()
+          .getAllTextNodes()
+          .find((node) => node.getTextContent().includes("one"));
+        oneNode?.select(0, 0);
+      }),
+    );
+    await act(async () => editor.update(() => other.select(0, 0)));
+    await new Promise((resolve) => queueMicrotask(() => resolve(undefined)));
+    editor.getEditorState().read(() => {
+      expect($unknownsWithTag($getRoot(), "optbreak")).toHaveLength(1);
+    });
+    expect(paraUsjContent(editor)).toEqual(["one ", { type: "optbreak" }, " two"]);
+  });
+
+  it("settles a tight `one//two` into an optbreak with no flanking spaces", async () => {
+    let content: TextNode;
+    let other: TextNode;
+    const { editor } = await testEnvironment(() => {
+      content = $createTextNode(NBSP);
+      other = $createTextNode("elsewhere");
+      $getRoot().append(
+        $createParaNode("p").append($createMarkerNode("p"), content),
+        $createParaNode("p").append($createMarkerNode("p"), other),
+      );
+    });
+    await act(async () => editor.update(() => content.select(1, 1)));
+    for (const character of "one//two") {
+      await act(async () =>
+        editor.update(() => {
+          const selection = $getSelection();
+          if ($isRangeSelection(selection)) selection.insertText(character);
+        }),
+      );
+    }
+    await act(async () => editor.update(() => other.select(0, 0)));
+    await new Promise((resolve) => queueMicrotask(() => resolve(undefined)));
+    editor.getEditorState().read(() => {
+      expect($unknownsWithTag($getRoot(), "optbreak")).toHaveLength(1);
+    });
+    expect(paraUsjContent(editor)).toEqual(["one", { type: "optbreak" }, "two"]);
+  });
+
+  it("settles a typed `//` inside a char span into an optbreak (tokenizer converts char content too)", async () => {
+    // The tokenizer maps `//` wherever plain text appears, char-span content included — the
+    // scan is flat, run before char-stack assembly. So `//` typed inside a `\nd` span must pend
+    // and settle to an optbreak nested in the span, the same as body-paragraph content.
+    let content: TextNode;
+    let other: TextNode;
+    const { editor } = await testEnvironment(() => {
+      const para = $createParaNode("p");
+      const char = $createCharNode("nd");
+      content = $createTextNode(`${NBSP}ab`);
+      para.append(
+        $createMarkerNode("p"),
+        $createTextNode(NBSP),
+        char.append($createMarkerNode("nd"), content, $createMarkerNode("nd", "closing")),
+      );
+      other = $createTextNode("elsewhere");
+      $getRoot().append(para, $createParaNode("p").append($createMarkerNode("p"), other));
+    });
+    // Caret between "a" and "b" (NBSP + "a" = offset 2); type `//` there.
+    await act(async () => editor.update(() => content.select(2, 2)));
+    for (const character of "//") {
+      await act(async () =>
+        editor.update(() => {
+          const selection = $getSelection();
+          if ($isRangeSelection(selection)) selection.insertText(character);
+        }),
+      );
+    }
+    await act(async () => editor.update(() => other.select(0, 0)));
+    await new Promise((resolve) => queueMicrotask(() => resolve(undefined)));
+    editor.getEditorState().read(() => {
+      const nd = requireDefinedInTest($findFirstChar($getRoot(), "nd"), "nd char span not found");
+      // The optbreak settled INSIDE the span, between the "a" and "b" content.
+      const optbreaks = $unknownsWithTag(nd, "optbreak");
+      expect(optbreaks).toHaveLength(1);
+      expect(nd.getTextContent()).toContain("//");
+    });
+  });
 });
 
 describe("$textNodeTier2Transform on attribute-run text", () => {
@@ -691,6 +849,94 @@ describe("$textNodeTier2Transform on pipe-text in plain content", () => {
     editor.update(
       () => {
         context.pendingKeys.add(content.getKey());
+        $textNodeTier2Transform(content, context);
+        expect(context.pendingKeys.has(content.getKey())).toBe(false);
+      },
+      { discrete: true },
+    );
+  });
+});
+
+describe("$textNodeTier2Transform on `//` optbreak text in plain content", () => {
+  function buildContext(): MarkerEditContext {
+    return {
+      viewOptions,
+      getMarker: bundledGetMarker,
+      pendingKeys: new Set<NodeKey>(),
+      splitExpected: { current: false },
+      rebuildAttempted: new Set<string>(),
+    };
+  }
+
+  it("pends `//` plain paragraph content (without re-tokenizing it now)", () => {
+    const { editor } = createBasicTestEnvironment();
+    let content: TextNode;
+    editor.update(
+      () => {
+        content = $createTextNode("one // two");
+        const para = $createParaNode("p");
+        $getRoot().append(para.append($createMarkerNode("p"), content));
+      },
+      { discrete: true },
+    );
+    const context = buildContext();
+    editor.update(
+      () => {
+        $textNodeTier2Transform(content, context);
+        // `//` is a discretionary line break: it pends and waits for caret departure rather than
+        // re-tokenizing now (settle-on-departure), and no rebuild is attempted mid-edit.
+        expect(context.pendingKeys.has(content.getKey())).toBe(true);
+        expect(context.rebuildAttempted.size).toBe(0);
+      },
+      { discrete: true },
+    );
+  });
+
+  it("pends `//` content inside a char span (the tokenizer converts char content too)", () => {
+    const { editor } = createBasicTestEnvironment();
+    let content: TextNode;
+    editor.update(
+      () => {
+        content = $createTextNode(`${NBSP}a//b`);
+        const char = $createCharNode("nd");
+        const para = $createParaNode("p");
+        $getRoot().append(
+          para.append(
+            $createMarkerNode("p"),
+            char.append($createMarkerNode("nd"), content, $createMarkerNode("nd", "closing")),
+          ),
+        );
+      },
+      { discrete: true },
+    );
+    const context = buildContext();
+    editor.update(
+      () => {
+        $textNodeTier2Transform(content, context);
+        expect(context.pendingKeys.has(content.getKey())).toBe(true);
+      },
+      { discrete: true },
+    );
+  });
+
+  it("does NOT pend `//` inside an opaque unknown block (tokenizer keeps it literal there)", () => {
+    // Book/chapter/opaque-unknown content is a literal-only degradation context: the tokenizer
+    // never re-tokenizes it, so a `//` there must stay literal rather than pend for a settle
+    // that could never happen — the same exclusion the backslash path already applies.
+    const { editor } = createBasicTestEnvironment();
+    let content: TextNode;
+    editor.update(
+      () => {
+        content = $createTextNode("one // two");
+        const block = $createUnknownNode("figure", "fig");
+        $getRoot().append(block.append(content));
+      },
+      { discrete: true },
+    );
+    const context = buildContext();
+    editor.update(
+      () => {
+        context.pendingKeys.add(content.getKey()); // prove the transform clears it, not just skips
         $textNodeTier2Transform(content, context);
         expect(context.pendingKeys.has(content.getKey())).toBe(false);
       },
