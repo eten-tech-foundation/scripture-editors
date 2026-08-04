@@ -1061,23 +1061,27 @@ export const editorStateGen1v1Editable = {
 
 /**
  * Expected ops for `editorStateGen1v1Editable` (editable markers, expanded notes). Body ops
- * carry the editable marker glyph text verbatim (the pinned contract), but the note's
- * `contents.ops` are CANONICAL (glyph-free): the editable caller text, the char-span glyph
- * MarkerNodes, the structural NBSP content separators, and the closing `\f*` glyph are
- * presentation-only and are re-synthesized by `$applyUpdate` when the note is materialized,
- * so they must not flow into note contents ops (they used to, which doubled the glyphs and
- * materialized an unmatched `\f*` on every round-trip; the contract now excludes them). Note
- * contents ops are therefore identical across marker modes (compare `opsGen1v1`).
+ * carry the editable marker glyph text verbatim for chapter/para (the pinned contract) — but
+ * NOT for verse: an editable VerseNode's own `__text` glyph is engine-owned display already
+ * conveyed by its embed op, so it is excluded from content ops (see
+ * `editor-delta.adaptor.ts`'s `$handleTextNodes`); a leaked verse glyph would double-count the
+ * verse's length in the OT content stream. The note's `contents.ops` are CANONICAL
+ * (glyph-free): the editable caller text, the char-span glyph MarkerNodes, the structural NBSP
+ * content separators, and the closing `\f*` glyph are presentation-only and are re-synthesized
+ * by `$applyUpdate` when the note is materialized, so they must not flow into note contents ops
+ * (they used to, which doubled the glyphs and materialized an unmatched `\f*` on every
+ * round-trip; the contract now excludes them). Note contents ops are therefore identical across
+ * marker modes (compare `opsGen1v1`).
  */
 export const opsGen1v1Editable = [
   { insert: "Some Scripture Version" },
   { insert: "\n", attributes: { book: { style: "id", code: "GEN" } } },
   { insert: { chapter: { style: "c", number: "1", sid: "GEN 1" } } },
-  { insert: `\\c${NBSP}1 \\p${NBSP}\\v${NBSP}1 ` },
+  { insert: `\\c${NBSP}1 \\p${NBSP}` },
   { insert: { verse: { style: "v", number: "1", sid: "GEN 1:1" } } },
-  { insert: `the first verse \\v${NBSP}2 ` },
+  { insert: "the first verse " },
   { insert: { verse: { style: "v", number: "2", sid: "GEN 1:2" } } },
-  { insert: `the second verse \\v${NBSP}15 ` },
+  { insert: "the second verse " },
   { insert: { verse: { style: "v", number: "15", sid: "GEN 1:15", altnumber: "3" } } },
   { insert: "Tell the Israelites that I, the " },
   { insert: `\\nd${NBSP}Lord\\nd*`, attributes: { char: { style: "nd" } } },
@@ -1086,7 +1090,7 @@ export const opsGen1v1Editable = [
   { insert: "\n", attributes: { para: { style: "p" } } },
   { insert: `\\b${NBSP}` },
   { insert: "\n", attributes: { para: { style: "b" } } },
-  { insert: `\\q2${NBSP}\\v${NBSP}16 ` },
+  { insert: `\\q2${NBSP}` },
   { insert: { verse: { style: "v", number: "16", sid: "GEN 1:16" } } },
   { insert: "“There is no help for him in God.”" },
   {
@@ -1683,22 +1687,23 @@ export const editorStateGen1v1Standard = {
 /**
  * Expected ops for `editorStateGen1v1Standard` (standard view: editable markers, collapsed
  * notes). Identical to `opsGen1v1Editable`: body ops carry the editable marker glyph text
- * verbatim (the pinned contract), while the note's `contents.ops` are CANONICAL
- * (glyph-free) — in standard view the caller is an `ImmutableNoteCallerNode` decorator and
- * the NBSP spacers produce no ops, and the char-span glyphs / NBSP separators / closing
- * `\f*` glyph are skipped as presentation-only (the contract excludes them; they are
- * re-synthesized by `$applyUpdate`). Note contents ops are identical across marker modes
- * (compare `opsGen1v1`).
+ * verbatim for chapter/para (the pinned contract), but NOT for verse — an editable VerseNode's
+ * own glyph is excluded from content ops (see `opsGen1v1Editable`'s doc comment for why), while
+ * the note's `contents.ops` are CANONICAL (glyph-free) — in standard view the caller is an
+ * `ImmutableNoteCallerNode` decorator and the NBSP spacers produce no ops, and the char-span
+ * glyphs / NBSP separators / closing `\f*` glyph are skipped as presentation-only (the contract
+ * excludes them; they are re-synthesized by `$applyUpdate`). Note contents ops are identical
+ * across marker modes (compare `opsGen1v1`).
  */
 export const opsGen1v1Standard = [
   { insert: "Some Scripture Version" },
   { insert: "\n", attributes: { book: { style: "id", code: "GEN" } } },
   { insert: { chapter: { style: "c", number: "1", sid: "GEN 1" } } },
-  { insert: `\\c${NBSP}1 \\p${NBSP}\\v${NBSP}1 ` },
+  { insert: `\\c${NBSP}1 \\p${NBSP}` },
   { insert: { verse: { style: "v", number: "1", sid: "GEN 1:1" } } },
-  { insert: `the first verse \\v${NBSP}2 ` },
+  { insert: "the first verse " },
   { insert: { verse: { style: "v", number: "2", sid: "GEN 1:2" } } },
-  { insert: `the second verse \\v${NBSP}15 ` },
+  { insert: "the second verse " },
   { insert: { verse: { style: "v", number: "15", sid: "GEN 1:15", altnumber: "3" } } },
   { insert: "Tell the Israelites that I, the " },
   { insert: `\\nd${NBSP}Lord\\nd*`, attributes: { char: { style: "nd" } } },
@@ -1707,7 +1712,7 @@ export const opsGen1v1Standard = [
   { insert: "\n", attributes: { para: { style: "p" } } },
   { insert: `\\b${NBSP}` },
   { insert: "\n", attributes: { para: { style: "b" } } },
-  { insert: `\\q2${NBSP}\\v${NBSP}16 ` },
+  { insert: `\\q2${NBSP}` },
   { insert: { verse: { style: "v", number: "16", sid: "GEN 1:16" } } },
   { insert: "“There is no help for him in God.”" },
   {

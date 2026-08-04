@@ -127,18 +127,10 @@ describe("getEditorDelta", () => {
     // verse's own following siblings (not inside a note or char span, so the note/char-scoped
     // exclusion paths don't apply here); altnumber/pubnumber already flow through the verse's own
     // embed op, so the glyph/value siblings must not shift content length or duplicate them.
-    //
-    // Compared against a bare verse's ops (rather than an exact literal `toEqual`) because an
-    // editable VerseNode's own `__text` ("\v 1 ") independently produces its own text op — a
-    // pre-existing gap unrelated to attribute display (a bare `$createVerseNode("1", "\v 1 ")`
-    // with no runs at all already leaks it the same way); asserting the runs add NO further ops
-    // isolates this task's concern from that separate, un-fixed gap.
-    const bareVerseOps = await getOpsFor(() => {
-      const verse = $createVerseNode("1", "\\v 1 ", undefined, "2", "1b");
-      $getRoot().append($createParaNode("q1").append(verse));
-    });
-
-    const withRunsOps = await getOpsFor(() => {
+    // A literal `toEqual` is safe here (rather than comparing against a bare verse's ops) now
+    // that the verse's own leaked glyph text is also excluded from content ops — the two gaps
+    // this test used to have to isolate around are both fixed.
+    const ops = await getOpsFor(() => {
       const verse = $createVerseNode("1", "\\v 1 ", undefined, "2", "1b");
       const vaValue = $createTextNode(`${NBSP}2`);
       $setState(vaValue, textTypeState, "attribute");
@@ -157,7 +149,10 @@ describe("getEditorDelta", () => {
       );
     });
 
-    expect(withRunsOps).toEqual(bareVerseOps);
+    expect(ops).toEqual([
+      { insert: { verse: { style: "v", number: "1", altnumber: "2", pubnumber: "1b" } } },
+      { insert: LF, attributes: { para: { style: "q1" } } },
+    ]);
   });
 
   it("excludes a nested verse's \\va glyphs from a cross-verse char span's ops (byte-identical to no runs)", async () => {
@@ -166,6 +161,9 @@ describe("getEditorDelta", () => {
     // the VERSE, not the char span, so they are bare attribute-run glyphs that must stay out of
     // content ops. altnumber already rides on the verse's own embed op, so adding the display run
     // must not change the ops at all — the parent-CharNode glyph exemption used to let them leak.
+    // Both the relative (withRunsOps === bareOps) and literal shape are pinned: a literal
+    // `toEqual` is safe now that the verse's own leaked glyph text is also excluded from
+    // content ops (see `editor-delta.adaptor.ts`'s `$handleTextNodes`).
     const withRunsOps = await getOpsFor(() => {
       const verse = $createVerseNode("2", "\\v 2 ", undefined, "3", undefined);
       const vaValue = $createTextNode(`${NBSP}3`);
@@ -202,6 +200,38 @@ describe("getEditorDelta", () => {
     });
 
     expect(withRunsOps).toEqual(bareOps);
+    expect(bareOps).toEqual([
+      { insert: "\\wjbefore ", attributes: { char: { style: "wj" } } },
+      { insert: { verse: { style: "v", number: "2", altnumber: "3" } } },
+      { insert: "after\\wj*", attributes: { char: { style: "wj" } } },
+      { insert: LF, attributes: { para: { style: "q1" } } },
+    ]);
+  });
+
+  it("excludes an editable verse's own glyph text from content ops (only real content flows)", async () => {
+    // \v 1 the first verse — an editable VerseNode's own `__text` ("\v 1 ") is the marker
+    // glyph (VerseNode extends TextNode so it can sit inline for caret placement), not
+    // content. The verse is already conveyed by its own embed op ($getVerseOp); the glyph
+    // text must not ALSO surface as a content text op, or it would double-count the verse
+    // in the OT content length (once as the embed's implicit 1 unit, once as 5 leaked
+    // glyph bytes) and shift every offset that follows it.
+    const ops = await getOpsFor(() => {
+      const verse = $createVerseNode("1", "\\v 1 ");
+      $getRoot().append($createParaNode("p").append(verse, $createTextNode("the first verse")));
+    });
+
+    expect(ops).toEqual([
+      { insert: { verse: { style: "v", number: "1" } } },
+      { insert: "the first verse" },
+      { insert: LF, attributes: { para: { style: "p" } } },
+    ]);
+
+    // No content op may carry verse glyph bytes, and the total inserted text length must
+    // equal the real content exactly — no leaked glyph length inflating the content span.
+    const textOps = ops.filter((op): op is { insert: string } => typeof op.insert === "string");
+    expect(textOps.some((op) => op.insert.includes("\\v"))).toBe(false);
+    const textLength = textOps.reduce((sum, op) => sum + op.insert.length, 0);
+    expect(textLength).toBe("the first verse".length + LF.length);
   });
 
   it("should return the correct ops for nested chars", async () => {
