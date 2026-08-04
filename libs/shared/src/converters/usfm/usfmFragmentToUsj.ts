@@ -662,6 +662,18 @@ export function usfmFragmentToUsjContent(
         token.kind === "end" &&
         token.marker.replace(/^\+/, "") === attrCapture.marker
       ) {
+        // The fold to an attribute requires NON-EMPTY content (PT9
+        // `FindOtherVerseOrChapterNumber` folds only when `tokens[+2].Text != null`, and its
+        // tokenizer never produces an empty text token). An EMPTY span (any spelling —
+        // `\va \va*`, `\va\va*`, `\va  \va*`) is NEVER an empty attribute: it stays a
+        // first-class, explicitly-closed char element sitting after its target. The closer is
+        // consumed here (no open frame is pushed), so the span is closed with no `closed`
+        // metadata, exactly like any user-closed span.
+        if (attrCapture.value.trim() === "") {
+          container().push({ type: "char", marker: attrCapture.marker, content: [] });
+          attrCapture = undefined;
+          continue;
+        }
         // Explicit close with plain-text content: fold as the target's attribute, TRIMMED —
         // ParatextData trims every folded value (`FindOtherVerseOrChapterNumber` reads
         // `tokens[index + skip + 2].Text.Trim()`, and the note/sidebar category lookups do
@@ -676,12 +688,19 @@ export function usfmFragmentToUsjContent(
         continue;
       }
       if (attrCapture.shape === "para" && (token.kind === "para" || token.kind === "chapter")) {
-        // The cp "paragraph" ended with plain-text content only: fold (trailing line
-        // whitespace is structural).
-        Object.assign(attrCapture.target, {
-          [attrCapture.attrName]: toUsjText(attrCapture.value.replace(/[\s\u200B]+$/, "")),
-        });
-        attrCapture = undefined;
+        const cpValue = attrCapture.value.replace(/[\s\u200B]+$/, "");
+        if (cpValue === "") {
+          // Empty `\cp` (paragraph-shaped, no end marker): PT9 never yields an empty pubnumber \u2014
+          // it stays a first-class (empty) para element. Materialize the standalone paragraph
+          // with no content, then fall through to process the boundary token normally.
+          startParagraph(attrCapture.marker);
+          attrCapture = undefined;
+        } else {
+          // The cp "paragraph" ended with plain-text content only: fold (trailing line
+          // whitespace is structural).
+          Object.assign(attrCapture.target, { [attrCapture.attrName]: toUsjText(cpValue) });
+          attrCapture = undefined;
+        }
         // fall through to process the boundary token normally
       } else {
         // Markup inside the span (or a mismatched closer): not foldable — materialize the
@@ -984,9 +1003,11 @@ export function usfmFragmentToUsjContent(
     // the paragraph ended with plain-text content. A char-shaped capture never saw its
     // closer, so it stays a standalone (implicitly closed) span.
     if (attrCapture.shape === "para") {
-      Object.assign(attrCapture.target, {
-        [attrCapture.attrName]: toUsjText(attrCapture.value.replace(/[\s\u200B]+$/, "")),
-      });
+      const cpValue = attrCapture.value.replace(/[\s\u200B]+$/, "");
+      // Empty `\cp` at fragment end stays a first-class empty para (never an empty pubnumber);
+      // a non-empty one folds as the pubnumber.
+      if (cpValue === "") startParagraph(attrCapture.marker);
+      else Object.assign(attrCapture.target, { [attrCapture.attrName]: toUsjText(cpValue) });
       attrCapture = undefined;
     } else {
       // Trailing line break at the fragment-end boundary is structural (text-case rule).

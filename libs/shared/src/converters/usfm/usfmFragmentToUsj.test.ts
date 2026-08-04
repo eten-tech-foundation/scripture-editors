@@ -664,6 +664,131 @@ describe("usfmFragmentToUsjContent — verse, chapter, note, milestone, attribut
     });
   });
 
+  describe("empty leading-attribute markers become first-class elements, never empty attributes", () => {
+    // PT9 (UsfmParser.FindOtherVerseOrChapterNumber): the fold to altnumber/pubnumber/category
+    // requires NON-EMPTY content between the marker and its closer. An empty span (any spelling —
+    // `\va \va*`, `\va\va*`, `\va  \va*`) never yields an empty attribute; it stays a first-class
+    // char element (va/vp/ca/cat) or para element (cp) sitting after its target.
+    it("keeps an empty \\va a standalone (explicitly closed) char, not an empty altnumber", () => {
+      expect(usfmFragmentToUsjContent("\\v 1 \\va \\va*")).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: [
+            { type: "verse", marker: "v", number: "1" },
+            { type: "char", marker: "va" },
+          ],
+        },
+      ]);
+    });
+
+    it("treats every empty \\va spelling identically (no space, one space, two spaces)", () => {
+      const expected = [
+        {
+          type: "para",
+          marker: "p",
+          content: [
+            { type: "verse", marker: "v", number: "1" },
+            { type: "char", marker: "va" },
+          ],
+        },
+      ];
+      expect(usfmFragmentToUsjContent("\\v 1 \\va\\va*")).toEqual(expected);
+      expect(usfmFragmentToUsjContent("\\v 1 \\va  \\va*")).toEqual(expected);
+    });
+
+    it("keeps an empty \\vp a standalone char, not an empty pubnumber", () => {
+      expect(usfmFragmentToUsjContent("\\v 1 \\vp \\vp*")).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: [
+            { type: "verse", marker: "v", number: "1" },
+            { type: "char", marker: "vp" },
+          ],
+        },
+      ]);
+    });
+
+    it("keeps back-to-back empty \\va and \\vp both standalone chars (no attributes at all)", () => {
+      expect(usfmFragmentToUsjContent("\\v 1 \\va\\va*\\vp\\vp*")).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: [
+            { type: "verse", marker: "v", number: "1" },
+            { type: "char", marker: "va" },
+            { type: "char", marker: "vp" },
+          ],
+        },
+      ]);
+    });
+
+    it("keeps an empty \\ca a standalone char after the chapter, not an empty altnumber", () => {
+      expect(usfmFragmentToUsjContent("\\c 1\n\\ca \\ca*\n\\p body")).toEqual([
+        { type: "chapter", marker: "c", number: "1" },
+        { type: "char", marker: "ca" },
+        { type: "para", marker: "p", content: ["body"] },
+      ]);
+    });
+
+    it("keeps an empty \\cp a standalone (empty) PARA, not an empty pubnumber", () => {
+      // cp is paragraph-shaped (no end marker), so its empty case is a para element, not a char.
+      expect(usfmFragmentToUsjContent("\\c 2\n\\cp \n\\p body")).toEqual([
+        { type: "chapter", marker: "c", number: "2" },
+        { type: "para", marker: "cp" },
+        { type: "para", marker: "p", content: ["body"] },
+      ]);
+    });
+
+    it("keeps an empty \\cp at fragment end a standalone empty para", () => {
+      expect(usfmFragmentToUsjContent("\\c 2\n\\cp ")).toEqual([
+        { type: "chapter", marker: "c", number: "2" },
+        { type: "para", marker: "cp" },
+      ]);
+    });
+
+    it("keeps an empty \\cat a standalone char inside the note, not an empty category", () => {
+      expect(usfmFragmentToUsjContent("\\p x\\f + \\cat \\cat*\\fr 1:12 \\ft Some\\f* y")).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: [
+            "x",
+            {
+              type: "note",
+              marker: "f",
+              caller: "+",
+              content: [
+                { type: "char", marker: "cat" },
+                { type: "char", marker: "fr", content: ["1:12 "], closed: "false" },
+                { type: "char", marker: "ft", content: ["Some"], closed: "false" },
+              ],
+            },
+            " y",
+          ],
+        },
+      ]);
+    });
+
+    it("keeps an empty \\cat inside a sidebar a standalone char (no empty category)", () => {
+      // An empty `\cat` directly after `\esb` has no category to fold; being char-shaped, it
+      // lands as ordinary sidebar content, which is block-level — so it takes an implied `\p`
+      // wrapper (the converter-level contract for this degenerate shape). The sidebar carries no
+      // `category` attribute.
+      expect(usfmFragmentToUsjContent("\\esb \\cat \\cat*\n\\p one\n\\esbe")).toEqual([
+        {
+          type: "sidebar",
+          marker: "esb",
+          content: [
+            { type: "para", marker: "p", content: [{ type: "char", marker: "cat" }] },
+            { type: "para", marker: "p", content: ["one"] },
+          ],
+        },
+      ]);
+    });
+  });
+
   describe("opaque-structure emission (figures, tables, sidebars → faithful USJ shapes)", () => {
     it("emits an inline figure with src renamed to file and no content when empty", () => {
       expect(
