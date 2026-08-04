@@ -174,7 +174,7 @@ export function MarkerEditPlugin({
       }),
       editor.registerNodeTransform(ChapterNode, (node) => {
         if (editor.isComposing()) return;
-        $chapterNodeTransform(node, context);
+        $chapterNodeTransform(node);
       }),
       editor.registerNodeTransform(ParaNode, (node) => {
         if (editor.isComposing()) return;

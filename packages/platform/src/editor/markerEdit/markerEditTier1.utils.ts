@@ -266,7 +266,10 @@ export function $verseNodeTransform(node: VerseNode, context: MarkerEditContext)
   }
 }
 
-export function $chapterNodeTransform(node: ChapterNode, _context: MarkerEditContext): void {
+// Unlike its sibling node-transform functions, a chapter marker never enters the pending/deferred
+// machinery MarkerEditContext tracks (deleting it removes the node outright; retagging its number
+// is a same-tick rewrite) — so it takes no context parameter, and its call site passes only `node`.
+export function $chapterNodeTransform(node: ChapterNode): void {
   if (node.getChildrenSize() === 0) {
     node.remove(); // deleting the chapter marker deletes it
     return;

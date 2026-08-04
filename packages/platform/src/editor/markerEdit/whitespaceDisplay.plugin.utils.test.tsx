@@ -22,6 +22,7 @@ import {
   $setState,
   COPY_COMMAND,
   CUT_COMMAND,
+  LexicalEditor,
   TextNode,
 } from "lexical";
 import { $createCharNode, $createMarkerNode, $createParaNode, NBSP, textTypeState } from "shared";
@@ -35,7 +36,19 @@ import { $createCharNode, $createMarkerNode, $createParaNode, NBSP, textTypeStat
  * `$getLexicalContent` (also from this module) stay real via the `importOriginal` spread, so the
  * payload-builder unit tests below exercise genuine HTML/Lexical-JSON generation.
  */
-const copyToClipboardSpy = vi.hoisted(() => vi.fn(async () => true));
+// Typed explicitly against the real `copyToClipboard` signature: an untyped `vi.fn(async () =>
+// true)` infers a zero-arg mock, which narrows `.mock.calls[0]` to the empty tuple `[]` and
+// breaks the positional destructuring below (TS2493) even though the mock is genuinely called
+// with three arguments at runtime.
+const copyToClipboardSpy = vi.hoisted(() =>
+  vi.fn<
+    (
+      editor: LexicalEditor,
+      event: null | ClipboardEvent,
+      data?: LexicalClipboardData,
+    ) => Promise<boolean>
+  >(async () => true),
+);
 vi.mock("@lexical/clipboard", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@lexical/clipboard")>();
   return { ...actual, copyToClipboard: copyToClipboardSpy };

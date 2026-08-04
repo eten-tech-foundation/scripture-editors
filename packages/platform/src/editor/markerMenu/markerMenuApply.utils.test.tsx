@@ -46,6 +46,7 @@ import {
   MarkerNode,
   NBSP,
   NoteNode,
+  ParaNode,
   textTypeState,
 } from "shared";
 import { CharNodePlugin, TextSpacingPlugin } from "shared-react";
@@ -794,7 +795,10 @@ describe("$applyMarkerMenuSelection", () => {
 
       // The USJ round-trip agrees: the \fq (with its typed content) serializes INSIDE the
       // note's content, and the paragraph gains no char object of its own.
-      const usj = deserializeEditorState(editor.getEditorState(), viewOptions);
+      const usj = requireDefined(
+        deserializeEditorState(editor.getEditorState(), viewOptions),
+        "usj missing",
+      );
       const paraObj = usj.content?.find(
         (child) => typeof child === "object" && child.type === "para",
       );
@@ -968,7 +972,7 @@ describe("$applyMarkerMenuSelection", () => {
       }
 
       /** Marker names of `parent`'s direct CharNode children. */
-      function childCharMarkers(parent: CharNode | NoteNode): string[] {
+      function childCharMarkers(parent: CharNode | NoteNode | ParaNode): string[] {
         return parent
           .getChildren()
           .filter($isCharNode)
@@ -1616,7 +1620,7 @@ describe("$applyMarkerMenuSelection", () => {
     describe("non-NEST apply from INSIDE a char span closes and reopens (PT9 StyleApplicator)", () => {
       /** A footnote whose \ft content holds `A \+nd holy\+nd* B` — a nested \nd with text after. */
       async function setUpNestedNd() {
-        let noteRef: NoteNodeClass | undefined;
+        let noteRef: NoteNode | undefined;
         const environment = await fullHarnessEnvironment(() => {
           const para = $createParaNode("p");
           const note = $createNoteNode("f", "+", false);
@@ -1667,10 +1671,10 @@ describe("$applyMarkerMenuSelection", () => {
         return charNode.getChildren().filter($isCharNode);
       }
       /** Direct CharNode children of the note. */
-      function noteChars(note: NoteNodeClass): CharNode[] {
+      function noteChars(note: NoteNode): CharNode[] {
         return note.getChildren().filter($isCharNode);
       }
-      function $nestedNd(note: NoteNodeClass): CharNode {
+      function $nestedNd(note: NoteNode): CharNode {
         return childChars(noteChars(note)[0])[0];
       }
 
@@ -1739,7 +1743,7 @@ describe("$applyMarkerMenuSelection", () => {
       });
 
       it("(flat span) closes \\ft, puts \\fq at the note level, reopens \\ft", async () => {
-        let noteRef: NoteNodeClass | undefined;
+        let noteRef: NoteNode | undefined;
         const { editor } = await fullHarnessEnvironment(() => {
           const para = $createParaNode("p");
           const note = $createNoteNode("f", "+", false);
