@@ -158,7 +158,7 @@ describe("USJ Marker Action Utils", () => {
         undefined,
         { discrete: true },
       );
-      updateSelection(editor, noVerseText!, 0);
+      updateSelection(editor, noVerseText, 0);
 
       markerAction.action({ editor, reference });
 
@@ -190,7 +190,7 @@ describe("USJ Marker Action Utils", () => {
         undefined,
         { discrete: true },
       );
-      updateSelection(editor, verse1Text!);
+      updateSelection(editor, verse1Text);
 
       markerAction.action({ editor, reference });
 
@@ -226,7 +226,7 @@ describe("USJ Marker Action Utils", () => {
         undefined,
         { discrete: true },
       );
-      updateSelection(editor, verse1Text!);
+      updateSelection(editor, verse1Text);
 
       markerAction.action({ editor, reference });
 
@@ -263,7 +263,7 @@ describe("USJ Marker Action Utils", () => {
         undefined,
         { discrete: true },
       );
-      updateSelection(editor, verse1Text!, 10);
+      updateSelection(editor, verse1Text, 10);
       markerAction.action({ editor, reference });
 
       let insertedVerse2Text: TextNode;
@@ -281,7 +281,7 @@ describe("USJ Marker Action Utils", () => {
 
       // Re-add the next missing verse immediately after, simulating the user manually recovering
       // from an incomplete undo.
-      updateSelection(editor, insertedVerse2Text!, 0);
+      updateSelection(editor, insertedVerse2Text, 0);
       markerAction.action({ editor, reference });
 
       editor.getEditorState().read(() => {
