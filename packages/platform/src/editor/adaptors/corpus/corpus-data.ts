@@ -133,6 +133,27 @@ ${USX_FOOTER}`,
     ),
   },
   {
+    // An EXPLICITLY closed body \xt span — no `closed` attribute, so it genuinely carries a
+    // `\xt*` closer. Closer display keys on the span's actual closed state, never on the
+    // footnote/cross-reference marker family, so this span renders its closing glyph and must
+    // round-trip WITHOUT the editor stamping a phantom closed="false" that a save would then use
+    // to DROP the real `\xt*` (the byte-lossy save this fix repairs).
+    name: "explicitly-closed body xt span (closer, no closed flag)",
+    usx: book(
+      `<para style="p"><verse number="1" style="v" />See <char style="xt">2Sam 1:2</char> for context.</para>`,
+    ),
+  },
+  {
+    // An explicitly-closed \xt carrying its default attribute (`link-href`). With the closer
+    // rendered, the char attribute display run (`|…`) is built and the span is text-recoverable,
+    // so the attribute round-trips through the display bytes rather than hiding in an atomic
+    // sentinel.
+    name: "explicitly-closed xt span with link-href attribute",
+    usx: book(
+      `<para style="p"><verse number="1" style="v" />See <char style="xt" link-href="GEN 1:1">Gen 1:1</char>.</para>`,
+    ),
+  },
+  {
     name: "NBSP in text content",
     usx: book(
       `<para style="p"><verse number="1" style="v" />About 3${NBSP}000 men and women.</para>`,

@@ -34,9 +34,14 @@ export function $splitCharNodeAt(char: CharNode, textNode: TextNode, offset: num
   // the `+`, and the right half's fresh opener/closer must too — otherwise a Tier-2 re-tokenization
   // of the visible text reads the bare `\w` as close-on-bare and flattens the nesting.
   const nested = $isCharNode(char.getParent());
-  // Keep any unknown attributes on the LEFT half only (`char`); duplicating them into
-  // both halves would double the `|name="value"` bytes on serialization.
-  const right = $createCharNode(marker);
+  // Keep any DISPLAY attributes (`|name="value"` bytes) on the LEFT half only (`char`);
+  // duplicating them into both halves would double those bytes on serialization. But `closed`
+  // is structural state, not an attribute byte: an implicitly-closed span (`closed="false"`, no
+  // closing glyph) splits into TWO implicitly-closed spans, so the right half must carry the flag
+  // too — otherwise the marker-edit engine reads its (correct) missing closer as deletion damage
+  // and routes it through Tier 2. Closer-ness keys on this state, never on the marker family.
+  const isUnclosed = char.getUnknownAttributes()?.closed === "false";
+  const right = $createCharNode(marker, isUnclosed ? { closed: "false" } : undefined);
   const rightOpener = $createMarkerNode(marker, "opening", nested);
   const rightChildren: LexicalNode[] = [];
 

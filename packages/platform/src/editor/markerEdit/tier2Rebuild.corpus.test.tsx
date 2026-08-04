@@ -95,30 +95,13 @@ function paraLabel(index: number, para: ParaNode): string {
  * matches by a substring of the paragraph's own text content (stable across a corpus edit; an
  * index would shift) and states exactly why `$rebuildParas` is not expected to refuse this
  * paragraph as a fixed point.
+ *
+ * Empty: the former lone entry — the standalone explicitly-closed `\xt …\xt*` paragraph — is now a
+ * genuine fixed point. Closer display keys on the span's actual closed state rather than the
+ * footnote/cross-reference marker family, so the explicitly-closed `\xt` renders its `\xt*` closer,
+ * its display bytes re-tokenize to the same span extent, and the rebuild refuses as a fixed point.
  */
-// `isImplicitlyClosedCharMarker` (packages/platform/src/editor/adaptors/usj-editor.adaptor.ts)
-// treats every footnote/cross-reference-family character marker (fr, ft, xo, xt, ...) as ALWAYS
-// closer-less and skips its closing glyph, even when the source USJ explicitly closed the span
-// (no `closed: "false"`). The corpus paragraph matched below has an explicitly-closed `\xt` span,
-// but the adaptor still renders it with no closing glyph, so its display bytes genuinely lack a
-// `\xt*` byte to re-tokenize — the rebuild correctly (and honestly) re-derives the span as
-// implicitly closed, swallowing the paragraph's remaining text into it. This is the pre-existing,
-// documented `\xt` NEST divergence — it predates the attribute-display effort (introduced by
-// commit 116a6d40, "honesty rule — closer-less char spans record closed=false", before char-span
-// attribute display began) and is tracked as an open "re-evaluate" item in both
-// docs/superpowers/specs/2026-07-24-nesting-alignment-design.md ("Tracked residuals") and
-// docs/superpowers/specs/2026-07-27-attribute-display-and-nesting-arc-status.md ("Deferred/known
-// items"); it is not resolved by char-span attribute display.
-const SKIP_LIST: { contains: string; reason: string }[] = [
-  {
-    contains: "This paragraph has a properly filled out xt marker",
-    reason:
-      "pre-existing \\xt NEST divergence — isImplicitlyClosedCharMarker forces the closer-less " +
-      "display shape for every footnote/cross-reference-family marker regardless of whether the " +
-      "source actually closed it explicitly (see nesting-alignment-design.md and " +
-      "attribute-display-and-nesting-arc-status.md, both pre-dating this effort)",
-  },
-];
+const SKIP_LIST: { contains: string; reason: string }[] = [];
 
 function skipReason(para: ParaNode): string | undefined {
   const text = para.getTextContent();

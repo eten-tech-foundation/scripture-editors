@@ -414,6 +414,11 @@ function $liftOutOfChar(node: LexicalNode, char: CharNode): void {
   const hasCloser = char
     .getChildren()
     .some((child) => $isMarkerNode(child) && child.getMarkerSyntax() === "closing");
+  // The reopened clone must reproduce `char`'s closer CONVENTION, which keys on state: an
+  // implicitly-closed span (closed="false", no closing glyph) reopens as another implicitly-closed
+  // span carrying the same flag. Without it the clone has no closer AND no closed="false", so the
+  // marker-edit engine reads its (correct) missing closer as deletion damage and rebuilds the note.
+  const isUnclosed = char.getUnknownAttributes()?.closed === "false";
   // Content strictly after `node`, excluding char's own closing glyph.
   const after: LexicalNode[] = [];
   for (let sibling = node.getNextSibling(); sibling; ) {
@@ -423,7 +428,7 @@ function $liftOutOfChar(node: LexicalNode, char: CharNode): void {
   }
   char.insertAfter(node); // node leaves char, becomes its next sibling
   if (after.length > 0) {
-    const right = $createCharNode(marker);
+    const right = $createCharNode(marker, isUnclosed ? { closed: "false" } : undefined);
     right.append($createMarkerNode(marker, "opening", nested), ...after);
     if (hasCloser) right.append($createMarkerNode(marker, "closing", nested));
     // Structural NBSP only when the first content node is text (mirrors createChar).
@@ -518,6 +523,18 @@ function getMarkerAction(marker: string): UsjMarkerAction | undefined {
       markerAction = {
         action: () => {
           const content: MarkerContent = { type: CharNode.getType(), marker };
+          // Footnote/cross-reference content markers (\fr \ft \xo \xt …) are inserted OPEN by
+          // convention — PT9's inserter emits them closer-less and ParatextData then records
+          // closed="false" (matching `$createNoteContentChar`). This is an insertion DEFAULT keyed
+          // on the marker family, distinct from closer DISPLAY (which keys on state in `createChar`):
+          // now that `createChar` renders a closer for any span lacking closed="false", the default
+          // must be carried explicitly here or a cursor-only insert of these markers would come out
+          // closed. A selection wrap can still promote the span to explicitly closed downstream.
+          if (
+            CharNode.isValidFootnoteMarker(marker) ||
+            CharNode.isValidCrossReferenceMarker(marker)
+          )
+            (content as MarkerContent & { closed?: string }).closed = "false";
           return [content];
         },
       };

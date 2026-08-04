@@ -495,18 +495,19 @@ describe("USJ Editor Adaptor", () => {
     expect(JSON.stringify(char)).toContain(`"closed":"false"`);
   });
 
-  it('emits no closer and derives closed="false" for a footnote char with no closed attribute', () => {
-    // Honesty rule: a footnote/cross-ref content char (here \fr) never has an explicit closer, so
-    // the adaptor renders no closing glyph even when the source USJ omits `closed`. The derived
-    // closed="false" must ride along so a downstream USFM writer emits no \fr* the source lacked.
-    // The explicit-`closed` char case is pinned above; this pins the derived case.
+  it("renders a closer (and no derived closed flag) for a footnote char with no closed attribute", () => {
+    // Closer display keys on the span's ACTUAL closed state, never on the marker family: a footnote
+    // content char (here \fr) that the source USJ did NOT mark closed="false" is an explicitly-closed
+    // span, so the adaptor renders its closing glyph and derives no closed flag. Real ParatextData
+    // stamps closed="false" on genuinely-unclosed \fr (pinned in the "closed=false" note case below);
+    // this pins that the family alone no longer forces closer-less rendering.
     const usj = usxStringToUsj(
       `<usx version="3.0"><book code="RUT" style="id" /><chapter number="1" style="c" /><para style="p"><verse number="1" style="v" /><note caller="+" style="f"><char style="fr">1.1 </char></note></para></usx>`,
     );
     initialize(undefined, undefined);
     reset();
 
-    // Editable mode renders closing glyphs for normal chars, so a missing closer is meaningful.
+    // Editable mode renders closing glyphs for normal chars, so a present closer is meaningful.
     const state = serializeEditorState(usj, getViewOptions(UNFORMATTED_VIEW_MODE));
 
     const para = state.root.children[2] as SerializedParaNode;
@@ -517,12 +518,38 @@ describe("USJ Editor Adaptor", () => {
     expect(
       frChar.children.some((n) => isSerializedMarkerNode(n) && n.markerSyntax === "opening"),
     ).toBe(true);
-    // no synthesized closer even though the source USJ carried no `closed` attribute
+    // a closing glyph IS rendered — the source did not mark the span closed="false"
     expect(
       frChar.children.some((n) => isSerializedMarkerNode(n) && n.markerSyntax === "closing"),
-    ).toBe(false);
-    // the flag is derived (the source omitted it) and rides through unknownAttributes
-    expect(frChar.unknownAttributes?.closed).toBe("false");
+    ).toBe(true);
+    // no closed flag is synthesized onto an explicitly-closed span
+    expect(frChar.unknownAttributes?.closed).toBeUndefined();
+  });
+
+  it('renders no closing glyph for a closed="false" footnote char (in-note, unchanged)', () => {
+    // Item-1 pin: an in-note \fr the source marked closed="false" (what real ParatextData emits on
+    // genuinely-unclosed footnote/cross-ref content) still renders closer-less — in-note rendering
+    // is unchanged by keying the closer on state rather than family.
+    const usj = usxStringToUsj(
+      `<usx version="3.0"><book code="RUT" style="id" /><chapter number="1" style="c" /><para style="p"><verse number="1" style="v" /><note caller="+" style="f"><char style="fr" closed="false">1.1 </char><char style="ft" closed="false">note</char></note></para></usx>`,
+    );
+    initialize(undefined, undefined);
+    reset();
+
+    const state = serializeEditorState(usj, getViewOptions(UNFORMATTED_VIEW_MODE));
+
+    const para = state.root.children[2] as SerializedParaNode;
+    const note = para.children.find((c) => isSerializedNoteNode(c)) as SerializedNoteNode;
+    const contentChars = note.children.filter(
+      (c) => isSerializedCharNode(c) && (c.marker === "fr" || c.marker === "ft"),
+    ) as SerializedCharNode[];
+    expect(contentChars).toHaveLength(2);
+    contentChars.forEach((char) => {
+      expect(
+        char.children.some((n) => isSerializedMarkerNode(n) && n.markerSyntax === "closing"),
+      ).toBe(false);
+      expect(char.unknownAttributes?.closed).toBe("false");
+    });
   });
 
   it("still collapses a closed note in collapsed noteMode", () => {
@@ -666,7 +693,10 @@ describe("load/insert note drift pins", () => {
     MarkerNode,
   ];
 
-  /** USJ note equivalent to what `$insertNote("f", "+", …, GEN 1:5)` builds (fr + empty ft). */
+  /** USJ note equivalent to what `$insertNote("f", "+", …, GEN 1:5)` builds (fr + empty ft). The
+   * content chars carry closed="false" — the shape `$createNoteContentChar` stamps and real
+   * ParatextData emits on genuinely-unclosed footnote content — so the loaded span renders
+   * closer-less on the state rule and stays identical to the inserted one. */
   const usjWithFootnote = {
     ...EMPTY_USJ,
     content: [
@@ -680,8 +710,8 @@ describe("load/insert note drift pins", () => {
             marker: "f",
             caller: "+",
             content: [
-              { type: "char", marker: "fr", content: ["1:5 "] },
-              { type: "char", marker: "ft" },
+              { type: "char", marker: "fr", closed: "false", content: ["1:5 "] },
+              { type: "char", marker: "ft", closed: "false" },
             ],
           },
           " after",
