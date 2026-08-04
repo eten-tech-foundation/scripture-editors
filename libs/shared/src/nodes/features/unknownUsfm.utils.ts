@@ -17,24 +17,28 @@
  *
  * ## Per-kind shapes
  *
- * All three parts are OPAQUE bytes for the consumer to concatenate around the node's content,
+ * All four parts are OPAQUE bytes for the consumer to concatenate around the node's content,
  * never to parse. The `attributes` part carries only bytes that belong BETWEEN the opening and
  * the content (sidebar's `\cat …\cat*` marker run, periph's marker-line pipe pairs; `""` for
  * every other kind). USFM pipe attributes on span-shaped kinds (the generic default, figure)
- * come AFTER content, directly before the closer, so those kinds fold their attribute bytes
- * into the `closing` part instead.
+ * come AFTER content, directly before the closer, so those kinds populate `closingAttributes`
+ * instead — kept as its own part (rather than folded into `closing`) so the consumer can style
+ * the `|…` run dimmer than the closer glyph, matching PT9's attribute-run display. Concatenating
+ * `closingAttributes + closing` reproduces the exact same bytes a single `closing` string used
+ * to carry.
  *
- * - **Generic default** (any kind without a special case below): `\{marker} ` opening, and a
- *   closing of {@link canonicalAttributeText} named pairs — always explicit `name="value"`,
- *   never the default-attribute collapse, because unknown kinds carry no StyleInfo default to
- *   collapse against — followed by `\{marker}*` (the char-span shape:
+ * - **Generic default** (any kind without a special case below): `\{marker} ` opening, a
+ *   `closingAttributes` of {@link canonicalAttributeText} named pairs — always explicit
+ *   `name="value"`, never the default-attribute collapse, because unknown kinds carry no
+ *   StyleInfo default to collapse against — and a `closing` of `\{marker}*` (the char-span shape:
  *   `\zzz content|foo="bar"\zzz*`).
  * - **optbreak** — PT9 renders `\optbreak` as the literal token `//`, not a marker: the opening
  *   IS the bare text `//`, with no attributes and no closing glyph.
  * - **figure** — USFM 3.0 puts the caption first (`\fig caption|src="…"\fig*`), so the attribute
- *   bytes fold into the closing. USX/USJ's `file` attribute is USFM's `src` (the tokenizer
- *   performs the same rename in the other direction; usfmFragmentToUsj.ts); rendering reverses
- *   it back so the bytes match what a `\fig …\fig*` span actually carries in the file.
+ *   bytes go in `closingAttributes`, ahead of the `closing` glyph. USX/USJ's `file` attribute is
+ *   USFM's `src` (the tokenizer performs the same rename in the other direction;
+ *   usfmFragmentToUsj.ts); rendering reverses it back so the bytes match what a `\fig …\fig*`
+ *   span actually carries in the file.
  * - **table / table:row / table:cell** — tables have no USFM pipe-attribute syntax at all; a
  *   cell's `align`/`colspan` are ENCODED in the marker name itself (`\thc3-4`), never rendered
  *   as attribute bytes. The container contributes no bytes of its own; a row opens with `\tr `;
@@ -57,14 +61,16 @@
 import { canonicalAttributeText } from "../usj/attributeDisplay.utils.js";
 import { UnknownAttributes } from "../usj/node-constants.js";
 
-/** The three USFM byte spans {@link unknownDisplayParts} computes around an `UnknownNode`'s
+/** The four USFM byte spans {@link unknownDisplayParts} computes around an `UnknownNode`'s
  * existing content children, in render order: the marker-opening bytes, the between-opening-
- * and-content bytes (sidebar's `\cat` run, periph's marker-line pipe pairs), and the after-
- * content bytes (any span-trailing pipe attributes plus the closing glyph) — `""` for any part
- * that doesn't apply to the kind. */
+ * and-content bytes (sidebar's `\cat` run, periph's marker-line pipe pairs), the after-content
+ * pipe-attribute bytes (span-shaped kinds' `|foo="bar"` run, kept separate from `closing` so the
+ * consumer can style it as a dimmer attribute run rather than a marker glyph), and the closing
+ * glyph itself — `""` for any part that doesn't apply to the kind. */
 export interface UnknownDisplayParts {
   opening: string;
   attributes: string;
+  closingAttributes: string;
   closing: string;
 }
 
@@ -120,7 +126,7 @@ function tableCellMarkerWithSpan(
 
 /**
  * The USFM byte strings to render around an `UnknownNode`'s existing content children —
- * `opening` and `attributes` before the content, `closing` after it (see
+ * `opening` and `attributes` before the content, `closingAttributes` then `closing` after it (see
  * {@link UnknownDisplayParts} for what each part carries per kind) — computed purely from the
  * node's stored `tag` (USJ `type`), `marker`, and `unknownAttributes`. Pure function; read-only
  * display only (see module doc for why these bytes carry no round-trip obligation).
@@ -138,16 +144,16 @@ export function unknownDisplayParts(
 
   switch (tag) {
     case "optbreak":
-      return { opening: "//", attributes: "", closing: "" };
+      return { opening: "//", attributes: "", closingAttributes: "", closing: "" };
 
     case "ref":
     case "table":
       // Generated wrapper (ref) and bare container (table): neither carries USFM bytes of its
       // own — a table's bytes live entirely on its table:row/table:cell children.
-      return { opening: "", attributes: "", closing: "" };
+      return { opening: "", attributes: "", closingAttributes: "", closing: "" };
 
     case "table:row":
-      return { opening: `\\${marker} `, attributes: "", closing: "" };
+      return { opening: `\\${marker} `, attributes: "", closingAttributes: "", closing: "" };
 
     case "table:cell":
       // The marker name itself IS the cell's shape (`\tc1`, `\thc3-4`, …): `align` is already
@@ -157,17 +163,21 @@ export function unknownDisplayParts(
       return {
         opening: `\\${tableCellMarkerWithSpan(marker, attributes[TABLE_CELL_COLSPAN_ATTRIBUTE])} `,
         attributes: "",
+        closingAttributes: "",
         closing: "",
       };
 
     case "figure":
       // USFM 3.0 figures put the caption FIRST (`\fig caption|src="…"\fig*`), so the attribute
-      // bytes fold into the closing — rendering them between the opening and the caption would
-      // strand the caption after the attribute list, which is invalid USFM.
+      // bytes go in closingAttributes, ahead of the closing glyph — rendering them between the
+      // opening and the caption would strand the caption after the attribute list, which is
+      // invalid USFM. Kept as its own part (rather than folded into `closing`) so the caller can
+      // style the `|…` run dimmer than the `\fig*` glyph, matching PT9's attribute-run display.
       return {
         opening: `\\${marker} `,
         attributes: "",
-        closing: `${canonicalAttributeText(renameFigureFileToSrc(attributes), undefined)}\\${marker}*`,
+        closingAttributes: canonicalAttributeText(renameFigureFileToSrc(attributes), undefined),
+        closing: `\\${marker}*`,
       };
 
     case "sidebar": {
@@ -176,6 +186,7 @@ export function unknownDisplayParts(
       return {
         opening: "\\esb",
         attributes: categoryBytes + canonicalAttributeText(rest, undefined),
+        closingAttributes: "",
         closing: "\\esbe",
       };
     }
@@ -185,18 +196,21 @@ export function unknownDisplayParts(
       return {
         opening: `\\periph ${alt ?? ""}`,
         attributes: canonicalAttributeText(rest, undefined),
+        closingAttributes: "",
         closing: "",
       };
     }
 
     default:
       // Char-span shape is the natural default for an attributed unknown span: content first,
-      // pipe attributes directly before the closer (`\zzz content|foo="bar"\zzz*`), so the
-      // attribute bytes fold into the closing here too.
+      // pipe attributes directly before the closer (`\zzz content|foo="bar"\zzz*`) — kept as its
+      // own closingAttributes part (rather than folded into `closing`) so the caller can style
+      // the `|…` run dimmer than the `\zzz*` glyph, matching PT9's attribute-run display.
       return {
         opening: `\\${marker} `,
         attributes: "",
-        closing: `${canonicalAttributeText(attributes, undefined)}\\${marker}*`,
+        closingAttributes: canonicalAttributeText(attributes, undefined),
+        closing: `\\${marker}*`,
       };
   }
 }

@@ -604,10 +604,19 @@ function createUnknown(
     // run (the ImmutableTypedTextNode case in editor-usj.adaptor's recurseNodes), and invisible
     // to the collab delta because it isn't a Lexical TextNode. UnknownNode stays a Tier-2
     // sentinel — these bytes never re-tokenize back into node state.
-    const { opening, attributes, closing } = unknownDisplayParts(tag, marker, unknownAttributes);
+    const { opening, attributes, closingAttributes, closing } = unknownDisplayParts(
+      tag,
+      marker,
+      unknownAttributes,
+    );
     if (opening) children.push(createImmutableTypedText("marker", opening));
     if (attributes) children.push(createImmutableTypedText("attribute", attributes));
     children.push(...childNodes);
+    // closingAttributes (a span-shaped kind's `|foo="bar"` run) renders as its own "attribute"
+    // node, separate from the "marker" closer glyph, so it gets the dimmer `.attribute` styling
+    // PT9 uses for `|…` runs rather than inheriting the closer's `.marker` styling. Two pushes
+    // reproduce the exact same byte sequence a single folded `closing` string used to carry.
+    if (closingAttributes) children.push(createImmutableTypedText("attribute", closingAttributes));
     if (closing) children.push(createImmutableTypedText("marker", closing));
   } else {
     children.push(...childNodes);

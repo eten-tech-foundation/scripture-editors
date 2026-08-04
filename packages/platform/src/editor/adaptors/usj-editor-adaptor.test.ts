@@ -1305,10 +1305,12 @@ describe("unknown-node display (USFM byte runs, editable mode)", () => {
     return node.children;
   }
 
-  it("figure: opening marker, caption content, then attributes folded into the closing — byte-exact", () => {
+  it("figure: opening marker, caption content, then a dimmer attribute run before the closing marker — byte-exact", () => {
     // USFM 3.0 figure syntax is `\fig caption|src="…"\fig*` — caption FIRST. The attribute
-    // bytes therefore ride in the closing part (unknownDisplayParts folds them in), so the
-    // assembled display reads correct USFM rather than stranding the caption after the pipes.
+    // bytes ride in their own "attribute"-typed node directly before the "marker"-typed closer
+    // (unknownDisplayParts' closingAttributes + closing), so PT9's dimmer `.attribute` styling
+    // applies to the `|…` run while the closer glyph keeps `.marker` styling — and concatenating
+    // the two nodes' text still reproduces the exact same USFM bytes.
     const children = unknownChildren(
       usjWithUnknown({
         type: "figure",
@@ -1321,17 +1323,50 @@ describe("unknown-node display (USFM byte runs, editable mode)", () => {
       getViewOptions(STANDARD_VIEW_MODE),
     );
 
-    expect(children).toHaveLength(3);
-    const [opening, content, closing] = children;
+    expect(children).toHaveLength(4);
+    const [opening, content, attribute, closing] = children;
     if (!isSerializedImmutableTypedTextNode(opening)) throw new Error("No opening marker found");
     expect(opening.textType).toBe("marker");
     expect(opening.text).toBe("\\fig ");
     if (!isSerializedTextNode(content)) throw new Error("No content text node found");
     expect(content.text).toBe("figure content");
     expect(content.mode).toBe("token");
+    if (!isSerializedImmutableTypedTextNode(attribute)) throw new Error("No attribute run found");
+    expect(attribute.textType).toBe("attribute");
+    expect(attribute.text).toBe('|src="image.jpg" size="span" ref="1.18"');
     if (!isSerializedImmutableTypedTextNode(closing)) throw new Error("No closing marker found");
     expect(closing.textType).toBe("marker");
-    expect(closing.text).toBe('|src="image.jpg" size="span" ref="1.18"\\fig*');
+    expect(closing.text).toBe("\\fig*");
+  });
+
+  it("generic unknown kind: opening marker, content, then a dimmer attribute run before the closing marker — byte-exact", () => {
+    // Same split as figure, for the char-span default shape (`\zzz content|foo="bar"\zzz*`):
+    // the attribute run gets its own "attribute"-typed node, not folded into the "marker"-typed
+    // closer.
+    const children = unknownChildren(
+      usjWithUnknown({
+        type: "unknown-para",
+        marker: "zzz",
+        foo: "bar",
+        baz: "qux",
+        content: ["zzz content"],
+      } as MarkerObject),
+      getViewOptions(STANDARD_VIEW_MODE),
+    );
+
+    expect(children).toHaveLength(4);
+    const [opening, content, attribute, closing] = children;
+    if (!isSerializedImmutableTypedTextNode(opening)) throw new Error("No opening marker found");
+    expect(opening.textType).toBe("marker");
+    expect(opening.text).toBe("\\zzz ");
+    if (!isSerializedTextNode(content)) throw new Error("No content text node found");
+    expect(content.text).toBe("zzz content");
+    if (!isSerializedImmutableTypedTextNode(attribute)) throw new Error("No attribute run found");
+    expect(attribute.textType).toBe("attribute");
+    expect(attribute.text).toBe('|foo="bar" baz="qux"');
+    if (!isSerializedImmutableTypedTextNode(closing)) throw new Error("No closing marker found");
+    expect(closing.textType).toBe("marker");
+    expect(closing.text).toBe("\\zzz*");
   });
 
   it("sidebar: opening carries no separator space; a category attribute rides as its own \\cat run", () => {
