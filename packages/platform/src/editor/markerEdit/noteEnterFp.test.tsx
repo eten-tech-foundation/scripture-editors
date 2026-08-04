@@ -154,7 +154,18 @@ describe("Enter inside note content", () => {
     const { editor } = await renderStandardEditorWithUnclosedNote();
     placeCaretAtEndOfNoteFt(editor);
     let parasBefore = 0;
-    editor.getEditorState().read(() => (parasBefore = countParagraphs($getRoot())));
+    let ftKeyBefore = "";
+    editor.getEditorState().read(() => {
+      parasBefore = countParagraphs($getRoot());
+      const note = findOnlyNote($getRoot());
+      ftKeyBefore = requireDefined(
+        note
+          .getChildren()
+          .filter($isCharNode)
+          .find((c) => c.getMarker() === "ft"),
+        "\\ft char span not found",
+      ).getKey();
+    });
 
     const handled = await pressEnter(editor);
 
@@ -177,6 +188,32 @@ describe("Enter inside note content", () => {
         "\\fp char span not found",
       );
       expect(fp.getChildren()[0]?.getType()).toBe("marker");
+      // The break is built with the note-content convention FROM CREATION: closed="false"
+      // (matching `$createNoteContentChar` and real ParatextData), so the state-keyed
+      // `$charNodeDeletionTransform` never reads its (correct) missing closer as deletion
+      // damage. Without the flag, every Enter-in-note triggered a spurious Tier-2 note-content
+      // rebuild that recreated every node in the note.
+      expect(fp.getUnknownAttributes()?.closed).toBe("false");
+      // No spurious rebuild: the untouched \ft span is the SAME node it was before Enter — a
+      // note-content rebuild would have recreated it under a new key.
+      const ft = requireDefined(
+        note
+          .getChildren()
+          .filter($isCharNode)
+          .find((c) => c.getMarker() === "ft"),
+        "\\ft char span not found",
+      );
+      expect(ft.getKey()).toBe(ftKeyBefore);
+      // Caret at the break point: inside the new \fp's placeholder content, after the
+      // structural NBSP (offset 1), so typing continues where the user split.
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection) || !selection.isCollapsed())
+        throw new Error("Expected a collapsed selection after Enter");
+      const placeholder = fp
+        .getChildren()
+        .find((n): n is TextNode => $isTextNode(n) && !$isMarkerNode(n));
+      expect(selection.anchor.getNode().getKey()).toBe(placeholder?.getKey());
+      expect(selection.anchor.offset).toBe(1);
     });
   });
 
