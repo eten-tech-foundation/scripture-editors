@@ -17,14 +17,37 @@
  */
 
 import { $requestTier2ForNode } from "./tier2Rebuild.utils";
-import { MarkerEditContext } from "./markerEditTier1.utils";
-import { $getSelection, $getState, $isRangeSelection, LexicalNode, TextNode } from "lexical";
+import {
+  $markerCanonicalText,
+  $milestoneAttributeDisplayText,
+  MarkerEditContext,
+} from "./markerEditTier1.utils";
+import {
+  $getRoot,
+  $getSelection,
+  $getState,
+  $isElementNode,
+  $isRangeSelection,
+  $isTextNode,
+  LexicalNode,
+  TextNode,
+} from "lexical";
 import {
   $charClosingGlyph,
+  $hasCaretHeldAttributeRun,
+  $hasCaretHeldMilestoneRun,
+  $hasCaretHeldSeparatorGap,
+  $hasCaretHeldVerseAttributeRun,
   $isBookNode,
   $isChapterNode,
   $isCharNode,
+  $isMarkerNode,
+  $isMilestoneNode,
   $isUnknownNode,
+  $isVerseNode,
+  canonicalAttributeText,
+  defaultMarkerAttribute,
+  getVisibleOpenMarkerText,
   textTypeState,
 } from "shared";
 
@@ -120,4 +143,84 @@ export function $textNodeTier2Transform(node: TextNode, context: MarkerEditConte
   } else {
     context.pendingKeys.add(node.getKey()); // Enter/blur completes it
   }
+}
+
+/**
+ * Read-only re-pend scan for HISTORIC (undo/redo) commits. Lexical's history restores a
+ * state via `setEditorState`, which never runs node transforms (`$applyAllTransforms`
+ * lives only on the `editor.update` path), so every pend the transforms would have
+ * derived from the restored bytes is missing: an undone settle's literal (`\nd hi\nd*`
+ * text, `|attrs` in a closed span, a diverged glyph or attribute run) is invisible to
+ * `context.pendingKeys` and caret departure settles nothing — the literal persists until
+ * the user happens to type inside it. This scan re-derives those pends by walking the
+ * restored tree with the SAME predicates the transforms use, strictly read-only: keys go
+ * into the plain `pendingKeys` Set, no node is touched, so the historic commit stays
+ * mutation-free — it creates no history entry and leaves the undo/redo stacks intact.
+ * The caller clears `pendingKeys` first: stale keys describe the pre-restore document.
+ *
+ * Where a transform would REBUILD immediately (a terminated literal), the scan only
+ * pends: a history restore is not a user edit, so the settle waits for the next real
+ * caret departure exactly like every other pend.
+ */
+export function $rependPendShapedNodes(context: MarkerEditContext): void {
+  const visit = (node: LexicalNode): void => {
+    if ($isMarkerNode(node)) {
+      // Mid-edit glyph text (an undone rename settle) — $markerNodeTransform's pend shape.
+      if (node.getTextContent() !== $markerCanonicalText(node))
+        context.pendingKeys.add(node.getKey());
+      return;
+    }
+    if ($isVerseNode(node)) {
+      // A diverged verse glyph (an undone number-edit settle), or a caret-held \va/\vp run
+      // divergence — $verseNodeTransform plus the VerseNode transform's run pend.
+      if (
+        node.getTextContent() !== getVisibleOpenMarkerText("v", node.getNumber()) ||
+        $hasCaretHeldVerseAttributeRun(node, node.getAltnumber(), node.getPubnumber())
+      )
+        context.pendingKeys.add(node.getKey());
+      return;
+    }
+    if ($isMilestoneNode(node)) {
+      // A caret-held milestone run divergence — $syncAndPendMilestone's pend condition.
+      // The run-entirely-absent shape is deliberately NOT pended here: a bare
+      // collab-materialized milestone legitimately has no run at rest, and pending it
+      // would DELETE it on the next departure ($resolvePendingMarkers' removal arm).
+      if ($hasCaretHeldMilestoneRun(node, $milestoneAttributeDisplayText(node)))
+        context.pendingKeys.add(node.getKey());
+      return;
+    }
+    if ($isTextNode(node)) {
+      // Exact-type mirror of the TextNode catch-all transform's dispatch: Lexical
+      // dispatches transforms by exact node type, so subclasses (MarkerNode/VerseNode
+      // handled above, immutable display texts) never receive it and must not pend here.
+      if (node.getType() !== TextNode.getType()) return;
+      // Attribute runs settle at their OWNER (the char span / milestone / verse caret-held
+      // checks in this scan); a canonical run has nothing to settle, and a diverged one is
+      // only reachable mid-edit, i.e. caret-held.
+      if ($getState(node, textTypeState) === "attribute") return;
+      const text = node.getTextContent();
+      // Both literal shapes pend: backslash runs (terminated or not), and pipe bytes in a
+      // closed char span (the pipe branch above).
+      if (text.includes("\\") || (text.includes("|") && $isInClosedCharSpan(node)))
+        context.pendingKeys.add(node.getKey());
+      return;
+    }
+    if ($isCharNode(node)) {
+      // A caret-held separator gap or attribute-run divergence — the CharNode transform's
+      // pend conditions (MarkerEditPlugin.tsx).
+      if ($hasCaretHeldSeparatorGap(node)) context.pendingKeys.add(node.getKey());
+      const expectedText = canonicalAttributeText(
+        node.getUnknownAttributes() ?? {},
+        defaultMarkerAttribute(node.getMarker()),
+      );
+      if ($hasCaretHeldAttributeRun(node, expectedText)) context.pendingKeys.add(node.getKey());
+      node.getChildren().forEach(visit);
+      return;
+    }
+    // Books/chapters/unknown blocks keep literal text (degradation property) — the
+    // transform never pends inside them, so the scan does not descend.
+    if ($isBookNode(node) || $isChapterNode(node) || $isUnknownNode(node)) return;
+    if ($isElementNode(node)) node.getChildren().forEach(visit);
+  };
+  $getRoot().getChildren().forEach(visit);
 }
