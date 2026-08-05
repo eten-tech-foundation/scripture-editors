@@ -23,6 +23,9 @@ export interface AnnotationRange {
 }
 
 // @public
+export const BLOCK_VERSE_VIEW_MODE = "block-verse";
+
+// @public
 export interface CommentBase {
     author: string;
     content: string;
@@ -130,7 +133,7 @@ export interface EditorRef {
 export const GENERATOR_NOTE_CALLER = "+";
 
 // @public
-export const getDefaultViewMode: () => "formatted" | "unformatted" | "paragraph-structure";
+export const getDefaultViewMode: () => "formatted" | "unformatted" | "paragraph-structure" | "block-verse";
 
 // @public
 export const getDefaultViewOptions: () => ViewOptions;
@@ -329,6 +332,18 @@ export interface UsjNodeOptions extends NodeOptions {
 }
 
 // @public
+export type VerseLayout =
+/** The verse marker is an inline milestone; verse text flows within its paragraph. */
+"inline"
+/**
+* Each verse is a block-level element containing its own paragraphs, so it can be placed on a
+* layout row. Read-only: the editor forces read-only when this is selected, and neither USJ
+* export nor USJ-addressed selection is available, because a paragraph spanning several verses
+* is split across their blocks and no longer matches the source USJ's content indexes.
+*/
+| "block";
+
+// @public
 export type ViewMode = keyof typeof viewModeToViewNames;
 
 // @public
@@ -336,6 +351,7 @@ export const viewModeToViewNames: {
     formatted: string;
     unformatted: string;
     "paragraph-structure": string;
+    "block-verse": string;
 };
 
 // @public
@@ -347,6 +363,7 @@ export interface ViewOptions {
     markerMode: MarkerMode;
     noteMode?: NoteMode;
     showCharMarkerTitles?: boolean;
+    verseLayout?: VerseLayout;
 }
 
 ```

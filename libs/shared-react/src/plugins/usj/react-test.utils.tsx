@@ -25,8 +25,10 @@ import {
   EditorUpdateOptions,
   KEY_DOWN_COMMAND,
   KEY_ENTER_COMMAND,
+  Klass,
   LexicalEditor,
   LexicalNode,
+  LexicalNodeReplacement,
   SerializedEditorState,
 } from "lexical";
 import { ReactNode, useEffect } from "react";
@@ -35,6 +37,11 @@ import { segmentState, SerializedNoteNode, SerializedParaNode, TypedMarkNode } f
 export async function baseTestEnvironment(
   $initialEditorState?: InitialEditorStateType,
   children?: ReactNode | undefined,
+  /** Defaults to the inline-verse registry; pass `usjBlockVerseNodes` for the block verse layout. */
+  nodes: readonly (Klass<LexicalNode> | LexicalNodeReplacement)[] = [
+    TypedMarkNode,
+    ...usjReactNodes,
+  ],
 ): Promise<{ editor: LexicalEditor }> {
   let editor: LexicalEditor;
 
@@ -54,7 +61,7 @@ export async function baseTestEnvironment(
         initialConfig={{
           editorState: $initialEditorState,
           namespace: "TestEditor",
-          nodes: [TypedMarkNode, ...usjReactNodes],
+          nodes,
           onError: (error) => {
             throw error;
           },

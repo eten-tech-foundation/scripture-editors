@@ -90,6 +90,7 @@ import {
   TextSpacingPlugin,
   UsjNodeOptions,
   UsjNodesMenuPlugin,
+  usjBlockVerseNodes,
   usjReactNodes,
 } from "shared-react";
 
@@ -156,9 +157,33 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
   // a fresh `options` object every render. Pairs with the per-instance `initialConfig` below -
   // any state derived from `options` should follow the same pattern to avoid cross-instance
   // surprises with multiple Editor instances in one WebView.
-  const viewOptions = useMemo(() => view ?? defaultViewOptions, [view]);
+  const viewOptions = useMemo(() => {
+    const requestedViewOptions = view ?? defaultViewOptions;
+    // Gutter markers are added to the source paragraph only, so the fragments a verse block is
+    // split into would have a para marker but no marker prefix - and ParaMarkerPrefixGuardPlugin
+    // would then reset each of them to `\p`, wiping the poetry indentation the block verse layout
+    // exists to preserve. Not a supported combination, so drop the gutter rather than the markers.
+    if (requestedViewOptions.verseLayout === "block" && requestedViewOptions.hasGutterParaMarkers)
+      return { ...requestedViewOptions, hasGutterParaMarkers: false };
+    return requestedViewOptions;
+  }, [view]);
   const nodeOptions = useMemo(() => nodes ?? defaultNodeOptions, [nodes]);
   const contextMenuOptions = useMemo(() => contextMenu, [contextMenu]);
+
+  // The block verse layout regroups each verse into its own element, splitting paragraphs that span
+  // verses. That shape cannot be exported back to USJ, so the layout is read-only by construction
+  // rather than by the host remembering to ask for it.
+  const isBlockVerse = viewOptions.verseLayout === "block";
+  const effectiveIsReadonly = isReadonly || isBlockVerse;
+  if (isBlockVerse && !isReadonly)
+    logger?.error(
+      "Editor: the block verse layout is read-only; ignoring `isReadonly: false`. Set " +
+        "`isReadonly: true` alongside `verseLayout: 'block'`.",
+    );
+  if (isBlockVerse && view?.hasGutterParaMarkers)
+    logger?.warn(
+      "Editor: `hasGutterParaMarkers` is not supported with the block verse layout and is ignored.",
+    );
 
   // `showCharMarkerTitles` rides on the Lexical theme so `CharNode.createDOM` can read it via
   // `EditorConfig.theme`. Theme is the channel because its map permits arbitrary keys and is the
@@ -168,15 +193,16 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
     () => ({
       namespace: "platformEditor",
       theme: { ...editorTheme, showCharMarkerTitles: viewOptions.showCharMarkerTitles },
-      editable: !isReadonly,
+      editable: !effectiveIsReadonly,
       editorState: undefined,
       // Handling of errors during update
       onError(error) {
         throw error;
       },
-      nodes: [TypedMarkNode, ...usjReactNodes],
+      // Registered per layout so an editor that isn't using block verse never holds its node.
+      nodes: [TypedMarkNode, ...(isBlockVerse ? usjBlockVerseNodes : usjReactNodes)],
     }),
-    [isReadonly, viewOptions.showCharMarkerTitles],
+    [effectiveIsReadonly, isBlockVerse, viewOptions.showCharMarkerTitles],
   );
   editorUsjAdaptor.initialize(logger);
 
@@ -215,6 +241,14 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
       }
     },
     applyUpdate(ops, source = "remote") {
+      // Delta ops address content by its position in the USJ. The block verse layout regroups
+      // paragraphs, so those positions no longer describe this tree - applying them would edit the
+      // wrong nodes rather than fail.
+      if (isBlockVerse)
+        throw new Error(
+          "Cannot apply an update in the block verse layout; it is a read-only view whose " +
+            "structure does not match the source USJ.",
+        );
       editorRef.current?.update(
         () => {
           if (source === "remote") $addUpdateTag(DELTA_CHANGE_TAG);
@@ -309,7 +343,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
       );
     },
     insertMarker(marker) {
-      if (isReadonly) throw new Error("Cannot insert marker in readonly mode");
+      if (effectiveIsReadonly) throw new Error("Cannot insert marker in readonly mode");
       if (!scrRef) throw new Error("Cannot insert marker without a scripture reference (scrRef)");
       if (!editorRef.current) return;
 
@@ -365,6 +399,12 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
       // No blacklisted-tag guard is needed here: `DeltaOnChangePlugin` is given
       // `ignoreTags={blackListedChangeTags}` and short-circuits before calling this handler, so
       // only local user edits (which carry no blacklisted tag) ever reach this point.
+
+      // The block verse layout has no USJ to report: its paragraphs are split across verse blocks,
+      // so the export refuses. `editor.update()` still runs on a non-editable editor, so an
+      // untagged update from a host API call would otherwise reach that refusal from here.
+      if (isBlockVerse) return;
+
       const newUsj = editorUsjAdaptor.deserializeEditorState(editorState);
       if (newUsj) {
         const isEdited = !deepEqual(editedUsjRef.current, newUsj);
@@ -378,7 +418,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
         }
       }
     },
-    [usj, onUsjChange],
+    [usj, onUsjChange, isBlockVerse],
   );
 
   const handleStateChange = useCallback(
@@ -390,17 +430,23 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
   );
 
   return (
-    <LexicalComposer initialConfig={initialConfig}>
-      <EditablePlugin isEditable={!isReadonly} />
+    // A Lexical editor's node types are fixed when it is created, so switching layouts has to
+    // recreate it. The key never changes for the inline layouts, which leave `verseLayout` unset.
+    <LexicalComposer key={viewOptions.verseLayout ?? "inline"} initialConfig={initialConfig}>
+      <EditablePlugin isEditable={!effectiveIsReadonly} />
       <div className="editor-container">
         {hasExternalUI ? (
           <StateChangePlugin onStateChange={handleStateChange} />
         ) : (
-          <div className={"editor-toolbar-container" + (isReadonly ? "-readonly" : "-editable")}>
+          <div
+            className={
+              "editor-toolbar-container" + (effectiveIsReadonly ? "-readonly" : "-editable")
+            }
+          >
             <ToolbarPlugin
               ref={toolbarEndRef}
               editorRef={ref as MutableRefObject<EditorRef | null>}
-              isReadonly={isReadonly}
+              isReadonly={effectiveIsReadonly}
               onStateChange={handleStateChange}
             />
           </div>

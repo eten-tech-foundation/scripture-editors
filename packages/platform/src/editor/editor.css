@@ -38,11 +38,21 @@
   flex: auto;
 }
 
-.editor-input > p {
+/* The second selector is not redundant: in the block verse layout paragraphs are nested inside a
+   .verse-block wrapper, so a child combinator on .editor-input alone stops matching them and the
+   UA default `margin: 1em 0` comes back on every paragraph. */
+.editor-input > p,
+.editor-input .verse-block > p {
   direction: inherit;
   margin-top: 0;
   margin-bottom: 0;
   line-height: 1.5;
+}
+
+/* Block-level box around one verse, so a layout can place the verse on a row. Positioning it is
+   the consuming app's job; this only has to not disturb the inline layouts, which never emit it. */
+.verse-block {
+  display: block;
 }
 
 .editor-placeholder {
