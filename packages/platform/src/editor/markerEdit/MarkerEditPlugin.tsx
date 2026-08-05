@@ -58,6 +58,7 @@ import {
   $hasCaretHeldMilestoneRun,
   $hasCaretHeldSeparatorGap,
   $hasCaretHeldVerseAttributeRun,
+  $isCharNode,
   $isMarkerNode,
   $isMilestoneNode,
   $isVerseNode,
@@ -364,9 +365,13 @@ export function MarkerEditPlugin({
       // Detected the same way the run's own pieces are found (attributeDisplay.utils.ts): the
       // value's immediately preceding sibling is the run's opening glyph. Scoped to va/vp only —
       // the only attribute markers with a folded display surface today (ca/cp are never
-      // displayed on a chapter; cat's note context has no display run either); a char span's OWN
-      // attribute run (`\w x|lemma="y"\w*`) never has an opening glyph immediately before it, so
-      // this can't misfire there.
+      // displayed on a chapter; cat's note context has no display run either). The sibling shape
+      // alone is NOT sufficient: a STANDALONE `\va |lemma="…"\va*` char span with no content text
+      // puts its own `|…` attribute run directly after its own opening `\va` glyph too. The two
+      // forms differ in the PARENT — a verse triplet's value rides in the PARAGRAPH (a VerseNode
+      // is a TextNode, so its run is a following sibling), while a char span's own run lives
+      // INSIDE the CharNode (which already carries usfm_va itself from createDOM) — so a run
+      // whose parent is a CharNode is never a verse triplet's value and keeps plain `.attribute`.
       editor.registerMutationListener(
         TextNode,
         (mutations) => {
@@ -379,6 +384,7 @@ export function MarkerEditPlugin({
               element?.classList.add("attribute");
               const previous = node.getPreviousSibling();
               if (
+                !$isCharNode(node.getParent()) &&
                 $isMarkerNode(previous) &&
                 previous.getMarkerSyntax() === "opening" &&
                 (previous.getMarker() === "va" || previous.getMarker() === "vp")
