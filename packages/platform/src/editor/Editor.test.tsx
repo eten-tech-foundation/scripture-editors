@@ -2,13 +2,21 @@
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import { usjGen1v1 } from "../../../utilities/src/converters/usj/converter-test.data";
 import Editor from "./Editor";
-import { EditorRef } from "./editor.model";
+import { EditorOptions, EditorRef } from "./editor.model";
 import Editorial from "../Editorial";
 import { flushQueuedEvents } from "./editor-test.utils";
 import { ContentJsonPath, Usj } from "@eten-tech-foundation/scripture-utilities";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { act, render } from "@testing-library/react";
-import { $getRoot, $isTextNode, KEY_DOWN_COMMAND, LexicalEditor, TextNode } from "lexical";
+import {
+  $getRoot,
+  $isTextNode,
+  CAN_UNDO_COMMAND,
+  COMMAND_PRIORITY_CRITICAL,
+  KEY_DOWN_COMMAND,
+  LexicalEditor,
+  TextNode,
+} from "lexical";
 import { createRef, RefObject, useEffect } from "react";
 import { $isCharNode, $isSomeParaNode, $isSynthesizedMarkerNode, NBSP } from "shared";
 import { vi } from "vitest";
@@ -417,5 +425,84 @@ describe("removeCharacterMarker through the editor ref", () => {
       throw new Error("para is not a USJ para node");
     expect(JSON.stringify(para.content)).not.toContain('"char"');
     expect(para.content?.join("")).toBe("the Lord said");
+  });
+});
+
+const blankUsj: Usj = {
+  type: "USJ",
+  version: "3.1",
+  content: [{ type: "book", marker: "id", code: "GEN", content: ["Test Book"] }],
+};
+
+describe("applyUpdate('local') undo-history retention", () => {
+  // A chapter-scaffold insert via `EditorRef.applyUpdate(ops, 'local')` must participate in the
+  // undo stack like any other local edit. It previously did not: `LoadStatePlugin`'s reload effect
+  // depends on `viewOptions`, which `Editor` derived with a plain `useMemo(() => view ??
+  // defaultViewOptions, [view])` - a reference-only memo. A parent re-render that passes a
+  // fresh-but-value-equal `options.view` object (e.g. one triggered by `applyUpdate`'s own
+  // `onUsjChange` round-trip completing, moments after the insert) changed `viewOptions`'s
+  // identity without changing its value, re-firing `LoadStatePlugin` and its unconditional
+  // `CLEAR_HISTORY_COMMAND` dispatch - wiping the just-created undo entry with no document or view
+  // change to justify it.
+  it("stays undoable across a re-render that passes a fresh-but-equal `options.view` object", async () => {
+    const ref = createRef<EditorRef>();
+    let editor: LexicalEditor | undefined;
+    // Two different object references with the same content - simulates a parent re-render that
+    // recomputes `options`/`view` without (or despite) its own memoization.
+    const optionsA: EditorOptions = {
+      view: { markerMode: "visible", hasSpacing: true, isFormattedFont: false },
+    };
+    const optionsB: EditorOptions = {
+      view: { markerMode: "visible", hasSpacing: true, isFormattedFont: false },
+    };
+
+    let rerender: ((element: React.ReactElement) => void) | undefined;
+    await act(async () => {
+      const result = render(
+        <Editor ref={ref} defaultUsj={blankUsj} options={optionsA}>
+          <GrabEditor onEditor={(e) => (editor = e)} />
+        </Editor>,
+      );
+      rerender = result.rerender;
+    });
+    await flushQueuedEvents();
+    if (!rerender) throw new Error("render did not return a rerender function");
+    const rerenderEditor = rerender;
+    if (!ref.current || !editor) throw new Error("EditorRef did not mount");
+
+    let canUndo = false;
+    editor.registerCommand<boolean>(
+      CAN_UNDO_COMMAND,
+      (payload) => {
+        canUndo = payload;
+        return false;
+      },
+      COMMAND_PRIORITY_CRITICAL,
+    );
+
+    await act(async () => {
+      ref.current?.applyUpdate(
+        [
+          { insert: { chapter: { number: "1", style: "c" } } },
+          { insert: { verse: { number: "1", style: "v" } } },
+        ],
+        "local",
+      );
+    });
+    await flushQueuedEvents();
+    expect(canUndo).toBe(true);
+
+    // Mirror the paranext-core sequence: a later re-render (the PDP round-trip settling) passes a
+    // fresh `options` object whose `view` is value-equal to the original but a different reference.
+    await act(async () => {
+      rerenderEditor(
+        <Editor ref={ref} defaultUsj={blankUsj} options={optionsB}>
+          <GrabEditor onEditor={(e) => (editor = e)} />
+        </Editor>,
+      );
+    });
+    await flushQueuedEvents();
+
+    expect(canUndo).toBe(true);
   });
 });
