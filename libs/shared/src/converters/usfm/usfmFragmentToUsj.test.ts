@@ -903,6 +903,31 @@ describe("usfmFragmentToUsjContent — verse, chapter, note, milestone, attribut
       ]);
     });
 
+    it("never turns // inside a figure's attribute value into an optbreak", () => {
+      // Same tokenizer behavior as extractAttributes' char-span fix: `//` is split into
+      // optbreak tokens spec-blind, including inside the `|attributes` segment where
+      // ParatextData treats it as plain value bytes (the segment is stripped from the text
+      // run and parsed as attributes, never reaching the `//`→optbreak pass). A clean figure
+      // span must still fold faithfully, URL intact, instead of degrading to a char span.
+      expect(
+        usfmFragmentToUsjContent('\\p \\fig caption|src="http://x.y/z.png" size="span"\\fig*'),
+      ).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: [
+            {
+              type: "figure",
+              marker: "fig",
+              file: "http://x.y/z.png",
+              size: "span",
+              content: ["caption"],
+            },
+          ],
+        },
+      ]);
+    });
+
     it("assembles rows and cells into a table with name-derived align and span colspan", () => {
       expect(
         usfmFragmentToUsjContent(
