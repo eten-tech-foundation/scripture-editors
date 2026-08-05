@@ -927,6 +927,26 @@ describe("attribute-bearing char spans re-tokenize", () => {
     });
   });
 
+  it("no-edit rebuild of an already-settled malformed-attribute span is a fixed point", () => {
+    // The previous test's OUTPUT — literal `|x=` bytes, no attributes, since "nd" has no
+    // default attribute for a bare chunk to resolve against — loaded directly (not produced by
+    // an in-session edit) and pushed back through the real rebuild pipeline. Re-tokenizing
+    // `\nd a|x=\nd*` must fail attribute parsing exactly the same way and reproduce the same
+    // literal span, not oscillate into some other shape on a second pass.
+    const editor = loadEditor(usjFromUsx(`<char style="nd">a|x=</char>`));
+    editor.update(
+      () => {
+        expect($rebuildParas([$lastPara()], context)).toBe(false);
+      },
+      { discrete: true },
+    );
+    editor.getEditorState().read(() => {
+      const nd = requireDefined($findCharDescendant($lastPara(), "nd"), "nd char span not found");
+      expect(nd.getUnknownAttributes()).toBeUndefined();
+      expect($charContentText(nd)).toBe("a|x=");
+    });
+  });
+
   it("`|gloss` typed before `\\nd*` stays literal content; before `\\w*` becomes lemma", () => {
     const editor = loadEditor(
       usjFromUsx(`<char style="nd" foo="bar">a</char> <char style="w" lemma="grace">x</char>`),
