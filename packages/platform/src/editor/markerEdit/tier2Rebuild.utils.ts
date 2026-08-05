@@ -597,6 +597,24 @@ function $isClosingMarkerSpan(span: FragmentSpan): boolean {
   return $isMarkerNode(node) && node.getMarkerSyntax() !== "opening";
 }
 
+/**
+ * Place the caret AFTER a closing marker glyph's enclosing span — the append position in the
+ * paragraph, PAST the whole char span — for a typed closer (`\nd*`) at paragraph END with nothing
+ * after it. The forward scan skips closing glyphs to land on the following content; when there IS no
+ * following content (para end), the caret still belongs after the closer, not at the end of the
+ * span's inner text (which is the closer glyph's start-of-glyph boundary, i.e. INSIDE the span,
+ * where continued typing edits within the marker). `selectNext` off the span, whose closer is its
+ * last child, resolves to the paragraph point just after it. Returns whether it placed the caret.
+ */
+function $selectAfterClosingSpan(span: FragmentSpan): boolean {
+  const glyph = $getNodeByKey(span.key);
+  if (!$isMarkerNode(glyph)) return false;
+  const enclosingSpan = glyph.getParent();
+  if (!$isElementNode(enclosingSpan)) return false;
+  enclosingSpan.selectNext(0, 0);
+  return true;
+}
+
 /** Place the collapsed caret at cumulative span-text `offset` (see `caretSpanTextOffset`)
  * within `spans`, falling back to the first element. */
 function $selectAtFragmentOffset(
@@ -619,6 +637,12 @@ function $selectAtFragmentOffset(
     cumulative += length;
   }
   if (!best) {
+    // The offset ran past every addressable span. When the LAST span is a completed closer glyph
+    // (a typed `\nd*` at paragraph end, nothing after), the caret belongs AFTER the whole span —
+    // an append position in the paragraph — so continued typing is unstyled. The reverse-find
+    // fallback below would instead park it at the end of the preceding text, i.e. INSIDE the span.
+    const lastSpan = spans[spans.length - 1];
+    if (lastSpan && $isClosingMarkerSpan(lastSpan) && $selectAfterClosingSpan(lastSpan)) return;
     const last = [...spans]
       .reverse()
       .find((span) => !span.isSentinel && !$isClosingMarkerSpan(span));

@@ -617,6 +617,55 @@ describe("$rebuildParas", () => {
     });
   });
 
+  it("lands the caret AFTER a typed closer glyph at paragraph END (append position, not inside)", () => {
+    // Para-END variant of the case above: the user typed a complete `\nd hello\nd*` at the very
+    // end of the paragraph, with NOTHING after the closer. The caret sat right after `\nd*`. After
+    // the rebuild builds the real CharNode span, the caret must sit AFTER the whole span — an
+    // append position in the paragraph — NOT at the end of the span's inner "hello" text (which is
+    // the start-of-glyph boundary of the closer), or continued typing lands STYLED inside the nd
+    // span. Pre-fix, the forward offset scan skipped the trailing closing glyph and the fallback
+    // parked the caret at the end of the last text span ("hello"), i.e. inside the span.
+    const editor = loadEditor(usjFromUsx(`<verse number="1" style="v" />before `));
+    editor.update(
+      () => {
+        const para = $lastPara();
+        const text = requireDefined(
+          para
+            .getChildren()
+            .filter($isTextNode)
+            .find((node) => node.getTextContent().includes("before")),
+          "text node containing 'before' not found",
+        );
+        text.setTextContent("before \\nd hello\\nd*");
+        const offset = "before \\nd hello\\nd*".length; // right after the typed closer, at para end
+        text.select(offset, offset);
+        expect($rebuildParas([para], context)).toBe(true);
+      },
+      { discrete: true },
+    );
+    editor.getEditorState().read(() => {
+      const nd = requireDefined(
+        $findCharDescendant($lastPara(), "nd"),
+        "nd span not found after rebuild",
+      );
+      const selection = $getSelection();
+      expect($isRangeSelection(selection)).toBe(true);
+      if ($isRangeSelection(selection)) {
+        const anchorNode = selection.anchor.getNode();
+        // Not parked on the closer glyph itself…
+        expect($isMarkerNode(anchorNode)).toBe(false);
+        // …and NOT anywhere inside the nd span (continued typing must be unstyled paragraph text).
+        let insideNd = false;
+        for (let node: LexicalNode | null = anchorNode; node; node = node.getParent())
+          if (node.is(nd)) {
+            insideNd = true;
+            break;
+          }
+        expect(insideNd).toBe(false);
+      }
+    });
+  });
+
   it("restores the caret to the END of a marker glyph split out mid-paragraph (no scramble)", () => {
     // Typing `\z` mid-paragraph immediately terminates against the pre-existing following
     // space, so the rebuild splits the paragraph. The caret sat right after the just-typed

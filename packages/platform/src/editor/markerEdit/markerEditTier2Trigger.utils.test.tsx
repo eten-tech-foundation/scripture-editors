@@ -42,6 +42,15 @@ import {
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import { createBasicTestEnvironment } from "../../../../../libs/shared/src/nodes/usj/test.utils";
 
+// jsdom implements no layout, so `Range.prototype.getBoundingClientRect` is absent. When a settle
+// places the caret at a paragraph's append point after a typed closer (`\nd …\nd*` at para end),
+// Lexical's post-commit scroll-into-view reads that rect off a Range and throws from inside its
+// async $commitPendingUpdates — outside any test's promise chain, so it surfaces as an unhandled
+// error rather than a failure. An empty rect is the semantically-truthful stand-in (same shim as
+// markerEditUndoResettle.test.tsx / ScriptureReferencePlugin.test.tsx).
+if (typeof Range.prototype.getBoundingClientRect !== "function")
+  Range.prototype.getBoundingClientRect = () => new DOMRect();
+
 /** Narrow away `T | undefined` without a banned non-null assertion. */
 function requireDefinedInTest<T>(value: T | undefined, message: string): T {
   if (value === undefined) throw new Error(message);
