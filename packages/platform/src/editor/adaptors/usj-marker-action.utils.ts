@@ -2,6 +2,7 @@ import { MarkerContent } from "@eten-tech-foundation/scripture-utilities";
 import { SerializedVerseRef } from "@sillsdev/scripture";
 import {
   $createTextNode,
+  $getRoot,
   $getSelection,
   $isElementNode,
   $isRangeSelection,
@@ -14,6 +15,7 @@ import {
 } from "lexical";
 import {
   $createNodeFromSerializedNode,
+  $findChapter,
   $isMarkerNode,
   $isNoteNode,
   $isTypedMarkNode,
@@ -54,11 +56,12 @@ const markerActions: { [marker: string]: UsjMarkerAction } = {
   c: {
     action: (currentEditor) => {
       const { chapterNum } = currentEditor.reference;
-      const nextChapter = chapterNum + 1;
+      const hasChapterNode = $findChapter($getRoot().getChildren(), chapterNum) !== undefined;
+      const targetChapter = hasChapterNode ? chapterNum + 1 : chapterNum;
       const content: MarkerContent = {
         type: "chapter",
         marker: "c",
-        number: `${nextChapter}`,
+        number: `${targetChapter}`,
       };
       return [content];
     },
