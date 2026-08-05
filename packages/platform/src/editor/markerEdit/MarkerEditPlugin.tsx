@@ -355,6 +355,18 @@ export function MarkerEditPlugin({
       // — no editor.update here, since mutating state from inside a mutation listener risks a
       // cascading update loop. skipInitialization: false so nodes already in the initial editor
       // state (not just later edits) get the class too.
+      //
+      // A verse's `\va`/`\vp` display value additionally gets its marker's OWN stylesheet class
+      // (`usfm_va`/`usfm_vp` — the same class CharNode.createDOM puts on a STANDALONE `\va*`
+      // char span), so the folded and standalone forms render identically: PT9 shows `\va 2\va*`
+      // with the value in va's green-superscript style and the glyphs in the ordinary marker-gray
+      // (the glyphs already get that via their `.opening`/`.closing` classes — untouched here).
+      // Detected the same way the run's own pieces are found (attributeDisplay.utils.ts): the
+      // value's immediately preceding sibling is the run's opening glyph. Scoped to va/vp only —
+      // the only attribute markers with a folded display surface today (ca/cp are never
+      // displayed on a chapter; cat's note context has no display run either); a char span's OWN
+      // attribute run (`\w x|lemma="y"\w*`) never has an opening glyph immediately before it, so
+      // this can't misfire there.
       editor.registerMutationListener(
         TextNode,
         (mutations) => {
@@ -363,7 +375,15 @@ export function MarkerEditPlugin({
               if (mutation === "destroyed") continue;
               const node = $getNodeByKey<TextNode>(key);
               if (!node || $getState(node, textTypeState) !== "attribute") continue;
-              editor.getElementByKey(key)?.classList.add("attribute");
+              const element = editor.getElementByKey(key);
+              element?.classList.add("attribute");
+              const previous = node.getPreviousSibling();
+              if (
+                $isMarkerNode(previous) &&
+                previous.getMarkerSyntax() === "opening" &&
+                (previous.getMarker() === "va" || previous.getMarker() === "vp")
+              )
+                element?.classList.add(`usfm_${previous.getMarker()}`);
             }
           });
         },

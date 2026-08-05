@@ -57,6 +57,27 @@ describe("CharNode createDOM title attribute", () => {
   });
 });
 
+// The five USFM attribute markers (usfmFragmentToUsj.ts's ATTRIBUTE_MARKERS: ca, cp, va, vp,
+// cat) each degrade to an ordinary standalone char span — same as any other marker — whenever
+// they are NOT adjacent to a target they can fold onto (or carry markup that blocks the fold).
+// createDOM does not special-case them: the marker string alone drives the `usfm_<marker>`
+// class, same as "wj" above, so a project stylesheet that styles `va` (green superscript, say)
+// applies to a standalone `\va ...\va*` span exactly like any other char marker. Pinned here
+// because a FOLDED `\va`/`\vp` display run (attributeDisplay.utils.ts, a verse's following
+// siblings, never a CharNode) needed a SEPARATE fix to carry the same class — see
+// MarkerEditPlugin.tsx's attribute-run mutation listener and attributeClass.utils.test.tsx.
+// `ca`/`cp`/`cat` have no such folded display run today: a chapter's altnumber/pubnumber are
+// never shown on screen at all, and `cat` lives inside an atomic, unexpanded note/sidebar — so
+// this standalone-span pin is their only display-styling coverage.
+describe("standalone attribute-marker char spans (ca/cp/va/vp/cat) get their usfm_<marker> class", () => {
+  it.each(["ca", "cp", "va", "vp", "cat"])("marker %s", (marker) => {
+    const editor = createTestEditor();
+    const element = createDomFor(editor, marker);
+    expect(element.getAttribute("data-marker")).toBe(marker);
+    expect(element.classList.contains(`usfm_${marker}`)).toBe(true);
+  });
+});
+
 describe("CharNode.isValidMarker", () => {
   it("returns true for a built-in marker", () => {
     expect(CharNode.isValidMarker("add")).toBe(true);
