@@ -52,7 +52,7 @@ import {
   NodeKey,
   TextNode,
 } from "lexical";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import {
   $hasCaretHeldAttributeRun,
   $hasCaretHeldMilestoneRun,
@@ -195,14 +195,39 @@ export function MarkerEditPlugin({
 }): null {
   const [editor] = useLexicalComposerContext();
   const isEnabled = viewOptions?.markerMode === "editable";
+  // The standard-view whitespace transform + clipboard normalization travel with the editable
+  // marker engine, so they must be active whenever editable markers are on in a spaced+formatted
+  // view — for expanded notes too, not only the named `standard` (collapsed) mode. Still gated
+  // separately from the rest of this plugin so they do not leak into Unformatted view. Derived in
+  // render scope (not inside the registration effect) so it can key that effect: a boolean, so a
+  // re-render carrying a NEW viewOptions object with the SAME whitespace-ness never re-registers.
+  const isStandardView = !!viewOptions && hasStandardViewWhitespace(viewOptions);
+
+  // The marker-edit engine's live state — its pending set and (critically) the app-placed-caret
+  // suppression window — lives on ONE persistent context that outlives re-renders. It is created
+  // once per registration (below) and only its WIRING (viewOptions/getMarker/logger) is refreshed
+  // per render. Recreating it on every render — which the old single effect did by listing the
+  // prop IDENTITIES in its deps — reset the suppression window and, because re-registering the node
+  // transforms marks every existing node dirty, re-fired the transforms over the whole document.
+  // After an undo that left a literal pending, a host re-render with a fresh viewOptions/getMarker/
+  // logger identity (e.g. the re-render a scrRef echo triggers ~100-200ms later) therefore
+  // re-settled the just-undone literal with NO user gesture — the "undo re-settles ~1s later" bug.
+  // The window must release only on a real in-editor gesture (KEY_DOWN/CLICK), never on a re-render.
+  const contextRef = useRef<MarkerEditContext | undefined>(undefined);
+
+  // Refresh the wiring on the live context every render, without tearing the engine down. The
+  // registration effect below deliberately does NOT depend on these values, so an identity-only
+  // prop change reaches the transforms through this mutation instead of through a re-registration.
+  useEffect(() => {
+    const context = contextRef.current;
+    if (!context) return;
+    if (viewOptions) context.viewOptions = viewOptions;
+    context.getMarker = getMarker ?? bundledGetMarker;
+    context.logger = logger;
+  }, [viewOptions, getMarker, logger]);
 
   useEffect(() => {
     if (!isEnabled || !viewOptions) return;
-    // The standard-view whitespace transform + clipboard normalization travel with the editable
-    // marker engine, so they must be active whenever editable markers are on in a spaced+formatted
-    // view — for expanded notes too, not only the named `standard` (collapsed) mode. Still gated
-    // separately from the rest of this plugin so they do not leak into Unformatted view.
-    const isStandardView = hasStandardViewWhitespace(viewOptions);
     const context: MarkerEditContext = {
       viewOptions,
       getMarker: getMarker ?? bundledGetMarker,
@@ -211,6 +236,7 @@ export function MarkerEditPlugin({
       rebuildAttempted: new Set<string>(),
       logger,
     };
+    contextRef.current = context;
     // Tracks the caret's node key as of the most recent commit — keyed off the selection FOCUS
     // (the live cursor end, so it stays correct even for a backward range selection), updated
     // synchronously by the update listener below (which never lags, unlike command handlers
@@ -743,8 +769,16 @@ export function MarkerEditPlugin({
     return () => {
       disposed = true;
       unregister();
+      contextRef.current = undefined;
     };
-  }, [editor, isEnabled, viewOptions, getMarker, logger]);
+    // Keyed on STABLE values only: `editor`, and the two booleans that decide which listeners are
+    // registered. viewOptions/getMarker/logger are deliberately excluded — they are wiring,
+    // refreshed onto the persistent context by the effect above, and listing them here would tear
+    // the engine down and reset the app-placed-caret window on every identity-only re-render (the
+    // undo re-settle bug documented on `contextRef`). A genuine mode change (editable⇄non-editable,
+    // or whitespace on/off) flips one of the booleans and re-registers as before.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor, isEnabled, isStandardView]);
 
   return null;
 }
