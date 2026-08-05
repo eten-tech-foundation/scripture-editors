@@ -283,15 +283,10 @@ const blankUsj: Usj = {
 };
 
 describe("applyUpdate('local') undo-history retention", () => {
-  // A chapter-scaffold insert via `EditorRef.applyUpdate(ops, 'local')` must participate in the
-  // undo stack like any other local edit. It previously did not: `LoadStatePlugin`'s reload effect
-  // depends on `viewOptions`, which `Editor` derived with a plain `useMemo(() => view ??
-  // defaultViewOptions, [view])` - a reference-only memo. A parent re-render that passes a
-  // fresh-but-value-equal `options.view` object (e.g. one triggered by `applyUpdate`'s own
-  // `onUsjChange` round-trip completing, moments after the insert) changed `viewOptions`'s
-  // identity without changing its value, re-firing `LoadStatePlugin` and its unconditional
-  // `CLEAR_HISTORY_COMMAND` dispatch - wiping the just-created undo entry with no document or view
-  // change to justify it.
+  // This test verifies that a value-equal (but reference-different) `view` object does NOT clear
+  // undo history; the next test verifies the complementary case - that a genuinely different
+  // `view` still does. See the comment on `viewOptions`'s memoization in Editor.tsx for why this
+  // matters.
   it("stays undoable across a re-render that passes a fresh-but-equal `options.view` object", async () => {
     const ref = createRef<EditorRef>();
     let editor: LexicalEditor | undefined;
@@ -352,5 +347,69 @@ describe("applyUpdate('local') undo-history retention", () => {
     await flushQueuedEvents();
 
     expect(canUndo).toBe(true);
+  });
+
+  it("clears undo history across a re-render that passes a genuinely different `view` object", async () => {
+    const ref = createRef<EditorRef>();
+    let editor: LexicalEditor | undefined;
+    const optionsA: EditorOptions = {
+      view: { markerMode: "visible", hasSpacing: true, isFormattedFont: false },
+    };
+    // A real view-mode switch - `markerMode` differs from `optionsA` - so the memoized
+    // `viewOptions` must produce a new value and let `LoadStatePlugin` reload as intended.
+    const optionsDifferentView: EditorOptions = {
+      view: { markerMode: "hidden", hasSpacing: true, isFormattedFont: false },
+    };
+
+    let rerender: ((element: React.ReactElement) => void) | undefined;
+    await act(async () => {
+      const result = render(
+        <Editor ref={ref} defaultUsj={blankUsj} options={optionsA}>
+          <GrabEditor onEditor={(e) => (editor = e)} />
+        </Editor>,
+      );
+      rerender = result.rerender;
+    });
+    await flushQueuedEvents();
+    if (!rerender) throw new Error("render did not return a rerender function");
+    const rerenderEditor = rerender;
+    if (!ref.current || !editor) throw new Error("EditorRef did not mount");
+
+    let canUndo = false;
+    editor.registerCommand<boolean>(
+      CAN_UNDO_COMMAND,
+      (payload) => {
+        canUndo = payload;
+        return false;
+      },
+      COMMAND_PRIORITY_CRITICAL,
+    );
+
+    await act(async () => {
+      ref.current?.applyUpdate(
+        [
+          { insert: { chapter: { number: "1", style: "c" } } },
+          { insert: { verse: { number: "1", style: "v" } } },
+        ],
+        "local",
+      );
+    });
+    await flushQueuedEvents();
+    expect(canUndo).toBe(true);
+
+    // A genuinely different `view` must still trigger LoadStatePlugin's reload and clear the
+    // undo stack it just built - proving the memo isn't short-circuiting real changes to always
+    // report "equal" (which would pass the previous test while breaking every real view-mode
+    // switch in the app).
+    await act(async () => {
+      rerenderEditor(
+        <Editor ref={ref} defaultUsj={blankUsj} options={optionsDifferentView}>
+          <GrabEditor onEditor={(e) => (editor = e)} />
+        </Editor>,
+      );
+    });
+    await flushQueuedEvents();
+
+    expect(canUndo).toBe(false);
   });
 });
