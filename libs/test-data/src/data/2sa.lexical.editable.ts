@@ -58,7 +58,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -102,7 +102,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -146,7 +146,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -213,7 +213,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -257,7 +257,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -303,17 +303,6 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                 style: "",
                 version: 1,
               },
-              {
-                type: "marker",
-                marker: "bd",
-                markerSyntax: "closing",
-                text: "",
-                detail: 0,
-                format: 0,
-                mode: "normal",
-                style: "",
-                version: 1,
-              },
             ],
             direction: null,
             format: "",
@@ -348,7 +337,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -392,7 +381,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -427,7 +416,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -473,17 +462,6 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                 style: "",
                 version: 1,
               },
-              {
-                type: "marker",
-                marker: "bd",
-                markerSyntax: "closing",
-                text: "",
-                detail: 0,
-                format: 0,
-                mode: "normal",
-                style: "",
-                version: 1,
-              },
             ],
             direction: null,
             format: "",
@@ -518,7 +496,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -681,7 +659,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -825,6 +803,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                         type: "marker",
                         marker: "wj",
                         markerSyntax: "opening",
+                        nested: true,
                         text: "",
                         detail: 0,
                         format: 0,
@@ -845,6 +824,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                         type: "marker",
                         marker: "wj",
                         markerSyntax: "closing",
+                        nested: true,
                         text: "",
                         detail: 0,
                         format: 0,
@@ -860,7 +840,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                   },
                   {
                     type: "text",
-                    text: "  in the footnote.",
+                    text: " in the footnote.",
                     detail: 0,
                     format: 0,
                     mode: "normal",
@@ -927,7 +907,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -985,6 +965,15 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                     version: 1,
                   },
                   {
+                    type: "text",
+                    text: " ",
+                    detail: 0,
+                    format: 0,
+                    mode: "normal",
+                    style: "",
+                    version: 1,
+                  },
+                  {
                     type: "char",
                     marker: "wj",
                     children: [
@@ -992,6 +981,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                         type: "marker",
                         marker: "wj",
                         markerSyntax: "opening",
+                        nested: true,
                         text: "",
                         detail: 0,
                         format: 0,
@@ -1012,6 +1002,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                         type: "marker",
                         marker: "wj",
                         markerSyntax: "closing",
+                        nested: true,
                         text: "",
                         detail: 0,
                         format: 0,
@@ -1171,7 +1162,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -1237,6 +1228,17 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                     style: "",
                     version: 1,
                   },
+                  {
+                    type: "marker",
+                    marker: "xo",
+                    markerSyntax: "closing",
+                    text: "",
+                    detail: 0,
+                    format: 0,
+                    mode: "normal",
+                    style: "",
+                    version: 1,
+                  },
                 ],
                 direction: null,
                 format: "",
@@ -1270,6 +1272,17 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                   {
                     type: "text",
                     text: " Crossref text.",
+                    detail: 0,
+                    format: 0,
+                    mode: "normal",
+                    style: "",
+                    version: 1,
+                  },
+                  {
+                    type: "marker",
+                    marker: "xt",
+                    markerSyntax: "closing",
+                    text: "",
                     detail: 0,
                     format: 0,
                     mode: "normal",
@@ -1336,7 +1349,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -1371,7 +1384,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -1417,17 +1430,6 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                 style: "",
                 version: 1,
               },
-              {
-                type: "marker",
-                marker: "bd",
-                markerSyntax: "closing",
-                text: "",
-                detail: 0,
-                format: 0,
-                mode: "normal",
-                style: "",
-                version: 1,
-              },
             ],
             direction: null,
             format: "",
@@ -1462,7 +1464,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -1706,7 +1708,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -1791,7 +1793,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -1833,6 +1835,18 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                 mode: "normal",
                 style: "",
                 version: 1,
+              },
+              {
+                type: "text",
+                text: "|stuff",
+                detail: 0,
+                format: 0,
+                mode: "normal",
+                style: "",
+                version: 1,
+                $: {
+                  textType: "attribute",
+                },
               },
               {
                 type: "marker",
@@ -1888,7 +1902,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -1930,6 +1944,18 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                 mode: "normal",
                 style: "",
                 version: 1,
+              },
+              {
+                type: "text",
+                text: "|stuff ",
+                detail: 0,
+                format: 0,
+                mode: "normal",
+                style: "",
+                version: 1,
+                $: {
+                  textType: "attribute",
+                },
               },
               {
                 type: "marker",
@@ -1985,7 +2011,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -2029,6 +2055,18 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                 mode: "normal",
                 style: "",
                 version: 1,
+              },
+              {
+                type: "text",
+                text: '|strong="H1234,G1234" lemma="markerLemma" srcloc="Location"',
+                detail: 0,
+                format: 0,
+                mode: "normal",
+                style: "",
+                version: 1,
+                $: {
+                  textType: "attribute",
+                },
               },
               {
                 type: "marker",
@@ -2084,7 +2122,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -2126,6 +2164,18 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                 mode: "normal",
                 style: "",
                 version: 1,
+              },
+              {
+                type: "text",
+                text: "|2SA 1:1",
+                detail: 0,
+                format: 0,
+                mode: "normal",
+                style: "",
+                version: 1,
+                $: {
+                  textType: "attribute",
+                },
               },
               {
                 type: "marker",
@@ -2181,7 +2231,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -2225,6 +2275,18 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                 mode: "normal",
                 style: "",
                 version: 1,
+              },
+              {
+                type: "text",
+                text: '|link-href="2SA 1:2" link-title="My Title" link-id="3.0 link"',
+                detail: 0,
+                format: 0,
+                mode: "normal",
+                style: "",
+                version: 1,
+                $: {
+                  textType: "attribute",
+                },
               },
               {
                 type: "marker",
@@ -2280,7 +2342,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -2323,6 +2385,18 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                 mode: "normal",
                 style: "",
                 version: 1,
+              },
+              {
+                type: "text",
+                text: '|href="2SA 1:3" id="3.1 link"',
+                detail: 0,
+                format: 0,
+                mode: "normal",
+                style: "",
+                version: 1,
+                $: {
+                  textType: "attribute",
+                },
               },
               {
                 type: "marker",
@@ -2378,7 +2452,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -2420,6 +2494,18 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                 mode: "normal",
                 style: "",
                 version: 1,
+              },
+              {
+                type: "text",
+                text: "|x-user-defined:thing",
+                detail: 0,
+                format: 0,
+                mode: "normal",
+                style: "",
+                version: 1,
+                $: {
+                  textType: "attribute",
+                },
               },
               {
                 type: "marker",
@@ -2475,7 +2561,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -2517,6 +2603,18 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                 mode: "normal",
                 style: "",
                 version: 1,
+              },
+              {
+                type: "text",
+                text: "|prj:zzz6 2SA 1:4",
+                detail: 0,
+                format: 0,
+                mode: "normal",
+                style: "",
+                version: 1,
+                $: {
+                  textType: "attribute",
+                },
               },
               {
                 type: "marker",
@@ -2572,7 +2670,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -2614,6 +2712,18 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                 mode: "normal",
                 style: "",
                 version: 1,
+              },
+              {
+                type: "text",
+                text: "|x-prj:zzz6 2SA 1:5",
+                detail: 0,
+                format: 0,
+                mode: "normal",
+                style: "",
+                version: 1,
+                $: {
+                  textType: "attribute",
+                },
               },
               {
                 type: "marker",
@@ -2669,7 +2779,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -2711,6 +2821,18 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                 mode: "normal",
                 style: "",
                 version: 1,
+              },
+              {
+                type: "text",
+                text: "|2SA 1:6",
+                detail: 0,
+                format: 0,
+                mode: "normal",
+                style: "",
+                version: 1,
+                $: {
+                  textType: "attribute",
+                },
               },
               {
                 type: "marker",
@@ -2766,7 +2888,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -2808,6 +2930,18 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                 mode: "normal",
                 style: "",
                 version: 1,
+              },
+              {
+                type: "text",
+                text: "|figures/platform-bible-discord.png",
+                detail: 0,
+                format: 0,
+                mode: "normal",
+                style: "",
+                version: 1,
+                $: {
+                  textType: "attribute",
+                },
               },
               {
                 type: "marker",
@@ -2863,7 +2997,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -2905,6 +3039,18 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                 mode: "normal",
                 style: "",
                 version: 1,
+              },
+              {
+                type: "text",
+                text: "|#fake-named-target-id",
+                detail: 0,
+                format: 0,
+                mode: "normal",
+                style: "",
+                version: 1,
+                $: {
+                  textType: "attribute",
+                },
               },
               {
                 type: "marker",
@@ -2960,7 +3106,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -3002,6 +3148,18 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                 mode: "normal",
                 style: "",
                 version: 1,
+              },
+              {
+                type: "text",
+                text: '|link-href="2SA 1:7"',
+                detail: 0,
+                format: 0,
+                mode: "normal",
+                style: "",
+                version: 1,
+                $: {
+                  textType: "attribute",
+                },
               },
               {
                 type: "marker",
@@ -3057,7 +3215,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -3099,6 +3257,18 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                 mode: "normal",
                 style: "",
                 version: 1,
+              },
+              {
+                type: "text",
+                text: '|key="something"',
+                detail: 0,
+                format: 0,
+                mode: "normal",
+                style: "",
+                version: 1,
+                $: {
+                  textType: "attribute",
+                },
               },
               {
                 type: "marker",
@@ -3154,7 +3324,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -3248,7 +3418,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -3342,7 +3512,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -3390,6 +3560,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                     type: "marker",
                     marker: "nd",
                     markerSyntax: "opening",
+                    nested: true,
                     text: "",
                     detail: 0,
                     format: 0,
@@ -3410,6 +3581,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                     type: "marker",
                     marker: "nd",
                     markerSyntax: "closing",
+                    nested: true,
                     text: "",
                     detail: 0,
                     format: 0,
@@ -3425,7 +3597,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
               },
               {
                 type: "text",
-                text: "  must",
+                text: " must",
                 detail: 0,
                 format: 0,
                 mode: "normal",
@@ -3486,7 +3658,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -3678,7 +3850,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
               },
               {
                 type: "text",
-                text: "  inside character markers",
+                text: " inside character markers",
                 detail: 0,
                 format: 0,
                 mode: "normal",
@@ -3739,7 +3911,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -3782,17 +3954,6 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                 style: "",
                 version: 1,
               },
-              {
-                type: "marker",
-                marker: "wj",
-                markerSyntax: "closing",
-                text: "",
-                detail: 0,
-                format: 0,
-                mode: "normal",
-                style: "",
-                version: 1,
-              },
             ],
             direction: null,
             format: "",
@@ -3827,7 +3988,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -3862,7 +4023,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -3908,17 +4069,6 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                 style: "",
                 version: 1,
               },
-              {
-                type: "marker",
-                marker: "bd",
-                markerSyntax: "closing",
-                text: "",
-                detail: 0,
-                format: 0,
-                mode: "normal",
-                style: "",
-                version: 1,
-              },
             ],
             direction: null,
             format: "",
@@ -3953,7 +4103,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -4069,7 +4219,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -4103,6 +4253,18 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             mode: "normal",
             style: "",
             version: 1,
+          },
+          {
+            type: "text",
+            text: " |TJ ",
+            detail: 0,
+            format: 0,
+            mode: "normal",
+            style: "",
+            version: 1,
+            $: {
+              textType: "attribute",
+            },
           },
           {
             type: "marker",
@@ -4188,7 +4350,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -4226,7 +4388,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
           },
           {
             type: "text",
-            text: ' |sid="Some quote"',
+            text: ' |sid="Some quote" who="TJ"',
             detail: 0,
             format: 0,
             mode: "normal",
@@ -4284,7 +4446,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -4328,7 +4490,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -4363,7 +4525,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
           },
           {
             type: "text",
-            text: ' |eid="Some quote"',
+            text: " |Some quote",
             detail: 0,
             format: 0,
             mode: "normal",
@@ -4421,7 +4583,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -4456,7 +4618,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
           },
           {
             type: "text",
-            text: ' |sid="Translator\'s section"',
+            text: " |Translator's section",
             detail: 0,
             format: 0,
             mode: "normal",
@@ -4505,7 +4667,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
           },
           {
             type: "text",
-            text: ' |eid="Translator\'s section"',
+            text: " |Translator's section",
             detail: 0,
             format: 0,
             mode: "normal",
@@ -4563,7 +4725,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -4607,7 +4769,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -4656,7 +4818,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -4700,7 +4862,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -4749,7 +4911,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -4798,7 +4960,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -4847,7 +5009,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -4882,7 +5044,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -4929,7 +5091,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -4964,7 +5126,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -5010,17 +5172,6 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                 style: "",
                 version: 1,
               },
-              {
-                type: "marker",
-                marker: "bd",
-                markerSyntax: "closing",
-                text: "",
-                detail: 0,
-                format: 0,
-                mode: "normal",
-                style: "",
-                version: 1,
-              },
             ],
             direction: null,
             format: "",
@@ -5055,7 +5206,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -5099,7 +5250,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -5143,7 +5294,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -5187,7 +5338,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -5231,7 +5382,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -5266,7 +5417,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -5312,17 +5463,6 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                 style: "",
                 version: 1,
               },
-              {
-                type: "marker",
-                marker: "bd",
-                markerSyntax: "closing",
-                text: "",
-                detail: 0,
-                format: 0,
-                mode: "normal",
-                style: "",
-                version: 1,
-              },
             ],
             direction: null,
             format: "",
@@ -5357,7 +5497,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -5401,7 +5541,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -5445,7 +5585,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -5480,7 +5620,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -5526,17 +5666,6 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                 style: "",
                 version: 1,
               },
-              {
-                type: "marker",
-                marker: "bd",
-                markerSyntax: "closing",
-                text: "",
-                detail: 0,
-                format: 0,
-                mode: "normal",
-                style: "",
-                version: 1,
-              },
             ],
             direction: null,
             format: "",
@@ -5571,7 +5700,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -5614,6 +5743,18 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                 mode: "normal",
                 style: "",
                 version: 1,
+              },
+              {
+                type: "text",
+                text: '|x-custom-attribute-1="Stuff" z-custom-attribute-2="Things"',
+                detail: 0,
+                format: 0,
+                mode: "normal",
+                style: "",
+                version: 1,
+                $: {
+                  textType: "attribute",
+                },
               },
               {
                 type: "marker",
@@ -5669,7 +5810,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -5712,6 +5853,18 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                 mode: "normal",
                 style: "",
                 version: 1,
+              },
+              {
+                type: "text",
+                text: '|custom-attribute-no-prefix="Bad" custom-attribute-no-prefix-2="Attributes"',
+                detail: 0,
+                format: 0,
+                mode: "normal",
+                style: "",
+                version: 1,
+                $: {
+                  textType: "attribute",
+                },
               },
               {
                 type: "marker",
@@ -5767,7 +5920,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -5802,7 +5955,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -5848,17 +6001,6 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                 style: "",
                 version: 1,
               },
-              {
-                type: "marker",
-                marker: "bd",
-                markerSyntax: "closing",
-                text: "",
-                detail: 0,
-                format: 0,
-                mode: "normal",
-                style: "",
-                version: 1,
-              },
             ],
             direction: null,
             format: "",
@@ -5893,7 +6035,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -5937,7 +6079,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -5981,7 +6123,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -6025,7 +6167,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -6069,7 +6211,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -6113,7 +6255,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -6132,6 +6274,74 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             sid: "2SA 1:10",
             altnumber: "10 va",
             pubnumber: "10 vp",
+            version: 1,
+          },
+          {
+            type: "marker",
+            marker: "va",
+            markerSyntax: "opening",
+            text: "",
+            detail: 0,
+            format: 0,
+            mode: "normal",
+            style: "",
+            version: 1,
+          },
+          {
+            type: "text",
+            text: " 10 va",
+            detail: 0,
+            format: 0,
+            mode: "normal",
+            style: "",
+            version: 1,
+            $: {
+              textType: "attribute",
+            },
+          },
+          {
+            type: "marker",
+            marker: "va",
+            markerSyntax: "closing",
+            text: "",
+            detail: 0,
+            format: 0,
+            mode: "normal",
+            style: "",
+            version: 1,
+          },
+          {
+            type: "marker",
+            marker: "vp",
+            markerSyntax: "opening",
+            text: "",
+            detail: 0,
+            format: 0,
+            mode: "normal",
+            style: "",
+            version: 1,
+          },
+          {
+            type: "text",
+            text: " 10 vp",
+            detail: 0,
+            format: 0,
+            mode: "normal",
+            style: "",
+            version: 1,
+            $: {
+              textType: "attribute",
+            },
+          },
+          {
+            type: "marker",
+            marker: "vp",
+            markerSyntax: "closing",
+            text: "",
+            detail: 0,
+            format: 0,
+            mode: "normal",
+            style: "",
             version: 1,
           },
           {
@@ -6171,7 +6381,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -6190,6 +6400,74 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             sid: "2SA 1:11",
             altnumber: "11 va",
             pubnumber: "11 vp",
+            version: 1,
+          },
+          {
+            type: "marker",
+            marker: "va",
+            markerSyntax: "opening",
+            text: "",
+            detail: 0,
+            format: 0,
+            mode: "normal",
+            style: "",
+            version: 1,
+          },
+          {
+            type: "text",
+            text: " 11 va",
+            detail: 0,
+            format: 0,
+            mode: "normal",
+            style: "",
+            version: 1,
+            $: {
+              textType: "attribute",
+            },
+          },
+          {
+            type: "marker",
+            marker: "va",
+            markerSyntax: "closing",
+            text: "",
+            detail: 0,
+            format: 0,
+            mode: "normal",
+            style: "",
+            version: 1,
+          },
+          {
+            type: "marker",
+            marker: "vp",
+            markerSyntax: "opening",
+            text: "",
+            detail: 0,
+            format: 0,
+            mode: "normal",
+            style: "",
+            version: 1,
+          },
+          {
+            type: "text",
+            text: " 11 vp",
+            detail: 0,
+            format: 0,
+            mode: "normal",
+            style: "",
+            version: 1,
+            $: {
+              textType: "attribute",
+            },
+          },
+          {
+            type: "marker",
+            marker: "vp",
+            markerSyntax: "closing",
+            text: "",
+            detail: 0,
+            format: 0,
+            mode: "normal",
+            style: "",
             version: 1,
           },
           {
@@ -6229,7 +6507,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -6247,6 +6525,40 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             number: "12",
             sid: "2SA 1:12",
             altnumber: "12 va",
+            version: 1,
+          },
+          {
+            type: "marker",
+            marker: "va",
+            markerSyntax: "opening",
+            text: "",
+            detail: 0,
+            format: 0,
+            mode: "normal",
+            style: "",
+            version: 1,
+          },
+          {
+            type: "text",
+            text: " 12 va",
+            detail: 0,
+            format: 0,
+            mode: "normal",
+            style: "",
+            version: 1,
+            $: {
+              textType: "attribute",
+            },
+          },
+          {
+            type: "marker",
+            marker: "va",
+            markerSyntax: "closing",
+            text: "",
+            detail: 0,
+            format: 0,
+            mode: "normal",
+            style: "",
             version: 1,
           },
           {
@@ -6336,7 +6648,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -6387,6 +6699,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                     type: "marker",
                     marker: "wj",
                     markerSyntax: "opening",
+                    nested: true,
                     text: "",
                     detail: 0,
                     format: 0,
@@ -6407,6 +6720,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                     type: "marker",
                     marker: "wj",
                     markerSyntax: "closing",
+                    nested: true,
                     text: "",
                     detail: 0,
                     format: 0,
@@ -6565,7 +6879,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -6583,6 +6897,40 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             number: "14",
             sid: "2SA 1:14",
             altnumber: "14",
+            version: 1,
+          },
+          {
+            type: "marker",
+            marker: "va",
+            markerSyntax: "opening",
+            text: "",
+            detail: 0,
+            format: 0,
+            mode: "normal",
+            style: "",
+            version: 1,
+          },
+          {
+            type: "text",
+            text: " 14",
+            detail: 0,
+            format: 0,
+            mode: "normal",
+            style: "",
+            version: 1,
+            $: {
+              textType: "attribute",
+            },
+          },
+          {
+            type: "marker",
+            marker: "va",
+            markerSyntax: "closing",
+            text: "",
+            detail: 0,
+            format: 0,
+            mode: "normal",
+            style: "",
             version: 1,
           },
           {
@@ -6617,6 +6965,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                     type: "marker",
                     marker: "wj",
                     markerSyntax: "opening",
+                    nested: true,
                     text: "",
                     detail: 0,
                     format: 0,
@@ -6637,6 +6986,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                     type: "marker",
                     marker: "wj",
                     markerSyntax: "closing",
+                    nested: true,
                     text: "",
                     detail: 0,
                     format: 0,
@@ -6754,7 +7104,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -6800,17 +7150,6 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                 style: "",
                 version: 1,
               },
-              {
-                type: "marker",
-                marker: "va",
-                markerSyntax: "closing",
-                text: "",
-                detail: 0,
-                format: 0,
-                mode: "normal",
-                style: "",
-                version: 1,
-              },
             ],
             direction: null,
             format: "",
@@ -6838,17 +7177,6 @@ export const lexicalEditable2Sa: SerializedEditorState = {
               {
                 type: "text",
                 text: ' 15 vp This verse marker has va and vp without closing markers. Neither of these markers becomes an attribute in USX or USJ because both have closed="false" and are therefore not simple markers.',
-                detail: 0,
-                format: 0,
-                mode: "normal",
-                style: "",
-                version: 1,
-              },
-              {
-                type: "marker",
-                marker: "vp",
-                markerSyntax: "closing",
-                text: "",
                 detail: 0,
                 format: 0,
                 mode: "normal",
@@ -6889,7 +7217,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -6937,6 +7265,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                     type: "marker",
                     marker: "wj",
                     markerSyntax: "opening",
+                    nested: true,
                     text: "",
                     detail: 0,
                     format: 0,
@@ -6957,6 +7286,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                     type: "marker",
                     marker: "wj",
                     markerSyntax: "closing",
+                    nested: true,
                     text: "",
                     detail: 0,
                     format: 0,
@@ -7024,7 +7354,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -7118,7 +7448,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -7153,7 +7483,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -7199,17 +7529,6 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                 style: "",
                 version: 1,
               },
-              {
-                type: "marker",
-                marker: "bd",
-                markerSyntax: "closing",
-                text: "",
-                detail: 0,
-                format: 0,
-                mode: "normal",
-                style: "",
-                version: 1,
-              },
             ],
             direction: null,
             format: "",
@@ -7244,7 +7563,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -7288,7 +7607,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -7307,7 +7626,14 @@ export const lexicalEditable2Sa: SerializedEditorState = {
           {
             type: "unknown",
             tag: "optbreak",
-            children: [],
+            children: [
+              {
+                type: "immutable-typed-text",
+                text: "//",
+                textType: "marker",
+                version: 1,
+              },
+            ],
             direction: null,
             format: "",
             indent: 0,
@@ -7325,7 +7651,14 @@ export const lexicalEditable2Sa: SerializedEditorState = {
           {
             type: "unknown",
             tag: "optbreak",
-            children: [],
+            children: [
+              {
+                type: "immutable-typed-text",
+                text: "//",
+                textType: "marker",
+                version: 1,
+              },
+            ],
             direction: null,
             format: "",
             indent: 0,
@@ -7368,7 +7701,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -7412,7 +7745,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -7459,7 +7792,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -7503,7 +7836,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -7538,7 +7871,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -7584,17 +7917,6 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                 style: "",
                 version: 1,
               },
-              {
-                type: "marker",
-                marker: "bd",
-                markerSyntax: "closing",
-                text: "",
-                detail: 0,
-                format: 0,
-                mode: "normal",
-                style: "",
-                version: 1,
-              },
             ],
             direction: null,
             format: "",
@@ -7629,7 +7951,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -7654,7 +7976,26 @@ export const lexicalEditable2Sa: SerializedEditorState = {
               size: "col",
               ref: "1.13",
             },
-            children: [],
+            children: [
+              {
+                type: "immutable-typed-text",
+                text: "\\fig ",
+                textType: "marker",
+                version: 1,
+              },
+              {
+                type: "immutable-typed-text",
+                text: '|src="platform-bible-discord.png" size="col" ref="1.13"',
+                textType: "attribute",
+                version: 1,
+              },
+              {
+                type: "immutable-typed-text",
+                text: "\\fig*",
+                textType: "marker",
+                version: 1,
+              },
+            ],
             direction: null,
             format: "",
             indent: 0,
@@ -7697,7 +8038,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -7727,12 +8068,30 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             },
             children: [
               {
+                type: "immutable-typed-text",
+                text: "\\fig ",
+                textType: "marker",
+                version: 1,
+              },
+              {
                 type: "text",
                 text: "Caption Here",
                 detail: 0,
                 format: 0,
                 mode: "token",
                 style: "",
+                version: 1,
+              },
+              {
+                type: "immutable-typed-text",
+                text: '|alt="Description Here" src="platform-bible-discord.png" size="span" loc="Location here" copy="Copyright here" ref="1.13"',
+                textType: "attribute",
+                version: 1,
+              },
+              {
+                type: "immutable-typed-text",
+                text: "\\fig*",
+                textType: "marker",
                 version: 1,
               },
             ],
@@ -7778,7 +8137,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -7813,7 +8172,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -7859,17 +8218,6 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                 style: "",
                 version: 1,
               },
-              {
-                type: "marker",
-                marker: "bd",
-                markerSyntax: "closing",
-                text: "",
-                detail: 0,
-                format: 0,
-                mode: "normal",
-                style: "",
-                version: 1,
-              },
             ],
             direction: null,
             format: "",
@@ -7904,7 +8252,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -7948,7 +8296,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -8042,7 +8390,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -8136,7 +8484,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -8180,7 +8528,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -8274,7 +8622,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -8318,7 +8666,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -8362,7 +8710,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -8406,7 +8754,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -8450,7 +8798,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -8494,7 +8842,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -8538,7 +8886,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -8582,7 +8930,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -8626,7 +8974,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -8670,7 +9018,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -8705,7 +9053,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -8751,17 +9099,6 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                 style: "",
                 version: 1,
               },
-              {
-                type: "marker",
-                marker: "bd",
-                markerSyntax: "closing",
-                text: "",
-                detail: 0,
-                format: 0,
-                mode: "normal",
-                style: "",
-                version: 1,
-              },
             ],
             direction: null,
             format: "",
@@ -8796,7 +9133,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -8830,6 +9167,12 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             marker: "tr",
             children: [
               {
+                type: "immutable-typed-text",
+                text: "\\tr ",
+                textType: "marker",
+                version: 1,
+              },
+              {
                 type: "unknown",
                 tag: "table:cell",
                 marker: "th1",
@@ -8837,6 +9180,12 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                   align: "start",
                 },
                 children: [
+                  {
+                    type: "immutable-typed-text",
+                    text: "\\th1 ",
+                    textType: "marker",
+                    version: 1,
+                  },
                   {
                     type: "text",
                     text: "Header 1",
@@ -8860,6 +9209,12 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                   align: "start",
                 },
                 children: [
+                  {
+                    type: "immutable-typed-text",
+                    text: "\\th2 ",
+                    textType: "marker",
+                    version: 1,
+                  },
                   {
                     type: "text",
                     text: "Header 2 space after ",
@@ -8885,6 +9240,12 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                 },
                 children: [
                   {
+                    type: "immutable-typed-text",
+                    text: "\\thc3-4 ",
+                    textType: "marker",
+                    version: 1,
+                  },
+                  {
                     type: "text",
                     text: "Header 3-4 centered",
                     detail: 0,
@@ -8907,6 +9268,12 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                   align: "end",
                 },
                 children: [
+                  {
+                    type: "immutable-typed-text",
+                    text: "\\thr5 ",
+                    textType: "marker",
+                    version: 1,
+                  },
                   {
                     type: "text",
                     text: "Header 5 right",
@@ -8934,6 +9301,12 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             marker: "tr",
             children: [
               {
+                type: "immutable-typed-text",
+                text: "\\tr ",
+                textType: "marker",
+                version: 1,
+              },
+              {
                 type: "unknown",
                 tag: "table:cell",
                 marker: "tc1",
@@ -8941,6 +9314,12 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                   align: "start",
                 },
                 children: [
+                  {
+                    type: "immutable-typed-text",
+                    text: "\\tc1 ",
+                    textType: "marker",
+                    version: 1,
+                  },
                   {
                     type: "text",
                     text: "Row 1 cell 1",
@@ -8965,6 +9344,12 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                 },
                 children: [
                   {
+                    type: "immutable-typed-text",
+                    text: "\\tc2 ",
+                    textType: "marker",
+                    version: 1,
+                  },
+                  {
                     type: "text",
                     text: "Row 1 cell 2 space after ",
                     detail: 0,
@@ -8987,6 +9372,12 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                   align: "center",
                 },
                 children: [
+                  {
+                    type: "immutable-typed-text",
+                    text: "\\thc3 ",
+                    textType: "marker",
+                    version: 1,
+                  },
                   {
                     type: "text",
                     text: "Row 1 cell 3 centered",
@@ -9011,6 +9402,12 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                   colspan: "2",
                 },
                 children: [
+                  {
+                    type: "immutable-typed-text",
+                    text: "\\thr4-5 ",
+                    textType: "marker",
+                    version: 1,
+                  },
                   {
                     type: "text",
                     text: "Row 1 cell 4-5 right",
@@ -9038,6 +9435,12 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             marker: "tr",
             children: [
               {
+                type: "immutable-typed-text",
+                text: "\\tr ",
+                textType: "marker",
+                version: 1,
+              },
+              {
                 type: "unknown",
                 tag: "table:cell",
                 marker: "tcr1",
@@ -9046,6 +9449,12 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                   colspan: "4",
                 },
                 children: [
+                  {
+                    type: "immutable-typed-text",
+                    text: "\\tcr1-4 ",
+                    textType: "marker",
+                    version: 1,
+                  },
                   {
                     type: "text",
                     text: "Row 2 cell 1-4 right",
@@ -9069,6 +9478,12 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                   align: "start",
                 },
                 children: [
+                  {
+                    type: "immutable-typed-text",
+                    text: "\\tc5 ",
+                    textType: "marker",
+                    version: 1,
+                  },
                   {
                     type: "text",
                     text: "Row 2 cell 5",
@@ -9116,7 +9531,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -9150,6 +9565,12 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             marker: "tr",
             children: [
               {
+                type: "immutable-typed-text",
+                text: "\\tr ",
+                textType: "marker",
+                version: 1,
+              },
+              {
                 type: "unknown",
                 tag: "table:cell",
                 marker: "tc1",
@@ -9157,6 +9578,12 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                   align: "start",
                 },
                 children: [
+                  {
+                    type: "immutable-typed-text",
+                    text: "\\tc1 ",
+                    textType: "marker",
+                    version: 1,
+                  },
                   {
                     type: "text",
                     text: "r1c1",
@@ -9180,6 +9607,12 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                   align: "start",
                 },
                 children: [
+                  {
+                    type: "immutable-typed-text",
+                    text: "\\tc2 ",
+                    textType: "marker",
+                    version: 1,
+                  },
                   {
                     type: "text",
                     text: "r1c2 with closed wj ",
@@ -9254,6 +9687,12 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                 },
                 children: [
                   {
+                    type: "immutable-typed-text",
+                    text: "\\tc3 ",
+                    textType: "marker",
+                    version: 1,
+                  },
+                  {
                     type: "text",
                     text: "r1c3",
                     detail: 0,
@@ -9276,6 +9715,12 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                   align: "start",
                 },
                 children: [
+                  {
+                    type: "immutable-typed-text",
+                    text: "\\tc4 ",
+                    textType: "marker",
+                    version: 1,
+                  },
                   {
                     type: "text",
                     text: "r1c4",
@@ -9300,6 +9745,12 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                 },
                 children: [
                   {
+                    type: "immutable-typed-text",
+                    text: "\\tc5 ",
+                    textType: "marker",
+                    version: 1,
+                  },
+                  {
                     type: "text",
                     text: "r1c5 ",
                     detail: 0,
@@ -9322,6 +9773,12 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                   align: "start",
                 },
                 children: [
+                  {
+                    type: "immutable-typed-text",
+                    text: "\\tc5 ",
+                    textType: "marker",
+                    version: 1,
+                  },
                   {
                     type: "text",
                     text: "r1c5 again ",
@@ -9369,7 +9826,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -9403,6 +9860,12 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             marker: "tr",
             children: [
               {
+                type: "immutable-typed-text",
+                text: "\\tr ",
+                textType: "marker",
+                version: 1,
+              },
+              {
                 type: "unknown",
                 tag: "table:cell",
                 marker: "tc1",
@@ -9410,6 +9873,12 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                   align: "start",
                 },
                 children: [
+                  {
+                    type: "immutable-typed-text",
+                    text: "\\tc1 ",
+                    textType: "marker",
+                    version: 1,
+                  },
                   {
                     type: "text",
                     text: "r2c1",
@@ -9433,6 +9902,12 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                   align: "start",
                 },
                 children: [
+                  {
+                    type: "immutable-typed-text",
+                    text: "\\tc2 ",
+                    textType: "marker",
+                    version: 1,
+                  },
                   {
                     type: "text",
                     text: "r2c2 with unclosed wj ",
@@ -9469,17 +9944,6 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                         style: "",
                         version: 1,
                       },
-                      {
-                        type: "marker",
-                        marker: "wj",
-                        markerSyntax: "closing",
-                        text: "",
-                        detail: 0,
-                        format: 0,
-                        mode: "normal",
-                        style: "",
-                        version: 1,
-                      },
                     ],
                     direction: null,
                     format: "",
@@ -9500,6 +9964,12 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                   align: "start",
                 },
                 children: [
+                  {
+                    type: "immutable-typed-text",
+                    text: "\\tc3 ",
+                    textType: "marker",
+                    version: 1,
+                  },
                   {
                     type: "text",
                     text: "r2c3",
@@ -9524,6 +9994,12 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                 },
                 children: [
                   {
+                    type: "immutable-typed-text",
+                    text: "\\tc4 ",
+                    textType: "marker",
+                    version: 1,
+                  },
+                  {
                     type: "text",
                     text: "r2c4",
                     detail: 0,
@@ -9547,6 +10023,12 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                 },
                 children: [
                   {
+                    type: "immutable-typed-text",
+                    text: "\\tc5 ",
+                    textType: "marker",
+                    version: 1,
+                  },
+                  {
                     type: "text",
                     text: "r2c5",
                     detail: 0,
@@ -9569,6 +10051,12 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                   align: "start",
                 },
                 children: [
+                  {
+                    type: "immutable-typed-text",
+                    text: "\\tc5 ",
+                    textType: "marker",
+                    version: 1,
+                  },
                   {
                     type: "text",
                     text: "r2c5 again ",
@@ -9616,7 +10104,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -9660,7 +10148,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -9695,7 +10183,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -9741,17 +10229,6 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                 style: "",
                 version: 1,
               },
-              {
-                type: "marker",
-                marker: "bd",
-                markerSyntax: "closing",
-                text: "",
-                detail: 0,
-                format: 0,
-                mode: "normal",
-                style: "",
-                version: 1,
-              },
             ],
             direction: null,
             format: "",
@@ -9786,7 +10263,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -9830,7 +10307,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -9865,7 +10342,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -9911,17 +10388,6 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                 style: "",
                 version: 1,
               },
-              {
-                type: "marker",
-                marker: "bd",
-                markerSyntax: "closing",
-                text: "",
-                detail: 0,
-                format: 0,
-                mode: "normal",
-                style: "",
-                version: 1,
-              },
             ],
             direction: null,
             format: "",
@@ -9956,7 +10422,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -10000,7 +10466,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -10094,7 +10560,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -10129,7 +10595,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -10175,17 +10641,6 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                 style: "",
                 version: 1,
               },
-              {
-                type: "marker",
-                marker: "bd",
-                markerSyntax: "closing",
-                text: "",
-                detail: 0,
-                format: 0,
-                mode: "normal",
-                style: "",
-                version: 1,
-              },
             ],
             direction: null,
             format: "",
@@ -10220,7 +10675,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -10264,7 +10719,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -10299,7 +10754,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -10345,17 +10800,6 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                 style: "",
                 version: 1,
               },
-              {
-                type: "marker",
-                marker: "bd",
-                markerSyntax: "closing",
-                text: "",
-                detail: 0,
-                format: 0,
-                mode: "normal",
-                style: "",
-                version: 1,
-              },
             ],
             direction: null,
             format: "",
@@ -10390,7 +10834,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -10434,7 +10878,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -10478,7 +10922,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -10522,7 +10966,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -10557,7 +11001,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -10606,7 +11050,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -10768,7 +11212,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -10802,6 +11246,17 @@ export const lexicalEditable2Sa: SerializedEditorState = {
               {
                 type: "text",
                 text: " 2Sam 1:2; 2Sam 1:3",
+                detail: 0,
+                format: 0,
+                mode: "normal",
+                style: "",
+                version: 1,
+              },
+              {
+                type: "marker",
+                marker: "xt",
+                markerSyntax: "closing",
+                text: "",
                 detail: 0,
                 format: 0,
                 mode: "normal",
@@ -10851,7 +11306,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -10886,7 +11341,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -10932,17 +11387,6 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                 style: "",
                 version: 1,
               },
-              {
-                type: "marker",
-                marker: "bd",
-                markerSyntax: "closing",
-                text: "",
-                detail: 0,
-                format: 0,
-                mode: "normal",
-                style: "",
-                version: 1,
-              },
             ],
             direction: null,
             format: "",
@@ -10977,7 +11421,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -11010,6 +11454,18 @@ export const lexicalEditable2Sa: SerializedEditorState = {
         },
         children: [
           {
+            type: "immutable-typed-text",
+            text: "\\esb",
+            textType: "marker",
+            version: 1,
+          },
+          {
+            type: "immutable-typed-text",
+            text: " \\cat Test Category\\cat*",
+            textType: "attribute",
+            version: 1,
+          },
+          {
             type: "para",
             marker: "p",
             children: [
@@ -11029,7 +11485,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                 text: " ",
                 detail: 0,
                 format: 0,
-                mode: "normal",
+                mode: "token",
                 style: "",
                 version: 1,
                 $: {
@@ -11195,7 +11651,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                 text: " ",
                 detail: 0,
                 format: 0,
-                mode: "normal",
+                mode: "token",
                 style: "",
                 version: 1,
                 $: {
@@ -11217,6 +11673,12 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             indent: 0,
             textFormat: 0,
             textStyle: "",
+            version: 1,
+          },
+          {
+            type: "immutable-typed-text",
+            text: "\\esbe",
+            textType: "marker",
             version: 1,
           },
         ],
@@ -11245,7 +11707,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             text: " ",
             detail: 0,
             format: 0,
-            mode: "normal",
+            mode: "token",
             style: "",
             version: 1,
             $: {
@@ -11278,6 +11740,12 @@ export const lexicalEditable2Sa: SerializedEditorState = {
         },
         children: [
           {
+            type: "immutable-typed-text",
+            text: "\\esb",
+            textType: "marker",
+            version: 1,
+          },
+          {
             type: "para",
             marker: "p",
             children: [
@@ -11297,7 +11765,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                 text: " ",
                 detail: 0,
                 format: 0,
-                mode: "normal",
+                mode: "token",
                 style: "",
                 version: 1,
                 $: {
@@ -11341,7 +11809,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                 text: " ",
                 detail: 0,
                 format: 0,
-                mode: "normal",
+                mode: "token",
                 style: "",
                 version: 1,
                 $: {
@@ -11376,7 +11844,7 @@ export const lexicalEditable2Sa: SerializedEditorState = {
                 text: " ",
                 detail: 0,
                 format: 0,
-                mode: "normal",
+                mode: "token",
                 style: "",
                 version: 1,
                 $: {
@@ -11460,6 +11928,12 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             indent: 0,
             textFormat: 0,
             textStyle: "",
+            version: 1,
+          },
+          {
+            type: "immutable-typed-text",
+            text: "\\esbe",
+            textType: "marker",
             version: 1,
           },
         ],

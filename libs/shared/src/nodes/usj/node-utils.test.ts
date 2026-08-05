@@ -1,3 +1,4 @@
+import { $createImmutableTypedTextNode } from "../features/ImmutableTypedTextNode.js";
 import { $createMarkerNode } from "../features/MarkerNode.js";
 import { $createTypedMarkNode, TypedMarkNode } from "../features/TypedMarkNode.js";
 import { $createCharNode } from "./CharNode.js";
@@ -539,6 +540,31 @@ describe("Editor Node Utilities", () => {
       const { editor } = createBasicTestEnvironment(nodes, () => {
         $getRoot().append(
           $createParaNode("p").append($createMarkerNode("p"), $createTextNode("verse text")),
+        );
+      });
+
+      editor.getEditorState().read(() => {
+        const items = $getFirstParaItems();
+
+        expect(items).toHaveLength(1);
+        $expectTextItem(items[0], [{ text: "verse text", start: 0 }]);
+      });
+    });
+
+    it("skips a folded ImmutableTypedTextNode attribute display run without breaking the run", () => {
+      // An opaque block's folded attribute byte display (e.g. an UnknownNode's `\cat ...\cat*`
+      // run) is an ImmutableTypedTextNode with textType "attribute" — a DecoratorNode, not a
+      // TextNode, so it needs its own presentation-only check distinct from the plain-TextNode
+      // "attribute" runs used elsewhere (regression: previously only the "marker" flavor of
+      // ImmutableTypedTextNode was skipped, so this run wrongly surfaced as its own content item
+      // and shifted every logical index after it).
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createImmutableTypedTextNode("marker", "\\esb"),
+            $createImmutableTypedTextNode("attribute", " \\cat Test Category\\cat*"),
+            $createTextNode("verse text"),
+          ),
         );
       });
 
