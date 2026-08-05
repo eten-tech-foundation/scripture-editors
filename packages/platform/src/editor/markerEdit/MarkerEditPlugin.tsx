@@ -602,6 +602,16 @@ export function MarkerEditPlugin({
       editor.registerCommand(
         COMMIT_PENDING_MARKERS_COMMAND,
         () => {
+          // While the app-placed-caret window is armed (a scrRef-sync yank or an undo/redo
+          // restore), a forced pre-save commit carries no user intent over the restored content —
+          // the same guard the BLUR handler below applies. The host's debounced PDP save dispatches
+          // this ~700ms after an undo; resolving here would re-tokenize the explicitly-undone
+          // literal behind the user's back (the caret has departed the literal — e.g. an ArrowUp
+          // before the undo — so the caret-node exception below cannot protect it), re-settling it
+          // with no user input. Leave the re-pended literal pending: it serializes as literal bytes
+          // ParatextData parses, and the user's next in-editor gesture (click/keystroke) releases
+          // the window so a genuine departure settles it.
+          if (appPlacedCaret) return true;
           // See the command's doc comment. The rule is "resolve every pending marker"; the one
           // exception is the node the caret is in — kept pending so we never settle a marker the
           // user is still editing. Compute that exception only while the editor holds DOM focus:

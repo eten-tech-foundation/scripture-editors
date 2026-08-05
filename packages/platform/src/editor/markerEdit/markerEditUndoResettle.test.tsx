@@ -27,6 +27,7 @@ import {
   TextNode,
   UNDO_COMMAND,
 } from "lexical";
+import { COMMIT_PENDING_MARKERS_COMMAND } from "./MarkerEditPlugin";
 import {
   $charAttributeDisplayNode,
   $createCharNode,
@@ -314,6 +315,50 @@ describe("blur vs the historic suppression window", () => {
     });
     await act(async () => {
       editor.dispatchCommand(BLUR_COMMAND, null as never);
+    });
+    await flushResolution();
+    assertPipeSettled(editor);
+  });
+});
+
+describe("commitPendingMarkerEdits vs the historic suppression window", () => {
+  it("the forced pre-save commit during the undo window does NOT re-settle the undone literal", async () => {
+    // The host's 700ms debounced PDP save calls commitPendingMarkerEdits() (dispatching
+    // COMMIT_PENDING_MARKERS_COMMAND) to settle half-typed markers before serializing. Firing
+    // ~700ms after an undo — with the caret parked away from the literal (an ArrowUp departed it
+    // before the undo) — it must NOT re-settle the explicitly-undone literal: the caret-node
+    // exception cannot protect a node the caret already left, and the app-placed-caret window from
+    // the historic restore is still armed. Same contract the BLUR handler already honors. The
+    // literal stays literal (it serializes as literal bytes ParatextData parses). Pre-fix the
+    // forced commit resolved the re-pended literal and it re-settled with NO user input ~1s later.
+    const { editor } = await settledPipeEnvironment();
+    await act(async () => {
+      editor.dispatchCommand(UNDO_COMMAND, undefined);
+    });
+    await flushResolution();
+    assertPipeLiteral(editor);
+    await act(async () => {
+      editor.dispatchCommand(COMMIT_PENDING_MARKERS_COMMAND, undefined);
+    });
+    await flushResolution();
+    assertPipeLiteral(editor); // literal survives the forced pre-save commit
+  });
+
+  it("an in-editor gesture releases the window; the forced commit then settles normally", async () => {
+    const { editor } = await settledPipeEnvironment();
+    await act(async () => {
+      editor.dispatchCommand(UNDO_COMMAND, undefined);
+    });
+    await flushResolution();
+    assertPipeLiteral(editor);
+    // A real in-editor click ends the window (same signal that releases the scrRef-yank window);
+    // now the forced pre-save commit settles as always — an abandoned mid-edit still serializes
+    // its on-screen form, so the guard is narrow, not a blanket suppression.
+    await act(async () => {
+      editor.dispatchCommand(CLICK_COMMAND, new MouseEvent("click"));
+    });
+    await act(async () => {
+      editor.dispatchCommand(COMMIT_PENDING_MARKERS_COMMAND, undefined);
     });
     await flushResolution();
     assertPipeSettled(editor);
