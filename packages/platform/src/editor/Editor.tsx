@@ -156,7 +156,23 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
   // a fresh `options` object every render. Pairs with the per-instance `initialConfig` below -
   // any state derived from `options` should follow the same pattern to avoid cross-instance
   // surprises with multiple Editor instances in one WebView.
-  const viewOptions = useMemo(() => view ?? defaultViewOptions, [view]);
+  //
+  // `viewOptions` needs a VALUE-based (not just reference-based) memo: it's a dependency of
+  // `LoadStatePlugin`'s reload effect, which unconditionally calls `setEditorState` +
+  // `CLEAR_HISTORY_COMMAND` on every fire. A plain `useMemo(() => view ?? defaultViewOptions,
+  // [view])` only helps once `view` itself is referentially stable, which the caller is not
+  // guaranteed to provide - a parent re-render that passes a fresh-but-equal `options.view` object
+  // (e.g. one triggered by `applyUpdate`'s own `onUsjChange` round-trip) would otherwise re-fire
+  // `LoadStatePlugin` and silently wipe the undo/redo stacks moments after an edit, with no
+  // document or view change to justify it. Comparing by value keeps the reference stable across
+  // such re-renders while still producing a new one - correctly triggering a reload - when a view
+  // option genuinely changes.
+  const resolvedViewOptions = view ?? defaultViewOptions;
+  const viewOptionsRef = useRef(resolvedViewOptions);
+  if (!deepEqual(viewOptionsRef.current, resolvedViewOptions)) {
+    viewOptionsRef.current = resolvedViewOptions;
+  }
+  const viewOptions = viewOptionsRef.current;
   const nodeOptions = useMemo(() => nodes ?? defaultNodeOptions, [nodes]);
   const contextMenuOptions = useMemo(() => contextMenu, [contextMenu]);
 
