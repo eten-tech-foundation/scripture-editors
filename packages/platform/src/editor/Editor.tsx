@@ -172,6 +172,11 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
   // document or view change to justify it. Comparing by value keeps the reference stable across
   // such re-renders while still producing a new one - correctly triggering a reload - when a view
   // option genuinely changes.
+  //
+  // `nodeOptions` and `contextMenuOptions`, destructured just below, don't need this treatment:
+  // `nodeOptions` is only a dependency of `LoadStatePlugin`'s separate adaptor-*initialize* effect,
+  // not its reload effect, and `contextMenuOptions` isn't passed to `LoadStatePlugin` at all - so
+  // of the three, only `viewOptions`'s identity can trigger the spurious reload this fix addresses.
   const resolvedViewOptions = view ?? defaultViewOptions;
   const viewOptionsRef = useRef(resolvedViewOptions);
   if (!deepEqual(viewOptionsRef.current, resolvedViewOptions)) {
