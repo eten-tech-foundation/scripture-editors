@@ -873,9 +873,10 @@ function getSelectionStartNodeInner(selection: BaseSelection | null): LexicalNod
 /**
  * Checks whether a node is presentation-only and therefore not part of USJ content:
  * line breaks, marker scaffolding (editable and visible), marker-trailing-space or
- * attribute text, and empty or NBSP-only spacer text (which the editor→USJ conversion
- * drops as well; ideally the USJ→editor conversion would create such spacers as
- * presentation-typed text nodes instead — follow-up work).
+ * attribute text (as a plain TextNode or as an opaque block's folded ImmutableTypedTextNode
+ * display run, e.g. an UnknownNode's `\cat` byte display), and empty or NBSP-only spacer text
+ * (which the editor→USJ conversion drops as well; ideally the USJ→editor conversion would
+ * create such spacers as presentation-typed text nodes instead — follow-up work).
  * @param node - The node to check.
  * @returns `true` if the node must be skipped when computing USJ content indexes.
  */
@@ -884,6 +885,11 @@ export function $shouldIgnoreNodeForContentIndexes(node: LexicalNode | null | un
   if ($isLineBreakNode(node)) return true;
   if ($isMarkerNode(node)) return true;
   if ($isVisibleMarkerNode(node)) return true;
+  // ImmutableTypedTextNode's "attribute" flavor (an opaque block's folded attribute-byte display
+  // run, e.g. an UnknownNode's `\cat ...\cat*`) is a DecoratorNode, not a TextNode, so it never
+  // reaches the $isTextNode branch below — mirror the "marker" flavor handled above by
+  // $isVisibleMarkerNode.
+  if ($isImmutableTypedTextNode(node) && node.getTextType() === "attribute") return true;
   if ($isTextNode(node)) {
     const textType = $getState(node, textTypeState);
     if (textType === "marker-trailing-space" || textType === "attribute") return true;
