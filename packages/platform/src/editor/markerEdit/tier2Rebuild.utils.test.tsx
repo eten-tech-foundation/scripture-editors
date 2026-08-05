@@ -706,6 +706,50 @@ describe("$rebuildParas", () => {
     });
   });
 
+  it("keeps the caret in the paragraph after a paragraph-DIRECT milestone closer at absolute end (\\*)", () => {
+    // Milestone analog of the \va* case above — the OTHER paragraph-direct closer shape the
+    // guard's doc comment names. A milestone's display run (opening glyph, attribute text,
+    // self-closing `\*`) rides as ordinary paragraph siblings of the MilestoneNode
+    // ($milestoneDisplayRun), so the self-closing glyph's `.getParent()` is the paragraph too,
+    // and a settle whose caret sat past a para-end `\*` hits the same fallback path.
+    const editor = loadEditor(usjFromUsx(`<verse number="1" style="v" />before`));
+    editor.update(
+      () => {
+        const para = $lastPara();
+        const text = requireDefined(
+          para
+            .getChildren()
+            .filter($isTextNode)
+            .find((node) => node.getTextContent().includes("before")),
+          "text node containing 'before' not found",
+        );
+        // Simulate the user having typed a complete milestone at the very end of the paragraph.
+        text.setTextContent('before \\qt-s |who="TJ"\\*');
+        const offset = text.getTextContentSize();
+        text.select(offset, offset);
+        expect($rebuildParas([para], context)).toBe(true);
+      },
+      { discrete: true },
+    );
+    editor.getEditorState().read(() => {
+      const para = $lastPara();
+      // The milestone materialized (its self-closing glyph is the paragraph's trailing span).
+      expect(para.getChildren().some((n) => n.getType() === "ms")).toBe(true);
+      const selection = $getSelection();
+      expect($isRangeSelection(selection)).toBe(true);
+      if ($isRangeSelection(selection)) {
+        const anchorNode = selection.anchor.getNode();
+        let insidePara = false;
+        for (let node: LexicalNode | null = anchorNode; node; node = node.getParent())
+          if (node.is(para)) {
+            insidePara = true;
+            break;
+          }
+        expect(insidePara).toBe(true);
+      }
+    });
+  });
+
   it("restores the caret to the END of a marker glyph split out mid-paragraph (no scramble)", () => {
     // Typing `\z` mid-paragraph immediately terminates against the pre-existing following
     // space, so the rebuild splits the paragraph. The caret sat right after the just-typed
