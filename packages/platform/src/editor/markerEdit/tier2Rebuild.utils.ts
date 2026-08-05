@@ -605,12 +605,20 @@ function $isClosingMarkerSpan(span: FragmentSpan): boolean {
  * span's inner text (which is the closer glyph's start-of-glyph boundary, i.e. INSIDE the span,
  * where continued typing edits within the marker). `selectNext` off the span, whose closer is its
  * last child, resolves to the paragraph point just after it. Returns whether it placed the caret.
+ *
+ * Only a genuine char-span closer has an enclosing span to escape from this way. A verse's
+ * `\va`/`\vp` closer and a milestone's self-closing `\*` are never wrapped in a char span — they
+ * ride as ordinary PARAGRAPH siblings (`$verseAttributeRun`/`$milestoneDisplayRun`), so the
+ * glyph's parent is the paragraph itself. `selectNext` on the PARAGRAPH would move the point past
+ * the whole paragraph (into the next block, or off the end of the document), not just past the
+ * closer within it, so a paragraph-direct closer falls through to the caller's other fallback
+ * instead.
  */
 function $selectAfterClosingSpan(span: FragmentSpan): boolean {
   const glyph = $getNodeByKey(span.key);
   if (!$isMarkerNode(glyph)) return false;
   const enclosingSpan = glyph.getParent();
-  if (!$isElementNode(enclosingSpan)) return false;
+  if (!$isCharNode(enclosingSpan)) return false;
   enclosingSpan.selectNext(0, 0);
   return true;
 }
