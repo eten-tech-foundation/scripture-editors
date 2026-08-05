@@ -66,6 +66,7 @@ import {
   TypedMarkNode,
   UnknownNode,
   UNMATCHED_TAG_NAME,
+  VerseBlockNode,
   VerseNode,
 } from "shared";
 import {
@@ -619,6 +620,14 @@ function recurseNodes(
       case ImmutableUnmatchedNode.getType():
         markers.push(createUnmatchedMarker(node as SerializedImmutableUnmatchedNode));
         break;
+      case VerseBlockNode.getType():
+        // The block verse layout splits a paragraph that spans verses across their blocks, so this
+        // tree no longer describes the source USJ's paragraphs. Refuse rather than emit USJ that
+        // looks right and has the wrong structure.
+        throw new Error(
+          "Block verse layout is not round-trippable to USJ. VerseBlockNode is read-only view " +
+            "state; use the source USJ instead.",
+        );
       default:
         _logger?.error(`Unexpected node type '${node.type}'!`);
     }

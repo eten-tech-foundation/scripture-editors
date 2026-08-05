@@ -1,5 +1,6 @@
 import { ImmutableVerseNode } from "../nodes/usj/ImmutableVerseNode";
 import {
+  BLOCK_VERSE_VIEW_MODE,
   FORMATTED_VIEW_MODE,
   PARAGRAPH_STRUCTURE_VIEW_MODE,
   STANDARD_VIEW_MODE,
@@ -60,6 +61,25 @@ describe("getViewOptions", () => {
       noteMode: "collapsed",
       hasSpacing: true,
       isFormattedFont: true,
+    });
+  });
+
+  it("returns the pinned block verse options", () => {
+    expect(getViewOptions(BLOCK_VERSE_VIEW_MODE)).toEqual({
+      markerMode: "hidden",
+      noteMode: "collapsed",
+      hasSpacing: true,
+      isFormattedFont: true,
+      verseLayout: "block",
+    });
+  });
+
+  // Block verse differs from formatted only by `verseLayout`, so that field is what keeps the two
+  // modes distinguishable in both directions.
+  it("distinguishes block verse from formatted by verse layout alone", () => {
+    expect(getViewOptions(BLOCK_VERSE_VIEW_MODE)).toEqual({
+      ...getViewOptions(FORMATTED_VIEW_MODE),
+      verseLayout: "block",
     });
   });
 
@@ -141,6 +161,23 @@ describe("getVerseNodeClass", () => {
       expect(getVerseNodeClass(viewOptions)).toBe(ImmutableVerseNode);
     },
   );
+
+  it("returns ImmutableVerseNode for the block verse layout", () => {
+    expect(getVerseNodeClass(getViewOptions(BLOCK_VERSE_VIEW_MODE))).toBe(ImmutableVerseNode);
+  });
+
+  // The layout is checked before the marker mode, so a block layout stays immutable even if a
+  // caller hands it the editable marker mode that would otherwise select `VerseNode`.
+  it("returns ImmutableVerseNode for a block layout even with editable markers", () => {
+    const viewOptions: ViewOptions = {
+      markerMode: "editable",
+      hasSpacing: true,
+      isFormattedFont: true,
+      verseLayout: "block",
+    };
+
+    expect(getVerseNodeClass(viewOptions)).toBe(ImmutableVerseNode);
+  });
 
   it("returns undefined without view options", () => {
     expect(getVerseNodeClass(undefined)).toBeUndefined();

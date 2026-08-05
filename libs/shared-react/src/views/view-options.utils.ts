@@ -7,6 +7,7 @@ import {
 import { ImmutableVerseNode } from "../nodes/usj/ImmutableVerseNode";
 import {
   ViewMode,
+  BLOCK_VERSE_VIEW_MODE,
   FORMATTED_VIEW_MODE,
   UNFORMATTED_VIEW_MODE,
   PARAGRAPH_STRUCTURE_VIEW_MODE,
@@ -40,6 +41,22 @@ export type NoteMode =
   | "expandInline"
   /** All notes are always expanded. */
   | "expanded";
+
+/**
+ * How each verse is laid out in the document.
+ *
+ * @public
+ */
+export type VerseLayout =
+  /** The verse marker is an inline milestone; verse text flows within its paragraph. */
+  | "inline"
+  /**
+   * Each verse is a block-level element containing its own paragraphs, so it can be placed on a
+   * layout row. Read-only: the editor forces read-only when this is selected, and neither USJ
+   * export nor USJ-addressed selection is available, because a paragraph spanning several verses
+   * is split across their blocks and no longer matches the source USJ's content indexes.
+   */
+  | "block";
 
 /**
  * Configuration options for controlling the display and behavior of Scripture text views.
@@ -117,6 +134,16 @@ export interface ViewOptions {
    * (char/verse/note) are unaffected — only the paragraph's own prefix is suppressed.
    */
   showParaMarkerPrefixes?: boolean;
+  /**
+   * How each verse is laid out. Default (undefined) is `"inline"`, which is what every view other
+   * than block verse uses.
+   *
+   * Switching this between `"inline"` and `"block"` recreates the editor, because the node types a
+   * Lexical editor can hold are fixed when it is created. That discards the undo history and any
+   * annotations the host has applied since the last USJ change, so hosts should choose a layout
+   * when they mount the editor rather than toggling a live one.
+   */
+  verseLayout?: VerseLayout;
 }
 
 /**
@@ -215,6 +242,15 @@ export function getViewOptions(viewMode?: string | undefined): ViewOptions | und
         isFormattedFont: true,
       };
       break;
+    case BLOCK_VERSE_VIEW_MODE:
+      viewOptions = {
+        markerMode: "hidden",
+        noteMode: "collapsed",
+        hasSpacing: true,
+        isFormattedFont: true,
+        verseLayout: "block",
+      };
+      break;
     default:
       break;
   }
@@ -297,6 +333,11 @@ export function hasStandardViewWhitespace(viewOptions: ViewOptions | undefined):
  */
 export function getVerseNodeClass(viewOptions: ViewOptions | undefined) {
   if (!viewOptions) return;
+
+  // Block verse is read-only, so its marker is never the editable `VerseNode`. Today the marker
+  // mode below would reach the same answer - block verse hides markers - but dispatching on the
+  // layout first keeps that independent of how markers happen to be configured.
+  if (viewOptions.verseLayout === "block") return ImmutableVerseNode;
 
   return viewOptions.markerMode === "editable" ? VerseNode : ImmutableVerseNode;
 }

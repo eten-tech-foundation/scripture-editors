@@ -25,6 +25,7 @@ import {
   LogicalTextItem,
   openingMarkerText,
   parseNumberFromMarkerText,
+  parseVerseRange,
   removeNodeAndAfter,
   removeNodesBeforeNode,
 } from "./node.utils.js";
@@ -458,6 +459,39 @@ describe("Editor Node Utilities", () => {
     it("should throw", () => {
       expect(() => isVerseInRange(0, "1-2-3")).toThrow();
       expect(() => isVerseInRange(0, "2-1")).toThrow();
+    });
+  });
+
+  describe("parseVerseRange()", () => {
+    it("parses a single verse number", () => {
+      expect(parseVerseRange("5")).toEqual({ start: 5, end: 5 });
+    });
+
+    it("parses a combined range", () => {
+      expect(parseVerseRange("14-15")).toEqual({ start: 14, end: 15 });
+    });
+
+    it("strips partial-verse letters at the range end", () => {
+      expect(parseVerseRange("1-3a")).toEqual({ start: 1, end: 3 });
+    });
+
+    it("strips a partial-verse letter on a single verse", () => {
+      expect(parseVerseRange("3a")).toEqual({ start: 3, end: 3 });
+    });
+
+    it("uses start as end for a single-segment marker", () => {
+      expect(parseVerseRange("12")).toEqual({ start: 12, end: 12 });
+    });
+
+    // Verse numbers come from imported USFM, so a malformed one must be reportable rather than
+    // throwing the way `isVerseInRange` does.
+    it("returns NaN bounds for a non-numeric marker", () => {
+      expect(parseVerseRange("abc")).toEqual({ start: NaN, end: NaN });
+    });
+
+    it("returns a NaN bound when only one end is non-numeric", () => {
+      expect(parseVerseRange("abc-5")).toEqual({ start: NaN, end: 5 });
+      expect(parseVerseRange("5-abc")).toEqual({ start: 5, end: NaN });
     });
   });
 

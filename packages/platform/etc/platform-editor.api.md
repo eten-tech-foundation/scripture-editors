@@ -22,6 +22,9 @@ export interface AnnotationRange {
     start: UsjDocumentLocation;
 }
 
+// @public
+export const BLOCK_VERSE_VIEW_MODE = "block-verse";
+
 // @public (undocumented)
 export enum CategoryType {
     // (undocumented)
@@ -233,7 +236,7 @@ export function generateUsjCss(styleInfo: StyleInfo, options?: UsjCssOptions): s
 export const GENERATOR_NOTE_CALLER = "+";
 
 // @public
-export const getDefaultViewMode: () => "formatted" | "unformatted" | "paragraph-structure" | "standard";
+export const getDefaultViewMode: () => "formatted" | "unformatted" | "paragraph-structure" | "standard" | "block-verse";
 
 // @public
 export const getDefaultViewOptions: () => ViewOptions;
@@ -595,6 +598,18 @@ export interface UsjNodeOptions extends NodeOptions {
 }
 
 // @public
+export type VerseLayout =
+/** The verse marker is an inline milestone; verse text flows within its paragraph. */
+"inline"
+/**
+* Each verse is a block-level element containing its own paragraphs, so it can be placed on a
+* layout row. Read-only: the editor forces read-only when this is selected, and neither USJ
+* export nor USJ-addressed selection is available, because a paragraph spanning several verses
+* is split across their blocks and no longer matches the source USJ's content indexes.
+*/
+| "block";
+
+// @public
 export type ViewMode = keyof typeof viewModeToViewNames;
 
 // @public
@@ -603,6 +618,7 @@ export const viewModeToViewNames: {
     unformatted: string;
     "paragraph-structure": string;
     standard: string;
+    "block-verse": string;
 };
 
 // @public
@@ -616,6 +632,7 @@ export interface ViewOptions {
     noteMode?: NoteMode;
     showCharMarkerTitles?: boolean;
     showParaMarkerPrefixes?: boolean;
+    verseLayout?: VerseLayout;
 }
 
 ```

@@ -1,0 +1,232 @@
+/**
+ * Regroups a chapter's flat verse runs into one block-level element per verse, for the block verse
+ * view (`ViewOptions.verseLayout`).
+ *
+ * USJ nests verses inside paragraphs; a layout that puts each verse on its own row needs the
+ * opposite nesting. This runs as a post-pass over the serialized editor children, so every
+ * `create*` function in `usj-editor.adaptor.ts` is untouched and the inline layouts cannot be
+ * affected by it.
+ *
+ * The grouping semantics are ported from paranext-core's `sliceUsjToVerse`
+ * (`extensions/src/platform-scripture-editor/src/scripture-text-grid/verse-display.utils.ts`),
+ * generalized from "slice out one verse" to "group every verse in a single pass": collection is
+ * per-paragraph so poetry keeps its lines, a verse stays open across paragraphs, combined verses
+ * are emitted once, and headings and chapter markers close the open verse.
+ */
+
+import {
+  isSerializedImmutableTableNode,
+  isSerializedImpliedParaNode,
+  isSerializedParaNode,
+  isSerializedTypedMarkNode,
+  LoggerBasic,
+  parseVerseRange,
+  SerializedImpliedParaNode,
+  SerializedParaNode,
+  SerializedTypedMarkNode,
+  SerializedVerseBlockNode,
+  VERSE_BLOCK_TYPE,
+  VERSE_BLOCK_VERSION,
+} from "shared";
+import { isSomeSerializedVerseNode, SomeSerializedVerseNode } from "shared-react";
+import { SerializedLexicalNode } from "lexical";
+
+/**
+ * Paragraph markers that begin a heading/structural block rather than verse content. Grouping stops
+ * at these so a following section header does not become part of the preceding verse.
+ *
+ * Deliberately hand-scoped to heading markers that can appear MID-CHAPTER (chapter-interior
+ * structural boundaries), rather than derived from a marker category: the Titles/Headings category
+ * also includes book-front titles (`mt`, `mte`, ...) that cannot interrupt a verse mid-chapter, and
+ * categorizes `qa` as Poetry, so it would need a special case anyway.
+ */
+const STRUCTURAL_MARKERS = new Set([
+  "s",
+  "s1",
+  "s2",
+  "s3",
+  "s4",
+  "ms",
+  "ms1",
+  "ms2",
+  "ms3",
+  "mr",
+  "r",
+  "d",
+  "sp",
+  "sr",
+  "qa",
+]);
+
+/** A paragraph container whose children may hold verses. */
+type SerializedParagraph = SerializedParaNode | SerializedImpliedParaNode;
+
+/**
+ * A run of a paragraph's content. The first run of a paragraph has no verse of its own - it either
+ * continues the verse left open by an earlier paragraph, or is content before any verse.
+ */
+interface VerseRun {
+  verse?: SomeSerializedVerseNode;
+  nodes: SerializedLexicalNode[];
+}
+
+/**
+ * Groups each verse in the given editor children into a `VerseBlockNode` holding that verse's
+ * paragraphs.
+ *
+ * Expects the children of the editor root, after implied paragraphs have been inserted, so every
+ * paragraph container is already in place.
+ *
+ * @param children - The serialized root children to regroup.
+ * @param logger - Logger instance.
+ * @returns the children with verses grouped into blocks.
+ */
+export function groupVersesIntoBlocks(
+  children: SerializedLexicalNode[],
+  logger?: LoggerBasic,
+): SerializedLexicalNode[] {
+  const grouped: SerializedLexicalNode[] = [];
+  /** The block still collecting content; persists across paragraphs so a verse spanning poetry
+   * lines is collected whole. */
+  let activeBlock: SerializedVerseBlockNode | undefined;
+
+  children.forEach((child) => {
+    // A table inside a verse is that verse's content. Closing the block here would orphan the rest
+    // of the verse: the continuation paragraph has no verse marker of its own, so it would be
+    // emitted outside every block and never appear on a row.
+    if (isSerializedImmutableTableNode(child)) {
+      if (activeBlock) activeBlock.children.push(child);
+      else grouped.push(child);
+      return;
+    }
+
+    if (!isSerializedParagraph(child)) {
+      // Book and chapter chrome are boundaries - an open verse never crosses a chapter marker.
+      activeBlock = undefined;
+      grouped.push(child);
+      return;
+    }
+
+    // Headings stay in the model as ordinary paragraphs between blocks. Whether an aligned view
+    // shows, hides, or spans them is a view-layer decision, so nothing is destroyed here.
+    if (isSerializedParaNode(child) && STRUCTURAL_MARKERS.has(child.marker)) {
+      activeBlock = undefined;
+      grouped.push(child);
+      return;
+    }
+
+    splitIntoRuns(child.children, logger).forEach((run) => {
+      const fragment = createFragment(child, run.nodes);
+
+      if (!run.verse) {
+        // Content before this paragraph's first verse: either the open verse continuing onto a new
+        // line, or - with no verse open - content that precedes any verse, such as a psalm
+        // descriptor. Neither invents a block.
+        if (!fragment) return;
+        if (activeBlock) activeBlock.children.push(fragment);
+        else grouped.push(fragment);
+        return;
+      }
+
+      activeBlock = createVerseBlock(run.verse);
+      grouped.push(activeBlock);
+      if (fragment) activeBlock.children.push(fragment);
+    });
+  });
+
+  return grouped;
+}
+
+function isSerializedParagraph(node: SerializedLexicalNode): node is SerializedParagraph {
+  return isSerializedParaNode(node) || isSerializedImpliedParaNode(node);
+}
+
+/**
+ * Splits a paragraph's children at each verse marker.
+ *
+ * A comment mark can wrap a run that crosses a verse marker. Rather than letting the verse hide
+ * inside it, the mark is split too and cloned onto each side with its IDs intact, so the comment
+ * still renders across the boundary. There is no round-trip to corrupt: block verse refuses USJ
+ * export.
+ */
+function splitIntoRuns(nodes: SerializedLexicalNode[], logger?: LoggerBasic): VerseRun[] {
+  const runs: VerseRun[] = [{ nodes: [] }];
+  const addToCurrentRun = (node: SerializedLexicalNode) => runs[runs.length - 1].nodes.push(node);
+
+  nodes.forEach((node) => {
+    if (isSomeSerializedVerseNode(node)) {
+      runs.push({ verse: node, nodes: [node] });
+      return;
+    }
+
+    if (isSerializedTypedMarkNode(node)) {
+      const innerRuns = splitIntoRuns(node.children, logger);
+      const [continuingRun, ...verseRuns] = innerRuns;
+      if (continuingRun.nodes.length > 0) addToCurrentRun(cloneMark(node, continuingRun.nodes));
+      verseRuns.forEach((innerRun) => {
+        runs.push({ verse: innerRun.verse, nodes: [cloneMark(node, innerRun.nodes)] });
+      });
+      return;
+    }
+
+    if (containsVerse(node)) {
+      // USJ does not nest verses inside character or note content, so this is malformed input. It
+      // stays with the surrounding run rather than being silently dropped.
+      logger?.warn(
+        `Verse marker nested inside a '${node.type}' node was not grouped into a block.`,
+      );
+    }
+    addToCurrentRun(node);
+  });
+
+  return runs;
+}
+
+function cloneMark(
+  markNode: SerializedTypedMarkNode,
+  children: SerializedLexicalNode[],
+): SerializedTypedMarkNode {
+  return { ...markNode, children };
+}
+
+/** Whether a verse marker is somewhere below this node. Used only to report malformed input. */
+function containsVerse(node: SerializedLexicalNode): boolean {
+  const children = (node as { children?: SerializedLexicalNode[] }).children;
+  if (!Array.isArray(children)) return false;
+
+  return children.some((child) => isSomeSerializedVerseNode(child) || containsVerse(child));
+}
+
+/**
+ * A copy of the paragraph holding only the given run.
+ *
+ * Spreads the source rather than listing fields so an implied paragraph stays implied - it has no
+ * `marker`, and rebuilding it as a real paragraph would put a `\p` in the document that the source
+ * USJ never had.
+ */
+function createFragment(
+  para: SerializedParagraph,
+  nodes: SerializedLexicalNode[],
+): SerializedParagraph | undefined {
+  if (nodes.length === 0) return undefined;
+
+  return { ...para, children: nodes };
+}
+
+/** An empty block carrying the verse's number and the range it covers. */
+function createVerseBlock(verse: SomeSerializedVerseNode): SerializedVerseBlockNode {
+  const number = verse.number ?? "";
+  const { start, end } = parseVerseRange(number);
+
+  return {
+    type: VERSE_BLOCK_TYPE,
+    number,
+    start,
+    end,
+    children: [],
+    direction: null,
+    format: "",
+    indent: 0,
+    version: VERSE_BLOCK_VERSION,
+  };
+}

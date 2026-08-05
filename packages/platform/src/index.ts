@@ -45,6 +45,7 @@ export {
 export { generateUsjCss } from "./editor/generateUsjCss";
 export { getEnterMenuItems, getMarkerMenuItems } from "./editor/markerMenu/markerItemSource";
 export {
+  BLOCK_VERSE_VIEW_MODE,
   directionToNames,
   filterAndRankItems,
   getDefaultViewMode,
@@ -111,6 +112,7 @@ export type {
   TextDirection,
   UsjLocation,
   UsjNodeOptions,
+  VerseLayout,
   ViewMode,
   ViewOptions,
 } from "shared-react";

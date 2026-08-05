@@ -208,11 +208,16 @@ export default function App() {
     else return customNodeOptions;
   }, [customNodeOptions, nodesMode]);
 
+  // The block verse layout is read-only in the editor regardless; force it here too so the
+  // checkbox reflects what the editor is actually doing.
+  const isBlockVerseView = viewOptions?.verseLayout === "block";
+  const effectiveIsReadonly = isReadonly || isBlockVerseView;
+
   const options = useMemo<EditorOptions | undefined>(
     () =>
       isOptionsDefined
         ? {
-            isReadonly,
+            isReadonly: effectiveIsReadonly,
             structureProtectionMode,
             hasExternalUI,
             hasSpellCheck,
@@ -225,7 +230,7 @@ export default function App() {
         : { hasExternalUI, debug },
     [
       isOptionsDefined,
-      isReadonly,
+      effectiveIsReadonly,
       structureProtectionMode,
       hasExternalUI,
       hasSpellCheck,
@@ -484,10 +489,13 @@ export default function App() {
                   <input
                     type="checkbox"
                     id="isReadonlyCheckBox"
-                    checked={isReadonly}
+                    checked={effectiveIsReadonly}
+                    disabled={isBlockVerseView}
                     onChange={(e) => setIsReadonly(e.target.checked)}
                   />
-                  <label htmlFor="isReadonlyCheckBox">Is readonly</label>
+                  <label htmlFor="isReadonlyCheckBox">
+                    Is readonly{isBlockVerseView ? " (forced by block verse)" : ""}
+                  </label>
                 </div>
                 <div className="checkbox">
                   <input
@@ -642,7 +650,7 @@ export default function App() {
             editorRef={marginalRef}
             scrRef={scrRef}
             onScrRefChange={setScrRef}
-            isReadonly={isReadonly}
+            isReadonly={effectiveIsReadonly}
             canUndo={canUndo}
             canRedo={canRedo}
             blockMarker={blockMarker}

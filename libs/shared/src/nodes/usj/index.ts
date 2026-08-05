@@ -41,8 +41,11 @@ export * from "./node.utils.js";
 export * from "./NoteNode.js";
 export * from "./ParaNode.js";
 export * from "./pendedDisplayOwners.utils.js";
+export * from "./VerseBlockNode.js";
 export * from "./VerseNode.js";
 
+// `VerseBlockNode` is deliberately absent below: it is registered only by editors using the block
+// verse layout, so every other editor's node registry is unchanged. See `usjBlockVerseNodes`.
 export const usjBaseNodes: readonly (Klass<LexicalNode> | LexicalNodeReplacement)[] = [
   BookNode,
   ImmutableChapterNode,
