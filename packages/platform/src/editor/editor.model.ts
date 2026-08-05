@@ -59,8 +59,15 @@ export interface EditorRef {
    * returned by {@link EditorRef.getUsj} matches what is on screen. In editable marker modes a
    * marker rename that the user walked away from mid-edit stays pending indefinitely, so reading
    * the USJ would serialize the OLD marker; call this right before reading the USJ to save so the
-   * pending rename is flushed first. The node under a live caret (and the user's node during an
-   * app-placed-caret window) stays pending — a mid-typing pause never settles under the user.
+   * pending rename is flushed first.
+   *
+   * Two carve-outs: while the app-placed-caret suppression window is armed (the caret was placed
+   * by a programmatic scrRef move or an undo/redo restore, with no user gesture since), NOTHING
+   * settles — the whole pending set stays pending, so a save-driven commit cannot re-settle
+   * content the user just undid; pending literals serialize as literal bytes, which ParatextData
+   * parses. Outside the window, everything settles except the node under a live caret (only while
+   * the editor holds DOM focus) — a mid-typing pause never settles under the user.
+   *
    * Do NOT call while a marker-menu/palette session is open: the palette's apply must be the
    * one to consume the typed literal. No-op outside editable marker modes.
    */
