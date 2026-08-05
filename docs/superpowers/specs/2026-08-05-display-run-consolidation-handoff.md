@@ -79,8 +79,14 @@ better destination; it removes structurally what the descriptors would otherwise
 for in code, and run styling then stops being a per-piece concern at all.
 
 **Phase 3 — settled `getUsj()` output** (TJ's follow-up-4 design; can be planned in the same
-chat, implemented independently of phases 1-2): `getUsj()` must return SETTLED USJ without
-mutating the editor — pending edits stay pending on screen, but consumers always receive the
+chat, implemented independently of phases 1-2). CORRECTION to the architecture assessment (its
+§3c claimed `commitPendingMarkerEdits()` has zero paranext-core call sites): the debounced save
+DOES call it (live-captured 2026-08-05 — `COMMIT_PENDING_MARKERS_COMMAND` fires ~700ms after
+edits), and that MUTATING pre-save settle was the third undo-resettle trigger (now gated by the
+suppression window). This strengthens the phase-3 rationale: a mutating pre-save commit is
+exactly the wrong shape — when phase 3 lands, the debounced save should STOP dispatching the
+commit command entirely and rely on settled output, retiring the trigger class instead of
+gating it. `getUsj()` must return SETTLED USJ without mutating the editor — pending edits stay pending on screen, but consumers always receive the
 canonical document. Design: settling is re-tokenization of displayed bytes, a pure computation
 — serialize the current state, and for each paragraph with pending edits run the SAME
 fragment-build + tokenize used by real settles, read-only (inside `editorState.read()`),
