@@ -27,10 +27,13 @@ New kinds and new edit shapes keep landing in an unwired cell.
    ordinary content edit — nothing pends it — so it never re-tokenizes back to `altnumber`;
    the save path folds it on disk and the sync warn fires on every save.
 
-## The approved scope (targeted extraction, NOT the full registry)
+## The approved scope: two phases toward full unification
 
-Per the assessment's Option B, extract the shared mechanisms; leave the full declarative
-"display-run registry" as a later destination:
+TJ's direction: the various node kinds should go through the SAME code paths for their shared
+operations (the assessment's four duties). Plan BOTH phases; the planning chat decides pacing
+and how much of phase 2 rides with phase 1.
+
+**Phase 1 — targeted extraction** (fixes the live bugs, lower risk; assessment Option B):
 
 1. **One uniform deletion/pend-semantics driver**: absent run pieces → pend the OWNER (robustly,
    not via per-kind caret-position heuristics); entirely-absent → per-kind policy
@@ -47,9 +50,37 @@ Per the assessment's Option B, extract the shared mechanisms; leave the full dec
 4. Fold in the deferred minor: `$selectAfterClosingSpan`'s `$isCharNode` guard if not already
    landed by the small-fix batch.
 
-Explicitly OUT of scope (separate discussions in flight with TJ): settle-before-save /
-settled-`getUsj()` output (TJ is designing this — do not implement); the suppression-window
-state machine (post-W6-A it is hygiene, not a live bug); the full registry rewrite.
+**Phase 2 — the full display-run registry** (the destination; assessment Option A): a per-kind
+descriptor `{ ownerPredicate, ownerOf(dirtiedNode), expectedPieces(ownerState), scanPieces,
+graceSite, settleScope, deletionPolicy }` with ONE shared sync transform, ONE caret-held
+reporter, ONE pend/settle driver, ONE deletion-semantics function — so ALL FOUR duties for
+every kind run through the same code, and a missing-quadrant bug becomes structurally
+impossible. ~750 LOC of quartet wiring → ~300. Risk concentrates in the caret-boundary
+predicates (each is tuned to where deletions really land for that tree shape); phase 1's
+unified deletion semantics is the seam the registry formalizes, which is why it goes first.
+Byte formats (`canonicalAttributeText`, NBSP rules, `unknownDisplayParts`) stay per-kind as
+descriptor callbacks; the tokenizer and Tier-2 fragment/signature machinery stay OUT of the
+registry entirely.
+
+**Phase 3 — settled `getUsj()` output** (TJ's follow-up-4 design; can be planned in the same
+chat, implemented independently of phases 1-2): `getUsj()` must return SETTLED USJ without
+mutating the editor — pending edits stay pending on screen, but consumers always receive the
+canonical document. Design: settling is re-tokenization of displayed bytes, a pure computation
+— serialize the current state, and for each paragraph with pending edits run the SAME
+fragment-build + tokenize used by real settles, read-only (inside `editorState.read()`),
+splicing results into the OUTPUT USJ only. Apply uniformly (no caret-held exception: half-typed
+`|stuf` settles to literal content, which is what those bytes mean). Acceptance: `getUsj()`
+output is always a Tier-2 fixed point; the paranext-core sync hook's lossy warn then means a
+REAL round-trip defect (the warn-quiescence idea becomes unnecessary — remove/simplify the
+transient handling accordingly); the save-snapshot timing warn class disappears. Risks to
+manage: the virtual settle and the later real settle MUST share one code path (no divergence);
+sentinel bookkeeping in read-only mode (sentinels must serialize in place rather than be
+moved). Later optional polish (P9 parity, NOT required once this lands): calling
+`commitPendingMarkerEdits()` on a P9-like cadence. Rationale recorded: no consumer legitimately
+wants unsettled USJ; settle-on-a-timer alone was rejected as papering over the real problem.
+
+Explicitly OUT of scope: the suppression-window state machine (post-W6-A it is hygiene, not a
+live bug — absorb into phase 2 if convenient, else skip).
 
 ## Fixed points the refactor must not touch (assessment §5)
 
@@ -78,8 +109,9 @@ zero skips; lint+typecheck 0 errors in both root and nx contexts; commit message
 > `standard-view-pt-4187`) + paranext-core (branch `standard-view`). PT9 reference (never
 > edit): `~/source/repos/Paratext`.
 >
-> Goal: extract the shared deletion/pend mechanisms (handoff scope items 1-3) so the three
-> live bugs are fixed BY the consolidation rather than by three more per-kind patches, with
+> Goal: plan all three phases — the shared deletion/pend extraction (phase 1) so the three
+> live bugs are fixed BY the consolidation rather than by three more per-kind patches; the full
+> display-run registry (phase 2); and settled getUsj() output (phase 3) — with
 > the assessment's fixed points untouched and the corpus/round-trip property tests green
 > throughout. Brainstorm the driver's shape against the existing per-kind code, write the
 > design + implementation plan with TDD steps, and get TJ's sign-off before implementing.
