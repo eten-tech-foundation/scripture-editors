@@ -62,6 +62,22 @@ Byte formats (`canonicalAttributeText`, NBSP rules, `unknownDisplayParts`) stay 
 descriptor callbacks; the tokenizer and Tier-2 fragment/signature machinery stay OUT of the
 registry entirely.
 
+**Phase-2 design question TJ raised (2026-08-05) — wrapper-element runs vs loose siblings:**
+today the folded verse/milestone runs are THREE loose sibling TextNodes/MarkerNodes because
+their owners are Lexical leaves (VerseNode extends TextNode) or decorators (MilestoneNode) that
+cannot hold children — unlike CharNode (an ElementNode), whose runs live inside the span and
+inherit its styling in one place. The loose-sibling shape is the root of the recurring
+multiplicity problems: styling applied per-piece (the va glyph-styling inconsistency), deletion
+per-piece (partial-deletion holes), grace/pend sites computed over piece adjacency. The
+planning chat should seriously evaluate wrapping each run in a dedicated ElementNode (e.g. an
+AttributeRunNode with the glyphs/value as children, sitting as ONE sibling after the leaf
+owner): styling becomes one class on one element; deletion becomes atomic node removal;
+grace/pend target one node; the Tier-2 run collectors become "the wrapper's children". Cost:
+one more representation migration touching the collectors, exclusion gates, adaptors, and
+delta paths — but each SIMPLIFIES. Controller's recommendation: the wrapper element is the
+better destination; it removes structurally what the descriptors would otherwise compensate
+for in code, and run styling then stops being a per-piece concern at all.
+
 **Phase 3 — settled `getUsj()` output** (TJ's follow-up-4 design; can be planned in the same
 chat, implemented independently of phases 1-2): `getUsj()` must return SETTLED USJ without
 mutating the editor — pending edits stay pending on screen, but consumers always receive the
