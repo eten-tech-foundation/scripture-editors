@@ -5,9 +5,9 @@
  * so a host save/`getUsj` serializes the OLD marker while the screen shows the new
  * one. `COMMIT_PENDING_MARKERS_COMMAND` lets the host settle pendings right before it
  * reads the USJ to save — resolving everything when the editor no longer has DOM
- * focus (the abandoned case) while still excepting the node under a live caret
- * (mid-typing pause) and the user's node during an app-placed-caret suppression
- * window (scrRef-yank).
+ * focus (the abandoned case), excepting the node under a live caret (mid-typing
+ * pause), and resolving NOTHING while an app-placed-caret suppression window is
+ * armed (scrRef yank or undo/redo restore — no user intent over the placed content).
  */
 
 import { COMMIT_PENDING_MARKERS_COMMAND } from "./MarkerEditPlugin";

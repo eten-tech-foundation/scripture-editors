@@ -20,6 +20,7 @@ import {
   $getSelection,
   $isElementNode,
   $isRangeSelection,
+  $isTextNode,
   BLUR_COMMAND,
   CLICK_COMMAND,
   LexicalNode,
@@ -363,6 +364,103 @@ describe("commitPendingMarkerEdits vs the historic suppression window", () => {
     await flushResolution();
     assertPipeSettled(editor);
   });
+
+  it("with TWO pendings, the armed commit resolves NEITHER; release resolves only the non-caret one", async () => {
+    // Pins the breadth of the window guard: during an armed window the ENTIRE pending set stays
+    // pending (the guard is a full stop, not a caret exception), and after release the normal
+    // rule returns — everything resolves EXCEPT the node under the live caret. Two independent
+    // pendings: the undone nd literal (elsewhere) and a wj literal typed under the caret while
+    // the window is still armed (programmatic select+insertText dispatches no KEY_DOWN/CLICK,
+    // so it does not release the window).
+    let content: TextNode;
+    let other: TextNode;
+    const { editor } = await historyTestEnvironment(() => {
+      const para = $createParaNode("p");
+      const char = $createCharNode("nd");
+      content = $createTextNode(`${NBSP}text`);
+      para.append(
+        $createMarkerNode("p"),
+        $createTextNode(NBSP),
+        char.append($createMarkerNode("nd"), content, $createMarkerNode("nd", "closing")),
+      );
+      const para2 = $createParaNode("p");
+      const wj = $createCharNode("wj");
+      para2.append(
+        $createMarkerNode("p"),
+        $createTextNode(NBSP),
+        wj.append(
+          $createMarkerNode("wj"),
+          $createTextNode(`${NBSP}other`),
+          $createMarkerNode("wj", "closing"),
+        ),
+      );
+      other = $createTextNode("elsewhere");
+      $getRoot().append(para, para2, $createParaNode("p").append($createMarkerNode("p"), other));
+    });
+    const assertWjLiteral = () =>
+      editor.getEditorState().read(() => {
+        const wj = requireDefinedInTest($findFirstChar($getRoot(), "wj"), "wj span not found");
+        expect(wj.getUnknownAttributes()).toBeUndefined();
+        expect($charAttributeDisplayNode(wj)).toBeUndefined();
+        expect(wj.getTextContent()).toContain('|foo="bar"');
+      });
+    // Type + settle the nd pipe literal (same flow as settledPipeEnvironment).
+    await act(async () => editor.update(() => content.select(5, 5)));
+    for (const character of `|stuff="thing"`) {
+      await act(async () =>
+        editor.update(() => {
+          const selection = $getSelection();
+          if ($isRangeSelection(selection)) selection.insertText(character);
+        }),
+      );
+    }
+    await act(async () => editor.update(() => other.select(0, 0)));
+    await flushResolution();
+    assertPipeSettled(editor);
+    // Undo: nd literal restored; the historic re-pend scan re-pends it and arms the window.
+    await act(async () => {
+      editor.dispatchCommand(UNDO_COMMAND, undefined);
+    });
+    await flushResolution();
+    assertPipeLiteral(editor);
+    // While STILL armed, land a second pending under the caret: a wj pipe literal.
+    await act(async () =>
+      editor.update(() => {
+        const wj = requireDefinedInTest($findFirstChar($getRoot(), "wj"), "wj span not found");
+        const wjContent = requireDefinedInTest(
+          wj.getChildren().find((c): c is TextNode => !$isMarkerNode(c) && $isTextNode(c)),
+          "wj content text not found",
+        );
+        const length = wjContent.getTextContent().length;
+        wjContent.select(length, length);
+        const selection = $getSelection();
+        if ($isRangeSelection(selection)) selection.insertText(`|foo="bar"`);
+      }),
+    );
+    await flushResolution();
+    assertWjLiteral();
+    // Armed window + forced commit: NEITHER pending resolves.
+    await act(async () => {
+      editor.getRootElement()?.focus();
+      editor.dispatchCommand(COMMIT_PENDING_MARKERS_COMMAND, undefined);
+    });
+    await flushResolution();
+    assertPipeLiteral(editor);
+    assertWjLiteral();
+    // Release the window (real in-editor click; the caret stays in the wj literal), then commit:
+    // the unrelated nd literal settles, the caret's own wj node stays pending (live-caret
+    // exception).
+    await act(async () => {
+      editor.dispatchCommand(CLICK_COMMAND, new MouseEvent("click"));
+    });
+    await act(async () => {
+      editor.getRootElement()?.focus();
+      editor.dispatchCommand(COMMIT_PENDING_MARKERS_COMMAND, undefined);
+    });
+    await flushResolution();
+    assertPipeSettled(editor);
+    assertWjLiteral();
+  }, 15000);
 });
 
 describe("undo → departure → re-settle (typed `\\nd hello\\nd*` char span — the class case)", () => {

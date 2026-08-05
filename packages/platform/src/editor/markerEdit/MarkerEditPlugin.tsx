@@ -89,13 +89,21 @@ import { hasStandardViewWhitespace, ViewOptions } from "shared-react";
  * serialized USJ matches what is on screen. Without it, a marker the user renamed but walked
  * away from mid-edit stays pending forever and serializes its OLD text.
  *
- * The resolve-everything rule has one exception: the node the caret is in stays pending, but
- * only while the user is genuinely editing it — while the editor still holds DOM focus (a
- * mid-typing pause must not settle under the user). During a programmatic scrRef caret move
- * (the "yank", defined below) the caret is not on a node the user chose, so the exception is
- * instead the last node the user themselves placed the caret in. The caller's own obligations
- * (e.g. do not call while a marker palette is open) are documented on
- * `EditorRef.commitPendingMarkerEdits`.
+ * The resolve-everything rule has two carve-outs:
+ *
+ * - While the app-placed-caret suppression window is armed (a programmatic scrRef caret move —
+ *   the "yank" — or an undo/redo restore), the ENTIRE pending set stays pending: nothing
+ *   resolves. A forced commit during the window carries no user intent over the restored
+ *   content — the host's debounced pre-save commit fires ~700ms after an undo, and resolving
+ *   then would re-settle the explicitly-undone literal with no user input. Pending literals
+ *   serialize as literal bytes, which ParatextData parses, so the save stays correct; the
+ *   user's next in-editor gesture (click/keystroke) releases the window and settling resumes.
+ * - Outside the window, the one exception is the node under the live caret — kept pending only
+ *   while the editor holds DOM focus (a mid-typing pause must not settle under the user); an
+ *   abandoned (blurred) edit settles fully.
+ *
+ * The caller's own obligations (e.g. do not call while a marker palette is open) are documented
+ * on `EditorRef.commitPendingMarkerEdits`.
  */
 export const COMMIT_PENDING_MARKERS_COMMAND: LexicalCommand<void> = createCommand(
   "COMMIT_PENDING_MARKERS_COMMAND",
@@ -616,23 +624,20 @@ export function MarkerEditPlugin({
           // exception is the node the caret is in — kept pending so we never settle a marker the
           // user is still editing. Compute that exception only while the editor holds DOM focus:
           // a live mid-typing pause must not settle under the user, but an abandoned (blurred)
-          // edit has no such node and settles fully. When the caret was moved programmatically
-          // (the scrRef "yank"), the current selection is not a node the user chose, so the
-          // exception is `lastAnchorKey` — the last node the user themselves placed the caret in
-          // — not the live selection. (Same fallback the BLUR handler uses.)
+          // edit has no such node and settles fully. The window guard above already returned for
+          // every app-placed caret, so a caret here is one the user placed: read it from the live
+          // selection, falling back to `lastAnchorKey` when a cross-frame blur nulled the
+          // selection (same fallback the BLUR handler uses).
           const rootElement = editor.getRootElement();
           const doc = rootElement?.ownerDocument;
           const hasFocus =
             !!rootElement && !!doc && doc.hasFocus() && rootElement.contains(doc.activeElement);
           let exceptKey: NodeKey | undefined;
           if (hasFocus) {
-            if (appPlacedCaret) exceptKey = lastAnchorKey;
-            else {
-              const selection = $getSelection();
-              // Focus, not anchor: the focus point is the caret's live end, so the exception is
-              // the right node even when a range selection is extended backward.
-              exceptKey = $isRangeSelection(selection) ? selection.focus.key : lastAnchorKey;
-            }
+            const selection = $getSelection();
+            // Focus, not anchor: the focus point is the caret's live end, so the exception is
+            // the right node even when a range selection is extended backward.
+            exceptKey = $isRangeSelection(selection) ? selection.focus.key : lastAnchorKey;
           }
           $resolvePendingMarkers(context, exceptKey);
           return true;
