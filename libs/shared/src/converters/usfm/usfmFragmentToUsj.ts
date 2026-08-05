@@ -728,6 +728,13 @@ export function usfmFragmentToUsjContent(
         // already folds to one flat string with no discretionary-break fidelity of its own
         // (see the `figure.content` assembly below and `materializeFigCapture`'s degrade
         // path), so a pre-`|` `//` landing back as literal text is no regression.
+        //
+        // This deliberately duplicates `extractAttributes`' optbreak→`//` byte mapping rather
+        // than sharing a helper: that function rejoins an already-ASSEMBLED content array
+        // post-hoc (strings and `{type:"optbreak"}` objects), while this path rejoins the token
+        // STREAM as it arrives into a plain string accumulator — the two operate on different
+        // shapes at different pipeline stages, and the shared knowledge is just the single
+        // byte fact that an optbreak was a literal `//`.
         figCapture.value += token.kind === "text" ? token.text : "//";
         continue;
       }
