@@ -166,4 +166,29 @@ describe("verse \\va/\\vp display values carry their marker's own stylesheet cla
       expect(dom?.classList.contains("usfm_w")).toBe(false);
     });
   });
+
+  it("does not tint a STANDALONE \\va char span's own attribute run (opener-adjacent, but inside a CharNode)", async () => {
+    // The hard case for the adjacency check: a standalone `\va |lemma="test"\va*` char span (the
+    // shape a \va that failed to fold onto a verse degrades to) with NO content text puts its own
+    // attribute run DIRECTLY after its own opening `\va` glyph — the exact sibling shape a folded
+    // verse triplet's value has. The two differ structurally in the PARENT: a verse triplet's
+    // value rides in the PARAGRAPH (a VerseNode is a TextNode, so its run is a following
+    // sibling), while a char span's own run lives INSIDE the CharNode. That run is `|…` attribute
+    // bytes, not an altnumber value — it must keep plain `.attribute` dim styling only (the SPAN
+    // already carries usfm_va from CharNode.createDOM; the run must not double-apply it).
+    let value: TextNode;
+    const { editor } = await testEnvironment(() => {
+      const va = $createCharNode("va");
+      value = $createTextNode('|lemma="test"');
+      $setState(value, textTypeState, "attribute");
+      va.append($createMarkerNode("va", "opening"), value, $createMarkerNode("va", "closing"));
+      const para = $createParaNode("p");
+      $getRoot().append(para.append($createMarkerNode("p"), $createTextNode(NBSP), va));
+    });
+    editor.getEditorState().read(() => {
+      const dom = editor.getElementByKey(value.getKey());
+      expect(dom?.classList.contains("attribute")).toBe(true);
+      expect(dom?.classList.contains("usfm_va")).toBe(false);
+    });
+  });
 });
