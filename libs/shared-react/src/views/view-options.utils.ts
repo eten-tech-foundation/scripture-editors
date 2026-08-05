@@ -11,7 +11,9 @@ import {
   UNFORMATTED_VIEW_MODE,
   PARAGRAPH_STRUCTURE_VIEW_MODE,
   STANDARD_VIEW_MODE,
+  viewModeToViewNames,
 } from "./view-mode.model";
+import { deepEqual } from "fast-equals";
 
 /**
  * How USFM markers are displayed.
@@ -222,6 +224,15 @@ export function getViewOptions(viewMode?: string | undefined): ViewOptions | und
 /**
  * Convert view options to view mode if the view exists.
  *
+ * This inverts {@link getViewOptions} by comparison rather than by matching fields one at a time,
+ * so a view option added in the future cannot be forgotten here and silently make two modes
+ * indistinguishable.
+ *
+ * The comparison is exact: options must deep-equal what `getViewOptions` produces for a mode.
+ * Options that were derived from a mode and then tweaked - say a formatted view with `noteMode`
+ * changed to `"expanded"` - describe a view that is not one of the named modes, so they yield
+ * `undefined` rather than the mode they started from.
+ *
  * @param viewOptions - View options of the editor.
  * @returns the view mode if the view is defined, `undefined` otherwise.
  *
@@ -230,42 +241,9 @@ export function getViewOptions(viewMode?: string | undefined): ViewOptions | und
 export function getViewMode(viewOptions: ViewOptions | undefined): ViewMode | undefined {
   if (!viewOptions) return undefined;
 
-  const {
-    markerMode,
-    noteMode,
-    hasSpacing,
-    isFormattedFont,
-    hasGutterParaMarkers,
-    hasActiveTextFocusBox,
-  } = viewOptions;
-  if (
-    markerMode === "hidden" &&
-    hasSpacing &&
-    isFormattedFont &&
-    hasGutterParaMarkers &&
-    hasActiveTextFocusBox
-  )
-    return PARAGRAPH_STRUCTURE_VIEW_MODE;
-  // STANDARD is exactly the whitespace fingerprint plus collapsed notes — expressed as the call so
-  // a sixth axis on `ViewOptions` cannot land in one of the two spellings and not the other.
-  if (hasStandardViewWhitespace(viewOptions) && noteMode === "collapsed") return STANDARD_VIEW_MODE;
-  if (
-    markerMode === "hidden" &&
-    hasSpacing &&
-    isFormattedFont &&
-    !hasGutterParaMarkers &&
-    !hasActiveTextFocusBox
-  )
-    return FORMATTED_VIEW_MODE;
-  if (
-    markerMode === "editable" &&
-    !hasSpacing &&
-    !isFormattedFont &&
-    !hasGutterParaMarkers &&
-    !hasActiveTextFocusBox
-  )
-    return UNFORMATTED_VIEW_MODE;
-  return undefined;
+  return (Object.keys(viewModeToViewNames) as ViewMode[]).find((viewMode) =>
+    deepEqual(getViewOptions(viewMode), viewOptions),
+  );
 }
 
 /**
@@ -285,9 +263,10 @@ export function getViewMode(viewOptions: ViewOptions | undefined): ViewMode | un
  * display-mapped text to invert (their named mode hides markers entirely, so the editable
  * engine's separators never combine with them). Deliberately NOT expressed via
  * {@link getViewMode}: expanded is not the named `standard` mode, and overloading `getViewMode`
- * would break its invertibility contract and the user-facing mode labels. The dependency runs the
- * other way instead — `getViewMode` builds its STANDARD branch out of this predicate and the
- * `noteMode` axis, so the fingerprint is written down exactly once.
+ * would break its invertibility contract and the user-facing mode labels. `getViewMode` compares
+ * whole option objects against {@link getViewOptions}, so this predicate stays independent of it:
+ * it is the one place the whitespace fingerprint — the STANDARD options with the `noteMode` axis
+ * dropped — is written down.
  *
  * @param viewOptions - View options of the editor.
  * @returns `true` when standard-view whitespace normalization applies.
