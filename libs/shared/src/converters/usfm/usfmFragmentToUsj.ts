@@ -718,8 +718,17 @@ export function usfmFragmentToUsjContent(
     }
 
     if (figCapture) {
-      if (token.kind === "text") {
-        figCapture.value += token.text;
+      if (token.kind === "text" || token.kind === "optbreak") {
+        // The tokenizer splits `//` into optbreak tokens spec-blind — including inside what
+        // will become the `|attributes` segment, where ParatextData treats `//` as plain
+        // value bytes (`UsfmToken.HandleAttributes` strips the segment out of the text run at
+        // tokenize-time, before the parser's `//`→optbreak pass ever runs), so an attribute
+        // value carrying a URL must reach `parseAttributeText` below byte-exact. Rejoining
+        // every optbreak here (not just post-`|` ones) is safe: a clean figure's description
+        // already folds to one flat string with no discretionary-break fidelity of its own
+        // (see the `figure.content` assembly below and `materializeFigCapture`'s degrade
+        // path), so a pre-`|` `//` landing back as literal text is no regression.
+        figCapture.value += token.kind === "text" ? token.text : "//";
         continue;
       }
       if (token.kind === "end" && token.marker.replace(/^\+/, "") === FIGURE_MARKER) {
