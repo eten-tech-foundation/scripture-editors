@@ -18,9 +18,11 @@ import {
   $createTextNode,
   $getRoot,
   $getSelection,
+  $getState,
   $isElementNode,
   $isRangeSelection,
   $isTextNode,
+  $setState,
   BLUR_COMMAND,
   CLICK_COMMAND,
   LexicalNode,
@@ -35,11 +37,13 @@ import {
   $createMarkerNode,
   $createParaNode,
   $isCharNode,
+  $isDisplayOwnerPended,
   $isMarkerNode,
   $isParaNode,
   $isUnknownNode,
   CharNode,
   NBSP,
+  textTypeState,
   UnknownNode,
 } from "shared";
 
@@ -623,4 +627,104 @@ describe("re-pend scan does not destabilize settle-refused literals", () => {
     });
     expect(refusedParaCount()).toBe(3);
   }, 15000);
+});
+
+describe("undo of a settled RUN DELETION (Task 7 flow) restores the run without a spurious pend", () => {
+  it("settle a run deletion, undo restores it, and it stays restored across a subsequent unrelated commit", async () => {
+    // The inverse direction of this file's other suites: those undo a SETTLE (a typed literal
+    // resolved to structure) and re-pend the restored LITERAL for re-settling. Here undo reverses
+    // a DELETION SETTLE (charAttributeDeletionSettle.test.tsx's flow) — the restored state is
+    // already fully canonical (attributes + display run both back), so the historic re-pend scan
+    // ($rependPendShapedNodes) must recognize it as NOT pend-shaped and leave it alone: pending an
+    // already-canonical owner would needlessly exempt it from healing (attributeDisplay.utils.ts's
+    // `$isDisplayOwnerPended` guard) until an unrelated caret departure, and — if that departure's
+    // resolve ever mistakenly treated the pend as "still needs settling" — could re-clear the
+    // attributes the undo just restored.
+    let content: TextNode;
+    let other: TextNode;
+    const { editor } = await historyTestEnvironment(() => {
+      const para = $createParaNode("p");
+      const char = $createCharNode("nd");
+      char.setUnknownAttributes({ stuff: "thing" });
+      content = $createTextNode(`${NBSP}text`);
+      const run = $createTextNode('|stuff="thing"');
+      $setState(run, textTypeState, "attribute");
+      para.append(
+        $createMarkerNode("p"),
+        $createTextNode(NBSP),
+        char.append($createMarkerNode("nd"), content, run, $createMarkerNode("nd", "closing")),
+      );
+      other = $createTextNode("elsewhere");
+      $getRoot().append(para, $createParaNode("p").append($createMarkerNode("p"), other));
+    });
+
+    const $findChar = () =>
+      requireDefinedInTest($findFirstChar($getRoot(), "nd"), "nd char span not found");
+    const $findRun = (char: CharNode) =>
+      char
+        .getChildren()
+        .find(
+          (c): c is TextNode =>
+            $isTextNode(c) && !$isMarkerNode(c) && $getState(c, textTypeState) === "attribute",
+        );
+
+    // Delete the run and depart: the deletion settles (Task 7's flow) — attributes clear, the run
+    // is gone.
+    await act(async () =>
+      editor.update(() => {
+        const char = $findChar();
+        const run = requireDefinedInTest($findRun(char), "run missing");
+        const index = run.getIndexWithinParent();
+        run.remove();
+        char.select(index, index);
+      }),
+    );
+    await act(async () => editor.update(() => other.select(0, 0)));
+    await flushResolution();
+    editor.getEditorState().read(() => {
+      expect($findChar().getUnknownAttributes()?.stuff).toBeUndefined();
+    });
+
+    // The deletion and its settle are TWO SEPARATE history entries (removing the run does not
+    // itself clear the attributes; that happens only in the deferred Tier-2 settle the departure
+    // triggers), so undoing back to the fully pre-deletion state — run present, attributes set —
+    // takes two undos: the first reverses the settle (attributes come back, but the run is still
+    // absent — an intermediate state, since Tier-2's clearing is the only thing it undoes), the
+    // second reverses the deletion itself (the run comes back too).
+    await act(async () => {
+      editor.dispatchCommand(UNDO_COMMAND, undefined);
+    });
+    await flushResolution();
+    editor.getEditorState().read(() => {
+      expect($findChar().getUnknownAttributes()?.stuff).toBe("thing");
+    });
+    await act(async () => {
+      editor.dispatchCommand(UNDO_COMMAND, undefined);
+    });
+    await flushResolution();
+    editor.getEditorState().read(() => {
+      const char = $findChar();
+      expect(char.getUnknownAttributes()?.stuff).toBe("thing");
+      expect($charAttributeDisplayNode(char)?.getTextContent()).toBe('|stuff="thing"');
+    });
+    // The historic commit must not have pended the restored (already-canonical) owner.
+    editor.read(() => {
+      expect($isDisplayOwnerPended($findChar())).toBe(false);
+    });
+
+    // A subsequent UNRELATED commit (editing the OTHER paragraph, nowhere near the restored span)
+    // must not disturb it — a spurious pend from the historic commit would let this departure's
+    // deferred resolution resolve it and re-clear the just-restored attributes.
+    await act(async () =>
+      editor.update(() => {
+        other.setTextContent("elsewhere-typed");
+      }),
+    );
+    await flushResolution();
+    editor.getEditorState().read(() => {
+      const char = $findChar();
+      expect(char.getUnknownAttributes()?.stuff).toBe("thing");
+      expect($charAttributeDisplayNode(char)?.getTextContent()).toBe('|stuff="thing"');
+    });
+  });
 });

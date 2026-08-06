@@ -50,6 +50,7 @@ import {
   KEY_ENTER_COMMAND,
   PASTE_COMMAND,
   LexicalCommand,
+  LexicalNode,
   NodeKey,
   NodeMutation,
   TextNode,
@@ -196,6 +197,37 @@ function $verseOfAttributeGlyph(node: MarkerNode): VerseNode | undefined {
 }
 
 /**
+ * Which of a verse's two independent attribute fields (`\va`'s altnumber, `\vp`'s pubnumber) a
+ * just-destroyed run PIECE belonged to — or `undefined` when it cannot be classified. Evaluated in
+ * the PREVIOUS editor state, same as {@link $ownerOfDestroyedRunPiece} (shared's
+ * displayRunDeletion.utils.ts), which this refines: that classifier stops at the OWNING verse, one
+ * identity shared by both `\va` and `\vp`, so `$pendOwnersOfDestroyed`'s still-wanted exemption
+ * (below) cannot otherwise tell "the va run was destroyed, and altnumber is genuinely gone" apart
+ * from "the va run was destroyed, but altnumber is still set" without also knowing which field the
+ * destruction touched. A glyph reports its own marker directly; an attribute VALUE reports its
+ * immediately preceding sibling's marker (the run pieces' fixed order — opener, value, closer —
+ * means the value's own opener is always one step back, even when that opener is ALSO being
+ * destroyed in the same commit: this reads the PREVIOUS state, where it still has its tree
+ * position). Verse-only: a char span's attributes fold into ONE run, and a milestone has only one
+ * field, so neither needs this distinction.
+ */
+function $verseAttributeFieldOfDestroyedPiece(
+  piece: LexicalNode,
+): "altnumber" | "pubnumber" | undefined {
+  if ($isMarkerNode(piece)) {
+    if (piece.getMarker() === "va") return "altnumber";
+    if (piece.getMarker() === "vp") return "pubnumber";
+    return undefined;
+  }
+  if ($isTextNode(piece) && $getState(piece, textTypeState) === "attribute") {
+    const previous = piece.getPreviousSibling();
+    if ($isMarkerNode(previous) && previous.getMarker() === "va") return "altnumber";
+    if ($isMarkerNode(previous) && previous.getMarker() === "vp") return "pubnumber";
+  }
+  return undefined;
+}
+
+/**
  * The Standard-view marker-editing engine. Tier 1 node
  * transforms keep structural state in sync with edited marker text; completion
  * commands (Enter/blur) resolve mid-edit markers; deletion transforms
@@ -312,12 +344,29 @@ export function MarkerEditPlugin({
     ) => {
       if (payload.updateTags.has(HISTORIC_TAG) || payload.updateTags.has(DELTA_CHANGE_TAG)) return;
       const ownerKeys: NodeKey[] = [];
+      // Which of a verse owner's two fields (altnumber/pubnumber) a destroyed piece belonged to —
+      // populated only for VerseNode owners, and only when classifiable (see
+      // $verseAttributeFieldOfDestroyedPiece). Lets the still-wanted exemption below tell "the va
+      // run was destroyed AND altnumber is genuinely gone" apart from "the va run was destroyed,
+      // but pubnumber (untouched) is still set" — a verse is the one owner kind with two
+      // independent fields sharing a single pended identity.
+      const verseFieldsDestroyed = new Map<NodeKey, Set<"altnumber" | "pubnumber">>();
       payload.prevEditorState.read(() => {
         for (const [key, mutation] of mutations) {
           if (mutation !== "destroyed") continue;
           const destroyed = $getNodeByKey(key);
-          const owner = destroyed ? $ownerOfDestroyedRunPiece(destroyed) : undefined;
-          if (owner) ownerKeys.push(owner.getKey());
+          if (!destroyed) continue;
+          const owner = $ownerOfDestroyedRunPiece(destroyed);
+          if (!owner) continue;
+          ownerKeys.push(owner.getKey());
+          if ($isVerseNode(owner)) {
+            const field = $verseAttributeFieldOfDestroyedPiece(destroyed);
+            if (field) {
+              const fields = verseFieldsDestroyed.get(owner.getKey()) ?? new Set();
+              fields.add(field);
+              verseFieldsDestroyed.set(owner.getKey(), fields);
+            }
+          }
         }
       });
       if (ownerKeys.length === 0) return;
@@ -339,19 +388,27 @@ export function MarkerEditPlugin({
           )
             continue;
           // Same still-wanted exemption for a verse's own legitimate \va/\vp removal
-          // ($syncVerseAttributeDisplay clearing triplet debris once altnumber/pubnumber are
-          // both gone) and a milestone's own legitimate attribute-text removal
-          // ($syncMilestoneDisplayRun clearing it once no attributes remain). Without this, the
-          // pended-grace guard those syncs now carry (attributeDisplay.utils.ts's
-          // $isDisplayOwnerPended early-return) would leave a spuriously-pended owner unable to
-          // heal a LATER legitimate field change until an unrelated caret departure re-tokenizes
-          // whatever bytes happen to be currently displayed, clobbering it.
-          if (
-            $isVerseNode(owner) &&
-            owner.getAltnumber() === undefined &&
-            owner.getPubnumber() === undefined
-          )
-            continue;
+          // ($syncVerseAttributeDisplay clearing triplet debris once a field is gone) and a
+          // milestone's own legitimate attribute-text removal ($syncMilestoneDisplayRun clearing
+          // it once no attributes remain). Without this, the pended-grace guard those syncs now
+          // carry (attributeDisplay.utils.ts's $isDisplayOwnerPended early-return) would leave a
+          // spuriously-pended owner unable to heal a LATER legitimate field change until an
+          // unrelated caret departure re-tokenizes whatever bytes happen to be currently
+          // displayed, clobbering it. Precise per field when the destroyed piece(s) classified to
+          // specific fields (only altnumber cleared must not block a still-set pubnumber's own
+          // healing, and vice versa); falls back to the coarse both-cleared check when a piece
+          // couldn't be classified, which keeps the guard exactly as conservative as before.
+          if ($isVerseNode(owner)) {
+            const fields = verseFieldsDestroyed.get(ownerKey);
+            const stillWanted = fields
+              ? [...fields].some(
+                  (field) =>
+                    (field === "altnumber" ? owner.getAltnumber() : owner.getPubnumber()) !==
+                    undefined,
+                )
+              : owner.getAltnumber() !== undefined || owner.getPubnumber() !== undefined;
+            if (!stillWanted) continue;
+          }
           if ($isMilestoneNode(owner) && $milestoneAttributeDisplayText(owner) === "") continue;
           context.pendingKeys.add(ownerKey);
         }
