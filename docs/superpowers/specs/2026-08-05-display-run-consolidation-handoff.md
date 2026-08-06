@@ -104,6 +104,63 @@ wants unsettled USJ; settle-on-a-timer alone was rejected as papering over the r
 Explicitly OUT of scope: the suppression-window state machine (post-W6-A it is hygiene, not a
 live bug — absorb into phase 2 if convenient, else skip).
 
+## Backlog: every open item as of 2026-08-05 (this section is the durable record — the
+## session ledger under `.superpowers/sdd/` is local-only and may not survive)
+
+**TJ-approved, NOT YET DONE (slipped between waves — do these early, they are small):**
+
+1. **Editable-para `\p`-prefix delta leak** (TJ approved 2026-08-04): the paragraph's own
+   `\p ` glyph text flows into collab content ops on the produce side while the apply side
+   re-synthesizes the prefix — the last unexcluded glyph class, same shape as the fixed verse
+   leak. Fix: extend the glyph exclusion in `editor-delta.adaptor.ts` + align the position
+   helpers, mirroring the verse OT unification (mechanical now; the `OTCoordinateSystem` doc
+   in delta-common.utils.ts documents the divergence).
+2. **Log-noise quick fix** (TJ approved): recurring `optbreak-undefined`/`figure-fig` pattern
+   in the app logs (pre-existing, probably a style-lookup miss for those markers in
+   paranext-core's styling pipeline). Short log-inspection session; fix if small.
+3. **`scripts/mcp-launcher.js` lint** (TJ chose the ignore-comment option): add the justified
+   eslint-disable for `no-require-imports` — the last root-context error.
+
+**Needs a live capture (no TJ action required — the sample data is deterministic):**
+
+4. **Verse-9 lossy divergence**: in the E2E sample project (the WEB bundle the isolated suite
+   installs; c-sharp/assets/WEB, Luke 4), the pre-existing span `\nd come togedda\nd*` (verse
+   9, arrives as content[16]) makes the sync warn fire on EVERY full-chapter save regardless
+   of edit target. Both static pipelines are PROVEN byte-faithful (C# capture test
+   `NdSpanRoundTripCaptureTests` + adaptor probe), so it is a live-editing divergence — prime
+   suspect: inner-trailing-space handling (the space before the closer). Repro: open that
+   chapter in Standard view, edit anything, save; the (now per-difference) warn prints the
+   exact differing entries. Fix whichever side mangles the space.
+
+**Needs one verification (either TJ manually or the new chat headlessly):**
+
+5. **Undo re-settle final retest** (TJ: your exact repro — type `|stuff="thing"` before a
+   closer in an existing `\nd` span, arrow up to settle, Ctrl+Z, hands off ~3s). Three stacked
+   mechanisms were fixed (historic-commit transform blindness; effect-teardown state wipe; the
+   debounced save's forced commit — the live-captured trigger, gated 2026-08-05). The last fix
+   was verified live via CDP; TJ's manual confirmation on a fresh `npm start` is the final
+   gate.
+6. **Mid-sentence typed-marker settle**: a verification-session observation (typing
+   `\nd hello\nd*` with the caret mid-sentence in existing text did not settle on departure;
+   at a clean paragraph end it did). TJ could not reproduce; possibly resolved by the
+   caret-restoration fix. One headless per-keystroke check mid-existing-text; fix or close.
+
+**Small ledgered items worth keeping:**
+
+7. `$getTextContentExcludingMarkers` (node.utils.ts) excludes decorator display text only by
+   accidental fall-through (fragile coincidence, works today) — give it an explicit exclusion
+   when touching that file.
+8. The folded va/vp GLYPHS still lack the green-superscript styling (only the value got it);
+   deliberately held for the phase-2 wrapper-element decision rather than patching the
+   three-piece styling a second time (TJ may request the interim patch).
+9. `\fig` whose attribute value contains `//` degrades to char-with-attrs on rebuild instead
+   of a faithful figure (improved from attribute-loss; tokenizer figure-assembler rejoin
+   landed, the faithful-figure re-fold did not).
+
+Resolved-and-closed (do NOT re-investigate): flushSync (TJ dropped), scribe parallel copies
+(TJ dropped), 2sa.lexical fixtures (regenerated + always-on freshness pin), parse-fail
+idempotence pin (landed), root-vs-nx eslint alignment (landed; only item 3 above remains).
+
 ## Fixed points the refactor must not touch (assessment §5)
 
 Tokenizer/losslessness core (`usfmFragmentToUsjContent`, `extractAttributes`, `scanMilestone`,
