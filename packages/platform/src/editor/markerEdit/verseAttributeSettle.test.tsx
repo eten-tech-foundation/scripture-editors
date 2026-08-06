@@ -16,6 +16,7 @@ import { $rebuildParas, Tier2Context } from "./tier2Rebuild.utils";
 import { act } from "@testing-library/react";
 import { $createTextNode, $getRoot, $isTextNode, $setState } from "lexical";
 import {
+  $createCharNode,
   $createMarkerNode,
   $createParaNode,
   $createVerseNode,
@@ -384,6 +385,72 @@ describe("verse \\va/\\vp deletion settles (does not resurrect)", () => {
       expect($isMarkerNode(opener) && opener.getMarker() === "va").toBe(true);
       const value = opener?.getNextSibling();
       expect($isTextNode(value) && value.getTextContent()).toBe(`${NBSP}5`);
+    });
+  });
+
+  it("typing a value into an empty \\va span re-folds to altnumber on departure (TJ repro)", async () => {
+    const { editor } = await testEnvironmentWithSpacing(() => {
+      const verse = $createVerseNode(
+        "1",
+        getVisibleOpenMarkerText("v", "1"),
+        undefined,
+        undefined,
+        undefined,
+      );
+      const span = $createCharNode("va"); // the settled empty form: displayed `\va \va*`
+      span.append(
+        $createMarkerNode("va"),
+        $createTextNode(NBSP),
+        $createMarkerNode("va", "closing"),
+      );
+      $getRoot().append(
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          verse,
+          span,
+          $createTextNode("In the beginning"),
+        ),
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          $createTextNode("body"),
+        ),
+      );
+    });
+
+    const $bodyTextNode = () => {
+      const body = $getRoot().getChildren().filter($isParaNode)[1].getLastChild();
+      if (!$isTextNode(body)) throw new Error("body text node missing");
+      return body;
+    };
+
+    await act(async () =>
+      editor.update(() => {
+        const span = requireDefined(
+          $getRoot().getChildren().filter($isParaNode)[0].getChildren().find($isCharNode),
+          "va span missing",
+        );
+        const content = span.getChildAtIndex(1); // the NBSP separator text
+        if (!$isTextNode(content)) throw new Error("span content missing");
+        content.setTextContent(`${NBSP}3`); // the user types the value
+        content.select(2, 2);
+      }),
+    );
+    await act(async () => editor.update(() => $bodyTextNode().select(0, 0)));
+
+    editor.getEditorState().read(() => {
+      const verse = requireDefined(
+        $getRoot().getChildren().filter($isParaNode)[0].getChildren().find($isVerseNode),
+        "verse missing",
+      );
+      expect(verse.getAltnumber()).toBe("3"); // re-folded
+      const open = verse.getNextSibling(); // canonical triplet re-materialized
+      expect($isMarkerNode(open) && open.getMarker() === "va").toBe(true);
+      // and the source span is gone (folded into the verse)
+      expect($getRoot().getChildren().filter($isParaNode)[0].getChildren().some($isCharNode)).toBe(
+        false,
+      );
     });
   });
 });
