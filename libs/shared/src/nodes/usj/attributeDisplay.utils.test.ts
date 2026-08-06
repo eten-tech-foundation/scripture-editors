@@ -2,13 +2,17 @@ import {
   $hasCaretHeldMilestoneRun,
   $milestoneRunEntirelyAbsent,
   $syncMilestoneDisplayRun,
+  $syncVerseAttributeDisplay,
   canonicalAttributeText,
   milestoneAttributes,
 } from "./attributeDisplay.utils.js";
 import { $createMilestoneNode, MilestoneNode } from "./MilestoneNode.js";
+import { getVisibleOpenMarkerText } from "./node.utils.js";
 import { NBSP } from "./node-constants.js";
 import { $createParaNode } from "./ParaNode.js";
+import { registerPendedDisplayOwners } from "./pendedDisplayOwners.utils.js";
 import { createBasicTestEnvironment, updateSelection } from "./test.utils.js";
+import { $createVerseNode, VerseNode } from "./VerseNode.js";
 import { $createMarkerNode, $isMarkerNode } from "../features/MarkerNode.js";
 import { textTypeState } from "../collab/delta.state.js";
 import { $createTextNode, $getRoot, $isTextNode, $setState, TextNode } from "lexical";
@@ -448,5 +452,176 @@ describe("milestone display run ($syncMilestoneDisplayRun / $hasCaretHeldMilesto
     editor.getEditorState().read(() => {
       expect($milestoneRunEntirelyAbsent(milestone)).toBe(false);
     });
+  });
+
+  it("leaves a diverged run unhealed while the owner is pended in the registry, and heals it again once unpended", () => {
+    // Pins the pended guard added to $syncMilestoneDisplayRun alongside $settlePendedDisplayOwner
+    // (Task 8): with a REAL divergence and the caret parked somewhere none of this file's
+    // caret-grace heuristics recognize, a milestone registered pended in
+    // pendedDisplayOwners.utils.ts's side channel must leave the run unhealed — that decision is
+    // deferred to the marker-edit engine's own caret-departure settle
+    // ($resolvePendingMarkers/$settlePendedDisplayOwner, markerEditTier1.utils.ts). Unpending the
+    // SAME divergence must heal it exactly as every other test in this file proves it does.
+    const { editor, milestone } = buildBareMilestone("qt-s", "q1");
+    const canonicalText = `${NBSP}|sid="q1"`;
+    editor.update(
+      () => {
+        $syncMilestoneDisplayRun(milestone, canonicalText);
+      },
+      { discrete: true },
+    );
+
+    // Delete ONLY the attribute text (opening + self-closing glyphs survive as debris — a real
+    // divergence), then park the caret on the LEADING content, well away from the run's site.
+    // (Lexical's own point normalization pulls a caret parked at the START of the run's
+    // immediately-following sibling back onto the closing glyph's own end — which IS a
+    // recognized grace site — so the away site must not be glyph-adjacent.)
+    editor.update(
+      () => {
+        const opening = milestone.getNextSibling();
+        const attribute = opening?.getNextSibling();
+        attribute?.remove();
+        const before = milestone.getPreviousSibling();
+        if (!$isTextNode(before)) throw new Error("leading text missing");
+        before.select(0, 0);
+      },
+      { discrete: true },
+    );
+
+    const pended = new Set<string>([milestone.getKey()]);
+    const unregister = registerPendedDisplayOwners(editor, pended);
+
+    editor.update(
+      () => {
+        $syncMilestoneDisplayRun(milestone, canonicalText);
+      },
+      { discrete: true },
+    );
+
+    editor.getEditorState().read(() => {
+      // Pended: the sync left the debris untouched — no attribute text resurrected.
+      const run = readRun(milestone);
+      expect(run.attributeText).toBeUndefined();
+    });
+
+    // Negative control: the SAME divergence, unpended, heals — attribute text comes back.
+    pended.delete(milestone.getKey());
+    editor.update(
+      () => {
+        $syncMilestoneDisplayRun(milestone, canonicalText);
+      },
+      { discrete: true },
+    );
+
+    editor.getEditorState().read(() => {
+      const run = readRun(milestone);
+      expect(run.attributeText).toBe(canonicalText);
+    });
+
+    unregister();
+  });
+});
+
+describe("verse attribute display run ($syncVerseAttributeDisplay)", () => {
+  /** Builds `<verse \\v 1><va opener>␣2<va closer>In the beginning` under a fresh root
+   * paragraph, with the `\va` triplet already healed onto the verse (mirrors
+   * `buildBareMilestone`'s shape for the verse case), and returns the verse. */
+  function buildVerseWithVa() {
+    const { editor } = createBasicTestEnvironment();
+    let verse!: VerseNode;
+    editor.update(
+      () => {
+        verse = $createVerseNode(
+          "1",
+          getVisibleOpenMarkerText("v", "1"),
+          undefined,
+          "2",
+          undefined,
+        );
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createTextNode(NBSP),
+            verse,
+            $createTextNode("In the beginning"),
+          ),
+        );
+        $syncVerseAttributeDisplay(verse, verse.getAltnumber(), verse.getPubnumber());
+      },
+      { discrete: true },
+    );
+    return { editor, verse };
+  }
+
+  it("heals a full \\va run onto a verse with no display triplet yet", () => {
+    const { editor, verse } = buildVerseWithVa();
+    editor.getEditorState().read(() => {
+      const open = verse.getNextSibling();
+      expect($isMarkerNode(open) && open.getMarker() === "va").toBe(true);
+      const value = open?.getNextSibling();
+      if (!$isTextNode(value) || $isMarkerNode(value)) throw new Error("value missing");
+      expect(value.getTextContent()).toBe(`${NBSP}2`);
+      const closer = value.getNextSibling();
+      expect($isMarkerNode(closer) && closer.getMarkerSyntax() === "closing").toBe(true);
+    });
+  });
+
+  it("leaves a diverged \\va run unhealed while the owner is pended in the registry, and heals it again once unpended", () => {
+    // Mirrors the milestone pin above, for $syncVerseAttributeDisplay's own pended guard (inside
+    // $syncVerseAttributeRun, keyed on the OWNING verse — see that function's doc comment).
+    const { editor, verse } = buildVerseWithVa();
+
+    // Remove ONLY the value TextNode (opener + closer glyphs survive as debris — a real
+    // divergence), then park the caret on the LEADING content, well away from the run's site.
+    // (Lexical's own point normalization pulls a caret parked at the START of the run's
+    // immediately-following sibling back onto the closer glyph's own end — which IS a
+    // recognized grace site — so the away site must not be glyph-adjacent.)
+    editor.update(
+      () => {
+        const open = verse.getNextSibling();
+        const value = open?.getNextSibling();
+        value?.remove();
+        const before = verse.getPreviousSibling();
+        if (!$isTextNode(before)) throw new Error("leading text missing");
+        before.select(0, 0);
+      },
+      { discrete: true },
+    );
+
+    const pended = new Set<string>([verse.getKey()]);
+    const unregister = registerPendedDisplayOwners(editor, pended);
+
+    editor.update(
+      () => {
+        $syncVerseAttributeDisplay(verse, verse.getAltnumber(), verse.getPubnumber());
+      },
+      { discrete: true },
+    );
+
+    editor.getEditorState().read(() => {
+      // Pended: the sync left the debris alone — opener and closer survive, but no value was
+      // resurrected between them.
+      const open = verse.getNextSibling();
+      expect($isMarkerNode(open) && open.getMarker() === "va").toBe(true);
+      const afterOpen = open?.getNextSibling();
+      expect($isMarkerNode(afterOpen) && afterOpen.getMarkerSyntax() === "closing").toBe(true);
+    });
+
+    // Negative control: the SAME divergence, unpended, heals — the value comes back.
+    pended.delete(verse.getKey());
+    editor.update(
+      () => {
+        $syncVerseAttributeDisplay(verse, verse.getAltnumber(), verse.getPubnumber());
+      },
+      { discrete: true },
+    );
+
+    editor.getEditorState().read(() => {
+      const open = verse.getNextSibling();
+      const value = open?.getNextSibling();
+      if (!$isTextNode(value) || $isMarkerNode(value)) throw new Error("value missing");
+      expect(value.getTextContent()).toBe(`${NBSP}2`);
+    });
+
+    unregister();
   });
 });

@@ -397,7 +397,10 @@ function $isCaretAtVerseAttributeSite(
  * pieces — a leftover opener/value/closer is reused in place, never duplicated (the tolerant-pieces
  * fix for the value-deletion resurrect bug). Returns the node the NEXT marker's run should anchor
  * after — `after` itself when no run exists there, else this run's closer — so `\va` and `\vp`
- * chain correctly regardless of which are present.
+ * chain correctly regardless of which are present. `verse` and `after` name two different things:
+ * `verse` is the run's OWNER — the identity the pended-registry check below looks up — while
+ * `after` is only this call's scan/insertion ANCHOR, which for the chained `\vp` call is `\va`'s
+ * closer (or `verse` itself), never the owner to check pended-ness against.
  */
 function $syncVerseAttributeRun(
   verse: VerseNode,
