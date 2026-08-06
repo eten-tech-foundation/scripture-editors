@@ -89,16 +89,34 @@ export async function testEnvironmentWithSpacing($initialEditorState: () => void
  * Like `testEnvironment`, but also mounts `CharNodePlugin` — the shared-react home of the
  * self-healing char attribute-run sync — for tests where the sync and the engine's pend/settle
  * must interact, matching the real app's plugin stack.
+ *
+ * `pluginOrder` picks which of the two plugins mounts first. They are registered by independently
+ * ordered host components — Lexical runs a node's transforms in registration order, so whichever
+ * plugin's `CharNode` transform registers first is the one that runs first whenever a char span is
+ * dirtied — so a fix that only works under ONE order is not actually fixed for hosts using the
+ * other. `"app"` (the default) matches `Editor.tsx`'s real mount order (`CharNodePlugin` before
+ * `MarkerEditPlugin`); `"engine-first"` is the inverse, kept as an explicit regression check so a
+ * future change that reintroduces an order dependency fails loudly under at least one of the two.
  */
-export async function testEnvironmentWithCharSync($initialEditorState: () => void) {
+export async function testEnvironmentWithCharSync(
+  $initialEditorState: () => void,
+  pluginOrder: "app" | "engine-first" = "app",
+) {
   initializeSerialize(undefined, undefined);
   reset();
   return baseTestEnvironment(
     $initialEditorState,
-    <>
-      <MarkerEditPlugin viewOptions={getViewOptions(STANDARD_VIEW_MODE)} />
-      <CharNodePlugin />
-    </>,
+    pluginOrder === "app" ? (
+      <>
+        <CharNodePlugin />
+        <MarkerEditPlugin viewOptions={getViewOptions(STANDARD_VIEW_MODE)} />
+      </>
+    ) : (
+      <>
+        <MarkerEditPlugin viewOptions={getViewOptions(STANDARD_VIEW_MODE)} />
+        <CharNodePlugin />
+      </>
+    ),
   );
 }
 

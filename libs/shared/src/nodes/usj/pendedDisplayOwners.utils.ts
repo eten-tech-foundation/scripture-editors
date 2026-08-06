@@ -7,11 +7,11 @@
  */
 import { $getEditor, LexicalEditor, LexicalNode, NodeKey } from "lexical";
 
-const pendedOwnersByEditor = new WeakMap<LexicalEditor, ReadonlySet<NodeKey>>();
+const pendedOwnersByEditor = new WeakMap<LexicalEditor, Set<NodeKey>>();
 
 export function registerPendedDisplayOwners(
   editor: LexicalEditor,
-  pendedKeys: ReadonlySet<NodeKey>,
+  pendedKeys: Set<NodeKey>,
 ): () => void {
   pendedOwnersByEditor.set(editor, pendedKeys);
   return () => {
@@ -22,4 +22,20 @@ export function registerPendedDisplayOwners(
 /** Whether `node`'s key is pended in the active editor. Call inside a read/update. */
 export function $isDisplayOwnerPended(node: LexicalNode): boolean {
   return pendedOwnersByEditor.get($getEditor())?.has(node.getKey()) ?? false;
+}
+
+/**
+ * Lets a self-healing display sync (attributeDisplay.utils.ts) report that it just found an
+ * owner's run destroyed by something other than itself, so the marker-edit engine settles it on
+ * caret departure instead of the sync resurrecting it. Writes directly into the SAME mutable Set
+ * `registerPendedDisplayOwners` was given, rather than routing the report back through one of the
+ * engine's own node transforms: which plugin's transform runs first on a shared dirty node
+ * depends on mount order (the sync and the engine are registered by separate, independently
+ * ordered plugins), so a report that only took effect via a later engine-side transform would
+ * still lose the race whenever the sync happens to run first. A direct write has no such
+ * ordering dependency. Call inside a read/update. No-op if no engine is currently registered for
+ * the active editor.
+ */
+export function $reportDestroyedDisplayOwner(node: LexicalNode): void {
+  pendedOwnersByEditor.get($getEditor())?.add(node.getKey());
 }

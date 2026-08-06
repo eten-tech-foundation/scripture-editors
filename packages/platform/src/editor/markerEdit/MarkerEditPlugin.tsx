@@ -56,7 +56,6 @@ import {
 } from "lexical";
 import { useEffect, useRef } from "react";
 import {
-  $charAttributeDisplayNode,
   $hasCaretHeldAttributeRun,
   $hasCaretHeldMilestoneRun,
   $hasCaretHeldSeparatorGap,
@@ -288,10 +287,17 @@ export function MarkerEditPlugin({
     // caret geometry (the per-kind caret heuristics above only recognize specific in-progress
     // caret shapes; a caret left in a shape they don't recognize — e.g. an element-point
     // selection after a run is removed — let the self-healing sync resurrect the "deleted" run
-    // from the owner's still-set state). Mutation listeners fire for every commit, including a
-    // HISTORIC (undo/redo) restore, but that path re-pends by re-scanning the RESTORED state
-    // directly ($rependPendShapedNodes) — reacting to its destroyed-node diff here as well would
-    // just duplicate that work against a state the restore itself, not a user edit, produced. A
+    // from the owner's still-set state). Mutation listeners fire once a commit has already been
+    // fully reconciled, so this catches the CROSS-commit case (a deletion whose commit doesn't
+    // itself dirty the owner) and serves as the general, node-kind-agnostic sweep; a char span's
+    // run is additionally caught SAME-commit, order-independently of which plugin's transforms
+    // run first, directly inside the sync's own decision path ($syncCharAttributeDisplay,
+    // attributeDisplay.utils.ts) — this listener's char coverage is therefore mostly redundant
+    // with that (harmless: both write into the same Set) except where this listener sees a
+    // destroyed run piece the sync's own removal produced (see the still-wanted guard below).
+    // HISTORIC (undo/redo) commits re-pend by re-scanning the RESTORED state directly
+    // ($rependPendShapedNodes) — reacting to their destroyed-node diff here as well would just
+    // duplicate that work against a state the restore itself, not a user edit, produced. A
     // DELTA_CHANGE_TAG commit applies a remote collab update, not a local deletion. An owner
     // destroyed in the SAME commit (a whole-construct deletion, or a Tier-2 splice that replaces
     // the owner outright) needs no pend — there is nothing left to settle.
@@ -311,8 +317,24 @@ export function MarkerEditPlugin({
       });
       if (ownerKeys.length === 0) return;
       editor.getEditorState().read(() => {
-        for (const ownerKey of ownerKeys)
-          if ($getNodeByKey(ownerKey)?.isAttached()) context.pendingKeys.add(ownerKey);
+        for (const ownerKey of ownerKeys) {
+          const owner = $getNodeByKey(ownerKey);
+          if (!owner?.isAttached()) continue;
+          // A char span's own legitimate heal-removal (its attributes were cleared, so
+          // $syncCharAttributeDisplay removes the now-unwanted run) is ALSO a "destroyed"
+          // TextNode mutation from this listener's point of view. Only pend when the owner's
+          // CURRENT state still calls for a run — a genuine attribute clear must settle quietly,
+          // not sit pended (and so exempted from healing) until an unrelated caret departure.
+          if (
+            $isCharNode(owner) &&
+            canonicalAttributeText(
+              owner.getUnknownAttributes() ?? {},
+              defaultMarkerAttribute(owner.getMarker()),
+            ) === ""
+          )
+            continue;
+          context.pendingKeys.add(ownerKey);
+        }
       });
     };
     const unregister = mergeRegister(
@@ -364,30 +386,6 @@ export function MarkerEditPlugin({
         // pending marker literal.
         if (node.isAttached() && $hasCaretHeldSeparatorGap(node))
           context.pendingKeys.add(node.getKey());
-        // Deletion driver, same-commit variant: a char span's attribute run is a DIRECT CHILD, so
-        // removing it dirties this CharNode itself in the SAME commit (Lexical always dirties a
-        // removed node's former parent) — unlike a verse's or milestone's run, which rides as a
-        // FOLLOWING SIBLING and only reaches its owner's transform via the flanking glyph's own
-        // dirtying. That immediate self-dirtying is what lets this run BEFORE CharNodePlugin's
-        // self-healing sync in the very commit that did the deleting: the mutation-listener pend
-        // further down only arms once THIS commit has already been reconciled, too late to stop
-        // the sync from resurrecting the run whenever the caret lands in a shape
-        // $hasCaretHeldAttributeRun below does not recognize (e.g. an element-point selection left
-        // where the run used to be). Comparing this char's current run against the run its
-        // last-committed counterpart had catches exactly the same deletion the mutation listener
-        // would otherwise also find, just early enough to matter.
-        const destroyedOwnerKey = editor.getEditorState().read(() => {
-          const previous = $getNodeByKey(node.getKey());
-          if (!$isCharNode(previous)) return undefined;
-          const previousRun = $charAttributeDisplayNode(previous);
-          return previousRun && $ownerOfDestroyedRunPiece(previousRun)?.getKey();
-        });
-        if (
-          destroyedOwnerKey !== undefined &&
-          node.isAttached() &&
-          !$charAttributeDisplayNode(node)
-        )
-          context.pendingKeys.add(destroyedOwnerKey);
         // Same grace/pend pairing for a deleted or diverged attribute display run
         // (attributeDisplay.utils.ts): while the caret holds it, CharNodePlugin's sync leaves it
         // alone, so pend the span here for the caret-departure settle.
