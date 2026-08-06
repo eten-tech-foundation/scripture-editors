@@ -233,6 +233,29 @@ describe("getEditorDelta", () => {
     expect(textLength).toBe("the first verse".length + LF.length);
   });
 
+  it("excludes the paragraph's own marker-prefix glyph and separator from content ops", async () => {
+    // [MarkerNode "\p"][NBSP marker-trailing-space token][TextNode "hello"] — the editable-mode
+    // prefix `$createMarkerPrefix` builds (markerEditDeletion.utils.ts). `$applyUpdate`
+    // re-synthesizes the whole prefix when materializing the paragraph, so neither the glyph nor
+    // its separator may flow into content ops: doing so would leak presentation bytes into USJ
+    // content and shift every offset that follows.
+    const ops = await getOpsFor(() => {
+      const separator = $createTextNode(NBSP);
+      $setState(separator, textTypeState, "marker-trailing-space");
+      $getRoot().append(
+        $createParaNode("p").append($createMarkerNode("p"), separator, $createTextNode("hello")),
+      );
+    });
+
+    const joined = ops
+      .filter((op): op is { insert: string } => typeof op.insert === "string")
+      .map((op) => op.insert)
+      .join("");
+    expect(joined).toBe(`hello${LF}`);
+    expect(joined).not.toContain("\\p");
+    expect(joined).not.toContain(NBSP);
+  });
+
   it("should return the correct ops for nested chars", async () => {
     const { editor } = await testEnvironment(() => {
       const qtChar = $createCharNode("qt");
