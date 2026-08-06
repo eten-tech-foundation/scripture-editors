@@ -225,6 +225,57 @@ describe("char attribute-run deletion settles (TJ repro, 2026-08-05)", () => {
     });
   });
 
+  it("a remote destroy heals the run back from node state within the commit, and a subsequent departure settles nothing further", async () => {
+    // The departure half of the collab guard above: that test pins that the remote commit itself
+    // never pends the owner (I-1). This one pins the other side of "remote-authority semantics
+    // preserved" — with the owner never pended, CharNodePlugin's self-heal sync (mounted here
+    // alongside the engine) re-derives the run from the char's still-set `unknownAttributes`
+    // within the SAME commit (its destruction-detection branch is itself excluded on a
+    // DELTA_CHANGE_TAG commit — attributeDisplay.utils.ts), so there is nothing left pending for
+    // a later departure to settle. A subsequent, unrelated caret departure must therefore be a
+    // pure no-op: no settle ever fires to (wrongly) re-clear the attributes a remote peer still
+    // wants displayed.
+    const { editor } = await testEnvironmentWithCharSync($initial);
+    const $firstChar = () =>
+      requireDefined(
+        $getRoot().getChildren().filter($isParaNode)[0].getChildren().find($isCharNode),
+        "char missing",
+      );
+    const $findRun = (char: ReturnType<typeof $firstChar>) =>
+      char
+        .getChildren()
+        .find(
+          (c) => $isTextNode(c) && !$isMarkerNode(c) && $getState(c, textTypeState) === "attribute",
+        );
+    const $bodyTextNode = () => {
+      const body = $getRoot().getChildren().filter($isParaNode)[1].getLastChild();
+      if (!$isTextNode(body)) throw new Error("body text node missing");
+      return body;
+    };
+
+    await act(async () =>
+      editor.update(() => {
+        $addUpdateTag(DELTA_CHANGE_TAG);
+        const char = $firstChar();
+        const run = requireDefined($findRun(char), "run missing");
+        run.remove();
+      }),
+    );
+    editor.getEditorState().read(() => {
+      const char = $firstChar();
+      expect(char.getUnknownAttributes()?.stuff).toBe("thing");
+      expect($findRun(char)?.getTextContent()).toBe('|stuff="thing"');
+    });
+
+    // A subsequent, unrelated caret departure must settle NOTHING further.
+    await act(async () => editor.update(() => $bodyTextNode().select(0, 0)));
+    editor.getEditorState().read(() => {
+      const char = $firstChar();
+      expect(char.getUnknownAttributes()?.stuff).toBe("thing");
+      expect($findRun(char)?.getTextContent()).toBe('|stuff="thing"');
+    });
+  });
+
   it("a legitimate local attribute-clear heal does not pend the owner (no stuck grace)", async () => {
     const { editor } = await testEnvironmentWithCharSync($initial);
     const $firstChar = () =>

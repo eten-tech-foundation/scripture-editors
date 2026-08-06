@@ -388,6 +388,80 @@ describe("verse \\va/\\vp deletion settles (does not resurrect)", () => {
     });
   });
 
+  it("clearing ONE of altnumber/pubnumber while the other stays set does not spuriously pend the verse (per-field precision)", async () => {
+    // The still-wanted exemption above (and MarkerEditPlugin's mirror of it) originally required
+    // BOTH altnumber AND pubnumber to be undefined before exempting a destroyed run from the pend
+    // — coarse, because a verse's \va and \vp triplets are two INDEPENDENT runs sharing one owner
+    // identity. Clearing only altnumber legitimately destroys just the \va triplet in this commit;
+    // requiring pubnumber (never touched) to ALSO be undefined would spuriously pend the verse and
+    // — since $syncVerseAttributeDisplay leaves a pended owner's runs alone entirely — block a
+    // LATER legitimate altnumber set from healing until an unrelated caret departure. The fix
+    // classifies which field each destroyed piece belonged to and checks only THAT field.
+    const { editor } = await testEnvironmentWithSpacing(() => {
+      // Both fields set at construction: the VerseNode transform (TextSpacingPlugin's
+      // $syncVerseAttributeDisplayNode) heals both the \va and \vp triplets on mount.
+      const verse = $createVerseNode("1", getVisibleOpenMarkerText("v", "1"), undefined, "2", "3");
+      $getRoot().append(
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          verse,
+          $createTextNode("In the beginning"),
+        ),
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          $createTextNode("body"),
+        ),
+      );
+    });
+
+    const $firstVerse = () =>
+      requireDefined(
+        $getRoot().getChildren().filter($isParaNode)[0].getChildren().find($isVerseNode),
+        "verse missing",
+      );
+
+    editor.getEditorState().read(() => {
+      const verse = $firstVerse();
+      expect(verse.getAltnumber()).toBe("2");
+      expect(verse.getPubnumber()).toBe("3");
+    });
+
+    // Clear ONLY altnumber, with no caret at either run's site — the sync heals the \va triplet
+    // away in THIS commit (destroying its glyphs/value); the \vp triplet is untouched.
+    await act(async () =>
+      editor.update(() => {
+        $firstVerse().setAltnumber(undefined);
+      }),
+    );
+
+    editor.read(() => {
+      // Not spuriously pended: the destroyed pieces were all \va's, and altnumber IS now
+      // undefined — a fully legitimate, still-wanted clear. The untouched (still-set) pubnumber
+      // must not block recognizing that — the old both-fields-undefined check would have.
+      expect($isDisplayOwnerPended($firstVerse())).toBe(false);
+    });
+
+    // Prove the exemption actually matters: a LATER legitimate altnumber set must heal into a
+    // visible \va run right away, not be blocked by a leftover spurious pend.
+    await act(async () =>
+      editor.update(() => {
+        $firstVerse().setAltnumber("9");
+      }),
+    );
+
+    editor.getEditorState().read(() => {
+      const verse = $firstVerse();
+      const opener = verse.getNextSibling();
+      expect($isMarkerNode(opener) && opener.getMarker() === "va").toBe(true);
+      const value = opener?.getNextSibling();
+      expect($isTextNode(value) && value.getTextContent()).toBe(`${NBSP}9`);
+      // pubnumber, never touched, survived throughout.
+      expect(verse.getPubnumber()).toBe("3");
+    });
+  });
+
   it("typing a value into an empty \\va span re-folds to altnumber on departure (TJ repro)", async () => {
     const { editor } = await testEnvironmentWithSpacing(() => {
       const verse = $createVerseNode(

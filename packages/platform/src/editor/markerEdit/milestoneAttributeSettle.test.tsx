@@ -201,6 +201,39 @@ describe("collab-materialized milestone settles into a re-tokenizable run", () =
       );
       expect(msNode.getKey()).toBe(settledKey);
     });
+
+    // Splice guard sanity: a real caret departure through the ENGINE'S OWN pend/settle path (not
+    // the direct $rebuildParas probe above) must ALSO be a no-op — proving the Tier-2 splice left
+    // no stray key in `context.pendingKeys` that could drive a SECOND visible mutation once the
+    // caret actually moves. Depart into the trailing " after" text the rebuild produced, well away
+    // from the milestone's own run.
+    const beforeDepartureText = editor.getEditorState().read(() => $lastPara().getTextContent());
+    await act(async () =>
+      editor.update(() => {
+        const trailing = $lastPara()
+          .getChildren()
+          .find((node) => $isTextNode(node) && node.getTextContent().includes("after"));
+        if (!$isTextNode(trailing)) throw new Error("trailing text missing");
+        trailing.select(trailing.getTextContentSize(), trailing.getTextContentSize());
+      }),
+    );
+    // Flush the deferred resolution microtask (MarkerEditPlugin's update listener queues the
+    // engine's own settle there).
+    await act(async () => {
+      await new Promise((resolve) => queueMicrotask(() => resolve(undefined)));
+      await new Promise((resolve) => queueMicrotask(() => resolve(undefined)));
+    });
+
+    editor.getEditorState().read(() => {
+      const msNode = requireDefined(
+        $lastPara().getChildren().find($isMilestoneNode),
+        "milestone missing after departure",
+      );
+      // Same instance, byte-identical paragraph: the departure settled nothing — no stray pend
+      // survived the splice to drive a second rebuild.
+      expect(msNode.getKey()).toBe(settledKey);
+      expect($lastPara().getTextContent()).toBe(beforeDepartureText);
+    });
   });
 
   it("a remote field update under caret grace loses to the displayed bytes on settle", async () => {

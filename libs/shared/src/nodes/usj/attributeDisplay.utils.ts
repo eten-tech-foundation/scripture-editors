@@ -458,9 +458,11 @@ function $syncVerseAttributeRun(
 /**
  * Heal `verse`'s `\va`/`\vp` display triplets to match `altnumber`/`pubnumber`: insert a missing
  * triplet, rewrite a stale one, or remove a leftover one — except while the collapsed caret sits
- * inside a triplet's value (mid-edit grace), which the sync leaves alone for the marker-edit
- * engine to settle on caret departure. Idempotent — writes only on change, so the registering
- * transform converges.
+ * inside a triplet's value (mid-edit grace), or while the marker-edit engine holds `verse` pended
+ * (a triplet destroyed by something other than this call, or caret-held divergence re-pended by
+ * `$resolvePendingMarkers`) — both of which the sync leaves alone for the marker-edit engine to
+ * settle on caret departure. Idempotent — writes only on change, so the registering transform
+ * converges.
  *
  * @param verse - The verse whose display triplets to sync. Must be called inside `editor.update()`.
  * @param altnumber - The `\va` value `verse` should display, or `undefined` for none.
@@ -628,12 +630,14 @@ function $isCaretAtMilestoneRunBoundary(
  * pair when either is missing (the collab materializer's bare `MilestoneNode` has neither), and
  * insert/rewrite/remove the attribute TextNode between them to match — except while the collapsed
  * caret holds the run's site (mid-edit grace, see {@link $isCaretAtMilestoneRunBoundary}: inside
- * the attribute text, or at a just-deleted run's insertion point), which the sync leaves alone
- * for the marker-edit engine to settle on caret departure. Unlike a char span or verse, a
- * milestone's opening/self-closing glyphs are UNCONDITIONAL — only the attribute text in between
- * comes and goes with `expectedAttributeText`. Partial mangles are repaired AROUND the surviving
- * pieces (a leftover attribute text or glyph is reused in place, never duplicated). Idempotent —
- * writes only on change, so the registering transform converges.
+ * the attribute text, or at a just-deleted run's insertion point), or while the marker-edit engine
+ * holds `milestone` pended (a run destroyed by something other than this call, or caret-held
+ * divergence re-pended by `$resolvePendingMarkers`) — both of which the sync leaves alone for the
+ * marker-edit engine to settle on caret departure. Unlike a char span or verse, a milestone's
+ * opening/self-closing glyphs are UNCONDITIONAL — only the attribute text in between comes and
+ * goes with `expectedAttributeText`. Partial mangles are repaired AROUND the surviving pieces (a
+ * leftover attribute text or glyph is reused in place, never duplicated). Idempotent — writes
+ * only on change, so the registering transform converges.
  *
  * @param milestone - The milestone whose display run to sync. Must be called inside
  *   `editor.update()`.
