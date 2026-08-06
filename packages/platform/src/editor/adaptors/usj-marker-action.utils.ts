@@ -343,9 +343,15 @@ function $moveLeadingSpaceToPreviousNode(node: LexicalNode, wrapper: LexicalNode
 /**
  * Remove a character marker from the given selection, keeping all of its text content.
  *
- * A collapsed selection removes the marker from the entire enclosing `CharNode`. A range
- * selection that only partially covers a `CharNode` splits it first, so the uncovered text keeps
- * its marker. Selections inside a `NoteNode` are skipped (see `$getCharNodeToRemove`).
+ * A collapsed selection removes the marker from the entire enclosing `CharNode`. Selections
+ * inside a `NoteNode` are skipped (see `$getCharNodeToRemove`).
+ *
+ * Known limitation: a range selection that only partially covers a `CharNode` is not split here.
+ * `handleTextNode` does split the underlying `TextNode`, but all of the resulting pieces stay
+ * children of the same `CharNode`, and `$removeCharNodeKeepingContent`'s `$unwrapNode` call lifts
+ * all of them out together — so a partial-coverage removal currently strips the marker from the
+ * whole run, not just the selected part. Splitting the `CharNode` so the uncovered text keeps its
+ * marker is Task 3's job.
  *
  * @param selection - The current range selection.
  * @param marker - The character marker to remove, or `undefined` for the innermost one.
@@ -377,6 +383,11 @@ export function $removeCharMarkerAtSelection(
   });
   if (targetNodes.length === 0) return;
 
+  // Not currently reachable: once a CharNode is unwrapped its former children are reparented onto
+  // the para, so a later targetNode that shared it would resolve to undefined; an outright
+  // removal likewise detaches the node from any node a later targetNode could still reach. Kept
+  // as a guard for Task 3, where splitting a CharNode across multiple targetNodes may reintroduce
+  // a case where two targetNodes still resolve to the same charNode.getKey().
   const handledCharNodeKeys = new Set<string>();
   targetNodes.forEach((targetNode) => {
     const charNode = $getCharNodeToRemove(targetNode, marker);

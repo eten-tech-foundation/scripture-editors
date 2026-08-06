@@ -343,6 +343,7 @@ describe("USJ Marker Action Utils", () => {
         if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
         // CharNode gone, siblings normalized into a single TextNode.
         expect(para.getChildren().some($isCharNode)).toBe(false);
+        expect(para.getChildrenSize()).toBe(1);
         expect(para.getTextContent()).toBe("the Lord said");
       });
     });
@@ -367,6 +368,7 @@ describe("USJ Marker Action Utils", () => {
         if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
         // Collapsed cursor removes the marker from the whole CharNode — no split.
         expect(para.getChildren().some($isCharNode)).toBe(false);
+        expect(para.getChildrenSize()).toBe(1);
         expect(para.getTextContent()).toBe("the Lord said");
       });
     });
@@ -415,7 +417,9 @@ describe("USJ Marker Action Utils", () => {
         if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
         const noteNode = para.getChildAtIndex(1);
         if (!$isNoteNode(noteNode)) throw new Error("noteNode is not a NoteNode");
-        // $getTargetNode already skips note interiors, so the CharNode survives.
+        // $getTargetNode's note check only sees an immediate parent, which doesn't cover a
+        // CharNode nested inside a NoteNode. It's $getCharNodeToRemove's own NoteNode guard that
+        // skips this case, so the CharNode survives.
         expect(noteNode.getChildren().some($isCharNode)).toBe(true);
         expect(noteNode.getTextContent()).toBe("Lord");
       });
