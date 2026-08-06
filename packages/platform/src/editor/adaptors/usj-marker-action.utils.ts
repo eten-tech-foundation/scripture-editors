@@ -442,6 +442,11 @@ function $getCharNodeToRemove(node: LexicalNode, marker: string | undefined): Ch
  * Needed because `handleTextNode` splits the *text* node, leaving all the pieces inside the same
  * `CharNode` — so unwrapping it would strip the marker from the uncovered text too.
  *
+ * A child counts as covered either directly (it is one of `targetNodes`) or transitively (it is an
+ * element, such as a nested `CharNode`, that contains one of `targetNodes`) — so a partially
+ * covered outer marker around an inner marked span still narrows correctly instead of being
+ * mistaken for having no covered children at all.
+ *
  * Marker-mode caveat: under `markerMode: "visible"` / `"editable"`, a `CharNode`'s opening marker
  * child sits at index 0 and its closing marker child sits last. If either ends up on the uncovered
  * side of a split, it lands in the leading or trailing clone without its counterpart, leaving that
@@ -455,7 +460,12 @@ function $splitCharNodeAroundTargets(charNode: CharNode, targetNodes: TextNode[]
   const targetKeys = new Set(targetNodes.map((targetNode) => targetNode.getKey()));
   const children = charNode.getChildren();
   const coveredIndexes = children
-    .map((child, index) => ($isTextNode(child) && targetKeys.has(child.getKey()) ? index : -1))
+    .map((child, index) =>
+      targetKeys.has(child.getKey()) ||
+      ($isElementNode(child) && targetNodes.some((targetNode) => child.isParentOf(targetNode)))
+        ? index
+        : -1,
+    )
     .filter((index) => index >= 0);
   if (coveredIndexes.length === 0) return charNode;
 

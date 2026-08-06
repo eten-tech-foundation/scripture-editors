@@ -635,10 +635,89 @@ describe("USJ Marker Action Utils", () => {
       editor.getEditorState().read(() => {
         const para = $getRoot().getFirstChild();
         if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        expect(para.getTextContent()).toBe("Lord");
         const outerCharNode = para.getFirstChild();
         if (!$isCharNode(outerCharNode)) throw new Error("outer is not a CharNode");
         expect(outerCharNode.getMarker()).toBe("wj");
+        expect(outerCharNode.getChildren().some($isCharNode)).toBe(false);
         expect(outerCharNode.getTextContent()).toBe("Lord");
+      });
+    });
+
+    it("does not strip the outer marker from unselected text flanking a nested marker", () => {
+      let leadTextNode: TextNode;
+      let trailTextNode: TextNode;
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        leadTextNode = $createTextNode("the ");
+        innerTextNode = $createTextNode("Lord");
+        trailTextNode = $createTextNode(" said");
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createCharNode("wj").append(
+              leadTextNode,
+              $createCharNode("nd").append(innerTextNode),
+              trailTextNode,
+            ),
+          ),
+        );
+      });
+      // Select only "Lord", inside the nested `nd`, and remove the outer `wj`.
+      updateSelection(editor, innerTextNode, 0, innerTextNode, 4);
+
+      sutRemoveCharMarker(editor, "wj");
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        expect(para.getTextContent()).toBe("the Lord said");
+        const children = para.getChildren();
+        expect(children.length).toBe(3);
+        const [leading, middle, trailing] = children;
+        // Unselected flanking text must keep its `wj` marker — only the selected span loses it.
+        if (!$isCharNode(leading)) throw new Error("leading is not a CharNode");
+        expect(leading.getMarker()).toBe("wj");
+        expect(leading.getTextContent()).toBe("the ");
+        if (!$isCharNode(middle)) throw new Error("middle is not a CharNode");
+        expect(middle.getMarker()).toBe("nd");
+        expect(middle.getTextContent()).toBe("Lord");
+        if (!$isCharNode(trailing)) throw new Error("trailing is not a CharNode");
+        expect(trailing.getMarker()).toBe("wj");
+        expect(trailing.getTextContent()).toBe(" said");
+      });
+    });
+
+    it("does not strip the outer marker from a leading sibling of a fully covered nested marker", () => {
+      let leadTextNode: TextNode;
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        leadTextNode = $createTextNode("the ");
+        innerTextNode = $createTextNode("Lord");
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createCharNode("wj").append(leadTextNode, $createCharNode("nd").append(innerTextNode)),
+          ),
+        );
+      });
+      // Select all of "Lord", inside the nested `nd`, and remove the outer `wj`. Only one flanking
+      // sibling exists (leading), exercising the split's leading-clone branch on its own.
+      updateSelection(editor, innerTextNode, 0, innerTextNode, 4);
+
+      sutRemoveCharMarker(editor, "wj");
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        expect(para.getTextContent()).toBe("the Lord");
+        const children = para.getChildren();
+        expect(children.length).toBe(2);
+        const [leading, trailing] = children;
+        // The unselected leading text must keep its `wj` marker; only the selected nested span
+        // loses it.
+        if (!$isCharNode(leading)) throw new Error("leading is not a CharNode");
+        expect(leading.getMarker()).toBe("wj");
+        expect(leading.getTextContent()).toBe("the ");
+        if (!$isCharNode(trailing)) throw new Error("trailing is not a CharNode");
+        expect(trailing.getMarker()).toBe("nd");
+        expect(trailing.getTextContent()).toBe("Lord");
       });
     });
   });
