@@ -1,0 +1,13 @@
+/*
+ * Bundled stylesheet for @eten-tech-foundation/platform-editor.
+ *
+ * Built to dist/styles.css and exposed to consumers as
+ * `@eten-tech-foundation/platform-editor/styles.css`. Icon SVGs referenced by
+ * editor.css are inlined as data URIs at build time, so no assets need copying.
+ *
+ * Import order is the documented cascade: Scripture nodes, then the editor
+ * chrome, then the marker menu.
+ */
+@import "./usj-nodes.css";
+@import "./editor/editor.css";
+@import "../../../libs/shared/src/styles/nodes-menu.css";

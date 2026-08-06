@@ -140,17 +140,38 @@ export default function App() {
 
 ## Styling
 
-This npm package does not include styling so you need to style the editor component to suit your application. A good place to start is to copy the **CSS** from this repo:
+The package ships a bundled stylesheet covering the Scripture nodes, the editor chrome and the marker menu. Import it once, wherever your app imports CSS:
+
+```ts
+import "@eten-tech-foundation/platform-editor/styles.css";
+```
+
+The toolbar icons `editor.css` references are inlined into that stylesheet as data URIs, so **no asset copying is required**. Two things worth knowing:
+
+- Importing it from a **bundler-processed stylesheet** works too (`@import "@eten-tech-foundation/platform-editor/styles.css";`), but a browser loading a plain `<link>`ed file cannot resolve a bare package specifier.
+- If your host page sets a Content Security Policy, `img-src` must allow `data:` or the icons silently disappear — which looks like the stylesheet failed to load.
+
+If using the **commenting features** in the deprecated `<Marginal />` component, also import:
+
+```ts
+import "@eten-tech-foundation/platform-editor/comments.css";
+```
+
+Consumers doing a bare `tsc` (no bundler types) may need `declare module "*.css";` for the import to type-check; anything using `vite/client` types already has it.
+
+Icons are [Bootstrap Icons](https://icons.getbootstrap.com/) (MIT); the license travels with the package at `assets/images/icons/LICENSE.md`.
+
+### Overriding or forking the stylesheets
+
+To restyle beyond CSS overrides, copy the sources out of this repo instead:
 
 - Scripture Nodes [/packages/platform/src/usj-nodes.css](/packages/platform/src/usj-nodes.css)
 - Editor [/packages/platform/src/editor/editor.css](/packages/platform/src/editor/editor.css)
-- Marker Menu [/libs/shared/styles/nodes-menu.css](/libs/shared/styles/nodes-menu.css)
+- Marker Menu [/libs/shared/src/styles/nodes-menu.css](/libs/shared/src/styles/nodes-menu.css)
 
-For **icon assets** for the editor referenced in `editor.css` (the license file is included):
+`editor.css` references its icons from [/packages/platform/assets](/packages/platform/assets) by absolute URL, so a hand-copied stylesheet also needs those assets served from your web root. Swap the vendored imports for `styles.css` rather than stacking both, or the rules double up.
 
-- [/packages/platform/assets](/packages/platform/assets)
-
-If using the **commenting features** in the `<Marginal />` component:
+Comment styles, if using `<Marginal />`:
 
 - [/packages/platform/src/marginal/comments/ui/Button.css](/packages/platform/src/marginal/comments/ui/Button.css)
 - [/packages/platform/src/marginal/comments/ui/ContentEditable.css](/packages/platform/src/marginal/comments/ui/ContentEditable.css)
