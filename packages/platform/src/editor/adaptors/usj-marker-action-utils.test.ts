@@ -49,6 +49,7 @@ let noteTextNode: TextNode;
 let tailTextNode: TextNode;
 let firstCharTextNode: TextNode;
 let secondCharTextNode: TextNode;
+let innerTextNode: TextNode;
 
 function $defaultInitialEditorState() {
   secondVerseTextNode = $createTextNode("second verse text ");
@@ -566,6 +567,78 @@ describe("USJ Marker Action Utils", () => {
         if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
         expect(para.getChildren().some($isCharNode)).toBe(false);
         expect(para.getTextContent()).toBe("Lord the God");
+      });
+    });
+
+    it("removes the inner marker of a nested pair, leaving the outer intact", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        innerTextNode = $createTextNode("Lord");
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createCharNode("wj").append($createCharNode("nd").append(innerTextNode)),
+          ),
+        );
+      });
+      updateSelection(editor, innerTextNode, 0, innerTextNode, 4);
+
+      sutRemoveCharMarker(editor, "nd");
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        expect(para.getTextContent()).toBe("Lord");
+        const outerCharNode = para.getFirstChild();
+        if (!$isCharNode(outerCharNode)) throw new Error("outer is not a CharNode");
+        expect(outerCharNode.getMarker()).toBe("wj");
+        expect(outerCharNode.getChildren().some($isCharNode)).toBe(false);
+        expect(outerCharNode.getTextContent()).toBe("Lord");
+      });
+    });
+
+    it("removes the outer marker of a nested pair, leaving the inner intact", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        innerTextNode = $createTextNode("Lord");
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createCharNode("wj").append($createCharNode("nd").append(innerTextNode)),
+          ),
+        );
+      });
+      updateSelection(editor, innerTextNode, 0, innerTextNode, 4);
+
+      sutRemoveCharMarker(editor, "wj");
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        expect(para.getTextContent()).toBe("Lord");
+        const innerCharNode = para.getFirstChild();
+        if (!$isCharNode(innerCharNode)) throw new Error("inner is not a CharNode");
+        expect(innerCharNode.getMarker()).toBe("nd");
+        expect(innerCharNode.getTextContent()).toBe("Lord");
+      });
+    });
+
+    it("removes the innermost marker when none is given", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        innerTextNode = $createTextNode("Lord");
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createCharNode("wj").append($createCharNode("nd").append(innerTextNode)),
+          ),
+        );
+      });
+      updateSelection(editor, innerTextNode, 0, innerTextNode, 4);
+
+      sutRemoveCharMarker(editor);
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        const outerCharNode = para.getFirstChild();
+        if (!$isCharNode(outerCharNode)) throw new Error("outer is not a CharNode");
+        expect(outerCharNode.getMarker()).toBe("wj");
+        expect(outerCharNode.getTextContent()).toBe("Lord");
       });
     });
   });
