@@ -3,6 +3,7 @@
 
 import { $createImmutableVerseNode, ImmutableVerseNode } from "../../nodes/usj";
 import { StructureKeyboardPlugin } from "./StructureKeyboardPlugin";
+import { HistoryPlugin } from "../History/HistoryPlugin";
 import { baseTestEnvironment, pressKey, updateSelection } from "./react-test.utils";
 import { act } from "@testing-library/react";
 import {
@@ -19,8 +20,10 @@ import {
   DRAGSTART_COMMAND,
   DROP_COMMAND,
   PASTE_COMMAND,
+  UNDO_COMMAND,
+  REDO_COMMAND,
 } from "lexical";
-import { $createParaNode, $isParaNode, ParaNode } from "shared";
+import { $createParaNode, $isParaNode, createEmptyHistoryState, ParaNode } from "shared";
 
 // NOTE: jsdom cannot drive collapsed mid-text deletes (domSelection.modify) or printable-char
 // insertion via dispatchCommand, and IS_APPLE is false so Alt+Backspace is a no-op. Those cases
@@ -593,6 +596,89 @@ describe("StructureKeyboardPlugin — two-step delete for range selections with 
       expect(para.getChildren().some((n) => n instanceof ImmutableVerseNode)).toBe(true); // survived
       expect(para.getTextContent()).toBe("abcd");
     });
+  });
+});
+
+describe("StructureKeyboardPlugin — per-edit undo/redo for a run of verse deletions", () => {
+  it("restores and re-deletes verses one at a time via Undo/Redo, with no data loss", async () => {
+    let tailText: TextNode;
+    const historyState = createEmptyHistoryState();
+    const { editor } = await baseTestEnvironment(
+      () => {
+        tailText = $createTextNode("text");
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createImmutableVerseNode("1"),
+            $createImmutableVerseNode("2"),
+            $createImmutableVerseNode("3"),
+            tailText,
+          ),
+        );
+      },
+      <>
+        <StructureKeyboardPlugin structureProtectionMode="guarded" />
+        <HistoryPlugin externalHistoryState={historyState} />
+      </>,
+    );
+    updateSelection(editor, tailText!, 0);
+
+    // Delete verse 3, then verse 2, then verse 1 - each via the two-step Backspace gesture.
+    await pressKey(editor, "Backspace", 0); // arm verse 3
+    await pressKey(editor, "Backspace", 0); // fire: verse 3 removed
+    await pressKey(editor, "Backspace", 0); // arm verse 2
+    await pressKey(editor, "Backspace", 0); // fire: verse 2 removed
+    await pressKey(editor, "Backspace", 0); // arm verse 1
+    await pressKey(editor, "Backspace", 0); // fire: verse 1 removed
+
+    const readVerseNumbers = () =>
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getChildren()[0] as ParaNode;
+        return para
+          .getChildren()
+          .filter((n): n is ImmutableVerseNode => n instanceof ImmutableVerseNode)
+          .map((n) => n.getNumber());
+      });
+
+    expect(readVerseNumbers()).toEqual([]);
+
+    // Each Undo press restores exactly the deletion it corresponds to, LIFO - proving no deletion
+    // (including the FIRST one, verse 3) is ever permanently lost from the undo stack.
+    await act(async () => {
+      editor.dispatchCommand(UNDO_COMMAND, undefined);
+    });
+    expect(readVerseNumbers()).toEqual(["1"]);
+
+    await act(async () => {
+      editor.dispatchCommand(UNDO_COMMAND, undefined);
+    });
+    expect(readVerseNumbers()).toEqual(["1", "2"]);
+
+    await act(async () => {
+      editor.dispatchCommand(UNDO_COMMAND, undefined);
+    });
+    expect(readVerseNumbers()).toEqual(["1", "2", "3"]);
+
+    // A further Undo is a no-op - nothing left to undo.
+    await act(async () => {
+      editor.dispatchCommand(UNDO_COMMAND, undefined);
+    });
+    expect(readVerseNumbers()).toEqual(["1", "2", "3"]);
+
+    // Redo walks back through the same sequence in reverse, fully symmetric.
+    await act(async () => {
+      editor.dispatchCommand(REDO_COMMAND, undefined);
+    });
+    expect(readVerseNumbers()).toEqual(["1", "2"]);
+
+    await act(async () => {
+      editor.dispatchCommand(REDO_COMMAND, undefined);
+    });
+    expect(readVerseNumbers()).toEqual(["1"]);
+
+    await act(async () => {
+      editor.dispatchCommand(REDO_COMMAND, undefined);
+    });
+    expect(readVerseNumbers()).toEqual([]);
   });
 });
 

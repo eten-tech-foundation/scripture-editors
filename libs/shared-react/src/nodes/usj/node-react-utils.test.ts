@@ -5,6 +5,7 @@ import { ViewOptions } from "../../views/view-options.utils";
 import { $isImmutableNoteCallerNode, ImmutableNoteCallerNode } from "./ImmutableNoteCallerNode";
 import { ImmutableVerseNode, $createImmutableVerseNode } from "./ImmutableVerseNode";
 import {
+  $findNextVerseAfter,
   $findPreviousVerseInSiblings,
   $findVerseInNode,
   $findVerseOrPara,
@@ -242,6 +243,81 @@ describe("$findPreviousVerseInSiblings()", () => {
       const verseNode = $findPreviousVerseInSiblings(p, 2);
 
       expect(verseNode?.getNumber()).toBe("1");
+    });
+  });
+});
+
+describe("$findNextVerseAfter()", () => {
+  it("finds the next verse sibling within the same parent", () => {
+    let verse1: VerseNode;
+    const { editor } = createBasicTestEnvironment([ParaNode, VerseNode]);
+    editor.update(
+      () => {
+        verse1 = $createVerseNode("1");
+        $getRoot().append(
+          $createParaNode().append(verse1, $createTextNode("text1"), $createVerseNode("2")),
+        );
+      },
+      { discrete: true },
+    );
+
+    editor.getEditorState().read(() => {
+      expect($findNextVerseAfter(verse1)?.getNumber()).toBe("2");
+    });
+  });
+
+  it("finds the next verse in a following paragraph", () => {
+    let verse1: VerseNode;
+    const { editor } = createBasicTestEnvironment([ParaNode, VerseNode]);
+    editor.update(
+      () => {
+        verse1 = $createVerseNode("1");
+        $getRoot().append(
+          $createParaNode().append(verse1, $createTextNode("text1")),
+          $createParaNode().append($createVerseNode("2"), $createTextNode("text2")),
+        );
+      },
+      { discrete: true },
+    );
+
+    editor.getEditorState().read(() => {
+      expect($findNextVerseAfter(verse1)?.getNumber()).toBe("2");
+    });
+  });
+
+  it("returns undefined when a chapter boundary is reached before another verse", () => {
+    let verse1: VerseNode;
+    const { editor } = createBasicTestEnvironment([ParaNode, VerseNode, ImmutableChapterNode]);
+    editor.update(
+      () => {
+        verse1 = $createVerseNode("1");
+        $getRoot().append(
+          $createParaNode().append(verse1, $createTextNode("text1")),
+          $createImmutableChapterNode("2"),
+          $createParaNode().append($createVerseNode("1"), $createTextNode("text2")),
+        );
+      },
+      { discrete: true },
+    );
+
+    editor.getEditorState().read(() => {
+      expect($findNextVerseAfter(verse1)).toBeUndefined();
+    });
+  });
+
+  it("returns undefined when there is no next verse anywhere", () => {
+    let verse1: VerseNode;
+    const { editor } = createBasicTestEnvironment([ParaNode, VerseNode]);
+    editor.update(
+      () => {
+        verse1 = $createVerseNode("1");
+        $getRoot().append($createParaNode().append(verse1, $createTextNode("text1")));
+      },
+      { discrete: true },
+    );
+
+    editor.getEditorState().read(() => {
+      expect($findNextVerseAfter(verse1)).toBeUndefined();
     });
   });
 });
