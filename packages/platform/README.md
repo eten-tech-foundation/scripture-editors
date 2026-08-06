@@ -197,6 +197,7 @@ Programmatic control over the editor. Self-evident methods (`focus`, `undo`, `re
 | `setAnnotation` / `removeAnnotation` | Ephemeral — not persisted; same json-path caveat                                            |
 | `applyUpdate` / `replaceEmbedUpdate` | EXPERIMENTAL: real-time collaborative editing                                               |
 | `insertMarker`                       | Replicates marker menu; throws if readonly, `scrRef` not provided, or marker is unsupported |
+| `removeCharacterMarker`              | Removes a character marker, keeping its text; throws if readonly or marker is unsupported   |
 | `insertNote`                         | Deprecated — use `insertMarker`                                                             |
 | `toolbarEndRef`                      | Internal use only: for dynamically adding toolbar controls                                  |
 

@@ -125,16 +125,19 @@ export interface EditorRef {
    * marker, leaving the uncovered text marked) selections.
    *
    * Does nothing, without throwing, when there is no matching character marker enclosing the
-   * selection, when the selection is inside a note, or when there is no active selection at all.
+   * selection, when the selection is inside a note, when the removal could not be confined to the
+   * selection (see below), or when there is no active selection at all.
    *
    * @remarks
    * Two narrowed edge cases, both preserving every character of the document's text content:
    *
-   * - Nested markers: text left uncovered by the selection keeps its marker, provided the
-   *   selection does not partially cover a nested character marker's text. When it does, and the
-   *   *outer* marker is the one being removed, the outer marker is removed from that nested
-   *   marker's entire span — not just the selected part of it — because recursive splitting of a
-   *   nested marker's text is not implemented.
+   * - Nested markers: text left uncovered by the selection keeps its marker. Inner and outer
+   *   markers of a nested pair can each be removed independently while the selection covers them
+   *   fully. When a range selection covers only *part* of a nested character marker's text and the
+   *   *outer* marker is the one being removed, the request is refused and the document is left
+   *   unchanged: recursive splitting of a nested marker's text is not implemented, so the marker
+   *   could only be removed from that nested marker's entire span, including text the caller never
+   *   selected. Refusing keeps the guarantee that removal never alters unselected text.
    * - Marker display modes (paragraph structure and unformatted views): the marker's own visible
    *   representation is stripped from the span the marker is removed from, but when a range
    *   selection leaves unselected text between a marker's boundary and the selection, the marked
@@ -148,7 +151,7 @@ export interface EditorRef {
    * @throws Will throw an error if the editor is in readonly mode.
    * @throws Will throw an error if `marker` is given and is not a supported character marker.
    */
-  removeCharMarker(marker?: string): void;
+  removeCharacterMarker(marker?: string): void;
   /**
    * Insert a marker at the current editor selection, replicating the behavior of the
    * built-in marker menu. Works with both collapsed (insertion point) and range selections.

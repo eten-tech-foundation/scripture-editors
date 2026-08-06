@@ -563,15 +563,16 @@ export function $isVisibleMarkerNode(
 }
 
 /**
- * True for either flavor of paragraph-marker node: a `MarkerNode` (markerMode "editable") or an
+ * True for either flavor of synthesized marker node: a `MarkerNode` (markerMode "editable") or an
  * `ImmutableTypedTextNode` with `textType: "marker"` (markerMode "visible" or gutter views).
- * These are the two node shapes used to render a paragraph's USFM marker (e.g. `\p`, `\s2`,
- * `\q1`) as the visible first child of its paragraph.
+ * These are the two node shapes used to render a USFM marker as visible content — a paragraph's
+ * marker (e.g. `\p`, `\s2`, `\q1`) as the first child of its `ParaNode`, or a character marker's
+ * opening and closing markers inside its `CharNode`.
  *
  * @param node - The node to check.
  * @returns `true` if the node is a `MarkerNode` or a visible marker node.
  */
-export function $isParaMarkerPrefix(node: LexicalNode | null | undefined): boolean {
+export function $isSynthesizedMarkerNode(node: LexicalNode | null | undefined): boolean {
   return $isMarkerNode(node) || $isVisibleMarkerNode(node);
 }
 

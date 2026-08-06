@@ -2,29 +2,28 @@ import { MarkerContent } from "@eten-tech-foundation/scripture-utilities";
 import { SerializedVerseRef } from "@sillsdev/scripture";
 import { $unwrapNode } from "@lexical/utils";
 import {
+  $copyNode,
   $createTextNode,
   $getSelection,
-  $getState,
   $isElementNode,
   $isRangeSelection,
   $isTextNode,
-  $setState,
   EditorUpdateOptions,
+  ElementNode,
   LexicalEditor,
   LexicalNode,
   RangeSelection,
   TextNode,
 } from "lexical";
 import {
-  $createCharNode,
   $createNodeFromSerializedNode,
   $isCharNode,
   $isMarkerNode,
   $isNoteNode,
   $isSomeParaNode,
+  $isSynthesizedMarkerNode,
   $isTypedMarkNode,
   $isVisibleMarkerNode,
-  charIdState,
   CharNode,
   createLexicalUsjNode,
   EMPTY_CHAR_PLACEHOLDER_TEXT,
@@ -93,6 +92,27 @@ export function isUsjMarkerSupported(marker: string): boolean {
     ParaNode.isValidMarker(marker) ||
     CharNode.isValidMarker(marker)
   );
+}
+
+/**
+ * Returns whether the given USFM marker is a character marker, and so can be removed by
+ * {@link $removeCharacterMarkerAtSelection}.
+ *
+ * Deliberately stricter than {@link isUsjMarkerSupported}: that one also accepts para, note,
+ * chapter, and verse markers, but removal only ever targets a `CharNode`, so `"p"` must be
+ * rejected. It also honors `extraValidMarkers`, which `isUsjMarkerSupported` does not — a character
+ * marker this project configures as valid, and which the adaptor therefore accepts on load, should
+ * be removable too.
+ *
+ * @param marker - The USFM marker to check.
+ * @param extraValidMarkers - Extra character markers this project treats as valid.
+ * @returns `true` if the marker is a character marker.
+ */
+export function isCharacterMarkerSupported(
+  marker: string,
+  extraValidMarkers?: readonly string[],
+): boolean {
+  return CharNode.isValidMarker(marker, extraValidMarkers);
 }
 
 /** A function that returns a marker action for a given USJ marker */
@@ -275,6 +295,16 @@ function getSelectionOffsets(selection: RangeSelection): [number, number] {
   return selection.isBackward() ? [focusOffset, anchorOffset] : [anchorOffset, focusOffset];
 }
 
+/**
+ * Whether a marker action never acts on `node`: mark nodes and note contents are always skipped.
+ *
+ * @param node - The node to check.
+ * @returns `true` if the node should be skipped.
+ */
+function $isSkippedByMarkerAction(node: LexicalNode): boolean {
+  return $isTypedMarkNode(node) || $isNoteNode(node) || $isNoteNode(node.getParent());
+}
+
 function $getTargetNode(
   node: LexicalNode,
   isFirst: boolean,
@@ -283,7 +313,7 @@ function $getTargetNode(
   endOffset: number,
 ): LexicalNode | undefined {
   // Skip mark nodes and note nodes
-  if ($isTypedMarkNode(node) || $isNoteNode(node) || $isNoteNode(node.getParent())) {
+  if ($isSkippedByMarkerAction(node)) {
     return undefined;
   }
 
@@ -344,21 +374,24 @@ function $moveLeadingSpaceToPreviousNode(node: LexicalNode, wrapper: LexicalNode
   return text;
 }
 
+// #endregion
+
 /**
  * Remove a character marker from the given selection, keeping all of its text content.
  *
  * A collapsed selection removes the marker from the entire enclosing `CharNode`. Selections
  * inside a `NoteNode` are skipped (see `$getCharNodeToRemove`). A range selection that only
  * partially covers a `CharNode` — or spans a `CharNode` and its neighbors — is narrowed first by
- * `$splitCharNodeAroundTargets`, so uncovered text *at that CharNode's own level* keeps its
- * marker. This is not an unconditional guarantee: see `$splitCharNodeAroundTargets`'s docstring
- * for the nested-CharNode case where uncovered text one level deeper still loses the marker.
+ * `$splitCharNodeAroundTargets`, so uncovered text keeps its marker. Where that narrowing is
+ * impossible — a selection covering only part of a *nested* `CharNode`, which cannot be split at
+ * the selection boundary here — the marker is left in place rather than removed from the whole
+ * nested span; see `$splitCharNodeAroundTargets`'s docstring.
  *
  * @param selection - The current range selection.
  * @param marker - The character marker to remove, or `undefined` for the innermost one.
  * @param viewOptions - View options, used to strip synthesized marker content.
  */
-export function $removeCharMarkerAtSelection(
+export function $removeCharacterMarkerAtSelection(
   selection: RangeSelection,
   marker: string | undefined,
   viewOptions: ViewOptions | undefined,
@@ -392,14 +425,13 @@ export function $removeCharMarkerAtSelection(
   }
 
   const nodes = selection.getNodes();
+  // Check there is something to remove before the loop below starts splitting text nodes, so a
+  // no-match request mutates nothing at all. See `$hasCharNodeToRemove`.
+  if (!$hasCharNodeToRemove(nodes, marker)) return;
+
   const isBackward = selection.isBackward();
   const [startOffset, endOffset] = getSelectionOffsets(selection);
   const targetNodes: TextNode[] = [];
-  // Known, harmless: this splits every selected text node via `handleTextNode`'s `splitText`
-  // whether or not any of them turn out to sit inside a matching `CharNode` below. A no-match
-  // request still leaves the document split at the selection boundaries — content-preserving, but
-  // an avoidable no-op mutation (a spurious undo entry, and possibly an empty collab delta).
-  // Resolving the matching `CharNode` set before this loop would avoid it.
   nodes.forEach((node, index) => {
     const targetNode = $getTargetNode(
       node,
@@ -412,50 +444,34 @@ export function $removeCharMarkerAtSelection(
   });
   if (targetNodes.length === 0) return;
 
-  // No reachable path currently resolves two targetNodes to the same CharNode key.
-  // $splitCharNodeAroundTargets consults the full targetNodes array,
-  // so the first targetNode belonging to a given CharNode already causes every other targetNode
-  // sharing it to be carved into (or left in) that same node before this loop reaches them. When
-  // $removeCharNodeKeepingContent unwraps that CharNode, later targetNodes resolve to undefined
-  // (their former parent is gone). When it removes the CharNode outright instead — which only
-  // happens when the CharNode is empty or holds nothing but the single-character
-  // EMPTY_CHAR_PLACEHOLDER_TEXT — a later targetNode walking up from a still-attached child WOULD
-  // resolve to the same key (`.remove()` leaves `__parent` pointers and the node in the nodeMap for
-  // the rest of the update), but that branch can't contain two distinct target text nodes to begin
-  // with, so it never has a "later targetNode" to reach. Kept as a guard in case a future change
-  // reintroduces a path where two targetNodes still resolve to the same charNode.getKey().
+  // Belt-and-braces: no current path resolves two targetNodes to the same CharNode key, since
+  // `$splitCharNodeAroundTargets` reads the whole `targetNodes` array and unwrapping detaches the
+  // rest. Kept in case a future change reintroduces one.
   const handledCharNodeKeys = new Set<string>();
   targetNodes.forEach((targetNode) => {
     const charNode = $getCharNodeToRemove(targetNode, marker);
     if (!charNode || handledCharNodeKeys.has(charNode.getKey())) return;
     handledCharNodeKeys.add(charNode.getKey());
+    // `undefined` means removal would have to affect unselected text — see
+    // `$splitCharNodeAroundTargets`. Leave this CharNode alone rather than over-remove.
     const coveredCharNode = $splitCharNodeAroundTargets(charNode, targetNodes);
-    $removeCharNodeKeepingContent(coveredCharNode, viewOptions);
+    if (coveredCharNode) $removeCharNodeKeepingContent(coveredCharNode, viewOptions);
   });
 
   // Restore the range over the same characters so a toolbar caller can re-toggle without
-  // re-selecting. `handleTextNode` split each target to cover exactly the selected portion, so the
-  // range is the whole of the first target through the whole of the last. This is not always a
-  // no-op: `TextNode.splitText` (used by `handleTextNode` above, via `$getTargetNode`) transfers
-  // anchor/focus onto the right split piece on its own, but `TextNode.setTextContent` — used by
-  // `$removeCharNodeKeepingContent`'s NBSP trim under `markerMode: "editable"` — only mutates
-  // `__text` and does not touch selection points at all. When the trim runs on a node the focus
-  // still points at (e.g. selecting a whole `CharNode`'s content, so no split happens), the
-  // pre-trim offset ends up one character past the new end without this restore. Skipped when a
-  // target node itself didn't survive — this happens when its enclosing CharNode held nothing but
-  // the empty-char placeholder and was removed outright rather than unwrapped (see
-  // $removeCharNodeKeepingContent) — in which case Lexical's own selection repair applies instead.
-  // Preserves the original direction: `isBackward` was captured above, before the removal loop,
-  // since a backward range's anchor is the *last* target and its focus is the *first* — swapping
-  // which end gets which role keeps a backward selection backward instead of always normalizing
-  // to forward.
+  // re-selecting: each target covers exactly the selected portion, so the range runs from the
+  // whole first target to the whole last. Three traps make this more than a no-op:
   //
-  // Re-fetch the selection instead of reusing the `selection` parameter: `$unwrapNode` (used by
-  // `$removeCharNodeKeepingContent`) unwraps via `CharNode.replace()`, and `TextNode.replace()`
-  // unconditionally clones the active selection and calls `$setSelection` on the clone partway
-  // through — even when neither point needs adjusting. That silently swaps the *active* selection
-  // for a new object, leaving the `selection` parameter pointing at a now-stale, detached one.
-  // Mutating the stale object here would have no effect on what the later merge actually reads.
+  // - `TextNode.setTextContent` (the NBSP trim under `markerMode: "editable"`) mutates `__text`
+  //   without touching selection points, so a focus on a trimmed node ends up one past the new end.
+  // - `isBackward` is captured before the loop: a backward range's anchor is the *last* target, so
+  //   swapping the roles keeps it backward instead of normalizing to forward.
+  // - `$getSelection()` is re-fetched rather than reusing `selection`: `TextNode.replace()` (via
+  //   `$unwrapNode`) clones the active selection and `$setSelection`s the clone, so the parameter
+  //   is left pointing at a detached object and mutating it would have no effect.
+  //
+  // Skipped when a target didn't survive — its CharNode held only the empty-char placeholder and
+  // was removed outright — in which case Lexical's own selection repair applies instead.
   const currentSelection = $getSelection();
   const firstTargetNode = targetNodes[0];
   const lastTargetNode = targetNodes[targetNodes.length - 1];
@@ -470,6 +486,8 @@ export function $removeCharMarkerAtSelection(
     else currentSelection.setTextNodeRange(firstTargetNode, 0, lastTargetNode, lastOffset);
   }
 }
+
+// #region Helper functions for $removeCharacterMarkerAtSelection
 
 /**
  * Find the `CharNode` a removal should act on, walking up from a target node.
@@ -504,16 +522,45 @@ function $getCharNodeToRemove(node: LexicalNode, marker: string | undefined): Ch
 }
 
 /**
- * True for either flavor of synthesized marker child a `CharNode` can hold under
- * `markerMode: "editable"` (`MarkerNode`) or `"visible"` (an `ImmutableTypedTextNode` with
- * `textType: "marker"`). Not `$isParaMarkerPrefix` from `shared` — same predicate, but that name
- * describes a paragraph's leading marker, which would mislead here.
+ * Whether any of the selection's nodes sits inside a `CharNode` matching `marker`.
  *
- * @param node - The node to check.
- * @returns `true` if the node is a synthesized marker child.
+ * Read-only, and answered *before* the splitting pass, so that a request with nothing to remove
+ * leaves the document completely untouched: `handleTextNode`'s `splitText` mutates the tree, and
+ * running it first would give a documented no-op a spurious undo entry (and possibly an empty
+ * collab delta). Splitting never changes a node's ancestry — the pieces keep the same parent — so
+ * this answers the same question the post-split loop would.
+ *
+ * Deliberately no narrower than `$getTargetNode`: it shares the skip rule via
+ * `$isSkippedByMarkerAction` and does not replicate `handleTextNode`'s zero-width filter. So it can
+ * only ever be more permissive, never wrongly refuse a removal that would have happened.
+ *
+ * @param nodes - The nodes in the selection.
+ * @param marker - The character marker to remove, or `undefined` for the innermost one.
+ * @returns `true` if there is a matching `CharNode` to remove.
  */
-function $isSynthesizedMarkerNode(node: LexicalNode | null | undefined): boolean {
-  return $isMarkerNode(node) || $isVisibleMarkerNode(node);
+function $hasCharNodeToRemove(nodes: LexicalNode[], marker: string | undefined): boolean {
+  return nodes.some(
+    (node) =>
+      !$isSkippedByMarkerAction(node) &&
+      ($isTextNode(node) || ($isElementNode(node) && node.isInline())) &&
+      $getCharNodeToRemove(node, marker) !== undefined,
+  );
+}
+
+/**
+ * Whether every character inside `element` is covered by the selection.
+ *
+ * Synthesized marker children don't count against coverage: they carry no user content and
+ * `$removeCharNodeKeepingContent` strips them unconditionally.
+ *
+ * @param element - The element to check, typically a nested `CharNode`.
+ * @param targetKeys - Keys of the text nodes the selection covers.
+ * @returns `true` if the selection covers all of the element's content.
+ */
+function $isFullyCoveredByTargets(element: ElementNode, targetKeys: Set<string>): boolean {
+  return element
+    .getAllTextNodes()
+    .every((textNode) => targetKeys.has(textNode.getKey()) || $isSynthesizedMarkerNode(textNode));
 }
 
 /**
@@ -550,31 +597,42 @@ function $isSynthesizedMarkerNode(node: LexicalNode | null | undefined): boolean
  * opening *and* closing marker children — adaptor-level work beyond this function's scope — so it
  * is left as a documented limitation rather than attempted here.
  *
- * Known limitation — partial coverage of a nested CharNode: transitive coverage (above) only
- * decides whether a nested element child counts as covered at *this* level; it cannot split that
- * child at the selection boundary. So when the selection covers only part of a nested CharNode's
- * text, the whole nested child is treated as covered and left untouched, and the outer marker is
- * still removed from all of it — including the unselected remainder inside it. For example,
+ * Refuses — partial coverage of a nested CharNode: transitive coverage (above) only decides whether
+ * a nested element child counts as covered at *this* level; it cannot split that child at the
+ * selection boundary. So when the selection covers only part of a nested `CharNode`'s text, there
+ * is no shape this function can produce that removes the marker from the selection alone. Rather
+ * than remove it from the whole nested span — silently changing the USJ of text the user never
+ * selected — this returns `undefined` so the caller leaves the document untouched. For example,
  * selecting only part of a divine-name word (`\nd`) inside red-letter text (`\wj`) and removing
- * `\wj` will correctly preserve `\wj` on any plain-text siblings of the `\nd` span, but will still
- * silently drop `\wj` from the rest of that divine-name word, not just the selected part. Fixing
- * this needs recursive splitting of the nested CharNode itself, which this function does not do.
+ * `\wj` does nothing, rather than dropping `\wj` from the rest of that divine-name word too.
+ *
+ * This is deliberately narrow: it is the *partially* covered nested case only. Removing either the
+ * inner or the outer marker of a fully covered nested pair works, and is the case the feature's UI
+ * actually reaches. Doing it properly needs recursive splitting of the nested `CharNode` itself,
+ * which is out of scope here — refusing keeps that a strictly additive change later, whereas
+ * shipping the whole-span removal would make the eventual fix a behavior change.
  *
  * @param charNode - The `CharNode` the selection touches.
  * @param targetNodes - The text nodes the selection covers.
- * @returns the `CharNode` that now covers only the selection. Unchanged when coverage is total.
+ * @returns the `CharNode` that now covers only the selection — unchanged when coverage is total —
+ *   or `undefined` when the marker cannot be removed without also affecting unselected text.
  */
-function $splitCharNodeAroundTargets(charNode: CharNode, targetNodes: TextNode[]): CharNode {
+function $splitCharNodeAroundTargets(
+  charNode: CharNode,
+  targetNodes: TextNode[],
+): CharNode | undefined {
   const targetKeys = new Set(targetNodes.map((targetNode) => targetNode.getKey()));
   const children = charNode.getChildren();
-  const coveredIndexes = children
-    .map((child, index) =>
-      targetKeys.has(child.getKey()) ||
-      ($isElementNode(child) && targetNodes.some((targetNode) => child.isParentOf(targetNode)))
-        ? index
-        : -1,
-    )
-    .filter((index) => index >= 0);
+  const coveredIndexes: number[] = [];
+  for (const [index, child] of children.entries()) {
+    if (targetKeys.has(child.getKey())) {
+      coveredIndexes.push(index);
+    } else if ($isElementNode(child) && targetNodes.some((target) => child.isParentOf(target))) {
+      // Nothing has been mutated yet, so refusing here leaves the document exactly as it was.
+      if (!$isFullyCoveredByTargets(child, targetKeys)) return undefined;
+      coveredIndexes.push(index);
+    }
+  }
   if (coveredIndexes.length === 0) return charNode;
 
   let firstCoveredIndex = coveredIndexes[0];
@@ -604,27 +662,27 @@ function $splitCharNodeAroundTargets(charNode: CharNode, targetNodes: TextNode[]
 /**
  * Create an empty `CharNode` carrying the same identity as `charNode`.
  *
- * Copies marker, unknown attributes, direction, format, and style — modeled on
- * `CharNode.insertNewAfter`'s copy, but pairing `setStyle` with `getStyle` rather than
- * `getTextStyle` (see the note below) so the style copy actually takes effect. Additionally
- * copies `charIdState` — without the cid, `$charNodeTransform`'s `$hasSameCharAttributes` check
- * would refuse to re-merge the halves later.
+ * `$copyNode` gives a childless copy with a fresh key: `CharNode.clone` carries the marker and
+ * unknown attributes, `ElementNode.afterCloneFrom` carries indent, format, style, direction and
+ * both text-style members, and `LexicalNode.afterCloneFrom` carries node state — including
+ * `charIdState`, which `resetOnCopyNode` leaves alone because that config doesn't opt into being
+ * reset. The cid matters: without it `$charNodeTransform`'s `$hasSameCharAttributes` check would
+ * refuse to re-merge the halves later.
+ *
+ * The children copy in `afterCloneFrom` is gated on the keys matching, and `$copyNode` assigns a
+ * fresh key before calling it, so the copy is genuinely empty. `$copyNode` also skips
+ * `$applyNodeReplacement`, which is irrelevant here — no `CharNode` replacement is registered.
+ *
+ * Don't hand-roll this: `CharNode.insertNewAfter` (CharNode.ts:254) and `ParaNode.insertNewAfter`
+ * (ParaNode.ts:286) model a manual copy, but both pair `setStyle` with `getTextStyle()` — a
+ * different member (`__textStyle`, the default inline style for children) than `setStyle` writes
+ * (`__style`) — so their style copies are silently inert.
  *
  * @param charNode - The `CharNode` to copy identity from.
  * @returns a new empty `CharNode` with the same identity.
  */
 function $createCharNodeLike(charNode: CharNode): CharNode {
-  const newCharNode = $createCharNode(charNode.getMarker(), charNode.getUnknownAttributes());
-  newCharNode.setDirection(charNode.getDirection());
-  newCharNode.setFormat(charNode.getFormatType());
-  // Note: `getStyle()`/`setStyle()` are the matching pair for an ElementNode's own CSS style
-  // string (`__style`); `getTextStyle()` reads a different member (`__textStyle`, the default
-  // inline style for children) entirely. Note `CharNode.insertNewAfter` (CharNode.ts:254) and
-  // `ParaNode.insertNewAfter` (ParaNode.ts:286) both pair `setStyle` with `getTextStyle`, so their
-  // style copies are inert; don't copy that pairing from them.
-  newCharNode.setStyle(charNode.getStyle());
-  $setState(newCharNode, charIdState, () => $getState(charNode, charIdState));
-  return newCharNode;
+  return $copyNode(charNode);
 }
 
 /**

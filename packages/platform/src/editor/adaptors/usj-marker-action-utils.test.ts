@@ -6,8 +6,9 @@ import {
   updateSelection,
 } from "../../../../../libs/shared/src/nodes/usj/test.utils";
 import {
-  $removeCharMarkerAtSelection,
+  $removeCharacterMarkerAtSelection,
   getUsjMarkerAction,
+  isCharacterMarkerSupported,
   isUsjMarkerSupported,
 } from "./usj-marker-action.utils";
 import {
@@ -50,12 +51,7 @@ const reference = { book: "GEN", chapterNum: 1, verseNum: 1 };
 
 let secondVerseTextNode: TextNode;
 let charTextNode: TextNode;
-let placeholderTextNode: TextNode;
-let targetTextNode: TextNode;
-let noteTextNode: TextNode;
 let tailTextNode: TextNode;
-let firstCharTextNode: TextNode;
-let secondCharTextNode: TextNode;
 let innerTextNode: TextNode;
 
 function $defaultInitialEditorState() {
@@ -68,12 +64,16 @@ function $defaultInitialEditorState() {
 }
 
 /** Invokes the system under test inside a discrete update, the way `Editor.tsx` will. */
-function sutRemoveCharMarker(editor: LexicalEditor, marker?: string, viewOptions?: ViewOptions) {
+function sutRemoveCharacterMarker(
+  editor: LexicalEditor,
+  marker?: string,
+  viewOptions?: ViewOptions,
+) {
   editor.update(
     () => {
       const selection = $getSelection();
       if ($isRangeSelection(selection))
-        $removeCharMarkerAtSelection(selection, marker, viewOptions);
+        $removeCharacterMarkerAtSelection(selection, marker, viewOptions);
     },
     { discrete: true },
   );
@@ -336,7 +336,7 @@ describe("USJ Marker Action Utils", () => {
     });
   });
 
-  describe("should remove a char marker", () => {
+  describe("should remove a character marker", () => {
     it("when the cursor is collapsed inside a CharNode", () => {
       const { editor } = createBasicTestEnvironment(nodes, () => {
         charTextNode = $createTextNode("Lord");
@@ -350,7 +350,7 @@ describe("USJ Marker Action Utils", () => {
       });
       updateSelection(editor, charTextNode, 2);
 
-      sutRemoveCharMarker(editor);
+      sutRemoveCharacterMarker(editor);
 
       editor.getEditorState().read(() => {
         const para = $getRoot().getFirstChild();
@@ -375,7 +375,7 @@ describe("USJ Marker Action Utils", () => {
       });
       updateSelection(editor, charTextNode, 0, charTextNode, 4);
 
-      sutRemoveCharMarker(editor, "wj");
+      sutRemoveCharacterMarker(editor, "wj");
 
       editor.getEditorState().read(() => {
         const para = $getRoot().getFirstChild();
@@ -387,7 +387,46 @@ describe("USJ Marker Action Utils", () => {
       });
     });
 
+    it("dirties no node when the requested marker is not present", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        charTextNode = $createTextNode("Lord");
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createTextNode("the "),
+            $createCharNode("nd").append(charTextNode),
+            $createTextNode(" said"),
+          ),
+        );
+      });
+      // A *partial* selection, unlike the whole-node selection in the test above: an unguarded
+      // `handleTextNode` would `splitText(1, 3)` here, splitting "Lord" into three pieces.
+      updateSelection(editor, charTextNode, 1, charTextNode, 3);
+
+      // Asserting on dirty nodes rather than on the resulting tree: Lexical's reconciliation
+      // re-merges adjacent simple text nodes, so the split is not observable afterwards — but it
+      // still marks nodes dirty, and that is what puts an entry on the undo stack and produces a
+      // collab delta. A documented no-op must not do either.
+      let dirtyLeafCount = 0;
+      const unregisterUpdateListener = editor.registerUpdateListener(({ dirtyLeaves }) => {
+        dirtyLeafCount += dirtyLeaves.size;
+      });
+
+      sutRemoveCharacterMarker(editor, "wj");
+      unregisterUpdateListener();
+
+      expect(dirtyLeafCount).toBe(0);
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        expect(para.getTextContent()).toBe("the Lord said");
+        const charNode = para.getChildAtIndex(1);
+        if (!$isCharNode(charNode)) throw new Error("charNode is not a CharNode");
+        expect(charNode.getMarker()).toBe("nd");
+      });
+    });
+
     it("skips a selection inside a NoteNode", () => {
+      let noteTextNode!: TextNode;
       const { editor } = createBasicTestEnvironment(nodes, () => {
         noteTextNode = $createTextNode("Lord");
         $getRoot().append(
@@ -399,7 +438,7 @@ describe("USJ Marker Action Utils", () => {
       });
       updateSelection(editor, noteTextNode, 0, noteTextNode, 4);
 
-      sutRemoveCharMarker(editor, "nd");
+      sutRemoveCharacterMarker(editor, "nd");
 
       editor.getEditorState().read(() => {
         const para = $getRoot().getFirstChild();
@@ -424,7 +463,7 @@ describe("USJ Marker Action Utils", () => {
       // "Lo|rem ips|um"
       updateSelection(editor, charTextNode, 2, charTextNode, 9);
 
-      sutRemoveCharMarker(editor, "nd");
+      sutRemoveCharacterMarker(editor, "nd");
 
       editor.getEditorState().read(() => {
         const para = $getRoot().getFirstChild();
@@ -459,7 +498,7 @@ describe("USJ Marker Action Utils", () => {
       // "[Lo]rem ipsum"
       updateSelection(editor, charTextNode, 0, charTextNode, 2);
 
-      sutRemoveCharMarker(editor, "nd");
+      sutRemoveCharacterMarker(editor, "nd");
 
       editor.getEditorState().read(() => {
         const para = $getRoot().getFirstChild();
@@ -484,7 +523,7 @@ describe("USJ Marker Action Utils", () => {
       // "Lorem ips[um]"
       updateSelection(editor, charTextNode, 9, charTextNode, 11);
 
-      sutRemoveCharMarker(editor, "nd");
+      sutRemoveCharacterMarker(editor, "nd");
 
       editor.getEditorState().read(() => {
         const para = $getRoot().getFirstChild();
@@ -516,7 +555,7 @@ describe("USJ Marker Action Utils", () => {
       // "the [Lord sa]id"
       updateSelection(editor, charTextNode, 0, tailTextNode, 3);
 
-      sutRemoveCharMarker(editor, "nd");
+      sutRemoveCharacterMarker(editor, "nd");
 
       editor.getEditorState().read(() => {
         const para = $getRoot().getFirstChild();
@@ -529,6 +568,8 @@ describe("USJ Marker Action Utils", () => {
     });
 
     it("when the selection spans two sibling CharNodes", () => {
+      let firstCharTextNode!: TextNode;
+      let secondCharTextNode!: TextNode;
       const { editor } = createBasicTestEnvironment(nodes, () => {
         firstCharTextNode = $createTextNode("Lord");
         secondCharTextNode = $createTextNode("God");
@@ -542,7 +583,7 @@ describe("USJ Marker Action Utils", () => {
       });
       updateSelection(editor, firstCharTextNode, 0, secondCharTextNode, 3);
 
-      sutRemoveCharMarker(editor, "nd");
+      sutRemoveCharacterMarker(editor, "nd");
 
       editor.getEditorState().read(() => {
         const para = $getRoot().getFirstChild();
@@ -563,7 +604,7 @@ describe("USJ Marker Action Utils", () => {
       });
       updateSelection(editor, innerTextNode, 0, innerTextNode, 4);
 
-      sutRemoveCharMarker(editor, "nd");
+      sutRemoveCharacterMarker(editor, "nd");
 
       editor.getEditorState().read(() => {
         const para = $getRoot().getFirstChild();
@@ -588,7 +629,7 @@ describe("USJ Marker Action Utils", () => {
       });
       updateSelection(editor, innerTextNode, 0, innerTextNode, 4);
 
-      sutRemoveCharMarker(editor, "wj");
+      sutRemoveCharacterMarker(editor, "wj");
 
       editor.getEditorState().read(() => {
         const para = $getRoot().getFirstChild();
@@ -612,7 +653,7 @@ describe("USJ Marker Action Utils", () => {
       });
       updateSelection(editor, innerTextNode, 0, innerTextNode, 4);
 
-      sutRemoveCharMarker(editor);
+      sutRemoveCharacterMarker(editor);
 
       editor.getEditorState().read(() => {
         const para = $getRoot().getFirstChild();
@@ -642,7 +683,7 @@ describe("USJ Marker Action Utils", () => {
       // Select only "Lord", inside the nested `nd`, and remove the outer `wj`.
       updateSelection(editor, innerTextNode, 0, innerTextNode, 4);
 
-      sutRemoveCharMarker(editor, "wj");
+      sutRemoveCharacterMarker(editor, "wj");
 
       editor.getEditorState().read(() => {
         const para = $getRoot().getFirstChild();
@@ -680,7 +721,7 @@ describe("USJ Marker Action Utils", () => {
       // sibling exists (leading), exercising the split's leading-clone branch on its own.
       updateSelection(editor, innerTextNode, 0, innerTextNode, 4);
 
-      sutRemoveCharMarker(editor, "wj");
+      sutRemoveCharacterMarker(editor, "wj");
 
       editor.getEditorState().read(() => {
         const para = $getRoot().getFirstChild();
@@ -700,7 +741,7 @@ describe("USJ Marker Action Utils", () => {
       });
     });
 
-    it("known limitation: drops the outer marker from a nested marker's whole span when only part of it is selected", () => {
+    it("refuses to remove the outer marker when only part of a nested marker's span is selected", () => {
       const { editor } = createBasicTestEnvironment(nodes, () => {
         innerTextNode = $createTextNode("Lord");
         $getRoot().append(
@@ -716,32 +757,28 @@ describe("USJ Marker Action Utils", () => {
       // Select only "Lo" — part of the nested "Lord" — and remove the outer "wj".
       updateSelection(editor, innerTextNode, 0, innerTextNode, 2);
 
-      sutRemoveCharMarker(editor, "wj");
+      sutRemoveCharacterMarker(editor, "wj");
 
       editor.getEditorState().read(() => {
         const para = $getRoot().getFirstChild();
         if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
-        // Every character still survives; only marker attribution is affected.
         expect(para.getTextContent()).toBe("the Lord said");
-        // Known limitation (see $splitCharNodeAroundTargets docstring, "partial coverage of a
-        // nested CharNode"): transitive coverage treats the whole inner `nd` CharNode as covered
-        // once selection reaches any of its text, so "wj" is removed from the whole of "Lord" —
-        // not just the selected "Lo" — while "the " and " said" correctly keep "wj". Unlike the
-        // marker-mode limitation, this one changes the document's actual USJ content: a real
-        // marker is dropped from text the user never selected.
+        // See $splitCharNodeAroundTargets docstring, "Refuses — partial coverage of a nested
+        // CharNode": transitive coverage cannot split the inner `nd` CharNode at the selection
+        // boundary, so the only removal available would strip "wj" from the whole of "Lord" —
+        // including the unselected "rd". The removal is refused instead, so "wj" still covers the
+        // entire span and no marker attribution changed anywhere. Asserted so that implementing
+        // recursive nested splitting later trips this test rather than silently changing behavior.
         const children = para.getChildren();
-        expect(children.length).toBe(3);
-        const [leading, middle, trailing] = children;
-        if (!$isCharNode(leading)) throw new Error("leading is not a CharNode");
-        expect(leading.getMarker()).toBe("wj");
-        expect(leading.getTextContent()).toBe("the ");
-        // "nd" survives and covers all of "Lord", including the unselected "rd".
-        if (!$isCharNode(middle)) throw new Error("middle is not a CharNode");
-        expect(middle.getMarker()).toBe("nd");
-        expect(middle.getTextContent()).toBe("Lord");
-        if (!$isCharNode(trailing)) throw new Error("trailing is not a CharNode");
-        expect(trailing.getMarker()).toBe("wj");
-        expect(trailing.getTextContent()).toBe(" said");
+        expect(children.length).toBe(1);
+        const [outer] = children;
+        if (!$isCharNode(outer)) throw new Error("outer is not a CharNode");
+        expect(outer.getMarker()).toBe("wj");
+        expect(outer.getTextContent()).toBe("the Lord said");
+        const inner = outer.getChildren().find($isCharNode);
+        if (!$isCharNode(inner)) throw new Error("inner is not a CharNode");
+        expect(inner.getMarker()).toBe("nd");
+        expect(inner.getTextContent()).toBe("Lord");
       });
     });
 
@@ -766,7 +803,7 @@ describe("USJ Marker Action Utils", () => {
       });
       updateSelection(editor, charTextNode, 0, charTextNode, charTextNodeSize);
 
-      sutRemoveCharMarker(editor, "nd", {
+      sutRemoveCharacterMarker(editor, "nd", {
         markerMode: "editable",
         hasSpacing: true,
         isFormattedFont: true,
@@ -803,7 +840,7 @@ describe("USJ Marker Action Utils", () => {
       });
       updateSelection(editor, charTextNode, 0, charTextNode, 4);
 
-      sutRemoveCharMarker(editor, "nd", {
+      sutRemoveCharacterMarker(editor, "nd", {
         markerMode: "visible",
         hasSpacing: true,
         isFormattedFont: true,
@@ -820,6 +857,7 @@ describe("USJ Marker Action Utils", () => {
     });
 
     it("removes an empty CharNode outright instead of leaking the placeholder", () => {
+      let placeholderTextNode!: TextNode;
       let placeholderTextNodeSize = 0;
       const { editor } = createBasicTestEnvironment(nodes, () => {
         placeholderTextNode = $createTextNode(EMPTY_CHAR_PLACEHOLDER_TEXT);
@@ -834,7 +872,7 @@ describe("USJ Marker Action Utils", () => {
       });
       updateSelection(editor, placeholderTextNode, 0, placeholderTextNode, placeholderTextNodeSize);
 
-      sutRemoveCharMarker(editor, "nd");
+      sutRemoveCharacterMarker(editor, "nd");
 
       editor.getEditorState().read(() => {
         const para = $getRoot().getFirstChild();
@@ -859,7 +897,7 @@ describe("USJ Marker Action Utils", () => {
       // Select exactly "Lord".
       updateSelection(editor, charTextNode, 0, charTextNode, 4);
 
-      sutRemoveCharMarker(editor, "nd");
+      sutRemoveCharacterMarker(editor, "nd");
 
       editor.getEditorState().read(() => {
         const para = $getRoot().getFirstChild();
@@ -894,7 +932,7 @@ describe("USJ Marker Action Utils", () => {
       // Select "Lord" backward: anchor at the end, focus at the start.
       updateSelection(editor, charTextNode, 4, charTextNode, 0);
 
-      sutRemoveCharMarker(editor, "nd");
+      sutRemoveCharacterMarker(editor, "nd");
 
       editor.getEditorState().read(() => {
         const para = $getRoot().getFirstChild();
@@ -934,7 +972,7 @@ describe("USJ Marker Action Utils", () => {
       // sibling test above whose split shape isn't exercised here.
       updateSelection(editor, charTextNode, 0, charTextNode, charTextNodeSize);
 
-      sutRemoveCharMarker(editor, "nd", {
+      sutRemoveCharacterMarker(editor, "nd", {
         markerMode: "editable",
         hasSpacing: true,
         isFormattedFont: true,
@@ -975,7 +1013,7 @@ describe("USJ Marker Action Utils", () => {
       // Collapse the caret at the end of "Lord" (offset 5 = NBSP + "Lord".length).
       updateSelection(editor, charTextNode, 5);
 
-      sutRemoveCharMarker(editor, "nd", {
+      sutRemoveCharacterMarker(editor, "nd", {
         markerMode: "editable",
         hasSpacing: true,
         isFormattedFont: true,
@@ -995,6 +1033,7 @@ describe("USJ Marker Action Utils", () => {
     });
 
     it("known limitation: leaves an unpaired marker when the selection is strictly interior under markerMode 'visible'", () => {
+      let targetTextNode!: TextNode;
       const { editor } = createBasicTestEnvironment(nodes, () => {
         // A single ordinary text child. `handleTextNode`'s own `splitText(4, 8)` below carves it
         // into "the " / "Lord" / " said" siblings inside the `CharNode`, so the 5-child shape this
@@ -1015,7 +1054,7 @@ describe("USJ Marker Action Utils", () => {
       // unhandled.
       updateSelection(editor, targetTextNode, 4, targetTextNode, 8);
 
-      sutRemoveCharMarker(editor, "nd", {
+      sutRemoveCharacterMarker(editor, "nd", {
         markerMode: "visible",
         hasSpacing: true,
         isFormattedFont: true,
@@ -1211,6 +1250,25 @@ describe("USJ Marker Action Utils", () => {
 
     it.each(["p", "wj", "f", "v", "c"])("isUsjMarkerSupported returns true for '%s'", (marker) => {
       expect(isUsjMarkerSupported(marker)).toBe(true);
+    });
+
+    it.each(["wj", "nd", "bd"])(
+      "isCharacterMarkerSupported returns true for character marker '%s'",
+      (marker) => {
+        expect(isCharacterMarkerSupported(marker)).toBe(true);
+      },
+    );
+
+    it.each(["p", "f", "v", "c", "zzz"])(
+      "isCharacterMarkerSupported returns false for non-character marker '%s'",
+      (marker) => {
+        expect(isCharacterMarkerSupported(marker)).toBe(false);
+      },
+    );
+
+    it("isCharacterMarkerSupported honors extraValidMarkers, unlike isUsjMarkerSupported", () => {
+      expect(isCharacterMarkerSupported("zzz", ["zzz"])).toBe(true);
+      expect(isUsjMarkerSupported("zzz")).toBe(false);
     });
   });
 });
