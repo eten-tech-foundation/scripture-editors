@@ -51,6 +51,7 @@ const reference = { book: "GEN", chapterNum: 1, verseNum: 1 };
 let secondVerseTextNode: TextNode;
 let charTextNode: TextNode;
 let placeholderTextNode: TextNode;
+let targetTextNode: TextNode;
 let noteTextNode: TextNode;
 let tailTextNode: TextNode;
 let firstCharTextNode: TextNode;
@@ -853,6 +854,97 @@ describe("USJ Marker Action Utils", () => {
         const selection = $getSelection();
         if (!$isRangeSelection(selection)) throw new Error("selection is not a range selection");
         expect(selection.getTextContent()).toBe("Lord");
+      });
+    });
+
+    it("restores the selection after the NBSP trim shifts content length in markerMode 'editable'", () => {
+      let charTextNodeSize = 0;
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        charTextNode = $createTextNode(NBSP + "Lord");
+        charTextNodeSize = charTextNode.getTextContentSize();
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createTextNode("the "),
+            $createCharNode("nd").append(
+              $createMarkerNode("nd"),
+              charTextNode,
+              $createMarkerNode("nd", "closing"),
+            ),
+            $createTextNode(" said"),
+          ),
+        );
+      });
+      // Select the whole CharNode's content (NBSP + "Lord"), so handleTextNode never calls
+      // TextNode.splitText on it — splitText's own point-transfer logic never runs, unlike the
+      // sibling test above whose split shape isn't exercised here.
+      updateSelection(editor, charTextNode, 0, charTextNode, charTextNodeSize);
+
+      sutRemoveCharMarker(editor, "nd", {
+        markerMode: "editable",
+        hasSpacing: true,
+        isFormattedFont: true,
+      });
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        const mergedTextNode = para.getFirstChild();
+        if (!$isTextNode(mergedTextNode)) throw new Error("merged node is not a TextNode");
+        expect(mergedTextNode.getTextContent()).toBe("the Lord said");
+        // $removeCharNodeKeepingContent's NBSP trim calls TextNode.setTextContent, which only
+        // mutates __text and never touches selection points. Without the restore, the pre-trim
+        // focus offset (5, the end of NBSP+"Lord") survives the trim and then the merge shifts it
+        // by the leading sibling's length alone, landing one character past "Lord"'s real end.
+        $expectSelectionToBe(mergedTextNode, 4, mergedTextNode, 8);
+        const selection = $getSelection();
+        if (!$isRangeSelection(selection)) throw new Error("selection is not a range selection");
+        expect(selection.getTextContent()).toBe("Lord");
+      });
+    });
+
+    it("known limitation: leaves an unpaired marker when the selection is strictly interior under markerMode 'visible'", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        targetTextNode = $createTextNode("Lord");
+        // "the " / " said" are marked "token" so Lexical's own plain-text normalization doesn't
+        // merge them into targetTextNode on commit — this fixture needs all three to stay
+        // separate nodes, unlike normal prose where such adjacent plain text would coalesce.
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createCharNode("nd").append(
+              $createImmutableTypedTextNode("marker", openingMarkerText("nd")),
+              $createTextNode("the ").setMode("token"),
+              targetTextNode,
+              $createTextNode(" said").setMode("token"),
+              $createImmutableTypedTextNode("marker", closingMarkerText("nd")),
+            ),
+          ),
+        );
+      });
+      // Select only the interior "Lord", leaving real unselected text between it and each
+      // boundary marker — the shape $splitCharNodeAroundTargets' docstring documents as unhandled.
+      updateSelection(editor, targetTextNode, 0, targetTextNode, 4);
+
+      sutRemoveCharMarker(editor, "nd", {
+        markerMode: "visible",
+        hasSpacing: true,
+        isFormattedFont: true,
+      });
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        // Known limitation (see $splitCharNodeAroundTargets docstring, "interior partial coverage
+        // under marker mode"): the boundary-marker fold only reaches a marker immediately adjacent
+        // to the covered range. Here real unselected text ("the " / " said") sits between each
+        // marker and the covered "Lord", so neither marker folds, and each ends up alone in a
+        // leading/trailing clone that $removeCharNodeKeepingContent never sees — the marker is
+        // never stripped. Asserting today's actual (broken) output so a future fix to this
+        // limitation is noticed here rather than silently reintroduced.
+        expect(para.getTextContent()).toContain(openingMarkerText("nd"));
+        expect(para.getTextContent()).toContain(closingMarkerText("nd"));
+        expect(para.getTextContent()).toBe(
+          `${openingMarkerText("nd")}the Lord said${closingMarkerText("nd")}`,
+        );
       });
     });
   });

@@ -405,16 +405,36 @@ export function $removeCharMarkerAtSelection(
   });
 
   // Restore the range over the same characters so a toolbar caller can re-toggle without
-  // re-selecting. `handleTextNode` split each target to cover exactly the selected portion, so
-  // the range is the whole of the first target through the whole of the last. Lexical's text
-  // normalization transfers these points when it merges the freed siblings. Skipped when a target
-  // node itself didn't survive — this happens when its enclosing CharNode held nothing but the
-  // empty-char placeholder and was removed outright rather than unwrapped (see
+  // re-selecting. `handleTextNode` split each target to cover exactly the selected portion, so the
+  // range is the whole of the first target through the whole of the last. This is not always a
+  // no-op: `TextNode.splitText` (used by `handleTextNode` above, via `$getTargetNode`) transfers
+  // anchor/focus onto the right split piece on its own, but `TextNode.setTextContent` — used by
+  // `$removeCharNodeKeepingContent`'s NBSP trim under `markerMode: "editable"` — only mutates
+  // `__text` and does not touch selection points at all. When the trim runs on a node the focus
+  // still points at (e.g. selecting a whole `CharNode`'s content, so no split happens), the
+  // pre-trim offset ends up one character past the new end without this restore. Skipped when a
+  // target node itself didn't survive — this happens when its enclosing CharNode held nothing but
+  // the empty-char placeholder and was removed outright rather than unwrapped (see
   // $removeCharNodeKeepingContent) — in which case Lexical's own selection repair applies instead.
+  // Note: this always writes anchor at the first target's start and focus at the last target's
+  // end, so a backward selection comes back forward — a normalization the spec doesn't require but
+  // is harmless, since `getSelectionOffsets` above is already backward-safe.
+  //
+  // Re-fetch the selection instead of reusing the `selection` parameter: `$unwrapNode` (used by
+  // `$removeCharNodeKeepingContent`) unwraps via `CharNode.replace()`, and `TextNode.replace()`
+  // unconditionally clones the active selection and calls `$setSelection` on the clone partway
+  // through — even when neither point needs adjusting. That silently swaps the *active* selection
+  // for a new object, leaving our `selection` parameter pointing at a now-stale, detached one.
+  // Mutating the stale object here would have no effect on what the later merge actually reads.
+  const currentSelection = $getSelection();
   const firstTargetNode = targetNodes[0];
   const lastTargetNode = targetNodes[targetNodes.length - 1];
-  if (firstTargetNode.isAttached() && lastTargetNode.isAttached())
-    selection.setTextNodeRange(
+  if (
+    $isRangeSelection(currentSelection) &&
+    firstTargetNode.isAttached() &&
+    lastTargetNode.isAttached()
+  )
+    currentSelection.setTextNodeRange(
       firstTargetNode,
       0,
       lastTargetNode,
@@ -466,13 +486,27 @@ function $getCharNodeToRemove(node: LexicalNode, marker: string | undefined): Ch
  * covered outer marker around an inner marked span still narrows correctly instead of being
  * mistaken for having no covered children at all.
  *
- * Marker-mode handling: under `markerMode: "visible"` / `"editable"`, a `CharNode`'s opening
- * marker child sits at index 0 and its closing marker child sits last. Left uncovered on its own,
- * either would land alone in a leading or trailing clone with no counterpart. Since
- * `$removeCharNodeKeepingContent` strips these markers unconditionally regardless of which clone
- * they end up in, folding an adjacent boundary marker into the covered range changes nothing about
- * the marker's fate — it only prevents a stray marker-only sibling `CharNode` from being created
- * when the actual content is fully covered.
+ * Marker-mode handling — boundary case only: under `markerMode: "visible"` / `"editable"`, a
+ * `CharNode`'s opening marker child sits at index 0 and its closing marker child sits last. When
+ * the covered range already touches that boundary (nothing real and unselected sits between the
+ * marker and the covered content on that side), folding the adjacent marker into the covered range
+ * before splitting avoids stranding it alone in a leading or trailing clone. This is safe *for the
+ * folded side*: `$removeCharNodeKeepingContent` strips a marker unconditionally regardless of which
+ * clone it ends up in, so folding it into the covered side changes nothing about its fate — it only
+ * prevents a stray marker-only sibling `CharNode` from surviving when the real content is fully
+ * covered.
+ *
+ * Known limitation — interior partial coverage under marker mode: the fold above only reaches a
+ * marker immediately adjacent to the covered range. When real, unselected text sits between the
+ * marker and the covered range — e.g. children `[openMarker, leadingText, targetText,
+ * trailingText, closeMarker]` with only `targetText` covered — neither boundary marker is adjacent
+ * to `coveredIndexes`, so neither folds. The split then produces a leading clone
+ * `[openMarker, leadingText]` and a trailing clone `[trailingText, closeMarker]`, each carrying an
+ * unpaired marker node that is never stripped, because only the returned (covered) node is passed
+ * to `$removeCharNodeKeepingContent`. A literal `\nd` / `\nd*` survives in the document in that
+ * shape. Fixing this correctly requires each surviving clone to be given its own regenerated
+ * opening *and* closing marker children — adaptor-level work beyond this function's scope — so it
+ * is left as a documented limitation rather than attempted here.
  *
  * Known limitation — partial coverage of a nested CharNode: transitive coverage (above) only
  * decides whether a nested element child counts as covered at *this* level; it cannot split that
