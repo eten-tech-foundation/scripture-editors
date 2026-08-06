@@ -337,31 +337,6 @@ describe("USJ Marker Action Utils", () => {
   });
 
   describe("should remove a char marker", () => {
-    it("when the selection is exactly one CharNode", () => {
-      const { editor } = createBasicTestEnvironment(nodes, () => {
-        charTextNode = $createTextNode("Lord");
-        $getRoot().append(
-          $createParaNode("p").append(
-            $createTextNode("the "),
-            $createCharNode("nd").append(charTextNode),
-            $createTextNode(" said"),
-          ),
-        );
-      });
-      updateSelection(editor, charTextNode, 0, charTextNode, 4);
-
-      sutRemoveCharMarker(editor, "nd");
-
-      editor.getEditorState().read(() => {
-        const para = $getRoot().getFirstChild();
-        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
-        // CharNode gone, siblings normalized into a single TextNode.
-        expect(para.getChildren().some($isCharNode)).toBe(false);
-        expect(para.getChildrenSize()).toBe(1);
-        expect(para.getTextContent()).toBe("the Lord said");
-      });
-    });
-
     it("when the cursor is collapsed inside a CharNode", () => {
       const { editor } = createBasicTestEnvironment(nodes, () => {
         charTextNode = $createTextNode("Lord");
@@ -725,6 +700,51 @@ describe("USJ Marker Action Utils", () => {
       });
     });
 
+    it("known limitation: drops the outer marker from a nested marker's whole span when only part of it is selected", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        innerTextNode = $createTextNode("Lord");
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createCharNode("wj").append(
+              $createTextNode("the "),
+              $createCharNode("nd").append(innerTextNode),
+              $createTextNode(" said"),
+            ),
+          ),
+        );
+      });
+      // Select only "Lo" — part of the nested "Lord" — and remove the outer "wj".
+      updateSelection(editor, innerTextNode, 0, innerTextNode, 2);
+
+      sutRemoveCharMarker(editor, "wj");
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        // N2 still holds: every character survives.
+        expect(para.getTextContent()).toBe("the Lord said");
+        // Known limitation (see $splitCharNodeAroundTargets docstring, "partial coverage of a
+        // nested CharNode"): transitive coverage treats the whole inner `nd` CharNode as covered
+        // once selection reaches any of its text, so "wj" is removed from the whole of "Lord" —
+        // not just the selected "Lo" — while "the " and " said" correctly keep "wj". Unlike the
+        // marker-mode limitation pinned above, this one changes the document's actual USJ content
+        // (a real marker is dropped from unselected text), so it is pinned here too.
+        const children = para.getChildren();
+        expect(children.length).toBe(3);
+        const [leading, middle, trailing] = children;
+        if (!$isCharNode(leading)) throw new Error("leading is not a CharNode");
+        expect(leading.getMarker()).toBe("wj");
+        expect(leading.getTextContent()).toBe("the ");
+        // "nd" survives and covers all of "Lord", including the unselected "rd".
+        if (!$isCharNode(middle)) throw new Error("middle is not a CharNode");
+        expect(middle.getMarker()).toBe("nd");
+        expect(middle.getTextContent()).toBe("Lord");
+        if (!$isCharNode(trailing)) throw new Error("trailing is not a CharNode");
+        expect(trailing.getMarker()).toBe("wj");
+        expect(trailing.getTextContent()).toBe(" said");
+      });
+    });
+
     it("strips synthesized MarkerNode children and the NBSP in markerMode 'editable'", () => {
       let charTextNodeSize = 0;
       const { editor } = createBasicTestEnvironment(nodes, () => {
@@ -844,6 +864,9 @@ describe("USJ Marker Action Utils", () => {
       editor.getEditorState().read(() => {
         const para = $getRoot().getFirstChild();
         if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        // CharNode gone, siblings normalized into a single TextNode.
+        expect(para.getChildren().some($isCharNode)).toBe(false);
+        expect(para.getChildrenSize()).toBe(1);
         expect(para.getTextContent()).toBe("the Lord said");
         // The three text nodes normalized into one, so assert on the survivor.
         const mergedTextNode = para.getFirstChild();
@@ -854,6 +877,38 @@ describe("USJ Marker Action Utils", () => {
         const selection = $getSelection();
         if (!$isRangeSelection(selection)) throw new Error("selection is not a range selection");
         expect(selection.getTextContent()).toBe("Lord");
+      });
+    });
+
+    it("keeps the selection backward when the original selection was backward", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        charTextNode = $createTextNode("Lord");
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createTextNode("the "),
+            $createCharNode("nd").append(charTextNode),
+            $createTextNode(" said"),
+          ),
+        );
+      });
+      // Select "Lord" backward: anchor at the end, focus at the start.
+      updateSelection(editor, charTextNode, 4, charTextNode, 0);
+
+      sutRemoveCharMarker(editor, "nd");
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        const mergedTextNode = para.getFirstChild();
+        if (!$isTextNode(mergedTextNode)) throw new Error("merged node is not a TextNode");
+        expect(mergedTextNode.getTextContent()).toBe("the Lord said");
+        const selection = $getSelection();
+        if (!$isRangeSelection(selection)) throw new Error("selection is not a range selection");
+        // Direction preserved: anchor stays at the end (offset 8), focus at the start (offset 4) —
+        // not normalized to forward.
+        expect(selection.isBackward()).toBe(true);
+        expect(selection.anchor.offset).toBe(8);
+        expect(selection.focus.offset).toBe(4);
       });
     });
 
@@ -902,27 +957,64 @@ describe("USJ Marker Action Utils", () => {
       });
     });
 
+    it("keeps the collapsed caret positioned after the NBSP trim in markerMode 'editable'", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        charTextNode = $createTextNode(NBSP + "Lord");
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createTextNode("the "),
+            $createCharNode("nd").append(
+              $createMarkerNode("nd"),
+              charTextNode,
+              $createMarkerNode("nd", "closing"),
+            ),
+            $createTextNode(" said"),
+          ),
+        );
+      });
+      // Collapse the caret at the end of "Lord" (offset 5 = NBSP + "Lord".length).
+      updateSelection(editor, charTextNode, 5);
+
+      sutRemoveCharMarker(editor, "nd", {
+        markerMode: "editable",
+        hasSpacing: true,
+        isFormattedFont: true,
+      });
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        const mergedTextNode = para.getFirstChild();
+        if (!$isTextNode(mergedTextNode)) throw new Error("merged node is not a TextNode");
+        expect(mergedTextNode.getTextContent()).toBe("the Lord said");
+        // The caret was at the end of "Lord" (offset 5 within NBSP + "Lord"). Once the NBSP is
+        // trimmed and the siblings merge, it must land at "the Lord"'s end (offset 8), not one
+        // character past it — the collapsed-branch counterpart to the range-branch restore above.
+        $expectSelectionToBe(mergedTextNode, 8);
+      });
+    });
+
     it("known limitation: leaves an unpaired marker when the selection is strictly interior under markerMode 'visible'", () => {
       const { editor } = createBasicTestEnvironment(nodes, () => {
-        targetTextNode = $createTextNode("Lord");
-        // "the " / " said" are marked "token" so Lexical's own plain-text normalization doesn't
-        // merge them into targetTextNode on commit — this fixture needs all three to stay
-        // separate nodes, unlike normal prose where such adjacent plain text would coalesce.
+        // A single ordinary text child — no artificial pre-split needed. `handleTextNode`'s own
+        // `splitText(4, 8)` below carves it into "the " / "Lord" / " said" siblings inside the
+        // `CharNode`, producing the same 5-child shape an everyday selection-and-remove reaches,
+        // not just a hand-built fixture.
+        targetTextNode = $createTextNode("the Lord said");
         $getRoot().append(
           $createParaNode("p").append(
             $createCharNode("nd").append(
               $createImmutableTypedTextNode("marker", openingMarkerText("nd")),
-              $createTextNode("the ").setMode("token"),
               targetTextNode,
-              $createTextNode(" said").setMode("token"),
               $createImmutableTypedTextNode("marker", closingMarkerText("nd")),
             ),
           ),
         );
       });
-      // Select only the interior "Lord", leaving real unselected text between it and each
-      // boundary marker — the shape $splitCharNodeAroundTargets' docstring documents as unhandled.
-      updateSelection(editor, targetTextNode, 0, targetTextNode, 4);
+      // Select only the interior "Lord" (offsets 4-8), leaving real unselected text between it and
+      // each boundary marker — the shape $splitCharNodeAroundTargets' docstring documents as
+      // unhandled.
+      updateSelection(editor, targetTextNode, 4, targetTextNode, 8);
 
       sutRemoveCharMarker(editor, "nd", {
         markerMode: "visible",

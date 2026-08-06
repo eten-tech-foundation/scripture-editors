@@ -364,14 +364,41 @@ export function $removeCharMarkerAtSelection(
   viewOptions: ViewOptions | undefined,
 ): void {
   if (selection.isCollapsed()) {
-    const charNode = $getCharNodeToRemove(selection.anchor.getNode(), marker);
-    if (charNode) $removeCharNodeKeepingContent(charNode, viewOptions);
+    const anchorNode = selection.anchor.getNode();
+    const anchorOffset = selection.anchor.offset;
+    const charNode = $getCharNodeToRemove(anchorNode, marker);
+    if (!charNode) return;
+    const originalSize = $isTextNode(anchorNode) ? anchorNode.getTextContentSize() : 0;
+    $removeCharNodeKeepingContent(charNode, viewOptions);
+
+    // Mirror the range branch's restore below: `$removeCharNodeKeepingContent`'s NBSP trim
+    // (`markerMode: "editable"`) calls `TextNode.setTextContent`, which never touches selection
+    // points, and `$unwrapNode`'s underlying `replace()` call clones the active selection without
+    // adjusting them either. Without this, a collapsed caret inside NBSP-prefixed content ends up
+    // one character right of where it belongs — out of range entirely when the caret was at the
+    // text's end. Skipped when the anchor node itself didn't survive: that happens only when its
+    // enclosing CharNode held nothing but the empty-char placeholder and was removed outright
+    // rather than unwrapped (see `$removeCharNodeKeepingContent`), in which case `.remove()`'s own
+    // `restoreSelection` already redirects the point correctly.
+    if ($isTextNode(anchorNode) && anchorNode.isAttached()) {
+      const newSize = anchorNode.getTextContentSize();
+      const trimmedLength = Math.max(originalSize - newSize, 0);
+      const newOffset = Math.max(0, Math.min(anchorOffset - trimmedLength, newSize));
+      const currentSelection = $getSelection();
+      if ($isRangeSelection(currentSelection))
+        currentSelection.setTextNodeRange(anchorNode, newOffset, anchorNode, newOffset);
+    }
     return;
   }
 
   const nodes = selection.getNodes();
+  const isBackward = selection.isBackward();
   const [startOffset, endOffset] = getSelectionOffsets(selection);
   const targetNodes: TextNode[] = [];
+  // Known, harmless: this splits every selected text node via `handleTextNode`'s `splitText`
+  // whether or not any of them turn out to sit inside a matching `CharNode` below. A no-match
+  // request still leaves the document split at the selection boundaries — content-preserving, but
+  // an avoidable no-op mutation. Triaged, not fixed here.
   nodes.forEach((node, index) => {
     const targetNode = $getTargetNode(
       node,
@@ -416,9 +443,10 @@ export function $removeCharMarkerAtSelection(
   // target node itself didn't survive — this happens when its enclosing CharNode held nothing but
   // the empty-char placeholder and was removed outright rather than unwrapped (see
   // $removeCharNodeKeepingContent) — in which case Lexical's own selection repair applies instead.
-  // Note: this always writes anchor at the first target's start and focus at the last target's
-  // end, so a backward selection comes back forward — a normalization the spec doesn't require but
-  // is harmless, since `getSelectionOffsets` above is already backward-safe.
+  // Preserves the original direction: `isBackward` was captured above, before the removal loop,
+  // since a backward range's anchor is the *last* target and its focus is the *first* — swapping
+  // which end gets which role keeps a backward selection backward instead of always normalizing
+  // to forward.
   //
   // Re-fetch the selection instead of reusing the `selection` parameter: `$unwrapNode` (used by
   // `$removeCharNodeKeepingContent`) unwraps via `CharNode.replace()`, and `TextNode.replace()`
@@ -433,13 +461,12 @@ export function $removeCharMarkerAtSelection(
     $isRangeSelection(currentSelection) &&
     firstTargetNode.isAttached() &&
     lastTargetNode.isAttached()
-  )
-    currentSelection.setTextNodeRange(
-      firstTargetNode,
-      0,
-      lastTargetNode,
-      lastTargetNode.getTextContentSize(),
-    );
+  ) {
+    const lastOffset = lastTargetNode.getTextContentSize();
+    if (isBackward)
+      currentSelection.setTextNodeRange(lastTargetNode, lastOffset, firstTargetNode, 0);
+    else currentSelection.setTextNodeRange(firstTargetNode, 0, lastTargetNode, lastOffset);
+  }
 }
 
 /**
@@ -472,6 +499,19 @@ function $getCharNodeToRemove(node: LexicalNode, marker: string | undefined): Ch
     currentNode = currentNode.getParent();
   }
   return matchedCharNode;
+}
+
+/**
+ * True for either flavor of synthesized marker child a `CharNode` can hold under
+ * `markerMode: "editable"` (`MarkerNode`) or `"visible"` (an `ImmutableTypedTextNode` with
+ * `textType: "marker"`). Not `$isParaMarkerPrefix` from `shared` — same predicate, but that name
+ * describes a paragraph's leading marker, which would mislead here.
+ *
+ * @param node - The node to check.
+ * @returns `true` if the node is a synthesized marker child.
+ */
+function $isSynthesizedMarkerNode(node: LexicalNode | null | undefined): boolean {
+  return $isMarkerNode(node) || $isVisibleMarkerNode(node);
 }
 
 /**
@@ -539,16 +579,11 @@ function $splitCharNodeAroundTargets(charNode: CharNode, targetNodes: TextNode[]
   let lastCoveredIndex = coveredIndexes[coveredIndexes.length - 1];
   // Fold an adjacent boundary marker into the covered range so it isn't left stranded alone in a
   // clone — see the marker-mode handling note above.
-  if (
-    firstCoveredIndex > 0 &&
-    ($isMarkerNode(children[firstCoveredIndex - 1]) ||
-      $isVisibleMarkerNode(children[firstCoveredIndex - 1]))
-  )
+  if (firstCoveredIndex > 0 && $isSynthesizedMarkerNode(children[firstCoveredIndex - 1]))
     firstCoveredIndex -= 1;
   if (
     lastCoveredIndex < children.length - 1 &&
-    ($isMarkerNode(children[lastCoveredIndex + 1]) ||
-      $isVisibleMarkerNode(children[lastCoveredIndex + 1]))
+    $isSynthesizedMarkerNode(children[lastCoveredIndex + 1])
   )
     lastCoveredIndex += 1;
   if (firstCoveredIndex === 0 && lastCoveredIndex === children.length - 1) return charNode;
@@ -567,9 +602,11 @@ function $splitCharNodeAroundTargets(charNode: CharNode, targetNodes: TextNode[]
 /**
  * Create an empty `CharNode` carrying the same identity as `charNode`.
  *
- * Copies marker, unknown attributes, direction, format, and style like `CharNode.insertNewAfter`
- * does, and additionally copies `charIdState` — without the cid, `$charNodeTransform`'s
- * `$hasSameCharAttributes` check would refuse to re-merge the halves later.
+ * Copies marker, unknown attributes, direction, format, and style — modeled on
+ * `CharNode.insertNewAfter`'s copy, but pairing `setStyle` with `getStyle` rather than
+ * `getTextStyle` (see the note below) so the style copy actually takes effect. Additionally
+ * copies `charIdState` — without the cid, `$charNodeTransform`'s `$hasSameCharAttributes` check
+ * would refuse to re-merge the halves later.
  *
  * @param charNode - The `CharNode` to copy identity from.
  * @returns a new empty `CharNode` with the same identity.
@@ -578,7 +615,12 @@ function $createCharNodeLike(charNode: CharNode): CharNode {
   const newCharNode = $createCharNode(charNode.getMarker(), charNode.getUnknownAttributes());
   newCharNode.setDirection(charNode.getDirection());
   newCharNode.setFormat(charNode.getFormatType());
-  newCharNode.setStyle(charNode.getTextStyle());
+  // Note: `getStyle()`/`setStyle()` are the matching pair for an ElementNode's own CSS style
+  // string (`__style`); `getTextStyle()` reads a different member (`__textStyle`, the default
+  // inline style for children) entirely. `CharNode.insertNewAfter` (CharNode.ts:254) pairs
+  // `setStyle` with `getTextStyle` too, so that copy is inert there as well — not our bug to fix
+  // under `libs/`, but ours here uses the matching pair so this copy actually does something.
+  newCharNode.setStyle(charNode.getStyle());
   $setState(newCharNode, charIdState, () => $getState(charNode, charIdState));
   return newCharNode;
 }
@@ -599,7 +641,7 @@ function $removeCharNodeKeepingContent(
   viewOptions: ViewOptions | undefined,
 ): void {
   charNode.getChildren().forEach((child) => {
-    if ($isMarkerNode(child) || $isVisibleMarkerNode(child)) child.remove();
+    if ($isSynthesizedMarkerNode(child)) child.remove();
   });
 
   // Checked before the NBSP trim below: the placeholder IS an NBSP, and the adaptor does not

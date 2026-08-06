@@ -124,6 +124,25 @@ export interface EditorRef {
    * with both collapsed (removes the marker from the whole enclosing marker) and range (splits the
    * marker, leaving the uncovered text marked) selections.
    *
+   * Does nothing, without throwing, when there is no matching character marker enclosing the
+   * selection, when the selection is inside a note, or when there is no active selection at all.
+   *
+   * @remarks
+   * Two narrowed edge cases, both preserving every character of the document's text content:
+   *
+   * - Nested markers: text left uncovered by the selection keeps its marker, provided the
+   *   selection does not partially cover a nested character marker's text. When it does, and the
+   *   *outer* marker is the one being removed, the outer marker is removed from that nested
+   *   marker's entire span — not just the selected part of it — because recursive splitting of a
+   *   nested marker's text is not implemented.
+   * - Marker display modes (paragraph structure and unformatted views): the marker's own visible
+   *   representation is stripped from the span the marker is removed from, but when a range
+   *   selection leaves unselected text between a marker's boundary and the selection, the marked
+   *   sibling that keeps that unselected text is left with an unpaired marker half — a literal
+   *   opening or closing marker (e.g. `\nd` or `\nd*`) stays visible in the editor. This is a
+   *   presentation artifact only: it is excluded from USJ export and self-corrects the next time
+   *   the document is loaded from USJ.
+   *
    * @param marker - A USFM character marker string, e.g. `"nd"`, `"wj"`. Omit to remove the
    *   innermost character marker enclosing the selection.
    * @throws Will throw an error if the editor is in readonly mode.
