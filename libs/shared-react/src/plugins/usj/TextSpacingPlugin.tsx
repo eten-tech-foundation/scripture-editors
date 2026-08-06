@@ -94,7 +94,7 @@ function $textNodeTrailingSpaceTransform(node: TextNode): void {
   // space-only (or already-emptied) one means the verse is empty. Core's round trip to disk
   // (ParatextData) drops that space, so keeping it makes the editor's USJ disagree with what core
   // reads back — and core resolves that disagreement by reloading the whole editor, destroying the
-  // caret (PT-3203). Note this is narrower than the CharNode case below it in the file: a space
+  // caret. Note this is narrower than the CharNode case below it in the file: a space
   // between a char node and a following verse IS canonical USJ that Paratext re-inserts, and only
   // a space owned by an *empty verse* round-trips away.
   const isEmptyVerseContent =

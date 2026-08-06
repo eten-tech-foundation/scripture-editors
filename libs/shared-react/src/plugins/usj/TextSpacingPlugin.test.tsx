@@ -110,7 +110,7 @@ describe("TextSpacingPlugin", () => {
     // The structural trailing space is scaffolding for real text. Once that text is gone the verse
     // is empty again, and core's round trip to disk (ParatextData) drops the space — so keeping it
     // makes the editor's USJ disagree with what core reads back. Core reacts to that disagreement
-    // by reloading the whole editor, which destroys the caret (PT-3203).
+    // by reloading the whole editor, which destroys the caret.
     const { editor } = await testEnvironment();
 
     // Type between the two empty verses; the transform adds the structural trailing space.
@@ -338,7 +338,7 @@ describe("TextSpacingPlugin", () => {
     // A verse marker on BOTH sides means the space is verse 1's whole content, i.e. the verse is
     // empty. ParatextData drops that space on the round trip to disk, so the editor must too —
     // otherwise the editor's USJ disagrees with what core reads back and core reloads the whole
-    // editor, destroying the caret (PT-3203).
+    // editor, destroying the caret.
     //
     // This is narrower than "never remove a space before a verse": a space preceding a verse is
     // still kept when it is genuine structural content — after a CharNode (see the annotation test
