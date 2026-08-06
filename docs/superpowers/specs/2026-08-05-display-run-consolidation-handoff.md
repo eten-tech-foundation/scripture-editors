@@ -1,9 +1,19 @@
 # Display-run consolidation: hand-off for the planning chat
 
-Status: hand-off (2026-08-05). Companion to
-`.superpowers/sdd/2026-07-30-attribute-display/architecture-assessment.md` (the full
-inventory/costing — READ IT FIRST in the new chat) and
-`2026-07-30-attribute-display-design.md` (the governing attribute-display spec; its rules stand).
+Status: hand-off (2026-08-05).
+
+**Path convention: the planning chat runs from paranext-core**
+(`~/source/repos/workspaces/standard-view/paranext-core`, branch `standard-view`). The editor
+repo is at `../scripture-editors` (branch `standard-view-pt-4187`) — this doc lives there, and
+every bare repo path below (`libs/…`, `packages/…`, `docs/…`, `scripts/…`,
+`.superpowers/…`) is relative to `../scripture-editors` unless it is explicitly a
+paranext-core path (`c-sharp/…`, `extensions/…`).
+
+Companion docs (READ FIRST, in full):
+- `../scripture-editors/.superpowers/sdd/2026-07-30-attribute-display/architecture-assessment.md`
+  (the full inventory/costing)
+- `../scripture-editors/docs/superpowers/specs/2026-07-30-attribute-display-design.md`
+  (the governing attribute-display spec; its rules stand)
 
 ## Why this effort exists
 
@@ -124,7 +134,7 @@ live bug — absorb into phase 2 if convenient, else skip).
 **Needs a live capture (no TJ action required — the sample data is deterministic):**
 
 4. **Verse-9 lossy divergence**: in the E2E sample project (the WEB bundle the isolated suite
-   installs; c-sharp/assets/WEB, Luke 4), the pre-existing span `\nd come togedda\nd*` (verse
+   installs; paranext-core `c-sharp/assets/WEB`, Luke 4), the pre-existing span `\nd come togedda\nd*` (verse
    9, arrives as content[16]) makes the sync warn fire on EVERY full-chapter save regardless
    of edit target. Both static pipelines are PROVEN byte-faithful (C# capture test
    `NdSpanRoundTripCaptureTests` + adaptor probe), so it is a live-editing divergence — prime
@@ -132,14 +142,14 @@ live bug — absorb into phase 2 if convenient, else skip).
    chapter in Standard view, edit anything, save; the (now per-difference) warn prints the
    exact differing entries. Fix whichever side mangles the space.
 
-**Needs one verification (either TJ manually or the new chat headlessly):**
+**Needs one verification (headlessly in the new chat — no TJ action required):**
 
-5. **Undo re-settle final retest** (TJ: your exact repro — type `|stuff="thing"` before a
-   closer in an existing `\nd` span, arrow up to settle, Ctrl+Z, hands off ~3s). Three stacked
-   mechanisms were fixed (historic-commit transform blindness; effect-teardown state wipe; the
-   debounced save's forced commit — the live-captured trigger, gated 2026-08-05). The last fix
-   was verified live via CDP; TJ's manual confirmation on a fresh `npm start` is the final
-   gate.
+5. **RESOLVED (TJ manually verified 2026-08-05)**: the undo re-settle — undo now holds and
+   nothing auto-settles. Three stacked mechanisms were fixed (historic-commit transform
+   blindness; effect-teardown state wipe; the debounced save's forced commit, gated behind the
+   suppression window). Do NOT re-investigate; the pins live in
+   `packages/platform/src/editor/markerEdit/markerEditUndoResettle.test.tsx` and
+   `markerEditUndoRerenderResettle.test.tsx`.
 6. **Mid-sentence typed-marker settle**: a verification-session observation (typing
    `\nd hello\nd*` with the caret mid-sentence in existing text did not settle on departure;
    at a clean paragraph end it did). TJ could not reproduce; possibly resolved by the
@@ -179,18 +189,20 @@ zero skips; lint+typecheck 0 errors in both root and nx contexts; commit message
 `env -u _VOLTA_TOOL_RECURSION` for pnpm/nx; the W2-D/W5 reports in
 `.superpowers/sdd/2026-07-30-attribute-display/` hold per-seam context.
 
-## Prompt for the planning chat
+## Prompt for the planning chat (run it from paranext-core)
 
 > Plan the display-run consolidation for the Paratext 10 Standard-view editor per
-> `docs/superpowers/specs/2026-08-05-display-run-consolidation-handoff.md` (read it and the
-> architecture assessment it references FIRST, in full). Workspace:
-> `~/source/repos/workspaces/standard-view/` — scripture-editors (branch
-> `standard-view-pt-4187`) + paranext-core (branch `standard-view`). PT9 reference (never
-> edit): `~/source/repos/Paratext`.
+> `../scripture-editors/docs/superpowers/specs/2026-08-05-display-run-consolidation-handoff.md`
+> (read it and the two companion docs it names FIRST, in full — note its path convention:
+> bare repo paths are relative to `../scripture-editors`). We are running from paranext-core
+> (branch `standard-view`); the editor repo is at `../scripture-editors` (branch
+> `standard-view-pt-4187`). PT9 reference (never edit): `~/source/repos/Paratext`.
 >
 > Goal: plan all three phases — the shared deletion/pend extraction (phase 1) so the three
 > live bugs are fixed BY the consolidation rather than by three more per-kind patches; the full
-> display-run registry (phase 2); and settled getUsj() output (phase 3) — with
-> the assessment's fixed points untouched and the corpus/round-trip property tests green
-> throughout. Brainstorm the driver's shape against the existing per-kind code, write the
-> design + implementation plan with TDD steps, and get TJ's sign-off before implementing.
+> display-run registry (phase 2, including the wrapper-element-vs-loose-siblings decision); and
+> settled getUsj() output (phase 3) — with the assessment's fixed points untouched and the
+> corpus/round-trip property tests green throughout. Also pick up the handoff Backlog's
+> "TJ-approved, NOT YET DONE" items early — they are small and independent. Brainstorm the
+> driver's shape against the existing per-kind code, write the design + implementation plan
+> with TDD steps, and get TJ's sign-off before implementing.
