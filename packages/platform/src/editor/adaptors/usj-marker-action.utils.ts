@@ -350,7 +350,9 @@ function $moveLeadingSpaceToPreviousNode(node: LexicalNode, wrapper: LexicalNode
  * A collapsed selection removes the marker from the entire enclosing `CharNode`. Selections
  * inside a `NoteNode` are skipped (see `$getCharNodeToRemove`). A range selection that only
  * partially covers a `CharNode` — or spans a `CharNode` and its neighbors — is narrowed first by
- * `$splitCharNodeAroundTargets`, so uncovered text keeps its marker.
+ * `$splitCharNodeAroundTargets`, so uncovered text *at that CharNode's own level* keeps its
+ * marker. This is not an unconditional guarantee: see `$splitCharNodeAroundTargets`'s docstring
+ * for the nested-CharNode case where uncovered text one level deeper still loses the marker.
  *
  * @param selection - The current range selection.
  * @param marker - The character marker to remove, or `undefined` for the innermost one.
@@ -452,6 +454,17 @@ function $getCharNodeToRemove(node: LexicalNode, marker: string | undefined): Ch
  * side of a split, it lands in the leading or trailing clone without its counterpart, leaving that
  * clone with half a marker pair. Handling that is Task 5's job, not this function's.
  *
+ * Known limitation — partial coverage of a nested CharNode: transitive coverage (above) only
+ * decides whether a nested element child counts as covered at *this* level; it cannot split that
+ * child at the selection boundary. So when the selection covers only part of a nested CharNode's
+ * text, the whole nested child is treated as covered and left untouched, and the outer marker is
+ * still removed from all of it — including the unselected remainder inside it. For example,
+ * selecting only part of a divine-name word (`\nd`) inside red-letter text (`\wj`) and removing
+ * `\wj` will correctly preserve `\wj` on any plain-text siblings of the `\nd` span, but will still
+ * silently drop `\wj` from the rest of that divine-name word, not just the selected part. Fixing
+ * this needs recursive splitting of the nested CharNode itself, which this function does not do.
+ *
+
  * @param charNode - The `CharNode` the selection touches.
  * @param targetNodes - The text nodes the selection covers.
  * @returns the `CharNode` that now covers only the selection. Unchanged when coverage is total.

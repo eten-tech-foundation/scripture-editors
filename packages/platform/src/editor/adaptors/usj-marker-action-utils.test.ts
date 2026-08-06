@@ -645,18 +645,14 @@ describe("USJ Marker Action Utils", () => {
     });
 
     it("does not strip the outer marker from unselected text flanking a nested marker", () => {
-      let leadTextNode: TextNode;
-      let trailTextNode: TextNode;
       const { editor } = createBasicTestEnvironment(nodes, () => {
-        leadTextNode = $createTextNode("the ");
         innerTextNode = $createTextNode("Lord");
-        trailTextNode = $createTextNode(" said");
         $getRoot().append(
           $createParaNode("p").append(
             $createCharNode("wj").append(
-              leadTextNode,
+              $createTextNode("the "),
               $createCharNode("nd").append(innerTextNode),
-              trailTextNode,
+              $createTextNode(" said"),
             ),
           ),
         );
@@ -687,13 +683,14 @@ describe("USJ Marker Action Utils", () => {
     });
 
     it("does not strip the outer marker from a leading sibling of a fully covered nested marker", () => {
-      let leadTextNode: TextNode;
       const { editor } = createBasicTestEnvironment(nodes, () => {
-        leadTextNode = $createTextNode("the ");
         innerTextNode = $createTextNode("Lord");
         $getRoot().append(
           $createParaNode("p").append(
-            $createCharNode("wj").append(leadTextNode, $createCharNode("nd").append(innerTextNode)),
+            $createCharNode("wj").append(
+              $createTextNode("the "),
+              $createCharNode("nd").append(innerTextNode),
+            ),
           ),
         );
       });
