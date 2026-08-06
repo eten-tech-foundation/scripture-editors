@@ -43,6 +43,9 @@ const reference = { book: "GEN", chapterNum: 1, verseNum: 1 };
 let secondVerseTextNode: TextNode;
 let charTextNode: TextNode;
 let noteTextNode: TextNode;
+let tailTextNode: TextNode;
+let firstCharTextNode: TextNode;
+let secondCharTextNode: TextNode;
 
 function $defaultInitialEditorState() {
   secondVerseTextNode = $createTextNode("second verse text ");
@@ -422,6 +425,84 @@ describe("USJ Marker Action Utils", () => {
         // skips this case, so the CharNode survives.
         expect(noteNode.getChildren().some($isCharNode)).toBe(true);
         expect(noteNode.getTextContent()).toBe("Lord");
+      });
+    });
+
+    it("splits the CharNode when the selection is strictly inside it", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        charTextNode = $createTextNode("Lorem ipsum");
+        $getRoot().append($createParaNode("p").append($createCharNode("nd").append(charTextNode)));
+      });
+      // "Lo|rem ips|um"
+      updateSelection(editor, charTextNode, 2, charTextNode, 9);
+
+      sutRemoveCharMarker(editor, "nd");
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        // N2: every character survives.
+        expect(para.getTextContent()).toBe("Lorem ipsum");
+        const children = para.getChildren();
+        expect(children.length).toBe(3);
+        const [leading, middle, trailing] = children;
+        if (!$isCharNode(leading)) throw new Error("leading is not a CharNode");
+        if (!$isTextNode(middle)) throw new Error("middle is not a TextNode");
+        if (!$isCharNode(trailing)) throw new Error("trailing is not a CharNode");
+        expect(leading.getMarker()).toBe("nd");
+        expect(leading.getTextContent()).toBe("Lo");
+        expect(middle.getTextContent()).toBe("rem ips");
+        expect(trailing.getMarker()).toBe("nd");
+        expect(trailing.getTextContent()).toBe("um");
+      });
+    });
+
+    it("when the selection spans a CharNode and plain text", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        charTextNode = $createTextNode("Lord");
+        tailTextNode = $createTextNode(" said");
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createTextNode("the "),
+            $createCharNode("nd").append(charTextNode),
+            tailTextNode,
+          ),
+        );
+      });
+      // "the [Lord sa]id"
+      updateSelection(editor, charTextNode, 0, tailTextNode, 3);
+
+      sutRemoveCharMarker(editor, "nd");
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        expect(para.getChildren().some($isCharNode)).toBe(false);
+        expect(para.getTextContent()).toBe("the Lord said");
+      });
+    });
+
+    it("when the selection spans two sibling CharNodes", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        firstCharTextNode = $createTextNode("Lord");
+        secondCharTextNode = $createTextNode("God");
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createCharNode("nd").append(firstCharTextNode),
+            $createTextNode(" the "),
+            $createCharNode("nd").append(secondCharTextNode),
+          ),
+        );
+      });
+      updateSelection(editor, firstCharTextNode, 0, secondCharTextNode, 3);
+
+      sutRemoveCharMarker(editor, "nd");
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        expect(para.getChildren().some($isCharNode)).toBe(false);
+        expect(para.getTextContent()).toBe("Lord the God");
       });
     });
   });

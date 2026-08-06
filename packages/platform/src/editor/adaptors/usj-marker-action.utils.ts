@@ -4,9 +4,11 @@ import { $unwrapNode } from "@lexical/utils";
 import {
   $createTextNode,
   $getSelection,
+  $getState,
   $isElementNode,
   $isRangeSelection,
   $isTextNode,
+  $setState,
   EditorUpdateOptions,
   LexicalEditor,
   LexicalNode,
@@ -14,6 +16,7 @@ import {
   TextNode,
 } from "lexical";
 import {
+  $createCharNode,
   $createNodeFromSerializedNode,
   $isCharNode,
   $isMarkerNode,
@@ -21,6 +24,7 @@ import {
   $isSomeParaNode,
   $isTypedMarkNode,
   $isVisibleMarkerNode,
+  charIdState,
   CharNode,
   createLexicalUsjNode,
   EMPTY_CHAR_PLACEHOLDER_TEXT,
@@ -344,14 +348,9 @@ function $moveLeadingSpaceToPreviousNode(node: LexicalNode, wrapper: LexicalNode
  * Remove a character marker from the given selection, keeping all of its text content.
  *
  * A collapsed selection removes the marker from the entire enclosing `CharNode`. Selections
- * inside a `NoteNode` are skipped (see `$getCharNodeToRemove`).
- *
- * Known limitation: a range selection that only partially covers a `CharNode` is not split here.
- * `handleTextNode` does split the underlying `TextNode`, but all of the resulting pieces stay
- * children of the same `CharNode`, and `$removeCharNodeKeepingContent`'s `$unwrapNode` call lifts
- * all of them out together — so a partial-coverage removal currently strips the marker from the
- * whole run, not just the selected part. Splitting the `CharNode` so the uncovered text keeps its
- * marker is Task 3's job.
+ * inside a `NoteNode` are skipped (see `$getCharNodeToRemove`). A range selection that only
+ * partially covers a `CharNode` — or spans a `CharNode` and its neighbors — is narrowed first by
+ * `$splitCharNodeAroundTargets`, so uncovered text keeps its marker.
  *
  * @param selection - The current range selection.
  * @param marker - The character marker to remove, or `undefined` for the innermost one.
@@ -383,17 +382,21 @@ export function $removeCharMarkerAtSelection(
   });
   if (targetNodes.length === 0) return;
 
-  // Not currently reachable: once a CharNode is unwrapped its former children are reparented onto
-  // the para, so a later targetNode that shared it would resolve to undefined; an outright
-  // removal likewise detaches the node from any node a later targetNode could still reach. Kept
-  // as a guard for Task 3, where splitting a CharNode across multiple targetNodes may reintroduce
-  // a case where two targetNodes still resolve to the same charNode.getKey().
+  // Still not reachable after $splitCharNodeAroundTargets: it consults the full targetNodes array,
+  // so the first targetNode belonging to a given CharNode already causes every other targetNode
+  // sharing it to be carved into (or left in) that same node before this loop reaches them. By the
+  // time a later targetNode is processed, $removeCharNodeKeepingContent has already detached that
+  // CharNode (unwrapped or removed outright), so its former children are reparented onto — or
+  // orphaned from — the para, and $getCharNodeToRemove resolves to undefined rather than the same
+  // key. Kept as a guard in case a future change reintroduces a path where two targetNodes still
+  // resolve to the same charNode.getKey().
   const handledCharNodeKeys = new Set<string>();
   targetNodes.forEach((targetNode) => {
     const charNode = $getCharNodeToRemove(targetNode, marker);
     if (!charNode || handledCharNodeKeys.has(charNode.getKey())) return;
     handledCharNodeKeys.add(charNode.getKey());
-    $removeCharNodeKeepingContent(charNode, viewOptions);
+    const coveredCharNode = $splitCharNodeAroundTargets(charNode, targetNodes);
+    $removeCharNodeKeepingContent(coveredCharNode, viewOptions);
   });
 }
 
@@ -427,6 +430,58 @@ function $getCharNodeToRemove(node: LexicalNode, marker: string | undefined): Ch
     currentNode = currentNode.getParent();
   }
   return matchedCharNode;
+}
+
+/**
+ * Narrow a `CharNode` to just the children the selection covers, moving the uncovered leading and
+ * trailing children into sibling `CharNode`s that keep the marker.
+ *
+ * Needed because `handleTextNode` splits the *text* node, leaving all the pieces inside the same
+ * `CharNode` — so unwrapping it would strip the marker from the uncovered text too.
+ *
+ * @param charNode - The `CharNode` the selection touches.
+ * @param targetNodes - The text nodes the selection covers.
+ * @returns the `CharNode` that now covers only the selection. Unchanged when coverage is total.
+ */
+function $splitCharNodeAroundTargets(charNode: CharNode, targetNodes: TextNode[]): CharNode {
+  const children = charNode.getChildren();
+  const coveredIndexes = children
+    .map((child, index) => ($isTextNode(child) && targetNodes.includes(child) ? index : -1))
+    .filter((index) => index >= 0);
+  if (coveredIndexes.length === 0) return charNode;
+
+  const firstCoveredIndex = coveredIndexes[0];
+  const lastCoveredIndex = coveredIndexes[coveredIndexes.length - 1];
+  if (firstCoveredIndex === 0 && lastCoveredIndex === children.length - 1) return charNode;
+
+  // Append moves the children out of `charNode`, so it is left holding only the covered ones.
+  const trailingChildren = children.slice(lastCoveredIndex + 1);
+  if (trailingChildren.length > 0)
+    charNode.insertAfter($createCharNodeLike(charNode).append(...trailingChildren));
+  const leadingChildren = children.slice(0, firstCoveredIndex);
+  if (leadingChildren.length > 0)
+    charNode.insertBefore($createCharNodeLike(charNode).append(...leadingChildren));
+
+  return charNode;
+}
+
+/**
+ * Create an empty `CharNode` carrying the same identity as `charNode`.
+ *
+ * Copies marker, unknown attributes, direction, format, and style like `CharNode.insertNewAfter`
+ * does, and additionally copies `charIdState` — without the cid, `$charNodeTransform`'s
+ * `$hasSameCharAttributes` check would refuse to re-merge the halves later.
+ *
+ * @param charNode - The `CharNode` to copy identity from.
+ * @returns a new empty `CharNode` with the same identity.
+ */
+function $createCharNodeLike(charNode: CharNode): CharNode {
+  const newCharNode = $createCharNode(charNode.getMarker(), charNode.getUnknownAttributes());
+  newCharNode.setDirection(charNode.getDirection());
+  newCharNode.setFormat(charNode.getFormatType());
+  newCharNode.setStyle(charNode.getTextStyle());
+  $setState(newCharNode, charIdState, () => $getState(charNode, charIdState));
+  return newCharNode;
 }
 
 /**
