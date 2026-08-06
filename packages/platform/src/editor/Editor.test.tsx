@@ -182,6 +182,52 @@ describe("setAnnotation overload", () => {
   });
 });
 
+describe("removeCharMarker guards", () => {
+  async function createReadonlyEditorRefForTesting(): Promise<RefObject<EditorRef | null>> {
+    const ref = createRef<EditorRef>();
+    await act(async () => {
+      render(<Editor ref={ref} defaultUsj={sampleUsj} options={{ isReadonly: true }} />);
+    });
+    if (!ref.current) throw new Error("EditorRef did not mount");
+    return ref;
+  }
+
+  it("throws in readonly mode", async () => {
+    const ref = await createReadonlyEditorRefForTesting();
+    const editor = ref.current;
+    if (!editor) throw new Error("Editor not mounted");
+
+    expect(() => editor.removeCharMarker("nd")).toThrow(
+      "Cannot remove char marker in readonly mode",
+    );
+  });
+
+  it("throws for a para marker, which removal can never act on", async () => {
+    const ref = await createEditorRefForTesting();
+    const editor = ref.current;
+    if (!editor) throw new Error("Editor not mounted");
+
+    // Note this is stricter than insertMarker's isUsjMarkerSupported, which accepts "p".
+    expect(() => editor.removeCharMarker("p")).toThrow("Unsupported char marker 'p'");
+  });
+
+  it("throws for an unknown marker", async () => {
+    const ref = await createEditorRefForTesting();
+    const editor = ref.current;
+    if (!editor) throw new Error("Editor not mounted");
+
+    expect(() => editor.removeCharMarker("zzz")).toThrow("Unsupported char marker 'zzz'");
+  });
+
+  it("does not throw when the marker is omitted and there is no selection", async () => {
+    const ref = await createEditorRefForTesting();
+    const editor = ref.current;
+    if (!editor) throw new Error("Editor not mounted");
+
+    expect(() => editor.removeCharMarker()).not.toThrow();
+  });
+});
+
 /** Grabs the underlying Lexical editor so tests can dispatch commands the public ref doesn't expose. */
 function GrabEditor({ onEditor }: { onEditor: (editor: LexicalEditor) => void }): null {
   const [editor] = useLexicalComposerContext();

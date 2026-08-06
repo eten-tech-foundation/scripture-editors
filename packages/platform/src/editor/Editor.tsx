@@ -1,6 +1,10 @@
 import editorUsjAdaptor from "./adaptors/editor-usj.adaptor";
 import usjEditorAdaptor from "./adaptors/usj-editor.adaptor";
-import { getUsjMarkerAction, isUsjMarkerSupported } from "./adaptors/usj-marker-action.utils";
+import {
+  $removeCharMarkerAtSelection,
+  getUsjMarkerAction,
+  isUsjMarkerSupported,
+} from "./adaptors/usj-marker-action.utils";
 import { EditorOptions, EditorProps, EditorRef } from "./editor.model";
 import editorTheme from "./editor.theme";
 import { ActiveTextPlugin } from "./ActiveTextPlugin";
@@ -43,6 +47,7 @@ import {
 import {
   $createParaNode,
   blackListedChangeTags,
+  CharNode,
   DELTA_CHANGE_TAG,
   externalTypedMarkType,
   LoggerBasic,
@@ -307,6 +312,17 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
       return editorRef.current?.read(
         () => editorRef.current?.getElementByKey(nodeKey) ?? undefined,
       );
+    },
+    removeCharMarker(marker) {
+      if (isReadonly) throw new Error("Cannot remove char marker in readonly mode");
+      if (marker !== undefined && !CharNode.isValidMarker(marker, nodeOptions?.extraValidMarkers))
+        throw new Error(`Unsupported char marker '${marker}'`);
+
+      editorRef.current?.update(() => {
+        const selection = $getSelection();
+        if ($isRangeSelection(selection))
+          $removeCharMarkerAtSelection(selection, marker, viewOptions);
+      });
     },
     insertMarker(marker) {
       if (isReadonly) throw new Error("Cannot insert marker in readonly mode");

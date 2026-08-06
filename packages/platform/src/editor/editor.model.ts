@@ -120,6 +120,17 @@ export interface EditorRef {
   /** Get the editor element for the given node key, if any. */
   getElementByKey(nodeKey: string): HTMLElement | undefined;
   /**
+   * Remove a character marker from the current editor selection, keeping its text content. Works
+   * with both collapsed (removes the marker from the whole enclosing marker) and range (splits the
+   * marker, leaving the uncovered text marked) selections.
+   *
+   * @param marker - A USFM character marker string, e.g. `"nd"`, `"wj"`. Omit to remove the
+   *   innermost character marker enclosing the selection.
+   * @throws Will throw an error if the editor is in readonly mode.
+   * @throws Will throw an error if `marker` is given and is not a supported character marker.
+   */
+  removeCharMarker(marker?: string): void;
+  /**
    * Insert a marker at the current editor selection, replicating the behavior of the
    * built-in marker menu. Works with both collapsed (insertion point) and range selections.
    *
