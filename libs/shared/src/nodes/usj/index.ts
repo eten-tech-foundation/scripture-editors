@@ -17,6 +17,7 @@ import { VerseNode } from "./VerseNode.js";
 import { Klass, LexicalNode, LexicalNodeReplacement, ParagraphNode } from "lexical";
 
 export * from "./attributeDisplay.utils.js";
+export * from "./displayRunDeletion.utils.js";
 export * from "./pendedDisplayOwners.utils.js";
 export * from "./BookNode.js";
 export * from "./ChapterNode.js";
