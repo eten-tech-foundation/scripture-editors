@@ -52,15 +52,21 @@
 
 import { $createMarkerNode, $isMarkerNode, MarkerNode } from "../features/MarkerNode.js";
 import { textTypeState } from "../collab/delta.state.js";
-import { CharNode } from "./CharNode.js";
+import { $isCharNode, CharNode } from "./CharNode.js";
 import { MilestoneNode } from "./MilestoneNode.js";
-import { NBSP, UnknownAttributes } from "./node-constants.js";
-import { $isDisplayOwnerPended } from "./pendedDisplayOwners.utils.js";
+import { DELTA_CHANGE_TAG, NBSP, UnknownAttributes } from "./node-constants.js";
+import {
+  $isDisplayOwnerPended,
+  $reportDestroyedDisplayOwner,
+} from "./pendedDisplayOwners.utils.js";
 import { VerseNode } from "./VerseNode.js";
 import {
   $createTextNode,
+  $getEditor,
+  $getNodeByKey,
   $getSelection,
   $getState,
+  $hasUpdateTag,
   $isRangeSelection,
   $isTextNode,
   $setState,
@@ -190,10 +196,11 @@ function $isCaretAtAttributeRunBoundary(
  * Heal `char`'s attribute display run to `expectedText`: insert it before the closing glyph when
  * missing, rewrite it in place when stale, or remove it when `expectedText` is `""` — except
  * while the collapsed caret holds the run (mid-edit grace, see
- * {@link $isCaretAtAttributeRunBoundary}), which the sync leaves alone for the marker-edit engine
- * to settle on caret departure. A span with no closing glyph never carries a run regardless of
- * `expectedText` (see {@link $charClosingGlyph}). Idempotent — writes only on change, so the
- * registering transform converges.
+ * {@link $isCaretAtAttributeRunBoundary}), or while a wanted run has just been destroyed by
+ * something other than this call (see the destruction check below), both of which the sync
+ * leaves alone for the marker-edit engine to settle on caret departure. A span with no closing
+ * glyph never carries a run regardless of `expectedText` (see {@link $charClosingGlyph}).
+ * Idempotent — writes only on change, so the registering transform converges.
  *
  * @param char - The char span whose display run to sync. Must be called inside `editor.update()`.
  * @param expectedText - The canonical attribute bytes `char` should display, or `""` for none.
@@ -213,6 +220,32 @@ export function $syncCharAttributeDisplay(char: CharNode, expectedText: string):
   // shapes {@link $isCaretAtAttributeRunBoundary} below does not recognize (e.g. an element-point
   // selection left after the run is removed).
   if ($isDisplayOwnerPended(char)) return;
+  // A run that is WANTED (`targetText` non-empty) but currently ABSENT, and existed in the
+  // last-COMMITTED state (the state as of the start of this update, before anything below runs),
+  // was destroyed by something other than this call — this branch only runs with `run ===
+  // undefined`, and the only place below that ever removes a run does so exclusively when
+  // `targetText === ""`, the opposite of this condition, so a call can never be reacting to its
+  // own prior removal here. Detecting the destruction from the LAST-COMMITTED state, inside the
+  // sync's own decision path, keeps the result independent of which plugin's transforms happen to
+  // run first on the shared dirty CharNode: mount order varies across hosts (the real app mounts
+  // `CharNodePlugin` before `MarkerEditPlugin`), so a caller-side check reacting to "the run is
+  // already gone" would only see that in time under ONE of the two orders. A remote collab apply
+  // is excluded: `$applyEmbedAttributes` (delta-apply-update.utils.ts) clears `unknownAttributes`
+  // directly, which already makes `targetText` empty before this sync next runs, so this branch
+  // is not the normal path a remote clear takes — the tag check is kept as an explicit guard
+  // against pending on a remote commit regardless.
+  if (targetText !== "" && run === undefined && !$hasUpdateTag(DELTA_CHANGE_TAG)) {
+    const existedBefore = $getEditor()
+      .getEditorState()
+      .read(() => {
+        const previous = $getNodeByKey(char.getKey());
+        return $isCharNode(previous) && $charAttributeDisplayNode(previous) !== undefined;
+      });
+    if (existedBefore) {
+      $reportDestroyedDisplayOwner(char);
+      return;
+    }
+  }
   if ($isCaretAtAttributeRunBoundary(run, closingGlyph)) return;
   if (targetText === "") {
     run?.remove();
