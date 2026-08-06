@@ -37,6 +37,7 @@ import {
   $createMilestoneNode,
   $createParaNode,
   $isCharNode,
+  $isDisplayOwnerPended,
   $isMarkerNode,
   $isMilestoneNode,
   $isParaNode,
@@ -432,5 +433,52 @@ describe("collab-materialized milestone settles into a re-tokenizable run", () =
     initializeDeserialize(undefined);
     const usj = deserializeSerializedEditorState(editor.getEditorState().toJSON(), viewOptions);
     expect(JSON.stringify(usj)).not.toContain('"type":"ms"');
+  });
+
+  it("a legitimate local attribute clear does not pend the owner (no stuck grace)", async () => {
+    // The mutation listener that pends a display-run owner from a destroyed run PIECE
+    // (MarkerEditPlugin.tsx's $pendOwnersOfDestroyed) also sees the sync's OWN legitimate
+    // attribute-text removal as a "destroyed" mutation. Without the still-wanted exemption
+    // mirroring the char span's, a milestone whose attributes were genuinely cleared would sit
+    // spuriously pended — and since $syncMilestoneDisplayRun now leaves a pended owner's run
+    // alone (the guard added alongside $settlePendedDisplayOwner), a LATER legitimate sid set
+    // would never heal into a visible attribute run until an unrelated caret departure
+    // re-tokenized whatever bytes happened to be on screen, silently dropping it.
+    const { editor } = await testEnvironment($twoParaFixture);
+
+    editor.getEditorState().read(() => {
+      expect($attributeRun().getTextContent()).toBe(`${NBSP}|sid="q1"`);
+    });
+
+    // Clear sid directly, with no caret at the run's site — the sync heals the attribute text
+    // away in THIS commit, and that removal is exactly what the mutation listener observes.
+    await act(async () =>
+      editor.update(() => {
+        $milestoneInFirstPara().setSid(undefined);
+      }),
+    );
+
+    editor.read(() => {
+      expect($isDisplayOwnerPended($milestoneInFirstPara())).toBe(false);
+    });
+    editor.getEditorState().read(() => {
+      const msNode = $milestoneInFirstPara();
+      const afterOpening = msNode.getNextSibling()?.getNextSibling();
+      expect($isMarkerNode(afterOpening) && afterOpening.getMarkerSyntax() === "selfClosing").toBe(
+        true,
+      );
+    });
+
+    // Prove the exemption actually matters: a LATER legitimate sid set must heal into a visible
+    // attribute run right away, not be blocked by a leftover spurious pend.
+    await act(async () =>
+      editor.update(() => {
+        $milestoneInFirstPara().setSid("q7");
+      }),
+    );
+
+    editor.getEditorState().read(() => {
+      expect($attributeRun().getTextContent()).toBe(`${NBSP}|sid="q7"`);
+    });
   });
 });
