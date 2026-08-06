@@ -823,6 +823,38 @@ describe("USJ Marker Action Utils", () => {
         expect(para.getTextContent()).toBe("the said");
       });
     });
+
+    it("keeps the selection over the same characters after removal", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        charTextNode = $createTextNode("Lord");
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createTextNode("the "),
+            $createCharNode("nd").append(charTextNode),
+            $createTextNode(" said"),
+          ),
+        );
+      });
+      // Select exactly "Lord".
+      updateSelection(editor, charTextNode, 0, charTextNode, 4);
+
+      sutRemoveCharMarker(editor, "nd");
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        expect(para.getTextContent()).toBe("the Lord said");
+        // The three text nodes normalized into one, so assert on the survivor.
+        const mergedTextNode = para.getFirstChild();
+        if (!$isTextNode(mergedTextNode)) throw new Error("merged node is not a TextNode");
+        expect(mergedTextNode.getTextContent()).toBe("the Lord said");
+        // "the " is 4 chars, "Lord" is 4 more.
+        $expectSelectionToBe(mergedTextNode, 4, mergedTextNode, 8);
+        const selection = $getSelection();
+        if (!$isRangeSelection(selection)) throw new Error("selection is not a range selection");
+        expect(selection.getTextContent()).toBe("Lord");
+      });
+    });
   });
 
   describe("should insert a note", () => {

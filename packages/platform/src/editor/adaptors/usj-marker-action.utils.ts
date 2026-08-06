@@ -403,6 +403,23 @@ export function $removeCharMarkerAtSelection(
     const coveredCharNode = $splitCharNodeAroundTargets(charNode, targetNodes);
     $removeCharNodeKeepingContent(coveredCharNode, viewOptions);
   });
+
+  // Restore the range over the same characters so a toolbar caller can re-toggle without
+  // re-selecting. `handleTextNode` split each target to cover exactly the selected portion, so
+  // the range is the whole of the first target through the whole of the last. Lexical's text
+  // normalization transfers these points when it merges the freed siblings. Skipped when a target
+  // node itself didn't survive — this happens when its enclosing CharNode held nothing but the
+  // empty-char placeholder and was removed outright rather than unwrapped (see
+  // $removeCharNodeKeepingContent) — in which case Lexical's own selection repair applies instead.
+  const firstTargetNode = targetNodes[0];
+  const lastTargetNode = targetNodes[targetNodes.length - 1];
+  if (firstTargetNode.isAttached() && lastTargetNode.isAttached())
+    selection.setTextNodeRange(
+      firstTargetNode,
+      0,
+      lastTargetNode,
+      lastTargetNode.getTextContentSize(),
+    );
 }
 
 /**
@@ -467,7 +484,6 @@ function $getCharNodeToRemove(node: LexicalNode, marker: string | undefined): Ch
  * silently drop `\wj` from the rest of that divine-name word, not just the selected part. Fixing
  * this needs recursive splitting of the nested CharNode itself, which this function does not do.
  *
-
  * @param charNode - The `CharNode` the selection touches.
  * @param targetNodes - The text nodes the selection covers.
  * @returns the `CharNode` that now covers only the selection. Unchanged when coverage is total.
