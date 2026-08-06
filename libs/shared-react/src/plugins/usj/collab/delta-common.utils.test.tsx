@@ -24,6 +24,7 @@ import {
   $createCharNode,
   $createImmutableChapterNode,
   $createImpliedParaNode,
+  $createMarkerNode,
   $createMilestoneNode,
   $createNoteNode,
   $createParaNode,
@@ -38,8 +39,10 @@ import {
   charIdState,
   GENERATOR_NOTE_CALLER,
   getVisibleOpenMarkerText,
+  NBSP,
   NoteNode,
   segmentState,
+  textTypeState,
 } from "shared";
 
 describe("$getOTPositionOfNode", () => {
@@ -1196,6 +1199,141 @@ describe("apply coordinates (opaque element embeds)", () => {
       // `getInsertedNodeKey` in apply coordinates resolves the retain to the NEW note —
       // the reverse lookup `Editor.applyUpdate` uses to report the inserted node.
       expect(getInsertedNodeKey(ops, editor.getEditorState(), "apply")).toBe(notes[0].getKey());
+    });
+  });
+});
+
+/**
+ * A paragraph's own marker-prefix glyph (`\p`) and its NBSP `marker-trailing-space` separator are
+ * presentation scaffolding excluded from PRODUCE-side content ops (editor-delta.adaptor.ts) and
+ * from "delta-doc" position counting — but NOT from "apply" position counting. `$applyUpdate`'s
+ * own insert/delete/attribute traversals (delta-apply-update.utils.ts) count every OT text node's
+ * raw length unconditionally and do not skip these nodes, and "apply" coordinates are DEFINED as
+ * whatever those traversals do (see {@link OTCoordinateSystem} in delta-common.utils.ts). If
+ * "apply" counting excluded the prefix too, a replace-embed retain computed via
+ * `$getOTPositionOfNode("apply")` would land short of where `$applyUpdate` actually walks to,
+ * missing the old embed on delete and leaving the replacement APPENDED instead of substituted.
+ */
+describe("apply coordinates (paragraph marker-prefix glyph and separator)", () => {
+  let noteNode: NoteNode | undefined;
+
+  /**
+   * Editable-mode document shape:
+   *
+   * ```
+   * root
+   * └─ ParaNode "p"
+   *    ├─ MarkerNode "\p"                        (glyph, 2 chars)
+   *    ├─ TextNode NBSP (marker-trailing-space)   (separator, 1 char)
+   *    ├─ TextNode "first "                       (6 chars)
+   *    ├─ NoteNode f (caller, \fr span, \ft span)
+   *    └─ TextNode " tail"                        (5 chars)
+   * ```
+   *
+   * apply coordinates: glyph (2) + separator (1) + "first " (6) → note at 9.
+   * delta-doc coordinates: glyph (0, excluded) + separator (0, excluded) + "first " (6) → note at 6.
+   */
+  function $buildParaPrefixDoc() {
+    const note = $createNoteNode("f", GENERATOR_NOTE_CALLER);
+    noteNode = note;
+    const separator = $createTextNode(NBSP);
+    $setState(separator, textTypeState, "marker-trailing-space");
+    $getRoot().append(
+      $createParaNode("p").append(
+        $createMarkerNode("p"),
+        separator,
+        $createTextNode("first "),
+        note.append(
+          $createImmutableNoteCallerNode(GENERATOR_NOTE_CALLER, "1:1 note text"),
+          $createCharNode("fr").append($createTextNode("1:1 ")),
+          $createCharNode("ft").append($createTextNode("note text")),
+        ),
+        $createTextNode(" tail"),
+      ),
+    );
+  }
+
+  function requireNote(): NoteNode {
+    if (!noteNode) throw new Error("noteNode not initialized");
+    return noteNode;
+  }
+
+  it("counts the para prefix glyph and separator in apply coordinates but not delta-doc", async () => {
+    const { editor } = await testEnvironment($buildParaPrefixDoc);
+    const note = requireNote();
+
+    const applyPosition = editor.getEditorState().read(() => $getOTPositionOfNode(note, "apply"));
+    const legacyPosition = editor.getEditorState().read(() => $getOTPositionOfNode(note));
+
+    // glyph (2) + separator (1) + "first " (6) = 9
+    expect(applyPosition).toBe(9);
+    // delta-doc excludes the prefix and separator: "first " (6) = 6
+    expect(legacyPosition).toBe(6);
+  });
+
+  it("$getNodeFromOTPosition reverse-maps the apply-coordinate retain back to the note across a para prefix", async () => {
+    const { editor } = await testEnvironment($buildParaPrefixDoc);
+    const note = requireNote();
+
+    editor.getEditorState().read(() => {
+      const applyPosition = $getOTPositionOfNode(note, "apply");
+      if (applyPosition === undefined) throw new Error("apply position not found");
+
+      expect($getNodeFromOTPosition(applyPosition, "apply")).toBe(note);
+      // Legacy delta-doc reverse mapping is unchanged.
+      expect($getNodeFromOTPosition(6)).toBe(note);
+    });
+  });
+
+  it("replaces a note in place via $getReplaceEmbedOps + $applyUpdate across a paragraph's own marker prefix", async () => {
+    const { editor } = await testEnvironment($buildParaPrefixDoc, <CharNodePlugin />);
+    const note = requireNote();
+    const editableView: ViewOptions = { ...getDefaultViewOptions(), markerMode: "editable" };
+
+    const insertEmbedOps: DeltaOp[] = [
+      {
+        insert: {
+          note: {
+            style: "f",
+            caller: GENERATOR_NOTE_CALLER,
+            contents: { ops: [{ insert: "replaced", attributes: { char: { style: "ft" } } }] },
+          },
+        },
+      },
+    ];
+    const ops = editor
+      .getEditorState()
+      .read(() => $getReplaceEmbedOps(note.getKey(), insertEmbedOps));
+    if (!ops) throw new Error("replace embed ops not produced");
+
+    await act(async () => {
+      editor.update(() => {
+        $applyUpdate(ops, editableView, {});
+      });
+    });
+
+    editor.getEditorState().read(() => {
+      const para = $getRoot().getFirstChild();
+      if (!$isParaNode(para)) throw new Error("para not found");
+
+      // The old note is REPLACED in place: still exactly one note — not appended alongside it,
+      // which is the shape a mis-aligned retain produces (delete misses, insert still succeeds).
+      const notes = para.getChildren().filter($isNoteNode);
+      expect(notes).toHaveLength(1);
+      expect(notes[0].getTextContent()).toContain("replaced");
+
+      // The prefix, separator, and adjacent text are untouched — nothing eaten by a
+      // miscounted retain landing inside them instead of at the note.
+      expect(para.getChildAtIndex(0)?.getTextContent()).toBe("\\p");
+      const separator = para.getChildAtIndex(1);
+      if (!$isTextNode(separator)) throw new Error("separator not found");
+      expect(separator.getTextContent()).toBe(NBSP);
+      const firstText = para.getChildAtIndex(2);
+      if (!$isTextNode(firstText)) throw new Error("leading text not found");
+      expect(firstText.getTextContent()).toBe("first ");
+      const lastText = para.getLastChild();
+      if (!$isTextNode(lastText)) throw new Error("trailing text not found");
+      expect(lastText.getTextContent()).toBe(" tail");
     });
   });
 });

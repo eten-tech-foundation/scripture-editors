@@ -228,7 +228,7 @@ export function $getOTPositionOfNode(
     }
 
     // Calculate OT length contribution of current node
-    currentIndex += $getNodeOTContribution(currentNode);
+    currentIndex += $getNodeOTContribution(currentNode, coordinates);
   }
 
   // If we're looking for a para-like node that didn't close, return current position
@@ -334,7 +334,7 @@ export function $getNodeFromOTPosition(
     }
 
     // Calculate OT length contribution of current node
-    const contribution = $getNodeOTContribution(currentNode);
+    const contribution = $getNodeOTContribution(currentNode, coordinates);
 
     // For text nodes, check if the position falls within this node's range (an editable verse is
     // an embed, not text — see $isOTTextNode — so it is matched by the embed check below instead)
@@ -492,20 +492,33 @@ function $isOwnParaPrefixGlyph(node: LexicalNode): boolean {
   return $isParaMarkerPrefix(node) && $isParaNode(parent) && parent.getFirstChild() === node;
 }
 
-/** Calculate the OT length contribution of a single node. */
-function $getNodeOTContribution(node: LexicalNode): number {
+/**
+ * Calculate the OT length contribution of a single node.
+ *
+ * @param coordinates - The OT coordinate system to count in (see {@link OTCoordinateSystem}).
+ *   A paragraph's own marker-prefix glyph and its NBSP separator are presentation scaffolding
+ *   that `editor-delta.adaptor.ts`'s `$handleTextNodes` excludes from content ops — but ONLY in
+ *   `"delta-doc"` coordinates, which must agree with that ops stream. `"apply"` coordinates are
+ *   DEFINED as whatever `$applyUpdate`'s own insert/delete/attribute traversals do
+ *   (delta-apply-update.utils.ts), and none of them skip these nodes — every one counts an OT
+ *   text node's raw `getTextContentSize()` unconditionally. So `"apply"` coordinates must keep
+ *   counting the prefix and separator too, or a replace-embed retain computed here would
+ *   disagree with where `$applyUpdate` actually walks to (a note "replace" landing one-plus-
+ *   prefix-length short of the note it meant to delete, deleting the wrong node and leaving the
+ *   replacement appended instead). If `$applyUpdate`'s traversals are ever taught to skip these
+ *   nodes too, this exclusion should extend to `"apply"` at the same time — not before.
+ */
+function $getNodeOTContribution(node: LexicalNode, coordinates: OTCoordinateSystem): number {
   // Embeds are checked FIRST: an editable VerseNode is a TextNode subclass but counts as one
   // opaque OT unit (its glyph text is engine-owned display, excluded from content ops), the same
   // as it counts in the doc delta and in `$applyUpdate`'s traversals. See {@link $isOTTextNode}.
   if ($isEmbedNode(node)) return 1;
 
   if ($isTextNode(node)) {
-    // A paragraph's own marker-prefix glyph and its NBSP separator are presentation scaffolding
-    // that `$applyUpdate` re-synthesizes when materializing the paragraph, so they contribute no
-    // OT length — matching how `editor-delta.adaptor.ts`'s `$handleTextNodes` excludes both from
-    // content ops. Positions computed here must agree with that ops stream, or every offset past
-    // an editable paragraph's prefix would be shifted by the glyph and separator's length.
-    if ($isOwnParaPrefixGlyph(node) || $getState(node, textTypeState) === "marker-trailing-space")
+    if (
+      coordinates === "delta-doc" &&
+      ($isOwnParaPrefixGlyph(node) || $getState(node, textTypeState) === "marker-trailing-space")
+    )
       return 0;
     return node.getTextContentSize();
   }
