@@ -7,21 +7,31 @@ import Editorial from "../Editorial";
 import { flushQueuedEvents } from "./editor-test.utils";
 import { ContentJsonPath, Usj } from "@eten-tech-foundation/scripture-utilities";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
-import { act, render } from "@testing-library/react";
+// Deep import: the marker-menu list component isn't exposed from shared-react's package entry.
+// eslint-disable-next-line @nx/enforce-module-boundaries
+import { NodeSelectionMenu, OptionItem } from "../../../../libs/shared-react/src/plugins/NodesMenu";
+import { getUsjMarkerAction } from "./adaptors/usj-marker-action.utils";
+import { act, fireEvent, render } from "@testing-library/react";
 import {
+  $createPoint,
   $createRangeSelection,
   $getRoot,
+  $getSelection,
+  $isElementNode,
+  $isRangeSelection,
   $isTextNode,
   $setSelection,
   CAN_UNDO_COMMAND,
   COMMAND_PRIORITY_CRITICAL,
   KEY_DOWN_COMMAND,
   LexicalEditor,
+  LexicalNode,
   TextNode,
 } from "lexical";
 import { createRef, RefObject, useEffect, useState } from "react";
 import {
   $isCharNode,
+  $isNoteNode,
   $isSomeParaNode,
   $isSynthesizedMarkerNode,
   closingMarkerText,
@@ -404,6 +414,194 @@ const usjWithVerseInParagraphMiddle: Usj = {
     },
   ],
 };
+
+const usjWithFootnote: Usj = {
+  type: "USJ",
+  version: "3.1",
+  content: [
+    { type: "book", marker: "id", code: "GEN", content: ["Test Book"] },
+    { type: "chapter", marker: "c", number: "1" },
+    {
+      type: "para",
+      marker: "p",
+      content: [
+        { type: "verse", marker: "v", number: "1" },
+        "first verse text ",
+        {
+          type: "note",
+          marker: "f",
+          caller: "+",
+          content: [
+            { type: "char", marker: "fr", content: ["1:1 "] },
+            { type: "char", marker: "ft", content: ["existing footnote text"] },
+          ],
+        },
+      ],
+    },
+  ],
+};
+
+/** Mounts the editor with a footnote and returns the real Lexical editor plus the public ref. */
+async function mountFootnoteEditor(): Promise<{
+  lexicalEditor: LexicalEditor;
+  editorRef: EditorRef;
+}> {
+  const ref = createRef<EditorRef>();
+  let editor: LexicalEditor | undefined;
+  await act(async () => {
+    render(
+      <Editor
+        ref={ref}
+        defaultUsj={usjWithFootnote}
+        scrRef={{ book: "GEN", chapterNum: 1, verseNum: 1 }}
+        onScrRefChange={vi.fn()}
+      >
+        <GrabEditor onEditor={(e) => (editor = e)} />
+      </Editor>,
+    );
+  });
+  await flushQueuedEvents();
+  if (!editor || !ref.current) throw new Error("Editor did not mount");
+  return { lexicalEditor: editor, editorRef: ref.current };
+}
+
+/** Depth-first walk of the current editor state (call inside an editor read/update). */
+function $walk(node: LexicalNode, visit: (node: LexicalNode) => void): void {
+  visit(node);
+  if ($isElementNode(node)) node.getChildren().forEach((child) => $walk(child, visit));
+}
+
+/** The text node inside the note's char with the given marker (e.g. the "ft" content). */
+function $findNoteCharText(marker: string): LexicalNode | undefined {
+  let text: LexicalNode | undefined;
+  $walk($getRoot(), (node) => {
+    if (!text && $isCharNode(node) && node.getMarker() === marker)
+      text = node.getChildAtIndex(0) ?? undefined;
+  });
+  return text;
+}
+
+/** The note's own trailing spacer text node (a direct child of the note, not inside a char). */
+function $findNoteTrailingSpacer(): LexicalNode | undefined {
+  let note: LexicalNode | undefined;
+  $walk($getRoot(), (node) => {
+    if (!note && $isNoteNode(node)) note = node;
+  });
+  if (!$isNoteNode(note)) return undefined;
+  const textChildren = note.getChildren().filter($isTextNode);
+  return textChildren[textChildren.length - 1];
+}
+
+/** Place a collapsed caret at `offset` in the text node the finder returns, then insert `marker`. */
+async function insertMarkerAtCaret(
+  lexicalEditor: LexicalEditor,
+  editorRef: EditorRef,
+  $findTarget: () => LexicalNode | undefined,
+  offset: number,
+  marker: string,
+): Promise<void> {
+  await act(async () => {
+    lexicalEditor.update(() => {
+      const target = $findTarget();
+      if (!target) throw new Error("Caret target text node not found");
+      const selection = $createRangeSelection();
+      selection.anchor = $createPoint(target.getKey(), offset, "text");
+      selection.focus = $createPoint(target.getKey(), offset, "text");
+      $setSelection(selection);
+    });
+  });
+  await act(async () => {
+    editorRef.insertMarker(marker);
+  });
+  await flushQueuedEvents();
+}
+
+/** Assert the caret is collapsed inside a note's char with the given marker. */
+function $expectCaretInsideNoteMarker(marker: string): void {
+  const selection = $getSelection();
+  if (!$isRangeSelection(selection)) throw new Error("Expected a range selection");
+  expect(selection.isCollapsed()).toBe(true);
+  // The caret lands inside the new marker (not stolen onto a note spacer by a transform)...
+  const caretChar = selection.anchor.getNode().getParent();
+  if (!$isCharNode(caretChar)) throw new Error("Caret is not inside a char");
+  expect(caretChar.getMarker()).toBe(marker);
+  // ...and the new marker stays inside the note rather than escaping into the paragraph.
+  expect($isNoteNode(caretChar.getParent())).toBe(true);
+}
+
+// End-to-end guard for PT-3780: the marker-action test file runs on a bare editor with no
+// plugins, so it can't see the NoteNode/CharNode transforms. Those transforms are what previously
+// stole the caret out of the new marker onto a note spacer, so these cases must be covered with
+// the real plugins mounted.
+describe("insert char inside a footnote (PT-3780, end-to-end)", () => {
+  it("keeps the marker in the note and the caret inside it — caret in existing footnote text", async () => {
+    const { lexicalEditor, editorRef } = await mountFootnoteEditor();
+    await insertMarkerAtCaret(lexicalEditor, editorRef, () => $findNoteCharText("ft"), 8, "fk");
+    lexicalEditor.getEditorState().read(() => $expectCaretInsideNoteMarker("fk"));
+  });
+
+  it("keeps the marker in the note and the caret inside it — caret on a note spacer", async () => {
+    const { lexicalEditor, editorRef } = await mountFootnoteEditor();
+    await insertMarkerAtCaret(lexicalEditor, editorRef, $findNoteTrailingSpacer, 1, "fk");
+    lexicalEditor.getEditorState().read(() => $expectCaretInsideNoteMarker("fk"));
+  });
+});
+
+// The floating marker menu (typeahead) can't be opened/positioned in jsdom, but its list component
+// renders plain <button role="menuitem"> options. This drives the real menu -> option-action seam
+// (Editor.tsx wires the menu's action to the same getUsjMarkerAction that insertMarker uses) with
+// the real plugins mounted, so a click ends up inside the new marker rather than on a note spacer.
+describe("insert char via the marker menu (PT-3780, popover path)", () => {
+  it("clicking the fk option inserts it in the note with the caret inside it", async () => {
+    const scrRef = { book: "GEN", chapterNum: 1, verseNum: 1 };
+    const expandedNoteKeyRef = { current: undefined as string | undefined };
+    // Mirrors Editor.tsx's `getMarkerAction={(marker) => getUsjMarkerAction(marker, ...)}` wiring.
+    const fkOption: OptionItem = {
+      name: "fk",
+      label: "fk",
+      description: "",
+      action: (editor: LexicalEditor) =>
+        getUsjMarkerAction("fk", expandedNoteKeyRef).action({ editor, reference: scrRef }),
+    };
+
+    const ref = createRef<EditorRef>();
+    let editor: LexicalEditor | undefined;
+    await act(async () => {
+      render(
+        <Editor ref={ref} defaultUsj={usjWithFootnote} scrRef={scrRef} onScrRefChange={vi.fn()}>
+          <GrabEditor onEditor={(e) => (editor = e)} />
+          <NodeSelectionMenu options={[fkOption]} />
+        </Editor>,
+      );
+    });
+    await flushQueuedEvents();
+    const lexicalEditor = editor;
+    if (!lexicalEditor) throw new Error("Editor did not mount");
+
+    // Place a collapsed caret inside the existing footnote text.
+    await act(async () => {
+      lexicalEditor.update(() => {
+        const target = $findNoteCharText("ft");
+        if (!target) throw new Error("ft char text not found");
+        const selection = $createRangeSelection();
+        selection.anchor = $createPoint(target.getKey(), 8, "text");
+        selection.focus = $createPoint(target.getKey(), 8, "text");
+        $setSelection(selection);
+      });
+    });
+
+    const fkButton = Array.from(document.querySelectorAll('[role="menuitem"]')).find((el) =>
+      el.textContent?.includes("fk"),
+    );
+    if (!fkButton) throw new Error("fk menu option did not render");
+    await act(async () => {
+      fireEvent.click(fkButton);
+    });
+    await flushQueuedEvents();
+
+    lexicalEditor.getEditorState().read(() => $expectCaretInsideNoteMarker("fk"));
+  });
+});
 
 describe("undo after a verse-spanning delete (PT-4102 regression)", () => {
   // A guarded two-step delete over a range containing a verse marker used to leave undo dead:
