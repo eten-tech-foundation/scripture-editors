@@ -449,10 +449,13 @@ function $getCharNodeToRemove(node: LexicalNode, marker: string | undefined): Ch
  * covered outer marker around an inner marked span still narrows correctly instead of being
  * mistaken for having no covered children at all.
  *
- * Marker-mode caveat: under `markerMode: "visible"` / `"editable"`, a `CharNode`'s opening marker
- * child sits at index 0 and its closing marker child sits last. If either ends up on the uncovered
- * side of a split, it lands in the leading or trailing clone without its counterpart, leaving that
- * clone with half a marker pair. Handling that is Task 5's job, not this function's.
+ * Marker-mode handling: under `markerMode: "visible"` / `"editable"`, a `CharNode`'s opening
+ * marker child sits at index 0 and its closing marker child sits last. Left uncovered on its own,
+ * either would land alone in a leading or trailing clone with no counterpart. Since
+ * `$removeCharNodeKeepingContent` strips these markers unconditionally regardless of which clone
+ * they end up in, folding an adjacent boundary marker into the covered range changes nothing about
+ * the marker's fate — it only prevents a stray marker-only sibling `CharNode` from being created
+ * when the actual content is fully covered.
  *
  * Known limitation — partial coverage of a nested CharNode: transitive coverage (above) only
  * decides whether a nested element child counts as covered at *this* level; it cannot split that
@@ -482,8 +485,22 @@ function $splitCharNodeAroundTargets(charNode: CharNode, targetNodes: TextNode[]
     .filter((index) => index >= 0);
   if (coveredIndexes.length === 0) return charNode;
 
-  const firstCoveredIndex = coveredIndexes[0];
-  const lastCoveredIndex = coveredIndexes[coveredIndexes.length - 1];
+  let firstCoveredIndex = coveredIndexes[0];
+  let lastCoveredIndex = coveredIndexes[coveredIndexes.length - 1];
+  // Fold an adjacent boundary marker into the covered range so it isn't left stranded alone in a
+  // clone — see the marker-mode handling note above.
+  if (
+    firstCoveredIndex > 0 &&
+    ($isMarkerNode(children[firstCoveredIndex - 1]) ||
+      $isVisibleMarkerNode(children[firstCoveredIndex - 1]))
+  )
+    firstCoveredIndex -= 1;
+  if (
+    lastCoveredIndex < children.length - 1 &&
+    ($isMarkerNode(children[lastCoveredIndex + 1]) ||
+      $isVisibleMarkerNode(children[lastCoveredIndex + 1]))
+  )
+    lastCoveredIndex += 1;
   if (firstCoveredIndex === 0 && lastCoveredIndex === children.length - 1) return charNode;
 
   // Append moves the children out of `charNode`, so it is left holding only the covered ones.

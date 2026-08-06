@@ -30,6 +30,8 @@ import {
 import {
   $createCharNode,
   $createImmutableChapterNode,
+  $createImmutableTypedTextNode,
+  $createMarkerNode,
   $createNoteNode,
   $createParaNode,
   $isCharNode,
@@ -37,7 +39,10 @@ import {
   $isNoteNode,
   $isParaNode,
   charIdState,
+  closingMarkerText,
   EMPTY_CHAR_PLACEHOLDER_TEXT,
+  NBSP,
+  openingMarkerText,
 } from "shared";
 
 const nodes = usjReactNodes;
@@ -45,6 +50,7 @@ const reference = { book: "GEN", chapterNum: 1, verseNum: 1 };
 
 let secondVerseTextNode: TextNode;
 let charTextNode: TextNode;
+let placeholderTextNode: TextNode;
 let noteTextNode: TextNode;
 let tailTextNode: TextNode;
 let firstCharTextNode: TextNode;
@@ -715,6 +721,106 @@ describe("USJ Marker Action Utils", () => {
         if (!$isCharNode(trailing)) throw new Error("trailing is not a CharNode");
         expect(trailing.getMarker()).toBe("nd");
         expect(trailing.getTextContent()).toBe("Lord");
+      });
+    });
+
+    it("strips synthesized MarkerNode children and the NBSP in markerMode 'editable'", () => {
+      let charTextNodeSize = 0;
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        // Mirrors usj-editor.adaptor.ts createChar under markerMode "editable": a MarkerNode
+        // opening, each text child prefixed with NBSP, then a closing MarkerNode.
+        charTextNode = $createTextNode(NBSP + "Lord");
+        charTextNodeSize = charTextNode.getTextContentSize();
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createTextNode("the "),
+            $createCharNode("nd").append(
+              $createMarkerNode("nd"),
+              charTextNode,
+              $createMarkerNode("nd", "closing"),
+            ),
+            $createTextNode(" said"),
+          ),
+        );
+      });
+      updateSelection(editor, charTextNode, 0, charTextNode, charTextNodeSize);
+
+      sutRemoveCharMarker(editor, "nd", {
+        markerMode: "editable",
+        hasSpacing: true,
+        isFormattedFont: true,
+      });
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        expect(para.getChildren().some($isCharNode)).toBe(false);
+        // No literal \nd or \nd* left behind, and no stray NBSP.
+        expect(para.getTextContent()).not.toContain(openingMarkerText("nd"));
+        expect(para.getTextContent()).not.toContain(closingMarkerText("nd"));
+        expect(para.getTextContent()).not.toContain(NBSP);
+        expect(para.getTextContent()).toBe("the Lord said");
+      });
+    });
+
+    it("strips synthesized ImmutableTypedTextNode children in markerMode 'visible'", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        // Mirrors usj-editor.adaptor.ts createChar under markerMode "visible": immutable
+        // typed-text markers on both sides and no NBSP prefix on the content.
+        charTextNode = $createTextNode("Lord");
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createTextNode("the "),
+            $createCharNode("nd").append(
+              $createImmutableTypedTextNode("marker", openingMarkerText("nd")),
+              charTextNode,
+              $createImmutableTypedTextNode("marker", closingMarkerText("nd")),
+            ),
+            $createTextNode(" said"),
+          ),
+        );
+      });
+      updateSelection(editor, charTextNode, 0, charTextNode, 4);
+
+      sutRemoveCharMarker(editor, "nd", {
+        markerMode: "visible",
+        hasSpacing: true,
+        isFormattedFont: true,
+      });
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        expect(para.getChildren().some($isCharNode)).toBe(false);
+        expect(para.getTextContent()).not.toContain(openingMarkerText("nd"));
+        expect(para.getTextContent()).not.toContain(closingMarkerText("nd"));
+        expect(para.getTextContent()).toBe("the Lord said");
+      });
+    });
+
+    it("removes an empty CharNode outright instead of leaking the placeholder", () => {
+      let placeholderTextNodeSize = 0;
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        placeholderTextNode = $createTextNode(EMPTY_CHAR_PLACEHOLDER_TEXT);
+        placeholderTextNodeSize = placeholderTextNode.getTextContentSize();
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createTextNode("the "),
+            $createCharNode("nd").append(placeholderTextNode),
+            $createTextNode("said"),
+          ),
+        );
+      });
+      updateSelection(editor, placeholderTextNode, 0, placeholderTextNode, placeholderTextNodeSize);
+
+      sutRemoveCharMarker(editor, "nd");
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        expect(para.getChildren().some($isCharNode)).toBe(false);
+        // The placeholder is synthesized, not content — it must not survive as real text.
+        expect(para.getTextContent()).toBe("the said");
       });
     });
   });
