@@ -398,7 +398,8 @@ export function $removeCharMarkerAtSelection(
   // Known, harmless: this splits every selected text node via `handleTextNode`'s `splitText`
   // whether or not any of them turn out to sit inside a matching `CharNode` below. A no-match
   // request still leaves the document split at the selection boundaries — content-preserving, but
-  // an avoidable no-op mutation. Triaged, not fixed here.
+  // an avoidable no-op mutation (a spurious undo entry, and possibly an empty collab delta).
+  // Resolving the matching `CharNode` set before this loop would avoid it.
   nodes.forEach((node, index) => {
     const targetNode = $getTargetNode(
       node,
@@ -411,7 +412,8 @@ export function $removeCharMarkerAtSelection(
   });
   if (targetNodes.length === 0) return;
 
-  // Still not reachable after $splitCharNodeAroundTargets: it consults the full targetNodes array,
+  // No reachable path currently resolves two targetNodes to the same CharNode key.
+  // $splitCharNodeAroundTargets consults the full targetNodes array,
   // so the first targetNode belonging to a given CharNode already causes every other targetNode
   // sharing it to be carved into (or left in) that same node before this loop reaches them. When
   // $removeCharNodeKeepingContent unwraps that CharNode, later targetNodes resolve to undefined
@@ -452,7 +454,7 @@ export function $removeCharMarkerAtSelection(
   // `$removeCharNodeKeepingContent`) unwraps via `CharNode.replace()`, and `TextNode.replace()`
   // unconditionally clones the active selection and calls `$setSelection` on the clone partway
   // through — even when neither point needs adjusting. That silently swaps the *active* selection
-  // for a new object, leaving our `selection` parameter pointing at a now-stale, detached one.
+  // for a new object, leaving the `selection` parameter pointing at a now-stale, detached one.
   // Mutating the stale object here would have no effect on what the later merge actually reads.
   const currentSelection = $getSelection();
   const firstTargetNode = targetNodes[0];
@@ -617,9 +619,9 @@ function $createCharNodeLike(charNode: CharNode): CharNode {
   newCharNode.setFormat(charNode.getFormatType());
   // Note: `getStyle()`/`setStyle()` are the matching pair for an ElementNode's own CSS style
   // string (`__style`); `getTextStyle()` reads a different member (`__textStyle`, the default
-  // inline style for children) entirely. `CharNode.insertNewAfter` (CharNode.ts:254) pairs
-  // `setStyle` with `getTextStyle` too, so that copy is inert there as well — not our bug to fix
-  // under `libs/`, but ours here uses the matching pair so this copy actually does something.
+  // inline style for children) entirely. Note `CharNode.insertNewAfter` (CharNode.ts:254) and
+  // `ParaNode.insertNewAfter` (ParaNode.ts:286) both pair `setStyle` with `getTextStyle`, so their
+  // style copies are inert; don't copy that pairing from them.
   newCharNode.setStyle(charNode.getStyle());
   $setState(newCharNode, charIdState, () => $getState(charNode, charIdState));
   return newCharNode;

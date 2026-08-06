@@ -429,7 +429,7 @@ describe("USJ Marker Action Utils", () => {
       editor.getEditorState().read(() => {
         const para = $getRoot().getFirstChild();
         if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
-        // N2: every character survives.
+        // Every character of the marker's content survives the split.
         expect(para.getTextContent()).toBe("Lorem ipsum");
         const children = para.getChildren();
         expect(children.length).toBe(3);
@@ -721,14 +721,14 @@ describe("USJ Marker Action Utils", () => {
       editor.getEditorState().read(() => {
         const para = $getRoot().getFirstChild();
         if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
-        // N2 still holds: every character survives.
+        // Every character still survives; only marker attribution is affected.
         expect(para.getTextContent()).toBe("the Lord said");
         // Known limitation (see $splitCharNodeAroundTargets docstring, "partial coverage of a
         // nested CharNode"): transitive coverage treats the whole inner `nd` CharNode as covered
         // once selection reaches any of its text, so "wj" is removed from the whole of "Lord" —
         // not just the selected "Lo" — while "the " and " said" correctly keep "wj". Unlike the
-        // marker-mode limitation pinned above, this one changes the document's actual USJ content
-        // (a real marker is dropped from unselected text), so it is pinned here too.
+        // marker-mode limitation, this one changes the document's actual USJ content: a real
+        // marker is dropped from text the user never selected.
         const children = para.getChildren();
         expect(children.length).toBe(3);
         const [leading, middle, trailing] = children;
@@ -996,10 +996,9 @@ describe("USJ Marker Action Utils", () => {
 
     it("known limitation: leaves an unpaired marker when the selection is strictly interior under markerMode 'visible'", () => {
       const { editor } = createBasicTestEnvironment(nodes, () => {
-        // A single ordinary text child — no artificial pre-split needed. `handleTextNode`'s own
-        // `splitText(4, 8)` below carves it into "the " / "Lord" / " said" siblings inside the
-        // `CharNode`, producing the same 5-child shape an everyday selection-and-remove reaches,
-        // not just a hand-built fixture.
+        // A single ordinary text child. `handleTextNode`'s own `splitText(4, 8)` below carves it
+        // into "the " / "Lord" / " said" siblings inside the `CharNode`, so the 5-child shape this
+        // test pins is one an everyday selection-and-remove reaches, not a hand-built fixture.
         targetTextNode = $createTextNode("the Lord said");
         $getRoot().append(
           $createParaNode("p").append(
