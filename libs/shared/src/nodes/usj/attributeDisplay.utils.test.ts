@@ -455,8 +455,8 @@ describe("milestone display run ($syncMilestoneDisplayRun / $hasCaretHeldMilesto
   });
 
   it("leaves a diverged run unhealed while the owner is pended in the registry, and heals it again once unpended", () => {
-    // Pins the pended guard added to $syncMilestoneDisplayRun alongside $settlePendedDisplayOwner
-    // (Task 8): with a REAL divergence and the caret parked somewhere none of this file's
+    // Pins the pended guard added to $syncMilestoneDisplayRun alongside $settlePendedDisplayOwner:
+    // with a REAL divergence and the caret parked somewhere none of this file's
     // caret-grace heuristics recognize, a milestone registered pended in
     // pendedDisplayOwners.utils.ts's side channel must leave the run unhealed — that decision is
     // deferred to the marker-edit engine's own caret-departure settle
