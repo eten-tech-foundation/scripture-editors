@@ -181,6 +181,19 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
   const nodeOptions = useMemo(() => nodes ?? defaultNodeOptions, [nodes]);
   const contextMenuOptions = useMemo(() => contextMenu, [contextMenu]);
 
+  // `logger` is also a dependency of `LoadStatePlugin`'s reload effect (see the `viewOptions`
+  // comment above for what that effect does on every fire), so the same reference-instability
+  // risk applies here if a caller ever passes a fresh-but-equivalent logger object. Deep-equality
+  // is still the right comparison for an object whose properties are mostly methods: two
+  // genuinely different loggers won't have the same function references and will correctly be
+  // treated as different, while a caller that re-wraps the same underlying stable methods in a
+  // new object each render will correctly be treated as unchanged.
+  const loggerRef = useRef(logger);
+  if (!deepEqual(loggerRef.current, logger)) {
+    loggerRef.current = logger;
+  }
+  const stableLogger = loggerRef.current;
+
   // `showCharMarkerTitles` rides on the Lexical theme so `CharNode.createDOM` can read it via
   // `EditorConfig.theme`. Theme is the channel because its map permits arbitrary keys and is the
   // lowest-friction way to thread a node-rendering flag through `EditorConfig` without
@@ -199,7 +212,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
     }),
     [isReadonly, viewOptions.showCharMarkerTitles],
   );
-  editorUsjAdaptor.initialize(logger);
+  editorUsjAdaptor.initialize(stableLogger);
 
   useImperativeHandle(ref, () => ({
     focus() {
@@ -239,7 +252,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
       editorRef.current?.update(
         () => {
           if (source === "remote") $addUpdateTag(DELTA_CHANGE_TAG);
-          $applyUpdate(ops, viewOptions, nodeOptions, logger);
+          $applyUpdate(ops, viewOptions, nodeOptions, stableLogger);
         },
         { discrete: true },
       );
@@ -341,7 +354,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
         expandedNoteKeyRef,
         viewOptions,
         nodeOptions,
-        logger,
+        stableLogger,
       );
       markerAction.action({ editor: editorRef.current, reference: scrRef });
     },
@@ -354,7 +367,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
           scrRef,
           viewOptions,
           nodeOptions,
-          logger,
+          stableLogger,
         );
         if (noteNode && !noteNode.getIsCollapsed()) expandedNoteKeyRef.current = noteNode.getKey();
       });
@@ -449,7 +462,13 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
               scrRef={scrRef}
               contextMarker={contextMarker}
               getMarkerAction={(marker) =>
-                getUsjMarkerAction(marker, expandedNoteKeyRef, viewOptions, nodeOptions, logger)
+                getUsjMarkerAction(
+                  marker,
+                  expandedNoteKeyRef,
+                  viewOptions,
+                  nodeOptions,
+                  stableLogger,
+                )
               }
             />
           )}
@@ -460,7 +479,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
             nodeOptions={nodeOptions}
             editorAdaptor={usjEditorAdaptor}
             viewOptions={viewOptions}
-            logger={logger}
+            logger={stableLogger}
           />
           <OnSelectionChangePlugin onChange={onSelectionChange} />
           <DeltaOnChangePlugin
@@ -470,19 +489,19 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
             ignoreTags={blackListedChangeTags}
           />
           <ActiveTextPlugin viewOptions={viewOptions} />
-          <AnnotationPlugin ref={annotationRef} logger={logger} />
+          <AnnotationPlugin ref={annotationRef} logger={stableLogger} />
           <ArrowNavigationPlugin viewOptions={viewOptions} />
           <CharNodePlugin />
           <ClipboardPlugin />
-          <CommandMenuPlugin logger={logger} />
+          <CommandMenuPlugin logger={stableLogger} />
           <ContextMenuPlugin options={contextMenuOptions} />
           <NoteNodePlugin
             expandedNoteKeyRef={expandedNoteKeyRef}
             nodeOptions={nodeOptions}
             viewOptions={viewOptions}
-            logger={logger}
+            logger={stableLogger}
           />
-          <ParaMarkerPrefixGuardPlugin viewOptions={viewOptions} logger={logger} />
+          <ParaMarkerPrefixGuardPlugin viewOptions={viewOptions} logger={stableLogger} />
           <ParaNodePlugin />
           <StructureKeyboardPlugin structureProtectionMode={structureProtectionMode} />
           <TextDirectionPlugin textDirection={textDirection} />

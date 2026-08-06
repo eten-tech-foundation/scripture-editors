@@ -56,6 +56,11 @@ const markerActions: { [marker: string]: UsjMarkerAction } = {
   c: {
     action: (currentEditor) => {
       const { chapterNum } = currentEditor.reference;
+      // Chapter node already present → next chapter; none present (reinstating a missing `\c`
+      // in an otherwise-blank chapter) → keep the current number, don't increment. Intentionally
+      // narrow: this doesn't check whether `chapterNum + 1` already exists elsewhere before
+      // incrementing into it, so the pre-existing duplicate-`\c` case in that scenario is
+      // unchanged by this fix.
       const hasChapterNode = $findChapter($getRoot().getChildren(), chapterNum) !== undefined;
       const targetChapter = hasChapterNode ? chapterNum + 1 : chapterNum;
       const content: MarkerContent = {
