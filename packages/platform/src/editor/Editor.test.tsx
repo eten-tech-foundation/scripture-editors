@@ -17,7 +17,7 @@ import {
   LexicalEditor,
   TextNode,
 } from "lexical";
-import { createRef, RefObject, useEffect } from "react";
+import { createRef, RefObject, useEffect, useState } from "react";
 import { $isCharNode, $isSomeParaNode, $isSynthesizedMarkerNode, NBSP } from "shared";
 import { vi } from "vitest";
 
@@ -563,5 +563,64 @@ describe("applyUpdate('local') undo-history retention", () => {
     await flushQueuedEvents();
 
     expect(canUndo).toBe(false);
+  });
+
+  // The two tests above prove the memo comparator itself works, by manually rerendering with a
+  // hand-constructed `options` object. This test instead exercises the actual integration that
+  // motivated the fix: `applyUpdate` invokes `onUsjChange` directly (see the call in
+  // `applyUpdate`'s imperative handle above), and a parent that reacts to it - the real
+  // paranext-core round trip is `applyUpdate` -> PDP save -> PDP echo -> parent re-render - can
+  // recompute `options.view` as a fresh object with no memoization at all. `Wrapper` below
+  // deliberately does not memoize `view`, so every one of its re-renders (including the one
+  // `onUsjChange` triggers) constructs a brand new, value-equal object - reproducing the actual
+  // bug shape rather than simulating its end state.
+  it("stays undoable through a real onUsjChange-triggered parent re-render with an unmemoized `view`", async () => {
+    const ref = createRef<EditorRef>();
+    let editor: LexicalEditor | undefined;
+
+    function Wrapper() {
+      const [, forceParentRerender] = useState(0);
+      return (
+        <Editor
+          ref={ref}
+          defaultUsj={blankUsj}
+          options={{ view: { markerMode: "visible", hasSpacing: true, isFormattedFont: false } }}
+          onUsjChange={() => forceParentRerender((n) => n + 1)}
+        >
+          <GrabEditor onEditor={(e) => (editor = e)} />
+        </Editor>
+      );
+    }
+
+    await act(async () => {
+      render(<Wrapper />);
+    });
+    await flushQueuedEvents();
+    if (!ref.current || !editor) throw new Error("EditorRef did not mount");
+
+    let canUndo = false;
+    editor.registerCommand<boolean>(
+      CAN_UNDO_COMMAND,
+      (payload) => {
+        canUndo = payload;
+        return false;
+      },
+      COMMAND_PRIORITY_CRITICAL,
+    );
+
+    // This alone triggers the full round trip: `applyUpdate` calls `onUsjChange`, which updates
+    // `Wrapper`'s state, which re-renders `Wrapper` and `Editor` with a fresh `options.view`.
+    await act(async () => {
+      ref.current?.applyUpdate(
+        [
+          { insert: { chapter: { number: "1", style: "c" } } },
+          { insert: { verse: { number: "1", style: "v" } } },
+        ],
+        "local",
+      );
+    });
+    await flushQueuedEvents();
+
+    expect(canUndo).toBe(true);
   });
 });
