@@ -32,6 +32,7 @@ import {
   $getState,
   $isTextNode,
   $setState,
+  TextNode,
 } from "lexical";
 import {
   $createCharNode,
@@ -178,7 +179,7 @@ describe("char attribute-run deletion settles (TJ repro, 2026-08-05)", () => {
             $firstChar()
               .getChildren()
               .find(
-                (c) =>
+                (c): c is TextNode =>
                   $isTextNode(c) &&
                   !$isMarkerNode(c) &&
                   $getState(c, textTypeState) !== "attribute",
