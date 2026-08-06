@@ -169,7 +169,12 @@ function $syncAndPendVerse(node: VerseNode, context: MarkerEditContext): void {
  * The VerseNode whose `\va`/`\vp` display run `node` is an OPENING glyph of — walking back over any
  * preceding run pieces (a `\va` run sitting before a `\vp`) to the verse the run rides on — or
  * `undefined`. Lets the MarkerNode transform re-drive the owning verse's sync/pend when a run-only
- * edit dirties a run glyph but leaves the verse itself clean (see {@link $syncAndPendVerse}).
+ * edit dirties a run glyph but leaves the verse itself clean (see {@link $syncAndPendVerse}). Sibling
+ * walk to `$verseOfAttributeSourceText` (shared's attributeDisplay.utils.ts): that one starts from a
+ * settled-empty SOURCE SPAN's content text and walks back to find the owning verse for a pend
+ * decision; this one starts from a run GLYPH and walks back to find the owning verse for re-sync/
+ * re-pend. Both classify the same run-piece shapes over the same sibling chain and must keep
+ * agreeing on what counts as one.
  */
 function $verseOfAttributeGlyph(node: MarkerNode): VerseNode | undefined {
   if (node.getMarkerSyntax() !== "opening") return undefined;

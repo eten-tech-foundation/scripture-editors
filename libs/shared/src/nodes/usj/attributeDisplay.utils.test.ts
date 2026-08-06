@@ -683,6 +683,44 @@ describe("$verseOfAttributeSourceText", () => {
     });
   });
 
+  it("returns the verse when the vp span sits after a settled-empty va SPAN (not a folded triplet)", () => {
+    // Exercises the third `isRunPiece` disjunct — a run piece that is itself a whole `va`/`vp`
+    // CharNode (a settled-empty span), as opposed to the glyph/attribute-text pieces of a folded
+    // triplet the prior two tests cover. The `vp` span's content must walk PAST the entire `va`
+    // span in one step (it is the previous SIBLING, not descended into) to reach the verse.
+    const { editor } = createBasicTestEnvironment();
+    let content!: TextNode;
+    let verse!: VerseNode;
+    editor.update(
+      () => {
+        verse = $createVerseNode("1", getVisibleOpenMarkerText("v", "1"));
+        const vaSpan = $createCharNode("va");
+        vaSpan.append(
+          $createMarkerNode("va"),
+          $createTextNode(NBSP),
+          $createMarkerNode("va", "closing"),
+        );
+        const vpSpan = $createCharNode("vp");
+        content = $createTextNode(NBSP);
+        vpSpan.append($createMarkerNode("vp"), content, $createMarkerNode("vp", "closing"));
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createTextNode(NBSP),
+            verse,
+            vaSpan,
+            vpSpan,
+            $createTextNode("text"),
+          ),
+        );
+      },
+      { discrete: true },
+    );
+
+    editor.getEditorState().read(() => {
+      expect($verseOfAttributeSourceText(content)).toBe(verse);
+    });
+  });
+
   it("returns undefined for a va span with no verse before it", () => {
     const { editor } = createBasicTestEnvironment();
     let content!: TextNode;
