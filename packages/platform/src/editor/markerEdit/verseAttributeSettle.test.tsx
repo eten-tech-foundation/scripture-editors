@@ -20,6 +20,7 @@ import {
   $createParaNode,
   $createVerseNode,
   $isCharNode,
+  $isDisplayOwnerPended,
   $isMarkerNode,
   $isParaNode,
   $isVerseNode,
@@ -308,6 +309,81 @@ describe("verse \\va/\\vp deletion settles (does not resurrect)", () => {
       expect(verse.getAltnumber()).toBeUndefined();
       const charVa = verse.getNextSibling();
       expect($isCharNode(charVa) && charVa.getMarker() === "va").toBe(true);
+    });
+  });
+
+  it("a legitimate local altnumber+pubnumber clear does not pend the owner (no stuck grace)", async () => {
+    // The mutation listener that pends a display-run owner from a destroyed run PIECE
+    // (MarkerEditPlugin.tsx's $pendOwnersOfDestroyed) also sees the sync's OWN legitimate
+    // triplet removal as a "destroyed" mutation. Without the still-wanted exemption mirroring
+    // the char span's, a verse whose altnumber/pubnumber were both genuinely cleared would sit
+    // spuriously pended — and since $syncVerseAttributeDisplay now leaves a pended owner's run
+    // alone (the guard added alongside $settlePendedDisplayOwner), a LATER legitimate altnumber
+    // set would never heal into a visible \va run until an unrelated caret departure
+    // re-tokenized whatever bytes happened to be on screen, silently dropping it.
+    const { editor } = await testEnvironmentWithSpacing(() => {
+      const verse = $createVerseNode(
+        "1",
+        getVisibleOpenMarkerText("v", "1"),
+        undefined,
+        "2",
+        undefined,
+      );
+      const value = $createTextNode(`${NBSP}2`);
+      $setState(value, textTypeState, "attribute");
+      $getRoot().append(
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          verse,
+          $createMarkerNode("va"),
+          value,
+          $createMarkerNode("va", "closing"),
+          $createTextNode("In the beginning"),
+        ),
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          $createTextNode("body"),
+        ),
+      );
+    });
+
+    const $firstVerse = () =>
+      requireDefined(
+        $getRoot().getChildren().filter($isParaNode)[0].getChildren().find($isVerseNode),
+        "verse missing",
+      );
+
+    // Clear both fields directly, with no caret at the run's site — the sync heals the triplet
+    // away in THIS commit, and that removal is exactly what the mutation listener observes.
+    await act(async () =>
+      editor.update(() => {
+        const verse = $firstVerse();
+        verse.setAltnumber(undefined);
+        verse.setPubnumber(undefined);
+      }),
+    );
+
+    editor.read(() => {
+      expect($isDisplayOwnerPended($firstVerse())).toBe(false);
+      expect($isMarkerNode($firstVerse().getNextSibling())).toBe(false);
+    });
+
+    // Prove the exemption actually matters: a LATER legitimate altnumber set must heal into a
+    // visible \va run right away, not be blocked by a leftover spurious pend.
+    await act(async () =>
+      editor.update(() => {
+        $firstVerse().setAltnumber("5");
+      }),
+    );
+
+    editor.getEditorState().read(() => {
+      const verse = $firstVerse();
+      const opener = verse.getNextSibling();
+      expect($isMarkerNode(opener) && opener.getMarker() === "va").toBe(true);
+      const value = opener?.getNextSibling();
+      expect($isTextNode(value) && value.getTextContent()).toBe(`${NBSP}5`);
     });
   });
 });

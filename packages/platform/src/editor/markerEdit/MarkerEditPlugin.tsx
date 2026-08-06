@@ -333,6 +333,21 @@ export function MarkerEditPlugin({
             ) === ""
           )
             continue;
+          // Same still-wanted exemption for a verse's own legitimate \va/\vp removal
+          // ($syncVerseAttributeDisplay clearing triplet debris once altnumber/pubnumber are
+          // both gone) and a milestone's own legitimate attribute-text removal
+          // ($syncMilestoneDisplayRun clearing it once no attributes remain). Without this, the
+          // pended-grace guard those syncs now carry (attributeDisplay.utils.ts's
+          // $isDisplayOwnerPended early-return) would leave a spuriously-pended owner unable to
+          // heal a LATER legitimate field change until an unrelated caret departure re-tokenizes
+          // whatever bytes happen to be currently displayed, clobbering it.
+          if (
+            $isVerseNode(owner) &&
+            owner.getAltnumber() === undefined &&
+            owner.getPubnumber() === undefined
+          )
+            continue;
+          if ($isMilestoneNode(owner) && $milestoneAttributeDisplayText(owner) === "") continue;
           context.pendingKeys.add(ownerKey);
         }
       });
