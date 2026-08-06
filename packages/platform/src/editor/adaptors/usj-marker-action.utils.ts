@@ -384,12 +384,15 @@ export function $removeCharMarkerAtSelection(
 
   // Still not reachable after $splitCharNodeAroundTargets: it consults the full targetNodes array,
   // so the first targetNode belonging to a given CharNode already causes every other targetNode
-  // sharing it to be carved into (or left in) that same node before this loop reaches them. By the
-  // time a later targetNode is processed, $removeCharNodeKeepingContent has already detached that
-  // CharNode (unwrapped or removed outright), so its former children are reparented onto — or
-  // orphaned from — the para, and $getCharNodeToRemove resolves to undefined rather than the same
-  // key. Kept as a guard in case a future change reintroduces a path where two targetNodes still
-  // resolve to the same charNode.getKey().
+  // sharing it to be carved into (or left in) that same node before this loop reaches them. When
+  // $removeCharNodeKeepingContent unwraps that CharNode, later targetNodes resolve to undefined
+  // (their former parent is gone). When it removes the CharNode outright instead — which only
+  // happens when the CharNode is empty or holds nothing but the single-character
+  // EMPTY_CHAR_PLACEHOLDER_TEXT — a later targetNode walking up from a still-attached child WOULD
+  // resolve to the same key (`.remove()` leaves `__parent` pointers and the node in the nodeMap for
+  // the rest of the update), but that branch can't contain two distinct target text nodes to begin
+  // with, so it never has a "later targetNode" to reach. Kept as a guard in case a future change
+  // reintroduces a path where two targetNodes still resolve to the same charNode.getKey().
   const handledCharNodeKeys = new Set<string>();
   targetNodes.forEach((targetNode) => {
     const charNode = $getCharNodeToRemove(targetNode, marker);
@@ -439,14 +442,20 @@ function $getCharNodeToRemove(node: LexicalNode, marker: string | undefined): Ch
  * Needed because `handleTextNode` splits the *text* node, leaving all the pieces inside the same
  * `CharNode` — so unwrapping it would strip the marker from the uncovered text too.
  *
+ * Marker-mode caveat: under `markerMode: "visible"` / `"editable"`, a `CharNode`'s opening marker
+ * child sits at index 0 and its closing marker child sits last. If either ends up on the uncovered
+ * side of a split, it lands in the leading or trailing clone without its counterpart, leaving that
+ * clone with half a marker pair. Handling that is Task 5's job, not this function's.
+ *
  * @param charNode - The `CharNode` the selection touches.
  * @param targetNodes - The text nodes the selection covers.
  * @returns the `CharNode` that now covers only the selection. Unchanged when coverage is total.
  */
 function $splitCharNodeAroundTargets(charNode: CharNode, targetNodes: TextNode[]): CharNode {
+  const targetKeys = new Set(targetNodes.map((targetNode) => targetNode.getKey()));
   const children = charNode.getChildren();
   const coveredIndexes = children
-    .map((child, index) => ($isTextNode(child) && targetNodes.includes(child) ? index : -1))
+    .map((child, index) => ($isTextNode(child) && targetKeys.has(child.getKey()) ? index : -1))
     .filter((index) => index >= 0);
   if (coveredIndexes.length === 0) return charNode;
 

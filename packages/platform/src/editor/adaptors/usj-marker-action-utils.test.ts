@@ -14,8 +14,10 @@ import {
   $createTextNode,
   $getRoot,
   $getSelection,
+  $getState,
   $isRangeSelection,
   $isTextNode,
+  $setState,
   LexicalEditor,
   TextNode,
 } from "lexical";
@@ -34,6 +36,7 @@ import {
   $isImmutableChapterNode,
   $isNoteNode,
   $isParaNode,
+  charIdState,
   EMPTY_CHAR_PLACEHOLDER_TEXT,
 } from "shared";
 
@@ -431,7 +434,9 @@ describe("USJ Marker Action Utils", () => {
     it("splits the CharNode when the selection is strictly inside it", () => {
       const { editor } = createBasicTestEnvironment(nodes, () => {
         charTextNode = $createTextNode("Lorem ipsum");
-        $getRoot().append($createParaNode("p").append($createCharNode("nd").append(charTextNode)));
+        const charNode = $createCharNode("nd", { customAttr: "value" }).append(charTextNode);
+        $setState(charNode, charIdState, "char-id");
+        $getRoot().append($createParaNode("p").append(charNode));
       });
       // "Lo|rem ips|um"
       updateSelection(editor, charTextNode, 2, charTextNode, 9);
@@ -453,6 +458,62 @@ describe("USJ Marker Action Utils", () => {
         expect(leading.getTextContent()).toBe("Lo");
         expect(middle.getTextContent()).toBe("rem ips");
         expect(trailing.getMarker()).toBe("nd");
+        expect(trailing.getTextContent()).toBe("um");
+        // $createCharNodeLike must carry the original's identity onto both clones, not just the
+        // marker: the cid is what lets $charNodeTransform re-merge the halves later.
+        expect($getState(leading, charIdState)).toBe("char-id");
+        expect(leading.getUnknownAttributes()).toEqual({ customAttr: "value" });
+        expect($getState(trailing, charIdState)).toBe("char-id");
+        expect(trailing.getUnknownAttributes()).toEqual({ customAttr: "value" });
+      });
+    });
+
+    it("splits off only a trailing clone when the selection covers the leading text", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        charTextNode = $createTextNode("Lorem ipsum");
+        $getRoot().append($createParaNode("p").append($createCharNode("nd").append(charTextNode)));
+      });
+      // "[Lo]rem ipsum"
+      updateSelection(editor, charTextNode, 0, charTextNode, 2);
+
+      sutRemoveCharMarker(editor, "nd");
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        expect(para.getTextContent()).toBe("Lorem ipsum");
+        const children = para.getChildren();
+        expect(children.length).toBe(2);
+        const [leading, trailing] = children;
+        if (!$isTextNode(leading)) throw new Error("leading is not a TextNode");
+        if (!$isCharNode(trailing)) throw new Error("trailing is not a CharNode");
+        expect(leading.getTextContent()).toBe("Lo");
+        expect(trailing.getMarker()).toBe("nd");
+        expect(trailing.getTextContent()).toBe("rem ipsum");
+      });
+    });
+
+    it("splits off only a leading clone when the selection covers the trailing text", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        charTextNode = $createTextNode("Lorem ipsum");
+        $getRoot().append($createParaNode("p").append($createCharNode("nd").append(charTextNode)));
+      });
+      // "Lorem ips[um]"
+      updateSelection(editor, charTextNode, 9, charTextNode, 11);
+
+      sutRemoveCharMarker(editor, "nd");
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        expect(para.getTextContent()).toBe("Lorem ipsum");
+        const children = para.getChildren();
+        expect(children.length).toBe(2);
+        const [leading, trailing] = children;
+        if (!$isCharNode(leading)) throw new Error("leading is not a CharNode");
+        if (!$isTextNode(trailing)) throw new Error("trailing is not a TextNode");
+        expect(leading.getMarker()).toBe("nd");
+        expect(leading.getTextContent()).toBe("Lorem ips");
         expect(trailing.getTextContent()).toBe("um");
       });
     });
@@ -478,6 +539,8 @@ describe("USJ Marker Action Utils", () => {
         const para = $getRoot().getFirstChild();
         if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
         expect(para.getChildren().some($isCharNode)).toBe(false);
+        // CharNode gone, siblings normalized into a single TextNode.
+        expect(para.getChildrenSize()).toBe(1);
         expect(para.getTextContent()).toBe("the Lord said");
       });
     });
