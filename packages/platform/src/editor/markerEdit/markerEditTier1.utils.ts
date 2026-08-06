@@ -305,6 +305,75 @@ export function $milestoneAttributeDisplayText(node: MilestoneNode): string {
 }
 
 /**
+ * The uniform deletion/pend settle for display-run OWNERS — the one place every kind's
+ * grace-or-settle decision and entirely-absent deletion policy lives. Marker literals and plain
+ * pending text are not owners and fall through (handled: false) to the caller's re-tokenize arm.
+ */
+export function $settlePendedDisplayOwner(
+  node: LexicalNode,
+  context: MarkerEditContext,
+): { handled: boolean; mutated: boolean } {
+  if ($isCharNode(node) && $hasCaretHeldSeparatorGap(node)) {
+    // A deleted opener separator stays pending while the caret still sits at the gap (the
+    // exceptKey protection covers only the anchor node itself, not its parent span) — mid-edit
+    // grace, markerSeparators.utils.ts. It settles once the caret has actually departed.
+    context.pendingKeys.add(node.getKey());
+    return { handled: true, mutated: false };
+  }
+  if (
+    $isCharNode(node) &&
+    $hasCaretHeldAttributeRun(
+      node,
+      canonicalAttributeText(
+        node.getUnknownAttributes() ?? {},
+        defaultMarkerAttribute(node.getMarker()),
+      ),
+    )
+  ) {
+    // Same mid-edit grace for a span's edited/deleted attribute display run (the exceptKey
+    // protection covers only the run TextNode the caret is in, not the parent span's pended
+    // key) — attributeDisplay.utils.ts. Settling now would re-tokenize the run out from under
+    // the user's caret; it settles once the caret has actually departed.
+    context.pendingKeys.add(node.getKey());
+    return { handled: true, mutated: false };
+  }
+  if (
+    $isVerseNode(node) &&
+    $hasCaretHeldVerseAttributeRun(node, node.getAltnumber(), node.getPubnumber())
+  ) {
+    // Same mid-edit grace for a verse's deleted/diverged \va/\vp attribute run: the exceptKey
+    // protection covers only the run TextNode (or verse text) the caret is in, not the verse's
+    // pended key. Settling now would re-tokenize the run out from under the caret; it settles
+    // once the caret has actually departed and the run's bytes are absent from the fragment.
+    context.pendingKeys.add(node.getKey());
+    return { handled: true, mutated: false };
+  }
+  if (
+    $isMilestoneNode(node) &&
+    $hasCaretHeldMilestoneRun(node, $milestoneAttributeDisplayText(node))
+  ) {
+    // Same mid-edit grace for a milestone's diverged or deleted display run: the exceptKey
+    // protection covers only the node the caret is in (the run TextNode, or the flanking text
+    // for a just-deleted run), not the milestone's pended key — attributeDisplay.utils.ts.
+    // Settling now would rewrite or re-tokenize the run out from under the caret; it settles
+    // once the caret has actually departed.
+    context.pendingKeys.add(node.getKey());
+    return { handled: true, mutated: false };
+  }
+  if ($isMilestoneNode(node) && $milestoneRunEntirelyAbsent(node)) {
+    // The display run is a milestone's ENTIRE visible byte representation, so deleting all of
+    // it deletes the milestone itself — displayed bytes win, exactly as deleting every byte of
+    // any other construct removes it. Guarded to the fully-absent shape: a partial mangle
+    // (any glyph or attribute text still present) falls through and re-tokenizes instead.
+    // Without this arm the paragraph rebuild would preserve the bare milestone as an atomic
+    // sentinel (tier2Rebuild.utils.ts's empty-run guard) and the deletion could never finish.
+    node.remove();
+    return { handled: true, mutated: true };
+  }
+  return { handled: false, mutated: false };
+}
+
+/**
  * Completion trigger. PT9 completes mid-edit markers via its 1s debounced
  * reformat; our deterministic equivalents are Enter, blur, and the caret
  * leaving the node (`exceptKey` keeps the node still being edited pending).
@@ -330,64 +399,21 @@ export function $resolvePendingMarkers(context: MarkerEditContext, exceptKey?: N
       if (node.getMarkerSyntax() === "opening" && bare)
         mutated = $applyOpenerRename(node, bare[1], context) || mutated;
       else mutated = $requestTier2ForNode(node, context) || mutated;
-    } else if ($isCharNode(node) && $hasCaretHeldSeparatorGap(node)) {
-      // A deleted opener separator stays pending while the caret still sits at the gap (the
-      // exceptKey protection covers only the anchor node itself, not its parent span) — mid-edit
-      // grace, markerSeparators.utils.ts. It settles once the caret has actually departed.
-      context.pendingKeys.add(key);
-    } else if (
-      $isCharNode(node) &&
-      $hasCaretHeldAttributeRun(
-        node,
-        canonicalAttributeText(
-          node.getUnknownAttributes() ?? {},
-          defaultMarkerAttribute(node.getMarker()),
-        ),
-      )
-    ) {
-      // Same mid-edit grace for a span's edited/deleted attribute display run (the exceptKey
-      // protection covers only the run TextNode the caret is in, not the parent span's pended
-      // key) — attributeDisplay.utils.ts. Settling now would re-tokenize the run out from under
-      // the user's caret; it settles once the caret has actually departed.
-      context.pendingKeys.add(key);
-    } else if (
-      $isVerseNode(node) &&
-      $hasCaretHeldVerseAttributeRun(node, node.getAltnumber(), node.getPubnumber())
-    ) {
-      // Same mid-edit grace for a verse's deleted/diverged \va/\vp attribute run: the exceptKey
-      // protection covers only the run TextNode (or verse text) the caret is in, not the verse's
-      // pended key. Settling now would re-tokenize the run out from under the caret; it settles
-      // once the caret has actually departed and the run's bytes are absent from the fragment.
-      context.pendingKeys.add(key);
-    } else if (
-      $isMilestoneNode(node) &&
-      $hasCaretHeldMilestoneRun(node, $milestoneAttributeDisplayText(node))
-    ) {
-      // Same mid-edit grace for a milestone's diverged or deleted display run: the exceptKey
-      // protection covers only the node the caret is in (the run TextNode, or the flanking text
-      // for a just-deleted run), not the milestone's pended key — attributeDisplay.utils.ts.
-      // Settling now would rewrite or re-tokenize the run out from under the caret; it settles
-      // once the caret has actually departed.
-      context.pendingKeys.add(key);
-    } else if ($isMilestoneNode(node) && $milestoneRunEntirelyAbsent(node)) {
-      // The display run is a milestone's ENTIRE visible byte representation, so deleting all of
-      // it deletes the milestone itself — displayed bytes win, exactly as deleting every byte of
-      // any other construct removes it. Guarded to the fully-absent shape: a partial mangle
-      // (any glyph or attribute text still present) falls through and re-tokenizes instead.
-      // Without this arm the paragraph rebuild would preserve the bare milestone as an atomic
-      // sentinel (tier2Rebuild.utils.ts's empty-run guard) and the deletion could never finish.
-      node.remove();
-      mutated = true;
-    } else {
-      // Pending plain-text nodes and departed verses/milestones re-tokenize. The settle rule is
-      // uniform: the DISPLAYED BYTES win — Tier 2 re-tokenizes what the user sees (for a
-      // milestone, scanMilestone re-derives sid/eid/unknownAttributes from its run's bytes), the
-      // same last-write-wins convergence chars and verses use. A remote field change that
-      // arrived while the caret held the run (mid-edit grace) loses locally and converges
-      // through the normal save/OT path; settling from node state instead would rewrite the
-      // run's displayed bytes and could clobber text the user just typed there.
-      mutated = $requestTier2ForNode(node, context) || mutated;
+      continue;
     }
+    const settled = $settlePendedDisplayOwner(node, context);
+    if (settled.handled) {
+      mutated = settled.mutated || mutated;
+      continue;
+    }
+    // Pending plain-text nodes and departed verses/milestones re-tokenize. The settle rule is
+    // uniform: the DISPLAYED BYTES win — Tier 2 re-tokenizes what the user sees (for a
+    // milestone, scanMilestone re-derives sid/eid/unknownAttributes from its run's bytes), the
+    // same last-write-wins convergence chars and verses use. A remote field change that
+    // arrived while the caret held the run (mid-edit grace) loses locally and converges
+    // through the normal save/OT path; settling from node state instead would rewrite the
+    // run's displayed bytes and could clobber text the user just typed there.
+    mutated = $requestTier2ForNode(node, context) || mutated;
   }
   return mutated;
 }

@@ -400,12 +400,18 @@ function $isCaretAtVerseAttributeSite(
  * chain correctly regardless of which are present.
  */
 function $syncVerseAttributeRun(
+  verse: VerseNode,
   after: LexicalNode,
   marker: VerseAttributeMarker,
   value: string | undefined,
 ): LexicalNode {
   const pieces = $verseAttributeRunPieces(after, marker);
   if (!$verseAttributeDiverges(pieces, value)) return pieces.closer ?? after;
+  // The engine holds this verse pending (a run deletion/edit detected from the destruction
+  // itself, or caret-held divergence re-pended by $resolvePendingMarkers): healing now would
+  // resurrect or overwrite it before caret departure settles it — mirrors
+  // $syncCharAttributeDisplay's pended guard (this file).
+  if ($isDisplayOwnerPended(verse)) return pieces.closer ?? after;
   // Mid-edit grace: the caret holds the run's site (inside a live value, at a just-deleted run's
   // insertion point, or beside a surviving glyph whose value was deleted). Leave it alone — the
   // marker-edit engine settles it on caret departure.
@@ -463,8 +469,8 @@ export function $syncVerseAttributeDisplay(
   pubnumber: string | undefined,
 ): void {
   if (!verse.isAttached()) return;
-  const afterVa = $syncVerseAttributeRun(verse, "va", altnumber);
-  $syncVerseAttributeRun(afterVa, "vp", pubnumber);
+  const afterVa = $syncVerseAttributeRun(verse, verse, "va", altnumber);
+  $syncVerseAttributeRun(verse, afterVa, "vp", pubnumber);
 }
 
 /**
@@ -614,6 +620,11 @@ export function $syncMilestoneDisplayRun(
   // matches: the run is not fully repaired until both glyphs are in place.
   if (opening !== undefined && closing !== undefined && currentText === expectedAttributeText)
     return;
+  // The engine holds this milestone pending (a run deletion/edit detected from the destruction
+  // itself, or caret-held divergence re-pended by $resolvePendingMarkers): healing now would
+  // resurrect or overwrite it before caret departure settles it — mirrors
+  // $syncCharAttributeDisplay's pended guard (this file).
+  if ($isDisplayOwnerPended(milestone)) return;
   if ($isCaretAtMilestoneRunBoundary(milestone, pieces)) return;
 
   const openingGlyph =
