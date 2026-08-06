@@ -3,6 +3,9 @@
 // On Windows, npx is a .cmd file that cannot be invoked directly via CreateProcess.
 // Using shell:true makes Node spawn via cmd.exe on Windows and /bin/sh on Unix,
 // which resolves .cmd scripts correctly on both platforms.
+// Plain-Node launcher script (no build step, runs under `node scripts/…`), so CommonJS require is
+// the correct import form here rather than ESM.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const { spawn } = require("child_process");
 
 const args = process.argv.slice(2);
