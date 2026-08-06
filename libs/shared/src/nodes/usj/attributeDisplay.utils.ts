@@ -507,7 +507,11 @@ export function $hasCaretHeldVerseAttributeRun(
  * the pend decision must key on the SITE — content of a va/vp span whose sibling chain reaches
  * back to a verse over run pieces only — for departure's re-tokenize to fold the bytes onto the
  * verse (the tokenizer's attrCapture). A va/vp span NOT in a verse's run position re-tokenizes
- * to itself (fixed point) and settles nothing — pending it is harmless.
+ * to itself (fixed point) and settles nothing — pending it is harmless. Sibling walk to
+ * `$verseOfAttributeGlyph` (MarkerEditPlugin.tsx): that one starts from an opening run GLYPH and
+ * walks back to find the owning verse for re-sync/re-pend; this one starts from a SOURCE SPAN's
+ * content text and walks back to find the owning verse for the pend decision. Both classify the
+ * same run-piece shapes over the same sibling chain and must keep agreeing on what counts as one.
  */
 export function $verseOfAttributeSourceText(node: LexicalNode): VerseNode | undefined {
   const span = node.getParent();
