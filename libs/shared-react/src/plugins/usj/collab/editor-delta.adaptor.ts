@@ -27,6 +27,7 @@ import {
   $isMilestoneNode,
   $isNoteNode,
   $isParaLikeNode,
+  $isParaMarkerPrefix,
   $isParaNode,
   $isSomeChapterNode,
   $isUnknownNode,
@@ -242,6 +243,25 @@ function $isBareAttributeGlyph(node: LexicalNode): boolean {
   );
 }
 
+/**
+ * True when `node` is a paragraph's own marker-prefix glyph — the `\p`-style `MarkerNode` a
+ * `ParaNode` carries as its first child in editable marker mode (`$createMarkerPrefix`,
+ * markerEditDeletion.utils.ts). `$applyUpdate` re-synthesizes the whole prefix when materializing
+ * the paragraph, so this glyph must never flow into content ops.
+ *
+ * The position check (first child of a `ParaNode`) is load-bearing, not decorative:
+ * {@link $isParaMarkerPrefix} identifies the node SHAPE (a `MarkerNode`, in editable mode) but
+ * that shape is reused for every other glyph in the tree too — a char span's own opener/closer,
+ * a note's opening/closing glyph, a milestone's or verse's bare attribute glyph. Only a
+ * `MarkerNode` sitting in the paragraph's own prefix slot is presentation scaffolding here; a
+ * char span's own glyph, for instance, legitimately flows through as literal editable-mode text
+ * (see {@link $isBareAttributeGlyph}'s doc comment) and must not be caught by this check too.
+ */
+function $isOwnParaPrefixGlyph(node: LexicalNode): boolean {
+  const parent = node.getParent();
+  return $isParaMarkerPrefix(node) && $isParaNode(parent) && parent.getFirstChild() === node;
+}
+
 function $handleTextNodes(
   currentNode: LexicalNode,
   ops: DeltaOp[],
@@ -278,7 +298,15 @@ function $handleTextNodes(
   // `currentNode` is a TextNode (guarded above), never itself a NoteNode, so the shared helper's
   // inclusive start-node check reduces to a pure ancestor walk here.
   const isInNote = $findFirstAncestorNoteNode(currentNode) !== undefined;
-  if ($isMarkerNode(currentNode) && (isInNote || $isBareAttributeGlyph(currentNode))) return;
+  if (
+    $isMarkerNode(currentNode) &&
+    (isInNote || $isBareAttributeGlyph(currentNode) || $isOwnParaPrefixGlyph(currentNode))
+  )
+    return;
+  // The para prefix's NBSP separator is presentation scaffolding ($createMarkerPrefix,
+  // markerEditDeletion.utils.ts); the apply side re-synthesizes the whole prefix, so its text
+  // must never enter content ops.
+  if ($getState(currentNode, textTypeState) === "marker-trailing-space") return;
   let text = currentNode.getTextContent();
   // A bare cursor host (EmptyVerseCaretGuardPlugin) is collab-invisible: its insertion is never
   // emitted, so it must never appear in a delta op either.

@@ -5,6 +5,7 @@ import { OTEmbedTypes, validOTEmbedTypes } from "./rich-text-ot.model";
 import { $dfs, DFSNode } from "@lexical/utils";
 import {
   $getNodeByKey,
+  $getState,
   $isElementNode,
   $isTextNode,
   EditorState,
@@ -21,6 +22,8 @@ import {
   $isMilestoneNode,
   $isNoteNode,
   $isParaLikeNode,
+  $isParaMarkerPrefix,
+  $isParaNode,
   $isSomeChapterNode,
   $isUnknownNode,
   ImmutableUnmatchedNode,
@@ -28,6 +31,7 @@ import {
   NoteNode,
   ParaLikeNode,
   SomeChapterNode,
+  textTypeState,
 } from "shared";
 
 /**
@@ -475,6 +479,20 @@ function $isOpaqueContentNode(
   return coordinates === "apply" && $isElementNode(node) && $isEmbedNode(node);
 }
 
+/**
+ * True when `node` is a paragraph's own marker-prefix glyph — the `\p`-style MarkerNode a
+ * ParaNode carries as its first child in editable marker mode ($createMarkerPrefix,
+ * markerEditDeletion.utils.ts). Mirrors `editor-delta.adaptor.ts`'s `$isOwnParaPrefixGlyph`: the
+ * position check (first child of a ParaNode) is load-bearing, since {@link $isParaMarkerPrefix}
+ * identifies the node SHAPE, which is reused for every other glyph in the tree too (a char
+ * span's own opener/closer, a note's glyphs, a milestone's or verse's bare attribute glyph) —
+ * only a MarkerNode sitting in the paragraph's own prefix slot is presentation scaffolding.
+ */
+function $isOwnParaPrefixGlyph(node: LexicalNode): boolean {
+  const parent = node.getParent();
+  return $isParaMarkerPrefix(node) && $isParaNode(parent) && parent.getFirstChild() === node;
+}
+
 /** Calculate the OT length contribution of a single node. */
 function $getNodeOTContribution(node: LexicalNode): number {
   // A bare cursor host (EmptyVerseCaretGuardPlugin) is a transient, collab-invisible node: its
@@ -487,7 +505,16 @@ function $getNodeOTContribution(node: LexicalNode): number {
   // as it counts in the doc delta and in `$applyUpdate`'s traversals. See {@link $isOTTextNode}.
   if ($isEmbedNode(node)) return 1;
 
-  if ($isTextNode(node)) return node.getTextContentSize();
+  if ($isTextNode(node)) {
+    // A paragraph's own marker-prefix glyph and its NBSP separator are presentation scaffolding
+    // that `$applyUpdate` re-synthesizes when materializing the paragraph, so they contribute no
+    // OT length — matching how `editor-delta.adaptor.ts`'s `$handleTextNodes` excludes both from
+    // content ops. Positions computed here must agree with that ops stream, or every offset past
+    // an editable paragraph's prefix would be shifted by the glyph and separator's length.
+    if ($isOwnParaPrefixGlyph(node) || $getState(node, textTypeState) === "marker-trailing-space")
+      return 0;
+    return node.getTextContentSize();
+  }
 
   // CharNodes and other nodes don't contribute to OT length
   return 0;
