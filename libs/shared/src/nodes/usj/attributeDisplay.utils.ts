@@ -55,6 +55,7 @@ import { textTypeState } from "../collab/delta.state.js";
 import { CharNode } from "./CharNode.js";
 import { MilestoneNode } from "./MilestoneNode.js";
 import { NBSP, UnknownAttributes } from "./node-constants.js";
+import { $isDisplayOwnerPended } from "./pendedDisplayOwners.utils.js";
 import { VerseNode } from "./VerseNode.js";
 import {
   $createTextNode,
@@ -206,6 +207,12 @@ export function $syncCharAttributeDisplay(char: CharNode, expectedText: string):
   const run = $charAttributeDisplayNode(char);
   // A missing run reads as "" so a missing-and-unwanted run compares equal without a run lookup.
   if ((run?.getTextContent() ?? "") === targetText) return;
+  // The engine holds this owner pending — a run deletion it detected from the destruction itself
+  // rather than from the caret's shape (see MarkerEditPlugin's mutation-listener pend). Healing
+  // now would resurrect the deletion before caret departure settles it, for exactly the caret
+  // shapes {@link $isCaretAtAttributeRunBoundary} below does not recognize (e.g. an element-point
+  // selection left after the run is removed).
+  if ($isDisplayOwnerPended(char)) return;
   if ($isCaretAtAttributeRunBoundary(run, closingGlyph)) return;
   if (targetText === "") {
     run?.remove();
