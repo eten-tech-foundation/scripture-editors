@@ -58,7 +58,9 @@ function useTextSpacing(editor: LexicalEditor) {
  * content.
  *
  * If the node contains only a single space and is not followed by a verse node, that placeholder
- * space is removed instead of preserved.
+ * space is removed instead of preserved. It is also removed when the node is an empty verse's
+ * entire content (a verse marker immediately precedes it), because core's round trip to disk drops
+ * that space and the editor's output must match.
  *
  * Trailing space is not added if the node is the last child of a para-like node.
  *
@@ -82,9 +84,22 @@ function $textNodeTrailingSpaceTransform(node: TextNode): void {
   )
     return;
 
-  // Remove space-only placeholders that don't precede a verse.
-  if (text === " " && !$isSomeVerseNode(nextSibling)) {
-    node.setTextContent("");
+  // A text node whose previous sibling is a verse marker holds that verse's entire content, so a
+  // space-only (or already-emptied) one means the verse is empty. Core's round trip to disk
+  // (ParatextData) drops that space, so keeping it makes the editor's USJ disagree with what core
+  // reads back — and core resolves that disagreement by reloading the whole editor, destroying the
+  // caret (PT-3203). Note this is narrower than the CharNode case below it in the file: a space
+  // between a char node and a following verse IS canonical USJ that Paratext re-inserts, and only
+  // a space owned by an *empty verse* round-trips away.
+  const isEmptyVerseContent =
+    $isSomeVerseNode(node.getPreviousSibling()) && (text === "" || text === " ");
+
+  // Remove space-only placeholders that don't precede a verse, or that are an empty verse's
+  // entire content.
+  if ((text === " " && !$isSomeVerseNode(nextSibling)) || isEmptyVerseContent) {
+    // Only write when there is something to clear: re-setting the same text marks the node dirty
+    // and re-runs this transform, which would loop against `$addTrailingSpace` below.
+    if (text !== "") node.setTextContent("");
     return;
   }
 

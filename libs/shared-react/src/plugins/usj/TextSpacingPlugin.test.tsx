@@ -12,7 +12,14 @@ import {
   typeTextAtSelection,
 } from "./react-test.utils";
 import { act } from "@testing-library/react";
-import { $createTextNode, $getRoot, $isTextNode, TextNode, $setSelection } from "lexical";
+import {
+  $createTextNode,
+  $getRoot,
+  $getSelection,
+  $isTextNode,
+  TextNode,
+  $setSelection,
+} from "lexical";
 import {
   $createCharNode,
   $createImmutableChapterNode,
@@ -96,6 +103,42 @@ describe("TextSpacingPlugin", () => {
       expect(para.getChildren()).toHaveLength(1);
       const verseNode = para.getChildAtIndex(0);
       if (!$isSomeVerseNode(verseNode)) throw new Error("Expected some verse node");
+    });
+  });
+
+  it("should remove the structural space left after deleting the only text of an empty verse", async () => {
+    // The structural trailing space is scaffolding for real text. Once that text is gone the verse
+    // is empty again, and core's round trip to disk (ParatextData) drops the space — so keeping it
+    // makes the editor's USJ disagree with what core reads back. Core reacts to that disagreement
+    // by reloading the whole editor, which destroys the caret (PT-3203).
+    const { editor } = await testEnvironment();
+
+    // Type between the two empty verses; the transform adds the structural trailing space.
+    await typeTextAfterNode(editor, "a", v1Node, 0);
+
+    let typedNode: TextNode | undefined;
+    editor.getEditorState().read(() => {
+      const para = $getRoot().getChildren()[1];
+      if (!$isParaNode(para)) throw new Error("Expected a ParaNode");
+      const node = para.getChildAtIndex(1);
+      if (!$isTextNode(node)) throw new Error("Expected a TextNode");
+      expect(node.getTextContent()).toBe("a ");
+      typedNode = node;
+    });
+
+    // Delete the "a", leaving only the structural space behind.
+    // `typedNode` is assigned in the read above.
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    await deleteTextAtSelection(editor, typedNode!, 0, typedNode!, 1);
+
+    editor.getEditorState().read(() => {
+      const para = $getRoot().getChildren()[1];
+      if (!$isParaNode(para)) throw new Error("Expected a ParaNode");
+      // [verse 1, verse 2] — no exporter-visible content item for the now-empty verse.
+      expect($getLogicalContentItems(para)).toHaveLength(2);
+      expect(para.getTextContent()).toBe("");
+      // The caret must survive the cleanup; a null selection is the bug this guards against.
+      expect($getSelection()).not.toBe(null);
     });
   });
 
@@ -262,7 +305,15 @@ describe("TextSpacingPlugin", () => {
     });
   });
 
-  it("should not remove a space if it precedes a verse", async () => {
+  it("should remove a space that is an empty verse's entire content", async () => {
+    // A verse marker on BOTH sides means the space is verse 1's whole content, i.e. the verse is
+    // empty. ParatextData drops that space on the round trip to disk, so the editor must too —
+    // otherwise the editor's USJ disagrees with what core reads back and core reloads the whole
+    // editor, destroying the caret (PT-3203).
+    //
+    // This is narrower than "never remove a space before a verse": a space preceding a verse is
+    // still kept when it is genuine structural content — after a CharNode (see the annotation test
+    // below) or as a paragraph's leading text (see the deletion test below).
     const { editor } = await testEnvironment(() => {
       $getRoot().append(
         $createParaNode().append(
@@ -284,9 +335,9 @@ describe("TextSpacingPlugin", () => {
     editor.getEditorState().read(() => {
       const para = $getRoot().getFirstChild();
       if (!$isParaNode(para)) throw new Error("Expected a ParaNode");
-      expect(para.getChildren()).toHaveLength(3);
-      const spaceNode = para.getChildAtIndex(1);
-      expect($isTextNode(spaceNode) && spaceNode.getTextContent() === " ").toBe(true);
+      // [verse 1, verse 2] — the empty verse contributes no content item.
+      expect(para.getChildren()).toHaveLength(2);
+      expect(para.getTextContent()).toBe("");
     });
   });
 
