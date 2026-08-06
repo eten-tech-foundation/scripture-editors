@@ -219,6 +219,7 @@ export function getUsjMarkerAction(
 
       if ($isRangeSelection(selection)) {
         const node = selection.anchor.getNode();
+        const nodeParent = node.getParent();
         if (selection.getTextContent().length > 0) {
           // If the selection has text content, wrap the text selection in an inline node
           $wrapTextSelectionInInlineNode(selection, () =>
@@ -237,11 +238,15 @@ export function getUsjMarkerAction(
         } else if (
           $isTextNode(node) &&
           !$isMarkerNode(node) &&
-          $isNoteNode(node.getParent()) &&
-          selection.isCollapsed()
+          selection.isCollapsed() &&
+          ($isNoteNode(nodeParent) ||
+            ($isCharNode(nodeParent) && $isNoteNode(nodeParent.getParent())))
         ) {
-          // Inserting into NoteNode
-          let lastInsertedNode: LexicalNode = node.insertAfter(nodeToInsert);
+          // Inserting into a NoteNode. The caret sits on the note's own text (a spacer) or inside
+          // one of its CharNodes; insert the new marker as a sibling within the note so it can't
+          // escape into the surrounding paragraph.
+          const noteChildAnchor = $isNoteNode(nodeParent) ? node : node.getParentOrThrow();
+          let lastInsertedNode: LexicalNode = noteChildAnchor.insertAfter(nodeToInsert);
           if ($isVisibleMarkerNode(nodeToInsert)) {
             // We are using visible marker mode so the `nodeToInsert` is just the marker. Get the
             // CharNode with content to insert after it.
@@ -257,7 +262,15 @@ export function getUsjMarkerAction(
             const charNodeToInsert = $createNodeFromSerializedNode(serializedLexicalNode);
             lastInsertedNode = lastInsertedNode.insertAfter(charNodeToInsert);
           }
-          lastInsertedNode.insertAfter($createTextNode(NBSP));
+          // Add a trailing spacer only if one doesn't already follow. Inserting between a char and
+          // its existing spacer would leave two adjacent spacers, which a note transform collapses
+          // with a selectEnd that steals the caret out of the new marker.
+          if (!$isTextNode(lastInsertedNode.getNextSibling()))
+            lastInsertedNode.insertAfter($createTextNode(NBSP));
+          // Land the caret inside the new marker's content, not before it (PT-3780). selectEnd
+          // leaves it after the empty-char placeholder, which the placeholder transform strips on
+          // the first keystroke.
+          if ($isElementNode(lastInsertedNode)) lastInsertedNode.selectEnd();
         } else {
           selection.insertNodes([nodeToInsert]);
           $moveVerseFollowingSpaceToPreviousNode(nodeToInsert);
