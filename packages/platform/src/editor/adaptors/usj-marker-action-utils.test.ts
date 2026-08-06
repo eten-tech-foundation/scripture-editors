@@ -5,11 +5,30 @@ import {
   createBasicTestEnvironment,
   updateSelection,
 } from "../../../../../libs/shared/src/nodes/usj/test.utils";
-import { getUsjMarkerAction, isUsjMarkerSupported } from "./usj-marker-action.utils";
-import { $createTextNode, $getRoot, $isTextNode, TextNode } from "lexical";
-import { $createImmutableVerseNode, $isImmutableVerseNode, usjReactNodes } from "shared-react";
 import {
+  $removeCharMarkerAtSelection,
+  getUsjMarkerAction,
+  isUsjMarkerSupported,
+} from "./usj-marker-action.utils";
+import {
+  $createTextNode,
+  $getRoot,
+  $getSelection,
+  $isRangeSelection,
+  $isTextNode,
+  LexicalEditor,
+  TextNode,
+} from "lexical";
+import {
+  $createImmutableVerseNode,
+  $isImmutableVerseNode,
+  usjReactNodes,
+  ViewOptions,
+} from "shared-react";
+import {
+  $createCharNode,
   $createImmutableChapterNode,
+  $createNoteNode,
   $createParaNode,
   $isCharNode,
   $isImmutableChapterNode,
@@ -22,6 +41,8 @@ const nodes = usjReactNodes;
 const reference = { book: "GEN", chapterNum: 1, verseNum: 1 };
 
 let secondVerseTextNode: TextNode;
+let charTextNode: TextNode;
+let noteTextNode: TextNode;
 
 function $defaultInitialEditorState() {
   secondVerseTextNode = $createTextNode("second verse text ");
@@ -29,6 +50,18 @@ function $defaultInitialEditorState() {
     $createImmutableChapterNode("1"),
     $createParaNode().append($createImmutableVerseNode("1"), $createTextNode("first verse text ")),
     $createParaNode().append($createImmutableVerseNode("2"), secondVerseTextNode),
+  );
+}
+
+/** Invokes the system under test inside a discrete update, the way `Editor.tsx` will. */
+function sutRemoveCharMarker(editor: LexicalEditor, marker?: string, viewOptions?: ViewOptions) {
+  editor.update(
+    () => {
+      const selection = $getSelection();
+      if ($isRangeSelection(selection))
+        $removeCharMarkerAtSelection(selection, marker, viewOptions);
+    },
+    { discrete: true },
   );
 }
 
@@ -285,6 +318,106 @@ describe("USJ Marker Action Utils", () => {
         if (!$isTextNode(charTextNode))
           throw new Error("Inserted char node does not have a text node");
         $expectSelectionToBe(charTextNode);
+      });
+    });
+  });
+
+  describe("should remove a char marker", () => {
+    it("when the selection is exactly one CharNode", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        charTextNode = $createTextNode("Lord");
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createTextNode("the "),
+            $createCharNode("nd").append(charTextNode),
+            $createTextNode(" said"),
+          ),
+        );
+      });
+      updateSelection(editor, charTextNode, 0, charTextNode, 4);
+
+      sutRemoveCharMarker(editor, "nd");
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        // CharNode gone, siblings normalized into a single TextNode.
+        expect(para.getChildren().some($isCharNode)).toBe(false);
+        expect(para.getTextContent()).toBe("the Lord said");
+      });
+    });
+
+    it("when the cursor is collapsed inside a CharNode", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        charTextNode = $createTextNode("Lord");
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createTextNode("the "),
+            $createCharNode("nd").append(charTextNode),
+            $createTextNode(" said"),
+          ),
+        );
+      });
+      updateSelection(editor, charTextNode, 2);
+
+      sutRemoveCharMarker(editor);
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        // Collapsed cursor removes the marker from the whole CharNode — no split.
+        expect(para.getChildren().some($isCharNode)).toBe(false);
+        expect(para.getTextContent()).toBe("the Lord said");
+      });
+    });
+
+    it("is a no-op when the requested marker is not present", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        charTextNode = $createTextNode("Lord");
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createTextNode("the "),
+            $createCharNode("nd").append(charTextNode),
+            $createTextNode(" said"),
+          ),
+        );
+      });
+      updateSelection(editor, charTextNode, 0, charTextNode, 4);
+
+      sutRemoveCharMarker(editor, "wj");
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        const charNode = para.getChildAtIndex(1);
+        if (!$isCharNode(charNode)) throw new Error("charNode is not a CharNode");
+        expect(charNode.getMarker()).toBe("nd");
+        expect(para.getTextContent()).toBe("the Lord said");
+      });
+    });
+
+    it("skips a selection inside a NoteNode", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        noteTextNode = $createTextNode("Lord");
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createTextNode("the "),
+            $createNoteNode("f", "+").append($createCharNode("nd").append(noteTextNode)),
+          ),
+        );
+      });
+      updateSelection(editor, noteTextNode, 0, noteTextNode, 4);
+
+      sutRemoveCharMarker(editor, "nd");
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        const noteNode = para.getChildAtIndex(1);
+        if (!$isNoteNode(noteNode)) throw new Error("noteNode is not a NoteNode");
+        // $getTargetNode already skips note interiors, so the CharNode survives.
+        expect(noteNode.getChildren().some($isCharNode)).toBe(true);
+        expect(noteNode.getTextContent()).toBe("Lord");
       });
     });
   });

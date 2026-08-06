@@ -1,5 +1,6 @@
 import { MarkerContent } from "@eten-tech-foundation/scripture-utilities";
 import { SerializedVerseRef } from "@sillsdev/scripture";
+import { $unwrapNode } from "@lexical/utils";
 import {
   $createTextNode,
   $getSelection,
@@ -14,12 +15,15 @@ import {
 } from "lexical";
 import {
   $createNodeFromSerializedNode,
+  $isCharNode,
   $isMarkerNode,
   $isNoteNode,
+  $isSomeParaNode,
   $isTypedMarkNode,
   $isVisibleMarkerNode,
   CharNode,
   createLexicalUsjNode,
+  EMPTY_CHAR_PLACEHOLDER_TEXT,
   getNextVerse,
   LoggerBasic,
   MarkerAction,
@@ -254,7 +258,7 @@ function $wrapTextSelectionInInlineNode(
   if ($isTextNode(currentWrapper) || $isElementNode(currentWrapper)) currentWrapper.selectEnd();
 }
 
-// #region Helper functions for $wrapTextSelectionInInlineNode
+// #region Helper functions for wrapping and unwrapping inline nodes
 
 /**
  * Get the start and end offsets of a selection.
@@ -334,6 +338,121 @@ function $moveLeadingSpaceToPreviousNode(node: LexicalNode, wrapper: LexicalNode
     if (!$isTextNode(previousNode)) wrapper.insertBefore($createTextNode(" "));
   }
   return text;
+}
+
+/**
+ * Remove a character marker from the given selection, keeping all of its text content.
+ *
+ * A collapsed selection removes the marker from the entire enclosing `CharNode`. A range
+ * selection that only partially covers a `CharNode` splits it first, so the uncovered text keeps
+ * its marker. Selections inside a `NoteNode` are skipped (see `$getCharNodeToRemove`).
+ *
+ * @param selection - The current range selection.
+ * @param marker - The character marker to remove, or `undefined` for the innermost one.
+ * @param viewOptions - View options, used to strip synthesized marker content.
+ */
+export function $removeCharMarkerAtSelection(
+  selection: RangeSelection,
+  marker: string | undefined,
+  viewOptions: ViewOptions | undefined,
+): void {
+  if (selection.isCollapsed()) {
+    const charNode = $getCharNodeToRemove(selection.anchor.getNode(), marker);
+    if (charNode) $removeCharNodeKeepingContent(charNode, viewOptions);
+    return;
+  }
+
+  const nodes = selection.getNodes();
+  const [startOffset, endOffset] = getSelectionOffsets(selection);
+  const targetNodes: TextNode[] = [];
+  nodes.forEach((node, index) => {
+    const targetNode = $getTargetNode(
+      node,
+      index === 0,
+      index === nodes.length - 1,
+      startOffset,
+      endOffset,
+    );
+    if ($isTextNode(targetNode)) targetNodes.push(targetNode);
+  });
+  if (targetNodes.length === 0) return;
+
+  const handledCharNodeKeys = new Set<string>();
+  targetNodes.forEach((targetNode) => {
+    const charNode = $getCharNodeToRemove(targetNode, marker);
+    if (!charNode || handledCharNodeKeys.has(charNode.getKey())) return;
+    handledCharNodeKeys.add(charNode.getKey());
+    $removeCharNodeKeepingContent(charNode, viewOptions);
+  });
+}
+
+/**
+ * Find the `CharNode` a removal should act on, walking up from a target node.
+ *
+ * Returns `undefined` when nothing matches, which the caller treats as a no-op for that target
+ * node. The walk is per-target, so a selection spanning a matching and a non-matching node still
+ * acts on the matching one. A `CharNode` nested inside a `NoteNode` is skipped: `$getTargetNode`
+ * only recognizes note interiors one level deep (a leaf whose *immediate* parent is the
+ * `NoteNode`), so a marker `CharNode` nested deeper inside a note — the common case — would
+ * otherwise still be found and removed by this walk.
+ *
+ * @param node - The node to walk up from.
+ * @param marker - The marker to match, or `undefined` to take the innermost `CharNode`.
+ * @returns the `CharNode` to remove, or `undefined` if there isn't one.
+ */
+function $getCharNodeToRemove(node: LexicalNode, marker: string | undefined): CharNode | undefined {
+  let currentNode: LexicalNode | null = node;
+  let matchedCharNode: CharNode | undefined;
+  while (currentNode && !$isSomeParaNode(currentNode)) {
+    if ($isNoteNode(currentNode)) return undefined;
+    // Walking upwards, the first CharNode found is the innermost one. Keep walking past it (up
+    // to the enclosing para) so a NoteNode further up still causes a skip.
+    if (
+      !matchedCharNode &&
+      $isCharNode(currentNode) &&
+      (marker === undefined || currentNode.getMarker() === marker)
+    )
+      matchedCharNode = currentNode;
+    currentNode = currentNode.getParent();
+  }
+  return matchedCharNode;
+}
+
+/**
+ * Remove a `CharNode` but keep its text content in the parent.
+ *
+ * Synthesized marker children (`markerMode: "editable"` / `"visible"`) are stripped first so no
+ * literal `\nd` / `\nd*` text is left behind, and in `"editable"` mode the NBSP that
+ * `usj-editor.adaptor.ts` prepends to each text child for rendering is trimmed. A `CharNode`
+ * holding nothing but the empty-char placeholder is removed outright rather than unwrapped.
+ *
+ * @param charNode - The `CharNode` to remove.
+ * @param viewOptions - View options, used to decide what counts as synthesized content.
+ */
+function $removeCharNodeKeepingContent(
+  charNode: CharNode,
+  viewOptions: ViewOptions | undefined,
+): void {
+  charNode.getChildren().forEach((child) => {
+    if ($isMarkerNode(child) || $isVisibleMarkerNode(child)) child.remove();
+  });
+
+  // Checked before the NBSP trim below: the placeholder IS an NBSP, and the adaptor does not
+  // prepend a second one to it.
+  const remainingChildren = charNode.getChildren();
+  if (remainingChildren.length === 0 || charNode.getTextContent() === EMPTY_CHAR_PLACEHOLDER_TEXT) {
+    charNode.remove();
+    return;
+  }
+
+  if (viewOptions?.markerMode === "editable")
+    remainingChildren.forEach((child) => {
+      const text = child.getTextContent();
+      if ($isTextNode(child) && text.startsWith(NBSP))
+        child.setTextContent(text.slice(NBSP.length));
+    });
+
+  $unwrapNode(charNode);
 }
 
 // #endregion
