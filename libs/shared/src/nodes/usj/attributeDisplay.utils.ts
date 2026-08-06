@@ -59,7 +59,7 @@ import {
   $isDisplayOwnerPended,
   $reportDestroyedDisplayOwner,
 } from "./pendedDisplayOwners.utils.js";
-import { VerseNode } from "./VerseNode.js";
+import { $isVerseNode, VerseNode } from "./VerseNode.js";
 import {
   $createTextNode,
   $getEditor,
@@ -498,6 +498,31 @@ export function $hasCaretHeldVerseAttributeRun(
   return Boolean(
     $verseAttributeDiverges(vpPieces, pubnumber) && $isCaretAtVerseAttributeSite(afterVa, vpPieces),
   );
+}
+
+/**
+ * The VerseNode whose `\va`/`\vp` SOURCE span `node` is content of, or `undefined`. A settled
+ * empty run leaves a standalone `char va`/`char vp` span in the verse's run position (displayed
+ * `\va \va*`); a value typed into it is an ordinary content edit that no textType tag marks, so
+ * the pend decision must key on the SITE — content of a va/vp span whose sibling chain reaches
+ * back to a verse over run pieces only — for departure's re-tokenize to fold the bytes onto the
+ * verse (the tokenizer's attrCapture). A va/vp span NOT in a verse's run position re-tokenizes
+ * to itself (fixed point) and settles nothing — pending it is harmless.
+ */
+export function $verseOfAttributeSourceText(node: LexicalNode): VerseNode | undefined {
+  const span = node.getParent();
+  if (!$isCharNode(span)) return undefined;
+  const marker = span.getMarker();
+  if (marker !== "va" && marker !== "vp") return undefined;
+  for (let prev = span.getPreviousSibling(); prev; prev = prev.getPreviousSibling()) {
+    if ($isVerseNode(prev)) return prev;
+    const isRunPiece =
+      ($isMarkerNode(prev) && (prev.getMarker() === "va" || prev.getMarker() === "vp")) ||
+      ($isTextNode(prev) && $getState(prev, textTypeState) === "attribute") ||
+      ($isCharNode(prev) && (prev.getMarker() === "va" || prev.getMarker() === "vp"));
+    if (!isRunPiece) return undefined;
+  }
+  return undefined;
 }
 
 /** A milestone's display-run pieces found among its immediate following siblings. */

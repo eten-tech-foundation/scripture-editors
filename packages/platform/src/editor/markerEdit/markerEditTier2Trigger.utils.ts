@@ -17,6 +17,11 @@
  * Typed `//` is a fifth case: USFM's discretionary line break (optbreak) carries
  * no backslash or pipe either, but the tokenizer maps it to an optbreak wherever
  * plain text appears, so it pends for the same caret-departure settle.
+ * A value typed into an empty `\va`/`\vp` SOURCE span (the settled empty form,
+ * displayed `\va \va*`) is a sixth case: it carries no backslash or pipe either, but the
+ * span rides in the owning verse's run position, so the tokenizer's attrCapture folds the
+ * typed bytes back onto the verse's altnumber/pubnumber on the next re-tokenize — it pends
+ * for the same caret-departure settle.
  */
 
 import { $requestTier2ForNode } from "./tier2Rebuild.utils";
@@ -48,6 +53,7 @@ import {
   $isMilestoneNode,
   $isUnknownNode,
   $isVerseNode,
+  $verseOfAttributeSourceText,
   canonicalAttributeText,
   defaultMarkerAttribute,
   getVisibleOpenMarkerText,
@@ -125,6 +131,12 @@ export function $textNodeTier2Transform(node: TextNode, context: MarkerEditConte
     // blocks the tokenizer never re-tokenizes — a settle there could never happen.
     else if (text.includes("//") && !$inLiteralOnlyBlock(node))
       context.pendingKeys.add(node.getKey());
+    // A value typed into an empty `\va`/`\vp` SOURCE span is a pending attribute edit for the verse
+    // the span rides on: no backslash or pipe ever lands, so without pending here the key is
+    // deleted and departure settles nothing — the value never re-folds to altnumber/pubnumber and
+    // every save warns (the third live bug). Own-key pend: the caret-node exception graces it
+    // mid-typing, and departure's paragraph rebuild folds the bytes onto the verse (attrCapture).
+    else if ($verseOfAttributeSourceText(node)) context.pendingKeys.add(node.getKey());
     else context.pendingKeys.delete(node.getKey());
     return;
   }
@@ -227,16 +239,19 @@ export function $rependPendShapedNodes(context: MarkerEditContext): void {
       // only reachable mid-edit, i.e. caret-held.
       if ($getState(node, textTypeState) === "attribute") return;
       const text = node.getTextContent();
-      // Three literal shapes pend, mirroring the transform's TextNode branches: backslash runs
-      // (terminated or not), pipe bytes in a closed char span (the pipe branch), and `//`
-      // optbreak text (the optbreak branch). Undoing an optbreak settle restores the literal
-      // `//`, which is the same divergence class and must re-pend so the next departure
-      // re-settles it. No literal-only-block guard is needed here: the scan never descends into
-      // books/chapters/unknowns (handled below), so a `//` there is never visited.
+      // Four literal shapes pend, mirroring the transform's TextNode branches: backslash runs
+      // (terminated or not), pipe bytes in a closed char span (the pipe branch), `//` optbreak
+      // text (the optbreak branch), and content of an empty `\va`/`\vp` SOURCE span (the
+      // verse-attribute-site branch). Undoing an optbreak settle restores the literal `//`, and
+      // undoing a settled fold restores the empty source span's typed value — both are the same
+      // divergence class and must re-pend so the next departure re-settles them. No
+      // literal-only-block guard is needed here: the scan never descends into books/chapters/
+      // unknowns (handled below), so a `//` there is never visited.
       if (
         text.includes("\\") ||
         (text.includes("|") && $isInClosedCharSpan(node)) ||
-        text.includes("//")
+        text.includes("//") ||
+        $verseOfAttributeSourceText(node) !== undefined
       )
         context.pendingKeys.add(node.getKey());
       return;

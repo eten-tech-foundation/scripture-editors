@@ -3,9 +3,11 @@ import {
   $milestoneRunEntirelyAbsent,
   $syncMilestoneDisplayRun,
   $syncVerseAttributeDisplay,
+  $verseOfAttributeSourceText,
   canonicalAttributeText,
   milestoneAttributes,
 } from "./attributeDisplay.utils.js";
+import { $createCharNode } from "./CharNode.js";
 import { $createMilestoneNode, MilestoneNode } from "./MilestoneNode.js";
 import { getVisibleOpenMarkerText } from "./node.utils.js";
 import { NBSP } from "./node-constants.js";
@@ -623,5 +625,115 @@ describe("verse attribute display run ($syncVerseAttributeDisplay)", () => {
     });
 
     unregister();
+  });
+});
+
+describe("$verseOfAttributeSourceText", () => {
+  it("returns the verse when the va span sits directly after it", () => {
+    const { editor } = createBasicTestEnvironment();
+    let content!: TextNode;
+    let verse!: VerseNode;
+    editor.update(
+      () => {
+        verse = $createVerseNode("1", getVisibleOpenMarkerText("v", "1"));
+        const span = $createCharNode("va");
+        content = $createTextNode(NBSP);
+        span.append($createMarkerNode("va"), content, $createMarkerNode("va", "closing"));
+        $getRoot().append(
+          $createParaNode("p").append($createTextNode(NBSP), verse, span, $createTextNode("text")),
+        );
+      },
+      { discrete: true },
+    );
+
+    editor.getEditorState().read(() => {
+      expect($verseOfAttributeSourceText(content)).toBe(verse);
+    });
+  });
+
+  it("returns the verse when the vp span sits after a folded \\va triplet", () => {
+    const { editor } = createBasicTestEnvironment();
+    let content!: TextNode;
+    let verse!: VerseNode;
+    editor.update(
+      () => {
+        verse = $createVerseNode("1", getVisibleOpenMarkerText("v", "1"), undefined, "2");
+        const vaValue = $createTextNode(`${NBSP}2`);
+        $setState(vaValue, textTypeState, "attribute");
+        const vpSpan = $createCharNode("vp");
+        content = $createTextNode(NBSP);
+        vpSpan.append($createMarkerNode("vp"), content, $createMarkerNode("vp", "closing"));
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createTextNode(NBSP),
+            verse,
+            $createMarkerNode("va"),
+            vaValue,
+            $createMarkerNode("va", "closing"),
+            vpSpan,
+            $createTextNode("text"),
+          ),
+        );
+      },
+      { discrete: true },
+    );
+
+    editor.getEditorState().read(() => {
+      expect($verseOfAttributeSourceText(content)).toBe(verse);
+    });
+  });
+
+  it("returns undefined for a va span with no verse before it", () => {
+    const { editor } = createBasicTestEnvironment();
+    let content!: TextNode;
+    editor.update(
+      () => {
+        const span = $createCharNode("va");
+        content = $createTextNode(NBSP);
+        span.append($createMarkerNode("va"), content, $createMarkerNode("va", "closing"));
+        $getRoot().append($createParaNode("p").append($createTextNode("hello"), span));
+      },
+      { discrete: true },
+    );
+
+    editor.getEditorState().read(() => {
+      expect($verseOfAttributeSourceText(content)).toBeUndefined();
+    });
+  });
+
+  it("returns undefined for a non-va/vp span directly after a verse", () => {
+    const { editor } = createBasicTestEnvironment();
+    let content!: TextNode;
+    editor.update(
+      () => {
+        const verse = $createVerseNode("1", getVisibleOpenMarkerText("v", "1"));
+        const span = $createCharNode("nd");
+        content = $createTextNode(NBSP);
+        span.append($createMarkerNode("nd"), content, $createMarkerNode("nd", "closing"));
+        $getRoot().append($createParaNode("p").append($createTextNode(NBSP), verse, span));
+      },
+      { discrete: true },
+    );
+
+    editor.getEditorState().read(() => {
+      expect($verseOfAttributeSourceText(content)).toBeUndefined();
+    });
+  });
+
+  it("returns undefined for bare paragraph text with no char-span parent", () => {
+    const { editor } = createBasicTestEnvironment();
+    let content!: TextNode;
+    editor.update(
+      () => {
+        const verse = $createVerseNode("1", getVisibleOpenMarkerText("v", "1"));
+        content = $createTextNode("plain text");
+        $getRoot().append($createParaNode("p").append($createTextNode(NBSP), verse, content));
+      },
+      { discrete: true },
+    );
+
+    editor.getEditorState().read(() => {
+      expect($verseOfAttributeSourceText(content)).toBeUndefined();
+    });
   });
 });
