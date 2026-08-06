@@ -760,64 +760,77 @@ if (
 - [ ] **Step 3: Register** in `usjReactNodes` and run the shared + shared-react suites.
 - [ ] **Step 4: Commit** — `feat(shared): AttributeRunNode inline wrapper for verse/milestone display runs`.
 
-### Task 13: Adaptor builders emit wrappers; fixtures regenerate
+### Task 13: Dual-read — every consumer recognizes the wrapper shape (runtime shape unchanged)
+
+Green-throughout migration, step 1 of 3: teach every run consumer to RECOGNIZE a wrapped run
+while the adaptor still emits loose siblings, so this commit changes no runtime shape and every
+existing test stays green. (The original single-flip sequencing tolerated mid-wave red suites,
+which the Global Constraints forbid; spec §10 governs.)
 
 **Files:**
-- Modify: `packages/platform/src/editor/adaptors/usj-editor.adaptor.ts` — `addVerseAttributeRun` (line ~773), `addAttributes` (line ~746) and the milestone-glyph push sites around its caller (find with `grep -n "createMilestone\|selfClosing" packages/platform/src/editor/adaptors/usj-editor.adaptor.ts`)
-- Modify: `libs/test-data/src/data/2sa.lexical.*.ts` (regenerated, not hand-edited)
-- Test: extend `packages/platform/src/editor/adaptors/usj-editor.adaptor.test.ts` (find exact name with `ls packages/platform/src/editor/adaptors/*.test.*`)
+- Modify: `libs/shared/src/nodes/usj/attributeDisplay.utils.ts` — `$verseAttributeRunPieces` and `$milestoneAttributeRunPieces` gain wrapper recognition (returned record gains `wrapper?: AttributeRunNode`); syncs repair pieces INSIDE a wrapper when one is present (no shape conversion in this task)
+- Modify: `packages/platform/src/editor/markerEdit/tier2Rebuild.utils.ts` — `$milestoneDisplayRun` (~139) / `$verseAttributeRun` (~162) return `[wrapper]` when the next sibling is a matching wrapper (fragment side flattens `wrapper.getChildren()` through `$appendNodesFragment`; sentinel-absorption arms push `[node, wrapper]`; `index` advances by 1 per wrapper); `$appendSignature` verse/milestone branches recurse into `wrapper.getChildren()` when a wrapper is found
+- Modify: `libs/shared-react/src/plugins/usj/collab/editor-delta.adaptor.ts` + `delta-common.utils.ts` — nodes with an `AttributeRunNode` ancestor contribute nothing to ops or OT positions (added ALONGSIDE the existing loose-piece checks; nothing deleted yet)
+- Modify: platform `editor-usj.adaptor.ts` reverse exclusions — skip `AttributeRunNode` subtrees (find the site with `grep -n "recurseNodes\|textType" packages/platform/src/editor/adaptors/editor-usj.adaptor.ts`)
+- Modify: `libs/shared/src/nodes/usj/displayRunDeletion.utils.ts` — classifier arm: destroyed `AttributeRunNode` → previous-sibling owner (walk back over preceding run wrappers/pieces to the VerseNode/MilestoneNode); a destroyed piece whose prev-state parent is an `AttributeRunNode` → that wrapper's owner
+- Modify: `packages/platform/src/editor/markerEdit/markerEditTier1.utils.ts` — `$settlePendedDisplayOwner` husk arm: an EMPTY attached `AttributeRunNode` is removed and its owner's policy runs (mirror the optbreak arm)
+- Modify: `packages/platform/src/editor/markerEdit/MarkerEditPlugin.tsx` — register the mutation listener for `AttributeRunNode`; register an `AttributeRunNode` transform (dirty wrapper → re-drive the owner's sync/pend, i.e. call `$syncAndPendVerse`/`$syncAndPendMilestone` per `runKind`)
+- Modify: `libs/shared-react/src/plugins/usj/TextSpacingPlugin.tsx` — trailing-space transform exempts nodes inside an `AttributeRunNode` (alongside the existing attribute-textType exemption)
+- Test: extend `libs/shared/src/nodes/usj/displayRunDeletion.utils.test.ts`, the attribute-display unit tests, and `packages/platform/src/editor/markerEdit/tier2Rebuild.utils.test.tsx` with wrapped-shape cases (hand-built wrappers), while ALL existing loose-shape tests stay untouched and green
 
 **Interfaces:**
-- Consumes: Task 12's serialized shape.
-- Produces: editable-mode serialization wraps each verse `va`/`vp` run and each milestone run (opening glyph + optional attribute text + self-closing glyph) in ONE serialized `attribute-run` node, in the same sibling position the loose pieces occupied. Visible/hidden-mode output is UNCHANGED.
+- Consumes: Task 12's `AttributeRunNode` API.
+- Produces: every scanner/collector/gate/driver handles BOTH shapes; `VerseAttributeRunPieces`/`MilestoneRunPieces` gain `wrapper?: AttributeRunNode`. Task 14 flips the built shape; Task 15 deletes the loose arms.
 
-- [ ] **Step 1: Write failing adaptor tests** — serialize a USJ verse with `altnumber` (editable mode): expect the verse's next sibling to be a serialized `attribute-run` (`runKind: "va"`) whose children are `[marker va opening, NBSP+value attribute text, marker va closing]`. Same for a milestone with `sid`/`who` (`runKind: "milestone"`, children `[opening glyph, NBSP|… attribute text, self-closing glyph]`). Pin visible-mode milestone output unchanged (ImmutableTypedText, no wrapper).
-- [ ] **Step 2: Implement** — `addVerseAttributeRun` pushes one wrapper node containing the three pieces it previously pushed loose; the milestone editable branch moves its opening glyph + `addAttributes` text + self-closing glyph inside one wrapper. The Tier-2 rebuild materializer flows through `serializeEditorState`, so rebuilt paragraphs get wrappers with no extra work — verify by reading the ms branch, do not duplicate builders.
-- [ ] **Step 3: Regenerate fixtures** — `cd packages/platform && env -u _VOLTA_TOOL_RECURSION pnpm generate:test-data`; commit the regenerated `2sa.lexical.*.ts` with this task.
-- [ ] **Step 4: Run platform + shared-react suites.** EXPECTED at this point: tests that hand-build loose-sibling shapes (`verseAttributeSettle`, `milestoneAttributeSettle`, corpus signature paths) may FAIL — that is Task 14/15's work. Run only the adaptor tests + fixture freshness pin here and confirm THEY pass; note the wave is not green until Task 16.
-- [ ] **Step 5: Commit** — `feat(platform): adaptor emits AttributeRunNode-wrapped verse/milestone runs (editable mode)`.
+- [ ] **Step 1:** Write failing wrapped-shape unit tests: pieces scanners on a hand-built wrapper; fragment bytes for a wrapped verse/milestone run identical to the loose equivalent (build both shapes, compare `$buildParaFragment` text); delta ops exclude wrapper subtrees; classifier maps destroyed wrapper → owner; empty-wrapper husk removed on departure.
+- [ ] **Step 2:** Run to verify the new tests FAIL, existing suites still green.
+- [ ] **Step 3:** Implement per the Files list. Caret-site predicates gain the containment arm (caret's ancestor chain includes the wrapper → caret holds the run's site) ALONGSIDE the existing geometry arms.
+- [ ] **Step 4:** Full shared + shared-react + platform suites green, corpus 141/141 (runtime shape unchanged — this is the proof the dual-read is passive).
+- [ ] **Step 5: Commit** — `feat(shared,platform): all display-run consumers recognize AttributeRunNode-wrapped runs (dual-read)`.
 
-### Task 14: Scanners, syncs, and grace read/write the wrapper
+### Task 14: Flip — adaptor emits wrappers, syncs heal forward, fixtures migrate
+
+Green-throughout migration, step 2 of 3: the built shape flips to wrapped; dual-read consumers
+(Task 13) keep every path working; old loose states heal forward.
 
 **Files:**
-- Modify: `libs/shared/src/nodes/usj/attributeDisplay.utils.ts` (piece scanners, syncs, caret-site predicates, reporters — the verse/milestone half of the file)
-- Modify: `packages/platform/src/editor/markerEdit/markerEdit.test-helpers.tsx` (add `$appendVerseAttributeRun(verse, marker, value)` + `$appendMilestoneRun(milestone, attributeText)` fixture helpers; migrate hand-built loose shapes in tests to them)
-- Modify: `packages/platform/src/editor/markerEdit/verseAttributeSettle.test.tsx`, `milestoneAttributeSettle.test.tsx`, `libs/shared/src/nodes/usj/attributeDisplay.utils.test.ts` (fixtures → helpers; grace tests → containment)
+- Modify: `packages/platform/src/editor/adaptors/usj-editor.adaptor.ts` — `addVerseAttributeRun` (line ~773) pushes ONE serialized `attribute-run` node containing the three pieces it previously pushed loose; the milestone editable branch (find with `grep -n "createMilestone\|selfClosing" packages/platform/src/editor/adaptors/usj-editor.adaptor.ts`) moves its opening glyph + `addAttributes` text + self-closing glyph inside one wrapper (`runKind: "milestone"`). Visible/hidden-mode output UNCHANGED. The Tier-2 rebuild materializer flows through `serializeEditorState`, so rebuilt paragraphs get wrappers with no extra work — verify by reading, do not duplicate builders.
+- Modify: `libs/shared/src/nodes/usj/attributeDisplay.utils.ts` — syncs now heal FORWARD: loose pieces found without a wrapper are wrapped in place (one migration path for pre-flip editor states, undo stacks, and collab-materialized bare shapes); missing runs are created wrapped
+- Modify: `packages/platform/src/editor/markerEdit/markerEdit.test-helpers.tsx` — add `$appendVerseAttributeRun(verse: VerseNode, marker: "va" | "vp", value: string): AttributeRunNode` and `$appendMilestoneRun(milestone: MilestoneNode, attributeText: string): AttributeRunNode` fixture helpers building WRAPPED runs
+- Modify: `packages/platform/src/editor/markerEdit/verseAttributeSettle.test.tsx`, `milestoneAttributeSettle.test.tsx`, attribute-display unit tests — migrate hand-built loose fixtures to the helpers; adjust sibling-shape assertions (e.g. a re-materialized `\va` run is now `$isAttributeRunNode(verse.getNextSibling())` with the glyph inside)
+- Modify: the stylesheet defining `.attribute` (find: `grep -rn "\.attribute\b" --include="*.css" --include="*.scss" libs packages | grep -v test`) — add `.attribute-run` rules (dim run styling; `usfm_va`/`usfm_vp` green-superscript styling via the wrapper's classes — closes handoff backlog item 8)
+- Modify: `libs/test-data/src/data/2sa.lexical.*.ts` — regenerated (`cd packages/platform && env -u _VOLTA_TOOL_RECURSION pnpm generate:test-data`), never hand-edited
+- Test: extend the adaptor tests (find exact name with `ls packages/platform/src/editor/adaptors/*.test.*`): a serialized editable-mode verse with `altnumber` has one `attribute-run` next sibling (`runKind: "va"`, children `[marker va opening, NBSP+value attribute text, marker va closing]`); milestone likewise; visible-mode milestone output pinned unchanged
 
 **Interfaces:**
-- Consumes: Task 12's node; Task 13's built shape.
-- Produces:
-  - `$verseAttributeRunPieces(after, marker)` returns `{ wrapper?: AttributeRunNode; opener?: MarkerNode; value?: TextNode; closer?: MarkerNode }` — pieces read from INSIDE the wrapper (next sibling of `after` with matching `runKind`); a leftover loose-sibling shape (older states) is still recognized for heal-forward.
-  - `$milestoneAttributeRunPieces(milestone)` likewise gains `wrapper?`.
-  - Syncs create the wrapper when missing, repair pieces inside it, and REMOVE THE WRAPPER (one node) when no run is wanted; the sibling-chain anchor for `\vp` becomes the `\va` wrapper.
-  - Caret-site predicates become: caret inside the wrapper (ancestor containment), or — run entirely absent — at the owner's flank (the one just-removed arm). The per-piece geometry arms are DELETED.
-- Grace/pend behavior contract is unchanged: all existing settle tests must pass with fixtures migrated to the wrapped shape.
+- Consumes: Tasks 12–13.
+- Produces: wrapped runtime shape everywhere; wave-1 bug pins, settle tests, corpus all green at THIS commit (the acceptance that dual-read held).
 
-- [ ] **Step 1:** Add the two fixture helpers building WRAPPED runs; migrate `verseAttributeSettle.test.tsx` / `milestoneAttributeSettle.test.tsx` / attribute-display unit tests to them. Run: EXPECT FAIL (scanners still read loose siblings).
-- [ ] **Step 2:** Rewrite the scanners/syncs/predicates per the Produces block. Heal-forward rule: a sync that finds LOOSE run pieces (no wrapper) wraps them — one migration path, so pre-wrapper editor states (undo stacks, collab-materialized bare shapes) converge without special cases.
-- [ ] **Step 3:** Run the full shared + platform suites until green.
-- [ ] **Step 4: Commit** — `refactor(shared,platform): verse/milestone run scanners, syncs, and grace read the AttributeRunNode wrapper`.
+- [ ] **Step 1:** Write the failing adaptor tests (wrapped serialized shape).
+- [ ] **Step 2:** Implement the adaptor flip + heal-forward syncs + fixture helpers + test migrations + CSS.
+- [ ] **Step 3:** Regenerate the 2SA lexical fixtures; the freshness pin must pass.
+- [ ] **Step 4:** FULL gate at this commit: platform + shared + shared-react suites green, corpus 141/141 zero skips, wave-1 bug pins green under the wrapped shape.
+- [ ] **Step 5: Commit** — `feat(platform,shared): editable-mode runs build and heal as AttributeRunNode wrappers`.
 
-### Task 15: Tier-2 collectors, signature, exclusion gates, deletion integration
+### Task 15: Cleanup — delete the loose-sibling geometry
+
+Green-throughout migration, step 3 of 3: with nothing building or healing loose runs, delete the
+compensating code.
 
 **Files:**
-- Modify: `packages/platform/src/editor/markerEdit/tier2Rebuild.utils.ts` (`$milestoneDisplayRun` ~139, `$verseAttributeRun` ~162, `$appendSignature` verse/milestone branches ~259-338, `$appendNodesFragment` branches ~393-428)
-- Modify: `libs/shared-react/src/plugins/usj/collab/editor-delta.adaptor.ts` (subtree skip; delete `$isBareAttributeGlyph`), `libs/shared-react/src/plugins/usj/collab/delta-common.utils.ts` (position counting skips wrapper subtrees)
-- Modify: platform `editor-usj.adaptor.ts` reverse exclusions (skip `AttributeRunNode` subtree; find the site with `grep -n "recurseNodes\|textType" packages/platform/src/editor/adaptors/editor-usj.adaptor.ts`)
-- Modify: `libs/shared/src/nodes/usj/displayRunDeletion.utils.ts` (classifier arm: destroyed `AttributeRunNode` → previous-sibling owner), `packages/platform/src/editor/markerEdit/markerEditTier1.utils.ts` (`$settlePendedDisplayOwner`: empty-wrapper husk → remove + fall through to owner policy), `MarkerEditPlugin.tsx` (delete `$milestoneOfOpeningGlyph`/`$verseOfAttributeGlyph` + their MarkerNode-transform call sites; register an `AttributeRunNode` transform that re-drives the owner's sync/pend; register the mutation listener for `AttributeRunNode`)
-- Modify: `libs/shared-react/src/plugins/usj/TextSpacingPlugin.tsx` (exempt nodes inside an `AttributeRunNode`, replacing the attribute-textType arm's verse-value case)
-- Modify: the stylesheet defining `.attribute` (find: `grep -rn "\.attribute\b" --include="*.css" --include="*.scss" libs packages | grep -v test`) — add `.attribute-run` rules (dim run styling; `usfm_va`/`usfm_vp` green-superscript on the wrapper); delete the per-piece verse-value styling arm in `MarkerEditPlugin`'s TextNode mutation listener.
+- Modify: `libs/shared/src/nodes/usj/attributeDisplay.utils.ts` — remove loose-shape recognition arms from the scanners; caret-site predicates lose the per-piece geometry arms (containment + the one just-removed-wrapper flank arm remain)
+- Modify: `libs/shared-react/src/plugins/usj/collab/editor-delta.adaptor.ts` — delete `$isBareAttributeGlyph` and its call sites (the wrapper-ancestor skip from Task 13 is the one remaining gate)
+- Modify: `packages/platform/src/editor/markerEdit/MarkerEditPlugin.tsx` — delete `$milestoneOfOpeningGlyph` / `$verseOfAttributeGlyph` and their MarkerNode-transform call sites (the Task 13 wrapper transform owns run-edit dirtying now); delete the per-piece verse-value styling arm in the TextNode mutation listener (the wrapper's CSS owns it)
+- Modify: `packages/platform/src/editor/markerEdit/tier2Rebuild.utils.ts` — collectors/signature drop the loose-run walks (wrapper-only)
+- Test: delete/re-point loose-shape unit tests; every behavior test must already be on wrapped fixtures (Task 14)
 
 **Interfaces:**
-- Consumes: Tasks 12–14.
-- Produces: fragment BYTES for wrapped runs are byte-identical to the loose-sibling fragments (the corpus is the proof); wrapper subtrees contribute nothing to OT ops, OT positions, or saved USJ; run deletion = wrapper destruction → owner pend (Task 7 listener) → owner policy (Task 8/9 function).
+- Consumes: Tasks 13–14 (wrapped-only runtime).
+- Produces: single-shape codebase; the registry plan (Task 17) builds on this.
 
-- [ ] **Step 1:** Collectors: `$milestoneDisplayRun`/`$verseAttributeRun` return `[wrapper]` when the next sibling is a matching wrapper (fragment side flattens `wrapper.getChildren()` through `$appendNodesFragment`; sentinel-absorption arms push `[node, wrapper]` so `$replaceSentinels` re-inserts the wrapper whole); `index` advances by 1 per wrapper instead of `run.length`. Signature branches recurse into `wrapper.getChildren()` where they recursed into the loose run. Run the corpus test after this step alone — 141/141 is the acceptance that fragment bytes did not move.
-- [ ] **Step 2:** Exclusion gates: editor→USJ and delta both skip any node with an `AttributeRunNode` ancestor (one containment check at the top of the per-node handlers); delete `$isBareAttributeGlyph` and its call sites; `$getOTPositionOfNode` counts wrapper subtrees as zero-length. Run collab suites + length-invariance tests.
-- [ ] **Step 3:** Deletion integration per the Files list: classifier arm, husk arm (an empty wrapper is removed and its OWNER pended so the owner's entirely-absent policy runs), owner-walk helpers deleted, wrapper transform registered (dirty wrapper → `$syncAndPend…` its owner), mutation listener registered for the wrapper class. Run all wave-1 bug pins — they must stay green under the new shape.
-- [ ] **Step 4:** Styling + TSP: CSS rules on `.attribute-run` (including `usfm_va`/`usfm_vp` whole-run styling — this closes handoff backlog item 8); delete the mutation-listener verse-value styling arm; TSP exemption via wrapper containment. Visual check comes in Task 16.
-- [ ] **Step 5:** Full platform/shared/shared-react suites green.
-- [ ] **Step 6: Commit** — `refactor(platform,shared,shared-react): Tier-2, OT, and deletion driver read AttributeRunNode; loose-sibling geometry deleted`.
+- [ ] **Step 1:** Delete per the Files list, running the affected suites after each file.
+- [ ] **Step 2:** FULL gate: all suites green, corpus 141/141; wave-1 bug pins green.
+- [ ] **Step 3: Commit** — `refactor(platform,shared,shared-react): loose-sibling display-run geometry deleted (wrapper-only)`.
 
 ### Task 16: Wave-2a gate — corpus, repo gate, live visual check
 
