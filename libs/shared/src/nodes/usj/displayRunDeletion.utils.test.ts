@@ -113,6 +113,27 @@ describe("$ownerOfDestroyedRunPiece", () => {
         expect($ownerOfDestroyedRunPiece(vpOpen)?.getKey()).toBe(verse.getKey());
       });
     });
+
+    it("returns undefined when ordinary content sits between the piece and a verse", () => {
+      // verse, then plain text, then a stray attribute-tagged TextNode: the walk must stop at
+      // the plain text and return undefined, never crossing ordinary content to reach the verse.
+      const { editor } = createBasicTestEnvironment();
+      let strayAttrText!: TextNode;
+      editor.update(
+        () => {
+          const verse = $createVerseNode("1");
+          const plainText = $createTextNode("In the beginning ");
+          strayAttrText = $createTextNode("|stray");
+          $setState(strayAttrText, textTypeState, "attribute");
+          $getRoot().append($createParaNode("p").append(verse, plainText, strayAttrText));
+        },
+        { discrete: true },
+      );
+
+      editor.getEditorState().read(() => {
+        expect($ownerOfDestroyedRunPiece(strayAttrText)).toBeUndefined();
+      });
+    });
   });
 
   describe("milestone run", () => {
