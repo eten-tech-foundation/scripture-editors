@@ -29,6 +29,9 @@ const nodes = usjReactNodes;
 const reference = { book: "GEN", chapterNum: 1, verseNum: 1 };
 
 let secondVerseTextNode: TextNode;
+let noVerseText: TextNode;
+let verse1Text: TextNode;
+let insertedVerse2Text: TextNode;
 
 function $defaultInitialEditorState() {
   secondVerseTextNode = $createTextNode("second verse text ");
@@ -145,7 +148,6 @@ describe("USJ Marker Action Utils", () => {
 
   describe("verse-number inference", () => {
     it("inserts verse 1 with no highlight when no verse precedes the caret", () => {
-      let noVerseText: TextNode;
       const { editor } = createBasicTestEnvironment(nodes, () => {
         noVerseText = $createTextNode("no verse yet");
         $getRoot().append($createImmutableChapterNode("1"), $createParaNode().append(noVerseText));
@@ -173,7 +175,6 @@ describe("USJ Marker Action Utils", () => {
     });
 
     it("increments across a gap with no highlight", () => {
-      let verse1Text: TextNode;
       const { editor } = createBasicTestEnvironment(nodes, () => {
         verse1Text = $createTextNode("verse one ");
         $getRoot().append(
@@ -206,7 +207,6 @@ describe("USJ Marker Action Utils", () => {
     });
 
     it("increments and highlights when preceding and following verses are adjacent (no numeric slot)", () => {
-      let verse1Text: TextNode;
       const { editor } = createBasicTestEnvironment(nodes, () => {
         verse1Text = $createTextNode("first verse text ");
         $getRoot().append(
@@ -244,7 +244,6 @@ describe("USJ Marker Action Utils", () => {
     });
 
     it("does not repeat/garble verse numbers when re-adding into a gap (Build 223 regression)", () => {
-      let verse1Text: TextNode;
       const { editor } = createBasicTestEnvironment(nodes, () => {
         // "verse one " (10 chars) + "text" (4 chars): caret splits after the first part, leaving
         // "text" as a trailing node so a second insertion can be anchored right after the first.
@@ -266,7 +265,6 @@ describe("USJ Marker Action Utils", () => {
       updateSelection(editor, verse1Text, 10);
       markerAction.action({ editor, reference });
 
-      let insertedVerse2Text: TextNode;
       editor.getEditorState().read(() => {
         const para = $getRoot().getChildren()[1];
         if (!$isParaNode(para)) throw new Error("Expected a ParaNode");

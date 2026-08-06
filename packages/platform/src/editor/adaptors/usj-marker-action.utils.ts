@@ -89,14 +89,10 @@ const markerActions: { [marker: string]: UsjMarkerAction } = {
         const precedingVerseString = precedingVerse.getNumber();
         nextVerseNumber = getNextVerse(parseInt(precedingVerseString, 10), precedingVerseString);
         const followingVerse = $findNextVerseAfter(precedingVerse);
-        if (followingVerse) {
-          const precedingNum = parseInt(precedingVerseString, 10);
-          const followingNum = parseInt(followingVerse.getNumber(), 10);
-          highlightInserted =
-            !Number.isNaN(precedingNum) &&
-            !Number.isNaN(followingNum) &&
-            followingNum - precedingNum === 1;
-        }
+        // Compare the actual inserted number against the following verse's number directly
+        // (not a parsed-integer diff), so segments ("5b" -> "5c") and bridges ("5-6" -> "7")
+        // are judged by whether they truly collide, not by their leading digit's distance.
+        highlightInserted = !!followingVerse && nextVerseNumber === followingVerse.getNumber();
       }
 
       const content: MarkerContent = {

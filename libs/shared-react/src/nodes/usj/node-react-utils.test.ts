@@ -262,7 +262,7 @@ describe("$findNextVerseAfter()", () => {
     );
 
     editor.getEditorState().read(() => {
-      expect($findNextVerseAfter(verse1).getNumber()).toBe("2");
+      expect($findNextVerseAfter(verse1)?.getNumber()).toBe("2");
     });
   });
 
