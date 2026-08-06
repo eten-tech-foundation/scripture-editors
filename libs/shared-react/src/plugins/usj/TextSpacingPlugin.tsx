@@ -59,8 +59,8 @@ function useTextSpacing(editor: LexicalEditor) {
  *
  * If the node contains only a single space and is not followed by a verse node, that placeholder
  * space is removed instead of preserved. It is also removed when the node is an empty verse's
- * entire content (a verse marker immediately precedes it), because core's round trip to disk drops
- * that space and the editor's output must match.
+ * entire content (a verse marker immediately precedes it) — see the comment on
+ * `isEmptyVerseContent` for why, and for the limits of that check.
  *
  * Trailing space is not added if the node is the last child of a para-like node.
  *
@@ -88,17 +88,31 @@ function $textNodeTrailingSpaceTransform(node: TextNode): void {
   // space-only (or already-emptied) one means the verse is empty. Core's round trip to disk
   // (ParatextData) drops that space, so keeping it makes the editor's USJ disagree with what core
   // reads back — and core resolves that disagreement by reloading the whole editor, destroying the
-  // caret. Note this is narrower than the CharNode case below it in the file: a space
-  // between a char node and a following verse IS canonical USJ that Paratext re-inserts, and only
-  // a space owned by an *empty verse* round-trips away.
+  // caret. This is narrower than the CharNode case below: a space between a char node and a
+  // following verse IS canonical USJ that Paratext re-inserts; only a space owned by an *empty
+  // verse* round-trips away.
+  //
+  // Scope, deliberately limited: NBSP is excluded because it is meaningful content
+  // (`$addTrailingSpace` likewise treats it as already-spaced), and multi-space text never reaches
+  // here at all (the `text.endsWith(" ") && text.length > 1` guard above returns first) — hence
+  // matching only "" and " ". The previous sibling is read directly, so an empty verse whose
+  // preceding content sits inside an annotation wrapper is NOT detected; `$verseNodeTransform`
+  // resolves through wrappers for its own decision, and doing the same here is a possible
+  // follow-up.
   const isEmptyVerseContent =
     $isSomeVerseNode(node.getPreviousSibling()) && (text === "" || text === " ");
 
   // Remove space-only placeholders that don't precede a verse, or that are an empty verse's
   // entire content.
   if ((text === " " && !$isSomeVerseNode(nextSibling)) || isEmptyVerseContent) {
-    // Only write when there is something to clear: re-setting the same text marks the node dirty
-    // and re-runs this transform, which would loop against `$addTrailingSpace` below.
+    // Two separate loop protections, BOTH load-bearing — dropping either reintroduces an infinite
+    // transform cycle, which Lexical escalates into a crash:
+    //   - this `text !== ""` guard stops a self-loop, because `setTextContent` goes through
+    //     `getWritable()`, which marks the node dirty even when the value is unchanged and so
+    //     re-runs this transform;
+    //   - the `text === ""` clause in `isEmptyVerseContent` above stops the re-add loop, because
+    //     without it an already-emptied node falls through to `$addTrailingSpace` below, becomes
+    //     " ", and is cleared again on the next pass.
     if (text !== "") node.setTextContent("");
     return;
   }
