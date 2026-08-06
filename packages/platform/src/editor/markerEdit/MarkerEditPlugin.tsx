@@ -42,6 +42,7 @@ import {
   COPY_COMMAND,
   createCommand,
   CUT_COMMAND,
+  EditorState,
   HISTORIC_TAG,
   HISTORY_MERGE_TAG,
   INSERT_PARAGRAPH_COMMAND,
@@ -50,10 +51,12 @@ import {
   PASTE_COMMAND,
   LexicalCommand,
   NodeKey,
+  NodeMutation,
   TextNode,
 } from "lexical";
 import { useEffect, useRef } from "react";
 import {
+  $charAttributeDisplayNode,
   $hasCaretHeldAttributeRun,
   $hasCaretHeldMilestoneRun,
   $hasCaretHeldSeparatorGap,
@@ -62,6 +65,7 @@ import {
   $isMarkerNode,
   $isMilestoneNode,
   $isVerseNode,
+  $ownerOfDestroyedRunPiece,
   $syncMilestoneDisplayRun,
   $syncVerseAttributeDisplay,
   canonicalAttributeText,
@@ -69,7 +73,9 @@ import {
   CharNode,
   CURSOR_CHANGE_TAG,
   defaultMarkerAttribute,
+  DELTA_CHANGE_TAG,
   getMarker as bundledGetMarker,
+  ImmutableTypedTextNode,
   LoggerBasic,
   MarkerLookup,
   MarkerNode,
@@ -77,6 +83,7 @@ import {
   NBSP,
   NoteNode,
   ParaNode,
+  registerPendedDisplayOwners,
   textTypeState,
   VerseNode,
 } from "shared";
@@ -246,6 +253,11 @@ export function MarkerEditPlugin({
       logger,
     };
     contextRef.current = context;
+    // Publishes the live pending set to the self-healing displays syncs (attributeDisplay.utils.ts,
+    // shared/shared-react) through a side channel: those syncs live below the engine in the module
+    // graph and cannot import it directly, but must still leave a pended owner's run alone instead
+    // of resurrecting a deletion the engine has not settled yet.
+    const unregisterPended = registerPendedDisplayOwners(editor, context.pendingKeys);
     // Tracks the caret's node key as of the most recent commit — keyed off the selection FOCUS
     // (the live cursor end, so it stays correct even for a backward range selection), updated
     // synchronously by the update listener below (which never lags, unlike command handlers
@@ -271,6 +283,38 @@ export function MarkerEditPlugin({
     // One pending-marker resolution queued at a time; disposed on effect cleanup.
     let resolveQueued = false;
     let disposed = false;
+    // Deletion driver, arming half: a locally-destroyed display-run piece pends its OWNER, read
+    // from the previous state — deletion intent comes from the destruction itself, never from
+    // caret geometry (the per-kind caret heuristics above only recognize specific in-progress
+    // caret shapes; a caret left in a shape they don't recognize — e.g. an element-point
+    // selection after a run is removed — let the self-healing sync resurrect the "deleted" run
+    // from the owner's still-set state). Mutation listeners fire for every commit, including a
+    // HISTORIC (undo/redo) restore, but that path re-pends by re-scanning the RESTORED state
+    // directly ($rependPendShapedNodes) — reacting to its destroyed-node diff here as well would
+    // just duplicate that work against a state the restore itself, not a user edit, produced. A
+    // DELTA_CHANGE_TAG commit applies a remote collab update, not a local deletion. An owner
+    // destroyed in the SAME commit (a whole-construct deletion, or a Tier-2 splice that replaces
+    // the owner outright) needs no pend — there is nothing left to settle.
+    const $pendOwnersOfDestroyed = (
+      mutations: Map<NodeKey, NodeMutation>,
+      payload: { updateTags: Set<string>; prevEditorState: EditorState },
+    ) => {
+      if (payload.updateTags.has(HISTORIC_TAG) || payload.updateTags.has(DELTA_CHANGE_TAG)) return;
+      const ownerKeys: NodeKey[] = [];
+      payload.prevEditorState.read(() => {
+        for (const [key, mutation] of mutations) {
+          if (mutation !== "destroyed") continue;
+          const destroyed = $getNodeByKey(key);
+          const owner = destroyed ? $ownerOfDestroyedRunPiece(destroyed) : undefined;
+          if (owner) ownerKeys.push(owner.getKey());
+        }
+      });
+      if (ownerKeys.length === 0) return;
+      editor.getEditorState().read(() => {
+        for (const ownerKey of ownerKeys)
+          if ($getNodeByKey(ownerKey)?.isAttached()) context.pendingKeys.add(ownerKey);
+      });
+    };
     const unregister = mergeRegister(
       editor.registerNodeTransform(MarkerNode, (node) => {
         if (editor.isComposing()) return;
@@ -320,6 +364,30 @@ export function MarkerEditPlugin({
         // pending marker literal.
         if (node.isAttached() && $hasCaretHeldSeparatorGap(node))
           context.pendingKeys.add(node.getKey());
+        // Deletion driver, same-commit variant: a char span's attribute run is a DIRECT CHILD, so
+        // removing it dirties this CharNode itself in the SAME commit (Lexical always dirties a
+        // removed node's former parent) — unlike a verse's or milestone's run, which rides as a
+        // FOLLOWING SIBLING and only reaches its owner's transform via the flanking glyph's own
+        // dirtying. That immediate self-dirtying is what lets this run BEFORE CharNodePlugin's
+        // self-healing sync in the very commit that did the deleting: the mutation-listener pend
+        // further down only arms once THIS commit has already been reconciled, too late to stop
+        // the sync from resurrecting the run whenever the caret lands in a shape
+        // $hasCaretHeldAttributeRun below does not recognize (e.g. an element-point selection left
+        // where the run used to be). Comparing this char's current run against the run its
+        // last-committed counterpart had catches exactly the same deletion the mutation listener
+        // would otherwise also find, just early enough to matter.
+        const destroyedOwnerKey = editor.getEditorState().read(() => {
+          const previous = $getNodeByKey(node.getKey());
+          if (!$isCharNode(previous)) return undefined;
+          const previousRun = $charAttributeDisplayNode(previous);
+          return previousRun && $ownerOfDestroyedRunPiece(previousRun)?.getKey();
+        });
+        if (
+          destroyedOwnerKey !== undefined &&
+          node.isAttached() &&
+          !$charAttributeDisplayNode(node)
+        )
+          context.pendingKeys.add(destroyedOwnerKey);
         // Same grace/pend pairing for a deleted or diverged attribute display run
         // (attributeDisplay.utils.ts): while the caret holds it, CharNodePlugin's sync leaves it
         // alone, so pend the span here for the caret-departure settle.
@@ -403,6 +471,16 @@ export function MarkerEditPlugin({
         },
         { skipInitialization: false },
       ),
+      // Registered for the three node classes a display-run piece can be — a plain TextNode (a
+      // char span's `|…` run, a verse's `\va`/`\vp` value, a milestone's attribute text), a
+      // MarkerNode (a run's opening/closing glyphs, which subclasses TextNode), or an
+      // ImmutableTypedTextNode (a visible/hidden-mode milestone run's DecoratorNode form). Lexical
+      // dispatches mutation listeners by exact node type — MarkerNode being a TextNode subclass
+      // does not make the TextNode registration see it, mirroring the transform dispatch the
+      // TextNode catch-all comment above documents — so each class needs its own registration.
+      editor.registerMutationListener(TextNode, $pendOwnersOfDestroyed),
+      editor.registerMutationListener(MarkerNode, $pendOwnersOfDestroyed),
+      editor.registerMutationListener(ImmutableTypedTextNode, $pendOwnersOfDestroyed),
       // Standard-view-only whitespace display invariant and clipboard
       // normalization. Gated separately from the rest of this plugin (which is
       // markerMode-gated and also active in Unformatted view) — must not leak there.
@@ -809,6 +887,7 @@ export function MarkerEditPlugin({
     );
     return () => {
       disposed = true;
+      unregisterPended();
       unregister();
       contextRef.current = undefined;
     };

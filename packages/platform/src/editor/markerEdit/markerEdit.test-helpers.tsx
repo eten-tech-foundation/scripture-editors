@@ -35,7 +35,12 @@ import {
 // Reaching inside only for tests.
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import { baseTestEnvironment } from "../../../../../libs/shared-react/src/plugins/usj/react-test.utils";
-import { getViewOptions, STANDARD_VIEW_MODE, TextSpacingPlugin } from "shared-react";
+import {
+  CharNodePlugin,
+  getViewOptions,
+  STANDARD_VIEW_MODE,
+  TextSpacingPlugin,
+} from "shared-react";
 
 /** Narrow away `T | undefined` without a banned non-null assertion. */
 export function requireDefined<T>(value: T | undefined, message: string): T {
@@ -76,6 +81,23 @@ export async function testEnvironmentWithSpacing($initialEditorState: () => void
     <>
       <MarkerEditPlugin viewOptions={getViewOptions(STANDARD_VIEW_MODE)} />
       <TextSpacingPlugin />
+    </>,
+  );
+}
+
+/**
+ * Like `testEnvironment`, but also mounts `CharNodePlugin` — the shared-react home of the
+ * self-healing char attribute-run sync — for tests where the sync and the engine's pend/settle
+ * must interact, matching the real app's plugin stack.
+ */
+export async function testEnvironmentWithCharSync($initialEditorState: () => void) {
+  initializeSerialize(undefined, undefined);
+  reset();
+  return baseTestEnvironment(
+    $initialEditorState,
+    <>
+      <MarkerEditPlugin viewOptions={getViewOptions(STANDARD_VIEW_MODE)} />
+      <CharNodePlugin />
     </>,
   );
 }
