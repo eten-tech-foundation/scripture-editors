@@ -7,6 +7,7 @@
 import { $isCharNode } from "./CharNode.js";
 import { $isMilestoneNode } from "./MilestoneNode.js";
 import { $isVerseNode } from "./VerseNode.js";
+import { $isImmutableTypedTextNode } from "../features/ImmutableTypedTextNode.js";
 import { $isMarkerNode } from "../features/MarkerNode.js";
 import { $isUnknownNode } from "../features/UnknownNode.js";
 import { textTypeState } from "../collab/delta.state.js";
@@ -38,8 +39,11 @@ function $runChainOwner(piece: LexicalNode): LexicalNode | undefined {
  * Recognizes all four run shapes documented in attributeDisplay.utils.ts: a char span's `|…` run
  * (a direct TextNode child of a CharNode), a verse's `\va`/`\vp` triplet (following siblings), a
  * milestone's opening/attribute/self-closing run (following siblings), and an UnknownNode's
- * `optbreak` token (a direct TextNode child). Returns `undefined` for any other destroyed node —
- * ordinary content, not a display-run piece.
+ * `optbreak` token — a direct child that is either a plain TextNode or an ImmutableTypedTextNode:
+ * the adaptor (usj-editor.adaptor.ts's `createUnknown`) always renders the `//` token as the
+ * latter (a read-only, token-mode DecoratorNode, invisible to Lexical's `TextNode` mutation
+ * listener), so both node kinds must be recognized or a real deletion would go unclassified.
+ * Returns `undefined` for any other destroyed node — ordinary content, not a display-run piece.
  *
  * @param piece - The destroyed node, read from `prevEditorState`.
  * @returns The CharNode / VerseNode / MilestoneNode / UnknownNode that owned the run `piece` rode
@@ -48,7 +52,10 @@ function $runChainOwner(piece: LexicalNode): LexicalNode | undefined {
 export function $ownerOfDestroyedRunPiece(piece: LexicalNode): LexicalNode | undefined {
   const parent = piece.getParent();
   if ($isUnknownNode(parent))
-    return parent.getTag() === "optbreak" && $isTextNode(piece) ? parent : undefined;
+    return parent.getTag() === "optbreak" &&
+      ($isTextNode(piece) || $isImmutableTypedTextNode(piece))
+      ? parent
+      : undefined;
   if ($isTextNode(piece) && $getState(piece, textTypeState) === "attribute")
     return $isCharNode(parent) ? parent : $runChainOwner(piece);
   if ($isMarkerNode(piece)) {

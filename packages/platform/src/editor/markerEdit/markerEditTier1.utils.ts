@@ -24,6 +24,7 @@ import {
   $isMilestoneNode,
   $isNoteNode,
   $isParaNode,
+  $isUnknownNode,
   $isVerseNode,
   $milestoneRunEntirelyAbsent,
   canonicalAttributeText,
@@ -313,6 +314,25 @@ export function $settlePendedDisplayOwner(
   node: LexicalNode,
   context: MarkerEditContext,
 ): { handled: boolean; mutated: boolean } {
+  if ($isUnknownNode(node)) {
+    // An optbreak's `//` token IS its entire USFM byte representation (unknownUsfm.utils.ts) —
+    // no marker, no attributes, nothing else to re-derive it from. Deleting the token (Lexical
+    // destroys a token-mode display child outright; there is no partial-edit state to grace)
+    // deletes the construct, exactly as deleting a milestone's entire run deletes the milestone:
+    // the alternative, an empty UnknownNode left behind, serializes an optbreak with no visible
+    // bytes and no caret-distinguishable position — the undead husk this arm retires. The
+    // flanking significant spaces are untouched: displayed bytes win, and they were never part
+    // of the node being removed.
+    if (node.getTag() === "optbreak" && node.getChildrenSize() === 0) {
+      node.remove();
+      return { handled: true, mutated: true };
+    }
+    // Every other UnknownNode kind is a permanent Tier-2 sentinel with no display run of its
+    // own to settle (unknownUsfm.utils.ts's module doc: these bytes are read-only rendering,
+    // never re-tokenized) — recognized so the caller's re-tokenize fallback never tries to route
+    // one through `$requestTier2ForNode`.
+    return { handled: true, mutated: false };
+  }
   if ($isCharNode(node) && $hasCaretHeldSeparatorGap(node)) {
     // A deleted opener separator stays pending while the caret still sits at the gap (the
     // exceptKey protection covers only the anchor node itself, not its parent span) — mid-edit
