@@ -7,6 +7,10 @@ import { $createNoteNode } from "./NoteNode.js";
 import { $createParaNode } from "./ParaNode.js";
 import { createBasicTestEnvironment } from "./test.utils.js";
 import { $createVerseNode, VerseNode } from "./VerseNode.js";
+import {
+  $createImmutableTypedTextNode,
+  ImmutableTypedTextNode,
+} from "../features/ImmutableTypedTextNode.js";
 import { $createMarkerNode } from "../features/MarkerNode.js";
 import { $createUnknownNode, UnknownNode } from "../features/UnknownNode.js";
 import { textTypeState } from "../collab/delta.state.js";
@@ -218,6 +222,32 @@ describe("$ownerOfDestroyedRunPiece", () => {
         () => {
           unknownNode = $createUnknownNode("optbreak");
           tokenText = $createTextNode("//");
+          unknownNode.append(tokenText);
+          $getRoot().append(
+            $createParaNode("p").append($createTextNode("a "), unknownNode, $createTextNode(" b")),
+          );
+        },
+        { discrete: true },
+      );
+
+      editor.getEditorState().read(() => {
+        expect($ownerOfDestroyedRunPiece(tokenText)?.getKey()).toBe(unknownNode.getKey());
+      });
+    });
+
+    it("classifies an ImmutableTypedTextNode child of an optbreak UnknownNode as owned by that UnknownNode", () => {
+      // The shape the adaptor actually builds (usj-editor.adaptor.ts's `createUnknown`, via
+      // `unknownDisplayParts`'s `//` opening bytes): a read-only, token-mode DecoratorNode, not a
+      // plain TextNode. `$isTextNode` (an `instanceof TextNode` check) never matches it, so
+      // without recognizing this node kind too, a real deletion of the token would go
+      // unclassified and the mutation listener would never pend the UnknownNode.
+      const { editor } = createBasicTestEnvironment();
+      let unknownNode!: UnknownNode;
+      let tokenText!: ImmutableTypedTextNode;
+      editor.update(
+        () => {
+          unknownNode = $createUnknownNode("optbreak");
+          tokenText = $createImmutableTypedTextNode("marker", "//");
           unknownNode.append(tokenText);
           $getRoot().append(
             $createParaNode("p").append($createTextNode("a "), unknownNode, $createTextNode(" b")),
