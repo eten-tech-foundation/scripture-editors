@@ -629,7 +629,7 @@ describe("re-pend scan does not destabilize settle-refused literals", () => {
   }, 15000);
 });
 
-describe("undo of a settled RUN DELETION (Task 7 flow) restores the run without a spurious pend", () => {
+describe("undo of a settled run deletion (charAttributeDeletionSettle.test.tsx's flow) restores the run without a spurious pend", () => {
   it("settle a run deletion, undo restores it, and it stays restored across a subsequent unrelated commit", async () => {
     // The inverse direction of this file's other suites: those undo a SETTLE (a typed literal
     // resolved to structure) and re-pend the restored LITERAL for re-settling. Here undo reverses
@@ -668,8 +668,8 @@ describe("undo of a settled RUN DELETION (Task 7 flow) restores the run without 
             $isTextNode(c) && !$isMarkerNode(c) && $getState(c, textTypeState) === "attribute",
         );
 
-    // Delete the run and depart: the deletion settles (Task 7's flow) — attributes clear, the run
-    // is gone.
+    // Delete the run and depart: the deletion settles (charAttributeDeletionSettle.test.tsx's
+    // flow) — attributes clear, the run is gone.
     await act(async () =>
       editor.update(() => {
         const char = $findChar();
@@ -712,15 +712,18 @@ describe("undo of a settled RUN DELETION (Task 7 flow) restores the run without 
       expect($isDisplayOwnerPended($findChar())).toBe(false);
     });
 
-    // A subsequent UNRELATED commit (editing the OTHER paragraph, nowhere near the restored span)
-    // must not disturb it — a spurious pend from the historic commit would let this departure's
-    // deferred resolution resolve it and re-clear the just-restored attributes.
-    await act(async () =>
-      editor.update(() => {
-        other.setTextContent("elsewhere-typed");
-      }),
-    );
-    await flushResolution();
+    // A subsequent UNRELATED user departure (into the OTHER paragraph, nowhere near the restored
+    // span) must not disturb it. `userDeparture` — not a raw `editor.update()` — is required here:
+    // the second undo above armed the app-placed-caret suppression window (the historic branch
+    // always arms it), and that window is released ONLY by a real in-editor gesture
+    // (CLICK_COMMAND/KEY_DOWN_COMMAND). A raw content edit with no such gesture leaves the window
+    // armed, and the update listener's `if (appPlacedCaret) return;` would then skip queuing the
+    // deferred resolution entirely — making this assertion pass whether or not a spurious pend
+    // exists, since nothing would ever be resolved either way. `userDeparture` dispatches
+    // CLICK_COMMAND first (releasing the window, exactly like the file's other post-undo departures
+    // above), so the deferred resolution genuinely runs: a spurious pend from the historic commit
+    // would let it resolve the owner and re-clear the just-restored attributes.
+    await userDeparture(editor, "elsewhere", 4);
     editor.getEditorState().read(() => {
       const char = $findChar();
       expect(char.getUnknownAttributes()?.stuff).toBe("thing");
