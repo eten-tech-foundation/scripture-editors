@@ -206,3 +206,53 @@ zero skips; lint+typecheck 0 errors in both root and nx contexts; commit message
 > "TJ-approved, NOT YET DONE" items early — they are small and independent. Brainstorm the
 > driver's shape against the existing per-kind code, write the design + implementation plan
 > with TDD steps, and get TJ's sign-off before implementing.
+
+## Postscript (2026-08-07): wave-2a gate passed, live visual check done
+
+Repo gate: `nx run-many -t lint,typecheck,test` clean across all projects (0 lint errors,
+722 tests passed); corpus pin confirmed 141/141 paragraphs, 0 skip-listed; root `eslint .`
+clean (only pre-existing unrelated warnings in demo apps). Local editor build pushed into the
+running paranext-core app via yalc (branch is unpushed, so this bypassed
+`link-dev-packages`' revision flow); the webpack DLL was rebuilt so the dev renderer served
+the fresh code (freshness confirmed by grepping the `attribute-run` CSS class literal in both
+`packages/platform/dist/index.js` and paranext-core's `.erb/dll/renderer.dev.dll.js`).
+
+Live-checked in Standard view (WEB_edit sample project, Luke 4 — typed `\va` in since this
+copy of WEB has no pre-existing verse attributes):
+
+- A verse's `\va` run renders as ONE wrapper element, `<span class="attribute-run usfm_va">`,
+  confirmed via direct DOM inspection — the wrapper-element migration (item 8) holds structurally.
+- Editing the `\va` value and departing settles it correctly (canonical re-render, no
+  duplication) — confirmed in both the live DOM and the on-disk SFM.
+- Deleting a whole `\va` run and departing clears it fully: no wrapper in the DOM, no `\va`
+  bytes on disk, no resurrection.
+- Typing `//` creates a proper atomic optbreak (`<unknown data-tag="optbreak">`); a single
+  Backspace on it deletes the whole node in one action — no husk, caret lands cleanly at the
+  boundary. Confirmed in DOM, disk, and caret position.
+- A char span with attributes (`\nd test|stuff="thing"\nd*`): deleting just the attribute run
+  and departing leaves `\nd test\nd*` with the attribute fully gone — verified against the
+  on-disk SFM (ground truth), no residue.
+- Hover-grays-the-green (item 6, the noted specificity tie) could not be observed live: the
+  Scripture Editor webview's vendored CSS in paranext-core
+  (`extensions/src/platform-scripture-editor/src/_usj-nodes.scss`) is still pinned at
+  scripture-editors commit `ba0e846b`, 14+ commits behind — it has no `.attribute-run` rule at
+  all yet (confirmed by removing the `usfm_va` class from a live wrapper node and observing the
+  color fall through to the default text color, not the documented dim gray). This is a
+  pre-existing, already-tracked gap with its own isolated-worktree plan
+  (`paranext-core/docs/superpowers/plans/2026-08-06-standard-view-marker-styles-resync.md`), not
+  a regression from this wave — noting it here since it also means the live app does not yet
+  show PT9-parity small-gray glyphs for `\va`/`\vp` runs (the green value color IS visible, from
+  an older pre-existing rule, but the glyph-vs-value size/color unification work needs that CSS
+  resync to actually render).
+
+One test-methodology artifact surfaced and was ruled out: replacing a value's last character via
+a synthetic `execCommand('insertText')` range-replace produced a duplicated trailing character
+after settle; redoing the same edit with real `Backspace` + keypress events was clean. Concluded
+this was a synthetic-range boundary quirk in the test harness, not a product bug — not filed.
+
+Backlog status: items 1–3 (from the "TJ-approved, NOT YET DONE" list) done; item 6 (mid-sentence
+settle) closed/pinned; item 8 (wrapper styling) closed — the wrapper-element migration is
+structurally verified live, pending only the separate paranext-core CSS resync to be visually
+complete. The three live bugs (stale invisible attribute, undead optbreak, empty-`\va` re-fold)
+are fixed and re-verified live in this session. Phases 1 and 2a (the wrapper-element flip +
+cleanup) are landed; the phase-2b registry and phase 3 (settled `getUsj()`) are planned next.
