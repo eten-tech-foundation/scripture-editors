@@ -91,30 +91,49 @@ export function htmlPasteText(html: string): string {
 }
 
 /**
+ * A marker token this handler recognizes for positional NBSP normalization: a plain or
+ * nested-char marker (`\nd`, `\+nd`), either one's closer (`\nd*`, `\+nd*`), or a milestone's
+ * anonymous self-closer (`\*`).
+ */
+const AFTER_MARKER_NBSP = /(\\(?:\+?[a-z0-9-]+\*?|\*))\u00A0/gi;
+const BEFORE_MARKER_NBSP = /\u00A0(?=\\(?:\+?[a-z0-9-]+\*?|\*))/gi;
+
+/**
  * Positional NBSP normalization for an external paste's resolved text. Standard view has no
  * `text/html` fidelity carrier for foreign sources (`$handlePasteForStandardView` below drops
  * formatting entirely and re-tokenizes the plain text), so a `text/html` payload's NBSPs are the
  * only clue to which spaces were meaningful markup vs. plain content — and the browser's own
  * clipboard round-trip (and a same-editor paste, whose private Lexical flavor does not survive
  * `navigator.clipboard.read()` — see `$handlePasteForStandardView`'s doc comment) both carry a
- * DISPLAY-NBSP (a Standard-view run space, or a char span's structural leading separator) as a
- * real NBSP, indistinguishable at this point from a genuine data-NBSP (PT9's `~` glyph).
+ * DISPLAY-NBSP (a Standard-view run space, a marker's own trailing separator, or a note's
+ * internal spacer — `createNote` in `usj-editor.adaptor.ts` appends one after EVERY child, not
+ * just the first, so one sits directly before `\ft`/`\f*` and every other child after the caller)
+ * as a real NBSP, indistinguishable at this point from a genuine data-NBSP (PT9's `~` glyph).
  *
- * The two are told apart POSITIONALLY, mirroring PT9's `PostprocessUsfm`: an NBSP immediately
- * following a marker token (`\marker` or `\marker*`) is the required opener/closer separator —
- * a display artifact — and settles to a plain space. A paste can also start EXACTLY at a char
- * span's structural leading NBSP with no marker literal in front of it at all (a partial
- * selection beginning mid-span), which reads as the same separator even with nothing to match
- * against — so a leading NBSP normalizes the same way. Every other NBSP (including one sitting
- * right before a closing marker, which no real Standard-view char span emits — there is no
- * structural TRAILING separator, only a leading one) is treated as genuine data and preserved as
- * `~`, the same display form typed data-NBSP takes, so serialization round-trips it to a real
- * NBSP instead of silently collapsing it to a plain space.
+ * The two are told apart POSITIONALLY, mirroring PT9's `PostprocessUsfm`, in three passes:
+ *
+ * 1. A leading NBSP — at the very start of the text, or right after a newline (a later paragraph
+ *    of a multi-line paste can itself start mid-span) — reads as a structural separator with
+ *    nothing in front of it to match against (a partial selection starting exactly at a char
+ *    span's structural leading NBSP) and becomes a plain space.
+ * 2. An NBSP immediately FOLLOWING a marker token is the required opener/closer separator and
+ *    becomes a plain space (e.g. the mandatory space after `\f`/`\fr`, or a char span's own
+ *    leading separator when the marker literal IS present in the pasted text).
+ * 3. An NBSP immediately PRECEDING a marker token is a structural spacer with no source
+ *    counterpart — `createNote`'s inter-child spacer sits exactly here — and is DROPPED entirely
+ *    (neither spaced nor kept as data): `\nd Lord\u00A0\nd*` settles to `\nd Lord\nd*`, matching
+ *    the source USFM, which needs no byte there at all.
+ *
+ * Passes 2 and 3 both match against the SAME `AFTER_MARKER_NBSP`/`BEFORE_MARKER_NBSP` token set,
+ * so a marker recognized by one is recognized by the other. Every remaining NBSP is genuine data
+ * and is preserved as `~`, the same display form typed data-NBSP takes, so serialization
+ * round-trips it to a real NBSP instead of silently collapsing it to a plain space or dropping it.
  */
 function $normalizePastedNbsp(text: string): string {
   return text
-    .replace(/^\u00A0/, " ")
-    .replace(/(\\[a-z0-9-]+\*?)\u00A0/gi, "$1 ")
+    .replace(/^\u00A0/gm, " ")
+    .replace(AFTER_MARKER_NBSP, "$1 ")
+    .replace(BEFORE_MARKER_NBSP, "")
     .replaceAll(NBSP, "~");
 }
 
@@ -124,15 +143,16 @@ function $normalizePastedNbsp(text: string): string {
  * fallback (`$insertDataTransferForRichText`'s non-HTML branch) directly here instead of calling
  * it, so a `text/html` payload never reaches Lexical's HTML import path (the whole point of
  * `$handlePasteForStandardView` claiming external pastes: Standard view re-tokenizes markers
- * from plain text, it does not import foreign markup).
+ * from plain text, it does not import foreign markup). `text` is assumed already normalized to
+ * bare `\n` line endings by the caller — no `\r` reaches this function.
  */
 function $insertPastedText(text: string): void {
-  const parts = text.split(/(\r?\n|\t)/);
+  const parts = text.split(/(\n|\t)/);
   if (parts[parts.length - 1] === "") parts.pop();
   for (const part of parts) {
     const selection = $getSelection();
     if (!$isRangeSelection(selection)) return;
-    if (part === "\n" || part === "\r\n") selection.insertParagraph();
+    if (part === "\n") selection.insertParagraph();
     else if (part === "\t") selection.insertNodes([$createTabNode()]);
     else selection.insertText(part);
   }
@@ -143,22 +163,27 @@ function $insertPastedText(text: string): void {
  * `application/x-lexical-editor` payload) is routed through the plain-text USFM carrier instead
  * of Lexical's HTML import — Standard view has markers as real text, so re-tokenizing pasted
  * text is the SAME mechanism that recognizes typed markers, and it is the only carrier that
- * survives `navigator.clipboard.read()` at all: Chromium's async clipboard read exposes only the
- * standard MIME types, so the private Lexical flavor written on copy does not come back on a
- * real Ctrl+V — even a same-editor paste of the editor's own copy rides `text/html`/`text/plain`
- * like any other source (`pasteSelection`, `clipboard.utils.ts`). Previously this only claimed
- * NBSP-bearing pastes and inserted the text with a BLANKET NBSP→`~` mapping; live repro
- * (2026-08-07) showed that corrupts a same-editor paste of its own copy — every display-NBSP
- * (the separator after `\f`/`\fr`/`\ft`) became a literal `~`, turning recognized markers into
- * unknown-marker soup — and a browser-hop `\nd …\nd*` paste came back with an unmatched closer.
- * `$normalizePastedNbsp` above replaces that blanket mapping with the positional rule.
+ * survives `navigator.clipboard.read()` at all: Chromium's async clipboard-read API exposes only
+ * a fixed sanctioned MIME allow-list (`text/plain`, `text/html`, and a short list of others) —
+ * the private `application/x-lexical-editor` flavor Lexical writes on copy is not one of them, so
+ * the `DataTransfer` `pasteSelection` (`clipboard.utils.ts`) rebuilds from `navigator.clipboard.
+ * read()` can never contain it. A real Ctrl+V — even a same-editor paste of the editor's own
+ * copy — therefore always rides `text/html`/`text/plain` like any external source. Previously
+ * this only claimed NBSP-bearing pastes and inserted the text with a BLANKET NBSP→`~` mapping;
+ * live repro (2026-08-07) showed that corrupts a same-editor paste of its own copy — every
+ * display-NBSP (the separator after `\f`/`\fr`/`\ft`) became a literal `~`, turning recognized
+ * markers into unknown-marker soup — and a browser-hop `\nd …\nd*` paste came back with an
+ * unmatched closer. `$normalizePastedNbsp` above replaces that blanket mapping with the
+ * positional rule.
  *
  * Declines (returns `false`, lets Lexical's own paste handling run) when: the payload carries a
  * same-namespace Lexical flavor (the sync `ClipboardEvent` path — a null-payload dispatch or a
  * live native paste event that still has it — keeps the exact node-tree fast path); the document
  * is structure-protected (`StructureProtectionPlugin` must sanitize the HTML payload instead —
  * this handler runs at the same `COMMAND_PRIORITY_HIGH` but registers earlier, so without this
- * check it would claim the paste first and starve that sanitizer); or no text can be resolved.
+ * check it would claim the paste first and starve that sanitizer — a recorded trade-off: a
+ * protected editor's plain-text pastes get NO NBSP normalization at all, since this handler
+ * never runs for them); or no text can be resolved.
  */
 export function $handlePasteForStandardView(
   event: ClipboardEvent | null | undefined,
@@ -170,7 +195,10 @@ export function $handlePasteForStandardView(
   if (isStructureProtected) return false;
   const plain = event.clipboardData.getData("text/plain");
   const html = event.clipboardData.getData("text/html");
-  const text = plain || (html ? htmlPasteText(html) : "");
+  // Line endings normalize to bare `\n` before anything else — matching the in-note CRITICAL
+  // PASTE_COMMAND claim (MarkerEditPlugin.tsx) — so a `\r\n` (or bare `\r`) clipboard breaks
+  // correctly instead of inserting a literal `\r` control character into the document.
+  const text = (plain || (html ? htmlPasteText(html) : "")).replace(/\r\n?/g, "\n");
   if (!text) return false;
   const selection = $getSelection();
   if (!$isRangeSelection(selection)) return false;
@@ -181,7 +209,7 @@ export function $handlePasteForStandardView(
   // handler can't arm `splitExpected` for it, and the LOW-priority PASTE_COMMAND handler that
   // used to arm it for every paste never runs once this HIGH-priority handler claims the
   // command — so it must be armed here, before inserting, for any paste that will split.
-  if (/\r?\n/.test(normalized)) armSplitExpected();
+  if (normalized.includes("\n")) armSplitExpected();
   $insertPastedText(normalized);
   return true;
 }

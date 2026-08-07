@@ -755,8 +755,10 @@ export function MarkerEditPlugin({
           // Simple-mode default) StructureProtectionPlugin handles PASTE at HIGH and
           // sanitize-inserts any html-bearing payload before a lower-priority claim could run —
           // but an `\fp` break edits NOTE CONTENT, not document structure, so the in-note claim
-          // must win. Outranking the standard-view NBSP normalization at HIGH is fine because
-          // the claim applies the same NBSP → `~` display mapping itself (below).
+          // must win. Outranking the Standard-view external-paste handler
+          // ($handlePasteForStandardView, whitespaceDisplay.plugin.utils.ts) at HIGH is fine
+          // because this claim owns its own NBSP handling below — it does not depend on that
+          // handler running first, and does not need to match its (positional) rule.
           //
           // The claim covers editor-internal rich pastes (application/x-lexical-editor) too:
           // an internal copy of multi-paragraph text replays REAL paragraph nodes, which
@@ -777,11 +779,13 @@ export function MarkerEditPlugin({
           const rawText = plainText || htmlPasteText(clipboardData.getData("text/html"));
           const pastedText = rawText.replace(/\r\n?/g, "\n");
           if (pastedText.includes("\n")) {
-            // Standard view: a pasted data-NBSP takes its `~` display form here, exactly as
-            // `$handlePasteForStandardView` does for the pastes that reach it — inserted raw
-            // it is indistinguishable from a display-NBSP (a plain space in a run), so
-            // serialization would corrupt it into a plain space. A pasted literal `~` is
-            // already the display form and passes through in both paths.
+            // Standard view: every pasted NBSP takes its `~` display form here via a BLANKET
+            // mapping — this path does not use `$handlePasteForStandardView`'s positional
+            // marker-adjacent rule (whitespaceDisplay.plugin.utils.ts); aligning in-note paste
+            // normalization with that rule is a later task's territory, not this one's. Inserted
+            // raw an NBSP is indistinguishable from a display-NBSP (a plain space in a run), so
+            // serialization would corrupt it into a plain space. A pasted literal `~` is already
+            // the display form and passes through unchanged.
             const noteText = isStandardView ? pastedText.replaceAll(NBSP, "~") : pastedText;
             const lines = noteText.split("\n");
             let outcome = $handlePasteLinesInNote(lines, context.getMarker);
