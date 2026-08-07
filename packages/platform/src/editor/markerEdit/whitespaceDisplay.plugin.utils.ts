@@ -129,12 +129,46 @@ const BEFORE_MARKER_NBSP = /\u00A0(?=\\(?:\+?[a-z0-9-]+\*?|\*))/gi;
  * and is preserved as `~`, the same display form typed data-NBSP takes, so serialization
  * round-trips it to a real NBSP instead of silently collapsing it to a plain space or dropping it.
  */
-function $normalizePastedNbsp(text: string): string {
+export function $normalizePastedNbsp(text: string): string {
   return text
     .replace(/^\u00A0/gm, " ")
     .replace(AFTER_MARKER_NBSP, "$1 ")
     .replace(BEFORE_MARKER_NBSP, "")
     .replaceAll(NBSP, "~");
+}
+
+/** A `\c`/`\id` marker token at the start of a (post-split) line, capturing its payload up to —
+ * but not including — the next marker or line end. */
+const CHAPTER_OR_BOOK_ID_AT_LINE_START = /^\\(?:c|id)(?![\w-])[^\n\\]*/;
+
+/**
+ * Drops every pasted `\c`/`\id` token and its payload (the chapter number / book code, up to the
+ * next marker or newline) before insertion. Both create a document-structural node PT9 allows
+ * only once per book (a `ChapterNode`/`BookNode`, materialized from the marker name alone —
+ * `usj-editor.adaptor.ts` — same as a real load), and Standard view has no per-paste "am I the
+ * only one" check the way an initial document load does. Live repro (2026-08-07): pasting a bare
+ * `\c 2` mid-chapter created a second chapter node in the editor; every subsequent save then
+ * failed with the PDP's "Multiple chapter markers present" (the error surfaces only in the
+ * renderer log — disk and other editors silently stop updating). `\id` is the book-level twin of
+ * the same hazard and is stripped identically.
+ *
+ * Splits on lines rather than matching globally so a stripped token can cleanly take its own line
+ * with it (no stray empty paragraph left behind) while a token sharing a line with real content —
+ * `\c 5\v 1 In the beginning`, common in USFM with no line breaks between markers — only loses
+ * its own bytes, leaving the rest of the line (here `\v 1 In the beginning`) to paste normally. A
+ * line that already carried no other content becomes empty after stripping and is dropped from
+ * the output entirely, rather than surviving as a blank paragraph; a line that was ALREADY blank
+ * in the source paste (nothing to do with `\c`/`\id`) is left alone.
+ */
+function $stripPastedChapterAndBookId(text: string): string {
+  return text
+    .split("\n")
+    .map((line) => {
+      const stripped = line.replace(CHAPTER_OR_BOOK_ID_AT_LINE_START, "");
+      return stripped === "" && line !== "" ? undefined : stripped;
+    })
+    .filter((line): line is string => line !== undefined)
+    .join("\n");
 }
 
 /**
@@ -203,7 +237,7 @@ export function $handlePasteForStandardView(
   const selection = $getSelection();
   if (!$isRangeSelection(selection)) return false;
   event.preventDefault();
-  const normalized = $normalizePastedNbsp(text);
+  const normalized = $normalizePastedNbsp($stripPastedChapterAndBookId(text));
   // @lexical/clipboard's own text/plain handling calls `selection.insertParagraph()` directly
   // per newline (never INSERT_PARAGRAPH_COMMAND), so the engine's INSERT_PARAGRAPH_COMMAND
   // handler can't arm `splitExpected` for it, and the LOW-priority PASTE_COMMAND handler that
