@@ -6,6 +6,8 @@
 
 **Architecture:** A read-only "virtual settle" runs inside `editorState.read()`. It takes the editor state's own JSON (`editorState.toJSON()`), locates every settle SCOPE (the `ParaNode` or expanded `NoteNode` that owns a pended key — the same walk `$requestTier2ForNode` uses), and for each scope runs the SAME `$buildParaFragment`/`$buildNoteFragment` + `usfmFragmentToUsjContent` + `usjEditorAdaptor.serializeEditorState` pipeline a real settle runs. The only half that is not literally shared is the materialize step: a real settle splices live Lexical nodes, while the virtual settle splices the equivalent SERIALIZED subtrees into the JSON copy (Lexical forbids node creation inside a read). U+FFFC sentinels are substituted with the preserved nodes' own serialized subtrees, so sentinels serialize in place and never move. One final `editorUsjAdaptor.deserializeSerializedEditorState` over the patched JSON produces the output USJ, so text coalescing, implied-para flattening, and every exclusion gate behave exactly as they do today. The editor is never touched.
 
+An in-editor command surface (today: the marker palette) can declare its in-progress input to the editor through a new `EditorRef.setTransientInput` — the analogue of an IME composition string. While declared, the settle subtracts exactly those bytes from the fragment BEFORE tokenizing, so the paragraph settles as if they had never been typed; the document, the screen, `onUsjChange`, and OT deltas are untouched. The declaration is re-verified against the live caret at every `getUsj()` call and IGNORED when it does not hold, so a stale declaration degrades to a visible phantom marker in one save and never to silently dropped user content.
+
 **Tech Stack:** TypeScript, Lexical, React, vitest (per-package via pnpm), nx monorepo (`@eten-tech-foundation/platform-editor`, `shared`, `shared-react`); paranext-core extension host (React, vitest via the `extensions` workspace).
 
 ## Global Constraints
@@ -33,15 +35,17 @@
 |---|---|---|
 | `libs/shared/src/nodes/usj/pendedDisplayOwners.utils.ts` | Gains ONE read accessor so `Editor.tsx` can consume the existing per-editor pend channel. No new plumbing. | Modified (Task 1) |
 | `packages/platform/src/editor/markerEdit/tier2Rebuild.utils.ts` | Gains `$settleScopeForNode` (the ONE scope walk), exports `$buildNoteFragment` and `countSentinels`; `$buildParaFragment`'s export doc updated. | Modified (Task 2) |
-| `packages/platform/src/editor/markerEdit/virtualSettle.utils.ts` | `$settledUsj` — the read-only settle: scope collection, fragment+tokenize, serialized sentinel substitution, patched-JSON → USJ. | Create (Tasks 3, 5) |
-| `packages/platform/src/editor/Editor.tsx` | `getUsj()` returns settled USJ (fast path unchanged when nothing is pending). | Modified (Task 4) |
-| `packages/platform/src/editor/editor.model.ts` | `EditorRef.getUsj` / `commitPendingMarkerEdits` contract docs. | Modified (Task 4) |
+| `packages/platform/src/editor/markerEdit/virtualSettle.utils.ts` | `$settledUsj` — the read-only settle: scope collection, transient-input subtraction, fragment+tokenize, serialized sentinel substitution, patched-JSON → USJ. | Create (Tasks 3, 5, 9) |
+| `packages/platform/src/editor/Editor.tsx` | `getUsj()` returns settled USJ (fast path unchanged when nothing is pending); holds the transient-input declaration and implements `setTransientInput`. | Modified (Tasks 4, 9) |
+| `packages/platform/src/editor/editor.model.ts` | `EditorRef.getUsj` / `commitPendingMarkerEdits` contract docs; the new `setTransientInput` method and its `TransientInput` type. | Modified (Tasks 4, 9) |
 | `packages/platform/src/editor/markerEdit/virtualSettle.utils.test.tsx` | Unit pins for the virtual settle over each scope kind. | Create (Tasks 3, 5) |
+| `packages/platform/src/editor/settledGetUsj.test-helpers.tsx` | Shared mounting/assertion harness for the settled-output suites. | Create (Task 6), extended (Task 8) |
 | `packages/platform/src/editor/settledGetUsj.test.tsx` | Uniformity + no-mutation pins; the virtual↔real equivalence property; the Tier-2 fixed-point property. | Create (Tasks 6, 7, 8) |
-| `packages/platform/src/editor/markerEdit/ndInnerTrailingSpace.test.tsx` | Backlog item 4: byte-fidelity pins for the verse-9 `\nd` span across every editor-side pipeline. | Create (Task 9) |
-| `extensions/src/platform-scripture-editor/src/debounced-pdp-save.util.ts` (paranext-core) | The mutating pre-save settle is REMOVED from the save path. | Modified (Task 11) |
-| `extensions/src/platform-scripture-editor/src/platform-scripture-editor.web-view.tsx` (paranext-core) | Drops the commit wiring; palette-session saves read the RAW editor USJ. | Modified (Tasks 11, 12) |
-| `extensions/src/platform-scripture-editor/src/use-editor-pdp-sync.hook.ts` (paranext-core) | Lossy-warn meaning updated; first warn per difference logs the untruncated entries. | Modified (Task 13) |
+| `packages/platform/src/editor/transientInput.test.tsx` | The transient-input contract: exclusion, clearing, every staleness mode, apply-consumes-literal, the mid-palette flush shape. | Create (Task 9) |
+| `packages/platform/src/editor/markerEdit/ndInnerTrailingSpace.test.tsx` | Backlog item 4: byte-fidelity pins for the verse-9 `\nd` span across every editor-side pipeline. | Create (Task 10) |
+| `extensions/src/platform-scripture-editor/src/debounced-pdp-save.util.ts` (paranext-core) | The mutating pre-save settle AND the palette-literal strip plumbing are REMOVED from the save path. | Modified (Tasks 12, 13) |
+| `extensions/src/platform-scripture-editor/src/platform-scripture-editor.web-view.tsx` (paranext-core) | Drops the commit wiring and the strip arguments; declares the palette's in-progress literal to the editor per keystroke. | Modified (Tasks 12, 13) |
+| `extensions/src/platform-scripture-editor/src/use-editor-pdp-sync.hook.ts` (paranext-core) | Lossy-warn meaning updated; first warn per difference logs the untruncated entries. | Modified (Task 14) |
 
 ---
 
@@ -333,7 +337,7 @@ EOF
 
 **Interfaces:**
 - Consumes: `$buildParaFragment(para, getMarkerFn): FragmentAccumulator | undefined`, `countSentinels(content): number`, `$settleScopeForNode(node): ParaNode | NoteNode | undefined`, `ATOMIC_SENTINEL: string`, `FragmentAccumulator`, `Tier2Context` — all from `./tier2Rebuild.utils` (Task 2); `usfmFragmentToUsjContent(text, options): MarkerContent[]` from `shared`; `usjEditorAdaptor.serializeEditorState(usj, viewOptions): SerializedEditorState` from `../adaptors/usj-editor.adaptor`; `editorUsjAdaptor.deserializeSerializedEditorState(state, viewOptions): Usj | undefined` from `../adaptors/editor-usj.adaptor`; `getPendedDisplayOwners(editor)` (Task 1) is called by the CALLER, not here.
-- Produces: `export function $settledUsj(serializedState: SerializedEditorState, pendedKeys: ReadonlySet<NodeKey>, context: Tier2Context): Usj | undefined` — the settled document, or `undefined` when nothing settleable was pending (the caller then keeps its cached USJ). Must be called inside a `read()` of the editor state `serializedState` came from.
+- Produces: `export function $settledUsj(serializedState: SerializedEditorState, pendedKeys: ReadonlySet<NodeKey>, context: Tier2Context): Usj | undefined` — the settled document, or `undefined` when nothing settleable was pending (the caller then keeps its cached USJ). Must be called inside a `read()` of the editor state `serializedState` came from. Task 9 extends this signature with a fourth parameter, `transientInput?: TransientInput`; Tasks 3–8 use the three-parameter form.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1065,36 +1069,39 @@ EOF
 ## Task 6: Uniform settling — no caret-held exception
 
 **Files:**
+- Create: `packages/platform/src/editor/settledGetUsj.test-helpers.tsx`
 - Create: `packages/platform/src/editor/settledGetUsj.test.tsx`
 
 **Interfaces:**
 - Consumes: `EditorRef.getUsj()` (Task 4), `EditorRef.commitPendingMarkerEdits()`; `Editor` from `./Editor`.
-- Produces: the shared harness Tasks 7 and 8 reuse — `mountStandardViewEditor(usj)`, returning `{ ref, lexical }`.
+- Produces (from the helpers file, reused by Tasks 7, 8 and 9 — a plain module, NOT a `.test.` file, so importing it never re-registers another suite's `describe` blocks; mirrors the existing `markerEdit.test-helpers.tsx` convention):
+  - `requireStandardViewOptions(): ViewOptions`
+  - `mountStandardViewEditor(usj: Usj): Promise<{ ref: RefObject<EditorRef | null>; lexical: LexicalEditor }>`
+  - `spanUsj: Usj`
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Write the shared harness**
 
-Create `packages/platform/src/editor/settledGetUsj.test.tsx`:
+Create `packages/platform/src/editor/settledGetUsj.test-helpers.tsx`:
 
 ```tsx
 /**
- * `getUsj()` is settled, uniformly and without side effects. Uniform means there is no caret-held
- * exception: a half-typed attribute run settles to the literal content those bytes mean, even while
- * the caret sits inside it. Without side effects means the editor still shows the pending edit
- * afterwards — reading the document must never settle it under the user.
+ * Shared harness for the settled-output suites: one Standard-view `Editor` mount behind its public
+ * `EditorRef`, plus the raw Lexical editor the tests drive edits through. A plain helper module
+ * rather than an export from one of the suites, so a suite that needs it does not re-register the
+ * other suite's tests by importing it.
  */
 import Editor from "./Editor";
 import { EditorRef } from "./editor.model";
-import { MarkerObject, Usj } from "@eten-tech-foundation/scripture-utilities";
+import { Usj } from "@eten-tech-foundation/scripture-utilities";
 import { EditorRefPlugin } from "@lexical/react/LexicalEditorRefPlugin";
 import { act, render } from "@testing-library/react";
-import { $getRoot, $isTextNode, LexicalEditor } from "lexical";
+import { LexicalEditor } from "lexical";
 import { createRef, ReactElement, RefObject } from "react";
-import { $isCharNode, $isParaNode } from "shared";
-import { getViewOptions, STANDARD_VIEW_MODE } from "shared-react";
+import { getViewOptions, STANDARD_VIEW_MODE, ViewOptions } from "shared-react";
 
 // jsdom doesn't implement `getBoundingClientRect` on `Range`; moving the caret gives the editor
 // root DOM focus, and Lexical's post-commit scroll-into-view reads a Range rect. Stub it (a zero
-// rect nothing here asserts on), same as the marker-edit tests.
+// rect nothing asserts on), same as the marker-edit tests.
 if (typeof Range.prototype.getBoundingClientRect !== "function") {
   Range.prototype.getBoundingClientRect = function (): DOMRect {
     return {
@@ -1113,6 +1120,12 @@ if (typeof Range.prototype.getBoundingClientRect !== "function") {
   };
 }
 
+export function requireStandardViewOptions(): ViewOptions {
+  const options = getViewOptions(STANDARD_VIEW_MODE);
+  if (!options) throw new Error("Standard view options are required for these tests.");
+  return options;
+}
+
 export const spanUsj: Usj = {
   type: "USJ",
   version: "3.1",
@@ -1122,7 +1135,12 @@ export const spanUsj: Usj = {
     {
       type: "para",
       marker: "p",
-      content: [{ type: "verse", marker: "v", number: "1" }, "start ", { type: "char", marker: "nd", content: ["name"] }, " end"],
+      content: [
+        { type: "verse", marker: "v", number: "1" },
+        "start ",
+        { type: "char", marker: "nd", content: ["name"] },
+        " end",
+      ],
     },
     { type: "para", marker: "p", content: ["a second paragraph to depart to"] },
   ],
@@ -1137,7 +1155,7 @@ export async function mountStandardViewEditor(
   const capture: ReactElement = <EditorRefPlugin editorRef={lexicalRef} />;
   await act(async () => {
     render(
-      <Editor ref={ref} defaultUsj={usj} options={{ view: getViewOptions(STANDARD_VIEW_MODE) }}>
+      <Editor ref={ref} defaultUsj={usj} options={{ view: requireStandardViewOptions() }}>
         {capture}
       </Editor>,
     );
@@ -1145,6 +1163,24 @@ export async function mountStandardViewEditor(
   if (!lexicalRef.current) throw new Error("lexical editor was not captured");
   return { ref, lexical: lexicalRef.current };
 }
+```
+
+- [ ] **Step 2: Write the failing test**
+
+Create `packages/platform/src/editor/settledGetUsj.test.tsx`:
+
+```tsx
+/**
+ * `getUsj()` is settled, uniformly and without side effects. Uniform means there is no caret-held
+ * exception: a half-typed attribute run settles to the literal content those bytes mean, even while
+ * the caret sits inside it. Without side effects means the editor still shows the pending edit
+ * afterwards — reading the document must never settle it under the user.
+ */
+import { mountStandardViewEditor, spanUsj } from "./settledGetUsj.test-helpers";
+import { MarkerObject, Usj } from "@eten-tech-foundation/scripture-utilities";
+import { act } from "@testing-library/react";
+import { $getRoot, $isTextNode } from "lexical";
+import { $isCharNode, $isParaNode } from "shared";
 
 /** The `\nd` span's USJ entry in a doc shaped like `spanUsj`, or undefined when it is gone. */
 function ndSpanOf(usj: Usj | undefined): MarkerObject | undefined {
@@ -1212,15 +1248,15 @@ describe("settled getUsj — uniform settling", () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails, then passes**
+- [ ] **Step 3: Run test to verify it fails, then passes**
 
 Run: `cd packages/platform && env -u _VOLTA_TOOL_RECURSION pnpm vitest run settledGetUsj`
 Expected: PASS if Tasks 3–4 are correct. This suite is a CONTRACT pin, so apply the revert test rather than accepting a green-on-first-run: temporarily change `getUsj()` in `Editor.tsx` to `return editedUsjRef.current;` unconditionally, re-run, confirm BOTH tests fail, then restore the implementation and re-run to green. Record the observed failure messages in the commit body.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
-git add packages/platform/src/editor/settledGetUsj.test.tsx
+git add packages/platform/src/editor/settledGetUsj.test-helpers.tsx packages/platform/src/editor/settledGetUsj.test.tsx
 git commit -m "$(cat <<'EOF'
 test(platform): pin uniform, side-effect-free settled getUsj output
 
@@ -1239,8 +1275,8 @@ The named risk of this wave is that the virtual settle's materialize half drifts
 - Modify: `packages/platform/src/editor/settledGetUsj.test.tsx` (Task 6)
 
 **Interfaces:**
-- Consumes: `mountStandardViewEditor(usj)` (Task 6); `EditorRef.getUsj()`, `EditorRef.commitPendingMarkerEdits()`.
-- Produces: nothing exported.
+- Consumes: `mountStandardViewEditor(usj)` from `./settledGetUsj.test-helpers` (Task 6); `EditorRef.getUsj()`, `EditorRef.commitPendingMarkerEdits()`.
+- Produces: `pendingShapes: PendingShape[]` and `$textContaining(needle)` inside `settledGetUsj.test.tsx`, reused by Task 8's describe block in the same file.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1388,15 +1424,16 @@ EOF
 ## Task 8: The standing acceptance — settled output is a Tier-2 fixed point
 
 **Files:**
+- Modify: `packages/platform/src/editor/settledGetUsj.test-helpers.tsx` (Task 6)
 - Modify: `packages/platform/src/editor/settledGetUsj.test.tsx` (Tasks 6, 7)
 
 **Interfaces:**
-- Consumes: `pendingShapes` and `mountStandardViewEditor` (Tasks 6, 7); `serializeEditorState` from `./adaptors/usj-editor.adaptor`, `$rebuildParas`/`Tier2Context` from `./markerEdit/tier2Rebuild.utils`, `createBasicTestEnvironment` from `libs/shared/src/nodes/usj/test.utils`, `usjReactNodes` from `shared-react`.
-- Produces: nothing exported.
+- Consumes: `pendingShapes` (Task 7) and `mountStandardViewEditor`/`requireStandardViewOptions` (Task 6); `serializeEditorState` from `./adaptors/usj-editor.adaptor`, `$rebuildParas`/`Tier2Context` from `./markerEdit/tier2Rebuild.utils`, `createBasicTestEnvironment` from `libs/shared/src/nodes/usj/test.utils`, `usjReactNodes` from `shared-react`.
+- Produces (added to the helpers file, reused by Task 9): `expectTier2FixedPoint(usj: Usj): void` — re-loads settled output into a fresh headless editor and asserts no paragraph rebuilds.
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Add the fixed-point assertion to the shared harness**
 
-Append to `packages/platform/src/editor/settledGetUsj.test.tsx`:
+Append to `packages/platform/src/editor/settledGetUsj.test-helpers.tsx`:
 
 ```tsx
 /** Load `usj` into a fresh headless standard-view editor; mirrors tier2Rebuild.corpus.test.tsx. */
@@ -1409,12 +1446,46 @@ function loadHeadless(usj: Usj): LexicalEditor {
   return editor;
 }
 
-function requireStandardViewOptions() {
-  const options = getViewOptions(STANDARD_VIEW_MODE);
-  if (!options) throw new Error("Standard view options are required for these tests.");
-  return options;
+/**
+ * Assert `usj` is a Tier-2 fixed point: re-loaded on its own, every paragraph REFUSES a rebuild
+ * (returns false) and mutates nothing. Anything else means a consumer was handed USJ that still had
+ * settling left in it, which is the standing acceptance for settled output.
+ */
+export function expectTier2FixedPoint(usj: Usj): void {
+  const headless = loadHeadless(usj);
+  const context: Tier2Context = {
+    viewOptions: requireStandardViewOptions(),
+    getMarker: bundledGetMarker,
+  };
+  const changed: string[] = [];
+  headless.update(
+    () => {
+      $getRoot()
+        .getChildren()
+        .filter($isParaNode)
+        .forEach((para, index) => {
+          if ($rebuildParas([para], context)) changed.push(`#${index} \\${para.getMarker()}`);
+        });
+    },
+    { discrete: true },
+  );
+  expect(changed).toEqual([]);
 }
+```
 
+Add the imports the helpers file now needs: `initialize as initializeSerialize, reset, serializeEditorState` from `./adaptors/usj-editor.adaptor`; `$rebuildParas, Tier2Context` from `./markerEdit/tier2Rebuild.utils`; `$getRoot` from `lexical`; `$isParaNode, getMarker as bundledGetMarker, TypedMarkNode` from `shared`; `usjReactNodes` from `shared-react`; `expect` from `vitest`; and the deep test-utils import with the boundary escape the corpus test already uses:
+
+```tsx
+// Reaching inside only for tests.
+// eslint-disable-next-line @nx/enforce-module-boundaries
+import { createBasicTestEnvironment } from "../../../../libs/shared/src/nodes/usj/test.utils";
+```
+
+- [ ] **Step 2: Write the failing test**
+
+Append to `packages/platform/src/editor/settledGetUsj.test.tsx` (adding `expectTier2FixedPoint` to the existing `./settledGetUsj.test-helpers` import):
+
+```tsx
 describe("settled getUsj — output is always a Tier-2 fixed point", () => {
   it.each(pendingShapes)("$name", async ({ usj, $edit }) => {
     const { ref, lexical } = await mountStandardViewEditor(usj);
@@ -1426,56 +1497,27 @@ describe("settled getUsj — output is always a Tier-2 fixed point", () => {
 
     const settled = ref.current?.getUsj();
     if (!settled) throw new Error("expected settled USJ");
-
-    // Re-load the settled output on its own and ask Tier 2 to rebuild every paragraph: a fixed
-    // point refuses (returns false) and mutates nothing. Anything else means a consumer was handed
-    // USJ that still had settling left in it.
-    const headless = loadHeadless(settled);
-    const context: Tier2Context = {
-      viewOptions: requireStandardViewOptions(),
-      getMarker: bundledGetMarker,
-    };
-    const changed: string[] = [];
-    headless.update(
-      () => {
-        $getRoot()
-          .getChildren()
-          .filter($isParaNode)
-          .forEach((para, index) => {
-            if ($rebuildParas([para], context)) changed.push(`#${index} \\${para.getMarker()}`);
-          });
-      },
-      { discrete: true },
-    );
-    expect(changed).toEqual([]);
+    expectTier2FixedPoint(settled);
   });
 });
 ```
 
-Add the imports: `initialize as initializeSerialize, reset, serializeEditorState` from `./adaptors/usj-editor.adaptor`; `$rebuildParas, Tier2Context` from `./markerEdit/tier2Rebuild.utils`; `getMarker as bundledGetMarker, TypedMarkNode` from `shared`; `usjReactNodes` from `shared-react`; and the deep test-utils import with the boundary escape the corpus test already uses:
-
-```tsx
-// Reaching inside only for tests.
-// eslint-disable-next-line @nx/enforce-module-boundaries
-import { createBasicTestEnvironment } from "../../../../libs/shared/src/nodes/usj/test.utils";
-```
-
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 3: Run test to verify it fails**
 
 Run: `cd packages/platform && env -u _VOLTA_TOOL_RECURSION pnpm vitest run settledGetUsj`
 Expected: falsifiability check as in Tasks 6–7 (unconditional `editedUsjRef.current` → every shape reports a changed paragraph). Then restore and confirm green.
 
 A genuine failure here names a shape whose settled output still re-tokenizes — fix `virtualSettle.utils.ts` (or the scope walk) rather than skip-listing it. The corpus test's skip-list convention (named mechanism, never a blind skip) applies to this property too.
 
-- [ ] **Step 3: Run the whole platform package**
+- [ ] **Step 4: Run the whole platform package**
 
 Run: `cd packages/platform && env -u _VOLTA_TOOL_RECURSION pnpm vitest run`
 Expected: PASS, corpus 141/141 with 0 skips.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add packages/platform/src/editor/settledGetUsj.test.tsx
+git add packages/platform/src/editor/settledGetUsj.test-helpers.tsx packages/platform/src/editor/settledGetUsj.test.tsx
 git commit -m "$(cat <<'EOF'
 test(platform): pin settled getUsj output as a Tier-2 fixed point
 
@@ -1486,11 +1528,524 @@ EOF
 
 ---
 
-## Task 9: Backlog item 4 — the verse-9 `\nd` span, editor-side capture
+## Task 9: The transient-input API
+
+An in-editor command surface can have input in flight that it — not the document — owns: the marker palette's trigger literal (`\` + typed filter) sits in the paragraph only until the palette's apply consumes it or the session is dismissed. Settled `getUsj()` would otherwise tokenize those bytes into a real structure (an unknown marker in body text tokenizes as a PARAGRAPH), and a save taken mid-session would write that garbage paragraph to disk.
+
+The fix is a first-class declaration, the analogue of an IME composition string: the surface tells the editor which in-progress bytes it will consume or discard, and the settle subtracts exactly those bytes from the fragment before tokenizing. Nothing else changes — not the editor state, not the screen, not `onUsjChange`, not the OT deltas.
+
+**The declaration is advisory, and its verification is the load-bearing safety property.** At every `getUsj()` the editor re-resolves the declaration against the live caret and the live node text. If it does not verify — the caret moved off the node, the bytes before the caret are not exactly the declared run, the node is gone or already settled, or the host simply forgot to clear — the editor IGNORES the declaration and settles normally. The asymmetry is deliberate: a stale declaration costs at most one save containing a visible phantom marker the user can see and delete, whereas a declaration trusted blindly could silently delete real user content. Never trade the second risk for the first.
+
+**Where the declaration lives, and why not the `pendedDisplayOwners` side channel.** That WeakMap exists because its writer (the platform marker-edit engine) and its readers (the self-healing syncs in `shared`/`shared-react`) sit on opposite sides of a module boundary that forbids a direct import — an editor-scoped side channel is the workaround for an import cycle, not a preferred pattern. The transient declaration has no such constraint: its writer (`Editor.tsx`) and its reader (`virtualSettle.utils.ts`) are both in `packages/platform`. So it lives in a `useRef` on the `Editor` component and is threaded explicitly into the one call that needs it. That keeps per-editor scoping automatic (the ref is per component instance, so the main editor and the footnote popover cannot see each other's declaration), needs no unmount bookkeeping, and — decisively — keeps `$settledUsj` a pure function of its arguments, which is exactly what the equivalence and fixed-point properties in Tasks 7–8 depend on.
+
+**Files:**
+- Modify: `packages/platform/src/editor/editor.model.ts` (the `EditorRef` members added in Task 4)
+- Modify: `packages/platform/src/editor/Editor.tsx` (the `getUsj()` from Task 4; refs at :152-159)
+- Modify: `packages/platform/src/editor/markerEdit/virtualSettle.utils.ts` (Tasks 3, 5)
+- Test: `packages/platform/src/editor/transientInput.test.tsx` (create)
+
+**Interfaces:**
+- Consumes: `$buildParaFragment`/`$buildNoteFragment` → `FragmentAccumulator` with `spans: FragmentSpan[]` (`{ key, start, end, isSentinel }`, absolute offsets into `fragment.text`) from `./tier2Rebuild.utils`; `$settleScopeForNode` (Task 2); `mountStandardViewEditor`, `expectTier2FixedPoint` from `./settledGetUsj.test-helpers` (Tasks 6, 8).
+- Produces:
+  - `export type TransientInput = { kind: "marker-literal"; run: string };` (in `editor.model.ts`)
+  - `setTransientInput(input: TransientInput | undefined): void;` on `EditorRef`
+  - `$settledUsj(serializedState: SerializedEditorState, pendedKeys: ReadonlySet<NodeKey>, context: Tier2Context, transientInput?: TransientInput): Usj | undefined` — the Task-3 function, extended with a fourth parameter.
+
+- [ ] **Step 1: Write the failing test**
+
+Create `packages/platform/src/editor/transientInput.test.tsx`:
+
+```tsx
+/**
+ * `setTransientInput` — in-progress input an in-editor command surface owns. While declared, the
+ * settled output excludes those bytes; the document keeps them for the surface to consume. The
+ * declaration is re-verified at every read, and every way it can go stale must degrade to "ignored,
+ * settle normally" — a visible phantom marker in one save, never silently dropped content.
+ */
+import { expectTier2FixedPoint, mountStandardViewEditor } from "./settledGetUsj.test-helpers";
+import { MarkerObject, Usj } from "@eten-tech-foundation/scripture-utilities";
+import { act } from "@testing-library/react";
+import { $getRoot, $setSelection, TextNode } from "lexical";
+
+const paletteUsj: Usj = {
+  type: "USJ",
+  version: "3.1",
+  content: [
+    { type: "book", marker: "id", code: "GEN", content: ["GEN"] },
+    { type: "chapter", marker: "c", number: "1" },
+    { type: "para", marker: "p", content: ["tell them"] },
+    { type: "para", marker: "p", content: ["a second paragraph"] },
+  ],
+};
+
+/** Every text string anywhere in `usj`, flattened — what the save would actually carry. */
+function allText(usj: Usj | undefined): string {
+  const out: string[] = [];
+  const walk = (content: MarkerObject["content"]): void => {
+    content?.forEach((entry) => {
+      if (typeof entry === "string") out.push(entry);
+      else walk(entry.content);
+    });
+  };
+  walk(usj?.content);
+  return out.join("|");
+}
+
+/** Every top-level `para` marker in `usj`, in order. */
+function paraMarkers(usj: Usj | undefined): (string | undefined)[] {
+  return (usj?.content ?? [])
+    .filter((entry): entry is MarkerObject => typeof entry !== "string" && entry.type === "para")
+    .map((entry) => entry.marker);
+}
+
+/** The first text node whose content includes `needle`. */
+function $textContaining(needle: string): TextNode {
+  const node = $getRoot().getAllTextNodes().find((text) => text.getTextContent().includes(needle));
+  if (!node) throw new Error(`no text node containing ${JSON.stringify(needle)}`);
+  return node;
+}
+
+/** Type `run` at the end of the first paragraph's body and leave the caret right after it —
+ * the exact shape a passive palette session produces, one keystroke at a time. */
+async function typePaletteLiteral(
+  lexical: Awaited<ReturnType<typeof mountStandardViewEditor>>["lexical"],
+  run: string,
+): Promise<void> {
+  await act(async () => {
+    lexical.update(() => {
+      const body = $textContaining("tell them");
+      const typed = `tell them${run}`;
+      body.setTextContent(typed);
+      body.select(typed.length, typed.length);
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+}
+
+describe("setTransientInput — declared input is excluded from settled output", () => {
+  it("omits the declared run and still yields a Tier-2 fixed point", async () => {
+    const { ref, lexical } = await mountStandardViewEditor(paletteUsj);
+    act(() => ref.current?.setTransientInput({ kind: "marker-literal", run: "\\q1" }));
+    await typePaletteLiteral(lexical, "\\q1");
+
+    const settled = ref.current?.getUsj();
+    expect(allText(settled)).not.toContain("\\q1");
+    expect(allText(settled)).toContain("tell them");
+    // No phantom paragraph: the document settles as if the trigger had never been typed.
+    expect(paraMarkers(settled)).toEqual(["p", "p"]);
+    expectTier2FixedPoint(settled ?? { type: "USJ", version: "3.1", content: [] });
+
+    // The document still holds the literal for the palette's apply to consume.
+    lexical.getEditorState().read(() => {
+      expect($getRoot().getTextContent()).toContain("\\q1");
+    });
+  });
+
+  it("settles the literal into structure once the declaration is cleared", async () => {
+    const { ref, lexical } = await mountStandardViewEditor(paletteUsj);
+    act(() => ref.current?.setTransientInput({ kind: "marker-literal", run: "\\q1" }));
+    await typePaletteLiteral(lexical, "\\q1");
+    expect(paraMarkers(ref.current?.getUsj())).toEqual(["p", "p"]);
+
+    act(() => ref.current?.setTransientInput(undefined));
+
+    // Undeclared, the same bytes mean what they say: a new `\q1` paragraph.
+    expect(paraMarkers(ref.current?.getUsj())).toEqual(["p", "q1", "p"]);
+  });
+
+  it("tracks the filter across keystrokes when the host re-declares each time", async () => {
+    const { ref, lexical } = await mountStandardViewEditor(paletteUsj);
+
+    act(() => ref.current?.setTransientInput({ kind: "marker-literal", run: "\\" }));
+    await typePaletteLiteral(lexical, "\\");
+    expect(allText(ref.current?.getUsj())).not.toContain("\\");
+
+    act(() => ref.current?.setTransientInput({ kind: "marker-literal", run: "\\q" }));
+    await typePaletteLiteral(lexical, "\\q");
+    expect(allText(ref.current?.getUsj())).not.toContain("\\q");
+
+    act(() => ref.current?.setTransientInput({ kind: "marker-literal", run: "\\q1" }));
+    await typePaletteLiteral(lexical, "\\q1");
+    const settled = ref.current?.getUsj();
+    expect(allText(settled)).not.toContain("\\q");
+    expect(paraMarkers(settled)).toEqual(["p", "p"]);
+    expectTier2FixedPoint(settled ?? { type: "USJ", version: "3.1", content: [] });
+  });
+});
+
+describe("setTransientInput — a stale declaration is ignored, never trusted", () => {
+  it("ignores it when the caret has moved off the declared node", async () => {
+    const { ref, lexical } = await mountStandardViewEditor(paletteUsj);
+    act(() => ref.current?.setTransientInput({ kind: "marker-literal", run: "\\q1" }));
+    await typePaletteLiteral(lexical, "\\q1");
+
+    await act(async () => {
+      lexical.update(() => {
+        $textContaining("a second paragraph").select(0, 0);
+      });
+      await Promise.resolve();
+    });
+
+    // Nothing dropped: the bytes settle to what they say, phantom paragraph and all.
+    expect(paraMarkers(ref.current?.getUsj())).toEqual(["p", "q1", "p"]);
+  });
+
+  it("ignores it when the bytes before the caret are not the declared run", async () => {
+    const { ref, lexical } = await mountStandardViewEditor(paletteUsj);
+    act(() => ref.current?.setTransientInput({ kind: "marker-literal", run: "\\q1" }));
+    // The user typed one more character than the host declared.
+    await typePaletteLiteral(lexical, "\\q12");
+
+    expect(allText(ref.current?.getUsj())).toContain("2");
+    expect(paraMarkers(ref.current?.getUsj())).toEqual(["p", "q12", "p"]);
+  });
+
+  it("ignores it when there is no caret at all", async () => {
+    const { ref, lexical } = await mountStandardViewEditor(paletteUsj);
+    act(() => ref.current?.setTransientInput({ kind: "marker-literal", run: "\\q1" }));
+    await typePaletteLiteral(lexical, "\\q1");
+
+    await act(async () => {
+      lexical.update(() => $setSelection(null));
+      await Promise.resolve();
+    });
+
+    expect(paraMarkers(ref.current?.getUsj())).toEqual(["p", "q1", "p"]);
+  });
+
+  it("ignores it when the literal is already gone and the host never cleared", async () => {
+    const { ref, lexical } = await mountStandardViewEditor(paletteUsj);
+    act(() => ref.current?.setTransientInput({ kind: "marker-literal", run: "\\q1" }));
+    await typePaletteLiteral(lexical, "\\q1");
+
+    // The palette's apply consumed the literal; the host forgot to clear the declaration.
+    await act(async () => {
+      lexical.update(() => {
+        const body = $textContaining("tell them");
+        body.setTextContent("tell them");
+        body.select(9, 9);
+      });
+      await Promise.resolve();
+    });
+
+    const settled = ref.current?.getUsj();
+    expect(allText(settled)).toContain("tell them");
+    expect(paraMarkers(settled)).toEqual(["p", "p"]);
+  });
+});
+
+describe("setTransientInput — the apply hand-off", () => {
+  it("matches the real settle once the literal is consumed and the declaration cleared", async () => {
+    const { ref, lexical } = await mountStandardViewEditor(paletteUsj);
+    act(() => ref.current?.setTransientInput({ kind: "marker-literal", run: "\\q1" }));
+    await typePaletteLiteral(lexical, "\\q1");
+
+    // Apply: the literal prefix is removed and the marker is applied structurally, then the
+    // surface releases its claim — exactly the order the palette's apply path uses.
+    await act(async () => {
+      lexical.update(() => {
+        const body = $textContaining("tell them");
+        body.setTextContent("tell them");
+        body.select(9, 9);
+      });
+      await Promise.resolve();
+    });
+    act(() => {
+      ref.current?.setTransientInput(undefined);
+      ref.current?.formatPara("q1");
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const root = lexical.getRootElement();
+    if (!root) throw new Error("editor root not found");
+    act(() => root.blur());
+    const virtualUsj = ref.current?.getUsj();
+
+    act(() => ref.current?.commitPendingMarkerEdits());
+    expect(virtualUsj).toEqual(ref.current?.getUsj());
+  });
+});
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `cd packages/platform && env -u _VOLTA_TOOL_RECURSION pnpm vitest run transientInput`
+Expected: FAIL — `setTransientInput` is not a function on `EditorRef`.
+
+- [ ] **Step 3: Declare the contract on `EditorRef`**
+
+In `packages/platform/src/editor/editor.model.ts`, add above the `EditorRef` interface:
+
+```ts
+/**
+ * In-progress input an in-editor command surface has declared to the editor. `kind` names the shape
+ * of the claim so more can be added without widening the method; `run` is the exact byte sequence
+ * the surface expects to find immediately before the caret.
+ *
+ * @public
+ */
+export type TransientInput = { kind: "marker-literal"; run: string };
+```
+
+And add this member immediately after `commitPendingMarkerEdits`:
+
+```ts
+  /**
+   * Declares in-progress input that an in-editor command surface (e.g. the marker palette) will
+   * consume or discard — analogous to an IME composition string. While declared,
+   * {@link EditorRef.getUsj} excludes these bytes from its settled output: the containing paragraph
+   * settles as if they were absent. Editor state, on-screen content, `onUsjChange`, and OT deltas
+   * are untouched. One declaration at a time; calling again replaces it; `undefined` clears it.
+   *
+   * The declaration is ADVISORY. It is re-verified against the live caret at every `getUsj()`, and
+   * ignored whenever it does not hold — the caret moved off the node, the bytes immediately before
+   * the caret are not exactly `run`, the node is gone, or the caller forgot to clear. A stale
+   * declaration therefore costs at most one save carrying a visible phantom marker; it can never
+   * silently drop content the user typed. Callers should still clear it as soon as the input is
+   * consumed or the surface closes.
+   */
+  setTransientInput(input: TransientInput | undefined): void;
+```
+
+- [ ] **Step 4: Subtract the declared bytes in the settle**
+
+In `packages/platform/src/editor/markerEdit/virtualSettle.utils.ts`, add `FragmentSpan` to the `./tier2Rebuild.utils` import, `$getSelection`, `$isRangeSelection`, `$isTextNode`, `TextNode` to the `lexical` import, and `import { TransientInput } from "../editor.model";` (a type-only dependency in the other direction from `Editor.tsx`, so no cycle). Then add above `$settledParaNodes`:
+
+```ts
+/** A declaration that VERIFIED against the live tree: the node holding the bytes, the caret offset
+ * they end at, and the bytes themselves. */
+interface TransientLiteral {
+  readonly node: TextNode;
+  readonly caretOffset: number;
+  readonly run: string;
+}
+
+/**
+ * Resolve a declaration against the live caret, or `undefined` when it does not hold. Every check
+ * is a fail-safe: an unverifiable declaration must degrade to "settle normally", because the cost
+ * of ignoring a live declaration is one visible phantom marker while the cost of honoring a stale
+ * one is silently deleting bytes the user typed.
+ *
+ * The bytes are located by the CARET, not by the end of the node's text: a palette opened
+ * mid-paragraph leaves the trigger literal with the rest of the sentence still after it, so
+ * "the node's text ends with `run`" would be false in the ordinary mid-sentence case. Requiring the
+ * text ENDING AT THE CARET to end with `run` is the same exact-match check, correct in both
+ * positions. A collapsed selection is required for the same reason the surfaces that declare only
+ * exist for one: a range selection means the surface claimed the keystrokes and nothing landed.
+ */
+function $verifiedTransientLiteral(input: TransientInput | undefined): TransientLiteral | undefined {
+  if (!input || input.run.length === 0) return undefined;
+  const selection = $getSelection();
+  if (!$isRangeSelection(selection) || !selection.isCollapsed()) return undefined;
+  const node = selection.focus.getNode();
+  if (!$isTextNode(node) || !node.isAttached()) return undefined;
+  const caretOffset = selection.focus.offset;
+  if (!node.getTextContent().slice(0, caretOffset).endsWith(input.run)) return undefined;
+  return { node, caretOffset, run: input.run };
+}
+
+/**
+ * `fragment.text` with the declared bytes cut out, or the text UNTOUCHED when this fragment does
+ * not carry them (the declaration names a node in some other scope) or when the cut cannot be made
+ * exactly. The cut is located through the fragment's own spans, so the shared fragment builder is
+ * not forked and the real settle is unaffected; the span-length check rejects the one case where a
+ * node's fragment contribution is not length-preserving (a whitespace-only para-prefix separator
+ * substituted for a plain space), rather than cutting at a shifted offset.
+ *
+ * Spans go stale after the cut. Nothing downstream reads them — the sentinel substitution walks the
+ * tokenized output's placeholders in ORDER, not by offset — and the cut can never remove a
+ * placeholder, since the removed bytes were verified equal to `run`.
+ */
+function fragmentTextWithoutTransient(
+  fragment: FragmentAccumulator,
+  transient: TransientLiteral,
+): string {
+  const key = transient.node.getKey();
+  const span: FragmentSpan | undefined = fragment.spans.find(
+    (candidate) => !candidate.isSentinel && candidate.key === key,
+  );
+  if (!span) return fragment.text;
+  if (span.end - span.start !== transient.node.getTextContentSize()) return fragment.text;
+  const cutEnd = span.start + transient.caretOffset;
+  const cutStart = cutEnd - transient.run.length;
+  if (cutStart < span.start) return fragment.text;
+  if (fragment.text.slice(cutStart, cutEnd) !== transient.run) return fragment.text;
+  return fragment.text.slice(0, cutStart) + fragment.text.slice(cutEnd);
+}
+```
+
+Then thread it through the two scope settlers and the entry point:
+
+(a) `$settledParaNodes` gains a fourth parameter and uses the reduced text:
+
+```ts
+function $settledParaNodes(
+  para: ParaNode,
+  sites: Map<NodeKey, SerializedSite>,
+  context: Tier2Context,
+  transient: TransientLiteral | undefined,
+): SerializedLexicalNode[] | undefined {
+  const { viewOptions, getMarker: getMarkerFn, logger } = context;
+  const fragment = $buildParaFragment(para, getMarkerFn);
+  if (!fragment) return undefined;
+  const fragmentText = transient
+    ? fragmentTextWithoutTransient(fragment, transient)
+    : fragment.text;
+  const content: MarkerContent[] = usfmFragmentToUsjContent(fragmentText, {
+    getMarker: getMarkerFn,
+  });
+```
+
+The rest of the function is unchanged.
+
+(b) `$settledNoteContent` takes the same fourth parameter and applies the same substitution to `out.text`:
+
+```ts
+function $settledNoteContent(
+  note: NoteNode,
+  sites: Map<NodeKey, SerializedSite>,
+  context: Tier2Context,
+  transient: TransientLiteral | undefined,
+): { rebuilt: SerializedLexicalNode[]; contentNodes: LexicalNode[] } | undefined {
+  const { viewOptions, getMarker: getMarkerFn, logger } = context;
+  const built = $buildNoteFragment(note, getMarkerFn);
+  if (!built) return undefined;
+  const { out, contentNodes } = built;
+  if (contentNodes.length === 0) return undefined;
+  const fragmentText = transient ? fragmentTextWithoutTransient(out, transient) : out.text;
+  const content: MarkerContent[] = usfmFragmentToUsjContent(fragmentText, {
+    getMarker: getMarkerFn,
+    isNoteContext: true,
+  });
+```
+
+The rest of the function is unchanged.
+
+(c) `$settledUsj` gains the fourth parameter, treats a verified declaration as a settle scope of its own, and passes the transient down:
+
+```ts
+export function $settledUsj(
+  serializedState: SerializedEditorState,
+  pendedKeys: ReadonlySet<NodeKey>,
+  context: Tier2Context,
+  transientInput?: TransientInput,
+): Usj | undefined {
+  const transient = $verifiedTransientLiteral(transientInput);
+  if (pendedKeys.size === 0 && !transient) return undefined;
+
+  const paraScopes = new Map<NodeKey, ParaNode>();
+  const noteScopes = new Map<NodeKey, NoteNode>();
+  const addScope = (node: LexicalNode): void => {
+    const scope = $settleScopeForNode(node);
+    if (!scope) return;
+    if ($isNoteNode(scope)) noteScopes.set(scope.getKey(), scope);
+    else paraScopes.set(scope.getKey(), scope);
+  };
+  for (const key of pendedKeys) {
+    const node = $getNodeByKey(key);
+    if (node?.isAttached()) addScope(node);
+  }
+  // A verified declaration settles its own scope even when nothing there is pending: the whole
+  // point is that the declared bytes never reach a consumer, and the paragraph they sit in may
+  // otherwise be perfectly settled already.
+  if (transient) addScope(transient.node);
+  if (paraScopes.size === 0 && noteScopes.size === 0) return undefined;
+```
+
+and the two loops pass `transient` through:
+
+```ts
+    const built = $settledNoteContent(note, sites, context, transient);
+```
+```ts
+    const rebuilt = $settledParaNodes(para, sites, context, transient);
+```
+
+- [ ] **Step 5: Hold the declaration and honor it in `getUsj()`**
+
+In `packages/platform/src/editor/Editor.tsx`:
+
+(a) Add `TransientInput` to the existing `./editor.model` import (line 4: `EditorOptions, EditorProps, EditorRef`).
+
+(b) Add the holder beside the other refs (after `expandedNoteKeyRef` at line 156):
+
+```tsx
+  // In-progress input an in-editor command surface has claimed (see `EditorRef.setTransientInput`).
+  // A per-instance ref, not an editor-scoped side channel: writer and reader are both in this
+  // package, so threading it explicitly into the settle keeps that computation a pure function of
+  // its arguments and keeps two Editor instances (main and footnote popover) independent for free.
+  const transientInputRef = useRef<TransientInput | undefined>(undefined);
+```
+
+(c) Add the method immediately after `commitPendingMarkerEdits` in the `useImperativeHandle` object:
+
+```tsx
+    setTransientInput(input) {
+      transientInputRef.current = input;
+    },
+```
+
+(d) Replace the `getUsj()` body from Task 4 with:
+
+```tsx
+    getUsj() {
+      const editor = editorRef.current;
+      if (!editor) return editedUsjRef.current;
+      // Nothing pending and nothing declared: the cached serialization IS the settled document, and
+      // skipping the recompute keeps the common read as cheap as it has always been.
+      const pendedKeys = getPendedDisplayOwners(editor);
+      const transientInput = transientInputRef.current;
+      if ((!pendedKeys || pendedKeys.size === 0) && !transientInput) return editedUsjRef.current;
+      // `getEditorState().read`, NOT `editor.read` - the latter force-flushes any in-flight update
+      // mid-dispatch, and this is called from host save paths that can run during one.
+      const editorState = editor.getEditorState();
+      const serializedState = editorState.toJSON();
+      return (
+        editorState.read(() =>
+          $settledUsj(
+            serializedState,
+            pendedKeys ?? new Set<string>(),
+            { viewOptions, getMarker: markerLookup, logger },
+            transientInput,
+          ),
+        ) ?? editedUsjRef.current
+      );
+    },
+```
+
+- [ ] **Step 6: Run tests to verify they pass**
+
+Run: `cd packages/platform && env -u _VOLTA_TOOL_RECURSION pnpm vitest run transientInput settledGetUsj virtualSettle Editor.test`
+Expected: PASS. The staleness tests are the ones that matter most — if any of them reports a MISSING `\q1` paragraph rather than a present one, the verification is too permissive and is dropping user content; fix `$verifiedTransientLiteral` before moving on.
+
+- [ ] **Step 7: Run the whole platform package**
+
+Run: `cd packages/platform && env -u _VOLTA_TOOL_RECURSION pnpm vitest run`
+Expected: PASS, corpus 141/141 with 0 skips.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add packages/platform/src/editor/editor.model.ts packages/platform/src/editor/Editor.tsx packages/platform/src/editor/markerEdit/virtualSettle.utils.ts packages/platform/src/editor/transientInput.test.tsx
+git commit -m "$(cat <<'EOF'
+feat(platform): declare transient command-surface input, excluded from settled USJ
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+EOF
+)"
+```
+
+---
+
+## Task 10: Backlog item 4 — the verse-9 `\nd` span, editor-side capture
 
 The handoff's item 4: in the E2E sample project (WEB, Luke 4) the pre-existing span `\nd come togedda\nd*` in verse 9 (arriving as `content[16]`) makes the editor↔PDP lossy warn fire on every full-chapter save. ParatextData is already exonerated by the C# pin `c-sharp-tests/Projects/NdSpanRoundTripCaptureTests.cs`, whose finding names the inner trailing space before the closer as the prime suspect and the divergence as live-editing-only.
 
-Planning-time probes (run 2026-08-07, discarded after) additionally cleared THREE editor-side pipelines for the exact suspect shape `\nd come togedda \nd*`: the static USJ→editor-state→USJ adaptor round trip, the same round trip with the real plugin stack mounted and an edit driven in the same paragraph, and the Tier-2 fragment tokenization (`usfmFragmentToUsjContent`). `usxStringToUsj`/`usjToUsxString` were clean too. This task converts those probes into permanent pins, so the live re-verification in Task 14 starts from a known-clean editor and any remaining divergence is attributable.
+Planning-time probes (run 2026-08-07, discarded after) additionally cleared THREE editor-side pipelines for the exact suspect shape `\nd come togedda \nd*`: the static USJ→editor-state→USJ adaptor round trip, the same round trip with the real plugin stack mounted and an edit driven in the same paragraph, and the Tier-2 fragment tokenization (`usfmFragmentToUsjContent`). `usxStringToUsj`/`usjToUsxString` were clean too. This task converts those probes into permanent pins, so the live re-verification in Task 15 starts from a known-clean editor and any remaining divergence is attributable.
 
 **Files:**
 - Create: `packages/platform/src/editor/markerEdit/ndInnerTrailingSpace.test.tsx`
@@ -1648,13 +2203,13 @@ EOF
 
 ---
 
-## Task 10: Editor-repo wave gate, and a build the host can consume
+## Task 11: Editor-repo wave gate, and a build the host can consume
 
 **Files:** none modified (verification + publish only).
 
 **Interfaces:**
-- Consumes: everything from Tasks 1–9.
-- Produces: a yalc-published `@eten-tech-foundation/platform-editor` build carrying settled `getUsj()`, which Tasks 11–14 consume in paranext-core.
+- Consumes: everything from Tasks 1–10.
+- Produces: a yalc-published `@eten-tech-foundation/platform-editor` build carrying settled `getUsj()` and `setTransientInput`, which Tasks 12–15 consume in paranext-core.
 
 - [ ] **Step 1: Repo gate**
 
@@ -1683,14 +2238,14 @@ env -u _VOLTA_TOOL_RECURSION npx nx extract-api @eten-tech-foundation/platform-e
 npx yalc publish
 ```
 
-Expected: exit code 0 for each; the API report under `packages/platform/etc/` now shows the updated `getUsj` TSDoc. Build BEFORE extract-api — the API extractor consumes the build output.
+Expected: exit code 0 for each; the API report under `packages/platform/etc/` now shows the updated `getUsj` TSDoc plus the new `setTransientInput` member and `TransientInput` type. Build BEFORE extract-api — the API extractor consumes the build output.
 
 - [ ] **Step 4: Commit any API-report churn**
 
 ```bash
 git add packages/platform/etc
 git commit -m "$(cat <<'EOF'
-chore(platform): refresh the API report for the settled getUsj contract
+chore(platform): refresh the API report for the settled getUsj and transient-input contracts
 
 Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
 EOF
@@ -1701,7 +2256,7 @@ If `git status` reports nothing to commit, skip this step.
 
 ---
 
-## Task 11: Retire the mutating pre-save settle (paranext-core)
+## Task 12: Retire the mutating pre-save settle (paranext-core)
 
 **Files (all paranext-core):**
 - Modify: `extensions/src/platform-scripture-editor/src/debounced-pdp-save.util.ts` (155 lines; `commitPendingMarkerEdits` field at :39-40, call at :153, doc at :107-133)
@@ -1709,8 +2264,8 @@ If `git status` reports nothing to commit, skip this step.
 - Test: `extensions/src/platform-scripture-editor/src/debounced-pdp-save.util.test.ts` (298 lines; the three call sites asserting on `commitPendingMarkerEdits` at :40, :65, :87)
 
 **Interfaces:**
-- Consumes: `EditorRef.getUsj(): Usj | undefined` — now settled (editor Task 4).
-- Produces: `interface DebouncedPdpSaveParams` WITHOUT `commitPendingMarkerEdits`; `performDebouncedPdpSave(params: DebouncedPdpSaveParams): void` unchanged otherwise.
+- Consumes: `EditorRef.getUsj(): Usj | undefined` — now settled (editor Tasks 4, 9).
+- Produces: `interface DebouncedPdpSaveParams` WITHOUT `commitPendingMarkerEdits`; `performDebouncedPdpSave(params: DebouncedPdpSaveParams): void` unchanged otherwise. Task 13 removes two more fields (`isPaletteSessionOpen`, `paletteLiteralRun`).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1812,104 +2367,258 @@ EOF
 
 ---
 
-## Task 12: Palette-session saves must read the RAW editor USJ (paranext-core)
+## Task 13: Declare the palette's in-progress literal; delete the strip plumbing (paranext-core)
 
-Settled `getUsj()` breaks an existing protection. A passive palette session leaves its trigger literal (`\` + typed filter) in the document for the palette's apply to consume, and `resolveUsjToSaveToPdp` strips that literal from the SAVED copy by finding it as a STRING. Once `getUsj()` settles, a filter like `\q1` is no longer a string in the output — it has become a real paragraph — so the strip silently finds nothing and the garbage paragraph the strip exists to prevent reaches the PDP. `performDebouncedPdpSave`'s palette branch is already safe (it saves the SCHEDULED raw USJ), but `saveUsjToPdpIfUpdated`'s default argument reads `getUsj()` and is reached by `useEditorPdpSync`'s push-back and the failed-save retry while a session is open.
+The host currently defends the PDP from a passive palette session's trigger literal by finding it as a STRING in the outgoing USJ and cutting it out (`stripLastLiteralRun`/`stripPaletteLiteral`, plus a `paletteLiteralRun` argument threaded through two save paths). That is a workaround for the editor not knowing the literal was in flight — and it stops working against settled output anyway, since the settle turns `\q1` into a real paragraph that no string search can find.
+
+`setTransientInput` (editor Task 9) replaces it with a declaration. The host tells the editor which bytes the palette owns, the editor's settle subtracts exactly those bytes, and everything downstream — the debounced save, `useEditorPdpSync`'s push-back, the failed-save retry — gets a correct document with no special casing at all. So `isPaletteSessionOpen` and `paletteLiteralRun` both leave `DebouncedPdpSaveParams`: with the literal already excluded upstream, a palette-open save is an ordinary save, and reading the editor is strictly fresher than replaying the snapshot captured at the keystroke.
 
 **Files (all paranext-core):**
-- Modify: `extensions/src/platform-scripture-editor/src/platform-scripture-editor.web-view.tsx` (`saveUsjToPdpIfUpdatedInternal` at :2001, `handleEditorialUsjChange` at :2236-2255)
+- Modify: `extensions/src/platform-scripture-editor/src/debounced-pdp-save.util.ts` (`isPaletteSessionOpen`/`paletteLiteralRun` fields at :27-38, `stripLastLiteralRun` at :52-72, `stripPaletteLiteral` at :80-82, `resolveUsjToSaveToPdp` at :98-105, the two strip branches at :145-152)
+- Modify: `extensions/src/platform-scripture-editor/src/platform-scripture-editor.web-view.utils.ts` (new pure helper)
+- Modify: `extensions/src/platform-scripture-editor/src/platform-scripture-editor.web-view.tsx` (`openMarkerPalette` at :1546-1619, `openEnterPalette` at :1626-1658, the while-open keydown branch at :1736-1742, `resolveUsjToSaveToPdp` call at :2012-2018, the debounce payload at :2188-2196)
+- Test: `extensions/src/platform-scripture-editor/src/platform-scripture-editor.web-view.utils.test.ts`
 - Test: `extensions/src/platform-scripture-editor/src/debounced-pdp-save.util.test.ts`
 
 **Interfaces:**
-- Consumes: `resolveUsjToSaveToPdp(usjFromEditor: Usj, usjFromPdp: Usj | undefined, paletteLiteralRun: string | undefined): Usj | undefined` (`debounced-pdp-save.util.ts:98`).
-- Produces: `latestRawEditorUsj: MutableRefObject<Usj | undefined>` inside the web view — the last un-settled serialization the editor reported through `onUsjChange`.
+- Consumes: `EditorRef.setTransientInput(input: TransientInput | undefined): void` and `TransientInput = { kind: "marker-literal"; run: string }` (editor Task 9); `paletteSession: MutableRefObject<{ kind: 'backslash' | 'enter' | 'selection'; filter: string; … } | undefined>` (`platform-scripture-editor.web-view.tsx:422`); `handleMarkerPaletteSessionKeyDown(event, session, driver): MarkerPaletteKeyOutcome` (`lib/platform-bible-react/src/components/advanced/marker-palette-keydown.util.ts:113`), which mutates `session.filter` in place and returns `'ended'` when the session is over.
+- Produces:
+  - `export function transientInputForPaletteSession(session: { kind: string; filter: string } | undefined): TransientInput | undefined` (in `platform-scripture-editor.web-view.utils.ts`)
+  - `interface DebouncedPdpSaveParams` without `isPaletteSessionOpen` or `paletteLiteralRun`
+  - `resolveUsjToSaveToPdp(usjFromEditor: Usj, usjFromPdp: Usj | undefined): Usj | undefined` (two parameters)
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `extensions/src/platform-scripture-editor/src/debounced-pdp-save.util.test.ts`:
+Append to `extensions/src/platform-scripture-editor/src/platform-scripture-editor.web-view.utils.test.ts` (adding `transientInputForPaletteSession` to the existing import from `./platform-scripture-editor.web-view.utils`):
 
 ```ts
-describe('resolveUsjToSaveToPdp — settled input cannot be strip-protected', () => {
-  // The regression this guards: a settled USJ no longer carries the palette's trigger literal as
-  // TEXT (the settle turned `\q1` into a real paragraph), so the strip finds nothing and the
-  // garbage paragraph reaches the PDP. Callers must therefore hand this function the RAW editor
-  // serialization whenever a passive palette session is open.
-  it('strips the literal from a RAW editor USJ that still carries it as text', () => {
-    const raw = usjWith('tell them\\q1');
-    expect(resolveUsjToSaveToPdp(raw, undefined, '\\q1')).toEqual(usjWith('tell them'));
+describe('transientInputForPaletteSession', () => {
+  // Only the PASSIVE backslash session leaves bytes in the document: its `\` and every filter
+  // character land as literal text. Focused sessions claim their keys, so there is nothing in the
+  // document to declare.
+  it('declares the trigger plus the current filter for a passive backslash session', () => {
+    expect(transientInputForPaletteSession({ kind: 'backslash', filter: '' })).toEqual({
+      kind: 'marker-literal',
+      run: '\\',
+    });
+    expect(transientInputForPaletteSession({ kind: 'backslash', filter: 'q1' })).toEqual({
+      kind: 'marker-literal',
+      run: '\\q1',
+    });
   });
 
-  it('cannot strip a literal the settle already turned into structure', () => {
-    const settled: Usj = {
-      type: 'USJ',
-      version: '3.1',
-      content: [
-        { type: 'para', marker: 'p', content: ['tell them'] },
-        { type: 'para', marker: 'q1', content: [] },
-      ],
-    };
-    // Unchanged: proof the protection depends on the caller's choice of source, not on this fn.
-    expect(resolveUsjToSaveToPdp(settled, undefined, '\\q1')).toEqual(settled);
+  it('declares nothing for focused sessions or no session at all', () => {
+    expect(transientInputForPaletteSession({ kind: 'enter', filter: 'q1' })).toBeUndefined();
+    expect(transientInputForPaletteSession({ kind: 'selection', filter: 'nd' })).toBeUndefined();
+    expect(transientInputForPaletteSession(undefined)).toBeUndefined();
   });
 });
 ```
 
-- [ ] **Step 2: Run test to verify it captures the hazard**
+- [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd extensions && npx vitest run src/platform-scripture-editor/src/debounced-pdp-save.util.test.ts`
-Expected: PASS. These pin the CONSTRAINT (the strip is source-sensitive); the web-view change below is what satisfies it.
+Run: `cd extensions && npx vitest run src/platform-scripture-editor/src/platform-scripture-editor.web-view.utils.test.ts`
+Expected: FAIL — `transientInputForPaletteSession` is not exported.
 
-- [ ] **Step 3: Feed the raw serialization into the palette-session save**
+- [ ] **Step 3: Add the pure helper**
 
-In `extensions/src/platform-scripture-editor/src/platform-scripture-editor.web-view.tsx`:
+In `extensions/src/platform-scripture-editor/src/platform-scripture-editor.web-view.utils.ts`, add (with `import type { TransientInput } from '@eten-tech-foundation/platform-editor';` alongside the file's existing imports):
 
-(a) Immediately above `saveUsjToPdpIfUpdated` (line 1999), add:
+```ts
+/**
+ * What the editor should be told is in flight for `session`, or `undefined` when nothing is.
+ *
+ * Only a PASSIVE backslash session leaves bytes in the document: the `\` trigger lands as literal
+ * text (that is what makes it passive) and every filter character lands after it, so the document
+ * carries exactly `\` + filter immediately before the caret. Focused sessions — Enter-triggered and
+ * selection-triggered — claim their keystrokes, so nothing of theirs is ever in the document and
+ * they declare nothing.
+ */
+export function transientInputForPaletteSession(
+  session: { kind: string; filter: string } | undefined,
+): TransientInput | undefined {
+  return session?.kind === 'backslash'
+    ? { kind: 'marker-literal', run: `\\${session.filter}` }
+    : undefined;
+}
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `cd extensions && npx vitest run src/platform-scripture-editor/src/platform-scripture-editor.web-view.utils.test.ts`
+Expected: PASS.
+
+- [ ] **Step 5: Wire the declaration into the session lifecycle**
+
+In `extensions/src/platform-scripture-editor/src/platform-scripture-editor.web-view.tsx`, add `transientInputForPaletteSession` to the existing import from `./platform-scripture-editor.web-view.utils`, then:
+
+(a) Add the one-line re-declaration helper immediately below `paletteSessionCounter` (line 438):
 
 ```tsx
   /**
-   * The editor's most recent UN-SETTLED serialization, as reported by `onUsjChange`. `getUsj()`
-   * returns SETTLED USJ, which is what every ordinary save wants — but a passive marker-palette
-   * session deliberately leaves its trigger literal (`\` + filter) in the document for the palette's
-   * apply to consume, and the save path strips that literal by finding it as TEXT. A settle turns
-   * the literal into structure (an unknown marker tokenizes as a paragraph), so the strip would find
-   * nothing and write the garbage paragraph it exists to prevent. While a session is open, saves
-   * therefore read this raw snapshot instead.
+   * Tell the editor what the palette currently owns in the document, so a save that fires mid-
+   * session does not write the in-progress trigger literal to the PDP. Called wherever
+   * `paletteSession.current` is created, mutated, or cleared — the filter changes on every
+   * keystroke, and the editor verifies the declared bytes against its own caret at read time, so a
+   * declaration that lags by even one character is simply ignored.
    */
-  const latestRawEditorUsj = useRef<Usj | undefined>(undefined);
+  const declarePaletteTransientInput = useCallback(() => {
+    editorRef.current?.setTransientInput(transientInputForPaletteSession(paletteSession.current));
+  }, []);
 ```
 
-(b) Change `saveUsjToPdpIfUpdatedInternal`'s default argument (line 2001) to:
+(b) In `openMarkerPalette`, immediately after the `paletteSession.current = passive ? {...} : {...}` assignment (line 1569) and before the `papi.overlays.showCommandPalette` call:
 
 ```tsx
-    function saveUsjToPdpIfUpdatedInternal(
-      usjFromEditor = paletteSession.current
-        ? (latestRawEditorUsj.current ?? editorRef.current?.getUsj())
-        : editorRef.current?.getUsj(),
-    ) {
+      declarePaletteTransientInput();
 ```
 
-(c) In `handleEditorialUsjChange` (line 2236), record the raw payload as the FIRST statement of the callback, before the debounce schedule:
+Add `declarePaletteTransientInput` to that `useCallback`'s dependency array (line 1618).
+
+(c) In `openMarkerPalette`'s `.then` handler, immediately after `clearPaletteSessionIfCurrent(paletteSession, token);` (line 1577), and again in its `.catch` after the same call (line 1614):
 
 ```tsx
-      // `usj` here is the editor's raw serialization of the change it just committed - not the
-      // settled read `getUsj()` performs - so it is the snapshot a palette-session save needs.
-      latestRawEditorUsj.current = usj;
+          declarePaletteTransientInput();
 ```
 
-- [ ] **Step 4: Run the host suites and the typecheck**
+The session ref is already cleared at that point, so the helper resolves to `undefined` and releases the claim — before the apply below removes the literal, which is the order the apply path expects.
+
+(d) In `openEnterPalette`, after the session assignment (line 1630) and after each `clearPaletteSessionIfCurrent` (lines 1642, 1653), add the same `declarePaletteTransientInput();` call, and add it to that `useCallback`'s dependency array (line 1657). An Enter session declares nothing, so these calls make the release explicit rather than relying on the previous session having cleaned up.
+
+(e) In the while-open keydown branch (lines 1736-1742), replace:
+
+```tsx
+          if (outcome === 'ended') paletteSession.current = undefined;
+          return;
+```
+
+with:
+
+```tsx
+          if (outcome === 'ended') paletteSession.current = undefined;
+          // `handleMarkerPaletteSessionKeyDown` mutates `session.filter` in place for a filter
+          // keystroke, so the declaration is refreshed AFTER it returns, on the same keystroke that
+          // put the character in the document.
+          declarePaletteTransientInput();
+          return;
+```
+
+- [ ] **Step 6: Delete the strip plumbing**
+
+In `extensions/src/platform-scripture-editor/src/debounced-pdp-save.util.ts`:
+
+(a) Delete the `isPaletteSessionOpen` field (lines 27-28) and the `paletteLiteralRun` field (lines 29-38) from `DebouncedPdpSaveParams`.
+
+(b) Delete `stripLastLiteralRun` (lines 45-72) and `stripPaletteLiteral` (lines 74-82) entirely.
+
+(c) Replace `resolveUsjToSaveToPdp` (lines 84-105) with:
+
+```ts
+/**
+ * Decides what an imperative "save the editor's USJ if it changed" should write to the PDP: returns
+ * the USJ to save, or `undefined` when there is nothing new to write.
+ *
+ * No literal stripping any more: an in-editor command surface with input in flight declares it to
+ * the editor (`EditorRef.setTransientInput`), which excludes those bytes from the settled USJ this
+ * receives. The caller records the returned USJ as what was sent so the echo comparison converges.
+ */
+export function resolveUsjToSaveToPdp(
+  usjFromEditor: Usj,
+  usjFromPdp: Usj | undefined,
+): Usj | undefined {
+  return areUsjContentsEqualExceptWhitespace(usjFromPdp, usjFromEditor) ? undefined : usjFromEditor;
+}
+```
+
+(d) Replace `performDebouncedPdpSave`'s body's second half so the same-chapter path has no palette branch left:
+
+```ts
+export function performDebouncedPdpSave({
+  usj,
+  scheduledChapterKey,
+  currentChapterKey,
+  capturedSave,
+  latestSave,
+  getEditorUsj,
+}: DebouncedPdpSaveParams): void {
+  if (scheduledChapterKey !== currentChapterKey) {
+    capturedSave(usj);
+    return;
+  }
+  latestSave(getEditorUsj() ?? usj);
+}
+```
+
+(e) Replace `performDebouncedPdpSave`'s doc bullets — the chapter-mismatch one and the same-chapter one Task 12 rewrote — with:
+
+```
+ * - If the chapter changed between scheduling and firing, save the CAPTURED content via the CAPTURED
+ *   save fn (both bound to the chapter the content was typed in) and never touch the editor —
+ *   reading it would pull the new chapter's content, and the current save fn would write it to the
+ *   wrong chapter.
+ * - Otherwise (same chapter), save what the editor shows. `EditorRef.getUsj` already returns it
+ *   settled, and already excludes any in-progress input an open command surface has declared, so
+ *   there is no palette case to special-case and nothing here mutates the document. A pre-save
+ *   settle used to, and that mutation is exactly what made a debounced save able to re-settle an
+ *   explicitly-undone literal.
+```
+
+In `extensions/src/platform-scripture-editor/src/platform-scripture-editor.web-view.tsx`:
+
+(f) Replace the `resolveUsjToSaveToPdp` call (lines 2004-2018) with:
+
+```tsx
+      // An open command surface's in-progress input is excluded by the editor itself
+      // (`setTransientInput`), so what arrives here is already the document we mean to save.
+      const usjToSave = resolveUsjToSaveToPdp(correctEditorUsjVersion(usjFromEditor), usjFromPdp);
+```
+
+(g) Delete the `isPaletteSessionOpen` line (2188) and the `paletteLiteralRun` property with its comment (lines 2189-2196) from the `performDebouncedPdpSave` payload.
+
+- [ ] **Step 7: Shrink the save-util tests**
+
+In `extensions/src/platform-scripture-editor/src/debounced-pdp-save.util.test.ts`:
+
+- Delete the entire `describe('performDebouncedPdpSave — palette literal stripping', …)` block (from line 112 to the end of that describe) and any remaining `resolveUsjToSaveToPdp` case that passes a third argument.
+- Delete the `isPaletteSessionOpen` and `paletteLiteralRun` properties from every remaining `performDebouncedPdpSave({...})` call.
+- Delete the now-meaningless second test (`saves the scheduled content via the latest save fn without settling markers when a palette session is open`) — an open palette is no longer a distinct save path.
+- Keep the chapter-safety test, the same-chapter test (rewritten in Task 12), and the editor-has-no-USJ fallback test.
+- Add one case pinning the two-argument comparison contract:
+
+```ts
+describe('resolveUsjToSaveToPdp', () => {
+  it('returns undefined when the editor content matches the PDP except for whitespace', () => {
+    expect(resolveUsjToSaveToPdp(usjWith('tell them'), usjWith('tell  them'))).toBeUndefined();
+  });
+
+  it('returns the editor content when it differs from the PDP', () => {
+    expect(resolveUsjToSaveToPdp(usjWith('tell them'), usjWith('tell us'))).toEqual(
+      usjWith('tell them'),
+    );
+  });
+});
+```
+
+- [ ] **Step 8: Run the host suites, lint and typecheck**
 
 Run: `cd extensions && npx vitest run src/platform-scripture-editor/src/`
 Expected: PASS.
 
-Run from the paranext-core root: `npm run typecheck`
-Expected: exit code 0.
+Run: `grep -rn "paletteLiteralRun\|stripPaletteLiteral\|stripLastLiteralRun\|isPaletteSessionOpen" extensions/src/`
+Expected: zero hits.
 
-- [ ] **Step 5: Commit**
+Run from the paranext-core root: `npm run typecheck` and `npm run lint`
+Expected: exit code 0 for both.
+
+- [ ] **Step 9: Commit**
 
 ```bash
-git add extensions/src/platform-scripture-editor/src/platform-scripture-editor.web-view.tsx extensions/src/platform-scripture-editor/src/debounced-pdp-save.util.test.ts
+git add extensions/src/platform-scripture-editor/src/debounced-pdp-save.util.ts extensions/src/platform-scripture-editor/src/debounced-pdp-save.util.test.ts extensions/src/platform-scripture-editor/src/platform-scripture-editor.web-view.tsx extensions/src/platform-scripture-editor/src/platform-scripture-editor.web-view.utils.ts extensions/src/platform-scripture-editor/src/platform-scripture-editor.web-view.utils.test.ts
 git commit -m "$(cat <<'EOF'
-fix(scripture-editor): keep palette-literal stripping working against settled USJ
+refactor(scripture-editor): declare the palette literal to the editor; drop the save-path strip
+
+The editor now excludes an open command surface's declared in-progress input from
+its settled USJ, so the save paths no longer search for and cut the literal out.
 
 Co-authored-by: Claude Fable 5 <noreply@anthropic.com>
 EOF
@@ -1918,7 +2627,7 @@ EOF
 
 ---
 
-## Task 13: The lossy warn now means a real defect (paranext-core)
+## Task 14: The lossy warn now means a real defect (paranext-core)
 
 An audit of `use-editor-pdp-sync.hook.ts` against the spec's "simplify away the transient handling that existed solely for unsettled-save echoes": all four transient mechanisms there survive, because none of them is a save-snapshot artifact.
 
@@ -1926,7 +2635,7 @@ An audit of `use-editor-pdp-sync.hook.ts` against the spec's "simplify away the 
 - `lastEditorUsjPushedWhileDeferring` + `lastIncomingUsjDeferred` — the idempotency damping. It terminates the save/echo loop a genuinely non-idempotent round trip sustains, and its incoming-side half is what distinguishes an external writer from our own echo. A settled save makes such loops RARER, not impossible. STAYS as loop protection.
 - `warnedLossyDifferences` (bounded FIFO, `LOSSY_WARN_MEMORY_LIMIT`) — bounds warn spam per distinct difference. STAYS.
 
-What actually went is the pre-save commit plumbing in the SAVE path (Task 11) — the save-snapshot timing machinery. What changes here is meaning: the warn no longer has an "our save was taken mid-edit" explanation, so it names a real round-trip defect and must carry enough detail to act on. Task 14 consumes that detail.
+What actually went is the pre-save commit plumbing in the SAVE path (Task 12) and the palette-literal strip (Task 13) — the save-snapshot timing machinery. What changes here is meaning: the warn no longer has an "our save was taken mid-edit" explanation, so it names a real round-trip defect and must carry enough detail to act on. Task 15 consumes that detail.
 
 **Files (all paranext-core):**
 - Modify: `extensions/src/platform-scripture-editor/src/use-editor-pdp-sync.hook.ts` (392 lines; `describeFirstUsjContentDifference` at :92-107, the warn at :348-354)
@@ -2012,14 +2721,14 @@ EOF
 
 ---
 
-## Task 14: Verse-9 live re-verification and the strict-warn acceptance (paranext-core)
+## Task 15: Verse-9 live re-verification and the strict-warn acceptance (paranext-core)
 
-The spec's acceptance is that the strict warn lands on a WARN-CLEAN sample project. Task 9 cleared every editor-side static pipeline for the suspect span, Task 11 removed the pre-save mutation, and Task 13 made the remaining warn name its own defect in full. This task runs the live check that decides whether backlog item 4 closes.
+The spec's acceptance is that the strict warn lands on a WARN-CLEAN sample project. Task 10 cleared every editor-side static pipeline for the suspect span, Task 12 removed the pre-save mutation, and Task 14 made the remaining warn name its own defect in full. This task runs the live check that decides whether backlog item 4 closes.
 
 **Files:** none by default; a fix (branch B below) modifies whichever side the capture indicts.
 
 **Interfaces:**
-- Consumes: the editor build from Task 10; the host changes from Tasks 11-13.
+- Consumes: the editor build from Task 11; the host changes from Tasks 12-14.
 - Produces: a recorded outcome in `docs/superpowers/specs/2026-08-05-display-run-consolidation-handoff.md` (editor repo) — item 4 closed, or the exact divergence named.
 
 - [ ] **Step 1: Put the settled-getUsj editor build into the running app**
@@ -2063,7 +2772,7 @@ EOF
 
 - [ ] **Step 4B (warn present): fix the named divergence**
 
-The warn now prints `Full sent entry:` and `Full received entry:` untruncated (Task 13), so the divergence is a concrete byte difference between two known JSON documents — not an investigation. Attribute it with the pins already in place:
+The warn now prints `Full sent entry:` and `Full received entry:` untruncated (Task 14), so the divergence is a concrete byte difference between two known JSON documents — not an investigation. Attribute it with the pins already in place:
 
 1. Copy the FULL sent entry into a new case in `packages/platform/src/editor/markerEdit/ndInnerTrailingSpace.test.tsx` and assert the editor's static and live round trips preserve it. If one of them fails, the defect is editor-side at that stage — fix it there and keep the new case as the pin.
 2. If both editor round trips preserve it, the sent entry is correct and the RECEIVED one is the PDP's. Add the sent entry's USFM form as a new `[TestCase]` in `c-sharp-tests/Projects/NdSpanRoundTripCaptureTests.cs` (paranext-core) with the received bytes as the expectation, run `dotnet test c-sharp-tests/`, and fix whichever side the pin indicts.
@@ -2076,7 +2785,7 @@ Use the `app-runner` skill to stop Platform.Bible.
 
 ---
 
-## Task 15: Wave-4 gate
+## Task 16: Wave-4 gate
 
 **Files:** none modified (verification only).
 
@@ -2105,11 +2814,12 @@ Expected: exit code 0 for all three.
 
 Check each off only with the test file and name that proves it:
 
-- `getUsj()` output is always a Tier-2 fixed point → `settledGetUsj.test.tsx`, `settled getUsj — output is always a Tier-2 fixed point`.
-- Virtual settle output === real settle output → `settledGetUsj.test.tsx`, `settled getUsj — virtual settle equals the real settle`.
-- The save-snapshot timing warn class disappears → `debounced-pdp-save.util.test.ts`, `saves the settled editor content via the latest save fn on the same chapter` (no pre-save mutation exists to take a stale snapshot around) plus Task 14's live observation.
+- `getUsj()` output is always a Tier-2 fixed point → `settledGetUsj.test.tsx`, `settled getUsj — output is always a Tier-2 fixed point`; and, with a declaration live, `transientInput.test.tsx`, `omits the declared run and still yields a Tier-2 fixed point`.
+- Virtual settle output === real settle output → `settledGetUsj.test.tsx`, `settled getUsj — virtual settle equals the real settle`; and across the palette hand-off, `transientInput.test.tsx`, `matches the real settle once the literal is consumed and the declaration cleared`.
+- The save-snapshot timing warn class disappears → `debounced-pdp-save.util.test.ts`, `saves the settled editor content via the latest save fn on the same chapter` (no pre-save mutation exists to take a stale snapshot around) plus Task 15's live observation.
 - Pending edits stay pending on screen → `settledGetUsj.test.tsx`, `leaves the document pending after a read, so a later commit still has work to do`; and `virtualSettle.utils.test.tsx`, `settles an abandoned in-place marker rename in the OUTPUT without mutating the editor`.
 - Uniform settling (half-typed `|stuf`) → `settledGetUsj.test.tsx`, `settles a half-typed attribute run to literal content while the caret is still inside it`.
+- A declared in-progress literal never reaches a consumer, and a stale declaration never drops content → `transientInput.test.tsx`, the `setTransientInput — declared input is excluded from settled output` and `setTransientInput — a stale declaration is ignored, never trusted` blocks (all four staleness modes).
 
 - [ ] **Step 4: Push both branches**
 
@@ -2122,12 +2832,14 @@ cd ~/source/repos/workspaces/standard-view/paranext-core && git push
 
 ## Residual behavior worth knowing
 
-Two paths deliberately still save UN-settled bytes, and both are correct:
+One path deliberately still saves UN-settled bytes: **the cross-chapter flush.** `performDebouncedPdpSave`'s chapter-mismatch branch saves the CAPTURED raw USJ, because the editor has already moved to another chapter and cannot be read for the old one. A pending literal serializes as literal bytes, which ParatextData parses — the same documented fallback the suppression window relies on. That branch also no longer strips a palette literal (Task 13 deleted the strip), which is only reachable if a palette session somehow survives a chapter switch; navigation dismisses it, and the fallback above covers the bytes if it ever does not.
 
-1. **The cross-chapter flush.** `performDebouncedPdpSave`'s chapter-mismatch branch saves the CAPTURED raw USJ, because the editor has already moved to another chapter and cannot be read for the old one. A pending literal serializes as literal bytes, which ParatextData parses — the same documented fallback the suppression window relies on.
-2. **A passive palette session** (Task 12), where the un-settled trigger literal is the point and is stripped rather than settled.
+Two scope notes on `setTransientInput`:
 
-Also: the P9-parity idea of calling `commitPendingMarkerEdits()` on a timer is explicitly NOT part of this wave (spec §8: "optional later polish, NOT required"). `commitPendingMarkerEdits` stays on `EditorRef` for hosts that genuinely want the DOCUMENT settled; nothing in paranext-core calls it after Task 11.
+- It affects `getUsj()` ONLY. Nothing about pends, settles, or `commitPendingMarkerEdits` is gated by a declaration, and the existing caller obligation — do not call `commitPendingMarkerEdits` while a palette session is open, because the palette's apply must be the one to consume the literal — stands unchanged.
+- The footnote-editor popover runs its own `Editor` instance with its own palette session. It is not wired in Task 13 because its save path is `getNoteOps`/`replaceEmbedUpdate`, not `getUsj`. The declaration is per-instance (a ref on the component), so wiring it later is additive and cannot leak across editors.
+
+Also: the P9-parity idea of calling `commitPendingMarkerEdits()` on a timer is explicitly NOT part of this wave (spec §8: "optional later polish, NOT required"). `commitPendingMarkerEdits` stays on `EditorRef` for hosts that genuinely want the DOCUMENT settled; nothing in paranext-core calls it after Task 12.
 
 ---
 
@@ -2140,7 +2852,8 @@ File-overlap hazards, from a comparison against `docs/superpowers/plans/2026-08-
 - **No shared file is modified by both plans.** Wave 3 restructures `MarkerEditPlugin.tsx`, `markerEditTier1.utils.ts`, `markerEditTier2Trigger.utils.ts`, `attributeDisplay.utils.ts`, `CharNodePlugin.tsx`, `TextSpacingPlugin.tsx`, and the collab coordinate files, and deletes `displayRunDeletion.utils.ts`. Wave 4 touches none of them — deliberately: Task 1 reuses the EXISTING `registerPendedDisplayOwners` channel rather than adding a new publish path from the engine, which is what keeps this wave out of `MarkerEditPlugin.tsx` entirely.
 - **`libs/shared/src/nodes/usj/index.ts`** is the one file both waves are near. Wave 3 ADDS an export line there (its Task 1); wave 4 needs no edit at all, because `export * from "./pendedDisplayOwners.utils.js";` (line 19) already re-exports the new accessor. No conflict.
 - **`tier2Rebuild.utils.ts`** is wave 4's only edit inside the marker-edit engine, and the spec keeps the tokenizer and the whole Tier-2 fragment/signature machinery explicitly OUT of the registry, so wave 3 does not touch it.
-- **Semantic coupling, one direction only:** wave 3 rewrites `$settlePendedDisplayOwner` into registry dispatch, which is what a REAL settle runs. Wave 4's equivalence property (Task 7) drives the real settle through the public `commitPendingMarkerEdits()` command rather than through that function, so it is implementation-agnostic — but it is also the test most likely to catch a wave-3 regression in settle semantics. Whichever wave lands second, run `settledGetUsj.test.tsx` as part of its gate.
+- **Semantic coupling, one direction only:** wave 3 rewrites `$settlePendedDisplayOwner` into registry dispatch, which is what a REAL settle runs. Wave 4's equivalence property (Task 7) drives the real settle through the public `commitPendingMarkerEdits()` command rather than through that function, so it is implementation-agnostic — but it is also the test most likely to catch a wave-3 regression in settle semantics. Whichever wave lands second, run `settledGetUsj.test.tsx` and `transientInput.test.tsx` as part of its gate.
+- **`editor.model.ts` and `Editor.tsx`** gain the `setTransientInput` member and its holder (Task 9). Wave 3 touches neither file, so the new public surface cannot collide with the registry work.
 - **Both waves end with the same repo gate** (`nx run-many -t lint,typecheck,test` + root `eslint .` + corpus 141/141), so a rebase of one onto the other is verified by re-running that gate; no bespoke merge check is needed.
 
 ---
@@ -2157,22 +2870,27 @@ File-overlap hazards, from a comparison against `docs/superpowers/plans/2026-08-
 | Preserved node's own serialized USJ substituted for its U+FFFC; sentinels serialize in place | 3 (`replaceSerializedSentinels`, pinned by the optbreak-in-place test) |
 | `MarkerEditPlugin` exposes its pending set through the phase-1 side channel | 1 (accessor on the existing channel — decision recorded below) |
 | Uniform, no caret-held exception; half-typed `|stuf` → literal content | 6 |
-| Pending edits stay pending on screen | 4, 6 |
-| One-code-path guarantee, equivalence property test | 7 |
-| Standing acceptance: output is always a Tier-2 fixed point | 8 |
-| `performDebouncedPdpSave` stops calling `commitPendingMarkerEdits`; the trigger is RETIRED not gated | 11 |
-| Save-snapshot timing warn class disappears | 11, 14, 15 |
-| Lossy-warn machinery stays, now signals real defects; transient handling audited | 13 (audit result: all four damping mechanisms stay; only the pre-save commit goes) |
+| Pending edits stay pending on screen | 4, 6, 9 |
+| One-code-path guarantee, equivalence property test | 7, 9 |
+| Standing acceptance: output is always a Tier-2 fixed point | 8, 9 |
+| In-progress command-surface input is declarable and excluded from settled output; stale declarations fail safe | 9 (editor contract), 13 (host wiring) |
+| `performDebouncedPdpSave` stops calling `commitPendingMarkerEdits`; the trigger is RETIRED not gated | 12 |
+| Save-snapshot timing warn class disappears | 12, 13, 15, 16 |
+| Lossy-warn machinery stays, now signals real defects; transient handling audited | 14 (audit result: all four damping mechanisms stay; the pre-save commit and the palette-literal strip go) |
 | `commitPendingMarkerEdits` remains on the editor API; P9 cadence NOT required | 4 (doc), Residual section |
-| Backlog item 4 rides here, capture + fix BEFORE the strict-warn acceptance | 9 (capture/pins) and 14 (live decision + fix), both before the Task 15 acceptance |
-| §9 fixed points untouched | No task modifies the tokenizer, `canonicalAttributeText`, the exclusion gates' semantics, or Tier-2's preserve-or-refuse; the virtual settle REUSES the guard sequence and the corpus test is extended (Task 8), never weakened |
+| Backlog item 4 rides here, capture + fix BEFORE the strict-warn acceptance | 10 (capture/pins) and 15 (live decision + fix), both before the Task 16 acceptance |
+| §9 fixed points untouched | No task modifies the tokenizer, `canonicalAttributeText`, the exclusion gates' semantics, or Tier-2's preserve-or-refuse; the virtual settle REUSES the guard sequence, the transient subtraction happens on the fragment TEXT before the tokenizer sees it (the tokenizer itself is untouched), and the corpus test is extended (Tasks 8, 9), never weakened |
 
-**2. Placeholder scan.** No "TBD", no "add error handling", no "similar to Task N" — each task repeats the code it needs. Task 14 is the only branching task; both branches carry concrete commands and a concrete artifact, and the branch condition is a single observable (does the warn line appear), not an open investigation. Task 3's implementation deliberately leaves `noteScopes` collected-but-unconsumed for one commit; that is stated in the step rather than implied.
+**2. Placeholder scan.** No "TBD", no "add error handling", no "similar to Task N" — each task repeats the code it needs. Task 15 is the only branching task; both branches carry concrete commands and a concrete artifact, and the branch condition is a single observable (does the warn line appear), not an open investigation. Task 3's implementation deliberately leaves `noteScopes` collected-but-unconsumed for one commit; that is stated in the step rather than implied. Task 9 changes three existing function signatures rather than adding new ones; each is written out in full at its new arity instead of being described as "add a parameter".
 
-**3. Type consistency.** `$settledUsj(serializedState, pendedKeys, context)` has the same three parameters wherever it appears (Tasks 3, 4, 5, and both test harnesses). `getPendedDisplayOwners(editor)` returns `ReadonlySet<NodeKey> | undefined` in Task 1's implementation and is consumed as such in Tasks 3 (test harness) and 4. `$settleScopeForNode` returns `ParaNode | NoteNode | undefined` in Task 2 and is narrowed with `$isNoteNode` in both Task 2's `$requestTier2ForNode` and Task 3's scope collection. `Tier2Context` is the existing `{ viewOptions, getMarker, logger? }` in every construction site. `SerializedSite`, `serializedChildren`, `serializedText`, `countSerializedSentinels`, `replaceSerializedSentinels`, and `serializedRunsOf` are defined once in Task 3 and reused unchanged by Task 5's `$settledNoteContent`. `DebouncedPdpSaveParams` loses exactly one field in Task 11 and every call site in the test file loses it in the same step.
+**3. Type consistency.** `$settledUsj` is a three-parameter function `(serializedState, pendedKeys, context)` in Tasks 3–5 and their test harness, and Task 9 extends it — once, explicitly, with the full signature written out — to `(serializedState, pendedKeys, context, transientInput?)`; Task 3's Produces block forward-declares that change so a reader arriving at Task 5 is not surprised. `TransientInput = { kind: "marker-literal"; run: string }` is declared once in `editor.model.ts` (Task 9) and referenced by that exact name in `EditorRef.setTransientInput`, in `virtualSettle.utils.ts`, and in the host helper's return type (Task 13) — the host imports it from `@eten-tech-foundation/platform-editor` rather than restating the shape. `getPendedDisplayOwners(editor)` returns `ReadonlySet<NodeKey> | undefined` in Task 1's implementation and is consumed as such in Tasks 3 (test harness), 4 and 9. `$settleScopeForNode` returns `ParaNode | NoteNode | undefined` in Task 2 and is narrowed with `$isNoteNode` in Task 2's `$requestTier2ForNode` and in Task 3/9's scope collection. `Tier2Context` is the existing `{ viewOptions, getMarker, logger? }` in every construction site. `SerializedSite`, `serializedChildren`, `serializedText`, `countSerializedSentinels`, `replaceSerializedSentinels`, and `serializedRunsOf` are defined once in Task 3 and reused unchanged by Tasks 5 and 9. `TransientLiteral` and `fragmentTextWithoutTransient` are defined once in Task 9 and used by both scope settlers at the same arity. `mountStandardViewEditor`/`requireStandardViewOptions`/`spanUsj` (Task 6) and `expectTier2FixedPoint` (Task 8) live in `settledGetUsj.test-helpers.tsx` and are imported by name in Tasks 6–9. `DebouncedPdpSaveParams` loses `commitPendingMarkerEdits` in Task 12 and `isPaletteSessionOpen`/`paletteLiteralRun` in Task 13, with every call site in the test file updated in the same step each time; `resolveUsjToSaveToPdp` goes from three parameters to two in Task 13, with its single production call site updated there.
 
 ---
 
 ## Execution gate
 
 This plan is NOT approved for execution. It requires TJ's sign-off first (the working convention for every wave of this effort: design → plan → sign-off → implement, with each task reviewed for spec fit and quality).
+
+**Resolved by design, not left as a risk:** planning found that settled `getUsj()` would silently break the host's palette-literal protection, because the strip searches for the literal as a STRING and the settle turns it into structure. The first draft of this plan patched that host-side by routing palette-session saves through a raw-USJ snapshot. TJ replaced that with `setTransientInput` (Task 9): the surface with input in flight declares it, the editor subtracts exactly those bytes at the one place settling happens, and the host's search-and-cut plumbing is deleted outright (Task 13). The hazard is therefore closed at the boundary that owns it rather than compensated for downstream, and the failure mode is inverted from "silently drop content" to "one visible phantom marker", pinned by the four staleness tests.
+
+The risks that remain are the ones the spec already named: the virtual settle's materialize half drifting from the real one (held by Task 7's equivalence property and Task 8's fixed-point property), and the verse-9 divergence needing a live observation before it can be closed (Task 15, with both branches specified).
