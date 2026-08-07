@@ -13,7 +13,7 @@ import {
   $isCharNode,
   $isNoteNode,
   $isParaLikeNode,
-  $isParaMarkerPrefix,
+  $isSynthesizedMarkerNode,
   $isTypedMarkNode,
   $isUnknownNode,
   CharNode,
@@ -78,7 +78,13 @@ function $textNodeTrailingSpaceTransform(node: TextNode): void {
     $isCharNode(nextSibling) ||
     $isTypedMarkNode(parent) ||
     $isTypedMarkNode(nextSibling) ||
-    $isUnknownNode(parent)
+    $isUnknownNode(parent) ||
+    // An adjacent TextNode is the same logical text run (IME composition and annotation-wrap
+    // splits leave runs as multiple nodes, e.g. a segmented composition node that Lexical
+    // won't merge). No structural space belongs inside a run — inserting one corrupts the
+    // word itself (#513, complex scripts worst). This also protects a space-only node from
+    // the placeholder cleanup below: between two text nodes it is real content.
+    $isTextNode(nextSibling)
   )
     return;
 
@@ -127,7 +133,7 @@ function $verseNodeTransform(node: SomeVerseNode): void {
     // space belongs after them — and an inserted plain " " would be exporter-visible USJ
     // content that shifts every content index in the paragraph (see PT-3835). Their visual
     // separation comes from the prefix nodes' own text.
-    !$isParaMarkerPrefix(previousSibling) &&
+    !$isSynthesizedMarkerNode(previousSibling) &&
     // Bare text before a verse gets its structural space from $textNodeTrailingSpaceTransform;
     // text inside an annotation wrapper can't (that transform skips TypedMarkNode parents), so
     // the space is inserted here instead and coalesces onto the same USJ text run.

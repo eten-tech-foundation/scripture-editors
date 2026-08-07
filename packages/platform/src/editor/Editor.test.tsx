@@ -8,8 +8,9 @@ import { flushQueuedEvents } from "./editor-test.utils";
 import { ContentJsonPath, Usj } from "@eten-tech-foundation/scripture-utilities";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { act, render } from "@testing-library/react";
-import { KEY_DOWN_COMMAND, LexicalEditor } from "lexical";
+import { $getRoot, $isTextNode, KEY_DOWN_COMMAND, LexicalEditor, TextNode } from "lexical";
 import { createRef, RefObject, useEffect } from "react";
+import { $isCharNode, $isSomeParaNode, $isSynthesizedMarkerNode, NBSP } from "shared";
 import { vi } from "vitest";
 
 /** USJ with book PSA for Editor sync effect test (clone of usjGen1v1 with book code changed) */
@@ -182,6 +183,70 @@ describe("setAnnotation overload", () => {
   });
 });
 
+describe("removeCharacterMarker guards", () => {
+  async function createReadonlyEditorRefForTesting(): Promise<RefObject<EditorRef | null>> {
+    const ref = createRef<EditorRef>();
+    await act(async () => {
+      render(<Editor ref={ref} defaultUsj={sampleUsj} options={{ isReadonly: true }} />);
+    });
+    if (!ref.current) throw new Error("EditorRef did not mount");
+    return ref;
+  }
+
+  it("throws in readonly mode", async () => {
+    const ref = await createReadonlyEditorRefForTesting();
+    const editor = ref.current;
+    if (!editor) throw new Error("Editor not mounted");
+
+    expect(() => editor.removeCharacterMarker("nd")).toThrow(
+      "Cannot remove character marker in readonly mode",
+    );
+  });
+
+  it("throws for a para marker, which removal can never act on", async () => {
+    const ref = await createEditorRefForTesting();
+    const editor = ref.current;
+    if (!editor) throw new Error("Editor not mounted");
+
+    // Note this is stricter than insertMarker's isUsjMarkerSupported, which accepts "p".
+    expect(() => editor.removeCharacterMarker("p")).toThrow("Unsupported character marker 'p'");
+  });
+
+  it("throws for an unknown marker", async () => {
+    const ref = await createEditorRefForTesting();
+    const editor = ref.current;
+    if (!editor) throw new Error("Editor not mounted");
+
+    expect(() => editor.removeCharacterMarker("zzz")).toThrow("Unsupported character marker 'zzz'");
+  });
+
+  it.each(["ft", "xt"])(
+    "throws for the note-only character marker '%s', which removal always skips",
+    async (marker) => {
+      const ref = await createEditorRefForTesting();
+      const editor = ref.current;
+      if (!editor) throw new Error("Editor not mounted");
+
+      // CharNode.isValidMarker accepts these — VALID_CHAR_MARKERS spreads in the footnote and
+      // cross-reference markers — but they only ever occur inside a NoteNode, which
+      // $getCharNodeToRemove skips. Throwing beats accepting the call and silently doing nothing.
+      expect(() => editor.removeCharacterMarker(marker)).toThrow(
+        `Unsupported character marker '${marker}'`,
+      );
+    },
+  );
+
+  it("returns false without throwing when the marker is omitted and there is no selection", async () => {
+    const ref = await createEditorRefForTesting();
+    const editor = ref.current;
+    if (!editor) throw new Error("Editor not mounted");
+
+    // The return value is what makes this more than a smoke test: a fresh editor has no selection,
+    // so the call must report that it removed nothing rather than merely not crashing.
+    expect(editor.removeCharacterMarker()).toBe(false);
+  });
+});
+
 /** Grabs the underlying Lexical editor so tests can dispatch commands the public ref doesn't expose. */
 function GrabEditor({ onEditor }: { onEditor: (editor: LexicalEditor) => void }): null {
   const [editor] = useLexicalComposerContext();
@@ -268,5 +333,89 @@ describe("undo after a verse-spanning delete (PT-4102 regression)", () => {
     expect(afterUndo).toContain("Alpha ");
     expect(afterUndo).toContain("Bravo");
     expect(afterUndo).toContain('"number":"2"');
+  });
+});
+
+const usjWithCharMarker: Usj = {
+  type: "USJ",
+  version: "3.1",
+  content: [
+    { type: "book", marker: "id", code: "GEN", content: ["Test Book"] },
+    { type: "chapter", marker: "c", number: "1" },
+    {
+      type: "para",
+      marker: "p",
+      content: ["the ", { type: "char", marker: "nd", content: ["Lord"] }, " said"],
+    },
+  ],
+};
+
+/** Selects the whole content of the first `CharNode` in the document. */
+async function selectCharNodeContent(editor: LexicalEditor): Promise<void> {
+  await act(async () => {
+    editor.update(
+      () => {
+        const para = $getRoot().getChildren().find($isSomeParaNode);
+        const charNode = para?.getChildren().find($isCharNode);
+        // Not just `$isTextNode`: `MarkerNode` extends `TextNode`, so under
+        // `markerMode: "editable"` the first match would be the opening `\nd` marker.
+        const textNode = charNode
+          ?.getChildren()
+          .find(
+            (child): child is TextNode => $isTextNode(child) && !$isSynthesizedMarkerNode(child),
+          );
+        if (!textNode) throw new Error("Expected a text node inside a CharNode");
+        textNode.select(0, textNode.getTextContentSize());
+      },
+      { discrete: true },
+    );
+  });
+}
+
+describe("removeCharacterMarker through the editor ref", () => {
+  // The guards above only prove the method throws when it should. This drives it end to end so
+  // `Editor.tsx`'s wiring is covered too - in particular that it forwards its `viewOptions` as the
+  // third argument. `viewOptions` is what enables the NBSP trim, and every adaptor-level test
+  // passes its own view options directly, so a wiring that dropped that argument would leave all
+  // of them green while leaving an NBSP in the text of the real editor.
+  it("removes the marker and its NBSP under markerMode 'editable'", async () => {
+    const ref = createRef<EditorRef>();
+    let editor: LexicalEditor | undefined;
+    await act(async () => {
+      render(
+        <Editor
+          ref={ref}
+          defaultUsj={usjWithCharMarker}
+          options={{
+            view: {
+              markerMode: "editable",
+              noteMode: "expanded",
+              hasSpacing: false,
+              isFormattedFont: false,
+            },
+          }}
+        >
+          <GrabEditor onEditor={(e) => (editor = e)} />
+        </Editor>,
+      );
+    });
+    await flushQueuedEvents();
+    if (!ref.current || !editor) throw new Error("EditorRef did not mount");
+    const editorRef = ref.current;
+
+    // Precondition: the adaptor really did prepend the NBSP, so the trim below has something to do.
+    expect(editor.getEditorState().read(() => $getRoot().getTextContent())).toContain(NBSP);
+
+    await selectCharNodeContent(editor);
+    await act(async () => {
+      editorRef.removeCharacterMarker("nd");
+    });
+    await flushQueuedEvents();
+
+    const para = editorRef.getUsj()?.content[2];
+    if (typeof para !== "object" || !("content" in para))
+      throw new Error("para is not a USJ para node");
+    expect(JSON.stringify(para.content)).not.toContain('"char"');
+    expect(para.content?.join("")).toBe("the Lord said");
   });
 });
