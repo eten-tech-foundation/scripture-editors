@@ -24,6 +24,7 @@ import {
   $handleCopyForStandardView,
   $handlePasteForStandardView,
   $normalizePastedNbsp,
+  $stripPastedChapterAndBookId,
   htmlPasteText,
 } from "./whitespaceDisplay.plugin.utils";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
@@ -325,6 +326,7 @@ export function MarkerEditPlugin({
       getMarker: getMarker ?? bundledGetMarker,
       pendingKeys: new Set<NodeKey>(),
       splitExpected: { current: false },
+      pasteRebuildArmed: { current: false },
       rebuildAttempted: new Set<string>(),
       logger,
       isStructureProtected,
@@ -665,6 +667,12 @@ export function MarkerEditPlugin({
                   () => {
                     context.splitExpected.current = true;
                   },
+                  // Consumed by $rebuildParas (tier2Rebuild.utils.ts) to scope the own-marker-
+                  // prefix dedup to THIS paste's own update — see Tier2Context.pasteRebuildArmed's
+                  // doc comment for why it must not also fire for typed input.
+                  () => {
+                    context.pasteRebuildArmed.current = true;
+                  },
                 ),
               COMMAND_PRIORITY_HIGH,
             ),
@@ -788,8 +796,14 @@ export function MarkerEditPlugin({
             // as it would outside a note, and only genuine data survives as `~`. Inserted raw an
             // NBSP is indistinguishable from a display-NBSP (a plain space in a run), so
             // serialization would corrupt it into a plain space if left unmapped. A pasted
-            // literal `~` is already the display form and passes through unchanged.
-            const noteText = isStandardView ? $normalizePastedNbsp(pastedText) : pastedText;
+            // literal `~` is already the display form and passes through unchanged. `\c`/`\id`
+            // bytes are dropped first, via the same `$stripPastedChapterAndBookId` the external
+            // handler uses — note content re-tokenizes literal text through the SAME Tier 2
+            // tokenizer a paragraph does, so a pasted `\c`/`\id` landing here is just as reachable
+            // (and just as save-poisoning) as one landing in body text.
+            const noteText = isStandardView
+              ? $normalizePastedNbsp($stripPastedChapterAndBookId(pastedText))
+              : pastedText;
             const lines = noteText.split("\n");
             let outcome = $handlePasteLinesInNote(lines, context.getMarker);
             if (outcome === "declined" && $adoptDomCaretInExpandedNote(editor)) {
@@ -905,6 +919,7 @@ export function MarkerEditPlugin({
       ),
       editor.registerUpdateListener(({ editorState, tags }) => {
         context.splitExpected.current = false;
+        context.pasteRebuildArmed.current = false;
         context.rebuildAttempted.clear();
         // Typing path: ScriptureReferencePlugin's async scrRef echo re-enters
         // `$moveCursorToVerseStart` and yanks the caret to the para/verse start via

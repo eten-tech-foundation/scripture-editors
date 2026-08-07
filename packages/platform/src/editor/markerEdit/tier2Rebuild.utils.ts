@@ -11,6 +11,7 @@
  */
 
 import usjEditorAdaptor from "../adaptors/usj-editor.adaptor";
+import { isParaKindMarker } from "./markerEditTier1.utils";
 import { MarkerContent, USJ_TYPE, USJ_VERSION } from "@eten-tech-foundation/scripture-utilities";
 import {
   $getNodeByKey,
@@ -57,6 +58,21 @@ export interface Tier2Context {
   viewOptions: ViewOptions;
   getMarker: MarkerLookup;
   logger?: LoggerBasic;
+  /**
+   * Armed by `$handlePasteForStandardView` (whitespaceDisplay.plugin.utils.ts), alongside
+   * `MarkerEditContext.splitExpected`, for the duration of one external paste's update — reset by
+   * the same per-commit update listener that resets `splitExpected`. `$rebuildParas` reads it to
+   * decide whether `$buildParaFragment`'s own-marker-prefix dedup (`$withoutRedundantOwnPrefix`)
+   * may run: that dedup is a PASTE-shape recognition ("a whole-paragraph copy's own glyph rides
+   * along with the pasted text"), not a general typed-retag rule — applying it unconditionally
+   * made typing a paragraph-kind marker literal at an existing paragraph's content start silently
+   * DELETE or no-op the paragraph's prior marker instead of the engine's existing (P9-parity)
+   * split-with-empty behavior, a product decision this task must not make for typed input.
+   * Optional so bare `Tier2Context` objects built directly (tests exercising the tokenizer/rebuild
+   * machinery without the full marker-edit engine) default to "not a paste rebuild" — the
+   * pre-existing, dedup-free behavior.
+   */
+  pasteRebuildArmed?: { current: boolean };
 }
 
 export const ATOMIC_SENTINEL = "￼";
@@ -613,7 +629,15 @@ const LEADING_MARKER_LITERAL = /^\\\+?([\w-]+)(?:\*|[ \u00A0])/;
  * doesn't hold, including a paragraph still prefix-less (a fresh multi-line-paste split, which
  * settles through a different route before any prefix is ever injected onto it — see
  * `$paraMarkerDeletionTransform`, markerEditDeletion.utils.ts) or one with real content between
- * its own glyph and any embedded marker.
+ * its own glyph and any embedded marker. ONLY called for a paste-triggered rebuild — see
+ * `$buildParaFragment`'s `isPasteRebuild` parameter; typing the same shape keeps the engine's
+ * existing split-with-empty behavior, which this function never runs for.
+ *
+ * The embedded literal's marker-kind check uses `isParaKindMarker` (markerEditTier1.utils.ts) —
+ * stylesheet-first, UNKNOWN-AS-PARAGRAPH, the same classification `$buildParaFragment`'s own guard
+ * below applies to the paragraph's own marker — rather than a bare `type === MarkerType.Paragraph`
+ * comparison, which rejected every unknown/custom.sty marker and left the stray-empty-paragraph
+ * bug reachable for any of them (e.g. a pasted `\zz one two`, unrecognized by the bundled sheet).
  *
  * Operates on the ALREADY-BUILT fragment (offsets into `out.text`/`out.spans`) rather than
  * pre-filtering which child nodes contribute, because the glyph's one-character trailing
@@ -633,7 +657,7 @@ function $withoutRedundantOwnPrefix(
   const sliceAt = out.spans[0].end + 1; // the glyph, plus its one-character separator
   const rest = out.text.slice(sliceAt);
   const match = LEADING_MARKER_LITERAL.exec(rest);
-  if (!match || getMarkerFn(match[1])?.type !== MarkerType.Paragraph) return out;
+  if (!match || !isParaKindMarker(match[1], getMarkerFn)) return out;
   return {
     text: rest,
     spans: out.spans
@@ -655,10 +679,19 @@ function $withoutRedundantOwnPrefix(
  * against its hand-built wrapped-shape equivalent for byte-for-byte equality
  * (`tier2Rebuild.utils.test.tsx`) — the direct evidence that wrapping a run changes nothing about
  * what gets tokenized.
+ *
+ * `isPasteRebuild` gates `$withoutRedundantOwnPrefix` (default `false`, matching every direct test
+ * call site, every TYPED-input rebuild, and the read-only virtual settle): the own-marker-prefix
+ * dedup recognizes a PASTE shape (a whole-paragraph copy's own glyph riding along with the pasted
+ * text) and must not also apply to a user typing the same byte sequence — see that function's doc
+ * comment for why. `$rebuildParas` is the only caller that ever passes `true`, and only when
+ * `Tier2Context.pasteRebuildArmed` says the triggering rebuild is inside an external paste's own
+ * update.
  */
 export function $buildParaFragment(
   para: ParaNode,
   getMarkerFn: MarkerLookup,
+  isPasteRebuild = false,
 ): FragmentAccumulator | undefined {
   // Guard rails (preserve-or-refuse): a paragraph the engine cannot fully
   // re-derive from its text is never rebuilt — edits inside it stay literal text.
@@ -678,7 +711,7 @@ export function $buildParaFragment(
     if ($isUnknownNode(parent)) return undefined;
   const out: FragmentAccumulator = { text: "", spans: [], sentinels: [] };
   $appendChildrenFragment(para, out, getMarkerFn);
-  return $withoutRedundantOwnPrefix(out, para, getMarkerFn);
+  return isPasteRebuild ? $withoutRedundantOwnPrefix(out, para, getMarkerFn) : out;
 }
 
 /** Replace each U+FFFC in the rebuilt tree with the next preserved node run. */
@@ -915,11 +948,12 @@ function $restoreSelectionInNoteContent(
 
 export function $rebuildParas(paras: ParaNode[], context: Tier2Context): boolean {
   if (paras.length === 0) return false;
-  const { viewOptions, getMarker: getMarkerFn, logger } = context;
+  const { viewOptions, getMarker: getMarkerFn, logger, pasteRebuildArmed } = context;
+  const isPasteRebuild = pasteRebuildArmed?.current ?? false;
 
   const combined: FragmentAccumulator = { text: "", spans: [], sentinels: [] };
   for (const para of paras) {
-    const fragment = $buildParaFragment(para, getMarkerFn);
+    const fragment = $buildParaFragment(para, getMarkerFn, isPasteRebuild);
     if (!fragment) {
       logger?.debug("[MarkerEdit] Tier 2 skipped: paragraph excluded by guard rails");
       return false;

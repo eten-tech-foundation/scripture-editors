@@ -29,6 +29,7 @@ import {
   $createTextNode,
   $getRoot,
   $isTextNode,
+  $setState,
   LexicalEditor,
   PASTE_COMMAND,
   TextNode,
@@ -39,6 +40,8 @@ import {
   $createParaNode,
   $createVerseNode,
   getVisibleOpenMarkerText,
+  NBSP,
+  textTypeState,
 } from "shared";
 
 /** A `text/plain`-only paste stub — the same minimal jsdom-safe shape every sibling suite in this
@@ -95,10 +98,52 @@ function textOf(content: MarkerObject): string {
     .join("");
 }
 
-/** `[marker, textOf(paragraph)]` for every top-level paragraph in `usj` — the shape the brief's
- * pins assert against. */
+/** `[marker, textOf(paragraph)]` for every top-level paragraph in `usj`. Fails loudly (rather than
+ * silently reading `undefined` off a string via an unchecked cast) if any top-level entry is a
+ * bare STRING instead of a paragraph-shaped object — a chapter/verse/book token splitting the
+ * enclosing paragraph and stranding plain text outside it is exactly the poisoned-save shape a
+ * leaked `\c`/`\id` produces (see the `\c/\id strip on paste` describe below), and a helper that
+ * masked that shape instead of erroring could hide the very regression these pins exist to catch. */
 function paraMarkerText(usj: Usj): [string | undefined, string][] {
-  return (usj.content as MarkerObject[]).map((content) => [content.marker, textOf(content)]);
+  return usj.content.map((content, index) => {
+    if (typeof content === "string")
+      throw new Error(
+        `expected a paragraph-shaped object at usj.content[${index}], found a bare string: ${JSON.stringify(content)}`,
+      );
+    return [content.marker, textOf(content)];
+  });
+}
+
+/** A realistic book+chapter+paragraph document (`usxStringToUsj`, not the bare single-paragraph
+ * fixture `singleParaHost` builds) — needed for chapter/book-COUNT assertions, which are
+ * meaningless without a real chapter/book already present for a pasted `\c`/`\id` to (not)
+ * duplicate. Returns the editor and the paragraph's own text node ("before after"). */
+async function bookChapterParaHost(): Promise<{ editor: LexicalEditor; text: TextNode }> {
+  initializeDeserialize(undefined);
+  const usx = usxStringToUsj(
+    `<usx version="3.0"><book code="RUT" style="id">Ruth</book><chapter number="1" style="c" />` +
+      `<para style="p">before after</para></usx>`,
+  );
+  const { editor } = await baseTestEnvironment(
+    serializedState(usx),
+    <MarkerEditPlugin viewOptions={viewOptions} />,
+  );
+  let text: TextNode | undefined;
+  editor.getEditorState().read(() => {
+    text = $dfs($getRoot())
+      .map(({ node }) => node)
+      .filter($isTextNode)
+      .find((node) => node.getTextContent().includes("before"));
+  });
+  if (!text) throw new Error("host text node not found in the book/chapter/paragraph fixture");
+  return { editor, text };
+}
+
+/** Every top-level bare STRING entry in `usj.content` — should always be empty. A non-empty
+ * result means a chapter/verse/book token split the enclosing paragraph and stranded plain text
+ * outside it: the poisoned-save shape a leaked `\c`/`\id` produces. */
+function topLevelBareStrings(usj: Usj): string[] {
+  return usj.content.filter((item): item is string => typeof item === "string");
 }
 
 /** A fresh single-paragraph `\p A` host, with `HistoryPlugin` mounted so undo is available. */
@@ -297,33 +342,16 @@ describe("\\c/\\id strip on paste", () => {
     expect(usjOf(editor)).toEqual(preUsj);
   });
 
-  it("a pasted \\c never leaves the editor in the unsaveable state the live repro produced: exactly one chapter survives, and the document still deserializes cleanly", async () => {
+  it("a pasted \\c never leaves the editor in the unsaveable state the live repro produced: exactly one chapter survives, no bare top-level string strands outside the paragraph", async () => {
     // Live repro (2026-08-07): pasting a bare `\c 2` mid-chapter put a second chapter node in a
     // real book/chapter/paragraph document, and every subsequent save failed with the PDP's
     // "Multiple chapter markers present" — the error surfaced only in the renderer log, so disk
     // and other editors silently stopped updating. Reproduced here in a realistic book+chapter+
     // paragraph document (not the bare single-paragraph fixture the pins above use) so the
     // chapter-count assertion means something.
-    initializeDeserialize(undefined);
-    const usx = usxStringToUsj(
-      `<usx version="3.0"><book code="RUT" style="id">Ruth</book><chapter number="1" style="c" />` +
-        `<para style="p">before after</para></usx>`,
-    );
-    const { editor } = await baseTestEnvironment(
-      serializedState(usx),
-      <MarkerEditPlugin viewOptions={viewOptions} />,
-    );
-    let text: TextNode | undefined;
-    editor.getEditorState().read(() => {
-      text = $dfs($getRoot())
-        .map(({ node }) => node)
-        .filter($isTextNode)
-        .find((node) => node.getTextContent().includes("before"));
-    });
-    if (!text) throw new Error("host text node not found in the book/chapter/paragraph fixture");
-    const hostText = text;
+    const { editor, text } = await bookChapterParaHost();
 
-    await pasteAndSettle(editor, () => hostText.select(7, 7), "\\c 5");
+    await pasteAndSettle(editor, () => text.select(7, 7), "\\c 5");
 
     const usj = usjOf(editor);
     const chapters = usj.content.filter(
@@ -331,8 +359,79 @@ describe("\\c/\\id strip on paste", () => {
     );
     expect(chapters).toHaveLength(1);
     expect(chapters[0].number).toBe("1"); // the ORIGINAL chapter, untouched — not the pasted "5"
-    // A saveable USJ is one that deserializes back through the same adaptor cleanly — re-running
-    // it here is the same "read the settled state" step an onUsjChange-style save path takes.
-    expect(() => usjOf(editor)).not.toThrow();
+    // A bare top-level string is the other half of the poisoned shape: a chapter token closes the
+    // enclosing paragraph the same way it does on a real load, stranding whatever text followed
+    // it outside any paragraph at all.
+    expect(topLevelBareStrings(usj)).toEqual([]);
+  });
+
+  it('paste "x \\c 5 y" mid-paragraph (the token is NOT at the start of its line): still exactly one chapter, no stranded top-level string', async () => {
+    // The `\c`/`\id` strip is not anchored to a line's start — a token can land mid-sentence
+    // (a paste that doesn't happen to fall on a line boundary), and an anchored strip would miss
+    // it entirely: the unstripped shape reproduces the SAME poisoning (a second chapter node) PLUS
+    // a bare top-level string for whatever followed the marker's payload, since a chapter token
+    // still closes the enclosing paragraph wherever it lands.
+    const { editor, text } = await bookChapterParaHost();
+
+    await pasteAndSettle(editor, () => text.select(7, 7), "x \\c 5 y");
+
+    const usj = usjOf(editor);
+    const chapters = usj.content.filter(
+      (item): item is MarkerObject => typeof item !== "string" && item.type === "chapter",
+    );
+    expect(chapters).toHaveLength(1);
+    expect(chapters[0].number).toBe("1");
+    // Not asserting `not.toContain("\\c")` on the whole document here: this fixture's OWN book
+    // legitimately carries a real "\c 1" glyph, unlike the bare single-paragraph fixture the
+    // earlier pins use — the chapter-count and paragraph-content assertions already cover what
+    // matters (the pasted "\c 5" left no trace, structural or textual, inside the paragraph).
+    expect(topLevelBareStrings(usj)).toEqual([]);
+    expect((usj.content[2] as MarkerObject).content).toEqual(["before x after"]);
+  });
+
+  it('paste "text \\id GEN more" mid-paragraph: still exactly one book id, one chapter, no stranded top-level string', async () => {
+    const { editor, text } = await bookChapterParaHost();
+
+    await pasteAndSettle(editor, () => text.select(7, 7), "text \\id GEN more");
+
+    const usj = usjOf(editor);
+    const books = usj.content.filter(
+      (item): item is MarkerObject => typeof item !== "string" && item.type === "book",
+    );
+    const chapters = usj.content.filter(
+      (item): item is MarkerObject => typeof item !== "string" && item.type === "chapter",
+    );
+    expect(books).toHaveLength(1);
+    expect(books[0].code).toBe("RUT"); // the ORIGINAL book, untouched — not the pasted "GEN"
+    expect(chapters).toHaveLength(1);
+    expect(topLevelBareStrings(usj)).toEqual([]);
+    expect((usj.content[2] as MarkerObject).content).toEqual(["before text after"]);
+  });
+});
+
+describe("own-marker-prefix dedup: unknown/custom.sty markers", () => {
+  it('paste "\\zz one two" into an EMPTY "\\p" host: the unrecognized marker still owns the paragraph — no stray empty leading paragraph', async () => {
+    // The dedup's embedded-literal check must classify markers the SAME way `$buildParaFragment`'s
+    // own guard does (stylesheet-first, unknown-as-paragraph) — a narrower `type ===
+    // MarkerType.Paragraph` comparison rejected every unknown/custom.sty marker and left this
+    // exact shape (a paste starting with its own marker literal into an already-prefixed empty
+    // paragraph) producing a stray empty host paragraph for any marker the bundled sheet doesn't
+    // recognize.
+    initializeDeserialize(undefined);
+    let sep!: TextNode;
+    const { editor } = await historyTestEnvironment(() => {
+      const para = $createParaNode("p");
+      sep = $createTextNode(NBSP);
+      $setState(sep, textTypeState, "marker-trailing-space");
+      $getRoot().append(para.append($createMarkerNode("p"), sep));
+    });
+
+    await pasteAndSettle(
+      editor,
+      () => sep.select(sep.getTextContentSize(), sep.getTextContentSize()),
+      "\\zz one two",
+    );
+
+    expect(paraMarkerText(usjOf(editor))).toEqual([["zz", "one two"]]);
   });
 });
