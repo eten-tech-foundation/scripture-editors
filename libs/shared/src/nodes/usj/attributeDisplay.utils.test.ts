@@ -643,7 +643,50 @@ describe("$verseOfAttributeSourceText", () => {
     });
   });
 
-  it("returns the verse when the vp span sits after a folded \\va triplet", () => {
+  it("returns the verse when the vp span sits after a WRAPPED \\va run (the post-migration shape)", () => {
+    // The PRIMARY shape: usj-editor.adaptor and $syncVerseAttributeRun always build a wanted run
+    // wrapped in an AttributeRunNode now (the heal-forward migration), so a verse with altnumber
+    // set has its \va run riding as ONE wrapper sibling, not three loose glyph/value pieces — the
+    // only shape an altnumber-bearing verse can have post-migration. The vp span's content must
+    // cross the whole wrapper in a single hop (the `$isAttributeRunNode` isRunPiece disjunct) to
+    // reach the verse; without that disjunct the walk stops at the wrapper and a typed pubnumber
+    // never pends.
+    const { editor } = createBasicTestEnvironment();
+    let content!: TextNode;
+    let verse!: VerseNode;
+    editor.update(
+      () => {
+        verse = $createVerseNode("1", getVisibleOpenMarkerText("v", "1"), undefined, "2");
+        const vaWrapper = $createAttributeRunNode("va");
+        const vaValue = $createTextNode(`${NBSP}2`);
+        $setState(vaValue, textTypeState, "attribute");
+        vaWrapper.append($createMarkerNode("va"), vaValue, $createMarkerNode("va", "closing"));
+        const vpSpan = $createCharNode("vp");
+        content = $createTextNode(NBSP);
+        vpSpan.append($createMarkerNode("vp"), content, $createMarkerNode("vp", "closing"));
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createTextNode(NBSP),
+            verse,
+            vaWrapper,
+            vpSpan,
+            $createTextNode("text"),
+          ),
+        );
+      },
+      { discrete: true },
+    );
+
+    editor.getEditorState().read(() => {
+      expect($verseOfAttributeSourceText(content)).toBe(verse);
+    });
+  });
+
+  it("returns the verse when the vp span sits after a LOOSE \\va triplet (legacy heal-forward input shape)", () => {
+    // Loose siblings (no wrapper) remain valid INPUT this predicate must still classify correctly:
+    // a pre-migration editor state, an undo-stack entry, or a collab-materialized bare verse can
+    // still produce this shape even though the sync always builds NEW runs wrapped. Not the
+    // primary shape (see the WRAPPED case above), but must not regress.
     const { editor } = createBasicTestEnvironment();
     let content!: TextNode;
     let verse!: VerseNode;

@@ -610,4 +610,96 @@ describe("verse \\va/\\vp deletion settles (does not resurrect)", () => {
       expect($isDisplayOwnerPended($firstVerse())).toBe(true);
     });
   });
+
+  it("typing a value into an empty \\vp span behind a WRAPPED \\va run re-folds to pubnumber on departure", async () => {
+    // The wrapper-migration gap this pin closes: post-migration, an altnumber-bearing verse's
+    // \va run is ALWAYS wrapped (never loose) — the only shape such a verse can have — so a
+    // settled-empty \vp span typed into behind it must walk PAST the whole AttributeRunNode
+    // wrapper in one hop to find its owning verse ($verseOfAttributeSourceText's
+    // $isAttributeRunNode isRunPiece disjunct). Without that disjunct the walk stops at the
+    // wrapper, the typed value never pends, and pubnumber never folds — the exact silent-no-fold
+    // failure the TJ-repro pin above fixed, reachable again for this shape.
+    const { editor } = await testEnvironmentWithSpacing(() => {
+      const verse = $createVerseNode(
+        "1",
+        getVisibleOpenMarkerText("v", "1"),
+        undefined,
+        "2",
+        undefined,
+      );
+      const span = $createCharNode("vp"); // the settled empty form: displayed `\vp \vp*`
+      span.append(
+        $createMarkerNode("vp"),
+        $createTextNode(NBSP),
+        $createMarkerNode("vp", "closing"),
+      );
+      $getRoot().append(
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          verse,
+          span,
+          $createTextNode("In the beginning"),
+        ),
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          $createTextNode("body"),
+        ),
+      );
+      // Inserted after construction so it lands directly after `verse` and before `span`, giving
+      // the target shape: verse -> WRAPPED \va run -> settled-empty \vp span.
+      $appendVerseAttributeRun(verse, "va", "2");
+    });
+
+    const $firstVerse = () =>
+      requireDefined(
+        $getRoot().getChildren().filter($isParaNode)[0].getChildren().find($isVerseNode),
+        "verse missing",
+      );
+    const $bodyTextNode = () => {
+      const body = $getRoot().getChildren().filter($isParaNode)[1].getLastChild();
+      if (!$isTextNode(body)) throw new Error("body text node missing");
+      return body;
+    };
+
+    editor.getEditorState().read(() => {
+      const verse = $firstVerse();
+      const { wrapper } = $verseAttributeRunPieces(verse, "va");
+      expect($isAttributeRunNode(wrapper)).toBe(true);
+      expect(wrapper?.getNextSibling() && $isCharNode(wrapper.getNextSibling())).toBe(true);
+    });
+
+    await act(async () =>
+      editor.update(() => {
+        const span = requireDefined(
+          $getRoot().getChildren().filter($isParaNode)[0].getChildren().find($isCharNode),
+          "vp span missing",
+        );
+        const content = span.getChildAtIndex(1); // the NBSP separator text
+        if (!$isTextNode(content)) throw new Error("span content missing");
+        content.setTextContent(`${NBSP}4`); // the user types the value
+        content.select(2, 2);
+      }),
+    );
+    await act(async () => editor.update(() => $bodyTextNode().select(0, 0)));
+
+    editor.getEditorState().read(() => {
+      const verse = $firstVerse();
+      expect(verse.getAltnumber()).toBe("2"); // untouched
+      expect(verse.getPubnumber()).toBe("4"); // re-folded
+      // Canonical \vp triplet re-materialized via Tier-2's rebuild, wrapped in ONE
+      // attribute-run node chained after the \va wrapper — the shape the adaptor's own
+      // fragment materializer always builds.
+      const { wrapper: vaWrapper } = $verseAttributeRunPieces(verse, "va");
+      if (!vaWrapper) throw new Error("\\va wrapper missing");
+      const { opener, wrapper: vpWrapper } = $verseAttributeRunPieces(vaWrapper, "vp");
+      expect($isAttributeRunNode(vpWrapper)).toBe(true);
+      expect($isMarkerNode(opener) && opener.getMarker() === "vp").toBe(true);
+      // and the source span is gone (folded into the verse)
+      expect($getRoot().getChildren().filter($isParaNode)[0].getChildren().some($isCharNode)).toBe(
+        false,
+      );
+    });
+  });
 });
