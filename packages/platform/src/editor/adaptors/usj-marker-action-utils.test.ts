@@ -7,6 +7,7 @@ import {
 } from "../../../../../libs/shared/src/nodes/usj/test.utils";
 import {
   $removeCharacterMarkerAtSelection,
+  $replaceCharacterMarkerAtSelection,
   getUsjMarkerAction,
   isCharacterMarkerSupported,
   isUsjMarkerSupported,
@@ -74,6 +75,18 @@ function sutRemoveCharacterMarker(
       const selection = $getSelection();
       if ($isRangeSelection(selection))
         $removeCharacterMarkerAtSelection(selection, marker, viewOptions);
+    },
+    { discrete: true },
+  );
+}
+
+/** Invokes the system under test inside a discrete update, the way `Editor.tsx` will. */
+function sutReplaceCharacterMarker(editor: LexicalEditor, toMarker: string, fromMarker?: string) {
+  editor.update(
+    () => {
+      const selection = $getSelection();
+      if ($isRangeSelection(selection))
+        $replaceCharacterMarkerAtSelection(selection, toMarker, fromMarker);
     },
     { discrete: true },
   );
@@ -1075,6 +1088,202 @@ describe("USJ Marker Action Utils", () => {
         expect(para.getTextContent()).toBe(
           `${openingMarkerText("nd")}the Lord said${closingMarkerText("nd")}`,
         );
+      });
+    });
+  });
+
+  describe("should replace a character marker", () => {
+    it("when the cursor is collapsed inside a CharNode", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        charTextNode = $createTextNode("Lord");
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createTextNode("the "),
+            $createCharNode("nd").append(charTextNode),
+            $createTextNode(" said"),
+          ),
+        );
+      });
+      updateSelection(editor, charTextNode, 2);
+
+      sutReplaceCharacterMarker(editor, "bd");
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        // Collapsed cursor changes the whole CharNode — no split.
+        expect(para.getChildrenSize()).toBe(3);
+        const charNode = para.getChildAtIndex(1);
+        if (!$isCharNode(charNode)) throw new Error("charNode is not a CharNode");
+        expect(charNode.getMarker()).toBe("bd");
+        expect(para.getTextContent()).toBe("the Lord said");
+      });
+    });
+
+    it("targets the innermost marker when fromMarker is omitted", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        innerTextNode = $createTextNode("Lord");
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createCharNode("wj").append($createCharNode("nd").append(innerTextNode)),
+          ),
+        );
+      });
+      updateSelection(editor, innerTextNode, 2);
+
+      sutReplaceCharacterMarker(editor, "bd");
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        const outer = para.getFirstChild();
+        if (!$isCharNode(outer)) throw new Error("outer is not a CharNode");
+        expect(outer.getMarker()).toBe("wj");
+        const inner = outer.getFirstChild();
+        if (!$isCharNode(inner)) throw new Error("inner is not a CharNode");
+        expect(inner.getMarker()).toBe("bd");
+        expect(para.getTextContent()).toBe("Lord");
+      });
+    });
+
+    it("targets the outer marker when fromMarker names it", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        innerTextNode = $createTextNode("Lord");
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createCharNode("wj").append($createCharNode("nd").append(innerTextNode)),
+          ),
+        );
+      });
+      updateSelection(editor, innerTextNode, 2);
+
+      sutReplaceCharacterMarker(editor, "bd", "wj");
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        const outer = para.getFirstChild();
+        if (!$isCharNode(outer)) throw new Error("outer is not a CharNode");
+        expect(outer.getMarker()).toBe("bd");
+        const inner = outer.getFirstChild();
+        if (!$isCharNode(inner)) throw new Error("inner is not a CharNode");
+        expect(inner.getMarker()).toBe("nd");
+      });
+    });
+
+    it("is a no-op when the requested marker is not present", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        charTextNode = $createTextNode("Lord");
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createTextNode("the "),
+            $createCharNode("nd").append(charTextNode),
+            $createTextNode(" said"),
+          ),
+        );
+      });
+      updateSelection(editor, charTextNode, 2);
+
+      sutReplaceCharacterMarker(editor, "bd", "wj");
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        const charNode = para.getChildAtIndex(1);
+        if (!$isCharNode(charNode)) throw new Error("charNode is not a CharNode");
+        expect(charNode.getMarker()).toBe("nd");
+      });
+    });
+
+    it("dirties no node when the target marker is already in place", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        charTextNode = $createTextNode("Lord");
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createTextNode("the "),
+            $createCharNode("nd").append(charTextNode),
+            $createTextNode(" said"),
+          ),
+        );
+      });
+      updateSelection(editor, charTextNode, 2);
+
+      const charNodeKey = editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        const charNode = para.getChildAtIndex(1);
+        if (!$isCharNode(charNode)) throw new Error("charNode is not a CharNode");
+        return charNode.getKey();
+      });
+
+      // Asserting on dirty nodes rather than the resulting tree: a same-marker replace is
+      // indistinguishable from a no-op by inspection, but a mutating implementation would still
+      // put an entry on the undo stack and produce a collab delta. Checking the CharNode's key
+      // specifically rather than `dirtyElements.size`, because Lexical routinely marks the root
+      // dirty on any update — that would make a size assertion flaky without proving anything.
+      let dirtyLeafCount = 0;
+      let charNodeWasDirtied = false;
+      const unregisterUpdateListener = editor.registerUpdateListener(
+        ({ dirtyElements, dirtyLeaves }) => {
+          dirtyLeafCount += dirtyLeaves.size;
+          if (dirtyElements.has(charNodeKey)) charNodeWasDirtied = true;
+        },
+      );
+
+      sutReplaceCharacterMarker(editor, "nd");
+      unregisterUpdateListener();
+
+      expect(dirtyLeafCount).toBe(0);
+      expect(charNodeWasDirtied).toBe(false);
+    });
+
+    it("skips a selection inside a NoteNode", () => {
+      let noteTextNode!: TextNode;
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        noteTextNode = $createTextNode("Lord");
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createTextNode("the "),
+            $createNoteNode("f", "+").append($createCharNode("nd").append(noteTextNode)),
+          ),
+        );
+      });
+      updateSelection(editor, noteTextNode, 2);
+
+      sutReplaceCharacterMarker(editor, "bd", "nd");
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        const noteNode = para.getChildAtIndex(1);
+        if (!$isNoteNode(noteNode)) throw new Error("noteNode is not a NoteNode");
+        const charNode = noteNode.getFirstChild();
+        if (!$isCharNode(charNode)) throw new Error("charNode is not a CharNode");
+        // $getMatchingCharNode's own NoteNode guard is what skips this.
+        expect(charNode.getMarker()).toBe("nd");
+      });
+    });
+
+    it("preserves unknown attributes and the char id", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        charTextNode = $createTextNode("Lord");
+        const charNode = $createCharNode("nd", { customAttr: "value" }).append(charTextNode);
+        $setState(charNode, charIdState, "char-id");
+        $getRoot().append($createParaNode("p").append(charNode));
+      });
+      updateSelection(editor, charTextNode, 2);
+
+      sutReplaceCharacterMarker(editor, "bd");
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        const charNode = para.getFirstChild();
+        if (!$isCharNode(charNode)) throw new Error("charNode is not a CharNode");
+        expect(charNode.getMarker()).toBe("bd");
+        expect(charNode.getUnknownAttributes()).toEqual({ customAttr: "value" });
+        expect($getState(charNode, charIdState)).toBe("char-id");
+        expect(charNode.getTextContent()).toBe("Lord");
       });
     });
   });

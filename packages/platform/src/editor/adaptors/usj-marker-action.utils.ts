@@ -501,7 +501,7 @@ export function $removeCharacterMarkerAtSelection(
  *
  * @param node - The node to walk up from.
  * @param marker - The marker to match, or `undefined` to take the innermost `CharNode`.
- * @returns the `CharNode` to remove, or `undefined` if there isn't one.
+ * @returns the matching `CharNode`, or `undefined` if there isn't one.
  */
 function $getMatchingCharNode(node: LexicalNode, marker: string | undefined): CharNode | undefined {
   let currentNode: LexicalNode | null = node;
@@ -537,7 +537,7 @@ function $getMatchingCharNode(node: LexicalNode, marker: string | undefined): Ch
  * Shared by removal and replacement.
  *
  * @param nodes - The nodes in the selection.
- * @param marker - The character marker to remove, or `undefined` for the innermost one.
+ * @param marker - The character marker to match, or `undefined` for the innermost one.
  * @returns `true` if there is a matching `CharNode` to remove.
  */
 function $hasMatchingCharNode(nodes: LexicalNode[], marker: string | undefined): boolean {
@@ -722,6 +722,55 @@ function $removeCharNodeKeepingContent(
     });
 
   $unwrapNode(charNode);
+}
+
+// #endregion
+
+/**
+ * Replace a character marker on the given selection, keeping all of its text content.
+ *
+ * A collapsed selection changes the marker on the entire enclosing `CharNode`. Selections inside a
+ * `NoteNode` are skipped (see `$getMatchingCharNode`).
+ *
+ * Takes no `ViewOptions`, unlike {@link $removeCharacterMarkerAtSelection}: replacement changes no
+ * text and strips no children, so it has nothing marker-mode-dependent to undo. The synthesized
+ * marker children that marker modes add are retargeted rather than removed — see
+ * `$retargetSynthesizedMarkers`.
+ *
+ * @param selection - The current range selection.
+ * @param toMarker - The character marker to change to.
+ * @param fromMarker - The character marker to match, or `undefined` for the innermost one.
+ */
+export function $replaceCharacterMarkerAtSelection(
+  selection: RangeSelection,
+  toMarker: string,
+  fromMarker: string | undefined,
+): void {
+  if (selection.isCollapsed()) {
+    const charNode = $getMatchingCharNode(selection.anchor.getNode(), fromMarker);
+    // The already-`toMarker` check is what makes a same-marker replace mutate nothing at all.
+    // `CharNode.setMarker` would no-op on its own, but `$retargetSynthesizedMarkers` below would
+    // still call `getWritable()` on the marker children and dirty them.
+    if (!charNode || charNode.getMarker() === toMarker) return;
+    $changeCharNodeMarker(charNode, toMarker);
+  }
+}
+
+// #region Helper functions for $replaceCharacterMarkerAtSelection
+
+/**
+ * Change a `CharNode`'s marker, keeping its content and identity.
+ *
+ * Coalescing with an identically-marked adjacent sibling is deliberately not handled here:
+ * `$charNodeTransform` (`CharNodePlugin.tsx:39-68`) already does it on the next update cycle, and
+ * proves it for exactly this call in `CharNodePlugin.test.tsx:354`. Don't hand-roll it, and don't
+ * fight it.
+ *
+ * @param charNode - The `CharNode` to change.
+ * @param toMarker - The character marker to change to.
+ */
+function $changeCharNodeMarker(charNode: CharNode, toMarker: string): void {
+  charNode.setMarker(toMarker);
 }
 
 // #endregion
