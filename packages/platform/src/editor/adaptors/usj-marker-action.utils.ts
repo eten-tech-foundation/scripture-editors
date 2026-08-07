@@ -380,7 +380,7 @@ function $moveLeadingSpaceToPreviousNode(node: LexicalNode, wrapper: LexicalNode
  * Remove a character marker from the given selection, keeping all of its text content.
  *
  * A collapsed selection removes the marker from the entire enclosing `CharNode`. Selections
- * inside a `NoteNode` are skipped (see `$getCharNodeToRemove`). A range selection that only
+ * inside a `NoteNode` are skipped (see `$getMatchingCharNode`). A range selection that only
  * partially covers a `CharNode` — or spans a `CharNode` and its neighbors — is narrowed first by
  * `$splitCharNodeAroundTargets`, so uncovered text keeps its marker. Where that narrowing is
  * impossible — a selection covering only part of a *nested* `CharNode`, which cannot be split at
@@ -399,7 +399,7 @@ export function $removeCharacterMarkerAtSelection(
   if (selection.isCollapsed()) {
     const anchorNode = selection.anchor.getNode();
     const anchorOffset = selection.anchor.offset;
-    const charNode = $getCharNodeToRemove(anchorNode, marker);
+    const charNode = $getMatchingCharNode(anchorNode, marker);
     if (!charNode) return;
     const originalSize = $isTextNode(anchorNode) ? anchorNode.getTextContentSize() : 0;
     $removeCharNodeKeepingContent(charNode, viewOptions);
@@ -426,8 +426,8 @@ export function $removeCharacterMarkerAtSelection(
 
   const nodes = selection.getNodes();
   // Check there is something to remove before the loop below starts splitting text nodes, so a
-  // no-match request mutates nothing at all. See `$hasCharNodeToRemove`.
-  if (!$hasCharNodeToRemove(nodes, marker)) return;
+  // no-match request mutates nothing at all. See `$hasMatchingCharNode`.
+  if (!$hasMatchingCharNode(nodes, marker)) return;
 
   const isBackward = selection.isBackward();
   const [startOffset, endOffset] = getSelectionOffsets(selection);
@@ -449,7 +449,7 @@ export function $removeCharacterMarkerAtSelection(
   // rest. Kept in case a future change reintroduces one.
   const handledCharNodeKeys = new Set<string>();
   targetNodes.forEach((targetNode) => {
-    const charNode = $getCharNodeToRemove(targetNode, marker);
+    const charNode = $getMatchingCharNode(targetNode, marker);
     if (!charNode || handledCharNodeKeys.has(charNode.getKey())) return;
     handledCharNodeKeys.add(charNode.getKey());
     // `undefined` means removal would have to affect unselected text — see
@@ -490,11 +490,11 @@ export function $removeCharacterMarkerAtSelection(
 // #region Helper functions for $removeCharacterMarkerAtSelection
 
 /**
- * Find the `CharNode` a removal should act on, walking up from a target node.
+ * Find the `CharNode` a marker action should act on, walking up from a target node.
  *
  * Returns `undefined` when nothing matches, which the caller treats as a no-op for that target
  * node. The walk is per-target, so a selection spanning a matching and a non-matching node still
- * acts on the matching one. A `CharNode` nested inside a `NoteNode` is skipped: `$getTargetNode`
+ * acts on the matching one. Shared by removal and replacement. A `CharNode` nested inside a `NoteNode` is skipped: `$getTargetNode`
  * only recognizes note interiors one level deep (a leaf whose *immediate* parent is the
  * `NoteNode`), so a marker `CharNode` nested deeper inside a note — the common case — would
  * otherwise still be found and removed by this walk.
@@ -503,7 +503,7 @@ export function $removeCharacterMarkerAtSelection(
  * @param marker - The marker to match, or `undefined` to take the innermost `CharNode`.
  * @returns the `CharNode` to remove, or `undefined` if there isn't one.
  */
-function $getCharNodeToRemove(node: LexicalNode, marker: string | undefined): CharNode | undefined {
+function $getMatchingCharNode(node: LexicalNode, marker: string | undefined): CharNode | undefined {
   let currentNode: LexicalNode | null = node;
   let matchedCharNode: CharNode | undefined;
   while (currentNode && !$isSomeParaNode(currentNode)) {
@@ -534,16 +534,18 @@ function $getCharNodeToRemove(node: LexicalNode, marker: string | undefined): Ch
  * `$isSkippedByMarkerAction` and does not replicate `handleTextNode`'s zero-width filter. So it can
  * only ever be more permissive, never wrongly refuse a removal that would have happened.
  *
+ * Shared by removal and replacement.
+ *
  * @param nodes - The nodes in the selection.
  * @param marker - The character marker to remove, or `undefined` for the innermost one.
  * @returns `true` if there is a matching `CharNode` to remove.
  */
-function $hasCharNodeToRemove(nodes: LexicalNode[], marker: string | undefined): boolean {
+function $hasMatchingCharNode(nodes: LexicalNode[], marker: string | undefined): boolean {
   return nodes.some(
     (node) =>
       !$isSkippedByMarkerAction(node) &&
       ($isTextNode(node) || ($isElementNode(node) && node.isInline())) &&
-      $getCharNodeToRemove(node, marker) !== undefined,
+      $getMatchingCharNode(node, marker) !== undefined,
   );
 }
 

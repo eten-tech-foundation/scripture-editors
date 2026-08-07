@@ -446,7 +446,7 @@ describe("USJ Marker Action Utils", () => {
         const noteNode = para.getChildAtIndex(1);
         if (!$isNoteNode(noteNode)) throw new Error("noteNode is not a NoteNode");
         // $getTargetNode's note check only sees an immediate parent, which doesn't cover a
-        // CharNode nested inside a NoteNode. It's $getCharNodeToRemove's own NoteNode guard that
+        // CharNode nested inside a NoteNode. It's $getMatchingCharNode's own NoteNode guard that
         // skips this case, so the CharNode survives.
         expect(noteNode.getChildren().some($isCharNode)).toBe(true);
         expect(noteNode.getTextContent()).toBe("Lord");
