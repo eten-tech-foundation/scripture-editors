@@ -336,6 +336,7 @@ describe("collab-materialized milestone settles into a re-tokenizable run", () =
         pendingKeys: new Set(milestoneFirst ? [msKey, runKey] : [runKey, msKey]),
         splitExpected: { current: false },
         rebuildAttempted: new Set(),
+        isStructureProtected: false,
       };
       editor.update(
         () => {

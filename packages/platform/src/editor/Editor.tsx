@@ -648,7 +648,12 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
               or pasted `\` and `/` - only guards the non-editable views. */}
           {viewOptions?.markerMode !== "editable" && <CommandMenuPlugin logger={logger} />}
           <ContextMenuPlugin options={contextMenuOptions} />
-          <MarkerEditPlugin viewOptions={viewOptions} getMarker={markerLookup} logger={logger} />
+          <MarkerEditPlugin
+            viewOptions={viewOptions}
+            getMarker={markerLookup}
+            logger={logger}
+            isStructureProtected={isStructureProtected}
+          />
           <MarkerValidationPlugin styleInfo={styleInfo} viewOptions={viewOptions} logger={logger} />
           <NoteNodePlugin
             expandedNoteKeyRef={expandedNoteKeyRef}

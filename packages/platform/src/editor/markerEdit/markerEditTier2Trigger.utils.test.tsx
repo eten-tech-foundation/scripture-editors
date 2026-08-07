@@ -716,6 +716,7 @@ describe("$textNodeTier2Transform on attribute-run text", () => {
       pendingKeys: new Set<NodeKey>(),
       splitExpected: { current: false },
       rebuildAttempted: new Set<string>(),
+      isStructureProtected: false,
     };
   }
 
@@ -783,6 +784,7 @@ describe("$textNodeTier2Transform on pipe-text in plain content", () => {
       pendingKeys: new Set<NodeKey>(),
       splitExpected: { current: false },
       rebuildAttempted: new Set<string>(),
+      isStructureProtected: false,
     };
   }
 
@@ -874,6 +876,7 @@ describe("$textNodeTier2Transform on `//` optbreak text in plain content", () =>
       pendingKeys: new Set<NodeKey>(),
       splitExpected: { current: false },
       rebuildAttempted: new Set<string>(),
+      isStructureProtected: false,
     };
   }
 

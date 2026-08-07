@@ -275,11 +275,14 @@ export function MarkerEditPlugin({
   viewOptions,
   getMarker,
   logger,
+  isStructureProtected = false,
 }: {
   viewOptions: ViewOptions | undefined;
   /** Project StyleInfo-backed lookup; defaults to the bundled table. */
   getMarker?: MarkerLookup;
   logger?: LoggerBasic;
+  /** Mirrors `Editor`'s option of the same name. See `MarkerEditContext.isStructureProtected`. */
+  isStructureProtected?: boolean;
 }): null {
   const [editor] = useLexicalComposerContext();
   const isEnabled = viewOptions?.markerMode === "editable";
@@ -312,7 +315,8 @@ export function MarkerEditPlugin({
     if (viewOptions) context.viewOptions = viewOptions;
     context.getMarker = getMarker ?? bundledGetMarker;
     context.logger = logger;
-  }, [viewOptions, getMarker, logger]);
+    context.isStructureProtected = isStructureProtected;
+  }, [viewOptions, getMarker, logger, isStructureProtected]);
 
   useEffect(() => {
     if (!isEnabled || !viewOptions) return;
@@ -323,6 +327,7 @@ export function MarkerEditPlugin({
       splitExpected: { current: false },
       rebuildAttempted: new Set<string>(),
       logger,
+      isStructureProtected,
     };
     contextRef.current = context;
     // Publishes the live pending set to the self-healing displays syncs (attributeDisplay.utils.ts,
@@ -653,6 +658,13 @@ export function MarkerEditPlugin({
                   event && typeof event === "object" && "clipboardData" in event
                     ? (event as ClipboardEvent)
                     : null,
+                  context.isStructureProtected,
+                  // Consumed by $paraMarkerDeletionTransform below, same as the
+                  // INSERT_PARAGRAPH_COMMAND and LOW-priority PASTE_COMMAND handlers arm it for
+                  // the paste paths that reach them — this HIGH-priority claim reaches neither.
+                  () => {
+                    context.splitExpected.current = true;
+                  },
                 ),
               COMMAND_PRIORITY_HIGH,
             ),
