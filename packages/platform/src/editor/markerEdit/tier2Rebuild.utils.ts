@@ -28,6 +28,7 @@ import {
 } from "lexical";
 import {
   $hasUnrecoverableAttributes,
+  $isAttributeRunNode,
   $isCharNode,
   $isMarkerNode,
   $isMilestoneNode,
@@ -135,11 +136,22 @@ function $textNodeFragmentText(node: TextNode): string {
  * starting at the opening glyph (it advances the loop index past `run.length`), so a milestone
  * with no opening glyph contributes no run here; the tolerant scanner can also surface a detached
  * attribute/closer with no opening, but that partial shape never reaches a settled rebuild.
+ *
+ * DUAL-READ: when the pieces were found inside an `AttributeRunNode` wrapper, the returned run is
+ * `[wrapper]` — ONE element, not the wrapper's unpacked children — so the caller's `index +=
+ * run.length` advances past the ONE sibling slot the wrapper occupies. `$appendNodesFragment`'s
+ * generic ElementNode branch already flattens a transparent wrapper's children into the fragment
+ * (the same branch TypedMarkNode relies on), so the fragment bytes come out byte-identical to the
+ * loose shape without any special-casing there. An attached-but-EMPTY wrapper (no opening glyph
+ * found inside it) still returns `[]`, exactly like a bare milestone with no run at all — the
+ * `run.length > 0` re-tokenizable gate below must see "no run", not a 1-length run that
+ * contributes zero bytes, or a bare-but-wrapped milestone would be silently spliced away.
  */
 function $milestoneDisplayRun(children: LexicalNode[], index: number): LexicalNode[] {
   const milestone = children[index];
   if (!$isMilestoneNode(milestone)) return [];
-  const { opening, attribute, closing } = $milestoneAttributeRunPieces(milestone);
+  const { opening, attribute, closing, wrapper } = $milestoneAttributeRunPieces(milestone);
+  if (wrapper) return opening ? [wrapper] : [];
   if (!opening) return [];
   const run: LexicalNode[] = [opening];
   if (attribute) run.push(attribute);
@@ -158,11 +170,26 @@ function $milestoneDisplayRun(children: LexicalNode[], index: number): LexicalNo
  * into its OWN sentinel — see `$milestoneDisplayRun`'s non-re-tokenizable branch for the same
  * shape — so the tokenizer never sees `\va`/`\vp` immediately after an opaque U+FFFC placeholder
  * with no verse to fold onto (which would degrade them into unrelated standalone markers).
+ *
+ * DUAL-READ: for either marker, when the next sibling slot is a matching `AttributeRunNode`
+ * wrapper, that ONE node is pushed instead of its unpacked pieces (mirrors `$milestoneDisplayRun`
+ * — the generic ElementNode branch in `$appendNodesFragment` flattens it for the fragment builder
+ * without any further special-casing). An attached-but-EMPTY wrapper is treated as "no run for
+ * this marker" and stops the scan — the same outcome the loose-piece scan already has for a
+ * verse with no `\va` at all (a missing/invalid piece for the CURRENT marker breaks the loop
+ * before the OTHER marker is even attempted), so a degenerate wrapper is no less tolerant than
+ * the pre-existing loose-shape behavior.
  */
 function $verseAttributeRun(children: LexicalNode[], index: number): LexicalNode[] {
   const run: LexicalNode[] = [];
   for (const marker of ["va", "vp"] as const) {
-    const opening = children[index + run.length + 1];
+    const next = children[index + run.length + 1];
+    if ($isAttributeRunNode(next) && next.getRunKind() === marker) {
+      if (next.getChildrenSize() === 0) break;
+      run.push(next);
+      continue;
+    }
+    const opening = next;
     if (
       !$isMarkerNode(opening) ||
       opening.getMarkerSyntax() !== "opening" ||
@@ -243,6 +270,18 @@ const SIGNATURE_OPEN = String.fromCharCode(1);
 const SIGNATURE_CLOSE = String.fromCharCode(2);
 
 /**
+ * Flattens any `AttributeRunNode`(s) in `run` into their own children, so a wrapped run's
+ * signature is structurally IDENTICAL to the loose equivalent's — no extra "attribute-run"
+ * type-tagged span the generic `$isElementNode` branch below would otherwise add. Unlike the
+ * fragment builder (whose generic ElementNode branch already flattens a transparent wrapper's
+ * bytes for free, since fragment text carries no structural tagging), the SIGNATURE tags every
+ * element's type, so the wrapper itself must be skipped explicitly here, not just its bytes.
+ */
+function $flattenAttributeRuns(run: LexicalNode[]): LexicalNode[] {
+  return run.flatMap((node) => ($isAttributeRunNode(node) ? node.getChildren() : [node]));
+}
+
+/**
  * Structure-aware, sentinel-normalized signature of a node list, used ONLY to detect
  * a `$rebuildParas` no-op (fixed point). Marker glyphs and text contribute their
  * fragment text; every structural element (paragraph, CharNode span, verse-as-text,
@@ -286,7 +325,7 @@ function $appendSignature(children: LexicalNode[], out: string[], getMarkerFn: M
             unknownAttributes: node.getUnknownAttributes() ?? null,
           }),
         );
-        $appendSignature(run, out, getMarkerFn);
+        $appendSignature($flattenAttributeRuns(run), out, getMarkerFn);
         out.push(SIGNATURE_CLOSE);
       } else out.push(ATOMIC_SENTINEL);
       index += run.length;
@@ -332,7 +371,7 @@ function $appendSignature(children: LexicalNode[], out: string[], getMarkerFn: M
             pubnumber: node.getPubnumber() ?? null,
           }),
         );
-        $appendSignature(run, out, getMarkerFn);
+        $appendSignature($flattenAttributeRuns(run), out, getMarkerFn);
         out.push(SIGNATURE_CLOSE);
       }
       index += run.length;

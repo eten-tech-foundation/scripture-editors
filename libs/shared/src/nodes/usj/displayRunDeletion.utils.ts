@@ -4,6 +4,7 @@
  * live run in sync with its owner's state; this one recovers the owner from a piece that no
  * longer has live state to sync from, because it was just removed from the tree.
  */
+import { $isAttributeRunNode } from "./AttributeRunNode.js";
 import { $isCharNode } from "./CharNode.js";
 import { $isMilestoneNode } from "./MilestoneNode.js";
 import { $isVerseNode } from "./VerseNode.js";
@@ -14,16 +15,22 @@ import { textTypeState } from "../collab/delta.state.js";
 import { $getState, $isTextNode, LexicalNode } from "lexical";
 
 /**
- * Walk back over a chain of run pieces (glyphs and attribute text) to the `VerseNode` or
- * `MilestoneNode` the chain rides on as following siblings. Stops — and returns `undefined` — the
- * moment a sibling is neither the owner nor another run piece, since that means `piece` was never
- * actually part of a display run.
+ * Walk back over a chain of run pieces (glyphs, attribute text, and — DUAL-READ — a whole
+ * `AttributeRunNode` wrapper crossed in one step) to the `VerseNode` or `MilestoneNode` the chain
+ * rides on as following siblings. A wrapper counts as a single run piece here regardless of
+ * runKind: a `\vp` wrapper's owner sits BEHIND its own `\va` wrapper (or `\va`'s loose pieces, in
+ * a mid-migration tree that has one marker wrapped and the other still loose), so the walk must
+ * cross it without stopping. Stops — and returns `undefined` — the moment a sibling is neither the
+ * owner nor another run piece/wrapper, since that means `piece` was never actually part of a
+ * display run.
  */
 function $runChainOwner(piece: LexicalNode): LexicalNode | undefined {
   for (let prev = piece.getPreviousSibling(); prev; prev = prev.getPreviousSibling()) {
     if ($isVerseNode(prev) || $isMilestoneNode(prev)) return prev;
     const isRunPiece =
-      $isMarkerNode(prev) || ($isTextNode(prev) && $getState(prev, textTypeState) === "attribute");
+      $isMarkerNode(prev) ||
+      ($isTextNode(prev) && $getState(prev, textTypeState) === "attribute") ||
+      $isAttributeRunNode(prev);
     if (!isRunPiece) return undefined;
   }
   return undefined;
@@ -45,12 +52,24 @@ function $runChainOwner(piece: LexicalNode): LexicalNode | undefined {
  * listener), so both node kinds must be recognized or a real deletion would go unclassified.
  * Returns `undefined` for any other destroyed node — ordinary content, not a display-run piece.
  *
+ * DUAL-READ: two more shapes reach the SAME verse/milestone owner, once a run rides inside an
+ * `AttributeRunNode` wrapper (Task 12) rather than as loose siblings —
+ * - `piece` IS a destroyed wrapper (the user deleted the whole run at once, or a structural edit
+ *   removed it outright): its owner is found by walking back from the WRAPPER's own position.
+ * - `piece`'s PREVIOUS-STATE parent is a wrapper (only one piece inside it was destroyed, the
+ *   wrapper itself survives): `piece`'s own previous sibling is only meaningful relative to
+ *   OTHER pieces inside the wrapper, so the walk starts from the wrapper's position instead.
+ * Both delegate to {@link $runChainOwner} — the loose-siblings walk already crosses a whole
+ * wrapper in one step, so starting from a wrapper directly is the same walk, one level up.
+ *
  * @param piece - The destroyed node, read from `prevEditorState`.
  * @returns The CharNode / VerseNode / MilestoneNode / UnknownNode that owned the run `piece` rode
  *   in, or `undefined` if `piece` was not part of a display run.
  */
 export function $ownerOfDestroyedRunPiece(piece: LexicalNode): LexicalNode | undefined {
+  if ($isAttributeRunNode(piece)) return $runChainOwner(piece);
   const parent = piece.getParent();
+  if ($isAttributeRunNode(parent)) return $runChainOwner(parent);
   if ($isUnknownNode(parent))
     return parent.getTag() === "optbreak" &&
       ($isTextNode(piece) || $isImmutableTypedTextNode(piece))

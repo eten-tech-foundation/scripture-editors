@@ -16,6 +16,7 @@ import {
 } from "lexical";
 import { Op } from "quill-delta";
 import {
+  $isAttributeRunNode,
   $isDescendantOf,
   $isImmutableUnmatchedNode,
   $isMilestoneNode,
@@ -493,6 +494,22 @@ function $isOwnParaPrefixGlyph(node: LexicalNode): boolean {
 }
 
 /**
+ * True when `node` sits inside an `AttributeRunNode` wrapper (a verse's/milestone's display run,
+ * once wrapped — see `AttributeRunNode.ts`). The wrapper is pure presentation scaffolding — its
+ * children are the SAME run pieces (glyphs, attribute text) that already ride as loose siblings
+ * pre-Task-14 — so this is the wrapped-shape counterpart of `$isOwnParaPrefixGlyph` below: an
+ * ANCESTRY check rather than a sibling-adjacency one, so it also catches shapes the loose-piece
+ * exclusions in `editor-delta.adaptor.ts` can miss by adjacency alone (e.g. a milestone's glyph
+ * pair with no attribute text between them, where neither glyph has an attribute-tagged sibling
+ * to key off of).
+ */
+export function $hasAttributeRunAncestor(node: LexicalNode): boolean {
+  for (let parent = node.getParent(); parent; parent = parent.getParent())
+    if ($isAttributeRunNode(parent)) return true;
+  return false;
+}
+
+/**
  * Calculate the OT length contribution of a single node.
  *
  * @param coordinates - The OT coordinate system to count in (see {@link OTCoordinateSystem}).
@@ -507,6 +524,15 @@ function $isOwnParaPrefixGlyph(node: LexicalNode): boolean {
  *   prefix-length short of the note it meant to delete, deleting the wrong node and leaving the
  *   replacement appended instead). If `$applyUpdate`'s traversals are ever taught to skip these
  *   nodes too, this exclusion should extend to `"apply"` at the same time — not before.
+ *
+ *   The SAME reasoning governs the new `$hasAttributeRunAncestor` exclusion below: `$applyUpdate`
+ *   does not know about `AttributeRunNode` at all yet (the adaptor never builds one — Task 14),
+ *   so its traversals would treat a wrapper as an ordinary, un-special-cased `ElementNode` (zero
+ *   contribution of its own, descend into children) and count each child's raw text length
+ *   exactly as it already does for today's LOOSE run pieces — i.e. wrapping changes nothing about
+ *   what `$applyUpdate` would do. `"apply"` coordinates must therefore keep counting a wrapped
+ *   piece's text too, matching that (unchanged) traversal; only `"delta-doc"` excludes it, mirroring
+ *   `editor-delta.adaptor.ts`'s existing loose-piece ops exclusion for the identical bytes.
  */
 function $getNodeOTContribution(node: LexicalNode, coordinates: OTCoordinateSystem): number {
   // Embeds are checked FIRST: an editable VerseNode is a TextNode subclass but counts as one
@@ -517,7 +543,9 @@ function $getNodeOTContribution(node: LexicalNode, coordinates: OTCoordinateSyst
   if ($isTextNode(node)) {
     if (
       coordinates === "delta-doc" &&
-      ($isOwnParaPrefixGlyph(node) || $getState(node, textTypeState) === "marker-trailing-space")
+      ($isOwnParaPrefixGlyph(node) ||
+        $getState(node, textTypeState) === "marker-trailing-space" ||
+        $hasAttributeRunAncestor(node))
     )
       return 0;
     return node.getTextContentSize();

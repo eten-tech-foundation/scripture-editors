@@ -1,5 +1,7 @@
+import { $createAttributeRunNode, AttributeRunNode } from "./AttributeRunNode.js";
 import { $createCharNode, CharNode } from "./CharNode.js";
 import { $ownerOfDestroyedRunPiece } from "./displayRunDeletion.utils.js";
+import { usjBaseNodes } from "./index.js";
 import { $createMilestoneNode, MilestoneNode } from "./MilestoneNode.js";
 import { NBSP } from "./node-constants.js";
 import { getEditableCallerText } from "./node.utils.js";
@@ -258,6 +260,171 @@ describe("$ownerOfDestroyedRunPiece", () => {
 
       editor.getEditorState().read(() => {
         expect($ownerOfDestroyedRunPiece(tokenText)?.getKey()).toBe(unknownNode.getKey());
+      });
+    });
+  });
+
+  // AttributeRunNode is registered in usjReactNodes only (Task 12) — headless tests here must
+  // pass it explicitly to createBasicTestEnvironment.
+  describe("AttributeRunNode wrapper (dual-read)", () => {
+    it("classifies a destroyed milestone wrapper as owned by the preceding MilestoneNode", () => {
+      const { editor } = createBasicTestEnvironment([...usjBaseNodes, AttributeRunNode]);
+      let milestone!: MilestoneNode;
+      let wrapper!: AttributeRunNode;
+      editor.update(
+        () => {
+          milestone = $createMilestoneNode("qt-s", "q1");
+          wrapper = $createAttributeRunNode("milestone");
+          wrapper.append(
+            $createMarkerNode("qt-s", "opening"),
+            $createMarkerNode("", "selfClosing"),
+          );
+          $getRoot().append($createParaNode("p").append(milestone, wrapper));
+        },
+        { discrete: true },
+      );
+
+      editor.getEditorState().read(() => {
+        expect($ownerOfDestroyedRunPiece(wrapper)?.getKey()).toBe(milestone.getKey());
+      });
+    });
+
+    it("classifies a destroyed piece whose PREV-STATE PARENT is a milestone wrapper as that wrapper's owner", () => {
+      const { editor } = createBasicTestEnvironment([...usjBaseNodes, AttributeRunNode]);
+      let milestone!: MilestoneNode;
+      let attributeText!: TextNode;
+      editor.update(
+        () => {
+          milestone = $createMilestoneNode("qt-s", "q1");
+          const wrapper = $createAttributeRunNode("milestone");
+          const opening = $createMarkerNode("qt-s", "opening");
+          attributeText = $createTextNode(`${NBSP}|sid="q1"`);
+          $setState(attributeText, textTypeState, "attribute");
+          const closing = $createMarkerNode("", "selfClosing");
+          wrapper.append(opening, attributeText, closing);
+          $getRoot().append($createParaNode("p").append(milestone, wrapper));
+        },
+        { discrete: true },
+      );
+
+      editor.getEditorState().read(() => {
+        // attributeText's own previous sibling (the opening glyph) is only meaningful relative to
+        // OTHER pieces inside the wrapper — the walk must start from the WRAPPER's position, not
+        // attributeText's own, to reach the milestone.
+        expect($ownerOfDestroyedRunPiece(attributeText)?.getKey()).toBe(milestone.getKey());
+      });
+    });
+
+    it("classifies a destroyed verse wrapper as owned by the preceding VerseNode", () => {
+      const { editor } = createBasicTestEnvironment([...usjBaseNodes, AttributeRunNode]);
+      let verse!: VerseNode;
+      let vaWrapper!: AttributeRunNode;
+      editor.update(
+        () => {
+          verse = $createVerseNode("1");
+          vaWrapper = $createAttributeRunNode("va");
+          vaWrapper.append($createMarkerNode("va", "opening"), $createMarkerNode("va", "closing"));
+          $getRoot().append($createParaNode("p").append(verse, vaWrapper));
+        },
+        { discrete: true },
+      );
+
+      editor.getEditorState().read(() => {
+        expect($ownerOfDestroyedRunPiece(vaWrapper)?.getKey()).toBe(verse.getKey());
+      });
+    });
+
+    it("classifies a destroyed \\vp wrapper as owned by the VerseNode, walking back over a preceding \\va wrapper", () => {
+      // Mixed-shape tree: \va is wrapped, \vp is a SEPARATE wrapper directly after it — mirrors
+      // AttributeRunNode.ts's documented chaining (a \vp wrapper follows the \va wrapper, not the
+      // verse directly) one level up from the loose-pieces chaining pin in this file already.
+      const { editor } = createBasicTestEnvironment([...usjBaseNodes, AttributeRunNode]);
+      let verse!: VerseNode;
+      let vpWrapper!: AttributeRunNode;
+      editor.update(
+        () => {
+          verse = $createVerseNode("1");
+          const vaWrapper = $createAttributeRunNode("va");
+          vaWrapper.append($createMarkerNode("va", "opening"), $createMarkerNode("va", "closing"));
+          vpWrapper = $createAttributeRunNode("vp");
+          vpWrapper.append($createMarkerNode("vp", "opening"), $createMarkerNode("vp", "closing"));
+          $getRoot().append($createParaNode("p").append(verse, vaWrapper, vpWrapper));
+        },
+        { discrete: true },
+      );
+
+      editor.getEditorState().read(() => {
+        expect($ownerOfDestroyedRunPiece(vpWrapper)?.getKey()).toBe(verse.getKey());
+      });
+    });
+
+    it("classifies a destroyed piece whose PREV-STATE PARENT is a \\va wrapper as that wrapper's owner", () => {
+      const { editor } = createBasicTestEnvironment([...usjBaseNodes, AttributeRunNode]);
+      let verse!: VerseNode;
+      let vaValue!: TextNode;
+      editor.update(
+        () => {
+          verse = $createVerseNode("1");
+          const vaWrapper = $createAttributeRunNode("va");
+          const vaOpen = $createMarkerNode("va", "opening");
+          vaValue = $createTextNode(`${NBSP}1a`);
+          $setState(vaValue, textTypeState, "attribute");
+          const vaClose = $createMarkerNode("va", "closing");
+          vaWrapper.append(vaOpen, vaValue, vaClose);
+          $getRoot().append($createParaNode("p").append(verse, vaWrapper));
+        },
+        { discrete: true },
+      );
+
+      editor.getEditorState().read(() => {
+        expect($ownerOfDestroyedRunPiece(vaValue)?.getKey()).toBe(verse.getKey());
+      });
+    });
+
+    it("classifies a LOOSE \\vp opening glyph chained behind a \\va WRAPPER as owned by the VerseNode", () => {
+      // Mid-migration mixed shape: \va already wrapped, \vp still loose (riding directly after
+      // the \va wrapper). $runChainOwner's walk-back from the loose \vp piece must cross the
+      // WHOLE \va wrapper in one step to reach the verse.
+      const { editor } = createBasicTestEnvironment([...usjBaseNodes, AttributeRunNode]);
+      let verse!: VerseNode;
+      let vpOpen!: LexicalNode;
+      editor.update(
+        () => {
+          verse = $createVerseNode("1");
+          const vaWrapper = $createAttributeRunNode("va");
+          vaWrapper.append($createMarkerNode("va", "opening"), $createMarkerNode("va", "closing"));
+          vpOpen = $createMarkerNode("vp", "opening");
+          const vpValue = $createTextNode(`${NBSP}1`);
+          $setState(vpValue, textTypeState, "attribute");
+          const vpClose = $createMarkerNode("vp", "closing");
+          $getRoot().append(
+            $createParaNode("p").append(verse, vaWrapper, vpOpen, vpValue, vpClose),
+          );
+        },
+        { discrete: true },
+      );
+
+      editor.getEditorState().read(() => {
+        expect($ownerOfDestroyedRunPiece(vpOpen)?.getKey()).toBe(verse.getKey());
+      });
+    });
+
+    it("returns undefined for a destroyed wrapper with no owner before it", () => {
+      const { editor } = createBasicTestEnvironment([...usjBaseNodes, AttributeRunNode]);
+      let wrapper!: AttributeRunNode;
+      editor.update(
+        () => {
+          wrapper = $createAttributeRunNode("milestone");
+          wrapper.append($createMarkerNode("qt-s", "opening"));
+          $getRoot().append(
+            $createParaNode("p").append($createTextNode("In the beginning "), wrapper),
+          );
+        },
+        { discrete: true },
+      );
+
+      editor.getEditorState().read(() => {
+        expect($ownerOfDestroyedRunPiece(wrapper)).toBeUndefined();
       });
     });
   });

@@ -45,9 +45,21 @@ import {
   usxStringToUsj,
 } from "@eten-tech-foundation/scripture-utilities";
 import { deepEqual } from "fast-equals";
-import { $getRoot, $isTextNode, SerializedTextNode, TextNode } from "lexical";
+import {
+  $createTextNode,
+  $getRoot,
+  $isTextNode,
+  $setState,
+  SerializedTextNode,
+  TextNode,
+} from "lexical";
 import { getViewOptions, STANDARD_VIEW_MODE, TextSpacingPlugin, usjReactNodes } from "shared-react";
 import {
+  $createAttributeRunNode,
+  $createMarkerNode,
+  $createMilestoneNode,
+  $createParaNode,
+  $createVerseNode,
   $isParaNode,
   CHAPTER_MARKER,
   getVisibleOpenMarkerText,
@@ -58,6 +70,7 @@ import {
   SerializedChapterNode,
   SerializedParaNode,
   SerializedVerseNode,
+  textTypeState,
   TypedMarkNode,
   VERSE_MARKER,
 } from "shared";
@@ -336,6 +349,104 @@ describe("Editor USJ Adaptor", () => {
       { type: "verse", marker: "v", number: "1", altnumber: "2", pubnumber: "1b" },
       "text after",
     ]);
+  });
+
+  // AttributeRunNode is registered in `nodes` above via `...usjReactNodes` (Task 12). The forward
+  // adaptor (usj-editor.adaptor.ts) does not build this shape yet (Task 14) — these tests build it
+  // by hand to pin the REVERSE (editor -> USJ) exclusion ahead of that flip. Each uses its OWN
+  // freshly-created editor (rather than the module-level `editor` other tests in this file share)
+  // so hand-built nodes never leak across tests.
+  it("excludes a verse's \\va/\\vp display runs from saved USJ content when wrapped in AttributeRunNode (dual-read)", () => {
+    const standardViewOptions = getViewOptions(STANDARD_VIEW_MODE);
+    initializeDeserialize(undefined);
+    const { editor: localEditor } = createBasicTestEnvironment(nodes);
+    localEditor.update(
+      () => {
+        const verse = $createVerseNode(
+          "1",
+          getVisibleOpenMarkerText("v", "1"),
+          undefined,
+          "2",
+          "1b",
+        );
+        const vaWrapper = $createAttributeRunNode("va");
+        const vaValue = $createTextNode(`${NBSP}2`);
+        $setState(vaValue, textTypeState, "attribute");
+        vaWrapper.append(
+          $createMarkerNode("va", "opening"),
+          vaValue,
+          $createMarkerNode("va", "closing"),
+        );
+        const vpWrapper = $createAttributeRunNode("vp");
+        const vpValue = $createTextNode(`${NBSP}1b`);
+        $setState(vpValue, textTypeState, "attribute");
+        vpWrapper.append(
+          $createMarkerNode("vp", "opening"),
+          vpValue,
+          $createMarkerNode("vp", "closing"),
+        );
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createTextNode(NBSP),
+            verse,
+            vaWrapper,
+            vpWrapper,
+            $createTextNode("text after"),
+          ),
+        );
+      },
+      { discrete: true },
+    );
+
+    const result = editorUsjAdaptor.deserializeEditorState(
+      localEditor.getEditorState(),
+      standardViewOptions,
+    );
+
+    const para = result?.content?.[0] as MarkerObject;
+    // Identical to the loose-shape assertion above: the two wrappers contribute NOTHING beyond
+    // the verse's own altnumber/pubnumber fields (already carried on the VerseNode itself,
+    // independent of whichever shape its display run rides in).
+    expect(para.content).toEqual([
+      { type: "verse", marker: "v", number: "1", altnumber: "2", pubnumber: "1b" },
+      "text after",
+    ]);
+  });
+
+  it("excludes a milestone's display run from saved USJ content when wrapped in AttributeRunNode (dual-read)", () => {
+    const standardViewOptions = getViewOptions(STANDARD_VIEW_MODE);
+    initializeDeserialize(undefined);
+    const { editor: localEditor } = createBasicTestEnvironment(nodes);
+    localEditor.update(
+      () => {
+        const ms = $createMilestoneNode("qt-s", "q1");
+        const wrapper = $createAttributeRunNode("milestone");
+        const attribute = $createTextNode(`${NBSP}|sid="q1"`);
+        $setState(attribute, textTypeState, "attribute");
+        wrapper.append(
+          $createMarkerNode("qt-s", "opening"),
+          attribute,
+          $createMarkerNode("", "selfClosing"),
+        );
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createTextNode("before "),
+            ms,
+            wrapper,
+            $createTextNode(" after"),
+          ),
+        );
+      },
+      { discrete: true },
+    );
+
+    const result = editorUsjAdaptor.deserializeEditorState(
+      localEditor.getEditorState(),
+      standardViewOptions,
+    );
+
+    const para = result?.content?.[0] as MarkerObject;
+    expect(para.content).toEqual(["before ", { type: "ms", marker: "qt-s", sid: "q1" }, " after"]);
   });
 
   it("excludes an unknown node's display marker/attribute runs from saved USJ content", () => {

@@ -24,6 +24,7 @@ import { LF } from "./delta-common.utils";
 import { getEditorDelta } from "./editor-delta.adaptor";
 import { $setState, $createTextNode, $getRoot } from "lexical";
 import {
+  $createAttributeRunNode,
   $createBookNode,
   $createCharNode,
   $createImmutableChapterNode,
@@ -150,6 +151,47 @@ describe("getEditorDelta", () => {
 
     expect(ops).toEqual([
       { insert: { verse: { style: "v", number: "1", altnumber: "2", pubnumber: "1b" } } },
+      { insert: LF, attributes: { para: { style: "q1" } } },
+    ]);
+  });
+
+  // AttributeRunNode is registered via `baseTestEnvironment`'s `usjReactNodes` (Task 12). The
+  // forward adaptor (usj-editor.adaptor.ts) does not build this shape yet (Task 14) — hand-built
+  // here to pin the ops exclusion ahead of that flip: byte-identical ops to the loose-shape test
+  // immediately above prove the wrapper contributes nothing extra and nothing is lost.
+  it("excludes a verse's \\va/\\vp display runs from canonical ops when wrapped in AttributeRunNode (dual-read)", async () => {
+    const ops = await getOpsFor(() => {
+      const verse = $createVerseNode("1", "\\v 1 ", undefined, "2", "1b");
+      const vaWrapper = $createAttributeRunNode("va");
+      const vaValue = $createTextNode(`${NBSP}2`);
+      $setState(vaValue, textTypeState, "attribute");
+      vaWrapper.append($createMarkerNode("va"), vaValue, $createMarkerNode("va", "closing"));
+      const vpWrapper = $createAttributeRunNode("vp");
+      const vpValue = $createTextNode(`${NBSP}1b`);
+      $setState(vpValue, textTypeState, "attribute");
+      vpWrapper.append($createMarkerNode("vp"), vpValue, $createMarkerNode("vp", "closing"));
+      $getRoot().append($createParaNode("q1").append(verse, vaWrapper, vpWrapper));
+    });
+
+    expect(ops).toEqual([
+      { insert: { verse: { style: "v", number: "1", altnumber: "2", pubnumber: "1b" } } },
+      { insert: LF, attributes: { para: { style: "q1" } } },
+    ]);
+  });
+
+  it("excludes a milestone's display run from canonical ops when wrapped in AttributeRunNode (dual-read), including a glyph pair with no attribute text between them", async () => {
+    // The no-attribute-text shape is the one the pre-existing sibling-adjacency check
+    // ($isBareAttributeGlyph) cannot catch on its own (neither glyph has an attribute-tagged
+    // sibling to key off of) — the ANCESTRY check this task adds is what excludes it here.
+    const ops = await getOpsFor(() => {
+      const ms = $createMilestoneNode("qt-s", "q1");
+      const wrapper = $createAttributeRunNode("milestone");
+      wrapper.append($createMarkerNode("qt-s", "opening"), $createMarkerNode("", "selfClosing"));
+      $getRoot().append($createParaNode("q1").append(ms, wrapper));
+    });
+
+    expect(ops).toEqual([
+      { insert: { milestone: { style: "qt-s", sid: "q1" } } },
       { insert: LF, attributes: { para: { style: "q1" } } },
     ]);
   });

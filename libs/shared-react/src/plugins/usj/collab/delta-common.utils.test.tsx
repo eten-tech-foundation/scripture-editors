@@ -19,6 +19,7 @@ import { act } from "@testing-library/react";
 import { $createTextNode, $getRoot, $isTextNode, $setState, LexicalNode } from "lexical";
 import { ReactNode } from "react";
 import {
+  $createAttributeRunNode,
   $createBookNode,
   $createChapterNode,
   $createCharNode,
@@ -1334,6 +1335,97 @@ describe("apply coordinates (paragraph marker-prefix glyph and separator)", () =
       const lastText = para.getLastChild();
       if (!$isTextNode(lastText)) throw new Error("trailing text not found");
       expect(lastText.getTextContent()).toBe(" tail");
+    });
+  });
+});
+
+/**
+ * AttributeRunNode is registered via `baseTestEnvironment`'s `usjReactNodes` (Task 12). The
+ * forward adaptor (usj-editor.adaptor.ts) does not build this shape yet (Task 14) — hand-built
+ * here to pin the `$getNodeOTContribution` ancestor exclusion ahead of that flip.
+ *
+ * DUAL-READ coordinate decision (see `delta-common.utils.ts`'s `$getNodeOTContribution` doc
+ * comment): excluded ONLY in `"delta-doc"` coordinates, mirroring `editor-delta.adaptor.ts`'s ops
+ * exclusion for the SAME bytes. `"apply"` coordinates deliberately keep counting a wrapped
+ * piece's raw text length — `$applyUpdate` does not know about `AttributeRunNode` at all yet
+ * (Task 14), so its traversals would treat the wrapper as an ordinary, un-special-cased
+ * `ElementNode` (zero contribution of its own, descend into children) and count each child's raw
+ * text length exactly as it already does for today's LOOSE run pieces: wrapping a run changes
+ * NOTHING about what `$applyUpdate` would actually do to it. Excluding it in "apply" coordinates
+ * here, ahead of `$applyUpdate` itself changing, would disagree with where `$applyUpdate` really
+ * walks to — the same "apply" coordinates must equal `$applyUpdate`'s existing behavior"
+ * principle the para-prefix-glyph/marker-trailing-space exclusion above already documents.
+ */
+describe("apply coordinates (AttributeRunNode wrapper pieces)", () => {
+  let milestoneNode: LexicalNode | undefined;
+
+  /**
+   * Editable-mode document shape:
+   *
+   * ```
+   * root
+   * └─ ParaNode "p"
+   *    ├─ MilestoneNode "qt-s"                        (embed, 1 unit)
+   *    ├─ AttributeRunNode "milestone" wrapper
+   *    │   ├─ MarkerNode "\qt-s" (opening)             (glyph, 5 chars)
+   *    │   ├─ TextNode NBSP+|sid="q1" (attribute)       (10 chars)
+   *    │   └─ MarkerNode "\*" (selfClosing)             (glyph, 2 chars)
+   *    └─ TextNode " tail"                              (5 chars)
+   * ```
+   *
+   * apply coordinates: milestone (1) + opening (5) + attribute (10) + closing (2) → tail at 18.
+   * delta-doc coordinates: milestone (1) + wrapper pieces (0, excluded) → tail at 1.
+   */
+  function $buildWrappedMilestoneDoc() {
+    const milestone = $createMilestoneNode("qt-s", "q1");
+    milestoneNode = milestone;
+    const wrapper = $createAttributeRunNode("milestone");
+    const attribute = $createTextNode(`${NBSP}|sid="q1"`);
+    $setState(attribute, textTypeState, "attribute");
+    wrapper.append(
+      $createMarkerNode("qt-s", "opening"),
+      attribute,
+      $createMarkerNode("", "selfClosing"),
+    );
+    $getRoot().append($createParaNode("p").append(milestone, wrapper, $createTextNode(" tail")));
+  }
+
+  function requireMilestone(): LexicalNode {
+    if (!milestoneNode) throw new Error("milestoneNode not initialized");
+    return milestoneNode;
+  }
+
+  it("excludes wrapped run pieces from position counting in delta-doc coordinates but not apply", async () => {
+    const { editor } = await testEnvironment($buildWrappedMilestoneDoc);
+
+    const tailPosition = editor.getEditorState().read(() => {
+      const para = $getRoot().getFirstChild();
+      if (!$isParaNode(para)) throw new Error("para not found");
+      const tail = para.getLastChild();
+      if (!tail) throw new Error("tail text not found");
+      return {
+        apply: $getOTPositionOfNode(tail, "apply"),
+        deltaDoc: $getOTPositionOfNode(tail),
+      };
+    });
+
+    // milestone (1) + opening (5) + attribute (10) + closing (2) = 18
+    expect(tailPosition.apply).toBe(18);
+    // delta-doc excludes every wrapped piece: milestone (1) alone = 1
+    expect(tailPosition.deltaDoc).toBe(1);
+  });
+
+  it("$getNodeFromOTPosition reverse-maps the apply-coordinate retain back to the milestone across its wrapper", async () => {
+    const { editor } = await testEnvironment($buildWrappedMilestoneDoc);
+    const milestone = requireMilestone();
+
+    editor.getEditorState().read(() => {
+      const applyPosition = $getOTPositionOfNode(milestone, "apply");
+      if (applyPosition === undefined) throw new Error("apply position not found");
+
+      expect($getNodeFromOTPosition(applyPosition, "apply")).toBe(milestone);
+      // Legacy delta-doc reverse mapping is unchanged: the milestone is still at 0.
+      expect($getNodeFromOTPosition(0)).toBe(milestone);
     });
   });
 });

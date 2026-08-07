@@ -26,7 +26,10 @@ import {
   $isParaNode,
   $isUnknownNode,
   $isVerseNode,
+  $milestoneAttributeRunPieces,
   $milestoneRunEntirelyAbsent,
+  $verseAttributeRunPieces,
+  AttributeRunNode,
   canonicalAttributeText,
   ChapterNode,
   closingMarkerText,
@@ -306,6 +309,29 @@ export function $milestoneAttributeDisplayText(node: MilestoneNode): string {
 }
 
 /**
+ * Every currently-attached but EMPTY `AttributeRunNode` wrapper riding on `node` (a verse's `\va`
+ * and/or `\vp` wrapper, or a milestone's single wrapper) — every piece of that wrapper's run was
+ * deleted, leaving a transient husk with nothing left to display (see {@link AttributeRunNode}'s
+ * own doc comment). A verse can carry up to two independent husks; a milestone at most one.
+ */
+function $emptyAttributeRunWrappers(node: LexicalNode): AttributeRunNode[] {
+  if ($isMilestoneNode(node)) {
+    const { wrapper } = $milestoneAttributeRunPieces(node);
+    return wrapper && wrapper.getChildrenSize() === 0 ? [wrapper] : [];
+  }
+  if ($isVerseNode(node)) {
+    const husks: AttributeRunNode[] = [];
+    const vaPieces = $verseAttributeRunPieces(node, "va");
+    if (vaPieces.wrapper && vaPieces.wrapper.getChildrenSize() === 0) husks.push(vaPieces.wrapper);
+    const afterVa = vaPieces.wrapper ?? vaPieces.closer ?? node;
+    const vpPieces = $verseAttributeRunPieces(afterVa, "vp");
+    if (vpPieces.wrapper && vpPieces.wrapper.getChildrenSize() === 0) husks.push(vpPieces.wrapper);
+    return husks;
+  }
+  return [];
+}
+
+/**
  * The uniform deletion/pend settle for display-run OWNERS — the one place every kind's
  * grace-or-settle decision and entirely-absent deletion policy lives. Marker literals and plain
  * pending text are not owners and fall through (handled: false) to the caller's re-tokenize arm.
@@ -332,6 +358,20 @@ export function $settlePendedDisplayOwner(
     // never re-tokenized) — recognized so the caller's re-tokenize fallback never tries to route
     // one through `$requestTier2ForNode`.
     return { handled: true, mutated: false };
+  }
+  // DUAL-READ husk arm, mirrors the optbreak arm above: an emptied `AttributeRunNode` wrapper
+  // left attached to a verse or milestone is undead scaffolding with nothing left to display —
+  // removed here as a side effect (not an early return) so the OWNER's own policy below still
+  // runs against the cleaned-up tree in the SAME settle pass. Without that, a milestone whose
+  // wrapper was JUST emptied would leave the wrapper orphaned in the tree the instant
+  // `$milestoneRunEntirelyAbsent` (below) removes the milestone itself — ownership is
+  // POSITION-derived, so an orphaned wrapper with no owner immediately before it can never be
+  // cleaned up by anything else. `huskRemoved` folds into whichever arm below actually returns,
+  // so a settle pass that removed a husk is never misreported as having mutated nothing.
+  let huskRemoved = false;
+  for (const wrapper of $emptyAttributeRunWrappers(node)) {
+    wrapper.remove();
+    huskRemoved = true;
   }
   if ($isCharNode(node) && $hasCaretHeldSeparatorGap(node)) {
     // A deleted opener separator stays pending while the caret still sits at the gap (the
@@ -366,7 +406,7 @@ export function $settlePendedDisplayOwner(
     // pended key. Settling now would re-tokenize the run out from under the caret; it settles
     // once the caret has actually departed and the run's bytes are absent from the fragment.
     context.pendingKeys.add(node.getKey());
-    return { handled: true, mutated: false };
+    return { handled: true, mutated: huskRemoved };
   }
   if (
     $isMilestoneNode(node) &&
@@ -378,7 +418,7 @@ export function $settlePendedDisplayOwner(
     // Settling now would rewrite or re-tokenize the run out from under the caret; it settles
     // once the caret has actually departed.
     context.pendingKeys.add(node.getKey());
-    return { handled: true, mutated: false };
+    return { handled: true, mutated: huskRemoved };
   }
   if ($isMilestoneNode(node) && $milestoneRunEntirelyAbsent(node)) {
     // The display run is a milestone's ENTIRE visible byte representation, so deleting all of
@@ -387,9 +427,18 @@ export function $settlePendedDisplayOwner(
     // (any glyph or attribute text still present) falls through and re-tokenizes instead.
     // Without this arm the paragraph rebuild would preserve the bare milestone as an atomic
     // sentinel (tier2Rebuild.utils.ts's empty-run guard) and the deletion could never finish.
+    // (An emptied wrapper husk was already removed above, so this correctly still fires for it.)
     node.remove();
     return { handled: true, mutated: true };
   }
+  // `handled: false` here regardless of `huskRemoved`: the caller ignores `mutated` on this path
+  // and instead falls through to its own re-tokenize arm ($requestTier2ForNode) — the existing,
+  // already-safe default for a verse whose pend wasn't (or is no longer, post-husk-cleanup) a
+  // recognized caret-held divergence. Routing through it here too, rather than reporting
+  // "handled" and stopping, keeps a verse's own altnumber/pubnumber able to re-derive a fresh
+  // (loose) run on the same pass if a husk was cleared out from under a value that is still
+  // wanted — `wrapper.remove()` alone does not dirty the VerseNode, so nothing else would
+  // otherwise re-trigger its sync.
   return { handled: false, mutated: false };
 }
 

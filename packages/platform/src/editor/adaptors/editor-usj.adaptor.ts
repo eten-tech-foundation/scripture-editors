@@ -17,6 +17,7 @@ import {
   TextNode,
 } from "lexical";
 import {
+  AttributeRunNode,
   BookNode,
   ChapterNode,
   CharNode,
@@ -429,11 +430,17 @@ function recurseNodes(
           ),
         );
         break;
+      case AttributeRunNode.getType():
       case ImmutableTypedTextNode.getType():
       case ImmutableNoteCallerNode.getType():
       case LineBreakNode.getType():
       case MarkerNode.getType():
-        // These nodes are for presentation only so they don't go into the USJ.
+        // These nodes are for presentation only so they don't go into the USJ. An
+        // AttributeRunNode subtree is skipped WHOLESALE (never recursed into) — its own children
+        // are exactly the same MarkerNode/attribute-tagged-TextNode pieces this switch already
+        // skips individually when they ride as loose siblings, so skipping the wrapper as a unit
+        // is equivalent to (not a departure from) how the loose shape is handled today. The
+        // adaptor does not build this shape yet (Task 14).
         break;
       case TypedMarkNode.getType():
         childMarkers = recurseNodes(serializedMarkNode.children, viewOptions);
