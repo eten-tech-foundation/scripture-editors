@@ -820,8 +820,12 @@ export function $replaceCharacterMarkerAtSelection(
  * @param toMarker - The character marker to change to.
  */
 function $changeCharNodeMarker(charNode: CharNode, toMarker: string): void {
-  // Before setMarker, not after: $retargetSynthesizedMarkers derives the old marker's text from
-  // charNode.getMarker(), which setMarker would already have overwritten.
+  // Before setMarker, not after. $retargetSynthesizedMarkers's ImmutableTypedTextNode branch
+  // (markerMode "visible") matches a child's text against the *old* marker's opening/closing form,
+  // read via charNode.getMarker() — reversed, that read would already return toMarker, and the
+  // stale child would silently go unmatched. Its MarkerNode branch (markerMode "editable") doesn't
+  // care about this order: MarkerNode.setMarker recomputes text from the new marker it's given plus
+  // its own stored __markerSyntax, not from anything read off charNode.
   $retargetSynthesizedMarkers(charNode, toMarker);
   charNode.setMarker(toMarker);
 }

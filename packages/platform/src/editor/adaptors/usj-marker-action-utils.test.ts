@@ -1574,10 +1574,12 @@ describe("USJ Marker Action Utils", () => {
     });
 
     it("retargets synthesized ImmutableTypedTextNode children in markerMode 'visible'", () => {
+      let charTextNodeSize = 0;
       const { editor } = createBasicTestEnvironment(nodes, () => {
         // Mirrors usj-editor.adaptor.ts createChar under markerMode "visible": immutable
         // typed-text markers on both sides and no NBSP prefix on the content.
         charTextNode = $createTextNode("Lord");
+        charTextNodeSize = charTextNode.getTextContentSize();
         $getRoot().append(
           $createParaNode("p").append(
             $createTextNode("the "),
@@ -1590,7 +1592,7 @@ describe("USJ Marker Action Utils", () => {
           ),
         );
       });
-      updateSelection(editor, charTextNode, 0, charTextNode, 4);
+      updateSelection(editor, charTextNode, 0, charTextNode, charTextNodeSize);
 
       sutReplaceCharacterMarker(editor, "bd", "nd");
 
