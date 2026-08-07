@@ -46,6 +46,7 @@ import {
   $hasCaretHeldMilestoneRun,
   $hasCaretHeldSeparatorGap,
   $hasCaretHeldVerseAttributeRun,
+  $isAttributeRunNode,
   $isBookNode,
   $isChapterNode,
   $isCharNode,
@@ -53,6 +54,7 @@ import {
   $isMilestoneNode,
   $isUnknownNode,
   $isVerseNode,
+  $ownerOfDestroyedRunPiece,
   $verseOfAttributeSourceText,
   canonicalAttributeText,
   defaultMarkerAttribute,
@@ -201,6 +203,13 @@ export function $textNodeTier2Transform(node: TextNode, context: MarkerEditConte
  * caret departure exactly like every other pend. The scan's divergence set is therefore
  * deliberately BROADER than the transforms' immediate-rebuild set — everything
  * restore-divergent pends, and nothing rebuilds until the user genuinely departs.
+ *
+ * Two more shapes pend for a DIFFERENT reason than everything above: an emptied optbreak
+ * UnknownNode or AttributeRunNode wrapper (an undone husk-removal settle restores the empty
+ * husk) is not a caret-dependent divergence at all — it is statically re-derivable from its own
+ * shape alone (tag "optbreak" plus zero children, or zero children on a wrapper, always means
+ * "settle removes this node"), unlike every other pend here, whose correct resolution depends on
+ * what the user is doing. See the UnknownNode and AttributeRunNode branches below.
  */
 export function $rependPendShapedNodes(context: MarkerEditContext): void {
   const visit = (node: LexicalNode): void => {
@@ -268,9 +277,37 @@ export function $rependPendShapedNodes(context: MarkerEditContext): void {
       node.getChildren().forEach(visit);
       return;
     }
-    // Books/chapters/unknown blocks keep literal text (degradation property) — the
-    // transform never pends inside them, so the scan does not descend.
-    if ($isBookNode(node) || $isChapterNode(node) || $isUnknownNode(node)) return;
+    if ($isUnknownNode(node)) {
+      // An emptied optbreak husk (an undone husk-removal settle restores it) is statically
+      // re-derivable from its own shape alone — tag "optbreak" plus zero children always means
+      // $settlePendedDisplayOwner's optbreak arm removes it, unlike a destruction pend, whose
+      // correct outcome depends on caret state. Pend it directly (that arm operates on THIS
+      // node, unlike the AttributeRunNode husk below, whose arm operates on its OWNER) so the
+      // next real departure re-removes the husk instead of it silently re-serializing an
+      // optbreak with no visible bytes forever. Every other UnknownNode kind (and every other
+      // book/chapter block) keeps literal text (degradation property) — the transform never
+      // pends inside them, so the scan does not descend into any of them.
+      if (node.getTag() === "optbreak" && node.getChildrenSize() === 0)
+        context.pendingKeys.add(node.getKey());
+      return;
+    }
+    if ($isBookNode(node) || $isChapterNode(node)) return;
+    if ($isAttributeRunNode(node) && node.getChildrenSize() === 0) {
+      // An emptied AttributeRunNode wrapper (an undone husk-removal settle restores it) is the
+      // same statically-re-derivable shape as the optbreak husk above: zero children always
+      // means $settlePendedDisplayOwner's husk arm removes it (AttributeRunNode.ts's own doc —
+      // the wrapper is pure editor-owned scaffolding with nothing left to display). That arm is
+      // keyed off the OWNING verse/milestone, not the wrapper itself ($emptyAttributeRunWrappers
+      // only recognizes a VerseNode/MilestoneNode), so the owner — found by the same walk-back
+      // MarkerEditPlugin's live AttributeRunNode transform uses via $ownerOfAttributeRunWrapper —
+      // is what gets pended here, not the wrapper's own key. `$ownerOfDestroyedRunPiece` is
+      // reused rather than duplicated: its first branch (`$isAttributeRunNode(piece)`) does
+      // exactly this walk, and nothing about it depends on the wrapper actually being destroyed
+      // — only on tree position, which this attached (undo-restored) wrapper still has.
+      const owner = $ownerOfDestroyedRunPiece(node);
+      if (owner) context.pendingKeys.add(owner.getKey());
+      return;
+    }
     if ($isElementNode(node)) node.getChildren().forEach(visit);
   };
   $getRoot().getChildren().forEach(visit);

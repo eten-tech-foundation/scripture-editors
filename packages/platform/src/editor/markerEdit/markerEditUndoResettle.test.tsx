@@ -34,14 +34,17 @@ import { COMMIT_PENDING_MARKERS_COMMAND } from "./MarkerEditPlugin";
 import {
   $charAttributeDisplayNode,
   $createCharNode,
+  $createImmutableTypedTextNode,
   $createMarkerNode,
   $createParaNode,
+  $createUnknownNode,
   $isCharNode,
   $isDisplayOwnerPended,
   $isMarkerNode,
   $isParaNode,
   $isUnknownNode,
   CharNode,
+  ImmutableTypedTextNode,
   NBSP,
   textTypeState,
   UnknownNode,
@@ -728,6 +731,107 @@ describe("undo of a settled run deletion (charAttributeDeletionSettle.test.tsx's
       const char = $findChar();
       expect(char.getUnknownAttributes()?.stuff).toBe("thing");
       expect($charAttributeDisplayNode(char)?.getTextContent()).toBe('|stuff="thing"');
+    });
+  });
+});
+
+describe("undo → departure → re-settle (an emptied optbreak husk, reachable via ONE Ctrl+Z)", () => {
+  it("re-derives the husk pend after undoing its own removal, and stays sound across a re-settle", async () => {
+    // An optbreak's `//` token IS its entire USFM byte representation (unknownUsfm.utils.ts): once
+    // it is destroyed the empty UnknownNode left behind is undead scaffolding with nothing left to
+    // display — `$settlePendedDisplayOwner`'s optbreak arm removes it outright on the next settle
+    // pass. Deleting the token and settling the resulting husk are TWO SEPARATE history entries
+    // (the deletion pends the owner via the mutation listener; the husk removal happens only on
+    // the LATER deferred-resolve commit), so ONE undo from the settled (husk-removed) state lands
+    // on the intermediate husk shape — an ATTACHED, EMPTY optbreak UnknownNode — not the original
+    // pre-deletion content. Pre-fix, `$rependPendShapedNodes` returned early on ANY UnknownNode
+    // without checking for this shape, so nothing re-pended the restored husk and it serialized an
+    // optbreak with no visible bytes forever.
+    let optbreakToken: ImmutableTypedTextNode;
+    let optbreak: UnknownNode;
+    let before: TextNode;
+    let other: TextNode;
+    const { editor } = await historyTestEnvironment(() => {
+      const para = $createParaNode("p");
+      before = $createTextNode(`${NBSP}First `);
+      optbreak = $createUnknownNode("optbreak");
+      optbreakToken = $createImmutableTypedTextNode("marker", "//");
+      optbreak.append(optbreakToken);
+      para.append($createMarkerNode("p"), before, optbreak, $createTextNode(" second"));
+      other = $createTextNode("elsewhere");
+      $getRoot().append(para, $createParaNode("p").append($createMarkerNode("p"), other));
+    });
+
+    const $optbreaks = () => $unknownsWithTag($getRoot(), "optbreak");
+
+    // Delete the optbreak's own `//` token, caret parked right at the deletion site (mirrors
+    // verseAttributeSettle.test.tsx's deletion pattern) — this is the FIRST history entry.
+    await act(async () =>
+      editor.update(() => {
+        optbreakToken.remove();
+        before.select(before.getTextContentSize(), before.getTextContentSize());
+      }),
+    );
+    await flushResolution();
+    // The optbreak arm has no caret-held grace to wait out (there is no partial-edit state for a
+    // construct whose display IS its entire byte representation), so the husk is already removed
+    // by the deferred resolve — the SECOND, separate history entry.
+    editor.getEditorState().read(() => {
+      expect($optbreaks()).toHaveLength(0);
+    });
+
+    // Undo ONCE reverses the settle (the second entry), landing on the husk shape: an attached,
+    // EMPTY optbreak UnknownNode — not yet removed, not yet the original `//` content either.
+    await act(async () => {
+      editor.dispatchCommand(UNDO_COMMAND, undefined);
+    });
+    await flushResolution();
+    editor.getEditorState().read(() => {
+      const husks = $optbreaks();
+      expect(husks).toHaveLength(1);
+      expect(husks[0].getChildrenSize()).toBe(0);
+    });
+
+    // A subsequent user departure must re-settle it: the husk is statically re-derivable from its
+    // own shape (tag "optbreak", zero children) regardless of caret state, so the fix pends it
+    // directly in the re-pend scan and this departure removes it again (a THIRD, separate entry —
+    // re-settling is a genuine edit, not a no-op merge, since it does mutate the tree).
+    await userDeparture(editor, "elsewhere", 4);
+    editor.getEditorState().read(() => {
+      expect($optbreaks()).toHaveLength(0);
+    });
+
+    // History stays sound across the re-settle: undoing it lands back on the husk (reversing the
+    // third entry)...
+    await act(async () => {
+      editor.dispatchCommand(UNDO_COMMAND, undefined);
+    });
+    await flushResolution();
+    editor.getEditorState().read(() => {
+      const husks = $optbreaks();
+      expect(husks).toHaveLength(1);
+      expect(husks[0].getChildrenSize()).toBe(0);
+    });
+    // ...and one MORE undo (reversing the first entry, the deletion itself) reaches the true
+    // pre-deletion state: the optbreak with its `//` token restored, not a husk.
+    await act(async () => {
+      editor.dispatchCommand(UNDO_COMMAND, undefined);
+    });
+    await flushResolution();
+    editor.getEditorState().read(() => {
+      const restored = $optbreaks();
+      expect(restored).toHaveLength(1);
+      expect(restored[0].getChildrenSize()).toBe(1);
+      expect(restored[0].getTextContent()).toBe("//");
+    });
+    // A canonical, non-empty optbreak is not a husk — the fix's shape check (zero children) must
+    // not spuriously pend it, so this departure is a stable no-op: the restored `//` survives.
+    await userDeparture(editor, "elsewhere", 4);
+    editor.getEditorState().read(() => {
+      const stable = $optbreaks();
+      expect(stable).toHaveLength(1);
+      expect(stable[0].getChildrenSize()).toBe(1);
+      expect(stable[0].getTextContent()).toBe("//");
     });
   });
 });

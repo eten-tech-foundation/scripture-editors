@@ -110,10 +110,13 @@ describe("verse \\va/\\vp deletion settles (does not resurrect)", () => {
     );
 
     // Grace holds while the caret sits at the site: the sync did NOT re-derive the triplet, and
-    // altnumber is still set (the deletion is pending, not settled).
+    // altnumber is still set (the deletion is pending, not settled). A resurrected run is always an
+    // AttributeRunNode wrapper post-flip, never a bare MarkerNode, so the no-resurrect guard checks
+    // for a run's OPENER piece (present regardless of wrapped/loose shape) rather than the
+    // next-sibling's own node type.
     editor.getEditorState().read(() => {
       const v = $firstVerse();
-      expect($isMarkerNode(v.getNextSibling())).toBe(false);
+      expect($verseAttributeRunPieces(v, "va").opener).toBeUndefined();
       expect(v.getAltnumber()).toBe("2");
     });
 
@@ -124,7 +127,7 @@ describe("verse \\va/\\vp deletion settles (does not resurrect)", () => {
       const settledVerse = $firstVerse();
       // altnumber cleared, and no \va triplet resurrected as the verse's next sibling.
       expect(settledVerse.getAltnumber()).toBeUndefined();
-      expect($isMarkerNode(settledVerse.getNextSibling())).toBe(false);
+      expect($verseAttributeRunPieces(settledVerse, "va").opener).toBeUndefined();
     });
   });
 
@@ -358,7 +361,9 @@ describe("verse \\va/\\vp deletion settles (does not resurrect)", () => {
 
     editor.read(() => {
       expect($isDisplayOwnerPended($firstVerse())).toBe(false);
-      expect($isMarkerNode($firstVerse().getNextSibling())).toBe(false);
+      // A resurrected run is always an AttributeRunNode wrapper post-flip, never a bare MarkerNode —
+      // check for the run's OPENER piece instead (present regardless of wrapped/loose shape).
+      expect($verseAttributeRunPieces($firstVerse(), "va").opener).toBeUndefined();
     });
 
     // Prove the exemption actually matters: a LATER legitimate altnumber set must heal into a
