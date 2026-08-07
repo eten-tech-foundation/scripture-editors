@@ -1,4 +1,8 @@
-import { $resolvePendingMarkers, MarkerEditContext } from "./markerEditTier1.utils";
+import {
+  $resolvePendingMarkers,
+  $settlePendedDisplayOwner,
+  MarkerEditContext,
+} from "./markerEditTier1.utils";
 import {
   $appendCharPara,
   $appendVersePara,
@@ -23,24 +27,30 @@ import {
   TextNode,
 } from "lexical";
 import {
+  $createAttributeRunNode,
   $createChapterNode,
   $createCharNode,
   $createMarkerNode,
+  $createMilestoneNode,
   $createNoteNode,
   $createParaNode,
+  $createVerseNode,
   $isCharNode,
   $isParaNode,
+  AttributeRunNode,
   ChapterNode,
   CharNode,
   CURSOR_CHANGE_TAG,
   getMarker as bundledGetMarker,
   getVisibleOpenMarkerText,
   MarkerNode,
+  MilestoneNode,
   NBSP,
   NoteNode as NoteNodeClass,
   ParaNode,
   StyleInfo,
   textTypeState,
+  usjBaseNodes,
   VerseNode,
 } from "shared";
 // Reaching inside only for tests.
@@ -764,5 +774,135 @@ describe("$resolvePendingMarkers attribute-run re-pend guard", () => {
       },
       { discrete: true },
     );
+  });
+});
+
+// AttributeRunNode is registered in usjReactNodes only (Task 12) — headless tests here must pass
+// it explicitly to createBasicTestEnvironment. The adaptor does not build this shape yet (Task
+// 14), so these unit tests hand-build it to pin the husk-removal arm ahead of that flip.
+describe("$settlePendedDisplayOwner AttributeRunNode husk arm (dual-read)", () => {
+  function buildContext(): MarkerEditContext {
+    return {
+      viewOptions,
+      getMarker: bundledGetMarker,
+      pendingKeys: new Set<NodeKey>(),
+      splitExpected: { current: false },
+      rebuildAttempted: new Set<string>(),
+    };
+  }
+
+  it("removes an empty milestone wrapper husk, then removes the milestone itself (run entirely absent)", () => {
+    // Mirrors the optbreak arm this one is modeled on: the empty wrapper is undead scaffolding
+    // removed as a side effect, and the OWNER's own policy (milestoneRunEntirelyAbsent, since
+    // nothing survives the husk's removal either) still runs in the SAME settle pass.
+    const { editor } = createBasicTestEnvironment([...usjBaseNodes, AttributeRunNode]);
+    let milestone!: MilestoneNode;
+    let wrapper!: AttributeRunNode;
+    editor.update(
+      () => {
+        milestone = $createMilestoneNode("qt-s", "q1");
+        wrapper = $createAttributeRunNode("milestone");
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createTextNode("before "),
+            milestone,
+            wrapper,
+            $createTextNode(" after"),
+          ),
+        );
+      },
+      { discrete: true },
+    );
+
+    const context = buildContext();
+    let result!: { handled: boolean; mutated: boolean };
+    editor.update(
+      () => {
+        result = $settlePendedDisplayOwner(milestone, context);
+      },
+      { discrete: true },
+    );
+
+    expect(result).toEqual({ handled: true, mutated: true });
+    editor.getEditorState().read(() => {
+      expect(milestone.isAttached()).toBe(false);
+      expect(wrapper.isAttached()).toBe(false);
+      const text = $getRoot().getTextContent();
+      expect(text).toContain("before ");
+      expect(text).toContain(" after");
+    });
+  });
+
+  it("removes an empty \\va wrapper husk on a verse WITHOUT removing the verse itself", () => {
+    // A verse always exists regardless of its display run — unlike a milestone, whose run IS its
+    // entire byte representation, so only the wrapper (dead scaffolding) is cleaned up here.
+    const { editor } = createBasicTestEnvironment([...usjBaseNodes, AttributeRunNode]);
+    let verse!: VerseNode;
+    let vaWrapper!: AttributeRunNode;
+    editor.update(
+      () => {
+        // No altnumber/pubnumber — a genuinely cleared field, so nothing re-derives a fresh run.
+        verse = $createVerseNode("1", getVisibleOpenMarkerText("v", "1"));
+        vaWrapper = $createAttributeRunNode("va");
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createTextNode(NBSP),
+            verse,
+            vaWrapper,
+            $createTextNode("text"),
+          ),
+        );
+      },
+      { discrete: true },
+    );
+
+    const context = buildContext();
+    let result!: { handled: boolean; mutated: boolean };
+    editor.update(
+      () => {
+        result = $settlePendedDisplayOwner(verse, context);
+      },
+      { discrete: true },
+    );
+
+    // `handled: false` regardless of the husk removal — the caller falls through to its own
+    // re-tokenize arm (see this function's doc comment on the final return), which is the
+    // existing, already-safe default for a verse whose pend isn't a recognized caret-held
+    // divergence. `mutated` is unused by the caller on this path (documented, not asserted here).
+    expect(result.handled).toBe(false);
+    editor.getEditorState().read(() => {
+      expect(verse.isAttached()).toBe(true);
+      expect(vaWrapper.isAttached()).toBe(false);
+    });
+  });
+
+  it("does not touch an attached wrapper that still has pieces (not a husk)", () => {
+    const { editor } = createBasicTestEnvironment([...usjBaseNodes, AttributeRunNode]);
+    let milestone!: MilestoneNode;
+    let wrapper!: AttributeRunNode;
+    editor.update(
+      () => {
+        milestone = $createMilestoneNode("qt-s", "q1");
+        wrapper = $createAttributeRunNode("milestone");
+        wrapper.append($createMarkerNode("qt-s", "opening"), $createMarkerNode("", "selfClosing"));
+        $getRoot().append($createParaNode("p").append(milestone, wrapper));
+      },
+      { discrete: true },
+    );
+
+    const context = buildContext();
+    editor.update(
+      () => {
+        $settlePendedDisplayOwner(milestone, context);
+      },
+      { discrete: true },
+    );
+
+    editor.getEditorState().read(() => {
+      // Neither the milestone nor its non-empty wrapper were removed — the husk arm is scoped
+      // strictly to an EMPTY wrapper.
+      expect(milestone.isAttached()).toBe(true);
+      expect(wrapper.isAttached()).toBe(true);
+    });
   });
 });

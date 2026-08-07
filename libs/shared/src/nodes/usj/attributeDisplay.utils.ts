@@ -52,9 +52,11 @@
 
 import { $createMarkerNode, $isMarkerNode, MarkerNode } from "../features/MarkerNode.js";
 import { textTypeState } from "../collab/delta.state.js";
+import { $isAttributeRunNode, AttributeRunNode } from "./AttributeRunNode.js";
 import { $isCharNode, CharNode } from "./CharNode.js";
 import { MilestoneNode } from "./MilestoneNode.js";
 import { DELTA_CHANGE_TAG, NBSP, UnknownAttributes } from "./node-constants.js";
+import { $isDescendantOf } from "./node.utils.js";
 import {
   $isDisplayOwnerPended,
   $reportDestroyedDisplayOwner,
@@ -283,13 +285,20 @@ export function $hasCaretHeldAttributeRun(char: CharNode, expectedText: string):
  * separator between them — a same-line space there blocks the tokenizer's attrCapture fold onto
  * the verse, per its "space before \vp blocks its fold" rule).
  */
-type VerseAttributeMarker = "va" | "vp";
+export type VerseAttributeMarker = "va" | "vp";
 
-/** A verse attribute marker's display-run pieces found among the siblings after its anchor. */
-interface VerseAttributeRunPieces {
+/**
+ * A verse attribute marker's display-run pieces found among the siblings after its anchor — or,
+ * once Task 14 flips the built shape, among the CHILDREN of an `AttributeRunNode` wrapper riding
+ * in that same position (see {@link AttributeRunNode}). `wrapper` is set only when the scan
+ * actually found and descended into one; every OTHER field means exactly what it always has,
+ * regardless of which shape produced it.
+ */
+export interface VerseAttributeRunPieces {
   opener?: MarkerNode;
   value?: TextNode;
   closer?: MarkerNode;
+  wrapper?: AttributeRunNode;
 }
 
 /**
@@ -302,15 +311,31 @@ interface VerseAttributeRunPieces {
  * duplicating a leftover. The old all-or-nothing model returned "no run at all" for a
  * value-deleted run and re-derived a whole new opener/value/closer over the surviving debris on the
  * next sync (the value-deletion resurrect/duplicate bug).
+ *
+ * DUAL-READ: when `after`'s immediately following sibling is an `AttributeRunNode` whose
+ * `runKind` matches `marker`, the SAME tolerant scan runs over the wrapper's CHILDREN instead of
+ * `after`'s siblings — a wrapper's children are the run's pieces in the identical fixed order, so
+ * redirecting the cursor's starting point is the only change needed. The adaptor does not build
+ * this shape yet (Task 14); recognizing it here lets a hand-built or migrated wrapper heal
+ * correctly ahead of that flip.
+ *
+ * Exported (mirrors {@link $milestoneAttributeRunPieces}) so `markerEditTier1.utils.ts`'s
+ * deletion-settle path (`packages/platform`) can locate a verse's wrapper(s) directly to detect
+ * and clean up an emptied husk.
  */
-function $verseAttributeRunPieces(
+export function $verseAttributeRunPieces(
   after: LexicalNode,
   marker: VerseAttributeMarker,
 ): VerseAttributeRunPieces {
   let opener: MarkerNode | undefined;
   let value: TextNode | undefined;
   let closer: MarkerNode | undefined;
+  let wrapper: AttributeRunNode | undefined;
   let cursor: LexicalNode | null = after.getNextSibling();
+  if ($isAttributeRunNode(cursor) && cursor.getRunKind() === marker) {
+    wrapper = cursor;
+    cursor = cursor.getFirstChild();
+  }
   if (
     $isMarkerNode(cursor) &&
     cursor.getMarkerSyntax() === "opening" &&
@@ -331,7 +356,7 @@ function $verseAttributeRunPieces(
     cursor.getMarker() === marker
   )
     closer = cursor;
-  return { opener, value, closer };
+  return { opener, value, closer, wrapper };
 }
 
 /** The display text a triplet's value should hold for `value`, or `undefined` for no triplet at
@@ -367,6 +392,10 @@ function $verseAttributeDiverges(
  * delete-through-the-value leaves it. Mirrors {@link $isCaretAtMilestoneRunBoundary}. Without these
  * arms the sync would re-derive the run from the still-set altnumber/pubnumber the instant the run
  * (or its value) is deleted and the deletion would visibly undo itself.
+ *
+ * DUAL-READ: when `pieces.wrapper` is set, the caret holding ANY position inside the wrapper's
+ * subtree (not just a recognized piece) also counts — an element-point selection can land on the
+ * wrapper itself, a shape the piece-specific arms below don't otherwise recognize.
  */
 function $isCaretAtVerseAttributeSite(
   after: LexicalNode,
@@ -375,7 +404,9 @@ function $isCaretAtVerseAttributeSite(
   const selection = $getSelection();
   if (!$isRangeSelection(selection) || !selection.isCollapsed()) return false;
   const anchorNode = selection.anchor.getNode();
-  const { opener, value, closer } = pieces;
+  const { opener, value, closer, wrapper } = pieces;
+  if (wrapper && (anchorNode.is(wrapper) || $isDescendantOf(anchorNode, wrapper.getKey())))
+    return true;
   if (value) return anchorNode.is(value);
   if (!opener && !closer) {
     if (anchorNode.is(after) && selection.anchor.offset === after.getTextContentSize()) return true;
@@ -401,6 +432,14 @@ function $isCaretAtVerseAttributeSite(
  * `verse` is the run's OWNER — the identity the pended-registry check below looks up — while
  * `after` is only this call's scan/insertion ANCHOR, which for the chained `\vp` call is `\va`'s
  * closer (or `verse` itself), never the owner to check pended-ness against.
+ *
+ * DUAL-READ: when a wrapper is found, every insertion happens INSIDE it (a missing opener becomes
+ * the wrapper's first child; a missing value/closer still `insertAfter`s the preceding piece,
+ * which already lives inside the wrapper) rather than as a loose sibling of `after` — this task
+ * never CREATES a wrapper, only repairs pieces inside one that already exists. The chain anchor
+ * returned to the caller prefers the wrapper itself over its closer: `\vp`'s own wrapper (if any)
+ * rides directly after `\va`'s wrapper, per {@link AttributeRunNode}'s doc comment, not after a
+ * piece inside it.
  */
 function $syncVerseAttributeRun(
   verse: VerseNode,
@@ -409,24 +448,27 @@ function $syncVerseAttributeRun(
   value: string | undefined,
 ): LexicalNode {
   const pieces = $verseAttributeRunPieces(after, marker);
-  if (!$verseAttributeDiverges(pieces, value)) return pieces.closer ?? after;
+  const chainAnchor = pieces.wrapper ?? pieces.closer ?? after;
+  if (!$verseAttributeDiverges(pieces, value)) return chainAnchor;
   // The engine holds this verse pending (a run deletion/edit detected from the destruction
   // itself, or caret-held divergence re-pended by $resolvePendingMarkers): healing now would
   // resurrect or overwrite it before caret departure settles it — mirrors
   // $syncCharAttributeDisplay's pended guard (this file).
-  if ($isDisplayOwnerPended(verse)) return pieces.closer ?? after;
+  if ($isDisplayOwnerPended(verse)) return chainAnchor;
   // Mid-edit grace: the caret holds the run's site (inside a live value, at a just-deleted run's
   // insertion point, or beside a surviving glyph whose value was deleted). Leave it alone — the
   // marker-edit engine settles it on caret departure.
-  if ($isCaretAtVerseAttributeSite(after, pieces)) return pieces.closer ?? after;
-  const { opener, value: valueNode, closer } = pieces;
+  if ($isCaretAtVerseAttributeSite(after, pieces)) return chainAnchor;
+  const { opener, value: valueNode, closer, wrapper } = pieces;
   const targetText = $verseAttributeTargetText(value);
   if (targetText === undefined) {
-    // No run wanted: remove whatever debris survives.
+    // No run wanted: remove whatever debris survives. A wrapper that becomes empty here is left
+    // in place — a transient husk the marker-edit engine's deletion driver removes as part of
+    // settling the deletion (markerEditTier1.utils.ts's $settlePendedDisplayOwner).
     opener?.remove();
     valueNode?.remove();
     closer?.remove();
-    return after;
+    return wrapper ?? after;
   }
   // Repair around survivors, in fixed order: opener directly after `after`, then value, then
   // closer. Each found piece already sits in its correct position (the tolerant scan reads them
@@ -435,7 +477,13 @@ function $syncVerseAttributeRun(
     opener ??
     (() => {
       const created = $createMarkerNode(marker, "opening");
-      after.insertAfter(created);
+      if (wrapper) {
+        const wrapperFirstChild = wrapper.getFirstChild();
+        if (wrapperFirstChild) wrapperFirstChild.insertBefore(created);
+        else wrapper.append(created);
+      } else {
+        after.insertAfter(created);
+      }
       return created;
     })();
   let workingValue = valueNode;
@@ -445,14 +493,14 @@ function $syncVerseAttributeRun(
     $setState(workingValue, textTypeState, "attribute");
     openerGlyph.insertAfter(workingValue);
   }
-  return (
+  const closerGlyph =
     closer ??
     (() => {
       const created = $createMarkerNode(marker, "closing");
       workingValue.insertAfter(created);
       return created;
-    })()
-  );
+    })();
+  return wrapper ?? closerGlyph;
 }
 
 /**
@@ -495,7 +543,7 @@ export function $hasCaretHeldVerseAttributeRun(
   // A diverging \va the caret does NOT hold is not "caret-held" (it would just heal in place),
   // but that must not short-circuit the \vp check — the two runs are independent, and the
   // caret can only ever be in one of them at a time.
-  const afterVa = vaPieces.closer ?? verse;
+  const afterVa = vaPieces.wrapper ?? vaPieces.closer ?? verse;
   const vpPieces = $verseAttributeRunPieces(afterVa, "vp");
   return Boolean(
     $verseAttributeDiverges(vpPieces, pubnumber) && $isCaretAtVerseAttributeSite(afterVa, vpPieces),
@@ -531,11 +579,18 @@ export function $verseOfAttributeSourceText(node: LexicalNode): VerseNode | unde
   return undefined;
 }
 
-/** A milestone's display-run pieces found among its immediate following siblings. */
+/**
+ * A milestone's display-run pieces found among its immediate following siblings — or, once Task
+ * 14 flips the built shape, among the CHILDREN of an `AttributeRunNode` wrapper riding in that
+ * same position (see {@link AttributeRunNode}). `wrapper` is set only when the scan actually
+ * found and descended into one; every OTHER field means exactly what it always has, regardless of
+ * which shape produced it.
+ */
 export interface MilestoneRunPieces {
   opening?: MarkerNode;
   attribute?: TextNode;
   closing?: MarkerNode;
+  wrapper?: AttributeRunNode;
 }
 
 /**
@@ -549,12 +604,24 @@ export interface MilestoneRunPieces {
  * distinguish "every byte of the run deleted" from a partial mangle. Exported as the single
  * definition of "a milestone's run" — the Tier-2 rebuild's `$milestoneDisplayRun` delegates to it
  * so the sync and the rebuild can never disagree about which siblings make up the run.
+ *
+ * DUAL-READ: when `milestone`'s immediately following sibling is an `AttributeRunNode` whose
+ * `runKind` is `"milestone"`, the SAME tolerant scan runs over the wrapper's CHILDREN instead of
+ * `milestone`'s siblings — a wrapper's children are the run's pieces in the identical fixed
+ * order, so redirecting the cursor's starting point is the only change needed. The adaptor does
+ * not build this shape yet (Task 14); recognizing it here lets a hand-built or migrated wrapper
+ * heal correctly ahead of that flip.
  */
 export function $milestoneAttributeRunPieces(milestone: MilestoneNode): MilestoneRunPieces {
   let opening: MarkerNode | undefined;
   let attribute: TextNode | undefined;
   let closing: MarkerNode | undefined;
+  let wrapper: AttributeRunNode | undefined;
   let cursor: LexicalNode | null = milestone.getNextSibling();
+  if ($isAttributeRunNode(cursor) && cursor.getRunKind() === "milestone") {
+    wrapper = cursor;
+    cursor = cursor.getFirstChild();
+  }
   if (
     $isMarkerNode(cursor) &&
     cursor.getMarkerSyntax() === "opening" &&
@@ -568,7 +635,7 @@ export function $milestoneAttributeRunPieces(milestone: MilestoneNode): Mileston
     cursor = cursor.getNextSibling();
   }
   if ($isMarkerNode(cursor) && cursor.getMarkerSyntax() === "selfClosing") closing = cursor;
-  return { opening, attribute, closing };
+  return { opening, attribute, closing, wrapper };
 }
 
 /**
@@ -594,14 +661,20 @@ export function $milestoneRunEntirelyAbsent(milestone: MilestoneNode): boolean {
  * own text). A missing glyph next to OTHER surviving pieces is deliberately not caret-graced —
  * inserting a missing structural glyph beside existing content cannot corrupt anything the user
  * is mid-typing, unlike overwriting the attribute text.
+ *
+ * DUAL-READ: when `wrapper` is set, the caret holding ANY position inside the wrapper's subtree
+ * (not just a recognized piece) also counts — an element-point selection can land on the wrapper
+ * itself, a shape the piece-specific arms below don't otherwise recognize.
  */
 function $isCaretAtMilestoneRunBoundary(
   milestone: MilestoneNode,
-  { opening, attribute, closing }: MilestoneRunPieces,
+  { opening, attribute, closing, wrapper }: MilestoneRunPieces,
 ): boolean {
   const selection = $getSelection();
   if (!$isRangeSelection(selection) || !selection.isCollapsed()) return false;
   const anchorNode = selection.anchor.getNode();
+  if (wrapper && (anchorNode.is(wrapper) || $isDescendantOf(anchorNode, wrapper.getKey())))
+    return true;
   if (attribute) return anchorNode.is(attribute);
   if (!opening && !closing) {
     const previous = milestone.getPreviousSibling();
@@ -650,7 +723,7 @@ export function $syncMilestoneDisplayRun(
 ): void {
   if (!milestone.isAttached()) return;
   const pieces = $milestoneAttributeRunPieces(milestone);
-  const { opening, attribute, closing } = pieces;
+  const { opening, attribute, closing, wrapper } = pieces;
   const currentText = attribute?.getTextContent() ?? "";
   // A missing self-closing glyph disqualifies the run as canonical even when the text already
   // matches: the run is not fully repaired until both glyphs are in place.
@@ -663,11 +736,20 @@ export function $syncMilestoneDisplayRun(
   if ($isDisplayOwnerPended(milestone)) return;
   if ($isCaretAtMilestoneRunBoundary(milestone, pieces)) return;
 
+  // DUAL-READ: a missing opening glyph inside an existing wrapper is inserted as the wrapper's
+  // first child, not as a loose sibling of `milestone` — this task never CREATES a wrapper, only
+  // repairs pieces inside one that already exists.
   const openingGlyph =
     opening ??
     (() => {
       const created = $createMarkerNode(milestone.getMarker(), "opening");
-      milestone.insertAfter(created);
+      if (wrapper) {
+        const wrapperFirstChild = wrapper.getFirstChild();
+        if (wrapperFirstChild) wrapperFirstChild.insertBefore(created);
+        else wrapper.append(created);
+      } else {
+        milestone.insertAfter(created);
+      }
       return created;
     })();
 

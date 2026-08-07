@@ -1,5 +1,6 @@
 import {
   $hasCaretHeldMilestoneRun,
+  $hasCaretHeldVerseAttributeRun,
   $milestoneRunEntirelyAbsent,
   $syncMilestoneDisplayRun,
   $syncVerseAttributeDisplay,
@@ -7,10 +8,16 @@ import {
   canonicalAttributeText,
   milestoneAttributes,
 } from "./attributeDisplay.utils.js";
+import {
+  $createAttributeRunNode,
+  $isAttributeRunNode,
+  AttributeRunNode,
+} from "./AttributeRunNode.js";
 import { $createCharNode } from "./CharNode.js";
 import { $createMilestoneNode, MilestoneNode } from "./MilestoneNode.js";
 import { getVisibleOpenMarkerText } from "./node.utils.js";
 import { NBSP } from "./node-constants.js";
+import { usjBaseNodes } from "./index.js";
 import { $createParaNode } from "./ParaNode.js";
 import { registerPendedDisplayOwners } from "./pendedDisplayOwners.utils.js";
 import { createBasicTestEnvironment, updateSelection } from "./test.utils.js";
@@ -772,6 +779,282 @@ describe("$verseOfAttributeSourceText", () => {
 
     editor.getEditorState().read(() => {
       expect($verseOfAttributeSourceText(content)).toBeUndefined();
+    });
+  });
+});
+
+// AttributeRunNode is registered in usjReactNodes only (Task 12) — headless tests here must pass
+// it explicitly to createBasicTestEnvironment.
+describe("AttributeRunNode wrapper recognition (dual-read)", () => {
+  describe("milestone", () => {
+    /** Builds `before <ms> <AttributeRunNode wrapper>[pieces] after` and returns both. */
+    function buildWrappedMilestone(pieces: (wrapper: AttributeRunNode) => void) {
+      const { editor } = createBasicTestEnvironment([...usjBaseNodes, AttributeRunNode]);
+      let milestone!: MilestoneNode;
+      let wrapper!: AttributeRunNode;
+      editor.update(
+        () => {
+          milestone = $createMilestoneNode("qt-s", "q1");
+          wrapper = $createAttributeRunNode("milestone");
+          pieces(wrapper);
+          $getRoot().append(
+            $createParaNode("p").append(
+              $createTextNode("before "),
+              milestone,
+              wrapper,
+              $createTextNode(" after"),
+            ),
+          );
+        },
+        { discrete: true },
+      );
+      return { editor, milestone, wrapper };
+    }
+
+    it("heals a stale value INSIDE an existing wrapper, never as a loose sibling", () => {
+      const canonicalText = `${NBSP}|sid="q1"`;
+      const { editor, milestone, wrapper } = buildWrappedMilestone((w: AttributeRunNode) => {
+        w.append(
+          $createMarkerNode("qt-s", "opening"),
+          (() => {
+            const stale = $createTextNode(`${NBSP}|sid="stale"`);
+            $setState(stale, textTypeState, "attribute");
+            return stale;
+          })(),
+          $createMarkerNode("", "selfClosing"),
+        );
+      });
+
+      editor.update(
+        () => {
+          $syncMilestoneDisplayRun(milestone, canonicalText);
+        },
+        { discrete: true },
+      );
+
+      editor.getEditorState().read(() => {
+        // The wrapper is still milestone's immediate next sibling — nothing spilled out as a
+        // loose sibling.
+        expect(milestone.getNextSibling()?.is(wrapper)).toBe(true);
+        expect(wrapper.getChildrenSize()).toBe(3);
+        const [opening, attribute, closing] = wrapper.getChildren();
+        expect(opening.getTextContent()).toBe("\\qt-s");
+        expect(attribute.getTextContent()).toBe(canonicalText);
+        expect(closing.getTextContent()).toBe("\\*");
+      });
+    });
+
+    it("inserts a missing opening glyph as the wrapper's FIRST child when repairing around surviving debris", () => {
+      const canonicalText = `${NBSP}|sid="q1"`;
+      let attributeKeyBefore = "";
+      let closerKeyBefore = "";
+      const { editor, milestone, wrapper } = buildWrappedMilestone((w: AttributeRunNode) => {
+        const attribute = $createTextNode(canonicalText);
+        $setState(attribute, textTypeState, "attribute");
+        attributeKeyBefore = attribute.getKey();
+        const closer = $createMarkerNode("", "selfClosing");
+        closerKeyBefore = closer.getKey();
+        // Deliberately no opening glyph — the mangled shape under test.
+        w.append(attribute, closer);
+      });
+
+      editor.update(
+        () => {
+          $syncMilestoneDisplayRun(milestone, canonicalText);
+        },
+        { discrete: true },
+      );
+
+      editor.getEditorState().read(() => {
+        expect(wrapper.getChildrenSize()).toBe(3);
+        const [opening, attribute, closer] = wrapper.getChildren();
+        expect(opening.getTextContent()).toBe("\\qt-s");
+        // Leftover pieces are the SAME instances — repaired around, not duplicated.
+        expect(attribute.getKey()).toBe(attributeKeyBefore);
+        expect(closer.getKey()).toBe(closerKeyBefore);
+      });
+    });
+
+    it("recognizes the caret anywhere inside the wrapper as holding the run's site (containment arm)", () => {
+      const canonicalText = `${NBSP}|sid="q1"`;
+      const { editor, milestone, wrapper } = buildWrappedMilestone((w: AttributeRunNode) => {
+        const attribute = $createTextNode(canonicalText);
+        $setState(attribute, textTypeState, "attribute");
+        w.append(
+          $createMarkerNode("qt-s", "opening"),
+          attribute,
+          $createMarkerNode("", "selfClosing"),
+        );
+      });
+
+      editor.update(
+        () => {
+          // Caret at the START of the wrapper's content lands on the OPENING glyph at offset 0 —
+          // a shape NONE of the pre-existing piece-geometry arms recognize (they only recognize
+          // the END of the opening glyph's text, or the attribute/closing pieces themselves).
+          wrapper.selectStart();
+        },
+        { discrete: true },
+      );
+
+      editor.getEditorState().read(() => {
+        expect($isAttributeRunNode(milestone.getNextSibling())).toBe(true);
+        // A DIVERGENT expected text with the caret held inside the wrapper must still report
+        // caret-held — proving the containment arm (not a geometry arm) recognizes this site.
+        expect($hasCaretHeldMilestoneRun(milestone, `${NBSP}|sid="different"`)).toBe(true);
+      });
+    });
+
+    it("an attached but EMPTY wrapper reports the run as entirely absent", () => {
+      const { editor, milestone } = buildWrappedMilestone(() => {
+        // No pieces appended — the wrapper is attached but empty (a transient husk).
+      });
+
+      editor.getEditorState().read(() => {
+        expect($milestoneRunEntirelyAbsent(milestone)).toBe(true);
+      });
+    });
+  });
+
+  describe("verse", () => {
+    it("heals a stale \\va value INSIDE an existing wrapper, and chains \\vp's scan to AFTER the \\va wrapper", () => {
+      const { editor } = createBasicTestEnvironment([...usjBaseNodes, AttributeRunNode]);
+      let verse!: VerseNode;
+      let vaWrapper!: AttributeRunNode;
+      editor.update(
+        () => {
+          verse = $createVerseNode("1", getVisibleOpenMarkerText("v", "1"), undefined, "2", "1b");
+          vaWrapper = $createAttributeRunNode("va");
+          const staleValue = $createTextNode(`${NBSP}stale`);
+          $setState(staleValue, textTypeState, "attribute");
+          vaWrapper.append(
+            $createMarkerNode("va", "opening"),
+            staleValue,
+            $createMarkerNode("va", "closing"),
+          );
+          $getRoot().append(
+            $createParaNode("p").append(
+              $createTextNode(NBSP),
+              verse,
+              vaWrapper,
+              $createTextNode("text after"),
+            ),
+          );
+        },
+        { discrete: true },
+      );
+
+      editor.update(
+        () => {
+          $syncVerseAttributeDisplay(verse, verse.getAltnumber(), verse.getPubnumber());
+        },
+        { discrete: true },
+      );
+
+      editor.getEditorState().read(() => {
+        // \va healed INSIDE the surviving wrapper — still verse's immediate next sibling.
+        expect(verse.getNextSibling()?.is(vaWrapper)).toBe(true);
+        expect(vaWrapper.getChildrenSize()).toBe(3);
+        const [opener, value, closer] = vaWrapper.getChildren();
+        expect(opener.getTextContent()).toBe("\\va");
+        expect(value.getTextContent()).toBe(`${NBSP}2`);
+        expect(closer.getTextContent()).toBe("\\va*");
+        // \vp's run was created AFTER the \va wrapper (a loose triplet, riding as a sibling of
+        // the wrapper) — never nested inside it, and never before it.
+        const vpOpener = vaWrapper.getNextSibling();
+        expect($isMarkerNode(vpOpener) && vpOpener.getMarker() === "vp").toBe(true);
+        const vpValue = vpOpener?.getNextSibling();
+        expect(vpValue?.getTextContent()).toBe(`${NBSP}1b`);
+        const vpCloser = vpValue?.getNextSibling();
+        expect($isMarkerNode(vpCloser) && vpCloser.getMarkerSyntax() === "closing").toBe(true);
+        expect(vpCloser?.getNextSibling()?.getTextContent()).toBe("text after");
+      });
+    });
+
+    it("inserts a missing \\va opener as the wrapper's FIRST child when repairing around surviving debris", () => {
+      const { editor } = createBasicTestEnvironment([...usjBaseNodes, AttributeRunNode]);
+      let verse!: VerseNode;
+      let vaWrapper!: AttributeRunNode;
+      let valueKeyBefore = "";
+      let closerKeyBefore = "";
+      editor.update(
+        () => {
+          verse = $createVerseNode("1", getVisibleOpenMarkerText("v", "1"), undefined, "2");
+          vaWrapper = $createAttributeRunNode("va");
+          const value = $createTextNode(`${NBSP}2`);
+          $setState(value, textTypeState, "attribute");
+          valueKeyBefore = value.getKey();
+          const closer = $createMarkerNode("va", "closing");
+          closerKeyBefore = closer.getKey();
+          // Deliberately no opener glyph — the mangled shape under test.
+          vaWrapper.append(value, closer);
+          $getRoot().append(
+            $createParaNode("p").append(
+              $createTextNode(NBSP),
+              verse,
+              vaWrapper,
+              $createTextNode("text"),
+            ),
+          );
+        },
+        { discrete: true },
+      );
+
+      editor.update(
+        () => {
+          $syncVerseAttributeDisplay(verse, verse.getAltnumber(), verse.getPubnumber());
+        },
+        { discrete: true },
+      );
+
+      editor.getEditorState().read(() => {
+        expect(vaWrapper.getChildrenSize()).toBe(3);
+        const [opener, value, closer] = vaWrapper.getChildren();
+        expect(opener.getTextContent()).toBe("\\va");
+        expect(value.getKey()).toBe(valueKeyBefore);
+        expect(closer.getKey()).toBe(closerKeyBefore);
+      });
+    });
+
+    it("recognizes the caret anywhere inside a \\va wrapper as holding the run's site (containment arm)", () => {
+      const { editor } = createBasicTestEnvironment([...usjBaseNodes, AttributeRunNode]);
+      let verse!: VerseNode;
+      let vaWrapper!: AttributeRunNode;
+      editor.update(
+        () => {
+          verse = $createVerseNode("1", getVisibleOpenMarkerText("v", "1"), undefined, "2");
+          vaWrapper = $createAttributeRunNode("va");
+          const value = $createTextNode(`${NBSP}2`);
+          $setState(value, textTypeState, "attribute");
+          vaWrapper.append(
+            $createMarkerNode("va", "opening"),
+            value,
+            $createMarkerNode("va", "closing"),
+          );
+          $getRoot().append(
+            $createParaNode("p").append(
+              $createTextNode(NBSP),
+              verse,
+              vaWrapper,
+              $createTextNode("text"),
+            ),
+          );
+        },
+        { discrete: true },
+      );
+
+      editor.update(
+        () => {
+          // Caret at the START of the wrapper lands on the opener glyph at offset 0 — a shape
+          // none of the pre-existing geometry arms recognize.
+          vaWrapper.selectStart();
+        },
+        { discrete: true },
+      );
+
+      editor.getEditorState().read(() => {
+        expect($hasCaretHeldVerseAttributeRun(verse, "different", verse.getPubnumber())).toBe(true);
+      });
     });
   });
 });

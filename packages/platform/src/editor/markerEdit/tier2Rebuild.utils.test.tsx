@@ -18,12 +18,17 @@ import {
   $isElementNode,
   $isRangeSelection,
   $isTextNode,
+  $setState,
   LexicalNode,
 } from "lexical";
 import {
   $charAttributeDisplayNode,
+  $createAttributeRunNode,
+  $createMarkerNode,
   $createMilestoneNode,
   $createParaNode,
+  $createVerseNode,
+  $isAttributeRunNode,
   $isCharNode,
   $isMarkerNode,
   $isVerseNode,
@@ -33,6 +38,7 @@ import {
   $isParaNode,
   NBSP,
   ParaNode,
+  textTypeState,
   TypedMarkNode,
 } from "shared";
 // Reaching inside only for tests.
@@ -1196,6 +1202,98 @@ describe("milestones re-tokenize", () => {
   });
 });
 
+// AttributeRunNode is registered in usjReactNodes only (Task 12) — headless tests here must pass
+// it explicitly to createBasicTestEnvironment (already done via `...usjReactNodes` below).
+describe("milestone run wrapped in AttributeRunNode (dual-read)", () => {
+  it("rebuilds to the SAME fixed point as the loose equivalent — fragment bytes are byte-identical", () => {
+    const { editor } = createBasicTestEnvironment([TypedMarkNode, ...usjReactNodes]);
+    editor.update(
+      () => {
+        const [glyph, separator] = $createMarkerPrefix("p");
+        const ms = $createMilestoneNode("qt-s", "q1");
+        const wrapper = $createAttributeRunNode("milestone");
+        const opening = $createMarkerNode("qt-s", "opening");
+        const attribute = $createTextNode(`${NBSP}|sid="q1"`);
+        $setState(attribute, textTypeState, "attribute");
+        const closing = $createMarkerNode("", "selfClosing");
+        wrapper.append(opening, attribute, closing);
+        $getRoot().append(
+          $createParaNode("p").append(
+            glyph,
+            separator,
+            $createTextNode("before "),
+            ms,
+            wrapper,
+            $createTextNode(" after"),
+          ),
+        );
+      },
+      { discrete: true },
+    );
+
+    editor.update(
+      () => {
+        // A byte-identical fragment is a FIXED POINT (`false`): if the wrapper's bytes were not
+        // flattened into the fragment the same way the loose shape's are, re-tokenizing would
+        // produce different (or fewer) bytes and this would spuriously report a real rebuild.
+        expect($rebuildParas([$lastPara()], context)).toBe(false);
+      },
+      { discrete: true },
+    );
+
+    editor.getEditorState().read(() => {
+      const children = $lastPara().getChildren();
+      const msIndex = children.findIndex((n) => n.getType() === "ms");
+      expect(msIndex).toBeGreaterThanOrEqual(0);
+      // A fixed-point rebuild mutates nothing — the wrapper survives, still the milestone's
+      // immediate next sibling.
+      expect($isAttributeRunNode(children[msIndex + 1])).toBe(true);
+    });
+  });
+
+  it("editing the run's sid value INSIDE the wrapper settles into the milestone's serialized USJ", () => {
+    const { editor } = createBasicTestEnvironment([TypedMarkNode, ...usjReactNodes]);
+    editor.update(
+      () => {
+        const [glyph, separator] = $createMarkerPrefix("p");
+        const ms = $createMilestoneNode("qt-s", "q1");
+        const wrapper = $createAttributeRunNode("milestone");
+        const opening = $createMarkerNode("qt-s", "opening");
+        const attribute = $createTextNode(`${NBSP}|sid="q1"`);
+        $setState(attribute, textTypeState, "attribute");
+        const closing = $createMarkerNode("", "selfClosing");
+        wrapper.append(opening, attribute, closing);
+        $getRoot().append(
+          $createParaNode("p").append(glyph, separator, ms, wrapper, $createTextNode(" after")),
+        );
+      },
+      { discrete: true },
+    );
+
+    editor.update(
+      () => {
+        const para = $lastPara();
+        const children = para.getChildren();
+        const msIndex = children.findIndex((n) => n.getType() === "ms");
+        const wrapper = children[msIndex + 1];
+        if (!$isAttributeRunNode(wrapper)) throw new Error("wrapper not found");
+        const attributeNode = wrapper.getChildren()[1];
+        if (!$isTextNode(attributeNode)) throw new Error("attribute text not found");
+        // In-place value edit, keeping the leading NBSP — the demanding shape for fixed-point
+        // detection (attributeDisplay.utils.ts's $syncMilestoneDisplayRun never runs here, this
+        // is a raw hand-edit of the wrapped run).
+        attributeNode.setTextContent(`${NBSP}|sid="q2"`);
+        expect($rebuildParas([para], context)).toBe(true);
+      },
+      { discrete: true },
+    );
+    const usj = deserializeSerializedEditorState(editor.getEditorState().toJSON(), viewOptions);
+    const para = $firstPara(usj);
+    expect(JSON.stringify(para)).toContain('"sid":"q2"');
+    expect(JSON.stringify(para)).not.toContain('"sid":"q1"');
+  });
+});
+
 // A verse carrying altnumber/pubnumber re-tokenizes (verseNeedsSentinel: only unknownAttributes
 // forces atomicity now); its \va/\vp display runs (attributeDisplay.utils.ts) ride as ordinary
 // paragraph siblings after the verse, not children of it, so the fragment/signature builders
@@ -1225,6 +1323,98 @@ describe("verses with \\va/\\vp display runs", () => {
       expect(children[verseIndex + 4]?.getTextContent()).toBe("\\vp");
       expect(children[verseIndex + 5]?.getTextContent()).toBe(`${NBSP}1b`);
       expect(children[verseIndex + 6]?.getTextContent()).toBe("\\vp*");
+    });
+  });
+});
+
+describe("verse \\va/\\vp runs wrapped in AttributeRunNode (dual-read)", () => {
+  /** Builds `[para-prefix]<verse><AttributeRunNode "va">[triplet]<AttributeRunNode "vp">[triplet]text`
+   * and returns the editor. Both markers wrapped — the fully-migrated (post-Task-14) shape. */
+  function loadWrappedVerseEditor() {
+    const { editor } = createBasicTestEnvironment([TypedMarkNode, ...usjReactNodes]);
+    editor.update(
+      () => {
+        const [glyph, separator] = $createMarkerPrefix("p");
+        const verse = $createVerseNode(
+          "1",
+          getVisibleOpenMarkerText("v", "1"),
+          undefined,
+          "2",
+          "1b",
+        );
+        const vaWrapper = $createAttributeRunNode("va");
+        const vaValue = $createTextNode(`${NBSP}2`);
+        $setState(vaValue, textTypeState, "attribute");
+        vaWrapper.append(
+          $createMarkerNode("va", "opening"),
+          vaValue,
+          $createMarkerNode("va", "closing"),
+        );
+        const vpWrapper = $createAttributeRunNode("vp");
+        const vpValue = $createTextNode(`${NBSP}1b`);
+        $setState(vpValue, textTypeState, "attribute");
+        vpWrapper.append(
+          $createMarkerNode("vp", "opening"),
+          vpValue,
+          $createMarkerNode("vp", "closing"),
+        );
+        $getRoot().append(
+          $createParaNode("p").append(
+            glyph,
+            separator,
+            verse,
+            vaWrapper,
+            vpWrapper,
+            $createTextNode("text after"),
+          ),
+        );
+      },
+      { discrete: true },
+    );
+    return editor;
+  }
+
+  it("rebuilds to the SAME fixed point as the loose equivalent — fragment bytes are byte-identical", () => {
+    const editor = loadWrappedVerseEditor();
+    editor.update(
+      () => {
+        // A byte-identical fragment is a FIXED POINT (`false`): if either wrapper's bytes were
+        // not flattened into the fragment the same way the loose shape's are, re-tokenizing
+        // would produce different bytes and this would spuriously report a real rebuild.
+        expect($rebuildParas([$lastPara()], context)).toBe(false);
+      },
+      { discrete: true },
+    );
+    editor.getEditorState().read(() => {
+      const children = $lastPara().getChildren();
+      const verseIndex = children.findIndex((n) => n.getType() === "verse");
+      expect(verseIndex).toBeGreaterThanOrEqual(0);
+      // A fixed-point rebuild mutates nothing — both wrappers survive, in position.
+      expect($isAttributeRunNode(children[verseIndex + 1])).toBe(true);
+      expect($isAttributeRunNode(children[verseIndex + 2])).toBe(true);
+    });
+  });
+
+  it("editing a \\va value INSIDE its wrapper settles into the verse's altnumber", () => {
+    const editor = loadWrappedVerseEditor();
+    editor.update(
+      () => {
+        const para = $lastPara();
+        const children = para.getChildren();
+        const verseIndex = children.findIndex((n) => n.getType() === "verse");
+        const vaWrapper = children[verseIndex + 1];
+        if (!$isAttributeRunNode(vaWrapper)) throw new Error("va wrapper not found");
+        const vaValue = vaWrapper.getChildren()[1];
+        if (!$isTextNode(vaValue)) throw new Error("va value not found");
+        vaValue.setTextContent(`${NBSP}3`);
+        expect($rebuildParas([para], context)).toBe(true);
+      },
+      { discrete: true },
+    );
+    const usj = deserializeSerializedEditorState(editor.getEditorState().toJSON(), viewOptions);
+    const para = $firstPara(usj);
+    expect(para).toMatchObject({
+      content: [{ type: "verse", number: "1", altnumber: "3", pubnumber: "1b" }, "text after"],
     });
   });
 });
