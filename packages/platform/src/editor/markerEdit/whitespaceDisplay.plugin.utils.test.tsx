@@ -766,6 +766,33 @@ describe("paste normalization ($handlePasteForStandardView)", () => {
       expect(roundTripped).not.toContain("~");
     });
 
+    it("a double NBSP after a marker token: only the first is marker-adjacent — the second is interior data (`\\nd ~light`)", async () => {
+      // Only ONE NBSP per marker adjacency is treated as a display artifact — a SECOND,
+      // unexplained NBSP right after it is preserved as data rather than silently dropped, since
+      // losing user data is worse than the reverse. `\nd` + NBSP + NBSP + `light`: the
+      // after-marker pass matches `\nd` + the FIRST NBSP only (consuming that pair), so the
+      // second NBSP is left with nothing recognized immediately before or after it and falls
+      // through to the interior/data pass. Round-tripped through copy (see `pasteAndCopyBack`'s
+      // doc comment): `\nd` alone (no closer) is still a real opener Tier 1 recognizes and
+      // re-derives its own canonical separator for, discarding whichever byte this handler
+      // inserted there — the same interim-shape caveat the closed-pair positional tests above
+      // sidestep the same way. The SECOND NBSP is untouched by any such rebuild (it is already a
+      // literal `~` character by the time Tier 1/2 sees it), so it survives the round trip as-is.
+      let text: TextNode;
+      const { editor } = await testEnvironment(() => {
+        const para = $createParaNode("p");
+        text = $createTextNode("body");
+        $getRoot().append(para.append($createMarkerNode("p"), text));
+      });
+      await act(async () => editor.update(() => text.select(0, 0)));
+
+      const roundTripped = await pasteAndCopyBack(editor, {
+        "text/plain": `\\nd${NBSP}${NBSP}light`,
+      });
+
+      expect(roundTripped).toContain("\\nd ~light");
+    });
+
     it("an NBSP with no adjacent marker token is genuine data and stays `~`", async () => {
       let text: TextNode;
       const { editor } = await testEnvironment(() => {
@@ -940,6 +967,40 @@ describe("paste normalization ($handlePasteForStandardView)", () => {
         // data (`~`) across the paragraph split.
         expect(paras[0].getTextContent()).toContain("before one~two");
         expect(paras[1].getTextContent()).toContain("three~four");
+      });
+    });
+
+    it("a leading NBSP on a SECOND line (right after an internal `\\n`, not string-start) also normalizes to a space, under the `gm`-flagged leading-NBSP pass", async () => {
+      // `$normalizePastedNbsp`'s leading-NBSP pass uses the `gm` flags, so `^` matches after
+      // every `\n`, not just at the very start of the whole paste — a later paragraph of a
+      // multi-line paste can itself start mid-span (a partial selection spanning a paragraph
+      // boundary) and reads as the same structural separator the string-start case does.
+      let text: TextNode;
+      const { editor } = await testEnvironment(() => {
+        const para = $createParaNode("p");
+        const sep = $createTextNode(NBSP);
+        $setState(sep, textTypeState, "marker-trailing-space");
+        text = $createTextNode("before after");
+        $getRoot().append(para.append($createMarkerNode("p"), sep, text));
+      });
+
+      await act(async () =>
+        editor.update(() => {
+          text.select(7, 7); // between "before " and "after"
+          editor.dispatchCommand(
+            PASTE_COMMAND,
+            pasteEvent({ "text/plain": `one\n${NBSP}two` }).event,
+          );
+        }),
+      );
+
+      editor.getEditorState().read(() => {
+        const paras = $getRoot().getChildren().filter($isParaNode);
+        expect(paras).toHaveLength(2);
+        expect(paras[0].getTextContent()).toContain("before one");
+        // The second line's leading NBSP became a plain space, not data — no `~` anywhere.
+        expect(paras[1].getTextContent()).toContain(" twoafter");
+        expect(paras[1].getTextContent()).not.toContain("~");
       });
     });
 
