@@ -505,7 +505,7 @@ function recurseNodes(
         // are exactly the same MarkerNode/attribute-tagged-TextNode pieces this switch already
         // skips individually when THEY ride as loose siblings (the loose-sibling arm — removable
         // once nothing builds loose runs), so skipping the wrapper as a unit is equivalent to how
-        // the loose shape is handled. The forward adaptor does not build the wrapped shape yet.
+        // the loose shape is handled.
         break;
       case TypedMarkNode.getType():
         childMarkers = recurseNodes(serializedMarkNode.children, viewOptions);

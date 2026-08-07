@@ -104,6 +104,25 @@
   vertical-align: text-top;
 }
 
+/* A verse's \va/\vp opening/closing glyphs ride INSIDE the AttributeRunNode wrapper now (they were
+   loose paragraph siblings before the flip), so their own `font-size: 0.7em`
+   (`.formatted-font.marker-editable .opening`/`.closing`/`.selfClosing` below) would otherwise
+   compound with the wrapper's OWN `font-size: 66%` above (0.7 × 0.66 ≈ 46% of the paragraph's
+   size — noticeably smaller than the pre-flip 70%, since `em` is always relative to the immediate
+   parent's computed size, not the paragraph). Reset to 100% of the wrapper's own already-reduced
+   size, matching the value's size exactly, so the glyphs and the value read as one uniformly-sized
+   green/blue-superscript run instead of two visibly different sizes glued together. Selector
+   specificity (four classes) beats the general glyph rule's three, so this wins regardless of
+   declaration order. */
+.formatted-font.marker-editable .usfm_va .opening,
+.formatted-font.marker-editable .usfm_va .closing,
+.formatted-font.marker-editable .usfm_va .selfClosing,
+.formatted-font.marker-editable .usfm_vp .opening,
+.formatted-font.marker-editable .usfm_vp .closing,
+.formatted-font.marker-editable .usfm_vp .selfClosing {
+  font-size: 100%;
+}
+
 /* ParaNode */
 
 .formatted-font .usfm_usfm {

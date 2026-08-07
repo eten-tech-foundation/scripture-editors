@@ -50,7 +50,6 @@ import {
   ParaNode,
   StyleInfo,
   textTypeState,
-  usjBaseNodes,
   VerseNode,
 } from "shared";
 // Reaching inside only for tests.
@@ -777,9 +776,8 @@ describe("$resolvePendingMarkers attribute-run re-pend guard", () => {
   });
 });
 
-// AttributeRunNode is registered in usjReactNodes only (Task 12) — headless tests here must pass
-// it explicitly to createBasicTestEnvironment. The adaptor does not build this shape yet (Task
-// 14), so these unit tests hand-build it to pin the husk-removal arm ahead of that flip.
+// These unit tests hand-build the wrapper directly (rather than going through the adaptor or the
+// self-healing syncs) to pin the husk-removal arm's own behavior in isolation.
 describe("$settlePendedDisplayOwner AttributeRunNode husk arm (dual-read)", () => {
   function buildContext(): MarkerEditContext {
     return {
@@ -795,7 +793,7 @@ describe("$settlePendedDisplayOwner AttributeRunNode husk arm (dual-read)", () =
     // Mirrors the optbreak arm this one is modeled on: the empty wrapper is undead scaffolding
     // removed as a side effect, and the OWNER's own policy (milestoneRunEntirelyAbsent, since
     // nothing survives the husk's removal either) still runs in the SAME settle pass.
-    const { editor } = createBasicTestEnvironment([...usjBaseNodes, AttributeRunNode]);
+    const { editor } = createBasicTestEnvironment();
     let milestone!: MilestoneNode;
     let wrapper!: AttributeRunNode;
     editor.update(
@@ -836,7 +834,7 @@ describe("$settlePendedDisplayOwner AttributeRunNode husk arm (dual-read)", () =
   it("removes an empty \\va wrapper husk on a verse WITHOUT removing the verse itself", () => {
     // A verse always exists regardless of its display run — unlike a milestone, whose run IS its
     // entire byte representation, so only the wrapper (dead scaffolding) is cleaned up here.
-    const { editor } = createBasicTestEnvironment([...usjBaseNodes, AttributeRunNode]);
+    const { editor } = createBasicTestEnvironment();
     let verse!: VerseNode;
     let vaWrapper!: AttributeRunNode;
     editor.update(
@@ -877,7 +875,7 @@ describe("$settlePendedDisplayOwner AttributeRunNode husk arm (dual-read)", () =
   });
 
   it("does not touch an attached wrapper that still has pieces (not a husk)", () => {
-    const { editor } = createBasicTestEnvironment([...usjBaseNodes, AttributeRunNode]);
+    const { editor } = createBasicTestEnvironment();
     let milestone!: MilestoneNode;
     let wrapper!: AttributeRunNode;
     editor.update(

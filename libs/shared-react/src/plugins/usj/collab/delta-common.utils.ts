@@ -526,14 +526,17 @@ export function $hasAttributeRunAncestor(node: LexicalNode): boolean {
  *   replacement appended instead). If `$applyUpdate`'s traversals are ever taught to skip these
  *   nodes too, this exclusion should extend to `"apply"` at the same time — not before.
  *
- *   The SAME reasoning governs the `$hasAttributeRunAncestor` exclusion below: `$applyUpdate`
- *   does not know about `AttributeRunNode` at all yet — the adaptor never builds one — so its
- *   traversals would treat a wrapper as an ordinary, un-special-cased `ElementNode` (zero
- *   contribution of its own, descend into children) and count each child's raw text length
- *   exactly as it already does for today's LOOSE run pieces — i.e. wrapping changes nothing about
- *   what `$applyUpdate` would do. `"apply"` coordinates must therefore keep counting a wrapped
- *   piece's text too, matching that (unchanged) traversal; only `"delta-doc"` excludes it, mirroring
- *   `editor-delta.adaptor.ts`'s existing loose-piece ops exclusion for the identical bytes.
+ *   The SAME reasoning governs the `$hasAttributeRunAncestor` exclusion below: `$applyUpdate`'s
+ *   own traversal functions (`$traverseAndApplyAttributesRecursive`, `$traverseAndDelete`,
+ *   `$insertNodeAtCharacterOffset`) do not special-case `AttributeRunNode` at all — every
+ *   editable-mode verse/milestone run the adaptor builds rides wrapped in one, so this traversal
+ *   gap is live on every real document, not a hypothetical one. Each traversal treats a wrapper as
+ *   an ordinary, un-special-cased `ElementNode` (zero contribution of its own, descend into
+ *   children) and counts each child's raw text length exactly as it already does for a LOOSE run's
+ *   pieces — i.e. wrapping changes nothing about what `$applyUpdate` actually does. `"apply"`
+ *   coordinates must therefore keep counting a wrapped piece's text too, matching that (unchanged)
+ *   traversal; only `"delta-doc"` excludes it, mirroring `editor-delta.adaptor.ts`'s existing ops
+ *   exclusion for the identical bytes.
  */
 function $getNodeOTContribution(node: LexicalNode, coordinates: OTCoordinateSystem): number {
   // A bare cursor host (EmptyVerseCaretGuardPlugin) is a transient, collab-invisible node: its

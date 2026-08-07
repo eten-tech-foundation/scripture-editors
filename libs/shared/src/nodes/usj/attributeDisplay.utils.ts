@@ -319,9 +319,9 @@ export interface VerseAttributeRunPieces {
  * When `after`'s immediately following sibling is an `AttributeRunNode` whose `runKind` matches
  * `marker`, the SAME tolerant scan runs over the wrapper's CHILDREN instead of `after`'s siblings
  * — a wrapper's children are the run's pieces in the identical fixed order, so redirecting the
- * cursor's starting point is the only change needed. The adaptor does not build this shape yet;
- * the sync heals whichever shape — loose siblings or an existing wrapper — is actually in the
- * tree.
+ * cursor's starting point is the only change needed. The adaptor always builds this shape now; the
+ * sync still heals whichever shape — loose siblings (a pre-flip editor state, an undo stack, or a
+ * collab-materialized bare owner) or an existing wrapper — is actually in the tree.
  *
  * Exported (mirrors {@link $milestoneAttributeRunPieces}) so `markerEditTier1.utils.ts`'s
  * deletion-settle path (`packages/platform`) can locate a verse's wrapper(s) directly to detect
@@ -633,9 +633,10 @@ export interface MilestoneRunPieces {
  * When `milestone`'s immediately following sibling is an `AttributeRunNode` whose `runKind` is
  * `"milestone"`, the SAME tolerant scan runs over the wrapper's CHILDREN instead of `milestone`'s
  * siblings — a wrapper's children are the run's pieces in the identical fixed order, so
- * redirecting the cursor's starting point is the only change needed. The adaptor does not build
- * this shape yet; the sync heals whichever shape — loose siblings or an existing wrapper — is
- * actually in the tree.
+ * redirecting the cursor's starting point is the only change needed. The adaptor always builds
+ * this shape now; the sync still heals whichever shape — loose siblings (a pre-flip editor state,
+ * an undo stack, or a collab-materialized bare milestone) or an existing wrapper — is actually in
+ * the tree.
  */
 export function $milestoneAttributeRunPieces(milestone: MilestoneNode): MilestoneRunPieces {
   let opening: MarkerNode | undefined;

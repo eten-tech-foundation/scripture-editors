@@ -307,7 +307,7 @@ function $handleTextNodes(
       // adjacency — checked alongside $isBareAttributeGlyph (the loose-sibling arm — removable
       // once nothing builds loose runs), and strictly broader: it also catches a milestone's
       // glyph pair with no attribute text between them, which has no attribute-tagged sibling to
-      // key off of. The adaptor does not build the wrapped shape yet.
+      // key off of.
       $hasAttributeRunAncestor(currentNode))
   )
     return;
