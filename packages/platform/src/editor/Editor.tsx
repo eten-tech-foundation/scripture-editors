@@ -7,6 +7,7 @@ import {
   isUsjMarkerSupported,
 } from "./adaptors/usj-marker-action.utils";
 import { EditorOptions, EditorProps, EditorRef } from "./editor.model";
+import { useLoadGate } from "./use-load-gate.hook";
 import editorTheme from "./editor.theme";
 import { ActiveTextPlugin } from "./ActiveTextPlugin";
 import { ParaMarkerPrefixGuardPlugin } from "./ParaMarkerPrefixGuardPlugin";
@@ -143,6 +144,8 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
   const [usj, setUsj] = useState(defaultUsj);
   const [loadTrigger, setLoadTrigger] = useState(0);
   const [contextMarker, setContextMarker] = useState<string>();
+  // Annotations address the loaded document, so they wait for the load in flight (#515).
+  const { handleLoadingChange, noteLoadRequested, runWhenLoaded } = useLoadGate();
 
   const {
     isReadonly = false,
@@ -249,6 +252,10 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
         editedUsjRef.current = incomingUsj;
         // This can happen when using `applyUpdate` since `usj` won't change.
         const shouldForceReload = deepEqual(usj, incomingUsj);
+        // A load is now certain, but React hasn't re-rendered yet, so LoadStatePlugin hasn't
+        // reported it. Without this, an annotation set in this same tick would address the
+        // outgoing document and be discarded by the load (#515).
+        noteLoadRequested();
         setUsj(incomingUsj);
         if (shouldForceReload) setLoadTrigger((prev) => prev + 1);
       }
@@ -321,18 +328,22 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
         onMouseLeave = fourth.onMouseLeave;
       }
 
-      annotationRef.current?.setAnnotation(
-        selection,
-        externalTypedMarkType(type),
-        id,
-        onClick,
-        onRemove,
-        onMouseEnter,
-        onMouseLeave,
+      runWhenLoaded(() =>
+        annotationRef.current?.setAnnotation(
+          selection,
+          externalTypedMarkType(type),
+          id,
+          onClick,
+          onRemove,
+          onMouseEnter,
+          onMouseLeave,
+        ),
       );
     },
     removeAnnotation(type, id) {
-      annotationRef.current?.removeAnnotation(externalTypedMarkType(type), id);
+      // Also gated: removing an annotation that a queued call is about to add must happen after
+      // it, not before, or the removal is a no-op and the mark survives.
+      runWhenLoaded(() => annotationRef.current?.removeAnnotation(externalTypedMarkType(type), id));
     },
     formatPara(blockMarker) {
       editorRef.current?.update(() => {
@@ -506,6 +517,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
             nodeOptions={nodeOptions}
             editorAdaptor={usjEditorAdaptor}
             viewOptions={viewOptions}
+            onLoadingChange={handleLoadingChange}
             logger={stableLogger}
           />
           <OnSelectionChangePlugin onChange={onSelectionChange} />
