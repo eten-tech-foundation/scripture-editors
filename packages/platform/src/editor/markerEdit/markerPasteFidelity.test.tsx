@@ -39,6 +39,7 @@ import {
   $createMarkerNode,
   $createParaNode,
   $createVerseNode,
+  $isCharNode,
   getVisibleOpenMarkerText,
   NBSP,
   textTypeState,
@@ -63,6 +64,26 @@ async function pasteAndSettle(
     editor.update(() => {
       $select();
       editor.dispatchCommand(PASTE_COMMAND, pasteEvent({ "text/plain": text }).event);
+    }),
+  );
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+}
+
+/** Like `pasteAndSettle`, but takes the full clipboard payload map rather than assuming a bare
+ * `text/plain` string — used by the S4 equivalence pins below to dispatch a "full" (plain+html)
+ * payload and compare it against a plain-only one. */
+async function pastePayloadAndSettle(
+  editor: LexicalEditor,
+  $select: () => void,
+  payload: { [key: string]: string },
+): Promise<void> {
+  await act(async () =>
+    editor.update(() => {
+      $select();
+      editor.dispatchCommand(PASTE_COMMAND, pasteEvent(payload).event);
     }),
   );
   await act(async () => {
@@ -433,5 +454,80 @@ describe("own-marker-prefix dedup: unknown/custom.sty markers", () => {
     );
 
     expect(paraMarkerText(usjOf(editor))).toEqual([["zz", "one two"]]);
+  });
+});
+
+describe("paste-as-plain-text equivalence (S4): no literal mode, plain always wins", () => {
+  // S4 (docs/superpowers/specs/2026-08-06-clipboard-semantics.md): Ctrl+Shift+V / "paste as plain
+  // text" narrows the clipboard payload down to `text/plain` only, but `$handlePasteForStandardView`
+  // reads `text/plain` unconditionally whenever it is present — the `text/html` leg only comes into
+  // play when `text/plain` is ABSENT (`htmlPasteText(html)` fallback). So a full (plain+html) paste
+  // and a plain-only paste of the SAME `text/plain` bytes must produce byte-identical final USJ: by
+  // construction, not by coincidence. Each pin below dispatches the same paste text twice, on two
+  // fresh hosts — once with a DELIBERATELY mismatched `text/html` alongside it (proving html is
+  // ignored outright, not merely equivalent to plain here) and once with `text/plain` alone — then
+  // asserts the two final documents are identical. There is no separate "paste literally, don't
+  // tokenize markers" code path in Standard view (matching P9, which has no Paste Special either):
+  // the second pin below additionally asserts a plain-only paste still tokenizes a marker pair into
+  // a real CharNode rather than leaving it as literal `\marker` text.
+  const MISMATCHED_HTML = "<p>this text must never appear in the pasted result</p>";
+
+  it('"\\p one\\n\\p two" (multi-line paragraph split): full (plain+html) payload and plain-only payload paste identically', async () => {
+    const hostA = await singleParaHost();
+    const hostB = await singleParaHost();
+    const text = "\\p one\n\\p two";
+
+    await pastePayloadAndSettle(hostA.editor, () => hostA.text.select(1, 1), {
+      "text/plain": text,
+      "text/html": MISMATCHED_HTML,
+    });
+    await pastePayloadAndSettle(hostB.editor, () => hostB.text.select(1, 1), {
+      "text/plain": text,
+    });
+
+    const usjA = usjOf(hostA.editor);
+    const usjB = usjOf(hostB.editor);
+    expect(usjA).toEqual(usjB);
+    // Matches the multi-line marker-bearing paste pin above for this exact fixture: no doubled
+    // markers, no stray empty paragraph.
+    expect(paraMarkerText(usjA)).toEqual([
+      ["p", "A"],
+      ["p", "one"],
+      ["p", "two"],
+    ]);
+    hostA.editor.getEditorState().read(() => {
+      expect($getRoot().getTextContent()).not.toContain("must never appear");
+    });
+  });
+
+  it('"\\nd Lord\\nd* " (marker-bearing inline span): full (plain+html) payload and plain-only payload paste identically, and the plain-only payload still tokenizes — there is no literal mode', async () => {
+    const hostA = await singleParaHost();
+    const hostB = await singleParaHost();
+    const text = "\\nd Lord\\nd* ";
+
+    await pastePayloadAndSettle(hostA.editor, () => hostA.text.select(1, 1), {
+      "text/plain": text,
+      "text/html": MISMATCHED_HTML,
+    });
+    await pastePayloadAndSettle(hostB.editor, () => hostB.text.select(1, 1), {
+      "text/plain": text,
+    });
+
+    const usjA = usjOf(hostA.editor);
+    const usjB = usjOf(hostB.editor);
+    expect(usjA).toEqual(usjB);
+    hostA.editor.getEditorState().read(() => {
+      expect($getRoot().getTextContent()).not.toContain("must never appear");
+    });
+    // "No literal mode": the plain-only payload's `\nd`…`\nd*` pair must be recognized by Tier 2
+    // and rebuilt as a real CharNode, not survive as unrecognized literal marker text.
+    hostB.editor.getEditorState().read(() => {
+      const chars = $dfs($getRoot())
+        .map(({ node }) => node)
+        .filter($isCharNode);
+      const ndChars = chars.filter((char) => char.getMarker() === "nd");
+      expect(ndChars).toHaveLength(1);
+      expect(ndChars[0].getTextContent()).toContain("Lord");
+    });
   });
 });
