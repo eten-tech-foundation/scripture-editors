@@ -46,16 +46,7 @@ import { act } from "@testing-library/react";
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import { baseTestEnvironment } from "../../../../../libs/shared-react/src/plugins/usj/react-test.utils";
 import { MarkerObject, Usj, usxStringToUsj } from "@eten-tech-foundation/scripture-utilities";
-import {
-  $createPoint,
-  $createRangeSelection,
-  $getRoot,
-  $isElementNode,
-  $setSelection,
-  COPY_COMMAND,
-  PASTE_COMMAND,
-  RootNode,
-} from "lexical";
+import { $getRoot, COPY_COMMAND, PASTE_COMMAND, RootNode } from "lexical";
 import { $isChapterNode, $isImmutableChapterNode } from "shared";
 
 /** A `text/plain`-only copy stub — the same minimal jsdom-safe shape every sibling suite in this
@@ -103,26 +94,17 @@ function $contentStartIndex(root: RootNode): number {
 
 /** Selects every top-level node from right after the chapter marker through the end of the
  * document — the chapter's own CONTENT, matching what Standard view actually copies out of an
- * open chapter (never the book/chapter header itself). Node-anchored (mirroring
- * `clipboardCopyFidelity.test.tsx`'s `$selectWholeNode`/multi-paragraph copy tests) rather than a
- * root child-index offset: an offset-based focus at `root.getChildrenSize()` resolves to a
- * boundary position that, on the PASTE side, silently failed to delete the target's own trailing
- * content when the selection was later replaced — doubling the last paragraph's text. Anchoring on
- * the actual last descendant node's own end avoids that. */
+ * open chapter (never the book/chapter header itself). Element-offset (`root.select`), not
+ * node-anchored: this is used ONLY on the source/copy side (the paste side below always targets a
+ * fresh EMPTY host via `selectEnd()`), so it never hits the "replacing a large non-collapsed
+ * selection on paste" doubling bug a node-anchored `"text"`-typed focus point was once written to
+ * dodge here — and the element-offset form is strictly more general: it does not require the
+ * chapter's last node be a `TextNode` (a `"text"`-typed focus point does, and crashed with
+ * `TypeError: focusNode.selectionTransform is not a function` against a real corpus document,
+ * `libs/test-data/src/data/2sa.usj.ts`, whose last node isn't one). */
 function $selectChapterContent(root: RootNode): void {
   const start = $contentStartIndex(root);
-  const firstNode = root.getChildAtIndex(start);
-  const lastChild = root.getLastChild();
-  if (!firstNode || !lastChild) throw new Error("no chapter content to select");
-  const lastDescendant = ($isElementNode(lastChild) && lastChild.getLastDescendant()) || lastChild;
-  const selection = $createRangeSelection();
-  selection.anchor = $createPoint(firstNode.getKey(), 0, "element");
-  selection.focus = $createPoint(
-    lastDescendant.getKey(),
-    lastDescendant.getTextContentSize(),
-    "text",
-  );
-  $setSelection(selection);
+  root.select(start, root.getChildrenSize());
 }
 
 /** The fixture's book+chapter header, byte-identical, plus a single EMPTY `\p` paragraph as the
