@@ -335,6 +335,7 @@ describe("collab-materialized milestone settles into a re-tokenizable run", () =
         getMarker: bundledGetMarker,
         pendingKeys: new Set(milestoneFirst ? [msKey, runKey] : [runKey, msKey]),
         splitExpected: { current: false },
+        pasteRebuildArmed: { current: false },
         rebuildAttempted: new Set(),
         isStructureProtected: false,
       };

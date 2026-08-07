@@ -137,9 +137,12 @@ export function $normalizePastedNbsp(text: string): string {
     .replaceAll(NBSP, "~");
 }
 
-/** A `\c`/`\id` marker token at the start of a (post-split) line, capturing its payload up to —
- * but not including — the next marker or line end. */
-const CHAPTER_OR_BOOK_ID_AT_LINE_START = /^\\(?:c|id)(?![\w-])[^\n\\]*/;
+/** A `\c`/`\id` marker token ANYWHERE in a line, capturing its payload up to — but not including —
+ * the next marker or line end. Not anchored to the line's start: a chapter/book-id token can sit
+ * mid-line (`x \c 5 y`, a paste landing mid-sentence), and an anchor there would silently miss it
+ * — the exact live-repro shape (see `$stripPastedChapterAndBookId`'s doc comment). Global so more
+ * than one occurrence on the same line is fully swept, not just the first. */
+const CHAPTER_OR_BOOK_ID_TOKEN = /\\(?:c|id)(?![\w-])[^\n\\]*/g;
 
 /**
  * Drops every pasted `\c`/`\id` token and its payload (the chapter number / book code, up to the
@@ -150,21 +153,32 @@ const CHAPTER_OR_BOOK_ID_AT_LINE_START = /^\\(?:c|id)(?![\w-])[^\n\\]*/;
  * `\c 2` mid-chapter created a second chapter node in the editor; every subsequent save then
  * failed with the PDP's "Multiple chapter markers present" (the error surfaces only in the
  * renderer log — disk and other editors silently stop updating). `\id` is the book-level twin of
- * the same hazard and is stripped identically.
+ * the same hazard and is stripped identically. A token need not be its own line — `x \c 5 y`
+ * mid-paragraph reaches the same tokenizer branch (chapter/book-id tokens are recognized wherever
+ * they occur, not just at a fragment's start) and left unstripped produces the identical poisoned
+ * shape: a second chapter node PLUS the trailing bytes (`y`) stranding as a bare top-level USJ
+ * string outside any paragraph, since a chapter token closes the enclosing paragraph the same way
+ * it does on a real load.
  *
- * Splits on lines rather than matching globally so a stripped token can cleanly take its own line
- * with it (no stray empty paragraph left behind) while a token sharing a line with real content —
- * `\c 5\v 1 In the beginning`, common in USFM with no line breaks between markers — only loses
- * its own bytes, leaving the rest of the line (here `\v 1 In the beginning`) to paste normally. A
- * line that already carried no other content becomes empty after stripping and is dropped from
- * the output entirely, rather than surviving as a blank paragraph; a line that was ALREADY blank
- * in the source paste (nothing to do with `\c`/`\id`) is left alone.
+ * Splits on lines and strips per line (not one global pass over the whole text) so a token that
+ * consumes an ENTIRE line can cleanly take that line's own newline with it too (no stray empty
+ * paragraph left behind), while a token sharing a line with real content — `\c 5\v 1 In the
+ * beginning`, or the mid-line `x \c 5 y` shape above — only loses its own bytes, leaving the rest
+ * of the line (`\v 1 In the beginning`, `x ` + `y`) to paste normally. A line that already carried
+ * no other content becomes empty after stripping and is dropped from the output entirely, rather
+ * than surviving as a blank paragraph; a line that was ALREADY blank in the source paste (nothing
+ * to do with `\c`/`\id`) is left alone.
+ *
+ * Exported for the in-note CRITICAL multi-line paste claim (`MarkerEditPlugin.tsx`), which shares
+ * this strip the same way it shares `$normalizePastedNbsp` — a `\c`/`\id` token pasted into note
+ * content is just as reachable (the note-content Tier 2 rebuild tokenizes literal text the same
+ * way a paragraph rebuild does) and just as harmful there.
  */
-function $stripPastedChapterAndBookId(text: string): string {
+export function $stripPastedChapterAndBookId(text: string): string {
   return text
     .split("\n")
     .map((line) => {
-      const stripped = line.replace(CHAPTER_OR_BOOK_ID_AT_LINE_START, "");
+      const stripped = line.replace(CHAPTER_OR_BOOK_ID_TOKEN, "");
       return stripped === "" && line !== "" ? undefined : stripped;
     })
     .filter((line): line is string => line !== undefined)
@@ -223,6 +237,7 @@ export function $handlePasteForStandardView(
   event: ClipboardEvent | null | undefined,
   isStructureProtected = false,
   armSplitExpected: () => void = () => undefined,
+  armPasteRebuildDedup: () => void = () => undefined,
 ): boolean {
   if (!event || !("clipboardData" in event) || !event.clipboardData) return false;
   if (event.clipboardData.getData("application/x-lexical-editor")) return false;
@@ -237,6 +252,11 @@ export function $handlePasteForStandardView(
   const selection = $getSelection();
   if (!$isRangeSelection(selection)) return false;
   event.preventDefault();
+  // Arms `Tier2Context.pasteRebuildArmed` for this paste's own update, BEFORE inserting —
+  // unconditionally, unlike `armSplitExpected` below, because a SINGLE-line paste (no newline at
+  // all) can just as easily trigger the immediate own-marker-prefix dedup rebuild (`\p one` pasted
+  // right after an existing `\p` host's prefix) as a multi-line one can.
+  armPasteRebuildDedup();
   const normalized = $normalizePastedNbsp($stripPastedChapterAndBookId(text));
   // @lexical/clipboard's own text/plain handling calls `selection.insertParagraph()` directly
   // per newline (never INSERT_PARAGRAPH_COMMAND), so the engine's INSERT_PARAGRAPH_COMMAND

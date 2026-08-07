@@ -62,6 +62,16 @@ function usjFromUsx(paraContent: string) {
   );
 }
 
+/** Like `usjFromUsx`, but for a paragraph marker OTHER than `\p` — needed for the own-marker-
+ * prefix dedup's paste-vs-typed scoping pins below, which must start from a NON-`\p` host to show
+ * the marker actually being retagged (a `\p`-into-`\p` case can't distinguish "retagged" from
+ * "left alone"). */
+function usjFromUsxPara(marker: string, paraContent: string) {
+  return usxStringToUsj(
+    `<usx version="3.0"><book code="RUT" style="id">T</book><chapter number="1" style="c" /><para style="${marker}">${paraContent}</para></usx>`,
+  );
+}
+
 /** Load `usj` into a fresh headless editor in standard view; returns the editor. */
 function loadEditor(usj: ReturnType<typeof usjFromUsx>) {
   initializeSerialize(undefined, undefined);
@@ -797,6 +807,92 @@ describe("$rebuildParas", () => {
         expect(selection.anchor.offset).toBe(2); // END of the glyph, not inside it
       }
     });
+  });
+});
+
+describe("own-marker-prefix dedup: paste-only scoping", () => {
+  // $buildParaFragment's own-marker-prefix dedup (tier2Rebuild.utils.ts) recognizes a PASTE
+  // shape — a whole-paragraph copy's own glyph riding along with the pasted text landing at an
+  // existing paragraph's content start — and must NOT also apply when a user simply TYPES the
+  // same byte sequence there: retagging (or silently no-op-ing) an existing paragraph's marker on
+  // a typed keystroke is a product decision this module must not make on its own, and the engine's
+  // pre-existing, P9-parity behavior for that case is a normal split with an EMPTY predecessor
+  // paragraph (the marker-deletion merge/retag machinery, markerEditDeletion.utils.ts, handles the
+  // empty paragraph from there). `context` (module-level, above) never sets `pasteRebuildArmed`, so
+  // `$rebuildParas`/`$buildParaFragment` default to `isPasteRebuild: false` here — exactly the
+  // "typed input" condition.
+  it('typing "\\q1 " at the content start of an "\\s1" paragraph still splits with an empty predecessor — the marker is NOT silently retagged/deleted', () => {
+    const editor = loadEditor(usjFromUsxPara("s1", "God Make Da World"));
+    editor.update(
+      () => {
+        const para = $lastPara();
+        const text = requireDefined(
+          para
+            .getChildren()
+            .filter($isTextNode)
+            .find((node) => node.getTextContent().includes("God")),
+          "text node containing 'God' not found",
+        );
+        // simulate the user having typed "\q1 " at content start
+        text.setTextContent("\\q1 God Make Da World");
+        expect($rebuildParas([para], context)).toBe(true);
+      },
+      { discrete: true },
+    );
+    const usj = deserializeSerializedEditorState(editor.getEditorState().toJSON(), viewOptions);
+    const paras = (usj?.content ?? []).filter((c) => typeof c !== "string" && c.type === "para");
+    expect(paras).toEqual([
+      { type: "para", marker: "s1" },
+      { type: "para", marker: "q1", content: ["God Make Da World"] },
+    ]);
+  });
+
+  it('typing "\\p " at the content start of a "\\p" paragraph still splits with an empty predecessor — not an invisible no-op', () => {
+    const editor = loadEditor(usjFromUsxPara("p", "Alpha"));
+    editor.update(
+      () => {
+        const para = $lastPara();
+        const text = requireDefined(
+          para
+            .getChildren()
+            .filter($isTextNode)
+            .find((node) => node.getTextContent().includes("Alpha")),
+          "text node containing 'Alpha' not found",
+        );
+        text.setTextContent("\\p Alpha");
+        expect($rebuildParas([para], context)).toBe(true);
+      },
+      { discrete: true },
+    );
+    const usj = deserializeSerializedEditorState(editor.getEditorState().toJSON(), viewOptions);
+    const paras = (usj?.content ?? []).filter((c) => typeof c !== "string" && c.type === "para");
+    expect(paras).toEqual([
+      { type: "para", marker: "p" },
+      { type: "para", marker: "p", content: ["Alpha"] },
+    ]);
+  });
+
+  it('the SAME "\\p " retype dedups down to one paragraph when `pasteRebuildArmed` says this rebuild IS a paste — the flag is the only thing that changes the outcome', () => {
+    const editor = loadEditor(usjFromUsxPara("p", "Alpha"));
+    const pasteContext: Tier2Context = { ...context, pasteRebuildArmed: { current: true } };
+    editor.update(
+      () => {
+        const para = $lastPara();
+        const text = requireDefined(
+          para
+            .getChildren()
+            .filter($isTextNode)
+            .find((node) => node.getTextContent().includes("Alpha")),
+          "text node containing 'Alpha' not found",
+        );
+        text.setTextContent("\\p Alpha");
+        expect($rebuildParas([para], pasteContext)).toBe(true);
+      },
+      { discrete: true },
+    );
+    const usj = deserializeSerializedEditorState(editor.getEditorState().toJSON(), viewOptions);
+    const paras = (usj?.content ?? []).filter((c) => typeof c !== "string" && c.type === "para");
+    expect(paras).toEqual([{ type: "para", marker: "p", content: ["Alpha"] }]);
   });
 });
 

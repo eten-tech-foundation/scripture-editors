@@ -1104,6 +1104,24 @@ describe("multi-line plain-text paste inside note content", () => {
         expect(note.getTextContent()).toContain("stuff");
       });
     });
+
+    it("strips \\c/\\id bytes from a multi-line paste — they never land in note content", async () => {
+      // Single-line in-note pastes decline to the main external-paste handler
+      // ($handlePasteForStandardView, whitespaceDisplay.plugin.utils.ts), which already strips
+      // `\c`/`\id`; this CRITICAL multi-line claim is a SEPARATE code path that did not share the
+      // strip until now. A `\c`/`\id` token landing in note content re-tokenizes through the same
+      // Tier 2 tokenizer a paragraph does, so it is just as reachable — and just as save-poisoning
+      // (a live-verified `\c` paste anywhere puts a second chapter node in the editor and fails
+      // every subsequent PDP save) — as one landing in body text.
+      const { editor } = await renderStandardEditorWithUnclosedNote();
+
+      await pasteAt(editor, "first\n\\c 5\nlast", $selectFtEnd);
+
+      editor.getEditorState().read(() => {
+        const note = findOnlyNote($getRoot());
+        expect(note.getTextContent()).not.toContain("\\c");
+      });
+    });
   });
 
   it("normalizes a pasted data-NBSP with no marker adjacency to `~` (round-trips to NBSP in USJ)", async () => {
@@ -1175,6 +1193,26 @@ describe("multi-line plain-text paste inside note content", () => {
     editor.getEditorState().read(() => {
       const note = findOnlyNote($getRoot());
       expect(note.getTextContent()).not.toContain("~");
+    });
+  });
+
+  it("normalizes a data-NBSP at the start of a note's SECOND \\fp line to a plain space, not `~` — the same leading-NBSP-per-line pass the main paste path uses", async () => {
+    // `$normalizePastedNbsp`'s leading-NBSP pass is `gm`-flagged: `^` matches right after every
+    // `\n`, not just at the very start of the whole paste (whitespaceDisplay.plugin.utils.test.tsx
+    // pins the identical outcome for the main external-paste path). A leading NBSP reads as a
+    // structural separator with nothing in front of it to match against, the same as a partial
+    // selection starting exactly at a char span's own leading separator.
+    const { editor } = await renderStandardEditorWithUnclosedNote();
+
+    await pasteAt(editor, `first\n${NBSP}second`, $selectFtEnd);
+
+    editor.getEditorState().read(() => {
+      const note = findOnlyNote($getRoot());
+      const chars = note.getChildren().filter($isCharNode);
+      expect(chars.map((c) => c.getMarker())).toEqual(["ft", "fp"]);
+      // Leading NBSP on the second line became a plain space, not data (`~`).
+      expect(chars[1].getTextContent()).toContain(" second");
+      expect(chars[1].getTextContent()).not.toContain("~");
     });
   });
 
