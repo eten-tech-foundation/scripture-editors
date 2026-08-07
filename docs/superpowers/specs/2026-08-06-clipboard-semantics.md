@@ -84,6 +84,61 @@ These differences are documented and intentional; they are not implemented as wo
 
 ---
 
+## Known Lossy Constructs — Copy→Paste Round Trip
+
+Found by a corpus-style sweep (`clipboardCorpusRoundTrip.test.tsx`): for every fixture in the
+shared USJ round-trip corpus (`corpus-data.ts`), select the chapter's content, copy, paste into a
+fresh editor holding the same chapter header, and compare the resulting USJ to the source. Three of
+the four failures below are INHERENT — the plain-text `text/plain` carrier (S3) has no bytes
+capable of representing the construct, so no paste-side fix is possible without a different
+carrier. The fourth is a genuine, unfixed paste-tokenizer bug, kept separate from the other three
+for that reason. All four fixtures stay in the sweep as `it.skip`, not deleted, so a future engine
+change un-skips them automatically instead of the gap going unnoticed.
+
+1. **Cross-reference `<ref>` target wrapper (inherent):** USJ's `ref` element is a wrapper USFM
+   itself never carried (`unknownUsfm.utils.ts`'s own doc comment: "USJ invented this container,
+   USFM never carried it... only its child text renders"). Source content
+   `["See ", {type:"ref", loc:"GEN 1:1", content:["Genesis 1:1"]}, " for details."]` copies as
+   plain `"See Genesis 1:1 for details."` with no marker bytes anywhere marking the wrapper's
+   extent; paste re-tokenizes it as ordinary prose (`["See Genesis 1:1 for details."]`, the `ref`
+   wrapper gone). A raw USFM export of this same fixture has the identical gap — not specific to
+   clipboard mechanics.
+
+2. **Sidebar `\esb`/`\esbe` (inherent to the paste-time tokenizer, not fixed here):** a sidebar's
+   open/close pair does not use the `\marker ... \marker*` convention every other span/note/
+   milestone in this codebase re-tokenizes on paste; it is `\esb ... \esbe`. Copying
+   `\esb \cat History\cat*\n\p Sidebar paragraph content.\esbe` and pasting it back produces an
+   UNCLOSED sidebar (`closed:"false"`, no content), the inner paragraph hoisted out to become a
+   top-level sibling, and a stray EMPTY paragraph with marker `"esbe"` — the paste-time tokenizer
+   has no rule recognizing `\esbe` as `\esb`'s closer. Table and figure fixtures (`\marker*`-shaped
+   or self-terminating) round-trip clean; sidebar's non-standard closer convention is the outlier.
+
+3. **`closed="false"` char span followed by more paragraph content (inherent):** a `closed="false"`
+   span has, by definition, no closing marker byte anywhere in its own USFM. When such a span is
+   not the last thing in its paragraph (`Tell the <char closed="false">Lord</char> plainly.`), the
+   copied text (`\nd Lord plainly.`) carries no byte marking where the span's content ends and the
+   trailing prose resumes, so paste has nothing to stop at "Lord" on — it swallows the rest of the
+   paragraph into the span (`{marker:"nd", content:["Lord plainly."]}`, the top-level `" plainly."`
+   string gone). The sibling `"unclosed note (closed=false)"` fixture, whose unclosed span IS the
+   last thing in its paragraph, has no such trailing content to lose and round-trips clean —
+   confirming the ambiguity is specifically about trailing content after an implicit close, not
+   `closed="false"` itself.
+
+4. **Paragraph-leading space swallowed on paste (genuine bug, unfixed, out of scope for this
+   test-only task):** unlike the three above, this one is NOT an inherent representational limit —
+   isolated with a minimal non-corpus repro: pasting the literal text `"\p  X"` (marker, its own
+   required separator, and a SECOND, real content-leading space) into a fresh empty `"\p"` host
+   produces `"\p X"` — one space, not two. The paste-time tokenizer consumes ALL whitespace
+   immediately after a recognized marker literal as that marker's own separator, rather than
+   exactly one character, discarding a genuine leading content space whenever a pasted paragraph
+   literal is `"\marker"` + 2 or more spaces. Corpus symptom: copying
+   `<para style="p"> Leading space precedes this text.</para>` (source content
+   `" Leading space precedes this text."`) round-trips through paste to
+   `"Leading space precedes this text."` — the leading space is gone. Worth a real fix in a future
+   task; recorded here rather than fixed because this task is test-only.
+
+---
+
 ## Deferred / Out of Scope
 
 The following items are recorded as deferred and not addressed in this plan:
@@ -99,6 +154,8 @@ The following items are recorded as deferred and not addressed in this plan:
 5. **Custom `text/usfm` MIME type / "Copy as USFM" command:** A dedicated `text/usfm` MIME type or separate "Copy as USFM" command was considered and rejected. Once `text/plain` IS USFM (S1), a separate command adds no value; the existing single-copy-format approach is sufficient.
 
 6. **Popover expanded-note `isStandardView` gating issue:** An issue with note-expansion behavior in popovers has an open tracking document at `docs/superpowers/specs/2026-07-07-standard-view-followups.md`. This is not addressed in the current plan.
+
+7. **Paste tokenizer swallows a paragraph-leading space (genuine bug, corpus-found 2026-08-07):** pasting a paragraph literal shaped `"\marker"` + 2 or more spaces + content loses the second space — the tokenizer treats every whitespace run right after a recognized marker as that marker's own single-character separator. See "Known Lossy Constructs — Copy→Paste Round Trip" above for the byte-level detail and the minimal repro. Not fixed here (test-only task); a real fix is needed, not just documentation.
 
 ---
 
