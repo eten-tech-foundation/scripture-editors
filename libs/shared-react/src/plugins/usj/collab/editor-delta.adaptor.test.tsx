@@ -124,10 +124,10 @@ describe("getEditorDelta", () => {
   });
 
   // Hand-built directly (rather than via the forward adaptor) to pin the ops exclusion in
-  // isolation: the adaptor always builds this run wrapped now (Task 14), so this is the only
-  // shape the ops builder needs to exclude — a verse's own following-sibling \va/\vp glyphs and
-  // value, not inside a note or char span, must never leak into content ops since
-  // altnumber/pubnumber already flow through the verse's own embed op.
+  // isolation: the adaptor always builds this run wrapped now, so this is the only shape the ops
+  // builder needs to exclude — a verse's own following-sibling \va/\vp glyphs and value, not
+  // inside a note or char span, must never leak into content ops since altnumber/pubnumber
+  // already flow through the verse's own embed op.
   it("excludes a verse's \\va/\\vp display runs from canonical ops when wrapped in AttributeRunNode (dual-read)", async () => {
     const ops = await getOpsFor(() => {
       const verse = $createVerseNode("1", "\\v 1 ", undefined, "2", "1b");
