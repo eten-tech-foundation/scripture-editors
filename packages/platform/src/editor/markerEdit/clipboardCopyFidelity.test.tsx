@@ -9,6 +9,7 @@
 import { MarkerEditPlugin } from "./MarkerEditPlugin";
 import {
   $appendVerseAttributeRun,
+  copyEvent,
   findOnlyNote,
   serializedState,
   testEnvironment,
@@ -47,26 +48,6 @@ import {
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import { baseTestEnvironment } from "../../../../../libs/shared-react/src/plugins/usj/react-test.utils";
 import { Usj } from "@eten-tech-foundation/scripture-utilities";
-
-/**
- * jsdom doesn't implement `ClipboardEvent`/`DataTransfer` (see
- * `whitespaceDisplay.plugin.utils.test.tsx`'s identically-shaped `copyEvent`); the handlers under
- * test only touch `clipboardData.getData`/`setData`/`preventDefault`, so a minimal stub covers
- * both copy/cut dispatch and paste dispatch.
- */
-function copyEvent(): { event: ClipboardEvent; getData: (type: string) => string } {
-  const store = new Map<string, string>();
-  const clipboardData = {
-    getData: (type: string) => store.get(type) ?? "",
-    setData: (type: string, data: string) => {
-      store.set(type, data);
-    },
-  };
-  return {
-    event: { clipboardData, preventDefault: vi.fn() } as unknown as ClipboardEvent,
-    getData: (type: string) => clipboardData.getData(type),
-  };
-}
 
 // jsdom implements neither `ClipboardEvent` nor `DragEvent`, but Lexical's default (non-Standard-
 // view-specific) paste path — reached once our copied text carries no NBSP for

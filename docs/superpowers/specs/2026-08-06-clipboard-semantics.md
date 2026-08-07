@@ -52,7 +52,7 @@ Under S3 this is semantically identical to a normal external paste in Standard v
 
 ### S6. Cut = copy + `removeText()` (existing)
 
-The WI-2 filed quirk — a selection-delete ending exactly at a just-settled char-span boundary absorbing one adjacent character — gets a targeted regression pin.
+The WI-2 filed quirk — a selection-delete ending exactly at a just-settled char-span boundary absorbing one adjacent character — gets a targeted regression pin. **Outcome (2026-08-07):** does NOT reproduce at the Lexical selection level. Pinned as regression armor for both `CUT_COMMAND` and a plain `removeText()`, each given a selection whose focus is an element point mirroring DOM `range.setEndAfter(spanElement)` — the exact boundary shape the live repro's programmatic DOM selection used. Both variants produced byte-exact, correctly-scoped results, narrowing the live repro's root cause to the DOM Range → Lexical selection-resolution layer (`applyDOMRange`/`$internalResolveSelectionPoints`), which is not exercised by a Lexical-level `RangeSelection` and so remains covered only by the E2E selection steps (Task 8).
 
 ### S7. Undo — every paste, including rebuilds it triggers, is one undo step (existing pins extended to the new paths)
 
@@ -191,7 +191,7 @@ The following items are recorded as deferred and not addressed in this plan:
 | **S3** Paste (Standard view, external) — plain text as fidelity carrier | (filled as implementation lands) |
 | **S4** Paste-as-plain-text (Ctrl+Shift+V) — equivalence to external paste | (filled as implementation lands) |
 | **S5** Hidden-marker views — prose copy, paste gate preservation | (filled as implementation lands) |
-| **S6** Cut = copy + `removeText()` — WI-2 regression pin | (filled as implementation lands) |
+| **S6** Cut = copy + `removeText()` — WI-2 regression pin | `packages/platform/src/editor/markerEdit/markerEditDeletion.utils.test.tsx` — `"selection-delete at a settled char-span boundary (WI-2 filed)"` (does not reproduce at the Lexical level; pinned as regression armor) |
 | **S7** Undo — paste and rebuilds as single step | (filled as implementation lands) |
 
 ---

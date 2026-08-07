@@ -35,7 +35,7 @@
  * excluding 2sa here is a real coverage gap, not a redundant re-test.
  */
 import { MarkerEditPlugin } from "./MarkerEditPlugin";
-import { serializedState, viewOptions } from "./markerEdit.test-helpers";
+import { copyEvent, serializedState, viewOptions } from "./markerEdit.test-helpers";
 import {
   deserializeSerializedEditorState,
   initialize as initializeDeserialize,
@@ -48,22 +48,6 @@ import { baseTestEnvironment } from "../../../../../libs/shared-react/src/plugin
 import { MarkerObject, Usj, usxStringToUsj } from "@eten-tech-foundation/scripture-utilities";
 import { $getRoot, COPY_COMMAND, PASTE_COMMAND, RootNode } from "lexical";
 import { $isChapterNode, $isImmutableChapterNode } from "shared";
-
-/** A `text/plain`-only copy stub — the same minimal jsdom-safe shape every sibling suite in this
- * directory defines locally (jsdom implements neither `ClipboardEvent` nor `DataTransfer`). */
-function copyEvent(): { event: ClipboardEvent; getData: (type: string) => string } {
-  const store = new Map<string, string>();
-  const clipboardData = {
-    getData: (type: string) => store.get(type) ?? "",
-    setData: (type: string, data: string) => {
-      store.set(type, data);
-    },
-  };
-  return {
-    event: { clipboardData, preventDefault: vi.fn() } as unknown as ClipboardEvent,
-    getData: (type: string) => clipboardData.getData(type),
-  };
-}
 
 /** A `text/plain`-only paste stub (`types`/`files` present — `@lexical/clipboard`'s default
  * text/plain handling reads them — matching `clipboardCopyFidelity.test.tsx`'s

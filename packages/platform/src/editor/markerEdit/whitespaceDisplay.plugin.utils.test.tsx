@@ -1,5 +1,6 @@
 import { MarkerEditPlugin } from "./MarkerEditPlugin";
 import {
+  copyEvent,
   findOnlyNote,
   serializedState,
   testEnvironment,
@@ -70,25 +71,6 @@ vi.mock("@lexical/clipboard", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@lexical/clipboard")>();
   return { ...actual, copyToClipboard: copyToClipboardSpy };
 });
-
-/**
- * jsdom (see StructureProtectionPlugin.test.tsx's `htmlPasteEvent`) doesn't implement
- * `ClipboardEvent`/`DataTransfer`; the handler under test only touches
- * `clipboardData.setData`/`preventDefault`, so a minimal stub covers it.
- */
-function copyEvent(): { event: ClipboardEvent; getData: (type: string) => string } {
-  const store = new Map<string, string>();
-  const clipboardData = {
-    getData: (type: string) => store.get(type) ?? "",
-    setData: (type: string, data: string) => {
-      store.set(type, data);
-    },
-  };
-  return {
-    event: { clipboardData, preventDefault: vi.fn() } as unknown as ClipboardEvent,
-    getData: (type: string) => clipboardData.getData(type),
-  };
-}
 
 /**
  * Builds `<p>` + a marker-trailing-space NBSP + `text` as siblings. The trailing-space node's
