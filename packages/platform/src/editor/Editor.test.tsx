@@ -434,6 +434,57 @@ describe("insert char inside a footnote (PT-3780, end-to-end)", () => {
     await insertMarkerAtCaret(lexicalEditor, editorRef, $findNoteTrailingSpacer, 1, "fk");
     lexicalEditor.getEditorState().read(() => $expectCaretInsideNoteMarker("fk"));
   });
+
+  // The demo (and the real note-editing flow) uses an expanded-note view; earlier cases used the
+  // default collapsed view. Cover the expanded view with a different marker too.
+  it("keeps the marker in the note and the caret inside it — expanded notes + fq", async () => {
+    const ref = createRef<EditorRef>();
+    let editor: LexicalEditor | undefined;
+    await act(async () => {
+      render(
+        <Editor
+          ref={ref}
+          defaultUsj={usjWithFootnote}
+          scrRef={{ book: "GEN", chapterNum: 1, verseNum: 1 }}
+          onScrRefChange={vi.fn()}
+          options={{
+            view: {
+              markerMode: "hidden",
+              noteMode: "expanded",
+              hasSpacing: true,
+              isFormattedFont: true,
+            },
+          }}
+        >
+          <GrabEditor onEditor={(e) => (editor = e)} />
+        </Editor>,
+      );
+    });
+    await flushQueuedEvents();
+    const lexicalEditor = editor;
+    const editorRef = ref.current;
+    if (!lexicalEditor || !editorRef) throw new Error("Editor did not mount");
+
+    // Caret at offset 8 splits "existing footnote text" into "existing" | fq | " footnote text".
+    await insertMarkerAtCaret(lexicalEditor, editorRef, () => $findNoteCharText("ft"), 8, "fq");
+    lexicalEditor.getEditorState().read(() => {
+      $expectCaretInsideNoteMarker("fq");
+      // End-to-end (with transforms) the ft char is split at the caret and fq sits between the
+      // halves: the note's char runs are fr, ft("existing"), fq, ft(" footnote text").
+      let note: LexicalNode | undefined;
+      $walk($getRoot(), (n) => {
+        if (!note && $isNoteNode(n)) note = n;
+      });
+      if (!$isNoteNode(note)) throw new Error("note not found");
+      const charRuns: { marker: string; text: string }[] = [];
+      $walk(note, (n) => {
+        if ($isCharNode(n)) charRuns.push({ marker: n.getMarker(), text: n.getTextContent() });
+      });
+      expect(charRuns.map((c) => c.marker)).toEqual(["fr", "ft", "fq", "ft"]);
+      expect(charRuns[1].text).toBe("existing");
+      expect(charRuns[3].text).toBe(" footnote text");
+    });
+  });
 });
 
 // The floating marker menu (typeahead) can't be opened/positioned in jsdom, but its list component

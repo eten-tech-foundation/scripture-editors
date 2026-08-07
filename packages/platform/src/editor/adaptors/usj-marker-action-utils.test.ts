@@ -1609,9 +1609,9 @@ describe("USJ Marker Action Utils", () => {
       });
     });
 
-    // When the caret is inside an existing footnote CharNode (not on the note's own text), the new
-    // marker must still be inserted inside the note rather than escaping into the paragraph.
-    it("keeps the new marker inside the note when the caret is in existing footnote text", () => {
+    // When the caret is inside an existing footnote CharNode, the new marker is inserted at the
+    // caret — the char is split so the marker lands between its two halves, inside the note.
+    it("splits the footnote char at the caret and inserts the marker between the halves", () => {
       const { editor } = createBasicTestEnvironment(nodes, $noteInitialEditorState);
       const markerAction = getUsjMarkerAction(
         "fk",
@@ -1631,16 +1631,20 @@ describe("USJ Marker Action Utils", () => {
       editor.getEditorState().read(() => {
         const ftChar = noteCharTextNode.getParent();
         if (!$isCharNode(ftChar)) throw new Error("Existing footnote char is missing");
-        // The existing footnote text is left intact (the marker goes after the whole char).
-        expect(ftChar.getTextContent()).toBe("existing footnote text");
-        const note = ftChar.getParent();
-        if (!$isNoteNode(note)) throw new Error("Footnote char is no longer inside the note");
-        // The new marker is a child of the note (found by marker so the assertion survives the
-        // spacer the real editor's transforms insert between ft and fk).
-        const insertedNode = note
-          .getChildren()
-          .find((c) => $isCharNode(c) && c.getMarker() === "fk");
-        if (!$isCharNode(insertedNode)) throw new Error("New fk marker is not a child of the note");
+        expect($isNoteNode(ftChar.getParent())).toBe(true);
+        // The text before the caret stays in the original char.
+        expect(ftChar.getTextContent()).toBe("existing");
+        // The new marker is inserted right after it, still inside the note.
+        const insertedNode = ftChar.getNextSibling();
+        if (!$isCharNode(insertedNode)) throw new Error("New marker is not after the split char");
+        expect(insertedNode.getMarker()).toBe("fk");
+        expect($isNoteNode(insertedNode.getParent())).toBe(true);
+        // The text after the caret moves into a following clone of the original char.
+        const tailChar = insertedNode.getNextSibling();
+        if (!$isCharNode(tailChar)) throw new Error("Tail footnote char is missing");
+        expect(tailChar.getMarker()).toBe("ft");
+        expect(tailChar.getTextContent()).toBe(" footnote text");
+        // The caret lands inside the new marker.
         const charTextNode = insertedNode.getChildAtIndex(0);
         if (!$isTextNode(charTextNode))
           throw new Error("Inserted char node does not have a text node");
