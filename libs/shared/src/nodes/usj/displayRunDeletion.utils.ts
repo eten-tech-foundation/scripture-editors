@@ -15,9 +15,9 @@ import { textTypeState } from "../collab/delta.state.js";
 import { $getState, $isTextNode, LexicalNode } from "lexical";
 
 /**
- * Walk back over a chain of run pieces (glyphs, attribute text, and — DUAL-READ — a whole
- * `AttributeRunNode` wrapper crossed in one step) to the `VerseNode` or `MilestoneNode` the chain
- * rides on as following siblings. A wrapper counts as a single run piece here regardless of
+ * Walk back over a chain of run pieces (glyphs, attribute text, and a whole `AttributeRunNode`
+ * wrapper crossed in one step) to the `VerseNode` or `MilestoneNode` the chain rides on as
+ * following siblings. A wrapper counts as a single run piece here regardless of
  * runKind: a `\vp` wrapper's owner sits BEHIND its own `\va` wrapper (or `\va`'s loose pieces, in
  * a mid-migration tree that has one marker wrapped and the other still loose), so the walk must
  * cross it without stopping. Stops — and returns `undefined` — the moment a sibling is neither the
@@ -28,6 +28,8 @@ function $runChainOwner(piece: LexicalNode): LexicalNode | undefined {
   for (let prev = piece.getPreviousSibling(); prev; prev = prev.getPreviousSibling()) {
     if ($isVerseNode(prev) || $isMilestoneNode(prev)) return prev;
     const isRunPiece =
+      // Loose-sibling arm — removable once nothing builds loose runs: a bare glyph or
+      // attribute-tagged text riding directly as a sibling, rather than inside a wrapper.
       $isMarkerNode(prev) ||
       ($isTextNode(prev) && $getState(prev, textTypeState) === "attribute") ||
       $isAttributeRunNode(prev);
@@ -52,8 +54,8 @@ function $runChainOwner(piece: LexicalNode): LexicalNode | undefined {
  * listener), so both node kinds must be recognized or a real deletion would go unclassified.
  * Returns `undefined` for any other destroyed node — ordinary content, not a display-run piece.
  *
- * DUAL-READ: two more shapes reach the SAME verse/milestone owner, once a run rides inside an
- * `AttributeRunNode` wrapper (Task 12) rather than as loose siblings —
+ * Two more shapes reach the SAME verse/milestone owner, when a run rides inside an
+ * `AttributeRunNode` wrapper rather than as loose siblings —
  * - `piece` IS a destroyed wrapper (the user deleted the whole run at once, or a structural edit
  *   removed it outright): its owner is found by walking back from the WRAPPER's own position.
  * - `piece`'s PREVIOUS-STATE parent is a wrapper (only one piece inside it was destroyed, the

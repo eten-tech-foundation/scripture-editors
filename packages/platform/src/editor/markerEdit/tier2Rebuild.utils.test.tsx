@@ -8,7 +8,7 @@ import {
   initialize as initializeDeserialize,
 } from "../adaptors/editor-usj.adaptor";
 import usjEditorAdaptor from "../adaptors/usj-editor.adaptor";
-import { $rebuildParas, Tier2Context } from "./tier2Rebuild.utils";
+import { $buildParaFragment, $rebuildParas, Tier2Context } from "./tier2Rebuild.utils";
 import { $createMarkerPrefix } from "./markerEditDeletion.utils";
 import { usxStringToUsj } from "@eten-tech-foundation/scripture-utilities";
 import {
@@ -1202,8 +1202,128 @@ describe("milestones re-tokenize", () => {
   });
 });
 
-// AttributeRunNode is registered in usjReactNodes only (Task 12) — headless tests here must pass
-// it explicitly to createBasicTestEnvironment (already done via `...usjReactNodes` below).
+// AttributeRunNode is registered in usjReactNodes only — headless tests here must pass it
+// explicitly to createBasicTestEnvironment (already done via `...usjReactNodes` below).
+describe("$buildParaFragment: wrapped run vs. loose equivalent (byte-for-byte)", () => {
+  it("produces byte-identical fragment text for a wrapped verse va+vp run and a wrapped milestone run, each against its own loose equivalent", () => {
+    const { editor } = createBasicTestEnvironment([TypedMarkNode, ...usjReactNodes]);
+    let looseVersePara!: ParaNode;
+    let wrappedVersePara!: ParaNode;
+    let looseMilestonePara!: ParaNode;
+    let wrappedMilestonePara!: ParaNode;
+
+    editor.update(
+      () => {
+        // Verse: loose \va/\vp triplets riding as bare paragraph siblings.
+        const looseVerse = $createVerseNode(
+          "1",
+          getVisibleOpenMarkerText("v", "1"),
+          undefined,
+          "2",
+          "1b",
+        );
+        const looseVaValue = $createTextNode(`${NBSP}2`);
+        $setState(looseVaValue, textTypeState, "attribute");
+        const looseVpValue = $createTextNode(`${NBSP}1b`);
+        $setState(looseVpValue, textTypeState, "attribute");
+        looseVersePara = $createParaNode("p").append(
+          looseVerse,
+          $createMarkerNode("va"),
+          looseVaValue,
+          $createMarkerNode("va", "closing"),
+          $createMarkerNode("vp"),
+          looseVpValue,
+          $createMarkerNode("vp", "closing"),
+          $createTextNode("text after"),
+        );
+
+        // Verse: the SAME triplets, each wrapped in its own AttributeRunNode.
+        const wrappedVerse = $createVerseNode(
+          "1",
+          getVisibleOpenMarkerText("v", "1"),
+          undefined,
+          "2",
+          "1b",
+        );
+        const vaWrapper = $createAttributeRunNode("va");
+        const wrappedVaValue = $createTextNode(`${NBSP}2`);
+        $setState(wrappedVaValue, textTypeState, "attribute");
+        vaWrapper.append(
+          $createMarkerNode("va"),
+          wrappedVaValue,
+          $createMarkerNode("va", "closing"),
+        );
+        const vpWrapper = $createAttributeRunNode("vp");
+        const wrappedVpValue = $createTextNode(`${NBSP}1b`);
+        $setState(wrappedVpValue, textTypeState, "attribute");
+        vpWrapper.append(
+          $createMarkerNode("vp"),
+          wrappedVpValue,
+          $createMarkerNode("vp", "closing"),
+        );
+        wrappedVersePara = $createParaNode("p").append(
+          wrappedVerse,
+          vaWrapper,
+          vpWrapper,
+          $createTextNode("text after"),
+        );
+
+        // Milestone: loose run riding as bare paragraph siblings.
+        const looseMs = $createMilestoneNode("qt-s", "q1");
+        const looseAttribute = $createTextNode(`${NBSP}|sid="q1"`);
+        $setState(looseAttribute, textTypeState, "attribute");
+        looseMilestonePara = $createParaNode("p").append(
+          $createTextNode("before "),
+          looseMs,
+          $createMarkerNode("qt-s", "opening"),
+          looseAttribute,
+          $createMarkerNode("", "selfClosing"),
+          $createTextNode(" after"),
+        );
+
+        // Milestone: the SAME run, wrapped in an AttributeRunNode.
+        const wrappedMs = $createMilestoneNode("qt-s", "q1");
+        const msWrapper = $createAttributeRunNode("milestone");
+        const wrappedAttribute = $createTextNode(`${NBSP}|sid="q1"`);
+        $setState(wrappedAttribute, textTypeState, "attribute");
+        msWrapper.append(
+          $createMarkerNode("qt-s", "opening"),
+          wrappedAttribute,
+          $createMarkerNode("", "selfClosing"),
+        );
+        wrappedMilestonePara = $createParaNode("p").append(
+          $createTextNode("before "),
+          wrappedMs,
+          msWrapper,
+          $createTextNode(" after"),
+        );
+
+        $getRoot().append(
+          looseVersePara,
+          wrappedVersePara,
+          looseMilestonePara,
+          wrappedMilestonePara,
+        );
+      },
+      { discrete: true },
+    );
+
+    editor.getEditorState().read(() => {
+      const looseVerseFragment = $buildParaFragment(looseVersePara, bundledGetMarker);
+      const wrappedVerseFragment = $buildParaFragment(wrappedVersePara, bundledGetMarker);
+      if (!looseVerseFragment || !wrappedVerseFragment)
+        throw new Error("verse fragment build refused by a guard rail");
+      expect(wrappedVerseFragment.text).toBe(looseVerseFragment.text);
+
+      const looseMilestoneFragment = $buildParaFragment(looseMilestonePara, bundledGetMarker);
+      const wrappedMilestoneFragment = $buildParaFragment(wrappedMilestonePara, bundledGetMarker);
+      if (!looseMilestoneFragment || !wrappedMilestoneFragment)
+        throw new Error("milestone fragment build refused by a guard rail");
+      expect(wrappedMilestoneFragment.text).toBe(looseMilestoneFragment.text);
+    });
+  });
+});
+
 describe("milestone run wrapped in AttributeRunNode (dual-read)", () => {
   it("rebuilds to the SAME fixed point as the loose equivalent — fragment bytes are byte-identical", () => {
     const { editor } = createBasicTestEnvironment([TypedMarkNode, ...usjReactNodes]);
