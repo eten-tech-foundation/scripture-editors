@@ -13,7 +13,7 @@ import {
   $isCharNode,
   $isNoteNode,
   $isParaLikeNode,
-  $isParaMarkerPrefix,
+  $isSynthesizedMarkerNode,
   $isTypedMarkNode,
   $isUnknownNode,
   CharNode,
@@ -133,7 +133,7 @@ function $verseNodeTransform(node: SomeVerseNode): void {
     // space belongs after them — and an inserted plain " " would be exporter-visible USJ
     // content that shifts every content index in the paragraph (see PT-3835). Their visual
     // separation comes from the prefix nodes' own text.
-    !$isParaMarkerPrefix(previousSibling) &&
+    !$isSynthesizedMarkerNode(previousSibling) &&
     // Bare text before a verse gets its structural space from $textNodeTrailingSpaceTransform;
     // text inside an annotation wrapper can't (that transform skips TypedMarkNode parents), so
     // the space is inserted here instead and coalesces onto the same USJ text run.

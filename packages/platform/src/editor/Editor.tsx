@@ -1,6 +1,11 @@
 import editorUsjAdaptor from "./adaptors/editor-usj.adaptor";
 import usjEditorAdaptor from "./adaptors/usj-editor.adaptor";
-import { getUsjMarkerAction, isUsjMarkerSupported } from "./adaptors/usj-marker-action.utils";
+import {
+  $removeCharacterMarkerAtSelection,
+  getUsjMarkerAction,
+  isCharacterMarkerSupported,
+  isUsjMarkerSupported,
+} from "./adaptors/usj-marker-action.utils";
 import { EditorOptions, EditorProps, EditorRef } from "./editor.model";
 import editorTheme from "./editor.theme";
 import { ActiveTextPlugin } from "./ActiveTextPlugin";
@@ -307,6 +312,28 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
       return editorRef.current?.read(
         () => editorRef.current?.getElementByKey(nodeKey) ?? undefined,
       );
+    },
+    removeCharacterMarker(marker) {
+      if (isReadonly) throw new Error("Cannot remove character marker in readonly mode");
+      if (
+        marker !== undefined &&
+        !isCharacterMarkerSupported(marker, nodeOptions.extraValidMarkers)
+      )
+        throw new Error(`Unsupported character marker '${marker}'`);
+
+      // `discrete` so the update runs now rather than being deferred behind an in-progress one,
+      // which would leave `didRemove` reporting `false` for a removal that did happen. Same reason
+      // `applyUpdate` above uses it.
+      let didRemove = false;
+      editorRef.current?.update(
+        () => {
+          const selection = $getSelection();
+          if ($isRangeSelection(selection))
+            didRemove = $removeCharacterMarkerAtSelection(selection, marker, viewOptions);
+        },
+        { discrete: true },
+      );
+      return didRemove;
     },
     insertMarker(marker) {
       if (isReadonly) throw new Error("Cannot insert marker in readonly mode");

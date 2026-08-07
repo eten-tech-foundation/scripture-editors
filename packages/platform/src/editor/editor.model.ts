@@ -120,6 +120,45 @@ export interface EditorRef {
   /** Get the editor element for the given node key, if any. */
   getElementByKey(nodeKey: string): HTMLElement | undefined;
   /**
+   * Remove a character marker from the current editor selection, keeping its text content.
+   *
+   * Returns whether a marker was actually removed, so a caller can tell a real removal from a
+   * refused or unmatched one. Works with both collapsed (removes the marker from the whole
+   * enclosing marker) and range (splits the marker, leaving the uncovered text marked) selections.
+   *
+   * Returns `false` and does nothing, without throwing, when there is no matching character marker
+   * enclosing the selection, when the selection is inside a note, when the removal could not be
+   * confined to the selection (see below), or when there is no active selection at all. In every
+   * one of those cases the document and the selection are left untouched — no undo entry is added.
+   *
+   * @remarks
+   * Two narrowed edge cases, both preserving every character of the document's text content:
+   *
+   * - Nested markers: text left uncovered by the selection keeps its marker. Inner and outer
+   *   markers of a nested pair can each be removed independently while the selection covers them
+   *   fully. When a range selection covers only *part* of a nested character marker's text and the
+   *   *outer* marker is the one being removed, the request is refused and the document is left
+   *   unchanged: recursive splitting of a nested marker's text is not implemented, so the marker
+   *   could only be removed from that nested marker's entire span, including text the caller never
+   *   selected. Refusing keeps the guarantee that removal never alters unselected text.
+   * - Marker display modes (paragraph structure and unformatted views): the marker's own visible
+   *   representation is stripped from the span the marker is removed from, but when a range
+   *   selection leaves unselected text between a marker's boundary and the selection, the marked
+   *   sibling that keeps that unselected text is left with an unpaired marker half — a literal
+   *   opening or closing marker (e.g. `\nd` or `\nd*`) stays visible in the editor. This is a
+   *   presentation artifact only: it is excluded from USJ export and self-corrects the next time
+   *   the document is loaded from USJ.
+   *
+   * @param marker - A USFM character marker string, e.g. `"nd"`, `"wj"`. Omit to remove the
+   *   innermost character marker enclosing the selection. Footnote and cross-reference character
+   *   markers (e.g. `"ft"`, `"xt"`) are not supported: they only occur inside notes, which removal
+   *   skips, so they throw rather than silently doing nothing.
+   * @returns `true` if a character marker was removed, `false` if the request was a no-op.
+   * @throws Will throw an error if the editor is in readonly mode.
+   * @throws Will throw an error if `marker` is given and is not a supported character marker.
+   */
+  removeCharacterMarker(marker?: string): boolean;
+  /**
    * Insert a marker at the current editor selection, replicating the behavior of the
    * built-in marker menu. Works with both collapsed (insertion point) and range selections.
    *
