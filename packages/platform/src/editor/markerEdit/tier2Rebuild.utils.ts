@@ -59,14 +59,14 @@ export interface Tier2Context {
 
 export const ATOMIC_SENTINEL = "￼";
 
-interface FragmentSpan {
+export interface FragmentSpan {
   key: string;
   start: number;
   end: number;
   isSentinel: boolean;
 }
 
-interface FragmentAccumulator {
+export interface FragmentAccumulator {
   text: string;
   spans: FragmentSpan[];
   /** One entry per U+FFFC, in fragment order; each entry is a node RUN to re-insert. */
@@ -137,7 +137,7 @@ function $textNodeFragmentText(node: TextNode): string {
  * with no opening glyph contributes no run here; the tolerant scanner can also surface a detached
  * attribute/closer with no opening, but that partial shape never reaches a settled rebuild.
  *
- * DUAL-READ: when the pieces were found inside an `AttributeRunNode` wrapper, the returned run is
+ * When the pieces were found inside an `AttributeRunNode` wrapper, the returned run is
  * `[wrapper]` — ONE element, not the wrapper's unpacked children — so the caller's `index +=
  * run.length` advances past the ONE sibling slot the wrapper occupies. `$appendNodesFragment`'s
  * generic ElementNode branch already flattens a transparent wrapper's children into the fragment
@@ -152,6 +152,8 @@ function $milestoneDisplayRun(children: LexicalNode[], index: number): LexicalNo
   if (!$isMilestoneNode(milestone)) return [];
   const { opening, attribute, closing, wrapper } = $milestoneAttributeRunPieces(milestone);
   if (wrapper) return opening ? [wrapper] : [];
+  // Loose-sibling arm — removable once nothing builds loose runs: the pieces ride as bare
+  // siblings, unpacked individually rather than as a single wrapper node.
   if (!opening) return [];
   const run: LexicalNode[] = [opening];
   if (attribute) run.push(attribute);
@@ -171,7 +173,7 @@ function $milestoneDisplayRun(children: LexicalNode[], index: number): LexicalNo
  * shape — so the tokenizer never sees `\va`/`\vp` immediately after an opaque U+FFFC placeholder
  * with no verse to fold onto (which would degrade them into unrelated standalone markers).
  *
- * DUAL-READ: for either marker, when the next sibling slot is a matching `AttributeRunNode`
+ * For either marker, when the next sibling slot is a matching `AttributeRunNode`
  * wrapper, that ONE node is pushed instead of its unpacked pieces (mirrors `$milestoneDisplayRun`
  * — the generic ElementNode branch in `$appendNodesFragment` flattens it for the fragment builder
  * without any further special-casing). An attached-but-EMPTY wrapper is treated as "no run for
@@ -189,6 +191,8 @@ function $verseAttributeRun(children: LexicalNode[], index: number): LexicalNode
       run.push(next);
       continue;
     }
+    // Loose-sibling arm — removable once nothing builds loose runs: the pieces ride as bare
+    // siblings, matched individually rather than as a single wrapper node.
     const opening = next;
     if (
       !$isMarkerNode(opening) ||
@@ -489,7 +493,13 @@ function $appendNodesFragment(
   }
 }
 
-function $buildParaFragment(
+/**
+ * Exported so a test can compare a loose-shape paragraph's fragment `.text` against its
+ * hand-built wrapped-shape equivalent for byte-for-byte equality (`tier2Rebuild.utils.test.tsx`)
+ * — the direct evidence that wrapping a run changes nothing about what gets tokenized. Every
+ * other caller in this module still reaches it only through `$rebuildParas`/`$rebuildNoteContent`.
+ */
+export function $buildParaFragment(
   para: ParaNode,
   getMarkerFn: MarkerLookup,
 ): FragmentAccumulator | undefined {

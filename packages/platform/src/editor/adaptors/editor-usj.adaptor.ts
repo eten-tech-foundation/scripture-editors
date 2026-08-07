@@ -438,9 +438,9 @@ function recurseNodes(
         // These nodes are for presentation only so they don't go into the USJ. An
         // AttributeRunNode subtree is skipped WHOLESALE (never recursed into) — its own children
         // are exactly the same MarkerNode/attribute-tagged-TextNode pieces this switch already
-        // skips individually when they ride as loose siblings, so skipping the wrapper as a unit
-        // is equivalent to (not a departure from) how the loose shape is handled today. The
-        // adaptor does not build this shape yet (Task 14).
+        // skips individually when THEY ride as loose siblings (the loose-sibling arm — removable
+        // once nothing builds loose runs), so skipping the wrapper as a unit is equivalent to how
+        // the loose shape is handled. The forward adaptor does not build the wrapped shape yet.
         break;
       case TypedMarkNode.getType():
         childMarkers = recurseNodes(serializedMarkNode.children, viewOptions);

@@ -359,7 +359,7 @@ export function $settlePendedDisplayOwner(
     // one through `$requestTier2ForNode`.
     return { handled: true, mutated: false };
   }
-  // DUAL-READ husk arm, mirrors the optbreak arm above: an emptied `AttributeRunNode` wrapper
+  // Husk arm, mirrors the optbreak arm above: an emptied `AttributeRunNode` wrapper
   // left attached to a verse or milestone is undead scaffolding with nothing left to display —
   // removed here as a side effect (not an early return) so the OWNER's own policy below still
   // runs against the cleaned-up tree in the SAME settle pass. Without that, a milestone whose

@@ -302,11 +302,11 @@ function $handleTextNodes(
     (isInNote ||
       $isBareAttributeGlyph(currentNode) ||
       $isOwnParaPrefixGlyph(currentNode) ||
-      // DUAL-READ: a glyph inside an AttributeRunNode wrapper (Task 12) is excluded by ANCESTRY
-      // rather than sibling adjacency — added alongside $isBareAttributeGlyph's existing
-      // adjacency check (never deleted), and strictly broader: it also catches a milestone's
+      // A glyph inside an AttributeRunNode wrapper is excluded by ANCESTRY rather than sibling
+      // adjacency — checked alongside $isBareAttributeGlyph (the loose-sibling arm — removable
+      // once nothing builds loose runs), and strictly broader: it also catches a milestone's
       // glyph pair with no attribute text between them, which has no attribute-tagged sibling to
-      // key off of. The adaptor does not build this shape yet (Task 14).
+      // key off of. The adaptor does not build the wrapped shape yet.
       $hasAttributeRunAncestor(currentNode))
   )
     return;
@@ -345,11 +345,10 @@ function $handleTextNodes(
   // Char-span attribute display runs (bare `|…`, no NBSP prefix — see usj-editor.adaptor's
   // `addCharAttributes`) carry no NBSP prefix to strip against, so the prefix check alone can't
   // catch them; the textType state tag is the other signal, kept alongside the prefix check for
-  // the legacy NBSP-prefixed (milestone) attribute text. A node inside an AttributeRunNode
-  // wrapper (Task 12) is excluded the same way regardless of its own textType tag — see the
-  // MarkerNode glyph exclusion above for why ancestry is checked ALONGSIDE, not instead of, the
-  // state-based check (this textType check alone already catches a wrapped attribute VALUE node;
-  // the ancestry arm here is redundant for it but keeps the two conditions visibly symmetric).
+  // the legacy NBSP-prefixed (milestone) attribute text. Text inside an AttributeRunNode wrapper
+  // is excluded regardless of its own textType tag: the wrapper is an engine-owned presentation
+  // region (see AttributeRunNode.ts), so anything riding inside it is presentation, not content,
+  // whether or not it happens to also carry the "attribute" state tag.
   const isNodeAttributeText =
     text.startsWith(NODE_ATTRIBUTE_PREFIX) ||
     $getState(currentNode, textTypeState) === "attribute" ||

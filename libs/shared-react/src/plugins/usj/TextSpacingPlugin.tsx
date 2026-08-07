@@ -122,11 +122,12 @@ function $textNodeTrailingSpaceTransform(node: TextNode): void {
     // when it sits directly in a paragraph (a verse's \va/\vp value has no CharNode parent to
     // exempt it the way a char span's own run is already protected).
     $getState(node, textTypeState) === "attribute" ||
-    // DUAL-READ: once a verse's/milestone's run rides inside an AttributeRunNode wrapper
-    // (AttributeRunNode.ts), its glyph children (MarkerNode, never textType "attribute") need
-    // the same exemption the state-tagged value already gets above — a glyph is a plain TextNode
-    // here, invisible to the state check, but is exactly as much engine-owned presentation. The
-    // adaptor does not build this shape yet (Task 14).
+    // When a verse's/milestone's run rides inside an AttributeRunNode wrapper (AttributeRunNode.ts),
+    // its glyph children (MarkerNode, never textType "attribute") need the same exemption the
+    // state-tagged value already gets above — a glyph is a plain TextNode here, invisible to the
+    // state check, but is exactly as much engine-owned presentation. The adaptor does not build
+    // this shape yet; the transform exempts whichever shape — loose attribute text or a wrapper's
+    // children — is actually in the tree.
     $isAttributeRunNode(parent)
   )
     return;

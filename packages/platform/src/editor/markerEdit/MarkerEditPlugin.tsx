@@ -236,10 +236,12 @@ function $verseAttributeFieldOfDestroyedPiece(
  * transform below re-drive the owning verse's/milestone's sync/pend when a piece INSIDE the
  * wrapper is edited or removed: that dirties the WRAPPER (an ElementNode whose children changed),
  * not necessarily the owner itself, exactly the same gap {@link $verseOfAttributeGlyph}/
- * {@link $milestoneOfOpeningGlyph} close for a bare glyph — this is the same walk, one level up
- * (starting from the wrapper rather than a piece inside it). Mirrors shared's
- * `$runChainOwner` (displayRunDeletion.utils.ts), which classifies the same run-piece/wrapper
- * shapes for a DESTROYED node read from the previous state; this one walks the LIVE tree.
+ * {@link $milestoneOfOpeningGlyph} close for a bare glyph — those two are the loose-sibling arm
+ * (removable once nothing builds loose runs), walking back from a glyph riding directly as a
+ * sibling; this is the same walk, one level up (starting from the wrapper rather than a piece
+ * inside it). Mirrors shared's `$runChainOwner` (displayRunDeletion.utils.ts), which classifies
+ * the same run-piece/wrapper shapes for a DESTROYED node read from the previous state; this one
+ * walks the LIVE tree.
  */
 function $ownerOfAttributeRunWrapper(
   wrapper: AttributeRunNode,
@@ -522,14 +524,14 @@ export function MarkerEditPlugin({
         if (editor.isComposing()) return;
         $syncAndPendMilestone(node, context);
       }),
-      // DUAL-READ: a piece INSIDE an AttributeRunNode wrapper being edited or removed dirties the
+      // A piece INSIDE an AttributeRunNode wrapper being edited or removed dirties the
       // WRAPPER (an ElementNode whose children changed), not necessarily its owner — the wrapper
       // counterpart of the MarkerNode transform's glyph-driven re-sync above (which the wrapper
       // shape bypasses, since a wrapped glyph is no longer a bare sibling for
       // $verseOfAttributeGlyph/$milestoneOfOpeningGlyph to find). Re-drive the OWNER's own
       // sync/pend, keyed on the wrapper's runKind, so a run-only edit still settles on caret
       // departure instead of silently resurrecting from the owner's still-set state. The adaptor
-      // does not build this shape yet (Task 14), so this never fires in the live app today.
+      // does not build this shape yet, so this transform never fires in the live app today.
       editor.registerNodeTransform(AttributeRunNode, (node) => {
         if (editor.isComposing()) return;
         const owner = $ownerOfAttributeRunWrapper(node);
@@ -597,7 +599,7 @@ export function MarkerEditPlugin({
         },
         { skipInitialization: false },
       ),
-      // Registered for the four node classes a display-run piece (or, DUAL-READ, a whole run
+      // Registered for the four node classes a display-run piece (or a whole run
       // wrapper) can be — a plain TextNode (a char span's `|…` run, a verse's `\va`/`\vp` value, a
       // milestone's attribute text), a MarkerNode (a run's opening/closing glyphs, which
       // subclasses TextNode), an ImmutableTypedTextNode (a visible/hidden-mode milestone run's

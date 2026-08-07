@@ -495,13 +495,13 @@ function $isOwnParaPrefixGlyph(node: LexicalNode): boolean {
 
 /**
  * True when `node` sits inside an `AttributeRunNode` wrapper (a verse's/milestone's display run,
- * once wrapped — see `AttributeRunNode.ts`). The wrapper is pure presentation scaffolding — its
- * children are the SAME run pieces (glyphs, attribute text) that already ride as loose siblings
- * pre-Task-14 — so this is the wrapped-shape counterpart of `$isOwnParaPrefixGlyph` below: an
- * ANCESTRY check rather than a sibling-adjacency one, so it also catches shapes the loose-piece
- * exclusions in `editor-delta.adaptor.ts` can miss by adjacency alone (e.g. a milestone's glyph
- * pair with no attribute text between them, where neither glyph has an attribute-tagged sibling
- * to key off of).
+ * when wrapped — see `AttributeRunNode.ts`). The wrapper is pure presentation scaffolding — its
+ * children are the SAME run pieces (glyphs, attribute text) that also ride as loose siblings when
+ * nothing has wrapped the run — so this is the wrapped-shape counterpart of
+ * `$isOwnParaPrefixGlyph` above: an ANCESTRY check rather than a sibling-adjacency one, so it also
+ * catches shapes the loose-piece exclusions in `editor-delta.adaptor.ts` can miss by adjacency
+ * alone (e.g. a milestone's glyph pair with no attribute text between them, where neither glyph
+ * has an attribute-tagged sibling to key off of).
  */
 export function $hasAttributeRunAncestor(node: LexicalNode): boolean {
   for (let parent = node.getParent(); parent; parent = parent.getParent())
@@ -525,9 +525,9 @@ export function $hasAttributeRunAncestor(node: LexicalNode): boolean {
  *   replacement appended instead). If `$applyUpdate`'s traversals are ever taught to skip these
  *   nodes too, this exclusion should extend to `"apply"` at the same time — not before.
  *
- *   The SAME reasoning governs the new `$hasAttributeRunAncestor` exclusion below: `$applyUpdate`
- *   does not know about `AttributeRunNode` at all yet (the adaptor never builds one — Task 14),
- *   so its traversals would treat a wrapper as an ordinary, un-special-cased `ElementNode` (zero
+ *   The SAME reasoning governs the `$hasAttributeRunAncestor` exclusion below: `$applyUpdate`
+ *   does not know about `AttributeRunNode` at all yet — the adaptor never builds one — so its
+ *   traversals would treat a wrapper as an ordinary, un-special-cased `ElementNode` (zero
  *   contribution of its own, descend into children) and count each child's raw text length
  *   exactly as it already does for today's LOOSE run pieces — i.e. wrapping changes nothing about
  *   what `$applyUpdate` would do. `"apply"` coordinates must therefore keep counting a wrapped
