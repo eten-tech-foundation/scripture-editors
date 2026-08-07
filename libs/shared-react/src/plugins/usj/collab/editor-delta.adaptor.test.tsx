@@ -123,42 +123,11 @@ describe("getEditorDelta", () => {
     ]);
   });
 
-  it("should exclude a verse's \\va/\\vp display runs from canonical ops (not nested in a note/char)", async () => {
-    // \v 1 \va 2\va*\vp 1b\vp* — the display runs are engine-owned presentation riding as the
-    // verse's own following siblings (not inside a note or char span, so the note/char-scoped
-    // exclusion paths don't apply here); altnumber/pubnumber already flow through the verse's own
-    // embed op, so the glyph/value siblings must not shift content length or duplicate them.
-    // A literal `toEqual` is safe here (rather than comparing against a bare verse's ops) now
-    // that the verse's own leaked glyph text is also excluded from content ops — the two gaps
-    // this test used to have to isolate around are both fixed.
-    const ops = await getOpsFor(() => {
-      const verse = $createVerseNode("1", "\\v 1 ", undefined, "2", "1b");
-      const vaValue = $createTextNode(`${NBSP}2`);
-      $setState(vaValue, textTypeState, "attribute");
-      const vpValue = $createTextNode(`${NBSP}1b`);
-      $setState(vpValue, textTypeState, "attribute");
-      $getRoot().append(
-        $createParaNode("q1").append(
-          verse,
-          $createMarkerNode("va"),
-          vaValue,
-          $createMarkerNode("va", "closing"),
-          $createMarkerNode("vp"),
-          vpValue,
-          $createMarkerNode("vp", "closing"),
-        ),
-      );
-    });
-
-    expect(ops).toEqual([
-      { insert: { verse: { style: "v", number: "1", altnumber: "2", pubnumber: "1b" } } },
-      { insert: LF, attributes: { para: { style: "q1" } } },
-    ]);
-  });
-
   // Hand-built directly (rather than via the forward adaptor) to pin the ops exclusion in
-  // isolation: byte-identical ops to the loose-shape test immediately above prove the wrapper
-  // contributes nothing extra and nothing is lost.
+  // isolation: the adaptor always builds this run wrapped now (Task 14), so this is the only
+  // shape the ops builder needs to exclude — a verse's own following-sibling \va/\vp glyphs and
+  // value, not inside a note or char span, must never leak into content ops since
+  // altnumber/pubnumber already flow through the verse's own embed op.
   it("excludes a verse's \\va/\\vp display runs from canonical ops when wrapped in AttributeRunNode (dual-read)", async () => {
     const ops = await getOpsFor(() => {
       const verse = $createVerseNode("1", "\\v 1 ", undefined, "2", "1b");
@@ -180,9 +149,9 @@ describe("getEditorDelta", () => {
   });
 
   it("excludes a milestone's display run from canonical ops when wrapped in AttributeRunNode (dual-read), including a glyph pair with no attribute text between them", async () => {
-    // The no-attribute-text shape is the one the pre-existing sibling-adjacency check
-    // ($isBareAttributeGlyph) cannot catch on its own (neither glyph has an attribute-tagged
-    // sibling to key off of) — the ANCESTRY check this task adds is what excludes it here.
+    // The no-attribute-text shape is one a sibling-adjacency check couldn't catch on its own
+    // (neither glyph has an attribute-tagged sibling to key off of) — the ANCESTRY check
+    // ($hasAttributeRunAncestor) is what excludes it here.
     const ops = await getOpsFor(() => {
       const ms = $createMilestoneNode("qt-s", "q1");
       const wrapper = $createAttributeRunNode("milestone");
@@ -225,26 +194,25 @@ describe("getEditorDelta", () => {
 
   it("excludes a nested verse's \\va glyphs from a cross-verse char span's ops (byte-identical to no runs)", async () => {
     // Legal ≤3.0: a char span (\wj) crosses a verse boundary, so the VerseNode — and its \va
-    // attribute-run glyphs — genuinely nest inside the CharNode. Those \va/\va* glyphs describe
-    // the VERSE, not the char span, so they are bare attribute-run glyphs that must stay out of
-    // content ops. altnumber already rides on the verse's own embed op, so adding the display run
-    // must not change the ops at all — the parent-CharNode glyph exemption used to let them leak.
-    // Both the relative (withRunsOps === bareOps) and literal shape are pinned: a literal
-    // `toEqual` is safe now that the verse's own leaked glyph text is also excluded from
-    // content ops (see `editor-delta.adaptor.ts`'s `$handleTextNodes`).
+    // attribute run — genuinely nests inside the CharNode. That run (wrapped in an
+    // AttributeRunNode, the only shape the adaptor builds now) describes the VERSE, not the char
+    // span, so it must stay out of content ops. altnumber already rides on the verse's own embed
+    // op, so adding the display run must not change the ops at all — ANCESTRY
+    // ($hasAttributeRunAncestor) is what excludes it here, regardless of nesting inside the span.
+    // Both the relative (withRunsOps === bareOps) and literal shape are pinned.
     const withRunsOps = await getOpsFor(() => {
       const verse = $createVerseNode("2", "\\v 2 ", undefined, "3", undefined);
+      const vaWrapper = $createAttributeRunNode("va");
       const vaValue = $createTextNode(`${NBSP}3`);
       $setState(vaValue, textTypeState, "attribute");
+      vaWrapper.append($createMarkerNode("va"), vaValue, $createMarkerNode("va", "closing"));
       $getRoot().append(
         $createParaNode("q1").append(
           $createCharNode("wj").append(
             $createMarkerNode("wj"),
             $createTextNode("before "),
             verse,
-            $createMarkerNode("va"),
-            vaValue,
-            $createMarkerNode("va", "closing"),
+            vaWrapper,
             $createTextNode("after"),
             $createMarkerNode("wj", "closing"),
           ),

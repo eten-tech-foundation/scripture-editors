@@ -121,12 +121,12 @@ export const COMMIT_PENDING_MARKERS_COMMAND: LexicalCommand<void> = createComman
 /**
  * Sync `node`'s milestone display run to its fields, and pend it while the caret holds the run's
  * site (mid-edit grace) so caret departure settles it ($resolvePendingMarkers). Shared by the
- * MilestoneNode transform and the MarkerNode transform (via {@link $milestoneOfOpeningGlyph}): a
- * milestone's run rides as its FOLLOWING SIBLINGS, so an edit that touches only the run — deleting
- * just its attribute TextNode — dirties the flanking glyphs but never the DecoratorNode-based
- * MilestoneNode, whose own transform would then never fire. Running this off the dirtied opening
- * glyph gives attribute-only deletion the pend path it needs; without it the run silently
- * resurrects from the still-set fields on the next unrelated dirtying.
+ * MilestoneNode transform and the AttributeRunNode transform (see
+ * {@link $ownerOfAttributeRunWrapper}): a milestone's run rides as its FOLLOWING SIBLINGS, so an
+ * edit that touches only a piece INSIDE the wrapper dirties the WRAPPER, not the DecoratorNode-based
+ * MilestoneNode, whose own transform would then never fire. Running this off the dirtied wrapper
+ * gives a run-only edit the pend path it needs; without it the run silently resurrects from the
+ * still-set fields on the next unrelated dirtying.
  */
 function $syncAndPendMilestone(node: MilestoneNode, context: MarkerEditContext): void {
   const expectedText = $milestoneAttributeDisplayText(node);
@@ -136,29 +136,16 @@ function $syncAndPendMilestone(node: MilestoneNode, context: MarkerEditContext):
 }
 
 /**
- * The MilestoneNode that `node` is the OPENING display glyph of — the glyph rides as the
- * milestone's direct next sibling — or `undefined`. Lets the MarkerNode transform re-drive the
- * owning milestone's sync/pend when a run-only edit dirties the glyph but leaves the milestone
- * itself clean (see {@link $syncAndPendMilestone}).
- */
-function $milestoneOfOpeningGlyph(node: MarkerNode): MilestoneNode | undefined {
-  if (node.getMarkerSyntax() !== "opening") return undefined;
-  const previous = node.getPreviousSibling();
-  return $isMilestoneNode(previous) && previous.getMarker() === node.getMarker()
-    ? previous
-    : undefined;
-}
-
-/**
  * Sync `node`'s verse `\va`/`\vp` display runs to its altnumber/pubnumber, and pend it while the
  * caret holds a run's site (mid-edit grace) so caret departure settles it ($resolvePendingMarkers).
  * The verse analogue of {@link $syncAndPendMilestone}: a verse's runs ride as its FOLLOWING
- * SIBLINGS, so an edit that touches only a run — deleting just its value TextNode — dirties the
- * flanking `\va`/`\vp` glyphs but NOT the VerseNode (a TextNode whose own transform fires only when
- * the verse node itself is dirtied). Running this off the dirtied glyph (via
- * {@link $verseOfAttributeGlyph}) gives value-only deletion the pend path it needs; without it the
- * deleted run would silently resurrect from the still-set altnumber/pubnumber on the next unrelated
- * dirtying.
+ * SIBLINGS, so an edit that touches only a run — a piece INSIDE an already-wrapped run's wrapper
+ * (via {@link $ownerOfAttributeRunWrapper}, the AttributeRunNode transform below), or a glyph
+ * riding LOOSE (via {@link $verseOfAttributeGlyph}, the MarkerNode transform's re-drive) — dirties
+ * that piece/wrapper, not the VerseNode (a TextNode whose own transform fires only when the verse
+ * node itself is dirtied). Running this off either path gives a run-only edit the pend path it
+ * needs; without it the edited run would silently resurrect from the still-set
+ * altnumber/pubnumber on the next unrelated dirtying.
  */
 function $syncAndPendVerse(node: VerseNode, context: MarkerEditContext): void {
   const altnumber = node.getAltnumber();
@@ -173,11 +160,21 @@ function $syncAndPendVerse(node: VerseNode, context: MarkerEditContext): void {
  * preceding run pieces (a `\va` run sitting before a `\vp`, whether loose siblings or a whole
  * `AttributeRunNode` wrapper crossed in one step) to the verse the run rides on — or `undefined`.
  * Lets the MarkerNode transform re-drive the owning verse's sync/pend when a run-only edit dirties a
- * run glyph but leaves the verse itself clean (see {@link $syncAndPendVerse}). Crossing a wrapper
- * matters even for a glyph riding LOOSE: heal-forward wrapping (attributeDisplay.utils.ts) makes a
- * mixed va-wrapped/vp-loose tree transient, but transient still means REAL for one commit — a
- * dirtied loose `\vp` opener whose walk-back stops at a preceding `\va` wrapper (instead of crossing
- * it) would lose its owner. Sibling walk to `$verseOfAttributeSourceText` (shared's
+ * LOOSE run glyph but leaves the verse itself clean (see {@link $syncAndPendVerse}) — unlike a
+ * wrapped piece (caught by the AttributeRunNode transform below), a bare glyph riding directly as a
+ * sibling dirties neither a wrapper nor the verse on its own.
+ *
+ * KEPT past the rest of this file's loose-shape cleanup: heal-forward wraps `\va` and `\vp`
+ * independently (attributeDisplay.utils.ts's `$syncVerseAttributeRun`, called once per marker), so
+ * mid-edit caret-grace on ONE marker can leave a mixed tree — `\va` freshly wrapped, `\vp` still
+ * loose — for as long as the caret keeps holding `\vp`'s site. An in-place edit to that still-loose
+ * `\vp` (e.g. a remote collab update rewriting its value, or the user resuming and retyping) dirties
+ * only the loose glyph, never the verse or the `\va` wrapper, so this walk is the pend path's only
+ * way to find the owner — proven by `verseAttributeSettle.test.tsx`'s "crosses a WRAPPED \va to
+ * find the owning verse when re-driving a LOOSE \vp's caret-held pend (mixed shape)", which fails
+ * without it. Crossing a wrapper matters even though `node` itself rides loose: a dirtied loose
+ * `\vp` opener whose walk-back stops at a preceding `\va` wrapper (instead of crossing it) would
+ * lose its owner. Sibling walk to `$verseOfAttributeSourceText` (shared's
  * attributeDisplay.utils.ts): that one starts from a settled-empty SOURCE SPAN's content text and
  * walks back to find the owning verse for a pend decision; this one starts from a run GLYPH and
  * walks back to find the owning verse for re-sync/re-pend. Both classify the same run-piece shapes
@@ -237,16 +234,15 @@ function $verseAttributeFieldOfDestroyedPiece(
 /**
  * The VerseNode or MilestoneNode that `wrapper` rides on as a following sibling — walking back
  * over any PRECEDING wrapper or loose run piece (a mid-migration tree can have one marker wrapped
- * and another still loose, e.g. `\va` wrapped and `\vp` still loose). Lets the AttributeRunNode
- * transform below re-drive the owning verse's/milestone's sync/pend when a piece INSIDE the
- * wrapper is edited or removed: that dirties the WRAPPER (an ElementNode whose children changed),
- * not necessarily the owner itself, exactly the same gap {@link $verseOfAttributeGlyph}/
- * {@link $milestoneOfOpeningGlyph} close for a bare glyph — those two are the loose-sibling arm
- * (removable once nothing builds loose runs), walking back from a glyph riding directly as a
- * sibling; this is the same walk, one level up (starting from the wrapper rather than a piece
- * inside it). Mirrors shared's `$runChainOwner` (displayRunDeletion.utils.ts), which classifies
- * the same run-piece/wrapper shapes for a DESTROYED node read from the previous state; this one
- * walks the LIVE tree.
+ * and another still loose, e.g. `\va` wrapped and `\vp` still loose — heal-forward wrapping,
+ * attributeDisplay.utils.ts, makes this transient, but transient still means REAL for one commit).
+ * Lets the AttributeRunNode transform below re-drive the owning verse's/milestone's sync/pend when
+ * a piece INSIDE the wrapper is edited or removed: that dirties the WRAPPER (an ElementNode whose
+ * children changed), not necessarily the owner itself, which the DecoratorNode-based MilestoneNode
+ * and the following-sibling-shaped VerseNode run would otherwise never notice on their own (see
+ * {@link $syncAndPendMilestone}/{@link $syncAndPendVerse}). Mirrors shared's `$runChainOwner`
+ * (displayRunDeletion.utils.ts), which classifies the same run-piece/wrapper shapes for a
+ * DESTROYED node read from the previous state; this one walks the LIVE tree.
  */
 function $ownerOfAttributeRunWrapper(
   wrapper: AttributeRunNode,
@@ -458,17 +454,11 @@ export function MarkerEditPlugin({
       editor.registerNodeTransform(MarkerNode, (node) => {
         if (editor.isComposing()) return;
         $markerNodeTransform(node, context);
-        // A milestone's display run rides as its FOLLOWING SIBLINGS, so deleting only the run's
-        // attribute TextNode dirties this flanking glyph but NOT the DecoratorNode-based
-        // MilestoneNode — its own transform never fires. Re-run the owning milestone's sync/pend
-        // off the dirtied opening glyph so an attribute-only deletion settles on caret departure
-        // instead of silently resurrecting from the milestone's still-set fields.
-        const milestone = $milestoneOfOpeningGlyph(node);
-        if (milestone) $syncAndPendMilestone(milestone, context);
-        // Same reasoning for a verse's \va/\vp run: deleting only its value TextNode dirties the
-        // flanking glyph but not the VerseNode (a TextNode dirtied only when the verse itself
-        // changes), so its own transform below never fires. Re-drive the owning verse's sync/pend
-        // off the dirtied opening glyph so a value-only deletion settles on caret departure.
+        // A verse's \va/\vp run can ride loose for one transient commit even post-flip — heal-
+        // forward wraps \va and \vp independently, so mid-edit caret-grace on one marker can leave
+        // the other still loose (see $verseOfAttributeGlyph's doc comment). Re-drive the owning
+        // verse's sync/pend off a dirtied loose glyph so a run-only edit there settles on caret
+        // departure instead of silently resurrecting from the verse's still-set state.
         const verse = $verseOfAttributeGlyph(node);
         if (verse) $syncAndPendVerse(verse, context);
       }),
@@ -530,14 +520,19 @@ export function MarkerEditPlugin({
         $syncAndPendMilestone(node, context);
       }),
       // A piece INSIDE an AttributeRunNode wrapper being edited or removed dirties the
-      // WRAPPER (an ElementNode whose children changed), not necessarily its owner — the wrapper
-      // counterpart of the MarkerNode transform's glyph-driven re-sync above (which a wrapped
-      // glyph bypasses, since it is no longer a bare sibling for
-      // $verseOfAttributeGlyph/$milestoneOfOpeningGlyph to find). Re-drive the OWNER's own
-      // sync/pend, keyed on the wrapper's runKind, so a run-only edit still settles on caret
+      // WRAPPER (an ElementNode whose children changed), not necessarily its owner — the
+      // DecoratorNode-based MilestoneNode and the following-sibling-shaped VerseNode run would
+      // otherwise never notice (see $syncAndPendMilestone/$syncAndPendVerse). Re-drive the OWNER's
+      // own sync/pend, keyed on the wrapper's runKind, so a run-only edit still settles on caret
       // departure instead of silently resurrecting from the owner's still-set state. The adaptor
       // builds every editable-mode run wrapped, so this is the ordinary live path for a
-      // wrapped-piece edit, not a dormant one.
+      // wrapped-piece edit. A bare glyph riding directly as a sibling (never built at rest, but
+      // reachable for one transient commit — a pre-flip state, an undo stack, or caret-grace
+      // leaving one of a verse's two markers unwrapped) has its own dedicated re-sync instead: the
+      // MarkerNode transform above, via $verseOfAttributeGlyph, for the verse case only (a
+      // milestone's single run has no "one marker wrapped, one still loose" split to leave
+      // partially healed). $ownerOfAttributeRunWrapper below tolerates a PRECEDING sibling
+      // marker's run riding loose while crossing it to reach the owner either way.
       editor.registerNodeTransform(AttributeRunNode, (node) => {
         if (editor.isComposing()) return;
         const owner = $ownerOfAttributeRunWrapper(node);
@@ -583,12 +578,11 @@ export function MarkerEditPlugin({
       // styling source). Skip any value whose parent is a wrapper entirely; only a genuinely
       // UNWRAPPED value still needs its own class here — a char span's own run, which never gets
       // a wrapper at all (a leaf CharNode's attribute run lives inside it as ordinary children,
-      // per AttributeRunNode.ts), or a verse/milestone value the heal-forward sync has not yet
-      // wrapped because the caret currently holds its site (mid-edit grace defers the wrap the
-      // same way it defers a content fix — attributeDisplay.utils.ts) — for that still-loose
-      // shape, the sibling-adjacency check below (mirroring how the run's own pieces are found,
-      // attributeDisplay.utils.ts) still applies the marker's own `usfm_va`/`usfm_vp` class
-      // directly, exactly as it did before any wrapper existed.
+      // per AttributeRunNode.ts). A verse/milestone value the heal-forward sync has not yet
+      // wrapped (mid-edit grace defers the wrap the same way it defers a content fix —
+      // attributeDisplay.utils.ts) gets only the generic dim `.attribute` class below, not the
+      // marker-specific `usfm_va`/`usfm_vp` superscript coloring, until the wrap lands — a brief,
+      // imperceptible gap in a transient shape nothing at rest builds anymore.
       editor.registerMutationListener(
         TextNode,
         (mutations) => {
@@ -598,16 +592,7 @@ export function MarkerEditPlugin({
               const node = $getNodeByKey<TextNode>(key);
               if (!node || $getState(node, textTypeState) !== "attribute") continue;
               if ($isAttributeRunNode(node.getParent())) continue;
-              const element = editor.getElementByKey(key);
-              element?.classList.add("attribute");
-              const previous = node.getPreviousSibling();
-              if (
-                !$isCharNode(node.getParent()) &&
-                $isMarkerNode(previous) &&
-                previous.getMarkerSyntax() === "opening" &&
-                (previous.getMarker() === "va" || previous.getMarker() === "vp")
-              )
-                element?.classList.add(`usfm_${previous.getMarker()}`);
+              editor.getElementByKey(key)?.classList.add("attribute");
             }
           });
         },

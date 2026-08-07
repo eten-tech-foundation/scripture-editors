@@ -412,9 +412,14 @@ function $isCaretAtVerseAttributeSite(
   if (wrapper && (anchorNode.is(wrapper) || $isDescendantOf(anchorNode, wrapper.getKey())))
     return true;
   if (value) return anchorNode.is(value);
-  // Loose-sibling arm — removable once nothing builds loose runs: with no wrapper at all, "run
+  // Load-bearing, not just a loose-shape leftover: with no wrapper piece found at all, "run
   // entirely absent" is read from the flank of `after` (the verse or a preceding closer) rather
-  // than from a wrapper's own position.
+  // than from a wrapper's own position. This covers TWO cases that produce the identical
+  // wrapper-less tree shape — a genuinely loose run (pre-flip state, undo stack, or a
+  // collab-materialized bare verse) deleted before heal-forward ever wrapped it, AND a run that
+  // WAS wrapped but had its whole `AttributeRunNode` removed in one deletion (the wrapper
+  // reference here comes up empty either way, since the scan simply finds nothing at this
+  // position). Dropping this arm would leave a just-deleted WRAPPED run's caret ungraced too.
   if (!opener && !closer) {
     if (anchorNode.is(after) && selection.anchor.offset === after.getTextContentSize()) return true;
     const next = after.getNextSibling();
@@ -702,9 +707,12 @@ function $isCaretAtMilestoneRunBoundary(
   if (wrapper && (anchorNode.is(wrapper) || $isDescendantOf(anchorNode, wrapper.getKey())))
     return true;
   if (attribute) return anchorNode.is(attribute);
-  // Loose-sibling arm — removable once nothing builds loose runs: with no wrapper at all, "run
+  // Load-bearing, not just a loose-shape leftover: with no wrapper piece found at all, "run
   // entirely absent" is read from the milestone's own flanking siblings rather than from a
-  // wrapper's own position.
+  // wrapper's own position. Covers the same two cases as the verse version above (
+  // $isCaretAtVerseAttributeSite) — a genuinely loose run deleted before heal-forward wrapped it,
+  // and a WRAPPED run whose whole `AttributeRunNode` was removed in one deletion — since both
+  // leave the identical wrapper-less tree shape for this scan to find nothing at.
   if (!opening && !closing) {
     const previous = milestone.getPreviousSibling();
     if (
