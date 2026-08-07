@@ -170,14 +170,18 @@ function $syncAndPendVerse(node: VerseNode, context: MarkerEditContext): void {
 
 /**
  * The VerseNode whose `\va`/`\vp` display run `node` is an OPENING glyph of — walking back over any
- * preceding run pieces (a `\va` run sitting before a `\vp`) to the verse the run rides on — or
- * `undefined`. Lets the MarkerNode transform re-drive the owning verse's sync/pend when a run-only
- * edit dirties a run glyph but leaves the verse itself clean (see {@link $syncAndPendVerse}). Sibling
- * walk to `$verseOfAttributeSourceText` (shared's attributeDisplay.utils.ts): that one starts from a
- * settled-empty SOURCE SPAN's content text and walks back to find the owning verse for a pend
- * decision; this one starts from a run GLYPH and walks back to find the owning verse for re-sync/
- * re-pend. Both classify the same run-piece shapes over the same sibling chain and must keep
- * agreeing on what counts as one.
+ * preceding run pieces (a `\va` run sitting before a `\vp`, whether loose siblings or a whole
+ * `AttributeRunNode` wrapper crossed in one step) to the verse the run rides on — or `undefined`.
+ * Lets the MarkerNode transform re-drive the owning verse's sync/pend when a run-only edit dirties a
+ * run glyph but leaves the verse itself clean (see {@link $syncAndPendVerse}). Crossing a wrapper
+ * matters even for a glyph riding LOOSE: heal-forward wrapping (attributeDisplay.utils.ts) makes a
+ * mixed va-wrapped/vp-loose tree transient, but transient still means REAL for one commit — a
+ * dirtied loose `\vp` opener whose walk-back stops at a preceding `\va` wrapper (instead of crossing
+ * it) would lose its owner. Sibling walk to `$verseOfAttributeSourceText` (shared's
+ * attributeDisplay.utils.ts): that one starts from a settled-empty SOURCE SPAN's content text and
+ * walks back to find the owning verse for a pend decision; this one starts from a run GLYPH and
+ * walks back to find the owning verse for re-sync/re-pend. Both classify the same run-piece shapes
+ * over the same sibling chain and must keep agreeing on what counts as one.
  */
 function $verseOfAttributeGlyph(node: MarkerNode): VerseNode | undefined {
   if (node.getMarkerSyntax() !== "opening") return undefined;
@@ -192,7 +196,8 @@ function $verseOfAttributeGlyph(node: MarkerNode): VerseNode | undefined {
     const isRunPiece =
       ($isMarkerNode(previous) &&
         (previous.getMarker() === "va" || previous.getMarker() === "vp")) ||
-      ($isTextNode(previous) && $getState(previous, textTypeState) === "attribute");
+      ($isTextNode(previous) && $getState(previous, textTypeState) === "attribute") ||
+      $isAttributeRunNode(previous);
     if (!isRunPiece) return undefined;
   }
   return undefined;

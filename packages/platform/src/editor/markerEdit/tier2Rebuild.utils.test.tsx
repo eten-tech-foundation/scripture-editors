@@ -535,11 +535,15 @@ describe("$rebuildParas", () => {
     editor.getEditorState().read(() => {
       const children = $lastPara().getChildren();
       const msIndex = children.findIndex((n) => n.getType() === "ms");
-      // display glyphs materialize fresh: opening \ts-s, attribute text (sid is ts-s's default
-      // attribute, so it collapses to the bare value), self-closing \*
-      expect(children[msIndex + 1]?.getTextContent()).toBe("\\ts-s");
-      expect(children[msIndex + 2]?.getTextContent()).toContain("ts.RUT.1");
-      expect(children[msIndex + 3]?.getTextContent()).toBe("\\*");
+      // display glyphs materialize fresh, wrapped in ONE attribute-run node: opening \ts-s,
+      // attribute text (sid is ts-s's default attribute, so it collapses to the bare value),
+      // self-closing \*
+      const wrapper = children[msIndex + 1];
+      if (!$isAttributeRunNode(wrapper)) throw new Error("milestone wrapper missing");
+      const [opening, attribute, closing] = wrapper.getChildren();
+      expect(opening?.getTextContent()).toBe("\\ts-s");
+      expect(attribute?.getTextContent()).toContain("ts.RUT.1");
+      expect(closing?.getTextContent()).toBe("\\*");
     });
   });
 
@@ -1084,7 +1088,9 @@ describe("milestones re-tokenize", () => {
       const children = $lastPara().getChildren();
       const msIndex = children.findIndex((n) => n.getType() === "ms");
       expect(msIndex).toBeGreaterThanOrEqual(0);
-      expect(children[msIndex + 2]?.getTextContent()).toBe(`${NBSP}|sid="q1"`);
+      const wrapper = children[msIndex + 1];
+      if (!$isAttributeRunNode(wrapper)) throw new Error("milestone wrapper missing");
+      expect(wrapper.getChildAtIndex(1)?.getTextContent()).toBe(`${NBSP}|sid="q1"`);
     });
   });
 
@@ -1101,7 +1107,9 @@ describe("milestones re-tokenize", () => {
         const para = $lastPara();
         const children = para.getChildren();
         const msIndex = children.findIndex((n) => n.getType() === "ms");
-        const attributeNode = children[msIndex + 2];
+        const wrapper = children[msIndex + 1];
+        if (!$isAttributeRunNode(wrapper)) throw new Error("milestone wrapper missing");
+        const attributeNode = wrapper.getChildAtIndex(1);
         if (!$isTextNode(attributeNode)) throw new Error("attribute display run not found");
         // A real in-place value edit KEEPS the run's leading NBSP (the user changes only the
         // "q1" bytes). This is the demanding shape for fixed-point detection: the edited run
@@ -1436,13 +1444,77 @@ describe("verses with \\va/\\vp display runs", () => {
       const children = $lastPara().getChildren();
       const verseIndex = children.findIndex((n) => n.getType() === "verse");
       expect(verseIndex).toBeGreaterThanOrEqual(0);
-      // The \va/\vp runs still ride directly after the verse, unchanged by the no-op rebuild.
-      expect(children[verseIndex + 1]?.getTextContent()).toBe("\\va");
-      expect(children[verseIndex + 2]?.getTextContent()).toBe(`${NBSP}2`);
-      expect(children[verseIndex + 3]?.getTextContent()).toBe("\\va*");
-      expect(children[verseIndex + 4]?.getTextContent()).toBe("\\vp");
-      expect(children[verseIndex + 5]?.getTextContent()).toBe(`${NBSP}1b`);
-      expect(children[verseIndex + 6]?.getTextContent()).toBe("\\vp*");
+      // The \va/\vp runs still ride directly after the verse, each in its own attribute-run
+      // wrapper, unchanged by the no-op rebuild.
+      const vaWrapper = children[verseIndex + 1];
+      if (!$isAttributeRunNode(vaWrapper)) throw new Error("\\va wrapper missing");
+      expect(vaWrapper.getChildAtIndex(0)?.getTextContent()).toBe("\\va");
+      expect(vaWrapper.getChildAtIndex(1)?.getTextContent()).toBe(`${NBSP}2`);
+      expect(vaWrapper.getChildAtIndex(2)?.getTextContent()).toBe("\\va*");
+      const vpWrapper = children[verseIndex + 2];
+      if (!$isAttributeRunNode(vpWrapper)) throw new Error("\\vp wrapper missing");
+      expect(vpWrapper.getChildAtIndex(0)?.getTextContent()).toBe("\\vp");
+      expect(vpWrapper.getChildAtIndex(1)?.getTextContent()).toBe(`${NBSP}1b`);
+      expect(vpWrapper.getChildAtIndex(2)?.getTextContent()).toBe("\\vp*");
+    });
+  });
+
+  it("no-edit rebuild of a pubnumber-only verse (no \\va at all) is a fixed point — a lone \\vp wrapper with nothing before it", () => {
+    // Carry-forward from Task 13's review: $verseAttributeRun's per-marker loop used to stop
+    // scanning entirely the moment the FIRST marker (\va) found nothing there at all, so a lone
+    // \vp wrapper riding directly after the verse — a real, permanent shape for a pubnumber-only
+    // verse (no altnumber), not just mid-edit debris — was left out of the run collector's
+    // result. Fixed by trying each marker independently, so \vp is found at the SAME position
+    // \va would have occupied.
+    const editor = loadEditor(
+      usjFromUsx(`<verse number="1" style="v" pubnumber="1b" />text after`),
+    );
+    editor.update(
+      () => {
+        expect($rebuildParas([$lastPara()], context)).toBe(false);
+      },
+      { discrete: true },
+    );
+    editor.getEditorState().read(() => {
+      const children = $lastPara().getChildren();
+      const verseIndex = children.findIndex((n) => n.getType() === "verse");
+      expect(verseIndex).toBeGreaterThanOrEqual(0);
+      // No \va wrapper at all — the \vp wrapper rides DIRECTLY after the verse.
+      const vpWrapper = children[verseIndex + 1];
+      if (!$isAttributeRunNode(vpWrapper)) throw new Error("\\vp wrapper missing");
+      expect(vpWrapper.getRunKind()).toBe("vp");
+      expect(vpWrapper.getChildAtIndex(0)?.getTextContent()).toBe("\\vp");
+      expect(vpWrapper.getChildAtIndex(1)?.getTextContent()).toBe(`${NBSP}1b`);
+      expect(vpWrapper.getChildAtIndex(2)?.getTextContent()).toBe("\\vp*");
+    });
+  });
+
+  it("a sentinel verse (unknownAttributes) with only a \\vp wrapper (no \\va) is a fixed point — the lone \\vp wrapper absorbs into the verse's own sentinel", () => {
+    // The severe half of the same carry-forward: for a SENTINEL verse (unknownAttributes forces
+    // atomicity), the pre-fix collector bug excluded the lone \vp wrapper from the preserved
+    // sentinel bundle entirely — its bytes leaked into the fragment as ordinary re-tokenizable
+    // content directly after the verse's own opaque placeholder, with no live verse there for the
+    // tokenizer's attrCapture to fold onto, corrupting what should be a no-op rebuild.
+    const editor = loadEditor(
+      usjFromUsx(`<verse number="1" style="v" pubnumber="1b" />text after`),
+    );
+    editor.update(
+      () => {
+        const verse = requireDefined(
+          $lastPara().getChildren().find($isVerseNode),
+          "verse not found",
+        );
+        verse.setUnknownAttributes({ foo: "bar" });
+        expect($rebuildParas([$lastPara()], context)).toBe(false);
+      },
+      { discrete: true },
+    );
+    editor.getEditorState().read(() => {
+      const children = $lastPara().getChildren();
+      const verseIndex = children.findIndex((n) => n.getType() === "verse");
+      const vpWrapper = children[verseIndex + 1];
+      if (!$isAttributeRunNode(vpWrapper)) throw new Error("\\vp wrapper missing");
+      expect(vpWrapper.getRunKind()).toBe("vp");
     });
   });
 });
@@ -1614,7 +1686,9 @@ describe("verses re-tokenize", () => {
         const para = $lastPara();
         const children = para.getChildren();
         const verseIndex = children.findIndex((n) => n.getType() === "verse");
-        const attributeNode = children[verseIndex + 2];
+        const wrapper = children[verseIndex + 1];
+        if (!$isAttributeRunNode(wrapper)) throw new Error("\\va wrapper missing");
+        const attributeNode = wrapper.getChildAtIndex(1);
         if (!$isTextNode(attributeNode)) throw new Error("va attribute display run not found");
         attributeNode.setTextContent(`${NBSP}3`);
         expect($rebuildParas([para], context)).toBe(true);

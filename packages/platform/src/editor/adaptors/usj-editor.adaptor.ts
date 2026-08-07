@@ -17,6 +17,9 @@ import {
   TextNode,
 } from "lexical";
 import {
+  ATTRIBUTE_RUN_VERSION,
+  AttributeRunKind,
+  AttributeRunNode,
   BOOK_MARKER,
   BOOK_MARKER_OBJECT_PROPS,
   BOOK_VERSION,
@@ -75,6 +78,7 @@ import {
   PARA_VERSION,
   ParaNode,
   removeUndefinedProperties,
+  SerializedAttributeRunNode,
   SerializedBookNode,
   SerializedChapterNode,
   SerializedCharNode,
@@ -697,6 +701,24 @@ function createImmutableTypedText(
   };
 }
 
+/** An `attribute-run` wrapper ({@link AttributeRunNode}) holding `children` — the ONE sibling a
+ * verse's `\va`/`\vp` triplet or a milestone's opening/attribute/self-closing run rides as, in
+ * editable mode. The wrapper contributes no bytes of its own; only its children's bytes matter. */
+function createAttributeRun(
+  runKind: AttributeRunKind,
+  children: SerializedLexicalNode[],
+): SerializedAttributeRunNode {
+  return {
+    type: AttributeRunNode.getType(),
+    runKind,
+    children,
+    direction: null,
+    format: "",
+    indent: 0,
+    version: ATTRIBUTE_RUN_VERSION,
+  };
+}
+
 function addOpeningMarker(marker: string, nodes: SerializedLexicalNode[], nested = false) {
   if (_viewOptions?.markerMode === "editable") {
     nodes.push(createMarker(marker, "opening", nested));
@@ -761,23 +783,55 @@ function addAttributes(markerObject: MarkerObject, nodes: SerializedLexicalNode[
   }
 }
 
+/** Milestone display run: the opening glyph, `addAttributes`' optional attribute text, and the
+ * self-closing glyph — unconditional glyphs, an optional value between them, exactly like
+ * `addAttributes` and `addOpeningMarker`/`addClosingMarker` already build individually. Editable
+ * mode's three live pieces are engine-owned display structure, so they ride inside ONE
+ * `attribute-run` wrapper (runKind "milestone") — the same "run lives inside a container" shape a
+ * verse's `\va`/`\vp` triplet gets ({@link addVerseAttributeRun}). Visible mode's
+ * `ImmutableTypedTextNode` pieces stay loose, unwrapped: they are read-only display text, never
+ * edited or synced, so there is no engine-owned region to mark. Hidden mode builds nothing either
+ * way — `addOpeningMarker`/`addAttributes`/`addClosingMarker` are each no-ops outside
+ * editable/visible mode. */
+function addMilestoneAttributeRun(markerObject: MarkerObject, nodes: SerializedLexicalNode[]) {
+  const marker = markerObject.marker ?? "";
+  if (_viewOptions?.markerMode === "editable") {
+    const children: SerializedLexicalNode[] = [];
+    addOpeningMarker(marker, children);
+    addAttributes(markerObject, children);
+    addClosingMarker(marker, children, true);
+    nodes.push(createAttributeRun("milestone", children));
+  } else {
+    addOpeningMarker(marker, nodes);
+    addAttributes(markerObject, nodes);
+    addClosingMarker(marker, nodes, true);
+  }
+}
+
 /** Verse attribute display: PT9's `\va`/`\vp` shape — an opening `MarkerNode` + an NBSP-prefixed
- * value TextNode + a closing `MarkerNode`, va before vp, pushed directly after the verse with no
- * separator between the two triplets (a same-line space there blocks the tokenizer's attrCapture
- * fold onto the verse — see usfmFragmentToUsj.ts's attribute-marker handling). The NBSP is the
- * file's real separator between the marker and its value (`\va 2\va*`), so Tier-2's NBSP→space
- * flattening reproduces it exactly rather than leaking a display-only space into the captured
- * value. Editable mode only: `\va`/`\vp` never render as glyphs in visible/hidden mode, matching
- * how a char span's attribute run is editable-only. */
+ * value TextNode + a closing `MarkerNode`, wrapped in ONE `attribute-run` node (runKind matching
+ * `marker`) — the "run lives inside a container" shape {@link AttributeRunNode} gives a leaf owner
+ * that cannot hold children of its own. `\va`'s wrapper is pushed directly after the verse, and
+ * `\vp`'s directly after `\va`'s wrapper (or the verse, when no `\va` wrapper exists) — no
+ * separator between the two (a same-line space there blocks the tokenizer's attrCapture fold onto
+ * the verse — see usfmFragmentToUsj.ts's attribute-marker handling). The NBSP is the file's real
+ * separator between the marker and its value (`\va 2\va*`), so Tier-2's NBSP→space flattening
+ * reproduces it exactly rather than leaking a display-only space into the captured value. Editable
+ * mode only: `\va`/`\vp` never render as glyphs in visible/hidden mode, matching how a char span's
+ * attribute run is editable-only. */
 function addVerseAttributeRun(
   marker: "va" | "vp",
   value: string | undefined,
   nodes: SerializedLexicalNode[],
 ) {
   if (!value) return;
-  nodes.push(createMarker(marker, "opening"));
-  nodes.push(createText(NBSP + value, "attribute"));
-  nodes.push(createMarker(marker, "closing"));
+  nodes.push(
+    createAttributeRun(marker, [
+      createMarker(marker, "opening"),
+      createText(NBSP + value, "attribute"),
+      createMarker(marker, "closing"),
+    ]),
+  );
 }
 
 function addVerseAttributes(markerObject: MarkerObject, nodes: SerializedLexicalNode[]) {
@@ -896,9 +950,7 @@ function recurseNodes(
           }
           nodes.push(createMilestone(markerContent));
           // Must be after the milestone because of the way `replaceMilestonesWithMarkRecurse` works.
-          addOpeningMarker(markerContent.marker ?? "", nodes);
-          addAttributes(markerContent, nodes);
-          addClosingMarker(markerContent.marker ?? "", nodes, true);
+          addMilestoneAttributeRun(markerContent, nodes);
           break;
         case ImmutableUnmatchedNode.getType():
           nodes.push(createUnmatched(markerContent.marker ?? ""));

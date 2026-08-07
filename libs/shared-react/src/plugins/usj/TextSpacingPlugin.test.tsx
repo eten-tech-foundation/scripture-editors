@@ -33,12 +33,13 @@ import {
   $createVerseNode,
   $getLogicalContentItems,
   $hasCaretHeldVerseAttributeRun,
+  $isAttributeRunNode,
   $isCharNode,
-  $isMarkerNode,
   $isParaNode,
   $isTypedMarkNode,
   $isUnknownNode,
   $isVisibleMarkerNode,
+  $verseAttributeRunPieces,
   NBSP,
   openingMarkerText,
   ParaNode,
@@ -657,18 +658,18 @@ describe("TextSpacingPlugin", () => {
   // above) — matching the CharNodePlugin precedent of one plugin owning all of a node type's
   // self-healing display syncs.
   describe("attribute run healing ($syncVerseAttributeDisplay transform)", () => {
-    /** A marker's opening/value/closing triplet immediately following `after`, if any. */
-    function attributeRun(
+    /** A marker's opening/value/closing triplet anchored after `after`, if any — via
+     * {@link $verseAttributeRunPieces}, so this helper reads correctly whether the sync healed the
+     * run as loose siblings or (the shape it always heals forward to) inside an `AttributeRunNode`
+     * wrapper. `anchor` is the node the NEXT marker's scan (or an "after the whole run" sibling
+     * lookup) should continue from — the wrapper when one exists, else the bare closing glyph. */
+    function $attributeRun(
       after: LexicalNode,
       marker: "va" | "vp",
-    ): { open: TextNode; value: TextNode; close: TextNode } | undefined {
-      const open = after.getNextSibling();
-      if (!$isMarkerNode(open) || open.getMarker() !== marker) return undefined;
-      const value = open.getNextSibling();
-      if (!$isTextNode(value)) return undefined;
-      const close = value.getNextSibling();
-      if (!$isMarkerNode(close) || close.getMarker() !== marker) return undefined;
-      return { open, value, close };
+    ): { open: TextNode; value: TextNode; close: TextNode; anchor: LexicalNode } | undefined {
+      const { opener, value, closer, wrapper } = $verseAttributeRunPieces(after, marker);
+      if (!opener || !value || !closer) return undefined;
+      return { open: opener, value, close: closer, anchor: wrapper ?? closer };
     }
 
     it("heals missing \\va and \\vp runs from altnumber/pubnumber, va before vp", async () => {
@@ -686,12 +687,12 @@ describe("TextSpacingPlugin", () => {
       });
 
       editor.getEditorState().read(() => {
-        const va = attributeRun(verse, "va");
+        const va = $attributeRun(verse, "va");
         expect(va?.open.getTextContent()).toBe("\\va");
         expect(va?.value.getTextContent()).toBe(`${NBSP}2`);
         expect(va?.close.getTextContent()).toBe("\\va*");
         if (!va) throw new Error("No \\va run found");
-        const vp = attributeRun(va.close, "vp");
+        const vp = $attributeRun(va.anchor, "vp");
         expect(vp?.open.getTextContent()).toBe("\\vp");
         expect(vp?.value.getTextContent()).toBe(`${NBSP}1b`);
         expect(vp?.close.getTextContent()).toBe("\\vp*");
@@ -712,11 +713,11 @@ describe("TextSpacingPlugin", () => {
       });
 
       editor.getEditorState().read(() => {
-        const va = attributeRun(verse, "va");
+        const va = $attributeRun(verse, "va");
         expect(va?.value.getTextContent()).toBe(`${NBSP}2`);
         if (!va) throw new Error("No \\va run found");
-        expect(attributeRun(va.close, "vp")).toBeUndefined();
-        expect(va.close.getNextSibling()?.getTextContent()).toBe(" after");
+        expect($attributeRun(va.anchor, "vp")).toBeUndefined();
+        expect(va.anchor.getNextSibling()?.getTextContent()).toBe(" after");
       });
     });
 
@@ -741,11 +742,13 @@ describe("TextSpacingPlugin", () => {
       });
 
       editor.getEditorState().read(() => {
-        const va = attributeRun(verse, "va");
+        const va = $attributeRun(verse, "va");
         expect(va?.value.getTextContent()).toBe(`${NBSP}2`);
-        // The pre-existing \vp opener is the SAME node instance — not torn down and rebuilt.
+        // The pre-existing \vp opener is the SAME node instance — not torn down and rebuilt, even
+        // though heal-forward now wraps it (it was a loose-but-complete triplet with no wrapper).
         if (!va) throw new Error("No \\va run found");
-        expect(va.close.getNextSibling()?.getKey()).toBe(vpOpen.getKey());
+        const vp = $attributeRun(va.anchor, "vp");
+        expect(vp?.open.getKey()).toBe(vpOpen.getKey());
       });
     });
 
@@ -769,7 +772,7 @@ describe("TextSpacingPlugin", () => {
       });
 
       editor.getEditorState().read(() => {
-        expect(attributeRun(verse, "va")?.value.getTextContent()).toBe(`${NBSP}3`);
+        expect($attributeRun(verse, "va")?.value.getTextContent()).toBe(`${NBSP}3`);
       });
     });
 
@@ -792,7 +795,7 @@ describe("TextSpacingPlugin", () => {
       });
 
       editor.getEditorState().read(() => {
-        expect(attributeRun(verse, "va")).toBeUndefined();
+        expect($attributeRun(verse, "va")).toBeUndefined();
       });
     });
 
@@ -820,7 +823,7 @@ describe("TextSpacingPlugin", () => {
       });
 
       editor.getEditorState().read(() => {
-        expect(attributeRun(verse, "va")?.value.getTextContent()).toBe(`${NBSP}23`);
+        expect($attributeRun(verse, "va")?.value.getTextContent()).toBe(`${NBSP}23`);
         expect($hasCaretHeldVerseAttributeRun(verse, "2", undefined)).toBe(true);
       });
     });
@@ -852,13 +855,12 @@ describe("TextSpacingPlugin", () => {
       await act(async () => {
         editor.update(
           () => {
-            // Delete the whole \va triplet and park the caret at the verse's end (its site).
-            const open = verse.getNextSibling();
-            const value = open?.getNextSibling();
-            const close = value?.getNextSibling();
-            close?.remove();
-            value?.remove();
-            open?.remove();
+            // The loose triplet built at construction was already healed forward into a wrapper by
+            // the mount-time transform pass (a fresh VerseNode is dirty at creation) — delete the
+            // whole run by removing that wrapper, and park the caret at the verse's end (its site).
+            const wrapper = verse.getNextSibling();
+            if (!$isAttributeRunNode(wrapper)) throw new Error("\\va wrapper missing");
+            wrapper.remove();
             verse.select(verse.getTextContentSize(), verse.getTextContentSize());
             reportedCaretHeld = $hasCaretHeldVerseAttributeRun(verse, "2", undefined);
           },
@@ -869,7 +871,7 @@ describe("TextSpacingPlugin", () => {
       expect(reportedCaretHeld).toBe(true);
       editor.getEditorState().read(() => {
         // The sync ran after this commit's mutations and did NOT re-insert the triplet.
-        expect(attributeRun(verse, "va")).toBeUndefined();
+        expect($attributeRun(verse, "va")).toBeUndefined();
         expect(verse.getNextSibling()?.getTextContent()).toBe(" after");
       });
     });
@@ -924,7 +926,7 @@ describe("TextSpacingPlugin", () => {
       });
 
       editor.getEditorState().read(() => {
-        const run = attributeRun(verse, "va");
+        const run = $attributeRun(verse, "va");
         // Same node instance, untouched — proof the sync writes only on change.
         expect(run?.value.getKey()).toBe(originalValue.getKey());
         expect(run?.value.getTextContent()).toBe(`${NBSP}2`);

@@ -1,9 +1,11 @@
 import {
   $hasCaretHeldMilestoneRun,
   $hasCaretHeldVerseAttributeRun,
+  $milestoneAttributeRunPieces,
   $milestoneRunEntirelyAbsent,
   $syncMilestoneDisplayRun,
   $syncVerseAttributeDisplay,
+  $verseAttributeRunPieces,
   $verseOfAttributeSourceText,
   canonicalAttributeText,
   milestoneAttributes,
@@ -17,7 +19,6 @@ import { $createCharNode } from "./CharNode.js";
 import { $createMilestoneNode, MilestoneNode } from "./MilestoneNode.js";
 import { getVisibleOpenMarkerText } from "./node.utils.js";
 import { NBSP } from "./node-constants.js";
-import { usjBaseNodes } from "./index.js";
 import { $createParaNode } from "./ParaNode.js";
 import { registerPendedDisplayOwners } from "./pendedDisplayOwners.utils.js";
 import { createBasicTestEnvironment, updateSelection } from "./test.utils.js";
@@ -92,24 +93,19 @@ describe("milestone display run ($syncMilestoneDisplayRun / $hasCaretHeldMilesto
     return { editor, milestone };
   }
 
-  /** The run glyphs/text directly after `milestone`, read as plain data for assertions. */
-  function readRun(milestone: MilestoneNode) {
-    const opening = milestone.getNextSibling();
-    const openingText = $isMarkerNode(opening) ? opening.getTextContent() : undefined;
-    const afterOpening = opening?.getNextSibling() ?? null;
-    const hasAttribute =
-      $isTextNode(afterOpening) && !$isMarkerNode(afterOpening) && afterOpening.getTextContent();
-    const attribute = hasAttribute ? (afterOpening as TextNode) : undefined;
-    const closing = attribute ? attribute.getNextSibling() : afterOpening;
-    const closingText = $isMarkerNode(closing) ? closing.getTextContent() : undefined;
-    const afterRun = (closing ?? afterOpening)?.getNextSibling();
+  /** The run's glyphs/text, read as plain data for assertions — via {@link $milestoneAttributeRunPieces},
+   * so this helper works identically whether the run rides loose (mid-migration debris) or inside
+   * an `AttributeRunNode` wrapper (the shape the sync always heals forward to). */
+  function $readRun(milestone: MilestoneNode) {
+    const { opening, attribute, closing, wrapper } = $milestoneAttributeRunPieces(milestone);
+    const afterRun = (wrapper ?? closing ?? attribute ?? opening ?? milestone).getNextSibling();
     return {
-      openingKey: $isMarkerNode(opening) ? opening.getKey() : undefined,
-      openingText,
+      openingKey: opening?.getKey(),
+      openingText: opening?.getTextContent(),
       attributeKey: attribute?.getKey(),
       attributeText: attribute?.getTextContent(),
-      closingKey: $isMarkerNode(closing) ? closing.getKey() : undefined,
-      closingText,
+      closingKey: closing?.getKey(),
+      closingText: closing?.getTextContent(),
       afterRunText: afterRun?.getTextContent(),
     };
   }
@@ -126,7 +122,7 @@ describe("milestone display run ($syncMilestoneDisplayRun / $hasCaretHeldMilesto
     );
 
     editor.getEditorState().read(() => {
-      const run = readRun(milestone);
+      const run = $readRun(milestone);
       expect(run.openingText).toBe("\\qt-s");
       expect(run.attributeText).toBe(expectedText);
       expect(run.closingText).toBe("\\*");
@@ -146,7 +142,7 @@ describe("milestone display run ($syncMilestoneDisplayRun / $hasCaretHeldMilesto
     );
 
     editor.getEditorState().read(() => {
-      const run = readRun(milestone);
+      const run = $readRun(milestone);
       expect(run.openingText).toBe("\\qt-s");
       expect(run.attributeText).toBeUndefined();
       expect(run.closingText).toBe("\\*");
@@ -162,7 +158,7 @@ describe("milestone display run ($syncMilestoneDisplayRun / $hasCaretHeldMilesto
       { discrete: true },
     );
 
-    const before = editor.getEditorState().read(() => readRun(milestone));
+    const before = editor.getEditorState().read(() => $readRun(milestone));
 
     editor.update(
       () => {
@@ -172,7 +168,7 @@ describe("milestone display run ($syncMilestoneDisplayRun / $hasCaretHeldMilesto
     );
 
     editor.getEditorState().read(() => {
-      const after = readRun(milestone);
+      const after = $readRun(milestone);
       expect(after.attributeText).toBe(`${NBSP}|sid="q2"`);
       // Same node instances — only the text content changed.
       expect(after.openingKey).toBe(before.openingKey);
@@ -208,7 +204,7 @@ describe("milestone display run ($syncMilestoneDisplayRun / $hasCaretHeldMilesto
     );
 
     editor.getEditorState().read(() => {
-      const run = readRun(milestone);
+      const run = $readRun(milestone);
       expect(run.openingKey).toBe(openingKeyBefore);
       expect(run.attributeKey).toBe(attributeKeyBefore);
       expect(run.attributeText).toBe(expectedText);
@@ -226,7 +222,7 @@ describe("milestone display run ($syncMilestoneDisplayRun / $hasCaretHeldMilesto
       { discrete: true },
     );
 
-    const before = editor.getEditorState().read(() => readRun(milestone));
+    const before = editor.getEditorState().read(() => $readRun(milestone));
 
     editor.update(
       () => {
@@ -236,7 +232,7 @@ describe("milestone display run ($syncMilestoneDisplayRun / $hasCaretHeldMilesto
     );
 
     editor.getEditorState().read(() => {
-      const after = readRun(milestone);
+      const after = $readRun(milestone);
       expect(after).toEqual(before);
     });
   });
@@ -253,11 +249,10 @@ describe("milestone display run ($syncMilestoneDisplayRun / $hasCaretHeldMilesto
 
     let attributeNode!: TextNode;
     editor.getEditorState().read(() => {
-      const run = readRun(milestone);
-      const opening = milestone.getNextSibling();
-      const found = opening?.getNextSibling();
-      if (!$isTextNode(found)) throw new Error("attribute node not found");
-      attributeNode = found;
+      const run = $readRun(milestone);
+      const { attribute } = $milestoneAttributeRunPieces(milestone);
+      if (!attribute) throw new Error("attribute node not found");
+      attributeNode = attribute;
       expect(run.attributeText).toBe(canonicalText);
     });
 
@@ -281,7 +276,7 @@ describe("milestone display run ($syncMilestoneDisplayRun / $hasCaretHeldMilesto
 
     editor.getEditorState().read(() => {
       // Grace held: the sync left the diverged text untouched rather than clobbering it.
-      const run = readRun(milestone);
+      const run = $readRun(milestone);
       expect(run.attributeText).toBe(`${NBSP}|sid="q1x"`);
       expect($hasCaretHeldMilestoneRun(milestone, canonicalText)).toBe(true);
     });
@@ -303,11 +298,11 @@ describe("milestone display run ($syncMilestoneDisplayRun / $hasCaretHeldMilesto
   });
 
   it("leaves a just-deleted run alone while the caret sits at its insertion point, and reports it caret-held", () => {
-    // The user deleted the whole run (opening glyph, attribute text, self-closing glyph),
-    // leaving the caret at the deletion site — the end of the text before the milestone. The
-    // run is the milestone's ENTIRE visible byte representation; without a deleted-run grace
-    // the sync would instantly rebuild it from the milestone's intact fields, making the run
-    // undeletable (the deletion visibly undoing itself).
+    // The user deleted the whole run (the wrapper and everything inside it), leaving the caret at
+    // the deletion site — the end of the text before the milestone. The run is the milestone's
+    // ENTIRE visible byte representation; without a deleted-run grace the sync would instantly
+    // rebuild it from the milestone's intact fields, making the run undeletable (the deletion
+    // visibly undoing itself).
     const { editor, milestone } = buildBareMilestone("qt-s", "q1");
     const canonicalText = `${NBSP}|sid="q1"`;
     editor.update(
@@ -319,12 +314,9 @@ describe("milestone display run ($syncMilestoneDisplayRun / $hasCaretHeldMilesto
 
     editor.update(
       () => {
-        const opening = milestone.getNextSibling();
-        const attribute = opening?.getNextSibling();
-        const closer = attribute?.getNextSibling();
-        closer?.remove();
-        attribute?.remove();
-        opening?.remove();
+        const wrapper = milestone.getNextSibling();
+        if (!$isAttributeRunNode(wrapper)) throw new Error("healed wrapper missing");
+        wrapper.remove();
         const previous = milestone.getPreviousSibling();
         if (!$isTextNode(previous)) throw new Error("text before milestone missing");
         previous.select(previous.getTextContentSize(), previous.getTextContentSize());
@@ -363,12 +355,9 @@ describe("milestone display run ($syncMilestoneDisplayRun / $hasCaretHeldMilesto
 
     editor.update(
       () => {
-        const opening = milestone.getNextSibling();
-        const attribute = opening?.getNextSibling();
-        const closer = attribute?.getNextSibling();
-        closer?.remove();
-        attribute?.remove();
-        opening?.remove();
+        const wrapper = milestone.getNextSibling();
+        if (!$isAttributeRunNode(wrapper)) throw new Error("healed wrapper missing");
+        wrapper.remove();
         const next = milestone.getNextSibling();
         if (!$isTextNode(next)) throw new Error("text after milestone missing");
         next.select(0, 0);
@@ -407,13 +396,11 @@ describe("milestone display run ($syncMilestoneDisplayRun / $hasCaretHeldMilesto
     let closerKey = "";
     editor.update(
       () => {
-        const opening = milestone.getNextSibling();
-        const attribute = opening?.getNextSibling();
-        const closer = attribute?.getNextSibling();
-        if (!attribute || !closer) throw new Error("healed run pieces missing");
+        const { opening, attribute, closing } = $milestoneAttributeRunPieces(milestone);
+        if (!opening || !attribute || !closing) throw new Error("healed run pieces missing");
         attributeKey = attribute.getKey();
-        closerKey = closer.getKey();
-        opening?.remove();
+        closerKey = closing.getKey();
+        opening.remove();
       },
       { discrete: true },
     );
@@ -426,7 +413,7 @@ describe("milestone display run ($syncMilestoneDisplayRun / $hasCaretHeldMilesto
     );
 
     editor.getEditorState().read(() => {
-      const run = readRun(milestone);
+      const run = $readRun(milestone);
       expect(run.openingText).toBe("\\qt-s");
       // The leftover attribute and closer are the SAME instances — repaired around, not
       // duplicated.
@@ -450,8 +437,7 @@ describe("milestone display run ($syncMilestoneDisplayRun / $hasCaretHeldMilesto
     editor.update(
       () => {
         // Delete the opening glyph and the attribute text; keep only the self-closing glyph.
-        const opening = milestone.getNextSibling();
-        const attribute = opening?.getNextSibling();
+        const { opening, attribute } = $milestoneAttributeRunPieces(milestone);
         attribute?.remove();
         opening?.remove();
       },
@@ -487,8 +473,7 @@ describe("milestone display run ($syncMilestoneDisplayRun / $hasCaretHeldMilesto
     // recognized grace site — so the away site must not be glyph-adjacent.)
     editor.update(
       () => {
-        const opening = milestone.getNextSibling();
-        const attribute = opening?.getNextSibling();
+        const { attribute } = $milestoneAttributeRunPieces(milestone);
         attribute?.remove();
         const before = milestone.getPreviousSibling();
         if (!$isTextNode(before)) throw new Error("leading text missing");
@@ -509,7 +494,7 @@ describe("milestone display run ($syncMilestoneDisplayRun / $hasCaretHeldMilesto
 
     editor.getEditorState().read(() => {
       // Pended: the sync left the debris untouched — no attribute text resurrected.
-      const run = readRun(milestone);
+      const run = $readRun(milestone);
       expect(run.attributeText).toBeUndefined();
     });
 
@@ -523,7 +508,7 @@ describe("milestone display run ($syncMilestoneDisplayRun / $hasCaretHeldMilesto
     );
 
     editor.getEditorState().read(() => {
-      const run = readRun(milestone);
+      const run = $readRun(milestone);
       expect(run.attributeText).toBe(canonicalText);
     });
 
@@ -561,15 +546,17 @@ describe("verse attribute display run ($syncVerseAttributeDisplay)", () => {
     return { editor, verse };
   }
 
-  it("heals a full \\va run onto a verse with no display triplet yet", () => {
+  it("heals a full \\va run onto a verse with no display triplet yet, wrapped in an AttributeRunNode", () => {
     const { editor, verse } = buildVerseWithVa();
     editor.getEditorState().read(() => {
-      const open = verse.getNextSibling();
+      const wrapper = verse.getNextSibling();
+      if (!$isAttributeRunNode(wrapper)) throw new Error("wrapper missing");
+      expect(wrapper.getRunKind()).toBe("va");
+      expect(wrapper.getChildrenSize()).toBe(3);
+      const [open, value, closer] = wrapper.getChildren();
       expect($isMarkerNode(open) && open.getMarker() === "va").toBe(true);
-      const value = open?.getNextSibling();
       if (!$isTextNode(value) || $isMarkerNode(value)) throw new Error("value missing");
       expect(value.getTextContent()).toBe(`${NBSP}2`);
-      const closer = value.getNextSibling();
       expect($isMarkerNode(closer) && closer.getMarkerSyntax() === "closing").toBe(true);
     });
   });
@@ -586,8 +573,7 @@ describe("verse attribute display run ($syncVerseAttributeDisplay)", () => {
     // recognized grace site — so the away site must not be glyph-adjacent.)
     editor.update(
       () => {
-        const open = verse.getNextSibling();
-        const value = open?.getNextSibling();
+        const { value } = $verseAttributeRunPieces(verse, "va");
         value?.remove();
         const before = verse.getPreviousSibling();
         if (!$isTextNode(before)) throw new Error("leading text missing");
@@ -607,12 +593,12 @@ describe("verse attribute display run ($syncVerseAttributeDisplay)", () => {
     );
 
     editor.getEditorState().read(() => {
-      // Pended: the sync left the debris alone — opener and closer survive, but no value was
-      // resurrected between them.
-      const open = verse.getNextSibling();
-      expect($isMarkerNode(open) && open.getMarker() === "va").toBe(true);
-      const afterOpen = open?.getNextSibling();
-      expect($isMarkerNode(afterOpen) && afterOpen.getMarkerSyntax() === "closing").toBe(true);
+      // Pended: the sync left the debris alone — opener and closer survive INSIDE the wrapper,
+      // but no value was resurrected between them.
+      const { opener, value, closer } = $verseAttributeRunPieces(verse, "va");
+      expect($isMarkerNode(opener) && opener.getMarker() === "va").toBe(true);
+      expect(value).toBeUndefined();
+      expect($isMarkerNode(closer) && closer.getMarkerSyntax() === "closing").toBe(true);
     });
 
     // Negative control: the SAME divergence, unpended, heals — the value comes back.
@@ -625,9 +611,8 @@ describe("verse attribute display run ($syncVerseAttributeDisplay)", () => {
     );
 
     editor.getEditorState().read(() => {
-      const open = verse.getNextSibling();
-      const value = open?.getNextSibling();
-      if (!$isTextNode(value) || $isMarkerNode(value)) throw new Error("value missing");
+      const { value } = $verseAttributeRunPieces(verse, "va");
+      if (!value) throw new Error("value missing");
       expect(value.getTextContent()).toBe(`${NBSP}2`);
     });
 
@@ -783,13 +768,14 @@ describe("$verseOfAttributeSourceText", () => {
   });
 });
 
-// AttributeRunNode is registered in usjReactNodes only (Task 12) — headless tests here must pass
-// it explicitly to createBasicTestEnvironment.
+// AttributeRunNode is registered in usjBaseNodes — createBasicTestEnvironment's default node list
+// already includes it, since the forward adaptor and this package's own self-healing syncs both
+// construct one directly (see usjBaseNodes' own doc comment, nodes/usj/index.ts).
 describe("AttributeRunNode wrapper recognition (dual-read)", () => {
   describe("milestone", () => {
     /** Builds `before <ms> <AttributeRunNode wrapper>[pieces] after` and returns both. */
     function buildWrappedMilestone(pieces: (wrapper: AttributeRunNode) => void) {
-      const { editor } = createBasicTestEnvironment([...usjBaseNodes, AttributeRunNode]);
+      const { editor } = createBasicTestEnvironment();
       let milestone!: MilestoneNode;
       let wrapper!: AttributeRunNode;
       editor.update(
@@ -918,7 +904,7 @@ describe("AttributeRunNode wrapper recognition (dual-read)", () => {
 
   describe("verse", () => {
     it("heals a stale \\va value INSIDE an existing wrapper, and chains \\vp's scan to AFTER the \\va wrapper", () => {
-      const { editor } = createBasicTestEnvironment([...usjBaseNodes, AttributeRunNode]);
+      const { editor } = createBasicTestEnvironment();
       let verse!: VerseNode;
       let vaWrapper!: AttributeRunNode;
       editor.update(
@@ -959,20 +945,23 @@ describe("AttributeRunNode wrapper recognition (dual-read)", () => {
         expect(opener.getTextContent()).toBe("\\va");
         expect(value.getTextContent()).toBe(`${NBSP}2`);
         expect(closer.getTextContent()).toBe("\\va*");
-        // \vp's run was created AFTER the \va wrapper (a loose triplet, riding as a sibling of
-        // the wrapper) — never nested inside it, and never before it.
-        const vpOpener = vaWrapper.getNextSibling();
+        // \vp's run was created AFTER the \va wrapper, in its OWN new wrapper (heal-forward builds
+        // any wanted-but-unwrapped run wrapped, even one created fresh) — never nested inside \va's
+        // wrapper, and never before it.
+        const vpWrapper = vaWrapper.getNextSibling();
+        if (!$isAttributeRunNode(vpWrapper)) throw new Error("\\vp wrapper missing");
+        expect(vpWrapper.getRunKind()).toBe("vp");
+        expect(vpWrapper.getChildrenSize()).toBe(3);
+        const [vpOpener, vpValue, vpCloser] = vpWrapper.getChildren();
         expect($isMarkerNode(vpOpener) && vpOpener.getMarker() === "vp").toBe(true);
-        const vpValue = vpOpener?.getNextSibling();
-        expect(vpValue?.getTextContent()).toBe(`${NBSP}1b`);
-        const vpCloser = vpValue?.getNextSibling();
+        expect(vpValue.getTextContent()).toBe(`${NBSP}1b`);
         expect($isMarkerNode(vpCloser) && vpCloser.getMarkerSyntax() === "closing").toBe(true);
-        expect(vpCloser?.getNextSibling()?.getTextContent()).toBe("text after");
+        expect(vpWrapper.getNextSibling()?.getTextContent()).toBe("text after");
       });
     });
 
     it("inserts a missing \\va opener as the wrapper's FIRST child when repairing around surviving debris", () => {
-      const { editor } = createBasicTestEnvironment([...usjBaseNodes, AttributeRunNode]);
+      const { editor } = createBasicTestEnvironment();
       let verse!: VerseNode;
       let vaWrapper!: AttributeRunNode;
       let valueKeyBefore = "";
@@ -1017,7 +1006,7 @@ describe("AttributeRunNode wrapper recognition (dual-read)", () => {
     });
 
     it("recognizes the caret anywhere inside a \\va wrapper as holding the run's site (containment arm)", () => {
-      const { editor } = createBasicTestEnvironment([...usjBaseNodes, AttributeRunNode]);
+      const { editor } = createBasicTestEnvironment();
       let verse!: VerseNode;
       let vaWrapper!: AttributeRunNode;
       editor.update(

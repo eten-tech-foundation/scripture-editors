@@ -328,12 +328,13 @@ describe("Editor USJ Adaptor", () => {
     reset();
     const standardViewOptions = getViewOptions(STANDARD_VIEW_MODE);
     const state = serializeEditorState(usj, standardViewOptions);
-    // Sanity check: the intermediate serialized state genuinely carries the display runs (the
-    // round-trip assertion below would pass vacuously if there were nothing to exclude).
+    // Sanity check: the intermediate serialized state genuinely carries the display runs, wrapped
+    // in an attribute-run node (the round-trip assertion below would pass vacuously if there were
+    // nothing to exclude).
     const serializedPara = state.root.children[0] as SerializedParaNode;
     expect(
       serializedPara.children.some(
-        (n) => n.type === "marker" && "marker" in n && n.marker === "va",
+        (n) => n.type === "attribute-run" && "runKind" in n && n.runKind === "va",
       ),
     ).toBe(true);
     const editorState = editor.parseEditorState(state);
@@ -351,11 +352,13 @@ describe("Editor USJ Adaptor", () => {
     ]);
   });
 
-  // AttributeRunNode is registered in `nodes` above via `...usjReactNodes` (Task 12). The forward
-  // adaptor (usj-editor.adaptor.ts) does not build this shape yet (Task 14) — these tests build it
-  // by hand to pin the REVERSE (editor -> USJ) exclusion ahead of that flip. Each uses its OWN
-  // freshly-created editor (rather than the module-level `editor` other tests in this file share)
-  // so hand-built nodes never leak across tests.
+  // AttributeRunNode is registered in `nodes` above via `...usjReactNodes`. The forward adaptor
+  // (usj-editor.adaptor.ts) always builds this shape now — these tests build it by hand anyway to
+  // pin the REVERSE (editor -> USJ) exclusion directly, independent of the forward adaptor's own
+  // output (a hand-built tree also covers a wrapper healed forward from a pre-flip state, which
+  // the adaptor itself would never produce). Each uses its OWN freshly-created editor (rather than
+  // the module-level `editor` other tests in this file share) so hand-built nodes never leak
+  // across tests.
   it("excludes a verse's \\va/\\vp display runs from saved USJ content when wrapped in AttributeRunNode (dual-read)", () => {
     const standardViewOptions = getViewOptions(STANDARD_VIEW_MODE);
     initializeDeserialize(undefined);

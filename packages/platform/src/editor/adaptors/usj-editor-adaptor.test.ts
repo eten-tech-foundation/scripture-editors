@@ -57,6 +57,7 @@ import {
   HIDDEN_NOTE_CALLER,
   ImmutableTypedTextNode,
   ImpliedParaNode,
+  isSerializedAttributeRunNode,
   isSerializedBookNode,
   isSerializedCharNode,
   isSerializedImmutableChapterNode,
@@ -71,6 +72,7 @@ import {
   NoteNode,
   openingMarkerText,
   ParaNode,
+  SerializedAttributeRunNode,
   SerializedCharNode,
   SerializedNoteNode,
   SerializedParaNode,
@@ -1112,13 +1114,24 @@ describe("milestone attribute display", () => {
     return para.children;
   }
 
+  /** The single `attribute-run` wrapper (runKind "milestone") among `children`, if any. */
+  function milestoneWrapper(children: SerializedLexicalNode[]): SerializedAttributeRunNode {
+    const wrapper = children.find(
+      (n) => isSerializedAttributeRunNode(n) && n.runKind === "milestone",
+    );
+    if (!isSerializedAttributeRunNode(wrapper)) throw new Error("No milestone wrapper found");
+    return wrapper;
+  }
+
   it("collapses a lone default `who` attribute on a `qt*-s` milestone (editable mode)", () => {
     const children = paraChildren(
       usjWithMilestone({ type: "ms", marker: "qt-s", who: "Jesus" } as MarkerObject),
       getViewOptions(STANDARD_VIEW_MODE),
     );
 
-    const attribute = children.find((n) => textTypeOf(n) === "attribute");
+    const attribute = milestoneWrapper(children).children.find(
+      (n) => textTypeOf(n) === "attribute",
+    );
     if (!isSerializedTextNode(attribute)) throw new Error("No attribute text node found");
     expect(attribute.text).toBe(`${NBSP}|Jesus`);
   });
@@ -1129,17 +1142,42 @@ describe("milestone attribute display", () => {
       getViewOptions(STANDARD_VIEW_MODE),
     );
 
-    const attribute = children.find((n) => textTypeOf(n) === "attribute");
+    const attribute = milestoneWrapper(children).children.find(
+      (n) => textTypeOf(n) === "attribute",
+    );
     if (!isSerializedTextNode(attribute)) throw new Error("No attribute text node found");
     expect(attribute.text).toBe(`${NBSP}|sid="x" who="Jesus"`);
   });
 
-  it("shows the same completed text via ImmutableTypedTextNode in visible mode", () => {
+  it("wraps the opening glyph, attribute text, and self-closing glyph in ONE attribute-run node (editable mode)", () => {
+    const children = paraChildren(
+      usjWithMilestone({ type: "ms", marker: "qt-s", sid: "x", who: "Jesus" } as MarkerObject),
+      getViewOptions(STANDARD_VIEW_MODE),
+    );
+
+    // The milestone itself contributes no children of its own — the wrapper rides as its ONE
+    // following sibling, not the three loose pieces a pre-flip adaptor built.
+    const wrapper = milestoneWrapper(children);
+    expect(wrapper.children).toHaveLength(3);
+    const [opening, attribute, closing] = wrapper.children;
+    expect(isSerializedMarkerNode(opening) && opening.markerSyntax === "opening").toBe(true);
+    if (!isSerializedMarkerNode(opening)) throw new Error("No opening marker found");
+    expect(opening.marker).toBe("qt-s");
+    if (!isSerializedTextNode(attribute)) throw new Error("No attribute text node found");
+    expect(attribute.text).toBe(`${NBSP}|sid="x" who="Jesus"`);
+    expect(textTypeOf(attribute)).toBe("attribute");
+    expect(isSerializedMarkerNode(closing) && closing.markerSyntax === "selfClosing").toBe(true);
+  });
+
+  it("visible mode: milestone output is UNCHANGED — loose ImmutableTypedTextNode pieces, no wrapper", () => {
     const children = paraChildren(
       usjWithMilestone({ type: "ms", marker: "qt-s", sid: "x", who: "Jesus" } as MarkerObject),
       { ...getDefaultViewOptions(), markerMode: "visible" },
     );
 
+    // No attribute-run wrapper at all in visible mode — the three pieces (opening glyph,
+    // attribute text, self-closing glyph) ride loose, exactly as before the flip.
+    expect(children.some((n) => isSerializedAttributeRunNode(n))).toBe(false);
     const attribute = children.find(
       (n) => isSerializedImmutableTypedTextNode(n) && n.textType === "attribute",
     );
@@ -1186,7 +1224,20 @@ describe("verse attribute display (\\va/\\vp runs)", () => {
     return children.slice(index);
   }
 
-  it("serializes both runs after the verse node, in \\va-then-\\vp order, exact glyph bytes", () => {
+  /** Unwraps a serialized `attribute-run` node's 3 children (opener, value, closer), asserting
+   * `runKind` matches `marker`. */
+  function unwrapRun(
+    node: SerializedLexicalNode | undefined,
+    marker: "va" | "vp",
+  ): [SerializedLexicalNode, SerializedLexicalNode, SerializedLexicalNode] {
+    if (!isSerializedAttributeRunNode(node) || node.runKind !== marker)
+      throw new Error(`No ${marker} attribute-run wrapper found`);
+    expect(node.children).toHaveLength(3);
+    const [opener, value, closer] = node.children;
+    return [opener, value, closer];
+  }
+
+  it("serializes both runs after the verse node, EACH wrapped in its own attribute-run node, in \\va-then-\\vp order, exact glyph bytes", () => {
     const children = versesFrom(
       paraChildren(
         usjWithVerse({
@@ -1200,10 +1251,13 @@ describe("verse attribute display (\\va/\\vp runs)", () => {
       ),
     );
 
-    expect(children).toHaveLength(7);
-    const [verse, vaOpen, vaValue, vaClose, vpOpen, vpValue, vpClose] = children;
+    // ONE sibling slot per marker (the wrapper), not 3 loose pieces each — the verse plus two
+    // attribute-run wrappers.
+    expect(children).toHaveLength(3);
+    const [verse, vaWrapper, vpWrapper] = children;
     expect(isSomeSerializedVerseNode(verse)).toBe(true);
 
+    const [vaOpen, vaValue, vaClose] = unwrapRun(vaWrapper, "va");
     expect(isSerializedMarkerNode(vaOpen) && vaOpen.markerSyntax === "opening").toBe(true);
     if (!isSerializedMarkerNode(vaOpen)) throw new Error("No \\va opening marker found");
     expect(vaOpen.marker).toBe("va");
@@ -1214,6 +1268,7 @@ describe("verse attribute display (\\va/\\vp runs)", () => {
     expect(vaClose.marker).toBe("va");
     expect(vaClose.markerSyntax).toBe("closing");
 
+    const [vpOpen, vpValue, vpClose] = unwrapRun(vpWrapper, "vp");
     if (!isSerializedMarkerNode(vpOpen)) throw new Error("No \\vp opening marker found");
     expect(vpOpen.marker).toBe("vp");
     expect(vpOpen.markerSyntax).toBe("opening");
@@ -1233,10 +1288,10 @@ describe("verse attribute display (\\va/\\vp runs)", () => {
       ),
     );
 
-    expect(children).toHaveLength(4);
-    const [, vaOpen] = children;
+    expect(children).toHaveLength(2);
+    const [vaOpen] = unwrapRun(children[1], "va");
     expect(isSerializedMarkerNode(vaOpen) && vaOpen.marker === "va").toBe(true);
-    expect(children.some((n) => isSerializedMarkerNode(n) && n.marker === "vp")).toBe(false);
+    expect(children.some((n) => isSerializedAttributeRunNode(n) && n.runKind === "vp")).toBe(false);
   });
 
   it("builds only the \\vp run when altnumber is absent", () => {
@@ -1247,10 +1302,10 @@ describe("verse attribute display (\\va/\\vp runs)", () => {
       ),
     );
 
-    expect(children).toHaveLength(4);
-    const [, vpOpen] = children;
+    expect(children).toHaveLength(2);
+    const [vpOpen] = unwrapRun(children[1], "vp");
     expect(isSerializedMarkerNode(vpOpen) && vpOpen.marker === "vp").toBe(true);
-    expect(children.some((n) => isSerializedMarkerNode(n) && n.marker === "va")).toBe(false);
+    expect(children.some((n) => isSerializedAttributeRunNode(n) && n.runKind === "va")).toBe(false);
   });
 
   it("serializes a plain verse (no altnumber/pubnumber) unchanged", () => {

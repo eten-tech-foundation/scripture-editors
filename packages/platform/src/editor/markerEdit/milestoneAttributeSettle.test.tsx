@@ -26,26 +26,31 @@ import {
   initialize as initializeSerialize,
   reset as resetSerialize,
 } from "../adaptors/usj-editor.adaptor";
-import { requireDefined, testEnvironment, viewOptions } from "./markerEdit.test-helpers";
+import {
+  $appendMilestoneRun,
+  requireDefined,
+  testEnvironment,
+  viewOptions,
+} from "./markerEdit.test-helpers";
 import { $createMarkerPrefix } from "./markerEditDeletion.utils";
 import { $resolvePendingMarkers, MarkerEditContext } from "./markerEditTier1.utils";
 import { $rebuildParas, Tier2Context } from "./tier2Rebuild.utils";
 import { act } from "@testing-library/react";
-import { $createTextNode, $getRoot, $isTextNode, $setState, TextNode } from "lexical";
+import { $createTextNode, $getRoot, $isTextNode, TextNode } from "lexical";
 import {
-  $createMarkerNode,
   $createMilestoneNode,
   $createParaNode,
+  $isAttributeRunNode,
   $isCharNode,
   $isDisplayOwnerPended,
   $isMarkerNode,
   $isMilestoneNode,
   $isParaNode,
+  $milestoneAttributeRunPieces,
   getMarker as bundledGetMarker,
   MilestoneNode,
   NBSP,
   ParaNode,
-  textTypeState,
   TypedMarkNode,
 } from "shared";
 // Reaching inside only for tests.
@@ -90,12 +95,13 @@ function $milestoneInFirstPara(): MilestoneNode {
   return requireDefined($firstPara().getChildren().find($isMilestoneNode), "milestone missing");
 }
 
-/** The milestone's attribute display TextNode (the run's middle piece), re-queried per commit. */
+/** The milestone's attribute display TextNode (the run's middle piece), re-queried per commit —
+ * via {@link $milestoneAttributeRunPieces}, so this helper reads correctly whether the run rides
+ * loose or (the shape the sync always heals forward to) inside an `AttributeRunNode` wrapper. */
 function $attributeRun(): TextNode {
-  const opening = $milestoneInFirstPara().getNextSibling();
-  const run = opening?.getNextSibling();
-  if (!$isTextNode(run) || $isMarkerNode(run)) throw new Error("attribute run missing");
-  return run;
+  const { attribute } = $milestoneAttributeRunPieces($milestoneInFirstPara());
+  if (!attribute) throw new Error("attribute run missing");
+  return attribute;
 }
 
 /** The second paragraph's body text node — the caret-departure target. */
@@ -136,14 +142,17 @@ describe("collab-materialized milestone settles into a re-tokenizable run", () =
     });
 
     // The self-heal transform ran on construction (a freshly created MilestoneNode is dirty): the
-    // bare milestone now carries a full display run, the same shape usj-editor.adaptor builds.
+    // bare milestone now carries a full display run wrapped in ONE attribute-run node, the same
+    // shape usj-editor.adaptor builds.
     const originalKey = editor.getEditorState().read(() => {
       const children = $lastPara().getChildren();
       const msIndex = children.findIndex($isMilestoneNode);
       expect(msIndex).toBeGreaterThanOrEqual(0);
-      expect(children[msIndex + 1]?.getTextContent()).toBe("\\qt-s");
-      expect(children[msIndex + 2]?.getTextContent()).toBe(`${NBSP}|sid="q1"`);
-      expect(children[msIndex + 3]?.getTextContent()).toBe("\\*");
+      const wrapper = children[msIndex + 1];
+      if (!$isAttributeRunNode(wrapper)) throw new Error("milestone wrapper missing");
+      expect(wrapper.getChildAtIndex(0)?.getTextContent()).toBe("\\qt-s");
+      expect(wrapper.getChildAtIndex(1)?.getTextContent()).toBe(`${NBSP}|sid="q1"`);
+      expect(wrapper.getChildAtIndex(2)?.getTextContent()).toBe("\\*");
       return children[msIndex]?.getKey();
     });
 
@@ -159,11 +168,8 @@ describe("collab-materialized milestone settles into a re-tokenizable run", () =
     await act(async () =>
       editor.update(
         () => {
-          const children = $lastPara().getChildren();
-          const closingGlyph = children.find(
-            (node) => $isTextNode(node) && node.getTextContent() === "\\*",
-          );
-          closingGlyph?.insertAfter($createTextNode(" \\nd x\\nd* after"));
+          const { closing } = $milestoneAttributeRunPieces($milestoneInFirstPara());
+          closing?.insertAfter($createTextNode(" \\nd x\\nd* after"));
         },
         { discrete: true },
       ),
@@ -305,24 +311,21 @@ describe("collab-materialized milestone settles into a re-tokenizable run", () =
           // The milestone's FIELDS hold the remote value that landed under grace…
           const milestone = $createMilestoneNode("qt-s", "q9");
           msKey = milestone.getKey();
-          const opening = $createMarkerNode("qt-s", "opening");
-          // …while the displayed run holds the USER'S edited bytes.
-          const run = $createTextNode(`${NBSP}|sid="q1-user"`);
-          $setState(run, textTypeState, "attribute");
-          runKey = run.getKey();
-          const closer = $createMarkerNode("", "selfClosing");
           $getRoot().append(
             $createParaNode("p").append(
               glyph,
               separator,
               $createTextNode("before "),
               milestone,
-              opening,
-              run,
-              closer,
               $createTextNode(" after"),
             ),
           );
+          // …while the displayed run — wrapped, the shape every run heals to — holds the USER'S
+          // edited bytes.
+          const wrapper = $appendMilestoneRun(milestone, `${NBSP}|sid="q1-user"`);
+          const run = wrapper.getChildAtIndex(1);
+          if (!$isTextNode(run)) throw new Error("attribute run missing");
+          runKey = run.getKey();
         },
         { discrete: true },
       );
@@ -376,26 +379,22 @@ describe("collab-materialized milestone settles into a re-tokenizable run", () =
     // assertions run synchronously after the commit, BEFORE the deferred resolution microtask.
     editor.update(
       () => {
-        const msNode = $milestoneInFirstPara();
-        const opening = msNode.getNextSibling();
-        const attribute = opening?.getNextSibling();
+        const { opening, attribute } = $milestoneAttributeRunPieces($milestoneInFirstPara());
         attribute?.remove();
-        if (!$isMarkerNode(opening)) throw new Error("opening glyph missing");
+        if (!opening) throw new Error("opening glyph missing");
         opening.select(opening.getTextContentSize(), opening.getTextContentSize());
       },
       { discrete: true },
     );
 
     // Grace holds while the caret sits at the site: the attribute run was NOT rebuilt from the
-    // fields (the self-closing glyph sits immediately after the opening glyph), and the
-    // milestone's own fields are untouched (the deletion is pending, not settled).
+    // fields (the self-closing glyph sits immediately after the opening glyph, inside the
+    // wrapper), and the milestone's own fields are untouched (the deletion is pending, not
+    // settled).
     editor.getEditorState().read(() => {
-      const msNode = $milestoneInFirstPara();
-      const afterOpening = msNode.getNextSibling()?.getNextSibling();
-      expect($isMarkerNode(afterOpening) && afterOpening.getMarkerSyntax() === "selfClosing").toBe(
-        true,
-      );
-      expect(msNode.getSid()).toBe("q1");
+      const { closing } = $milestoneAttributeRunPieces($milestoneInFirstPara());
+      expect($isMarkerNode(closing) && closing.getMarkerSyntax() === "selfClosing").toBe(true);
+      expect($milestoneInFirstPara().getSid()).toBe("q1");
     });
 
     // Caret departs → the pended milestone settles via Tier-2: `\qt-s \*` re-tokenizes to a
@@ -408,10 +407,8 @@ describe("collab-materialized milestone settles into a re-tokenizable run", () =
       expect(msNode.getSid()).toBeUndefined();
       expect(msNode.getUnknownAttributes()).toBeUndefined();
       // The milestone survives with its glyphs, but no attribute run resurrected between them.
-      const afterOpening = msNode.getNextSibling()?.getNextSibling();
-      expect($isMarkerNode(afterOpening) && afterOpening.getMarkerSyntax() === "selfClosing").toBe(
-        true,
-      );
+      const { closing } = $milestoneAttributeRunPieces(msNode);
+      expect($isMarkerNode(closing) && closing.getMarkerSyntax() === "selfClosing").toBe(true);
     });
     // The resurrected value must appear nowhere in the settled state.
     expect(JSON.stringify(editor.getEditorState().toJSON())).not.toContain("q1");
@@ -434,13 +431,13 @@ describe("collab-materialized milestone settles into a re-tokenizable run", () =
     // synchronously after the commit, BEFORE the deferred resolution microtask can settle.
     editor.update(
       () => {
+        // The bare-milestone fixture was already healed forward into a wrapper by the mount-time
+        // transform pass (a fresh MilestoneNode is dirty at creation) — delete the whole run by
+        // removing that wrapper.
         const msNode = $milestoneInFirstPara();
-        const opening = msNode.getNextSibling();
-        const attribute = opening?.getNextSibling();
-        const closer = attribute?.getNextSibling();
-        closer?.remove();
-        attribute?.remove();
-        opening?.remove();
+        const wrapper = msNode.getNextSibling();
+        if (!$isAttributeRunNode(wrapper)) throw new Error("milestone wrapper missing");
+        wrapper.remove();
         const previous = msNode.getPreviousSibling();
         if (!$isTextNode(previous)) throw new Error("text before milestone missing");
         previous.select(previous.getTextContentSize(), previous.getTextContentSize());
@@ -495,11 +492,8 @@ describe("collab-materialized milestone settles into a re-tokenizable run", () =
       expect($isDisplayOwnerPended($milestoneInFirstPara())).toBe(false);
     });
     editor.getEditorState().read(() => {
-      const msNode = $milestoneInFirstPara();
-      const afterOpening = msNode.getNextSibling()?.getNextSibling();
-      expect($isMarkerNode(afterOpening) && afterOpening.getMarkerSyntax() === "selfClosing").toBe(
-        true,
-      );
+      const { closing } = $milestoneAttributeRunPieces($milestoneInFirstPara());
+      expect($isMarkerNode(closing) && closing.getMarkerSyntax() === "selfClosing").toBe(true);
     });
 
     // Prove the exemption actually matters: a LATER legitimate sid set must heal into a visible

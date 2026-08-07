@@ -196,6 +196,33 @@ describe("getEditorDelta", () => {
     ]);
   });
 
+  it("excludes an UNTAGGED text node riding inside an AttributeRunNode wrapper — ancestry alone, no textType tag needed", async () => {
+    // A conscious, tested call (not an accidental side effect): $handleTextNodes' ancestry check
+    // ($hasAttributeRunAncestor) excludes a wrapper's op contribution ENTIRELY, including any
+    // plain text inside it that carries no "attribute" state tag at all — the wrapper is an
+    // engine-owned presentation region (AttributeRunNode.ts), so anything riding inside it is
+    // presentation, not content, regardless of its own tagging. A real \va/\vp/milestone run never
+    // actually contains untagged text (its value piece is always tagged "attribute"), but the
+    // exclusion is ancestry-based, not tag-based, so this hand-built shape pins the intended
+    // semantics directly rather than relying on it only ever being exercised incidentally.
+    const ops = await getOpsFor(() => {
+      const ms = $createMilestoneNode("qt-s", "q1");
+      const wrapper = $createAttributeRunNode("milestone");
+      const untagged = $createTextNode("stray"); // no textType "attribute" state
+      wrapper.append(
+        $createMarkerNode("qt-s", "opening"),
+        untagged,
+        $createMarkerNode("", "selfClosing"),
+      );
+      $getRoot().append($createParaNode("q1").append(ms, wrapper));
+    });
+
+    expect(ops).toEqual([
+      { insert: { milestone: { style: "qt-s", sid: "q1" } } },
+      { insert: LF, attributes: { para: { style: "q1" } } },
+    ]);
+  });
+
   it("excludes a nested verse's \\va glyphs from a cross-verse char span's ops (byte-identical to no runs)", async () => {
     // Legal ≤3.0: a char span (\wj) crosses a verse boundary, so the VerseNode — and its \va
     // attribute-run glyphs — genuinely nest inside the CharNode. Those \va/\va* glyphs describe

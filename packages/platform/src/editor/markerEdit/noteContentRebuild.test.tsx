@@ -11,6 +11,7 @@ import { $rebuildNoteContent, $rebuildParas, Tier2Context } from "./tier2Rebuild
 import { act } from "@testing-library/react";
 import { $getRoot, $getSelection, $isRangeSelection, $isTextNode } from "lexical";
 import {
+  $isAttributeRunNode,
   $isCharNode,
   $isMarkerNode,
   $isNoteNode,
@@ -184,8 +185,16 @@ describe("note-scope Tier 2 rebuild", () => {
       const children = note.getChildren();
       // The milestone node materialized...
       expect(children.some((c) => c.getType() === "ms")).toBe(true);
-      // ...and its display glyphs survived as siblings: the opening `\ts-s` and the `\*`.
-      const glyphTexts = children.filter((c) => $isMarkerNode(c)).map((c) => c.getTextContent());
+      // ...and its display glyphs survived, wrapped in ONE attribute-run node riding as the
+      // milestone's next sibling: the opening `\ts-s` and the `\*`.
+      const wrapper = children.find(
+        (c) => $isAttributeRunNode(c) && c.getRunKind() === "milestone",
+      );
+      if (!$isAttributeRunNode(wrapper)) throw new Error("milestone wrapper missing");
+      const glyphTexts = wrapper
+        .getChildren()
+        .filter((c) => $isMarkerNode(c))
+        .map((c) => c.getTextContent());
       expect(glyphTexts).toContain("\\ts-s");
       expect(glyphTexts.some((t) => t.includes("*"))).toBe(true);
     });
