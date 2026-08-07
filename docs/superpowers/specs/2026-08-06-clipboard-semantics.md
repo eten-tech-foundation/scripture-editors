@@ -40,13 +40,13 @@ Any paste without a same-namespace Lexical payload is treated as a USFM text fra
 
 ### S4. Paste-as-plain-text (Ctrl+Shift+V / context menu) — narrows the payload to `text/plain`
 
-Under S3 this is semantically identical to a normal external paste in Standard view. There is NO "paste literally, don't tokenize" mode; P9 has none either (no Paste Special exists in P9). Documented + pinned as equivalence, no new UI. The equivalence is Standard-view-scoped — other views may legitimately differentiate the two commands later; out of scope here.
+Under S3 this is semantically identical to a normal external paste in Standard view. There is NO "paste literally, don't tokenize" mode; P9 has none either (no Paste Special exists in P9). Live-confirmed identical 2026-08-07. Documented + pinned as equivalence, no new UI. TJ note: the equivalence is Standard-view-scoped — other views may legitimately differentiate the two commands later; out of scope here.
 
 ### S5. Hidden-marker views (`formatted`, `paragraph-structure`)
 
 - **Copy-out is prose** (no marker text) — existing, gets a gate test protecting Standard-view handlers from leaking there.
 
-- **The paste gate** (swallow anything containing `\` **or `/`**) is over-broad — it eats URLs, dates, "and/or". **Pre-existing upstream behavior** (`CommandMenuPlugin` on `origin/main`, predates the standard-view branches) — per TJ, NOT fixed here; recorded in the semantics doc's deferred list. Structural apply-markers-on-paste in formatted views likewise out of scope.
+- **The paste gate** (swallow anything containing `\` **or `/`**) is over-broad — it eats URLs, dates, "and/or" (live-confirmed 2026-08-07). **Pre-existing upstream behavior** (`CommandMenuPlugin` on `origin/main`, predates the standard-view branches) — per TJ, NOT fixed here; recorded in the semantics doc's deferred list. Structural apply-markers-on-paste in formatted views likewise out of scope.
 
 ### S6. Cut = copy + `removeText()` (existing)
 
