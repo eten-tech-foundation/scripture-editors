@@ -328,3 +328,22 @@ export function $noteContentText(note: NoteNode): TextNode {
     );
   return requireDefined(text, "note content text node not found");
 }
+
+/**
+ * jsdom doesn't implement `ClipboardEvent`/`DataTransfer`; the copy/cut handlers under test only
+ * touch `clipboardData.getData`/`setData`/`preventDefault`, so a minimal stub covers both dispatch
+ * and direct-call sites. Shared by every suite that dispatches `COPY_COMMAND`/`CUT_COMMAND`.
+ */
+export function copyEvent(): { event: ClipboardEvent; getData: (type: string) => string } {
+  const store = new Map<string, string>();
+  const clipboardData = {
+    getData: (type: string) => store.get(type) ?? "",
+    setData: (type: string, data: string) => {
+      store.set(type, data);
+    },
+  };
+  return {
+    event: { clipboardData, preventDefault: vi.fn() } as unknown as ClipboardEvent,
+    getData: (type: string) => clipboardData.getData(type),
+  };
+}
