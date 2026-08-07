@@ -13,15 +13,31 @@ import {
   copyToClipboard,
   LexicalClipboardData,
 } from "@lexical/clipboard";
-import { $getSelection, $getState, $isRangeSelection, LexicalEditor, TextNode } from "lexical";
+import {
+  $getCharacterOffsets,
+  $getSelection,
+  $getState,
+  $isDecoratorNode,
+  $isElementNode,
+  $isLineBreakNode,
+  $isRangeSelection,
+  $isTextNode,
+  LexicalEditor,
+  LexicalNode,
+  RangeSelection,
+  TextNode,
+} from "lexical";
 import {
   $isBookNode,
   $isChapterNode,
   $isCharNode,
+  $isNoteNode,
   $isUnknownNode,
+  GENERATOR_NOTE_CALLER,
   NBSP,
   textTypeState,
 } from "shared";
+import { $isImmutableNoteCallerNode } from "shared-react";
 
 /** Spaces in runs display as NBSP so they are visible while typing. */
 export function $displayWhitespaceTransform(node: TextNode): void {
@@ -110,6 +126,96 @@ export function $handlePasteForStandardView(event: ClipboardEvent | null | undef
 }
 
 /**
+ * Whether `node` is a collapsed note's internal display separator: a bare single-NBSP text node
+ * `createNote` (`usj-editor.adaptor.ts`) inserts purely so a caller/content children render apart
+ * on screen. USFM never needs a byte to separate a closing marker from the next `\marker` token,
+ * so only ONE placement of this family has a real source counterpart — the separator directly
+ * after the caller, which is the mandatory space between a note's caller and its first content
+ * marker (`\f + \fr …`). Every other placement (between content children, before the note's own
+ * closing marker) has nothing in the source USFM to reproduce and must contribute nothing.
+ */
+function $isNoteInternalDisplaySeparator(node: TextNode): boolean {
+  if (node.getTextContent() !== NBSP) return false;
+  const parent = node.getParent();
+  if (!$isNoteNode(parent)) return false;
+  return !$isImmutableNoteCallerNode(node.getPreviousSibling());
+}
+
+/** The nearest enclosing `NoteNode`'s USJ caller value, falling back to the auto-generated-caller
+ * marker (`+`) when the note has none set. */
+function $noteCallerText(callerNode: LexicalNode): string {
+  const noteNode = callerNode.getParent();
+  const caller = $isNoteNode(noteNode) ? noteNode.getCaller() : undefined;
+  return caller || GENERATOR_NOTE_CALLER;
+}
+
+/**
+ * Source-faithful USFM text of `selection` — the `text/plain` leg of Standard-view copy/cut. Walks
+ * `selection.getNodes()` the same way `RangeSelection.getTextContent()` does (single `\n` between
+ * non-inline block boundaries, anchor/focus offsets respected on the boundary text nodes,
+ * `DecoratorNode`s contributing their own text; an inline element like `AttributeRunNode` or
+ * `NoteNode` contributes nothing itself, its children being walked as their own list entries), with
+ * two USFM-specific corrections:
+ *
+ * 1. An `ImmutableNoteCallerNode` — which renders as `""` on screen for a collapsed note with an
+ *    auto-generated caller — contributes the enclosing note's real USJ caller (`+`, `-`, or a
+ *    literal) plus its own leading separating space (the mandatory space after `\f`/`\x`). The node
+ *    itself is left untouched (`getTextContent()` still returns `""`): it serves every view mode,
+ *    and formatted-view prose copy depends on staying caller-free.
+ * 2. NBSP inverts to a plain space per node instead of via a blanket `replaceAll` — a note's
+ *    internal display-only separators (`$isNoteInternalDisplaySeparator`) contribute nothing
+ *    instead of becoming phantom spaces; every other NBSP (marker-trailing spaces, a char span's
+ *    structural leading separator, a verse's own marker-to-number gap) represents a real source
+ *    space and still maps to one. Data-NBSP (displayed as `~`) is untouched either way.
+ */
+export function $selectionToUsfmText(selection: RangeSelection): string {
+  const nodes = selection.getNodes();
+  if (nodes.length === 0) return "";
+  const firstNode = nodes[0];
+  const lastNode = nodes[nodes.length - 1];
+  const { anchor, focus } = selection;
+  const isBefore = anchor.isBefore(focus);
+  const [anchorOffset, focusOffset] = $getCharacterOffsets(selection);
+  let text = "";
+  let prevWasElement = true;
+  for (const node of nodes) {
+    if ($isElementNode(node) && !node.isInline()) {
+      if (!prevWasElement) text += "\n";
+      prevWasElement = !node.isEmpty();
+      continue;
+    }
+    prevWasElement = false;
+    if ($isImmutableNoteCallerNode(node)) {
+      if (node !== lastNode || !selection.isCollapsed()) text += ` ${$noteCallerText(node)}`;
+    } else if ($isTextNode(node)) {
+      let nodeText = node.getTextContent();
+      if (node === firstNode) {
+        if (node === lastNode) {
+          if (
+            anchor.type !== "element" ||
+            focus.type !== "element" ||
+            focus.offset === anchor.offset
+          )
+            nodeText =
+              anchorOffset < focusOffset
+                ? nodeText.slice(anchorOffset, focusOffset)
+                : nodeText.slice(focusOffset, anchorOffset);
+        } else nodeText = isBefore ? nodeText.slice(anchorOffset) : nodeText.slice(focusOffset);
+      } else if (node === lastNode) {
+        nodeText = isBefore ? nodeText.slice(0, focusOffset) : nodeText.slice(0, anchorOffset);
+      }
+      text += $isNoteInternalDisplaySeparator(node) ? "" : nodeText.replaceAll(NBSP, " ");
+    } else if (
+      ($isDecoratorNode(node) || $isLineBreakNode(node)) &&
+      (node !== lastNode || !selection.isCollapsed())
+    ) {
+      text += node.getTextContent();
+    }
+  }
+  return text;
+}
+
+/**
  * Payload builder: the currently-selected content, normalized so `text/plain` carries
  * plain spaces where the display shows NBSP. Shared by both the real-event and null-event
  * branches of `$handleCopyForStandardView` below so they stay byte-for-byte consistent.
@@ -120,7 +226,7 @@ export function $getStandardViewClipboardData(
   const selection = $getSelection();
   if (!$isRangeSelection(selection) || selection.isCollapsed()) return undefined;
   const data: LexicalClipboardData = {
-    "text/plain": selection.getTextContent().replaceAll(NBSP, " "),
+    "text/plain": $selectionToUsfmText(selection),
   };
   const html = $getHtmlContent(editor);
   const lexical = $getLexicalContent(editor);
