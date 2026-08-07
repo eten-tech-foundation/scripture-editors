@@ -17,7 +17,6 @@ import { $dfs, DFSNode } from "@lexical/utils";
 import { $getRoot, $getState, $isTextNode, EditorState, LexicalNode, TextNode } from "lexical";
 import Delta from "quill-delta";
 import {
-  $charGlyphNestedValue,
   $findFirstAncestorNoteNode,
   $isBookNode,
   $isCharNode,
@@ -213,36 +212,6 @@ function $handleBlockNodes(
 }
 
 /**
- * True when `node` is a MarkerNode glyph belonging to a BARE attribute-display triplet — a
- * milestone's or a verse's `\va`/`\vp` opening/closing glyph sitting next to its own textType
- * "attribute" value (attributeDisplay.utils.ts).
- *
- * A char span's OWN opener/closer glyph is exempt: it flows through under the ordinary
- * editable-mode literal-text rule instead, even when the span also carries an adjacent bare `|…`
- * attribute run. But "inside a CharNode" is not sufficient to be the span's own glyph — a verse
- * carrying `altnumber` nested inside a cross-verse char span (legal USFM ≤3.0; the tree genuinely
- * nests) puts the verse's `\va`/`\vp` glyphs under a CharNode parent too, and those describe the
- * VERSE, not the span. Exempt only when {@link $charGlyphNestedValue} confirms the glyph describes
- * its parent span (its marker matches the span's, or a nested child span's); otherwise apply the
- * bare-attribute-glyph logic so nested verse-run glyphs stay out of content ops.
- */
-function $isBareAttributeGlyph(node: LexicalNode): boolean {
-  const parent = node.getParent();
-  if (
-    $isMarkerNode(node) &&
-    $isCharNode(parent) &&
-    $charGlyphNestedValue(node, parent) !== undefined
-  )
-    return false;
-  const previousSibling = node.getPreviousSibling();
-  const nextSibling = node.getNextSibling();
-  return (
-    ($isTextNode(previousSibling) && $getState(previousSibling, textTypeState) === "attribute") ||
-    ($isTextNode(nextSibling) && $getState(nextSibling, textTypeState) === "attribute")
-  );
-}
-
-/**
  * True when `node` is a paragraph's own marker-prefix glyph — the `\p`-style `MarkerNode` a
  * `ParaNode` carries as its first child in editable marker mode (`$createMarkerPrefix`,
  * markerEditDeletion.utils.ts). `$applyUpdate` re-synthesizes the whole prefix when materializing
@@ -250,11 +219,11 @@ function $isBareAttributeGlyph(node: LexicalNode): boolean {
  *
  * The position check (first child of a `ParaNode`) is load-bearing, not decorative:
  * {@link $isParaMarkerPrefix} identifies the node SHAPE (a `MarkerNode`, in editable mode) but
- * that shape is reused for every other glyph in the tree too — a char span's own opener/closer,
- * a note's opening/closing glyph, a milestone's or verse's bare attribute glyph. Only a
- * `MarkerNode` sitting in the paragraph's own prefix slot is presentation scaffolding here; a
- * char span's own glyph, for instance, legitimately flows through as literal editable-mode text
- * (see {@link $isBareAttributeGlyph}'s doc comment) and must not be caught by this check too.
+ * that shape is reused for every other glyph in the tree too — a char span's own opener/closer, a
+ * note's opening/closing glyph, a milestone's or verse's attribute-run glyph. Only a `MarkerNode`
+ * sitting in the paragraph's own prefix slot is presentation scaffolding here; a char span's own
+ * glyph, for instance, legitimately flows through as literal editable-mode text and must not be
+ * caught by this check too.
  */
 function $isOwnParaPrefixGlyph(node: LexicalNode): boolean {
   const parent = node.getParent();
@@ -291,23 +260,19 @@ function $handleTextNodes(
   // - the expanded editable caller text (presentation of the note's `caller` attribute).
   // A char span's OWN opener/closer glyphs OUTSIDE a note legitimately flow through as literal
   // editable-mode text (the `char` attribute wrapper is layered on top, not a substitute) — only
-  // a BARE attribute-display triplet's glyphs (a milestone's, or a verse's \va/\vp: presentation
-  // riding as plain siblings next to their own attribute-tagged value, not wrapped in a CharNode,
-  // so they duplicate state the embed op already carries) must never leak, in or out of a note.
-  // `currentNode` is a TextNode (guarded above), never itself a NoteNode, so the shared helper's
-  // inclusive start-node check reduces to a pure ancestor walk here.
+  // a milestone's or a verse's \va/\vp display-run glyphs (presentation that duplicates state the
+  // embed op already carries) must never leak, in or out of a note. Those runs always ride
+  // wrapped in an AttributeRunNode now, so ANCESTRY ($hasAttributeRunAncestor) is the one
+  // exclusion needed for them — broader than a sibling-adjacency check would be, since it also
+  // catches a milestone's glyph pair with no attribute text between them (no attribute-tagged
+  // sibling to key off of) and needs no per-piece exemption for a char span's own nested glyphs
+  // (a verse's run never lands INSIDE a CharNode's own children the way the span's own bare `|…`
+  // run does). `currentNode` is a TextNode (guarded above), never itself a NoteNode, so the shared
+  // helper's inclusive start-node check reduces to a pure ancestor walk here.
   const isInNote = $findFirstAncestorNoteNode(currentNode) !== undefined;
   if (
     $isMarkerNode(currentNode) &&
-    (isInNote ||
-      $isBareAttributeGlyph(currentNode) ||
-      $isOwnParaPrefixGlyph(currentNode) ||
-      // A glyph inside an AttributeRunNode wrapper is excluded by ANCESTRY rather than sibling
-      // adjacency — checked alongside $isBareAttributeGlyph (the loose-sibling arm — removable
-      // once nothing builds loose runs), and strictly broader: it also catches a milestone's
-      // glyph pair with no attribute text between them, which has no attribute-tagged sibling to
-      // key off of.
-      $hasAttributeRunAncestor(currentNode))
+    (isInNote || $isOwnParaPrefixGlyph(currentNode) || $hasAttributeRunAncestor(currentNode))
   )
     return;
   // The para prefix's NBSP separator is presentation scaffolding ($createMarkerPrefix,

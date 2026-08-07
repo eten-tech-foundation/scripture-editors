@@ -37,6 +37,7 @@ import {
   $isUnknownNode,
   $isVerseNode,
   $milestoneAttributeRunPieces,
+  $verseAttributeRunPieces,
   getEditableCallerText,
   isMilestoneHeuristicName,
   LoggerBasic,
@@ -152,8 +153,13 @@ function $milestoneDisplayRun(children: LexicalNode[], index: number): LexicalNo
   if (!$isMilestoneNode(milestone)) return [];
   const { opening, attribute, closing, wrapper } = $milestoneAttributeRunPieces(milestone);
   if (wrapper) return opening ? [wrapper] : [];
-  // Loose-sibling arm — removable once nothing builds loose runs: the pieces ride as bare
-  // siblings, unpacked individually rather than as a single wrapper node.
+  // No wrapper found: the shared scanner above can still surface a genuinely LOOSE run (a
+  // pre-flip editor state, an undo stack, or a collab-materialized bare milestone that hasn't
+  // gone through heal-forward yet) — unpacked as individual pieces here, rather than one wrapper
+  // node, since that is how they actually ride in the tree. Reporting nothing for a loose-but-
+  // present run would misclassify a re-tokenizable milestone as content-less (see the
+  // `run.length > 0` gate at both call sites below), stranding its bytes as ordinary text right
+  // next to the milestone's own now-empty sentinel instead of flowing them as its run.
   if (!opening) return [];
   const run: LexicalNode[] = [opening];
   if (attribute) run.push(attribute);
@@ -188,35 +194,31 @@ function $milestoneDisplayRun(children: LexicalNode[], index: number): LexicalNo
  * (an opener found but its value/closer missing or wrong) stops the scan entirely: such debris'
  * true extent can't be inferred from here, so continuing risks misreading the OTHER marker's own
  * content as part of it.
+ *
+ * Delegates each marker's scan to the shared {@link $verseAttributeRunPieces} — the single
+ * definition of "a verse marker's run pieces", also used by the self-healing sync
+ * (attributeDisplay.utils.ts) — rather than re-walking siblings independently here, so the two can
+ * never disagree about which shape (wrapped, loose, or partial) is present at a given position.
+ * That scanner already tolerates a genuinely LOOSE run too (a pre-flip editor state, an undo
+ * stack, or a collab-materialized bare verse mid-heal-forward), so its pieces are still reported
+ * here as individual nodes when found unwrapped — dropping them would misread a re-tokenizable
+ * `\va`/`\vp` as absent, stranding its bytes as ordinary text beside the verse instead of flowing
+ * them as its run.
  */
 function $verseAttributeRun(children: LexicalNode[], index: number): LexicalNode[] {
   const run: LexicalNode[] = [];
+  let anchor: LexicalNode = children[index];
   for (const marker of ["va", "vp"] as const) {
-    const next = children[index + run.length + 1];
-    if ($isAttributeRunNode(next) && next.getRunKind() === marker) {
-      run.push(next);
-      continue;
+    const { opener, value, closer, wrapper } = $verseAttributeRunPieces(anchor, marker);
+    if (wrapper) {
+      run.push(wrapper);
+      anchor = wrapper;
+    } else if (opener && value && closer) {
+      run.push(opener, value, closer);
+      anchor = closer;
+    } else if (opener || value || closer) {
+      break; // partial match — true extent can't be inferred from here, so stop the scan
     }
-    // Loose-sibling arm — removable once nothing builds loose runs: the pieces ride as bare
-    // siblings, matched individually rather than as a single wrapper node.
-    const opening = next;
-    if (
-      !$isMarkerNode(opening) ||
-      opening.getMarkerSyntax() !== "opening" ||
-      opening.getMarker() !== marker
-    )
-      continue;
-    const value = children[index + run.length + 2];
-    const closing = children[index + run.length + 3];
-    if (
-      !$isTextNode(value) ||
-      $getState(value, textTypeState) !== "attribute" ||
-      !$isMarkerNode(closing) ||
-      closing.getMarkerSyntax() !== "closing" ||
-      closing.getMarker() !== marker
-    )
-      break;
-    run.push(opening, value, closing);
   }
   return run;
 }

@@ -438,9 +438,13 @@ function recurseNodes(
         // These nodes are for presentation only so they don't go into the USJ. An
         // AttributeRunNode subtree is skipped WHOLESALE (never recursed into) — its own children
         // are exactly the same MarkerNode/attribute-tagged-TextNode pieces this switch already
-        // skips individually when THEY ride as loose siblings (the loose-sibling arm — removable
-        // once nothing builds loose runs), so skipping the wrapper as a unit is equivalent to how
-        // the loose shape is handled.
+        // skips individually below (the MarkerNode.getType() case here, and the textType
+        // "attribute" check in the TextNode.getType() case), so skipping the wrapper as a unit is
+        // equivalent to how those pieces are handled when unwrapped. Not removable once loose
+        // pieces stop occurring: MarkerNode.getType() also covers every OTHER glyph kind (char
+        // open/closer, para prefix, note glyphs), and the TextNode "attribute" check also covers a
+        // char span's OWN `|…` run, which is never wrapped at all (see this module's top comment) —
+        // both stay load-bearing regardless of verse/milestone run shape.
         break;
       case TypedMarkNode.getType():
         childMarkers = recurseNodes(serializedMarkNode.children, viewOptions);

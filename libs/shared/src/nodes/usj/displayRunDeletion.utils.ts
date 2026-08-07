@@ -28,8 +28,13 @@ function $runChainOwner(piece: LexicalNode): LexicalNode | undefined {
   for (let prev = piece.getPreviousSibling(); prev; prev = prev.getPreviousSibling()) {
     if ($isVerseNode(prev) || $isMilestoneNode(prev)) return prev;
     const isRunPiece =
-      // Loose-sibling arm — removable once nothing builds loose runs: a bare glyph or
-      // attribute-tagged text riding directly as a sibling, rather than inside a wrapper.
+      // A bare glyph or attribute-tagged text riding directly as a sibling (rather than inside a
+      // wrapper) is heal-forward's INPUT shape, not just a loose-shape leftover: nothing builds
+      // this at rest anymore, but a destroyed piece can still arrive here from a pre-flip editor
+      // state, an undo stack, or a collab-materialized bare owner that never got a chance to heal
+      // forward into a wrapper before the user deleted it. Recognizing it here is what lets the
+      // deletion driver ($ownerOfDestroyedRunPiece's callers) pend the right owner for such a
+      // piece, same as it does for a wrapped one.
       $isMarkerNode(prev) ||
       ($isTextNode(prev) && $getState(prev, textTypeState) === "attribute") ||
       $isAttributeRunNode(prev);
