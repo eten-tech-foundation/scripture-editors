@@ -13,7 +13,9 @@ import {
   TextNode,
 } from "lexical";
 import {
+  $createCharNode,
   $createNodeFromSerializedNode,
+  $isCharNode,
   $isMarkerNode,
   $isNoteNode,
   $isTypedMarkNode,
@@ -134,6 +136,7 @@ export function getUsjMarkerAction(
 
       if ($isRangeSelection(selection)) {
         const node = selection.anchor.getNode();
+        const nodeParent = node.getParent();
         if (selection.getTextContent().length > 0) {
           // If the selection has text content, wrap the text selection in an inline node
           $wrapTextSelectionInInlineNode(selection, () =>
@@ -152,11 +155,21 @@ export function getUsjMarkerAction(
         } else if (
           $isTextNode(node) &&
           !$isMarkerNode(node) &&
-          $isNoteNode(node.getParent()) &&
-          selection.isCollapsed()
+          selection.isCollapsed() &&
+          ($isNoteNode(nodeParent) ||
+            ($isCharNode(nodeParent) && $isNoteNode(nodeParent.getParent())))
         ) {
-          // Inserting into NoteNode
-          let lastInsertedNode: LexicalNode = node.insertAfter(nodeToInsert);
+          // Inserting into a NoteNode. The caret sits on the note's own text (a spacer) or inside
+          // one of its CharNodes; insert the new marker as a sibling within the note so it can't
+          // escape into the surrounding paragraph.
+          const caretChar = $isCharNode(nodeParent) ? nodeParent : undefined;
+          // When the caret is inside a char, split it there: the content after the caret moves into
+          // a following clone so the new marker lands between the two halves (not after the char).
+          const charTail = caretChar
+            ? $collectSiblingsFromCaret(node, selection.anchor.offset)
+            : [];
+          const noteChildAnchor = caretChar ?? node;
+          let lastInsertedNode: LexicalNode = noteChildAnchor.insertAfter(nodeToInsert);
           if ($isVisibleMarkerNode(nodeToInsert)) {
             // We are using visible marker mode so the `nodeToInsert` is just the marker. Get the
             // CharNode with content to insert after it.
@@ -172,7 +185,25 @@ export function getUsjMarkerAction(
             const charNodeToInsert = $createNodeFromSerializedNode(serializedLexicalNode);
             lastInsertedNode = lastInsertedNode.insertAfter(charNodeToInsert);
           }
-          lastInsertedNode.insertAfter($createTextNode(NBSP));
+          if (charTail.length > 0 && caretChar) {
+            // Move the after-caret content into a clone of the split char, right after the marker.
+            const tailChar = $createCharNode(
+              caretChar.getMarker(),
+              caretChar.getUnknownAttributes(),
+            );
+            tailChar.append(...charTail);
+            lastInsertedNode.insertAfter(tailChar);
+            if (caretChar.isEmpty()) caretChar.remove();
+          } else if (!$isTextNode(lastInsertedNode.getNextSibling())) {
+            // Add a trailing spacer only if one doesn't already follow. Inserting between a char and
+            // its existing spacer would leave two adjacent spacers, which a note transform collapses
+            // with a selectEnd that steals the caret out of the new marker.
+            lastInsertedNode.insertAfter($createTextNode(NBSP));
+          }
+          // Land the caret inside the new marker's content, not before it (PT-3780). selectEnd
+          // leaves it after the empty-char placeholder, which the placeholder transform strips on
+          // the first keystroke.
+          if ($isElementNode(lastInsertedNode)) lastInsertedNode.selectEnd();
         } else {
           selection.insertNodes([nodeToInsert]);
           $moveVerseFollowingSpaceToPreviousNode(nodeToInsert);
@@ -187,6 +218,21 @@ export function getUsjMarkerAction(
     }, editorUpdateOptions);
   };
   return { action, label: markerAction?.label };
+}
+
+/**
+ * Collect the caret's "tail" within its parent element: the part of `node` after `offset` plus all
+ * following siblings, splitting `node` in place when the caret is mid-text. Used to split a char at
+ * the caret so a new marker can be inserted between the halves.
+ */
+function $collectSiblingsFromCaret(node: TextNode, offset: number): LexicalNode[] {
+  const size = node.getTextContentSize();
+  let tailStart: LexicalNode | null;
+  if (offset <= 0) tailStart = node;
+  else if (offset >= size) tailStart = node.getNextSibling();
+  else tailStart = node.splitText(offset)[1] ?? node.getNextSibling();
+  if (!tailStart) return [];
+  return [tailStart, ...tailStart.getNextSiblings()];
 }
 
 function getMarkerAction(marker: string): UsjMarkerAction | undefined {

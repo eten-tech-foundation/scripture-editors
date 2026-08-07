@@ -9,13 +9,16 @@ import { getUsjMarkerAction, isUsjMarkerSupported } from "./usj-marker-action.ut
 import { $createTextNode, $getRoot, $isTextNode, TextNode } from "lexical";
 import { $createImmutableVerseNode, $isImmutableVerseNode, usjReactNodes } from "shared-react";
 import {
+  $createCharNode,
   $createImmutableChapterNode,
+  $createNoteNode,
   $createParaNode,
   $isCharNode,
   $isImmutableChapterNode,
   $isNoteNode,
   $isParaNode,
   EMPTY_CHAR_PLACEHOLDER_TEXT,
+  NBSP,
 } from "shared";
 
 const nodes = usjReactNodes;
@@ -439,6 +442,100 @@ describe("USJ Marker Action Utils", () => {
         const tailTextNode = insertedNode.getNextSibling();
         if (!$isTextNode(tailTextNode)) throw new Error("Tail node is not text");
         expect(tailTextNode.getTextContent()).toBe(" verse text ");
+      });
+    });
+  });
+
+  describe("should insert a char into a note", () => {
+    let noteCharTextNode: TextNode;
+    let noteSpacerTextNode: TextNode;
+
+    function $noteInitialEditorState() {
+      noteCharTextNode = $createTextNode("existing footnote text");
+      noteSpacerTextNode = $createTextNode(NBSP);
+      $getRoot().append(
+        $createImmutableChapterNode("1"),
+        $createParaNode().append(
+          $createImmutableVerseNode("1"),
+          $createTextNode("first verse text "),
+          $createNoteNode("f", "+", false).append(
+            $createCharNode("ft").append(noteCharTextNode),
+            noteSpacerTextNode,
+          ),
+        ),
+      );
+    }
+
+    // Regression test for PT-3780.
+    it("places the caret inside the newly inserted marker", () => {
+      const { editor } = createBasicTestEnvironment(nodes, $noteInitialEditorState);
+      const markerAction = getUsjMarkerAction(
+        "fk",
+        expandedNoteKeyRef,
+        undefined,
+        undefined,
+        undefined,
+        {
+          discrete: true,
+        },
+      );
+      // caret directly inside the note, after its existing content
+      updateSelection(editor, noteSpacerTextNode);
+
+      markerAction.action({ editor, reference });
+
+      editor.getEditorState().read(() => {
+        const insertedNode = noteSpacerTextNode.getNextSibling();
+        if (!$isCharNode(insertedNode)) throw new Error("Inserted node is not a char");
+        expect(insertedNode.getMarker()).toBe("fk");
+        expect($isNoteNode(insertedNode.getParent())).toBe(true);
+        const charTextNode = insertedNode.getChildAtIndex(0);
+        if (!$isTextNode(charTextNode))
+          throw new Error("Inserted char node does not have a text node");
+        $expectSelectionToBe(charTextNode);
+      });
+    });
+
+    // When the caret is inside an existing footnote CharNode, the new marker is inserted at the
+    // caret — the char is split so the marker lands between its two halves, inside the note.
+    it("splits the footnote char at the caret and inserts the marker between the halves", () => {
+      const { editor } = createBasicTestEnvironment(nodes, $noteInitialEditorState);
+      const markerAction = getUsjMarkerAction(
+        "fk",
+        expandedNoteKeyRef,
+        undefined,
+        undefined,
+        undefined,
+        {
+          discrete: true,
+        },
+      );
+      // caret in the middle of the existing footnote text (parent is the ft CharNode, not the note)
+      updateSelection(editor, noteCharTextNode, 8);
+
+      markerAction.action({ editor, reference });
+
+      editor.getEditorState().read(() => {
+        const ftChar = noteCharTextNode.getParent();
+        if (!$isCharNode(ftChar)) throw new Error("Existing footnote char is missing");
+        expect($isNoteNode(ftChar.getParent())).toBe(true);
+        // The text before the caret stays in the original char.
+        expect(ftChar.getTextContent()).toBe("existing");
+        // The new marker is inserted right after it, still inside the note.
+        const insertedNode = ftChar.getNextSibling();
+        if (!$isCharNode(insertedNode)) throw new Error("New marker is not after the split char");
+        expect(insertedNode.getMarker()).toBe("fk");
+        expect($isNoteNode(insertedNode.getParent())).toBe(true);
+        // The text after the caret moves into a following clone of the original char.
+        const tailChar = insertedNode.getNextSibling();
+        if (!$isCharNode(tailChar)) throw new Error("Tail footnote char is missing");
+        expect(tailChar.getMarker()).toBe("ft");
+        expect(tailChar.getTextContent()).toBe(" footnote text");
+        // The caret lands inside the new marker.
+        const charTextNode = insertedNode.getChildAtIndex(0);
+        if (!$isTextNode(charTextNode))
+          throw new Error("Inserted char node does not have a text node");
+        $expectSelectionToBe(charTextNode);
       });
     });
   });
