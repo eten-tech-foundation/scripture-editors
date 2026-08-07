@@ -14,47 +14,30 @@ import { $isMarkerNode, $isParaMarkerPrefix, $isSomeParaNode, NBSP, SomeParaNode
 import { $isImmutableVerseNode, $isSomeVerseNode } from "../../nodes/usj";
 
 /**
- * Corrects the cursor when it lands before or inside a para-marker prefix at the start of a
- * paragraph. Two bad positions are handled:
+ * Intercepts clicks that land in para-marker prefix territory and nudges the cursor to the first
+ * content position in the same update cycle. Only collapsed selections are adjusted; range
+ * selections (multi-character) are left alone.
  *
- * 1. Element-typed anchor at offset 0 in a `ParaNode` whose first child is a para-marker prefix
- *    (`MarkerNode` or `ImmutableTypedTextNode`) or an `ImmutableVerseNode`. This happens when
- *    the user clicks in the hanging-indent gutter of any marker that sets a negative
- *    `text-indent` (e.g. `\li`, `\li1`, `\li2`, `\ili`, `\ili1`, `\ili2`, and poetry markers).
- *
- * 2. Text-typed anchor inside a `MarkerNode` that is the first child of a `ParaNode`. This
- *    happens in Power mode when the user clicks on the visible marker text.
- *
- * In both cases the cursor is advanced past all structural prefix nodes (para-marker prefix,
- * trailing NBSP, and leading verse nodes) to the first content `TextNode`, or to the element
- * offset just after all those structural nodes when no content `TextNode` follows yet.
- *
- * Returns `true` if the selection was corrected, `false` if no correction was needed.
+ * Using `CLICK_COMMAND` instead of `registerUpdateListener` + `editor.update` ensures the
+ * correction is committed in a single cycle — other listeners (e.g. `OnSelectionChangePlugin`)
+ * see only the corrected cursor, never the intermediate prefix position.
  */
-export function $guardCursorAtParaStart(selection: RangeSelection): boolean {
-  if (!selection.isCollapsed()) return false;
-  const { anchor } = selection;
+export function ParaMarkerPrefixCursorGuardPlugin(): null {
+  const [editor] = useLexicalComposerContext();
 
-  // Case 1: element anchor at offset 0 in a ParaNode whose first child blocks content insertion.
-  if (anchor.type === "element" && anchor.offset === 0) {
-    const para = $getNodeByKey(anchor.key);
-    if (!$isSomeParaNode(para)) return false;
-    const first = para.getFirstChild();
-    if (!$isParaMarkerPrefix(first) && !$isImmutableVerseNode(first)) return false;
-    return $advancePastParaPrefixes(para);
-  }
+  useEffect(() => {
+    return editor.registerCommand(
+      CLICK_COMMAND,
+      () => {
+        const selection = $getSelection();
+        if ($isRangeSelection(selection)) $guardCursorAtParaStart(selection);
+        return false;
+      },
+      COMMAND_PRIORITY_EDITOR,
+    );
+  }, [editor]);
 
-  // Case 2: text anchor inside a MarkerNode that is the first child of a ParaNode.
-  if (anchor.type === "text") {
-    const anchorNode = $getNodeByKey(anchor.key);
-    if (!$isMarkerNode(anchorNode)) return false;
-    const para = anchorNode.getParent();
-    if (!$isSomeParaNode(para)) return false;
-    if (anchorNode !== para.getFirstChild()) return false;
-    return $advancePastParaPrefixes(para);
-  }
-
-  return false;
+  return null;
 }
 
 /**
@@ -100,28 +83,48 @@ export function $advancePastParaPrefixes(para: SomeParaNode): boolean {
 }
 
 /**
- * Intercepts clicks that land in para-marker prefix territory and nudges the cursor to the first
- * content position in the same update cycle. Only collapsed selections are adjusted; range
- * selections (multi-character) are left alone.
+ * Corrects the cursor when it lands before or inside a para-marker prefix at the start of a
+ * paragraph. Two bad positions are handled:
  *
- * Using `CLICK_COMMAND` instead of `registerUpdateListener` + `editor.update` ensures the
- * correction is committed in a single cycle — other listeners (e.g. `OnSelectionChangePlugin`)
- * see only the corrected cursor, never the intermediate prefix position.
+ * 1. Element-typed anchor at offset 0 in a `ParaNode` whose first child is a para-marker prefix
+ *    (`MarkerNode` or `ImmutableTypedTextNode`) or an `ImmutableVerseNode`. This happens when
+ *    the user clicks in the hanging-indent gutter of any marker that sets a negative
+ *    `text-indent` (e.g. `\li`, `\li1`, `\li2`, `\ili`, `\ili1`, `\ili2`, and poetry markers).
+ *
+ * 2. Text-typed anchor inside a `MarkerNode` that is the first child of a `ParaNode`. This
+ *    happens in Power mode when the user clicks on the visible marker text.
+ *
+ * In both cases the cursor is advanced past all structural prefix nodes (para-marker prefix,
+ * trailing NBSP, and leading verse nodes) to the first content `TextNode`, or to the element
+ * offset just after all those structural nodes when no content `TextNode` follows yet.
+ *
+ * Returns `true` if the selection was corrected, `false` if no correction was needed.
+ *
+ * Exported only for direct unit testing; production callers reach it through
+ * `ParaMarkerPrefixCursorGuardPlugin`.
  */
-export function ParaMarkerPrefixCursorGuardPlugin(): null {
-  const [editor] = useLexicalComposerContext();
+export function $guardCursorAtParaStart(selection: RangeSelection): boolean {
+  if (!selection.isCollapsed()) return false;
+  const { anchor } = selection;
 
-  useEffect(() => {
-    return editor.registerCommand(
-      CLICK_COMMAND,
-      () => {
-        const selection = $getSelection();
-        if ($isRangeSelection(selection)) $guardCursorAtParaStart(selection);
-        return false;
-      },
-      COMMAND_PRIORITY_EDITOR,
-    );
-  }, [editor]);
+  // Case 1: element anchor at offset 0 in a ParaNode whose first child blocks content insertion.
+  if (anchor.type === "element" && anchor.offset === 0) {
+    const para = $getNodeByKey(anchor.key);
+    if (!$isSomeParaNode(para)) return false;
+    const first = para.getFirstChild();
+    if (!$isParaMarkerPrefix(first) && !$isImmutableVerseNode(first)) return false;
+    return $advancePastParaPrefixes(para);
+  }
 
-  return null;
+  // Case 2: text anchor inside a MarkerNode that is the first child of a ParaNode.
+  if (anchor.type === "text") {
+    const anchorNode = $getNodeByKey(anchor.key);
+    if (!$isMarkerNode(anchorNode)) return false;
+    const para = anchorNode.getParent();
+    if (!$isSomeParaNode(para)) return false;
+    if (anchorNode !== para.getFirstChild()) return false;
+    return $advancePastParaPrefixes(para);
+  }
+
+  return false;
 }
