@@ -120,13 +120,16 @@ export interface EditorRef {
   /** Get the editor element for the given node key, if any. */
   getElementByKey(nodeKey: string): HTMLElement | undefined;
   /**
-   * Remove a character marker from the current editor selection, keeping its text content. Works
-   * with both collapsed (removes the marker from the whole enclosing marker) and range (splits the
-   * marker, leaving the uncovered text marked) selections.
+   * Remove a character marker from the current editor selection, keeping its text content.
    *
-   * Does nothing, without throwing, when there is no matching character marker enclosing the
-   * selection, when the selection is inside a note, when the removal could not be confined to the
-   * selection (see below), or when there is no active selection at all.
+   * Returns whether a marker was actually removed, so a caller can tell a real removal from a
+   * refused or unmatched one. Works with both collapsed (removes the marker from the whole
+   * enclosing marker) and range (splits the marker, leaving the uncovered text marked) selections.
+   *
+   * Returns `false` and does nothing, without throwing, when there is no matching character marker
+   * enclosing the selection, when the selection is inside a note, when the removal could not be
+   * confined to the selection (see below), or when there is no active selection at all. In every
+   * one of those cases the document and the selection are left untouched — no undo entry is added.
    *
    * @remarks
    * Two narrowed edge cases, both preserving every character of the document's text content:
@@ -147,11 +150,14 @@ export interface EditorRef {
    *   the document is loaded from USJ.
    *
    * @param marker - A USFM character marker string, e.g. `"nd"`, `"wj"`. Omit to remove the
-   *   innermost character marker enclosing the selection.
+   *   innermost character marker enclosing the selection. Footnote and cross-reference character
+   *   markers (e.g. `"ft"`, `"xt"`) are not supported: they only occur inside notes, which removal
+   *   skips, so they throw rather than silently doing nothing.
+   * @returns `true` if a character marker was removed, `false` if the request was a no-op.
    * @throws Will throw an error if the editor is in readonly mode.
    * @throws Will throw an error if `marker` is given and is not a supported character marker.
    */
-  removeCharacterMarker(marker?: string): void;
+  removeCharacterMarker(marker?: string): boolean;
   /**
    * Replace the character marker on the current editor selection, keeping its text content. Works
    * with both collapsed (changes the whole enclosing marker) and range (splits the marker, leaving
@@ -160,7 +166,8 @@ export interface EditorRef {
    * Does nothing, without throwing, when there is no matching character marker enclosing the
    * selection, when that marker is already `toMarker`, when the selection is inside a note, when
    * the change could not be confined to the selection (see below), or when there is no active
-   * selection at all.
+   * selection at all. In every one of those cases the document and the selection are left
+   * untouched — no undo entry is added.
    *
    * @remarks
    * Nested markers: text left uncovered by the selection keeps its original marker, and the inner
@@ -178,9 +185,12 @@ export interface EditorRef {
    * `\bd Lord God\bd*`). That stray interior marker text is excluded from USJ export and
    * self-corrects the next time the document is loaded from USJ.
    *
-   * @param toMarker - The USFM character marker to change to, e.g. `"nd"`, `"wj"`.
+   * @param toMarker - The USFM character marker to change to, e.g. `"nd"`, `"wj"`. Footnote and
+   *   cross-reference character markers (e.g. `"ft"`, `"xt"`) are not supported: they only occur
+   *   inside notes, which replacement skips, so they throw rather than silently doing nothing.
    * @param fromMarker - A USFM character marker to match. Omit to change the innermost character
-   *   marker enclosing the selection.
+   *   marker enclosing the selection. Subject to the same footnote and cross-reference restriction
+   *   as `toMarker`.
    * @throws Will throw an error if the editor is in readonly mode.
    * @throws Will throw an error if `toMarker` is not a supported character marker.
    * @throws Will throw an error if `fromMarker` is given and is not a supported character marker.

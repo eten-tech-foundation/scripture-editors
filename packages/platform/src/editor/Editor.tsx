@@ -322,11 +322,19 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
       )
         throw new Error(`Unsupported character marker '${marker}'`);
 
-      editorRef.current?.update(() => {
-        const selection = $getSelection();
-        if ($isRangeSelection(selection))
-          $removeCharacterMarkerAtSelection(selection, marker, viewOptions);
-      });
+      // `discrete` so the update runs now rather than being deferred behind an in-progress one,
+      // which would leave `didRemove` reporting `false` for a removal that did happen. Same reason
+      // `applyUpdate` above uses it.
+      let didRemove = false;
+      editorRef.current?.update(
+        () => {
+          const selection = $getSelection();
+          if ($isRangeSelection(selection))
+            didRemove = $removeCharacterMarkerAtSelection(selection, marker, viewOptions);
+        },
+        { discrete: true },
+      );
+      return didRemove;
     },
     replaceCharacterMarker(toMarker, fromMarker) {
       if (isReadonly) throw new Error("Cannot replace character marker in readonly mode");
