@@ -25,6 +25,7 @@ import {
   $isTypedMarkNode,
   $isVisibleMarkerNode,
   CharNode,
+  closingMarkerText,
   createLexicalUsjNode,
   EMPTY_CHAR_PLACEHOLDER_TEXT,
   getNextVerse,
@@ -32,6 +33,7 @@ import {
   MarkerAction,
   NBSP,
   NoteNode,
+  openingMarkerText,
   ParaNode,
   ScriptureReference,
 } from "shared";
@@ -818,7 +820,46 @@ export function $replaceCharacterMarkerAtSelection(
  * @param toMarker - The character marker to change to.
  */
 function $changeCharNodeMarker(charNode: CharNode, toMarker: string): void {
+  // Before setMarker, not after: $retargetSynthesizedMarkers derives the old marker's text from
+  // charNode.getMarker(), which setMarker would already have overwritten.
+  $retargetSynthesizedMarkers(charNode, toMarker);
   charNode.setMarker(toMarker);
+}
+
+/**
+ * Point a `CharNode`'s synthesized marker children at a new marker.
+ *
+ * Under `markerMode: "editable"` those children are `MarkerNode`s and under `"visible"` they are
+ * `ImmutableTypedTextNode`s with `textType: "marker"`; both are produced by `addOpeningMarker` /
+ * `addClosingMarker` (`usj-editor.adaptor.ts:689-707`) and neither is touched by
+ * `CharNode.setMarker`, so without this every replacement in those modes leaves the old marker's
+ * text on screen.
+ *
+ * Retargets rather than strips, unlike `$removeCharNodeKeepingContent`: stripping would leave the
+ * replaced span looking unmarked, which reads worse than stale.
+ *
+ * The old marker is read from the node itself rather than taken from the caller's `fromMarker`,
+ * which is optional and may be `undefined` when the innermost marker was targeted.
+ *
+ * An `ImmutableTypedTextNode` whose text is neither the opening nor the closing form is left
+ * verbatim rather than rewritten by guesswork.
+ *
+ * @param charNode - The `CharNode` whose marker is about to change.
+ * @param toMarker - The character marker to change to.
+ */
+function $retargetSynthesizedMarkers(charNode: CharNode, toMarker: string): void {
+  const fromMarker = charNode.getMarker();
+  const openingText = openingMarkerText(fromMarker);
+  const closingText = closingMarkerText(fromMarker);
+  charNode.getChildren().forEach((child) => {
+    // MarkerNode.setMarker recomputes the node's text for us (MarkerNode.ts:54-61).
+    if ($isMarkerNode(child)) child.setMarker(toMarker);
+    else if ($isVisibleMarkerNode(child)) {
+      const text = child.getTextContent();
+      if (text === openingText) child.setTextContent(openingMarkerText(toMarker));
+      else if (text === closingText) child.setTextContent(closingMarkerText(toMarker));
+    }
+  });
 }
 
 // #endregion

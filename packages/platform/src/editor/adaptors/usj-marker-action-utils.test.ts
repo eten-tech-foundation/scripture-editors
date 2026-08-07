@@ -1532,6 +1532,109 @@ describe("USJ Marker Action Utils", () => {
         $expectSelectionToBe(charTextNode, 0, charTextNode, 4);
       });
     });
+
+    it("retargets synthesized MarkerNode children in markerMode 'editable'", () => {
+      let charTextNodeSize = 0;
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        // Mirrors usj-editor.adaptor.ts createChar under markerMode "editable": a MarkerNode
+        // opening, each text child prefixed with NBSP, then a closing MarkerNode.
+        charTextNode = $createTextNode(NBSP + "Lord");
+        charTextNodeSize = charTextNode.getTextContentSize();
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createTextNode("the "),
+            $createCharNode("nd").append(
+              $createMarkerNode("nd"),
+              charTextNode,
+              $createMarkerNode("nd", "closing"),
+            ),
+            $createTextNode(" said"),
+          ),
+        );
+      });
+      updateSelection(editor, charTextNode, 0, charTextNode, charTextNodeSize);
+
+      sutReplaceCharacterMarker(editor, "bd", "nd");
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        const charNode = para.getChildAtIndex(1);
+        if (!$isCharNode(charNode)) throw new Error("charNode is not a CharNode");
+        expect(charNode.getMarker()).toBe("bd");
+        const text = para.getTextContent();
+        // The new marker is rendered, and no stale \nd or \nd* survives.
+        expect(text).toContain(openingMarkerText("bd"));
+        expect(text).toContain(closingMarkerText("bd"));
+        expect(text).not.toContain(openingMarkerText("nd"));
+        expect(text).not.toContain(closingMarkerText("nd"));
+        // The NBSP is presentation the adaptor added; replacement neither trims nor duplicates it.
+        expect(charNode.getTextContent()).toContain(NBSP + "Lord");
+      });
+    });
+
+    it("retargets synthesized ImmutableTypedTextNode children in markerMode 'visible'", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        // Mirrors usj-editor.adaptor.ts createChar under markerMode "visible": immutable
+        // typed-text markers on both sides and no NBSP prefix on the content.
+        charTextNode = $createTextNode("Lord");
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createTextNode("the "),
+            $createCharNode("nd").append(
+              $createImmutableTypedTextNode("marker", openingMarkerText("nd")),
+              charTextNode,
+              $createImmutableTypedTextNode("marker", closingMarkerText("nd")),
+            ),
+            $createTextNode(" said"),
+          ),
+        );
+      });
+      updateSelection(editor, charTextNode, 0, charTextNode, 4);
+
+      sutReplaceCharacterMarker(editor, "bd", "nd");
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        const charNode = para.getChildAtIndex(1);
+        if (!$isCharNode(charNode)) throw new Error("charNode is not a CharNode");
+        expect(charNode.getMarker()).toBe("bd");
+        const text = para.getTextContent();
+        expect(text).toContain(openingMarkerText("bd"));
+        expect(text).toContain(closingMarkerText("bd"));
+        expect(text).not.toContain(openingMarkerText("nd"));
+        expect(text).not.toContain(closingMarkerText("nd"));
+      });
+    });
+
+    it("leaves a marker child alone when its text is not the expected opening or closing form", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        charTextNode = $createTextNode("Lord");
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createCharNode("nd").append(
+              // Not openingMarkerText("nd") or closingMarkerText("nd") — an unrecognized shape.
+              $createImmutableTypedTextNode("marker", "\\nd|x-custom"),
+              charTextNode,
+            ),
+          ),
+        );
+      });
+      updateSelection(editor, charTextNode, 0, charTextNode, 4);
+
+      sutReplaceCharacterMarker(editor, "bd", "nd");
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        const charNode = para.getFirstChild();
+        if (!$isCharNode(charNode)) throw new Error("charNode is not a CharNode");
+        expect(charNode.getMarker()).toBe("bd");
+        // Rewritten by guesswork it is not: an unrecognized marker text is left verbatim.
+        expect(para.getTextContent()).toContain("\\nd|x-custom");
+      });
+    });
   });
 
   describe("should insert a note", () => {
