@@ -153,6 +153,35 @@ export interface EditorRef {
    */
   removeCharacterMarker(marker?: string): void;
   /**
+   * Replace the character marker on the current editor selection, keeping its text content. Works
+   * with both collapsed (changes the whole enclosing marker) and range (splits the marker, leaving
+   * the uncovered text with its original marker) selections.
+   *
+   * Does nothing, without throwing, when there is no matching character marker enclosing the
+   * selection, when that marker is already `toMarker`, when the selection is inside a note, when
+   * the change could not be confined to the selection (see below), or when there is no active
+   * selection at all.
+   *
+   * @remarks
+   * Nested markers: text left uncovered by the selection keeps its original marker, and the inner
+   * and outer markers of a nested pair can each be changed independently while the selection covers
+   * them fully. When a range selection covers only *part* of a nested character marker's text and
+   * the *outer* marker is the one being changed, the request is refused and the document is left
+   * unchanged: recursive splitting of a nested marker's text is not implemented, so the marker
+   * could only be changed across that nested marker's entire span, including text the caller never
+   * selected. Refusing keeps the guarantee that replacement never alters unselected text.
+   *
+   * A replaced marker that ends up matching an adjacent sibling's is merged into it automatically.
+   *
+   * @param toMarker - The USFM character marker to change to, e.g. `"nd"`, `"wj"`.
+   * @param fromMarker - A USFM character marker to match. Omit to change the innermost character
+   *   marker enclosing the selection.
+   * @throws Will throw an error if the editor is in readonly mode.
+   * @throws Will throw an error if `toMarker` is not a supported character marker.
+   * @throws Will throw an error if `fromMarker` is given and is not a supported character marker.
+   */
+  replaceCharacterMarker(toMarker: string, fromMarker?: string): void;
+  /**
    * Insert a marker at the current editor selection, replicating the behavior of the
    * built-in marker menu. Works with both collapsed (insertion point) and range selections.
    *

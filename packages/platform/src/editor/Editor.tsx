@@ -2,6 +2,7 @@ import editorUsjAdaptor from "./adaptors/editor-usj.adaptor";
 import usjEditorAdaptor from "./adaptors/usj-editor.adaptor";
 import {
   $removeCharacterMarkerAtSelection,
+  $replaceCharacterMarkerAtSelection,
   getUsjMarkerAction,
   isCharacterMarkerSupported,
   isUsjMarkerSupported,
@@ -325,6 +326,24 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
         const selection = $getSelection();
         if ($isRangeSelection(selection))
           $removeCharacterMarkerAtSelection(selection, marker, viewOptions);
+      });
+    },
+    replaceCharacterMarker(toMarker, fromMarker) {
+      if (isReadonly) throw new Error("Cannot replace character marker in readonly mode");
+      if (!isCharacterMarkerSupported(toMarker, nodeOptions.extraValidMarkers))
+        throw new Error(`Unsupported character marker '${toMarker}'`);
+      if (
+        fromMarker !== undefined &&
+        !isCharacterMarkerSupported(fromMarker, nodeOptions.extraValidMarkers)
+      )
+        throw new Error(`Unsupported character marker '${fromMarker}'`);
+
+      // No `viewOptions` argument, unlike removeCharacterMarker above: replacement changes no text
+      // and strips no children, so it has nothing marker-mode-dependent to undo.
+      editorRef.current?.update(() => {
+        const selection = $getSelection();
+        if ($isRangeSelection(selection))
+          $replaceCharacterMarkerAtSelection(selection, toMarker, fromMarker);
       });
     },
     insertMarker(marker) {

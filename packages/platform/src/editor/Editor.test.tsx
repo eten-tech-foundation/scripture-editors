@@ -229,6 +229,64 @@ describe("removeCharacterMarker guards", () => {
   });
 });
 
+describe("replaceCharacterMarker guards", () => {
+  async function createReadonlyEditorRefForTesting(): Promise<RefObject<EditorRef | null>> {
+    const ref = createRef<EditorRef>();
+    await act(async () => {
+      render(<Editor ref={ref} defaultUsj={sampleUsj} options={{ isReadonly: true }} />);
+    });
+    if (!ref.current) throw new Error("EditorRef did not mount");
+    return ref;
+  }
+
+  it("throws in readonly mode", async () => {
+    const ref = await createReadonlyEditorRefForTesting();
+    const editor = ref.current;
+    if (!editor) throw new Error("Editor not mounted");
+
+    expect(() => editor.replaceCharacterMarker("bd")).toThrow(
+      "Cannot replace character marker in readonly mode",
+    );
+  });
+
+  it("throws for a para marker as the target", async () => {
+    const ref = await createEditorRefForTesting();
+    const editor = ref.current;
+    if (!editor) throw new Error("Editor not mounted");
+
+    // Stricter than insertMarker's isUsjMarkerSupported, which accepts "p".
+    expect(() => editor.replaceCharacterMarker("p")).toThrow("Unsupported character marker 'p'");
+  });
+
+  it("throws for an unknown target marker", async () => {
+    const ref = await createEditorRefForTesting();
+    const editor = ref.current;
+    if (!editor) throw new Error("Editor not mounted");
+
+    expect(() => editor.replaceCharacterMarker("zzz")).toThrow(
+      "Unsupported character marker 'zzz'",
+    );
+  });
+
+  it("throws for an unknown source marker", async () => {
+    const ref = await createEditorRefForTesting();
+    const editor = ref.current;
+    if (!editor) throw new Error("Editor not mounted");
+
+    expect(() => editor.replaceCharacterMarker("bd", "zzz")).toThrow(
+      "Unsupported character marker 'zzz'",
+    );
+  });
+
+  it("does not throw when there is no selection", async () => {
+    const ref = await createEditorRefForTesting();
+    const editor = ref.current;
+    if (!editor) throw new Error("Editor not mounted");
+
+    expect(() => editor.replaceCharacterMarker("bd")).not.toThrow();
+  });
+});
+
 /** Grabs the underlying Lexical editor so tests can dispatch commands the public ref doesn't expose. */
 function GrabEditor({ onEditor }: { onEditor: (editor: LexicalEditor) => void }): null {
   const [editor] = useLexicalComposerContext();
@@ -399,5 +457,36 @@ describe("removeCharacterMarker through the editor ref", () => {
       throw new Error("para is not a USJ para node");
     expect(JSON.stringify(para.content)).not.toContain('"char"');
     expect(para.content?.join("")).toBe("the Lord said");
+  });
+});
+
+describe("replaceCharacterMarker through the editor ref", () => {
+  it("changes the marker in the exported USJ, preserving the content", async () => {
+    const ref = createRef<EditorRef>();
+    let editor: LexicalEditor | undefined;
+    await act(async () => {
+      render(
+        <Editor ref={ref} defaultUsj={usjWithCharMarker}>
+          <GrabEditor onEditor={(e) => (editor = e)} />
+        </Editor>,
+      );
+    });
+    await flushQueuedEvents();
+    if (!ref.current || !editor) throw new Error("EditorRef did not mount");
+    const editorRef = ref.current;
+
+    await selectCharNodeContent(editor);
+    await act(async () => {
+      editorRef.replaceCharacterMarker("bd", "nd");
+    });
+    await flushQueuedEvents();
+
+    const para = editorRef.getUsj()?.content[2];
+    if (typeof para !== "object" || !("content" in para))
+      throw new Error("para is not a USJ para node");
+    const serialized = JSON.stringify(para.content);
+    expect(serialized).toContain('"marker":"bd"');
+    expect(serialized).not.toContain('"marker":"nd"');
+    expect(serialized).toContain('"Lord"');
   });
 });
