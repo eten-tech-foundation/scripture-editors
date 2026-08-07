@@ -748,9 +748,10 @@ export function $replaceCharacterMarkerAtSelection(
 ): void {
   if (selection.isCollapsed()) {
     const charNode = $getMatchingCharNode(selection.anchor.getNode(), fromMarker);
-    // The already-`toMarker` check is what makes a same-marker replace mutate nothing at all.
-    // `CharNode.setMarker` would no-op on its own, but `$retargetSynthesizedMarkers` below would
-    // still call `getWritable()` on the marker children and dirty them.
+    // `CharNode.setMarker` already short-circuits on an unchanged marker, so this check isn't
+    // what keeps a same-marker replace from dirtying the CharNode itself. It guards
+    // `$changeCharNodeMarker`'s other work: rewriting the node's synthesized marker children has
+    // no such short-circuit of its own, and a same-marker request must not reach it.
     if (!charNode || charNode.getMarker() === toMarker) return;
     $changeCharNodeMarker(charNode, toMarker);
   }
