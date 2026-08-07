@@ -712,6 +712,7 @@ describe("$resolvePendingMarkers attribute-run re-pend guard", () => {
       pendingKeys: new Set<NodeKey>(),
       splitExpected: { current: false },
       rebuildAttempted: new Set<string>(),
+      isStructureProtected: false,
     };
   }
 
@@ -786,6 +787,7 @@ describe("$settlePendedDisplayOwner AttributeRunNode husk arm (dual-read)", () =
       pendingKeys: new Set<NodeKey>(),
       splitExpected: { current: false },
       rebuildAttempted: new Set<string>(),
+      isStructureProtected: false,
     };
   }
 

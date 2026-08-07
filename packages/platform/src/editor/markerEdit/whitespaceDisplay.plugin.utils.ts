@@ -14,6 +14,7 @@ import {
   LexicalClipboardData,
 } from "@lexical/clipboard";
 import {
+  $createTabNode,
   $getCharacterOffsets,
   $getSelection,
   $getState,
@@ -90,38 +91,98 @@ export function htmlPasteText(html: string): string {
 }
 
 /**
- * Standard-view PASTE normalization: a pasted data-NBSP must appear on screen as `~` (the
- * display form; serialization inverts `~` back to a real NBSP, so the DATA stays an NBSP).
- * Without this, a pasted NBSP landed as a raw NBSP — indistinguishable from a display-NBSP
- * (which represents a plain space inside a run) — so nothing showed on screen live, and
- * serialization then corrupted it into a plain space; the `~` only appeared after an app
- * reload re-ran the load-time mapping. Internal pastes (application/x-lexical-editor payload)
- * are already in display form and pass through untouched. For the rare NBSP-bearing external
- * paste this inserts the normalized PLAIN text (foreign `text/html` formatting is dropped —
- * preserving the NBSP data beats preserving formatting the sanitizer would mostly strip
- * anyway). The same NBSP-bearing check also covers `text/html` (word-processor copies carry the
- * space as a literal `&nbsp;`): some sources omit `text/plain` entirely, or their browser-
- * generated `text/plain` has already collapsed `&nbsp;` to a plain space, losing the marker
- * before it ever reaches this handler — so `text/html`, and the pasted text it decodes to
- * (`htmlPasteText` above), are checked too, falling back to that decoded text when it's the
- * only place the NBSP survives.
+ * Positional NBSP normalization for an external paste's resolved text. Standard view has no
+ * `text/html` fidelity carrier for foreign sources (`$handlePasteForStandardView` below drops
+ * formatting entirely and re-tokenizes the plain text), so a `text/html` payload's NBSPs are the
+ * only clue to which spaces were meaningful markup vs. plain content — and the browser's own
+ * clipboard round-trip (and a same-editor paste, whose private Lexical flavor does not survive
+ * `navigator.clipboard.read()` — see `$handlePasteForStandardView`'s doc comment) both carry a
+ * DISPLAY-NBSP (a Standard-view run space, or a char span's structural leading separator) as a
+ * real NBSP, indistinguishable at this point from a genuine data-NBSP (PT9's `~` glyph).
+ *
+ * The two are told apart POSITIONALLY, mirroring PT9's `PostprocessUsfm`: an NBSP immediately
+ * following a marker token (`\marker` or `\marker*`) is the required opener/closer separator —
+ * a display artifact — and settles to a plain space. A paste can also start EXACTLY at a char
+ * span's structural leading NBSP with no marker literal in front of it at all (a partial
+ * selection beginning mid-span), which reads as the same separator even with nothing to match
+ * against — so a leading NBSP normalizes the same way. Every other NBSP (including one sitting
+ * right before a closing marker, which no real Standard-view char span emits — there is no
+ * structural TRAILING separator, only a leading one) is treated as genuine data and preserved as
+ * `~`, the same display form typed data-NBSP takes, so serialization round-trips it to a real
+ * NBSP instead of silently collapsing it to a plain space.
  */
-export function $handlePasteForStandardView(event: ClipboardEvent | null | undefined): boolean {
+function $normalizePastedNbsp(text: string): string {
+  return text
+    .replace(/^\u00A0/, " ")
+    .replace(/(\\[a-z0-9-]+\*?)\u00A0/gi, "$1 ")
+    .replaceAll(NBSP, "~");
+}
+
+/**
+ * Inserts external paste text at the current selection, splitting on newlines into separate
+ * paragraphs and tabs into `TabNode`s — reproducing `@lexical/clipboard`'s own text/plain
+ * fallback (`$insertDataTransferForRichText`'s non-HTML branch) directly here instead of calling
+ * it, so a `text/html` payload never reaches Lexical's HTML import path (the whole point of
+ * `$handlePasteForStandardView` claiming external pastes: Standard view re-tokenizes markers
+ * from plain text, it does not import foreign markup).
+ */
+function $insertPastedText(text: string): void {
+  const parts = text.split(/(\r?\n|\t)/);
+  if (parts[parts.length - 1] === "") parts.pop();
+  for (const part of parts) {
+    const selection = $getSelection();
+    if (!$isRangeSelection(selection)) return;
+    if (part === "\n" || part === "\r\n") selection.insertParagraph();
+    else if (part === "\t") selection.insertNodes([$createTabNode()]);
+    else selection.insertText(part);
+  }
+}
+
+/**
+ * Standard-view PASTE normalization: every external paste (no same-namespace
+ * `application/x-lexical-editor` payload) is routed through the plain-text USFM carrier instead
+ * of Lexical's HTML import — Standard view has markers as real text, so re-tokenizing pasted
+ * text is the SAME mechanism that recognizes typed markers, and it is the only carrier that
+ * survives `navigator.clipboard.read()` at all: Chromium's async clipboard read exposes only the
+ * standard MIME types, so the private Lexical flavor written on copy does not come back on a
+ * real Ctrl+V — even a same-editor paste of the editor's own copy rides `text/html`/`text/plain`
+ * like any other source (`pasteSelection`, `clipboard.utils.ts`). Previously this only claimed
+ * NBSP-bearing pastes and inserted the text with a BLANKET NBSP→`~` mapping; live repro
+ * (2026-08-07) showed that corrupts a same-editor paste of its own copy — every display-NBSP
+ * (the separator after `\f`/`\fr`/`\ft`) became a literal `~`, turning recognized markers into
+ * unknown-marker soup — and a browser-hop `\nd …\nd*` paste came back with an unmatched closer.
+ * `$normalizePastedNbsp` above replaces that blanket mapping with the positional rule.
+ *
+ * Declines (returns `false`, lets Lexical's own paste handling run) when: the payload carries a
+ * same-namespace Lexical flavor (the sync `ClipboardEvent` path — a null-payload dispatch or a
+ * live native paste event that still has it — keeps the exact node-tree fast path); the document
+ * is structure-protected (`StructureProtectionPlugin` must sanitize the HTML payload instead —
+ * this handler runs at the same `COMMAND_PRIORITY_HIGH` but registers earlier, so without this
+ * check it would claim the paste first and starve that sanitizer); or no text can be resolved.
+ */
+export function $handlePasteForStandardView(
+  event: ClipboardEvent | null | undefined,
+  isStructureProtected = false,
+  armSplitExpected: () => void = () => undefined,
+): boolean {
   if (!event || !("clipboardData" in event) || !event.clipboardData) return false;
   if (event.clipboardData.getData("application/x-lexical-editor")) return false;
+  if (isStructureProtected) return false;
   const plain = event.clipboardData.getData("text/plain");
   const html = event.clipboardData.getData("text/html");
-  const htmlText = html ? htmlPasteText(html) : "";
-  const text = plain.includes(NBSP)
-    ? plain
-    : html.includes(NBSP) || htmlText.includes(NBSP)
-      ? htmlText
-      : undefined;
+  const text = plain || (html ? htmlPasteText(html) : "");
   if (!text) return false;
   const selection = $getSelection();
   if (!$isRangeSelection(selection)) return false;
   event.preventDefault();
-  selection.insertText(text.replaceAll(NBSP, "~"));
+  const normalized = $normalizePastedNbsp(text);
+  // @lexical/clipboard's own text/plain handling calls `selection.insertParagraph()` directly
+  // per newline (never INSERT_PARAGRAPH_COMMAND), so the engine's INSERT_PARAGRAPH_COMMAND
+  // handler can't arm `splitExpected` for it, and the LOW-priority PASTE_COMMAND handler that
+  // used to arm it for every paste never runs once this HIGH-priority handler claims the
+  // command — so it must be armed here, before inserting, for any paste that will split.
+  if (/\r?\n/.test(normalized)) armSplitExpected();
+  $insertPastedText(normalized);
   return true;
 }
 

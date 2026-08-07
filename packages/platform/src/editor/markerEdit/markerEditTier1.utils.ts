@@ -52,6 +52,16 @@ export interface MarkerEditContext extends Tier2Context {
   pendingKeys: Set<NodeKey>;
   splitExpected: { current: boolean };
   /**
+   * Mirrors the host `Editor`'s `isStructureProtected` option. Read by
+   * `$handlePasteForStandardView` (whitespaceDisplay.plugin.utils.ts), which must decline a
+   * protected document's paste so `StructureProtectionPlugin`'s HTML sanitizer still governs it —
+   * both register at `COMMAND_PRIORITY_HIGH`, and the marker-edit engine mounts first, so without
+   * this check its unconditional external-paste claim would starve the sanitizer. Wiring, not
+   * engine state: refreshed every render alongside `viewOptions`/`getMarker`/`logger` rather than
+   * gating the registration effect, so toggling it doesn't tear down and reset the engine.
+   */
+  isStructureProtected: boolean;
+  /**
    * Literal text already submitted to `$requestTier2ForNode` this commit.
    * `$rebuildParas` is deterministic (the degradation property): a paragraph
    * whose rebuild still contains a fragment the tokenizer cannot resolve into anything new
