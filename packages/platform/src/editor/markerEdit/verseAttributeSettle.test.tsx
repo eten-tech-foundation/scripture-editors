@@ -532,14 +532,14 @@ describe("verse \\va/\\vp deletion settles (does not resurrect)", () => {
     //
     // Establishing the mixed shape (below) necessarily dirties the \va wrapper too (Lexical's
     // sibling list touches both neighbors of an insertion point), which independently pends the
-    // verse via the ALREADY-correct AttributeRunNode transform ($ownerOfAttributeRunWrapper,
-    // wrapper-aware since Task 13) — not the function under test here. The caret is parked on the
-    // loose \vp's value WITHOUT diverging it, so that construction commit's pend check
-    // ($hasCaretHeldVerseAttributeRun, which requires genuine divergence) stays false: mid-edit
-    // grace alone blocks the heal, the verse stays UNPENDED, and the mixed shape survives. Only
-    // the SEPARATE, later commit below — which removes just the loose \vp's value (dirtying only
-    // its own flanking glyphs, never the verse or the \va wrapper) — can explain a pend from there
-    // on, isolating $verseOfAttributeGlyph's own contribution.
+    // verse via the ALREADY-correct AttributeRunNode transform ($ownerOfAttributeRunWrapper) — not
+    // the function under test here. The caret is parked on the loose \vp's value WITHOUT diverging
+    // it, so that construction commit's pend check ($hasCaretHeldVerseAttributeRun, which requires
+    // genuine divergence) stays false: mid-edit grace alone blocks the heal, the verse stays
+    // UNPENDED, and the mixed shape survives. Only the SEPARATE, later commit below — which
+    // diverges the loose \vp's value IN PLACE and explicitly dirties its still-loose opener glyph,
+    // never touching the verse or the \va wrapper — can explain a pend from there on, isolating
+    // $verseOfAttributeGlyph's own contribution.
     const { editor } = await testEnvironmentWithSpacing(() => {
       const verse = $createVerseNode("1", getVisibleOpenMarkerText("v", "1"), undefined, "2", "3");
       $getRoot().append(

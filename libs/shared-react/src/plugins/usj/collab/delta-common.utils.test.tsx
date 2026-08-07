@@ -1340,21 +1340,20 @@ describe("apply coordinates (paragraph marker-prefix glyph and separator)", () =
 });
 
 /**
- * AttributeRunNode is registered via `baseTestEnvironment`'s `usjReactNodes` (Task 12). The
- * forward adaptor (usj-editor.adaptor.ts) does not build this shape yet (Task 14) — hand-built
- * here to pin the `$getNodeOTContribution` ancestor exclusion ahead of that flip.
+ * Hand-built directly (rather than via the forward adaptor) to pin the `$getNodeOTContribution`
+ * ancestor exclusion in isolation.
  *
- * DUAL-READ coordinate decision (see `delta-common.utils.ts`'s `$getNodeOTContribution` doc
- * comment): excluded ONLY in `"delta-doc"` coordinates, mirroring `editor-delta.adaptor.ts`'s ops
- * exclusion for the SAME bytes. `"apply"` coordinates deliberately keep counting a wrapped
- * piece's raw text length — `$applyUpdate` does not know about `AttributeRunNode` at all yet
- * (Task 14), so its traversals would treat the wrapper as an ordinary, un-special-cased
- * `ElementNode` (zero contribution of its own, descend into children) and count each child's raw
- * text length exactly as it already does for today's LOOSE run pieces: wrapping a run changes
- * NOTHING about what `$applyUpdate` would actually do to it. Excluding it in "apply" coordinates
- * here, ahead of `$applyUpdate` itself changing, would disagree with where `$applyUpdate` really
- * walks to — the same "apply" coordinates must equal `$applyUpdate`'s existing behavior"
- * principle the para-prefix-glyph/marker-trailing-space exclusion above already documents.
+ * Coordinate decision (see `delta-common.utils.ts`'s `$getNodeOTContribution` doc comment):
+ * excluded ONLY in `"delta-doc"` coordinates, mirroring `editor-delta.adaptor.ts`'s ops exclusion
+ * for the SAME bytes. `"apply"` coordinates deliberately keep counting a wrapped piece's raw text
+ * length — `$applyUpdate`'s own traversal functions do not special-case `AttributeRunNode` at
+ * all, so they treat the wrapper as an ordinary, un-special-cased `ElementNode` (zero contribution
+ * of its own, descend into children) and count each child's raw text length exactly as they
+ * already do for a LOOSE run's pieces: wrapping a run changes NOTHING about what `$applyUpdate`
+ * actually does to it. Excluding it in "apply" coordinates here, ahead of `$applyUpdate` itself
+ * changing, would disagree with where `$applyUpdate` really walks to — the same "apply"
+ * coordinates must equal `$applyUpdate`'s existing behavior" principle the para-prefix-glyph/
+ * marker-trailing-space exclusion above already documents.
  */
 describe("apply coordinates (AttributeRunNode wrapper pieces)", () => {
   let milestoneNode: LexicalNode | undefined;

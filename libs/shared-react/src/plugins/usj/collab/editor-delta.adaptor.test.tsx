@@ -155,10 +155,9 @@ describe("getEditorDelta", () => {
     ]);
   });
 
-  // AttributeRunNode is registered via `baseTestEnvironment`'s `usjReactNodes` (Task 12). The
-  // forward adaptor (usj-editor.adaptor.ts) does not build this shape yet (Task 14) — hand-built
-  // here to pin the ops exclusion ahead of that flip: byte-identical ops to the loose-shape test
-  // immediately above prove the wrapper contributes nothing extra and nothing is lost.
+  // Hand-built directly (rather than via the forward adaptor) to pin the ops exclusion in
+  // isolation: byte-identical ops to the loose-shape test immediately above prove the wrapper
+  // contributes nothing extra and nothing is lost.
   it("excludes a verse's \\va/\\vp display runs from canonical ops when wrapped in AttributeRunNode (dual-read)", async () => {
     const ops = await getOpsFor(() => {
       const verse = $createVerseNode("1", "\\v 1 ", undefined, "2", "1b");

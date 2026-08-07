@@ -1,7 +1,6 @@
 import { $createAttributeRunNode, AttributeRunNode } from "./AttributeRunNode.js";
 import { $createCharNode, CharNode } from "./CharNode.js";
 import { $ownerOfDestroyedRunPiece } from "./displayRunDeletion.utils.js";
-import { usjBaseNodes } from "./index.js";
 import { $createMilestoneNode, MilestoneNode } from "./MilestoneNode.js";
 import { NBSP } from "./node-constants.js";
 import { getEditableCallerText } from "./node.utils.js";
@@ -264,11 +263,9 @@ describe("$ownerOfDestroyedRunPiece", () => {
     });
   });
 
-  // AttributeRunNode is registered in usjReactNodes only (Task 12) — headless tests here must
-  // pass it explicitly to createBasicTestEnvironment.
   describe("AttributeRunNode wrapper (dual-read)", () => {
     it("classifies a destroyed milestone wrapper as owned by the preceding MilestoneNode", () => {
-      const { editor } = createBasicTestEnvironment([...usjBaseNodes, AttributeRunNode]);
+      const { editor } = createBasicTestEnvironment();
       let milestone!: MilestoneNode;
       let wrapper!: AttributeRunNode;
       editor.update(
@@ -290,7 +287,7 @@ describe("$ownerOfDestroyedRunPiece", () => {
     });
 
     it("classifies a destroyed piece whose PREV-STATE PARENT is a milestone wrapper as that wrapper's owner", () => {
-      const { editor } = createBasicTestEnvironment([...usjBaseNodes, AttributeRunNode]);
+      const { editor } = createBasicTestEnvironment();
       let milestone!: MilestoneNode;
       let attributeText!: TextNode;
       editor.update(
@@ -316,7 +313,7 @@ describe("$ownerOfDestroyedRunPiece", () => {
     });
 
     it("classifies a destroyed verse wrapper as owned by the preceding VerseNode", () => {
-      const { editor } = createBasicTestEnvironment([...usjBaseNodes, AttributeRunNode]);
+      const { editor } = createBasicTestEnvironment();
       let verse!: VerseNode;
       let vaWrapper!: AttributeRunNode;
       editor.update(
@@ -338,7 +335,7 @@ describe("$ownerOfDestroyedRunPiece", () => {
       // Mixed-shape tree: \va is wrapped, \vp is a SEPARATE wrapper directly after it — mirrors
       // AttributeRunNode.ts's documented chaining (a \vp wrapper follows the \va wrapper, not the
       // verse directly) one level up from the loose-pieces chaining pin in this file already.
-      const { editor } = createBasicTestEnvironment([...usjBaseNodes, AttributeRunNode]);
+      const { editor } = createBasicTestEnvironment();
       let verse!: VerseNode;
       let vpWrapper!: AttributeRunNode;
       editor.update(
@@ -359,7 +356,7 @@ describe("$ownerOfDestroyedRunPiece", () => {
     });
 
     it("classifies a destroyed piece whose PREV-STATE PARENT is a \\va wrapper as that wrapper's owner", () => {
-      const { editor } = createBasicTestEnvironment([...usjBaseNodes, AttributeRunNode]);
+      const { editor } = createBasicTestEnvironment();
       let verse!: VerseNode;
       let vaValue!: TextNode;
       editor.update(
@@ -385,7 +382,7 @@ describe("$ownerOfDestroyedRunPiece", () => {
       // Mid-migration mixed shape: \va already wrapped, \vp still loose (riding directly after
       // the \va wrapper). $runChainOwner's walk-back from the loose \vp piece must cross the
       // WHOLE \va wrapper in one step to reach the verse.
-      const { editor } = createBasicTestEnvironment([...usjBaseNodes, AttributeRunNode]);
+      const { editor } = createBasicTestEnvironment();
       let verse!: VerseNode;
       let vpOpen!: LexicalNode;
       editor.update(
@@ -410,7 +407,7 @@ describe("$ownerOfDestroyedRunPiece", () => {
     });
 
     it("returns undefined for a destroyed wrapper with no owner before it", () => {
-      const { editor } = createBasicTestEnvironment([...usjBaseNodes, AttributeRunNode]);
+      const { editor } = createBasicTestEnvironment();
       let wrapper!: AttributeRunNode;
       editor.update(
         () => {

@@ -1210,8 +1210,6 @@ describe("milestones re-tokenize", () => {
   });
 });
 
-// AttributeRunNode is registered in usjReactNodes only — headless tests here must pass it
-// explicitly to createBasicTestEnvironment (already done via `...usjReactNodes` below).
 describe("$buildParaFragment: wrapped run vs. loose equivalent (byte-for-byte)", () => {
   it("produces byte-identical fragment text for a wrapped verse va+vp run and a wrapped milestone run, each against its own loose equivalent", () => {
     const { editor } = createBasicTestEnvironment([TypedMarkNode, ...usjReactNodes]);
@@ -1460,12 +1458,11 @@ describe("verses with \\va/\\vp display runs", () => {
   });
 
   it("no-edit rebuild of a pubnumber-only verse (no \\va at all) is a fixed point — a lone \\vp wrapper with nothing before it", () => {
-    // Carry-forward from Task 13's review: $verseAttributeRun's per-marker loop used to stop
-    // scanning entirely the moment the FIRST marker (\va) found nothing there at all, so a lone
-    // \vp wrapper riding directly after the verse — a real, permanent shape for a pubnumber-only
-    // verse (no altnumber), not just mid-edit debris — was left out of the run collector's
-    // result. Fixed by trying each marker independently, so \vp is found at the SAME position
-    // \va would have occupied.
+    // $verseAttributeRun's per-marker loop used to stop scanning entirely the moment the FIRST
+    // marker (\va) found nothing there at all, so a lone \vp wrapper riding directly after the
+    // verse — a real, permanent shape for a pubnumber-only verse (no altnumber), not just mid-edit
+    // debris — was left out of the run collector's result. Fixed by trying each marker
+    // independently, so \vp is found at the SAME position \va would have occupied.
     const editor = loadEditor(
       usjFromUsx(`<verse number="1" style="v" pubnumber="1b" />text after`),
     );
@@ -1490,11 +1487,12 @@ describe("verses with \\va/\\vp display runs", () => {
   });
 
   it("a sentinel verse (unknownAttributes) with only a \\vp wrapper (no \\va) is a fixed point — the lone \\vp wrapper absorbs into the verse's own sentinel", () => {
-    // The severe half of the same carry-forward: for a SENTINEL verse (unknownAttributes forces
-    // atomicity), the pre-fix collector bug excluded the lone \vp wrapper from the preserved
-    // sentinel bundle entirely — its bytes leaked into the fragment as ordinary re-tokenizable
-    // content directly after the verse's own opaque placeholder, with no live verse there for the
-    // tokenizer's attrCapture to fold onto, corrupting what should be a no-op rebuild.
+    // The severe case the same collector fix (above) covers: for a SENTINEL verse
+    // (unknownAttributes forces atomicity), the pre-fix collector bug excluded the lone \vp
+    // wrapper from the preserved sentinel bundle entirely — its bytes leaked into the fragment as
+    // ordinary re-tokenizable content directly after the verse's own opaque placeholder, with no
+    // live verse there for the tokenizer's attrCapture to fold onto, corrupting what should be a
+    // no-op rebuild.
     const editor = loadEditor(
       usjFromUsx(`<verse number="1" style="v" pubnumber="1b" />text after`),
     );
@@ -1521,7 +1519,7 @@ describe("verses with \\va/\\vp display runs", () => {
 
 describe("verse \\va/\\vp runs wrapped in AttributeRunNode (dual-read)", () => {
   /** Builds `[para-prefix]<verse><AttributeRunNode "va">[triplet]<AttributeRunNode "vp">[triplet]text`
-   * and returns the editor. Both markers wrapped — the fully-migrated (post-Task-14) shape. */
+   * and returns the editor. Both markers wrapped — the shape the adaptor always builds now. */
   function loadWrappedVerseEditor() {
     const { editor } = createBasicTestEnvironment([TypedMarkNode, ...usjReactNodes]);
     editor.update(

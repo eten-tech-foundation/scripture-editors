@@ -531,12 +531,13 @@ export function MarkerEditPlugin({
       }),
       // A piece INSIDE an AttributeRunNode wrapper being edited or removed dirties the
       // WRAPPER (an ElementNode whose children changed), not necessarily its owner — the wrapper
-      // counterpart of the MarkerNode transform's glyph-driven re-sync above (which the wrapper
-      // shape bypasses, since a wrapped glyph is no longer a bare sibling for
+      // counterpart of the MarkerNode transform's glyph-driven re-sync above (which a wrapped
+      // glyph bypasses, since it is no longer a bare sibling for
       // $verseOfAttributeGlyph/$milestoneOfOpeningGlyph to find). Re-drive the OWNER's own
       // sync/pend, keyed on the wrapper's runKind, so a run-only edit still settles on caret
       // departure instead of silently resurrecting from the owner's still-set state. The adaptor
-      // does not build this shape yet, so this transform never fires in the live app today.
+      // builds every editable-mode run wrapped, so this is the ordinary live path for a
+      // wrapped-piece edit, not a dormant one.
       editor.registerNodeTransform(AttributeRunNode, (node) => {
         if (editor.isComposing()) return;
         const owner = $ownerOfAttributeRunWrapper(node);
@@ -559,28 +560,35 @@ export function MarkerEditPlugin({
         $textNodeTier2Transform(node, context);
       }),
       // Plain TextNodes can't emit a DOM class from node state the way
-      // ImmutableTypedTextNode does in createDOM(), so milestone attribute runs (`|sid="…"`,
-      // textType "attribute") render without the `.attribute` dim-until-hover styling that
-      // PT9 applies. DOM-only decoration from OUTSIDE the update cycle reconciles it post-render
-      // — no editor.update here, since mutating state from inside a mutation listener risks a
-      // cascading update loop. skipInitialization: false so nodes already in the initial editor
-      // state (not just later edits) get the class too.
+      // ImmutableTypedTextNode does in createDOM(), so a char span's own `|…` attribute run
+      // (textType "attribute") renders without the `.attribute` dim-until-hover styling that PT9
+      // applies. DOM-only decoration from OUTSIDE the update cycle reconciles it post-render — no
+      // editor.update here, since mutating state from inside a mutation listener risks a cascading
+      // update loop. skipInitialization: false so nodes already in the initial editor state (not
+      // just later edits) get the class too.
       //
-      // A verse's `\va`/`\vp` display value additionally gets its marker's OWN stylesheet class
-      // (`usfm_va`/`usfm_vp` — the same class CharNode.createDOM puts on a STANDALONE `\va*`
-      // char span), so the folded and standalone forms render identically: PT9 shows `\va 2\va*`
-      // with the value in va's green-superscript style and the glyphs in the ordinary marker-gray
-      // (the glyphs already get that via their `.opening`/`.closing` classes — untouched here).
-      // Detected the same way the run's own pieces are found (attributeDisplay.utils.ts): the
-      // value's immediately preceding sibling is the run's opening glyph. Scoped to va/vp only —
-      // the only attribute markers with a folded display surface today (ca/cp are never
-      // displayed on a chapter; cat's note context has no display run either). The sibling shape
-      // alone is NOT sufficient: a STANDALONE `\va |lemma="…"\va*` char span with no content text
-      // puts its own `|…` attribute run directly after its own opening `\va` glyph too. The two
-      // forms differ in the PARENT — a verse triplet's value rides in the PARAGRAPH (a VerseNode
-      // is a TextNode, so its run is a following sibling), while a char span's own run lives
-      // INSIDE the CharNode (which already carries usfm_va itself from createDOM) — so a run
-      // whose parent is a CharNode is never a verse triplet's value and keeps plain `.attribute`.
+      // A value riding INSIDE an AttributeRunNode wrapper (a verse's \va/\vp value, or a
+      // milestone's attribute text) is styled entirely by the WRAPPER's own DOM class
+      // (AttributeRunNode.createDOM: "attribute-run" always — dim, matching plain `.attribute` —
+      // plus "usfm_va"/"usfm_vp" for those two runKinds, PT9's green/blue superscript). `color`
+      // and `font-size` are both inherited properties, so they cascade from the wrapper down to
+      // its children for free; adding a class DIRECTLY to the value here would fight that
+      // inheritance rather than add to it — a rule that targets an element directly always wins
+      // over an inherited value, no matter how much lower its own specificity is than the
+      // ancestor's rule, so a wrapped value that ALSO carried its own `.attribute`/`usfm_va` class
+      // silently reverted a verse's green/blue value back to plain dim gray, and doubled the
+      // wrapper's own font-size/vertical-align on top of an identical direct copy of the same
+      // rule (this is the shape the mutation listener used to build BEFORE wrapping landed, kept
+      // unintentionally after — the wrapper's own class was always meant to be the run's ONLY
+      // styling source). Skip any value whose parent is a wrapper entirely; only a genuinely
+      // UNWRAPPED value still needs its own class here — a char span's own run, which never gets
+      // a wrapper at all (a leaf CharNode's attribute run lives inside it as ordinary children,
+      // per AttributeRunNode.ts), or a verse/milestone value the heal-forward sync has not yet
+      // wrapped because the caret currently holds its site (mid-edit grace defers the wrap the
+      // same way it defers a content fix — attributeDisplay.utils.ts) — for that still-loose
+      // shape, the sibling-adjacency check below (mirroring how the run's own pieces are found,
+      // attributeDisplay.utils.ts) still applies the marker's own `usfm_va`/`usfm_vp` class
+      // directly, exactly as it did before any wrapper existed.
       editor.registerMutationListener(
         TextNode,
         (mutations) => {
@@ -589,6 +597,7 @@ export function MarkerEditPlugin({
               if (mutation === "destroyed") continue;
               const node = $getNodeByKey<TextNode>(key);
               if (!node || $getState(node, textTypeState) !== "attribute") continue;
+              if ($isAttributeRunNode(node.getParent())) continue;
               const element = editor.getElementByKey(key);
               element?.classList.add("attribute");
               const previous = node.getPreviousSibling();

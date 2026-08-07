@@ -1,11 +1,18 @@
-import { testEnvironment } from "./markerEdit.test-helpers";
+import {
+  $appendVerseAttributeRun,
+  requireDefined,
+  testEnvironment,
+} from "./markerEdit.test-helpers";
 import { act } from "@testing-library/react";
-import { $createTextNode, $getRoot, $setState, TextNode } from "lexical";
+import { $createTextNode, $getRoot, $isTextNode, $setState, TextNode } from "lexical";
 import {
   $createCharNode,
   $createMarkerNode,
   $createParaNode,
   $createVerseNode,
+  $isAttributeRunNode,
+  $isParaNode,
+  $isVerseNode,
   getVisibleOpenMarkerText,
   NBSP,
   textTypeState,
@@ -79,62 +86,66 @@ describe("attribute text styling in editable mode", () => {
 // folded run must carry the same `usfm_va`/`usfm_vp` class a STANDALONE `\va`/`\vp` char span gets
 // from CharNode.createDOM (see CharNode.test.ts's "preserves data-marker and usfm_* class" pin for
 // the standalone side), not just the generic `.attribute` dim styling every attribute run gets.
-describe("verse \\va/\\vp display values carry their marker's own stylesheet class", () => {
-  it("adds usfm_va (in addition to .attribute) to a \\va display value", async () => {
-    let value: TextNode;
+// The class lands on the WRAPPER (AttributeRunNode.createDOM), never the value directly: `color`
+// and `font-size` are both inherited properties, so the wrapper's own class reaches the value by
+// CSS cascade alone — classing the value directly as well would override that inheritance instead
+// of adding to it (see MarkerEditPlugin.tsx's mutation-listener comment for the full reasoning).
+describe("verse \\va/\\vp display values carry their marker's own stylesheet class (via the wrapper)", () => {
+  it("adds usfm_va (in addition to .attribute-run) to the \\va wrapper, not the value directly", async () => {
+    let verse: ReturnType<typeof $createVerseNode>;
     const { editor } = await testEnvironment(() => {
-      const verse = $createVerseNode("1", getVisibleOpenMarkerText("v", "1"), undefined, "2");
-      value = $createTextNode(`${NBSP}2`);
-      $setState(value, textTypeState, "attribute");
+      verse = $createVerseNode("1", getVisibleOpenMarkerText("v", "1"), undefined, "2");
       const para = $createParaNode("p");
       $getRoot().append(
         para.append(
           $createMarkerNode("p"),
           $createTextNode(NBSP),
           verse,
-          $createMarkerNode("va"),
-          value,
-          $createMarkerNode("va", "closing"),
           $createTextNode("In the beginning"),
         ),
       );
+      $appendVerseAttributeRun(verse, "va", "2");
     });
     editor.getEditorState().read(() => {
-      const dom = editor.getElementByKey(value.getKey());
-      expect(dom?.classList.contains("attribute")).toBe(true);
-      expect(dom?.classList.contains("usfm_va")).toBe(true);
+      const wrapper = verse.getNextSibling();
+      if (!$isAttributeRunNode(wrapper)) throw new Error("\\va wrapper missing");
+      const wrapperDom = editor.getElementByKey(wrapper.getKey());
+      expect(wrapperDom?.classList.contains("attribute-run")).toBe(true);
+      expect(wrapperDom?.classList.contains("usfm_va")).toBe(true);
+      const value = wrapper.getChildAtIndex(1);
+      if (!$isTextNode(value)) throw new Error("\\va value missing");
+      const valueDom = editor.getElementByKey(value.getKey());
+      expect(valueDom?.classList.contains("attribute")).toBe(false);
+      expect(valueDom?.classList.contains("usfm_va")).toBe(false);
     });
   });
 
-  it("adds usfm_vp (in addition to .attribute) to a \\vp display value", async () => {
-    let value: TextNode;
+  it("adds usfm_vp (in addition to .attribute-run) to the \\vp wrapper, not the value directly", async () => {
+    let verse: ReturnType<typeof $createVerseNode>;
     const { editor } = await testEnvironment(() => {
-      const verse = $createVerseNode(
-        "1",
-        getVisibleOpenMarkerText("v", "1"),
-        undefined,
-        undefined,
-        "1b",
-      );
-      value = $createTextNode(`${NBSP}1b`);
-      $setState(value, textTypeState, "attribute");
+      verse = $createVerseNode("1", getVisibleOpenMarkerText("v", "1"), undefined, undefined, "1b");
       const para = $createParaNode("p");
       $getRoot().append(
         para.append(
           $createMarkerNode("p"),
           $createTextNode(NBSP),
           verse,
-          $createMarkerNode("vp"),
-          value,
-          $createMarkerNode("vp", "closing"),
           $createTextNode("In the beginning"),
         ),
       );
+      $appendVerseAttributeRun(verse, "vp", "1b");
     });
     editor.getEditorState().read(() => {
-      const dom = editor.getElementByKey(value.getKey());
-      expect(dom?.classList.contains("attribute")).toBe(true);
-      expect(dom?.classList.contains("usfm_vp")).toBe(true);
+      const wrapper = verse.getNextSibling();
+      if (!$isAttributeRunNode(wrapper)) throw new Error("\\vp wrapper missing");
+      const wrapperDom = editor.getElementByKey(wrapper.getKey());
+      expect(wrapperDom?.classList.contains("attribute-run")).toBe(true);
+      expect(wrapperDom?.classList.contains("usfm_vp")).toBe(true);
+      const value = wrapper.getChildAtIndex(1);
+      if (!$isTextNode(value)) throw new Error("\\vp value missing");
+      const valueDom = editor.getElementByKey(value.getKey());
+      expect(valueDom?.classList.contains("attribute")).toBe(false);
+      expect(valueDom?.classList.contains("usfm_vp")).toBe(false);
     });
   });
 
@@ -164,6 +175,58 @@ describe("verse \\va/\\vp display values carry their marker's own stylesheet cla
       expect(dom?.classList.contains("usfm_va")).toBe(false);
       expect(dom?.classList.contains("usfm_vp")).toBe(false);
       expect(dom?.classList.contains("usfm_w")).toBe(false);
+    });
+  });
+
+  it("still resolves to the wrapper's class when the run is built directly via the wrapped-shape helper (not just auto-healed from bare)", async () => {
+    // Same guarantee as the two tests above, exercised against a run built the OTHER way a wrapped
+    // triplet reaches this listener: constructed already-wrapped ($appendVerseAttributeRun, the
+    // adaptor's own output shape) rather than healed forward from a bare verse at mount.
+    const { editor } = await testEnvironment(() => {
+      const verse = $createVerseNode("1", getVisibleOpenMarkerText("v", "1"), undefined, "2", "1b");
+      const para = $createParaNode("p");
+      $getRoot().append(
+        para.append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          verse,
+          $createTextNode("In the beginning"),
+        ),
+      );
+      $appendVerseAttributeRun(verse, "va", "2");
+      $appendVerseAttributeRun(verse, "vp", "1b");
+    });
+
+    editor.getEditorState().read(() => {
+      const verse = requireDefined(
+        $getRoot().getChildren().filter($isParaNode)[0].getChildren().find($isVerseNode),
+        "verse missing",
+      );
+      const vaWrapper = verse.getNextSibling();
+      if (!$isAttributeRunNode(vaWrapper)) throw new Error("\\va wrapper missing");
+      const vaValue = vaWrapper.getChildAtIndex(1);
+      if (!$isTextNode(vaValue)) throw new Error("\\va value missing");
+      const vpWrapper = vaWrapper.getNextSibling();
+      if (!$isAttributeRunNode(vpWrapper)) throw new Error("\\vp wrapper missing");
+      const vpValue = vpWrapper.getChildAtIndex(1);
+      if (!$isTextNode(vpValue)) throw new Error("\\vp value missing");
+
+      // The wrapper itself carries the classes (via createDOM, not this listener).
+      const vaWrapperDom = editor.getElementByKey(vaWrapper.getKey());
+      expect(vaWrapperDom?.classList.contains("attribute-run")).toBe(true);
+      expect(vaWrapperDom?.classList.contains("usfm_va")).toBe(true);
+      const vpWrapperDom = editor.getElementByKey(vpWrapper.getKey());
+      expect(vpWrapperDom?.classList.contains("attribute-run")).toBe(true);
+      expect(vpWrapperDom?.classList.contains("usfm_vp")).toBe(true);
+
+      // The value INSIDE each wrapper gets NEITHER class directly from the listener — it relies
+      // entirely on inheriting the wrapper's own styling.
+      const vaValueDom = editor.getElementByKey(vaValue.getKey());
+      expect(vaValueDom?.classList.contains("attribute")).toBe(false);
+      expect(vaValueDom?.classList.contains("usfm_va")).toBe(false);
+      const vpValueDom = editor.getElementByKey(vpValue.getKey());
+      expect(vpValueDom?.classList.contains("attribute")).toBe(false);
+      expect(vpValueDom?.classList.contains("usfm_vp")).toBe(false);
     });
   });
 
