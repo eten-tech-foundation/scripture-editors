@@ -172,6 +172,11 @@ export interface EditorRef {
    * selected. Refusing keeps the guarantee that replacement never alters unselected text.
    *
    * A replaced marker that ends up matching an adjacent sibling's is merged into it automatically.
+   * That merge is clean in the default marker mode. In the marker-visible modes (`"editable"` and
+   * `"visible"`), the merge can leave each side's synthesized marker text sitting side by side in
+   * the interior of the merged node (e.g. `\bd Lord\bd*\bd God\bd*` on screen instead of
+   * `\bd Lord God\bd*`). That stray interior marker text is excluded from USJ export and
+   * self-corrects the next time the document is loaded from USJ.
    *
    * @param toMarker - The USFM character marker to change to, e.g. `"nd"`, `"wj"`.
    * @param fromMarker - A USFM character marker to match. Omit to change the innermost character

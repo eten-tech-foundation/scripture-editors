@@ -1405,6 +1405,39 @@ describe("USJ Marker Action Utils", () => {
       });
     });
 
+    it("when the selection spans a sibling that already carries toMarker", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        charTextNode = $createTextNode("Lord");
+        tailTextNode = $createTextNode("God");
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createCharNode("nd").append(charTextNode),
+            $createCharNode("bd").append(tailTextNode),
+          ),
+        );
+      });
+      updateSelection(editor, charTextNode, 0, tailTextNode, 3);
+
+      sutReplaceCharacterMarker(editor, "bd", "nd");
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        expect(para.getTextContent()).toBe("LordGod");
+        const charNodes = para.getChildren().filter($isCharNode);
+        expect(charNodes.length).toBe(2);
+        const [changed, alreadyTarget] = charNodes;
+        // The \nd sibling changes to \bd...
+        expect(changed.getMarker()).toBe("bd");
+        expect(changed.getTextContent()).toBe("Lord");
+        // ...but the sibling already at \bd is left alone rather than re-dirtied. Re-checked per
+        // CharNode inside the loop, not just the pre-flight $hasMatchingCharNode guard, because a
+        // selection can span one CharNode needing the change and one that already has it.
+        expect(alreadyTarget.getMarker()).toBe("bd");
+        expect(alreadyTarget.getTextContent()).toBe("God");
+      });
+    });
+
     it("changes the inner marker of a nested pair, leaving the outer intact", () => {
       const { editor } = createBasicTestEnvironment(nodes, () => {
         innerTextNode = $createTextNode("Lord");
@@ -1533,6 +1566,30 @@ describe("USJ Marker Action Utils", () => {
       });
     });
 
+    it("keeps the selection over the same characters after a change that splits the CharNode", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        charTextNode = $createTextNode("Lorem ipsum");
+        $getRoot().append($createParaNode("p").append($createCharNode("nd").append(charTextNode)));
+      });
+      // "Lo|rem ips|um" — strictly inside, unlike the fully-covered case above, so
+      // $splitCharNodeAroundTargets actually moves the uncovered text into sibling clones and the
+      // original charTextNode ends up in the middle (changed) clone rather than staying in place.
+      updateSelection(editor, charTextNode, 2, charTextNode, 9);
+
+      sutReplaceCharacterMarker(editor, "bd", "nd");
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        const middle = para.getChildAtIndex(1);
+        if (!$isCharNode(middle)) throw new Error("middle is not a CharNode");
+        const middleText = middle.getFirstChild();
+        if (!$isTextNode(middleText)) throw new Error("middleText is not a TextNode");
+        expect(middleText.getTextContent()).toBe("rem ips");
+        $expectSelectionToBe(middleText, 0, middleText, 7);
+      });
+    });
+
     it("retargets synthesized MarkerNode children in markerMode 'editable'", () => {
       let charTextNodeSize = 0;
       const { editor } = createBasicTestEnvironment(nodes, () => {
@@ -1635,6 +1692,75 @@ describe("USJ Marker Action Utils", () => {
         expect(charNode.getMarker()).toBe("bd");
         // Rewritten by guesswork it is not: an unrecognized marker text is left verbatim.
         expect(para.getTextContent()).toContain("\\nd|x-custom");
+      });
+    });
+
+    it("drops the closing marker instead of rewriting it when toMarker is a footnote marker", () => {
+      let charTextNodeSize = 0;
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        charTextNode = $createTextNode(NBSP + "Lord");
+        charTextNodeSize = charTextNode.getTextContentSize();
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createCharNode("nd").append(
+              $createMarkerNode("nd"),
+              charTextNode,
+              $createMarkerNode("nd", "closing"),
+            ),
+          ),
+        );
+      });
+      updateSelection(editor, charTextNode, 0, charTextNode, charTextNodeSize);
+
+      sutReplaceCharacterMarker(editor, "ft", "nd");
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        const charNode = para.getFirstChild();
+        if (!$isCharNode(charNode)) throw new Error("charNode is not a CharNode");
+        expect(charNode.getMarker()).toBe("ft");
+        // addClosingMarker never emits a closing marker for footnote/cross-reference markers, so
+        // the retargeted closing child is removed rather than rewritten to a `\ft*` the adaptor
+        // would never produce. Only the opening marker and the text remain.
+        expect(charNode.getChildren().length).toBe(2);
+        expect(charNode.getTextContent()).toContain(openingMarkerText("ft"));
+        expect(charNode.getTextContent()).not.toContain(closingMarkerText("ft"));
+      });
+    });
+
+    it("leaves a stale MarkerNode fragment alone when a selection splits it mid-marker", () => {
+      let openMarkerNode!: TextNode;
+      let closeMarkerNode!: TextNode;
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        charTextNode = $createTextNode("Lord");
+        openMarkerNode = $createMarkerNode("nd");
+        closeMarkerNode = $createMarkerNode("nd", "closing");
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createCharNode("nd").append(openMarkerNode, charTextNode, closeMarkerNode),
+          ),
+        );
+      });
+      // Anchored one character into the opening marker's own text ("\|nd"), not into the content —
+      // reaches handleTextNode -> splitText on the MarkerNode itself, leaving a fragment whose text
+      // no longer matches "nd"'s opening form even though its stored __marker is still "nd".
+      updateSelection(editor, openMarkerNode, 1, charTextNode, 4);
+
+      sutReplaceCharacterMarker(editor, "bd", "nd");
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        const charNode = para.getFirstChild();
+        if (!$isCharNode(charNode)) throw new Error("charNode is not a CharNode");
+        expect(charNode.getMarker()).toBe("bd");
+        // Guarded correctly, the split fragments ("\" and "nd") are left verbatim rather than each
+        // being expanded to a full opening marker, which would duplicate it (e.g. "\bd\bdLord").
+        // The stale, unretargeted opening text is a documented pre-existing limitation (splitting a
+        // MarkerNode mid-marker), not something this fix is responsible for; only the closing
+        // marker — untouched by the split — is correctly retargeted.
+        expect(para.getTextContent()).toBe(`\\ndLord${closingMarkerText("bd")}`);
       });
     });
   });

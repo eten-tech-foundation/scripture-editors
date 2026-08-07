@@ -496,10 +496,10 @@ export function $removeCharacterMarkerAtSelection(
  *
  * Returns `undefined` when nothing matches, which the caller treats as a no-op for that target
  * node. The walk is per-target, so a selection spanning a matching and a non-matching node still
- * acts on the matching one. Shared by removal and replacement. A `CharNode` nested inside a `NoteNode` is skipped: `$getTargetNode`
- * only recognizes note interiors one level deep (a leaf whose *immediate* parent is the
- * `NoteNode`), so a marker `CharNode` nested deeper inside a note — the common case — would
- * otherwise still be found and removed by this walk.
+ * acts on the matching one. Shared by removal and replacement. A `CharNode` nested inside a
+ * `NoteNode` is skipped: `$getTargetNode` only recognizes note interiors one level deep (a leaf
+ * whose *immediate* parent is the `NoteNode`), so a marker `CharNode` nested deeper inside a note
+ * — the common case — would otherwise still be found and removed by this walk.
  *
  * @param node - The node to walk up from.
  * @param marker - The marker to match, or `undefined` to take the innermost `CharNode`.
@@ -555,7 +555,10 @@ function $hasMatchingCharNode(
     if ($isSkippedByMarkerAction(node)) return false;
     if (!$isTextNode(node) && !($isElementNode(node) && node.isInline())) return false;
     const charNode = $getMatchingCharNode(node, marker);
-    return charNode !== undefined && charNode.getMarker() !== excludeMarker;
+    return (
+      charNode !== undefined &&
+      (excludeMarker === undefined || charNode.getMarker() !== excludeMarker)
+    );
   });
 }
 
@@ -840,13 +843,20 @@ function $changeCharNodeMarker(charNode: CharNode, toMarker: string): void {
  * text on screen.
  *
  * Retargets rather than strips, unlike `$removeCharNodeKeepingContent`: stripping would leave the
- * replaced span looking unmarked, which reads worse than stale.
+ * replaced span looking unmarked, which reads worse than stale. The one exception is the closing
+ * marker child when `toMarker` is a footnote or cross-reference marker: `addClosingMarker`
+ * (`usj-editor.adaptor.ts:697-699`) never emits a closing marker for those families, so a
+ * retargeted closing child is removed instead of rewritten to a form the adaptor would never
+ * produce (e.g. `\ft*`).
  *
  * The old marker is read from the node itself rather than taken from the caller's `fromMarker`,
  * which is optional and may be `undefined` when the innermost marker was targeted.
  *
- * An `ImmutableTypedTextNode` whose text is neither the opening nor the closing form is left
- * verbatim rather than rewritten by guesswork.
+ * A child whose text is neither the opening nor the closing form of the old marker is left
+ * verbatim rather than rewritten by guesswork. This applies to both synthesized child flavors: a
+ * `MarkerNode` is a `TextNode` in default (non-token) mode, so a selection anchored inside its
+ * visible text can `splitText` it into a fragment whose `__marker` is stale but whose text no
+ * longer matches — rewriting that verbatim would re-expand it to the wrong marker.
  *
  * @param charNode - The `CharNode` whose marker is about to change.
  * @param toMarker - The character marker to change to.
@@ -855,14 +865,26 @@ function $retargetSynthesizedMarkers(charNode: CharNode, toMarker: string): void
   const fromMarker = charNode.getMarker();
   const openingText = openingMarkerText(fromMarker);
   const closingText = closingMarkerText(fromMarker);
+  const dropsClosingMarker =
+    CharNode.isValidFootnoteMarker(toMarker) || CharNode.isValidCrossReferenceMarker(toMarker);
   charNode.getChildren().forEach((child) => {
+    // Gate on the node type first: only a synthesized marker child is ever a candidate for
+    // rewriting or removal here, regardless of what its text happens to contain.
+    if (!$isMarkerNode(child) && !$isVisibleMarkerNode(child)) return;
+
+    const text = child.getTextContent();
+    const isOpening = text === openingText;
+    const isClosing = !isOpening && text === closingText;
+    if (!isOpening && !isClosing) return;
+
+    if (isClosing && dropsClosingMarker) {
+      child.remove();
+      return;
+    }
     // MarkerNode.setMarker recomputes the node's text for us (MarkerNode.ts:54-61).
     if ($isMarkerNode(child)) child.setMarker(toMarker);
-    else if ($isVisibleMarkerNode(child)) {
-      const text = child.getTextContent();
-      if (text === openingText) child.setTextContent(openingMarkerText(toMarker));
-      else if (text === closingText) child.setTextContent(closingMarkerText(toMarker));
-    }
+    else
+      child.setTextContent(isOpening ? openingMarkerText(toMarker) : closingMarkerText(toMarker));
   });
 }
 
