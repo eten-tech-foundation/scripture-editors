@@ -78,7 +78,13 @@ function $textNodeTrailingSpaceTransform(node: TextNode): void {
     $isCharNode(nextSibling) ||
     $isTypedMarkNode(parent) ||
     $isTypedMarkNode(nextSibling) ||
-    $isUnknownNode(parent)
+    $isUnknownNode(parent) ||
+    // An adjacent TextNode is the same logical text run (IME composition and annotation-wrap
+    // splits leave runs as multiple nodes, e.g. a segmented composition node that Lexical
+    // won't merge). No structural space belongs inside a run — inserting one corrupts the
+    // word itself (#513, complex scripts worst). This also protects a space-only node from
+    // the placeholder cleanup below: between two text nodes it is real content.
+    $isTextNode(nextSibling)
   )
     return;
 
