@@ -8,6 +8,7 @@
  */
 import { MarkerEditPlugin } from "./MarkerEditPlugin";
 import {
+  $appendVerseAttributeRun,
   findOnlyNote,
   serializedState,
   testEnvironment,
@@ -35,7 +36,9 @@ import {
 import {
   $createMarkerNode,
   $createParaNode,
+  $createVerseNode,
   $isNoteNode,
+  getVisibleOpenMarkerText,
   NBSP,
   NoteNode,
   textTypeState,
@@ -326,6 +329,41 @@ describe("multi-paragraph selections", () => {
     const { event, getData } = copyEvent();
     await act(async () => editor.dispatchCommand(COPY_COMMAND, event));
     expect(getData("text/plain")).toBe("tail\n\\q1 two");
+  });
+});
+
+describe("AttributeRunNode traversal", () => {
+  // The wrapper contributes no bytes of its own (`usj-editor.adaptor.ts`'s `addVerseAttributeRun`
+  // wraps a verse's `\va`/`\vp` triplet in one `AttributeRunNode`, the same "run lives inside a
+  // container" shape a milestone's attribute run gets) — a selection spanning it must still carry
+  // the wrapped opening marker, NBSP-prefixed value, and closing marker, with no extra separator
+  // contributed by the wrapper itself, and the plain text on either side must not be disturbed.
+  it("copies a selection spanning a wrapped verse \\va attribute run transparently, byte-exact", async () => {
+    const { editor } = await testEnvironment(() => {
+      // The verse's own `altnumber` must match the manually-built display run below (mirroring
+      // `attributeClass.utils.test.tsx`'s working pattern for this same helper): without it, the
+      // marker-edit engine's pend/settle machinery (active even in plain `testEnvironment`,
+      // registered on every `AttributeRunNode` mutation) treats the just-built wrapper as an
+      // unbacked run and clears its children, since nothing here re-derives them from `altnumber`
+      // the way `TextSpacingPlugin`'s self-healing sync would.
+      const verse = $createVerseNode("1", getVisibleOpenMarkerText("v", "1"), undefined, "2");
+      $getRoot().append(
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          verse,
+          $createTextNode("In the beginning"),
+        ),
+      );
+      $appendVerseAttributeRun(verse, "va", "2");
+    });
+    await act(async () => editor.update($selectWholeDocument));
+    const { event, getData } = copyEvent();
+    await act(async () => editor.dispatchCommand(COPY_COMMAND, event));
+    // "\p " + "\v 1 " (the verse's own baked-in glyph+number+space) + the wrapped "\va 2\va*" run
+    // (opening glyph, NBSP-prefixed value inverted to a plain space, closing glyph — no bytes from
+    // the AttributeRunNode wrapper itself) + the surrounding "In the beginning" text, undisturbed.
+    expect(getData("text/plain")).toBe("\\p \\v 1 \\va 2\\va*In the beginning");
   });
 });
 
