@@ -33,6 +33,7 @@ import {
   $isMarkerNode,
   $isMilestoneNode,
   $isNoteNode,
+  $isParaMarkerPrefix,
   $isParaNode,
   $isUnknownNode,
   $isVerseNode,
@@ -596,6 +597,56 @@ function $appendNodesFragment(
   }
 }
 
+/** A paragraph-kind marker literal at the very start of a text run — the same terminated-marker
+ * shape `TERMINATED_MARKER_IN_TEXT_REGEX` (markerEditTier2Trigger.utils.ts) recognizes anywhere
+ * in a run, anchored here to the run's first character. */
+const LEADING_MARKER_LITERAL = /^\\\+?([\w-]+)(?:\*|[ \u00A0])/;
+
+/**
+ * "Own marker wins": when `para` already carries its own visible marker prefix (a real glyph, not
+ * the prefix-less shape a freshly split paragraph starts in) and the fragment text right after
+ * that glyph and its one-character separator is ITSELF a paragraph-kind marker literal — the
+ * shape a whole-paragraph copy (which includes the source paragraph's own `\p ` glyph, see
+ * `$selectionToUsfmText`) produces when pasted at an existing paragraph's content start — the
+ * host's now-redundant glyph+separator is dropped from `out` so the pasted/typed literal supplies
+ * the paragraph's only marker occurrence. Left as `out` unchanged (a no-op) whenever the check
+ * doesn't hold, including a paragraph still prefix-less (a fresh multi-line-paste split, which
+ * settles through a different route before any prefix is ever injected onto it — see
+ * `$paraMarkerDeletionTransform`, markerEditDeletion.utils.ts) or one with real content between
+ * its own glyph and any embedded marker.
+ *
+ * Operates on the ALREADY-BUILT fragment (offsets into `out.text`/`out.spans`) rather than
+ * pre-filtering which child nodes contribute, because the glyph's one-character trailing
+ * separator and the paragraph's first real content do not reliably land in separate nodes — a
+ * non-token-mode separator lets Lexical's own text-splice absorb an insertion landing at its
+ * boundary into the SAME node, so "the paragraph's content" is not always a cleanly, separately
+ * indexable child. Slicing the built text instead works identically either way: the glyph's own
+ * span (`out.spans[0]`, always the first contribution when a prefix is present) locates the
+ * boundary regardless of which node(s) the separator and content bytes actually live in.
+ */
+function $withoutRedundantOwnPrefix(
+  out: FragmentAccumulator,
+  para: ParaNode,
+  getMarkerFn: MarkerLookup,
+): FragmentAccumulator {
+  if (!$isParaMarkerPrefix(para.getFirstChild()) || out.spans.length === 0) return out;
+  const sliceAt = out.spans[0].end + 1; // the glyph, plus its one-character separator
+  const rest = out.text.slice(sliceAt);
+  const match = LEADING_MARKER_LITERAL.exec(rest);
+  if (!match || getMarkerFn(match[1])?.type !== MarkerType.Paragraph) return out;
+  return {
+    text: rest,
+    spans: out.spans
+      .filter((span) => span.end > sliceAt) // drop spans wholly inside the stripped prefix
+      .map((span) => ({
+        ...span,
+        start: Math.max(0, span.start - sliceAt),
+        end: span.end - sliceAt,
+      })),
+    sentinels: out.sentinels,
+  };
+}
+
 /**
  * Exported for two callers outside this module's own rebuild path. The read-only settle
  * (virtualSettle.utils.ts) builds the SAME fragment a mutating rebuild would, which is what makes
@@ -627,7 +678,7 @@ export function $buildParaFragment(
     if ($isUnknownNode(parent)) return undefined;
   const out: FragmentAccumulator = { text: "", spans: [], sentinels: [] };
   $appendChildrenFragment(para, out, getMarkerFn);
-  return out;
+  return $withoutRedundantOwnPrefix(out, para, getMarkerFn);
 }
 
 /** Replace each U+FFFC in the rebuilt tree with the next preserved node run. */

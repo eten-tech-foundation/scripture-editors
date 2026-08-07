@@ -407,22 +407,14 @@ describe("cut = copy + removeText", () => {
 });
 
 describe("copy → paste USJ round trip", () => {
-  // SKIPPED — paste-side dependency, not a copy-side bug: pasting the copied text (which starts
-  // with its own "\p " literal, since a whole-paragraph copy includes the paragraph's own marker)
-  // into an existing "\p" host re-tokenizes the note/verse/text content correctly — the assertion
-  // diff below is otherwise a byte-for-byte match — but leaves an extra EMPTY leading paragraph
-  // behind (the host's original, now-content-less "\p"), because Tier 2's rebuild splits the
-  // paragraph at the embedded "\p " marker instead of recognizing that the pasted text owns its
-  // own paragraph marker and should replace the host's. The paste-side "a line starting with a
-  // paragraph-marker literal owns its own marker, not the host's" handling only engages for
-  // MULTI-line pastes (`pastedText.includes("\n")`, `MarkerEditPlugin.tsx`'s in-note/multi-line
-  // paste claims); a single-line paste that itself starts with a paragraph marker falls straight
-  // through to `@lexical/clipboard`'s plain `insertText`, which has no such dedup. Whoever owns
-  // paste-side paragraph-prefix handling should treat this as a concrete case to cover (not just
-  // the already-verified multi-line one). Copy-side bytes are pinned exactly by the tests above and
-  // by the phantom-space/caller pins; this test is kept (not deleted) as the ground truth to
-  // re-enable once paste-side dedup covers this case.
-  it.skip("re-tokenizes a whole-paragraph copy back to the source USJ when pasted into a fresh editor", async () => {
+  // A whole-paragraph copy starts with its own "\p " literal (the paragraph's own marker rides
+  // along with a whole-block selection). Pasted at an existing "\p" host's content start, the
+  // fragment Tier 2 rebuilds from would otherwise carry BOTH the host's own glyph and the pasted
+  // literal's — two paragraph-marker occurrences with nothing between them, tokenizing into a
+  // stray empty leading paragraph (the host's, now with nothing to show for it) ahead of the real
+  // one. `$buildParaFragment`'s own-marker-wins rule (tier2Rebuild.utils.ts) drops the host's
+  // redundant glyph from the fragment in exactly this shape, closing that gap.
+  it("re-tokenizes a whole-paragraph copy back to the source USJ when pasted into a fresh editor", async () => {
     initializeDeserialize(undefined);
     const usj = noteUsj("+");
     const { editor: sourceEditor } = await renderUsjEditor(usj);
