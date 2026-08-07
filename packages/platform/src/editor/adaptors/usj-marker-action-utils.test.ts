@@ -63,20 +63,26 @@ function $defaultInitialEditorState() {
   );
 }
 
-/** Invokes the system under test inside a discrete update, the way `Editor.tsx` will. */
+/**
+ * Invokes the system under test inside a discrete update, the way `Editor.tsx` will.
+ *
+ * @returns whether a marker was removed, mirroring what `EditorRef.removeCharacterMarker` reports.
+ */
 function sutRemoveCharacterMarker(
   editor: LexicalEditor,
   marker?: string,
   viewOptions?: ViewOptions,
-) {
+): boolean {
+  let didRemove = false;
   editor.update(
     () => {
       const selection = $getSelection();
       if ($isRangeSelection(selection))
-        $removeCharacterMarkerAtSelection(selection, marker, viewOptions);
+        didRemove = $removeCharacterMarkerAtSelection(selection, marker, viewOptions);
     },
     { discrete: true },
   );
+  return didRemove;
 }
 
 describe("USJ Marker Action Utils", () => {
@@ -350,7 +356,7 @@ describe("USJ Marker Action Utils", () => {
       });
       updateSelection(editor, charTextNode, 2);
 
-      sutRemoveCharacterMarker(editor);
+      expect(sutRemoveCharacterMarker(editor)).toBe(true);
 
       editor.getEditorState().read(() => {
         const para = $getRoot().getFirstChild();
@@ -375,7 +381,7 @@ describe("USJ Marker Action Utils", () => {
       });
       updateSelection(editor, charTextNode, 0, charTextNode, 4);
 
-      sutRemoveCharacterMarker(editor, "wj");
+      expect(sutRemoveCharacterMarker(editor, "wj")).toBe(false);
 
       editor.getEditorState().read(() => {
         const para = $getRoot().getFirstChild();
@@ -406,15 +412,22 @@ describe("USJ Marker Action Utils", () => {
       // re-merges adjacent simple text nodes, so the split is not observable afterwards — but it
       // still marks nodes dirty, and that is what puts an entry on the undo stack and produces a
       // collab delta. A documented no-op must not do either.
+      // `dirtyElements` as well as `dirtyLeaves`: unwrapping or splitting a CharNode dirties an
+      // *element*, which a leaf-only count would miss entirely.
       let dirtyLeafCount = 0;
-      const unregisterUpdateListener = editor.registerUpdateListener(({ dirtyLeaves }) => {
-        dirtyLeafCount += dirtyLeaves.size;
-      });
+      let dirtyElementCount = 0;
+      const unregisterUpdateListener = editor.registerUpdateListener(
+        ({ dirtyLeaves, dirtyElements }) => {
+          dirtyLeafCount += dirtyLeaves.size;
+          dirtyElementCount += dirtyElements.size;
+        },
+      );
 
       sutRemoveCharacterMarker(editor, "wj");
       unregisterUpdateListener();
 
       expect(dirtyLeafCount).toBe(0);
+      expect(dirtyElementCount).toBe(0);
       editor.getEditorState().read(() => {
         const para = $getRoot().getFirstChild();
         if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
@@ -779,6 +792,53 @@ describe("USJ Marker Action Utils", () => {
         if (!$isCharNode(inner)) throw new Error("inner is not a CharNode");
         expect(inner.getMarker()).toBe("nd");
         expect(inner.getTextContent()).toBe("Lord");
+      });
+    });
+
+    it("dirties no node and leaves the selection alone when the removal is refused", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        innerTextNode = $createTextNode("Lord");
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createCharNode("wj").append(
+              $createTextNode("the "),
+              $createCharNode("nd").append(innerTextNode),
+              $createTextNode(" said"),
+            ),
+          ),
+        );
+      });
+      // Same partial-coverage-of-a-nested-marker shape as the test above, which asserts only the
+      // final tree. Lexical re-merges the split halves, so that tree looks identical whether or not
+      // the refuse path mutated on its way to refusing — this test covers that blind spot.
+      updateSelection(editor, innerTextNode, 0, innerTextNode, 2);
+
+      let dirtyLeafCount = 0;
+      let dirtyElementCount = 0;
+      const unregisterUpdateListener = editor.registerUpdateListener(
+        ({ dirtyLeaves, dirtyElements }) => {
+          dirtyLeafCount += dirtyLeaves.size;
+          dirtyElementCount += dirtyElements.size;
+        },
+      );
+
+      expect(sutRemoveCharacterMarker(editor, "wj")).toBe(false);
+      unregisterUpdateListener();
+
+      // A refused request is documented as a no-op, so it must not put an entry on the undo stack
+      // or produce a collab delta. `$hasRemovableCharNode` decides the refusal read-only, before
+      // the splitting pass, which is what keeps both counts at zero.
+      expect(dirtyLeafCount).toBe(0);
+      expect(dirtyElementCount).toBe(0);
+      editor.getEditorState().read(() => {
+        // The selection restore block must not run either — a no-op has no business moving the
+        // caller's selection off the range they chose.
+        const selection = $getSelection();
+        if (!$isRangeSelection(selection)) throw new Error("selection is not a range selection");
+        expect(selection.anchor.getNode().getKey()).toBe(innerTextNode.getKey());
+        expect(selection.anchor.offset).toBe(0);
+        expect(selection.focus.getNode().getKey()).toBe(innerTextNode.getKey());
+        expect(selection.focus.offset).toBe(2);
       });
     });
 

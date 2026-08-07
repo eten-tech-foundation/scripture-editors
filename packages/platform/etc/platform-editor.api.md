@@ -110,7 +110,7 @@ export interface EditorRef {
     pastePlainText(): void;
     redo(): void;
     removeAnnotation(type: string, id: string): void;
-    removeCharacterMarker(marker?: string): void;
+    removeCharacterMarker(marker?: string): boolean;
     replaceEmbedUpdate(embedNodeKey: string, insertEmbedOps: DeltaOp[]): void;
     selectNote(noteKeyOrIndex: string | number): void;
     setAnnotation(selection: AnnotationRange, type: string, id: string, callbacks?: {

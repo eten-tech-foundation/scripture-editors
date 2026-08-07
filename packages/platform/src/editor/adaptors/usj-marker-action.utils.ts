@@ -104,6 +104,11 @@ export function isUsjMarkerSupported(marker: string): boolean {
  * marker this project configures as valid, and which the adaptor therefore accepts on load, should
  * be removable too.
  *
+ * Stricter than `CharNode.isValidMarker` too: that list spreads in the footnote and
+ * cross-reference character markers (`"ft"`, `"xt"`, …), but those only ever occur inside a
+ * `NoteNode`, which `$getCharNodeToRemove` skips. Accepting them here would promise a removal that
+ * can never happen and then silently no-op, so they are rejected up front instead.
+ *
  * @param marker - The USFM marker to check.
  * @param extraValidMarkers - Extra character markers this project treats as valid.
  * @returns `true` if the marker is a character marker.
@@ -112,6 +117,8 @@ export function isCharacterMarkerSupported(
   marker: string,
   extraValidMarkers?: readonly string[],
 ): boolean {
+  if (CharNode.isValidFootnoteMarker(marker) || CharNode.isValidCrossReferenceMarker(marker))
+    return false;
   return CharNode.isValidMarker(marker, extraValidMarkers);
 }
 
@@ -390,17 +397,18 @@ function $moveLeadingSpaceToPreviousNode(node: LexicalNode, wrapper: LexicalNode
  * @param selection - The current range selection.
  * @param marker - The character marker to remove, or `undefined` for the innermost one.
  * @param viewOptions - View options, used to strip synthesized marker content.
+ * @returns `true` if a marker was removed, `false` if the request was a no-op.
  */
 export function $removeCharacterMarkerAtSelection(
   selection: RangeSelection,
   marker: string | undefined,
   viewOptions: ViewOptions | undefined,
-): void {
+): boolean {
   if (selection.isCollapsed()) {
     const anchorNode = selection.anchor.getNode();
     const anchorOffset = selection.anchor.offset;
     const charNode = $getCharNodeToRemove(anchorNode, marker);
-    if (!charNode) return;
+    if (!charNode) return false;
     const originalSize = $isTextNode(anchorNode) ? anchorNode.getTextContentSize() : 0;
     $removeCharNodeKeepingContent(charNode, viewOptions);
 
@@ -421,16 +429,16 @@ export function $removeCharacterMarkerAtSelection(
       if ($isRangeSelection(currentSelection))
         currentSelection.setTextNodeRange(anchorNode, newOffset, anchorNode, newOffset);
     }
-    return;
+    return true;
   }
 
   const nodes = selection.getNodes();
-  // Check there is something to remove before the loop below starts splitting text nodes, so a
-  // no-match request mutates nothing at all. See `$hasCharNodeToRemove`.
-  if (!$hasCharNodeToRemove(nodes, marker)) return;
-
   const isBackward = selection.isBackward();
   const [startOffset, endOffset] = getSelectionOffsets(selection);
+  // Check there is something removable before the loop below starts splitting text nodes, so a
+  // request that ends up a no-op mutates nothing at all. See `$hasRemovableCharNode`.
+  if (!$hasRemovableCharNode(nodes, marker, startOffset, endOffset)) return false;
+
   const targetNodes: TextNode[] = [];
   nodes.forEach((node, index) => {
     const targetNode = $getTargetNode(
@@ -442,20 +450,26 @@ export function $removeCharacterMarkerAtSelection(
     );
     if ($isTextNode(targetNode)) targetNodes.push(targetNode);
   });
-  if (targetNodes.length === 0) return;
+  if (targetNodes.length === 0) return false;
 
   // Belt-and-braces: no current path resolves two targetNodes to the same CharNode key, since
   // `$splitCharNodeAroundTargets` reads the whole `targetNodes` array and unwrapping detaches the
   // rest. Kept in case a future change reintroduces one.
   const handledCharNodeKeys = new Set<string>();
+  let didRemove = false;
   targetNodes.forEach((targetNode) => {
     const charNode = $getCharNodeToRemove(targetNode, marker);
     if (!charNode || handledCharNodeKeys.has(charNode.getKey())) return;
     handledCharNodeKeys.add(charNode.getKey());
     // `undefined` means removal would have to affect unselected text — see
     // `$splitCharNodeAroundTargets`. Leave this CharNode alone rather than over-remove.
+    // `$hasRemovableCharNode` above has already established that at least one CharNode in the
+    // selection is *not* refused, so this cannot be the only outcome for the whole call.
     const coveredCharNode = $splitCharNodeAroundTargets(charNode, targetNodes);
-    if (coveredCharNode) $removeCharNodeKeepingContent(coveredCharNode, viewOptions);
+    if (coveredCharNode) {
+      $removeCharNodeKeepingContent(coveredCharNode, viewOptions);
+      didRemove = true;
+    }
   });
 
   // Restore the range over the same characters so a toolbar caller can re-toggle without
@@ -466,9 +480,12 @@ export function $removeCharacterMarkerAtSelection(
   //   without touching selection points, so a focus on a trimmed node ends up one past the new end.
   // - `isBackward` is captured before the loop: a backward range's anchor is the *last* target, so
   //   swapping the roles keeps it backward instead of normalizing to forward.
-  // - `$getSelection()` is re-fetched rather than reusing `selection`: `TextNode.replace()` (via
-  //   `$unwrapNode`) clones the active selection and `$setSelection`s the clone, so the parameter
-  //   is left pointing at a detached object and mutating it would have no effect.
+  // - `$getSelection()` is re-fetched rather than reusing `selection`: `$unwrapNode` splices the
+  //   CharNode out with `NodeCaret.splice`, which calls `replace()` on it (Lexical 0.43.0,
+  //   `NodeCaret.splice` → `target.replace(node)`), and `LexicalNode.replace` clones the active
+  //   selection and `$setSelection`s the clone. So the parameter is left pointing at a detached
+  //   object and mutating it would have no effect. Note this is the CharNode's own
+  //   `ElementNode.replace()`, not `TextNode.replace()`.
   //
   // Skipped when a target didn't survive — its CharNode held only the empty-char placeholder and
   // was removed outright — in which case Lexical's own selection repair applies instead.
@@ -485,6 +502,8 @@ export function $removeCharacterMarkerAtSelection(
       currentSelection.setTextNodeRange(lastTargetNode, lastOffset, firstTargetNode, 0);
     else currentSelection.setTextNodeRange(firstTargetNode, 0, lastTargetNode, lastOffset);
   }
+
+  return didRemove;
 }
 
 // #region Helper functions for $removeCharacterMarkerAtSelection
@@ -522,29 +541,124 @@ function $getCharNodeToRemove(node: LexicalNode, marker: string | undefined): Ch
 }
 
 /**
- * Whether any of the selection's nodes sits inside a `CharNode` matching `marker`.
- *
- * Read-only, and answered *before* the splitting pass, so that a request with nothing to remove
- * leaves the document completely untouched: `handleTextNode`'s `splitText` mutates the tree, and
- * running it first would give a documented no-op a spurious undo entry (and possibly an empty
- * collab delta). Splitting never changes a node's ancestry — the pieces keep the same parent — so
- * this answers the same question the post-split loop would.
+ * The selection's nodes that a marker action can actually act on.
  *
  * Deliberately no narrower than `$getTargetNode`: it shares the skip rule via
- * `$isSkippedByMarkerAction` and does not replicate `handleTextNode`'s zero-width filter. So it can
- * only ever be more permissive, never wrongly refuse a removal that would have happened.
+ * `$isSkippedByMarkerAction` and does not replicate `handleTextNode`'s zero-width filter. So the
+ * read-only pre-pass built on it can only ever be more permissive, never wrongly refuse a removal
+ * that would have happened.
+ *
+ * @param nodes - The nodes in the selection.
+ * @returns the subset of `nodes` a marker action can act on.
+ */
+function $getActionableNodes(nodes: LexicalNode[]): LexicalNode[] {
+  return nodes.filter(
+    (node) =>
+      !$isSkippedByMarkerAction(node) &&
+      ($isTextNode(node) || ($isElementNode(node) && node.isInline())),
+  );
+}
+
+/**
+ * Keys of the selection's text nodes that the selection covers *in full*, computed before the
+ * splitting pass.
+ *
+ * A boundary node the selection covers only partially is deliberately excluded. `handleTextNode`
+ * would split such a node, and only the covered piece becomes a target — so the uncovered piece
+ * remains inside whatever element held it, and any nested-coverage question about that element must
+ * answer "not fully covered". Treating the whole pre-split node as uncovered here makes this set
+ * agree with the post-split `targetNodes` set that `$splitCharNodeAroundTargets` sees.
+ *
+ * @param nodes - The nodes in the selection.
+ * @param startOffset - The selection's start offset within the first node.
+ * @param endOffset - The selection's end offset within the last node.
+ * @returns keys of the fully covered text nodes.
+ */
+function $getFullyCoveredTextKeys(
+  nodes: LexicalNode[],
+  startOffset: number,
+  endOffset: number,
+): Set<string> {
+  const keys = new Set<string>();
+  nodes.forEach((node, index) => {
+    if (!$isTextNode(node) || $isSkippedByMarkerAction(node)) return;
+    const size = node.getTextContentSize();
+    const start = index === 0 ? startOffset : 0;
+    const end = index === nodes.length - 1 ? endOffset : size;
+    if (start === 0 && end === size) keys.add(node.getKey());
+  });
+  return keys;
+}
+
+/**
+ * Whether `$splitCharNodeAroundTargets` would refuse this `CharNode`, decided read-only.
+ *
+ * Mirrors that function's nested-partial-coverage refusal (see its docstring) without mutating
+ * anything: a nested element child that holds part of the selection but is not covered in full
+ * cannot be split at the selection boundary, so the marker must be left in place.
+ *
+ * Answerable before the split because splitting never changes a node's ancestry — the pieces keep
+ * the same parent — and `$getFullyCoveredTextKeys` already accounts for the uncovered pieces the
+ * split will create.
+ *
+ * @param charNode - The `CharNode` a removal would act on.
+ * @param actionableNodes - The selection's actionable nodes.
+ * @param fullyCoveredKeys - Keys of the text nodes the selection covers in full.
+ * @returns `true` if this `CharNode` would be refused.
+ */
+function $isRefusedForNestedCoverage(
+  charNode: CharNode,
+  actionableNodes: LexicalNode[],
+  fullyCoveredKeys: Set<string>,
+): boolean {
+  return charNode
+    .getChildren()
+    .some(
+      (child) =>
+        $isElementNode(child) &&
+        actionableNodes.some((node) => child.isParentOf(node)) &&
+        !$isFullyCoveredByTargets(child, fullyCoveredKeys),
+    );
+}
+
+/**
+ * Whether the selection contains a `CharNode` matching `marker` that removal would actually strip.
+ *
+ * Read-only, and answered *before* the splitting pass, so that a request which ends up a no-op
+ * leaves the document completely untouched: `handleTextNode`'s `splitText` mutates the tree, and
+ * running it first would give a documented no-op a spurious undo entry (and possibly an empty
+ * collab delta), and would then let the restore block overwrite the caller's selection.
+ *
+ * Both no-op paths are screened here — no matching `CharNode` at all, and a matching one that
+ * `$splitCharNodeAroundTargets` would refuse for nested partial coverage.
+ *
+ * Residual, deliberately not fixed here: when a selection spans two matching `CharNode`s and only
+ * one of them is refused, this returns `true` (correctly — a removal does happen), so the split
+ * pass still runs and briefly dirties the refused node's text too. Lexical re-merges it, so the
+ * tree is unchanged, but the undo entry covers both. Avoiding that needs the split loop to skip
+ * refused nodes, which its index-based offset math can't express without a wider rework.
  *
  * @param nodes - The nodes in the selection.
  * @param marker - The character marker to remove, or `undefined` for the innermost one.
- * @returns `true` if there is a matching `CharNode` to remove.
+ * @param startOffset - The selection's start offset within the first node.
+ * @param endOffset - The selection's end offset within the last node.
+ * @returns `true` if there is a matching `CharNode` that would be removed.
  */
-function $hasCharNodeToRemove(nodes: LexicalNode[], marker: string | undefined): boolean {
-  return nodes.some(
-    (node) =>
-      !$isSkippedByMarkerAction(node) &&
-      ($isTextNode(node) || ($isElementNode(node) && node.isInline())) &&
-      $getCharNodeToRemove(node, marker) !== undefined,
-  );
+function $hasRemovableCharNode(
+  nodes: LexicalNode[],
+  marker: string | undefined,
+  startOffset: number,
+  endOffset: number,
+): boolean {
+  const actionableNodes = $getActionableNodes(nodes);
+  const fullyCoveredKeys = $getFullyCoveredTextKeys(nodes, startOffset, endOffset);
+  const seenCharNodeKeys = new Set<string>();
+  return actionableNodes.some((node) => {
+    const charNode = $getCharNodeToRemove(node, marker);
+    if (!charNode || seenCharNodeKeys.has(charNode.getKey())) return false;
+    seenCharNodeKeys.add(charNode.getKey());
+    return !$isRefusedForNestedCoverage(charNode, actionableNodes, fullyCoveredKeys);
+  });
 }
 
 /**
@@ -552,6 +666,13 @@ function $hasCharNodeToRemove(nodes: LexicalNode[], marker: string | undefined):
  *
  * Synthesized marker children don't count against coverage: they carry no user content and
  * `$removeCharNodeKeepingContent` strips them unconditionally.
+ *
+ * That exemption is only reached under `markerMode: "editable"`, where markers are `MarkerNode`s —
+ * real `TextNode`s, so `getAllTextNodes()` returns them and they would otherwise fail the coverage
+ * check. Under `markerMode: "visible"` markers are `ImmutableTypedTextNode`s, which extend
+ * `DecoratorNode` rather than `TextNode`, so `getAllTextNodes()` never returns them and they cannot
+ * count against coverage in the first place. Both modes end up with the same answer by different
+ * routes; the `$isSynthesizedMarkerNode` clause is what makes the editable one agree.
  *
  * @param element - The element to check, typically a nested `CharNode`.
  * @param targetKeys - Keys of the text nodes the selection covers.
@@ -602,9 +723,13 @@ function $isFullyCoveredByTargets(element: ElementNode, targetKeys: Set<string>)
  * selection boundary. So when the selection covers only part of a nested `CharNode`'s text, there
  * is no shape this function can produce that removes the marker from the selection alone. Rather
  * than remove it from the whole nested span — silently changing the USJ of text the user never
- * selected — this returns `undefined` so the caller leaves the document untouched. For example,
+ * selected — this returns `undefined` so the caller leaves this `CharNode` alone. For example,
  * selecting only part of a divine-name word (`\nd`) inside red-letter text (`\wj`) and removing
  * `\wj` does nothing, rather than dropping `\wj` from the rest of that divine-name word too.
+ *
+ * `$hasRemovableCharNode` predicts this same refusal read-only, so a request that would be refused
+ * outright never reaches the splitting pass and leaves the document — and the caller's selection —
+ * completely untouched.
  *
  * This is deliberately narrow: it is the *partially* covered nested case only. Removing either the
  * inner or the outer marker of a fully covered nested pair works, and is the case the feature's UI
@@ -628,12 +753,19 @@ function $splitCharNodeAroundTargets(
     if (targetKeys.has(child.getKey())) {
       coveredIndexes.push(index);
     } else if ($isElementNode(child) && targetNodes.some((target) => child.isParentOf(target))) {
-      // Nothing has been mutated yet, so refusing here leaves the document exactly as it was.
+      // Refusing here mutates nothing *in this function*, but the caller has already run
+      // `handleTextNode`'s `splitText` to build `targetNodes`. So this alone is not enough to keep
+      // a refused request off the undo stack — `$hasRemovableCharNode` screens the whole-call case
+      // read-only, before any splitting. See its docstring for the residual mixed-selection case.
       if (!$isFullyCoveredByTargets(child, targetKeys)) return undefined;
       coveredIndexes.push(index);
     }
   }
-  if (coveredIndexes.length === 0) return charNode;
+  // Unreachable today: the caller only gets here via a target inside `charNode`, which yields at
+  // least one covered index. Refusing rather than returning `charNode` keeps this function's
+  // "refuse rather than over-remove" contract the default if a future caller does reach it —
+  // returning `charNode` would strip the marker from content nothing established as covered.
+  if (coveredIndexes.length === 0) return undefined;
 
   let firstCoveredIndex = coveredIndexes[0];
   let lastCoveredIndex = coveredIndexes[coveredIndexes.length - 1];

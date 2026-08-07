@@ -191,15 +191,15 @@ Programmatic control over the editor. Self-evident methods (`focus`, `undo`, `re
 `paste`, `pastePlainText`, `getUsj`, `setUsj`, `formatPara`, `getElementByKey`, `selectNote`,
 `getNoteOps`) are omitted — see the full reference below.
 
-| Method                               | Note                                                                                        |
-| ------------------------------------ | ------------------------------------------------------------------------------------------- |
-| `getSelection` / `setSelection`      | Uses json-path; assumes no comment Milestone nodes in the USJ                               |
-| `setAnnotation` / `removeAnnotation` | Ephemeral — not persisted; same json-path caveat                                            |
-| `applyUpdate` / `replaceEmbedUpdate` | EXPERIMENTAL: real-time collaborative editing                                               |
-| `insertMarker`                       | Replicates marker menu; throws if readonly, `scrRef` not provided, or marker is unsupported |
-| `removeCharacterMarker`              | Removes a character marker, keeping its text; throws if readonly or marker is unsupported   |
-| `insertNote`                         | Deprecated — use `insertMarker`                                                             |
-| `toolbarEndRef`                      | Internal use only: for dynamically adding toolbar controls                                  |
+| Method                               | Note                                                                                                                                                                                                                             |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `getSelection` / `setSelection`      | Uses json-path; assumes no comment Milestone nodes in the USJ                                                                                                                                                                    |
+| `setAnnotation` / `removeAnnotation` | Ephemeral — not persisted; same json-path caveat                                                                                                                                                                                 |
+| `applyUpdate` / `replaceEmbedUpdate` | EXPERIMENTAL: real-time collaborative editing                                                                                                                                                                                    |
+| `insertMarker`                       | Replicates marker menu; throws if readonly, `scrRef` not provided, or marker is unsupported                                                                                                                                      |
+| `removeCharacterMarker`              | Removes a character marker, keeping its text. Returns `false` and changes nothing when no marker matches, the selection is in a note, or removal can't be confined to the selection; throws if readonly or marker is unsupported |
+| `insertNote`                         | Deprecated — use `insertMarker`                                                                                                                                                                                                  |
+| `toolbarEndRef`                      | Internal use only: for dynamically adding toolbar controls                                                                                                                                                                       |
 
 > Full API reference: [platform-editor.api.md](etc/platform-editor.api.md)
 

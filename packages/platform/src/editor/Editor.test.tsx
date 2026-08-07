@@ -220,12 +220,30 @@ describe("removeCharacterMarker guards", () => {
     expect(() => editor.removeCharacterMarker("zzz")).toThrow("Unsupported character marker 'zzz'");
   });
 
-  it("does not throw when the marker is omitted and there is no selection", async () => {
+  it.each(["ft", "xt"])(
+    "throws for the note-only character marker '%s', which removal always skips",
+    async (marker) => {
+      const ref = await createEditorRefForTesting();
+      const editor = ref.current;
+      if (!editor) throw new Error("Editor not mounted");
+
+      // CharNode.isValidMarker accepts these — VALID_CHAR_MARKERS spreads in the footnote and
+      // cross-reference markers — but they only ever occur inside a NoteNode, which
+      // $getCharNodeToRemove skips. Throwing beats accepting the call and silently doing nothing.
+      expect(() => editor.removeCharacterMarker(marker)).toThrow(
+        `Unsupported character marker '${marker}'`,
+      );
+    },
+  );
+
+  it("returns false without throwing when the marker is omitted and there is no selection", async () => {
     const ref = await createEditorRefForTesting();
     const editor = ref.current;
     if (!editor) throw new Error("Editor not mounted");
 
-    expect(() => editor.removeCharacterMarker()).not.toThrow();
+    // The return value is what makes this more than a smoke test: a fresh editor has no selection,
+    // so the call must report that it removed nothing rather than merely not crashing.
+    expect(editor.removeCharacterMarker()).toBe(false);
   });
 });
 
