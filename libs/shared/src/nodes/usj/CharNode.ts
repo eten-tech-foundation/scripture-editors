@@ -221,11 +221,17 @@ export class CharNode extends ElementNode {
 
   override updateDOM(prevNode: this, dom: HTMLElement, config: EditorConfig): boolean {
     // Returning false tells Lexical the element can be reused — but reuse means createDOM does not
-    // run again, so a marker change has to be written onto the existing element by hand. Mirrors
-    // ParaNode.updateDOM (ParaNode.ts:248-256). Without this, CharNode.setMarker updates the model
-    // and leaves the rendered span showing the old marker's attributes and styling until the
-    // document is reloaded — which also affects the collaboration path, where
+    // run again, so a marker change has to be written onto the existing element by hand. When
+    // setMarker updates the model, the rendered span must have its attributes and classes refreshed:
+    // data-marker, title (gated by showCharMarkerTitles, same as createDOM), and usfm_* class.
+    // This affects the direct setMarker path and also the collaboration path, where
     // delta-apply-update.utils.ts calls setMarker on live nodes.
+    //
+    // Note: This method does not call super.updateDOM() like ParaNode.updateDOM does. ParaNode
+    // extends ParagraphNode, which implements updateDOM and thus makes super.updateDOM() safe.
+    // CharNode extends ElementNode, which does not implement updateDOM, so calling super would
+    // reach LexicalNode's base method, which throws an error. Instead, we return false directly
+    // to signal element reuse and manually apply the marker-related DOM updates.
     if (prevNode.__marker !== this.__marker) {
       dom.setAttribute("data-marker", this.__marker);
       // Gated the same way createDOM gates it, so this never introduces a title the consumer
