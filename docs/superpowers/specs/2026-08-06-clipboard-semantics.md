@@ -88,12 +88,13 @@ These differences are documented and intentional; they are not implemented as wo
 
 Found by a corpus-style sweep (`clipboardCorpusRoundTrip.test.tsx`): for every fixture in the
 shared USJ round-trip corpus (`corpus-data.ts`), select the chapter's content, copy, paste into a
-fresh editor holding the same chapter header, and compare the resulting USJ to the source. Three of
+fresh editor holding the same chapter header, and compare the resulting USJ to the source. Two of
 the four failures below are INHERENT — the plain-text `text/plain` carrier (S3) has no bytes
 capable of representing the construct, so no paste-side fix is possible without a different
-carrier. The fourth is a genuine, unfixed paste-tokenizer bug, kept separate from the other three
-for that reason. All four fixtures stay in the sweep as `it.skip`, not deleted, so a future engine
-change un-skips them automatically instead of the gap going unnoticed.
+carrier. One is a real, out-of-scope structural gap in how a paste's rebuild is scoped. One is
+ACCEPTED normalization that matches Paratext 9's own behavior, not a bug at all. All four fixtures
+stay in the sweep as `it.skip`, not deleted, so a future engine change un-skips them automatically
+instead of the gap going unnoticed.
 
 1. **Cross-reference `<ref>` target wrapper (inherent):** USJ's `ref` element is a wrapper USFM
    itself never carried (`unknownUsfm.utils.ts`'s own doc comment: "USJ invented this container,
@@ -104,14 +105,31 @@ change un-skips them automatically instead of the gap going unnoticed.
    wrapper gone). A raw USFM export of this same fixture has the identical gap — not specific to
    clipboard mechanics.
 
-2. **Sidebar `\esb`/`\esbe` (inherent to the paste-time tokenizer, not fixed here):** a sidebar's
-   open/close pair does not use the `\marker ... \marker*` convention every other span/note/
-   milestone in this codebase re-tokenizes on paste; it is `\esb ... \esbe`. Copying
-   `\esb \cat History\cat*\n\p Sidebar paragraph content.\esbe` and pasting it back produces an
-   UNCLOSED sidebar (`closed:"false"`, no content), the inner paragraph hoisted out to become a
-   top-level sibling, and a stray EMPTY paragraph with marker `"esbe"` — the paste-time tokenizer
-   has no rule recognizing `\esbe` as `\esb`'s closer. Table and figure fixtures (`\marker*`-shaped
-   or self-terminating) round-trip clean; sidebar's non-standard closer convention is the outlier.
+2. **Sidebar `\esb`/`\esbe` (structural — a paste-rebuild SCOPING gap, not a missing tokenizer
+   rule; out of scope here):** the tokenizer itself is not the problem — `usfmFragmentToUsj.ts`
+   already implements the `\esb`/`\esbe` pairing (its `SIDEBAR_MARKER`/`SIDEBAR_END_MARKER`
+   assembly case tracks an open sidebar across tokens and closes it on `\esbe`). The real mechanism
+   is upstream and structural: a sidebar's nested `\p` child is a real `ParaNode`, and the copy
+   walker (`$selectionToUsfmText`) inserts a `\n` before any non-inline `ElementNode` boundary it
+   crosses — a `ParaNode` is non-inline, so a `\n` lands between `\esb \cat History\cat*` and the
+   nested paragraph's own content, even though both came from ONE sidebar. On paste,
+   `$insertPastedText` splits on every `\n` via `selection.insertParagraph()`, so that single `\n`
+   turns into TWO sibling `ParaNode`s where the source had one sidebar wrapping one paragraph. Tier
+   2 then re-tokenizes strictly per paragraph — `$requestTier2ForNode` (`tier2Rebuild.utils.ts`),
+   the only production call site, always invokes `$rebuildParas([current], context)` with a
+   single-element array — so the tokenizer's "current open sidebar" state can never span the two
+   separate `$rebuildParas` calls the two now-sibling paragraphs each trigger; the pairing that DOES
+   exist in `usfmFragmentToUsj.ts` never gets the chance to run across both lines at once. Result:
+   an UNCLOSED sidebar (`closed:"false"`, no content), the inner paragraph hoisted out to become a
+   top-level sibling, and a stray EMPTY paragraph with marker `"esbe"`. Table rows/cells dodge this
+   specific failure mode only because `TableNode`'s row/cell children are themselves `UnknownNode`
+   instances, and `UnknownNode.isInline()` unconditionally returns `true` regardless of visual/CSS
+   classification — so the copy walker's non-inline-boundary `\n`-insertion rule never fires for
+   them, and a table stays byte-contiguous within one paste-insertion unit while a sidebar's nested
+   block-level paragraph does not. A real fix means grouping a paste's newly-inserted SIBLING
+   paragraphs that originated from one selection back into a single rebuild fragment before Tier 2
+   tokenizes — a Tier-2 rebuild-granularity change, genuinely out of this work item's scope. The
+   byte-level corruption stays pinned by the skip rather than fixed.
 
 3. **`closed="false"` char span followed by more paragraph content (inherent):** a `closed="false"`
    span has, by definition, no closing marker byte anywhere in its own USFM. When such a span is
@@ -124,18 +142,21 @@ change un-skips them automatically instead of the gap going unnoticed.
    confirming the ambiguity is specifically about trailing content after an implicit close, not
    `closed="false"` itself.
 
-4. **Paragraph-leading space swallowed on paste (genuine bug, unfixed, out of scope for this
-   test-only task):** unlike the three above, this one is NOT an inherent representational limit —
-   isolated with a minimal non-corpus repro: pasting the literal text `"\p  X"` (marker, its own
-   required separator, and a SECOND, real content-leading space) into a fresh empty `"\p"` host
-   produces `"\p X"` — one space, not two. The paste-time tokenizer consumes ALL whitespace
-   immediately after a recognized marker literal as that marker's own separator, rather than
-   exactly one character, discarding a genuine leading content space whenever a pasted paragraph
-   literal is `"\marker"` + 2 or more spaces. Corpus symptom: copying
-   `<para style="p"> Leading space precedes this text.</para>` (source content
+4. **Paragraph-leading space swallowed on paste (ACCEPTED normalization — matches Paratext 9, not a
+   bug):** isolated with a minimal non-corpus repro: pasting the literal text `"\p  X"` (marker, its
+   own required separator, and a SECOND, real content-leading space) into a fresh empty `"\p"` host
+   produces `"\p X"` — one space, not two. The mechanism is `consumeSeparator()`
+   (`usfmFragmentToUsj.ts`), whose own comment states exactly this: "Consume the separator
+   whitespace after an opening marker (PT9 skips it) — all leading whitespace, not just a single
+   space." That mirrors Paratext 9's own `NormalizeUsfm` re-tokenization pass (see "Paratext 9
+   Reference Behavior" above: "whitespace collapse, newlines inserted before paragraph/verse
+   markers"), which likewise collapses a whitespace run after a marker during its own paste reformat
+   pipeline — P10 doing the same is parity with P9, not a divergence from it. Corpus symptom:
+   copying `<para style="p"> Leading space precedes this text.</para>` (source content
    `" Leading space precedes this text."`) round-trips through paste to
-   `"Leading space precedes this text."` — the leading space is gone. Worth a real fix in a future
-   task; recorded here rather than fixed because this task is test-only.
+   `"Leading space precedes this text."` — the leading space is gone, the same as it would be in
+   P9. Kept in the sweep's skip list (the byte-level comparison genuinely differs from the source)
+   but is NOT a fix candidate.
 
 ---
 
@@ -155,7 +176,9 @@ The following items are recorded as deferred and not addressed in this plan:
 
 6. **Popover expanded-note `isStandardView` gating issue:** An issue with note-expansion behavior in popovers has an open tracking document at `docs/superpowers/specs/2026-07-07-standard-view-followups.md`. This is not addressed in the current plan.
 
-7. **Paste tokenizer swallows a paragraph-leading space (genuine bug, corpus-found 2026-08-07):** pasting a paragraph literal shaped `"\marker"` + 2 or more spaces + content loses the second space — the tokenizer treats every whitespace run right after a recognized marker as that marker's own single-character separator. See "Known Lossy Constructs — Copy→Paste Round Trip" above for the byte-level detail and the minimal repro. Not fixed here (test-only task); a real fix is needed, not just documentation.
+7. **Paste-rebuild scoping loses a sidebar's `\esb`/`\esbe` pairing across a copy-introduced paragraph split (corpus-found 2026-08-07):** a sidebar's nested paragraph is a real `ParaNode`, so copying a sidebar inserts a `\n` before it and pasting that `\n` splits one sidebar into two sibling paragraphs; Tier 2 rebuilds strictly per paragraph (`$requestTier2ForNode` always calls `$rebuildParas` with a single-element array), so the `\esb`/`\esbe` pairing `usfmFragmentToUsj.ts` already implements never sees both halves in the same tokenize pass. See "Known Lossy Constructs — Copy→Paste Round Trip" above (item 2) for the full mechanism. A real fix means grouping a paste's newly-split sibling paragraphs back into one rebuild fragment — a Tier-2 rebuild-granularity change, out of scope for this test-only task.
+
+8. **2SA corpus (`libs/test-data/src/data/2sa.usj.ts`) not included in the copy→paste corpus sweep:** this fixture IS single-chapter (one top-level chapter object), so the earlier "multi-chapter/book-level" exclusion reason recorded in an earlier draft of this work was wrong. It was tried against the sweep's harness directly and does not round-trip clean: it hits the sidebar gap above three times, plus several additional, unrelated fidelity gaps (an empty `\b` blank-line paragraph, a verse's derived `sid` attribute, a `\ref` target) that this sweep's one-construct-per-fixture design has no clean way to itemize as a single byte diff. `tier2Rebuild.corpus.test.tsx` already exercises this fixture, but for a narrower, different property (an unedited `$rebuildParas` call refusing as a fixed point) that does not cover the paste path this sweep does — so the exclusion is a real coverage gap, not a redundant re-test. Recorded here rather than force-fit into the sweep.
 
 ---
 
