@@ -2,6 +2,7 @@ import { ImmutableTypedTextNode } from "../features/ImmutableTypedTextNode.js";
 import { ImmutableUnmatchedNode } from "../features/ImmutableUnmatchedNode.js";
 import { MarkerNode } from "../features/MarkerNode.js";
 import { UnknownNode } from "../features/UnknownNode.js";
+import { AttributeRunNode } from "./AttributeRunNode.js";
 import { BookNode } from "./BookNode.js";
 import { ChapterNode } from "./ChapterNode.js";
 import { CharNode } from "./CharNode.js";
@@ -54,6 +55,13 @@ export const usjBaseNodes: readonly (Klass<LexicalNode> | LexicalNodeReplacement
   ImmutableTableNode,
   ImmutableTableRowNode,
   ImmutableTableCellNode,
+  // The forward adaptor (usj-editor.adaptor.ts, platform) serializes editable-mode verse/milestone
+  // display runs as AttributeRunNode wrappers, and this package's own self-healing syncs
+  // (attributeDisplay.utils.ts's $syncVerseAttributeRun/$syncMilestoneDisplayRun) construct one
+  // whenever they heal a run forward from a loose or missing shape — every USJ-shaped editor needs
+  // the class registered, not only shared-react's (a non-react host, e.g. packages/scribe's
+  // NoteEditor, builds its editor straight from usjBaseNodes with no react-specific node list).
+  AttributeRunNode,
   {
     replace: ParagraphNode,
     with: () => $createImpliedParaNode(),

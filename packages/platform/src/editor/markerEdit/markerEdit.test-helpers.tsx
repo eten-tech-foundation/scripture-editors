@@ -12,24 +12,30 @@ import {
   $getRoot,
   $isElementNode,
   $isTextNode,
+  $setState,
   ElementNode,
   LexicalNode,
   TextNode,
 } from "lexical";
 import {
+  $createAttributeRunNode,
   $createCharNode,
   $createMarkerNode,
   $createParaNode,
   $createVerseNode,
+  $isAttributeRunNode,
   $isCharNode,
   $isNoteNode,
+  AttributeRunNode,
   CharNode,
   createMarkerLookup,
   getVisibleOpenMarkerText,
   MarkerNode,
+  MilestoneNode,
   NBSP,
   NoteNode,
   StyleInfo,
+  textTypeState,
   VerseNode,
 } from "shared";
 // Reaching inside only for tests.
@@ -195,6 +201,60 @@ export function $appendVersePara(): { verse: VerseNode } {
     ),
   );
   return { verse };
+}
+
+/**
+ * Append a WRAPPED `\va`/`\vp` display run to `verse` — the shape usj-editor.adaptor's
+ * `addVerseAttributeRun` builds post-flip: one `AttributeRunNode` (runKind `marker`) holding the
+ * opening glyph, the NBSP-prefixed value TextNode (textType "attribute"), and the closing glyph.
+ * Inserted after `verse`'s LAST existing run wrapper (so a `va` call followed by a `vp` call chains
+ * correctly), or directly after `verse` itself when none exists yet.
+ */
+export function $appendVerseAttributeRun(
+  verse: VerseNode,
+  marker: "va" | "vp",
+  value: string,
+): AttributeRunNode {
+  const wrapper = $createAttributeRunNode(marker);
+  const valueNode = $createTextNode(`${NBSP}${value}`);
+  $setState(valueNode, textTypeState, "attribute");
+  wrapper.append(
+    $createMarkerNode(marker, "opening"),
+    valueNode,
+    $createMarkerNode(marker, "closing"),
+  );
+  let anchor: LexicalNode = verse;
+  let next = anchor.getNextSibling();
+  while ($isAttributeRunNode(next)) {
+    anchor = next;
+    next = anchor.getNextSibling();
+  }
+  anchor.insertAfter(wrapper);
+  return wrapper;
+}
+
+/**
+ * Append a WRAPPED display run to `milestone` — the shape usj-editor.adaptor's
+ * `addMilestoneAttributeRun` builds post-flip: one `AttributeRunNode` (runKind "milestone") holding
+ * the opening glyph, an optional attribute TextNode (textType "attribute"), and the self-closing
+ * glyph. `attributeText` is the FULL canonical bytes (NBSP-prefixed, e.g. `${NBSP}|sid="q1"`) —
+ * the same shape `$milestoneAttributeDisplayText` (markerEditTier1.utils.ts) returns — or `""` for
+ * a glyph pair with no attribute text between them.
+ */
+export function $appendMilestoneRun(
+  milestone: MilestoneNode,
+  attributeText: string,
+): AttributeRunNode {
+  const wrapper = $createAttributeRunNode("milestone");
+  wrapper.append($createMarkerNode(milestone.getMarker(), "opening"));
+  if (attributeText) {
+    const valueNode = $createTextNode(attributeText);
+    $setState(valueNode, textTypeState, "attribute");
+    wrapper.append(valueNode);
+  }
+  wrapper.append($createMarkerNode("", "selfClosing"));
+  milestone.insertAfter(wrapper);
+  return wrapper;
 }
 
 /**

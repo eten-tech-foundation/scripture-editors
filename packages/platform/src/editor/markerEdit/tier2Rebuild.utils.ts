@@ -176,18 +176,24 @@ function $milestoneDisplayRun(children: LexicalNode[], index: number): LexicalNo
  * For either marker, when the next sibling slot is a matching `AttributeRunNode`
  * wrapper, that ONE node is pushed instead of its unpacked pieces (mirrors `$milestoneDisplayRun`
  * — the generic ElementNode branch in `$appendNodesFragment` flattens it for the fragment builder
- * without any further special-casing). An attached-but-EMPTY wrapper is treated as "no run for
- * this marker" and stops the scan — the same outcome the loose-piece scan already has for a
- * verse with no `\va` at all (a missing/invalid piece for the CURRENT marker breaks the loop
- * before the OTHER marker is even attempted), so a degenerate wrapper is no less tolerant than
- * the pre-existing loose-shape behavior.
+ * without any further special-casing) — even an attached-but-EMPTY wrapper is pushed: it occupies
+ * exactly one slot in `children` regardless of emptiness, and contributes zero bytes/signature
+ * entries downstream (flattening an empty element yields nothing), so including it keeps the
+ * per-marker slot accounting exact without changing what either caller sees.
+ *
+ * `\va` and `\vp` are each attempted INDEPENDENTLY at their own position: a marker with no piece
+ * there AT ALL — the common "this verse has no `\va`" case, or a `\vp`-only verse (a real,
+ * permanent shape the sync builds, not just mid-edit debris) — contributes nothing and leaves the
+ * slot for the OTHER marker to claim, rather than aborting the whole scan. Only a PARTIAL match
+ * (an opener found but its value/closer missing or wrong) stops the scan entirely: such debris'
+ * true extent can't be inferred from here, so continuing risks misreading the OTHER marker's own
+ * content as part of it.
  */
 function $verseAttributeRun(children: LexicalNode[], index: number): LexicalNode[] {
   const run: LexicalNode[] = [];
   for (const marker of ["va", "vp"] as const) {
     const next = children[index + run.length + 1];
     if ($isAttributeRunNode(next) && next.getRunKind() === marker) {
-      if (next.getChildrenSize() === 0) break;
       run.push(next);
       continue;
     }
@@ -199,11 +205,12 @@ function $verseAttributeRun(children: LexicalNode[], index: number): LexicalNode
       opening.getMarkerSyntax() !== "opening" ||
       opening.getMarker() !== marker
     )
-      break;
+      continue;
     const value = children[index + run.length + 2];
-    if (!$isTextNode(value) || $getState(value, textTypeState) !== "attribute") break;
     const closing = children[index + run.length + 3];
     if (
+      !$isTextNode(value) ||
+      $getState(value, textTypeState) !== "attribute" ||
       !$isMarkerNode(closing) ||
       closing.getMarkerSyntax() !== "closing" ||
       closing.getMarker() !== marker

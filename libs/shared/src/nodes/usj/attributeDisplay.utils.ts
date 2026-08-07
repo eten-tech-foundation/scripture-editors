@@ -52,7 +52,11 @@
 
 import { $createMarkerNode, $isMarkerNode, MarkerNode } from "../features/MarkerNode.js";
 import { textTypeState } from "../collab/delta.state.js";
-import { $isAttributeRunNode, AttributeRunNode } from "./AttributeRunNode.js";
+import {
+  $createAttributeRunNode,
+  $isAttributeRunNode,
+  AttributeRunNode,
+} from "./AttributeRunNode.js";
 import { $isCharNode, CharNode } from "./CharNode.js";
 import { MilestoneNode } from "./MilestoneNode.js";
 import { DELTA_CHANGE_TAG, NBSP, UnknownAttributes } from "./node-constants.js";
@@ -430,19 +434,22 @@ function $isCaretAtVerseAttributeSite(
  * debris), anchored immediately after `after`. Partial mangles are repaired AROUND the surviving
  * pieces — a leftover opener/value/closer is reused in place, never duplicated (the tolerant-pieces
  * fix for the value-deletion resurrect bug). Returns the node the NEXT marker's run should anchor
- * after — `after` itself when no run exists there, else this run's closer — so `\va` and `\vp`
- * chain correctly regardless of which are present. `verse` and `after` name two different things:
+ * after — `after` itself when no run exists there, this run's wrapper once healed, or — while
+ * caret-grace/pending defers the wrap migration on an already-complete loose triplet — its loose
+ * closer, so `\va` and `\vp` chain correctly regardless of which shape is present. `verse` and
+ * `after` name two different things:
  * `verse` is the run's OWNER — the identity the pended-registry check below looks up — while
  * `after` is only this call's scan/insertion ANCHOR, which for the chained `\vp` call is `\va`'s
- * closer (or `verse` itself), never the owner to check pended-ness against.
+ * wrapper (or `verse` itself), never the owner to check pended-ness against.
  *
- * When a wrapper is found, every insertion happens INSIDE it (a missing opener becomes the
- * wrapper's first child; a missing value/closer still `insertAfter`s the preceding piece, which
- * already lives inside the wrapper) rather than as a loose sibling of `after` — this sync never
- * CREATES a wrapper, only repairs pieces inside one that already exists. The chain anchor
- * returned to the caller prefers the wrapper itself over its closer: `\vp`'s own wrapper (if any)
- * rides directly after `\va`'s wrapper, per {@link AttributeRunNode}'s doc comment, not after a
- * piece inside it.
+ * A run that should EXIST always ends up inside a wrapper: an already-wrapped run is repaired in
+ * place (a missing opener becomes the wrapper's first child; a missing value/closer still
+ * `insertAfter`s the preceding piece, which already lives inside the wrapper); a run found as LOOSE
+ * siblings — complete or partial, from a pre-flip editor state, an undo stack, or a
+ * collab-materialized bare verse — is HEALED FORWARD: a new wrapper is created in the loose pieces'
+ * own position and every surviving piece is moved inside it before any missing piece is built. This
+ * is the one migration path from loose to wrapped, so a fully-correct but still-loose triplet (no
+ * content to fix) is not skipped by the divergence check alone — `needsWrapping` below catches it.
  */
 function $syncVerseAttributeRun(
   verse: VerseNode,
@@ -451,8 +458,13 @@ function $syncVerseAttributeRun(
   value: string | undefined,
 ): LexicalNode {
   const pieces = $verseAttributeRunPieces(after, marker);
-  const chainAnchor = pieces.wrapper ?? pieces.closer ?? after;
-  if (!$verseAttributeDiverges(pieces, value)) return chainAnchor;
+  const { opener, value: valueNode, closer, wrapper: existingWrapper } = pieces;
+  const chainAnchor = existingWrapper ?? closer ?? after;
+  // A run that is WANTED but not yet wrapped needs healing-forward even when its content already
+  // matches — a complete, byte-correct LOOSE triplet still diverges from the wrapped shape every
+  // run must end up in.
+  const needsWrapping = value !== undefined && !existingWrapper;
+  if (!$verseAttributeDiverges(pieces, value) && !needsWrapping) return chainAnchor;
   // The engine holds this verse pending (a run deletion/edit detected from the destruction
   // itself, or caret-held divergence re-pended by $resolvePendingMarkers): healing now would
   // resurrect or overwrite it before caret departure settles it — mirrors
@@ -460,50 +472,60 @@ function $syncVerseAttributeRun(
   if ($isDisplayOwnerPended(verse)) return chainAnchor;
   // Mid-edit grace: the caret holds the run's site (inside a live value, at a just-deleted run's
   // insertion point, or beside a surviving glyph whose value was deleted). Leave it alone — the
-  // marker-edit engine settles it on caret departure.
+  // marker-edit engine settles it on caret departure, which also defers the wrap migration until
+  // the caret has left (a structural move under an active edit is exactly the interaction the
+  // caret-grace arms exist to prevent).
   if ($isCaretAtVerseAttributeSite(after, pieces)) return chainAnchor;
-  const { opener, value: valueNode, closer, wrapper } = pieces;
   const targetText = $verseAttributeTargetText(value);
   if (targetText === undefined) {
-    // No run wanted: remove whatever debris survives. A wrapper that becomes empty here is left
-    // in place — a transient husk the marker-edit engine's deletion driver removes as part of
-    // settling the deletion (markerEditTier1.utils.ts's $settlePendedDisplayOwner).
+    // No run wanted: remove whatever debris survives, wrapped or loose. A wrapper that becomes
+    // empty here is left in place — a transient husk the marker-edit engine's deletion driver
+    // removes as part of settling the deletion (markerEditTier1.utils.ts's
+    // $settlePendedDisplayOwner).
     opener?.remove();
     valueNode?.remove();
     closer?.remove();
-    return wrapper ?? after;
+    return existingWrapper ?? after;
   }
-  // Repair around survivors, in fixed order: opener directly after `after`, then value, then
+  // Ensure a wrapper exists: reuse one already there, or heal any loose survivors forward into a
+  // freshly created one, inserted where the run belongs (directly after `after`, which is exactly
+  // where a surviving loose piece already sits — pieces are always contiguous immediately
+  // following `after`, per $verseAttributeRunPieces' tolerant scan).
+  const wrapper =
+    existingWrapper ??
+    (() => {
+      const created = $createAttributeRunNode(marker);
+      after.insertAfter(created);
+      if (opener) created.append(opener);
+      if (valueNode) created.append(valueNode);
+      if (closer) created.append(closer);
+      return created;
+    })();
+  // Repair around survivors, in fixed order: opener first inside the wrapper, then value, then
   // closer. Each found piece already sits in its correct position (the tolerant scan reads them
   // in order), so a missing one is inserted into its gap.
   const openerGlyph =
     opener ??
     (() => {
       const created = $createMarkerNode(marker, "opening");
-      if (wrapper) {
-        const wrapperFirstChild = wrapper.getFirstChild();
-        if (wrapperFirstChild) wrapperFirstChild.insertBefore(created);
-        else wrapper.append(created);
-      } else {
-        after.insertAfter(created);
-      }
+      const wrapperFirstChild = wrapper.getFirstChild();
+      if (wrapperFirstChild) wrapperFirstChild.insertBefore(created);
+      else wrapper.append(created);
       return created;
     })();
   let workingValue = valueNode;
-  if (workingValue) workingValue.setTextContent(targetText);
-  else {
+  if (workingValue) {
+    if (workingValue.getTextContent() !== targetText) workingValue.setTextContent(targetText);
+  } else {
     workingValue = $createTextNode(targetText);
     $setState(workingValue, textTypeState, "attribute");
     openerGlyph.insertAfter(workingValue);
   }
-  const closerGlyph =
-    closer ??
-    (() => {
-      const created = $createMarkerNode(marker, "closing");
-      workingValue.insertAfter(created);
-      return created;
-    })();
-  return wrapper ?? closerGlyph;
+  if (!closer) {
+    const createdCloser = $createMarkerNode(marker, "closing");
+    workingValue.insertAfter(createdCloser);
+  }
+  return wrapper;
 }
 
 /**
@@ -712,11 +734,20 @@ function $isCaretAtMilestoneRunBoundary(
  * the attribute text, or at a just-deleted run's insertion point), or while the marker-edit engine
  * holds `milestone` pended (a run destroyed by something other than this call, or caret-held
  * divergence re-pended by `$resolvePendingMarkers`) — both of which the sync leaves alone for the
- * marker-edit engine to settle on caret departure. Unlike a char span or verse, a milestone's
- * opening/self-closing glyphs are UNCONDITIONAL — only the attribute text in between comes and
- * goes with `expectedAttributeText`. Partial mangles are repaired AROUND the surviving pieces (a
- * leftover attribute text or glyph is reused in place, never duplicated). Idempotent — writes
- * only on change, so the registering transform converges.
+ * marker-edit engine to settle on caret departure, which also defers a pending wrap migration (see
+ * below) for the same reason. Unlike a char span or verse, a milestone's opening/self-closing
+ * glyphs are UNCONDITIONAL — only the attribute text in between comes and goes with
+ * `expectedAttributeText`. Partial mangles are repaired AROUND the surviving pieces (a leftover
+ * attribute text or glyph is reused in place, never duplicated). Idempotent — writes only on
+ * change, so the registering transform converges.
+ *
+ * A run that should EXIST always ends up inside a wrapper: an already-wrapped run (even an
+ * attached-but-empty husk) is repaired in place; a run found as LOOSE siblings — complete or
+ * partial, from a pre-flip editor state, an undo stack, or a collab-materialized bare milestone —
+ * is HEALED FORWARD: a new wrapper is created in the loose pieces' own position and every
+ * surviving piece is moved inside it before any missing piece is built. This is the one migration
+ * path from loose to wrapped, so the top-of-function early-return additionally requires an
+ * existing wrapper — a fully-correct but still-loose run does not skip the migration.
  *
  * @param milestone - The milestone whose display run to sync. Must be called inside
  *   `editor.update()`.
@@ -729,11 +760,17 @@ export function $syncMilestoneDisplayRun(
 ): void {
   if (!milestone.isAttached()) return;
   const pieces = $milestoneAttributeRunPieces(milestone);
-  const { opening, attribute, closing, wrapper } = pieces;
+  const { opening, attribute, closing, wrapper: existingWrapper } = pieces;
   const currentText = attribute?.getTextContent() ?? "";
   // A missing self-closing glyph disqualifies the run as canonical even when the text already
-  // matches: the run is not fully repaired until both glyphs are in place.
-  if (opening !== undefined && closing !== undefined && currentText === expectedAttributeText)
+  // matches: the run is not fully repaired until both glyphs are in place. A complete, matching
+  // run that is still LOOSE (no wrapper) also does not qualify — it still needs the wrap migration.
+  if (
+    opening !== undefined &&
+    closing !== undefined &&
+    currentText === expectedAttributeText &&
+    existingWrapper
+  )
     return;
   // The engine holds this milestone pending (a run deletion/edit detected from the destruction
   // itself, or caret-held divergence re-pended by $resolvePendingMarkers): healing now would
@@ -742,20 +779,28 @@ export function $syncMilestoneDisplayRun(
   if ($isDisplayOwnerPended(milestone)) return;
   if ($isCaretAtMilestoneRunBoundary(milestone, pieces)) return;
 
-  // A missing opening glyph inside an existing wrapper is inserted as the wrapper's first child,
-  // not as a loose sibling of `milestone` — the sync never CREATES a wrapper, only repairs pieces
-  // inside one that already exists.
+  // Ensure a wrapper exists: reuse one already there (even an emptied husk, repaired in place), or
+  // heal any loose survivors forward into a freshly created one, inserted where the run belongs
+  // (directly after `milestone`, which is exactly where a surviving loose piece already sits — the
+  // milestone's glyphs are unconditional, so a loose piece is never missing a slot ahead of it).
+  const wrapper =
+    existingWrapper ??
+    (() => {
+      const created = $createAttributeRunNode("milestone");
+      milestone.insertAfter(created);
+      if (opening) created.append(opening);
+      if (attribute) created.append(attribute);
+      if (closing) created.append(closing);
+      return created;
+    })();
+
   const openingGlyph =
     opening ??
     (() => {
       const created = $createMarkerNode(milestone.getMarker(), "opening");
-      if (wrapper) {
-        const wrapperFirstChild = wrapper.getFirstChild();
-        if (wrapperFirstChild) wrapperFirstChild.insertBefore(created);
-        else wrapper.append(created);
-      } else {
-        milestone.insertAfter(created);
-      }
+      const wrapperFirstChild = wrapper.getFirstChild();
+      if (wrapperFirstChild) wrapperFirstChild.insertBefore(created);
+      else wrapper.append(created);
       return created;
     })();
 
