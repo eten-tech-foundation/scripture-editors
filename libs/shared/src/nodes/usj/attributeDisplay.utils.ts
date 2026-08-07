@@ -587,7 +587,11 @@ export function $hasCaretHeldVerseAttributeRun(
  * the pend decision must key on the SITE — content of a va/vp span whose sibling chain reaches
  * back to a verse over run pieces only — for departure's re-tokenize to fold the bytes onto the
  * verse (the tokenizer's attrCapture). A va/vp span NOT in a verse's run position re-tokenizes
- * to itself (fixed point) and settles nothing — pending it is harmless. Sibling walk to
+ * to itself (fixed point) and settles nothing — pending it is harmless. A preceding run piece may
+ * be loose (a bare `MarkerNode`/attribute `TextNode`) or a whole `AttributeRunNode` wrapper
+ * crossed in one step — the adaptor always builds a wanted run wrapped now, so a `\vp` span
+ * sitting behind a WRAPPED `\va` run (the only shape an altnumber-bearing verse can have
+ * post-migration) must still walk past it to reach the verse. Sibling walk to
  * `$verseOfAttributeGlyph` (MarkerEditPlugin.tsx): that one starts from an opening run GLYPH and
  * walks back to find the owning verse for re-sync/re-pend; this one starts from a SOURCE SPAN's
  * content text and walks back to find the owning verse for the pend decision. Both classify the
@@ -603,7 +607,8 @@ export function $verseOfAttributeSourceText(node: LexicalNode): VerseNode | unde
     const isRunPiece =
       ($isMarkerNode(prev) && (prev.getMarker() === "va" || prev.getMarker() === "vp")) ||
       ($isTextNode(prev) && $getState(prev, textTypeState) === "attribute") ||
-      ($isCharNode(prev) && (prev.getMarker() === "va" || prev.getMarker() === "vp"));
+      ($isCharNode(prev) && (prev.getMarker() === "va" || prev.getMarker() === "vp")) ||
+      $isAttributeRunNode(prev);
     if (!isRunPiece) return undefined;
   }
   return undefined;
