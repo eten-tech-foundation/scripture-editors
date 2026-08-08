@@ -715,7 +715,9 @@ describe("$textNodeTier2Transform on attribute-run text", () => {
       getMarker: bundledGetMarker,
       pendingKeys: new Set<NodeKey>(),
       splitExpected: { current: false },
+      pasteRebuildArmed: { current: false },
       rebuildAttempted: new Set<string>(),
+      isStructureProtected: false,
     };
   }
 
@@ -782,7 +784,9 @@ describe("$textNodeTier2Transform on pipe-text in plain content", () => {
       getMarker: bundledGetMarker,
       pendingKeys: new Set<NodeKey>(),
       splitExpected: { current: false },
+      pasteRebuildArmed: { current: false },
       rebuildAttempted: new Set<string>(),
+      isStructureProtected: false,
     };
   }
 
@@ -873,7 +877,9 @@ describe("$textNodeTier2Transform on `//` optbreak text in plain content", () =>
       getMarker: bundledGetMarker,
       pendingKeys: new Set<NodeKey>(),
       splitExpected: { current: false },
+      pasteRebuildArmed: { current: false },
       rebuildAttempted: new Set<string>(),
+      isStructureProtected: false,
     };
   }
 
