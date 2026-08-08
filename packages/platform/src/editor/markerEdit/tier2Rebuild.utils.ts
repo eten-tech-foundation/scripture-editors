@@ -1072,6 +1072,11 @@ export function $rebuildNoteContent(note: NoteNode, context: Tier2Context): bool
  * be nested inside an opaque block (a sidebar's own paragraphs — see `$buildParaFragment`'s matching
  * ancestor guard), so an `UnknownNode` anywhere between `node` and the root — even above the nearest
  * Note/Para — still means "opaque block interior", overriding whatever scope was found closer in.
+ * The override applies just the same when the nearest scope found is a NOTE, not only a paragraph:
+ * a well-formed, expanded note can itself live inside a sidebar, and an `UnknownNode` further out
+ * still wins over it — matching the pend path's own full-chain literal-only guard
+ * (`$inLiteralOnlyBlock`, markerEditTier2Trigger.utils.ts), which never pends a key whose divergence
+ * could never settle in the first place.
  *
  * The single definition of scope, shared by the mutating settle below and the read-only settle in
  * virtualSettle.utils.ts. Both must route a given pending key to the SAME scope, or the settled USJ
