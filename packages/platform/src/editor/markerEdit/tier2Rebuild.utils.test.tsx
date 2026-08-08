@@ -11,6 +11,7 @@ import usjEditorAdaptor from "../adaptors/usj-editor.adaptor";
 import {
   $buildParaFragment,
   $rebuildParas,
+  $requestTier2ForNode,
   $settleScopeForNode,
   Tier2Context,
 } from "./tier2Rebuild.utils";
@@ -26,6 +27,7 @@ import {
   $isTextNode,
   $setState,
   LexicalNode,
+  TextNode,
 } from "lexical";
 import {
   $charAttributeDisplayNode,
@@ -43,6 +45,7 @@ import {
   $isUnknownNode,
   $isVerseNode,
   CharNode,
+  getEditableCallerText,
   getMarker as bundledGetMarker,
   getVisibleOpenMarkerText,
   $isParaNode,
@@ -1845,6 +1848,63 @@ describe("$settleScopeForNode", () => {
       const text = para.getLastChild();
       if (!text) throw new Error("expected paragraph text");
       expect($settleScopeForNode(text)).toBeUndefined();
+    });
+  });
+});
+
+describe("$requestTier2ForNode", () => {
+  it("refuses a well-formed note nested inside an opaque block, mutating nothing", async () => {
+    // A WELL-FORMED note (valid marker, matching caller, both opening and closing glyphs) —
+    // one `$buildNoteFragment` would happily rebuild on its own — nested inside a sidebar.
+    // Re-tokenization never reaches into an opaque block's interior, even through a note's own
+    // scope: `$settleScopeForNode`'s opacity check overrides the note scope it would otherwise
+    // find, so this refuses BEFORE `$rebuildNoteContent` ever runs, not because the note itself
+    // is malformed.
+    const { editor } = await testEnvironment(() => {
+      const note = $createNoteNode("f", "+", false);
+      note.append(
+        $createMarkerNode("f"),
+        $createTextNode(getEditableCallerText("+")),
+        $createTextNode("note text"),
+        $createMarkerNode("f", "closing"),
+      );
+      const sidebar = $createUnknownNode("esb", "esb");
+      sidebar.append($createParaNode("p").append($createMarkerNode("p"), note));
+      $getRoot().append(sidebar);
+    });
+    function $findNote(): NoteNode {
+      const sidebar = $getRoot().getFirstChild();
+      if (!$isUnknownNode(sidebar)) throw new Error("expected an UnknownNode");
+      const para = sidebar.getFirstChild();
+      if (!$isParaNode(para)) throw new Error("expected a nested ParaNode");
+      const note = para.getChildren().find($isNoteNode);
+      if (!note) throw new Error("expected a NoteNode");
+      return note;
+    }
+    // The caller text and content text are adjacent plain TextNodes, so the core reconciler
+    // merges them into one node on commit (Lexical's own text-node normalization, unrelated to
+    // this engine) — look up "a content node" by position, not by an exact substring match that
+    // merging would break.
+    function $findNoteContentNode(): TextNode {
+      const content = $findNote()
+        .getChildren()
+        .find((child): child is TextNode => $isTextNode(child) && !$isMarkerNode(child));
+      if (!content) throw new Error("expected note content");
+      return content;
+    }
+    let beforeText = "";
+    editor.getEditorState().read(() => {
+      beforeText = $findNote().getTextContent();
+    });
+    editor.update(
+      () => {
+        expect($requestTier2ForNode($findNoteContentNode(), context)).toBe(false);
+      },
+      { discrete: true },
+    );
+    editor.getEditorState().read(() => {
+      // Byte-identical: every glyph and content byte of the note, unchanged.
+      expect($findNote().getTextContent()).toBe(beforeText);
     });
   });
 });
