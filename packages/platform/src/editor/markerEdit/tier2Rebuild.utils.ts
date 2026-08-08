@@ -503,10 +503,13 @@ function $appendNodesFragment(
 }
 
 /**
- * Exported so a test can compare a loose-shape paragraph's fragment `.text` against its
- * hand-built wrapped-shape equivalent for byte-for-byte equality (`tier2Rebuild.utils.test.tsx`)
- * — the direct evidence that wrapping a run changes nothing about what gets tokenized. Every
- * other caller in this module still reaches it only through `$rebuildParas`/`$rebuildNoteContent`.
+ * Exported for two callers outside this module's own rebuild path. The read-only settle
+ * (virtualSettle.utils.ts) builds the SAME fragment a mutating rebuild would, which is what makes
+ * the settled USJ a consumer reads and the structure a later real settle produces one computation
+ * rather than two implementations. A test also compares a loose-shape paragraph's fragment `.text`
+ * against its hand-built wrapped-shape equivalent for byte-for-byte equality
+ * (`tier2Rebuild.utils.test.tsx`) — the direct evidence that wrapping a run changes nothing about
+ * what gets tokenized.
  */
 export function $buildParaFragment(
   para: ParaNode,
@@ -595,8 +598,10 @@ function countSentinelNodes(nodes: LexicalNode[]): number {
   return count;
 }
 
-/** U+FFFC occurrences across tokenized content — must equal the preserved-run count. */
-function countSentinels(content: MarkerContent[]): number {
+/** U+FFFC occurrences across tokenized content — must equal the preserved-run count. Exported for
+ * the read-only settle (virtualSettle.utils.ts), which runs the same symmetry bail-out before it
+ * splices anything into its output. */
+export function countSentinels(content: MarkerContent[]): number {
   let count = 0;
   for (const item of content) {
     if (typeof item === "string") {
@@ -888,8 +893,13 @@ export function $rebuildParas(paras: ParaNode[], context: Tier2Context): boolean
  * MarkerNode(s). Preserve-or-refuse (returns undefined) when the note is collapsed, has
  * unknown attributes, an unrecoverable marker, or an unexpected caller/prefix shape: a
  * note the engine cannot cleanly re-derive is never rebuilt.
+ *
+ * Exported for the read-only settle (virtualSettle.utils.ts): note content is its own settle scope,
+ * and the settled output a consumer reads must be built from the SAME fragment the mutating rebuild
+ * below would build. Every other caller in this module still reaches it through
+ * `$rebuildNoteContent`.
  */
-function $buildNoteFragment(
+export function $buildNoteFragment(
   note: NoteNode,
   getMarkerFn: MarkerLookup,
 ): { out: FragmentAccumulator; contentNodes: LexicalNode[] } | undefined {
@@ -1051,20 +1061,38 @@ export function $rebuildNoteContent(note: NoteNode, context: Tier2Context): bool
   return true;
 }
 
-/** Route a Tier 1-unexpressible edit to Tier 2 via the node's paragraph or note. Returns whether
- * the routed rebuild actually SPLICED — a guard-rail or fixed-point refusal mutates nothing, and
- * the deferred-resolution history bookkeeping ($resolvePendingMarkers callers) needs to tell the
- * two apart. */
-export function $requestTier2ForNode(node: LexicalNode, context: Tier2Context): boolean {
-  let current: LexicalNode | null = node;
-  while (current) {
-    // Note content is its own re-tokenization scope: route to the note-scoped
-    // rebuild, which preserves the note node, its marker(s), and its caller.
-    if ($isNoteNode(current)) return $rebuildNoteContent(current, context);
-    // Opaque-block interior (sidebars, periph, …): stay literal.
-    if ($isUnknownNode(current)) return false;
-    if ($isParaNode(current)) return $rebuildParas([current], context);
-    current = current.getParent();
+/**
+ * The re-tokenization SCOPE a node belongs to: the expanded note whose content contains it, or
+ * the paragraph that contains it — or `undefined` when it has neither (an opaque block interior,
+ * where the bytes stay literal, or a detached node). The nearest Note or Para wins — a note inside
+ * a paragraph is its own scope: the note node, its marker glyphs, and its caller are preserved
+ * across a rebuild while only its content re-tokenizes.
+ *
+ * The walk runs to the DOCUMENT ROOT, not just to the first Note/Para match: a paragraph can itself
+ * be nested inside an opaque block (a sidebar's own paragraphs — see `$buildParaFragment`'s matching
+ * ancestor guard), so an `UnknownNode` anywhere between `node` and the root — even above the nearest
+ * Note/Para — still means "opaque block interior", overriding whatever scope was found closer in.
+ *
+ * The single definition of scope, shared by the mutating settle below and the read-only settle in
+ * virtualSettle.utils.ts. Both must route a given pending key to the SAME scope, or the settled USJ
+ * a consumer reads and the structure a later real settle produces would be derived from different
+ * regions of the document.
+ */
+export function $settleScopeForNode(node: LexicalNode): ParaNode | NoteNode | undefined {
+  let scope: ParaNode | NoteNode | undefined;
+  for (let current: LexicalNode | null = node; current; current = current.getParent()) {
+    if ($isUnknownNode(current)) return undefined;
+    if (!scope && ($isNoteNode(current) || $isParaNode(current))) scope = current;
   }
-  return false;
+  return scope;
+}
+
+/** Route a Tier-1-unexpressible edit to Tier 2 via its scope ({@link $settleScopeForNode}).
+ * Returns whether the routed rebuild actually SPLICED — a guard-rail or fixed-point refusal mutates
+ * nothing, and the deferred-resolution history bookkeeping ($resolvePendingMarkers callers) needs to
+ * tell the two apart. */
+export function $requestTier2ForNode(node: LexicalNode, context: Tier2Context): boolean {
+  const scope = $settleScopeForNode(node);
+  if (!scope) return false;
+  return $isNoteNode(scope) ? $rebuildNoteContent(scope, context) : $rebuildParas([scope], context);
 }

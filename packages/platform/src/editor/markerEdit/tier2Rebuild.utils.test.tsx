@@ -8,8 +8,14 @@ import {
   initialize as initializeDeserialize,
 } from "../adaptors/editor-usj.adaptor";
 import usjEditorAdaptor from "../adaptors/usj-editor.adaptor";
-import { $buildParaFragment, $rebuildParas, Tier2Context } from "./tier2Rebuild.utils";
+import {
+  $buildParaFragment,
+  $rebuildParas,
+  $settleScopeForNode,
+  Tier2Context,
+} from "./tier2Rebuild.utils";
 import { $createMarkerPrefix } from "./markerEditDeletion.utils";
+import { testEnvironment } from "./markerEdit.test-helpers";
 import { usxStringToUsj } from "@eten-tech-foundation/scripture-utilities";
 import {
   $createTextNode,
@@ -26,11 +32,15 @@ import {
   $createAttributeRunNode,
   $createMarkerNode,
   $createMilestoneNode,
+  $createNoteNode,
   $createParaNode,
+  $createUnknownNode,
   $createVerseNode,
   $isAttributeRunNode,
   $isCharNode,
   $isMarkerNode,
+  $isNoteNode,
+  $isUnknownNode,
   $isVerseNode,
   CharNode,
   getMarker as bundledGetMarker,
@@ -1779,6 +1789,62 @@ describe("verses re-tokenize", () => {
       // Same instance, moved (not recreated) — the sentinel-preservation path.
       expect(verse.getKey()).toBe(verseKey);
       expect(verse.getUnknownAttributes()).toEqual({ foo: "bar" });
+    });
+  });
+});
+
+describe("$settleScopeForNode", () => {
+  it("returns the owning paragraph for a node in ordinary paragraph content", async () => {
+    const { editor } = await testEnvironment(() => {
+      $getRoot().append(
+        $createParaNode("p").append($createMarkerNode("p"), $createTextNode(`${NBSP}body`)),
+      );
+    });
+    editor.getEditorState().read(() => {
+      const para = $getRoot().getChildren().find($isParaNode);
+      if (!para) throw new Error("expected a ParaNode");
+      const text = para.getLastChild();
+      if (!text) throw new Error("expected paragraph text");
+      expect($settleScopeForNode(text)).toBe(para);
+    });
+  });
+
+  it("returns the NOTE, not its paragraph, for a node inside note content", async () => {
+    const { editor } = await testEnvironment(() => {
+      // isCollapsed:false — an inline-expanded note. `$createNoteNode`'s default (collapsed)
+      // would make MarkerEditPlugin's `$noteDeletionTransform` treat this opener-but-no-closer
+      // shape as a damaged glyph pair and remove the note before this test ever reads it.
+      const note = $createNoteNode("f", "+", false);
+      note.append($createMarkerNode("f"), $createTextNode("+"), $createTextNode("note body"));
+      $getRoot().append($createParaNode("p").append($createMarkerNode("p"), note));
+    });
+    editor.getEditorState().read(() => {
+      const para = $getRoot().getChildren().find($isParaNode);
+      if (!para) throw new Error("expected a ParaNode");
+      const note = para.getChildren().find($isNoteNode);
+      if (!note) throw new Error("expected a NoteNode");
+      const body = note.getLastChild();
+      if (!body) throw new Error("expected note content");
+      expect($settleScopeForNode(body)).toBe(note);
+    });
+  });
+
+  it("returns undefined inside an opaque block, matching the Tier-2 bail", async () => {
+    const { editor } = await testEnvironment(() => {
+      const sidebar = $createUnknownNode("esb", "esb");
+      sidebar.append(
+        $createParaNode("p").append($createMarkerNode("p"), $createTextNode(`${NBSP}inside`)),
+      );
+      $getRoot().append(sidebar);
+    });
+    editor.getEditorState().read(() => {
+      const sidebar = $getRoot().getFirstChild();
+      if (!$isUnknownNode(sidebar)) throw new Error("expected an UnknownNode");
+      const para = sidebar.getFirstChild();
+      if (!$isParaNode(para)) throw new Error("expected a nested ParaNode");
+      const text = para.getLastChild();
+      if (!text) throw new Error("expected paragraph text");
+      expect($settleScopeForNode(text)).toBeUndefined();
     });
   });
 });
