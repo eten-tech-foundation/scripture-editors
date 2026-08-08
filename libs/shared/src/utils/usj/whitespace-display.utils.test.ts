@@ -18,9 +18,8 @@ describe("usjTextToDisplay", () => {
     expect(usjTextToDisplay("a b c")).toBe("a b c");
   });
 
-  it("shows paragraph-leading spaces as NBSP", () => {
-    expect(usjTextToDisplay(" lead", true)).toBe(`${NBSP}lead`);
-    expect(usjTextToDisplay(" lead", false)).toBe(" lead");
+  it("leaves a single leading space alone (paragraph-leading display is createPara's job)", () => {
+    expect(usjTextToDisplay(" lead")).toBe(" lead");
   });
 
   it("handles NBSP and runs together", () => {

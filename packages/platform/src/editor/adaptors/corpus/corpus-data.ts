@@ -1,7 +1,7 @@
 import { NBSP } from "shared";
 
 /**
- * Round-trip corpus for Standard view (spec §7/§10, Phase 0).
+ * Round-trip corpus for Standard view.
  * Fixtures are authored as USX and converted to USJ at test time via
  * `usxStringToUsj`, guaranteeing shape-valid USJ.
  *
@@ -46,7 +46,7 @@ export const corpusFixtures: CorpusFixture[] = [
   {
     name: "baseline: footnote and cross-reference",
     usx: book(
-      `<para style="p"><verse number="1" style="v" />Text before<note caller="+" style="f"><char style="fr">1.1 </char><char style="ft">A footnote text.</char></note> and after. <verse number="2" style="v" />More<note caller="-" style="x"><char style="xo">1.2 </char><char style="xt">Gen 1.1</char></note> text.</para>`,
+      `<para style="p"><verse number="1" style="v" />Text before<note caller="+" style="f"><char style="fr" closed="false">1.1 </char><char style="ft" closed="false">A footnote text.</char></note> and after. <verse number="2" style="v" />More<note caller="-" style="x"><char style="xo" closed="false">1.2 </char><char style="xt" closed="false">Gen 1.1</char></note> text.</para>`,
     ),
   },
   {
@@ -67,6 +67,17 @@ export const corpusFixtures: CorpusFixture[] = [
   <chapter number="1" style="c" altnumber="2" pubnumber="A" />
   <para style="p"><verse number="1" style="v" altnumber="2" pubnumber="1b" />Text with alternate numbering.</para>
 ${USX_FOOTER}`,
+  },
+  {
+    name: "empty va char element coexisting with a folded verse altnumber",
+    // PT9 empty leading-attribute-marker semantics: an EMPTY `\va` (`<char style="va" />`) is a
+    // first-class char element, never an empty attribute — it must round-trip as an ordinary
+    // (empty) char span, NOT get folded into the verse's `\va` display run. And a verse that DOES
+    // carry an `altnumber` (its folded run) coexists in the same paragraph with a separate,
+    // later `va` char span: the two representations are independent.
+    usx: book(
+      `<para style="p"><verse number="1" style="v" altnumber="2" />Alt-numbered text with a later <char style="va">standalone</char> span. <verse number="2" style="v" /><char style="va" />after an empty va marker.</para>`,
+    ),
   },
   {
     name: "cross-reference ref target",
@@ -121,7 +132,36 @@ ${USX_FOOTER}`,
   {
     name: "unclosed note (closed=false)",
     usx: book(
-      `<para style="p"><verse number="1" style="v" />Text<note caller="+" style="f" closed="false"><char style="fr">1.1 </char><char style="ft">Unterminated note</char></note></para>`,
+      `<para style="p"><verse number="1" style="v" />Text<note caller="+" style="f" closed="false"><char style="fr" closed="false">1.1 </char><char style="ft" closed="false">Unterminated note</char></note></para>`,
+    ),
+  },
+  {
+    // A body char span with no explicit closing marker: ParatextData records closed="false".
+    // It must round-trip WITHOUT the editor synthesizing a \nd* closer the source never had.
+    name: "closed=false body char span (implicit close, no closer)",
+    usx: book(
+      `<para style="p"><verse number="1" style="v" />Tell the <char style="nd" closed="false">Lord</char> plainly.</para>`,
+    ),
+  },
+  {
+    // An EXPLICITLY closed body \xt span — no `closed` attribute, so it genuinely carries a
+    // `\xt*` closer. Closer display keys on the span's actual closed state, never on the
+    // footnote/cross-reference marker family, so this span renders its closing glyph and must
+    // round-trip WITHOUT the editor stamping a phantom closed="false" that a save would then use
+    // to DROP the real `\xt*` (the byte-lossy save this fix repairs).
+    name: "explicitly-closed body xt span (closer, no closed flag)",
+    usx: book(
+      `<para style="p"><verse number="1" style="v" />See <char style="xt">2Sam 1:2</char> for context.</para>`,
+    ),
+  },
+  {
+    // An explicitly-closed \xt carrying its default attribute (`link-href`). With the closer
+    // rendered, the char attribute display run (`|…`) is built and the span is text-recoverable,
+    // so the attribute round-trips through the display bytes rather than hiding in an atomic
+    // sentinel.
+    name: "explicitly-closed xt span with link-href attribute",
+    usx: book(
+      `<para style="p"><verse number="1" style="v" />See <char style="xt" link-href="GEN 1:1">Gen 1:1</char>.</para>`,
     ),
   },
   {
@@ -131,11 +171,23 @@ ${USX_FOOTER}`,
     ),
   },
   {
-    // §4 createPara leading-space display rule: a paragraph whose first content text starts
+    // Book \id description text follows the same display mapping as body text: the reverse
+    // adaptor inverts display whitespace on ALL text nodes (book children included), so the
+    // forward adaptor must display-encode book text too or a stored NBSP corrupts to a plain
+    // space on save.
+    name: "NBSP in book id description text",
+    usx: `<usx version="3.0">
+  <book code="RUT" style="id">Ruth A${NBSP}B</book>
+  <chapter number="1" style="c" />
+  <para style="p"><verse number="1" style="v" />Verse text.</para>
+${USX_FOOTER}`,
+  },
+  {
+    // Paragraph leading-space display rule: a paragraph whose first content text starts
     // with a single leading space. Standard view displays that space as NBSP; the reverse
     // adaptor inverts it back (and normalizeSpaceRuns leaves a lone space alone), so the pair
     // round-trips. The other three modes carry the leading space through untouched.
-    name: "paragraph-leading space (§4 display rule)",
+    name: "paragraph-leading space (display rule)",
     usx: book(`<para style="p"> Leading space precedes this text.</para>`),
   },
 ];

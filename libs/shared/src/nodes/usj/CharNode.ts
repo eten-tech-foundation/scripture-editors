@@ -223,6 +223,7 @@ export class CharNode extends ElementNode {
     if (prevNode.__marker !== this.__marker) {
       dom.setAttribute("data-marker", this.__marker);
       if (config.theme?.showCharMarkerTitles !== false) dom.setAttribute("title", this.__marker);
+      else dom.removeAttribute("title");
       dom.classList.remove(`usfm_${prevNode.__marker}`);
       dom.classList.add(`usfm_${this.__marker}`);
     }
@@ -253,7 +254,16 @@ export class CharNode extends ElementNode {
   // Mutation
 
   override insertNewAfter(_selection: RangeSelection, restoreSelection: boolean): CharNode {
-    const newElement = $createCharNode(this.getMarker());
+    // The continuation span keeps the implicit-close convention when this span has it: splitting
+    // an unclosed (closed="false") span yields two unclosed spans — the same structural-state rule
+    // as the marker-edit split paths ($splitCharNodeAt, $liftOutOfChar). Other unknownAttributes
+    // are deliberately NOT copied (duplicating them would double the `|name="value"` bytes on
+    // serialization).
+    const isUnclosed = this.getUnknownAttributes()?.closed === "false";
+    const newElement = $createCharNode(
+      this.getMarker(),
+      isUnclosed ? { closed: "false" } : undefined,
+    );
     newElement.setDirection(this.getDirection());
     newElement.setFormat(this.getFormatType());
     newElement.setStyle(this.getTextStyle());

@@ -1,35 +1,53 @@
-import { testEnvironment } from "./markerEdit.test-helpers";
+import { MarkerEditPlugin } from "./MarkerEditPlugin";
+import { serializedState, testEnvironment, viewOptions } from "./markerEdit.test-helpers";
 import {
   $getStandardViewClipboardData,
   $handleCopyForStandardView,
+  $handlePasteForStandardView,
 } from "./whitespaceDisplay.plugin.utils";
 import { act } from "@testing-library/react";
 import { LexicalClipboardData } from "@lexical/clipboard";
+// Reaching inside only for tests.
+// eslint-disable-next-line @nx/enforce-module-boundaries
+import { baseTestEnvironment } from "../../../../../libs/shared-react/src/plugins/usj/react-test.utils";
+import { usxStringToUsj } from "@eten-tech-foundation/scripture-utilities";
+import { $dfs } from "@lexical/utils";
 import {
+  $createPoint,
+  $createRangeSelection,
   $createTextNode,
   $getRoot,
+  $isTextNode,
+  $setSelection,
   $setState,
   COPY_COMMAND,
   CUT_COMMAND,
   LexicalEditor,
   TextNode,
 } from "lexical";
-import { $createMarkerNode, $createParaNode, NBSP, textTypeState } from "shared";
+import { $createCharNode, $createMarkerNode, $createParaNode, NBSP, textTypeState } from "shared";
 
 /**
- * §5.6 null-event leg: ClipboardPlugin/ContextMenuPlugin/EditorRef dispatch COPY_COMMAND/
+ * Null-event leg: ClipboardPlugin/ContextMenuPlugin/EditorRef dispatch COPY_COMMAND/
  * CUT_COMMAND with a `null` payload. `@lexical/clipboard`'s `copyToClipboard` is mocked so the
  * jsdom `execCommand`/synthetic-event dance (unimplemented in jsdom — verified: `execCommand` is
  * `undefined` and `instanceof ClipboardEvent` throws) never has to run; instead we assert the
- * handler calls through with the exact normalized payload, per spec §2. `$getHtmlContent`/
+ * handler calls through with the exact normalized payload. `$getHtmlContent`/
  * `$getLexicalContent` (also from this module) stay real via the `importOriginal` spread, so the
  * payload-builder unit tests below exercise genuine HTML/Lexical-JSON generation.
  */
+// Typed explicitly against the real `copyToClipboard` signature: an untyped `vi.fn(async () =>
+// true)` infers a zero-arg mock, which narrows `.mock.calls[0]` to the empty tuple `[]` and
+// breaks the positional destructuring below (TS2493) even though the mock is genuinely called
+// with three arguments at runtime.
 const copyToClipboardSpy = vi.hoisted(() =>
-  vi.fn(
-    async (_editor: LexicalEditor, _event: ClipboardEvent | null, _data?: LexicalClipboardData) =>
-      true,
-  ),
+  vi.fn<
+    (
+      editor: LexicalEditor,
+      event: null | ClipboardEvent,
+      data?: LexicalClipboardData,
+    ) => Promise<boolean>
+  >(async () => true),
 );
 vi.mock("@lexical/clipboard", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@lexical/clipboard")>();
@@ -68,7 +86,7 @@ function $appendMarkerAndText(text: TextNode): void {
   $getRoot().append($createParaNode("p").append($createMarkerNode("p"), spaceNode, text));
 }
 
-describe("§4 typing invariant", () => {
+describe("typing invariant", () => {
   it("converts a typed double space to display-NBSP", async () => {
     let text: TextNode;
     const { editor } = await testEnvironment(() => {
@@ -98,10 +116,52 @@ describe("§4 typing invariant", () => {
     await act(async () => editor.update(() => text.setTextContent("a   b")));
     editor.getEditorState().read(() => expect(text.getTextContent().length).toBe(5));
   });
+
+  // A char span's text children carry a STRUCTURAL leading NBSP (the glyph separator glued on by
+  // the adaptor/materializer). It must not act as left context for the run mapping: a genuine
+  // content-leading single space stays plain in the clean-loaded shape, and mapping it here made
+  // edited (dirty) nodes emit different collab ops than clean-loaded ones for identical content.
+  it("keeps a char span's content-leading space plain after the structural NBSP prefix", async () => {
+    let text: TextNode;
+    const { editor } = await testEnvironment(() => {
+      text = $createTextNode(`${NBSP} Bx`);
+      // Complete span (opening + closing glyphs) — a closer-less span would trigger the
+      // missing-closer Tier-2 rebuild and replace the captured node reference.
+      const span = $createCharNode("nd").append(
+        $createMarkerNode("nd", "opening"),
+        text,
+        $createMarkerNode("nd", "closing"),
+      );
+      const sep = $createTextNode(NBSP);
+      $setState(sep, textTypeState, "marker-trailing-space");
+      $getRoot().append($createParaNode("p").append($createMarkerNode("p"), sep, span));
+    });
+    await act(async () => editor.update(() => text.setTextContent(`${NBSP} B`)));
+    editor.getEditorState().read(() => expect(text.getTextContent()).toBe(`${NBSP} B`));
+  });
+
+  it("still maps space runs INSIDE char span content beyond the structural prefix", async () => {
+    let text: TextNode;
+    const { editor } = await testEnvironment(() => {
+      text = $createTextNode(`${NBSP}a b`);
+      const span = $createCharNode("nd").append(
+        $createMarkerNode("nd", "opening"),
+        text,
+        $createMarkerNode("nd", "closing"),
+      );
+      const sep = $createTextNode(NBSP);
+      $setState(sep, textTypeState, "marker-trailing-space");
+      $getRoot().append($createParaNode("p").append($createMarkerNode("p"), sep, span));
+    });
+    await act(async () => editor.update(() => text.setTextContent(`${NBSP}a  b`)));
+    editor
+      .getEditorState()
+      .read(() => expect(text.getTextContent()).toBe(`${NBSP}a${NBSP}${NBSP}b`));
+  });
 });
 
-describe("§5.6 clipboard normalization", () => {
-  it("copies display-NBSP as plain spaces in text/plain", async () => {
+describe("clipboard normalization", () => {
+  it("copies display-NBSP as plain spaces in text/plain via the real-event branch (not copyToClipboard)", async () => {
     let text: TextNode;
     const { editor } = await testEnvironment(() => {
       text = $createTextNode(`a${NBSP}${NBSP}b and 3~000`);
@@ -112,14 +172,62 @@ describe("§5.6 clipboard normalization", () => {
     // matching this suite's `updateSelection` precedent.
     await act(async () => editor.update(() => text.select(0, text.getTextContentSize())));
     const { event, getData } = copyEvent();
+    copyToClipboardSpy.mockClear();
     await act(async () => {
       editor.dispatchCommand(COPY_COMMAND, event);
     });
     expect(getData("text/plain")).toBe("a  b and 3~000"); // NBSP→space; ~ stays (PT9 shows/copies ~)
-  });
-
-  it("real-event branch is unaffected by the mocked copyToClipboard (regression guard)", () => {
+    // The real (event-carrying) branch writes directly via clipboardData.setData; it must NOT
+    // route through the null-event copyToClipboard path (which mock would otherwise mask).
     expect(copyToClipboardSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("copy across an UnknownNode (figure) — full USFM byte display", () => {
+  it("copies the figure's exact USFM: opening marker, caption, then attributes and closer", async () => {
+    const usj = usxStringToUsj(
+      `<usx version="3.0"><book code="RUT" style="id" /><chapter number="1" style="c" />` +
+        `<para style="p">Before <figure style="fig" file="cn01617.jpg" size="span" ref="1.18">caption</figure> after.</para></usx>`,
+    );
+    const { editor } = await baseTestEnvironment(
+      serializedState(usj),
+      <MarkerEditPlugin viewOptions={viewOptions} />,
+    );
+
+    let beforeText: TextNode | undefined;
+    let afterText: TextNode | undefined;
+    editor.getEditorState().read(() => {
+      const textNodes = $dfs($getRoot())
+        .map(({ node }) => node)
+        .filter($isTextNode);
+      beforeText = textNodes.find((node) => node.getTextContent() === "Before ");
+      afterText = textNodes.find((node) => node.getTextContent() === " after.");
+    });
+    if (!beforeText || !afterText) throw new Error("Expected surrounding text nodes to exist");
+    const before = beforeText;
+    const after = afterText;
+
+    await act(async () =>
+      editor.update(() => {
+        const selection = $createRangeSelection();
+        selection.anchor = $createPoint(before.getKey(), 0, "text");
+        selection.focus = $createPoint(after.getKey(), after.getTextContentSize(), "text");
+        $setSelection(selection);
+      }),
+    );
+
+    const { event, getData } = copyEvent();
+    await act(async () => {
+      editor.dispatchCommand(COPY_COMMAND, event);
+    });
+
+    // The whole span, marker glyphs included: the figure's ImmutableTypedTextNode display
+    // children (opening marker before the caption; attributes folded into the closing after it,
+    // matching USFM 3.0's caption-first figure syntax) are real Lexical text to a range
+    // selection, so the copy carries the figure's complete, valid USFM — not just its caption.
+    expect(getData("text/plain")).toBe(
+      'Before \\fig caption|src="cn01617.jpg" size="span" ref="1.18"\\fig* after.',
+    );
   });
 });
 
@@ -145,13 +253,20 @@ describe("$getStandardViewClipboardData", () => {
     await act(async () => editor.update(() => text.select(0, text.getTextContentSize())));
     let data: LexicalClipboardData | undefined;
     await act(async () => editor.update(() => (data = $getStandardViewClipboardData(editor))));
+    // Only text/plain inverts display-NBSP back to plain spaces; the html and lexical payloads
+    // keep the on-screen NBSPs so a paste back into a Standard-view editor round-trips exactly.
     expect(data?.["text/plain"]).toBe("a  b");
-    expect(data?.["text/html"]).toBeTruthy();
-    expect(data?.["application/x-lexical-editor"]).toBeTruthy();
+    // html carries the two NBSPs (as entities) inside a text span, NOT normalized to spaces.
+    expect(data?.["text/html"]).toContain("a&nbsp;&nbsp;b");
+    expect(data?.["text/html"]).not.toContain("a  b");
+    // the lexical clipboard JSON is a single TextNode whose content still holds the NBSPs.
+    const lexical = JSON.parse(data?.["application/x-lexical-editor"] ?? "{}");
+    expect(lexical.nodes).toHaveLength(1);
+    expect(lexical.nodes[0]).toMatchObject({ type: "text", text: `a${NBSP}${NBSP}b` });
   });
 });
 
-describe("§5.6 clipboard normalization — null-event leg (ClipboardPlugin/ContextMenuPlugin/EditorRef)", () => {
+describe("clipboard normalization — null-event leg (ClipboardPlugin/ContextMenuPlugin/EditorRef)", () => {
   it("COPY_COMMAND(null) writes the normalized payload via copyToClipboard(editor, null, data), selection intact", async () => {
     let text: TextNode;
     const { editor } = await testEnvironment(() => {
@@ -246,5 +361,232 @@ describe("§5.6 clipboard normalization — null-event leg (ClipboardPlugin/Cont
     );
     expect(handled).toBe(false);
     expect(copyToClipboardSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("paste normalization ($handlePasteForStandardView)", () => {
+  function pasteEvent(payload: { [key: string]: string }): {
+    event: ClipboardEvent;
+    prevented: () => boolean;
+  } {
+    let prevented = false;
+    const clipboardData = { getData: (type: string) => payload[type] ?? "" };
+    const event = {
+      clipboardData,
+      preventDefault: () => {
+        prevented = true;
+      },
+    } as unknown as ClipboardEvent;
+    return { event, prevented: () => prevented };
+  }
+
+  it("rewrites a pasted data-NBSP to the `~` display form (data round-trips to a real NBSP)", async () => {
+    let text: TextNode;
+    const { editor } = await testEnvironment(() => {
+      const para = $createParaNode("p");
+      const sep = $createTextNode(NBSP);
+      $setState(sep, textTypeState, "marker-trailing-space");
+      text = $createTextNode("before after");
+      $getRoot().append(para.append($createMarkerNode("p"), sep, text));
+    });
+    await act(async () => editor.update(() => text.select(7, 7))); // between "before " and "after"
+
+    const { event, prevented } = pasteEvent({ "text/plain": `3${NBSP}000` });
+    let handled = false;
+    await act(async () =>
+      editor.update(() => {
+        handled = $handlePasteForStandardView(event);
+      }),
+    );
+
+    expect(handled).toBe(true);
+    expect(prevented()).toBe(true);
+    editor.getEditorState().read(() => {
+      // The NBSP shows as `~` on screen; serialization inverts `~` → NBSP, so the data keeps it.
+      expect($getRoot().getTextContent()).toContain("3~000");
+    });
+  });
+
+  it("passes through internal pastes (lexical payload) and NBSP-free plain text", async () => {
+    let text: TextNode;
+    const { editor } = await testEnvironment(() => {
+      const para = $createParaNode("p");
+      text = $createTextNode("body");
+      $getRoot().append(para.append($createMarkerNode("p"), text));
+    });
+    await act(async () => editor.update(() => text.select(0, 0)));
+
+    const internal = pasteEvent({
+      "application/x-lexical-editor": "{}",
+      "text/plain": `x${NBSP}y`,
+    });
+    const plain = pasteEvent({ "text/plain": "no nbsp here" });
+    await act(async () =>
+      editor.update(() => {
+        expect($handlePasteForStandardView(internal.event)).toBe(false);
+        expect($handlePasteForStandardView(plain.event)).toBe(false);
+      }),
+    );
+    expect(internal.prevented()).toBe(false);
+    expect(plain.prevented()).toBe(false);
+  });
+
+  it("rewrites an NBSP found only in a `text/html` payload (word-processor `&nbsp;`) to `~`, with no `text/plain` data", async () => {
+    let text: TextNode;
+    const { editor } = await testEnvironment(() => {
+      const para = $createParaNode("p");
+      const sep = $createTextNode(NBSP);
+      $setState(sep, textTypeState, "marker-trailing-space");
+      text = $createTextNode("before after");
+      $getRoot().append(para.append($createMarkerNode("p"), sep, text));
+    });
+    await act(async () => editor.update(() => text.select(7, 7))); // between "before " and "after"
+
+    // No `text/plain` key at all — some clipboard sources only populate `text/html`.
+    const { event, prevented } = pasteEvent({ "text/html": "<p>3&nbsp;000</p>" });
+    let handled = false;
+    await act(async () =>
+      editor.update(() => {
+        handled = $handlePasteForStandardView(event);
+      }),
+    );
+
+    expect(handled).toBe(true);
+    expect(prevented()).toBe(true);
+    editor.getEditorState().read(() => {
+      expect($getRoot().getTextContent()).toContain("3~000");
+    });
+  });
+
+  it("separates blocks (and `<br>`) with newlines so a multi-paragraph html paste doesn't merge words", async () => {
+    let text: TextNode;
+    const { editor } = await testEnvironment(() => {
+      const para = $createParaNode("p");
+      const sep = $createTextNode(NBSP);
+      $setState(sep, textTypeState, "marker-trailing-space");
+      text = $createTextNode("before after");
+      $getRoot().append(para.append($createMarkerNode("p"), sep, text));
+    });
+    await act(async () => editor.update(() => text.select(7, 7))); // between "before " and "after"
+
+    const { event } = pasteEvent({
+      "text/html": "<p>one&nbsp;two</p><p>three<br>four</p>",
+    });
+    let handled = false;
+    await act(async () =>
+      editor.update(() => {
+        handled = $handlePasteForStandardView(event);
+      }),
+    );
+
+    expect(handled).toBe(true);
+    editor.getEditorState().read(() => {
+      // Block boundaries and <br> become newlines — the same newline-joined shape a multi-line
+      // text/plain paste hands to insertText — so "two"/"three" don't fuse into one word.
+      expect($getRoot().getTextContent()).toContain("one~two\nthree\nfour");
+    });
+  });
+
+  it("excludes body-level style/script text from the inserted content", async () => {
+    let text: TextNode;
+    const { editor } = await testEnvironment(() => {
+      const para = $createParaNode("p");
+      const sep = $createTextNode(NBSP);
+      $setState(sep, textTypeState, "marker-trailing-space");
+      text = $createTextNode("before after");
+      $getRoot().append(para.append($createMarkerNode("p"), sep, text));
+    });
+    await act(async () => editor.update(() => text.select(7, 7)));
+
+    // A leading <style>/<script> would be hoisted into <head> by the parser (already excluded);
+    // placing them AFTER body content keeps them body-level — the case that leaked.
+    const { event } = pasteEvent({
+      "text/html": '<p>a&nbsp;b</p><style>p{color:red}</style><script>alert("x")</script>',
+    });
+    let handled = false;
+    await act(async () =>
+      editor.update(() => {
+        handled = $handlePasteForStandardView(event);
+      }),
+    );
+
+    expect(handled).toBe(true);
+    editor.getEditorState().read(() => {
+      const content = $getRoot().getTextContent();
+      expect(content).toContain("a~b");
+      expect(content).not.toContain("color");
+      expect(content).not.toContain("alert");
+    });
+  });
+
+  it("triggers on a literal NBSP byte in the raw html, not just the `&nbsp;` entity", async () => {
+    let text: TextNode;
+    const { editor } = await testEnvironment(() => {
+      const para = $createParaNode("p");
+      const sep = $createTextNode(NBSP);
+      $setState(sep, textTypeState, "marker-trailing-space");
+      text = $createTextNode("before after");
+      $getRoot().append(para.append($createMarkerNode("p"), sep, text));
+    });
+    await act(async () => editor.update(() => text.select(7, 7)));
+
+    const { event, prevented } = pasteEvent({ "text/html": `<p>3${NBSP}000</p>` });
+    let handled = false;
+    await act(async () =>
+      editor.update(() => {
+        handled = $handlePasteForStandardView(event);
+      }),
+    );
+
+    expect(handled).toBe(true);
+    expect(prevented()).toBe(true);
+    editor.getEditorState().read(() => {
+      expect($getRoot().getTextContent()).toContain("3~000");
+    });
+  });
+
+  it("falls through to default html handling when `text/html` carries no NBSP (raw or decoded)", async () => {
+    let text: TextNode;
+    const { editor } = await testEnvironment(() => {
+      const para = $createParaNode("p");
+      text = $createTextNode("body");
+      $getRoot().append(para.append($createMarkerNode("p"), text));
+    });
+    await act(async () => editor.update(() => text.select(0, 0)));
+
+    const { event, prevented } = pasteEvent({ "text/html": "<p><b>bold text</b></p>" });
+    let handled = true;
+    await act(async () =>
+      editor.update(() => {
+        handled = $handlePasteForStandardView(event);
+      }),
+    );
+
+    expect(handled).toBe(false);
+    expect(prevented()).toBe(false);
+  });
+
+  it("keeps current behavior (declines) when an `application/x-lexical-editor` payload is present, even if `text/html` carries NBSP", async () => {
+    let text: TextNode;
+    const { editor } = await testEnvironment(() => {
+      const para = $createParaNode("p");
+      text = $createTextNode("body");
+      $getRoot().append(para.append($createMarkerNode("p"), text));
+    });
+    await act(async () => editor.update(() => text.select(0, 0)));
+
+    const { event, prevented } = pasteEvent({
+      "application/x-lexical-editor": "{}",
+      "text/html": "<p>3&nbsp;000</p>",
+    });
+    let handled = true;
+    await act(async () =>
+      editor.update(() => {
+        handled = $handlePasteForStandardView(event);
+      }),
+    );
+
+    expect(handled).toBe(false);
+    expect(prevented()).toBe(false);
   });
 });

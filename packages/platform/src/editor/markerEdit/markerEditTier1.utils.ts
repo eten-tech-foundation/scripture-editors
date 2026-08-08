@@ -1,5 +1,5 @@
 /**
- * Tier 1 of the marker-editing engine (design spec §5.1): in-place renames that
+ * Tier 1 of the marker-editing engine: in-place renames that
  * keep structural node state and visible marker text in agreement at rest.
  * Everything Tier 1 cannot express routes to Tier 2 ($requestTier2ForNode).
  */
@@ -15,18 +15,34 @@ import {
   NodeKey,
 } from "lexical";
 import {
+  $hasCaretHeldAttributeRun,
+  $hasCaretHeldMilestoneRun,
+  $hasCaretHeldSeparatorGap,
+  $hasCaretHeldVerseAttributeRun,
   $isCharNode,
   $isMarkerNode,
+  $isMilestoneNode,
   $isNoteNode,
   $isParaNode,
+  $isUnknownNode,
+  $isVerseNode,
+  $milestoneAttributeRunPieces,
+  $milestoneRunEntirelyAbsent,
+  $verseAttributeRunPieces,
+  AttributeRunNode,
+  canonicalAttributeText,
   ChapterNode,
   closingMarkerText,
+  defaultMarkerAttribute,
   getVisibleOpenMarkerText,
-  isMilestoneCommentMarker,
+  isMilestoneHeuristicName,
   MarkerLookup,
   MarkerNode,
   MarkerType,
+  milestoneAttributes,
+  milestoneDefaultAttribute,
   MilestoneNode,
+  NBSP,
   NoteNode,
   openingMarkerText,
   VerseNode,
@@ -37,7 +53,7 @@ export interface MarkerEditContext extends Tier2Context {
   splitExpected: { current: boolean };
   /**
    * Literal text already submitted to `$requestTier2ForNode` this commit.
-   * `$rebuildParas` is deterministic (design spec §5.2 degradation property): a paragraph
+   * `$rebuildParas` is deterministic (the degradation property): a paragraph
    * whose rebuild still contains a fragment the tokenizer cannot resolve into anything new
    * (e.g. an unterminated milestone run) reproduces the identical literal text on every
    * retry, so the TextNode catch-all transform ($textNodeTier2Transform) would otherwise
@@ -55,49 +71,47 @@ const TERMINATED_OPENER_REGEX = /^\\(\+?[\w-]+)[ \u00A0]$/;
 const BARE_OPENER_REGEX = /^\\(\+?[\w-]+)$/;
 const CLOSER_FORM_REGEX = /^\\\+?[\w-]*\*$/;
 
-function $markerCanonicalText(node: MarkerNode): string {
+/** The rest-state display text a marker glyph should carry — derived from the node's stored
+ * marker, syntax, and nesting. A glyph whose text differs is mid-edit (pend-shaped). Exported for
+ * the historic re-pend scan ($rependPendShapedNodes), which must classify glyph divergence with
+ * the same rule the MarkerNode transform and `$resolvePendingMarkers` use. */
+export function $markerCanonicalText(node: MarkerNode): string {
   const syntax = node.getMarkerSyntax();
-  if (syntax === "closing") return closingMarkerText(node.getMarker());
+  // A nested char span's glyphs carry the `+` prefix (`\+w …\+w*`); the canonical text must derive
+  // the same `+` from the node's stored nesting so a rest-state nested glyph is not mistaken for a
+  // mid-edit rename.
+  const nested = node.getNested();
+  if (syntax === "closing") return closingMarkerText(node.getMarker(), nested);
   if (syntax === "selfClosing") return closingMarkerText("");
-  return openingMarkerText(node.getMarker());
+  return openingMarkerText(node.getMarker(), nested);
 }
 
-/** True for markers on USFM's fixed milestone list (`\ts-s`, `\qt1-e`, ...), not for arbitrary
- * z-namespace custom.sty markers: `MilestoneNode.isValidMarker` also accepts any `z`-prefixed
- * string so a milestone node can render an as-yet-unknown custom marker, but that same
- * allowance would misclassify a merely-unrecognized paragraph opener (e.g. `\zed`) as
- * positionally a milestone. Milestone markers all follow the `-s`/`-e` start/end suffix
- * convention, with bare `ts` as the sole exception. */
-function isKnownMilestoneMarker(marker: string): boolean {
-  return (
-    MilestoneNode.isValidMarker(marker) &&
-    (marker === "ts" ||
-      marker.endsWith("-s") ||
-      marker.endsWith("-e") ||
-      isMilestoneCommentMarker(marker))
-  );
-}
+// Milestone-name heuristic shared with the fragment tokenizer (`isMilestoneHeuristicName`):
+// only stylesheet-family milestone names (`\qt#-s/-e`, `\ts-s/-e`) plus annotation comment
+// markers — see its doc comment for why bare `ts`/`t-s`/`t-e` and the z-prefix wildcard are
+// deliberately excluded. Keeping one predicate here and in the tokenizer means Tier-1 kind
+// guards and Tier-2 re-tokenization can never disagree about what is positionally a milestone.
 
-/** Spec §5.1 same-positional-kind rule for paragraph openers. Stylesheet-first:
+/** Same-positional-kind rule for paragraph openers. Stylesheet-first:
  * a marker the effective sheet KNOWS classifies by its styleType; heuristics
  * cover only markers absent from the sheet. Unknown markers stay as typed
- * (spec deviation #4: Tier-1 renames to unknown markers stay in place). */
+ * (Tier-1 renames to unknown markers stay in place). */
 function isParaKindMarker(marker: string, getMarkerFn: MarkerLookup): boolean {
   const clean = marker.replace(/^\+/, "");
   if (clean === "v" || clean === "c") return false;
   const kind = getMarkerFn(clean)?.type;
   if (kind !== undefined && kind !== MarkerType.Unknown) return kind === MarkerType.Paragraph;
-  if (NoteNode.isValidMarker(clean) || isKnownMilestoneMarker(clean)) return false;
+  if (NoteNode.isValidMarker(clean) || isMilestoneHeuristicName(clean)) return false;
   return true;
 }
 
-/** Spec §5.1 same-positional-kind rule for char openers (see isParaKindMarker). */
+/** Same-positional-kind rule for char openers (see isParaKindMarker). */
 function isCharKindMarker(marker: string, getMarkerFn: MarkerLookup): boolean {
   const clean = marker.replace(/^\+/, "");
   if (clean === "v" || clean === "c") return false;
   const kind = getMarkerFn(clean)?.type;
   if (kind !== undefined && kind !== MarkerType.Unknown) return kind === MarkerType.Character;
-  if (NoteNode.isValidMarker(clean) || isKnownMilestoneMarker(clean)) return false;
+  if (NoteNode.isValidMarker(clean) || isMilestoneHeuristicName(clean)) return false;
   return true;
 }
 
@@ -121,22 +135,29 @@ function $moveCaretPastMarker(node: MarkerNode): void {
   else node.select(node.getTextContentSize(), node.getTextContentSize());
 }
 
+/** Returns whether the editor state was mutated — a rename applied, or a routed Tier 2 rebuild
+ * that spliced (a refused rebuild mutates nothing). */
 export function $applyOpenerRename(
   node: MarkerNode,
   newMarker: string,
   context: MarkerEditContext,
-): void {
+): boolean {
+  // A typed `+` prefix is a NEST instruction, not a rename: only Tier 2 (re-tokenizing the
+  // visible glyph text, which now carries the `+`) can express the resulting nesting. Tier 1's
+  // in-place rename would strip the `+` and silently discard the nest intent, so route to Tier 2.
+  if (newMarker.startsWith("+")) {
+    return $requestTier2ForNode(node, context);
+  }
   const parent = node.getParent();
   if ($isParaNode(parent)) {
     if (!isParaKindMarker(newMarker, context.getMarker)) {
-      $requestTier2ForNode(node, context);
-      return;
+      return $requestTier2ForNode(node, context);
     }
     parent.setMarker(newMarker);
     node.setMarker(newMarker); // rewrites __text to canonical, absorbing the typed terminator
     $moveCaretPastMarker(node);
     context.logger?.debug(`[MarkerEdit] para marker renamed to "${newMarker}"`);
-    return;
+    return true;
   }
   if ($isCharNode(parent) || $isNoteNode(parent)) {
     const clean = newMarker.replace(/^\+/, "");
@@ -144,8 +165,7 @@ export function $applyOpenerRename(
       ? isCharKindMarker(newMarker, context.getMarker)
       : NoteNode.isValidMarker(clean);
     if (!isValidKind) {
-      $requestTier2ForNode(node, context);
-      return;
+      return $requestTier2ForNode(node, context);
     }
     const oldMarker = node.getMarker();
     if (parent.getMarker() !== oldMarker) {
@@ -154,8 +174,7 @@ export function $applyOpenerRename(
       // direct parent is the outer CharNode, not an inner one. Renaming in place under that
       // assumption would target the wrong closer, so refuse and let Tier 2 rebuild proper
       // nesting from the glyph text via the tokenizer.
-      $requestTier2ForNode(node, context);
-      return;
+      return $requestTier2ForNode(node, context);
     }
     parent.setMarker(clean);
     const closer = parent
@@ -164,15 +183,17 @@ export function $applyOpenerRename(
       .filter((child) => child.getMarkerSyntax() === "closing" && child.getMarker() === oldMarker)
       .at(-1);
     if (closer) {
-      $clampSelectionToLength(closer, closingMarkerText(clean).length);
+      // A nested span's closer is `\+marker*`; clamp to the nested-aware length so the `+` is
+      // counted (`setMarker` below re-derives the closer text from its own stored nesting).
+      $clampSelectionToLength(closer, closingMarkerText(clean, closer.getNested()).length);
       closer.setMarker(clean); // same update: opener authority rewrites the closer
     }
     node.setMarker(clean);
     $moveCaretPastMarker(node);
     context.logger?.debug(`[MarkerEdit] ${parent.getType()} marker renamed to "${clean}"`);
-    return;
+    return true;
   }
-  $requestTier2ForNode(node, context);
+  return $requestTier2ForNode(node, context);
 }
 
 export function $markerNodeTransform(node: MarkerNode, context: MarkerEditContext): void {
@@ -197,7 +218,14 @@ export function $markerNodeTransform(node: MarkerNode, context: MarkerEditContex
     context.pendingKeys.add(node.getKey());
     return;
   }
-  // Closer / selfClosing: one-way authority — closer edits never rename the span.
+  // Closer / selfClosing: one-way authority — closer edits never rename the span. Damage or
+  // retype settles through Tier 2, whose tokenizer turns non-marker residue (`wj*` after the `\`
+  // is deleted) into PLAIN text and re-closes the span per its rules — a `*`-terminated form
+  // resolves now, anything else stays pending until the caret departs (mid-edit grace). A char
+  // span the user leaves open re-closes WITHOUT a regenerated `\marker*` glyph: the tokenizer
+  // marks every implicitly-closed span `closed="false"` (ParatextData emits it whenever a char
+  // span has no explicit closer — see paranext-core's footnote-util test USJ), and the adaptor
+  // skips the closing glyph for such spans, exactly as it does for auto-closed notes.
   if (text.endsWith("*")) {
     context.pendingKeys.delete(node.getKey());
     $requestTier2ForNode(node, context);
@@ -244,9 +272,12 @@ export function $verseNodeTransform(node: VerseNode, context: MarkerEditContext)
   }
 }
 
-export function $chapterNodeTransform(node: ChapterNode, _context: MarkerEditContext): void {
+// Unlike its sibling node-transform functions, a chapter marker never enters the pending/deferred
+// machinery MarkerEditContext tracks (deleting it removes the node outright; retagging its number
+// is a same-tick rewrite) — so it takes no context parameter, and its call site passes only `node`.
+export function $chapterNodeTransform(node: ChapterNode): void {
   if (node.getChildrenSize() === 0) {
-    node.remove(); // §5.5: deleting the chapter marker deletes it
+    node.remove(); // deleting the chapter marker deletes it
     return;
   }
   const textNode = node.getFirstChild();
@@ -261,12 +292,170 @@ export function $chapterNodeTransform(node: ChapterNode, _context: MarkerEditCon
 }
 
 /**
+ * The canonical NBSP+`|…` bytes `node` should display between its glyphs — shared between
+ * `MarkerEditPlugin`'s registered transform and this file's pend resolution so both always agree
+ * on what "canonical" means for a milestone. `milestoneAttributes` (attributeDisplay.utils.ts)
+ * folds sid/eid/unknownAttributes into the same object usj-editor.adaptor's `addAttributes` builds
+ * from a `MarkerObject`. Computed here rather than inside `shared`'s attributeDisplay.utils.ts:
+ * `milestoneDefaultAttribute` lives in the converters, and `shared`'s nodes/usj module graph must
+ * not import from there (converters/usfm already imports FROM nodes/usj, so the reverse import
+ * would cycle) — same reason `$syncCharAttributeDisplayNode` lives in CharNodePlugin.tsx.
+ * @param node - MilestoneNode whose display run needs updating.
+ */
+export function $milestoneAttributeDisplayText(node: MilestoneNode): string {
+  const attributes = milestoneAttributes(node.getSid(), node.getEid(), node.getUnknownAttributes());
+  const text = canonicalAttributeText(attributes, milestoneDefaultAttribute(node.getMarker()));
+  return text ? NBSP + text : "";
+}
+
+/**
+ * Every currently-attached but EMPTY `AttributeRunNode` wrapper riding on `node` (a verse's `\va`
+ * and/or `\vp` wrapper, or a milestone's single wrapper) — every piece of that wrapper's run was
+ * deleted, leaving a transient husk with nothing left to display (see {@link AttributeRunNode}'s
+ * own doc comment). A verse can carry up to two independent husks; a milestone at most one.
+ */
+function $emptyAttributeRunWrappers(node: LexicalNode): AttributeRunNode[] {
+  if ($isMilestoneNode(node)) {
+    const { wrapper } = $milestoneAttributeRunPieces(node);
+    return wrapper && wrapper.getChildrenSize() === 0 ? [wrapper] : [];
+  }
+  if ($isVerseNode(node)) {
+    const husks: AttributeRunNode[] = [];
+    const vaPieces = $verseAttributeRunPieces(node, "va");
+    if (vaPieces.wrapper && vaPieces.wrapper.getChildrenSize() === 0) husks.push(vaPieces.wrapper);
+    const afterVa = vaPieces.wrapper ?? vaPieces.closer ?? node;
+    const vpPieces = $verseAttributeRunPieces(afterVa, "vp");
+    if (vpPieces.wrapper && vpPieces.wrapper.getChildrenSize() === 0) husks.push(vpPieces.wrapper);
+    return husks;
+  }
+  return [];
+}
+
+/**
+ * The uniform deletion/pend settle for display-run OWNERS — the one place every kind's
+ * grace-or-settle decision and entirely-absent deletion policy lives. Marker literals and plain
+ * pending text are not owners and fall through (handled: false) to the caller's re-tokenize arm.
+ */
+export function $settlePendedDisplayOwner(
+  node: LexicalNode,
+  context: MarkerEditContext,
+): { handled: boolean; mutated: boolean } {
+  if ($isUnknownNode(node)) {
+    // An optbreak's `//` token IS its entire USFM byte representation (unknownUsfm.utils.ts) —
+    // no marker, no attributes, nothing else to re-derive it from. Deleting the token (Lexical
+    // destroys a token-mode display child outright; there is no partial-edit state to grace)
+    // deletes the construct, exactly as deleting a milestone's entire run deletes the milestone:
+    // the alternative, an empty UnknownNode left behind, serializes an optbreak with no visible
+    // bytes and no caret-distinguishable position — the undead husk this arm retires. The
+    // flanking significant spaces are untouched: displayed bytes win, and they were never part
+    // of the node being removed.
+    if (node.getTag() === "optbreak" && node.getChildrenSize() === 0) {
+      node.remove();
+      return { handled: true, mutated: true };
+    }
+    // Every other UnknownNode kind is a permanent Tier-2 sentinel with no display run of its
+    // own to settle (unknownUsfm.utils.ts's module doc: these bytes are read-only rendering,
+    // never re-tokenized) — recognized so the caller's re-tokenize fallback never tries to route
+    // one through `$requestTier2ForNode`.
+    return { handled: true, mutated: false };
+  }
+  // Husk arm, mirrors the optbreak arm above: an emptied `AttributeRunNode` wrapper
+  // left attached to a verse or milestone is undead scaffolding with nothing left to display —
+  // removed here as a side effect (not an early return) so the OWNER's own policy below still
+  // runs against the cleaned-up tree in the SAME settle pass. Without that, a milestone whose
+  // wrapper was JUST emptied would leave the wrapper orphaned in the tree the instant
+  // `$milestoneRunEntirelyAbsent` (below) removes the milestone itself — ownership is
+  // POSITION-derived, so an orphaned wrapper with no owner immediately before it can never be
+  // cleaned up by anything else. `huskRemoved` folds into whichever arm below actually returns,
+  // so a settle pass that removed a husk is never misreported as having mutated nothing.
+  let huskRemoved = false;
+  for (const wrapper of $emptyAttributeRunWrappers(node)) {
+    wrapper.remove();
+    huskRemoved = true;
+  }
+  if ($isCharNode(node) && $hasCaretHeldSeparatorGap(node)) {
+    // A deleted opener separator stays pending while the caret still sits at the gap (the
+    // exceptKey protection covers only the anchor node itself, not its parent span) — mid-edit
+    // grace, markerSeparators.utils.ts. It settles once the caret has actually departed.
+    context.pendingKeys.add(node.getKey());
+    return { handled: true, mutated: false };
+  }
+  if (
+    $isCharNode(node) &&
+    $hasCaretHeldAttributeRun(
+      node,
+      canonicalAttributeText(
+        node.getUnknownAttributes() ?? {},
+        defaultMarkerAttribute(node.getMarker()),
+      ),
+    )
+  ) {
+    // Same mid-edit grace for a span's edited/deleted attribute display run (the exceptKey
+    // protection covers only the run TextNode the caret is in, not the parent span's pended
+    // key) — attributeDisplay.utils.ts. Settling now would re-tokenize the run out from under
+    // the user's caret; it settles once the caret has actually departed.
+    context.pendingKeys.add(node.getKey());
+    return { handled: true, mutated: false };
+  }
+  if (
+    $isVerseNode(node) &&
+    $hasCaretHeldVerseAttributeRun(node, node.getAltnumber(), node.getPubnumber())
+  ) {
+    // Same mid-edit grace for a verse's deleted/diverged \va/\vp attribute run: the exceptKey
+    // protection covers only the run TextNode (or verse text) the caret is in, not the verse's
+    // pended key. Settling now would re-tokenize the run out from under the caret; it settles
+    // once the caret has actually departed and the run's bytes are absent from the fragment.
+    context.pendingKeys.add(node.getKey());
+    return { handled: true, mutated: huskRemoved };
+  }
+  if (
+    $isMilestoneNode(node) &&
+    $hasCaretHeldMilestoneRun(node, $milestoneAttributeDisplayText(node))
+  ) {
+    // Same mid-edit grace for a milestone's diverged or deleted display run: the exceptKey
+    // protection covers only the node the caret is in (the run TextNode, or the flanking text
+    // for a just-deleted run), not the milestone's pended key — attributeDisplay.utils.ts.
+    // Settling now would rewrite or re-tokenize the run out from under the caret; it settles
+    // once the caret has actually departed.
+    context.pendingKeys.add(node.getKey());
+    return { handled: true, mutated: huskRemoved };
+  }
+  if ($isMilestoneNode(node) && $milestoneRunEntirelyAbsent(node)) {
+    // The display run is a milestone's ENTIRE visible byte representation, so deleting all of
+    // it deletes the milestone itself — displayed bytes win, exactly as deleting every byte of
+    // any other construct removes it. Guarded to the fully-absent shape: a partial mangle
+    // (any glyph or attribute text still present) falls through and re-tokenizes instead.
+    // Without this arm the paragraph rebuild would preserve the bare milestone as an atomic
+    // sentinel (tier2Rebuild.utils.ts's empty-run guard) and the deletion could never finish.
+    // (An emptied wrapper husk was already removed above, so this correctly still fires for it.)
+    node.remove();
+    return { handled: true, mutated: true };
+  }
+  // `handled: false` here regardless of `huskRemoved`: the caller ignores `mutated` on this path
+  // and instead falls through to its own re-tokenize arm ($requestTier2ForNode) — the existing,
+  // already-safe default for a verse whose pend wasn't (or is no longer, post-husk-cleanup) a
+  // recognized caret-held divergence. Routing through it here too, rather than reporting
+  // "handled" and stopping, keeps a verse's own altnumber/pubnumber able to re-derive a fresh
+  // (loose) run on the same pass if a husk was cleared out from under a value that is still
+  // wanted — `wrapper.remove()` alone does not dirty the VerseNode, so nothing else would
+  // otherwise re-trigger its sync.
+  return { handled: false, mutated: false };
+}
+
+/**
  * Completion trigger. PT9 completes mid-edit markers via its 1s debounced
  * reformat; our deterministic equivalents are Enter, blur, and the caret
  * leaving the node (`exceptKey` keeps the node still being edited pending).
+ *
+ * Returns whether anything actually MUTATED the editor state. A pass that only consumed
+ * keys and REFUSED every routed rebuild (fixed points) changes nothing visible — but each
+ * refused `$rebuildParas` probe still created parse orphans that count as dirty leaves, so
+ * the deferred-resolution caller uses this to merge the visually-no-op commit into the
+ * current history entry instead of letting it push a phantom undo step.
  */
-export function $resolvePendingMarkers(context: MarkerEditContext, exceptKey?: NodeKey): void {
-  if (context.pendingKeys.size === 0) return;
+export function $resolvePendingMarkers(context: MarkerEditContext, exceptKey?: NodeKey): boolean {
+  let mutated = false;
+  if (context.pendingKeys.size === 0) return mutated;
   const keys = [...context.pendingKeys].filter((key) => key !== exceptKey);
   for (const key of keys) {
     context.pendingKeys.delete(key);
@@ -276,13 +465,26 @@ export function $resolvePendingMarkers(context: MarkerEditContext, exceptKey?: N
       const text = node.getTextContent();
       if (text === $markerCanonicalText(node)) continue;
       const bare = BARE_OPENER_REGEX.exec(text);
-      if (node.getMarkerSyntax() === "opening" && bare) $applyOpenerRename(node, bare[1], context);
-      else $requestTier2ForNode(node, context);
-    } else {
-      // Pending plain-text / verse nodes (registered by later tasks) re-tokenize.
-      $requestTier2ForNode(node, context);
+      if (node.getMarkerSyntax() === "opening" && bare)
+        mutated = $applyOpenerRename(node, bare[1], context) || mutated;
+      else mutated = $requestTier2ForNode(node, context) || mutated;
+      continue;
     }
+    const settled = $settlePendedDisplayOwner(node, context);
+    if (settled.handled) {
+      mutated = settled.mutated || mutated;
+      continue;
+    }
+    // Pending plain-text nodes and departed verses/milestones re-tokenize. The settle rule is
+    // uniform: the DISPLAYED BYTES win — Tier 2 re-tokenizes what the user sees (for a
+    // milestone, scanMilestone re-derives sid/eid/unknownAttributes from its run's bytes), the
+    // same last-write-wins convergence chars and verses use. A remote field change that
+    // arrived while the caret held the run (mid-edit grace) loses locally and converges
+    // through the normal save/OT path; settling from node state instead would rewrite the
+    // run's displayed bytes and could clobber text the user just typed there.
+    mutated = $requestTier2ForNode(node, context) || mutated;
   }
+  return mutated;
 }
 
 export function $isSelectionInMarkerNode(): boolean {

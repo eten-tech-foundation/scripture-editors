@@ -220,9 +220,10 @@ note below). Exact PT9 formulas:
 - **Per-tag loop** (lines 133-241), skipping end/unknown style types:
   - `font-size: {FontSize * 100 / 12}%` — integer arithmetic, relative to the base rule; zoom NOT
     reapplied (inherited).
-  - `text-indent: {(FirstLineIndent / 50) * zoom}vw` when ≠ 0 — negative hanging indents emitted
-    as-is, no compensation (PT9 warts and all).
-  - `margin-left/right: {(Left/RightMargin / 50) * zoom}vw`, swapped under `rtl`.
+  - `text-indent: {FirstLineIndent * 20 * zoom}vw` when ≠ 0 — negative hanging indents emitted
+    as-is, no compensation (PT9 warts and all). (`.sty` inches × 20; PT9's raw-int ÷50 is the same
+    factor once the wire format carries float inches — see lines 74-77.)
+  - `margin-left/right: {Left/RightMargin * 20 * zoom}vw`, swapped under `rtl`.
   - `margin-top/bottom: {SpaceBefore/After * zoom}pt` when > 0.
   - `line-height: 1.5` for `lineSpacing === 1`, `2` for `2`, nothing otherwise (PT9 quirk).
   - Sub/superscript → `vertical-align: text-bottom/text-top; font-size: 66%`.

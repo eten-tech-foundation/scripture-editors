@@ -24,6 +24,7 @@ import { LF } from "./delta-common.utils";
 import { getEditorDelta } from "./editor-delta.adaptor";
 import { $setState, $createTextNode, $getRoot } from "lexical";
 import {
+  $createAttributeRunNode,
   $createBookNode,
   $createCharNode,
   $createImmutableChapterNode,
@@ -34,12 +35,14 @@ import {
   $createNoteNode,
   $createParaNode,
   $createUnknownNode,
+  $createVerseNode,
   charIdState,
   EMPTY_CHAR_PLACEHOLDER_TEXT,
   GENERATOR_NOTE_CALLER,
   getEditableCallerText,
   NBSP,
   segmentState,
+  textTypeState,
 } from "shared";
 
 describe("getEditorDelta", () => {
@@ -117,6 +120,176 @@ describe("getEditorDelta", () => {
       { insert: { milestone: { style: "ts-s", sid: "TS1" } } },
       { insert: LF, attributes: { para: { style: "q1" } } },
     ]);
+  });
+
+  // Hand-built directly (rather than via the forward adaptor) to pin the ops exclusion in
+  // isolation: the adaptor always builds this run wrapped now, so this is the only shape the ops
+  // builder needs to exclude — a verse's own following-sibling \va/\vp glyphs and value, not
+  // inside a note or char span, must never leak into content ops since altnumber/pubnumber
+  // already flow through the verse's own embed op.
+  it("excludes a verse's \\va/\\vp display runs from canonical ops when wrapped in AttributeRunNode (dual-read)", async () => {
+    const ops = await getOpsFor(() => {
+      const verse = $createVerseNode("1", "\\v 1 ", undefined, "2", "1b");
+      const vaWrapper = $createAttributeRunNode("va");
+      const vaValue = $createTextNode(`${NBSP}2`);
+      $setState(vaValue, textTypeState, "attribute");
+      vaWrapper.append($createMarkerNode("va"), vaValue, $createMarkerNode("va", "closing"));
+      const vpWrapper = $createAttributeRunNode("vp");
+      const vpValue = $createTextNode(`${NBSP}1b`);
+      $setState(vpValue, textTypeState, "attribute");
+      vpWrapper.append($createMarkerNode("vp"), vpValue, $createMarkerNode("vp", "closing"));
+      $getRoot().append($createParaNode("q1").append(verse, vaWrapper, vpWrapper));
+    });
+
+    expect(ops).toEqual([
+      { insert: { verse: { style: "v", number: "1", altnumber: "2", pubnumber: "1b" } } },
+      { insert: LF, attributes: { para: { style: "q1" } } },
+    ]);
+  });
+
+  it("excludes a milestone's display run from canonical ops when wrapped in AttributeRunNode (dual-read), including a glyph pair with no attribute text between them", async () => {
+    // The no-attribute-text shape is one a sibling-adjacency check couldn't catch on its own
+    // (neither glyph has an attribute-tagged sibling to key off of) — the ANCESTRY check
+    // ($hasAttributeRunAncestor) is what excludes it here.
+    const ops = await getOpsFor(() => {
+      const ms = $createMilestoneNode("qt-s", "q1");
+      const wrapper = $createAttributeRunNode("milestone");
+      wrapper.append($createMarkerNode("qt-s", "opening"), $createMarkerNode("", "selfClosing"));
+      $getRoot().append($createParaNode("q1").append(ms, wrapper));
+    });
+
+    expect(ops).toEqual([
+      { insert: { milestone: { style: "qt-s", sid: "q1" } } },
+      { insert: LF, attributes: { para: { style: "q1" } } },
+    ]);
+  });
+
+  it("excludes an UNTAGGED text node riding inside an AttributeRunNode wrapper — ancestry alone, no textType tag needed", async () => {
+    // A conscious, tested call (not an accidental side effect): $handleTextNodes' ancestry check
+    // ($hasAttributeRunAncestor) excludes a wrapper's op contribution ENTIRELY, including any
+    // plain text inside it that carries no "attribute" state tag at all — the wrapper is an
+    // engine-owned presentation region (AttributeRunNode.ts), so anything riding inside it is
+    // presentation, not content, regardless of its own tagging. A real \va/\vp/milestone run never
+    // actually contains untagged text (its value piece is always tagged "attribute"), but the
+    // exclusion is ancestry-based, not tag-based, so this hand-built shape pins the intended
+    // semantics directly rather than relying on it only ever being exercised incidentally.
+    const ops = await getOpsFor(() => {
+      const ms = $createMilestoneNode("qt-s", "q1");
+      const wrapper = $createAttributeRunNode("milestone");
+      const untagged = $createTextNode("stray"); // no textType "attribute" state
+      wrapper.append(
+        $createMarkerNode("qt-s", "opening"),
+        untagged,
+        $createMarkerNode("", "selfClosing"),
+      );
+      $getRoot().append($createParaNode("q1").append(ms, wrapper));
+    });
+
+    expect(ops).toEqual([
+      { insert: { milestone: { style: "qt-s", sid: "q1" } } },
+      { insert: LF, attributes: { para: { style: "q1" } } },
+    ]);
+  });
+
+  it("excludes a nested verse's \\va glyphs from a cross-verse char span's ops (byte-identical to no runs)", async () => {
+    // Legal ≤3.0: a char span (\wj) crosses a verse boundary, so the VerseNode — and its \va
+    // attribute run — genuinely nests inside the CharNode. That run (wrapped in an
+    // AttributeRunNode, the only shape the adaptor builds now) describes the VERSE, not the char
+    // span, so it must stay out of content ops. altnumber already rides on the verse's own embed
+    // op, so adding the display run must not change the ops at all — ANCESTRY
+    // ($hasAttributeRunAncestor) is what excludes it here, regardless of nesting inside the span.
+    // Both the relative (withRunsOps === bareOps) and literal shape are pinned.
+    const withRunsOps = await getOpsFor(() => {
+      const verse = $createVerseNode("2", "\\v 2 ", undefined, "3", undefined);
+      const vaWrapper = $createAttributeRunNode("va");
+      const vaValue = $createTextNode(`${NBSP}3`);
+      $setState(vaValue, textTypeState, "attribute");
+      vaWrapper.append($createMarkerNode("va"), vaValue, $createMarkerNode("va", "closing"));
+      $getRoot().append(
+        $createParaNode("q1").append(
+          $createCharNode("wj").append(
+            $createMarkerNode("wj"),
+            $createTextNode("before "),
+            verse,
+            vaWrapper,
+            $createTextNode("after"),
+            $createMarkerNode("wj", "closing"),
+          ),
+        ),
+      );
+    });
+
+    const bareOps = await getOpsFor(() => {
+      const verse = $createVerseNode("2", "\\v 2 ", undefined, "3", undefined);
+      $getRoot().append(
+        $createParaNode("q1").append(
+          $createCharNode("wj").append(
+            $createMarkerNode("wj"),
+            $createTextNode("before "),
+            verse,
+            $createTextNode("after"),
+            $createMarkerNode("wj", "closing"),
+          ),
+        ),
+      );
+    });
+
+    expect(withRunsOps).toEqual(bareOps);
+    expect(bareOps).toEqual([
+      { insert: "\\wjbefore ", attributes: { char: { style: "wj" } } },
+      { insert: { verse: { style: "v", number: "2", altnumber: "3" } } },
+      { insert: "after\\wj*", attributes: { char: { style: "wj" } } },
+      { insert: LF, attributes: { para: { style: "q1" } } },
+    ]);
+  });
+
+  it("excludes an editable verse's own glyph text from content ops (only real content flows)", async () => {
+    // \v 1 the first verse — an editable VerseNode's own `__text` ("\v 1 ") is the marker
+    // glyph (VerseNode extends TextNode so it can sit inline for caret placement), not
+    // content. The verse is already conveyed by its own embed op ($getVerseOp); the glyph
+    // text must not ALSO surface as a content text op, or it would double-count the verse
+    // in the OT content length (once as the embed's implicit 1 unit, once as 5 leaked
+    // glyph bytes) and shift every offset that follows it.
+    const ops = await getOpsFor(() => {
+      const verse = $createVerseNode("1", "\\v 1 ");
+      $getRoot().append($createParaNode("p").append(verse, $createTextNode("the first verse")));
+    });
+
+    expect(ops).toEqual([
+      { insert: { verse: { style: "v", number: "1" } } },
+      { insert: "the first verse" },
+      { insert: LF, attributes: { para: { style: "p" } } },
+    ]);
+
+    // No content op may carry verse glyph bytes, and the total inserted text length must
+    // equal the real content exactly — no leaked glyph length inflating the content span.
+    const textOps = ops.filter((op): op is { insert: string } => typeof op.insert === "string");
+    expect(textOps.some((op) => op.insert.includes("\\v"))).toBe(false);
+    const textLength = textOps.reduce((sum, op) => sum + op.insert.length, 0);
+    expect(textLength).toBe("the first verse".length + LF.length);
+  });
+
+  it("excludes the paragraph's own marker-prefix glyph and separator from content ops", async () => {
+    // [MarkerNode "\p"][NBSP marker-trailing-space token][TextNode "hello"] — the editable-mode
+    // prefix `$createMarkerPrefix` builds (markerEditDeletion.utils.ts). `$applyUpdate`
+    // re-synthesizes the whole prefix when materializing the paragraph, so neither the glyph nor
+    // its separator may flow into content ops: doing so would leak presentation bytes into USJ
+    // content and shift every offset that follows.
+    const ops = await getOpsFor(() => {
+      const separator = $createTextNode(NBSP);
+      $setState(separator, textTypeState, "marker-trailing-space");
+      $getRoot().append(
+        $createParaNode("p").append($createMarkerNode("p"), separator, $createTextNode("hello")),
+      );
+    });
+
+    const joined = ops
+      .filter((op): op is { insert: string } => typeof op.insert === "string")
+      .map((op) => op.insert)
+      .join("");
+    expect(joined).toBe(`hello${LF}`);
+    expect(joined).not.toContain("\\p");
+    expect(joined).not.toContain(NBSP);
   });
 
   it("should return the correct ops for nested chars", async () => {
@@ -459,6 +632,51 @@ describe("getEditorDelta", () => {
     ]);
   });
 
+  it("should exclude a char span's attribute display run from canonical contents ops", async () => {
+    // \w word|gloss\w* — the display run is engine-owned presentation, re-derived from the char's
+    // own unknownAttributes by the CharNodePlugin sync ($syncCharAttributeDisplay), not by
+    // $applyUpdate (milestones, by contrast, have no such sync yet). Either way it must not shift
+    // content length.
+    const { editor } = await testEnvironment(() => {
+      const attribute = $createTextNode("|gloss");
+      $setState(attribute, textTypeState, "attribute");
+      $getRoot().append(
+        $createParaNode("q1").append(
+          $createTextNode("When"),
+          $createNoteNode("f", GENERATOR_NOTE_CALLER, false).append(
+            $createMarkerNode("f"),
+            $createTextNode(getEditableCallerText(GENERATOR_NOTE_CALLER)),
+            $createCharNode("w").append(
+              $createMarkerNode("w"),
+              $createTextNode(`${NBSP}word`),
+              attribute,
+              $createMarkerNode("w", "closing"),
+            ),
+            $createMarkerNode("f", "closing"),
+          ),
+        ),
+      );
+    });
+
+    const delta = getEditorDelta(editor.getEditorState());
+
+    expect(delta.ops).toEqual([
+      { insert: "When" },
+      {
+        insert: {
+          note: {
+            style: "f",
+            caller: GENERATOR_NOTE_CALLER,
+            contents: {
+              ops: [{ insert: "word", attributes: { char: { style: "w" } } }],
+            },
+          },
+        },
+      },
+      { insert: LF, attributes: { para: { style: "q1" } } },
+    ]);
+  });
+
   it("should carry unknown attributes and no closer for an unclosed editable-mode note", async () => {
     const { editor } = await testEnvironment(() => {
       $getRoot().append(
@@ -627,7 +845,9 @@ describe("getEditorDelta", () => {
       $setState(frChar, charIdState, "char-id1");
       const ftChar = $createCharNode("ft");
       $setState(ftChar, charIdState, "char-id2");
-      const bdChar = $createCharNode("+bd");
+      // CLEAN marker on the nested span — the `+` lives only in the glyph text below, exactly as
+      // the load adaptor builds nested chars. The emitted delta style must be clean too.
+      const bdChar = $createCharNode("bd");
       $setState(bdChar, charIdState, "char-id3");
       $getRoot().append(
         $createImpliedParaNode().append(
@@ -672,7 +892,7 @@ describe("getEditorDelta", () => {
                   attributes: {
                     char: [
                       { style: "ft", cid: "char-id2" },
-                      { style: "+bd", cid: "char-id3" },
+                      { style: "bd", cid: "char-id3" },
                     ],
                   },
                 },
@@ -809,6 +1029,43 @@ describe("getEditorDelta", () => {
     ]);
   });
 
+  it("excludes an unknown node's marker/attribute display children from its contents ops", async () => {
+    // ImmutableTypedTextNode is a DecoratorNode, not a Lexical TextNode: `createUnknown`
+    // (usj-editor.adaptor.ts) flanks an unknown node's content with `.marker`/`.attribute`
+    // ImmutableTypedTextNode display children in editable mode, but `$handleTextNodes` never
+    // even sees them (its `$isTextNode` guard excludes DecoratorNode), so they contribute no
+    // ops here. The expected `contents.ops` below is byte-identical to "should include child
+    // contents for an unknown node" above, which has no display children at all — proving the
+    // display children are invisible to the delta, not merely deduplicated.
+    const { editor } = await testEnvironment(() => {
+      $getRoot().append(
+        $createImpliedParaNode().append(
+          $createUnknownNode("wat", "z", { "attr-unknown": "watAttr" }).append(
+            $createImmutableTypedTextNode("marker", "\\z "),
+            $createTextNode("child text"),
+            $createImmutableTypedTextNode("marker", "\\z*"),
+          ),
+        ),
+      );
+    });
+
+    const delta = getEditorDelta(editor.getEditorState());
+
+    expect(delta.ops).toEqual([
+      {
+        insert: {
+          unknown: {
+            tag: "wat",
+            marker: "z",
+            "attr-unknown": "watAttr",
+            contents: { ops: [{ insert: "child text" }] },
+          },
+        },
+      },
+      { insert: LF },
+    ]);
+  });
+
   it("should return the correct ops for a complex editor state", async () => {
     const { editor } = await testEnvironment(() => {
       const bookText = $createTextNode("John ");
@@ -928,6 +1185,11 @@ describe("getEditorDelta", () => {
       expect(delta.ops).toEqual(opsGen1v1ImpliedPara);
     });
 
+    // Skipped: `getEditorDelta` does not yet normalize unknown items to the canonical delta shape
+    // `opsWithUnknownItems` expects. It currently emits extra fields the fixture omits — a
+    // chapter `sid` ("GEN 1") and the round-tripped `attr-unknown`/`category` attributes on notes
+    // and chars. Un-skip once the adaptor strips those unknown/derived attributes so the round
+    // trip lands on the canonical ops.
     it.skip("should roundtrip the editor state with unknown items", async () => {
       const { editor } = await testEnvironment();
       const editorState = editor.parseEditorState(editorStateWithUnknownItems);
@@ -937,6 +1199,10 @@ describe("getEditorDelta", () => {
       expect(delta.ops).toEqual(opsWithUnknownItems);
     });
 
+    // Skipped: emitting `closed: "false"` on implicitly-closed char spans is correct by design
+    // (it matches real ParatextData output; the serializer records it whenever the closing glyph
+    // is skipped). The canonical `opsGen1v1Nonstandard` fixture predates that attribute, so this
+    // test stays skipped until the fixture is updated to expect `closed: "false"`.
     it.skip("should roundtrip the editor state with nonstandard features", async () => {
       const { editor } = await testEnvironment();
       const editorState = editor.parseEditorState(editorStateGen1v1Nonstandard);
@@ -968,4 +1234,10 @@ describe("getEditorDelta", () => {
 
 async function testEnvironment($initialEditorState?: () => void) {
   return baseTestEnvironment($initialEditorState);
+}
+
+/** Builds an editor state from `$initialEditorState` and returns its canonical delta ops. */
+async function getOpsFor($initialEditorState: () => void) {
+  const { editor } = await testEnvironment($initialEditorState);
+  return getEditorDelta(editor.getEditorState()).ops;
 }

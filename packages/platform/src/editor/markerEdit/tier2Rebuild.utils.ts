@@ -1,10 +1,10 @@
 /**
- * Tier 2 paragraph-scoped re-tokenization (design spec §5.2). Runs INSIDE the
+ * Tier 2 paragraph-scoped re-tokenization. Runs INSIDE the
  * triggering update (transform or command listener), so the rebuild and the
  * user's edit are one history entry. Blast radius is paragraph-local.
  *
  * Sentinel classification and the paragraph guard (`$buildParaFragment`) are
- * lookup-driven: both take a `MarkerLookup` (Task 1's `getMarker` seam) via
+ * lookup-driven: both take a `MarkerLookup` (the `getMarker` seam) via
  * `Tier2Context.getMarker`, so a project's custom.sty markers are classified —
  * and rebuild — exactly like standard usfm.sty markers whenever a project
  * `StyleInfo` is active, with the bundled table only as the no-project default.
@@ -27,6 +27,8 @@ import {
   TextNode,
 } from "lexical";
 import {
+  $hasUnrecoverableAttributes,
+  $isAttributeRunNode,
   $isCharNode,
   $isMarkerNode,
   $isMilestoneNode,
@@ -34,7 +36,10 @@ import {
   $isParaNode,
   $isUnknownNode,
   $isVerseNode,
+  $milestoneAttributeRunPieces,
+  $verseAttributeRunPieces,
   getEditableCallerText,
+  isMilestoneHeuristicName,
   LoggerBasic,
   MarkerLookup,
   MarkerType,
@@ -55,14 +60,14 @@ export interface Tier2Context {
 
 export const ATOMIC_SENTINEL = "￼";
 
-interface FragmentSpan {
+export interface FragmentSpan {
   key: string;
   start: number;
   end: number;
   isSentinel: boolean;
 }
 
-interface FragmentAccumulator {
+export interface FragmentAccumulator {
   text: string;
   spans: FragmentSpan[];
   /** One entry per U+FFFC, in fragment order; each entry is a node RUN to re-insert. */
@@ -79,7 +84,19 @@ function pushText(out: FragmentAccumulator, node: LexicalNode, text: string): vo
   out.text += text;
 }
 
+/** Fragment tail that is an unterminated marker token (`\wj`, `\+`, or a bare `\`): the
+ * tokenizer's name scan stops only at `\`, `|`, whitespace, or `*`, so ANY other character —
+ * the U+FFFC placeholder included — would extend the marker name. */
+const UNTERMINATED_MARKER_TAIL = /\\\+?[\w-]*$/;
+
 function pushSentinel(out: FragmentAccumulator, nodes: LexicalNode[]): void {
+  // A placeholder glued to an unterminated marker token would be absorbed into the marker NAME
+  // (`\wj` + U+FFFC scans as unknown marker "wj￼"), vanishing from the tokenized text and
+  // tripping the sentinel-count abort — so a deleted separator before a preserved node (a note,
+  // milestone, or attribute span right after an opener) could never settle. Emit the separator
+  // the tokenizer expects after an opening marker; it is structural there (consumed by the
+  // opener's separator scan), and mid-word placements (`wa` + note + `tta`) are unaffected.
+  if (UNTERMINATED_MARKER_TAIL.test(out.text)) out.text += " ";
   out.spans.push({
     key: nodes[0].getKey(),
     start: out.text.length,
@@ -99,7 +116,7 @@ function toFragmentText(text: string): string {
  * A TextNode's contribution to the rebuild fragment. The para-prefix trailing-space node is
  * structurally a single display separator, so it normally contributes a plain " " regardless of
  * its NBSP content — but when the user has TYPED INTO it (the content-start caret position lands
- * inside it), it carries a literal run that must reach the tokenizer (Task 15 QA run 3: `\zz `
+ * inside it), it carries a literal run that must reach the tokenizer (e.g. `\zz `
  * typed at content start was dropped here, so the rebuild reproduced the paragraph unchanged and
  * the literal never settled). Substitute the separator only while the node is pure whitespace.
  */
@@ -113,36 +130,150 @@ function $textNodeFragmentText(node: TextNode): string {
  * Display siblings after a MilestoneNode that belong to its run: opening
  * MarkerNode, optional attribute TextNode, self-closing MarkerNode. They ride
  * inside the milestone's sentinel so the visible glyphs survive the rebuild.
+ *
+ * Delegates to the shared {@link $milestoneAttributeRunPieces} — the single definition of "a
+ * milestone's run" — so the rebuild and the self-healing sync (attributeDisplay.utils.ts) can
+ * never disagree about which siblings make up the run. The rebuild consumes a CONTIGUOUS run
+ * starting at the opening glyph (it advances the loop index past `run.length`), so a milestone
+ * with no opening glyph contributes no run here; the tolerant scanner can also surface a detached
+ * attribute/closer with no opening, but that partial shape never reaches a settled rebuild.
+ *
+ * When the pieces were found inside an `AttributeRunNode` wrapper, the returned run is
+ * `[wrapper]` — ONE element, not the wrapper's unpacked children — so the caller's `index +=
+ * run.length` advances past the ONE sibling slot the wrapper occupies. `$appendNodesFragment`'s
+ * generic ElementNode branch already flattens a transparent wrapper's children into the fragment
+ * (the same branch TypedMarkNode relies on), so the fragment bytes come out byte-identical to the
+ * loose shape without any special-casing there. An attached-but-EMPTY wrapper (no opening glyph
+ * found inside it) still returns `[]`, exactly like a bare milestone with no run at all — the
+ * `run.length > 0` re-tokenizable gate below must see "no run", not a 1-length run that
+ * contributes zero bytes, or a bare-but-wrapped milestone would be silently spliced away.
  */
 function $milestoneDisplayRun(children: LexicalNode[], index: number): LexicalNode[] {
-  const run: LexicalNode[] = [];
-  const opening = children[index + 1];
-  if (!$isMarkerNode(opening) || opening.getMarkerSyntax() !== "opening") return run;
-  run.push(opening);
-  let nextIndex = index + 2;
-  const maybeAttribute = children[nextIndex];
-  if ($isTextNode(maybeAttribute) && $getState(maybeAttribute, textTypeState) === "attribute") {
-    run.push(maybeAttribute);
-    nextIndex++;
-  }
-  const closing = children[nextIndex];
-  if ($isMarkerNode(closing) && closing.getMarkerSyntax() === "selfClosing") run.push(closing);
+  const milestone = children[index];
+  if (!$isMilestoneNode(milestone)) return [];
+  const { opening, attribute, closing, wrapper } = $milestoneAttributeRunPieces(milestone);
+  if (wrapper) return opening ? [wrapper] : [];
+  // No wrapper found: the shared scanner above can still surface a genuinely LOOSE run (a
+  // pre-flip editor state, an undo stack, or a collab-materialized bare milestone that hasn't
+  // gone through heal-forward yet) — unpacked as individual pieces here, rather than one wrapper
+  // node, since that is how they actually ride in the tree. Reporting nothing for a loose-but-
+  // present run would misclassify a re-tokenizable milestone as content-less (see the
+  // `run.length > 0` gate at both call sites below), stranding its bytes as ordinary text right
+  // next to the milestone's own now-empty sentinel instead of flowing them as its run.
+  if (!opening) return [];
+  const run: LexicalNode[] = [opening];
+  if (attribute) run.push(attribute);
+  if (closing) run.push(closing);
   return run;
 }
 
-/** A verse whose state is not fully recoverable from its visible text stays atomic. */
-function verseNeedsSentinel(node: VerseNode): boolean {
-  return Boolean(
-    node.getSid() ?? node.getAltnumber() ?? node.getPubnumber() ?? node.getUnknownAttributes(),
-  );
+/**
+ * Display siblings after a VerseNode that belong to its \va/\vp display triplets: an opening
+ * MarkerNode, an attribute TextNode, and a closing MarkerNode for `\va`, then the same shape for
+ * `\vp` (attributeDisplay.utils.ts's `$syncVerseAttributeDisplay`/usj-editor.adaptor's
+ * `addVerseAttributes`). A verse that re-tokenizes (the common case — see `verseNeedsSentinel`)
+ * flows the run as ordinary fragment content right after the verse's own glyph text, so the
+ * tokenizer's attrCapture folds `\va`/`\vp` back onto the freshly re-derived verse exactly as it
+ * would for literal typed text. Only a still-sentinel verse (`unknownAttributes`) absorbs the run
+ * into its OWN sentinel — see `$milestoneDisplayRun`'s non-re-tokenizable branch for the same
+ * shape — so the tokenizer never sees `\va`/`\vp` immediately after an opaque U+FFFC placeholder
+ * with no verse to fold onto (which would degrade them into unrelated standalone markers).
+ *
+ * For either marker, when the next sibling slot is a matching `AttributeRunNode`
+ * wrapper, that ONE node is pushed instead of its unpacked pieces (mirrors `$milestoneDisplayRun`
+ * — the generic ElementNode branch in `$appendNodesFragment` flattens it for the fragment builder
+ * without any further special-casing) — even an attached-but-EMPTY wrapper is pushed: it occupies
+ * exactly one slot in `children` regardless of emptiness, and contributes zero bytes/signature
+ * entries downstream (flattening an empty element yields nothing), so including it keeps the
+ * per-marker slot accounting exact without changing what either caller sees.
+ *
+ * `\va` and `\vp` are each attempted INDEPENDENTLY at their own position: a marker with no piece
+ * there AT ALL — the common "this verse has no `\va`" case, or a `\vp`-only verse (a real,
+ * permanent shape the sync builds, not just mid-edit debris) — contributes nothing and leaves the
+ * slot for the OTHER marker to claim, rather than aborting the whole scan. Only a PARTIAL match
+ * (an opener found but its value/closer missing or wrong) stops the scan entirely: such debris'
+ * true extent can't be inferred from here, so continuing risks misreading the OTHER marker's own
+ * content as part of it.
+ *
+ * Delegates each marker's scan to the shared {@link $verseAttributeRunPieces} — the single
+ * definition of "a verse marker's run pieces", also used by the self-healing sync
+ * (attributeDisplay.utils.ts) — rather than re-walking siblings independently here, so the two can
+ * never disagree about which shape (wrapped, loose, or partial) is present at a given position.
+ * That scanner already tolerates a genuinely LOOSE run too (a pre-flip editor state, an undo
+ * stack, or a collab-materialized bare verse mid-heal-forward), so its pieces are still reported
+ * here as individual nodes when found unwrapped — dropping them would misread a re-tokenizable
+ * `\va`/`\vp` as absent, stranding its bytes as ordinary text beside the verse instead of flowing
+ * them as its run.
+ */
+function $verseAttributeRun(children: LexicalNode[], index: number): LexicalNode[] {
+  const run: LexicalNode[] = [];
+  let anchor: LexicalNode = children[index];
+  for (const marker of ["va", "vp"] as const) {
+    const { opener, value, closer, wrapper } = $verseAttributeRunPieces(anchor, marker);
+    if (wrapper) {
+      run.push(wrapper);
+      anchor = wrapper;
+    } else if (opener && value && closer) {
+      run.push(opener, value, closer);
+      anchor = closer;
+    } else if (opener || value || closer) {
+      break; // partial match — true extent can't be inferred from here, so stop the scan
+    }
+  }
+  return run;
 }
 
-/** Mirrors `$appendChildrenFragment`'s "preserve this node atomically" classification. */
-function isRebuildSentinel(node: LexicalNode, getMarkerFn: MarkerLookup): boolean {
-  if ($isMilestoneNode(node) || $isNoteNode(node) || $isUnknownNode(node)) return true;
+/**
+ * A verse whose state is not fully recoverable from its visible text stays atomic.
+ * altnumber/pubnumber round-trip through the \va/\vp display run
+ * (attributeDisplay.utils.ts's `$syncVerseAttributeDisplay`, usj-editor.adaptor's
+ * `addVerseAttributes`), and `sid` is reconciled separately by carry-over in `$rebuildParas`
+ * (pairing old and new verses by position/number) rather than kept alive by atomicity — only
+ * `unknownAttributes`, which has no display representation at all, forces the sentinel.
+ */
+function verseNeedsSentinel(node: VerseNode): boolean {
+  return Boolean(node.getUnknownAttributes());
+}
+
+/**
+ * Whether `marker` re-tokenizes as a milestone, mirroring the tokenizer's OWN classification
+ * (`usfmFragmentToUsjContent`) exactly: stylesheet-declared `MarkerType.Milestone`, or — when the
+ * effective stylesheet doesn't know the marker at all (the bundled table has no milestone
+ * entries; a project `StyleInfo` might) — the same stylesheet-family name heuristic the tokenizer
+ * falls back to. A name the heuristic deliberately excludes (a heuristic-gap name like bare `ts`,
+ * valid per `MilestoneNode.isValidMarker` but not a stylesheet-declared milestone name) would
+ * tokenize back as something else entirely — such a marker must stay atomic.
+ */
+function $isReTokenizableMilestone(marker: string, getMarkerFn: MarkerLookup): boolean {
+  const kind = getMarkerFn(marker)?.type;
+  return kind === MarkerType.Milestone || (kind === undefined && isMilestoneHeuristicName(marker));
+}
+
+/**
+ * Mirrors `$appendChildrenFragment`'s "preserve this node atomically" classification. A milestone
+ * re-tokenizes exactly when its marker classifies as one (`$isReTokenizableMilestone`): its
+ * display run (opening glyph, optional attribute text, self-closing glyph) is ordinary text among
+ * its paragraph siblings, and the tokenizer's `scanMilestone` re-derives sid/eid/unknownAttributes
+ * from it — a genuine round trip, not a preserved blob. A char span's attribute bytes are
+ * similarly no longer classified wholesale: a span WITH a closing glyph renders its attributes as
+ * an ordinary `|…` display run among its children (attributeDisplay.utils.ts), so the fragment
+ * builder re-tokenizes it like any other char content and `extractAttributes` re-derives the
+ * attribute set. A span with NO closing glyph (implicitly-closed footnote/cross-reference content,
+ * or explicit `closed="false"`) never gets a display run at all, so any OTHER attribute it carries
+ * (`link-href` on an auto-closed `\xt`, say) has no visible bytes to re-derive from —
+ * `$hasUnrecoverableAttributes` keeps exactly that shape atomic. A verse is classified the same
+ * way (`verseNeedsSentinel`): its \va/\vp display run is ordinary content among its paragraph
+ * siblings when the verse re-tokenizes, and only `unknownAttributes` — which has no visible
+ * representation at all — forces the sentinel. `sid` plays no part in this classification: it is
+ * derived data, invisible in display bytes, reconciled by carry-over in `$rebuildParas` after the
+ * rebuild rather than by atomicity.
+ */
+function $isRebuildSentinel(node: LexicalNode, getMarkerFn: MarkerLookup): boolean {
+  if ($isMilestoneNode(node)) return !$isReTokenizableMilestone(node.getMarker(), getMarkerFn);
+  if ($isNoteNode(node) || $isUnknownNode(node)) return true;
   if ($isVerseNode(node)) return verseNeedsSentinel(node);
   if ($isCharNode(node))
-    return Boolean(node.getUnknownAttributes()) || getMarkerFn(node.getMarker()) === undefined;
+    return $hasUnrecoverableAttributes(node) || getMarkerFn(node.getMarker()) === undefined;
   return false;
 }
 
@@ -150,6 +281,18 @@ function isRebuildSentinel(node: LexicalNode, getMarkerFn: MarkerLookup): boolea
 // signature span so a structural change is always visible in the signature string.
 const SIGNATURE_OPEN = String.fromCharCode(1);
 const SIGNATURE_CLOSE = String.fromCharCode(2);
+
+/**
+ * Flattens any `AttributeRunNode`(s) in `run` into their own children, so a wrapped run's
+ * signature is structurally IDENTICAL to the loose equivalent's — no extra "attribute-run"
+ * type-tagged span the generic `$isElementNode` branch below would otherwise add. Unlike the
+ * fragment builder (whose generic ElementNode branch already flattens a transparent wrapper's
+ * bytes for free, since fragment text carries no structural tagging), the SIGNATURE tags every
+ * element's type, so the wrapper itself must be skipped explicitly here, not just its bytes.
+ */
+function $flattenAttributeRuns(run: LexicalNode[]): LexicalNode[] {
+  return run.flatMap((node) => ($isAttributeRunNode(node) ? node.getChildren() : [node]));
+}
 
 /**
  * Structure-aware, sentinel-normalized signature of a node list, used ONLY to detect
@@ -166,28 +309,106 @@ function $appendSignature(children: LexicalNode[], out: string[], getMarkerFn: M
   for (let index = 0; index < children.length; index++) {
     const node = children[index];
     if ($isMilestoneNode(node)) {
-      // Mirror `$appendChildrenFragment`: the milestone's display run (opening
-      // MarkerNode, optional attribute text, self-closing MarkerNode) is absorbed
-      // into the SAME single sentinel the fragment builder produces for it — the
-      // post-splice NEW side's sentinel already stands in for the whole run, so the
-      // pre-splice OLD side must collapse the run the same way or the signatures
-      // never compare equal and the fixed-point refusal never fires.
+      // Mirror `$appendChildrenFragment`: a re-tokenizable milestone's display run (opening
+      // MarkerNode, optional attribute text, self-closing MarkerNode) is ordinary signature
+      // content. The run text ALONE is not enough, though — like a char span's display run
+      // (see the char branch below), it is a derived cache that can lag the node's true
+      // attribute state: an in-place value edit (the leading NBSP kept, only the value bytes
+      // changed) produces run text byte-identical to what re-tokenizing it would regenerate,
+      // so both comparison sides render the same bytes and only the milestone's own STALE
+      // sid/eid/unknownAttributes reveal that the rebuild is not a no-op. Fold that state in
+      // alongside the recursed run, or the fixed-point refusal silently discards the edit. A
+      // non-re-tokenizable milestone's run is instead absorbed into the SAME single sentinel
+      // the fragment builder produces for it — the post-splice NEW side's sentinel already
+      // stands in for the whole run, so the pre-splice OLD side must collapse the run the
+      // same way or the signatures never compare equal and the refusal never fires.
       const run = $milestoneDisplayRun(children, index);
-      out.push(ATOMIC_SENTINEL);
+      // An empty run (the collab materializer builds bare MilestoneNodes with no display-run
+      // siblings) has NO displayable bytes to re-tokenize, so it must collapse to the same single
+      // sentinel `$appendNodesFragment` produces for it — else this side would fold in the
+      // milestone's state while the fragment side dropped it, and the fixed-point check would
+      // spuriously diverge (mirror the fragment builder's `run.length > 0` gate below).
+      if ($isReTokenizableMilestone(node.getMarker(), getMarkerFn) && run.length > 0) {
+        out.push(
+          SIGNATURE_OPEN,
+          "ms",
+          JSON.stringify({
+            sid: node.getSid() ?? null,
+            eid: node.getEid() ?? null,
+            unknownAttributes: node.getUnknownAttributes() ?? null,
+          }),
+        );
+        $appendSignature($flattenAttributeRuns(run), out, getMarkerFn);
+        out.push(SIGNATURE_CLOSE);
+      } else out.push(ATOMIC_SENTINEL);
+      index += run.length;
+    } else if ($isVerseNode(node)) {
+      // A sentinel verse's \va/\vp display run (if any) is absorbed into the SAME single
+      // sentinel `$appendNodesFragment` produces for it — same reasoning as the non-re-
+      // tokenizable milestone case above: the post-splice NEW side's sentinel already stands in
+      // for verse + run together, so the pre-splice OLD side must collapse them the same way.
+      const run = $verseAttributeRun(children, index);
+      if (verseNeedsSentinel(node)) out.push(ATOMIC_SENTINEL);
+      else {
+        // The run text is a DERIVED CACHE ($syncVerseAttributeDisplay, attributeDisplay.utils.ts)
+        // that can lag the verse's own altnumber/pubnumber state — an in-place value edit that
+        // keeps the triplet's structural NBSP and changes only the value bytes produces run text
+        // byte-identical on both sides of this comparison (it was edited directly on the live OLD
+        // node, and re-tokenizing that same edited text regenerates the identical NEW run), so
+        // only the verse's own STALE field reveals the rebuild is not a no-op — the same reason
+        // a re-tokenizable milestone folds its own sid/eid/unknownAttributes in alongside its
+        // recursed run above. Fold number/altnumber/pubnumber in alongside the recursed run.
+        // `unknownAttributes` is omitted: this branch runs only when `verseNeedsSentinel` is
+        // false, so it is always undefined here by construction.
+        //
+        // `sid` is DELIBERATELY excluded. This comparison runs on the OLD side (still carrying
+        // its sid) against the freshly re-tokenized NEW side, which never has one — sid
+        // carry-over (`$rebuildParas`, after the splice) runs strictly AFTER this fixed-point
+        // check has already decided whether a rebuild happens at all. Folding raw sid in here
+        // would make every sid-bearing verse compare unequal forever (a real value vs. an
+        // always-absent one), forcing an endless splice-then-refuse rebuild on every unrelated
+        // edit anywhere else in the same paragraph.
+        //
+        // The verse's own GLYPH TEXT is folded in (fragment-normalized, so its NBSP separator
+        // matches the re-tokenized NEW side's): a VerseNode is a TextNode, and this branch
+        // shortcuts the generic TextNode case below, so without this a whitespace-only glyph edit
+        // (`\v 2 ` → `\v 2  `) that leaves number/altnumber/pubnumber unchanged would compare equal
+        // to its canonical re-tokenization and refuse forever — a permanent non-settling state.
+        out.push(
+          SIGNATURE_OPEN,
+          "verse",
+          toFragmentText(node.getTextContent()),
+          JSON.stringify({
+            number: node.getNumber(),
+            altnumber: node.getAltnumber() ?? null,
+            pubnumber: node.getPubnumber() ?? null,
+          }),
+        );
+        $appendSignature($flattenAttributeRuns(run), out, getMarkerFn);
+        out.push(SIGNATURE_CLOSE);
+      }
       index += run.length;
     } else if ($isMarkerNode(node)) {
       // Delimited and tagged (not bare glyph text) so text moving across the
       // glyph/content boundary — e.g. glyph "\q extra" vs. glyph "\q" + content
       // "extra" — changes the signature instead of silently canceling out.
       out.push(SIGNATURE_OPEN, "marker", toFragmentText(node.getTextContent()), SIGNATURE_CLOSE);
-    } else if (isRebuildSentinel(node, getMarkerFn)) {
+    } else if ($isRebuildSentinel(node, getMarkerFn)) {
       out.push(ATOMIC_SENTINEL);
-    } else if ($isVerseNode(node)) {
-      out.push(SIGNATURE_OPEN, "verse", toFragmentText(node.getTextContent()), SIGNATURE_CLOSE);
     } else if ($isLineBreakNode(node)) {
       out.push(" ");
     } else if ($isTextNode(node)) {
       out.push(toFragmentText($textNodeFragmentText(node)));
+    } else if ($isCharNode(node)) {
+      // A known-marker span that reaches here is NOT a sentinel ($isRebuildSentinel already
+      // filtered unknown markers) — fold its own stored `unknownAttributes` into the signature
+      // alongside its recursed children. The attribute display run is a DERIVED CACHE
+      // (attributeDisplay.utils.ts) that can lag the node's true attribute state — e.g. the run
+      // was deleted but the field is still stale — so comparing children text alone could
+      // mistake a genuine attribute change for a fixed point.
+      out.push(SIGNATURE_OPEN, "char", JSON.stringify(node.getUnknownAttributes() ?? null));
+      $appendSignature(node.getChildren(), out, getMarkerFn);
+      out.push(SIGNATURE_CLOSE);
     } else if ($isElementNode(node)) {
       out.push(SIGNATURE_OPEN, node.getType());
       $appendSignature(node.getChildren(), out, getMarkerFn);
@@ -222,18 +443,49 @@ function $appendNodesFragment(
     if ($isMarkerNode(node)) {
       pushText(out, node, toFragmentText(node.getTextContent()));
     } else if ($isMilestoneNode(node)) {
+      // The MilestoneNode itself contributes no bytes (an invisible decorator); its display
+      // run is the marker's actual USFM representation. A re-tokenizable milestone's run flows
+      // into the fragment as ordinary text — `scanMilestone` re-derives sid/eid/unknownAttributes
+      // from it on tokenize, closing the loop that let an edited attribute value settle. A
+      // milestone the tokenizer would not re-derive as one (`$isReTokenizableMilestone`) stays a
+      // preserved sentinel, node and run together, exactly as before.
       const run = $milestoneDisplayRun(children, index);
-      pushSentinel(out, [node, ...run]);
+      // Require a non-empty run for the re-tokenizable path: a bare MilestoneNode (the collab
+      // materializer `$createMilestone` builds these with no display-run siblings) would
+      // contribute ZERO bytes here, so the rebuild would splice it away entirely — a silent
+      // deletion. With no displayable bytes it degrades to an atomic sentinel and survives
+      // (the spec's "state not recoverable from displayed bytes → atomic" self-protection).
+      if ($isReTokenizableMilestone(node.getMarker(), getMarkerFn) && run.length > 0)
+        $appendNodesFragment(run, out, getMarkerFn);
+      else pushSentinel(out, [node, ...run]);
       index += run.length;
     } else if ($isNoteNode(node) || $isUnknownNode(node)) {
       pushSentinel(out, [node]);
     } else if ($isVerseNode(node)) {
-      if (verseNeedsSentinel(node)) pushSentinel(out, [node]);
-      else pushText(out, node, toFragmentText(node.getTextContent()));
+      // A sentinel verse's \va/\vp display run (attributeDisplay.utils.ts) rides inside its
+      // sentinel, node and run together — exactly like a non-re-tokenizable milestone's run
+      // above. Re-tokenizing the run's bytes on their own (after the verse's own opaque
+      // placeholder) would hand the tokenizer `\va`/`\vp` with no verse to fold onto, degrading
+      // them into unrelated standalone markers instead of leaving the paragraph untouched.
+      // Otherwise (the common case) the verse's own glyph text flows into the fragment like any
+      // other content, immediately followed by its run's bytes as ordinary siblings — the
+      // tokenizer's attrCapture folds `\va`/`\vp` right back onto the freshly re-derived verse.
+      const run = $verseAttributeRun(children, index);
+      if (verseNeedsSentinel(node)) {
+        pushSentinel(out, [node, ...run]);
+      } else {
+        pushText(out, node, toFragmentText($textNodeFragmentText(node)));
+        $appendNodesFragment(run, out, getMarkerFn);
+      }
+      index += run.length;
     } else if ($isCharNode(node)) {
-      // Unknown-marker spans (custom.sty) are not text-recoverable: the
-      // tokenizer would degrade them to literal text (preserve-or-refuse).
-      if (node.getUnknownAttributes() || getMarkerFn(node.getMarker()) === undefined)
+      // Unknown-marker spans (custom.sty) are not text-recoverable: the tokenizer would degrade
+      // them to literal text (preserve-or-refuse). Likewise a span whose attributes have no
+      // closing glyph to anchor a display run (`$hasUnrecoverableAttributes`) carries bytes with
+      // no visible representation to re-derive from. Otherwise a KNOWN marker's attribute display
+      // run (if any) is ordinary text among its children — it re-tokenizes and re-derives via
+      // `extractAttributes` like the rest of the span's content.
+      if ($hasUnrecoverableAttributes(node) || getMarkerFn(node.getMarker()) === undefined)
         pushSentinel(out, [node]);
       else $appendChildrenFragment(node, out, getMarkerFn);
     } else if ($isLineBreakNode(node)) {
@@ -250,11 +502,20 @@ function $appendNodesFragment(
   }
 }
 
-function $buildParaFragment(
+/**
+ * Exported for two callers outside this module's own rebuild path. The read-only settle
+ * (virtualSettle.utils.ts) builds the SAME fragment a mutating rebuild would, which is what makes
+ * the settled USJ a consumer reads and the structure a later real settle produces one computation
+ * rather than two implementations. A test also compares a loose-shape paragraph's fragment `.text`
+ * against its hand-built wrapped-shape equivalent for byte-for-byte equality
+ * (`tier2Rebuild.utils.test.tsx`) — the direct evidence that wrapping a run changes nothing about
+ * what gets tokenized.
+ */
+export function $buildParaFragment(
   para: ParaNode,
   getMarkerFn: MarkerLookup,
 ): FragmentAccumulator | undefined {
-  // §5.2 guard rails (preserve-or-refuse): a paragraph the engine cannot fully
+  // Guard rails (preserve-or-refuse): a paragraph the engine cannot fully
   // re-derive from its text is never rebuilt — edits inside it stay literal text.
   if (para.getUnknownAttributes()) return undefined;
   // Known non-paragraph kinds can't be re-derived as paragraphs. Unknown markers
@@ -267,7 +528,7 @@ function $buildParaFragment(
     paraKind !== MarkerType.Paragraph
   )
     return undefined;
-  // Paragraphs inside opaque blocks (§7: sidebars, periph, …) stay untouched.
+  // Paragraphs inside opaque blocks (sidebars, periph, …) stay untouched.
   for (let parent = para.getParent(); parent !== null; parent = parent.getParent())
     if ($isUnknownNode(parent)) return undefined;
   const out: FragmentAccumulator = { text: "", spans: [], sentinels: [] };
@@ -309,8 +570,38 @@ function $replaceSentinels(roots: LexicalNode[], originals: LexicalNode[][]): vo
   roots.forEach(visit);
 }
 
-/** U+FFFC occurrences across tokenized content — must equal the preserved-run count. */
-function countSentinels(content: MarkerContent[]): number {
+/**
+ * Every VerseNode under `nodes`, depth-first in document order (including a verse nested inside
+ * a char span that crosses it, per USFM ≤3.0 — see the tier2Rebuild.utils.test.tsx D5 fixed-point
+ * test). Backs sid carry-over in `$rebuildParas`: the OLD side is read into plain data before the
+ * splice moves or destroys anything; the NEW side is read once the splice has settled.
+ */
+function $collectVerseNodes(nodes: LexicalNode[], out: VerseNode[] = []): VerseNode[] {
+  for (const node of nodes) {
+    if ($isVerseNode(node)) out.push(node);
+    else if ($isElementNode(node)) $collectVerseNodes(node.getChildren(), out);
+  }
+  return out;
+}
+
+/** U+FFFC occurrences across a parsed node tree — must equal the preserved-run count. */
+function countSentinelNodes(nodes: LexicalNode[]): number {
+  let count = 0;
+  const visit = (node: LexicalNode): void => {
+    if ($isTextNode(node)) {
+      for (const ch of node.getTextContent()) if (ch === ATOMIC_SENTINEL) count++;
+    } else if ($isElementNode(node)) {
+      node.getChildren().forEach(visit);
+    }
+  };
+  nodes.forEach(visit);
+  return count;
+}
+
+/** U+FFFC occurrences across tokenized content — must equal the preserved-run count. Exported for
+ * the read-only settle (virtualSettle.utils.ts), which runs the same symmetry bail-out before it
+ * splices anything into its output. */
+export function countSentinels(content: MarkerContent[]): number {
   let count = 0;
   for (const item of content) {
     if (typeof item === "string") {
@@ -337,9 +628,9 @@ function $spansForNodes(nodes: LexicalNode[], getMarkerFn: MarkerLookup): Fragme
  * char). Cumulative — rather than raw `span.start` fragment-string — coordinates exclude
  * the non-span filler between spans (the inter-paragraph " " joiners), which a rebuild can
  * add or remove (e.g. a mid-paragraph marker splitting off its own paragraph). Span TEXT
- * itself is preserved by the tokenizer (§5.2 degradation property), so a cumulative offset
+ * itself is preserved by the tokenizer (the degradation property), so a cumulative offset
  * captured over the old spans lands on the same character over the new spans; a raw offset
- * would shift past every added joiner (Task 9 QA: caret restored INSIDE the new glyph,
+ * would shift past every added joiner (leaving the caret restored INSIDE the new glyph,
  * scrambling subsequent keystrokes).
  */
 function caretSpanTextOffset(
@@ -357,6 +648,44 @@ function caretSpanTextOffset(
   return undefined;
 }
 
+/**
+ * Whether a span is a CLOSING (or self-closing) marker glyph. The caret never lands on such a
+ * glyph: a completed closer (`\nd*`) has the caret belong on the content AFTER it, not inside the
+ * glyph where continued typing would edit the marker. An OPENING glyph is deliberately NOT matched
+ * here — a half-typed opener keeps the caret in the glyph so the user can extend the marker name.
+ */
+function $isClosingMarkerSpan(span: FragmentSpan): boolean {
+  if (span.isSentinel) return false;
+  const node = $getNodeByKey(span.key);
+  return $isMarkerNode(node) && node.getMarkerSyntax() !== "opening";
+}
+
+/**
+ * Place the caret AFTER a closing marker glyph's enclosing span — the append position in the
+ * paragraph, PAST the whole char span — for a typed closer (`\nd*`) at paragraph END with nothing
+ * after it. The forward scan skips closing glyphs to land on the following content; when there IS no
+ * following content (para end), the caret still belongs after the closer, not at the end of the
+ * span's inner text (which is the closer glyph's start-of-glyph boundary, i.e. INSIDE the span,
+ * where continued typing edits within the marker). `selectNext` off the span, whose closer is its
+ * last child, resolves to the paragraph point just after it. Returns whether it placed the caret.
+ *
+ * Only a genuine char-span closer has an enclosing span to escape from this way. A verse's
+ * `\va`/`\vp` closer and a milestone's self-closing `\*` are never wrapped in a char span — they
+ * ride as ordinary PARAGRAPH siblings (`$verseAttributeRun`/`$milestoneDisplayRun`), so the
+ * glyph's parent is the paragraph itself. `selectNext` on the PARAGRAPH would move the point past
+ * the whole paragraph (into the next block, or off the end of the document), not just past the
+ * closer within it, so a paragraph-direct closer falls through to the caller's other fallback
+ * instead.
+ */
+function $selectAfterClosingSpan(span: FragmentSpan): boolean {
+  const glyph = $getNodeByKey(span.key);
+  if (!$isMarkerNode(glyph)) return false;
+  const enclosingSpan = glyph.getParent();
+  if (!$isCharNode(enclosingSpan)) return false;
+  enclosingSpan.selectNext(0, 0);
+  return true;
+}
+
 /** Place the collapsed caret at cumulative span-text `offset` (see `caretSpanTextOffset`)
  * within `spans`, falling back to the first element. */
 function $selectAtFragmentOffset(
@@ -368,16 +697,26 @@ function $selectAtFragmentOffset(
   let cumulative = 0;
   for (const span of spans) {
     const length = span.end - span.start;
-    // Skip sentinels (their inner text is not addressable); an offset that fell inside
-    // one resolves to the start of the next non-sentinel span.
-    if (!span.isSentinel && offset <= cumulative + length) {
+    // Skip sentinels (their inner text is not addressable) and closing marker glyphs (see
+    // $isClosingMarkerSpan); an offset that fell on either resolves to the start of the next
+    // addressable span. Both still advance `cumulative` so the offset stays aligned with the
+    // captured text offset.
+    if (!span.isSentinel && !$isClosingMarkerSpan(span) && offset <= cumulative + length) {
       best = { key: span.key, offset: Math.max(offset - cumulative, 0) };
       break;
     }
     cumulative += length;
   }
   if (!best) {
-    const last = [...spans].reverse().find((span) => !span.isSentinel);
+    // The offset ran past every addressable span. When the LAST span is a completed closer glyph
+    // (a typed `\nd*` at paragraph end, nothing after), the caret belongs AFTER the whole span —
+    // an append position in the paragraph — so continued typing is unstyled. The reverse-find
+    // fallback below would instead park it at the end of the preceding text, i.e. INSIDE the span.
+    const lastSpan = spans[spans.length - 1];
+    if (lastSpan && $isClosingMarkerSpan(lastSpan) && $selectAfterClosingSpan(lastSpan)) return;
+    const last = [...spans]
+      .reverse()
+      .find((span) => !span.isSentinel && !$isClosingMarkerSpan(span));
     if (last) best = { key: last.key, offset: last.end - last.start };
   }
   if (best) {
@@ -489,12 +828,22 @@ export function $rebuildParas(paras: ParaNode[], context: Tier2Context): boolean
   );
   const newNodes = serialized.root.children.map((child) => $parseSerializedNode(child));
 
+  // Second sentinel check, now on the SERIALIZED->PARSED tree: the tokenizer-level count above
+  // guards the MarkerContent, but the serialize/parse round trip is a separate place a U+FFFC
+  // placeholder can vanish. If the parsed tree has fewer (or more) than the preserved-run count,
+  // $replaceSentinels would silently drop or mis-pair a preserved node. Abort untouched instead.
+  if (countSentinelNodes(newNodes) !== combined.sentinels.length) {
+    logger?.warn("[MarkerEdit] Tier 2 aborted: serialized sentinel/preserved-node count mismatch");
+    return false;
+  }
+
   // Fixed-point refusal (preserve-or-refuse). If the freshly-tokenized output is
   // structurally identical to the paragraphs it was derived from, this rebuild is a
   // no-op: splicing it in would reproduce the same unresolved literal text (a bare
-  // `\`, a stray `\*`, or an unterminated milestone run — the tokenizer's remaining
-  // literal-degradation cases; most unknown markers now resolve structurally instead,
-  // see usfmFragmentToUsjContent's doc comment), re-arm the TextNode catch-all
+  // `\`, non-attribute content before a milestone's `\*`, or an unterminated milestone
+  // run — the tokenizer's remaining literal-degradation cases; a stray `\*` and most
+  // unknown markers now resolve structurally instead, see usfmFragmentToUsjContent's
+  // doc comment), re-arm the TextNode catch-all
   // transform, and — via the caret-departure/Enter completion path — drive an endless
   // resolve→rebuild→resolve cascade that hangs the main thread. Compare BEFORE any
   // mutation and bail. The signature normalizes preserved nodes and their U+FFFC
@@ -507,11 +856,33 @@ export function $rebuildParas(paras: ParaNode[], context: Tier2Context): boolean
     return false;
   }
 
+  // Snapshot the old paragraphs' verse number/sid pairs, in document order, as plain data —
+  // BEFORE the splice below moves or destroys the old paragraphs (a removed node's fields are
+  // not safe to read afterward). Sid carry-over (below) pairs this against the freshly
+  // re-tokenized tree's verses once the splice has settled.
+  const oldVerseSids = $collectVerseNodes(paras).map((verse) => ({
+    number: verse.getNumber(),
+    sid: verse.getSid(),
+  }));
+
   const firstPara = paras[0];
   newNodes.forEach((node) => firstPara.insertBefore(node));
   // Move originals BEFORE removing the old paragraphs (removal destroys leftovers).
   $replaceSentinels(newNodes, combined.sentinels);
   paras.forEach((para) => para.remove());
+  // Sid carry-over: a freshly re-tokenized verse never has a sid — the tokenizer cannot derive
+  // one from visible bytes — so pair the old and new
+  // verses positionally in document order and copy the old sid onto its partner wherever the
+  // verse NUMBER is unchanged. A renumbered verse (the pair's numbers disagree) gets no sid
+  // synthesized; a sentinel verse (unknownAttributes) is the SAME instance on both sides of the
+  // pairing, so this is a harmless no-op for it. Runs strictly AFTER the fixed-point check above,
+  // which deliberately never looks at sid (see the `$appendSignature` verse branch) — sid is
+  // reconciled here, once, only when a rebuild is already happening for some other reason.
+  const newVerses = $collectVerseNodes(newNodes);
+  for (let i = 0; i < oldVerseSids.length && i < newVerses.length; i++) {
+    if (newVerses[i].getNumber() === oldVerseSids[i].number)
+      newVerses[i].setSid(oldVerseSids[i].sid);
+  }
   $restoreSelectionAtOffset(newNodes, caretOffset, anchorInParas, getMarkerFn);
   return true;
 }
@@ -522,8 +893,13 @@ export function $rebuildParas(paras: ParaNode[], context: Tier2Context): boolean
  * MarkerNode(s). Preserve-or-refuse (returns undefined) when the note is collapsed, has
  * unknown attributes, an unrecoverable marker, or an unexpected caller/prefix shape: a
  * note the engine cannot cleanly re-derive is never rebuilt.
+ *
+ * Exported for the read-only settle (virtualSettle.utils.ts): note content is its own settle scope,
+ * and the settled output a consumer reads must be built from the SAME fragment the mutating rebuild
+ * below would build. Every other caller in this module still reaches it through
+ * `$rebuildNoteContent`.
  */
-function $buildNoteFragment(
+export function $buildNoteFragment(
   note: NoteNode,
   getMarkerFn: MarkerLookup,
 ): { out: FragmentAccumulator; contentNodes: LexicalNode[] } | undefined {
@@ -569,7 +945,7 @@ function $buildNoteFragment(
 }
 
 /**
- * Note-scoped Tier 2 re-tokenization (design spec §5.2/§6). Mirrors `$rebuildParas` but
+ * Note-scoped Tier 2 re-tokenization. Mirrors `$rebuildParas` but
  * operates on a single note's CONTENT children. The note node identity, its opening
  * marker(s), its caller, and its closing marker(s) are PRESERVED; only the content is
  * re-tokenized. Preserve-or-refuse: any guard-rail failure returns false with the note
@@ -630,12 +1006,23 @@ export function $rebuildNoteContent(note: NoteNode, context: Tier2Context): bool
     return false;
   }
   // The editable \p wrapper prepends a visible para MarkerNode + marker-trailing-space
-  // that must NOT enter the note content; drop that prefix on unwrap.
-  const newNodes = wrapperChildren
-    .map((child) => $parseSerializedNode(child))
-    .filter(
-      (node) => !$isMarkerNode(node) && $getState(node, textTypeState) !== "marker-trailing-space",
-    );
+  // that must NOT enter the note content; drop ONLY that leading prefix pair on unwrap. Other
+  // MarkerNodes among the unwrapped children are real display glyphs — e.g. a freshly tokenized
+  // milestone's opening `\ts-s` and self-closing `\*` glyphs are SIBLINGS of the MilestoneNode —
+  // and a strip-every-MarkerNode filter ate them, leaving the milestone glyph-less until reload.
+  const parsed = wrapperChildren.map((child) => $parseSerializedNode(child));
+  let contentStart = 0;
+  if ($isMarkerNode(parsed[0]) && parsed[0].getMarkerSyntax() === "opening") {
+    contentStart = 1;
+    const second = parsed[1];
+    if (
+      $isTextNode(second) &&
+      !$isMarkerNode(second) &&
+      $getState(second, textTypeState) === "marker-trailing-space"
+    )
+      contentStart = 2;
+  }
+  const newNodes = parsed.slice(contentStart);
   if (newNodes.length === 0) {
     logger?.debug("[MarkerEdit] Note Tier 2 skipped: no content nodes after unwrap");
     return false;
@@ -662,23 +1049,50 @@ export function $rebuildNoteContent(note: NoteNode, context: Tier2Context): bool
     newNodes.forEach((node) => (closing ? closing.insertBefore(node) : note.append(node)));
   }
   $replaceSentinels(newNodes, out.sentinels);
-  contentNodes.forEach((node) => node.remove());
+  // Unlike `$rebuildParas` (which removes container PARAGRAPHS the preserved nodes were
+  // already moved out of), the old content list here contains the preserved sentinel nodes
+  // THEMSELVES — `$replaceSentinels` just moved them into the rebuilt content, so removing
+  // them here would silently delete them from their new home. Skip them.
+  const preservedKeys = new Set(out.sentinels.flat().map((node) => node.getKey()));
+  contentNodes.forEach((node) => {
+    if (!preservedKeys.has(node.getKey())) node.remove();
+  });
   $restoreSelectionInNoteContent(newNodes, caretOffset, anchorInNote, getMarkerFn);
   return true;
 }
 
-/** Route a Tier 1-unexpressible edit to Tier 2 via the node's paragraph or note. */
-export function $requestTier2ForNode(node: LexicalNode, context: Tier2Context): void {
-  let current: LexicalNode | null = node;
-  while (current) {
-    // Note content is its own re-tokenization scope (§5.2/§6): route to the note-scoped
-    // rebuild, which preserves the note node, its marker(s), and its caller.
-    if ($isNoteNode(current)) return void $rebuildNoteContent(current, context);
-    if ($isUnknownNode(current)) return; // opaque-block interior (§7): stay literal
-    if ($isParaNode(current)) {
-      $rebuildParas([current], context);
-      return;
-    }
-    current = current.getParent();
+/**
+ * The re-tokenization SCOPE a node belongs to: the expanded note whose content contains it, or
+ * the paragraph that contains it — or `undefined` when it has neither (an opaque block interior,
+ * where the bytes stay literal, or a detached node). The nearest Note or Para wins — a note inside
+ * a paragraph is its own scope: the note node, its marker glyphs, and its caller are preserved
+ * across a rebuild while only its content re-tokenizes.
+ *
+ * The walk runs to the DOCUMENT ROOT, not just to the first Note/Para match: a paragraph can itself
+ * be nested inside an opaque block (a sidebar's own paragraphs — see `$buildParaFragment`'s matching
+ * ancestor guard), so an `UnknownNode` anywhere between `node` and the root — even above the nearest
+ * Note/Para — still means "opaque block interior", overriding whatever scope was found closer in.
+ *
+ * The single definition of scope, shared by the mutating settle below and the read-only settle in
+ * virtualSettle.utils.ts. Both must route a given pending key to the SAME scope, or the settled USJ
+ * a consumer reads and the structure a later real settle produces would be derived from different
+ * regions of the document.
+ */
+export function $settleScopeForNode(node: LexicalNode): ParaNode | NoteNode | undefined {
+  let scope: ParaNode | NoteNode | undefined;
+  for (let current: LexicalNode | null = node; current; current = current.getParent()) {
+    if ($isUnknownNode(current)) return undefined;
+    if (!scope && ($isNoteNode(current) || $isParaNode(current))) scope = current;
   }
+  return scope;
+}
+
+/** Route a Tier-1-unexpressible edit to Tier 2 via its scope ({@link $settleScopeForNode}).
+ * Returns whether the routed rebuild actually SPLICED — a guard-rail or fixed-point refusal mutates
+ * nothing, and the deferred-resolution history bookkeeping ($resolvePendingMarkers callers) needs to
+ * tell the two apart. */
+export function $requestTier2ForNode(node: LexicalNode, context: Tier2Context): boolean {
+  const scope = $settleScopeForNode(node);
+  if (!scope) return false;
+  return $isNoteNode(scope) ? $rebuildNoteContent(scope, context) : $rebuildParas([scope], context);
 }

@@ -9,6 +9,7 @@ import type { EditorState, LexicalEditor, UpdateListenerPayload } from "lexical"
 import { $getNodeByKey, $isTextNode, HISTORY_MERGE_TAG } from "lexical";
 import Delta from "quill-delta";
 import { useLayoutEffect } from "react";
+import { $findFirstAncestorNoteNode } from "shared";
 
 /** Stable default for {@link DeltaOnChangePlugin}'s `ignoreTags` so the effect deps stay stable. */
 const EMPTY_TAGS: readonly string[] = [];
@@ -73,19 +74,28 @@ function $getUpdateOps(
   let update = new Delta();
   editor.getEditorState().read(() => {
     const nodeKey = dirtyLeaves.values().next().value ?? "";
-    if (dirtyLeaves.size === 1 && $isTextNode($getNodeByKey(nodeKey))) {
+    const dirtyNode = $getNodeByKey(nodeKey);
+    // Note-internal edits must NOT take the fast path: a note is ONE opaque embed unit in
+    // delta-doc coordinates, so $getOTPositionOfNode for a text node INSIDE it resolves to the
+    // note's OUTER position and the emitted op would land the edit AFTER the note. The full-diff
+    // fallback replaces the note embed wholesale instead.
+    const isInsideNote = dirtyNode !== null && $findFirstAncestorNoteNode(dirtyNode) !== undefined;
+    if (dirtyLeaves.size === 1 && $isTextNode(dirtyNode) && !isInsideNote) {
       // Handle the most common case of text changing in a single text node.
-      const node = $getNodeByKey(nodeKey);
-      // Default "delta-doc" coordinates (NOT "apply"): this fast path must produce the same
-      // retain the `getEditorDelta` diff fallback below would, since both feed the same
-      // doc-delta op stream emitted to the host via `onChange`.
-      const retain = $getOTPositionOfNode(node);
-      if ($isTextNode(node) && retain !== undefined) {
+      // Default "delta-doc" coordinates (NOT "apply"): this fast path and the `getEditorDelta`
+      // diff fallback below feed the same doc-delta op stream emitted to the host via
+      // `onChange`, so they must agree. They do: `$getOTPositionOfNode` counts a preceding
+      // editable verse as its 1-unit embed (matching the doc delta, which emits only the verse
+      // embed op — the glyph text is engine-owned display, excluded from content ops), and a
+      // preceding editable chapter as its glyph-length body text (matching the doc delta too).
+      // See `OTCoordinateSystem` in delta-common.utils.ts.
+      const retain = $getOTPositionOfNode(dirtyNode);
+      if (retain !== undefined) {
         const prevTextDoc = prevEditorState.read(() => {
           const prevNode = $getNodeByKey(nodeKey);
           return new Delta([$isTextNode(prevNode) ? $getTextOp(prevNode) : { insert: "" }]);
         });
-        const textDoc = new Delta([$getTextOp(node)]);
+        const textDoc = new Delta([$getTextOp(dirtyNode)]);
         const nodePositionRetain = new Delta(retain > 0 ? [{ retain }] : []);
         update = update.concat(nodePositionRetain).concat(prevTextDoc.diff(textDoc));
       }

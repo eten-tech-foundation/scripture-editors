@@ -30,17 +30,18 @@ export const UNKNOWN_TAG_NAME = "unknown";
 export const UNKNOWN_VERSION = 1;
 
 /**
- * `UnknownNode` tags that render inline instead of as a subdued block container (design spec
- * §7: "a line-level box in the middle of a sentence would be visibly wrong"). These are the two
- * corpus-proven mid-paragraph constructs — both nest INSIDE a `<para>`'s running text in the
- * Phase 0 corpus fixtures ("optional line break (optbreak)" and "cross-reference ref target"),
- * and `packages/utilities/src/converters/usj/converter-test.data.ts:2571,2581` shows both
- * becoming `UnknownNode`s (tags "optbreak" and "ref"):
+ * `UnknownNode` tags that render inline instead of as a subdued block container: a line-level box
+ * in the middle of a sentence would be visibly wrong. These are the two corpus-proven
+ * mid-paragraph constructs — both nest INSIDE a `<para>`'s running text in the corpus fixtures
+ * ("optional line break (optbreak)" and "cross-reference ref target"), and
+ * `packages/utilities/src/converters/usj/converter-test.data.ts:2571,2581` shows both becoming
+ * `UnknownNode`s (tags "optbreak" and "ref"):
  *
- * - `\optbreak` — PT9 renders it as a literal `//` token mid-sentence; it has no children, so
- *   the CSS supplies the `//` label (keyed off `data-tag="optbreak"`).
- * - `\ref` — a cross-reference target with real child text that must display inline; it gets
- *   NO label (the optbreak label selector cannot match it).
+ * - `\optbreak` — PT9 renders it as a literal `//` token mid-sentence; `createUnknown`
+ *   (usj-editor.adaptor.ts) renders that token as the node's own display child in editable
+ *   mode, via `unknownDisplayParts` (unknownUsfm.utils.ts).
+ * - `\ref` — a cross-reference target with real child text that must display inline; it carries
+ *   no USFM bytes of its own, so it gets no display children at all.
  *
  * Everything else (table/figure/sidebar/periph/...) stays block-level.
  */
@@ -105,6 +106,16 @@ export class UnknownNode extends ElementNode {
     return self.__tag;
   }
 
+  /**
+   * Whether this unknown renders inline (optbreak, ref) rather than as a block box (figure,
+   * sidebar, periph, ...). Inline unknowns sit within paragraph prose and carry SIGNIFICANT
+   * surrounding whitespace — the spaces Paratext 9 preserves byte-for-byte around `//` — so
+   * callers must not add or strip spaces next to them.
+   */
+  isInlineTag(): boolean {
+    return INLINE_UNKNOWN_TAGS.has(this.getTag());
+  }
+
   setMarker(marker: string | undefined): this {
     if (this.__marker === marker) return this;
 
@@ -131,24 +142,37 @@ export class UnknownNode extends ElementNode {
 
   override createDOM(): HTMLElement {
     const dom = document.createElement(UNKNOWN_TAG_NAME);
-    // data-tag doubles as the CSS discriminator for construct-specific treatment (the
-    // optbreak-only `//` label keys off [data-tag="optbreak"]) and mirrors what importDOM's
-    // $convertUnknownElement reads back.
+    // data-tag records the UnknownNode's USJ type so importDOM's $convertUnknownElement can read it
+    // back on a DOM round-trip. The inline-vs-block CSS treatment is driven by the class chosen from
+    // INLINE_UNKNOWN_TAGS below, not by data-tag; optbreak's `//` token renders as a real child text
+    // node (see createUnknown in usj-editor.adaptor.ts), not a CSS-generated label.
     dom.setAttribute("data-tag", this.getTag());
     dom.setAttribute("data-marker", this.getMarker() ?? "");
-    dom.classList.add(INLINE_UNKNOWN_TAGS.has(this.getTag()) ? "unknown-inline" : "unknown-block");
+    dom.classList.add(this.isInlineTag() ? "unknown-inline" : "unknown-block");
     // Read-only whole-block: no inline display:none here (that hid the content in every view).
     // Visibility is CSS-mode-gated in usj-nodes.css (hidden by default, revealed as a subdued
     // block/token in standard view's .marker-editable scope). contentEditable=false stops the
     // browser from placing a native caret inside it, so caret navigation skips over the whole
-    // node like any decorator node (design spec §7).
+    // node like any decorator node.
     dom.contentEditable = "false";
     return dom;
   }
 
-  override updateDOM(): boolean {
-    // Returning false tells Lexical that this node does not need its DOM element replacing with a
-    // new copy from createDOM.
+  override updateDOM(prevNode: this, dom: HTMLElement): boolean {
+    // On a key-reused node whose tag/marker changed, sync the attributes and the inline-vs-block
+    // class in place so createDOM's discriminators (data-tag/data-marker, unknown-inline vs
+    // unknown-block) don't go stale. tag drives both data-tag and the class; marker drives
+    // data-marker (empty string when absent, mirroring createDOM).
+    if (prevNode.__tag !== this.__tag) {
+      dom.setAttribute("data-tag", this.__tag);
+      const inline = this.isInlineTag();
+      dom.classList.toggle("unknown-inline", inline);
+      dom.classList.toggle("unknown-block", !inline);
+    }
+    if ((prevNode.__marker ?? "") !== (this.__marker ?? ""))
+      dom.setAttribute("data-marker", this.__marker ?? "");
+    // Returning false keeps the existing DOM element (updated in place, never recreated — this
+    // preserves contentEditable=false and the caret-skip behavior).
     return false;
   }
 

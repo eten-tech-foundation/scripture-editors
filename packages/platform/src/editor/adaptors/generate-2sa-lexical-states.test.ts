@@ -1,43 +1,70 @@
 /**
- * Generate serialized Lexical editor states for `usj2Sa` in all 3 marker modes.
+ * Generate serialized Lexical editor states for `usj2Sa` in all 3 marker modes, and pin their
+ * freshness against the committed fixtures.
  *
  * Run with: pnpm generate:test-data
  *
- * This test generates static fixture files used by the data-driven selection tests.
- * It only needs to be run when `usj2Sa` or the platform USJ editor adaptor changes.
+ * This test generates the static fixture files (`libs/test-data/src/data/2sa.lexical.*.ts`) used
+ * by the data-driven selection tests (see `selection.utils*.data-driven.test.ts` in
+ * `libs/shared-react/src/plugins/usj/annotation/`). Re-run it whenever `usj2Sa` or the platform
+ * USJ editor adaptor changes.
  *
- * Guarded by the GENERATE_TEST_DATA env var so it doesn't run during normal
- * `nx test platform` invocations.
+ * Generation itself is guarded by the GENERATE_TEST_DATA env var so it doesn't run during normal
+ * `nx test platform` invocations. Without that var, this file instead runs as an always-on
+ * FRESHNESS PIN: it rebuilds each mode's state in memory from the current `usj2Sa` + adaptor and
+ * deep-compares it against the committed fixture. A mismatch means the fixtures are stale
+ * relative to the live adaptor — regenerate and commit them with:
+ *   GENERATE_TEST_DATA=1 pnpm generate:test-data   (from packages/platform)
+ *   or: nx generate:test-data platform-editor
  */
 import { serializeEditorState, initialize } from "./usj-editor.adaptor";
 import { writeFileSync } from "fs";
 import { resolve } from "path";
 import type { ViewOptions } from "shared-react";
-import { usj2Sa } from "test-data";
+import type { SerializedEditorState } from "lexical";
+import { usj2Sa, lexicalEditable2Sa, lexicalVisible2Sa, lexicalHidden2Sa } from "test-data";
 
-describe.skipIf(!process.env.GENERATE_TEST_DATA)("generate 2SA Lexical states", () => {
-  const outputDir = resolve(__dirname, "../../../../../libs/test-data/src/data");
+const REGENERATE_COMMAND = "GENERATE_TEST_DATA=1 pnpm generate:test-data (from packages/platform)";
 
-  const modes = [
-    {
-      markerMode: "editable" as const,
-      exportName: "lexicalEditable2Sa",
-      fileName: "2sa.lexical.editable.ts",
-    },
-    {
-      markerMode: "visible" as const,
-      exportName: "lexicalVisible2Sa",
-      fileName: "2sa.lexical.visible.ts",
-    },
-    {
-      markerMode: "hidden" as const,
-      exportName: "lexicalHidden2Sa",
-      fileName: "2sa.lexical.hidden.ts",
-    },
-  ];
+const outputDir = resolve(__dirname, "../../../../../libs/test-data/src/data");
 
+const modes = [
+  {
+    markerMode: "editable" as const,
+    exportName: "lexicalEditable2Sa",
+    fileName: "2sa.lexical.editable.ts",
+    committed: lexicalEditable2Sa,
+  },
+  {
+    markerMode: "visible" as const,
+    exportName: "lexicalVisible2Sa",
+    fileName: "2sa.lexical.visible.ts",
+    committed: lexicalVisible2Sa,
+  },
+  {
+    markerMode: "hidden" as const,
+    exportName: "lexicalHidden2Sa",
+    fileName: "2sa.lexical.hidden.ts",
+    committed: lexicalHidden2Sa,
+  },
+];
+
+/**
+ * Strips function references (e.g. onClick on note callers) that can't survive a JSON round
+ * trip — the same transform the generator applies before writing a fixture file — so a freshly
+ * built state and the JSON-backed committed fixture compare on structure alone.
+ */
+function toComparableJson(value: unknown): unknown {
+  return JSON.parse(JSON.stringify(value, (_key, v) => (typeof v === "function" ? undefined : v)));
+}
+
+describe("2SA Lexical states", () => {
   for (const mode of modes) {
-    it(`generates ${mode.markerMode} mode state`, () => {
+    const title = process.env.GENERATE_TEST_DATA
+      ? `generates ${mode.markerMode} mode state`
+      : `${mode.markerMode} mode fixture is fresh (matches the live usj2Sa + adaptor)`;
+
+    it(title, () => {
       const viewOptions: ViewOptions = {
         markerMode: mode.markerMode,
         noteMode: "expanded",
@@ -46,16 +73,17 @@ describe.skipIf(!process.env.GENERATE_TEST_DATA)("generate 2SA Lexical states", 
       };
 
       initialize(undefined, undefined);
-      const serializedState = serializeEditorState(usj2Sa, viewOptions);
+      const serializedState: SerializedEditorState = serializeEditorState(usj2Sa, viewOptions);
 
-      // Remove any function references (e.g., onClick on note callers) that can't be serialized
-      const json = JSON.stringify(
-        serializedState,
-        (_key, value) => (typeof value === "function" ? undefined : value),
-        2,
-      );
+      if (process.env.GENERATE_TEST_DATA) {
+        // Remove any function references (e.g., onClick on note callers) that can't be serialized
+        const json = JSON.stringify(
+          serializedState,
+          (_key, value) => (typeof value === "function" ? undefined : value),
+          2,
+        );
 
-      const content = `// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+        const content = `// eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-nocheck -- auto-generated serialized editor state; custom node properties are not in SerializedLexicalNode
 import type { SerializedEditorState } from "lexical";
 
@@ -69,12 +97,21 @@ import type { SerializedEditorState } from "lexical";
 export const ${mode.exportName}: SerializedEditorState = ${json};
 `;
 
-      const filePath = resolve(outputDir, mode.fileName);
-      writeFileSync(filePath, content, "utf8");
-      // Log so the test runner output shows what was generated
-      // eslint-disable-next-line no-console -- test output
-      console.log(`Wrote ${filePath} (${content.length} chars)`);
-      expect(serializedState.root.children.length).toBeGreaterThan(0);
+        const filePath = resolve(outputDir, mode.fileName);
+        writeFileSync(filePath, content, "utf8");
+        // Log so the test runner output shows what was generated
+        // eslint-disable-next-line no-console -- test output
+        console.log(`Wrote ${filePath} (${content.length} chars)`);
+        expect(serializedState.root.children.length).toBeGreaterThan(0);
+        return;
+      }
+
+      // Freshness pin: fails loudly (with the regeneration command) when the committed fixture
+      // no longer matches what the current usj2Sa + adaptor would produce.
+      expect(
+        toComparableJson(serializedState),
+        `libs/test-data/src/data/${mode.fileName} is stale. Regenerate with: ${REGENERATE_COMMAND}`,
+      ).toEqual(toComparableJson(mode.committed));
     });
   }
 });

@@ -1,6 +1,6 @@
 import { generateUsjCss } from "./generateUsjCss";
 import { StyleInfo } from "shared";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 const styleInfo: StyleInfo = {
   defaultFont: "Charis SIL",
@@ -46,6 +46,15 @@ describe("generateUsjCss (PT9 CSSCreator port)", () => {
     );
   });
 
+  // Review-fix coverage: the "both" → justify mapping is unexercised by the fixtures (which only
+  // use "center"/"left"/"right"). Pin it so a regression in the justify branch can't slip through.
+  it('maps justification "both" to text-align: justify', () => {
+    const justifyStyleInfo: StyleInfo = {
+      markers: { pmo: { marker: "pmo", styleType: "paragraph", justification: "both" } },
+    };
+    expect(generateUsjCss(justifyStyleInfo)).toContain("text-align: justify");
+  });
+
   it("flips margins and justification under rtl and scales with zoom", () => {
     const css = generateUsjCss(styleInfo, { zoom: 2, rtl: true });
     expect(css).toContain('.editor-input.usfm { font-family: "Charis SIL"; font-size: 24pt; }');
@@ -88,6 +97,88 @@ describe("generateUsjCss (PT9 CSSCreator port)", () => {
   it("swaps rightMargin and left-justification under rtl", () => {
     const css = generateUsjCss(branchStyleInfo, { rtl: true });
     expect(css).toContain(".editor-input.usfm .usfm_pr { margin-left: 5vw; text-align: right; }");
+  });
+
+  // Values from a project stylesheet flow straight into CSS text, so any value that could break
+  // out of its declaration/selector must be neutralized (escaped or validated-and-skipped).
+  describe("untrusted value handling", () => {
+    it("escapes double quotes so a marker fontName cannot break out of the CSS string", () => {
+      const css = generateUsjCss({
+        markers: { x: { marker: "x", styleType: "character", fontName: 'Bad" }' } },
+      });
+      expect(css).toContain('font-family: "Bad\\" }"'); // quote escaped, stays inside the string
+      expect(css).not.toContain('"Bad" }"'); // a raw quote would end the string early
+    });
+
+    it("escapes double quotes in the project defaultFont", () => {
+      const css = generateUsjCss({ defaultFont: 'Bad" }', defaultFontSize: 12, markers: {} });
+      expect(css).toContain('font-family: "Bad\\" }"');
+    });
+
+    it("keeps valid colors (hex, rgb(), named)", () => {
+      expect(
+        generateUsjCss({
+          markers: { a: { marker: "a", styleType: "character", color: "#00aa33" } },
+        }),
+      ).toContain("color: #00aa33");
+      expect(
+        generateUsjCss({
+          markers: { b: { marker: "b", styleType: "character", color: "rgb(1, 2, 3)" } },
+        }),
+      ).toContain("color: rgb(1, 2, 3)");
+      expect(
+        generateUsjCss({ markers: { c: { marker: "c", styleType: "character", color: "red" } } }),
+      ).toContain("color: red");
+    });
+
+    it("warns and skips a color value that could break out of the declaration", () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+      const css = generateUsjCss({
+        markers: {
+          x: {
+            marker: "x",
+            styleType: "character",
+            bold: true,
+            color: "red; } body { display: none",
+          },
+        },
+      });
+      expect(css).not.toContain("display: none");
+      expect(css).not.toContain("body {");
+      expect(css).toContain("font-weight: bold"); // the rest of the rule still emits
+      expect(warn).toHaveBeenCalled();
+      warn.mockRestore();
+    });
+
+    // The generated CSS may be injected as element text (e.g. a <style> tag via innerHTML),
+    // where the HTML parser ends the style element at any literal "</style" regardless of CSS
+    // string context — so angle brackets must never survive into the output.
+    it("escapes angle brackets so a defaultFont cannot close an injected <style> element", () => {
+      const css = generateUsjCss({
+        defaultFont: "</style><script>alert(1)</script>",
+        defaultFontSize: 12,
+        markers: {},
+      });
+      expect(css).not.toContain("</style>");
+      expect(css).not.toContain("<script>");
+      expect(css).toContain('font-family: "\\3C /style\\3E \\3C script\\3E ');
+    });
+
+    it("escapes angle brackets in a marker fontName", () => {
+      const css = generateUsjCss({
+        markers: { x: { marker: "x", styleType: "character", fontName: "</style>" } },
+      });
+      expect(css).not.toContain("</style>");
+      expect(css).toContain('font-family: "\\3C /style\\3E "');
+    });
+
+    it("escapes special characters in the marker used for the .usfm_<marker> selector", () => {
+      const css = generateUsjCss({
+        markers: { "x{}": { marker: "x{}", styleType: "character", bold: true } },
+      });
+      expect(css).toContain(".usfm_x\\{\\}"); // braces escaped, cannot terminate the rule early
+      expect(css).not.toContain(".usfm_x{} {");
+    });
   });
 
   it("respects a custom containerSelector", () => {

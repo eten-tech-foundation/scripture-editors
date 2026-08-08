@@ -7,17 +7,27 @@ import {
 } from "../../nodes/usj/node-react.utils";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { mergeRegister } from "@lexical/utils";
-import { $createTextNode, $isTextNode, LexicalEditor, LexicalNode, TextNode } from "lexical";
+import {
+  $createTextNode,
+  $getState,
+  $isTextNode,
+  LexicalEditor,
+  LexicalNode,
+  TextNode,
+} from "lexical";
 import { useEffect } from "react";
 import {
+  $isAttributeRunNode,
   $isCharNode,
   $isNoteNode,
   $isParaLikeNode,
   $isParaMarkerPrefix,
   $isTypedMarkNode,
   $isUnknownNode,
+  $syncVerseAttributeDisplay,
   CharNode,
   NoteNode,
+  textTypeState,
   VerseNode,
 } from "shared";
 
@@ -46,16 +56,36 @@ function useTextSpacing(editor: LexicalEditor) {
       editor.registerNodeTransform(TextNode, (node) => $textNodeInUnknownTransform(node, editor)),
       editor.registerNodeTransform(VerseNode, $verseNodeTransform),
       editor.registerNodeTransform(ImmutableVerseNode, $verseNodeTransform),
+      // Self-healing \va/\vp display triplets: re-derive them from altnumber/pubnumber whenever
+      // a verse is dirtied — heals remote collab updates (delta-apply only calls setAltnumber/
+      // setPubnumber) and structure surgery. Registered here (not a dedicated VerseNodePlugin,
+      // which doesn't exist) because this is already the shared-react home that registers
+      // VerseNode transforms (the spacing transform above) — same one-node-type-owns-its-syncs
+      // shape CharNodePlugin uses for chars. See attributeDisplay.utils.ts (`shared`).
+      editor.registerNodeTransform(VerseNode, $syncVerseAttributeDisplayNode),
     );
   }, [editor]);
+}
+
+/**
+ * Wraps {@link $syncVerseAttributeDisplay} with the verse's own current values — unlike the char
+ * sync, no import-cycle concern forces these to be computed at the call site; kept as a thin
+ * wrapper anyway to mirror `CharNodePlugin`'s established shape.
+ * @param node - VerseNode whose \va/\vp display triplets need updating.
+ */
+function $syncVerseAttributeDisplayNode(node: VerseNode): void {
+  $syncVerseAttributeDisplay(node, node.getAltnumber(), node.getPubnumber());
 }
 
 /**
  * Ensures a TextNode has trailing spacing when needed for inline scripture content.
  *
  * The transform does nothing when the node is not editable, already has meaningful trailing
- * whitespace, precedes a note, or is inside or adjacent to CharNode, TypedMarkNode, or UnknownNode
- * content.
+ * whitespace, precedes a note, or is inside or adjacent to CharNode or TypedMarkNode content. It
+ * also does nothing for a node that is inside any UnknownNode (block or inline), or that
+ * immediately precedes an INLINE UnknownNode (e.g. an optbreak `//` or a `ref`) — a block-level
+ * UnknownNode's PRECEDING text (figures, sidebars, etc.) still gets the ordinary trailing-space
+ * treatment.
  *
  * If the node contains only a single space and is not followed by a verse node, that placeholder
  * space is removed instead of preserved.
@@ -78,7 +108,28 @@ function $textNodeTrailingSpaceTransform(node: TextNode): void {
     $isCharNode(nextSibling) ||
     $isTypedMarkNode(parent) ||
     $isTypedMarkNode(nextSibling) ||
-    $isUnknownNode(parent)
+    $isUnknownNode(parent) ||
+    // An optbreak (`//`) — like a ref — is an inline UnknownNode carrying SIGNIFICANT surrounding
+    // whitespace (Paratext 9 preserves the spaces around `//` byte-for-byte). Forcing a trailing
+    // space onto the text before one — or removing a lone space there — corrupts the authored form
+    // and makes the space impossible to delete (the transform re-adds it every keystroke). Text
+    // adjacent to an inline unknown is left exactly as authored, the same next-sibling exemption
+    // already applied to notes, chars, and typed marks. Block-level unknowns (figures, sidebars)
+    // keep the existing spacing behavior.
+    ($isUnknownNode(nextSibling) && nextSibling.isInlineTag()) ||
+    // An attribute display run (char/milestone/verse — attributeDisplay.utils.ts) is engine-owned
+    // presentation, not paragraph prose: it must never gain a trailing space of its own, even
+    // when it sits directly in a paragraph (a verse's \va/\vp value has no CharNode parent to
+    // exempt it the way a char span's own run is already protected).
+    $getState(node, textTypeState) === "attribute" ||
+    // When a verse's/milestone's run rides inside an AttributeRunNode wrapper (AttributeRunNode.ts,
+    // the shape the adaptor always builds now), its glyph children (MarkerNode, never textType
+    // "attribute") need the same exemption the state-tagged value already gets above — a glyph is
+    // a plain TextNode here, invisible to the state check, but is exactly as much engine-owned
+    // presentation. The transform still exempts whichever shape — loose attribute text or a
+    // wrapper's children — is actually in the tree, so a pre-flip loose editor state stays exempt
+    // too.
+    $isAttributeRunNode(parent)
   )
     return;
 

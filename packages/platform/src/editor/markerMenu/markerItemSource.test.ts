@@ -77,6 +77,18 @@ describe("getMarkerMenuItems — paragraph source (MarkerItemSource.cs:168-199)"
     });
     expect(getMarkerMenuItems(sheet, context)).toEqual([]);
   });
+
+  it("never offers the chapter marker `c` in the paragraph or Enter menus (it is structural)", () => {
+    // `c` (occursUnder ["id"]) validates on an `id`-only stack, so without the `includeMarker`
+    // guard it surfaces in both menus — and picking it from the Enter split menu produced a
+    // malformed `<para marker="c">`. Real paragraph markers (e.g. `ip`) must still be offered.
+    const context = makeContext({ source: "paragraph", previousParaMarkers: ["id"] });
+    const backslash = getMarkerMenuItems(sheet, context).map((item) => item.marker);
+    const enter = getEnterMenuItems(sheet, context).map((item) => item.marker);
+    expect(backslash).not.toContain("c");
+    expect(enter).not.toContain("c");
+    expect(backslash).toContain("ip");
+  });
 });
 
 describe("getMarkerMenuItems — character source (MarkerItemSource.cs:109-147)", () => {
@@ -167,7 +179,7 @@ describe("getEnterMenuItems (KeyPressEditHandler.cs:189-201 SmartEnter choice)",
     expect(markers[0]).toBe("p");
   });
 
-  it("chooses p (not ip) once a chapter has started, even on a rank-less sheet (Task 15 item 6)", () => {
+  it("chooses p (not ip) once a chapter has started, even on a rank-less sheet", () => {
     // The realistic snapshot: book id is pinned at the stack bottom for the whole book, and this
     // fixture's `ip`/`c` carry no `rank` (both optional). Pre-fix, the rank-0 bypass in
     // isParagraphTagValid let `\ip` validate mid-chapter and SmartEnter promoted it to first — QA

@@ -1,20 +1,31 @@
 /**
- * §5.5 deletion semantics. Replaces ParaMarkerPrefixGuardPlugin's reset-to-\p
+ * Deletion semantics. Replaces ParaMarkerPrefixGuardPlugin's reset-to-\p
  * behavior in editable marker mode: deleting a paragraph's marker text merges
  * its content into the previous paragraph (PT9 reformat outcome).
  */
 
 import { $requestTier2ForNode } from "./tier2Rebuild.utils";
 import { MarkerEditContext } from "./markerEditTier1.utils";
-import { $createTextNode, $getState, $setState, $isTextNode } from "lexical";
+import { $dfs } from "@lexical/utils";
+import {
+  $createTextNode,
+  $getSelection,
+  $getState,
+  $isRangeSelection,
+  $isTextNode,
+  $setState,
+} from "lexical";
 import {
   $createMarkerNode,
   $isMarkerNode,
   $isParaMarkerPrefix,
   $isParaNode,
+  canonicalAttributeText,
   CharNode,
+  defaultMarkerAttribute,
+  getEditableCallerText,
   NBSP,
-  NODE_ATTRIBUTE_PREFIX,
+  NoteNode,
   PARA_MARKER_DEFAULT,
   ParaNode,
   textTypeState,
@@ -24,31 +35,150 @@ export function $createMarkerPrefix(marker: string) {
   const markerNode = $createMarkerNode(marker);
   const spaceNode = $createTextNode(NBSP);
   $setState(spaceNode, textTypeState, "marker-trailing-space");
+  // Token mode so typing at the separator's boundary can never insert INTO it. Without this, a
+  // fresh EMPTY paragraph (whose caret fallback below is the separator's end) absorbed typed text
+  // into this node ("<NBSP>asdf"), which the serializer — matching the separator by exact-NBSP
+  // text — then leaked into USJ content (`\p ~asdf` in USFM, and a non-convergent PDP echo loop
+  // in the host). With token mode, Lexical routes boundary insertions into a new plain sibling
+  // TextNode instead. Keep in sync with the forward adaptor's separator (`createText(NBSP,
+  // "marker-trailing-space", "token")` in usj-editor.adaptor.ts).
+  spaceNode.setMode("token");
   return [markerNode, spaceNode];
 }
 
+/**
+ * Places the caret at the content side of a paragraph's `[glyph, separator, ...content]` prefix.
+ * Text content selects at its own offset 0. Anything else — no content yet (fresh empty
+ * paragraph) or element content (e.g. a red-letter `\wj` CharNode first) — gets an element point
+ * at child index 2, the content boundary: typing there inserts plain text at content start
+ * instead of the caret jumping to the paragraph end (`selectEnd`), which is wrong for element
+ * content and, before the separator was token-mode, let typing merge into the separator itself.
+ */
+export function $selectParaContentStart(para: ParaNode): void {
+  const contentChild = para.getChildAtIndex(2);
+  if (contentChild && $isTextNode(contentChild)) contentChild.select(0, 0);
+  else para.select(2, 2);
+}
+
+/**
+ * Whether the collapsed caret sits at the START of a (still prefix-less) paragraph — the shape
+ * `selection.insertParagraph()` leaves behind: an element point on the paragraph at offset 0
+ * (empty clone from an end-of-content split), or offset 0 of its first child (the moved tail
+ * content). Evaluated BEFORE the prefix splice, while "start of the paragraph" and "start of the
+ * content" are still the same place.
+ */
+function $isCaretAtParaStart(para: ParaNode): boolean {
+  const selection = $getSelection();
+  if (!$isRangeSelection(selection) || !selection.isCollapsed()) return false;
+  const { anchor } = selection;
+  if (anchor.type === "element") return anchor.key === para.getKey() && anchor.offset === 0;
+  const first = para.getFirstChild();
+  return first !== null && anchor.key === first.getKey() && anchor.offset === 0;
+}
+
 export function $injectMarkerPrefix(para: ParaNode): void {
+  // The caret follows the injection only when it sat at the paragraph's start (the Enter-split
+  // shape): the splice lands the prefix UNDER such a caret, which would otherwise be left on the
+  // marker side of it (an element point at offset 0 now points before the glyph — typing there
+  // inserts into the marker prefix). A caret elsewhere — mid-text or at the end of a pasted
+  // line, where one paste can inject several paragraphs' prefixes in a single update — is not
+  // disturbed by the splice and must stay exactly where the user's edit put it.
+  const caretAtStart = $isCaretAtParaStart(para);
   para.splice(0, 0, $createMarkerPrefix(para.getMarker()));
-  // Keep the caret on the content side of the injected prefix.
-  const third = para.getChildAtIndex(2);
-  if (third && $isTextNode(third)) third.select(0, 0);
-  else para.selectEnd();
+  if (caretAtStart) $selectParaContentStart(para);
+}
+
+/**
+ * Retags a PREFIX-LESS paragraph: sets its marker AND injects the matching visible
+ * `[glyph, separator]` prefix (editable marker mode) as one step. The two must land in the same
+ * update — a paragraph whose marker state and visible prefix disagree hits
+ * `$paraMarkerDeletionTransform`'s no-prefix branches (merge into the previous paragraph, or
+ * reset to `\p`) on the next transform pass. Callers own the "no prefix present" precondition
+ * (freshly split paragraph, or its prefix was just deleted); a paragraph that still has its
+ * prefix wants an in-place glyph rewrite instead (see `$retagParagraph`,
+ * `../markerMenu/markerMenuApply.utils.ts`), since injecting again would double the prefix.
+ *
+ * Always parks the caret on the content side of the new prefix: retagging is a deliberate
+ * "make THIS paragraph a `\q1`" act (palette apply, reset-to-`\p`), so the user's next
+ * keystroke belongs in that paragraph's content wherever the caret sat before — unlike
+ * `$injectMarkerPrefix` alone, whose caret handling is conditional because a paste can inject
+ * several paragraphs' prefixes far away from the caret.
+ */
+export function $setParaMarkerWithPrefix(para: ParaNode, marker: string): void {
+  para.setMarker(marker);
+  $injectMarkerPrefix(para);
+  $selectParaContentStart(para);
+}
+
+/**
+ * Re-asserts the marker-trailing NBSP separator between an intact paragraph prefix glyph and the
+ * content. The separator is presentation scaffolding OWNED by the engine, so any edit that eats
+ * it (a forward-delete at the glyph's end, a selection that swallowed it, …) heals on the next
+ * transform pass instead of leaving a separator-less prefix — which broke the `[glyph, separator,
+ * content]` layout every caret/retag computation assumes (live-observed: retag caret jumping to
+ * the paragraph end, "the space after the marker keeps disappearing"). A user-typed plain
+ * space/NBSP right after the glyph is intent for the same separator and is canonicalized in
+ * place rather than doubled.
+ */
+function $healMarkerTrailingSeparator(para: ParaNode): void {
+  const glyph = para.getFirstChild();
+  if (!glyph) return;
+  const second = glyph.getNextSibling();
+  if (
+    $isTextNode(second) &&
+    !$isMarkerNode(second) &&
+    $getState(second, textTypeState) === "marker-trailing-space"
+  )
+    return; // canonical separator present
+  if (
+    $isTextNode(second) &&
+    !$isMarkerNode(second) &&
+    /^[ \u00A0]$/.test(second.getTextContent())
+  ) {
+    // Canonicalize the user's typed space into the separator instead of inserting a second one.
+    second.setTextContent(NBSP);
+    $setState(second, textTypeState, "marker-trailing-space");
+    second.setMode("token");
+    return;
+  }
+  const spaceNode = $createTextNode(NBSP);
+  $setState(spaceNode, textTypeState, "marker-trailing-space");
+  spaceNode.setMode("token");
+  glyph.insertAfter(spaceNode);
 }
 
 export function $paraMarkerDeletionTransform(para: ParaNode, context: MarkerEditContext): void {
-  if (para.isEmpty()) return; // transient mid-edit state (same rationale as the guard)
-  if ($isParaMarkerPrefix(para.getFirstChild())) return;
+  // Branch order is load-bearing. Heal-first is the termination anchor: injecting a prefix
+  // (below) re-dirties the paragraph and re-enters this transform, and that re-entry must land
+  // here and stop — with the injection branch checked first, every re-entry re-injected and the
+  // transform looped endlessly.
+  if ($isParaMarkerPrefix(para.getFirstChild())) {
+    $healMarkerTrailingSeparator(para);
+    return;
+  }
 
   if (context.splitExpected.current) {
-    // Fresh paragraph from Enter: insertNewAfter cloned the marker; make it visible.
+    // Fresh paragraph from an expected split (Enter, or a multi-line paste — both arm the
+    // flag): insertNewAfter cloned the marker; make it visible. This runs
+    // ahead of the isEmpty guard because an Enter split at a paragraph's content edge leaves a
+    // DURABLY empty paragraph (the clone at the end, or the emptied original at the start) that
+    // the user is about to type into. Skipping it as transient left it prefix-less, so the first
+    // typed character made it non-empty without a prefix — read below as "marker deleted" and
+    // merged straight back into the previous paragraph. The flag is deliberately NOT consumed
+    // here: this transform is its only reader, both halves of a split can pass through in the
+    // same commit, and the update listener resets it after every commit anyway.
     $injectMarkerPrefix(para);
     context.logger?.debug(`[MarkerEdit] injected prefix for split para "${para.getMarker()}"`);
     return;
   }
 
+  // Transient mid-edit emptiness (a select-all-delete, a rebuild emptying a paragraph before
+  // refilling it): not a marker deletion, so leave it for the pass that repopulates it.
+  if (para.isEmpty()) return;
+
   const previous = para.getPreviousSibling();
   if ($isParaNode(previous)) {
-    // §5.5: deleting a para's marker text merges its content into the previous para.
+    // Deleting a para's marker text merges its content into the previous para.
     const children = para.getChildren().filter((child) => {
       if ($isTextNode(child) && $getState(child, textTypeState) === "marker-trailing-space")
         return false; // drop the orphaned separator
@@ -61,35 +191,119 @@ export function $paraMarkerDeletionTransform(para: ParaNode, context: MarkerEdit
   }
 
   // No previous paragraph to merge into: fall back to the default marker, visibly.
-  para.setMarker(PARA_MARKER_DEFAULT);
-  $injectMarkerPrefix(para);
+  $setParaMarkerWithPrefix(para, PARA_MARKER_DEFAULT);
 }
 
-/** `|name="value" …` literal suffix for a span's unknown attributes (PT9 keeps these
- * as bytes when the span is unwrapped), or `undefined` when there are none. */
+/** The canonical `|…` attribute bytes for a span whose glyphs are being dropped (PT9 keeps these
+ * as literal bytes when the span is unwrapped), or `undefined` when there are none. Routed through
+ * {@link canonicalAttributeText} — the one PT9 serializer — so the reconstructed bytes are
+ * byte-identical to the span's own display run (a lone default attribute collapses to `|value`,
+ * everything else is `|name="value" …`) rather than a second, divergent rendering. `closed` is
+ * excluded there: it is derived USJ metadata (ParatextData emits `closed="false"` on char spans
+ * with no explicit closing marker — extremely common on footnote-content chars like `\fr`/`\ft`),
+ * not user bytes, and paranext-core's USFM writer likewise never emits it as an attribute. */
 function unknownAttributesText(char: CharNode): string | undefined {
   const attributes = char.getUnknownAttributes();
   if (!attributes) return undefined;
-  const pairs = Object.entries(attributes)
-    .filter(([, value]) => value !== undefined)
-    .map(([name, value]) => `${name}="${value}"`);
-  return pairs.length > 0 ? NODE_ATTRIBUTE_PREFIX + pairs.join(" ") : undefined;
+  const text = canonicalAttributeText(attributes, defaultMarkerAttribute(char.getMarker()));
+  return text === "" ? undefined : text;
 }
 
 /** Move a char span's content out and drop the span (opener deleted / Ctrl+Space). */
 export function $unwrapCharNode(char: CharNode): void {
-  const children = char.getChildren().filter((child) => !$isMarkerNode(child));
+  // Drop the display run (textType "attribute") alongside the marker glyphs: it is a derived
+  // cache of the span's attribute state, not content. Keeping it would leave its bytes in the
+  // paragraph AND have the reconstruction below re-emit the same bytes — duplicating the
+  // attribute text on every opener-deletion unwrap.
+  const children = char
+    .getChildren()
+    .filter((child) => !$isMarkerNode(child) && $getState(child, textTypeState) !== "attribute");
   const first = children[0];
   if (first && $isTextNode(first) && first.getTextContent().startsWith(NBSP))
     first.setTextContent(first.getTextContent().slice(1)); // structural NBSP prefix
-  // PT9 leaves an unknown-attribute span's attributes as literal bytes on unwrap.
-  // The char node is about to be dropped, so reconstruct the `|name="value"` suffix
-  // as plain text after the content (where the closer glyph used to be) so the bytes
-  // survive serialization.
+  // PT9 leaves an unknown-attribute span's attributes as literal bytes on unwrap. The char node
+  // is about to be dropped, so reconstruct the canonical `|…` suffix as plain text after the
+  // content (where the closer glyph used to be) so the bytes survive serialization.
   const attributesText = unknownAttributesText(char);
   if (attributesText) children.push($createTextNode(attributesText));
   children.forEach((child) => char.insertBefore(child));
   char.remove();
+}
+
+/**
+ * A note is an atomic object in the text —
+ * PT9 deletes the whole footnote when any part of it is deleted. In editable marker mode a
+ * collapsed note carries its `\f`/`\f*` glyphs as its first/last children; Backspace right
+ * after the note deletes the closing glyph (and forward-Delete before it deletes the opener).
+ * Without this transform the damaged note then spilled its internals into the paragraph as
+ * literal glyph text (`\fr 8.4 \ft \f*` — live-verified data corruption), which the
+ * re-tokenizer would settle into phantom markers. A glyph pair that is damaged on one side
+ * only means the user deleted "half the pair": remove the whole note, PT9-style. Notes with
+ * NO glyphs at all (shapes built by non-editable creation paths) are left alone.
+ *
+ * EXPANDED notes (inline-editable zone) get the same PT9 outcome for their only deletable
+ * marker handle: deleting the opening glyph removes the whole note. Damage is detected by the
+ * missing OPENER only — an UNCLOSED note (its normal shape after typing a bare `\f `)
+ * legitimately has no closing glyph, so a collapsed-style opener-XOR-closer rule would wrongly
+ * delete every intact unclosed note. The editable-built shape is recognized by its caller text
+ * (`getEditableCallerText`); without that anchor (caller-less or non-editable-built shapes)
+ * the note is left alone. Without this, the glyph-deleted NoteNode survived and serialization
+ * regenerated `\f caller` forever while the orphaned caller spilled into the paragraph
+ * (live-observed `tell,~tell,~…` accumulation).
+ */
+export function $noteDeletionTransform(note: NoteNode, context: MarkerEditContext): void {
+  // Detect glyphs by PRESENCE among the direct children, not by first/last POSITION: a
+  // stray leading TextNode (the user typed at the note's start — the transient NoteNodePlugin's
+  // `$noteNodeTransform` salvages by moving that text out) leaves the opener glyph intact but no
+  // longer first. A first/last check would read that as "opener deleted" and remove the whole
+  // note before the salvage runs (MarkerEditPlugin's NoteNode transform is registered first, and
+  // Lexical breaks the transform loop once `note.remove()` detaches the node) — destroying the
+  // footnote's `\fr`/`\ft` content on a single keystroke.
+  const children = note.getChildren();
+  const hasOpener = children.some((c) => $isMarkerNode(c) && c.getMarkerSyntax() === "opening");
+
+  if (note.getIsCollapsed() !== true) {
+    if (hasOpener) return; // intact — unclosed expanded notes have no closer by construction
+    // Recognize an editable-built note by ANY marker-glyph evidence: the editable caller text,
+    // a closing glyph, or a MarkerNode anywhere in the subtree (content char spans carry their
+    // own glyphs). A single evidence anchor (caller only) is not enough: a RANGE deletion
+    // across `\f caller` removes the opener AND the caller in one edit. Notes with no glyph
+    // evidence at all (shapes built by non-editable creation paths) are left alone, as for
+    // collapsed.
+    const caller = note.getCaller();
+    const hasEditableCaller =
+      caller !== "" &&
+      children.some(
+        (c) =>
+          $isTextNode(c) &&
+          !$isMarkerNode(c) &&
+          c.getTextContent() === getEditableCallerText(caller),
+      );
+    const hasAnyMarkerGlyph = $dfs(note).some(({ node: n }) => $isMarkerNode(n));
+    if (!hasEditableCaller && !hasAnyMarkerGlyph) return; // glyph-less shape — not ours
+    // UNWRAP, don't delete: an expanded note's content is visible inline (an unclosed note may
+    // have absorbed the rest of the verse), so deleting the `\f` marker deletes ONLY the marker.
+    // The note node dissolves: the editable caller returns to plain text (its structural NBSP
+    // becomes a plain space so it can't leak into USJ as `~`), remaining glyphs go with the
+    // note, and the content stays in the paragraph. Contrast: a COLLAPSED note is an atomic
+    // object — glyph damage removes the whole note (below).
+    children.forEach((child) => {
+      if ($isMarkerNode(child)) return; // closing glyph (if any) dissolves with the note
+      if ($isTextNode(child) && child.getTextContent() === getEditableCallerText(caller))
+        child.setTextContent(` ${caller} `);
+      note.insertBefore(child);
+    });
+    note.remove();
+    context.logger?.debug(
+      `[MarkerEdit] unwrapped expanded note whose opening glyph was deleted (content preserved)`,
+    );
+    return;
+  }
+
+  const hasCloser = children.some((c) => $isMarkerNode(c) && c.getMarkerSyntax() === "closing");
+  if (hasOpener === hasCloser) return; // intact pair, both-gone, or a glyph-less shape — not ours
+  note.remove();
+  context.logger?.debug(`[MarkerEdit] removed collapsed note with damaged glyph pair`);
 }
 
 export function $charNodeDeletionTransform(char: CharNode, context: MarkerEditContext): void {
@@ -97,18 +311,21 @@ export function $charNodeDeletionTransform(char: CharNode, context: MarkerEditCo
   const first = char.getFirstChild();
   const hasOpener = $isMarkerNode(first) && first.getMarkerSyntax() === "opening";
   if (!hasOpener) {
-    $unwrapCharNode(char); // §5.5: opener deleted -> unwrap the span
+    $unwrapCharNode(char); // opener deleted -> unwrap the span
     context.logger?.debug(`[MarkerEdit] unwrapped char span "${char.getMarker()}"`);
     return;
   }
-  const needsCloser =
-    !CharNode.isValidFootnoteMarker(char.getMarker()) &&
-    !CharNode.isValidCrossReferenceMarker(char.getMarker());
+  // A span "needs" a closer iff it is not marked closed="false": that flag (which ParatextData
+  // emits on every genuinely-unclosed span, footnote/cross-ref content included) means the missing
+  // closer is the span's normal shape, not deletion damage. Closer-ness keys on this actual state,
+  // never on the marker family — an explicitly-closed \xt DOES need its closer, so deleting it must
+  // still re-route through Tier 2.
+  const needsCloser = char.getUnknownAttributes()?.closed !== "false";
   const hasCloser = char
     .getChildren()
     .some((child) => $isMarkerNode(child) && child.getMarkerSyntax() === "closing");
   if (needsCloser && !hasCloser) {
-    // §5.5: closer deletion goes through Tier 2 (tokenizer decides the span extent).
+    // Closer deletion goes through Tier 2 (tokenizer decides the span extent).
     $requestTier2ForNode(char, context);
   }
 }

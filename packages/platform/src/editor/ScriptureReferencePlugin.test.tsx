@@ -80,6 +80,8 @@ let sectionTextNode: TextNode;
 let firstVerseTextNode: TextNode;
 let secondVerseTextNode: TextNode;
 let thirdVerseTextNode: TextNode;
+let chapter1Verse2Text: TextNode;
+let chapter2Verse2Text: TextNode;
 
 beforeAll(() => {
   // jsdom's Range lacks getBoundingClientRect; Lexical's post-commit scroll-into-view calls it
@@ -256,6 +258,64 @@ describe("ScriptureReferencePlugin", () => {
       expect(mockOnScrRefChange).toHaveBeenCalled();
     });
 
+    it("should not eject a caret already in the target single verse (non-echo)", async () => {
+      // The live typed-attribute repro: the caret sits mid-content in verse 2 while the user
+      // types; the scrRef echo of that same edit returns targeting verse 2, but arrives too late
+      // to be recognized as an echo (no report was queued here, so it reaches the placement path
+      // directly). Moving the caret to the verse start would eject it out of a freshly typed
+      // marker span, so the trailing bytes land outside the span and never re-tokenize. Already
+      // being in the target verse means "already here" — leave the caret untouched.
+      const { editor, setScrRef } = await testEnvironment(scrRef, mockOnScrRefChange);
+      updateSelection(editor, secondVerseTextNode, 2);
+
+      await setScrRef({ ...scrRef, verseNum: 2 });
+
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(secondVerseTextNode, 2);
+      });
+      expect(mockOnScrRefChange).not.toHaveBeenCalled();
+    });
+
+    it("moves the caret across chapters to the same verse number (chapter-aware no-eject)", async () => {
+      // The no-eject guard must check the CHAPTER, not just the verse number. In a multi-chapter
+      // document, navigating chapter 1 verse 2 -> chapter 2 verse 2 keeps the verse NUMBER but is a
+      // genuine cross-chapter move: a chapter-blind "already in verse 2" guard would wrongly no-op
+      // and strand the caret in chapter 1.
+      const { editor, setScrRef } = await testEnvironment(
+        { book: "GEN", chapterNum: 1, verseNum: 1 },
+        mockOnScrRefChange,
+        $twoChapterState,
+      );
+      updateSelection(editor, chapter1Verse2Text, 2); // caret in chapter 1, verse 2
+
+      await setScrRef({ book: "GEN", chapterNum: 2, verseNum: 2 });
+
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(chapter2Verse2Text, 0); // moved to chapter 2, verse 2 start
+      });
+      expect(mockOnScrRefChange).not.toHaveBeenCalled();
+    });
+
+    it("does not reset the caret when navigating to the SAME chapter and verse (deliberate no-op)", async () => {
+      // The counterpart UX decision (Minor 6): navigating to the verse the caret is already in —
+      // SAME chapter AND verse — must NOT snap the caret to the verse start. Clicking the current
+      // verse leaves a mid-content caret where it is; only a genuine cross-verse or cross-chapter
+      // move repositions it.
+      const { editor, setScrRef } = await testEnvironment(
+        { book: "GEN", chapterNum: 1, verseNum: 1 },
+        mockOnScrRefChange,
+        $twoChapterState,
+      );
+      updateSelection(editor, chapter2Verse2Text, 5); // caret mid-content in chapter 2, verse 2
+
+      await setScrRef({ book: "GEN", chapterNum: 2, verseNum: 2 });
+
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(chapter2Verse2Text, 5); // stayed put — not reset to verse start
+      });
+      expect(mockOnScrRefChange).not.toHaveBeenCalled();
+    });
+
     it("should move the cursor into the start of range", async () => {
       const { editor, setScrRef } = await testEnvironment(scrRef, mockOnScrRefChange);
       updateSelection(editor, firstVerseTextNode, 2);
@@ -292,13 +352,13 @@ describe("ScriptureReferencePlugin", () => {
       expect(mockOnScrRefChange).not.toHaveBeenCalled();
     });
 
-    // Task 15 cluster A residual: the host echoes back refs this editor itself reported, but the
-    // round trip is slow (~100-900ms), and the old single-boolean suppression
-    // (`hasSelectionChangedRef`) was OVERWRITTEN by every SELECTION_CHANGE in between — a keystroke
-    // that recomputes the same verse as the (not-yet-echoed) prop clobbered the pending `true` back
-    // to `false`, so the late echo then yanked the caret to the verse/para start mid-typing (QA
-    // items 1-4: caret ejected to the `\s1` glyph ~190ms after typing `\`). The suppression must
-    // key on the VALUES this editor emitted, not on a clobber-prone boolean.
+    // The host echoes back refs this editor itself reported, but the round trip is slow
+    // (~100-900ms), and the old single-boolean suppression (`hasSelectionChangedRef`) was
+    // OVERWRITTEN by every SELECTION_CHANGE in between — a keystroke that recomputes the same verse
+    // as the (not-yet-echoed) prop clobbered the pending `true` back to `false`, so the late echo
+    // then yanked the caret to the verse/para start mid-typing (observed as the caret ejecting to
+    // the `\s1` glyph ~190ms after typing `\`). The suppression must key on the VALUES this editor
+    // emitted, not on a clobber-prone boolean.
     it("does not yank the caret when a late self-echo arrives after an intervening selection change", async () => {
       const { editor, setScrRef } = await testEnvironment(scrRef, mockOnScrRefChange);
       // Consume the initial move-to-verse-start flag so dispatches below run the BCV logic.
@@ -931,11 +991,11 @@ describe("ScriptureReferencePlugin", () => {
   });
 });
 
-// Task 15 cluster A/C (runtime falsification #2): live tag-tracing showed the caret yank fires from
-// the BookNode "created" mutation listener, not (only) the incoming-scrRef effect — a whole-state
-// external replace (LoadStatePlugin applying the PDP echo of this editor's own edit ~150-250ms
-// after a keystroke) recreates every node, so "created" fires on EVERY echo and repositioned the
-// caret to the verse start mid-typing (and dragged DOM focus out of the footnote popover).
+// The caret yank fires from the BookNode "created" mutation listener, not (only) the
+// incoming-scrRef effect — a whole-state external replace (LoadStatePlugin applying the PDP echo
+// of this editor's own edit ~150-250ms after a keystroke) recreates every node, so "created" fires
+// on EVERY echo and repositioned the caret to the verse start mid-typing (and dragged DOM focus out
+// of the footnote popover).
 // Positioning belongs to genuine document changes only: initial load (sanity test above) and
 // book/chapter navigation (control below) — not a same-book+chapter reload.
 describe("BookNode-created cursor positioning vs same-document reloads", () => {
@@ -987,10 +1047,10 @@ describe("BookNode-created cursor positioning vs same-document reloads", () => {
     editor.getEditorState().read(() => {
       const selection = $getSelection();
       expect(selection).not.toBeNull();
-      if (selection && $isRangeSelection(selection)) {
-        expect(selection.anchor.getNode().getTextContent()).toBe("chapter two verse ");
-        expect(selection.anchor.offset).toBe(0);
-      }
+      expect($isRangeSelection(selection)).toBe(true);
+      if (!$isRangeSelection(selection)) throw new Error("expected a range selection");
+      expect(selection.anchor.getNode().getTextContent()).toBe("chapter two verse ");
+      expect(selection.anchor.offset).toBe(0);
     });
   });
 });
@@ -1023,6 +1083,28 @@ function $appendScrRefPluginFixture(bookCode: BookCode | "") {
       $createImmutableVerseNode("3-4"),
       $createTextNode("third verse text "),
     ),
+  );
+}
+
+/** A GEN document holding TWO chapters, each with a verse numbered "2" — so a chapter N verse 2 ->
+ * chapter M verse 2 navigation exercises the chapter dimension of the no-eject guard. */
+function $twoChapterState() {
+  chapter1Verse2Text = $createTextNode("chapter one verse two ");
+  chapter2Verse2Text = $createTextNode("chapter two verse two ");
+  $getRoot().append(
+    $createBookNode("GEN").append($createTextNode("Test Book")),
+    $createImmutableChapterNode("1"),
+    $createParaNode().append(
+      $createImmutableVerseNode("1"),
+      $createTextNode("chapter one verse one "),
+    ),
+    $createParaNode().append($createImmutableVerseNode("2"), chapter1Verse2Text),
+    $createImmutableChapterNode("2"),
+    $createParaNode().append(
+      $createImmutableVerseNode("1"),
+      $createTextNode("chapter two verse one "),
+    ),
+    $createParaNode().append($createImmutableVerseNode("2"), chapter2Verse2Text),
   );
 }
 

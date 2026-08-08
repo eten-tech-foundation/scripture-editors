@@ -91,17 +91,15 @@ const KNOWN_RESOLUTION_GAPS = new Set<string>([
   "editable:closingMarker at $.content[140] offset 4",
   "editable:closingMarker at $.content[140] offset 5",
   "editable:marker at $.content[6].content[0]",
-  "editable:marker at $.content[85].content[1]",
-  "editable:marker at $.content[140]",
-  "editable:marker at $.content[142]",
+  // marker/propertyValue at $.content[140] (opaque sidebar's nested \p markers) and
+  // $.content[85].content[1], $.content[142] resolve now: fixture regen (2026-08-05) added the
+  // opaque-block marker+attribute+closing display run (createUnknown in usj-editor.adaptor.ts),
+  // and fixed a $shouldIgnoreNodeForContentIndexes gap where its folded "attribute"-typed
+  // ImmutableTypedTextNode wasn't excluded from logical content indexing (node.utils.ts).
   "editable:propertyValue at $.content[6].content[0]['marker'] offset 0",
   "editable:propertyValue at $.content[6].content[0]['marker'] offset 1",
   "editable:propertyValue at $.content[6].content[0]['number'] offset 0",
   "editable:propertyValue at $.content[6].content[0]['number'] offset 1",
-  "editable:propertyValue at $.content[140]['marker'] offset 0",
-  "editable:propertyValue at $.content[140]['marker'] offset 1",
-  "editable:propertyValue at $.content[140]['marker'] offset 2",
-  "editable:propertyValue at $.content[140]['marker'] offset 3",
   // ── visible (25) ──
   "visible:closingMarker at $.content[140] offset 0",
   "visible:closingMarker at $.content[140] offset 1",
@@ -268,9 +266,6 @@ const KNOWN_ROUND_TRIP_GAPS = new Set<string>([
   // ── editable: marker ──
   "editable:marker at $.content[4]",
   "editable:marker at $.content[6].content[0]",
-  "editable:marker at $.content[85].content[1]",
-  "editable:marker at $.content[140]",
-  "editable:marker at $.content[142]",
   // ── editable: propertyValue at $.content[0]['code'] ──
   "editable:propertyValue at $.content[0]['code'] offset 0",
   "editable:propertyValue at $.content[0]['code'] offset 1",

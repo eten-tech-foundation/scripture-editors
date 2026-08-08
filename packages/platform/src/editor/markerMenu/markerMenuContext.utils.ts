@@ -1,5 +1,5 @@
 /**
- * §5.5 marker-menu context — builds a `MarkerMenuContext` (Task 1) snapshot from the live
+ * Marker-menu context — builds a `MarkerMenuContext` snapshot from the live
  * Lexical selection. Port of PT9's `MarkerDropdownEditHandler.HandleBackslash` selection-shape
  * rule (`MarkerDropdownEditHandler.cs:96-139`): a non-collapsed selection is always character
  * source (`:130-137`); a collapsed caret is paragraph source only at the paragraph's content
@@ -8,7 +8,7 @@
  * Called from `EditorRef.getMarkerMenuContext` (`Editor.tsx`) via
  * `editorRef.current?.getEditorState().read(...)` rather than `editor.read(...)` - the latter
  * force-flushes any in-flight update mid-dispatch, the hazard class fixed for
- * `OnSelectionChangePlugin` (Task 7).
+ * `OnSelectionChangePlugin`.
  */
 import { MarkerMenuContext } from "./markerItemSource";
 import {
@@ -25,10 +25,10 @@ import {
   $findFirstAncestorNoteNode,
   $isBookNode,
   $isCharNode,
-  $isChapterNode,
   $isMarkerNode,
   $isParaMarkerPrefix,
   $isParaNode,
+  $isSomeChapterNode,
   ParaNode,
   textTypeState,
 } from "shared";
@@ -72,16 +72,18 @@ function $collectOpenCharMarkers(node: LexicalNode): string[] {
 
 /**
  * Root's block-level children before the top-level element containing `node`, in document
- * order: `ParaNode`/`ChapterNode`/`BookNode` markers (the stack replay in
+ * order: `ParaNode`/chapter/`BookNode` markers (the stack replay in
  * `markerItemSource.ts` filters to styleType-paragraph entries itself - `c`/`id` ARE
- * paragraph-typed in the sheet).
+ * paragraph-typed in the sheet). Chapters match via `$isSomeChapterNode` — the same
+ * predicate the validation walk uses — so a decorator `ImmutableChapterNode` contributes
+ * its `\c` just like the mutable variant.
  */
 function $collectPreviousParaMarkers(node: LexicalNode): string[] {
   const topLevel = node.getTopLevelElement();
   const markers: string[] = [];
   for (const child of $getRoot().getChildren()) {
     if (topLevel && child.is(topLevel)) break;
-    if ($isBookNode(child) || $isChapterNode(child) || $isParaNode(child)) {
+    if ($isBookNode(child) || $isSomeChapterNode(child) || $isParaNode(child)) {
       markers.push(child.getMarker());
     }
   }

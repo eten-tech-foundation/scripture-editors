@@ -12,30 +12,41 @@ import {
   $getRoot,
   $isElementNode,
   $isTextNode,
+  $setState,
   ElementNode,
   LexicalNode,
   TextNode,
 } from "lexical";
 import {
+  $createAttributeRunNode,
   $createCharNode,
   $createMarkerNode,
   $createParaNode,
   $createVerseNode,
+  $isAttributeRunNode,
   $isCharNode,
   $isNoteNode,
+  AttributeRunNode,
   CharNode,
   createMarkerLookup,
   getVisibleOpenMarkerText,
   MarkerNode,
+  MilestoneNode,
   NBSP,
   NoteNode,
   StyleInfo,
+  textTypeState,
   VerseNode,
 } from "shared";
 // Reaching inside only for tests.
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import { baseTestEnvironment } from "../../../../../libs/shared-react/src/plugins/usj/react-test.utils";
-import { getViewOptions, STANDARD_VIEW_MODE } from "shared-react";
+import {
+  CharNodePlugin,
+  getViewOptions,
+  STANDARD_VIEW_MODE,
+  TextSpacingPlugin,
+} from "shared-react";
 
 /** Narrow away `T | undefined` without a banned non-null assertion. */
 export function requireDefined<T>(value: T | undefined, message: string): T {
@@ -49,6 +60,9 @@ export const viewOptions = requireDefined(
   "Standard view options are required for these tests.",
 );
 
+/** Standard view but with expanded notes — the editable+expanded survivability combination. */
+export const expandedViewOptions = { ...viewOptions, noteMode: "expanded" as const };
+
 /** Mounts a headless editor with `MarkerEditPlugin` active in Standard view (markerMode "editable"). */
 export async function testEnvironment($initialEditorState: () => void) {
   initializeSerialize(undefined, undefined);
@@ -56,6 +70,73 @@ export async function testEnvironment($initialEditorState: () => void) {
   return baseTestEnvironment(
     $initialEditorState,
     <MarkerEditPlugin viewOptions={getViewOptions(STANDARD_VIEW_MODE)} />,
+  );
+}
+
+/**
+ * Like `testEnvironment`, but also mounts `TextSpacingPlugin` — the shared-react home of the
+ * self-healing `\va`/`\vp` display-run sync. Needed for verse attribute-run tests where the sync
+ * (which would re-derive a just-deleted run from the still-set altnumber/pubnumber) and the
+ * marker-edit engine's pend/settle must interact, matching the real app's plugin stack.
+ */
+export async function testEnvironmentWithSpacing($initialEditorState: () => void) {
+  initializeSerialize(undefined, undefined);
+  reset();
+  return baseTestEnvironment(
+    $initialEditorState,
+    <>
+      <MarkerEditPlugin viewOptions={getViewOptions(STANDARD_VIEW_MODE)} />
+      <TextSpacingPlugin />
+    </>,
+  );
+}
+
+/**
+ * Like `testEnvironment`, but also mounts `CharNodePlugin` — the shared-react home of the
+ * self-healing char attribute-run sync — for tests where the sync and the engine's pend/settle
+ * must interact, matching the real app's plugin stack.
+ *
+ * `pluginOrder` picks which of the two plugins mounts first. They are registered by independently
+ * ordered host components — Lexical runs a node's transforms in registration order, so whichever
+ * plugin's `CharNode` transform registers first is the one that runs first whenever a char span is
+ * dirtied — so a fix that only works under ONE order is not actually fixed for hosts using the
+ * other. `"app"` (the default) matches `Editor.tsx`'s real mount order (`CharNodePlugin` before
+ * `MarkerEditPlugin`); `"engine-first"` is the inverse, kept as an explicit regression check so a
+ * future change that reintroduces an order dependency fails loudly under at least one of the two.
+ */
+export async function testEnvironmentWithCharSync(
+  $initialEditorState: () => void,
+  pluginOrder: "app" | "engine-first" = "app",
+) {
+  initializeSerialize(undefined, undefined);
+  reset();
+  return baseTestEnvironment(
+    $initialEditorState,
+    pluginOrder === "app" ? (
+      <>
+        <CharNodePlugin />
+        <MarkerEditPlugin viewOptions={getViewOptions(STANDARD_VIEW_MODE)} />
+      </>
+    ) : (
+      <>
+        <MarkerEditPlugin viewOptions={getViewOptions(STANDARD_VIEW_MODE)} />
+        <CharNodePlugin />
+      </>
+    ),
+  );
+}
+
+/**
+ * Like `testEnvironment`, but in Standard view with EXPANDED notes (`markerMode: "editable"`,
+ * `noteMode: "expanded"`) — the combination that used to make `getViewMode` return undefined and
+ * silently disable the standard-view whitespace machinery.
+ */
+export async function testEnvironmentExpanded($initialEditorState: () => void) {
+  initializeSerialize(undefined, undefined);
+  reset();
+  return baseTestEnvironment(
+    $initialEditorState,
+    <MarkerEditPlugin viewOptions={expandedViewOptions} />,
   );
 }
 
@@ -123,10 +204,69 @@ export function $appendVersePara(): { verse: VerseNode } {
 }
 
 /**
- * USX for a paragraph with an inline note. `closed` controls whether the note renders
- * expanded inline (Task 1: `closed="false"` → PT9 `opennote`) or collapsed.
+ * Append a WRAPPED `\va`/`\vp` display run to `verse` — the shape usj-editor.adaptor's
+ * `addVerseAttributeRun` builds post-flip: one `AttributeRunNode` (runKind `marker`) holding the
+ * opening glyph, the NBSP-prefixed value TextNode (textType "attribute"), and the closing glyph.
+ * Inserted after `verse`'s LAST existing run wrapper (so a `va` call followed by a `vp` call chains
+ * correctly), or directly after `verse` itself when none exists yet.
  */
-export function noteUsx(noteAttrs: string, noteContent = `<char style="ft">A note</char>`) {
+export function $appendVerseAttributeRun(
+  verse: VerseNode,
+  marker: "va" | "vp",
+  value: string,
+): AttributeRunNode {
+  const wrapper = $createAttributeRunNode(marker);
+  const valueNode = $createTextNode(`${NBSP}${value}`);
+  $setState(valueNode, textTypeState, "attribute");
+  wrapper.append(
+    $createMarkerNode(marker, "opening"),
+    valueNode,
+    $createMarkerNode(marker, "closing"),
+  );
+  let anchor: LexicalNode = verse;
+  let next = anchor.getNextSibling();
+  while ($isAttributeRunNode(next)) {
+    anchor = next;
+    next = anchor.getNextSibling();
+  }
+  anchor.insertAfter(wrapper);
+  return wrapper;
+}
+
+/**
+ * Append a WRAPPED display run to `milestone` — the shape usj-editor.adaptor's
+ * `addMilestoneAttributeRun` builds post-flip: one `AttributeRunNode` (runKind "milestone") holding
+ * the opening glyph, an optional attribute TextNode (textType "attribute"), and the self-closing
+ * glyph. `attributeText` is the FULL canonical bytes (NBSP-prefixed, e.g. `${NBSP}|sid="q1"`) —
+ * the same shape `$milestoneAttributeDisplayText` (markerEditTier1.utils.ts) returns — or `""` for
+ * a glyph pair with no attribute text between them.
+ */
+export function $appendMilestoneRun(
+  milestone: MilestoneNode,
+  attributeText: string,
+): AttributeRunNode {
+  const wrapper = $createAttributeRunNode("milestone");
+  wrapper.append($createMarkerNode(milestone.getMarker(), "opening"));
+  if (attributeText) {
+    const valueNode = $createTextNode(attributeText);
+    $setState(valueNode, textTypeState, "attribute");
+    wrapper.append(valueNode);
+  }
+  wrapper.append($createMarkerNode("", "selfClosing"));
+  milestone.insertAfter(wrapper);
+  return wrapper;
+}
+
+/**
+ * USX for a paragraph with an inline note. `closed` controls whether the note renders
+ * expanded inline (`closed="false"` → PT9 `opennote`) or collapsed.
+ */
+// Footnote-content chars carry closed="false" in real ParatextData USJ (they never have their
+// own closing markers) — fixtures mirror that so Tier-2 re-tokenization is a true fixed point.
+export function noteUsx(
+  noteAttrs: string,
+  noteContent = `<char style="ft" closed="false">A note</char>`,
+) {
   return usxStringToUsj(
     `<usx version="3.0"><book code="RUT" style="id">T</book><chapter number="1" style="c" />` +
       `<para style="p"><verse number="1" style="v" />text` +

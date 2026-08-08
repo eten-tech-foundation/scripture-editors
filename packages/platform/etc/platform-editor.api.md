@@ -88,7 +88,7 @@ export interface ContextMenuOptionConfig {
     title: string;
 }
 
-// @public (undocumented)
+// @public
 export const defaultStyleInfo: StyleInfo;
 
 // @public
@@ -147,8 +147,9 @@ export interface EditorRef {
     applyMarkerMenuSelection(item: MarkerMenuItem, opts: {
         trigger: "backslash" | "enter";
         literalPrefixLanded: boolean;
-    }): void;
+    }): string | undefined;
     applyUpdate(ops: DeltaOp[], source?: DeltaSource): void;
+    commitPendingMarkerEdits(): void;
     copy(): void;
     cut(): void;
     focus(): void;
@@ -168,6 +169,7 @@ export interface EditorRef {
     insertMarker(marker: string): string | undefined;
     // @deprecated
     insertNote(marker: string, caller?: string, selection?: SelectionRange): void;
+    isFocused(): boolean;
     paste(): void;
     pastePlainText(): void;
     redo(): void;

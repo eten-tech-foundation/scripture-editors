@@ -16,14 +16,15 @@ export function OnSelectionChangePlugin({
       editor.registerCommand(
         SELECTION_CHANGE_COMMAND,
         () => {
-          // `editor.read()` force-flushes any in-flight `editor.update()` mid-dispatch
-          // (`$commitPendingUpdates` runs unconditionally), which is reachable when this handler
-          // is invoked from a nested `dispatchCommand(SELECTION_CHANGE_COMMAND, ...)` call inside
-          // another plugin's update — the enabler of the Task 9 frozen-commit crash class (see
-          // OnSelectionChangePlugin.test.tsx). Reading the last COMMITTED state instead never
-          // triggers a commit, so it's safe to call from any context; it just means a selection
-          // change that is still mid-update-in-flight is reported on the next commit instead.
-          const usjSelection = editor.getEditorState().read($getUsjSelectionFromEditor);
+          // Called as a bare `$` function, NOT via `editor.read()` or a committed-state read:
+          // command listeners always run inside the active update, so `$getSelection()` sees the
+          // CURRENT (pending) selection. `editor.read()` here would force-flush an in-flight
+          // `editor.update()` mid-dispatch (`$commitPendingUpdates` runs unconditionally) — the
+          // enabler of the frozen-commit crash class (see OnSelectionChangePlugin.test.tsx) —
+          // while reading the last committed state instead would report every ordinary selection
+          // change one interaction late, because Lexical dispatches SELECTION_CHANGE from inside
+          // a not-yet-committed update on the normal DOM path too.
+          const usjSelection = $getUsjSelectionFromEditor();
           onChange?.(usjSelection);
           return false;
         },

@@ -20,6 +20,22 @@ export type SerializedMarkerNode = Spread<
   {
     marker: string;
     markerSyntax?: MarkerSyntax;
+    /**
+     * Whether this glyph belongs to a char span nested inside another char span. A nested span's
+     * glyph text carries the `+` prefix (`\+w …\+w*`) — ParatextData's writer rule and PT9's
+     * on-screen display for USFM ≤3.0.
+     *
+     * This is a CACHE of tree-derived state (nesting truth is parent-is-CharNode; markers stay
+     * clean everywhere), stored because Lexical renders a TextNode's stored `__text` — there is
+     * no computed-text hook, and nothing re-runs when an ANCESTOR moves — so the `+` must be
+     * baked into `__text` at write time (see `getMarkerText`). Serialized only when `true`
+     * because transforms do not run on `setEditorState`: a restored state renders straight from
+     * `__text`, so the flag must survive serialization for `setMarker`/`setMarkerSyntax` to
+     * re-derive the text correctly later. Glyph builders set it at construction, and the
+     * `$syncNestedGlyphs` CharNode transform re-derives it from tree position whenever a span is
+     * dirtied — see nestedGlyphs.utils.ts for the full representation rules.
+     */
+    nested?: boolean;
   },
   SerializedTextNode
 >;
@@ -27,11 +43,13 @@ export type SerializedMarkerNode = Spread<
 export class MarkerNode extends TextNode {
   __marker: string;
   __markerSyntax: MarkerSyntax;
+  __nested: boolean;
 
-  constructor(marker = "", markerSyntax: MarkerSyntax = "opening", key?: NodeKey) {
-    super(getMarkerText(marker, markerSyntax), key);
+  constructor(marker = "", markerSyntax: MarkerSyntax = "opening", nested = false, key?: NodeKey) {
+    super(getMarkerText(marker, markerSyntax, nested), key);
     this.__marker = marker;
     this.__markerSyntax = markerSyntax;
+    this.__nested = nested;
   }
 
   static override getType(): string {
@@ -39,7 +57,7 @@ export class MarkerNode extends TextNode {
   }
 
   static override clone(node: MarkerNode): MarkerNode {
-    return new MarkerNode(node.__marker, node.__markerSyntax, node.__key);
+    return new MarkerNode(node.__marker, node.__markerSyntax, node.__nested, node.__key);
   }
 
   static override importJSON(serializedNode: SerializedMarkerNode): MarkerNode {
@@ -47,8 +65,12 @@ export class MarkerNode extends TextNode {
   }
 
   override updateFromJSON(serializedNode: LexicalUpdateJSON<SerializedMarkerNode>): this {
-    const { marker, markerSyntax = "opening" } = serializedNode;
-    return super.updateFromJSON(serializedNode).setMarker(marker).setMarkerSyntax(markerSyntax);
+    const { marker, markerSyntax = "opening", nested = false } = serializedNode;
+    return super
+      .updateFromJSON(serializedNode)
+      .setNested(nested)
+      .setMarker(marker)
+      .setMarkerSyntax(markerSyntax);
   }
 
   setMarker(marker: string): this {
@@ -56,7 +78,7 @@ export class MarkerNode extends TextNode {
 
     const self = this.getWritable();
     self.__marker = marker;
-    self.__text = getMarkerText(marker, self.__markerSyntax);
+    self.__text = getMarkerText(marker, self.__markerSyntax, self.__nested);
     return self;
   }
 
@@ -70,13 +92,27 @@ export class MarkerNode extends TextNode {
 
     const self = this.getWritable();
     self.__markerSyntax = markerSyntax;
-    self.__text = getMarkerText(self.__marker, markerSyntax);
+    self.__text = getMarkerText(self.__marker, markerSyntax, self.__nested);
     return self;
   }
 
   getMarkerSyntax(): MarkerSyntax {
     const self = this.getLatest();
     return self.__markerSyntax;
+  }
+
+  setNested(nested: boolean): this {
+    if (this.__nested === nested) return this;
+
+    const self = this.getWritable();
+    self.__nested = nested;
+    self.__text = getMarkerText(self.__marker, self.__markerSyntax, nested);
+    return self;
+  }
+
+  getNested(): boolean {
+    const self = this.getLatest();
+    return self.__nested;
   }
 
   override createDOM(config: EditorConfig): HTMLElement {
@@ -93,13 +129,20 @@ export class MarkerNode extends TextNode {
       text: this.getTextContent(),
       marker: this.getMarker(),
       markerSyntax: this.getMarkerSyntax(),
+      // Only serialize the flag for genuinely nested glyphs; absence means non-nested, so
+      // existing states (and the overwhelmingly common non-nested markers) stay unchanged.
+      ...(this.getNested() ? { nested: true } : {}),
       version: MARKER_VERSION,
     };
   }
 }
 
-export function $createMarkerNode(marker?: string, markerSyntax?: MarkerSyntax): MarkerNode {
-  return $applyNodeReplacement(new MarkerNode(marker, markerSyntax));
+export function $createMarkerNode(
+  marker?: string,
+  markerSyntax?: MarkerSyntax,
+  nested?: boolean,
+): MarkerNode {
+  return $applyNodeReplacement(new MarkerNode(marker, markerSyntax, nested));
 }
 
 export function $isMarkerNode(node: LexicalNode | null | undefined): node is MarkerNode {
@@ -112,8 +155,17 @@ export function isSerializedMarkerNode(
   return node?.type === MarkerNode.getType();
 }
 
-function getMarkerText(marker: string, markerSyntax: MarkerSyntax) {
-  if (markerSyntax === "closing") return closingMarkerText(marker);
+/**
+ * The single writer of a glyph's `__text` — the ONLY place the `+` becomes literal characters.
+ * `marker` is always clean (`"w"`); `nested` contributes the `+` (`\+w`). Called from the
+ * constructor and every setter, so `__text` always reflects (marker, syntax, nested) — keeping
+ * the cached text honest is therefore exactly the job of keeping `nested` honest, which
+ * `$syncNestedGlyphs` (nestedGlyphs.utils.ts) does from tree position.
+ */
+function getMarkerText(marker: string, markerSyntax: MarkerSyntax, nested = false) {
+  // The self-closing form is a milestone terminator (`\*`); milestones never nest inside a char
+  // span, so the `+` prefix does not apply to it.
+  if (markerSyntax === "closing") return closingMarkerText(marker, nested);
   if (markerSyntax === "selfClosing") return closingMarkerText("");
-  return openingMarkerText(marker);
+  return openingMarkerText(marker, nested);
 }

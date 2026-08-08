@@ -50,4 +50,23 @@ describe("createMarkerLookup", () => {
     expect(lookup("p")?.description).toBe("");
     expect(lookup("zln")?.description).toBe("Custom link");
   });
+
+  it("populates children from the bundled table so children-dependent menus keep working", () => {
+    const lookup = createMarkerLookup(projectStyleInfo);
+    // Submenu structure is editor data keyed by marker name (bundled table + overwrites), not
+    // stylesheet data — a sheet-backed lookup must surface it identically to bundled getMarker.
+    expect(lookup("p")?.children).toEqual(getMarker("p")?.children);
+    expect(lookup("p")?.children?.Poetry).toContain("q1");
+    // A private marker unknown to the bundled table has no submenu data.
+    expect(lookup("zln")?.children).toBeUndefined();
+  });
+
+  it("memoizes: a repeated lookup returns the same built object without rebuilding", () => {
+    const lookup = createMarkerLookup(projectStyleInfo);
+    const first = lookup("zln");
+    const second = lookup("zln");
+    // Each miss builds a fresh Marker object literal, so identity would break on a rebuild.
+    // Same reference proves the second call hit the `cache.has(marker)` cached-return branch.
+    expect(second).toBe(first);
+  });
 });

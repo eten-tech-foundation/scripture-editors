@@ -15,6 +15,7 @@ import {
   $isImmutableChapterNode,
   $isNoteNode,
   $isParaNode,
+  CharNode,
   EMPTY_CHAR_PLACEHOLDER_TEXT,
 } from "shared";
 
@@ -160,7 +161,11 @@ describe("USJ Marker Action Utils", () => {
         const tailTextNode = insertedNode.getNextSibling();
         if (!$isTextNode(tailTextNode)) throw new Error("Tail node is not text");
         expect(tailTextNode.getTextContent()).toBe("verse text ");
-        $expectSelectionToBe(tailTextNode, 0);
+        // Caret INSIDE the span at the placeholder's end (PT9: typing fills the new span);
+        // CharNodePlugin strips the placeholder once real content lands.
+        const placeholder = insertedNode.getFirstChild();
+        if (!$isTextNode(placeholder)) throw new Error("Placeholder is not text");
+        $expectSelectionToBe(placeholder, placeholder.getTextContentSize());
       });
     });
 
@@ -189,7 +194,10 @@ describe("USJ Marker Action Utils", () => {
         const tailTextNode = insertedNode.getNextSibling();
         if (!$isTextNode(tailTextNode)) throw new Error("Tail node is not text");
         expect(tailTextNode.getTextContent()).toBe(" verse text ");
-        $expectSelectionToBe(tailTextNode, 0);
+        // Caret INSIDE the span at the placeholder's end (PT9: typing fills the new span).
+        const placeholder = insertedNode.getFirstChild();
+        if (!$isTextNode(placeholder)) throw new Error("Placeholder is not text");
+        $expectSelectionToBe(placeholder, placeholder.getTextContentSize());
       });
     });
 
@@ -218,7 +226,9 @@ describe("USJ Marker Action Utils", () => {
         const charTextNode = insertedNode.getChildAtIndex(0);
         if (!$isTextNode(charTextNode))
           throw new Error("Inserted char node does not have a text node");
-        $expectSelectionToBe(charTextNode, 0);
+        // End of the placeholder, not offset 0: CharNodePlugin's placeholder strip matches a
+        // LEADING placeholder (`startsWith`), so typed text must land after it.
+        $expectSelectionToBe(charTextNode, charTextNode.getTextContentSize());
       });
     });
   });
@@ -285,6 +295,67 @@ describe("USJ Marker Action Utils", () => {
         if (!$isTextNode(charTextNode))
           throw new Error("Inserted char node does not have a text node");
         $expectSelectionToBe(charTextNode);
+      });
+    });
+  });
+
+  // Footnote/cross-reference content markers (\fr \ft \xo \xt …) are inserted OPEN by convention:
+  // PT9's inserter emits them closer-less and ParatextData records closed="false". Since closer
+  // DISPLAY now keys on state (an explicitly-closed span renders its closer), that OPEN default is
+  // carried as an explicit closed="false" on the palette template (getMarkerAction) rather than
+  // relying on the marker family in the display path — otherwise a cursor-only insert of these
+  // markers would come out closed. This test environment is hidden marker mode (no glyphs render),
+  // so the mode-independent signal is the closed state itself. A body char marker keeps NO flag.
+  describe("inserts a footnote/cross-reference content marker open (closed=false)", () => {
+    it.each(["xt", "xo", "fr", "ft"])("cursor-only \\%s carries closed=false", (marker) => {
+      // Sanity: the marker really is one of the content families this default targets.
+      expect(
+        CharNode.isValidFootnoteMarker(marker) || CharNode.isValidCrossReferenceMarker(marker),
+      ).toBe(true);
+      const { editor } = createBasicTestEnvironment(nodes, $defaultInitialEditorState);
+      const markerAction = getUsjMarkerAction(
+        marker,
+        expandedNoteKeyRef,
+        undefined,
+        undefined,
+        undefined,
+        {
+          discrete: true,
+        },
+      );
+      updateSelection(editor, secondVerseTextNode, 7);
+
+      markerAction.action({ editor, reference });
+
+      editor.getEditorState().read(() => {
+        const span = secondVerseTextNode.getNextSibling();
+        if (!$isCharNode(span)) throw new Error("Inserted node is not a char");
+        expect(span.getMarker()).toBe(marker);
+        expect(span.getUnknownAttributes()?.closed).toBe("false");
+      });
+    });
+
+    it("a plain body char marker (\\nd) is unaffected: no closed flag", () => {
+      const { editor } = createBasicTestEnvironment(nodes, $defaultInitialEditorState);
+      const markerAction = getUsjMarkerAction(
+        "nd",
+        expandedNoteKeyRef,
+        undefined,
+        undefined,
+        undefined,
+        {
+          discrete: true,
+        },
+      );
+      updateSelection(editor, secondVerseTextNode, 7);
+
+      markerAction.action({ editor, reference });
+
+      editor.getEditorState().read(() => {
+        const span = secondVerseTextNode.getNextSibling();
+        if (!$isCharNode(span)) throw new Error("Inserted node is not a char");
+        expect(span.getMarker()).toBe("nd");
+        expect(span.getUnknownAttributes()?.closed).toBeUndefined();
       });
     });
   });

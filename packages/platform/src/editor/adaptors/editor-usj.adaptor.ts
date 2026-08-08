@@ -10,12 +10,14 @@ import {
 import {
   EditorState,
   LineBreakNode,
+  NODE_STATE_KEY,
   SerializedEditorState,
   SerializedLexicalNode,
   SerializedTextNode,
   TextNode,
 } from "lexical";
 import {
+  AttributeRunNode,
   BookNode,
   ChapterNode,
   CharNode,
@@ -58,11 +60,10 @@ import {
   VerseNode,
 } from "shared";
 import {
-  getViewMode,
+  hasStandardViewWhitespace,
   ImmutableNoteCallerNode,
   ImmutableVerseNode,
   SerializedImmutableVerseNode,
-  STANDARD_VIEW_MODE,
   ViewOptions,
 } from "shared-react";
 
@@ -78,9 +79,15 @@ export function initialize(logger: LoggerBasic | undefined) {
   if (logger) _logger = logger;
 }
 
-/** §4 whitespace display rules are Standard-view-only (spec: must not leak into other modes). */
+/**
+ * Standard-view whitespace display rules; they must not leak into other modes. Gated on the
+ * standard-view whitespace fingerprint (editable + spaced + formatted, any `noteMode`) rather than
+ * the named `standard` mode, so serialization inverts the display whitespace even when notes are
+ * expanded — keeping it in lockstep with the editable marker engine. See
+ * {@link hasStandardViewWhitespace}.
+ */
 function isStandardView(viewOptions: ViewOptions | undefined): boolean {
-  return viewOptions !== undefined && getViewMode(viewOptions) === STANDARD_VIEW_MODE;
+  return hasStandardViewWhitespace(viewOptions);
 }
 
 export function deserializeEditorState(
@@ -423,11 +430,21 @@ function recurseNodes(
           ),
         );
         break;
+      case AttributeRunNode.getType():
       case ImmutableTypedTextNode.getType():
       case ImmutableNoteCallerNode.getType():
       case LineBreakNode.getType():
       case MarkerNode.getType():
-        // These nodes are for presentation only so they don't go into the USJ.
+        // These nodes are for presentation only so they don't go into the USJ. An
+        // AttributeRunNode subtree is skipped WHOLESALE (never recursed into) — its own children
+        // are exactly the same MarkerNode/attribute-tagged-TextNode pieces this switch already
+        // skips individually below (the MarkerNode.getType() case here, and the textType
+        // "attribute" check in the TextNode.getType() case), so skipping the wrapper as a unit is
+        // equivalent to how those pieces are handled when unwrapped. Not removable once loose
+        // pieces stop occurring: MarkerNode.getType() also covers every OTHER glyph kind (char
+        // open/closer, para prefix, note glyphs), and the TextNode "attribute" check also covers a
+        // char span's OWN `|…` run, which is never wrapped at all (see this module's top comment) —
+        // both stay load-bearing regardless of verse/milestone run shape.
         break;
       case TypedMarkNode.getType():
         childMarkers = recurseNodes(serializedMarkNode.children, viewOptions);
@@ -455,10 +472,14 @@ function recurseNodes(
           serializedTextNode.text &&
           serializedTextNode.text !== NBSP &&
           !serializedTextNode.text.startsWith(NODE_ATTRIBUTE_PREFIX) &&
+          // Char-span attribute display runs (bare `|…`, no NBSP prefix — see
+          // usj-editor.adaptor's `addCharAttributes`) carry no NBSP prefix to strip against, so
+          // the prefix check above can't catch them; the textType state tag is the only signal.
+          serializedTextNode[NODE_STATE_KEY]?.textType !== "attribute" &&
           (!noteCaller || serializedTextNode.text !== getEditableCallerText(noteCaller))
         ) {
           let text = createTextMarker(serializedTextNode);
-          // §4: Standard view stores display text; invert and normalize on serialization. A
+          // Standard view stores display text; invert and normalize on serialization. A
           // char marker's leading NBSP separator (added by the forward adaptor's `createChar`)
           // must be stripped before inversion so it isn't misread as a collapsed space run.
           if (isStandardView(viewOptions)) {

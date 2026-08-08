@@ -115,6 +115,9 @@ const Marginal = forwardRef(function Marginal<TLogger extends LoggerBasic>(
     focus() {
       editorRef.current?.focus();
     },
+    isFocused() {
+      return editorRef.current?.isFocused() ?? false;
+    },
     undo() {
       editorRef.current?.undo();
     },
@@ -135,6 +138,9 @@ const Marginal = forwardRef(function Marginal<TLogger extends LoggerBasic>(
     },
     getUsj() {
       return editorRef.current?.getUsj();
+    },
+    commitPendingMarkerEdits() {
+      editorRef.current?.commitPendingMarkerEdits();
     },
     setUsj(usj) {
       editorRef.current?.setUsj(usj);
@@ -190,7 +196,7 @@ const Marginal = forwardRef(function Marginal<TLogger extends LoggerBasic>(
       return editorRef.current?.getMarkerMenuContext();
     },
     applyMarkerMenuSelection(item, opts) {
-      editorRef.current?.applyMarkerMenuSelection(item, opts);
+      return editorRef.current?.applyMarkerMenuSelection(item, opts);
     },
     splitParagraphWithMarker(marker) {
       editorRef.current?.splitParagraphWithMarker(marker);

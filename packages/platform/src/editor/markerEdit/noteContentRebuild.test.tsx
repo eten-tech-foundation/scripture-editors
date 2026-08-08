@@ -11,6 +11,7 @@ import { $rebuildNoteContent, $rebuildParas, Tier2Context } from "./tier2Rebuild
 import { act } from "@testing-library/react";
 import { $getRoot, $getSelection, $isRangeSelection, $isTextNode } from "lexical";
 import {
+  $isAttributeRunNode,
   $isCharNode,
   $isMarkerNode,
   $isNoteNode,
@@ -130,9 +131,9 @@ describe("note-scope Tier 2 rebuild", () => {
     });
   });
 
-  // Regression (Task 2 review gap): literal NON-marker backslash text is the highest-risk
-  // class for this rebuild code — the Phase 2 Critical infinite-loop (resolve/rebuild
-  // fixed-point cascade; see markerEditLoop.test.tsx) lived exactly here. Task 2's own
+  // Regression: literal NON-marker backslash text is the highest-risk
+  // class for this rebuild code — the infinite-loop bug (resolve/rebuild
+  // fixed-point cascade; see markerEditLoop.test.tsx) lived exactly here. The dedicated
   // fixed-point test only exercised `$rebuildNoteContent`'s guard directly; this drives the
   // same shape of input through the REAL mounted `MarkerEditPlugin` (typed text ->
   // `$textNodeTier2Transform` -> `$requestTier2ForNode` -> `$rebuildNoteContent`), inside a
@@ -144,16 +145,115 @@ describe("note-scope Tier 2 rebuild", () => {
 
     editor.getEditorState().read(() => {
       const note = findOnlyNote($getRoot());
-      // "temp" is unknown to the stylesheet, so per PT9 DetermineUnknownTokenType (Task 3)
+      // "temp" is unknown to the stylesheet, so per PT9 DetermineUnknownTokenType
       // it resolves as a CHARACTER span inside note content (context = note, not body, so
       // it does NOT become a paragraph) rather than staying literal: a real, non-fixed-point
-      // rebuild. The regression this test guards (Task 2) is that this terminates rather
+      // rebuild. The regression this test guards is that this terminates rather
       // than hanging, whatever the resulting structure.
       expect(noteCharMarkers(note)).toEqual(["ft", "temp"]);
       expect(note.getTextContent()).toContain("C:");
       expect(note.getTextContent()).toContain("path");
     });
   }, 15000); // generous timeout: a re-introduced cascade must fail loudly, not hang silently
+
+  it("keeps a freshly tokenized milestone's display glyphs (siblings, not the \\p wrapper prefix)", async () => {
+    // A terminated milestone literal typed into note content tokenizes into a MilestoneNode whose
+    // opening `\ts-s` and self-closing `\*` glyphs are SIBLINGS at the unwrap level. The unwrap
+    // must drop ONLY the tokenizer's leading `\p` wrapper prefix (glyph + trailing space) — a
+    // strip-every-MarkerNode filter also ate the milestone's glyphs, leaving it rendered
+    // glyph-less until reload.
+    const { editor } = await (async () => {
+      const environment = createBasicTestEnvironment([TypedMarkNode, ...usjReactNodes]);
+      environment.editor.setEditorState(
+        environment.editor.parseEditorState(
+          serializedState(noteUsx(`closed="false"`, `A note \\ts-s |sid="ts.GEN.1"\\* end`)),
+        ),
+      );
+      return environment;
+    })();
+
+    editor.update(
+      () => {
+        const note = findOnlyNote($getRoot());
+        expect($rebuildNoteContent(note, context)).toBe(true); // literal milestone → real rebuild
+      },
+      { discrete: true },
+    );
+
+    editor.getEditorState().read(() => {
+      const note = findOnlyNote($getRoot());
+      const children = note.getChildren();
+      // The milestone node materialized...
+      expect(children.some((c) => c.getType() === "ms")).toBe(true);
+      // ...and its display glyphs survived, wrapped in ONE attribute-run node riding as the
+      // milestone's next sibling: the opening `\ts-s` and the `\*`.
+      const wrapper = children.find(
+        (c) => $isAttributeRunNode(c) && c.getRunKind() === "milestone",
+      );
+      if (!$isAttributeRunNode(wrapper)) throw new Error("milestone wrapper missing");
+      const glyphTexts = wrapper
+        .getChildren()
+        .filter((c) => $isMarkerNode(c))
+        .map((c) => c.getTextContent());
+      expect(glyphTexts).toContain("\\ts-s");
+      expect(glyphTexts.some((t) => t.includes("*"))).toBe(true);
+    });
+  });
+
+  it("keeps a preserved byte-attribute char span through a note-content rebuild", async () => {
+    // A cross-reference char carrying a `link-href` byte attribute is not text-recoverable, so
+    // the rebuild rides it through as a preserved sentinel node. That node is ALSO a direct
+    // member of the note's OLD content list — removing the old content after the splice must
+    // not delete the very node that was just moved into the rebuilt content.
+    const { editor } = createBasicTestEnvironment([TypedMarkNode, ...usjReactNodes]);
+    editor.setEditorState(
+      editor.parseEditorState(
+        serializedState(
+          noteUsx(
+            `closed="false"`,
+            `<char style="ft" closed="false">A note \\fq quote\\fq* </char>` +
+              `<char style="xt" link-href="GEN 1:1" closed="false">Gen 1:1</char>`,
+          ),
+        ),
+      ),
+    );
+
+    let xtKey = "";
+    editor.update(
+      () => {
+        const note = findOnlyNote($getRoot());
+        const xt = requireDefined(
+          note
+            .getChildren()
+            .filter($isCharNode)
+            .find((c) => c.getMarker() === "xt"),
+          "xt char not found",
+        );
+        xtKey = xt.getKey();
+        // The literal `\fq quote\fq*` in the `\ft` text makes this a real (non-fixed-point)
+        // rebuild: the literal resolves into a `\fq` char span.
+        expect($rebuildNoteContent(note, context)).toBe(true);
+      },
+      { discrete: true },
+    );
+
+    editor.getEditorState().read(() => {
+      const note = findOnlyNote($getRoot());
+      // The literal resolved into a `\fq` span AND the preserved `\xt` span survived as the
+      // SAME node instance, still in the note with its content and byte attribute intact.
+      expect(noteCharMarkers(note)).toEqual(["ft", "fq", "xt"]);
+      const xt = requireDefined(
+        note
+          .getChildren()
+          .filter($isCharNode)
+          .find((c) => c.getMarker() === "xt"),
+        "xt char lost by the rebuild",
+      );
+      expect(xt.getKey()).toBe(xtKey);
+      expect(xt.getTextContent()).toContain("Gen 1:1");
+      expect(xt.getUnknownAttributes()?.["link-href"]).toBe("GEN 1:1");
+    });
+  });
 
   it("refuses to rebuild a collapsed note's content (preserve-or-refuse)", async () => {
     // A closed note collapses in standard view; its content is not inline re-tokenizable.

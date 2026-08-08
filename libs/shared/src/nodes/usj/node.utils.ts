@@ -12,6 +12,7 @@ import {
   ElementNode,
   LexicalEditor,
   LexicalNode,
+  NODE_STATE_KEY,
   NodeKey,
   RangeSelection,
   SerializedLexicalNode,
@@ -404,19 +405,24 @@ export function removeNodesBeforeNode(
 /**
  * Gets the opening marker text.
  * @param marker - The USFM marker.
+ * @param nested - Whether the span nests inside another char span. A nested span's marker carries
+ *   the `+` prefix (`\+w`) — ParatextData's writer rule and PT9's on-screen display for USFM ≤3.0,
+ *   where `+` is what makes a bare char marker nest instead of closing the enclosing span. The
+ *   glyph must show it so a re-tokenization of the visible text reproduces the same nesting.
  * @returns the opening marker text.
  */
-export function openingMarkerText(marker: string): string {
-  return `\\${marker}`;
+export function openingMarkerText(marker: string, nested = false): string {
+  return `\\${nested ? "+" : ""}${marker}`;
 }
 
 /**
  * Gets the closing marker text.
  * @param marker - The USFM marker.
+ * @param nested - Whether the span nests inside another char span (see {@link openingMarkerText}).
  * @returns the closing marker text.
  */
-export function closingMarkerText(marker: string): string {
-  return `\\${marker}*`;
+export function closingMarkerText(marker: string, nested = false): string {
+  return `\\${nested ? "+" : ""}${marker}*`;
 }
 
 /**
@@ -462,11 +468,25 @@ export function getVisibleOpenMarkerText(marker: string, content: string | undef
  * @param node - The serialized node to process.
  * @returns The concatenated text content.
  */
+/** The `textType` NodeState of a serialized node, if any — the serialize-only mirror of the live
+ * `$getState(node, textTypeState)`. */
+function serializedTextType(node: SerializedLexicalNode): string | undefined {
+  const state = (node as { [NODE_STATE_KEY]?: unknown })[NODE_STATE_KEY];
+  if (state && typeof state === "object" && "textType" in state) {
+    const textType = (state as { textType?: unknown }).textType;
+    if (typeof textType === "string") return textType;
+  }
+  return undefined;
+}
+
 // Keep this function in sync with `$getTextContentExcludingMarkers`.
 function extractTextFromNode(node: SerializedLexicalNode): string {
   // Skip marker nodes - they're structural/formatting elements, not content
   if (isSerializedMarkerNode(node)) return "";
   if (isSerializedImmutableTypedTextNode(node) && node.textType === "marker") return "";
+  // The attribute display run (textType "attribute") is engine-owned presentation, not content —
+  // exclude its bytes (`|gloss`) from note-preview text.
+  if (isSerializedTextNode(node) && serializedTextType(node) === "attribute") return "";
 
   if (isSerializedTextNode(node) && node.text !== NBSP) return node.text;
 
@@ -537,6 +557,8 @@ function $getTextContentExcludingMarkers(node: LexicalNode): string {
   // Skip marker nodes
   if ($isMarkerNode(node)) return "";
   if ($isVisibleMarkerNode(node)) return "";
+  // The attribute display run (textType "attribute") is engine-owned presentation, not content.
+  if ($isTextNode(node) && $getState(node, textTypeState) === "attribute") return "";
 
   // For text nodes, return the text
   if ($isTextNode(node)) return node.getTextContent();
@@ -753,9 +775,10 @@ function getSelectionStartNodeInner(selection: BaseSelection | null): LexicalNod
 /**
  * Checks whether a node is presentation-only and therefore not part of USJ content:
  * line breaks, marker scaffolding (editable and visible), marker-trailing-space or
- * attribute text, and empty or NBSP-only spacer text (which the editor→USJ conversion
- * drops as well; ideally the USJ→editor conversion would create such spacers as
- * presentation-typed text nodes instead — follow-up work).
+ * attribute text (as a plain TextNode or as an opaque block's folded ImmutableTypedTextNode
+ * display run, e.g. an UnknownNode's `\cat` byte display), and empty or NBSP-only spacer text
+ * (which the editor→USJ conversion drops as well; ideally the USJ→editor conversion would
+ * create such spacers as presentation-typed text nodes instead — follow-up work).
  * @param node - The node to check.
  * @returns `true` if the node must be skipped when computing USJ content indexes.
  */
@@ -764,6 +787,11 @@ export function $shouldIgnoreNodeForContentIndexes(node: LexicalNode | null | un
   if ($isLineBreakNode(node)) return true;
   if ($isMarkerNode(node)) return true;
   if ($isVisibleMarkerNode(node)) return true;
+  // ImmutableTypedTextNode's "attribute" flavor (an opaque block's folded attribute-byte display
+  // run, e.g. an UnknownNode's `\cat ...\cat*`) is a DecoratorNode, not a TextNode, so it never
+  // reaches the $isTextNode branch below — mirror the "marker" flavor handled above by
+  // $isVisibleMarkerNode.
+  if ($isImmutableTypedTextNode(node) && node.getTextType() === "attribute") return true;
   if ($isTextNode(node)) {
     const textType = $getState(node, textTypeState);
     if (textType === "marker-trailing-space" || textType === "attribute") return true;

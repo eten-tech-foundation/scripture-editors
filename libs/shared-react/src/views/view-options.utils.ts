@@ -228,6 +228,44 @@ export function getViewMode(viewOptions: ViewOptions | undefined): ViewMode | un
 }
 
 /**
+ * Whether the standard-view whitespace/display normalization rules apply to these view options.
+ *
+ * These rules — the display NBSP/`~` mapping at load time, the live display-whitespace transform
+ * and clipboard normalization, and the inverse normalization on serialization — are all gated on
+ * this ONE predicate, so a document always serializes under the same whitespace regime it was
+ * loaded with; no combination of options can apply the display mapping without its inversion.
+ *
+ * The invariant is the STANDARD view fingerprint with the `noteMode` axis dropped: editable
+ * markers in a spacing+formatted view with NEITHER `hasGutterParaMarkers` NOR
+ * `hasActiveTextFocusBox`. It is `true` for both collapsed (the named `standard` mode) and
+ * expanded notes. It is `false` for the Unformatted view (editable but neither spaced nor
+ * formatted, where whitespace is shown literally) and for gutter/focus-box views: those render
+ * paragraph markers as immutable typed text — a different whitespace regime with no
+ * display-mapped text to invert (their named mode hides markers entirely, so the editable
+ * engine's separators never combine with them). Deliberately NOT expressed via
+ * {@link getViewMode}: expanded is not the named `standard` mode, and overloading `getViewMode`
+ * would break its invertibility contract and the user-facing mode labels.
+ *
+ * @param viewOptions - View options of the editor.
+ * @returns `true` when standard-view whitespace normalization applies.
+ *
+ * @public
+ */
+export function hasStandardViewWhitespace(viewOptions: ViewOptions | undefined): boolean {
+  if (!viewOptions) return false;
+
+  const { markerMode, hasSpacing, isFormattedFont, hasGutterParaMarkers, hasActiveTextFocusBox } =
+    viewOptions;
+  return (
+    markerMode === "editable" &&
+    hasSpacing &&
+    isFormattedFont &&
+    !hasGutterParaMarkers &&
+    !hasActiveTextFocusBox
+  );
+}
+
+/**
  * Get the verse node class for the given view options.
  *
  * @param viewOptions - View options of the editor.

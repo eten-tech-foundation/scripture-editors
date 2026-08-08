@@ -6,8 +6,13 @@ import { useEffect } from "react";
 import {
   $hasSameCharAttributes,
   $isCharNode,
+  $syncCharAttributeDisplay,
+  $syncNestedGlyphs,
+  $syncOpenerSeparators,
+  canonicalAttributeText,
   charIdState,
   CharNode,
+  defaultMarkerAttribute,
   EMPTY_CHAR_PLACEHOLDER_TEXT,
 } from "shared";
 
@@ -26,9 +31,36 @@ function useCharNode(editor: LexicalEditor) {
 
     return mergeRegister(
       editor.registerNodeTransform(CharNode, $charNodeTransform),
+      // Self-healing nested glyphs: whenever a char span is dirtied (created, moved, merged,
+      // unwrapped), re-derive its glyphs' `+` from tree position — see nestedGlyphs.utils.ts
+      // (`shared`) for the full representation rules this enforces.
+      editor.registerNodeTransform(CharNode, $syncNestedGlyphs),
+      // Self-healing display separators: every opening char glyph is followed by its NBSP
+      // separator (text prefix or standalone spacer) — see markerSeparators.utils.ts (`shared`).
+      editor.registerNodeTransform(CharNode, $syncOpenerSeparators),
+      // Self-healing attribute display run: re-derive the `|…` run from unknownAttributes
+      // whenever a span is dirtied — heals remote collab updates (delta-apply only calls
+      // setUnknownAttributes) and structure surgery. See attributeDisplay.utils.ts (`shared`).
+      editor.registerNodeTransform(CharNode, $syncCharAttributeDisplayNode),
       editor.registerNodeTransform(TextNode, $charTextNodeTransform),
     );
   }, [editor]);
+}
+
+/**
+ * Wraps {@link $syncCharAttributeDisplay} with the expected canonical text, computed here rather
+ * than inside `shared`'s attributeDisplay.utils.ts: `defaultMarkerAttribute` lives in the
+ * converters, and `shared`'s nodes/usj module graph must not import from there (converters/usfm
+ * already imports FROM nodes/usj, so the reverse import would cycle) — see
+ * attributeDisplay.utils.ts for the ownership rules this enforces.
+ * @param node - CharNode whose display run needs updating.
+ */
+function $syncCharAttributeDisplayNode(node: CharNode): void {
+  const expectedText = canonicalAttributeText(
+    node.getUnknownAttributes() ?? {},
+    defaultMarkerAttribute(node.getMarker()),
+  );
+  $syncCharAttributeDisplay(node, expectedText);
 }
 
 /**
@@ -45,6 +77,12 @@ function $charNodeTransform(node: CharNode): void {
   }
 
   const style = node.getMarker();
+  // `\fp` (footnote-paragraph) spans are exempt from combining: each span IS a paragraph
+  // break inside the note (Enter and a multi-line paste there create consecutive `\fp`
+  // spans), so adjacency is content structure — combining collapsed two footnote paragraphs
+  // into one in the serialized USJ. Formatting chars keep combining: for them adjacent
+  // same-attribute runs really are equivalent.
+  if (style === "fp") return;
   const cid = $getState(node, charIdState);
   const unknownAttributes = node.getUnknownAttributes();
   const nextNode = node.getNextSibling();

@@ -17,11 +17,15 @@ import {
   TextNode,
 } from "lexical";
 import {
+  ATTRIBUTE_RUN_VERSION,
+  AttributeRunKind,
+  AttributeRunNode,
   BOOK_MARKER,
   BOOK_MARKER_OBJECT_PROPS,
   BOOK_VERSION,
   BookMarker,
   BookNode,
+  canonicalAttributeText,
   CHAPTER_MARKER,
   CHAPTER_MARKER_OBJECT_PROPS,
   CHAPTER_VERSION,
@@ -33,6 +37,7 @@ import {
   closingMarkerText,
   COMMENT_MARK_TYPE,
   DEFAULT_NOTE_MARKER,
+  defaultMarkerAttribute,
   EditorAdaptor,
   EMPTY_CHAR_PLACEHOLDER_TEXT,
   ENDING_MS_COMMENT_MARKER,
@@ -59,10 +64,11 @@ import {
   MarkerNode,
   MarkerSyntax,
   MILESTONE_VERSION,
+  milestoneAttributes,
+  milestoneDefaultAttribute,
   MilestoneNode,
   MS_MARKER_OBJECT_PROPS,
   NBSP,
-  NODE_ATTRIBUTE_PREFIX,
   NOTE_MARKER_OBJECT_PROPS,
   NOTE_VERSION,
   NoteNode,
@@ -72,6 +78,7 @@ import {
   PARA_VERSION,
   ParaNode,
   removeUndefinedProperties,
+  SerializedAttributeRunNode,
   SerializedBookNode,
   SerializedChapterNode,
   SerializedCharNode,
@@ -90,6 +97,8 @@ import {
   TypedMarkNode,
   UNKNOWN_MARKER_OBJECT_PROPS,
   UNKNOWN_VERSION,
+  UnknownAttributes,
+  unknownDisplayParts,
   UnknownNode,
   usjTextToDisplay,
   VERSE_MARKER,
@@ -108,12 +117,12 @@ import {
   NoteCallerOnClick,
   SerializedImmutableNoteCallerNode,
   SerializedImmutableVerseNode,
-  STANDARD_VIEW_MODE,
   UsjNodeOptions,
   ViewOptions,
   getDefaultViewOptions,
   getVerseNodeClass,
-  getViewMode,
+  hasStandardViewWhitespace,
+  isCollapsedNoteMode,
   isSomeSerializedVerseNode,
 } from "shared-react";
 
@@ -215,9 +224,14 @@ function setLogger(logger: LoggerBasic | undefined) {
   if (logger) _logger = logger;
 }
 
-/** §4 whitespace display rules are Standard-view-only (spec: must not leak into other modes). */
+/**
+ * Standard-view whitespace display rules; they must not leak into other modes. Gated on the
+ * standard-view whitespace fingerprint (editable + spaced + formatted, any `noteMode`) rather than
+ * the named `standard` mode, so it stays in lockstep with the editable marker engine even when notes
+ * are expanded — see {@link hasStandardViewWhitespace}.
+ */
 function isStandardView(): boolean {
-  return _viewOptions !== undefined && getViewMode(_viewOptions) === STANDARD_VIEW_MODE;
+  return hasStandardViewWhitespace(_viewOptions);
 }
 
 function getTextContent(markers: MarkerContent[] | undefined): string {
@@ -247,7 +261,9 @@ function createBook(markerObject: MarkerObject): SerializedBookNode {
     children.push(createImmutableTypedText("marker", openingMarkerText(marker) + NBSP));
   }
   const text = getTextContent(markerObject.content);
-  if (text) children.push(createText(text));
+  // Display-encode like any other text content: the reverse adaptor inverts display whitespace
+  // on all text nodes (book children included), so raw book text would corrupt on save.
+  if (text) children.push(createText(isStandardView() ? usjTextToDisplay(text) : text));
   const unknownAttributes = getUnknownAttributes(markerObject, BOOK_MARKER_OBJECT_PROPS);
 
   return removeUndefinedProperties({
@@ -339,6 +355,7 @@ function createVerse(
 function createChar(
   markerObject: MarkerObject,
   childNodes: SerializedLexicalNode[] = [],
+  isNested = false,
 ): SerializedCharNode {
   let { marker } = markerObject;
   if (!CharNode.isValidMarker(marker, _nodeOptions?.extraValidMarkers)) {
@@ -346,15 +363,39 @@ function createChar(
   }
   marker = marker ?? "";
   const children: SerializedLexicalNode[] = [];
-  if (_viewOptions?.markerMode === "editable")
-    childNodes.forEach((node) => {
-      if (isSerializedTextNode(node)) node.text = NBSP + node.text;
-    });
+  if (_viewOptions?.markerMode === "editable") {
+    // The structural leading NBSP is the display separator between the opening glyph and its
+    // content (the convention lives in markerSeparators.utils.ts), so it applies ONLY at the
+    // span's start — never to text that follows a nested closer (e.g. the `ht` in
+    // `\wj li\+nd g\+nd*ht\wj*`), which leaked to the file and accumulated on each rebuild.
+    // Text-first content carries it as a prefix; element-first content (a nested char, note,
+    // milestone, or verse: `\nd \+wj …`) gets a standalone NBSP spacer, which the editor→USJ
+    // conversion drops as presentation-only.
+    const [firstChild] = childNodes;
+    if (isSerializedTextNode(firstChild)) firstChild.text = NBSP + firstChild.text;
+    else if (firstChild) childNodes.unshift(createText(NBSP));
+  }
   if (childNodes.length === 0) childNodes.push(createText(EMPTY_CHAR_PLACEHOLDER_TEXT));
-  addOpeningMarker(markerObject.marker ?? "", children);
+  // A char span nested inside another char span carries the `+` prefix in its editable glyphs
+  // (`\+w …\+w*`) — ParatextData's writer rule and PT9's on-screen display for USFM ≤3.0. This
+  // keeps the visible glyph text truthful so a Tier-2 re-tokenization reproduces the same nesting.
+  addOpeningMarker(markerObject.marker ?? "", children, isNested);
   children.push(...childNodes);
-  addClosingMarker(markerObject.marker ?? "", children);
+  // Closer display keys on the span's ACTUAL closed state, never on the marker family: a span
+  // renders its closing glyph iff its USJ does NOT carry closed="false". ParatextData stamps
+  // closed="false" on every genuinely-unclosed span — including footnote/cross-ref content chars
+  // like \fr/\ft that never get an explicit closer — so those still render closer-less, mirroring
+  // the unclosed-note handling in `createNote`. An explicitly-closed \xt (no closed="false")
+  // instead keeps its closing glyph, so its attribute run is built and the span round-trips its
+  // `\xt*` byte-identically rather than losing it to a phantom closed="false".
+  const isUnclosedChar = (markerObject as MarkerObject & { closed?: string }).closed === "false";
   const unknownAttributes = getUnknownAttributes(markerObject, CHAR_MARKER_OBJECT_PROPS);
+  if (!isUnclosedChar) addCharAttributes(marker, unknownAttributes, children);
+  if (!isUnclosedChar) addClosingMarker(markerObject.marker ?? "", children, false, isNested);
+  // The closed="false" flag stays exactly as the source USJ supplied it (bucketed into
+  // unknownAttributes above): it is retained on a genuinely-unclosed span so a downstream USFM
+  // writer emits no closer the source lacked, and is NEVER synthesized onto an explicitly-closed
+  // span merely because of its marker family.
 
   return removeUndefinedProperties({
     type: CharNode.getType(),
@@ -392,17 +433,26 @@ function createPara(
   marker = marker ?? PARA_MARKER_DEFAULT;
   const children: SerializedLexicalNode[] = [];
   if (_viewOptions?.markerMode === "editable")
-    children.push(createMarker(marker), createText(NBSP, "marker-trailing-space"));
+    // Token mode: typing at the separator's boundary must create a new plain TextNode, never
+    // insert into the separator itself (which leaked the NBSP into serialized USJ — `\p ~asdf`).
+    // Keep in sync with `$createMarkerPrefix` (markerEditDeletion.utils.ts).
+    children.push(createMarker(marker), createText(NBSP, "marker-trailing-space", "token"));
   else if (_viewOptions?.markerMode === "visible" || _viewOptions?.hasGutterParaMarkers)
     children.push(createImmutableTypedText("marker", openingMarkerText(marker) + NBSP));
   children.push(...childNodes);
   if (isStandardView()) {
-    // §4: paragraph-leading spaces display as NBSP. First content text node only.
-    const firstText = children.find(
-      (node) => isSerializedTextNode(node) && node.text !== NBSP && !isSerializedMarkerNode(node),
+    // Paragraph-leading spaces display as NBSP so they stay visible and typable at the start of
+    // the paragraph. Only genuinely paragraph-leading text qualifies: skip the marker glyph and
+    // its NBSP separator token, then the first content node must itself be text. When other
+    // inline content (verse, char, note, ...) comes first, a later text node's leading space
+    // sits mid-paragraph where it is already visible, and an NBSP there would wrongly forbid
+    // line-wrap at that point.
+    const firstContent = children.find(
+      (node) =>
+        !isSerializedMarkerNode(node) && !(isSerializedTextNode(node) && node.text === NBSP),
     );
-    if (firstText && isSerializedTextNode(firstText))
-      firstText.text = firstText.text.replace(/^ +/, (lead) => NBSP.repeat(lead.length));
+    if (isSerializedTextNode(firstContent))
+      firstContent.text = firstContent.text.replace(/^ +/, (lead) => NBSP.repeat(lead.length));
   }
   const unknownAttributes = getUnknownAttributes(markerObject, PARA_MARKER_OBJECT_PROPS);
 
@@ -452,7 +502,7 @@ function createNote(
   // Unclosed notes (closed="false") render expanded inline (PT9 `opennote`); only closed
   // notes honor noteMode collapse.
   const isUnclosed = (markerObject as MarkerObject & { closed?: string }).closed === "false";
-  const isCollapsed = isUnclosed ? false : _viewOptions?.noteMode !== "expanded";
+  const isCollapsed = isUnclosed ? false : isCollapsedNoteMode(_viewOptions?.noteMode);
   const unknownAttributes = getUnknownAttributes(markerObject, NOTE_MARKER_OBJECT_PROPS);
 
   let openingMarkerNode: SerializedTextNode | SerializedImmutableTypedTextNode | undefined;
@@ -551,7 +601,30 @@ function createUnknown(
   const { marker } = markerObject;
   const tag = markerObject.type;
   const unknownAttributes = getUnknownAttributes(markerObject, UNKNOWN_MARKER_OBJECT_PROPS);
-  const children: SerializedLexicalNode[] = [...childNodes];
+  const children: SerializedLexicalNode[] = [];
+  if (_viewOptions?.markerMode === "editable") {
+    // Read-only USFM byte display flanking the existing content: selectable and copyable but
+    // never editable (ImmutableTypedTextNode), excluded from editor->USJ like any other display
+    // run (the ImmutableTypedTextNode case in editor-usj.adaptor's recurseNodes), and invisible
+    // to the collab delta because it isn't a Lexical TextNode. UnknownNode stays a Tier-2
+    // sentinel — these bytes never re-tokenize back into node state.
+    const { opening, attributes, closingAttributes, closing } = unknownDisplayParts(
+      tag,
+      marker,
+      unknownAttributes,
+    );
+    if (opening) children.push(createImmutableTypedText("marker", opening));
+    if (attributes) children.push(createImmutableTypedText("attribute", attributes));
+    children.push(...childNodes);
+    // closingAttributes (a span-shaped kind's `|foo="bar"` run) renders as its own "attribute"
+    // node, separate from the "marker" closer glyph, so it gets the dimmer `.attribute` styling
+    // PT9 uses for `|…` runs rather than inheriting the closer's `.marker` styling. Two pushes
+    // reproduce the exact same byte sequence a single folded `closing` string used to carry.
+    if (closingAttributes) children.push(createImmutableTypedText("attribute", closingAttributes));
+    if (closing) children.push(createImmutableTypedText("marker", closing));
+  } else {
+    children.push(...childNodes);
+  }
   children.forEach((node) => {
     if (isSerializedTextNode(node)) node.mode = "token";
   });
@@ -579,11 +652,14 @@ function createUnmatched(marker: string): SerializedImmutableUnmatchedNode {
 function createMarker(
   marker: string,
   markerSyntax: MarkerSyntax = "opening",
+  nested = false,
 ): SerializedMarkerNode {
   return {
     type: MarkerNode.getType(),
     marker,
     markerSyntax,
+    // Emit the flag only for nested glyphs; absence means non-nested (see MarkerNode.exportJSON).
+    ...(nested ? { nested: true } : {}),
     text: "",
     detail: 0,
     format: 0,
@@ -625,40 +701,143 @@ function createImmutableTypedText(
   };
 }
 
-function addOpeningMarker(marker: string, nodes: SerializedLexicalNode[]) {
+/** An `attribute-run` wrapper ({@link AttributeRunNode}) holding `children` — the ONE sibling a
+ * verse's `\va`/`\vp` triplet or a milestone's opening/attribute/self-closing run rides as, in
+ * editable mode. The wrapper contributes no bytes of its own; only its children's bytes matter. */
+function createAttributeRun(
+  runKind: AttributeRunKind,
+  children: SerializedLexicalNode[],
+): SerializedAttributeRunNode {
+  return {
+    type: AttributeRunNode.getType(),
+    runKind,
+    children,
+    direction: null,
+    format: "",
+    indent: 0,
+    version: ATTRIBUTE_RUN_VERSION,
+  };
+}
+
+function addOpeningMarker(marker: string, nodes: SerializedLexicalNode[], nested = false) {
   if (_viewOptions?.markerMode === "editable") {
-    nodes.push(createMarker(marker));
+    nodes.push(createMarker(marker, "opening", nested));
   } else if (_viewOptions?.markerMode === "visible") {
-    nodes.push(createImmutableTypedText("marker", openingMarkerText(marker)));
+    nodes.push(createImmutableTypedText("marker", openingMarkerText(marker, nested)));
   }
 }
 
-function addClosingMarker(marker: string, nodes: SerializedLexicalNode[], isSelfClosing = false) {
-  if (CharNode.isValidFootnoteMarker(marker) || CharNode.isValidCrossReferenceMarker(marker))
-    return;
-
+function addClosingMarker(
+  marker: string,
+  nodes: SerializedLexicalNode[],
+  isSelfClosing = false,
+  nested = false,
+) {
   if (_viewOptions?.markerMode === "editable") {
     if (isSelfClosing) nodes.push(createMarker("", "selfClosing"));
-    else nodes.push(createMarker(marker, "closing"));
+    else nodes.push(createMarker(marker, "closing", nested));
   } else if (_viewOptions?.markerMode === "visible") {
-    nodes.push(createImmutableTypedText("marker", closingMarkerText(isSelfClosing ? "" : marker)));
+    nodes.push(
+      createImmutableTypedText(
+        "marker",
+        isSelfClosing ? closingMarkerText("") : closingMarkerText(marker, nested),
+      ),
+    );
   }
 }
 
+/** Char-span attribute display: bare canonical `|…` directly before the closing glyph — PT9's
+ * shape, and NBSP-free so Tier-2's NBSP→space flattening cannot leak a space into content. */
+function addCharAttributes(
+  marker: string,
+  unknownAttributes: UnknownAttributes | undefined,
+  nodes: SerializedLexicalNode[],
+) {
+  if (_viewOptions?.markerMode !== "editable" || !unknownAttributes) return;
+  const text = canonicalAttributeText(unknownAttributes, defaultMarkerAttribute(marker));
+  if (text) nodes.push(createText(text, "attribute"));
+}
+
+/** Milestone attribute display: NBSP + the canonical `|…` bytes. The NBSP is the file's real
+ * separator before the attributes (`\qt-s |sid="…"\*`), so Tier-2's NBSP→space flattening
+ * reproduces it exactly rather than leaking a display-only space into content. `milestoneAttributes`
+ * (attributeDisplay.utils.ts) folds `sid`/`eid` in first (in that order) before whatever else the
+ * marker carries (chiefly `who`) — the full set, not just sid/eid, or an edit to a non-sid/eid
+ * attribute would have nowhere to display and no way to ever be edited — shared with
+ * `$syncMilestoneDisplayRun`'s node-state healing so the two computations cannot drift. */
 function addAttributes(markerObject: MarkerObject, nodes: SerializedLexicalNode[]) {
   if (markerObject.type !== "ms") return;
+  if (_viewOptions?.markerMode !== "editable" && _viewOptions?.markerMode !== "visible") return;
 
-  const attributes: string[] = [];
-  if (markerObject.sid) attributes.push(`sid="${markerObject.sid}"`);
-  if (markerObject.eid) attributes.push(`eid="${markerObject.eid}"`);
-  if (attributes.length <= 0) return;
+  const { marker, sid, eid } = markerObject;
+  const unknownAttributes = getUnknownAttributes(markerObject, MS_MARKER_OBJECT_PROPS);
+  const attributes = milestoneAttributes(sid, eid, unknownAttributes);
+  const text = canonicalAttributeText(attributes, milestoneDefaultAttribute(marker ?? ""));
+  if (!text) return;
 
-  const attributesText = NODE_ATTRIBUTE_PREFIX + attributes.join(" ");
+  const attributesText = NBSP + text;
   if (_viewOptions?.markerMode === "editable") {
     nodes.push(createText(attributesText, "attribute"));
-  } else if (_viewOptions?.markerMode === "visible") {
+  } else {
     nodes.push(createImmutableTypedText("attribute", attributesText));
   }
+}
+
+/** Milestone display run: the opening glyph, `addAttributes`' optional attribute text, and the
+ * self-closing glyph — unconditional glyphs, an optional value between them, exactly like
+ * `addAttributes` and `addOpeningMarker`/`addClosingMarker` already build individually. Editable
+ * mode's three live pieces are engine-owned display structure, so they ride inside ONE
+ * `attribute-run` wrapper (runKind "milestone") — the same "run lives inside a container" shape a
+ * verse's `\va`/`\vp` triplet gets ({@link addVerseAttributeRun}). Visible mode's
+ * `ImmutableTypedTextNode` pieces stay loose, unwrapped: they are read-only display text, never
+ * edited or synced, so there is no engine-owned region to mark. Hidden mode builds nothing either
+ * way — `addOpeningMarker`/`addAttributes`/`addClosingMarker` are each no-ops outside
+ * editable/visible mode. */
+function addMilestoneAttributeRun(markerObject: MarkerObject, nodes: SerializedLexicalNode[]) {
+  const marker = markerObject.marker ?? "";
+  if (_viewOptions?.markerMode === "editable") {
+    const children: SerializedLexicalNode[] = [];
+    addOpeningMarker(marker, children);
+    addAttributes(markerObject, children);
+    addClosingMarker(marker, children, true);
+    nodes.push(createAttributeRun("milestone", children));
+  } else {
+    addOpeningMarker(marker, nodes);
+    addAttributes(markerObject, nodes);
+    addClosingMarker(marker, nodes, true);
+  }
+}
+
+/** Verse attribute display: PT9's `\va`/`\vp` shape — an opening `MarkerNode` + an NBSP-prefixed
+ * value TextNode + a closing `MarkerNode`, wrapped in ONE `attribute-run` node (runKind matching
+ * `marker`) — the "run lives inside a container" shape {@link AttributeRunNode} gives a leaf owner
+ * that cannot hold children of its own. `\va`'s wrapper is pushed directly after the verse, and
+ * `\vp`'s directly after `\va`'s wrapper (or the verse, when no `\va` wrapper exists) — no
+ * separator between the two (a same-line space there blocks the tokenizer's attrCapture fold onto
+ * the verse — see usfmFragmentToUsj.ts's attribute-marker handling). The NBSP is the file's real
+ * separator between the marker and its value (`\va 2\va*`), so Tier-2's NBSP→space flattening
+ * reproduces it exactly rather than leaking a display-only space into the captured value. Editable
+ * mode only: `\va`/`\vp` never render as glyphs in visible/hidden mode, matching how a char span's
+ * attribute run is editable-only. */
+function addVerseAttributeRun(
+  marker: "va" | "vp",
+  value: string | undefined,
+  nodes: SerializedLexicalNode[],
+) {
+  if (!value) return;
+  nodes.push(
+    createAttributeRun(marker, [
+      createMarker(marker, "opening"),
+      createText(NBSP + value, "attribute"),
+      createMarker(marker, "closing"),
+    ]),
+  );
+}
+
+function addVerseAttributes(markerObject: MarkerObject, nodes: SerializedLexicalNode[]) {
+  if (_viewOptions?.markerMode !== "editable") return;
+  addVerseAttributeRun("va", markerObject.altnumber, nodes);
+  addVerseAttributeRun("vp", markerObject.pubnumber, nodes);
 }
 
 function reIndex(indexes: number[], offset: number): number[] {
@@ -726,7 +905,12 @@ function replaceMilestonesWithMarkRecurse(
   return [...nodesBefore, markNode, ...nodesAfter];
 }
 
-function recurseNodes(markers: MarkerContent[] | undefined): SerializedLexicalNode[] {
+function recurseNodes(
+  markers: MarkerContent[] | undefined,
+  // True when these markers are the CONTENT of a char span: any char among them nests inside that
+  // parent char and therefore renders its glyphs with the `+` prefix (see `createChar`).
+  parentIsChar = false,
+): SerializedLexicalNode[] {
   const msCommentIndexes: number[] = [];
   const nodes: SerializedLexicalNode[] = [];
   markers?.forEach((markerContent) => {
@@ -746,9 +930,12 @@ function recurseNodes(markers: MarkerContent[] | undefined): SerializedLexicalNo
         case VerseNode.getType():
           if (!_viewOptions?.hasSpacing) nodes.push(serializedLineBreakNode);
           nodes.push(createVerse(markerContent));
+          addVerseAttributes(markerContent, nodes);
           break;
         case CharNode.getType():
-          nodes.push(createChar(markerContent, recurseNodes(markerContent.content)));
+          nodes.push(
+            createChar(markerContent, recurseNodes(markerContent.content, true), parentIsChar),
+          );
           break;
         case ParaNode.getType():
           nodes.push(createPara(markerContent, recurseNodes(markerContent.content)));
@@ -763,9 +950,7 @@ function recurseNodes(markers: MarkerContent[] | undefined): SerializedLexicalNo
           }
           nodes.push(createMilestone(markerContent));
           // Must be after the milestone because of the way `replaceMilestonesWithMarkRecurse` works.
-          addOpeningMarker(markerContent.marker ?? "", nodes);
-          addAttributes(markerContent, nodes);
-          addClosingMarker(markerContent.marker ?? "", nodes, true);
+          addMilestoneAttributeRun(markerContent, nodes);
           break;
         case ImmutableUnmatchedNode.getType():
           nodes.push(createUnmatched(markerContent.marker ?? ""));

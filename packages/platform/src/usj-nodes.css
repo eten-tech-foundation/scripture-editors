@@ -104,6 +104,25 @@
   vertical-align: text-top;
 }
 
+/* A verse's \va/\vp opening/closing glyphs ride INSIDE the AttributeRunNode wrapper now (they were
+   loose paragraph siblings before the flip), so their own `font-size: 0.7em`
+   (`.formatted-font.marker-editable .opening`/`.closing`/`.selfClosing` below) would otherwise
+   compound with the wrapper's OWN `font-size: 66%` above (0.7 × 0.66 ≈ 46% of the paragraph's
+   size — noticeably smaller than the pre-flip 70%, since `em` is always relative to the immediate
+   parent's computed size, not the paragraph). Reset to 100% of the wrapper's own already-reduced
+   size, matching the value's size exactly, so the glyphs and the value read as one uniformly-sized
+   green/blue-superscript run instead of two visibly different sizes glued together. Selector
+   specificity (four classes) beats the general glyph rule's three, so this wins regardless of
+   declaration order. */
+.formatted-font.marker-editable .usfm_va .opening,
+.formatted-font.marker-editable .usfm_va .closing,
+.formatted-font.marker-editable .usfm_va .selfClosing,
+.formatted-font.marker-editable .usfm_vp .opening,
+.formatted-font.marker-editable .usfm_vp .closing,
+.formatted-font.marker-editable .usfm_vp .selfClosing {
+  font-size: 100%;
+}
+
 /* ParaNode */
 
 .formatted-font .usfm_usfm {
@@ -2085,15 +2104,16 @@
 .formatted-font.marker-editable .verse {
   white-space: nowrap;
   unicode-bidi: embed;
-  /* PT9 Standard view has no background badge on verse tokens (Phase 0 visual QA,
-     finding #6); the formatted (non-editable) view keeps its badge. */
+  /* PT9 Standard view has no background badge on verse tokens; the formatted
+     (non-editable) view keeps its badge. */
   background-color: transparent;
 }
 
-/* §5.1 validation states (PT9 ScriptureBase.css .status_unknown/.status_invalid;
-   design spec Phase 4). Applied to marker GLYPH spans only — body text stays
-   normal (PT9 Standard.xslt stamps status on the marker span, not the element).
-   Same error red as the unmatched-closer `.invalid` rule below. */
+/* Marker validation states (PT9 ScriptureBase.css .status_unknown/.status_invalid):
+   flag markers the project stylesheet reports as unknown or invalid. Applied to
+   marker GLYPH spans only — body text stays normal (PT9 Standard.xslt stamps status
+   on the marker span, not the element). Same error red as the unmatched-closer
+   `.invalid` rule below. */
 .marker-editable .status_unknown,
 .formatted-font.marker-editable .status_unknown {
   color: rgba(204, 30, 20, 1);
@@ -2106,17 +2126,19 @@
   border-bottom: 1px solid rgba(204, 30, 20, 1);
 }
 
-/* UnknownNode (§7): lossless carrier for content this editor doesn't model directly — tables,
+/* UnknownNode: lossless carrier for content this editor doesn't model directly — tables,
    figures, sidebars (\esb), \periph, \ref, \optbreak, etc. Hidden by default in every view
    (preserves today's behavior for formatted/markers views); standard view (.marker-editable)
-   reveals it as a subdued read-only container with its lead marker shown as a label, so the
-   content is visible/inert instead of silently invisible. Two corpus-proven mid-paragraph
-   constructs get the inline treatment instead of a block box that would break the sentence
-   (§7: "a line-level box in the middle of a sentence would be visibly wrong"; see
-   UnknownNode.ts's INLINE_UNKNOWN_TAGS — createDOM picks the class per construct):
-   - \optbreak: no children; PT9 renders a literal `//`, supplied here via a ::before keyed
-     off data-tag="optbreak".
-   - \ref: real child text shown inline; NO label (the optbreak selector cannot match it). */
+   reveals it as a subdued read-only container. Its own USFM bytes (opening marker, attribute
+   run, closing marker — unknownUsfm.utils.ts) render as ordinary `.marker`/`.attribute`
+   ImmutableTypedTextNode children flanking its content (usj-editor.adaptor.ts's
+   `createUnknown`), already styled by the `.formatted-font.marker-editable .marker`/`.attribute`
+   rules below — so no CSS-generated label is needed here (a generated label would duplicate
+   that real text). Two corpus-proven mid-paragraph constructs get the inline treatment instead
+   of a block box that would break the sentence (a line-level box in the middle of a sentence
+   would be visibly wrong; see UnknownNode.ts's INLINE_UNKNOWN_TAGS — createDOM picks the class
+   per construct): \optbreak (PT9's literal `//` token, now real text) and \ref (a generated
+   cross-reference wrapper with real child text and no marker bytes of its own). */
 .unknown-block,
 .unknown-inline {
   display: none;
@@ -2126,42 +2148,24 @@
   display: block;
   margin: 0.25em 0;
   padding: 0.25em 0.5em;
-  /* An EMPTY opaque block (e.g. a bare \fig) must stay visible/selectable: without content the
-     box collapses to 0 height. One line-height of room keeps the dashed frame and the ::before
-     marker label renderable. */
+  /* An EMPTY opaque block (e.g. the bare "table" container, which contributes no bytes of its
+     own) must stay visible/selectable: without content the box collapses to 0 height. One
+     line-height of room keeps the dashed frame renderable. */
   min-height: 1.5em;
   border: 1px dashed hsl(var(--muted-foreground, 215 16% 65%) / 0.5);
   background-color: hsl(var(--muted-foreground, 215 16% 65%) / 0.08);
   color: hsl(var(--muted-foreground, 215 16% 65%) / 0.85);
-  /* Whole-block selection/deletion only (§7) — a selection can be made within the container but
-     is contained by it rather than merging with the surrounding text. */
-  user-select: contain;
-}
-
-.marker-editable .unknown-block::before {
-  content: "\\" attr(data-marker);
-  display: block;
-  font-size: 0.7em;
-  font-weight: bold;
-  color: rgba(140, 140, 140, 1);
-  margin-bottom: 0.2em;
+  /* Whole-block selection/deletion: the containment (a selection stays within the box rather
+     than merging with surrounding text) is provided by the opaque/inert UnknownNode, not CSS.
+     `user-select: contain` is not implemented in Blink/Chromium (only auto | text | none | all),
+     so it was a no-op and is intentionally omitted. */
 }
 
 .marker-editable .unknown-inline {
   display: inline;
   color: hsl(var(--muted-foreground, 215 16% 65%) / 0.85);
-  /* Same containment as the block variant: a selection inside the inert construct is contained
-     by it rather than merging with the surrounding sentence text. */
-  user-select: contain;
-}
-
-/* \optbreak carries no USFM marker text of its own (data-marker is empty) — PT9 renders it as
-   a literal `//` token, so the label is hard-coded rather than driven by attr(data-marker).
-   Keyed off data-tag so it applies ONLY to optbreak: \ref shares the unknown-inline class but
-   displays its own child text and must not grow a `//` prefix. */
-.marker-editable .unknown-inline[data-tag="optbreak"]::before {
-  content: "//";
-  color: rgba(140, 140, 140, 1);
+  /* Same as the block variant: containment comes from the inert UnknownNode, not CSS
+     (`user-select: contain` is a Blink no-op), so no user-select is set here. */
 }
 
 .notetext {
@@ -2173,6 +2177,21 @@
 }
 
 .attribute:hover {
+  color: rgba(25, 25, 25, 1);
+}
+
+/* AttributeRunNode: the ONE wrapper span holding a verse's \va/\vp display triplet or a
+   milestone's attribute run (AttributeRunNode.ts) — dim like a char span's `.attribute` run by
+   default, since `color` inherits down to the glyphs and value riding inside it. A verse's
+   wrapper additionally carries `usfm_va`/`usfm_vp` (added only for those two runKinds), whose
+   higher-specificity `.formatted-font .usfm_va`/`.usfm_vp` rules above override this dim color
+   with PT9's green/blue superscript — the same styling a standalone `char va`/`vp` span already
+   gets. A milestone's wrapper carries no such class, so it keeps the dim styling as its own. */
+.attribute-run {
+  color: rgba(170, 170, 170, 1);
+}
+
+.attribute-run:hover {
   color: rgba(25, 25, 25, 1);
 }
 
@@ -2216,6 +2235,20 @@
   padding: 0px 4px;
   /* Pill-like rounded ends */
   border-radius: 10px;
+}
+
+/* \fp (footnote paragraph) displays like a paragraph start — a line break before its span —
+   while the note stays one inline run in the data (no newline ever enters USJ or USFM; the
+   noteEnterFp suite pins the serialization). A ::before generated line break is used instead of
+   `display: block` because it keeps the span inline (the trailing \f* closer glyph stays on the
+   last content line instead of dropping to its own line, and the expanded-note pill background
+   doesn't fragment around a block box) and the pseudo-element is not in the DOM, so the caret
+   can never land in it and Lexical's selection/serialization are untouched. Scoped to
+   .note.expanded so it applies wherever an expanded note's content is visible and never affects
+   collapsed notes, whose content is hidden. */
+.note.expanded .usfm_fp::before {
+  content: "\A";
+  white-space: pre;
 }
 
 /* NoteNode > ImmutableNoteCallerNode */

@@ -1,8 +1,14 @@
 import {
+  $resolvePendingMarkers,
+  $settlePendedDisplayOwner,
+  MarkerEditContext,
+} from "./markerEditTier1.utils";
+import {
   $appendCharPara,
   $appendVersePara,
   testEnvironment,
   testEnvironmentWithSheet,
+  viewOptions,
 } from "./markerEdit.test-helpers";
 import { act } from "@testing-library/react";
 import {
@@ -12,31 +18,43 @@ import {
   $isRangeSelection,
   $isTextNode,
   $setSelection,
+  $setState,
   BLUR_COMMAND,
   CLICK_COMMAND,
   KEY_DOWN_COMMAND,
   KEY_ENTER_COMMAND,
+  NodeKey,
   TextNode,
 } from "lexical";
 import {
+  $createAttributeRunNode,
   $createChapterNode,
   $createCharNode,
   $createMarkerNode,
+  $createMilestoneNode,
   $createNoteNode,
   $createParaNode,
+  $createVerseNode,
   $isCharNode,
   $isParaNode,
+  AttributeRunNode,
   ChapterNode,
   CharNode,
   CURSOR_CHANGE_TAG,
+  getMarker as bundledGetMarker,
   getVisibleOpenMarkerText,
   MarkerNode,
+  MilestoneNode,
   NBSP,
   NoteNode as NoteNodeClass,
   ParaNode,
   StyleInfo,
+  textTypeState,
   VerseNode,
 } from "shared";
+// Reaching inside only for tests.
+// eslint-disable-next-line @nx/enforce-module-boundaries
+import { createBasicTestEnvironment } from "../../../../../libs/shared/src/nodes/usj/test.utils";
 
 function $appendHeadingPara(): { para: ParaNode; marker: MarkerNode } {
   const para = $createParaNode("s1");
@@ -55,7 +73,7 @@ const customSheet: StyleInfo = {
   },
 };
 
-describe("stylesheet-first kind guards (Phase 4)", () => {
+describe("stylesheet-first kind guards", () => {
   it("renames a char span to a project-known custom char marker in Tier 1", async () => {
     let char: CharNode, marker: MarkerNode, closer: MarkerNode;
     const { editor } = await testEnvironmentWithSheet(
@@ -154,7 +172,7 @@ describe("Tier 1 paragraph-marker rename", () => {
   it("keeps the caret's OWN pending marker literal on blur (marker-menu focus loss)", async () => {
     // Clicking a marker-menu item (or a P10 host overlay) blurs the editor while the caret
     // still sits in the menu's literal `\...` trigger text; blur must not Tier-2-commit that
-    // node out from under the menu's apply (Task 8 QA items 1/4). Enter/caret-departure remain
+    // node out from under the menu's apply. Enter/caret-departure remain
     // the completion triggers for the node being edited.
     let para: ParaNode, marker: MarkerNode;
     const { editor } = await testEnvironment(() => ({ para, marker } = $appendHeadingPara()));
@@ -293,12 +311,36 @@ describe("Tier 1 char/note opener rename", () => {
     });
   });
 
+  it("routes a typed + opener to Tier 2 instead of stripping the + (nest instruction)", async () => {
+    let parts: ReturnType<typeof $appendCharPara>;
+    const { editor } = await testEnvironment(() => (parts = $appendCharPara()));
+    // Typing `\+w ` is a NEST instruction, not a rename. Tier 1 must not strip the `+` and rename
+    // the span in place to "w"; it routes to Tier 2, which re-tokenizes the visible glyph text
+    // (now carrying the `+`). This span sits at paragraph level with nothing to nest into, so the
+    // tokenizer opens "w" and the stranded `\nd*` becomes an unmatched element — proof the `+`
+    // reached the tokenizer instead of being silently discarded by an in-place rename (which would
+    // have produced a clean `\w Lord\w*` with no unmatched node).
+    await act(async () => editor.update(() => parts.marker.setTextContent("\\+w ")));
+    const json = JSON.stringify(editor.getEditorState().toJSON());
+    expect(json).toContain('"type":"unmatched"');
+    expect(json).toContain('"marker":"nd*"');
+  });
+
   it("routes a para-kind marker typed in char position to Tier 2", async () => {
     let parts: ReturnType<typeof $appendCharPara>;
     const { editor } = await testEnvironment(() => (parts = $appendCharPara()));
     await act(async () => editor.update(() => parts.marker.setTextContent("\\q1 ")));
-    const json = JSON.stringify(editor.getEditorState().toJSON());
-    expect(json).toContain('"marker":"q1"'); // re-tokenized into a q1 paragraph
+    editor.getEditorState().read(() => {
+      // Tier 2 re-tokenized `\q1` into a real PARAGRAPH that now owns the text...
+      const paras = $getRoot().getChildren().filter($isParaNode);
+      const q1Para = paras.find((p) => p.getMarker() === "q1");
+      expect(q1Para).toBeDefined();
+      expect(q1Para?.getTextContent()).toContain("Lord");
+      // ...and no char span wraps it any more — a broken kind guard would instead have
+      // renamed the "nd" CharNode to "q1" in place and left the text inside it.
+      const chars = paras.flatMap((p) => p.getChildren()).filter($isCharNode);
+      expect(chars.some((c) => c.getMarker() === "nd" || c.getMarker() === "q1")).toBe(false);
+    });
   });
 });
 
@@ -447,7 +489,7 @@ describe("Tier 1 verse/chapter number sync", () => {
     });
   });
 
-  it("removes the chapter node when its marker text is fully deleted (§5.5)", async () => {
+  it("removes the chapter node when its marker text is fully deleted", async () => {
     let chapter: ChapterNode;
     const { editor } = await testEnvironment(() => {
       chapter = $createChapterNode("1");
@@ -470,18 +512,18 @@ function $appendBodyPara(): { para: ParaNode; body: TextNode } {
 }
 
 /**
- * Task 15 cluster A — the Standard-view `\`-palette keyboard flows were broken in-app by two
- * real-browser actors the demo/unit harness never exercised, root-caused from QA run 2 timelines:
+ * The Standard-view `\`-palette keyboard flows were broken in-app by two
+ * real-browser actors the demo/unit harness never exercised:
  *
  *  1. ScriptureReferencePlugin's async scrRef echo. Typing `\` fires SELECTION_CHANGE, which pushes
  *     a new scrRef up through papi; the returning setting echo (~90-190ms later) re-enters
  *     `$moveCursorToVerseStart`, which yanks the caret to the para/verse start via
  *     `editor.update(..., { tag: CURSOR_CHANGE_TAG })`. Pre-fix the marker engine treated that
  *     programmatic move as a user caret departure and force-settled the just-typed literal —
- *     instant paragraph split, `\p \` autosaved to disk (QA items 1-4/12). FALSIFIES the task's
- *     original "blur nulls the selection" hypothesis for the TYPING path: QA proved focus never
- *     leaves the editor (item 2) and the popover — which has no ScriptureReferencePlugin — never
- *     races (item 7). Fix: the update listener ignores CURSOR_CHANGE-tagged commits.
+ *     instant paragraph split, `\p \` autosaved to disk. This falsifies the
+ *     original "blur nulls the selection" hypothesis for the TYPING path: focus never
+ *     leaves the editor, and the popover — which has no ScriptureReferencePlugin — never
+ *     races. Fix: the update listener ignores CURSOR_CHANGE-tagged commits.
  *
  *  2. Cross-frame blur on palette-item CLICK. Clicking a renderer-overlay palette item blurs the
  *     editor iframe; a real cross-frame blur can null Lexical's live selection, so the BLUR handler
@@ -490,7 +532,7 @@ function $appendBodyPara(): { para: ParaNode; body: TextNode } {
  *     the last real anchor when the selection goes null (rather than clobbering it to undefined), and
  *     the BLUR handler falls back to it.
  */
-describe("Cluster A: async scrRef caret-yank and cross-frame blur (Task 15)", () => {
+describe("async scrRef caret-yank and cross-frame blur", () => {
   it("does not settle a pending paragraph-marker rename on a CURSOR_CHANGE caret yank", async () => {
     let para: ParaNode, marker: MarkerNode;
     const { editor } = await testEnvironment(() => ({ para, marker } = $appendHeadingPara()));
@@ -510,7 +552,7 @@ describe("Cluster A: async scrRef caret-yank and cross-frame blur (Task 15)", ()
   });
 
   it("survives the FOLLOW-ON untagged commit after a CURSOR_CHANGE yank (in-app 3-commit sequence)", async () => {
-    // Runtime smoke (Task 15) proved the CURSOR_CHANGE gate alone is insufficient: the scrRef echo
+    // Runtime smoke proved the CURSOR_CHANGE gate alone is insufficient: the scrRef echo
     // yanks the caret to the glyph (commit 2, tagged), then a FOLLOW-ON untagged commit (commit 3 —
     // e.g. Lexical's own selectionchange reconcile / OnSelectionChangePlugin) sees the caret parked
     // OFF the pending node and resolves it → paragraph split. The caret stays app-placed until the
@@ -542,10 +584,10 @@ describe("Cluster A: async scrRef caret-yank and cross-frame blur (Task 15)", ()
     editor.getEditorState().read(() => expect(para.getMarker()).toBe("s2")); // now completes
   });
 
-  it("does not force-settle a pending literal backslash into a split on a CURSOR_CHANGE yank (QA items 1-4)", async () => {
+  it("does not force-settle a pending literal backslash into a split on a CURSOR_CHANGE yank", async () => {
     let para: ParaNode, body: TextNode;
     const { editor } = await testEnvironment(() => ({ para, body } = $appendBodyPara()));
-    // Type an unterminated `\zz` into the body; caret stays inside, so it only pends (§5.2).
+    // Type an unterminated `\zz` into the body; caret stays inside, so it only pends.
     await act(async () =>
       editor.update(() => {
         body.setTextContent("body \\zz");
@@ -586,14 +628,14 @@ describe("Cluster A: async scrRef caret-yank and cross-frame blur (Task 15)", ()
     });
   });
 
-  // NOTE (round 3): the "tagged commit that does NOT move the caret must not arm" narrowing is
+  // NOTE: the "tagged commit that does NOT move the caret must not arm" narrowing is
   // implemented in MarkerEditPlugin (compared against the previous commit's anchor) but is not
   // jsdom-pinned: a tagged act followed by an untagged departure hits a Lexical batching edge in
   // this harness where the departure commit (and with it the deferred resolution microtask)
   // defers past the test body even with `discrete: true` — three fixture strategies failed
   // deterministically while every captured trace showed the narrowing itself deciding correctly.
   // The behavior is covered by the in-app smoke (literals settle on mouse departure).
-  it("a mouse click ends the app-placed suppression window (round 3)", async () => {
+  it("a mouse click ends the app-placed suppression window", async () => {
     let para: ParaNode, marker: MarkerNode;
     const { editor } = await testEnvironment(() => ({ para, marker } = $appendHeadingPara()));
     const $selectHeading = (offset: number) => {
@@ -653,6 +695,212 @@ describe("Cluster A: async scrRef caret-yank and cross-frame blur (Task 15)", ()
     editor.getEditorState().read(() => {
       expect(para1.getMarker()).toBe("s1"); // caret's own pending preserved (lastAnchorKey except)
       expect(para2.getMarker()).toBe("s2"); // the other pending still completes on blur
+    });
+  });
+});
+
+describe("$resolvePendingMarkers attribute-run re-pend guard", () => {
+  /**
+   * A standalone `MarkerEditContext` — bypassing the mounted `MarkerEditPlugin` — so
+   * `pendingKeys` is a plain `Set` this test can inspect directly, the same direct-call
+   * technique the Tier-2 trigger and `$rebuildParas` suites use.
+   */
+  function buildContext(): MarkerEditContext {
+    return {
+      viewOptions,
+      getMarker: bundledGetMarker,
+      pendingKeys: new Set<NodeKey>(),
+      splitExpected: { current: false },
+      rebuildAttempted: new Set<string>(),
+    };
+  }
+
+  it("keeps a caret-held edited attribute run pending, then consumes the key on departure", () => {
+    const { editor } = createBasicTestEnvironment();
+    let ndChar: CharNode;
+    let run: TextNode;
+    let other: TextNode;
+    editor.update(
+      () => {
+        ndChar = $createCharNode("nd", { lemma: "grace" });
+        run = $createTextNode('|lemma="grace"');
+        $setState(run, textTypeState, "attribute");
+        ndChar.append(
+          $createMarkerNode("nd"),
+          $createTextNode(`${NBSP}holy`),
+          run,
+          $createMarkerNode("nd", "closing"),
+        );
+        other = $createTextNode("elsewhere");
+        $getRoot().append(
+          $createParaNode("p").append($createMarkerNode("p"), $createTextNode(NBSP), ndChar),
+          $createParaNode("p").append($createMarkerNode("p"), other),
+        );
+      },
+      { discrete: true },
+    );
+    const context = buildContext();
+    editor.update(
+      () => {
+        // Mid-edit: the run diverges from canonical with the collapsed caret inside it; the
+        // engine's CharNode transform pends the SPAN key for exactly this shape.
+        run.setTextContent('|lemma="gra');
+        run.select(run.getTextContentSize(), run.getTextContentSize());
+        context.pendingKeys.add(ndChar.getKey());
+      },
+      { discrete: true },
+    );
+    editor.update(
+      () => {
+        // Resolve while the caret still holds the run. `exceptKey` shields only the anchor
+        // node itself (the run TextNode) — NOT the parent span's pended key — so without the
+        // re-pend guard this settles the span out from under the user's mid-edit caret.
+        $resolvePendingMarkers(context, run.getKey());
+        expect(context.pendingKeys.has(ndChar.getKey())).toBe(true);
+        // Nothing settled: the in-progress edit is untouched.
+        expect(run.getTextContent()).toBe('|lemma="gra');
+      },
+      { discrete: true },
+    );
+    editor.update(
+      () => {
+        // Caret departure: the next resolve consumes the key. The settle itself may refuse as
+        // a fixed point while attribute-bearing spans are still Tier-2 sentinels — key
+        // consumption (no re-pend, no leak) is the observable contract here, not the rebuild.
+        other.select(0, 0);
+        $resolvePendingMarkers(context);
+        expect(context.pendingKeys.has(ndChar.getKey())).toBe(false);
+      },
+      { discrete: true },
+    );
+  });
+});
+
+// These unit tests hand-build the wrapper directly (rather than going through the adaptor or the
+// self-healing syncs) to pin the husk-removal arm's own behavior in isolation.
+describe("$settlePendedDisplayOwner AttributeRunNode husk arm (dual-read)", () => {
+  function buildContext(): MarkerEditContext {
+    return {
+      viewOptions,
+      getMarker: bundledGetMarker,
+      pendingKeys: new Set<NodeKey>(),
+      splitExpected: { current: false },
+      rebuildAttempted: new Set<string>(),
+    };
+  }
+
+  it("removes an empty milestone wrapper husk, then removes the milestone itself (run entirely absent)", () => {
+    // Mirrors the optbreak arm this one is modeled on: the empty wrapper is undead scaffolding
+    // removed as a side effect, and the OWNER's own policy (milestoneRunEntirelyAbsent, since
+    // nothing survives the husk's removal either) still runs in the SAME settle pass.
+    const { editor } = createBasicTestEnvironment();
+    let milestone!: MilestoneNode;
+    let wrapper!: AttributeRunNode;
+    editor.update(
+      () => {
+        milestone = $createMilestoneNode("qt-s", "q1");
+        wrapper = $createAttributeRunNode("milestone");
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createTextNode("before "),
+            milestone,
+            wrapper,
+            $createTextNode(" after"),
+          ),
+        );
+      },
+      { discrete: true },
+    );
+
+    const context = buildContext();
+    let result!: { handled: boolean; mutated: boolean };
+    editor.update(
+      () => {
+        result = $settlePendedDisplayOwner(milestone, context);
+      },
+      { discrete: true },
+    );
+
+    expect(result).toEqual({ handled: true, mutated: true });
+    editor.getEditorState().read(() => {
+      expect(milestone.isAttached()).toBe(false);
+      expect(wrapper.isAttached()).toBe(false);
+      const text = $getRoot().getTextContent();
+      expect(text).toContain("before ");
+      expect(text).toContain(" after");
+    });
+  });
+
+  it("removes an empty \\va wrapper husk on a verse WITHOUT removing the verse itself", () => {
+    // A verse always exists regardless of its display run — unlike a milestone, whose run IS its
+    // entire byte representation, so only the wrapper (dead scaffolding) is cleaned up here.
+    const { editor } = createBasicTestEnvironment();
+    let verse!: VerseNode;
+    let vaWrapper!: AttributeRunNode;
+    editor.update(
+      () => {
+        // No altnumber/pubnumber — a genuinely cleared field, so nothing re-derives a fresh run.
+        verse = $createVerseNode("1", getVisibleOpenMarkerText("v", "1"));
+        vaWrapper = $createAttributeRunNode("va");
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createTextNode(NBSP),
+            verse,
+            vaWrapper,
+            $createTextNode("text"),
+          ),
+        );
+      },
+      { discrete: true },
+    );
+
+    const context = buildContext();
+    let result!: { handled: boolean; mutated: boolean };
+    editor.update(
+      () => {
+        result = $settlePendedDisplayOwner(verse, context);
+      },
+      { discrete: true },
+    );
+
+    // `handled: false` regardless of the husk removal — the caller falls through to its own
+    // re-tokenize arm (see this function's doc comment on the final return), which is the
+    // existing, already-safe default for a verse whose pend isn't a recognized caret-held
+    // divergence. `mutated` is unused by the caller on this path (documented, not asserted here).
+    expect(result.handled).toBe(false);
+    editor.getEditorState().read(() => {
+      expect(verse.isAttached()).toBe(true);
+      expect(vaWrapper.isAttached()).toBe(false);
+    });
+  });
+
+  it("does not touch an attached wrapper that still has pieces (not a husk)", () => {
+    const { editor } = createBasicTestEnvironment();
+    let milestone!: MilestoneNode;
+    let wrapper!: AttributeRunNode;
+    editor.update(
+      () => {
+        milestone = $createMilestoneNode("qt-s", "q1");
+        wrapper = $createAttributeRunNode("milestone");
+        wrapper.append($createMarkerNode("qt-s", "opening"), $createMarkerNode("", "selfClosing"));
+        $getRoot().append($createParaNode("p").append(milestone, wrapper));
+      },
+      { discrete: true },
+    );
+
+    const context = buildContext();
+    editor.update(
+      () => {
+        $settlePendedDisplayOwner(milestone, context);
+      },
+      { discrete: true },
+    );
+
+    editor.getEditorState().read(() => {
+      // Neither the milestone nor its non-empty wrapper were removed — the husk arm is scoped
+      // strictly to an EMPTY wrapper.
+      expect(milestone.isAttached()).toBe(true);
+      expect(wrapper.isAttached()).toBe(true);
     });
   });
 });

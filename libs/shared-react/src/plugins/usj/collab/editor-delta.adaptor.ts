@@ -1,5 +1,5 @@
 import { $isSomeVerseNode, SomeVerseNode } from "../../../nodes/usj/node-react.utils";
-import { $isElementNodeClosing, DeltaOp, LF } from "./delta-common.utils";
+import { $hasAttributeRunAncestor, $isElementNodeClosing, DeltaOp, LF } from "./delta-common.utils";
 import {
   DeltaOpInsertNoteEmbed,
   OTBookAttribute,
@@ -17,6 +17,7 @@ import { $dfs, DFSNode } from "@lexical/utils";
 import { $getRoot, $getState, $isTextNode, EditorState, LexicalNode, TextNode } from "lexical";
 import Delta from "quill-delta";
 import {
+  $findFirstAncestorNoteNode,
   $isBookNode,
   $isCharNode,
   $isImmutableUnmatchedNode,
@@ -25,9 +26,11 @@ import {
   $isMilestoneNode,
   $isNoteNode,
   $isParaLikeNode,
+  $isParaMarkerPrefix,
   $isParaNode,
   $isSomeChapterNode,
   $isUnknownNode,
+  $isVerseNode,
   BOOK_MARKER,
   BookNode,
   CHAPTER_MARKER,
@@ -44,6 +47,7 @@ import {
   ParaNode,
   segmentState,
   SomeChapterNode,
+  textTypeState,
   UnknownAttributes,
   UnknownNode,
   VERSE_MARKER,
@@ -207,12 +211,23 @@ function $handleBlockNodes(
   }
 }
 
-/** Whether any ancestor of the node is a NoteNode. */
-function $hasNoteAncestor(node: LexicalNode): boolean {
-  for (let parent = node.getParent(); parent !== null; parent = parent.getParent()) {
-    if ($isNoteNode(parent)) return true;
-  }
-  return false;
+/**
+ * True when `node` is a paragraph's own marker-prefix glyph — the `\p`-style `MarkerNode` a
+ * `ParaNode` carries as its first child in editable marker mode (`$createMarkerPrefix`,
+ * markerEditDeletion.utils.ts). `$applyUpdate` re-synthesizes the whole prefix when materializing
+ * the paragraph, so this glyph must never flow into content ops.
+ *
+ * The position check (first child of a `ParaNode`) is load-bearing, not decorative:
+ * {@link $isParaMarkerPrefix} identifies the node SHAPE (a `MarkerNode`, in editable mode) but
+ * that shape is reused for every other glyph in the tree too — a char span's own opener/closer, a
+ * note's opening/closing glyph, a milestone's or verse's attribute-run glyph. Only a `MarkerNode`
+ * sitting in the paragraph's own prefix slot is presentation scaffolding here; a char span's own
+ * glyph, for instance, legitimately flows through as literal editable-mode text and must not be
+ * caught by this check too.
+ */
+function $isOwnParaPrefixGlyph(node: LexicalNode): boolean {
+  const parent = node.getParent();
+  return $isParaMarkerPrefix(node) && $isParaNode(parent) && parent.getFirstChild() === node;
 }
 
 function $handleTextNodes(
@@ -223,6 +238,14 @@ function $handleTextNodes(
   charContentProduced: Set<CharNode>,
 ) {
   if (!$isTextNode(currentNode)) return;
+  // An editable VerseNode's own `__text` is its marker glyph (`\v 1 `) — VerseNode extends
+  // TextNode so the glyph can sit inline for caret placement, but the glyph is engine-owned
+  // display, not content. The verse is already conveyed by its own embed op ($getVerseOp,
+  // pushed by the caller once $isSomeVerseNode matches). Skip the glyph here so it never ALSO
+  // surfaces as a content text op, which would double-count the verse's length in the OT
+  // content stream (once as the embed's implicit 1 unit, once as the leaked glyph bytes) and
+  // shift every offset that follows it.
+  if ($isVerseNode(currentNode)) return;
   // Skip a note's first text child: in editable modes this is the note's opening marker glyph
   // (MarkerNode extends TextNode), which shouldn't flow into ops. Caller text, when present as a
   // plain text child (expanded editable mode), is never the first child and is not skipped here.
@@ -235,9 +258,27 @@ function $handleTextNodes(
   // `$createNestedChars`) must not flow into ops, otherwise a round-trip doubles them:
   // - MarkerNode glyphs (char-span openers/closers and the note's own closing glyph);
   // - the expanded editable caller text (presentation of the note's `caller` attribute).
-  // MarkerNodes only exist in editable marker mode, so these rules are inert elsewhere.
-  const isInNote = $hasNoteAncestor(currentNode);
-  if (isInNote && $isMarkerNode(currentNode)) return;
+  // A char span's OWN opener/closer glyphs OUTSIDE a note legitimately flow through as literal
+  // editable-mode text (the `char` attribute wrapper is layered on top, not a substitute) — only
+  // a milestone's or a verse's \va/\vp display-run glyphs (presentation that duplicates state the
+  // embed op already carries) must never leak, in or out of a note. Those runs always ride
+  // wrapped in an AttributeRunNode now, so ANCESTRY ($hasAttributeRunAncestor) is the one
+  // exclusion needed for them — broader than a sibling-adjacency check would be, since it also
+  // catches a milestone's glyph pair with no attribute text between them (no attribute-tagged
+  // sibling to key off of) and needs no per-piece exemption for a char span's own nested glyphs
+  // (a verse's run never lands INSIDE a CharNode's own children the way the span's own bare `|…`
+  // run does). `currentNode` is a TextNode (guarded above), never itself a NoteNode, so the shared
+  // helper's inclusive start-node check reduces to a pure ancestor walk here.
+  const isInNote = $findFirstAncestorNoteNode(currentNode) !== undefined;
+  if (
+    $isMarkerNode(currentNode) &&
+    (isInNote || $isOwnParaPrefixGlyph(currentNode) || $hasAttributeRunAncestor(currentNode))
+  )
+    return;
+  // The para prefix's NBSP separator is presentation scaffolding ($createMarkerPrefix,
+  // markerEditDeletion.utils.ts); the apply side re-synthesizes the whole prefix, so its text
+  // must never enter content ops.
+  if ($getState(currentNode, textTypeState) === "marker-trailing-space") return;
   let text = currentNode.getTextContent();
   // A glyph-fronted note (first child is a MarkerNode) is the editable-mode shape; only
   // there does the caller render as a plain text child, and always in CALLER POSITION —
@@ -266,7 +307,17 @@ function $handleTextNodes(
     text = text.slice(1);
   }
 
-  const isNodeAttributeText = text.startsWith(NODE_ATTRIBUTE_PREFIX);
+  // Char-span attribute display runs (bare `|…`, no NBSP prefix — see usj-editor.adaptor's
+  // `addCharAttributes`) carry no NBSP prefix to strip against, so the prefix check alone can't
+  // catch them; the textType state tag is the other signal, kept alongside the prefix check for
+  // the legacy NBSP-prefixed (milestone) attribute text. Text inside an AttributeRunNode wrapper
+  // is excluded regardless of its own textType tag: the wrapper is an engine-owned presentation
+  // region (see AttributeRunNode.ts), so anything riding inside it is presentation, not content,
+  // whether or not it happens to also carry the "attribute" state tag.
+  const isNodeAttributeText =
+    text.startsWith(NODE_ATTRIBUTE_PREFIX) ||
+    $getState(currentNode, textTypeState) === "attribute" ||
+    $hasAttributeRunAncestor(currentNode);
   const isPlaceholderText =
     !!parentCharNode &&
     text === EMPTY_CHAR_PLACEHOLDER_TEXT &&
@@ -279,7 +330,10 @@ function $handleTextNodes(
     if (!text || text === NBSP || isNodeAttributeText) return;
     activeEmbed.contentsOps?.push(textOp);
   } else {
-    const shouldSkipTextOp = isPlaceholderText || (isNodeAttributeText && !!parentCharNode);
+    // Attribute display text is presentation-only regardless of WHERE it rides — inside a char
+    // span (the original, narrower rule) or, like a milestone's or a verse's \va/\vp value, as a
+    // plain sibling with no CharNode parent at all.
+    const shouldSkipTextOp = isPlaceholderText || isNodeAttributeText;
     if (!shouldSkipTextOp) {
       ops.push(textOp);
     }

@@ -2,6 +2,7 @@ import { ImmutableTypedTextNode } from "../features/ImmutableTypedTextNode.js";
 import { ImmutableUnmatchedNode } from "../features/ImmutableUnmatchedNode.js";
 import { MarkerNode } from "../features/MarkerNode.js";
 import { UnknownNode } from "../features/UnknownNode.js";
+import { AttributeRunNode } from "./AttributeRunNode.js";
 import { BookNode } from "./BookNode.js";
 import { ChapterNode } from "./ChapterNode.js";
 import { CharNode } from "./CharNode.js";
@@ -13,6 +14,10 @@ import { ParaNode } from "./ParaNode.js";
 import { VerseNode } from "./VerseNode.js";
 import { Klass, LexicalNode, LexicalNodeReplacement, ParagraphNode } from "lexical";
 
+export * from "./attributeDisplay.utils.js";
+export * from "./displayRunDeletion.utils.js";
+export * from "./pendedDisplayOwners.utils.js";
+export * from "./AttributeRunNode.js";
 export * from "./BookNode.js";
 export * from "./ChapterNode.js";
 export * from "./CharNode.js";
@@ -21,6 +26,8 @@ export * from "./ImpliedParaNode.js";
 export * from "./MilestoneNode.js";
 export * from "./node-constants.js";
 export * from "./node.utils.js";
+export * from "./markerSeparators.utils.js";
+export * from "./nestedGlyphs.utils.js";
 export * from "./NoteNode.js";
 export * from "./ParaNode.js";
 export * from "./VerseNode.js";
@@ -39,6 +46,13 @@ export const usjBaseNodes: readonly (Klass<LexicalNode> | LexicalNodeReplacement
   ImmutableUnmatchedNode,
   ParaNode,
   ImpliedParaNode,
+  // The forward adaptor (usj-editor.adaptor.ts, platform) serializes editable-mode verse/milestone
+  // display runs as AttributeRunNode wrappers, and this package's own self-healing syncs
+  // (attributeDisplay.utils.ts's $syncVerseAttributeRun/$syncMilestoneDisplayRun) construct one
+  // whenever they heal a run forward from a loose or missing shape — every USJ-shaped editor needs
+  // the class registered, not only shared-react's (a non-react host, e.g. packages/scribe's
+  // NoteEditor, builds its editor straight from usjBaseNodes with no react-specific node list).
+  AttributeRunNode,
   {
     replace: ParagraphNode,
     with: () => $createImpliedParaNode(),

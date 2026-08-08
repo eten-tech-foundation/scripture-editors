@@ -122,7 +122,7 @@ describe("$resetMarkerIfPrefixDeleted", () => {
 });
 
 describe("ParaMarkerPrefixGuardPlugin enablement", () => {
-  it("does not reset the marker in editable mode (MarkerEditPlugin owns deletion there, §5.5)", async () => {
+  it("does not reset the marker in editable mode (MarkerEditPlugin owns deletion there)", async () => {
     let para: ParaNode, marker: MarkerNode;
     const { editor } = await baseTestEnvironment(
       () => {
