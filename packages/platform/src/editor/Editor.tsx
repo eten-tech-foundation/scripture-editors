@@ -25,6 +25,7 @@ import { $getMarkerMenuContext } from "./markerMenu/markerMenuContext.utils";
 import { $applyParaMarker } from "./markerEdit/applyParaMarker.utils";
 import { COMMIT_PENDING_MARKERS_COMMAND, MarkerEditPlugin } from "./markerEdit/MarkerEditPlugin";
 import { MarkerValidationPlugin } from "./markerEdit/MarkerValidationPlugin";
+import { $settledUsj } from "./markerEdit/virtualSettle.utils";
 import { ParaMarkerPrefixGuardPlugin } from "./ParaMarkerPrefixGuardPlugin";
 import { ScriptureReferencePlugin } from "./ScriptureReferencePlugin";
 import TreeViewPlugin from "./TreeViewPlugin";
@@ -69,6 +70,7 @@ import {
   defaultStyleInfo,
   DELTA_CHANGE_TAG,
   externalTypedMarkType,
+  getPendedDisplayOwners,
   LoggerBasic,
   ParaNode,
   SELECTION_CHANGE_TAG,
@@ -306,7 +308,25 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
       if (editorRef.current) pasteSelectionAsPlainText(editorRef.current);
     },
     getUsj() {
-      return editedUsjRef.current;
+      const editor = editorRef.current;
+      if (!editor) return editedUsjRef.current;
+      // Nothing pending: the cached serialization IS the settled document, and skipping the
+      // recompute keeps the common read as cheap as it has always been.
+      const pendedKeys = getPendedDisplayOwners(editor);
+      if (!pendedKeys || pendedKeys.size === 0) return editedUsjRef.current;
+      // `getEditorState().read`, NOT `editor.read` - the latter force-flushes any in-flight update
+      // mid-dispatch, and this is called from host save paths that can run during one.
+      const editorState = editor.getEditorState();
+      const serializedState = editorState.toJSON();
+      return (
+        editorState.read(() =>
+          $settledUsj(serializedState, pendedKeys, {
+            viewOptions,
+            getMarker: markerLookup,
+            logger,
+          }),
+        ) ?? editedUsjRef.current
+      );
     },
     commitPendingMarkerEdits() {
       // Discrete so the settle commits synchronously: `DeltaOnChangePlugin` then refreshes

@@ -52,14 +52,22 @@ export interface EditorRef {
   paste(): void;
   /** Paste text as plain text at the current cursor position. */
   pastePlainText(): void;
-  /** Get USJ Scripture data. */
+  /**
+   * Get USJ Scripture data — always SETTLED, whatever the screen currently shows mid-edit. In
+   * editable marker modes a marker rename, a typed marker literal, or an edited display run stays
+   * pending in the document until the caret departs; this returns the document those bytes MEAN
+   * (the same re-tokenization a departure settle performs), computed without touching the editor,
+   * so the user's edit stays pending on screen and their caret and undo history are untouched.
+   * Settling is uniform: a half-typed `|stuf` settles to literal content, because that is what
+   * those bytes mean to anything that parses them.
+   */
   getUsj(): Usj | undefined;
   /**
-   * Settle pending mid-edit marker text (Standard view's marker-editing engine) so the USJ
-   * returned by {@link EditorRef.getUsj} matches what is on screen. In editable marker modes a
-   * marker rename that the user walked away from mid-edit stays pending indefinitely, so reading
-   * the USJ would serialize the OLD marker; call this right before reading the USJ to save so the
-   * pending rename is flushed first.
+   * Settle pending mid-edit marker text (Standard view's marker-editing engine) IN THE DOCUMENT,
+   * so the screen shows the finished structure. NOT required before reading the USJ to save —
+   * {@link EditorRef.getUsj} already returns settled output — so a host that only needs canonical
+   * USJ should not call this at all: it mutates the document, which pushes a history entry and can
+   * re-settle content the user just undid.
    *
    * Two carve-outs: while the app-placed-caret suppression window is armed (the caret was placed
    * by a programmatic scrRef move or an undo/redo restore, with no user gesture since), NOTHING

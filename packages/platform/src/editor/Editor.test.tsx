@@ -1574,7 +1574,7 @@ describe("commitPendingMarkerEdits (abandonment window)", () => {
     return (para as { marker?: string }).marker;
   }
 
-  it("settles an abandoned mid-rename so getUsj returns what the screen shows", async () => {
+  it("settles an abandoned mid-rename in the output, leaving the editor pending", async () => {
     const ref = createRef<EditorRef>();
     const capture = lexicalCapture();
     await act(async () => {
@@ -1611,7 +1611,17 @@ describe("commitPendingMarkerEdits (abandonment window)", () => {
     const root = lexical.getRootElement();
     if (!root) throw new Error("editor root not found");
     act(() => root.blur());
-    expect(paraMarkerOf(ref.current?.getUsj())).toBe("p"); // stale: screen shows \q1
+    // Settled without settling: the host reads the canonical marker even though the rename is
+    // still pending.
+    expect(paraMarkerOf(ref.current?.getUsj())).toBe("q1");
+
+    // ...and the editor still shows the pending literal — reading the USJ mutated nothing.
+    lexical.getEditorState().read(() => {
+      const para = $getRoot().getChildren().find($isParaNode);
+      if (!para) throw new Error("expected a ParaNode");
+      expect(para.getMarker()).toBe("p");
+      expect(para.getTextContent()).toContain("\\q1");
+    });
 
     act(() => {
       ref.current?.commitPendingMarkerEdits();
