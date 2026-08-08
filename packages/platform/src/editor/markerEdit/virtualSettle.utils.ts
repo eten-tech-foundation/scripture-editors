@@ -12,8 +12,11 @@
  * the same `usjEditorAdaptor.serializeEditorState` output the mutating path parses, spliced as JSON
  * — and one `deserializeSerializedEditorState` (editor-usj.adaptor.ts) over the patched document produces
  * the result, so text coalescing, implied-para flattening, and every display-byte exclusion gate
- * behave exactly as they do for an unsettled read. That divergence is the wave's named risk, and
- * `settledGetUsj.test.tsx`'s equivalence property is what holds the two halves together.
+ * behave exactly as they do for an unsettled read. That divergence is the wave's named risk: the
+ * mutating and read-only halves must always agree on what a given scope settles to, which is why
+ * every guard rail, sentinel-symmetry check, and splice order here is a direct mirror of
+ * `$rebuildParas`/`$rebuildNoteContent` rather than an independent re-derivation — an equivalence
+ * property this module's own tests hold the two halves to, scope by scope.
  *
  * Uniform by design: there is NO caret-held exception. A half-typed `|stuf` settles to literal
  * content in the output, because that is what those bytes mean to anything downstream that parses
