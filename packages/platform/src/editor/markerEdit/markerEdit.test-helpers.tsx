@@ -347,3 +347,34 @@ export function copyEvent(): { event: ClipboardEvent; getData: (type: string) =>
     getData: (type: string) => clipboardData.getData(type),
   };
 }
+
+/**
+ * jsdom-safe paste-event stub carrying an arbitrary clipboard MIME payload. `types`/`files` are
+ * populated so Lexical's own default paste handling (reached whenever a Standard-view/protection
+ * handler declines and the dispatch falls through to a lower-priority `PASTE_COMMAND` listener)
+ * can duck-type it the same way a real `ClipboardEvent` would — jsdom implements neither
+ * `ClipboardEvent` nor `DataTransfer`. Shared by every suite that dispatches `PASTE_COMMAND` or
+ * calls a paste handler directly.
+ */
+export function pasteEvent(payload: { [key: string]: string }): {
+  event: ClipboardEvent;
+  prevented: () => boolean;
+} {
+  const store = new Map(Object.entries(payload));
+  const preventDefault = vi.fn();
+  const clipboardData = {
+    types: [...store.keys()],
+    files: [],
+    getData: (type: string) => store.get(type) ?? "",
+  };
+  return {
+    event: { clipboardData, preventDefault } as unknown as ClipboardEvent,
+    prevented: () => preventDefault.mock.calls.length > 0,
+  };
+}
+
+/** A paste event whose only payload is `text/plain` — what pasting from a plain-text source
+ * (terminal, text editor, address bar) delivers. */
+export function plainTextPasteEvent(text: string): ClipboardEvent {
+  return pasteEvent({ "text/plain": text }).event;
+}

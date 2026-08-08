@@ -9,6 +9,7 @@ import {
   $noteContentText,
   findOnlyNote,
   noteUsx,
+  plainTextPasteEvent,
   renderStandardEditorWithCollapsedNote,
   renderStandardEditorWithUnclosedNote,
   requireDefined,
@@ -756,12 +757,6 @@ describe("multi-line plain-text paste inside note content", () => {
       getData: (type: string) => flavors[type] ?? "",
     };
     return { clipboardData, preventDefault: () => undefined } as unknown as ClipboardEvent;
-  }
-
-  /** A paste event whose only payload is `text/plain` — what pasting from a plain-text source
-   * (terminal, text editor, address bar) delivers. */
-  function plainTextPasteEvent(text: string): ClipboardEvent {
-    return pasteEventWith({ "text/plain": text });
   }
 
   /** Paste the given event with the selection set by `$select` — one update, like a real paste. */

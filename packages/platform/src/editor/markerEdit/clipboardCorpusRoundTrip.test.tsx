@@ -35,7 +35,12 @@
  * excluding 2sa here is a real coverage gap, not a redundant re-test.
  */
 import { MarkerEditPlugin } from "./MarkerEditPlugin";
-import { copyEvent, serializedState, viewOptions } from "./markerEdit.test-helpers";
+import {
+  copyEvent,
+  plainTextPasteEvent,
+  serializedState,
+  viewOptions,
+} from "./markerEdit.test-helpers";
 import {
   deserializeSerializedEditorState,
   initialize as initializeDeserialize,
@@ -48,18 +53,6 @@ import { baseTestEnvironment } from "../../../../../libs/shared-react/src/plugin
 import { MarkerObject, Usj, usxStringToUsj } from "@eten-tech-foundation/scripture-utilities";
 import { $getRoot, COPY_COMMAND, PASTE_COMMAND, RootNode } from "lexical";
 import { $isChapterNode, $isImmutableChapterNode } from "shared";
-
-/** A `text/plain`-only paste stub (`types`/`files` present — `@lexical/clipboard`'s default
- * text/plain handling reads them — matching `clipboardCopyFidelity.test.tsx`'s
- * `plainTextPasteEvent`). */
-function plainTextPasteEvent(text: string): ClipboardEvent {
-  const clipboardData = {
-    types: ["text/plain"],
-    files: [],
-    getData: (type: string) => (type === "text/plain" ? text : ""),
-  };
-  return { clipboardData, preventDefault: () => undefined } as unknown as ClipboardEvent;
-}
 
 /** The index of the top-level child right after the document's (LAST) chapter node — every corpus
  * fixture but `"periph"` has exactly one, but a document could in principle carry more than one

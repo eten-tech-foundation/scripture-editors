@@ -11,6 +11,7 @@ import {
   $appendVerseAttributeRun,
   copyEvent,
   findOnlyNote,
+  plainTextPasteEvent,
   serializedState,
   testEnvironment,
   viewOptions,
@@ -59,18 +60,6 @@ if (typeof globalStubs.DragEvent === "undefined")
   globalStubs.DragEvent = class DragEvent extends Event {};
 if (typeof globalStubs.ClipboardEvent === "undefined")
   globalStubs.ClipboardEvent = class ClipboardEvent extends Event {};
-
-/** A `text/plain`-only paste stub (`types`/`files` present — `@lexical/clipboard`'s default
- * text/plain handling reads them — matching `markerEditDeletion.utils.test.tsx`'s
- * `plainTextPasteEvent`). */
-function plainTextPasteEvent(text: string): ClipboardEvent {
-  const clipboardData = {
-    types: ["text/plain"],
-    files: [],
-    getData: (type: string) => (type === "text/plain" ? text : ""),
-  };
-  return { clipboardData, preventDefault: () => undefined } as unknown as ClipboardEvent;
-}
 
 /** A source-faithful (real space after the marker glyph) `marker-trailing-space` separator, the
  * shape `usj-editor.adaptor.ts`'s `createPara` builds after a paragraph's own opening marker. */
