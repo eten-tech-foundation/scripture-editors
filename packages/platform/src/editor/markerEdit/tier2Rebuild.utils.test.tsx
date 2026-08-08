@@ -50,6 +50,7 @@ import {
   getVisibleOpenMarkerText,
   $isParaNode,
   NBSP,
+  NoteNode,
   ParaNode,
   textTypeState,
   TypedMarkNode,
@@ -1888,7 +1889,9 @@ describe("$requestTier2ForNode", () => {
     function $findNoteContentNode(): TextNode {
       const content = $findNote()
         .getChildren()
-        .find((child): child is TextNode => $isTextNode(child) && !$isMarkerNode(child));
+        .find(
+          (child: LexicalNode): child is TextNode => $isTextNode(child) && !$isMarkerNode(child),
+        );
       if (!content) throw new Error("expected note content");
       return content;
     }
