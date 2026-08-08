@@ -3,6 +3,7 @@
  * editor. Each case drives a real pending edit through the mounted engine, reads the settled USJ,
  * and then asserts the editor itself is unchanged — the two halves of the contract.
  */
+import { deserializeSerializedEditorState } from "../adaptors/editor-usj.adaptor";
 import { testEnvironment, viewOptions } from "./markerEdit.test-helpers";
 import { $settledUsj } from "./virtualSettle.utils";
 import { Tier2Context } from "./tier2Rebuild.utils";
@@ -28,6 +29,19 @@ function settledUsjOf(editor: LexicalEditor): Usj | undefined {
   const serializedState = editorState.toJSON();
   const pendedKeys = getPendedDisplayOwners(editor) ?? new Set<string>();
   return editorState.read(() => $settledUsj(serializedState, pendedKeys, context));
+}
+
+/**
+ * The UNSETTLED USJ: a plain editor->USJ conversion of the editor's current serialized state,
+ * with no settle logic involved at all — what the caller already has cached before ever calling
+ * `$settledUsj` (see its `undefined` fast-path return). The reference a refusing scope's settled
+ * output must match byte-for-byte, since a refusal contributes "as-is", never a partial patch.
+ */
+function unsettledUsjOf(editor: LexicalEditor): Usj | undefined {
+  const editorState = editor.getEditorState();
+  return editorState.read(() =>
+    deserializeSerializedEditorState(editorState.toJSON(), viewOptions),
+  );
 }
 
 /** The `marker` of the USJ content entry at `index`, or undefined when it is not a marker object. */
@@ -108,5 +122,51 @@ describe("$settledUsj — paragraph scopes", () => {
     );
     // The sentinel serialized IN PLACE: between the two text runs, not moved to an end.
     expect(optbreakIndex).toBe(1);
+  });
+
+  it("refuses a guard-railed scope AS-IS while an unrelated pended scope still settles (per-scope refusal, not whole-document)", async () => {
+    const { editor } = await testEnvironment(() => {
+      const refusingPara = $createParaNode("p").append(
+        $createMarkerNode("p"),
+        $createTextNode(`${NBSP}refuses`),
+      );
+      // `$buildParaFragment`'s guard rail refuses any paragraph carrying unknownAttributes,
+      // regardless of what is pending inside it — set directly on the live node, since
+      // unrecognized USFM attributes have no display representation of their own to type.
+      refusingPara.setUnknownAttributes({ custom: "x" });
+      const settlingPara = $createParaNode("p").append(
+        $createMarkerNode("p"),
+        $createTextNode(`${NBSP}settles`),
+      );
+      $getRoot().append(refusingPara, settlingPara);
+    });
+
+    // Rename BOTH paragraphs' glyphs in place and leave both pending — so both scopes land in
+    // the engine's live pended-owner set, proving the refusal below is a per-scope decision made
+    // inside `$settledParaNodes`, not a short-circuit that abandons the whole document.
+    await act(async () => {
+      editor.update(() => {
+        const [firstPara, secondPara] = $getRoot().getChildren().filter($isParaNode);
+        const firstGlyph = firstPara?.getFirstChild();
+        const secondGlyph = secondPara?.getFirstChild();
+        if (!$isMarkerNode(firstGlyph) || !$isMarkerNode(secondGlyph))
+          throw new Error("expected MarkerNode prefix glyphs on both paragraphs");
+        firstGlyph.setTextContent("\\q1");
+        secondGlyph.setTextContent("\\q2");
+      });
+      await Promise.resolve();
+    });
+
+    const settled = settledUsjOf(editor);
+    // The unrelated scope genuinely re-tokenized.
+    expect(markerAt(settled, 1)).toBe("q2");
+    // The refusing scope did NOT re-tokenize: still `\p`, not `\q1`.
+    expect(markerAt(settled, 0)).toBe("p");
+
+    // Byte-identical to the unsettled serialization for the refusing paragraph specifically —
+    // the "refusal contributes the UNSETTLED serialization, never an error, never a partial
+    // patch" invariant, verified structurally rather than just by the marker check above.
+    const unsettled = unsettledUsjOf(editor);
+    expect(settled?.content[0]).toEqual(unsettled?.content[0]);
   });
 });
