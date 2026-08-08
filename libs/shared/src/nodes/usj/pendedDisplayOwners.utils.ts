@@ -19,6 +19,18 @@ export function registerPendedDisplayOwners(
   };
 }
 
+/**
+ * The live pending-owner set registered for `editor`, or `undefined` when no marker-edit engine is
+ * mounted on it (a non-editable marker mode, or an editor that has torn down). The SAME mutable Set
+ * the engine holds, not a snapshot — a reader that keeps the reference sees later pends — so
+ * callers must treat it as read-only. Takes the editor explicitly rather than reading `$getEditor()`
+ * so it can be called from outside a read/update (the editor-facing `getUsj()` path decides whether
+ * to enter a read at all based on whether anything is pending).
+ */
+export function getPendedDisplayOwners(editor: LexicalEditor): ReadonlySet<NodeKey> | undefined {
+  return pendedOwnersByEditor.get(editor);
+}
+
 /** Whether `node`'s key is pended in the active editor. Call inside a read/update. */
 export function $isDisplayOwnerPended(node: LexicalNode): boolean {
   return pendedOwnersByEditor.get($getEditor())?.has(node.getKey()) ?? false;
