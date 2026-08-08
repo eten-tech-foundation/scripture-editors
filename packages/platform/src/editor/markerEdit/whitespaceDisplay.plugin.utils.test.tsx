@@ -2,6 +2,7 @@ import { MarkerEditPlugin } from "./MarkerEditPlugin";
 import {
   copyEvent,
   findOnlyNote,
+  pasteEvent,
   serializedState,
   testEnvironment,
   viewOptions,
@@ -362,23 +363,6 @@ describe("clipboard normalization — null-event leg (ClipboardPlugin/ContextMen
     expect(copyToClipboardSpy).not.toHaveBeenCalled();
   });
 });
-
-/** A minimal jsdom-safe paste-event stub: only `clipboardData.getData`/`preventDefault` are
- * touched by the handler under test. Module-scoped so every describe below can share it. */
-function pasteEvent(payload: { [key: string]: string }): {
-  event: ClipboardEvent;
-  prevented: () => boolean;
-} {
-  let prevented = false;
-  const clipboardData = { getData: (type: string) => payload[type] ?? "" };
-  const event = {
-    clipboardData,
-    preventDefault: () => {
-      prevented = true;
-    },
-  } as unknown as ClipboardEvent;
-  return { event, prevented: () => prevented };
-}
 
 /**
  * Pastes `payload` at the current selection, settles Tier 2's structural rebuild, then selects

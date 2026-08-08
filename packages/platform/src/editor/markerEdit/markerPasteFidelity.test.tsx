@@ -12,6 +12,7 @@ import { MarkerEditPlugin } from "./MarkerEditPlugin";
 import {
   findOnlyNote,
   historyTestEnvironment,
+  pasteEvent,
   serializedState,
   viewOptions,
 } from "./markerEdit.test-helpers";
@@ -44,14 +45,6 @@ import {
   NBSP,
   textTypeState,
 } from "shared";
-
-/** A `text/plain`-only paste stub — the same minimal jsdom-safe shape every sibling suite in this
- * directory defines locally (jsdom implements neither `ClipboardEvent` nor `DataTransfer`). */
-function pasteEvent(payload: { [key: string]: string }): { event: ClipboardEvent } {
-  const clipboardData = { getData: (type: string) => payload[type] ?? "" };
-  const event = { clipboardData, preventDefault: () => undefined } as unknown as ClipboardEvent;
-  return { event };
-}
 
 /** Paste `text` at the caret, then flush the double microtask Tier 2's post-paste reconciliation
  * needs to settle — the same pattern every paste-adjacent suite in this directory uses. */

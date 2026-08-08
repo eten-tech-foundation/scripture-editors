@@ -7,6 +7,7 @@ import {
   $appendCharPara,
   $appendVersePara,
   copyEvent,
+  plainTextPasteEvent,
   requireDefined,
   serializedState,
   testEnvironment,
@@ -858,17 +859,6 @@ describe("multi-line plain-text paste", () => {
     globalStubs.DragEvent = class DragEvent extends Event {};
   if (typeof globalStubs.ClipboardEvent === "undefined")
     globalStubs.ClipboardEvent = class ClipboardEvent extends Event {};
-
-  /** A paste event whose only payload is `text/plain` — what pasting from a plain-text source
-   * (terminal, text editor, address bar) delivers. */
-  function plainTextPasteEvent(text: string): ClipboardEvent {
-    const clipboardData = {
-      types: ["text/plain"],
-      files: [],
-      getData: (type: string) => (type === "text/plain" ? text : ""),
-    };
-    return { clipboardData, preventDefault: () => undefined } as unknown as ClipboardEvent;
-  }
 
   it("keeps every pasted line as its own prefixed paragraph, caret at the end of the paste", async () => {
     // @lexical/clipboard's text/plain path calls `selection.insertParagraph()` directly per

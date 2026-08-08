@@ -162,12 +162,15 @@ const CHAPTER_OR_BOOK_ID_TOKEN = /\\(?:c|id)(?![\w-])[^\n\\]*/g;
  *
  * Splits on lines and strips per line (not one global pass over the whole text) so a token that
  * consumes an ENTIRE line can cleanly take that line's own newline with it too (no stray empty
- * paragraph left behind), while a token sharing a line with real content — `\c 5\v 1 In the
- * beginning`, or the mid-line `x \c 5 y` shape above — only loses its own bytes, leaving the rest
- * of the line (`\v 1 In the beginning`, `x ` + `y`) to paste normally. A line that already carried
- * no other content becomes empty after stripping and is dropped from the output entirely, rather
- * than surviving as a blank paragraph; a line that was ALREADY blank in the source paste (nothing
- * to do with `\c`/`\id`) is left alone.
+ * paragraph left behind). A token sharing a line with a LATER marker — `\c 5\v 1 In the
+ * beginning` — only loses its own bytes: the token regex stops at the next `\`, leaving `\v 1 In
+ * the beginning` to paste normally. But `[^\n\\]*` has no such stop when nothing marker-shaped
+ * follows on the line: the mid-line `x \c 5 y` shape above loses the token's trailing payload TOO,
+ * all the way to the newline — `x \c 5 y` strips down to `x ` alone, the trailing `y` dropped
+ * along with the marker (pinned in `markerPasteFidelity.test.tsx`). A line that already carried no
+ * other content becomes empty after stripping and is dropped from the output entirely, rather than
+ * surviving as a blank paragraph; a line that was ALREADY blank in the source paste (nothing to do
+ * with `\c`/`\id`) is left alone.
  *
  * Exported for the in-note CRITICAL multi-line paste claim (`MarkerEditPlugin.tsx`), which shares
  * this strip the same way it shares `$normalizePastedNbsp` — a `\c`/`\id` token pasted into note
