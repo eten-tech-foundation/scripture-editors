@@ -1590,6 +1590,13 @@ describe("commitPendingMarkerEdits (abandonment window)", () => {
     });
     const lexical = capture.get();
 
+    // Nothing pending yet: two successive reads return the EXACT SAME reference, not just an
+    // equal one. This protects host memoization (a deepEqual/identity short-circuit keyed on
+    // the returned object) - an accidental allocation ahead of the pend check would break that
+    // silently, since a deepEqual comparison would still pass while identity-keyed memoization
+    // would not.
+    expect(ref.current?.getUsj()).toBe(ref.current?.getUsj());
+
     // Rename the `\p` glyph in place to `\q1` (no terminator typed) with the caret left
     // inside the glyph, then walk away (blur): the rename stays pending - the exact
     // window where a host save would serialize the OLD marker.
