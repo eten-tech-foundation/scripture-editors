@@ -264,11 +264,21 @@ function $settledNoteContent(
     return undefined;
   }
   let contentStart = 0;
-  if (wrapperChildren[0]?.type === "marker") {
+  const first = wrapperChildren[0] as { type?: string; markerSyntax?: string } | undefined;
+  // Mirrors `$rebuildNoteContent`'s own `markerSyntax === "opening"` check exactly: the ONLY
+  // marker this unwrap may ever drop is the editable `\p` wrapper's own visible prefix glyph — a
+  // "marker"-typed sibling that is NOT an opening glyph (a stray closing/self-closing marker,
+  // which the tokenizer never emits in this slot but which this check must not silently eat
+  // regardless) must fall through and stay in the content instead.
+  if (first?.type === "marker" && first.markerSyntax === "opening") {
     contentStart = 1;
     const second = wrapperChildren[1];
-    const secondState = second as { $?: { textType?: string } };
-    if (second && second.type !== "marker" && secondState.$?.textType === "marker-trailing-space")
+    const secondState = second as { type?: string; $?: { textType?: string } } | undefined;
+    if (
+      secondState &&
+      secondState.type !== "marker" &&
+      secondState.$?.textType === "marker-trailing-space"
+    )
       contentStart = 2;
   }
   const rebuilt = wrapperChildren.slice(contentStart);
