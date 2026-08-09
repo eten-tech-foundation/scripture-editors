@@ -30,6 +30,7 @@
 import { deserializeSerializedEditorState } from "../adaptors/editor-usj.adaptor";
 import usjEditorAdaptor from "../adaptors/usj-editor.adaptor";
 import {
+  $buildNoteFragment,
   $buildParaFragment,
   $settleScopeForNode,
   ATOMIC_SENTINEL,
@@ -53,6 +54,7 @@ import {
   SerializedLexicalNode,
 } from "lexical";
 import { $isNoteNode, NoteNode, ParaNode, usfmFragmentToUsjContent } from "shared";
+import { ViewOptions } from "shared-react";
 
 /** Where a live node's serialized counterpart sits: the JSON node itself, plus the children array
  * holding it (the array a splice must target — its index is re-read at splice time, since earlier
@@ -226,6 +228,67 @@ function $settledParaNodes(
 }
 
 /**
+ * The serialized nodes a settled note's CONTENT becomes, paired with the live content nodes they
+ * replace — or `undefined` when the settle refuses. Mirrors `$rebuildNoteContent`: content is
+ * tokenized in note context, re-serialized with expanded notes so char spans come back inline, and
+ * the tokenizer's default `\p` wrapper (plus the visible para prefix glyph and its trailing space)
+ * is unwrapped, since none of that belongs inside a note.
+ */
+function $settledNoteContent(
+  note: NoteNode,
+  sites: Map<NodeKey, SerializedSite>,
+  context: Tier2Context,
+): { rebuilt: SerializedLexicalNode[]; contentNodes: LexicalNode[] } | undefined {
+  const { viewOptions, getMarker: getMarkerFn, logger } = context;
+  const built = $buildNoteFragment(note, getMarkerFn);
+  if (!built) return undefined;
+  const { out, contentNodes } = built;
+  if (contentNodes.length === 0) return undefined;
+  const content: MarkerContent[] = usfmFragmentToUsjContent(out.text, {
+    getMarker: getMarkerFn,
+    isNoteContext: true,
+  });
+  if (content.length === 0) return undefined;
+  if (countSentinels(content) !== out.sentinels.length) {
+    logger?.warn("[MarkerEdit] Settled note USJ skipped: sentinel/preserved-node count mismatch");
+    return undefined;
+  }
+  const noteViewOptions: ViewOptions = { ...viewOptions, noteMode: "expanded" };
+  const topLevel = usjEditorAdaptor.serializeEditorState(
+    { type: USJ_TYPE, version: USJ_VERSION, content },
+    noteViewOptions,
+  ).root.children;
+  const wrapperChildren = topLevel.length === 1 ? serializedChildren(topLevel[0]) : undefined;
+  if (!wrapperChildren) {
+    logger?.warn("[MarkerEdit] Settled note USJ skipped: unexpected serialized shape");
+    return undefined;
+  }
+  let contentStart = 0;
+  if (wrapperChildren[0]?.type === "marker") {
+    contentStart = 1;
+    const second = wrapperChildren[1];
+    const secondState = second as { $?: { textType?: string } };
+    if (second && second.type !== "marker" && secondState.$?.textType === "marker-trailing-space")
+      contentStart = 2;
+  }
+  const rebuilt = wrapperChildren.slice(contentStart);
+  if (rebuilt.length === 0) return undefined;
+  if (countSerializedSentinels(rebuilt) !== out.sentinels.length) {
+    logger?.warn(
+      "[MarkerEdit] Settled note USJ skipped: serialized sentinel/preserved-node count mismatch",
+    );
+    return undefined;
+  }
+  const runs = serializedRunsOf(out, sites);
+  if (!runs) {
+    logger?.warn("[MarkerEdit] Settled note USJ skipped: a preserved node had no serialized form");
+    return undefined;
+  }
+  replaceSerializedSentinels(rebuilt, runs);
+  return { rebuilt, contentNodes };
+}
+
+/**
  * The settled USJ for the editor state `serializedState` was exported from, or `undefined` when
  * nothing settleable is pending (the caller keeps whatever it already has). Call INSIDE a
  * `read()` of that same state. `serializedState` is mutated in place and must therefore be a fresh
@@ -252,6 +315,22 @@ export function $settledUsj(
 
   const sites = new Map<NodeKey, SerializedSite>();
   $mapSerializedSites($getRoot().getChildren(), serializedState.root.children, sites);
+
+  // Notes FIRST: a settled note that also rides inside a settling paragraph is preserved there as
+  // a sentinel, and the paragraph pass substitutes the very serialized subtree this pass has just
+  // rewritten in place — so the paragraph's output carries the settled note, not the pending one.
+  for (const note of noteScopes.values()) {
+    const site = sites.get(note.getKey());
+    const noteChildren = site ? serializedChildren(site.node) : undefined;
+    if (!noteChildren) continue;
+    const built = $settledNoteContent(note, sites, context);
+    if (!built) continue;
+    const firstSite = sites.get(built.contentNodes[0].getKey());
+    if (!firstSite) continue;
+    const start = noteChildren.indexOf(firstSite.node);
+    if (start < 0) continue;
+    noteChildren.splice(start, built.contentNodes.length, ...built.rebuilt);
+  }
 
   for (const para of paraScopes.values()) {
     const site = sites.get(para.getKey());
