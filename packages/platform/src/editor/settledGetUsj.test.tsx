@@ -5,6 +5,7 @@
  * afterwards — reading the document must never settle it under the user.
  */
 import {
+  expectTier2FixedPoint,
   mountExpandedNoteEditor,
   mountStandardViewEditor,
   spanUsj,
@@ -394,5 +395,20 @@ describe("settled getUsj — virtual settle equals the real settle", () => {
     // trivially, proving nothing about the equivalence this suite exists to pin.
     expect(virtualUsj).toBeDefined();
     expect(virtualUsj).toEqual(realUsj);
+  });
+});
+
+describe("settled getUsj — output is always a Tier-2 fixed point", () => {
+  it.each(pendingShapes)("$name", async ({ usj, $edit }) => {
+    const { ref, lexical } = await mountStandardViewEditor(usj);
+    await act(async () => {
+      lexical.update($edit);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const settled = ref.current?.getUsj();
+    if (!settled) throw new Error("expected settled USJ");
+    expectTier2FixedPoint(settled);
   });
 });

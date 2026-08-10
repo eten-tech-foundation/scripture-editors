@@ -4,14 +4,25 @@
  * rather than an export from one of the suites, so a suite that needs it does not re-register the
  * other suite's tests by importing it.
  */
+import {
+  initialize as initializeSerialize,
+  reset,
+  serializeEditorState,
+} from "./adaptors/usj-editor.adaptor";
 import Editor from "./Editor";
 import { EditorRef } from "./editor.model";
+import { $rebuildParas, Tier2Context } from "./markerEdit/tier2Rebuild.utils";
 import { Usj } from "@eten-tech-foundation/scripture-utilities";
 import { EditorRefPlugin } from "@lexical/react/LexicalEditorRefPlugin";
 import { act, render } from "@testing-library/react";
-import { LexicalEditor } from "lexical";
+import { $getRoot, LexicalEditor } from "lexical";
 import { createRef, ReactElement, RefObject } from "react";
-import { getViewOptions, STANDARD_VIEW_MODE, ViewOptions } from "shared-react";
+import { $isParaNode, getMarker as bundledGetMarker, TypedMarkNode } from "shared";
+import { getViewOptions, STANDARD_VIEW_MODE, usjReactNodes, ViewOptions } from "shared-react";
+import { expect } from "vitest";
+// Reaching inside only for tests.
+// eslint-disable-next-line @nx/enforce-module-boundaries
+import { createBasicTestEnvironment } from "../../../../libs/shared/src/nodes/usj/test.utils";
 
 // jsdom doesn't implement `getBoundingClientRect` on `Range`; moving the caret gives the editor
 // root DOM focus, and Lexical's post-commit scroll-into-view reads a Range rect. Stub it (a zero
@@ -95,4 +106,40 @@ export async function mountExpandedNoteEditor(
   usj: Usj,
 ): Promise<{ ref: RefObject<EditorRef | null>; lexical: LexicalEditor }> {
   return mountEditor(usj, { ...requireStandardViewOptions(), noteMode: "expanded" });
+}
+
+/** Load `usj` into a fresh headless standard-view editor; mirrors tier2Rebuild.corpus.test.tsx. */
+function loadHeadless(usj: Usj): LexicalEditor {
+  initializeSerialize(undefined, undefined);
+  reset();
+  const state = serializeEditorState(usj, requireStandardViewOptions());
+  const { editor } = createBasicTestEnvironment([TypedMarkNode, ...usjReactNodes]);
+  editor.setEditorState(editor.parseEditorState(JSON.stringify({ root: state.root })));
+  return editor;
+}
+
+/**
+ * Assert `usj` is a Tier-2 fixed point: re-loaded on its own, every paragraph REFUSES a rebuild
+ * (returns false) and mutates nothing. Anything else means a consumer was handed USJ that still had
+ * settling left in it, which is the standing acceptance for settled output.
+ */
+export function expectTier2FixedPoint(usj: Usj): void {
+  const headless = loadHeadless(usj);
+  const context: Tier2Context = {
+    viewOptions: requireStandardViewOptions(),
+    getMarker: bundledGetMarker,
+  };
+  const changed: string[] = [];
+  headless.update(
+    () => {
+      $getRoot()
+        .getChildren()
+        .filter($isParaNode)
+        .forEach((para, index) => {
+          if ($rebuildParas([para], context)) changed.push(`#${index} \\${para.getMarker()}`);
+        });
+    },
+    { discrete: true },
+  );
+  expect(changed).toEqual([]);
 }

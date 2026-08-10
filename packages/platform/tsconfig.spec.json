@@ -29,6 +29,7 @@
     "src/**/*.test.jsx",
     "src/**/*.spec.jsx",
     "src/**/markerEdit.test-helpers.tsx",
+    "src/**/settledGetUsj.test-helpers.tsx",
     "src/**/*.d.ts"
   ],
   "references": [
