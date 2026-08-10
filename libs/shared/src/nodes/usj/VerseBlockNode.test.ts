@@ -51,6 +51,25 @@ describe("VerseBlockNode", () => {
     });
   });
 
+  // The range is derived from the number, so a number that has no range must not leave the
+  // previous one behind on the element for a layout to read as this verse's.
+  it("clears the range attributes when the verse number stops being numeric", () => {
+    withEditor(nodes, () => {
+      // Two distinct nodes, which is what Lexical hands `updateDOM`. Mutating one node in place
+      // would not work here: a node created in the same update is already writable, so `setNumber`
+      // returns that same object and there would be no previous state to compare against.
+      const previousBlock = $createVerseBlockNode("14-15");
+      const dom = previousBlock.createDOM();
+      const verseBlock = $createVerseBlockNode("abc");
+
+      verseBlock.updateDOM(previousBlock, dom);
+
+      expect(dom.getAttribute("data-verse-number")).toBe("abc");
+      expect(dom.getAttribute("data-verse-start")).toBeNull();
+      expect(dom.getAttribute("data-verse-end")).toBeNull();
+    });
+  });
+
   it("re-derives the range when the verse number is set", () => {
     withEditor(nodes, () => {
       const verseBlock = $createVerseBlockNode("5").setNumber("14-15");

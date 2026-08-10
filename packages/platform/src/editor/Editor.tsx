@@ -42,6 +42,7 @@ import {
   PropsWithChildren,
   ReactElement,
   useCallback,
+  useEffect,
   useImperativeHandle,
   useMemo,
   useRef,
@@ -218,15 +219,23 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
   // rather than by the host remembering to ask for it.
   const isBlockVerse = viewOptions.verseLayout === "block";
   const effectiveIsReadonly = isReadonly || isBlockVerse;
-  if (isBlockVerse && !isReadonly)
-    stableLogger?.error(
-      "Editor: the block verse layout is read-only; ignoring `isReadonly: false`. Set " +
-        "`isReadonly: true` alongside `verseLayout: 'block'`.",
-    );
-  if (isBlockVerse && requestedViewOptions.hasGutterParaMarkers)
-    stableLogger?.warn(
-      "Editor: `hasGutterParaMarkers` is not supported with the block verse layout and is ignored.",
-    );
+
+  // Reported from an effect, not the render body: a render can run many times (twice per render in
+  // StrictMode) for one misconfiguration, and repeating the message would bury it. Read the
+  // *requested* gutter flag - `viewOptions` has already had it normalized away.
+  const isIgnoringGutterMarkers =
+    isBlockVerse && (requestedViewOptions.hasGutterParaMarkers ?? false);
+  useEffect(() => {
+    if (isBlockVerse && !isReadonly)
+      stableLogger?.error(
+        "Editor: the block verse layout is read-only; ignoring `isReadonly: false`. Set " +
+          "`isReadonly: true` alongside `verseLayout: 'block'`.",
+      );
+    if (isIgnoringGutterMarkers)
+      stableLogger?.warn(
+        "Editor: `hasGutterParaMarkers` is not supported with the block verse layout and is ignored.",
+      );
+  }, [isBlockVerse, isReadonly, isIgnoringGutterMarkers, stableLogger]);
 
   // `showCharMarkerTitles` rides on the Lexical theme so `CharNode.createDOM` can read it via
   // `EditorConfig.theme`. Theme is the channel because its map permits arbitrary keys and is the

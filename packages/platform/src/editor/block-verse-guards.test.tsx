@@ -76,6 +76,44 @@ describe("block verse layout guards", () => {
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("hasGutterParaMarkers"));
   });
 
+  // The warning above only says the flag was noticed. This asserts it was actually dropped: with
+  // the gutter still on, every paragraph would carry an immutable marker prefix.
+  it("renders no gutter marker prefixes when the gutter is requested with block verse", async () => {
+    let container: HTMLElement | undefined;
+    await act(async () => {
+      ({ container } = render(
+        <Editorial
+          defaultUsj={usjGen1v1}
+          options={{
+            isReadonly: true,
+            view: { ...blockVerseOptions, hasGutterParaMarkers: true },
+          }}
+        />,
+      ));
+    });
+
+    expect(container?.querySelectorAll(".verse-block").length).toBeGreaterThan(0);
+    expect(container?.querySelector('[data-type="marker"]')).toBeNull();
+  });
+
+  // The layout is read-only, so the marker-insert path must refuse before it can build a fragment
+  // and splice it into the document.
+  it("refuses to insert a marker", async () => {
+    const ref = createRef<EditorRef>();
+    await act(async () => {
+      render(
+        <Editorial
+          ref={ref}
+          defaultUsj={usjGen1v1}
+          scrRef={{ book: "GEN", chapterNum: 1, verseNum: 1 }}
+          options={{ isReadonly: true, view: blockVerseOptions }}
+        />,
+      );
+    });
+
+    expect(() => ref.current?.insertMarker("p")).toThrow(/readonly/i);
+  });
+
   it("refuses to apply a delta update", async () => {
     const ref = createRef<EditorRef>();
     await act(async () => {
