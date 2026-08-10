@@ -13,6 +13,7 @@ import {
   $createImpliedParaNode,
   $createMilestoneNode,
   $createNoteNode,
+  $createCursorPlaceholderNode,
   $createParaNode,
   $createUnknownNode,
   $isBookNode,
@@ -53,6 +54,29 @@ describe("$getOTPositionOfNode", () => {
     const position = editor.getEditorState().read(() => $getOTPositionOfNode(textNode));
 
     expect(position).toBe(0);
+  });
+
+  it("counts a bare cursor host as 0 so OT positions stay aligned with peers (PT-4308)", async () => {
+    const { editor } = await testEnvironment(() => {
+      targetNode = $createTextNode("text");
+      // The real empty-verse shape: a host sits between two verse markers (the verses keep it from
+      // merging into adjacent text). Verse (1) + host (0) + verse (1) → the text lands at 2, exactly
+      // as if the host were not there.
+      $getRoot().append(
+        $createImpliedParaNode().append(
+          $createImmutableVerseNode("1"),
+          $createCursorPlaceholderNode(),
+          $createImmutableVerseNode("2"),
+          targetNode,
+        ),
+      );
+    });
+    if (!targetNode) throw new Error("targetNode not initialized");
+    const textNode = targetNode;
+
+    const position = editor.getEditorState().read(() => $getOTPositionOfNode(textNode));
+
+    expect(position).toBe(2);
   });
 
   it("should return correct position for chapter embed", async () => {

@@ -33,6 +33,7 @@ import {
   charIdState,
   CharNode,
   EMPTY_CHAR_PLACEHOLDER_TEXT,
+  isCursorPlaceholderOnly,
   ImmutableUnmatchedNode,
   MilestoneNode,
   NBSP,
@@ -218,6 +219,9 @@ function $handleTextNodes(
   if ($isNoteNode(parent) && parent.getFirstChild() === currentNode) return;
 
   const text = currentNode.getTextContent();
+  // A bare cursor host (EmptyVerseCaretGuardPlugin) is collab-invisible: its insertion is never
+  // emitted, so it must never appear in a delta op either.
+  if (isCursorPlaceholderOnly(text)) return;
   const isNodeAttributeText = text.startsWith(NODE_ATTRIBUTE_PREFIX);
   const parentCharNode = $isCharNode(parent) ? parent : undefined;
   const isPlaceholderText =

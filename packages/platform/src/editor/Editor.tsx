@@ -79,6 +79,7 @@ import {
   DeltaOp,
   DisableHistoryShortcutsPlugin,
   EditablePlugin,
+  EmptyVerseCaretGuardPlugin,
   getDefaultViewOptions,
   getInsertedNodeKey,
   getViewClassList,
@@ -522,6 +523,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
           <ClipboardPlugin />
           <CommandMenuPlugin logger={stableLogger} />
           <ContextMenuPlugin options={contextMenuOptions} />
+          <EmptyVerseCaretGuardPlugin />
           <NoteNodePlugin
             expandedNoteKeyRef={expandedNoteKeyRef}
             nodeOptions={nodeOptions}
