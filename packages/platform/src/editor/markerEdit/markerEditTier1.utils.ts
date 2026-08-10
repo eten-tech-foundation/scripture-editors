@@ -68,7 +68,11 @@ export interface MarkerEditContext extends Tier2Context {
 }
 
 const TERMINATED_OPENER_REGEX = /^\\(\+?[\w-]+)[ \u00A0]$/;
-const BARE_OPENER_REGEX = /^\\(\+?[\w-]+)$/;
+// Exported for the read-only settle's own mirror of $applyOpenerRename's note-glyph-rename
+// decision surface (virtualSettle.utils.ts's `$noteGlyphRenameTarget`), which must recognize a
+// bare pending opener rename using the identical shape this file's own transform/resolve loop
+// uses \u2014 a second, independently-derived regex could silently drift out of sync with this one.
+export const BARE_OPENER_REGEX = /^\\(\+?[\w-]+)$/;
 const CLOSER_FORM_REGEX = /^\\\+?[\w-]*\*$/;
 
 /** The rest-state display text a marker glyph should carry — derived from the node's stored
