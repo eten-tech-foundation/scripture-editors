@@ -732,6 +732,24 @@ function $hasActionableCharNode(
 }
 
 /**
+ * Whether any actionable node in the selection is *not* already covered by `marker`.
+ *
+ * The read-only counterpart of the gap filter in `$extendCharacterMarkerAtSelection`, answered
+ * before the splitting pass so a fully covered request never calls `handleTextNode`'s `splitText`
+ * — which would put a documented no-op on the undo stack and produce an empty collab delta.
+ *
+ * Built on `$getActionableNodes`, which is deliberately no narrower than `$getTargetNode`, so this
+ * can only ever be more permissive — it never wrongly refuses an extend that would have happened.
+ *
+ * @param nodes - The nodes in the selection.
+ * @param marker - The character marker being extended.
+ * @returns `true` if there is something left to cover.
+ */
+function $hasUncoveredNode(nodes: LexicalNode[], marker: string): boolean {
+  return $getActionableNodes(nodes).some((node) => !$getMatchingCharNode(node, marker));
+}
+
+/**
  * Whether every character inside `element` is covered by the selection.
  *
  * Synthesized marker children don't count against coverage: they carry no user content and
@@ -980,8 +998,15 @@ export function $extendCharacterMarkerAtSelection(
   selection: RangeSelection,
   marker: string,
 ): boolean {
+  // Nothing to cover: "the whole selection" is vacuous for a caret. Unlike removal and replacement,
+  // which act on the enclosing CharNode when collapsed, extend has no analogous meaning.
+  if (selection.isCollapsed()) return false;
+
   const nodes = selection.getNodes();
   const [startOffset, endOffset] = getSelectionOffsets(selection);
+  // Answered before `$getTargetNodes` splits anything — see `$hasUncoveredNode`.
+  if (!$hasUncoveredNode(nodes, marker)) return false;
+
   const targetNodes = $getTargetNodes(nodes, startOffset, endOffset);
   if (targetNodes.length === 0) return false;
 

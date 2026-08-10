@@ -1836,6 +1836,76 @@ describe("USJ Marker Action Utils", () => {
         expect(existing.getChildren().some($isCharNode)).toBe(false);
       });
     });
+
+    it("is a no-op for a collapsed selection", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        charTextNode = $createTextNode("Mulu");
+        $getRoot().append($createParaNode("p").append(charTextNode));
+      });
+      updateSelection(editor, charTextNode, 2);
+
+      expect(sutExtendCharacterMarker(editor, "bd")).toBe(false);
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        expect(para.getChildren().some($isCharNode)).toBe(false);
+      });
+    });
+
+    it("is a no-op when the selection is already fully covered, without dirtying anything", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        charTextNode = $createTextNode("Mulu");
+        $getRoot().append($createParaNode("p").append($createCharNode("bd").append(charTextNode)));
+      });
+      // "\bd [Mul]u\bd*" — a partial selection, so a mutating implementation would `splitText`.
+      updateSelection(editor, charTextNode, 0, charTextNode, 3);
+
+      // The tree shape alone can't tell a no-op from a split-then-remerge: only the dirty sets can.
+      // An entry on the undo stack (and a collab delta) is exactly what must not happen here.
+      let dirtyLeafCount = 0;
+      const unregisterUpdateListener = editor.registerUpdateListener(({ dirtyLeaves }) => {
+        dirtyLeafCount += dirtyLeaves.size;
+      });
+
+      expect(sutExtendCharacterMarker(editor, "bd")).toBe(false);
+      unregisterUpdateListener();
+
+      expect(dirtyLeafCount).toBe(0);
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        expect(para.getChildren().length).toBe(1);
+        expect(para.getTextContent()).toBe("Mulu");
+      });
+    });
+
+    it("skips a selection inside a NoteNode", () => {
+      let noteTextNode!: TextNode;
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        noteTextNode = $createTextNode("Lord");
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createTextNode("the "),
+            $createNoteNode("f", "+").append(noteTextNode),
+          ),
+        );
+      });
+      updateSelection(editor, noteTextNode, 0, noteTextNode, 4);
+
+      // `$getTargetNode` drops a leaf whose immediate parent is a NoteNode, so nothing is
+      // actionable and the note's text is never wrapped.
+      expect(sutExtendCharacterMarker(editor, "bd")).toBe(false);
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        const noteNode = para.getLastChild();
+        if (!$isNoteNode(noteNode)) throw new Error("noteNode is not a NoteNode");
+        expect(noteNode.getChildren().some($isCharNode)).toBe(false);
+        expect(noteNode.getTextContent()).toBe("Lord");
+      });
+    });
   });
 
   describe("should insert a note", () => {
