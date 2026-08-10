@@ -8,7 +8,15 @@ import { flushQueuedEvents } from "./editor-test.utils";
 import { ContentJsonPath, Usj } from "@eten-tech-foundation/scripture-utilities";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { act, render } from "@testing-library/react";
-import { $getRoot, $isTextNode, KEY_DOWN_COMMAND, LexicalEditor, TextNode } from "lexical";
+import {
+  $createRangeSelection,
+  $getRoot,
+  $isTextNode,
+  $setSelection,
+  KEY_DOWN_COMMAND,
+  LexicalEditor,
+  TextNode,
+} from "lexical";
 import { createRef, RefObject, useEffect } from "react";
 import {
   $isCharNode,
@@ -488,6 +496,45 @@ async function selectCharNodeContent(editor: LexicalEditor): Promise<void> {
   });
 }
 
+const usjWithPartialCharMarker: Usj = {
+  type: "USJ",
+  version: "3.1",
+  content: [
+    { type: "book", marker: "id", code: "GEN", content: ["Test Book"] },
+    { type: "chapter", marker: "c", number: "1" },
+    {
+      type: "para",
+      marker: "p",
+      content: ["kolo ", { type: "char", marker: "bd", content: ["Mulu"] }],
+    },
+  ],
+};
+
+/** Selects the whole first para, from its first text node to the end of its last. */
+async function selectWholePara(editor: LexicalEditor): Promise<void> {
+  await act(async () => {
+    editor.update(
+      () => {
+        const para = $getRoot().getChildren().find($isSomeParaNode);
+        if (!para) throw new Error("Expected a para node");
+        // Text points, not element points: `getSelectionOffsets` reads `anchor.offset` verbatim,
+        // so an element point's child index would be mistaken for a character offset.
+        // Not just `$isTextNode`: `MarkerNode` extends `TextNode`, so a marker-visible mode would
+        // otherwise put the synthesized marker text at either end.
+        const textNodes = para.getAllTextNodes().filter((node) => !$isSynthesizedMarkerNode(node));
+        const firstTextNode = textNodes[0];
+        const lastTextNode = textNodes[textNodes.length - 1];
+        if (!firstTextNode || !lastTextNode) throw new Error("Expected text nodes in the para");
+        const selection = $createRangeSelection();
+        selection.anchor.set(firstTextNode.getKey(), 0, "text");
+        selection.focus.set(lastTextNode.getKey(), lastTextNode.getTextContentSize(), "text");
+        $setSelection(selection);
+      },
+      { discrete: true },
+    );
+  });
+}
+
 describe("removeCharacterMarker through the editor ref", () => {
   // The guards above only prove the method throws when it should. This drives it end to end so
   // `Editor.tsx`'s wiring is covered too - in particular that it forwards its `viewOptions` as the
@@ -628,5 +675,121 @@ describe("replaceCharacterMarker through the editor ref", () => {
     expect(serialized).toContain('"marker":"bd"');
     expect(serialized).not.toContain('"marker":"nd"');
     expect(serialized).toContain('"Lord"');
+  });
+});
+
+describe("extendCharacterMarker through the editor ref", () => {
+  it("covers the whole selection with one marker, not a nested pair", async () => {
+    const ref = createRef<EditorRef>();
+    let editor: LexicalEditor | undefined;
+    await act(async () => {
+      render(
+        <Editor ref={ref} defaultUsj={usjWithPartialCharMarker}>
+          <GrabEditor onEditor={(e) => (editor = e)} />
+        </Editor>,
+      );
+    });
+    await flushQueuedEvents();
+    if (!ref.current || !editor) throw new Error("EditorRef did not mount");
+    const lexicalEditor = editor;
+    const editorRef = ref.current;
+
+    await selectWholePara(lexicalEditor);
+    let didExtend = false;
+    await act(async () => {
+      didExtend = editorRef.extendCharacterMarker("bd");
+    });
+    await flushQueuedEvents();
+
+    expect(didExtend).toBe(true);
+
+    // The whole point of the ticket: a naive wrap over this selection yields
+    // `\bd kolo \bd Mulu\bd*\bd*`. `$charNodeTransform` merges the new run into the existing one,
+    // so exactly one `char` node comes out and nothing is nested inside it.
+    const para = editorRef.getUsj()?.content[2];
+    if (typeof para !== "object" || !("content" in para))
+      throw new Error("para is not a USJ para node");
+    expect(para.content?.length).toBe(1);
+    const [charContent] = para.content ?? [];
+    if (typeof charContent !== "object" || !("marker" in charContent))
+      throw new Error("charContent is not a USJ char node");
+    expect(charContent.marker).toBe("bd");
+    expect(charContent.content).toEqual(["kolo Mulu"]);
+  });
+
+  it("coalesces several separate runs in the selection into one", async () => {
+    const usjWithTwoRuns: Usj = {
+      type: "USJ",
+      version: "3.1",
+      content: [
+        { type: "book", marker: "id", code: "GEN", content: ["Test Book"] },
+        { type: "chapter", marker: "c", number: "1" },
+        {
+          type: "para",
+          marker: "p",
+          content: [
+            { type: "char", marker: "bd", content: ["kolo"] },
+            " ana ",
+            { type: "char", marker: "bd", content: ["Mulu"] },
+          ],
+        },
+      ],
+    };
+    const ref = createRef<EditorRef>();
+    let editor: LexicalEditor | undefined;
+    await act(async () => {
+      render(
+        <Editor ref={ref} defaultUsj={usjWithTwoRuns}>
+          <GrabEditor onEditor={(e) => (editor = e)} />
+        </Editor>,
+      );
+    });
+    await flushQueuedEvents();
+    if (!ref.current || !editor) throw new Error("EditorRef did not mount");
+    const lexicalEditor = editor;
+    const editorRef = ref.current;
+
+    await selectWholePara(lexicalEditor);
+    await act(async () => {
+      editorRef.extendCharacterMarker("bd");
+    });
+    await flushQueuedEvents();
+
+    const para = editorRef.getUsj()?.content[2];
+    if (typeof para !== "object" || !("content" in para))
+      throw new Error("para is not a USJ para node");
+    expect(para.content?.length).toBe(1);
+    const [charContent] = para.content ?? [];
+    if (typeof charContent !== "object" || !("marker" in charContent))
+      throw new Error("charContent is not a USJ char node");
+    expect(charContent.marker).toBe("bd");
+    expect(charContent.content).toEqual(["kolo ana Mulu"]);
+  });
+
+  it("is a no-op on an already fully covered selection", async () => {
+    const ref = createRef<EditorRef>();
+    let editor: LexicalEditor | undefined;
+    await act(async () => {
+      render(
+        <Editor ref={ref} defaultUsj={usjWithCharMarker}>
+          <GrabEditor onEditor={(e) => (editor = e)} />
+        </Editor>,
+      );
+    });
+    await flushQueuedEvents();
+    if (!ref.current || !editor) throw new Error("EditorRef did not mount");
+    const lexicalEditor = editor;
+    const editorRef = ref.current;
+
+    const before = JSON.stringify(editorRef.getUsj());
+    await selectCharNodeContent(lexicalEditor);
+    let didExtend = false;
+    await act(async () => {
+      didExtend = editorRef.extendCharacterMarker("nd");
+    });
+    await flushQueuedEvents();
+
+    expect(didExtend).toBe(false);
+    expect(JSON.stringify(editorRef.getUsj())).toBe(before);
   });
 });
