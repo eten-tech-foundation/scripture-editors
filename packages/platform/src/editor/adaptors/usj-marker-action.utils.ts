@@ -1036,6 +1036,12 @@ function $groupAdjacentGapRuns(gapNodes: TextNode[]): TextNode[][] {
  *   `$moveLeadingSpaceToPreviousNode`'s rule for the insert path. See the call below for the one
  *   exception.
  *
+ * @remarks Previous-sibling preference: `.find` over `[previousSibling, nextSibling]` always picks
+ *   the previous one when both are same-marker `CharNode`s. This is observable when the two
+ *   neighbors carry different cids: the wrapper can only copy one identity, so it merges with
+ *   whichever side it copied from and the result is two runs, not one, rather than merging with
+ *   both.
+ *
  * @param run - Adjacent sibling text nodes to wrap.
  * @param marker - The character marker for the new `CharNode`.
  */
@@ -1083,7 +1089,9 @@ function $wrapRunInCharNode(run: TextNode[], marker: string): void {
  * @param selection - The current range selection.
  * @param marker - The character marker to extend over the selection.
  * @param conflictingMarkers - Character markers that cannot coexist with `marker` and so are
- *   removed from the selection first.
+ *   removed from the selection first. An entry equal to `marker` itself is ignored: removing and
+ *   then re-wrapping the same run would strip its `CharNode` — including its cid — and rebuild it
+ *   with a fresh identity, silently losing that run's collab identity for no behavioral gain.
  * @param viewOptions - View options, forwarded to {@link $removeCharacterMarkerAtSelection}.
  * @returns `true` if the document was changed, `false` if the request was a no-op.
  */
@@ -1097,11 +1105,18 @@ export function $extendCharacterMarkerAtSelection(
   // which act on the enclosing CharNode when collapsed, extend has no analogous meaning.
   if (selection.isCollapsed()) return false;
 
+  // A conflicting marker equal to `marker` itself would remove and immediately re-wrap the same
+  // run, losing its cid for nothing — see the `conflictingMarkers` param doc. Derived once so the
+  // pre-flight check below and the removal loop can't disagree on which markers actually conflict.
+  const conflictingMarkersExcludingSelf = conflictingMarkers?.filter(
+    (conflictingMarker) => conflictingMarker !== marker,
+  );
+
   const nodes = selection.getNodes();
   const [startOffset, endOffset] = getSelectionOffsets(selection);
   // Both no-op paths are screened read-only, before anything splits: nothing left to cover *and*
   // no conflicting marker to strip means the document and the selection stay untouched.
-  const hasConflictToRemove = !!conflictingMarkers?.some((conflictingMarker) =>
+  const hasConflictToRemove = !!conflictingMarkersExcludingSelf?.some((conflictingMarker) =>
     $hasActionableCharNode(nodes, conflictingMarker, startOffset, endOffset),
   );
   if (!hasConflictToRemove && !$hasUncoveredNode(nodes, marker)) return false;
@@ -1112,7 +1127,7 @@ export function $extendCharacterMarkerAtSelection(
   // The selection is re-fetched around every removal: `$unwrapNode`'s `replace()` clones the active
   // selection, so the object from the previous iteration is detached.
   let didChange = false;
-  conflictingMarkers?.forEach((conflictingMarker) => {
+  conflictingMarkersExcludingSelf?.forEach((conflictingMarker) => {
     const currentSelection = $getSelection();
     if (!$isRangeSelection(currentSelection)) return;
     if ($removeCharacterMarkerAtSelection(currentSelection, conflictingMarker, viewOptions))

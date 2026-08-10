@@ -229,7 +229,12 @@ export interface EditorRef {
    * Newly covered text is merged into an adjacent run carrying the same marker automatically. In
    * the marker-visible modes (`"editable"` and `"visible"`) a newly created run has no visible
    * marker text of its own until the document is reloaded from USJ. That is a presentation artifact
-   * only: it is excluded from USJ export and self-corrects on reload.
+   * only: it is excluded from USJ export and self-corrects on reload. In those same modes, a new
+   * wrapper can also absorb a neighboring run's synthesized marker text: the gap filter that finds
+   * uncovered text does not exclude a neighbor's opening/closing marker nodes, so extending `"bd"`
+   * over `\nd Mulu\nd*` can produce a `bd` run containing `\nd `, `Mulu`, `\nd*` rather than just
+   * `Mulu`. Also presentation-only, for the same reason: excluded from USJ export and self-corrects
+   * on reload.
    *
    * @param marker - The USFM character marker to extend, e.g. `"bd"`, `"nd"`, `"wj"`. Footnote and
    *   cross-reference character markers (e.g. `"ft"`, `"xt"`) are not supported: they only occur
@@ -238,7 +243,9 @@ export interface EditorRef {
    *   removed from the selection before it is extended. Omit when nothing conflicts. Supplied by
    *   the caller rather than defined here — which markers are mutually exclusive is a project
    *   decision, not an editor one. Subject to the same footnote and cross-reference restriction as
-   *   `marker`.
+   *   `marker`. An entry equal to `marker` itself is ignored, since removing and re-wrapping the
+   *   same run would only lose that run's identity (e.g. its cid in a collab document) for no
+   *   effect.
    * @returns `true` if the document was changed, `false` if the request was a no-op.
    * @throws Will throw an error if the editor is in readonly mode.
    * @throws Will throw an error if `marker` is not a supported character marker.

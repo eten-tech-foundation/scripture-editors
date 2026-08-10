@@ -2266,6 +2266,36 @@ describe("USJ Marker Action Utils", () => {
         expect(bdNode.getChildren().some($isCharNode)).toBe(false);
       });
     });
+
+    it("ignores a conflicting marker equal to the target marker, preserving the run's identity", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        charTextNode = $createTextNode("Mulu");
+        const charNode = $createCharNode("bd");
+        $setState(charNode, charIdState, "char-id");
+        $getRoot().append($createParaNode("p").append(charNode.append(charTextNode)));
+      });
+      updateSelection(editor, charTextNode, 0, charTextNode, 4);
+
+      // Passing "bd" as its own conflicting marker is caller error, but must not be treated as a
+      // real conflict: removing and re-wrapping the same run would strip its CharNode — including
+      // the cid — and rebuild a fresh, identity-less one. The selection is already fully covered by
+      // "bd", and "bd" is the only (self-referential) conflicting marker, so once it's ignored there
+      // is nothing left to do.
+      expect(sutExtendCharacterMarker(editor, "bd", ["bd"])).toBe(false);
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        const charNode = para.getFirstChild();
+        if (!$isCharNode(charNode)) throw new Error("charNode is not a CharNode");
+        expect(charNode.getMarker()).toBe("bd");
+        expect(charNode.getTextContent()).toBe("Mulu");
+        // The cid survives untouched. Without the self-filter, the conflict pass would have removed
+        // this CharNode (stripping its cid) and the gap pass would then have rewrapped it with a
+        // fresh, cid-less identity.
+        expect($getState(charNode, charIdState)).toBe("char-id");
+      });
+    });
   });
 
   describe("should insert a note", () => {
