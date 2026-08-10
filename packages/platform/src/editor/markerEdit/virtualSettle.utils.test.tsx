@@ -12,6 +12,7 @@ import { act } from "@testing-library/react";
 import { $createTextNode, $getRoot, $isTextNode, $setState, LexicalEditor } from "lexical";
 import {
   $createCharNode,
+  $createImmutableTypedTextNode,
   $createMarkerNode,
   $createNoteNode,
   $createParaNode,
@@ -20,6 +21,7 @@ import {
   $isMarkerNode,
   $isNoteNode,
   $isParaNode,
+  $isUnknownNode,
   getEditableCallerText,
   getMarker as bundledGetMarker,
   getPendedDisplayOwners,
@@ -174,6 +176,59 @@ describe("$settledUsj — paragraph scopes", () => {
     // patch" invariant, verified structurally rather than just by the marker check above.
     const unsettled = unsettledUsjOf(editor);
     expect(settled?.content[0]).toEqual(unsettled?.content[0]);
+  });
+
+  it("does not resurrect an emptied optbreak husk when its own paragraph ALSO settles for an unrelated pend (co-settling husk regression)", async () => {
+    const { editor } = await testEnvironment(() => {
+      // The husk's own token child, matching what usj-editor.adaptor.ts's `createUnknown` builds
+      // for a live `\\optbreak` — an ImmutableTypedTextNode, not a plain TextNode (see
+      // displayRunDeletion.utils.ts's own doc comment on why both shapes must be recognized).
+      const optbreakToken = $createImmutableTypedTextNode("marker", "//");
+      const optbreak = $createUnknownNode("optbreak", "optbreak").append(optbreakToken);
+      $getRoot().append(
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(`${NBSP}before `),
+          optbreak,
+          $createTextNode(" after"),
+        ),
+      );
+    });
+
+    // Two INDEPENDENT pends in the SAME paragraph, in the SAME update: the husk's own token
+    // deleted (pends the UnknownNode via $pendOwnersOfDestroyed, displayRunDeletion.utils.ts), and
+    // a bare rename on the paragraph's own prefix glyph (Tier 1's unconditional "stays pending"
+    // shape). The rename routes this paragraph through $settledParaNodes, which rebuilds it from
+    // the LIVE tree — where the husk is STILL physically attached, since this settle never mutates
+    // the editor.
+    await act(async () => {
+      editor.update(() => {
+        const para = $getRoot().getChildren().find($isParaNode);
+        if (!para) throw new Error("expected a ParaNode");
+        const glyph = para.getFirstChild();
+        if (!$isMarkerNode(glyph)) throw new Error("expected a MarkerNode prefix glyph");
+        glyph.setTextContent("\\q1");
+
+        const liveOptbreak = para.getChildren().find($isUnknownNode);
+        if (!liveOptbreak) throw new Error("expected an UnknownNode");
+        liveOptbreak.getChildren().forEach((child) => child.remove());
+      });
+      await Promise.resolve();
+    });
+
+    const settled = settledUsjOf(editor);
+    const para = settled?.content[0];
+    if (!para || typeof para === "string") throw new Error("expected a para marker object");
+    // The unrelated rename genuinely re-tokenized.
+    expect((para as MarkerObject).marker).toBe("q1");
+    // The husk did NOT come back: no optbreak entry anywhere in the co-settled paragraph, even
+    // though the paragraph rebuild's OWN fragment (built from the still-attached live husk)
+    // sentinel-izes it and would otherwise splice its preserved JSON right back in.
+    expect(
+      (para as MarkerObject).content?.some(
+        (entry) => typeof entry !== "string" && entry.type === "optbreak",
+      ),
+    ).toBe(false);
   });
 });
 
@@ -381,5 +436,139 @@ describe("$settledUsj — expanded note scopes", () => {
       if (!liveChar) throw new Error("expected a char span inside the note");
       expect(liveChar.getMarker()).toBe("bd");
     });
+  });
+
+  it("does not resurrect an emptied optbreak husk living INSIDE a note's content when that note ALSO settles for an unrelated pend (note-interior co-settling husk regression)", async () => {
+    const { editor } = await testEnvironmentExpanded(() => {
+      const note = $createNoteNode("f", "+");
+      note.setIsCollapsed(false);
+      const callerNode = $createTextNode(getEditableCallerText("+"));
+      $setState(callerNode, textTypeState, "note-caller-boundary");
+      const optbreakToken = $createImmutableTypedTextNode("marker", "//");
+      const optbreak = $createUnknownNode("optbreak", "optbreak").append(optbreakToken);
+      const boldChar = $createCharNode("bd");
+      boldChar.append($createMarkerNode("bd"), $createTextNode(`${NBSP}bold text`));
+      note.append(
+        $createMarkerNode("f"),
+        callerNode,
+        optbreak,
+        boldChar,
+        $createMarkerNode("f", "closing"),
+      );
+      $getRoot().append($createParaNode("p").append($createMarkerNode("p"), note));
+    });
+
+    // Two INDEPENDENT pends INSIDE THE SAME NOTE, in the SAME update: the husk's own token
+    // deleted, and a bare rename on an unrelated char span's opening glyph living in the same
+    // note's content — the shape that routes the note through $settledNoteContent, which
+    // rebuilds it from the LIVE tree, where the husk is STILL physically attached.
+    await act(async () => {
+      editor.update(() => {
+        const para = $getRoot().getChildren().find($isParaNode);
+        if (!para) throw new Error("expected a ParaNode");
+        const note = para.getChildren().find($isNoteNode);
+        if (!note) throw new Error("expected a NoteNode");
+
+        const liveOptbreak = note.getChildren().find($isUnknownNode);
+        if (!liveOptbreak) throw new Error("expected an UnknownNode inside the note");
+        liveOptbreak.getChildren().forEach((child) => child.remove());
+
+        const boldChar = note.getChildren().find($isCharNode);
+        if (!boldChar) throw new Error("expected a char span inside the note");
+        const boldGlyph = boldChar.getFirstChild();
+        if (!$isMarkerNode(boldGlyph)) throw new Error("expected the char span's opening glyph");
+        boldGlyph.setTextContent("\\it");
+      });
+      await Promise.resolve();
+    });
+
+    const settled = settledUsjOf(editor);
+    const para = settled?.content[0];
+    if (!para || typeof para === "string") throw new Error("expected a para marker object");
+    const note = (para as MarkerObject).content?.find(
+      (entry) => typeof entry !== "string" && entry.type === "note",
+    );
+    if (!note || typeof note === "string") throw new Error("expected a note marker object");
+    // The unrelated rename genuinely re-tokenized inside the note's own settled content.
+    expect(
+      (note as MarkerObject).content?.some(
+        (entry) => typeof entry !== "string" && entry.type === "char" && entry.marker === "it",
+      ),
+    ).toBe(true);
+    // The husk did NOT come back: no optbreak entry anywhere in the note's co-settled content.
+    expect(
+      (note as MarkerObject).content?.some(
+        (entry) => typeof entry !== "string" && entry.type === "optbreak",
+      ),
+    ).toBe(false);
+  });
+
+  it("refuses a half-typed attribute run appended to a char span INSIDE an expanded note AS-IS (genuine Tier-2 fixed point, not a partial drop of the user's own bytes)", async () => {
+    const { editor } = await testEnvironmentExpanded(() => {
+      const note = $createNoteNode("f", "+");
+      note.setIsCollapsed(false);
+      const callerNode = $createTextNode(getEditableCallerText("+"));
+      $setState(callerNode, textTypeState, "note-caller-boundary");
+      // A CLOSED char span with PLAIN content (no pre-existing attribute) — the exact shape
+      // settledGetUsj.test.tsx's "half-typed attribute run appended to a char span" corpus entry
+      // uses at the paragraph level, reproduced here inside note content: `nd` has no default
+      // attribute, so typing an incomplete `|stuf` onto it is, once the structural NBSP separator
+      // and the user's own typed leading space both normalize to a plain space, byte-for-byte the
+      // SAME thing $rebuildNoteContent's own fixed-point check would already produce — a genuine
+      // no-op, not a settleable edit.
+      const ndChar = $createCharNode("nd");
+      ndChar.append(
+        $createMarkerNode("nd"),
+        $createTextNode("name"),
+        $createMarkerNode("nd", "closing"),
+      );
+      note.append($createMarkerNode("f"), callerNode, ndChar, $createMarkerNode("f", "closing"));
+      const refusingPara = $createParaNode("p").append(
+        $createMarkerNode("p"),
+        $createTextNode(NBSP),
+        note,
+      );
+      const settlingPara = $createParaNode("p").append(
+        $createMarkerNode("p"),
+        $createTextNode(`${NBSP}settles`),
+      );
+      $getRoot().append(refusingPara, settlingPara);
+    });
+
+    // Half-type over the char span's plain content, and rename an UNRELATED paragraph's own
+    // opening glyph, in the SAME update — both bare/pending, proving the refusal below is a
+    // per-scope decision made inside `$settledNoteContent`, not a short-circuit that abandons the
+    // whole document (mirroring the collapsed-note refusal test above).
+    await act(async () => {
+      editor.update(() => {
+        const [refusingPara, settlingPara] = $getRoot().getChildren().filter($isParaNode);
+        const note = refusingPara?.getChildren().find($isNoteNode);
+        if (!note) throw new Error("expected a NoteNode");
+        const ndChar = note.getChildren().find($isCharNode);
+        if (!ndChar) throw new Error("expected a char span inside the note");
+        const content = ndChar
+          .getChildren()
+          .find((child) => $isTextNode(child) && !$isMarkerNode(child));
+        if (!content || !$isTextNode(content))
+          throw new Error("expected the char span's content text");
+        content.setTextContent(" name|stuf");
+
+        const settlingGlyph = settlingPara?.getFirstChild();
+        if (!$isMarkerNode(settlingGlyph)) throw new Error("expected settlingPara's prefix glyph");
+        settlingGlyph.setTextContent("\\q2");
+      });
+      await Promise.resolve();
+    });
+
+    const settled = settledUsjOf(editor);
+    // The unrelated scope genuinely re-tokenized.
+    expect(markerAt(settled, 1)).toBe("q2");
+
+    // The note's char-span edit did NOT re-tokenize: byte-identical to the unsettled
+    // serialization for the refusing paragraph — a genuine Tier-2 fixed point
+    // ($rebuildNoteContent would also refuse this), not a partial drop of the user's own typed
+    // leading space.
+    const unsettled = unsettledUsjOf(editor);
+    expect(settled?.content[0]).toEqual(unsettled?.content[0]);
   });
 });
