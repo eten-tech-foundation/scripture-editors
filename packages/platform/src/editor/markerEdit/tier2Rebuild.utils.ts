@@ -107,8 +107,10 @@ function pushSentinel(out: FragmentAccumulator, nodes: LexicalNode[]): void {
   out.text += ATOMIC_SENTINEL;
 }
 
-/** Display text → USFM fragment text: structural NBSP separators become plain spaces. */
-function toFragmentText(text: string): string {
+/** Display text → USFM fragment text: structural NBSP separators become plain spaces. Exported for
+ * the read-only settle's serialized-side signature mirror (virtualSettle.utils.ts), which needs
+ * the exact same normalization over JSON text fields. */
+export function toFragmentText(text: string): string {
   return text.replaceAll(NBSP, " ");
 }
 
@@ -244,7 +246,10 @@ function verseNeedsSentinel(node: VerseNode): boolean {
  * valid per `MilestoneNode.isValidMarker` but not a stylesheet-declared milestone name) would
  * tokenize back as something else entirely — such a marker must stay atomic.
  */
-function $isReTokenizableMilestone(marker: string, getMarkerFn: MarkerLookup): boolean {
+// Exported for the read-only settle's serialized-side signature mirror (virtualSettle.utils.ts) —
+// classifying a freshly-tokenized milestone's re-tokenizability must use the exact same rule on
+// both the live and the JSON side.
+export function $isReTokenizableMilestone(marker: string, getMarkerFn: MarkerLookup): boolean {
   const kind = getMarkerFn(marker)?.type;
   return kind === MarkerType.Milestone || (kind === undefined && isMilestoneHeuristicName(marker));
 }
@@ -279,8 +284,9 @@ function $isRebuildSentinel(node: LexicalNode, getMarkerFn: MarkerLookup): boole
 
 // Delimiters (never present in scripture text) that wrap a structural element's
 // signature span so a structural change is always visible in the signature string.
-const SIGNATURE_OPEN = String.fromCharCode(1);
-const SIGNATURE_CLOSE = String.fromCharCode(2);
+// Exported for the read-only settle's own serialized-side mirror (virtualSettle.utils.ts).
+export const SIGNATURE_OPEN = String.fromCharCode(1);
+export const SIGNATURE_CLOSE = String.fromCharCode(2);
 
 /**
  * Flattens any `AttributeRunNode`(s) in `run` into their own children, so a wrapped run's
@@ -419,7 +425,14 @@ function $appendSignature(children: LexicalNode[], out: string[], getMarkerFn: M
   }
 }
 
-function $signatureOf(nodes: LexicalNode[], getMarkerFn: MarkerLookup): string {
+/**
+ * Exported for the read-only settle (virtualSettle.utils.ts): it computes this SAME signature for
+ * the CURRENT live paragraph, to compare against a JSON-side mirror of this function run over the
+ * freshly-rebuilt (but not yet materialized into live nodes) output — the fixed-point refusal
+ * `$rebuildParas` applies below must not silently become optional just because the read-only path
+ * cannot create nodes to run this live-node version on both sides.
+ */
+export function $signatureOf(nodes: LexicalNode[], getMarkerFn: MarkerLookup): string {
   const out: string[] = [];
   $appendSignature(nodes, out, getMarkerFn);
   return out.join("");

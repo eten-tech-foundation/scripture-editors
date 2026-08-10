@@ -8,7 +8,17 @@ import { mountStandardViewEditor, spanUsj } from "./settledGetUsj.test-helpers";
 import { MarkerObject, Usj } from "@eten-tech-foundation/scripture-utilities";
 import { act } from "@testing-library/react";
 import { $getRoot, $getState, $isTextNode, TextNode } from "lexical";
-import { $isCharNode, $isMarkerNode, $isParaNode, CharNode, textTypeState } from "shared";
+import {
+  $isAttributeRunNode,
+  $isCharNode,
+  $isMarkerNode,
+  $isParaNode,
+  $isUnknownNode,
+  $isVerseNode,
+  CharNode,
+  getPendedDisplayOwners,
+  textTypeState,
+} from "shared";
 
 /** The `\nd` span's USJ entry in a doc shaped like `spanUsj`, or undefined when it is gone. */
 function ndSpanOf(usj: Usj | undefined): MarkerObject | undefined {
@@ -135,5 +145,156 @@ describe("settled getUsj — uniform settling", () => {
     act(() => ref.current?.commitPendingMarkerEdits());
     // The commit is what actually changes the DOCUMENT: the marker field moves for real.
     expect(lexical.getEditorState().read($livePara1Marker)).not.toBe(beforeMarker);
+  });
+});
+
+/** One pending-edit shape: how to create it, from a document the harness loads. */
+interface PendingShape {
+  readonly name: string;
+  readonly usj: Usj;
+  readonly $edit: () => void;
+}
+
+const twoParaUsj = (first: MarkerObject["content"]): Usj => ({
+  type: "USJ",
+  version: "3.1",
+  content: [
+    { type: "book", marker: "id", code: "GEN", content: ["GEN"] },
+    { type: "chapter", marker: "c", number: "1" },
+    { type: "para", marker: "p", content: first },
+    { type: "para", marker: "p", content: ["depart here"] },
+  ],
+});
+
+/** The first paragraph's text node whose content includes `needle`. */
+function $textContaining(needle: string) {
+  const node = $getRoot()
+    .getAllTextNodes()
+    .find((text) => text.getTextContent().includes(needle));
+  if (!node) throw new Error(`no text node containing ${JSON.stringify(needle)}`);
+  return node;
+}
+
+const pendingShapes: PendingShape[] = [
+  {
+    name: "para marker renamed in place",
+    usj: twoParaUsj(["body text"]),
+    $edit: () => {
+      const para = $getRoot().getChildren().find($isParaNode);
+      if (!para) throw new Error("expected a ParaNode");
+      const glyph = para.getFirstChild();
+      if (!glyph || !$isTextNode(glyph)) throw new Error("expected a prefix glyph");
+      glyph.setTextContent("\\q1");
+    },
+  },
+  {
+    name: "half-typed attribute run appended to a char span",
+    usj: twoParaUsj(["start ", { type: "char", marker: "nd", content: ["name"] }, " end"]),
+    $edit: () => $textContaining("name").setTextContent(" name|stuf"),
+  },
+  {
+    name: "settled attribute run deleted from a char span",
+    usj: twoParaUsj([
+      "start ",
+      { type: "char", marker: "nd", content: ["name"], stuff: "thing" } as MarkerObject,
+      " end",
+    ]),
+    $edit: () => $textContaining('|stuff="thing"').remove(),
+  },
+  {
+    name: "marker literal typed mid-paragraph",
+    usj: twoParaUsj(["plain body"]),
+    $edit: () => {
+      // A collapsed caret must be anchored in THIS node before typing, or
+      // `$textNodeTier2Transform`'s whole-text termination check sees the already-complete
+      // `\nd body\nd*` span and re-tokenizes it inline, in this same commit, before the edit ever
+      // has a chance to sit pending — the same caret-anchoring requirement Task 5's report
+      // documents for a terminated literal.
+      const text = $textContaining("plain body");
+      text.setTextContent("plain \\nd body\\nd* tail");
+      text.select(0, 0);
+    },
+  },
+  {
+    name: "verse alt-number run deleted",
+    usj: twoParaUsj([{ type: "verse", marker: "v", number: "1", altnumber: "2" }, "verse body"]),
+    $edit: () => {
+      const para = $getRoot().getChildren().find($isParaNode);
+      if (!para) throw new Error("expected a ParaNode");
+      const verse = para.getChildren().find($isVerseNode);
+      if (!verse) throw new Error("expected a VerseNode");
+      const wrapper = para.getChildren().find($isAttributeRunNode);
+      if (!wrapper) throw new Error("expected an AttributeRunNode");
+      wrapper.remove();
+      // Caret at the run's insertion point (the verse's own end) — the exact shape
+      // `$isCaretAtVerseAttributeSite` (attributeDisplay.utils.ts) recognizes as "held" for a run
+      // deleted in its ENTIRETY. Without it, the self-healing sync ($syncVerseAttributeRun, driven
+      // by MarkerEditPlugin's AttributeRunNode transform re-firing on the wrapper's own removal)
+      // resurrects the run from the verse's still-set altnumber in the SAME commit, before the
+      // deletion ever has a chance to sit pending — confirmed empirically: without this caret
+      // placement the live text still reads "\va 2\va*" immediately after this edit.
+      verse.select(verse.getTextContentSize(), verse.getTextContentSize());
+    },
+  },
+  {
+    name: "optbreak display text deleted",
+    usj: twoParaUsj(["before ", { type: "optbreak" }, " after"]),
+    $edit: () => {
+      const para = $getRoot().getChildren().find($isParaNode);
+      if (!para) throw new Error("expected a ParaNode");
+      const optbreak = para.getChildren().find($isUnknownNode);
+      if (!optbreak) throw new Error("expected an UnknownNode");
+      optbreak.getChildren().forEach((child) => child.remove());
+    },
+  },
+];
+
+describe("settled getUsj — virtual settle equals the real settle", () => {
+  it.each(pendingShapes)("$name", async ({ usj, $edit }) => {
+    const { ref, lexical } = await mountStandardViewEditor(usj);
+
+    // The virtual settle is read INSIDE this same `act()`, right after the edit — not after it
+    // returns. A shape whose pend depends on a live caret residency (e.g. a syntactically COMPLETE
+    // typed literal) only stays pending up to this act() call's own commit; RTL's `act()` performs
+    // an additional effect flush on return that can itself count as the caret "moving on" (the
+    // selection is gone by the time control returns to the test body), materializing the edit for
+    // real via the ordinary caret-departure machinery before this test ever gets another chance to
+    // call `getUsj()` — reading the virtual settle any later would just read the already-
+    // materialized real output back at itself, proving nothing about `$settledUsj` at all.
+    let virtualUsj: Usj | undefined;
+    await act(async () => {
+      lexical.update($edit);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // Confirm the edit genuinely landed pending before reading the virtual settle — a shape
+      // whose edit already resolved inline (nothing left pending) would make `getUsj()` take its
+      // `pendedKeys.size === 0` fast path and never reach `$settledUsj` at all, silently proving
+      // nothing.
+      const pendingAfterEdit = getPendedDisplayOwners(lexical);
+      expect(pendingAfterEdit?.size).toBeGreaterThan(0);
+
+      virtualUsj = ref.current?.getUsj();
+    });
+
+    // Depart: park the caret in the SECOND paragraph, then blur, so the real settle below has no
+    // caret-held grace arm to take and both halves are settling the same thing.
+    await act(async () => {
+      lexical.update(() => {
+        $textContaining("depart here").select(0, 0);
+      });
+      await Promise.resolve();
+    });
+    const root = lexical.getRootElement();
+    if (!root) throw new Error("editor root not found");
+    act(() => root.blur());
+
+    // Backstop for the abandonment window (COMMIT_PENDING_MARKERS_COMMAND's own doc comment):
+    // belt-and-suspenders with the depart step above, which already resolves everything for most
+    // shapes on its own.
+    act(() => ref.current?.commitPendingMarkerEdits());
+    const realUsj = ref.current?.getUsj();
+
+    expect(virtualUsj).toEqual(realUsj);
   });
 });

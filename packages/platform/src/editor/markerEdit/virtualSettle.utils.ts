@@ -32,11 +32,16 @@ import usjEditorAdaptor from "../adaptors/usj-editor.adaptor";
 import {
   $buildNoteFragment,
   $buildParaFragment,
+  $isReTokenizableMilestone,
   $settleScopeForNode,
+  $signatureOf,
   ATOMIC_SENTINEL,
   countSentinels,
   FragmentAccumulator,
+  SIGNATURE_CLOSE,
+  SIGNATURE_OPEN,
   Tier2Context,
+  toFragmentText,
 } from "./tier2Rebuild.utils";
 import {
   MarkerContent,
@@ -53,7 +58,17 @@ import {
   SerializedEditorState,
   SerializedLexicalNode,
 } from "lexical";
-import { $isNoteNode, NoteNode, ParaNode, usfmFragmentToUsjContent } from "shared";
+import {
+  $isNoteNode,
+  $isUnknownNode,
+  closingMarkerText,
+  MarkerLookup,
+  NoteNode,
+  openingMarkerText,
+  ParaNode,
+  UnknownNode,
+  usfmFragmentToUsjContent,
+} from "shared";
 import { ViewOptions } from "shared-react";
 
 /** Where a live node's serialized counterpart sits: the JSON node itself, plus the children array
@@ -74,6 +89,197 @@ function serializedChildren(node: SerializedLexicalNode): SerializedLexicalNode[
 function serializedText(node: SerializedLexicalNode): string | undefined {
   const { text } = node as { text?: string };
   return typeof text === "string" ? text : undefined;
+}
+
+/** A serialized node's own `type` tag, or `""` for a shape with none. */
+function serializedType(node: SerializedLexicalNode): string {
+  return (node as { type?: string }).type ?? "";
+}
+
+/** A serialized MarkerNode's canonical glyph text, re-derived from `marker`/`markerSyntax`/
+ * `nested` — the exact mirror of `MarkerNode.ts`'s own (unexported) `getMarkerText`. */
+function serializedMarkerGlyphText(
+  marker: string,
+  markerSyntax: string | undefined,
+  nested: boolean | undefined,
+): string {
+  if (markerSyntax === "closing") return closingMarkerText(marker, nested);
+  if (markerSyntax === "selfClosing") return closingMarkerText("");
+  return openingMarkerText(marker, nested);
+}
+
+/**
+ * The children of an `attribute-run` wrapper sibling at `nodes[index]`, or `undefined` when that
+ * slot is not one. `usjEditorAdaptor.serializeEditorState` (usj-editor.adaptor.ts, editable mode)
+ * always wraps a fresh verse's `\va`/`\vp` triplet or a milestone's display run this way
+ * (`addVerseAttributeRun`/`addMilestoneAttributeRun`) — `rebuilt` below is exactly that adaptor's
+ * own canonical output, so a loose, unwrapped run never appears in it.
+ */
+function serializedRunWrapperChildren(
+  nodes: SerializedLexicalNode[],
+  index: number,
+): SerializedLexicalNode[] | undefined {
+  const sibling = nodes[index];
+  if (!sibling || serializedType(sibling) !== "attribute-run") return undefined;
+  return serializedChildren(sibling) ?? [];
+}
+
+/**
+ * JSON-serialized mirror of `$appendSignature`/`$signatureOf` (tier2Rebuild.utils.ts), for the
+ * FRESHLY-SERIALIZED `rebuilt` tree below — never arbitrary live-tree debris, since that is the
+ * only tree this ever runs over. This is the JSON-side half of the SAME fixed-point comparison
+ * `$rebuildParas` applies before splicing: without it, a rebuild the mutating settle would REFUSE
+ * as a no-op (its own displayed bytes are already what re-tokenizing them produces, once
+ * normalized — e.g. a structural NBSP separator and a user's own typed space both collapse to the
+ * same plain space) instead gets spliced into the read-only settle's OUTPUT, silently replacing
+ * the user's own currently-displayed bytes with a DIFFERENT-looking (through equivalent-by-
+ * signature) rebuild — exactly the divergence this module's own equivalence tests exist to catch.
+ * Lexical forbids creating nodes inside a `read()`, so `rebuilt` cannot be parsed into live nodes
+ * to reuse `$signatureOf` on both sides the way the mutating settle does; this computes the exact
+ * same signature directly from the JSON instead.
+ *
+ * Never needs `$isRebuildSentinel`'s node-kind classification: every node kind that check would
+ * collapse to `ATOMIC_SENTINEL` on the live side (a note, an opaque block, a non-re-tokenizable
+ * milestone, a char span with unrecoverable attributes) is, by construction, never produced FRESH
+ * by the tokenizer — `$buildParaFragment` already replaced each one with a single ATOMIC_SENTINEL
+ * character in the fragment text before tokenizing, so it rides through `rebuilt` as an ordinary
+ * character inside a plain text node, not as a node of its own kind.
+ */
+function serializedSignatureOf(nodes: SerializedLexicalNode[], getMarkerFn: MarkerLookup): string {
+  const out: string[] = [];
+  appendSerializedSignature(nodes, out, getMarkerFn);
+  return out.join("");
+}
+
+function appendSerializedSignature(
+  children: SerializedLexicalNode[],
+  out: string[],
+  getMarkerFn: MarkerLookup,
+): void {
+  for (let index = 0; index < children.length; index++) {
+    const node = children[index];
+    const type = serializedType(node);
+    if (type === "ms") {
+      // Mirrors `$appendSignature`'s milestone branch: fold sid/eid/unknownAttributes in
+      // alongside the recursed run, since the run's OWN text alone cannot distinguish a
+      // re-tokenization from a stale display cache. Every fresh "ms" entry here IS
+      // re-tokenizable by construction (see this function's own doc comment), so the
+      // `$isReTokenizableMilestone` check is a defensive mirror, not a load-bearing gate.
+      const milestone = node as {
+        marker?: string;
+        sid?: string;
+        eid?: string;
+        unknownAttributes?: unknown;
+      };
+      const runChildren = serializedRunWrapperChildren(children, index + 1);
+      if (runChildren && $isReTokenizableMilestone(milestone.marker ?? "", getMarkerFn)) {
+        out.push(
+          SIGNATURE_OPEN,
+          "ms",
+          JSON.stringify({
+            sid: milestone.sid ?? null,
+            eid: milestone.eid ?? null,
+            unknownAttributes: milestone.unknownAttributes ?? null,
+          }),
+        );
+        appendSerializedSignature(runChildren, out, getMarkerFn);
+        out.push(SIGNATURE_CLOSE);
+        index += 1;
+      } else {
+        out.push(ATOMIC_SENTINEL);
+      }
+      continue;
+    }
+    if (type === "verse") {
+      // Mirrors `$appendSignature`'s verse branch. `unknownAttributes` has no display
+      // representation at all, so a verse carrying it stays a sentinel on the live side
+      // (`verseNeedsSentinel`) and can never appear fresh here either — this branch is a
+      // defensive mirror of that, not a load-bearing gate (see this function's doc comment).
+      const verse = node as {
+        text?: string;
+        number?: string;
+        altnumber?: string;
+        pubnumber?: string;
+        unknownAttributes?: unknown;
+      };
+      if (verse.unknownAttributes) {
+        out.push(ATOMIC_SENTINEL);
+        continue;
+      }
+      out.push(
+        SIGNATURE_OPEN,
+        "verse",
+        toFragmentText(verse.text ?? ""),
+        JSON.stringify({
+          number: verse.number ?? null,
+          altnumber: verse.altnumber ?? null,
+          pubnumber: verse.pubnumber ?? null,
+        }),
+      );
+      // A verse can carry up to two independent wrapped runs (`\va` then `\vp`), each its own
+      // immediately-following `attribute-run` sibling — mirrors `$verseAttributeRun`'s wrapped
+      // case, the only shape a fresh, canonical rebuild ever produces.
+      let consumed = 0;
+      let runChildren = serializedRunWrapperChildren(children, index + 1 + consumed);
+      while (runChildren) {
+        appendSerializedSignature(runChildren, out, getMarkerFn);
+        consumed++;
+        runChildren = serializedRunWrapperChildren(children, index + 1 + consumed);
+      }
+      out.push(SIGNATURE_CLOSE);
+      index += consumed;
+      continue;
+    }
+    if (type === "marker") {
+      // Delimited and tagged, mirroring `$appendSignature`'s marker branch — not the generic text
+      // fallback below, which a bare `.text` field would otherwise match first. The glyph's own
+      // `.text` field is NOT read: `usjEditorAdaptor.serializeEditorState`'s `createMarker` helper
+      // builds this JSON directly (never through a live `MarkerNode`, whose `getTextContent()` is
+      // itself computed from `marker`/`markerSyntax`/`nested`, never stored independently — see
+      // `MarkerNode.ts`'s `getMarkerText`), and leaves `.text` empty; re-derive the SAME canonical
+      // glyph text here instead, exactly as `MarkerNode`'s own `getMarkerText` would.
+      const marker = node as { marker?: string; markerSyntax?: string; nested?: boolean };
+      out.push(
+        SIGNATURE_OPEN,
+        "marker",
+        toFragmentText(
+          serializedMarkerGlyphText(marker.marker ?? "", marker.markerSyntax, marker.nested),
+        ),
+        SIGNATURE_CLOSE,
+      );
+      continue;
+    }
+    if (type === "linebreak") {
+      out.push(" ");
+      continue;
+    }
+    if (type === "char") {
+      const char = node as { unknownAttributes?: unknown };
+      out.push(SIGNATURE_OPEN, "char", JSON.stringify(char.unknownAttributes ?? null));
+      appendSerializedSignature(serializedChildren(node) ?? [], out, getMarkerFn);
+      out.push(SIGNATURE_CLOSE);
+      continue;
+    }
+    // Note/UnknownNode: defensive mirror of `$isRebuildSentinel`'s unconditional sentinel for
+    // these kinds — unreachable in practice (see this function's doc comment), never load-bearing.
+    if (type === "note" || type === "unknown") {
+      out.push(ATOMIC_SENTINEL);
+      continue;
+    }
+    const text = serializedText(node);
+    if (text !== undefined) {
+      out.push(toFragmentText(text));
+      continue;
+    }
+    const nodeChildren = serializedChildren(node);
+    if (nodeChildren) {
+      out.push(SIGNATURE_OPEN, type);
+      appendSerializedSignature(nodeChildren, out, getMarkerFn);
+      out.push(SIGNATURE_CLOSE);
+    } else {
+      out.push(ATOMIC_SENTINEL);
+    }
+  }
 }
 
 /**
@@ -186,11 +392,18 @@ function serializedRunsOf(
 
 /**
  * The serialized nodes a settled `para` becomes, or `undefined` when the settle refuses. Mirrors
- * `$rebuildParas`' guard sequence — guard rails, empty tokenizer output, sentinel symmetry — so a
- * paragraph the mutating rebuild would leave alone is left alone here too. The fixed-point
- * signature check is deliberately absent: refusing a no-op matters only when a splice would re-arm
- * a transform and loop, and nothing here mutates the editor, so splicing an identical result into
- * the output is simply the identity.
+ * `$rebuildParas`' guard sequence — guard rails, empty tokenizer output, sentinel symmetry, AND the
+ * fixed-point signature check — so a paragraph the mutating rebuild would leave alone is left alone
+ * here too.
+ *
+ * The fixed-point check is NOT here for `$rebuildParas`'s own reason (loop prevention — nothing
+ * here mutates the editor, so there is no transform to re-arm). It is here because "signature-
+ * equivalent" is not "byte-identical": a structural NBSP separator and a user's own literal typed
+ * space both collapse to the same plain space once normalized, so a genuinely no-op-by-signature
+ * rebuild can still look TEXTUALLY different from what is currently displayed. Splicing such a
+ * rebuild into the output would silently replace the user's own current bytes with a different-
+ * looking rebuild the mutating settle would never have produced (it would have refused, leaving
+ * the display untouched) — see `serializedSignatureOf`'s own doc comment for the full mechanics.
  */
 function $settledParaNodes(
   para: ParaNode,
@@ -221,6 +434,36 @@ function $settledParaNodes(
   const runs = serializedRunsOf(fragment, sites);
   if (!runs) {
     logger?.warn("[MarkerEdit] Settled USJ skipped: a preserved node had no serialized form");
+    return undefined;
+  }
+  // Fixed-point refusal (preserve-or-refuse) — computed BEFORE `replaceSerializedSentinels` below,
+  // while `rebuilt` still carries the raw ATOMIC_SENTINEL characters the tokenizer produced: that
+  // is exactly the shape `serializedSignatureOf` expects, matching how `$signatureOf` collapses a
+  // live preserved node to the same single sentinel character on the other side of this
+  // comparison.
+  //
+  // `$signatureOf`/`serializedSignatureOf` never fold a top-level ParaNode's OWN `marker` field
+  // into the signature at all (a ParaNode matches none of `$appendSignature`'s specific branches,
+  // so it falls to the generic ElementNode case, which tags only `node.getType()` — the constant
+  // "para" — never the marker). That is CORRECT for `$rebuildParas`'s own use of this check: a
+  // BARE opener rename (`\p` → `\q1`, no trailing terminator yet) never reaches `$rebuildParas` at
+  // all — `$resolvePendingMarkers` (markerEditTier1.utils.ts) routes it to `$applyOpenerRename`
+  // instead, a direct `parent.setMarker(...)`/`node.setMarker(...)` update with no fixed-point
+  // check of its own. This settle unifies BOTH of those real mutating paths into one tokenize-
+  // rebuild, so it must independently confirm the paragraph's own marker actually agrees too — the
+  // signature comparison alone would otherwise refuse a rename `$applyOpenerRename` would have
+  // applied unconditionally, exactly the divergence this module's own equivalence tests exist to
+  // catch. Skipped when `rebuilt` is not a single top-level paragraph (a split/merge is a
+  // structural change the signature comparison already reliably distinguishes on its own).
+  const rebuiltMarker =
+    rebuilt.length === 1 && serializedType(rebuilt[0]) === "para"
+      ? (rebuilt[0] as { marker?: string }).marker
+      : undefined;
+  const isFixedPoint =
+    (rebuiltMarker === undefined || rebuiltMarker === para.getMarker()) &&
+    serializedSignatureOf(rebuilt, getMarkerFn) === $signatureOf([para], getMarkerFn);
+  if (isFixedPoint) {
+    logger?.debug("[MarkerEdit] Settled USJ skipped: rebuild is a no-op (fixed point)");
     return undefined;
   }
   replaceSerializedSentinels(rebuilt, runs);
@@ -298,6 +541,77 @@ function $settledNoteContent(
   return { rebuilt, contentNodes };
 }
 
+/** The custom node-state a serialized text node carries under Lexical's `$` state key, or
+ * `undefined` for a plain node with none — this codebase's own `textTypeState` (the one custom
+ * state field text nodes carry) rides there. */
+function serializedTextTypeState(node: SerializedLexicalNode): unknown {
+  return (node as { $?: { textType?: unknown } }).$?.textType;
+}
+
+/**
+ * Whether two adjacent serialized nodes are both plain TextNodes (not a MarkerNode or other
+ * TextNode subclass — Lexical's `type` field distinguishes them) with identical format, style,
+ * mode, detail, and custom node state — the JSON-level mirror of Lexical's own (private)
+ * `$canSimpleTextNodesBeMerged`, which the live reconciler applies automatically to two such
+ * siblings on every commit. Needed because a husk-removal splice below can leave two plain text
+ * siblings adjacent that the LIVE tree would have coalesced into one node already; without
+ * mirroring that coalesce here, `normalizeSpaceRuns` (editor-usj.adaptor.ts) — which only
+ * collapses a run of 2+ spaces WITHIN one serialized node's own string — never sees the combined
+ * run spanning the two separate JSON entries.
+ */
+function canMergeSerializedText(a: SerializedLexicalNode, b: SerializedLexicalNode): boolean {
+  const aNode = a as {
+    type?: string;
+    format?: unknown;
+    style?: unknown;
+    mode?: unknown;
+    detail?: unknown;
+  };
+  const bNode = b as {
+    type?: string;
+    format?: unknown;
+    style?: unknown;
+    mode?: unknown;
+    detail?: unknown;
+  };
+  return (
+    aNode.type === "text" &&
+    bNode.type === "text" &&
+    aNode.format === bNode.format &&
+    aNode.style === bNode.style &&
+    aNode.mode === bNode.mode &&
+    aNode.detail === bNode.detail &&
+    serializedTextTypeState(a) === serializedTextTypeState(b)
+  );
+}
+
+/**
+ * A pended, currently-attached, emptied optbreak husk — the read-only mirror of
+ * `$settlePendedDisplayOwner`'s FIRST branch (markerEditTier1.utils.ts): an optbreak's `//` token
+ * IS its entire USFM byte representation, so once the (Lexical-token) child holding that token is
+ * gone there is nothing left to re-derive, and the mutating settle removes the husk directly —
+ * `node.remove()` — rather than routing it through `$settleScopeForNode`/a fragment rebuild.
+ * `$settleScopeForNode` deliberately refuses EVERY `UnknownNode` (opaque blocks stay literal by
+ * design), so a pended husk's own key never resolves to a para/note scope at all; without this
+ * separate pass the read-only settle would silently leave the dead husk in the output while the
+ * real settle removes it, which is exactly the divergence this module's own equivalence tests
+ * catch.
+ */
+function $emptiedOptbreakHusksOf(pendedKeys: ReadonlySet<NodeKey>): UnknownNode[] {
+  const husks: UnknownNode[] = [];
+  for (const key of pendedKeys) {
+    const node = $getNodeByKey(key);
+    if (
+      node?.isAttached() &&
+      $isUnknownNode(node) &&
+      node.getTag() === "optbreak" &&
+      node.getChildrenSize() === 0
+    )
+      husks.push(node);
+  }
+  return husks;
+}
+
 /**
  * The settled USJ for the editor state `serializedState` was exported from, or `undefined` when
  * nothing settleable is pending (the caller keeps whatever it already has). Call INSIDE a
@@ -321,10 +635,42 @@ export function $settledUsj(
     if ($isNoteNode(scope)) noteScopes.set(scope.getKey(), scope);
     else paraScopes.set(scope.getKey(), scope);
   }
-  if (paraScopes.size === 0 && noteScopes.size === 0) return undefined;
+  const husks = $emptiedOptbreakHusksOf(pendedKeys);
+  if (paraScopes.size === 0 && noteScopes.size === 0 && husks.length === 0) return undefined;
 
   const sites = new Map<NodeKey, SerializedSite>();
   $mapSerializedSites($getRoot().getChildren(), serializedState.root.children, sites);
+
+  // Husks FIRST, same reasoning as notes-first below: a husk that also rides inside a settling
+  // paragraph or note must already be gone from the serialized tree by the time that pass reuses
+  // it, mirroring the mutating settle's own per-key sequencing (`$settlePendedDisplayOwner` always
+  // runs before a paragraph/note rebuild for the SAME live tree).
+  for (const husk of husks) {
+    const site = sites.get(husk.getKey());
+    if (!site) continue;
+    const index = site.siblings.indexOf(site.node);
+    if (index < 0) continue;
+    site.siblings.splice(index, 1);
+    // Merge the now-adjacent flanking text, mirroring the live reconciler's own coalesce of two
+    // simple-mergeable TextNode siblings (see `canMergeSerializedText`'s doc comment) — the
+    // mutating settle leaves the flanking significant spaces untouched at removal time
+    // ($settlePendedDisplayOwner's own doc comment) and relies on exactly this coalesce, followed
+    // by `normalizeSpaceRuns`, to collapse a run split across the removed husk.
+    const before = site.siblings[index - 1];
+    const after = site.siblings[index];
+    const beforeText = before && serializedText(before);
+    const afterText = after && serializedText(after);
+    if (
+      before &&
+      after &&
+      beforeText !== undefined &&
+      afterText !== undefined &&
+      canMergeSerializedText(before, after)
+    ) {
+      (before as SerializedLexicalNode & { text: string }).text = beforeText + afterText;
+      site.siblings.splice(index, 1);
+    }
+  }
 
   // Notes FIRST: a settled note that also rides inside a settling paragraph is preserved there as
   // a sentinel, and the paragraph pass substitutes the very serialized subtree this pass has just
