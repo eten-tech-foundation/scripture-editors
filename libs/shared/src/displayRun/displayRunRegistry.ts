@@ -6,6 +6,11 @@
  * import from `converters/usfm`, which already imports FROM `nodes/usj`. This module sits above
  * both, so it can hold the assembly without a cycle — the same layering `plugins/PerfOperations`
  * uses. The drivers that CONSUME descriptors take one as a parameter and stay in `nodes/usj`.
+ *
+ * Every descriptor below stubs `ownerOf` as `() => undefined`: a piece's owner is not derivable
+ * from the piece alone until the tightened sibling walk (the owner-walk task) lands, so this
+ * field is deliberately left for that task to fill in on all four descriptors at once, rather
+ * than repeated as a per-descriptor comment here.
  */
 
 import {
@@ -79,8 +84,6 @@ function verseDescriptor(marker: VerseAttributeMarker): DisplayRunDescriptor {
   return {
     kind: marker,
     ownerPredicate: (node) => $isVerseNode(node),
-    // Filled in by the owner-walk task; a piece's owner is not derivable from the piece alone
-    // until the tightened sibling walk lands.
     ownerOf: () => undefined,
     expectedPieces: (owner) => {
       if (!$isVerseNode(owner)) return NO_RUN;
@@ -174,6 +177,16 @@ const milestoneDescriptor: DisplayRunDescriptor = {
     // $milestoneAttributeRunPieces names its fields opening/attribute/closing (its own long-lived
     // vocabulary, shared with the Tier-2 rebuild); ScannedRun's fields are opener/value/closer —
     // the descriptor registry's cross-kind vocabulary. Translate rather than rename either side.
+    //
+    // This translation is NOT enforced by the compiler: MilestoneRunPieces's fields
+    // (opening/attribute/closing/wrapper) and ScannedRun's fields (opener/value/closer/wrapper)
+    // are ALL optional on both sides, so returning $milestoneAttributeRunPieces(owner) directly —
+    // the untranslated shape — type-checks with zero errors (verified directly: `tsc --build`
+    // reports nothing). Excess-property checking only fires on fresh object literals, not on a
+    // value flowing through a function call, and an all-optional target type has no required
+    // field whose absence would fail assignability either. The wrong shape compiles clean and
+    // then reads as permanently empty at runtime (opener/value/closer come back undefined
+    // forever) — displayRunRegistry.test.ts's scanPieces suite is what actually catches this.
     const { opening, attribute, closing, wrapper } = $milestoneAttributeRunPieces(owner);
     return { opener: opening, value: attribute, closer: closing, wrapper };
   },
