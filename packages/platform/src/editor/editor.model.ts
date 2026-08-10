@@ -187,6 +187,15 @@ export interface EditorRef {
    * `\bd Lord God\bd*`). That stray interior marker text is excluded from USJ export and
    * self-corrects the next time the document is loaded from USJ.
    *
+   * Also in the marker-visible modes (`"editable"` and `"visible"`): a range selection strictly
+   * interior to a marker's text — touching neither its opening nor its closing boundary — leaves the
+   * changed run with no visible marker at all, while the unselected text on either side keeps the
+   * original marker (e.g. `\nd Lord\nd*` with the middle word changed renders as
+   * `\nd Lo\nd*rd\nd \nd*` rather than showing the new marker around the middle). The synthesized
+   * marker text lives at the boundaries, so the interior span that the split produces has none to
+   * retarget. Like the merge artifact above, this is presentation only: the change is correct in USJ
+   * export and self-corrects the next time the document is loaded from USJ.
+   *
    * @param toMarker - The USFM character marker to change to, e.g. `"nd"`, `"wj"`. Footnote and
    *   cross-reference character markers (e.g. `"ft"`, `"xt"`) are not supported: they only occur
    *   inside notes, which replacement skips, so they throw rather than silently doing nothing.

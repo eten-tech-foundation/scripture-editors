@@ -70,6 +70,29 @@ function $defaultInitialEditorState() {
 }
 
 /**
+ * Builds the paragraph the character-marker tests default to: `the ` + a marked `Lord` + ` said`,
+ * with the marked run as a single ordinary text child and no synthesized marker children.
+ *
+ * Only for tests whose fixture shape is incidental. Tests where the shape *is* the thing under test
+ * - marker-mode children, NBSP prefixes, nesting, notes, empty-char placeholders - build their tree
+ * inline, so the deviation stays visible at the test that depends on it.
+ *
+ * @param marker - The character marker to wrap `Lord` in.
+ * @returns the text node inside the `CharNode`, which is what these tests select within.
+ */
+function $createCharParagraph(marker = "nd"): TextNode {
+  const charText = $createTextNode("Lord");
+  $getRoot().append(
+    $createParaNode("p").append(
+      $createTextNode("the "),
+      $createCharNode(marker).append(charText),
+      $createTextNode(" said"),
+    ),
+  );
+  return charText;
+}
+
+/**
  * Invokes the system under test inside a discrete update, the way `Editor.tsx` will.
  *
  * @returns whether a marker was removed, mirroring what `EditorRef.removeCharacterMarker` reports.
@@ -634,14 +657,7 @@ describe("USJ Marker Action Utils", () => {
   describe("should remove a character marker", () => {
     it("when the cursor is collapsed inside a CharNode", () => {
       const { editor } = createBasicTestEnvironment(nodes, () => {
-        charTextNode = $createTextNode("Lord");
-        $getRoot().append(
-          $createParaNode("p").append(
-            $createTextNode("the "),
-            $createCharNode("nd").append(charTextNode),
-            $createTextNode(" said"),
-          ),
-        );
+        charTextNode = $createCharParagraph();
       });
       updateSelection(editor, charTextNode, 2);
 
@@ -659,14 +675,7 @@ describe("USJ Marker Action Utils", () => {
 
     it("is a no-op when the requested marker is not present", () => {
       const { editor } = createBasicTestEnvironment(nodes, () => {
-        charTextNode = $createTextNode("Lord");
-        $getRoot().append(
-          $createParaNode("p").append(
-            $createTextNode("the "),
-            $createCharNode("nd").append(charTextNode),
-            $createTextNode(" said"),
-          ),
-        );
+        charTextNode = $createCharParagraph();
       });
       updateSelection(editor, charTextNode, 0, charTextNode, 4);
 
@@ -684,14 +693,7 @@ describe("USJ Marker Action Utils", () => {
 
     it("dirties no node when the requested marker is not present", () => {
       const { editor } = createBasicTestEnvironment(nodes, () => {
-        charTextNode = $createTextNode("Lord");
-        $getRoot().append(
-          $createParaNode("p").append(
-            $createTextNode("the "),
-            $createCharNode("nd").append(charTextNode),
-            $createTextNode(" said"),
-          ),
-        );
+        charTextNode = $createCharParagraph();
       });
       // A *partial* selection, unlike the whole-node selection in the test above: an unguarded
       // `handleTextNode` would `splitText(1, 3)` here, splitting "Lord" into three pieces.
@@ -1234,14 +1236,7 @@ describe("USJ Marker Action Utils", () => {
 
     it("keeps the selection over the same characters after removal", () => {
       const { editor } = createBasicTestEnvironment(nodes, () => {
-        charTextNode = $createTextNode("Lord");
-        $getRoot().append(
-          $createParaNode("p").append(
-            $createTextNode("the "),
-            $createCharNode("nd").append(charTextNode),
-            $createTextNode(" said"),
-          ),
-        );
+        charTextNode = $createCharParagraph();
       });
       // Select exactly "Lord".
       updateSelection(editor, charTextNode, 0, charTextNode, 4);
@@ -1269,14 +1264,7 @@ describe("USJ Marker Action Utils", () => {
 
     it("keeps the selection backward when the original selection was backward", () => {
       const { editor } = createBasicTestEnvironment(nodes, () => {
-        charTextNode = $createTextNode("Lord");
-        $getRoot().append(
-          $createParaNode("p").append(
-            $createTextNode("the "),
-            $createCharNode("nd").append(charTextNode),
-            $createTextNode(" said"),
-          ),
-        );
+        charTextNode = $createCharParagraph();
       });
       // Select "Lord" backward: anchor at the end, focus at the start.
       updateSelection(editor, charTextNode, 4, charTextNode, 0);
@@ -1381,7 +1369,7 @@ describe("USJ Marker Action Utils", () => {
       });
     });
 
-    it("known limitation: leaves an unpaired marker when the selection is strictly interior under markerMode 'visible'", () => {
+    it("known limitation: an interior selection leaves an unpaired marker under 'visible'", () => {
       let targetTextNode!: TextNode;
       const { editor } = createBasicTestEnvironment(nodes, () => {
         // A single ordinary text child. `handleTextNode`'s own `splitText(4, 8)` below carves it
@@ -1431,14 +1419,7 @@ describe("USJ Marker Action Utils", () => {
   describe("should replace a character marker", () => {
     it("when the cursor is collapsed inside a CharNode", () => {
       const { editor } = createBasicTestEnvironment(nodes, () => {
-        charTextNode = $createTextNode("Lord");
-        $getRoot().append(
-          $createParaNode("p").append(
-            $createTextNode("the "),
-            $createCharNode("nd").append(charTextNode),
-            $createTextNode(" said"),
-          ),
-        );
+        charTextNode = $createCharParagraph();
       });
       updateSelection(editor, charTextNode, 2);
 
@@ -1509,14 +1490,7 @@ describe("USJ Marker Action Utils", () => {
 
     it("is a no-op when the requested marker is not present", () => {
       const { editor } = createBasicTestEnvironment(nodes, () => {
-        charTextNode = $createTextNode("Lord");
-        $getRoot().append(
-          $createParaNode("p").append(
-            $createTextNode("the "),
-            $createCharNode("nd").append(charTextNode),
-            $createTextNode(" said"),
-          ),
-        );
+        charTextNode = $createCharParagraph();
       });
       updateSelection(editor, charTextNode, 2);
 
@@ -1533,14 +1507,7 @@ describe("USJ Marker Action Utils", () => {
 
     it("dirties no node when the target marker is already in place", () => {
       const { editor } = createBasicTestEnvironment(nodes, () => {
-        charTextNode = $createTextNode("Lord");
-        $getRoot().append(
-          $createParaNode("p").append(
-            $createTextNode("the "),
-            $createCharNode("nd").append(charTextNode),
-            $createTextNode(" said"),
-          ),
-        );
+        charTextNode = $createCharParagraph();
       });
       updateSelection(editor, charTextNode, 2);
 
@@ -1741,6 +1708,51 @@ describe("USJ Marker Action Utils", () => {
       });
     });
 
+    it("keeps a backward selection spanning two CharNodes valid across the splits", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        charTextNode = $createTextNode("the Lord");
+        tailTextNode = $createTextNode("God said");
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createCharNode("nd").append(charTextNode),
+            $createCharNode("nd").append(tailTextNode),
+          ),
+        );
+      });
+      // Backward, and partial at both ends: anchor inside the second CharNode, focus inside the
+      // first. Both CharNodes get split, so both selection points sit on nodes that move.
+      updateSelection(editor, tailTextNode, 3, charTextNode, 4);
+
+      sutReplaceCharacterMarker(editor, "bd", "nd");
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        expect(para.getTextContent()).toBe("the LordGod said");
+        // Only the covered runs changed; the uncovered flanks keep \nd.
+        const markers = para
+          .getChildren()
+          .filter($isCharNode)
+          .map((charNode) => ({
+            marker: charNode.getMarker(),
+            text: charNode.getTextContent(),
+          }));
+        expect(markers).toContainEqual({ marker: "bd", text: "Lord" });
+        expect(markers).toContainEqual({ marker: "bd", text: "God" });
+        expect(markers).toContainEqual({ marker: "nd", text: "the " });
+        expect(markers).toContainEqual({ marker: "nd", text: " said" });
+        // The point of the test: replacement adds no selection restore of its own (unlike removal),
+        // so this is what proves the original points survived the splits. Same covered text, same
+        // direction, both endpoints still attached.
+        const selection = $getSelection();
+        if (!$isRangeSelection(selection)) throw new Error("selection is not a range selection");
+        expect(selection.isBackward()).toBe(true);
+        expect(selection.anchor.getNode().isAttached()).toBe(true);
+        expect(selection.focus.getNode().isAttached()).toBe(true);
+        expect(selection.getTextContent()).toBe("LordGod");
+      });
+    });
+
     it("when the selection spans a sibling that already carries toMarker", () => {
       const { editor } = createBasicTestEnvironment(nodes, () => {
         charTextNode = $createTextNode("Lord");
@@ -1774,7 +1786,7 @@ describe("USJ Marker Action Utils", () => {
       });
     });
 
-    it("known limitation: leaves both siblings' synthesized marker text when the replaced marker matches an adjacent sibling under markerMode 'visible'", () => {
+    it("known limitation: a merge with an adjacent sibling keeps both marker texts under 'visible'", () => {
       const { editor } = createBasicTestEnvironment(nodes, () => {
         charTextNode = $createTextNode("Lord");
         tailTextNode = $createTextNode("God");
@@ -1927,14 +1939,7 @@ describe("USJ Marker Action Utils", () => {
 
     it("keeps the selection over the same characters after the change", () => {
       const { editor } = createBasicTestEnvironment(nodes, () => {
-        charTextNode = $createTextNode("Lord");
-        $getRoot().append(
-          $createParaNode("p").append(
-            $createTextNode("the "),
-            $createCharNode("nd").append(charTextNode),
-            $createTextNode(" said"),
-          ),
-        );
+        charTextNode = $createCharParagraph();
       });
       updateSelection(editor, charTextNode, 0, charTextNode, 4);
 

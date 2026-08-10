@@ -363,6 +363,12 @@ function $applyAttributes(
           // Only set attributes if needed
           if (charAttrItem) {
             // Update the CharNode's marker and attributes to match the retain attributes
+            // TODO: route through `$setCharNodeMarker` (libs/shared `node.utils.ts`). Raw
+            // `setMarker` leaves the node's synthesized marker children pointing at the old marker,
+            // so under markerMode "editable"/"visible" an incoming collaborative change leaves
+            // stale `\nd`/`\nd*` text on screen. Not a straight swap: this site also sets cid and
+            // unknownAttributes, and `$setCharNodeMarker` has no attached/readonly guard, which the
+            // collab path needs settling first.
             currentNode.setMarker(charAttrItem.style);
             if (typeof charAttrItem.cid === "string") {
               $setState(currentNode, charIdState, () => charAttrItem.cid);
@@ -539,6 +545,10 @@ function $applyEmbedAttributes(
     // Special handling for char attributes on CharNodes
     if (key === "char" && $isCharNode(node) && hasCharAttributes(attributes)) {
       const charAttributes = value as OTCharItem;
+      // TODO: route through `$setCharNodeMarker` (libs/shared `node.utils.ts`) - see the same TODO
+      // on the retain path above. Raw `setMarker` leaves synthesized marker children stale under
+      // markerMode "editable"/"visible"; the swap is blocked on the cid/unknownAttributes handling
+      // here and on `$setCharNodeMarker` having no attached/readonly guard.
       node.setMarker(charAttributes.style);
 
       // Set charIdState if cid is present
@@ -576,6 +586,10 @@ function $applyEmbedAttributes(
       });
     } else if ($isBookNode(node) || $isParaNode(node) || $isCharNode(node)) {
       if (key === "style" && !$isBookNode(node)) {
+        // TODO: when `node` is a CharNode, route through `$setCharNodeMarker` (libs/shared
+        // `node.utils.ts`) - see the same TODO on the retain path above. Raw `setMarker` leaves
+        // synthesized marker children stale under markerMode "editable"/"visible". ParaNode has no
+        // such children, so only the CharNode case needs the change.
         node.setMarker(value);
       } else if (key === "code" && $isBookNode(node)) {
         node.setCode(value as BookCode);

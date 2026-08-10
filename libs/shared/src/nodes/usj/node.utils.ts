@@ -585,11 +585,17 @@ export function $isSynthesizedMarkerNode(node: LexicalNode | null | undefined): 
  *
  * Coalescing with an identically-marked adjacent sibling is deliberately not handled here:
  * `$charNodeTransform` (`shared-react`'s `CharNodePlugin.tsx`) already does it on the next update
- * cycle, and `CharNodePlugin.test.tsx` proves it for exactly this call. Don't hand-roll it, and
- * don't fight it.
+ * cycle, proven for exactly this call in `CharNodePlugin.test.tsx`. Don't hand-roll it.
+ *
+ * Callers must pre-validate `marker`: passing a footnote or cross-reference marker (e.g. `"ft"`,
+ * `"xt"`) removes the node's closing marker child rather than rewriting it, because
+ * `addClosingMarker` never emits one for those families. That is a deliberate contract rather than a
+ * guard - see `$retargetSynthesizedMarkers` - and no current caller reaches it, since
+ * `EditorRef.replaceCharacterMarker` rejects those markers up front.
  *
  * @param charNode - The `CharNode` to change.
- * @param marker - The character marker to change to.
+ * @param marker - The character marker to change to. Must not be a footnote or cross-reference
+ *   marker; see above.
  */
 export function $setCharNodeMarker(charNode: CharNode, marker: string): void {
   // Before setMarker, not after. $retargetSynthesizedMarkers's ImmutableTypedTextNode branch
@@ -598,6 +604,8 @@ export function $setCharNodeMarker(charNode: CharNode, marker: string): void {
   // the stale child would silently go unmatched. Its MarkerNode branch (markerMode "editable")
   // doesn't care about this order: MarkerNode.setMarker recomputes text from the new marker it's
   // given plus its own stored __markerSyntax, not from anything read off charNode.
+  // Guarded by "matches marker children against the old marker, not the new one" in
+  // node-utils.test.ts - reverse these two calls and it fails.
   $retargetSynthesizedMarkers(charNode, marker);
   charNode.setMarker(marker);
 }
@@ -612,11 +620,10 @@ export function $setCharNodeMarker(charNode: CharNode, marker: string): void {
  *
  * Retargets rather than strips: stripping would leave the changed span looking unmarked, which
  * reads worse than stale. The one exception is the closing marker child when `toMarker` is a
- * footnote or cross-reference marker: `addClosingMarker` never emits a closing marker for those
- * families, so a retargeted closing child is removed instead of rewritten to a form the adaptor
- * would never produce (e.g. `\ft*`). Callers that go through `EditorRef.replaceCharacterMarker`
- * never reach that case — it rejects those markers up front — so it is kept as a contract of the
- * function, not a live path.
+ * note-content marker: `addClosingMarker` never emits a closing marker for those families, so the
+ * child is removed rather than rewritten to a form the adaptor would never produce (e.g. `\ft*`).
+ * That is a contract of the function, not a live path — `EditorRef.replaceCharacterMarker` rejects
+ * those markers up front.
  *
  * The old marker is read from the node itself rather than taken from a caller-supplied "from"
  * marker, which callers may not know when the innermost marker was targeted.
@@ -634,8 +641,9 @@ function $retargetSynthesizedMarkers(charNode: CharNode, toMarker: string): void
   const fromMarker = charNode.getMarker();
   const openingText = openingMarkerText(fromMarker);
   const closingText = closingMarkerText(fromMarker);
-  const dropsClosingMarker =
-    CharNode.isValidFootnoteMarker(toMarker) || CharNode.isValidCrossReferenceMarker(toMarker);
+  // Note-content markers are written without a closing marker, so a closing child is removed rather
+  // than retargeted to a form `addClosingMarker` would never emit.
+  const dropsClosingMarker = CharNode.isNoteContentMarker(toMarker);
   charNode.getChildren().forEach((child) => {
     // Gate on the node type first: only a synthesized marker child is ever a candidate for
     // rewriting or removal here, regardless of what its text happens to contain.

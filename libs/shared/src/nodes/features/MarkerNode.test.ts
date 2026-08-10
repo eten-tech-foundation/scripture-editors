@@ -1,3 +1,4 @@
+import { LexicalEditor } from "lexical";
 import { createBasicTestEnvironment } from "../usj/test.utils.js";
 import {
   $createMarkerNode,
@@ -150,6 +151,56 @@ describe("MarkerNode", () => {
     });
   });
 
+  describe("createDOM()", () => {
+    it("should set data-marker and the marker syntax class", () => {
+      const { editor } = createBasicTestEnvironment([MarkerNode]);
+      editor.update(() => {
+        const element = $createMarkerNode(testParaMarker, "closing").createDOM(testConfig(editor));
+        expect(element.getAttribute("data-marker")).toBe(testParaMarker);
+        expect(element.classList.contains("closing")).toBe(true);
+      });
+    });
+  });
+
+  describe("updateDOM()", () => {
+    it("should update data-marker when the marker changes", () => {
+      const { editor } = createBasicTestEnvironment([MarkerNode]);
+      editor.update(() => {
+        const element = $updateDomFor(
+          editor,
+          [testParaMarker, "opening"],
+          [testVerseMarker, "opening"],
+        );
+        expect(element.getAttribute("data-marker")).toBe(testVerseMarker);
+      });
+    });
+
+    it("should swap the marker syntax class when the syntax changes", () => {
+      const { editor } = createBasicTestEnvironment([MarkerNode]);
+      editor.update(() => {
+        const element = $updateDomFor(
+          editor,
+          [testParaMarker, "opening"],
+          [testParaMarker, "closing"],
+        );
+        expect(element.classList.contains("closing")).toBe(true);
+        expect(element.classList.contains("opening")).toBe(false);
+      });
+    });
+
+    it("should leave data-marker alone when the marker is unchanged", () => {
+      const { editor } = createBasicTestEnvironment([MarkerNode]);
+      editor.update(() => {
+        const element = $updateDomFor(
+          editor,
+          [testParaMarker, "opening"],
+          [testParaMarker, "closing"],
+        );
+        expect(element.getAttribute("data-marker")).toBe(testParaMarker);
+      });
+    });
+  });
+
   describe("edge cases", () => {
     it("should handle empty marker", () => {
       const { editor } = createBasicTestEnvironment([MarkerNode]);
@@ -171,6 +222,25 @@ describe("MarkerNode", () => {
     });
   });
 });
+
+type MarkerSpec = [marker: string, markerSyntax: MarkerSyntax];
+
+/** The subset of the editor's config that `createDOM`/`updateDOM` need. */
+function testConfig(editor: LexicalEditor) {
+  return { theme: editor._config.theme, namespace: editor._config.namespace };
+}
+
+/**
+ * Renders a `MarkerNode` for `from`, then runs `updateDOM` against a `MarkerNode` for `to`, the way
+ * Lexical's reconciler does when a node changes between editor states.
+ */
+function $updateDomFor(editor: LexicalEditor, from: MarkerSpec, to: MarkerSpec): HTMLElement {
+  const config = testConfig(editor);
+  const prevNode = $createMarkerNode(...from);
+  const element = prevNode.createDOM(config);
+  $createMarkerNode(...to).updateDOM(prevNode, element, config);
+  return element;
+}
 
 // Helper function to create a valid SerializedMarkerNode
 function createSerializedMarkerNode(

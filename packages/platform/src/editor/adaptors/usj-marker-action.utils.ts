@@ -170,8 +170,8 @@ export function isCharacterMarkerSupported(
   marker: string,
   extraValidMarkers?: readonly string[],
 ): boolean {
-  if (CharNode.isValidFootnoteMarker(marker) || CharNode.isValidCrossReferenceMarker(marker))
-    return false;
+  // Note-content markers only occur inside a NoteNode, which the character-marker actions skip.
+  if (CharNode.isNoteContentMarker(marker)) return false;
   return CharNode.isValidMarker(marker, extraValidMarkers);
 }
 
