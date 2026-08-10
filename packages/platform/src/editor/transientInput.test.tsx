@@ -8,6 +8,7 @@ import { expectTier2FixedPoint, mountStandardViewEditor } from "./settledGetUsj.
 import { MarkerObject, Usj } from "@eten-tech-foundation/scripture-utilities";
 import { act } from "@testing-library/react";
 import { $getRoot, $setSelection, TextNode } from "lexical";
+import { getPendedDisplayOwners } from "shared";
 
 const paletteUsj: Usj = {
   type: "USJ",
@@ -115,6 +116,54 @@ describe("setTransientInput — declared input is excluded from settled output",
     expect(allText(settled)).not.toContain("\\q");
     expect(paraMarkers(settled)).toEqual(["p", "p"]);
     expectTier2FixedPoint(settled ?? { type: "USJ", version: "3.1", content: [] });
+  });
+
+  it("verifies only the bytes before the caret, leaving the rest of the sentence untouched", async () => {
+    const { ref, lexical } = await mountStandardViewEditor(paletteUsj);
+    act(() => ref.current?.setTransientInput({ kind: "marker-literal", run: "second" }));
+
+    // The palette can open mid-sentence: the caret sits right after "second", with " paragraph"
+    // still ahead of it on the SAME node — verification must match against the bytes ending at the
+    // caret only, never the whole node's text.
+    await act(async () => {
+      lexical.update(() => {
+        $textContaining("a second paragraph").select(8, 8);
+      });
+      await Promise.resolve();
+    });
+
+    const settled = ref.current?.getUsj();
+    expect(allText(settled)).not.toContain("second");
+    expect(allText(settled)).toContain("paragraph");
+  });
+});
+
+describe("setTransientInput — forces its paragraph into the settle scopes even with nothing pended", () => {
+  it("excludes the run when pendedKeys is empty, and restores it once the declaration clears", async () => {
+    const { ref, lexical } = await mountStandardViewEditor(paletteUsj);
+
+    // No marker literal typed, and no mutation at all — a caret move alone never dirties a
+    // TextNode, so the marker-edit engine's transform never runs and nothing pends. This reaches
+    // "pendedKeys empty, declaration verified" without ever touching the pend/resolve machinery —
+    // the simplest state the owner-named property can hold in.
+    await act(async () => {
+      lexical.update(() => {
+        $textContaining("tell them").select(9, 9);
+      });
+      await Promise.resolve();
+    });
+    act(() => ref.current?.setTransientInput({ kind: "marker-literal", run: "them" }));
+    expect(getPendedDisplayOwners(lexical)?.size ?? 0).toBe(0);
+
+    // Forced: this paragraph is otherwise a no-op read (nothing pended in it, or anywhere else, at
+    // all), yet the verified declaration alone puts it in the settle scopes and its bytes come out.
+    const settled = ref.current?.getUsj();
+    expect(allText(settled)).not.toContain("them");
+    expect(allText(settled)).toContain("tell");
+
+    // Inverse, same pended-empty state: cleared, the bytes are exactly what they always were.
+    act(() => ref.current?.setTransientInput(undefined));
+    expect(allText(ref.current?.getUsj())).toContain("tell them");
   });
 });
 

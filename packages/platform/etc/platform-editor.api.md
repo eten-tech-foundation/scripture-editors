@@ -185,6 +185,7 @@ export interface EditorRef {
     // @deprecated
     setAnnotation(selection: AnnotationRange, type: string, id: string, onClick?: TypedMarkOnClick, onRemove?: TypedMarkOnRemove): void;
     setSelection(selection: SelectionRange): void;
+    setTransientInput(input: TransientInput | undefined): void;
     setUsj(usj: Usj): void;
     splitParagraphWithMarker(marker: string): void;
     toolbarEndRef: RefObject<HTMLElement | null> | null;
@@ -490,6 +491,12 @@ export interface Thread {
     quote: string;
     type: "thread";
 }
+
+// @public
+export type TransientInput = {
+    kind: "marker-literal";
+    run: string;
+};
 
 // @public
 export type TypedMarkOnClick = (event: DomMouseEvent, type: string, id: string, textContent: string) => void;
