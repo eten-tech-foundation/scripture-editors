@@ -399,8 +399,10 @@ describe("settled getUsj — virtual settle equals the real settle", () => {
 });
 
 describe("settled getUsj — output is always a Tier-2 fixed point", () => {
-  it.each(pendingShapes)("$name", async ({ usj, $edit }) => {
-    const { ref, lexical } = await mountStandardViewEditor(usj);
+  it.each(pendingShapes)("$name", async ({ usj, $edit, expandedNotes }) => {
+    const { ref, lexical } = await (
+      expandedNotes ? mountExpandedNoteEditor : mountStandardViewEditor
+    )(usj);
     await act(async () => {
       lexical.update($edit);
       await Promise.resolve();
@@ -409,6 +411,6 @@ describe("settled getUsj — output is always a Tier-2 fixed point", () => {
 
     const settled = ref.current?.getUsj();
     if (!settled) throw new Error("expected settled USJ");
-    expectTier2FixedPoint(settled);
+    expectTier2FixedPoint(settled, expandedNotes);
   });
 });

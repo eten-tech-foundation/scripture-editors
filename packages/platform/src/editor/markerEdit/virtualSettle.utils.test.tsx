@@ -774,8 +774,7 @@ describe("$settledUsj — expanded note scopes", () => {
 
     // The note's char-span edit did NOT re-tokenize: byte-identical to the unsettled
     // serialization for the refusing paragraph — a genuine Tier-2 fixed point
-    // ($rebuildNoteContent would also refuse this), not a partial drop of the user's own typed
-    // leading space.
+    // ($rebuildNoteContent would also refuse this).
     const unsettled = unsettledUsjOf(editor);
     expect(settled?.content[0]).toEqual(unsettled?.content[0]);
   });
