@@ -6,11 +6,13 @@ import { EmptyVerseCaretGuardPlugin } from "./EmptyVerseCaretGuardPlugin";
 import { baseTestEnvironment, deleteTextAtSelection } from "./react-test.utils";
 import { act } from "@testing-library/react";
 import {
+  $createRangeSelection,
   $createTextNode,
   $getRoot,
   $getSelection,
   $isRangeSelection,
   $isTextNode,
+  $setSelection,
   LexicalEditor,
   SELECTION_CHANGE_COMMAND,
   TextNode,
@@ -142,6 +144,63 @@ describe("EmptyVerseCaretGuardPlugin", () => {
         .getChildren()
         .some((n) => $isTextNode(n) && n.getTextContent().includes(CURSOR_PLACEHOLDER_CHAR));
       expect(hasPlaceholder).toBe(false);
+    });
+  });
+
+  it("removes the host once a range selection spans the emptied verse (so copy/cut can't include it)", async () => {
+    // The clipboard path (ClipboardPlugin -> Lexical's COPY/CUT) serializes the node tree, not USJ,
+    // so it has no placeholder awareness. Copying requires a range selection, and the host only
+    // exists while the caret rests collapsed in the empty verse — so extending the selection across
+    // the verse (what a user does before Ctrl+C/Ctrl+X) must remove it first.
+    let para: ParaNode;
+    let v1Content: TextNode;
+    let v2Content: TextNode;
+    const { editor } = await guardedEnvironment(() => {
+      v1Content = $createTextNode("hi");
+      v2Content = $createTextNode("there");
+      para = $createParaNode("p");
+      $getRoot().append(
+        para.append(
+          $createImmutableVerseNode("1"),
+          v1Content,
+          $createImmutableVerseNode("2"),
+          v2Content,
+        ),
+      );
+    });
+
+    // Empty verse 1 → host added while the caret rests in it.
+    await deleteTextAtSelection(editor, v1Content!, 0, v1Content!, 2);
+    await dispatchSelectionChange(editor);
+    editor.getEditorState().read(() => {
+      expect(
+        para!
+          .getChildren()
+          .some((n) => $isTextNode(n) && n.getTextContent() === CURSOR_PLACEHOLDER_CHAR),
+      ).toBe(true);
+    });
+
+    // Drag-select across the emptied verse into verse 2.
+    await act(async () => {
+      editor.update(() => {
+        const range = $createRangeSelection();
+        range.anchor.set(para!.getKey(), 0, "element");
+        range.focus.set(v2Content!.getKey(), 5, "text");
+        $setSelection(range);
+      });
+    });
+    await dispatchSelectionChange(editor);
+
+    editor.getEditorState().read(() => {
+      const hasPlaceholder = para!
+        .getChildren()
+        .some((n) => $isTextNode(n) && n.getTextContent().includes(CURSOR_PLACEHOLDER_CHAR));
+      expect(hasPlaceholder).toBe(false);
+      // What the clipboard would serialize from this selection carries no placeholder.
+      const selection = $getSelection();
+      expect($isRangeSelection(selection) ? selection.getTextContent() : "").not.toContain(
+        CURSOR_PLACEHOLDER_CHAR,
+      );
     });
   });
 });

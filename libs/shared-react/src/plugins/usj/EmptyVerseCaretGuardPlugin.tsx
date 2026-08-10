@@ -116,14 +116,10 @@ export function EmptyVerseCaretGuardPlugin(): null {
             if (hostKeyRef.current === staleKey) hostKeyRef.current = undefined;
           }
           if (target) {
-            const following = target.getNextSibling();
-            let host: TextNode;
-            if ($isCursorPlaceholderOnlyText(following)) {
-              host = following;
-            } else {
-              host = $createCursorPlaceholderNode();
-              target.insertAfter(host);
-            }
+            // $emptyVerseNeedingHost only returns a verse when nothing (or another marker) follows
+            // it, so there is never an existing host to reuse here — always create a fresh one.
+            const host = $createCursorPlaceholderNode();
+            target.insertAfter(host);
             host.select(0, 0);
             hostKeyRef.current = host.getKey();
           }

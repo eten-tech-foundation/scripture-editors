@@ -97,7 +97,11 @@ function $caretHasVisualLineBeyond(editor: LexicalEditor, direction: "up" | "dow
     caretStart.collapse(true);
 
     // Bound the measurement to the current verse: the last marker strictly before the caret (so the
-    // verse whose content the caret is in) and the first marker after it.
+    // verse whose content the caret is in) and the first marker after it. The comparison is
+    // position-based (a plain sibling walk can't handle element-point carets, e.g. a caret at an
+    // element offset between decorator siblings), so it scans markers in document order. This runs
+    // only on ArrowUp/ArrowDown at a verse boundary — not on every keystroke — over one editor's
+    // worth of verses (a chapter), so the linear scan is not a hot path.
     const markers = Array.from(root.querySelectorAll('[data-marker="v"]'));
     let current: Element | undefined;
     let next: Element | undefined;
@@ -143,8 +147,14 @@ function $navigateVerseVertically(
   direction: "up" | "down",
   event: KeyboardEvent,
 ): boolean {
-  if (!$shouldAttemptVerticalVerseNavigation(selection)) return false;
-  if ($caretHasVisualLineBeyond(editor, direction)) return false;
+  // Don't intercept when the caret isn't at a verse boundary, or when the verse wraps onto a
+  // further line in this direction (let the browser move by visual line instead). `||` short-circuits
+  // so the DOM measurement only runs once the cheap boundary check passes.
+  if (
+    !$shouldAttemptVerticalVerseNavigation(selection) ||
+    $caretHasVisualLineBeyond(editor, direction)
+  )
+    return false;
   const isHandled =
     direction === "up" ? $selectPreviousVerse(selection) : $selectNextVerse(selection);
   if (isHandled) event.preventDefault();

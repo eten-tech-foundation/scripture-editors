@@ -34,6 +34,9 @@ export function $removeCursorPlaceholder(node: TextNode) {
  * A zero-width space embedded in real text (e.g. a Thai/Khmer line break) is NOT placeholder-only,
  * so it is preserved. State consumers (serializers, OT positions, content indexes) use this to
  * treat a transient host as if it were not there.
+ *
+ * @param text - The text content to test.
+ * @returns `true` when `text` is non-empty and every character is a cursor placeholder.
  */
 export function isCursorPlaceholderOnly(text: string): boolean {
   // Fast path: the common case (no placeholder at all) short-circuits before any allocation, so
@@ -45,7 +48,12 @@ export function isCursorPlaceholderOnly(text: string): boolean {
   );
 }
 
-/** Whether `node` is a text node holding only cursor placeholder(s) — see {@link isCursorPlaceholderOnly}. */
+/**
+ * Whether `node` is a text node holding only cursor placeholder(s) — see {@link isCursorPlaceholderOnly}.
+ *
+ * @param node - The node to test; may be `null`/`undefined`.
+ * @returns `true` when `node` is a `TextNode` whose content is entirely cursor placeholders.
+ */
 export function $isCursorPlaceholderOnlyText(
   node: LexicalNode | null | undefined,
 ): node is TextNode {
