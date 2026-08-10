@@ -29,6 +29,7 @@
 // `deserializeEditorState`) — every other caller in this codebase reaches it the same way.
 import { deserializeSerializedEditorState } from "../adaptors/editor-usj.adaptor";
 import usjEditorAdaptor from "../adaptors/usj-editor.adaptor";
+import { $markerCanonicalText, BARE_OPENER_REGEX } from "./markerEditTier1.utils";
 import {
   $buildNoteFragment,
   $buildParaFragment,
@@ -61,11 +62,13 @@ import {
 } from "lexical";
 import {
   $isCharNode,
+  $isMarkerNode,
   $isNoteNode,
   $isParaNode,
   $isUnknownNode,
   closingMarkerText,
   MarkerLookup,
+  MarkerNode,
   NoteNode,
   openingMarkerText,
   ParaNode,
@@ -738,6 +741,103 @@ function $emptiedOptbreakHusksOf(pendedKeys: ReadonlySet<NodeKey>): UnknownNode[
 }
 
 /**
+ * The note-marker rename a pended key represents, or `undefined` when `node` is not a note's own
+ * OPENING glyph, or its typed text is not (yet) that shape. Mirrors `$applyOpenerRename`'s
+ * (markerEditTier1.utils.ts) `$isNoteNode(parent)` branch decision surface EXACTLY — same
+ * `BARE_OPENER_REGEX` (imported, not re-derived, so the two can never silently drift apart), same
+ * "+"-prefix nest-instruction early-out (a typed `+` is a NEST instruction, never a rename —
+ * `$applyOpenerRename` checks this BEFORE it ever dispatches on parent kind), same tree-shape
+ * sanity guard (the glyph's own stored marker and its parent's must still agree, or the simple
+ * opener-owns-parent assumption doesn't hold and the real path refuses too) — so this settle
+ * recognizes a given pend the identical way the real one does.
+ *
+ * Deliberately silent on VALIDITY (`NoteNode.isValidMarker`): the caller checks that separately.
+ * Even an INVALID target still needs to be recognized as "a note-glyph rename was attempted" for
+ * this function's own contract, even though it settles differently — an invalid target routes
+ * `$applyOpenerRename` to `$requestTier2ForNode` -> `$rebuildNoteContent`, which only ever rebuilds
+ * a note's CONTENT (`$buildNoteFragment` trims the glyphs out of `contentNodes` before tokenizing),
+ * never the note's own marker or glyph text — so the existing, generic note-scope settle this
+ * module already performs is already the correct (no-op-on-the-glyph) mirror for that case.
+ */
+function $noteGlyphRenameTarget(
+  node: LexicalNode,
+): { glyph: MarkerNode; note: NoteNode; oldMarker: string; newMarker: string } | undefined {
+  if (!$isMarkerNode(node) || node.getMarkerSyntax() !== "opening") return undefined;
+  const parent = node.getParent();
+  if (!$isNoteNode(parent)) return undefined;
+  const text = node.getTextContent();
+  if (text === $markerCanonicalText(node)) return undefined;
+  const bare = BARE_OPENER_REGEX.exec(text);
+  if (!bare) return undefined;
+  const newMarker = bare[1];
+  if (newMarker.startsWith("+")) return undefined;
+  const oldMarker = node.getMarker();
+  if (parent.getMarker() !== oldMarker) return undefined;
+  return { glyph: node, note: parent, oldMarker, newMarker };
+}
+
+/** Rewrites one serialized MarkerNode glyph's own `marker` field, and its derived `text` (mirroring
+ * `MarkerNode.setMarker`'s own `__text` recomputation via `getMarkerText`), in place. */
+function rewriteSettledGlyphMarker(json: SerializedLexicalNode, marker: string): void {
+  const glyph = json as SerializedLexicalNode & {
+    marker?: string;
+    markerSyntax?: string;
+    nested?: boolean;
+    text?: string;
+  };
+  glyph.marker = marker;
+  glyph.text = serializedMarkerGlyphText(marker, glyph.markerSyntax, glyph.nested);
+}
+
+/**
+ * Patches a settled note's own `marker` JSON field for a bare, pending opening-glyph rename to a
+ * VALID note marker ({@link $noteGlyphRenameTarget}) — the read-only mirror of
+ * `$applyOpenerRename`'s `$isNoteNode(parent)` branch (markerEditTier1.utils.ts):
+ * `parent.setMarker(clean)`. An INVALID target is left untouched: see
+ * `$noteGlyphRenameTarget`'s own doc comment for why the existing, generic note-content settle is
+ * already the correct mirror for that case.
+ *
+ * Runs independently of, and composes safely with, a co-resident content settle
+ * ({@link $settledNoteContent}) in the SAME note: this patches only the note's own top-level
+ * `marker` field (and its glyph/closer siblings, both OUTSIDE the content range —
+ * `$buildNoteFragment` trims the glyphs out of `contentNodes` before ever building a fragment);
+ * the content settle only ever replaces the CONTENT slice of `noteChildren`. Disjoint JSON
+ * regions of the same note, so the two never race or clobber each other regardless of which runs
+ * first.
+ *
+ * Also mirrors the glyph's own text and, if present, the closer's — `node.setMarker(clean)` and
+ * `closer.setMarker(clean)` in the real branch — even though NEITHER ever reaches the settled USJ
+ * output (`MarkerNode.getType()` is presentation-only and contributes nothing to
+ * `deserializeSerializedEditorState`'s output, editor-usj.adaptor.ts): keeping the serialized copy
+ * a faithful mirror of the live mutation, not just the slice of it this settle's own OUTPUT
+ * happens to expose today.
+ */
+function $applySettledNoteGlyphRename(
+  rename: { glyph: MarkerNode; note: NoteNode; oldMarker: string; newMarker: string },
+  sites: Map<NodeKey, SerializedSite>,
+): void {
+  const { glyph, note, oldMarker, newMarker } = rename;
+  if (!NoteNode.isValidMarker(newMarker)) return;
+
+  const noteSite = sites.get(note.getKey());
+  if (noteSite) (noteSite.node as SerializedLexicalNode & { marker?: string }).marker = newMarker;
+
+  const glyphSite = sites.get(glyph.getKey());
+  if (glyphSite) rewriteSettledGlyphMarker(glyphSite.node, newMarker);
+
+  // Mirrors $applyOpenerRename's own closer lookup exactly: the LAST closing-syntax MarkerNode
+  // child whose marker still matches the opener's OLD marker. An unclosed note (no closing glyph
+  // at all) simply has no match here, same as the real branch's own `if (closer)` no-op.
+  const closer = note
+    .getChildren()
+    .filter($isMarkerNode)
+    .filter((child) => child.getMarkerSyntax() === "closing" && child.getMarker() === oldMarker)
+    .at(-1);
+  const closerSite = closer && sites.get(closer.getKey());
+  if (closerSite) rewriteSettledGlyphMarker(closerSite.node, newMarker);
+}
+
+/**
  * The settled USJ for the editor state `serializedState` was exported from, or `undefined` when
  * nothing settleable is pending (the caller keeps whatever it already has). Call INSIDE a
  * `read()` of that same state. `serializedState` is mutated in place and must therefore be a fresh
@@ -752,13 +852,20 @@ export function $settledUsj(
 
   const paraScopes = new Map<NodeKey, ParaNode>();
   const noteScopes = new Map<NodeKey, NoteNode>();
+  const noteGlyphRenames = new Map<
+    NodeKey,
+    { glyph: MarkerNode; note: NoteNode; oldMarker: string; newMarker: string }
+  >();
   for (const key of pendedKeys) {
     const node = $getNodeByKey(key);
     if (!node?.isAttached()) continue;
     const scope = $settleScopeForNode(node);
     if (!scope) continue;
-    if ($isNoteNode(scope)) noteScopes.set(scope.getKey(), scope);
-    else paraScopes.set(scope.getKey(), scope);
+    if ($isNoteNode(scope)) {
+      noteScopes.set(scope.getKey(), scope);
+      const rename = $noteGlyphRenameTarget(node);
+      if (rename) noteGlyphRenames.set(scope.getKey(), rename);
+    } else paraScopes.set(scope.getKey(), scope);
   }
   const husks = $emptiedOptbreakHusksOf(pendedKeys);
   if (paraScopes.size === 0 && noteScopes.size === 0 && husks.length === 0) return undefined;
@@ -766,6 +873,11 @@ export function $settledUsj(
 
   const sites = new Map<NodeKey, SerializedSite>();
   $mapSerializedSites($getRoot().getChildren(), serializedState.root.children, sites);
+
+  // Note-own-glyph renames: independent of, and safely composable with, the notes/para content
+  // passes below — see `$applySettledNoteGlyphRename`'s own doc comment for why the two never
+  // conflict (disjoint JSON regions of the same note).
+  for (const rename of noteGlyphRenames.values()) $applySettledNoteGlyphRename(rename, sites);
 
   // Notes FIRST: a settled note that also rides inside a settling paragraph is preserved there as
   // a sentinel, and the paragraph pass substitutes the very serialized subtree this pass has just

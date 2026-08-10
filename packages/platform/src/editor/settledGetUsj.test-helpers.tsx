@@ -60,20 +60,39 @@ export const spanUsj: Usj = {
   ],
 };
 
-/** Mount `Editor` in Standard view and hand back its public ref plus the raw Lexical editor. */
-export async function mountStandardViewEditor(
+async function mountEditor(
   usj: Usj,
+  view: ViewOptions,
 ): Promise<{ ref: RefObject<EditorRef | null>; lexical: LexicalEditor }> {
   const ref = createRef<EditorRef>();
   const lexicalRef = createRef<LexicalEditor>();
   const capture: ReactElement = <EditorRefPlugin editorRef={lexicalRef} />;
   await act(async () => {
     render(
-      <Editor ref={ref} defaultUsj={usj} options={{ view: requireStandardViewOptions() }}>
+      <Editor ref={ref} defaultUsj={usj} options={{ view }}>
         {capture}
       </Editor>,
     );
   });
   if (!lexicalRef.current) throw new Error("lexical editor was not captured");
   return { ref, lexical: lexicalRef.current };
+}
+
+/** Mount `Editor` in Standard view and hand back its public ref plus the raw Lexical editor. */
+export async function mountStandardViewEditor(
+  usj: Usj,
+): Promise<{ ref: RefObject<EditorRef | null>; lexical: LexicalEditor }> {
+  return mountEditor(usj, requireStandardViewOptions());
+}
+
+/**
+ * Like `mountStandardViewEditor`, but with `noteMode: "expanded"` — needed for any shape whose
+ * pend targets a note's own glyph or its inline-editable content, both of which require the
+ * note's content to be genuinely inline-editable in the mounted editor (the default Standard view
+ * collapses notes to a caller preview, never inline-editable).
+ */
+export async function mountExpandedNoteEditor(
+  usj: Usj,
+): Promise<{ ref: RefObject<EditorRef | null>; lexical: LexicalEditor }> {
+  return mountEditor(usj, { ...requireStandardViewOptions(), noteMode: "expanded" });
 }

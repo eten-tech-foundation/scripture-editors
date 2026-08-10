@@ -4,7 +4,11 @@
  * the caret sits inside it. Without side effects means the editor still shows the pending edit
  * afterwards — reading the document must never settle it under the user.
  */
-import { mountStandardViewEditor, spanUsj } from "./settledGetUsj.test-helpers";
+import {
+  mountExpandedNoteEditor,
+  mountStandardViewEditor,
+  spanUsj,
+} from "./settledGetUsj.test-helpers";
 import { MarkerObject, Usj } from "@eten-tech-foundation/scripture-utilities";
 import { act } from "@testing-library/react";
 import { $getRoot, $getState, $isTextNode, TextNode } from "lexical";
@@ -12,11 +16,13 @@ import {
   $isAttributeRunNode,
   $isCharNode,
   $isMarkerNode,
+  $isNoteNode,
   $isParaNode,
   $isUnknownNode,
   $isVerseNode,
   CharNode,
   getPendedDisplayOwners,
+  NoteNode,
   textTypeState,
 } from "shared";
 
@@ -153,6 +159,12 @@ interface PendingShape {
   readonly name: string;
   readonly usj: Usj;
   readonly $edit: () => void;
+  /**
+   * Mount with `noteMode: "expanded"` instead of the default Standard-view collapsed notes.
+   * Needed for any shape whose pend targets a note's own glyph or its inline content — a
+   * collapsed note's content is a caller preview, never inline-editable.
+   */
+  readonly expandedNotes?: boolean;
 }
 
 const twoParaUsj = (first: MarkerObject["content"]): Usj => ({
@@ -166,6 +178,27 @@ const twoParaUsj = (first: MarkerObject["content"]): Usj => ({
   ],
 });
 
+/** A two-paragraph doc whose first paragraph carries an expanded, closed note (marker "f",
+ * caller "+") wrapping `noteContent` — the fixture the note-glyph-rename shapes below share. */
+const noteUsj = (noteContent: MarkerObject["content"]): Usj => ({
+  type: "USJ",
+  version: "3.1",
+  content: [
+    { type: "book", marker: "id", code: "GEN", content: ["GEN"] },
+    { type: "chapter", marker: "c", number: "1" },
+    {
+      type: "para",
+      marker: "p",
+      content: [
+        "before ",
+        { type: "note", marker: "f", caller: "+", content: noteContent },
+        " after",
+      ],
+    },
+    { type: "para", marker: "p", content: ["depart here"] },
+  ],
+});
+
 /** The first paragraph's text node whose content includes `needle`. */
 function $textContaining(needle: string) {
   const node = $getRoot()
@@ -173,6 +206,22 @@ function $textContaining(needle: string) {
     .find((text) => text.getTextContent().includes(needle));
   if (!node) throw new Error(`no text node containing ${JSON.stringify(needle)}`);
   return node;
+}
+
+/** The single note in the first paragraph. */
+function $findNote(): NoteNode {
+  const para = $getRoot().getChildren().find($isParaNode);
+  if (!para) throw new Error("expected a ParaNode");
+  const note = para.getChildren().find($isNoteNode);
+  if (!note) throw new Error("expected a NoteNode");
+  return note;
+}
+
+/** The note's own opening glyph — its first child, per `usj-editor.adaptor.ts`'s `createNote`. */
+function $findNoteOpeningGlyph() {
+  const glyph = $findNote().getFirstChild();
+  if (!glyph || !$isTextNode(glyph)) throw new Error("expected the note's opening glyph");
+  return glyph;
 }
 
 const pendingShapes: PendingShape[] = [
@@ -247,11 +296,56 @@ const pendingShapes: PendingShape[] = [
       optbreak.getChildren().forEach((child) => child.remove());
     },
   },
+  {
+    // The gap this shape pins: a NOTE's own opening-glyph rename is applied by the real settle
+    // through `$applyOpenerRename`'s `$isNoteNode(parent)` branch (markerEditTier1.utils.ts), but
+    // `$settledNoteContent` (virtualSettle.utils.ts) only ever rebuilds a note's CONTENT — the
+    // note's own glyphs sit outside that fragment — so before the fix the virtual half leaves the
+    // note's `marker` field stale while the real half moves it.
+    name: "note's own opening glyph renamed to a valid marker",
+    usj: noteUsj(["note body"]),
+    expandedNotes: true,
+    $edit: () => $findNoteOpeningGlyph().setTextContent("\\fe"),
+  },
+  {
+    // Edge pin: an INVALID target marker routes `$applyOpenerRename` to Tier 2
+    // (`$requestTier2ForNode` -> `$rebuildNoteContent`), which only ever rebuilds CONTENT and — with
+    // no content edited here — refuses as a fixed point, leaving the note's `marker` untouched. Both
+    // halves must agree on that "untouched" outcome, not just on the valid-target rename above.
+    name: "note's own opening glyph renamed to an invalid marker",
+    usj: noteUsj(["note body"]),
+    expandedNotes: true,
+    $edit: () => $findNoteOpeningGlyph().setTextContent("\\qq"),
+  },
+  {
+    // Edge pin: the note's own glyph rename co-resident with an unrelated, independently pending
+    // content edit in the SAME note (a bare char-span rename) — both must settle, proving the
+    // glyph-rename patch and the note's own content rebuild compose rather than clobber each other.
+    // The char span is UNCLOSED (`closed: "false"`, no closing glyph created — usj-editor.adaptor's
+    // `createChar`): a CLOSED span's own closer stays literal ("\bd*") while only the opener is
+    // pended, and re-tokenizing that mismatched opener/closer pair is a genuine, unrelated
+    // tokenizer divergence (an "unmatched" entry) neither settle path is being pinned on here.
+    name: "note's own opening glyph rename co-resident with a content pend in the same note",
+    usj: noteUsj([
+      { type: "char", marker: "bd", content: ["bold text"], closed: "false" } as MarkerObject,
+    ]),
+    expandedNotes: true,
+    $edit: () => {
+      $findNoteOpeningGlyph().setTextContent("\\fe");
+      const boldChar = $findNote().getChildren().find($isCharNode);
+      if (!boldChar) throw new Error("expected a char span inside the note");
+      const boldGlyph = boldChar.getFirstChild();
+      if (!$isMarkerNode(boldGlyph)) throw new Error("expected the char span's opening glyph");
+      boldGlyph.setTextContent("\\it");
+    },
+  },
 ];
 
 describe("settled getUsj — virtual settle equals the real settle", () => {
-  it.each(pendingShapes)("$name", async ({ usj, $edit }) => {
-    const { ref, lexical } = await mountStandardViewEditor(usj);
+  it.each(pendingShapes)("$name", async ({ usj, $edit, expandedNotes }) => {
+    const { ref, lexical } = await (
+      expandedNotes ? mountExpandedNoteEditor : mountStandardViewEditor
+    )(usj);
 
     // The virtual settle is read INSIDE this same `act()`, right after the edit — not after it
     // returns. A shape whose pend depends on a live caret residency (e.g. a syntactically COMPLETE
