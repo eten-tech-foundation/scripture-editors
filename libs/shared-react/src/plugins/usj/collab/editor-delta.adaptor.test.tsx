@@ -31,6 +31,7 @@ import {
   $createNoteNode,
   $createParaNode,
   $createUnknownNode,
+  $createCursorPlaceholderNode,
   charIdState,
   EMPTY_CHAR_PLACEHOLDER_TEXT,
   GENERATOR_NOTE_CALLER,
@@ -765,6 +766,32 @@ describe("getEditorDelta", () => {
       const delta = getEditorDelta(editorState);
 
       expect(delta.ops).toEqual(opsGen1v1Editable);
+    });
+
+    // EmptyVerseCaretGuardPlugin's transient caret host (a bare zero-width space) is never sent to
+    // peers, so it must be invisible to the delta/OT stream — otherwise typing into an emptied verse
+    // would emit ops that reference a character the backend never received (PT-4308).
+    it("is transparent to the delta: a bare cursor host emits no op", async () => {
+      const { editor } = await testEnvironment(() => {
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createImmutableVerseNode("1"),
+            $createCursorPlaceholderNode(), // caret host in the now-empty verse 1
+            $createImmutableVerseNode("2"),
+            $createTextNode("text"),
+          ),
+        );
+      });
+
+      const delta = getEditorDelta(editor.getEditorState());
+
+      // Identical to the ops the same tree would produce with no host at all.
+      expect(delta.ops).toEqual([
+        { insert: { verse: { style: "v", number: "1" } } },
+        { insert: { verse: { style: "v", number: "2" } } },
+        { insert: "text" },
+        { insert: LF, attributes: { para: { style: "p" } } },
+      ]);
     });
   });
 });

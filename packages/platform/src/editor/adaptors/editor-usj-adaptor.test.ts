@@ -26,10 +26,12 @@ import editorUsjAdaptor, { deserializeSerializedEditorState } from "./editor-usj
 import usjEditorAdaptor from "./usj-editor.adaptor";
 import { EMPTY_USJ, MarkerObject, Usj } from "@eten-tech-foundation/scripture-utilities";
 import { deepEqual } from "fast-equals";
-import { SerializedEditorState, SerializedTextNode } from "lexical";
-import { usjReactNodes } from "shared-react";
+import { $createTextNode, $getRoot, SerializedEditorState, SerializedTextNode } from "lexical";
+import { $createImmutableVerseNode, usjReactNodes } from "shared-react";
 import {
+  $createParaNode,
   CHAPTER_MARKER,
+  CURSOR_PLACEHOLDER_CHAR,
   getVisibleOpenMarkerText,
   SerializedChapterNode,
   SerializedParaNode,
@@ -252,5 +254,52 @@ describe("Editor USJ Adaptor", () => {
     const roundTripped = deserializeSerializedEditorState(serializedEditorState);
 
     expect(roundTripped).toEqual(usj);
+  });
+});
+
+// EmptyVerseCaretGuardPlugin drops a transient zero-width-space "caret host" into an emptied verse
+// so the insertion point stays visible (PT-4308). A node that is *only* placeholders carries no
+// Scripture text and is skipped, but a zero-width space is legitimate content in some scripts
+// (Thai/Khmer/Lao line breaks), so an embedded one in real text must survive.
+describe("Editor USJ Adaptor — caret-host placeholder", () => {
+  it("drops a bare zero-width-space caret host and keeps surrounding verse text", () => {
+    editor.update(
+      () => {
+        $getRoot().clear();
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createImmutableVerseNode("1"),
+            $createTextNode(CURSOR_PLACEHOLDER_CHAR), // caret host in the now-empty verse 1
+            $createImmutableVerseNode("2"),
+            $createTextNode("real text"),
+          ),
+        );
+      },
+      { discrete: true },
+    );
+
+    const usj = editorUsjAdaptor.deserializeEditorState(editor.getEditorState());
+    const serialized = JSON.stringify(usj);
+
+    expect(serialized.includes(CURSOR_PLACEHOLDER_CHAR)).toBe(false); // bare host never reaches USJ
+    expect(serialized.includes("real text")).toBe(true); // verse 2's real text survives
+  });
+
+  it("preserves a zero-width space embedded in real Scripture text", () => {
+    const withZwsp = `first${CURSOR_PLACEHOLDER_CHAR}second`;
+    editor.update(
+      () => {
+        $getRoot().clear();
+        $getRoot().append(
+          $createParaNode("p").append($createImmutableVerseNode("1"), $createTextNode(withZwsp)),
+        );
+      },
+      { discrete: true },
+    );
+
+    const usj = editorUsjAdaptor.deserializeEditorState(editor.getEditorState());
+
+    // The ZWSP is content here (not a bare host), so it must round-trip untouched.
+    expect(JSON.stringify(usj).includes(withZwsp)).toBe(true);
   });
 });
