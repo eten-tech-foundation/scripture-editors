@@ -70,7 +70,10 @@ export interface EditorRef {
    * (the same re-tokenization a departure settle performs), computed without touching the editor,
    * so the user's edit stays pending on screen and their caret and undo history are untouched.
    * Settling is uniform: a half-typed `|stuf` settles to literal content, because that is what
-   * those bytes mean to anything that parses them.
+   * those bytes mean to anything that parses them. While anything is pending, this settled
+   * structure can differ from the LIVE tree {@link EditorRef.getSelection}'s `jsonPath` addresses —
+   * do not resolve a live-selection `jsonPath` against a `getUsj()` snapshot without accounting for
+   * that.
    */
   getUsj(): Usj | undefined;
   /**
@@ -123,7 +126,9 @@ export interface EditorRef {
   /**
    * Get the selection location or range.
    * @returns the selection location or range, or `undefined` if there is no selection. The
-   *   json-path in the selection assumes no comment Milestone nodes are present in the USJ.
+   *   json-path in the selection assumes no comment Milestone nodes are present in the USJ, and
+   *   addresses the LIVE tree, not {@link EditorRef.getUsj}'s settled output — while anything is
+   *   pending, resolving it against a `getUsj()` snapshot can land on shifted or stale content.
    */
   getSelection(): SelectionRange | undefined;
   /**
