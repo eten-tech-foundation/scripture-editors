@@ -323,6 +323,46 @@ describe("replaceCharacterMarker guards", () => {
   });
 });
 
+describe("extendCharacterMarker guards", () => {
+  it("throws in readonly mode", async () => {
+    const ref = await createReadonlyEditorRefForTesting();
+    const editor = ref.current;
+    if (!editor) throw new Error("Editor not mounted");
+
+    expect(() => editor.extendCharacterMarker("bd")).toThrow(
+      "Cannot extend character marker in readonly mode",
+    );
+  });
+
+  it("throws for a para marker, which extension can never act on", async () => {
+    const ref = await createEditorRefForTesting();
+    const editor = ref.current;
+    if (!editor) throw new Error("Editor not mounted");
+
+    expect(() => editor.extendCharacterMarker("p")).toThrow("Unsupported character marker 'p'");
+  });
+
+  it("throws for an unsupported conflicting marker", async () => {
+    const ref = await createEditorRefForTesting();
+    const editor = ref.current;
+    if (!editor) throw new Error("Editor not mounted");
+
+    // The injected list is caller-supplied data (OQ-6), so it gets the same validation as the
+    // target marker rather than being trusted.
+    expect(() => editor.extendCharacterMarker("bd", ["zzz"])).toThrow(
+      "Unsupported character marker 'zzz'",
+    );
+  });
+
+  it("returns false without throwing when there is no selection", async () => {
+    const ref = await createEditorRefForTesting();
+    const editor = ref.current;
+    if (!editor) throw new Error("Editor not mounted");
+
+    expect(editor.extendCharacterMarker("bd")).toBe(false);
+  });
+});
+
 /** Grabs the underlying Lexical editor so tests can dispatch commands the public ref doesn't expose. */
 function GrabEditor({ onEditor }: { onEditor: (editor: LexicalEditor) => void }): null {
   const [editor] = useLexicalComposerContext();

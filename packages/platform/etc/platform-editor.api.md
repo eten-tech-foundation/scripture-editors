@@ -97,6 +97,7 @@ export interface EditorRef {
     applyUpdate(ops: DeltaOp[], source?: DeltaSource): void;
     copy(): void;
     cut(): void;
+    extendCharacterMarker(marker: string, conflictingMarkers?: readonly string[]): boolean;
     focus(): void;
     formatPara(blockMarker: string): void;
     getElementByKey(nodeKey: string): HTMLElement | undefined;
