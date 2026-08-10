@@ -256,3 +256,88 @@ structurally verified live, pending only the separate paranext-core CSS resync t
 complete. The three live bugs (stale invisible attribute, undead optbreak, empty-`\va` re-fold)
 are fixed and re-verified live in this session. Phases 1 and 2a (the wrapper-element flip +
 cleanup) are landed; the phase-2b registry and phase 3 (settled `getUsj()`) are planned next.
+
+## Postscript (2026-08-10): backlog item 4 closed — verse-9 lossy warn retired by settled getUsj
+
+Phase 3 (settled `getUsj()`, wave 4) landed and was re-verified live end-to-end. **Backlog item 4
+is closed**: the verse-9 `content[16]` warn (`\nd come togedda \nd*`'s inner trailing space before
+the closer) no longer fires. The regression net is `packages/platform/src/editor/markerEdit/ndInnerTrailingSpace.test.tsx`
+(editor, all four editor-side pipelines pinned byte-faithful) plus
+`c-sharp-tests/Projects/NdSpanRoundTripCaptureTests.cs` (host, ParatextData's own round-trip
+pinned). The class of warn this belonged to — a save snapshot taken mid-edit, before the editor's
+own content had settled — is retired **by construction**, not by a point fix: `EditorRef.getUsj()`
+is now always a Tier-2 fixed point, and every save-scheduling site (`handleEditorialUsjChange`,
+the debounced-save capture, the cross-chapter flush) reads through it instead of forwarding the
+raw `onUsjChange` payload, so there is no longer a code path that can schedule an unsettled
+snapshot.
+
+Live re-verification (paranext-core `standard-view`, WEB_edit sample project — WEB itself is
+read-only in this dev environment, so WEB_edit is the editable counterpart already used for every
+prior live check in this ledger; content is otherwise identical WEB text — Luke 4, DLL freshness
+confirmed by grepping the `Settled USJ skipped` runtime literal in both the editor's own
+`packages/platform/dist/index.js` and paranext-core's `.erb/dll/renderer.dev.dll.js` before and
+after rebuild):
+
+- **Verse-9 warn absent under repeated saves.** Created the suspect span live (`\nd come togedda
+  \nd*` at Luke 4:9, inner trailing space before the closer, matching the Task-10 pin's shape
+  exactly) and saved it. Then edited OTHER paragraphs repeatedly (5+ edit/save cycles across
+  verses 14, 22, 31, 35) with the chapter actively focused — the exact condition
+  (`isActivelyEditing` + same document + stable non-convergent echo) the warn requires. Grepped
+  the renderer log for `round-tripped through the PDP to DIFFERENT content` after every cycle:
+  zero new hits (the only 4 hits in the log are historical, dated 2026-08-07, from an unrelated
+  zzz6/Genesis `altnumber`/`sid` field-ordering difference).
+- **Mid-marker-typing save, still no warn.** Typed `\q1` at the end of a verse with ~250ms between
+  characters so the 700ms debounce fired while the literal sat incomplete (passive palette open,
+  "No results found"); the save landed with the literal correctly excluded (on-disk verse
+  unchanged), confirming settled `getUsj()` — not the retired pre-save commit — is what a
+  mid-typing save now captures. No warn.
+- **Task-13 cross-chapter palette race (the one live check with no component pin).** Typed `\f` in
+  Luke 4:37 (passive backslash-palette session), then navigated to Luke 5 before the 700ms
+  debounce fired. Grepped the OLD chapter's on-disk SFM: the `\f` literal was never written —
+  `handleEditorialUsjChange` now schedules `editorRef.current?.getUsj() ?? usj` (settled,
+  transient-excluded) instead of the raw `onUsjChange` payload, so the cross-chapter flush replays
+  canonical bytes. Navigating back to Luke 4 showed the settled equivalent (no `\f`, no
+  corruption) — consistent with disk. One cosmetic artifact observed: the marker-palette popover
+  itself stayed visually open (pinned to its old screen position) across both the chapter switch
+  and a subsequent `Escape`, until a click elsewhere in the page dismissed it via its own
+  click-outside handler. This matches Task 13's disclosed, deliberately-deferred caveat ("editor
+  remount/editorRef churn has no explicit palette-session clear") — a UI-only leftover, not a data
+  defect (the underlying document content was correct throughout).
+- **Undo holds, no auto-resettle.** Typed `\q1 ` (terminated) at the end of a verse, let it settle
+  into a real `q1` paragraph split, then `Ctrl+Z` twice (once to undo the split, once to undo the
+  typed literal) back to the original text; held for 2.2s with no auto-resettle back. Disk matched
+  the fully-reverted state.
+- **Wave-1 regressions still live: attribute-run deletion clean; optbreak deletion has a
+  mixed result.** Deleting a freshly-created char attribute run (`\nd test2\nd*`) via real
+  character-by-character `Backspace` settled clean on disk (byte-identical to the pristine WEB
+  original apart from this wave's intentional edits). Deleting a freshly-typed `//` optbreak,
+  however, took **two** `Backspace` presses to fully clear — the DOM showed an empty
+  `<unknown data-tag="optbreak">` husk after the first press (parent decorator present, inner
+  `//` content gone), removed by the second press — where the wave-2a postscript above records "a
+  single Backspace... deletes the whole node in one action — no husk". The end state was clean
+  either way (no `//` residue on disk, matching this task's acceptance bar), and the two presses
+  land within the same debounce window so a real user would not observe an intermediate saved
+  husk. Flagged rather than filed: this could be a genuine partial regression of live bug #2
+  ("Undead optbreak") re-appearing behind a different repro shape (a fresh `//` that only tokenizes
+  into the atomic decorator after a PDP round-trip, not instantly on live typing — the two-press
+  behavior was only reproducible via a keyboard `End`-then-`Backspace` sequence at the settled/
+  reloaded node, not the original live-typed one), or it could be intended two-step decorator
+  selection UX. Worth a short, targeted follow-up (Task 16 gate or later) rather than blocking this
+  task's own acceptance, since backlog item 4's own bar — the verse-9 warn — is unambiguously met.
+
+One self-inflicted testing-methodology artifact, corrected before continuing: an early attempt to
+delete the pre-existing `\va 1a\va*` run at Luke 4:1 via `Range.selectNode()` on the wrapper
+element (rather than character-level `Backspace`) visually removed it from the DOM without Lexical
+registering the change (no debounced save fired), and a later stray `Backspace` — sent after that
+dead selection — silently ate adjacent characters that DID get saved, corrupting verse 1 on disk.
+Diagnosed via `diff` against the pristine, untouched `WEB` project's copy of the same verse;
+repaired directly in the on-disk SFM (app stopped first, to avoid racing its own save path) back
+to byte-identical with the original; app restarted clean and the fix reconfirmed live. Not a
+product defect — `Range.selectNode()` on a multi-child element bypasses Lexical's own
+selection-sync path the same way a raw `execCommand` does (the wave-2a postscript's already-noted
+class of artifact); real per-character `Backspace` (used for the rest of this session's edits)
+does not have this problem.
+
+Item 4 is closed. The remaining open items from this doc are the phase-2b registry, phase 3's
+already-landed settled `getUsj()` (this postscript), and the two follow-ups noted above (CSS
+resync for hover-grays-the-green; the optbreak two-press observation).
