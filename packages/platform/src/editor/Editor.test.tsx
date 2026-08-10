@@ -537,6 +537,30 @@ async function selectWholePara(editor: LexicalEditor): Promise<void> {
   });
 }
 
+/**
+ * Asserts the rendered char span carries `toMarker` and no trace of `fromMarker`.
+ *
+ * `CharNode.updateDOM` writes these by hand, because Lexical reuses the existing element rather than
+ * re-running `createDOM` when only the marker changed. Asserting on the live DOM is what covers that
+ * reuse path - `CharNode.test.ts` exercises `updateDOM` against a detached element, which cannot see
+ * whether the reconciler ever reached it.
+ */
+function expectRenderedCharMarker(
+  editor: LexicalEditor,
+  toMarker: string,
+  fromMarker: string,
+): void {
+  const rootElement = editor.getRootElement();
+  if (!rootElement) throw new Error("Editor has no root element");
+  // Scoped to the `char` class `CharNode.createDOM` adds: para and chapter spans carry
+  // `data-marker` too, and they come first in document order.
+  const charElement = rootElement.querySelector("span.char[data-marker]");
+  if (!charElement) throw new Error("No rendered char span found");
+  expect(charElement.getAttribute("data-marker")).toBe(toMarker);
+  expect(charElement.classList.contains(`usfm_${toMarker}`)).toBe(true);
+  expect(charElement.classList.contains(`usfm_${fromMarker}`)).toBe(false);
+}
+
 describe("removeCharacterMarker through the editor ref", () => {
   // The guards above only prove the method throws when it should. This drives it end to end so
   // `Editor.tsx`'s wiring is covered too - in particular that it forwards its `viewOptions` as the
@@ -669,6 +693,71 @@ describe("replaceCharacterMarker through the editor ref", () => {
     expect(text).toContain(closingMarkerText("bd"));
     expect(text).not.toContain(openingMarkerText("nd"));
     expect(text).not.toContain(closingMarkerText("nd"));
+
+    expectRenderedCharMarker(lexicalEditor, "bd", "nd");
+
+    const para = editorRef.getUsj()?.content[2];
+    if (typeof para !== "object" || !("content" in para))
+      throw new Error("para is not a USJ para node");
+    const serialized = JSON.stringify(para.content);
+    expect(serialized).toContain('"marker":"bd"');
+    expect(serialized).not.toContain('"marker":"nd"');
+    expect(serialized).toContain('"Lord"');
+  });
+
+  // The "editable" counterpart above synthesizes `MarkerNode` children; "visible" synthesizes
+  // `ImmutableTypedTextNode`s instead, which `$retargetSynthesizedMarkers` handles in a separate
+  // branch - and the order-sensitive one, since it matches each child against the *old* marker's
+  // text. That branch otherwise only runs against hand-built node trees.
+  it("retargets the synthesized markers under markerMode 'visible'", async () => {
+    const ref = createRef<EditorRef>();
+    let editor: LexicalEditor | undefined;
+    await act(async () => {
+      render(
+        <Editor
+          ref={ref}
+          defaultUsj={usjWithCharMarker}
+          options={{
+            view: {
+              markerMode: "visible",
+              noteMode: "expanded",
+              hasSpacing: false,
+              isFormattedFont: false,
+            },
+          }}
+        >
+          <GrabEditor onEditor={(e) => (editor = e)} />
+        </Editor>,
+      );
+    });
+    await flushQueuedEvents();
+    if (!ref.current || !editor) throw new Error("EditorRef did not mount");
+    const lexicalEditor = editor;
+    const editorRef = ref.current;
+
+    // Precondition: the adaptor really did synthesize the \nd opening and closing markers, so the
+    // retarget below has something to do.
+    expect(lexicalEditor.getEditorState().read(() => $getRoot().getTextContent())).toContain(
+      openingMarkerText("nd"),
+    );
+
+    await selectCharNodeContent(lexicalEditor);
+    let didReplace = false;
+    await act(async () => {
+      didReplace = editorRef.replaceCharacterMarker("bd", "nd");
+    });
+    await flushQueuedEvents();
+
+    expect(didReplace).toBe(true);
+
+    // Both synthesized children were retargeted, not stripped and not left stale.
+    const text = lexicalEditor.getEditorState().read(() => $getRoot().getTextContent());
+    expect(text).toContain(openingMarkerText("bd"));
+    expect(text).toContain(closingMarkerText("bd"));
+    expect(text).not.toContain(openingMarkerText("nd"));
+    expect(text).not.toContain(closingMarkerText("nd"));
+
+    expectRenderedCharMarker(lexicalEditor, "bd", "nd");
 
     const para = editorRef.getUsj()?.content[2];
     if (typeof para !== "object" || !("content" in para))

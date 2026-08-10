@@ -174,8 +174,8 @@ export function isCharacterMarkerSupported(
   marker: string,
   extraValidMarkers?: readonly string[],
 ): boolean {
-  if (CharNode.isValidFootnoteMarker(marker) || CharNode.isValidCrossReferenceMarker(marker))
-    return false;
+  // Note-content markers only occur inside a NoteNode, which the character-marker actions skip.
+  if (CharNode.isNoteContentMarker(marker)) return false;
   return CharNode.isValidMarker(marker, extraValidMarkers);
 }
 
@@ -1278,8 +1278,6 @@ function $wrapRunInCharNode(run: TextNode[], marker: string): void {
   const willMergeWithPreviousSibling = neighborCharNode === previousSibling;
   if (!willMergeWithPreviousSibling) $moveLeadingSpaceToPreviousNode(run[0], wrapper);
 }
-
-// #endregion
 
 /**
  * Moves the leading space of a node following a verse node to the previous node.

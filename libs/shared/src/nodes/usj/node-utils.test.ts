@@ -465,6 +465,45 @@ describe("Editor Node Utilities", () => {
       });
     });
 
+    it("matches marker children against the old marker, not the new one", () => {
+      // Pins the ordering inside $setCharNodeMarker: the children are retargeted *before*
+      // charNode.setMarker runs, so the match reads the old marker off the node. Reverse the two
+      // calls and the read returns "bd", the \nd children match nothing, and they survive stale.
+      // The decoy child below already carries the new marker's opening form, so it must be left
+      // alone either way - it is the \nd children that tell the two orderings apart.
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        charNode = $createCharNode("nd");
+        $getRoot().append(
+          $createParaNode("p").append(
+            charNode.append(
+              $createImmutableTypedTextNode("marker", openingMarkerText("nd")),
+              $createTextNode("Lord"),
+              $createImmutableTypedTextNode("marker", openingMarkerText("bd")),
+              $createTextNode("God"),
+              $createImmutableTypedTextNode("marker", closingMarkerText("nd")),
+            ),
+          ),
+        );
+      });
+
+      editor.update(
+        () => {
+          $setCharNodeMarker(charNode, "bd");
+        },
+        { discrete: true },
+      );
+
+      editor.getEditorState().read(() => {
+        const text = charNode.getTextContent();
+        // Both old-marker children were matched and retargeted - nothing stale survives.
+        expect(text).not.toContain(openingMarkerText("nd"));
+        expect(text).not.toContain(closingMarkerText("nd"));
+        expect(text).toContain(closingMarkerText("bd"));
+        expect(text).toContain("Lord");
+        expect(text).toContain("God");
+      });
+    });
+
     it("leaves a marker child alone when its text is not the expected opening or closing form", () => {
       const { editor } = createBasicTestEnvironment(nodes, () => {
         charNode = $createCharNode("nd");
@@ -488,7 +527,7 @@ describe("Editor Node Utilities", () => {
 
       editor.getEditorState().read(() => {
         expect(charNode.getMarker()).toBe("bd");
-        // Rewritten by guesswork it is not: an unrecognized marker text is left verbatim.
+        // An unrecognized marker text is left verbatim, not rewritten by guesswork.
         expect(charNode.getTextContent()).toContain("\\nd|x-custom");
       });
     });
