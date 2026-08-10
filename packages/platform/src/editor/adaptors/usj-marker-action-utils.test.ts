@@ -18,6 +18,7 @@ import {
   $getRoot,
   $getSelection,
   $getState,
+  $isNodeSelection,
   $isRangeSelection,
   $isTextNode,
   $setState,
@@ -52,6 +53,10 @@ const nodes = usjReactNodes;
 const reference = { book: "GEN", chapterNum: 1, verseNum: 1 };
 
 let secondVerseTextNode: TextNode;
+let noVerseText: TextNode;
+let verse1Text: TextNode;
+let insertedVerse2Text: TextNode;
+let precedingVerseText: TextNode;
 let charTextNode: TextNode;
 let tailTextNode: TextNode;
 let innerTextNode: TextNode;
@@ -179,6 +184,44 @@ describe("USJ Marker Action Utils", () => {
     });
   });
 
+  function $initialEditorStateWithNoChapterNode() {
+    secondVerseTextNode = $createTextNode("second verse text ");
+    $getRoot().append(
+      $createParaNode().append(
+        $createImmutableVerseNode("1"),
+        $createTextNode("first verse text "),
+      ),
+      $createParaNode().append($createImmutableVerseNode("2"), secondVerseTextNode),
+    );
+  }
+
+  it("should insert the current chapter number (not incremented) when no chapter node exists yet", () => {
+    const { editor } = createBasicTestEnvironment(nodes, $initialEditorStateWithNoChapterNode);
+    const markerAction = getUsjMarkerAction(
+      "c",
+      expandedNoteKeyRef,
+      undefined,
+      undefined,
+      undefined,
+      {
+        discrete: true,
+      },
+    );
+    updateSelection(editor, secondVerseTextNode);
+
+    markerAction.action({ editor, reference });
+
+    editor.getEditorState().read(() => {
+      const children = $getRoot().getChildren();
+      expect(children.length).toBe(4);
+      if (!$isImmutableChapterNode(children[2])) throw new Error("Inserted node is not a chapter");
+      // reference.chapterNum is 1 — must be inserted as-is, not incremented to 2.
+      expect(children[2].getNumber()).toBe("1");
+      if (!$isParaNode(children[3]))
+        throw new Error("Inserted node after inserted chapter is not a ParaNode");
+    });
+  });
+
   describe("should insert a verse", () => {
     it("with no leading space", () => {
       const { editor } = createBasicTestEnvironment(nodes, $defaultInitialEditorState);
@@ -201,7 +244,9 @@ describe("USJ Marker Action Utils", () => {
         const insertedNode = secondVerseTextNode.getNextSibling();
         if (!$isImmutableVerseNode(insertedNode)) throw new Error("Inserted node is not a verse");
         expect(insertedNode.getMarker()).toBe("v");
-        expect(insertedNode.getNumber()).toBe("2");
+        // Verse 2 is the chapter's last verse (no following verse): inferred from the actual
+        // tree, not the stale reference.verseNum=1 this test's fixture reference carries.
+        expect(insertedNode.getNumber()).toBe("3");
         const tailTextNode = insertedNode.getNextSibling();
         if (!$isTextNode(tailTextNode)) throw new Error("Tail node is not text");
         expect(tailTextNode.getTextContent()).toBe("verse text ");
@@ -230,11 +275,232 @@ describe("USJ Marker Action Utils", () => {
         const insertedNode = secondVerseTextNode.getNextSibling();
         if (!$isImmutableVerseNode(insertedNode)) throw new Error("Inserted node is not a verse");
         expect(insertedNode.getMarker()).toBe("v");
-        expect(insertedNode.getNumber()).toBe("2");
+        expect(insertedNode.getNumber()).toBe("3"); // last verse in chapter: increment from tree
         const tailTextNode = insertedNode.getNextSibling();
         if (!$isTextNode(tailTextNode)) throw new Error("Tail node is not text");
         expect(tailTextNode.getTextContent()).toBe("verse text ");
         $expectSelectionToBe(tailTextNode, 0);
+      });
+    });
+  });
+
+  describe("verse-number inference", () => {
+    it("inserts verse 1 with no highlight when no verse precedes the caret", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        noVerseText = $createTextNode("no verse yet");
+        $getRoot().append($createImmutableChapterNode("1"), $createParaNode().append(noVerseText));
+      });
+      const markerAction = getUsjMarkerAction(
+        "v",
+        expandedNoteKeyRef,
+        undefined,
+        undefined,
+        undefined,
+        { discrete: true },
+      );
+      updateSelection(editor, noVerseText, 0);
+
+      markerAction.action({ editor, reference });
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getChildren()[1];
+        if (!$isParaNode(para)) throw new Error("Expected a ParaNode");
+        const insertedNode = para.getChildren().find($isImmutableVerseNode);
+        if (!insertedNode) throw new Error("Expected an inserted verse node");
+        expect(insertedNode.getNumber()).toBe("1");
+        expect($isNodeSelection($getSelection())).toBe(false); // not highlighted
+      });
+    });
+
+    it("increments across a gap with no highlight", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        verse1Text = $createTextNode("verse one ");
+        $getRoot().append(
+          $createImmutableChapterNode("1"),
+          $createParaNode().append($createImmutableVerseNode("1"), verse1Text),
+          $createParaNode().append($createImmutableVerseNode("4"), $createTextNode("verse four")),
+        );
+      });
+      const markerAction = getUsjMarkerAction(
+        "v",
+        expandedNoteKeyRef,
+        undefined,
+        undefined,
+        undefined,
+        { discrete: true },
+      );
+      updateSelection(editor, verse1Text);
+
+      markerAction.action({ editor, reference });
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getChildren()[1];
+        if (!$isParaNode(para)) throw new Error("Expected a ParaNode");
+        // findLast: the pre-existing verse 1 is also a child of this paragraph and comes first.
+        const insertedNode = para.getChildren().findLast($isImmutableVerseNode);
+        if (!insertedNode) throw new Error("Expected an inserted verse node");
+        expect(insertedNode.getNumber()).toBe("2"); // gap between 1 and 4: increment, not garbled
+        expect($isNodeSelection($getSelection())).toBe(false);
+      });
+    });
+
+    it("increments and highlights when preceding and following verses are adjacent (no numeric slot)", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        verse1Text = $createTextNode("first verse text ");
+        $getRoot().append(
+          $createImmutableChapterNode("1"),
+          $createParaNode().append($createImmutableVerseNode("1"), verse1Text),
+          $createParaNode().append(
+            $createImmutableVerseNode("2"),
+            $createTextNode("second verse text"),
+          ),
+        );
+      });
+      const markerAction = getUsjMarkerAction(
+        "v",
+        expandedNoteKeyRef,
+        undefined,
+        undefined,
+        undefined,
+        { discrete: true },
+      );
+      updateSelection(editor, verse1Text);
+
+      markerAction.action({ editor, reference });
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getChildren()[1];
+        if (!$isParaNode(para)) throw new Error("Expected a ParaNode");
+        // findLast: the pre-existing verse 1 is also a child of this paragraph and comes first.
+        const insertedNode = para.getChildren().findLast($isImmutableVerseNode);
+        if (!insertedNode) throw new Error("Expected an inserted verse node");
+        expect(insertedNode.getNumber()).toBe("2");
+        const sel = $getSelection();
+        expect($isNodeSelection(sel)).toBe(true);
+        if ($isNodeSelection(sel)) expect(sel.has(insertedNode.getKey())).toBe(true); // highlighted
+      });
+    });
+
+    it("increments and highlights when the following verse is a bridge that contains the inserted number", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        precedingVerseText = $createTextNode("fourth verse text ");
+        $getRoot().append(
+          $createImmutableChapterNode("1"),
+          $createParaNode().append($createImmutableVerseNode("4"), precedingVerseText),
+          $createParaNode().append(
+            $createImmutableVerseNode("5-6"),
+            $createTextNode("bridged verse text"),
+          ),
+        );
+      });
+      const markerAction = getUsjMarkerAction(
+        "v",
+        expandedNoteKeyRef,
+        undefined,
+        undefined,
+        undefined,
+        { discrete: true },
+      );
+      updateSelection(editor, precedingVerseText);
+
+      markerAction.action({ editor, reference });
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getChildren()[1];
+        if (!$isParaNode(para)) throw new Error("Expected a ParaNode");
+        const insertedNode = para.getChildren().findLast($isImmutableVerseNode);
+        if (!insertedNode) throw new Error("Expected an inserted verse node");
+        expect(insertedNode.getNumber()).toBe("5"); // plain increment from 4
+        const sel = $getSelection();
+        expect($isNodeSelection(sel)).toBe(true);
+        // 5 falls inside the following bridge 5-6, even though it isn't an exact-string match.
+        if ($isNodeSelection(sel)) expect(sel.has(insertedNode.getKey())).toBe(true);
+      });
+    });
+
+    it("does not highlight when the following bridge does not contain the inserted number", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        precedingVerseText = $createTextNode("fourth verse text ");
+        $getRoot().append(
+          $createImmutableChapterNode("1"),
+          $createParaNode().append($createImmutableVerseNode("4"), precedingVerseText),
+          $createParaNode().append(
+            $createImmutableVerseNode("6-7"),
+            $createTextNode("bridged verse text"),
+          ),
+        );
+      });
+      const markerAction = getUsjMarkerAction(
+        "v",
+        expandedNoteKeyRef,
+        undefined,
+        undefined,
+        undefined,
+        { discrete: true },
+      );
+      updateSelection(editor, precedingVerseText);
+
+      markerAction.action({ editor, reference });
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getChildren()[1];
+        if (!$isParaNode(para)) throw new Error("Expected a ParaNode");
+        const insertedNode = para.getChildren().findLast($isImmutableVerseNode);
+        if (!insertedNode) throw new Error("Expected an inserted verse node");
+        expect(insertedNode.getNumber()).toBe("5"); // plain increment from 4
+        // The following verse IS a bridge (proving the check actually ran against it, not just
+        // "no verse found"), but 5 falls outside 6-7, so this must not be flagged as a collision.
+        expect($isNodeSelection($getSelection())).toBe(false);
+      });
+    });
+
+    it("does not repeat or garble verse numbers when re-adding a missing verse into a gap", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        // "verse one " (10 chars) + "text" (4 chars): caret splits after the first part, leaving
+        // "text" as a trailing node so a second insertion can be anchored right after the first.
+        verse1Text = $createTextNode("verse one text");
+        $getRoot().append(
+          $createImmutableChapterNode("1"),
+          $createParaNode().append($createImmutableVerseNode("1"), verse1Text),
+          $createParaNode().append($createImmutableVerseNode("4"), $createTextNode("verse four")),
+        );
+      });
+      const markerAction = getUsjMarkerAction(
+        "v",
+        expandedNoteKeyRef,
+        undefined,
+        undefined,
+        undefined,
+        { discrete: true },
+      );
+      updateSelection(editor, verse1Text, 10);
+      markerAction.action({ editor, reference });
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getChildren()[1];
+        if (!$isParaNode(para)) throw new Error("Expected a ParaNode");
+        // findLast: the pre-existing verse 1 is also a child of this paragraph and comes first.
+        const insertedNode = para.getChildren().findLast($isImmutableVerseNode);
+        if (!insertedNode) throw new Error("Expected inserted verse");
+        expect(insertedNode.getNumber()).toBe("2"); // not "11" or garbled
+        const tail = insertedNode.getNextSibling();
+        if (!$isTextNode(tail)) throw new Error("Expected trailing text node");
+        insertedVerse2Text = tail;
+      });
+
+      // Re-add the next missing verse immediately after, simulating the user manually recovering
+      // from an incomplete undo.
+      updateSelection(editor, insertedVerse2Text, 0);
+      markerAction.action({ editor, reference });
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getChildren()[1];
+        if (!$isParaNode(para)) throw new Error("Expected a ParaNode");
+        const verseNumbers = para
+          .getChildren()
+          .filter($isImmutableVerseNode)
+          .map((v) => v.getNumber());
+        expect(verseNumbers).toEqual(["1", "2", "3"]); // clean sequence, no repeats
       });
     });
   });

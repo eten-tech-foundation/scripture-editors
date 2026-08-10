@@ -3,11 +3,14 @@ import { SerializedVerseRef } from "@sillsdev/scripture";
 import { $unwrapNode } from "@lexical/utils";
 import {
   $copyNode,
+  $createNodeSelection,
   $createTextNode,
+  $getRoot,
   $getSelection,
   $isElementNode,
   $isRangeSelection,
   $isTextNode,
+  $setSelection,
   EditorUpdateOptions,
   ElementNode,
   LexicalEditor,
@@ -18,6 +21,7 @@ import {
 import {
   $createCharNode,
   $createNodeFromSerializedNode,
+  $findChapter,
   $isCharNode,
   $isMarkerNode,
   $isNoteNode,
@@ -30,6 +34,9 @@ import {
   createLexicalUsjNode,
   EMPTY_CHAR_PLACEHOLDER_TEXT,
   getNextVerse,
+  getSelectionStartNode,
+  isVerseInRange,
+  isVerseRange,
   LoggerBasic,
   MarkerAction,
   NBSP,
@@ -39,6 +46,8 @@ import {
 } from "shared";
 import {
   $addTrailingSpace,
+  $findNextVerseAfter,
+  $findThisVerse,
   $insertNote,
   $isSomeVerseNode,
   $removeLeadingSpace,
@@ -48,6 +57,13 @@ import {
 } from "shared-react";
 import usjEditorAdaptor from "./usj-editor.adaptor";
 
+interface UsjMarkerActionResult {
+  content: MarkerContent[];
+  /** When true, the outer handler selects the freshly-inserted node (`NodeSelection`) instead of
+   * placing the caret after it - used by the verse action's "no numeric slot" highlight cue. */
+  highlightInserted?: boolean;
+}
+
 interface UsjMarkerAction {
   label?: string;
   action: (currentEditor: {
@@ -56,32 +72,66 @@ interface UsjMarkerAction {
     autoNumbering?: boolean;
     newVerseRChapterNum?: number;
     noteText?: string;
-  }) => MarkerContent[];
+  }) => UsjMarkerActionResult;
 }
 
 const markerActions: { [marker: string]: UsjMarkerAction } = {
   c: {
+    // Deliberately still trusts reference.chapterNum, unlike `v` below - the chapter-number
+    // reinstatement work (a separate branch/PR) owns rewriting this action to scan the tree.
     action: (currentEditor) => {
       const { chapterNum } = currentEditor.reference;
-      const nextChapter = chapterNum + 1;
+      // Chapter node already present → next chapter; none present (reinstating a missing `\c`
+      // in an otherwise-blank chapter) → keep the current number, don't increment. Intentionally
+      // narrow: this doesn't check whether `chapterNum + 1` already exists elsewhere before
+      // incrementing into it, so the pre-existing duplicate-`\c` case in that scenario is
+      // unchanged by this fix.
+      const hasChapterNode = $findChapter($getRoot().getChildren(), chapterNum) !== undefined;
+      const targetChapter = hasChapterNode ? chapterNum + 1 : chapterNum;
       const content: MarkerContent = {
         type: "chapter",
         marker: "c",
-        number: `${nextChapter}`,
+        number: `${targetChapter}`,
       };
-      return [content];
+      return { content: [content] };
     },
   },
   v: {
-    action: (currentEditor) => {
-      const { verseNum, verse } = currentEditor.reference;
-      const nextVerse = getNextVerse(verseNum, verse);
+    action: () => {
+      const selection = $getSelection();
+      const anchorNode = getSelectionStartNode(selection);
+      const precedingVerse = $findThisVerse(anchorNode);
+
+      let nextVerseNumber: string;
+      let highlightInserted = false;
+      if (!precedingVerse) {
+        nextVerseNumber = "1";
+      } else {
+        const precedingVerseString = precedingVerse.getNumber();
+        // getNextVerse ignores its first (numeric) argument whenever `verse` is given, which it
+        // always is here - the leading 0 is a placeholder, not a meaningful value.
+        nextVerseNumber = getNextVerse(0, precedingVerseString);
+        const followingVerse = $findNextVerseAfter(precedingVerse);
+        if (followingVerse) {
+          const followingVerseString = followingVerse.getNumber();
+          // Exact match catches plain-number and same-segment collisions (e.g. "5c" === "5c").
+          // The range check additionally catches a bridge that swallows the inserted number
+          // (e.g. inserting "5" when the following verse is bridge "5-6") - gated on the
+          // following verse actually being a bridge so it doesn't also fire for an unrelated
+          // segment that merely shares a leading digit (e.g. "5c" next to "5d" is not a collision).
+          highlightInserted =
+            nextVerseNumber === followingVerseString ||
+            (isVerseRange(followingVerseString) &&
+              isVerseInRange(parseInt(nextVerseNumber, 10), followingVerseString));
+        }
+      }
+
       const content: MarkerContent = {
         type: "verse",
         marker: "v",
-        number: `${nextVerse}`,
+        number: nextVerseNumber,
       };
-      return [content];
+      return { content: [content], highlightInserted };
     },
   },
 };
@@ -166,7 +216,7 @@ export function getUsjMarkerAction(
     currentEditor.editor.update(() => {
       const selection = $getSelection();
       if ($isRangeSelection(selection)) currentEditor.noteText = selection.getTextContent();
-      const content = markerAction.action(currentEditor);
+      const { content, highlightInserted } = markerAction.action(currentEditor);
 
       const serializedLexicalNode = createLexicalUsjNode(content, usjEditorAdaptor, viewOptions);
       const nodeToInsert = $createNodeFromSerializedNode(serializedLexicalNode);
@@ -215,9 +265,19 @@ export function getUsjMarkerAction(
         } else {
           selection.insertNodes([nodeToInsert]);
           $moveVerseFollowingSpaceToPreviousNode(nodeToInsert);
-          const nextNode = nodeToInsert.getNextSibling();
-          if (nextNode) nextNode.selectStart();
-          else nodeToInsert.selectStart();
+          // `highlightInserted` is only honored on this branch (plain insert at a collapsed
+          // caret). Deliberate: only the `v` action ever sets it, and a verse marker - an inline
+          // DecoratorNode with no text content - always takes this path in practice, never the
+          // text-wrap, paragraph-replace, or note-insert branches above.
+          if (highlightInserted) {
+            const nodeSelection = $createNodeSelection();
+            nodeSelection.add(nodeToInsert.getKey());
+            $setSelection(nodeSelection);
+          } else {
+            const nextNode = nodeToInsert.getNextSibling();
+            if (nextNode) nextNode.selectStart();
+            else nodeToInsert.selectStart();
+          }
         }
       } else {
         // Insert the node directly
@@ -235,14 +295,14 @@ function getMarkerAction(marker: string): UsjMarkerAction | undefined {
       markerAction = {
         action: () => {
           const content: MarkerContent = { type: ParaNode.getType(), marker, content: [] };
-          return [content];
+          return { content: [content] };
         },
       };
     } else if (CharNode.isValidMarker(marker)) {
       markerAction = {
         action: () => {
           const content: MarkerContent = { type: CharNode.getType(), marker };
-          return [content];
+          return { content: [content] };
         },
       };
     }
