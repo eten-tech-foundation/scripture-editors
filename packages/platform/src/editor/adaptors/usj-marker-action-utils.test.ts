@@ -2106,46 +2106,44 @@ describe("USJ Marker Action Utils", () => {
     });
 
     it("leaves the selection over the same characters", () => {
-      let koloTextNode!: TextNode;
       let muluTextNode!: TextNode;
       const { editor } = createBasicTestEnvironment(nodes, () => {
-        koloTextNode = $createTextNode("kolo ");
-        muluTextNode = $createTextNode("Mulu");
-        $getRoot().append(
-          $createParaNode("p").append(koloTextNode, $createCharNode("bd").append(muluTextNode)),
-        );
+        muluTextNode = $createTextNode(" Mulu");
+        $getRoot().append($createParaNode("p").append(muluTextNode));
       });
-      updateSelection(editor, koloTextNode, 0, muluTextNode, 4);
+      updateSelection(editor, muluTextNode, 0, muluTextNode, 5);
 
       sutExtendCharacterMarker(editor, "bd");
 
       editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        // The space moved out of the marker but stayed in the document.
+        expect(para.getTextContent()).toBe(" Mulu");
         const selection = $getSelection();
         if (!$isRangeSelection(selection)) throw new Error("selection is not a RangeSelection");
-        expect(selection.getTextContent()).toBe("kolo Mulu");
+        // The focus offset was 5 against a node the trim shortened to 4. Without the restore it is
+        // out of range, and Lexical's `setDOMSelectionBaseAndExtent` throws and warns.
+        expect(selection.getTextContent()).toBe("Mulu");
         expect(selection.isBackward()).toBe(false);
       });
     });
 
     it("keeps a backward selection backward", () => {
-      let koloTextNode!: TextNode;
       let muluTextNode!: TextNode;
       const { editor } = createBasicTestEnvironment(nodes, () => {
-        koloTextNode = $createTextNode("kolo ");
-        muluTextNode = $createTextNode("Mulu");
-        $getRoot().append(
-          $createParaNode("p").append(koloTextNode, $createCharNode("bd").append(muluTextNode)),
-        );
+        muluTextNode = $createTextNode(" Mulu");
+        $getRoot().append($createParaNode("p").append(muluTextNode));
       });
       // Anchor at the end, focus at the start.
-      updateSelection(editor, muluTextNode, 4, koloTextNode, 0);
+      updateSelection(editor, muluTextNode, 5, muluTextNode, 0);
 
       sutExtendCharacterMarker(editor, "bd");
 
       editor.getEditorState().read(() => {
         const selection = $getSelection();
         if (!$isRangeSelection(selection)) throw new Error("selection is not a RangeSelection");
-        expect(selection.getTextContent()).toBe("kolo Mulu");
+        expect(selection.getTextContent()).toBe("Mulu");
         // `isBackward` is captured before the mutation; restoring forward would silently flip the
         // user's selection direction.
         expect(selection.isBackward()).toBe(true);

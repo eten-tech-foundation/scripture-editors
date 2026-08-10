@@ -892,7 +892,8 @@ function $createCharNodeLike(charNode: CharNode): CharNode {
  *   splices a CharNode out with `NodeCaret.splice`, which calls `replace()` on it (Lexical 0.43.0,
  *   `NodeCaret.splice` → `target.replace(node)`), and `LexicalNode.replace` clones the active
  *   selection and `$setSelection`s the clone. So the caller's parameter can be a detached object
- *   that it would be pointless to mutate.
+ *   that it would be pointless to mutate. Note this is the CharNode's own `ElementNode.replace()`,
+ *   not `TextNode.replace()`.
  *
  * Skipped when a target didn't survive — for removal, its CharNode held only the empty-char
  * placeholder and was removed outright — in which case Lexical's own selection repair applies.
