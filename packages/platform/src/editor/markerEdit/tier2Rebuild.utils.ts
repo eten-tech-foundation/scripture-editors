@@ -272,8 +272,18 @@ export function $isReTokenizableMilestone(marker: string, getMarkerFn: MarkerLoo
  * representation at all — forces the sentinel. `sid` plays no part in this classification: it is
  * derived data, invisible in display bytes, reconciled by carry-over in `$rebuildParas` after the
  * rebuild rather than by atomicity.
+ *
+ * Exported for the read-only settle's own live-side structural-marker walk
+ * (virtualSettle.utils.ts's `$liveStructuralMarkers`), which must treat a node as opaque under
+ * the EXACT SAME rule `$appendSignature` does — that walk collects a live ParaNode's/CharNode's
+ * own `marker` field to compensate for a blind spot in the signature comparison, and a sentinel
+ * node's nested markers are not a blind spot at all: `$appendSignature` already collapses the
+ * WHOLE sentinel to one opaque character before ever reaching a CharNode/generic-element branch
+ * that would recurse into it, so the live walk must stop at exactly the same boundary or it
+ * collects markers the JSON side (built from a tree where the sentinel is already just one
+ * character inside a text node, with nothing to recurse into) can never have a counterpart for.
  */
-function $isRebuildSentinel(node: LexicalNode, getMarkerFn: MarkerLookup): boolean {
+export function $isRebuildSentinel(node: LexicalNode, getMarkerFn: MarkerLookup): boolean {
   if ($isMilestoneNode(node)) return !$isReTokenizableMilestone(node.getMarker(), getMarkerFn);
   if ($isNoteNode(node) || $isUnknownNode(node)) return true;
   if ($isVerseNode(node)) return verseNeedsSentinel(node);

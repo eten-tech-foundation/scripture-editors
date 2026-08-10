@@ -290,6 +290,80 @@ describe("$settledUsj — paragraph scopes", () => {
       expect(liveChar.getMarker()).toBe("bd");
     });
   });
+
+  it("still refuses a genuine fixed point when an unrelated, un-edited co-resident note carries its own nested char span (opacity gate for $liveStructuralMarkers)", async () => {
+    const { editor } = await testEnvironment(() => {
+      // An unrelated, NEVER-EDITED note sitting between two plain-text runs — its OWN nested
+      // "bd" char span must NOT be visible to the live structural-marker walk, mirroring how
+      // $appendSignature's own dispatch collapses the WHOLE note to one opaque sentinel
+      // character before ever reaching a branch that would recurse into it.
+      const note = $createNoteNode("f", "+");
+      const noteBoldChar = $createCharNode("bd");
+      noteBoldChar.append($createMarkerNode("bd"), $createTextNode(`${NBSP}bold text`));
+      note.append(noteBoldChar);
+
+      // A CLOSED char span with PLAIN content (no pre-existing attribute) — the genuine Tier-2
+      // fixed point shape (matching settledGetUsj.test.tsx's "half-typed attribute run appended
+      // to a char span" corpus entry): `nd` has no default attribute, so typing an incomplete
+      // `|stuf` onto it is, once the structural NBSP separator and the user's own typed leading
+      // space both normalize to a plain space, byte-for-byte the SAME thing $rebuildParas's own
+      // fixed-point check would already produce — a genuine no-op that must NOT be spliced over.
+      const ndChar = $createCharNode("nd");
+      ndChar.append(
+        $createMarkerNode("nd"),
+        $createTextNode("name"),
+        $createMarkerNode("nd", "closing"),
+      );
+
+      // The paragraph's own dedicated trailing-space separator, as its own node (matching
+      // markerEditLoop.test.tsx's `$twoParas` convention) — not glued onto "text1 " itself: with
+      // no separate separator node, a live transform inserts one anyway (self-healing), and an
+      // un-tagged leading NBSP glued onto plain content is read differently than the canonical
+      // separator by the fragment/signature machinery, which would fail this test for reasons
+      // unrelated to the opacity gate under test.
+      const pTrailing = $createTextNode(NBSP);
+      $setState(pTrailing, textTypeState, "marker-trailing-space");
+
+      $getRoot().append(
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          pTrailing,
+          $createTextNode("text1 "),
+          note,
+          $createTextNode(" text2 "),
+          ndChar,
+        ),
+      );
+    });
+
+    // Half-type over the char span's plain content — the ONLY pend in this update. The
+    // unrelated note (and its own nested "bd" char span) is never touched.
+    await act(async () => {
+      editor.update(() => {
+        const para = $getRoot().getChildren().find($isParaNode);
+        if (!para) throw new Error("expected a ParaNode");
+        const ndChar = para.getChildren().find($isCharNode);
+        if (!ndChar) throw new Error("expected the nd char span");
+        const content = ndChar
+          .getChildren()
+          .find((child) => $isTextNode(child) && !$isMarkerNode(child));
+        if (!content || !$isTextNode(content))
+          throw new Error("expected the char span's content text");
+        content.setTextContent(" name|stuf");
+      });
+      await Promise.resolve();
+    });
+
+    // The genuine fixed point is REFUSED: the settled output is byte-identical to the unsettled
+    // serialization for this paragraph — the user's own typed leading space survives, not
+    // dropped by a spuriously "not a fixed point" verdict caused by the unrelated note's own
+    // nested marker leaking into the live sequence (before the opacity gate: live sequence
+    // ["p","bd","nd"] vs. JSON sequence ["p","nd"] — a length mismatch that made a genuine fixed
+    // point look like a structural change).
+    const settled = settledUsjOf(editor);
+    const unsettled = unsettledUsjOf(editor);
+    expect(settled?.content[0]).toEqual(unsettled?.content[0]);
+  });
 });
 
 describe("$settledUsj — expanded note scopes", () => {
