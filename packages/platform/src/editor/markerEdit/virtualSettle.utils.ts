@@ -402,53 +402,80 @@ function serializedRunsOf(
 }
 
 /**
+ * Every ParaNode's and CharNode's own `marker` field, in depth-first visiting order, over the
+ * LIVE tree — ignoring everything else (text, glyphs, notes, unknown blocks, attribute-run
+ * wrappers, …). Descends into EVERY ElementNode regardless of whether it matched, since a char
+ * span can itself nest another char span.
+ */
+function $liveStructuralMarkers(nodes: LexicalNode[]): string[] {
+  const markers: string[] = [];
+  for (const node of nodes) {
+    if ($isParaNode(node) || $isCharNode(node)) markers.push(node.getMarker());
+    if ($isElementNode(node)) markers.push(...$liveStructuralMarkers(node.getChildren()));
+  }
+  return markers;
+}
+
+/** The JSON-side mirror of `$liveStructuralMarkers`, over a freshly-rebuilt serialized tree. */
+function serializedStructuralMarkers(nodes: SerializedLexicalNode[]): string[] {
+  const markers: string[] = [];
+  for (const node of nodes) {
+    const type = serializedType(node);
+    if (type === "para" || type === "char")
+      markers.push((node as { marker?: string }).marker ?? "");
+    const children = serializedChildren(node);
+    if (children) markers.push(...serializedStructuralMarkers(children));
+  }
+  return markers;
+}
+
+/**
  * Whether every ParaNode's and CharNode's own `marker` field agrees between `liveNodes` (a
  * scope's OLD content — `[para]`, or a note's `contentNodes`) and `jsonNodes` (the freshly
- * rebuilt content) — walked IN PARALLEL BY POSITION. Meaningful only once
- * `serializedSignatureOf(jsonNodes) === $signatureOf(liveNodes)` has ALREADY held (see both call
- * sites): `$appendSignature` (tier2Rebuild.utils.ts) never folds a ParaNode's or CharNode's own
- * `marker` field into the signature at all — a ParaNode falls to the generic ElementNode case
- * (tagging only its constant node TYPE), and a CharNode's branch tags only its
- * `unknownAttributes` before recursing into children. That is CORRECT for
- * `$rebuildParas`/`$rebuildNoteContent`'s OWN use of the signature check: a BARE opener rename on
- * EITHER kind never reaches them at all — `$resolvePendingMarkers` (markerEditTier1.utils.ts)
- * routes it to `$applyOpenerRename` instead, a direct, unconditional `setMarker(...)` update with
- * no fixed-point check of its own, for a paragraph prefix glyph AND a char span's opening glyph
- * alike. This settle unifies both real paths into one tokenize-rebuild, so it must independently
- * confirm every such marker actually agrees too — the signature comparison alone would otherwise
- * refuse a rename `$applyOpenerRename` would have applied unconditionally (a paragraph's own
- * prefix, or ANY char span nested anywhere in its — or a note's — content), which is exactly the
- * divergence this module's own equivalence tests exist to catch. A mismatched pair (e.g. a
- * genuine structural split, where `jsonNodes[0]` is not the same kind as `liveNodes[0]`) simply
- * skips the marker check for that slot and still recurses — harmless, since a real split has
- * already made the signature strings themselves unequal, so this function is never even reached
- * for it (see both call sites' short-circuit ordering).
+ * rebuilt content). Meaningful only once `serializedSignatureOf(jsonNodes) ===
+ * $signatureOf(liveNodes)` has ALREADY held (see both call sites): `$appendSignature`
+ * (tier2Rebuild.utils.ts) never folds a ParaNode's or CharNode's own `marker` field into the
+ * signature at all — a ParaNode falls to the generic ElementNode case (tagging only its constant
+ * node TYPE), and a CharNode's branch tags only its `unknownAttributes` before recursing into
+ * children. That is CORRECT for `$rebuildParas`/`$rebuildNoteContent`'s OWN use of the signature
+ * check: a BARE opener rename on EITHER kind never reaches them at all —
+ * `$resolvePendingMarkers` (markerEditTier1.utils.ts) routes it to `$applyOpenerRename` instead,
+ * a direct, unconditional `setMarker(...)` update with no fixed-point check of its own, for a
+ * paragraph prefix glyph AND a char span's opening glyph alike. This settle unifies both real
+ * paths into one tokenize-rebuild, so it must independently confirm every such marker actually
+ * agrees too — the signature comparison alone would otherwise refuse a rename
+ * `$applyOpenerRename` would have applied unconditionally (a paragraph's own prefix, or ANY char
+ * span nested anywhere in its — or a note's — content), which is exactly the divergence this
+ * module's own equivalence tests exist to catch.
+ *
+ * Compares the two SEQUENCES of collected markers (`$liveStructuralMarkers`/
+ * `serializedStructuralMarkers`), not a raw index-into-full-child-list walk — deliberately NOT
+ * positional over the full node lists. `rebuilt` is read PRE-`replaceSerializedSentinels` (see
+ * both call sites), where a preserved run (e.g. a note sitting between two plain-text runs)
+ * collapses into ONE JSON text node carrying the sentinel character inline, while the live side
+ * still has the run as its own separate node(s) — a raw positional walk bounded by the shorter
+ * array would silently stop short of comparing anything after that point, including an unrelated
+ * char span's own pending rename further along in the SAME scope (both halves of the fixed-point
+ * check would then pass on a genuinely un-settled paragraph, silently reverting the rename in the
+ * output — the exact inverse of the divergence this check exists to catch). Comparing filtered,
+ * order-preserving SEQUENCES instead sidesteps the array-length mismatch entirely: only the
+ * RELATIVE ORDER of Para/CharNode markers matters, never their raw position among unrelated
+ * siblings. Safe to trust a mismatched sequence LENGTH as "not a fixed point" (rather than an
+ * error) for the same reason a genuine structural difference is already safe here at all: the
+ * signature string comparison this function is gated behind already guarantees the same COUNT
+ * and nesting of "char"-tagged spans on both sides, so the sequences are expected to be the same
+ * length whenever this function is reached.
  */
 function $structuralMarkersAgree(
   liveNodes: LexicalNode[],
   jsonNodes: SerializedLexicalNode[],
 ): boolean {
-  const count = Math.min(liveNodes.length, jsonNodes.length);
-  for (let index = 0; index < count; index++) {
-    const live = liveNodes[index];
-    const json = jsonNodes[index];
-    const type = serializedType(json);
-    const isMatchedPara = $isParaNode(live) && type === "para";
-    const isMatchedChar = $isCharNode(live) && type === "char";
-    // A mismatched kind at this slot (a genuine structural split/retag) skips the marker check
-    // and falls straight through to the recurse below — see this function's own doc comment for
-    // why that's safe.
-    if (
-      (isMatchedPara || isMatchedChar) &&
-      (json as { marker?: string }).marker !== live.getMarker()
-    )
-      return false;
-    if ($isElementNode(live)) {
-      const jsonChildren = serializedChildren(json);
-      if (jsonChildren && !$structuralMarkersAgree(live.getChildren(), jsonChildren)) return false;
-    }
-  }
-  return true;
+  const liveMarkers = $liveStructuralMarkers(liveNodes);
+  const jsonMarkers = serializedStructuralMarkers(jsonNodes);
+  return (
+    liveMarkers.length === jsonMarkers.length &&
+    liveMarkers.every((marker, index) => marker === jsonMarkers[index])
+  );
 }
 
 /**
@@ -749,12 +776,25 @@ export function $settledUsj(
   // (its own paragraph/note never lands in paraScopes/noteScopes at all, since
   // $settleScopeForNode always refuses an UnknownNode) is untouched by anything else, so this
   // splice is the ONLY thing that removes it from the output, and running it here still finds it
-  // exactly where it started. A husk whose own paragraph/note is ALSO settling for an unrelated
-  // pend was ALREADY resolved above — the notes/para passes' own rebuilt content excludes it (via
-  // `huskKeys`), and their splice already replaced the ENTIRE range spanning its old position, so
-  // its serialized JSON node no longer exists in `site.siblings`/`noteChildren` by the time this
-  // loop runs; `indexOf` correctly returns -1 and the `continue` below is a harmless no-op, not a
-  // double-removal.
+  // exactly where it started.
+  //
+  // A husk whose own paragraph/note is ALSO settling for an unrelated pend was already resolved
+  // above, but the two scopes get there by DIFFERENT mechanisms — this loop below is a genuine
+  // no-op for both, just not for the identical reason:
+  //  - NOTE: the notes pass's splice (`noteChildren.splice(start, ..., ...built.rebuilt)`)
+  //    mutates `noteChildren` IN PLACE — the SAME array object this loop's own `site.siblings`
+  //    points to for the husk (both were recorded from the SAME note-children array by
+  //    `$mapSerializedSites`). `built.rebuilt` already excludes the husk (via `huskKeys`), so by
+  //    the time this loop runs, the husk's own JSON node genuinely no longer exists anywhere in
+  //    that array; `indexOf` returns -1 and `continue` is a real no-op.
+  //  - PARAGRAPH: `$settledParaNodes` returns a WHOLLY FRESH top-level node, and the para pass's
+  //    splice (`site.siblings.splice(index, 1, ...rebuilt)`, keyed on the PARAGRAPH's own site)
+  //    replaces the paragraph's OWN SLOT in its PARENT's children array — it never touches the
+  //    OLD paragraph's own children array (where the husk's site.siblings still points). That old
+  //    array is simply orphaned, disconnected from the document the moment the paragraph's slot is
+  //    replaced, but it is NOT mutated, so `indexOf` still FINDS the husk there and the splice
+  //    below still runs — harmlessly, since removing a node from an array nothing reads anymore
+  //    has no observable effect on the final output either way.
   //
   // Running this pass FIRST (as an earlier version of this settle did) breaks a different way: the
   // notes pass anchors its splice on `built.contentNodes[0]`'s serialized site — if a husk is a
