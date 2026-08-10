@@ -32,6 +32,7 @@ let secondVerseTextNode: TextNode;
 let noVerseText: TextNode;
 let verse1Text: TextNode;
 let insertedVerse2Text: TextNode;
+let precedingVerseText: TextNode;
 
 function $defaultInitialEditorState() {
   secondVerseTextNode = $createTextNode("second verse text ");
@@ -243,7 +244,80 @@ describe("USJ Marker Action Utils", () => {
       });
     });
 
-    it("does not repeat/garble verse numbers when re-adding into a gap (Build 223 regression)", () => {
+    it("increments and highlights when the following verse is a bridge that contains the inserted number", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        precedingVerseText = $createTextNode("fourth verse text ");
+        $getRoot().append(
+          $createImmutableChapterNode("1"),
+          $createParaNode().append($createImmutableVerseNode("4"), precedingVerseText),
+          $createParaNode().append(
+            $createImmutableVerseNode("5-6"),
+            $createTextNode("bridged verse text"),
+          ),
+        );
+      });
+      const markerAction = getUsjMarkerAction(
+        "v",
+        expandedNoteKeyRef,
+        undefined,
+        undefined,
+        undefined,
+        { discrete: true },
+      );
+      updateSelection(editor, precedingVerseText);
+
+      markerAction.action({ editor, reference });
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getChildren()[1];
+        if (!$isParaNode(para)) throw new Error("Expected a ParaNode");
+        const insertedNode = para.getChildren().findLast($isImmutableVerseNode);
+        if (!insertedNode) throw new Error("Expected an inserted verse node");
+        expect(insertedNode.getNumber()).toBe("5"); // plain increment from 4
+        const sel = $getSelection();
+        expect($isNodeSelection(sel)).toBe(true);
+        // 5 falls inside the following bridge 5-6, even though it isn't an exact-string match.
+        if ($isNodeSelection(sel)) expect(sel.has(insertedNode.getKey())).toBe(true);
+      });
+    });
+
+    it("does not highlight when the following bridge does not contain the inserted number", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        precedingVerseText = $createTextNode("fourth verse text ");
+        $getRoot().append(
+          $createImmutableChapterNode("1"),
+          $createParaNode().append($createImmutableVerseNode("4"), precedingVerseText),
+          $createParaNode().append(
+            $createImmutableVerseNode("6-7"),
+            $createTextNode("bridged verse text"),
+          ),
+        );
+      });
+      const markerAction = getUsjMarkerAction(
+        "v",
+        expandedNoteKeyRef,
+        undefined,
+        undefined,
+        undefined,
+        { discrete: true },
+      );
+      updateSelection(editor, precedingVerseText);
+
+      markerAction.action({ editor, reference });
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getChildren()[1];
+        if (!$isParaNode(para)) throw new Error("Expected a ParaNode");
+        const insertedNode = para.getChildren().findLast($isImmutableVerseNode);
+        if (!insertedNode) throw new Error("Expected an inserted verse node");
+        expect(insertedNode.getNumber()).toBe("5"); // plain increment from 4
+        // The following verse IS a bridge (proving the check actually ran against it, not just
+        // "no verse found"), but 5 falls outside 6-7, so this must not be flagged as a collision.
+        expect($isNodeSelection($getSelection())).toBe(false);
+      });
+    });
+
+    it("does not repeat or garble verse numbers when re-adding a missing verse into a gap", () => {
       const { editor } = createBasicTestEnvironment(nodes, () => {
         // "verse one " (10 chars) + "text" (4 chars): caret splits after the first part, leaving
         // "text" as a trailing node so a second insertion can be anchored right after the first.

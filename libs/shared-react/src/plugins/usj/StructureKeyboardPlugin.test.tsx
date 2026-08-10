@@ -630,55 +630,60 @@ describe("StructureKeyboardPlugin — per-edit undo/redo for a run of verse dele
     await pressKey(editor, "Backspace", 0); // arm verse 1
     await pressKey(editor, "Backspace", 0); // fire: verse 1 removed
 
-    const readVerseNumbers = () =>
+    // Reads both the verse-marker numbers present AND the paragraph's full text content.
+    // ImmutableVerseNode contributes no text of its own (a DecoratorNode), so the text should
+    // always equal exactly "text" (the trailing TextNode) - a dropped or duplicated tail node
+    // would show up here even though every verse-number assertion below still passed.
+    const readState = () =>
       editor.getEditorState().read(() => {
         const para = $getRoot().getChildren()[0] as ParaNode;
-        return para
+        const verseNumbers = para
           .getChildren()
           .filter((n): n is ImmutableVerseNode => n instanceof ImmutableVerseNode)
           .map((n) => n.getNumber());
+        return { verseNumbers, text: para.getTextContent() };
       });
 
-    expect(readVerseNumbers()).toEqual([]);
+    expect(readState()).toEqual({ verseNumbers: [], text: "text" });
 
     // Each Undo press restores exactly the deletion it corresponds to, LIFO - proving no deletion
     // (including the FIRST one, verse 3) is ever permanently lost from the undo stack.
     await act(async () => {
       editor.dispatchCommand(UNDO_COMMAND, undefined);
     });
-    expect(readVerseNumbers()).toEqual(["1"]);
+    expect(readState()).toEqual({ verseNumbers: ["1"], text: "text" });
 
     await act(async () => {
       editor.dispatchCommand(UNDO_COMMAND, undefined);
     });
-    expect(readVerseNumbers()).toEqual(["1", "2"]);
+    expect(readState()).toEqual({ verseNumbers: ["1", "2"], text: "text" });
 
     await act(async () => {
       editor.dispatchCommand(UNDO_COMMAND, undefined);
     });
-    expect(readVerseNumbers()).toEqual(["1", "2", "3"]);
+    expect(readState()).toEqual({ verseNumbers: ["1", "2", "3"], text: "text" });
 
     // A further Undo is a no-op - nothing left to undo.
     await act(async () => {
       editor.dispatchCommand(UNDO_COMMAND, undefined);
     });
-    expect(readVerseNumbers()).toEqual(["1", "2", "3"]);
+    expect(readState()).toEqual({ verseNumbers: ["1", "2", "3"], text: "text" });
 
     // Redo walks back through the same sequence in reverse, fully symmetric.
     await act(async () => {
       editor.dispatchCommand(REDO_COMMAND, undefined);
     });
-    expect(readVerseNumbers()).toEqual(["1", "2"]);
+    expect(readState()).toEqual({ verseNumbers: ["1", "2"], text: "text" });
 
     await act(async () => {
       editor.dispatchCommand(REDO_COMMAND, undefined);
     });
-    expect(readVerseNumbers()).toEqual(["1"]);
+    expect(readState()).toEqual({ verseNumbers: ["1"], text: "text" });
 
     await act(async () => {
       editor.dispatchCommand(REDO_COMMAND, undefined);
     });
-    expect(readVerseNumbers()).toEqual([]);
+    expect(readState()).toEqual({ verseNumbers: [], text: "text" });
   });
 });
 

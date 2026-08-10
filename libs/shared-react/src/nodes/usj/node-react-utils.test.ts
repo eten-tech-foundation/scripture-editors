@@ -285,6 +285,26 @@ describe("$findNextVerseAfter()", () => {
     });
   });
 
+  it("skips over an intermediate paragraph with no verse before finding the next verse", () => {
+    let verse1: VerseNode;
+    const { editor } = createBasicTestEnvironment([ParaNode, VerseNode]);
+    editor.update(
+      () => {
+        verse1 = $createVerseNode("1");
+        $getRoot().append(
+          $createParaNode().append(verse1, $createTextNode("text1")),
+          $createParaNode().append($createTextNode("no verse here")),
+          $createParaNode().append($createVerseNode("2"), $createTextNode("text2")),
+        );
+      },
+      { discrete: true },
+    );
+
+    editor.getEditorState().read(() => {
+      expect($findNextVerseAfter(verse1)?.getNumber()).toBe("2");
+    });
+  });
+
   it("returns undefined when a chapter boundary is reached before another verse", () => {
     let verse1: VerseNode;
     const { editor } = createBasicTestEnvironment([ParaNode, VerseNode, ImmutableChapterNode]);

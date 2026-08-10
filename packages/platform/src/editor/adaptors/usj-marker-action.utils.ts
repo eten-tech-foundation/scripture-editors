@@ -24,6 +24,8 @@ import {
   createLexicalUsjNode,
   getNextVerse,
   getSelectionStartNode,
+  isVerseInRange,
+  isVerseRange,
   LoggerBasic,
   MarkerAction,
   NBSP,
@@ -64,6 +66,8 @@ interface UsjMarkerAction {
 
 const markerActions: { [marker: string]: UsjMarkerAction } = {
   c: {
+    // Deliberately still trusts reference.chapterNum, unlike `v` below - the chapter-number
+    // reinstatement work (a separate branch/PR) owns rewriting this action to scan the tree.
     action: (currentEditor) => {
       const { chapterNum } = currentEditor.reference;
       const nextChapter = chapterNum + 1;
@@ -87,12 +91,22 @@ const markerActions: { [marker: string]: UsjMarkerAction } = {
         nextVerseNumber = "1";
       } else {
         const precedingVerseString = precedingVerse.getNumber();
-        nextVerseNumber = getNextVerse(parseInt(precedingVerseString, 10), precedingVerseString);
+        // getNextVerse ignores its first (numeric) argument whenever `verse` is given, which it
+        // always is here - the leading 0 is a placeholder, not a meaningful value.
+        nextVerseNumber = getNextVerse(0, precedingVerseString);
         const followingVerse = $findNextVerseAfter(precedingVerse);
-        // Compare the actual inserted number against the following verse's number directly
-        // (not a parsed-integer diff), so segments ("5b" -> "5c") and bridges ("5-6" -> "7")
-        // are judged by whether they truly collide, not by their leading digit's distance.
-        highlightInserted = !!followingVerse && nextVerseNumber === followingVerse.getNumber();
+        if (followingVerse) {
+          const followingVerseString = followingVerse.getNumber();
+          // Exact match catches plain-number and same-segment collisions (e.g. "5c" === "5c").
+          // The range check additionally catches a bridge that swallows the inserted number
+          // (e.g. inserting "5" when the following verse is bridge "5-6") - gated on the
+          // following verse actually being a bridge so it doesn't also fire for an unrelated
+          // segment that merely shares a leading digit (e.g. "5c" next to "5d" is not a collision).
+          highlightInserted =
+            nextVerseNumber === followingVerseString ||
+            (isVerseRange(followingVerseString) &&
+              isVerseInRange(parseInt(nextVerseNumber, 10), followingVerseString));
+        }
       }
 
       const content: MarkerContent = {
@@ -204,6 +218,10 @@ export function getUsjMarkerAction(
         } else {
           selection.insertNodes([nodeToInsert]);
           $moveVerseFollowingSpaceToPreviousNode(nodeToInsert);
+          // `highlightInserted` is only honored on this branch (plain insert at a collapsed
+          // caret). Deliberate: only the `v` action ever sets it, and a verse marker - an inline
+          // DecoratorNode with no text content - always takes this path in practice, never the
+          // text-wrap, paragraph-replace, or note-insert branches above.
           if (highlightInserted) {
             const nodeSelection = $createNodeSelection();
             nodeSelection.add(nodeToInsert.getKey());
