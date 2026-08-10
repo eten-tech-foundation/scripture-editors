@@ -584,6 +584,12 @@ function $verifiedTransientLiteral(
  * Spans go stale after the cut. Nothing downstream reads them — the sentinel substitution walks the
  * tokenized output's placeholders in ORDER, not by offset — and the cut can never remove a
  * placeholder, since the removed bytes were verified equal to `run`.
+ *
+ * A sentinel's own structural separator space (`pushSentinel`'s `UNTERMINATED_MARKER_TAIL`
+ * insertion, tier2Rebuild.utils.ts) is not part of any span, so it can survive this cut even when it
+ * immediately follows the removed bytes — the fail-safe direction (an extra space the tokenizer
+ * normalizes away, never a dropped sentinel placeholder), and it disappears on its own the next time
+ * the declaration clears and a real settle re-derives the fragment from scratch.
  */
 function fragmentTextWithoutTransient(
   fragment: FragmentAccumulator,
@@ -622,6 +628,14 @@ function fragmentTextWithoutTransient(
  * reach the tokenizer, so they can never turn into a phantom structural marker in the output. A
  * `transient` naming some other scope leaves the fragment text untouched, same as no declaration at
  * all.
+ *
+ * A scope carrying a resolved `transient` necessarily forgoes the fixed-point refusal below while
+ * the declaration is live: the comparison is always against `$signatureOf([para], ...)`, the
+ * UNMODIFIED live signature, which by construction differs from a rebuild of the reduced text
+ * whenever the cut actually removed anything. That is inherent, not a gap — a subtraction and a
+ * "refuse because nothing changed" check cannot both fire on the same bytes — and the direction is
+ * safe: the paragraph only ever normalizes TOWARD excluding the declared run, never toward
+ * reintroducing an unrelated stale rebuild.
  */
 function $settledParaNodes(
   para: ParaNode,
