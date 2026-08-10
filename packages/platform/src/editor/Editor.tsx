@@ -86,6 +86,7 @@ import {
   LoadStatePlugin,
   NoteNodePlugin,
   OnSelectionChangePlugin,
+  ParaMarkerPrefixCursorGuardPlugin,
   ParaNodePlugin,
   pasteSelection,
   pasteSelectionAsPlainText,
@@ -556,6 +557,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
             viewOptions={viewOptions}
             logger={stableLogger}
           />
+          <ParaMarkerPrefixCursorGuardPlugin />
           <ParaMarkerPrefixGuardPlugin viewOptions={viewOptions} logger={stableLogger} />
           <ParaNodePlugin />
           <StructureKeyboardPlugin structureProtectionMode={structureProtectionMode} />
