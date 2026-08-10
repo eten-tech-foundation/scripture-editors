@@ -8,7 +8,7 @@ import usjEditorAdaptor from "./adaptors/usj-editor.adaptor";
 import { act, render } from "@testing-library/react";
 import { createRef } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { BLOCK_VERSE_VIEW_MODE, getViewOptions } from "shared-react";
+import { BLOCK_VERSE_VIEW_MODE, getViewOptions, PARAGRAPH_STRUCTURE_VIEW_MODE } from "shared-react";
 
 const blockVerseOptions = getViewOptions(BLOCK_VERSE_VIEW_MODE);
 if (!blockVerseOptions) throw new Error("block verse view options are not defined");
@@ -93,7 +93,24 @@ describe("block verse layout guards", () => {
     });
 
     expect(container?.querySelectorAll(".verse-block").length).toBeGreaterThan(0);
-    expect(container?.querySelector('[data-type="marker"]')).toBeNull();
+    expect(container?.querySelectorAll('[data-text-type="marker"]')).toHaveLength(0);
+  });
+
+  // Guards the assertion above: paragraph structure does render gutter markers, so if this stops
+  // finding any then the selector has drifted and the test before it would pass for the wrong
+  // reason.
+  it("renders gutter marker prefixes in paragraph structure, where they are supported", async () => {
+    let container: HTMLElement | undefined;
+    await act(async () => {
+      ({ container } = render(
+        <Editorial
+          defaultUsj={usjGen1v1}
+          options={{ isReadonly: true, view: getViewOptions(PARAGRAPH_STRUCTURE_VIEW_MODE) }}
+        />,
+      ));
+    });
+
+    expect(container?.querySelectorAll('[data-text-type="marker"]').length).toBeGreaterThan(0);
   });
 
   // The layout is read-only, so the marker-insert path must refuse before it can build a fragment
@@ -106,7 +123,7 @@ describe("block verse layout guards", () => {
           ref={ref}
           defaultUsj={usjGen1v1}
           scrRef={{ book: "GEN", chapterNum: 1, verseNum: 1 }}
-          options={{ isReadonly: true, view: blockVerseOptions }}
+          options={{ isReadonly: false, view: blockVerseOptions }}
         />,
       );
     });
