@@ -17,14 +17,16 @@ function createTestEditor(themeOverrides?: ThemeOverrides) {
   });
 }
 
+/** The subset of the editor's config that `createDOM`/`updateDOM` need. */
+function testConfig(editor: ReturnType<typeof createTestEditor>) {
+  return { theme: editor._config.theme, namespace: editor._config.namespace };
+}
+
 function createDomFor(editor: ReturnType<typeof createTestEditor>, marker: string): HTMLElement {
   let element: HTMLElement | undefined;
   editor.update(() => {
     const node = $createCharNode(marker);
-    element = node.createDOM({
-      theme: editor._config.theme,
-      namespace: editor._config.namespace,
-    });
+    element = node.createDOM(testConfig(editor));
   });
   if (!element) throw new Error("CharNode.createDOM did not produce an element");
   return element;
@@ -41,10 +43,7 @@ function updateDomFor(
 ): HTMLElement {
   let element: HTMLElement | undefined;
   editor.update(() => {
-    const config = {
-      theme: editor._config.theme,
-      namespace: editor._config.namespace,
-    };
+    const config = testConfig(editor);
     const prevNode = $createCharNode(fromMarker);
     element = prevNode.createDOM(config);
     $createCharNode(toMarker).updateDOM(prevNode, element, config);

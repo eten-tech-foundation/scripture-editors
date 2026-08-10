@@ -24,8 +24,8 @@ import {
   $isSynthesizedMarkerNode,
   $isTypedMarkNode,
   $isVisibleMarkerNode,
+  $setCharNodeMarker,
   CharNode,
-  closingMarkerText,
   createLexicalUsjNode,
   EMPTY_CHAR_PLACEHOLDER_TEXT,
   getNextVerse,
@@ -33,7 +33,6 @@ import {
   MarkerAction,
   NBSP,
   NoteNode,
-  openingMarkerText,
   ParaNode,
   ScriptureReference,
 } from "shared";
@@ -443,17 +442,7 @@ export function $removeCharacterMarkerAtSelection(
   // request that ends up a no-op mutates nothing at all. See `$hasActionableCharNode`.
   if (!$hasActionableCharNode(nodes, marker, startOffset, endOffset)) return false;
 
-  const targetNodes: TextNode[] = [];
-  nodes.forEach((node, index) => {
-    const targetNode = $getTargetNode(
-      node,
-      index === 0,
-      index === nodes.length - 1,
-      startOffset,
-      endOffset,
-    );
-    if ($isTextNode(targetNode)) targetNodes.push(targetNode);
-  });
+  const targetNodes = $getTargetNodes(nodes, startOffset, endOffset);
   if (targetNodes.length === 0) return false;
 
   // Belt-and-braces: no current path resolves two targetNodes to the same CharNode key, since
@@ -510,7 +499,72 @@ export function $removeCharacterMarkerAtSelection(
   return didRemove;
 }
 
+/**
+ * Remove a `CharNode` but keep its text content in the parent.
+ *
+ * Synthesized marker children (`markerMode: "editable"` / `"visible"`) are stripped first so no
+ * literal `\nd` / `\nd*` text is left behind, and in `"editable"` mode the NBSP that
+ * `usj-editor.adaptor.ts` prepends to each text child for rendering is trimmed. A `CharNode`
+ * holding nothing but the empty-char placeholder is removed outright rather than unwrapped.
+ *
+ * @param charNode - The `CharNode` to remove.
+ * @param viewOptions - View options, used to decide what counts as synthesized content.
+ */
+function $removeCharNodeKeepingContent(
+  charNode: CharNode,
+  viewOptions: ViewOptions | undefined,
+): void {
+  charNode.getChildren().forEach((child) => {
+    if ($isSynthesizedMarkerNode(child)) child.remove();
+  });
+
+  // Checked before the NBSP trim below: the placeholder IS an NBSP, and the adaptor does not
+  // prepend a second one to it.
+  const remainingChildren = charNode.getChildren();
+  if (remainingChildren.length === 0 || charNode.getTextContent() === EMPTY_CHAR_PLACEHOLDER_TEXT) {
+    charNode.remove();
+    return;
+  }
+
+  if (viewOptions?.markerMode === "editable")
+    remainingChildren.forEach((child) => {
+      const text = child.getTextContent();
+      if ($isTextNode(child) && text.startsWith(NBSP))
+        child.setTextContent(text.slice(NBSP.length));
+    });
+
+  $unwrapNode(charNode);
+}
+
 // #region Helper functions shared by the character marker actions
+
+/**
+ * Resolve the selected nodes to the text nodes a marker action should act on.
+ *
+ * Shared by removal and replacement. The first and last nodes are trimmed to the selection offsets
+ * by `$getTargetNode`; interior nodes are taken whole. Anything that doesn't resolve to a
+ * `TextNode` — a skipped node, or an element with nothing selectable — is dropped, so an empty
+ * result means the caller has nothing to do.
+ *
+ * @param nodes - The selected nodes, in document order.
+ * @param startOffset - The selection's start offset within the first node.
+ * @param endOffset - The selection's end offset within the last node.
+ * @returns the text nodes to act on.
+ */
+function $getTargetNodes(nodes: LexicalNode[], startOffset: number, endOffset: number): TextNode[] {
+  const targetNodes: TextNode[] = [];
+  nodes.forEach((node, index) => {
+    const targetNode = $getTargetNode(
+      node,
+      index === 0,
+      index === nodes.length - 1,
+      startOffset,
+      endOffset,
+    );
+    if ($isTextNode(targetNode)) targetNodes.push(targetNode);
+  });
+  return targetNodes;
+}
 
 /**
  * Find the `CharNode` a marker action should act on, walking up from a target node.
@@ -820,8 +874,8 @@ function $splitCharNodeAroundTargets(
  * fresh key before calling it, so the copy is genuinely empty. `$copyNode` also skips
  * `$applyNodeReplacement`, which is irrelevant here — no `CharNode` replacement is registered.
  *
- * Don't hand-roll this: `CharNode.insertNewAfter` (CharNode.ts:254) and `ParaNode.insertNewAfter`
- * (ParaNode.ts:286) model a manual copy, but both pair `setStyle` with `getTextStyle()` — a
+ * Don't hand-roll this: `CharNode.insertNewAfter` (CharNode.ts) and `ParaNode.insertNewAfter`
+ * (ParaNode.ts) model a manual copy, but both pair `setStyle` with `getTextStyle()` — a
  * different member (`__textStyle`, the default inline style for children) than `setStyle` writes
  * (`__style`) — so their style copies are silently inert.
  *
@@ -830,43 +884,6 @@ function $splitCharNodeAroundTargets(
  */
 function $createCharNodeLike(charNode: CharNode): CharNode {
   return $copyNode(charNode);
-}
-
-/**
- * Remove a `CharNode` but keep its text content in the parent.
- *
- * Synthesized marker children (`markerMode: "editable"` / `"visible"`) are stripped first so no
- * literal `\nd` / `\nd*` text is left behind, and in `"editable"` mode the NBSP that
- * `usj-editor.adaptor.ts` prepends to each text child for rendering is trimmed. A `CharNode`
- * holding nothing but the empty-char placeholder is removed outright rather than unwrapped.
- *
- * @param charNode - The `CharNode` to remove.
- * @param viewOptions - View options, used to decide what counts as synthesized content.
- */
-function $removeCharNodeKeepingContent(
-  charNode: CharNode,
-  viewOptions: ViewOptions | undefined,
-): void {
-  charNode.getChildren().forEach((child) => {
-    if ($isSynthesizedMarkerNode(child)) child.remove();
-  });
-
-  // Checked before the NBSP trim below: the placeholder IS an NBSP, and the adaptor does not
-  // prepend a second one to it.
-  const remainingChildren = charNode.getChildren();
-  if (remainingChildren.length === 0 || charNode.getTextContent() === EMPTY_CHAR_PLACEHOLDER_TEXT) {
-    charNode.remove();
-    return;
-  }
-
-  if (viewOptions?.markerMode === "editable")
-    remainingChildren.forEach((child) => {
-      const text = child.getTextContent();
-      if ($isTextNode(child) && text.startsWith(NBSP))
-        child.setTextContent(text.slice(NBSP.length));
-    });
-
-  $unwrapNode(charNode);
 }
 
 // #endregion
@@ -886,21 +903,22 @@ function $removeCharNodeKeepingContent(
  * @param selection - The current range selection.
  * @param toMarker - The character marker to change to.
  * @param fromMarker - The character marker to match, or `undefined` for the innermost one.
+ * @returns `true` if a marker was changed, `false` if the request was a no-op.
  */
 export function $replaceCharacterMarkerAtSelection(
   selection: RangeSelection,
   toMarker: string,
   fromMarker: string | undefined,
-): void {
+): boolean {
   if (selection.isCollapsed()) {
     const charNode = $getMatchingCharNode(selection.anchor.getNode(), fromMarker);
     // `CharNode.setMarker` already short-circuits on an unchanged marker, so this check isn't
     // what keeps a same-marker replace from dirtying the CharNode itself. It guards
-    // `$changeCharNodeMarker`'s other work: rewriting the node's synthesized marker children has
+    // `$setCharNodeMarker`'s other work: rewriting the node's synthesized marker children has
     // no such short-circuit of its own, and a same-marker request must not reach it.
-    if (!charNode || charNode.getMarker() === toMarker) return;
-    $changeCharNodeMarker(charNode, toMarker);
-    return;
+    if (!charNode || charNode.getMarker() === toMarker) return false;
+    $setCharNodeMarker(charNode, toMarker);
+    return true;
   }
 
   const nodes = selection.getNodes();
@@ -908,20 +926,10 @@ export function $replaceCharacterMarkerAtSelection(
   // Check there is something to change before the loop below starts splitting text nodes, so a
   // no-match — or already-`toMarker` — request mutates nothing at all. See
   // `$hasActionableCharNode`.
-  if (!$hasActionableCharNode(nodes, fromMarker, startOffset, endOffset, toMarker)) return;
+  if (!$hasActionableCharNode(nodes, fromMarker, startOffset, endOffset, toMarker)) return false;
 
-  const targetNodes: TextNode[] = [];
-  nodes.forEach((node, index) => {
-    const targetNode = $getTargetNode(
-      node,
-      index === 0,
-      index === nodes.length - 1,
-      startOffset,
-      endOffset,
-    );
-    if ($isTextNode(targetNode)) targetNodes.push(targetNode);
-  });
-  if (targetNodes.length === 0) return;
+  const targetNodes = $getTargetNodes(nodes, startOffset, endOffset);
+  if (targetNodes.length === 0) return false;
 
   // No selection restore afterwards, unlike `$removeCharacterMarkerAtSelection`: that one needs
   // one because `$unwrapNode`'s `replace()` clones the active selection and its NBSP trim changes
@@ -929,102 +937,27 @@ export function $replaceCharacterMarkerAtSelection(
   // `$splitCharNodeAroundTargets` and `$charNodeTransform` both *move* existing child nodes — so
   // the original points stay valid.
   const handledCharNodeKeys = new Set<string>();
+  let didReplace = false;
   targetNodes.forEach((targetNode) => {
     const charNode = $getMatchingCharNode(targetNode, fromMarker);
     if (!charNode || handledCharNodeKeys.has(charNode.getKey())) return;
+    handledCharNodeKeys.add(charNode.getKey());
     // Re-checked per CharNode, not just in the pre-flight guard above: a selection can span one
     // CharNode that needs changing and another already carrying `toMarker`.
     if (charNode.getMarker() === toMarker) return;
-    handledCharNodeKeys.add(charNode.getKey());
     // `undefined` means the change would have to affect unselected text — see
     // `$splitCharNodeAroundTargets`. Leave this CharNode alone rather than over-apply.
+    // `$hasActionableCharNode` above has already established that at least one CharNode in the
+    // selection is *not* refused, so this cannot be the only outcome for the whole call.
     const coveredCharNode = $splitCharNodeAroundTargets(charNode, targetNodes);
-    if (coveredCharNode) $changeCharNodeMarker(coveredCharNode, toMarker);
-  });
-}
-
-// #region Helper functions for $replaceCharacterMarkerAtSelection
-
-/**
- * Change a `CharNode`'s marker, keeping its content and identity.
- *
- * Coalescing with an identically-marked adjacent sibling is deliberately not handled here:
- * `$charNodeTransform` (`CharNodePlugin.tsx:39-68`) already does it on the next update cycle, and
- * proves it for exactly this call in `CharNodePlugin.test.tsx:354`. Don't hand-roll it, and don't
- * fight it.
- *
- * @param charNode - The `CharNode` to change.
- * @param toMarker - The character marker to change to.
- */
-function $changeCharNodeMarker(charNode: CharNode, toMarker: string): void {
-  // Before setMarker, not after. $retargetSynthesizedMarkers's ImmutableTypedTextNode branch
-  // (markerMode "visible") matches a child's text against the *old* marker's opening/closing form,
-  // read via charNode.getMarker() — reversed, that read would already return toMarker, and the
-  // stale child would silently go unmatched. Its MarkerNode branch (markerMode "editable") doesn't
-  // care about this order: MarkerNode.setMarker recomputes text from the new marker it's given plus
-  // its own stored __markerSyntax, not from anything read off charNode.
-  $retargetSynthesizedMarkers(charNode, toMarker);
-  charNode.setMarker(toMarker);
-}
-
-/**
- * Point a `CharNode`'s synthesized marker children at a new marker.
- *
- * Under `markerMode: "editable"` those children are `MarkerNode`s and under `"visible"` they are
- * `ImmutableTypedTextNode`s with `textType: "marker"`; both are produced by `addOpeningMarker` /
- * `addClosingMarker` (`usj-editor.adaptor.ts:689-707`) and neither is touched by
- * `CharNode.setMarker`, so without this every replacement in those modes leaves the old marker's
- * text on screen.
- *
- * Retargets rather than strips, unlike `$removeCharNodeKeepingContent`: stripping would leave the
- * replaced span looking unmarked, which reads worse than stale. The one exception is the closing
- * marker child when `toMarker` is a footnote or cross-reference marker: `addClosingMarker`
- * (`usj-editor.adaptor.ts:697-699`) never emits a closing marker for those families, so a
- * retargeted closing child is removed instead of rewritten to a form the adaptor would never
- * produce (e.g. `\ft*`). That case is reachable only by a direct caller of this module —
- * `EditorRef.replaceCharacterMarker` rejects those markers up front via
- * {@link isCharacterMarkerSupported} — so it is kept as a contract of the function, not a live path.
- *
- * The old marker is read from the node itself rather than taken from the caller's `fromMarker`,
- * which is optional and may be `undefined` when the innermost marker was targeted.
- *
- * A child whose text is neither the opening nor the closing form of the old marker is left
- * verbatim rather than rewritten by guesswork. This applies to both synthesized child flavors: a
- * `MarkerNode` is a `TextNode` in default (non-token) mode, so a selection anchored inside its
- * visible text can `splitText` it into a fragment whose `__marker` is stale but whose text no
- * longer matches — rewriting that verbatim would re-expand it to the wrong marker.
- *
- * @param charNode - The `CharNode` whose marker is about to change.
- * @param toMarker - The character marker to change to.
- */
-function $retargetSynthesizedMarkers(charNode: CharNode, toMarker: string): void {
-  const fromMarker = charNode.getMarker();
-  const openingText = openingMarkerText(fromMarker);
-  const closingText = closingMarkerText(fromMarker);
-  const dropsClosingMarker =
-    CharNode.isValidFootnoteMarker(toMarker) || CharNode.isValidCrossReferenceMarker(toMarker);
-  charNode.getChildren().forEach((child) => {
-    // Gate on the node type first: only a synthesized marker child is ever a candidate for
-    // rewriting or removal here, regardless of what its text happens to contain.
-    if (!$isMarkerNode(child) && !$isVisibleMarkerNode(child)) return;
-
-    const text = child.getTextContent();
-    const isOpening = text === openingText;
-    const isClosing = !isOpening && text === closingText;
-    if (!isOpening && !isClosing) return;
-
-    if (isClosing && dropsClosingMarker) {
-      child.remove();
-      return;
+    if (coveredCharNode) {
+      $setCharNodeMarker(coveredCharNode, toMarker);
+      didReplace = true;
     }
-    // MarkerNode.setMarker recomputes the node's text for us (MarkerNode.ts:54-61).
-    if ($isMarkerNode(child)) child.setMarker(toMarker);
-    else
-      child.setTextContent(isOpening ? openingMarkerText(toMarker) : closingMarkerText(toMarker));
   });
-}
 
-// #endregion
+  return didReplace;
+}
 
 /**
  * Moves the leading space of a node following a verse node to the previous node.

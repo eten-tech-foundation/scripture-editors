@@ -10,7 +10,14 @@ import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext
 import { act, render } from "@testing-library/react";
 import { $getRoot, $isTextNode, KEY_DOWN_COMMAND, LexicalEditor, TextNode } from "lexical";
 import { createRef, RefObject, useEffect } from "react";
-import { $isCharNode, $isSomeParaNode, $isSynthesizedMarkerNode, NBSP } from "shared";
+import {
+  $isCharNode,
+  $isSomeParaNode,
+  $isSynthesizedMarkerNode,
+  closingMarkerText,
+  NBSP,
+  openingMarkerText,
+} from "shared";
 import { vi } from "vitest";
 
 /** USJ with book PSA for Editor sync effect test (clone of usjGen1v1 with book code changed) */
@@ -100,6 +107,15 @@ async function createEditorRefForTesting(): Promise<RefObject<EditorRef | null>>
   return ref;
 }
 
+async function createReadonlyEditorRefForTesting(): Promise<RefObject<EditorRef | null>> {
+  const ref = createRef<EditorRef>();
+  await act(async () => {
+    render(<Editor ref={ref} defaultUsj={sampleUsj} options={{ isReadonly: true }} />);
+  });
+  if (!ref.current) throw new Error("EditorRef did not mount");
+  return ref;
+}
+
 function getMarkElement(): HTMLElement {
   // Find the rendered <mark> element on the document. The editor renders the contenteditable to
   // the DOM, so any annotation will produce a <mark> we can dispatch events on.
@@ -184,15 +200,6 @@ describe("setAnnotation overload", () => {
 });
 
 describe("removeCharacterMarker guards", () => {
-  async function createReadonlyEditorRefForTesting(): Promise<RefObject<EditorRef | null>> {
-    const ref = createRef<EditorRef>();
-    await act(async () => {
-      render(<Editor ref={ref} defaultUsj={sampleUsj} options={{ isReadonly: true }} />);
-    });
-    if (!ref.current) throw new Error("EditorRef did not mount");
-    return ref;
-  }
-
   it("throws in readonly mode", async () => {
     const ref = await createReadonlyEditorRefForTesting();
     const editor = ref.current;
@@ -248,15 +255,6 @@ describe("removeCharacterMarker guards", () => {
 });
 
 describe("replaceCharacterMarker guards", () => {
-  async function createReadonlyEditorRefForTesting(): Promise<RefObject<EditorRef | null>> {
-    const ref = createRef<EditorRef>();
-    await act(async () => {
-      render(<Editor ref={ref} defaultUsj={sampleUsj} options={{ isReadonly: true }} />);
-    });
-    if (!ref.current) throw new Error("EditorRef did not mount");
-    return ref;
-  }
-
   it("throws in readonly mode", async () => {
     const ref = await createReadonlyEditorRefForTesting();
     const editor = ref.current;
@@ -314,12 +312,14 @@ describe("replaceCharacterMarker guards", () => {
     },
   );
 
-  it("does not throw when there is no selection", async () => {
+  it("returns false without throwing when there is no selection", async () => {
     const ref = await createEditorRefForTesting();
     const editor = ref.current;
     if (!editor) throw new Error("Editor not mounted");
 
-    expect(() => editor.replaceCharacterMarker("bd")).not.toThrow();
+    // The return value is what makes this more than a smoke test: a fresh editor has no selection,
+    // so the call must report that it changed nothing rather than merely not crashing.
+    expect(editor.replaceCharacterMarker("bd")).toBe(false);
   });
 });
 
@@ -512,10 +512,74 @@ describe("replaceCharacterMarker through the editor ref", () => {
     const editorRef = ref.current;
 
     await selectCharNodeContent(editor);
+    let didReplace = false;
     await act(async () => {
-      editorRef.replaceCharacterMarker("bd", "nd");
+      didReplace = editorRef.replaceCharacterMarker("bd", "nd");
     });
     await flushQueuedEvents();
+
+    expect(didReplace).toBe(true);
+
+    const para = editorRef.getUsj()?.content[2];
+    if (typeof para !== "object" || !("content" in para))
+      throw new Error("para is not a USJ para node");
+    const serialized = JSON.stringify(para.content);
+    expect(serialized).toContain('"marker":"bd"');
+    expect(serialized).not.toContain('"marker":"nd"');
+    expect(serialized).toContain('"Lord"');
+  });
+
+  // The default marker mode above renders no marker text, so it cannot see the synthesized-marker
+  // retargeting `$setCharNodeMarker` does — the part of the change that `markerMode: "editable"` is
+  // the whole point of. Every test that does cover it runs against hand-built node trees, so this
+  // drives it end to end over a tree the real USJ adaptor produced, through `Editor.tsx`'s wiring.
+  it("retargets the synthesized markers under markerMode 'editable'", async () => {
+    const ref = createRef<EditorRef>();
+    let editor: LexicalEditor | undefined;
+    await act(async () => {
+      render(
+        <Editor
+          ref={ref}
+          defaultUsj={usjWithCharMarker}
+          options={{
+            view: {
+              markerMode: "editable",
+              noteMode: "expanded",
+              hasSpacing: false,
+              isFormattedFont: false,
+            },
+          }}
+        >
+          <GrabEditor onEditor={(e) => (editor = e)} />
+        </Editor>,
+      );
+    });
+    await flushQueuedEvents();
+    if (!ref.current || !editor) throw new Error("EditorRef did not mount");
+    const lexicalEditor = editor;
+    const editorRef = ref.current;
+
+    // Precondition: the adaptor really did synthesize the \nd opening and closing markers, so the
+    // retarget below has something to do.
+    expect(lexicalEditor.getEditorState().read(() => $getRoot().getTextContent())).toContain(
+      openingMarkerText("nd"),
+    );
+
+    await selectCharNodeContent(lexicalEditor);
+    let didReplace = false;
+    await act(async () => {
+      didReplace = editorRef.replaceCharacterMarker("bd", "nd");
+    });
+    await flushQueuedEvents();
+
+    expect(didReplace).toBe(true);
+
+    // Both synthesized children were retargeted, not stripped and not left stale.
+    const text = lexicalEditor.getEditorState().read(() => $getRoot().getTextContent());
+    expect(text).toContain(openingMarkerText("bd"));
+    expect(text).toContain(closingMarkerText("bd"));
+    expect(text).not.toContain(openingMarkerText("nd"));
+    expect(text).not.toContain(closingMarkerText("nd"));
 
     const para = editorRef.getUsj()?.content[2];
     if (typeof para !== "object" || !("content" in para))

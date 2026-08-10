@@ -159,14 +159,16 @@ export interface EditorRef {
    */
   removeCharacterMarker(marker?: string): boolean;
   /**
-   * Replace the character marker on the current editor selection, keeping its text content. Works
-   * with both collapsed (changes the whole enclosing marker) and range (splits the marker, leaving
-   * the uncovered text with its original marker) selections.
+   * Replace the character marker on the current editor selection, keeping its text content.
    *
-   * Does nothing, without throwing, when there is no matching character marker enclosing the
-   * selection, when that marker is already `toMarker`, when the selection is inside a note, when
-   * the change could not be confined to the selection (see below), or when there is no active
-   * selection at all. In every one of those cases the document and the selection are left
+   * Returns whether a marker was actually changed, so a caller can tell a real replacement from a
+   * refused or unmatched one. Works with both collapsed (changes the whole enclosing marker) and
+   * range (splits the marker, leaving the uncovered text with its original marker) selections.
+   *
+   * Returns `false` and does nothing, without throwing, when there is no matching character marker
+   * enclosing the selection, when that marker is already `toMarker`, when the selection is inside a
+   * note, when the change could not be confined to the selection (see below), or when there is no
+   * active selection at all. In every one of those cases the document and the selection are left
    * untouched — no undo entry is added.
    *
    * @remarks
@@ -191,11 +193,12 @@ export interface EditorRef {
    * @param fromMarker - A USFM character marker to match. Omit to change the innermost character
    *   marker enclosing the selection. Subject to the same footnote and cross-reference restriction
    *   as `toMarker`.
+   * @returns `true` if a character marker was changed, `false` if the request was a no-op.
    * @throws Will throw an error if the editor is in readonly mode.
    * @throws Will throw an error if `toMarker` is not a supported character marker.
    * @throws Will throw an error if `fromMarker` is given and is not a supported character marker.
    */
-  replaceCharacterMarker(toMarker: string, fromMarker?: string): void;
+  replaceCharacterMarker(toMarker: string, fromMarker?: string): boolean;
   /**
    * Insert a marker at the current editor selection, replicating the behavior of the
    * built-in marker menu. Works with both collapsed (insertion point) and range selections.

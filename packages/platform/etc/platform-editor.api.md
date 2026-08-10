@@ -111,7 +111,7 @@ export interface EditorRef {
     redo(): void;
     removeAnnotation(type: string, id: string): void;
     removeCharacterMarker(marker?: string): boolean;
-    replaceCharacterMarker(toMarker: string, fromMarker?: string): void;
+    replaceCharacterMarker(toMarker: string, fromMarker?: string): boolean;
     replaceEmbedUpdate(embedNodeKey: string, insertEmbedOps: DeltaOp[]): void;
     selectNote(noteKeyOrIndex: string | number): void;
     setAnnotation(selection: AnnotationRange, type: string, id: string, callbacks?: {
