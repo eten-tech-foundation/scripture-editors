@@ -16,6 +16,7 @@ import {
   TextNode,
 } from "lexical";
 import {
+  $createCharNode,
   $createNodeFromSerializedNode,
   $isCharNode,
   $isMarkerNode,
@@ -957,6 +958,43 @@ export function $replaceCharacterMarkerAtSelection(
   });
 
   return didReplace;
+}
+
+/**
+ * Extend a character marker to cover the whole selection, keeping all of its text content.
+ *
+ * "Extend" means *make the whole selection carry `marker`*, however much of it already does — the
+ * mutation behind the toolbar's partial → all step. Only the sub-ranges not already covered are
+ * wrapped, so no nested identical marker is ever produced: `kolo ` + `\bd Mulu\bd*` becomes one
+ * `\bd` over the lot, never `\bd kolo \bd Mulu\bd*\bd*`. A selection with no existing run of
+ * `marker` is the degenerate case and is wrapped in full.
+ *
+ * Adjacent same-marker `CharNode`s are merged by `$charNodeTransform`
+ * (`CharNodePlugin.tsx`), so this function deliberately stops at "adjacent siblings, never nested".
+ *
+ * @param selection - The current range selection.
+ * @param marker - The character marker to extend over the selection.
+ * @returns `true` if the document was changed, `false` if the request was a no-op.
+ */
+export function $extendCharacterMarkerAtSelection(
+  selection: RangeSelection,
+  marker: string,
+): boolean {
+  const nodes = selection.getNodes();
+  const [startOffset, endOffset] = getSelectionOffsets(selection);
+  const targetNodes = $getTargetNodes(nodes, startOffset, endOffset);
+  if (targetNodes.length === 0) return false;
+
+  // A target is already covered when any ancestor up to the enclosing para carries `marker` — the
+  // same walk removal and replacement use to find their target. That one call is the whole
+  // coverage computation.
+  const gapNodes = targetNodes.filter((targetNode) => !$getMatchingCharNode(targetNode, marker));
+  if (gapNodes.length === 0) return false;
+
+  const wrapper = $createCharNode(marker);
+  gapNodes[0].insertBefore(wrapper);
+  wrapper.append(...gapNodes);
+  return true;
 }
 
 /**

@@ -6,6 +6,7 @@ import {
   updateSelection,
 } from "../../../../../libs/shared/src/nodes/usj/test.utils";
 import {
+  $extendCharacterMarkerAtSelection,
   $removeCharacterMarkerAtSelection,
   $replaceCharacterMarkerAtSelection,
   getUsjMarkerAction,
@@ -106,6 +107,24 @@ function sutReplaceCharacterMarker(
     { discrete: true },
   );
   return didReplace;
+}
+
+/**
+ * Invokes the system under test inside a discrete update, the way `Editor.tsx` will.
+ *
+ * @returns whether the marker was extended, mirroring what `EditorRef.extendCharacterMarker` reports.
+ */
+function sutExtendCharacterMarker(editor: LexicalEditor, marker: string): boolean {
+  let didExtend = false;
+  editor.update(
+    () => {
+      const selection = $getSelection();
+      if ($isRangeSelection(selection))
+        didExtend = $extendCharacterMarkerAtSelection(selection, marker);
+    },
+    { discrete: true },
+  );
+  return didExtend;
 }
 
 describe("USJ Marker Action Utils", () => {
@@ -1777,6 +1796,44 @@ describe("USJ Marker Action Utils", () => {
         // MarkerNode mid-marker), not something this fix is responsible for; only the closing
         // marker — untouched by the split — is correctly retargeted.
         expect(para.getTextContent()).toBe(`\\ndLord${closingMarkerText("bd")}`);
+      });
+    });
+  });
+
+  describe("should extend a character marker", () => {
+    it("wraps the uncovered text beside an existing run without nesting", () => {
+      let koloTextNode!: TextNode;
+      let muluTextNode!: TextNode;
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        koloTextNode = $createTextNode("kolo ");
+        muluTextNode = $createTextNode("Mulu");
+        $getRoot().append(
+          $createParaNode("p").append(koloTextNode, $createCharNode("bd").append(muluTextNode)),
+        );
+      });
+      // "[kolo \bd Mulu\bd*]"
+      updateSelection(editor, koloTextNode, 0, muluTextNode, 4);
+
+      expect(sutExtendCharacterMarker(editor, "bd")).toBe(true);
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        // Every character survives, in order.
+        expect(para.getTextContent()).toBe("kolo Mulu");
+        // Two adjacent siblings, not one nested inside the other. `$charNodeTransform` merges them
+        // into one in the real editor; this headless environment registers no transforms, so the
+        // pre-merge shape is what's asserted here. The merged result is covered in `Editor.test.tsx`.
+        const children = para.getChildren();
+        expect(children.length).toBe(2);
+        const [extended, existing] = children;
+        if (!$isCharNode(extended)) throw new Error("extended is not a CharNode");
+        if (!$isCharNode(existing)) throw new Error("existing is not a CharNode");
+        expect(extended.getMarker()).toBe("bd");
+        expect(extended.getTextContent()).toBe("kolo ");
+        expect(existing.getMarker()).toBe("bd");
+        expect(existing.getTextContent()).toBe("Mulu");
+        expect(existing.getChildren().some($isCharNode)).toBe(false);
       });
     });
   });
