@@ -278,11 +278,10 @@ export function getUsjMarkerAction(
           }
           if (charTail.length > 0 && caretChar) {
             // Move the after-caret content into a clone of the split char, right after the marker.
-            const tailChar = $createCharNode(
-              caretChar.getMarker(),
-              caretChar.getUnknownAttributes(),
-            );
-            tailChar.append(...charTail);
+            // Use $createCharNodeLike (not a hand-rolled $createCharNode) so the clone keeps the
+            // char's identity - notably charIdState - and $charNodeTransform can re-merge the halves
+            // if the marker between them is later removed.
+            const tailChar = $createCharNodeLike(caretChar).append(...charTail);
             lastInsertedNode.insertAfter(tailChar);
             if (caretChar.isEmpty()) caretChar.remove();
           } else if (!$isTextNode(lastInsertedNode.getNextSibling())) {
