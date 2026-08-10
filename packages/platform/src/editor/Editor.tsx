@@ -8,7 +8,7 @@ import {
   isCharacterMarkerSupported,
   isUsjMarkerSupported,
 } from "./adaptors/usj-marker-action.utils";
-import { EditorOptions, EditorProps, EditorRef } from "./editor.model";
+import { EditorOptions, EditorProps, EditorRef, TransientInput } from "./editor.model";
 import editorTheme from "./editor.theme";
 import { ActiveTextPlugin } from "./ActiveTextPlugin";
 import {
@@ -165,6 +165,11 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
   const toolbarEndRef = useRef<HTMLDivElement>(null);
   const editedUsjRef = useRef(defaultUsj);
   const expandedNoteKeyRef = useRef<string>(undefined);
+  // In-progress input an in-editor command surface has claimed (see `EditorRef.setTransientInput`).
+  // A per-instance ref, not an editor-scoped side channel: writer and reader are both in this
+  // package, so threading it explicitly into the settle keeps that computation a pure function of
+  // its arguments and keeps two Editor instances (main and footnote popover) independent for free.
+  const transientInputRef = useRef<TransientInput | undefined>(undefined);
   const [usj, setUsj] = useState(defaultUsj);
   const [loadTrigger, setLoadTrigger] = useState(0);
   const [contextMarker, setContextMarker] = useState<string>();
@@ -310,21 +315,23 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
     getUsj() {
       const editor = editorRef.current;
       if (!editor) return editedUsjRef.current;
-      // Nothing pending: the cached serialization IS the settled document, and skipping the
-      // recompute keeps the common read as cheap as it has always been.
+      // Nothing pending and nothing declared: the cached serialization IS the settled document, and
+      // skipping the recompute keeps the common read as cheap as it has always been.
       const pendedKeys = getPendedDisplayOwners(editor);
-      if (!pendedKeys || pendedKeys.size === 0) return editedUsjRef.current;
+      const transientInput = transientInputRef.current;
+      if ((!pendedKeys || pendedKeys.size === 0) && !transientInput) return editedUsjRef.current;
       // `getEditorState().read`, NOT `editor.read` - the latter force-flushes any in-flight update
       // mid-dispatch, and this is called from host save paths that can run during one.
       const editorState = editor.getEditorState();
       const serializedState = editorState.toJSON();
       return (
         editorState.read(() =>
-          $settledUsj(serializedState, pendedKeys, {
-            viewOptions,
-            getMarker: markerLookup,
-            logger,
-          }),
+          $settledUsj(
+            serializedState,
+            pendedKeys ?? new Set<string>(),
+            { viewOptions, getMarker: markerLookup, logger },
+            transientInput,
+          ),
         ) ?? editedUsjRef.current
       );
     },
@@ -338,6 +345,9 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
         },
         { discrete: true },
       );
+    },
+    setTransientInput(input) {
+      transientInputRef.current = input;
     },
     setUsj(incomingUsj) {
       if (!deepEqual(editedUsjRef.current, incomingUsj)) {
