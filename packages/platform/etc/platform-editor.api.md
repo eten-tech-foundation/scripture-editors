@@ -493,10 +493,12 @@ export interface Thread {
 }
 
 // @public
-export type TransientInput = {
+export interface TransientInput {
+    // (undocumented)
     kind: "marker-literal";
+    // (undocumented)
     run: string;
-};
+}
 
 // @public
 export type TypedMarkOnClick = (event: DomMouseEvent, type: string, id: string, textContent: string) => void;

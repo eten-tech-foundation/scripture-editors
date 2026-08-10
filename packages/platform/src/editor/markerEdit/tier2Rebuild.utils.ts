@@ -316,7 +316,7 @@ function $flattenAttributeRuns(run: LexicalNode[]): LexicalNode[] {
  * must reproduce exactly, not conflate into one:
  *
  * 1. TEXT-FIRST content: `createChar` (usj-editor.adaptor.ts) prepends a structural NBSP directly
- *    onto the first content child's OWN text (` name`, a MIXED node — separator plus real
+ *    onto the first content child's OWN text (`\u00A0name`, a MIXED node — separator plus real
  *    content). Extraction strips exactly that one leading NBSP (`isCharChild &&
  *    text.startsWith(NBSP) -> text.slice(1)`), keeping the rest as real content. Mirrored here by
  *    stripping one leading NBSP off a node whose text is LONGER than just that one character.
@@ -352,7 +352,7 @@ function $flattenAttributeRuns(run: LexicalNode[]): LexicalNode[] {
  * below, explains why): a fresh rebuild's would-be rule-2 spacer has NOT been split out into its
  * own node yet at this point — it is still fused, in the SAME string, with the raw
  * `ATOMIC_SENTINEL` placeholder character standing in for whatever preserved node follows it (e.g.
- * `" ￼e"`, not yet `" "` + the preserved node + `"e"`). Stripping that NBSP by
+ * `"\u00A0￼e"`, not yet `"\u00A0"` + the preserved node + `"e"`). Stripping that NBSP by
  * LENGTH alone would misread rule 2 as rule 1 the moment ANY content follows the placeholder
  * inline. Checking the very next character is the placeholder itself catches it before the split:
  * that is exactly the position `$replaceSentinels` cuts at, leaving the NBSP standing alone
