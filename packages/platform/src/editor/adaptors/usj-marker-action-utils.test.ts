@@ -114,13 +114,23 @@ function sutReplaceCharacterMarker(
  *
  * @returns whether the marker was extended, mirroring what `EditorRef.extendCharacterMarker` reports.
  */
-function sutExtendCharacterMarker(editor: LexicalEditor, marker: string): boolean {
+function sutExtendCharacterMarker(
+  editor: LexicalEditor,
+  marker: string,
+  conflictingMarkers?: readonly string[],
+  viewOptions?: ViewOptions,
+): boolean {
   let didExtend = false;
   editor.update(
     () => {
       const selection = $getSelection();
       if ($isRangeSelection(selection))
-        didExtend = $extendCharacterMarkerAtSelection(selection, marker);
+        didExtend = $extendCharacterMarkerAtSelection(
+          selection,
+          marker,
+          conflictingMarkers,
+          viewOptions,
+        );
     },
     { discrete: true },
   );
@@ -2147,6 +2157,113 @@ describe("USJ Marker Action Utils", () => {
         // `isBackward` is captured before the mutation; restoring forward would silently flip the
         // user's selection direction.
         expect(selection.isBackward()).toBe(true);
+      });
+    });
+
+    it("removes a conflicting marker before extending over it", () => {
+      let muluTextNode!: TextNode;
+      let koloTextNode!: TextNode;
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        muluTextNode = $createTextNode("Mulu");
+        koloTextNode = $createTextNode("kolo");
+        $getRoot().append(
+          $createParaNode("p").append($createCharNode("it").append(muluTextNode), koloTextNode),
+        );
+      });
+      updateSelection(editor, muluTextNode, 0, koloTextNode, 4);
+
+      expect(sutExtendCharacterMarker(editor, "bd", ["it"])).toBe(true);
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        expect(para.getTextContent()).toBe("Mulukolo");
+        // \it is gone and \bd covers everything. The conflict list is the caller's — nothing about
+        // bd/it is hard-coded here (OQ-6).
+        const charNodes = para.getChildren().filter($isCharNode);
+        expect(charNodes.every((charNode) => charNode.getMarker() === "bd")).toBe(true);
+        expect(charNodes.map((charNode) => charNode.getTextContent()).join("")).toBe("Mulukolo");
+      });
+    });
+
+    it("ignores a conflicting marker that isn't in the selection", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        charTextNode = $createTextNode("kolo Mulu");
+        $getRoot().append($createParaNode("p").append(charTextNode));
+      });
+      updateSelection(editor, charTextNode, 0, charTextNode, 9);
+
+      expect(sutExtendCharacterMarker(editor, "bd", ["it"])).toBe(true);
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        const wrapper = para.getFirstChild();
+        if (!$isCharNode(wrapper)) throw new Error("wrapper is not a CharNode");
+        expect(wrapper.getMarker()).toBe("bd");
+        expect(wrapper.getTextContent()).toBe("kolo Mulu");
+      });
+    });
+
+    it("still extends when a conflicting marker's removal is refused", () => {
+      let muluTextNode!: TextNode;
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        muluTextNode = $createTextNode("Mulu");
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createCharNode("it").append($createCharNode("nd").append(muluTextNode)),
+          ),
+        );
+      });
+      // "\it \nd [Mu]lu\nd*\it*" — removing \it would have to strip it from the whole \nd span,
+      // including "lu", which the user never selected, so `$hasActionableCharNode` refuses it.
+      updateSelection(editor, muluTextNode, 0, muluTextNode, 2);
+
+      // Best-effort: the refused conflict is left in place and the extend still happens, rather
+      // than the whole call silently doing nothing.
+      expect(sutExtendCharacterMarker(editor, "bd", ["it"])).toBe(true);
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        expect(para.getTextContent()).toBe("Mulu");
+        const itNode = para.getFirstChild();
+        if (!$isCharNode(itNode)) throw new Error("itNode is not a CharNode");
+        expect(itNode.getMarker()).toBe("it");
+        const ndNode = itNode.getFirstChild();
+        if (!$isCharNode(ndNode)) throw new Error("ndNode is not a CharNode");
+        expect(ndNode.getMarker()).toBe("nd");
+        const bdNode = ndNode.getFirstChild();
+        if (!$isCharNode(bdNode)) throw new Error("bdNode is not a CharNode");
+        expect(bdNode.getMarker()).toBe("bd");
+        expect(bdNode.getTextContent()).toBe("Mu");
+      });
+    });
+
+    it("reports a change when only a conflicting marker was removed", () => {
+      let muluTextNode!: TextNode;
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        muluTextNode = $createTextNode("Mulu");
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createCharNode("bd").append($createCharNode("it").append(muluTextNode)),
+          ),
+        );
+      });
+      updateSelection(editor, muluTextNode, 0, muluTextNode, 4);
+
+      // Already fully covered by \bd, so the gap pass does nothing — but \it still had to go, and
+      // the caller must be told the document changed.
+      expect(sutExtendCharacterMarker(editor, "bd", ["it"])).toBe(true);
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        expect(para.getTextContent()).toBe("Mulu");
+        const bdNode = para.getFirstChild();
+        if (!$isCharNode(bdNode)) throw new Error("bdNode is not a CharNode");
+        expect(bdNode.getMarker()).toBe("bd");
+        expect(bdNode.getChildren().some($isCharNode)).toBe(false);
       });
     });
   });

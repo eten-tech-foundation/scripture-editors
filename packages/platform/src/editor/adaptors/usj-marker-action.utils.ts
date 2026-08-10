@@ -1072,36 +1072,77 @@ function $wrapRunInCharNode(run: TextNode[], marker: string): void {
  * Adjacent same-marker `CharNode`s are merged by `$charNodeTransform`
  * (`CharNodePlugin.tsx`), so this function deliberately stops at "adjacent siblings, never nested".
  *
+ * Some markers cannot coexist with `marker` — which pairs is an open product question (OQ-6) this
+ * function deliberately does not answer, so `conflictingMarkers` is the caller's list, injected
+ * rather than hard-coded. Each one is removed from the selection via
+ * {@link $removeCharacterMarkerAtSelection} before the gaps are wrapped. Removal is best-effort: a
+ * removal refused for nested partial coverage (see `$splitCharNodeAroundTargets`) leaves that
+ * conflicting marker in place and the extend still proceeds — aborting the whole call would kill
+ * the toolbar's toggle in a case the user cannot see.
+ *
  * @param selection - The current range selection.
  * @param marker - The character marker to extend over the selection.
+ * @param conflictingMarkers - Character markers that cannot coexist with `marker` and so are
+ *   removed from the selection first.
+ * @param viewOptions - View options, forwarded to {@link $removeCharacterMarkerAtSelection}.
  * @returns `true` if the document was changed, `false` if the request was a no-op.
  */
 export function $extendCharacterMarkerAtSelection(
   selection: RangeSelection,
   marker: string,
+  conflictingMarkers: readonly string[] | undefined,
+  viewOptions: ViewOptions | undefined,
 ): boolean {
   // Nothing to cover: "the whole selection" is vacuous for a caret. Unlike removal and replacement,
   // which act on the enclosing CharNode when collapsed, extend has no analogous meaning.
   if (selection.isCollapsed()) return false;
 
   const nodes = selection.getNodes();
-  const isBackward = selection.isBackward();
   const [startOffset, endOffset] = getSelectionOffsets(selection);
-  // Answered before `$getTargetNodes` splits anything — see `$hasUncoveredNode`.
-  if (!$hasUncoveredNode(nodes, marker)) return false;
+  // Both no-op paths are screened read-only, before anything splits: nothing left to cover *and*
+  // no conflicting marker to strip means the document and the selection stay untouched.
+  const hasConflictToRemove = !!conflictingMarkers?.some((conflictingMarker) =>
+    $hasActionableCharNode(nodes, conflictingMarker, startOffset, endOffset),
+  );
+  if (!hasConflictToRemove && !$hasUncoveredNode(nodes, marker)) return false;
 
-  const targetNodes = $getTargetNodes(nodes, startOffset, endOffset);
-  if (targetNodes.length === 0) return false;
+  // Best-effort by design: a removal refused for nested partial coverage (see
+  // `$splitCharNodeAroundTargets`) leaves that conflicting marker in place and the extend still
+  // happens. Aborting the whole call would kill the toolbar's toggle in a case the user can't see.
+  // The selection is re-fetched around every removal: `$unwrapNode`'s `replace()` clones the active
+  // selection, so the object from the previous iteration is detached.
+  let didChange = false;
+  conflictingMarkers?.forEach((conflictingMarker) => {
+    const currentSelection = $getSelection();
+    if (!$isRangeSelection(currentSelection)) return;
+    if ($removeCharacterMarkerAtSelection(currentSelection, conflictingMarker, viewOptions))
+      didChange = true;
+  });
+
+  const currentSelection = $getSelection();
+  if (!$isRangeSelection(currentSelection)) return didChange;
+  // Recomputed rather than reusing `nodes` and the offsets above: the conflict pass may have
+  // changed both the tree and the selection.
+  const isBackward = currentSelection.isBackward();
+  const [currentStartOffset, currentEndOffset] = getSelectionOffsets(currentSelection);
+  const targetNodes = $getTargetNodes(
+    currentSelection.getNodes(),
+    currentStartOffset,
+    currentEndOffset,
+  );
+  if (targetNodes.length === 0) return didChange;
 
   // A target is already covered when any ancestor up to the enclosing para carries `marker` — the
   // same walk removal and replacement use to find their target. That one call is the whole
   // coverage computation.
   const gapNodes = targetNodes.filter((targetNode) => !$getMatchingCharNode(targetNode, marker));
-  if (gapNodes.length === 0) return false;
+  if (gapNodes.length > 0) {
+    $groupAdjacentGapRuns(gapNodes).forEach((run) => $wrapRunInCharNode(run, marker));
+    didChange = true;
+  }
 
-  $groupAdjacentGapRuns(gapNodes).forEach((run) => $wrapRunInCharNode(run, marker));
   $restoreRangeOverTargets(targetNodes, isBackward);
-  return true;
+  return didChange;
 }
 
 /**
