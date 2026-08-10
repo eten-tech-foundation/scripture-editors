@@ -295,6 +295,10 @@ describe("settled getUsj — virtual settle equals the real settle", () => {
     act(() => ref.current?.commitPendingMarkerEdits());
     const realUsj = ref.current?.getUsj();
 
+    // Closes the last vacuity hole: if `ref.current` were ever null (a stale ref after some
+    // future refactor), BOTH sides above would silently be `undefined` and `toEqual` would pass
+    // trivially, proving nothing about the equivalence this suite exists to pin.
+    expect(virtualUsj).toBeDefined();
     expect(virtualUsj).toEqual(realUsj);
   });
 });
