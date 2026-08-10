@@ -18,7 +18,7 @@ import { $getMarkerMenuContext } from "./markerMenu/markerMenuContext.utils";
 import { $applyParaMarker } from "./markerEdit/applyParaMarker.utils";
 import { COMMIT_PENDING_MARKERS_COMMAND, MarkerEditPlugin } from "./markerEdit/MarkerEditPlugin";
 import { MarkerValidationPlugin } from "./markerEdit/MarkerValidationPlugin";
-import { $settledUsj } from "./markerEdit/virtualSettle.utils";
+import { $settledUsj, LastKnownCaret } from "./markerEdit/virtualSettle.utils";
 import { ParaMarkerPrefixGuardPlugin } from "./ParaMarkerPrefixGuardPlugin";
 import ScriptureReferencePlugin from "./ScriptureReferencePlugin";
 import TreeViewPlugin from "./TreeViewPlugin";
@@ -35,6 +35,7 @@ import {
   $addUpdateTag,
   $getSelection,
   $isRangeSelection,
+  $isTextNode,
   $setSelection,
   COPY_COMMAND,
   CUT_COMMAND,
@@ -50,6 +51,7 @@ import {
   PropsWithChildren,
   ReactElement,
   useCallback,
+  useEffect,
   useImperativeHandle,
   useMemo,
   useRef,
@@ -161,6 +163,14 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
   // package, so threading it explicitly into the settle keeps that computation a pure function of
   // its arguments and keeps two Editor instances (main and footnote popover) independent for free.
   const transientInputRef = useRef<TransientInput | undefined>(undefined);
+  // Last collapsed text-caret the editor OBSERVED (node key + offset), overwritten only when a
+  // commit's live selection actually is one — a null-selection commit (the cross-frame blur this
+  // exists for) leaves the last real caret in place. Tracked the same way MarkerEditPlugin's own
+  // BLUR_COMMAND handler preserves its `lastAnchorKey` (MarkerEditPlugin.tsx), for the identical
+  // reason: a renderer-overlay palette click lives outside this editor's iframe and can null
+  // Lexical's live selection before a getUsj() read that races it. Consumed only as
+  // `$verifiedTransientLiteral`'s fallback (virtualSettle.utils.ts) — see its own doc comment.
+  const lastKnownCaretRef = useRef<LastKnownCaret | undefined>(undefined);
   const [usj, setUsj] = useState(defaultUsj);
   const [loadTrigger, setLoadTrigger] = useState(0);
   const [contextMarker, setContextMarker] = useState<string | undefined>();
@@ -279,6 +289,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
             pendedKeys ?? new Set<string>(),
             { viewOptions, getMarker: markerLookup, logger },
             transientInput,
+            lastKnownCaretRef.current,
           ),
         ) ?? editedUsjRef.current
       );
@@ -518,6 +529,23 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
       return toolbarEndRef;
     },
   }));
+
+  // Populates `lastKnownCaretRef` (see its own doc comment above). Runs after `EditorRefPlugin`'s
+  // own mount effect (a child's effect commits before its parent's in the same pass), so
+  // `editorRef.current` is already set the first time this fires.
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor) return undefined;
+    return editor.registerUpdateListener(({ editorState }) => {
+      editorState.read(() => {
+        const selection = $getSelection();
+        if (!$isRangeSelection(selection) || !selection.isCollapsed()) return;
+        const node = selection.focus.getNode();
+        if ($isTextNode(node))
+          lastKnownCaretRef.current = { key: node.getKey(), offset: selection.focus.offset };
+      });
+    });
+  }, []);
 
   const handleChange = useCallback(
     (editorState: EditorState, _editor: LexicalEditor, _tags: Set<string>, ops: DeltaOp[]) => {
