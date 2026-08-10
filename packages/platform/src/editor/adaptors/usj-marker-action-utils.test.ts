@@ -132,6 +132,44 @@ describe("USJ Marker Action Utils", () => {
     });
   });
 
+  function $initialEditorStateWithNoChapterNode() {
+    secondVerseTextNode = $createTextNode("second verse text ");
+    $getRoot().append(
+      $createParaNode().append(
+        $createImmutableVerseNode("1"),
+        $createTextNode("first verse text "),
+      ),
+      $createParaNode().append($createImmutableVerseNode("2"), secondVerseTextNode),
+    );
+  }
+
+  it("should insert the current chapter number (not incremented) when no chapter node exists yet", () => {
+    const { editor } = createBasicTestEnvironment(nodes, $initialEditorStateWithNoChapterNode);
+    const markerAction = getUsjMarkerAction(
+      "c",
+      expandedNoteKeyRef,
+      undefined,
+      undefined,
+      undefined,
+      {
+        discrete: true,
+      },
+    );
+    updateSelection(editor, secondVerseTextNode);
+
+    markerAction.action({ editor, reference });
+
+    editor.getEditorState().read(() => {
+      const children = $getRoot().getChildren();
+      expect(children.length).toBe(4);
+      if (!$isImmutableChapterNode(children[2])) throw new Error("Inserted node is not a chapter");
+      // reference.chapterNum is 1 — must be inserted as-is, not incremented to 2.
+      expect(children[2].getNumber()).toBe("1");
+      if (!$isParaNode(children[3]))
+        throw new Error("Inserted node after inserted chapter is not a ParaNode");
+    });
+  });
+
   describe("should insert a verse", () => {
     it("with no leading space", () => {
       const { editor } = createBasicTestEnvironment(nodes, $defaultInitialEditorState);
