@@ -341,3 +341,27 @@ does not have this problem.
 Item 4 is closed. The remaining open items from this doc are the phase-2b registry, phase 3's
 already-landed settled `getUsj()` (this postscript), and the two follow-ups noted above (CSS
 resync for hover-grays-the-green; the optbreak two-press observation).
+
+## Postscript (2026-08-10): Wave 4 gate — phase 3 complete, wave 3 (registry) next
+
+Task 16 (the wave-4 cross-repo gate) ran the full verification set for all sixteen tasks (1-15
+incl. 7b) and confirmed **phase 3 has landed**: settled `getUsj()` output, the `setTransientInput`
+transient-input API, the mutating pre-save `commitPendingMarkerEdits` trigger retired (not gated),
+and backlog item 4 (the verse-9 lossy warn) closed — all re-verified live in the previous
+postscript above.
+
+Gate results: editor repo `nx run-many -t lint,typecheck,test` clean (774 tests passed across 44
+files, 0 lint errors); corpus pin confirmed 141/141 paragraphs, 0 skip-listed; root `eslint .`
+clean (0 errors, only pre-existing demo/library `no-console` and one pre-existing `jsx-a11y`
+warning, none introduced by this wave). Host (`paranext-core`) extension suite
+`vitest run src/platform-scripture-editor` clean (459 tests passed across 26 files); host root
+`npm run lint` clean (0 errors); host root `npm run typecheck` has exactly one known-red — seven
+`MarkerObject.closed` errors in `lib/platform-bible-utils/src/scripture/usj-reader-writer.test.ts`,
+pre-existing from the 2026-07-20 commit that pinned `closed="false"` suppression against
+`@eten-tech-foundation/scripture-utilities ~0.1.6`'s published type, not wave-4 fallout.
+
+Phase 1 (targeted extraction) and phase 2a (the wrapper-element flip) landed 2026-08-07; phase 3
+(this wave) lands now. **Phase 2b — the full display-run registry — is next**, planned
+independently in `docs/superpowers/plans/2026-08-07-display-run-registry.md`; the two waves touch
+no shared file (confirmed in the wave-4 plan's file-overlap audit) and either order is valid, so
+phase 2b can proceed without waiting on anything further from this wave.
