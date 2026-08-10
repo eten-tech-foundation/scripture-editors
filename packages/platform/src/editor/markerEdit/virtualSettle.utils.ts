@@ -29,6 +29,7 @@
 // `deserializeEditorState`) — every other caller in this codebase reaches it the same way.
 import { deserializeSerializedEditorState } from "../adaptors/editor-usj.adaptor";
 import usjEditorAdaptor from "../adaptors/usj-editor.adaptor";
+import { TransientInput } from "../editor.model";
 import { $markerCanonicalText, BARE_OPENER_REGEX } from "./markerEditTier1.utils";
 import {
   $buildNoteFragment,
@@ -40,6 +41,7 @@ import {
   ATOMIC_SENTINEL,
   countSentinels,
   FragmentAccumulator,
+  FragmentSpan,
   SIGNATURE_CLOSE,
   SIGNATURE_OPEN,
   Tier2Context,
@@ -54,11 +56,15 @@ import {
 import {
   $getNodeByKey,
   $getRoot,
+  $getSelection,
   $isElementNode,
+  $isRangeSelection,
+  $isTextNode,
   LexicalNode,
   NodeKey,
   SerializedEditorState,
   SerializedLexicalNode,
+  TextNode,
 } from "lexical";
 import {
   $isCharNode,
@@ -533,6 +539,69 @@ function $structuralMarkersAgree(
   );
 }
 
+/** A declaration that VERIFIED against the live tree: the node holding the bytes, the caret offset
+ * they end at, and the bytes themselves. */
+interface TransientLiteral {
+  readonly node: TextNode;
+  readonly caretOffset: number;
+  readonly run: string;
+}
+
+/**
+ * Resolve a declaration against the live caret, or `undefined` when it does not hold. Every check
+ * is a fail-safe: an unverifiable declaration must degrade to "settle normally", because the cost
+ * of ignoring a live declaration is one visible phantom marker while the cost of honoring a stale
+ * one is silently deleting bytes the user typed.
+ *
+ * The bytes are located by the CARET, not by the end of the node's text: a palette opened
+ * mid-paragraph leaves the trigger literal with the rest of the sentence still after it, so
+ * "the node's text ends with `run`" would be false in the ordinary mid-sentence case. Requiring the
+ * text ENDING AT THE CARET to end with `run` is the same exact-match check, correct in both
+ * positions. A collapsed selection is required for the same reason the surfaces that declare only
+ * exist for one: a range selection means the surface claimed the keystrokes and nothing landed.
+ */
+function $verifiedTransientLiteral(
+  input: TransientInput | undefined,
+): TransientLiteral | undefined {
+  if (!input || input.run.length === 0) return undefined;
+  const selection = $getSelection();
+  if (!$isRangeSelection(selection) || !selection.isCollapsed()) return undefined;
+  const node = selection.focus.getNode();
+  if (!$isTextNode(node) || !node.isAttached()) return undefined;
+  const caretOffset = selection.focus.offset;
+  if (!node.getTextContent().slice(0, caretOffset).endsWith(input.run)) return undefined;
+  return { node, caretOffset, run: input.run };
+}
+
+/**
+ * `fragment.text` with the declared bytes cut out, or the text UNTOUCHED when this fragment does
+ * not carry them (the declaration names a node in some other scope) or when the cut cannot be made
+ * exactly. The cut is located through the fragment's own spans, so the shared fragment builder is
+ * not forked and the real settle is unaffected; the span-length check rejects the one case where a
+ * node's fragment contribution is not length-preserving (a whitespace-only para-prefix separator
+ * substituted for a plain space), rather than cutting at a shifted offset.
+ *
+ * Spans go stale after the cut. Nothing downstream reads them — the sentinel substitution walks the
+ * tokenized output's placeholders in ORDER, not by offset — and the cut can never remove a
+ * placeholder, since the removed bytes were verified equal to `run`.
+ */
+function fragmentTextWithoutTransient(
+  fragment: FragmentAccumulator,
+  transient: TransientLiteral,
+): string {
+  const key = transient.node.getKey();
+  const span: FragmentSpan | undefined = fragment.spans.find(
+    (candidate) => !candidate.isSentinel && candidate.key === key,
+  );
+  if (!span) return fragment.text;
+  if (span.end - span.start !== transient.node.getTextContentSize()) return fragment.text;
+  const cutEnd = span.start + transient.caretOffset;
+  const cutStart = cutEnd - transient.run.length;
+  if (cutStart < span.start) return fragment.text;
+  if (fragment.text.slice(cutStart, cutEnd) !== transient.run) return fragment.text;
+  return fragment.text.slice(0, cutStart) + fragment.text.slice(cutEnd);
+}
+
 /**
  * The serialized nodes a settled `para` becomes, or `undefined` when the settle refuses. Mirrors
  * `$rebuildParas`' guard sequence — guard rails, empty tokenizer output, sentinel symmetry, AND the
@@ -547,17 +616,27 @@ function $structuralMarkersAgree(
  * rebuild into the output would silently replace the user's own current bytes with a different-
  * looking rebuild the mutating settle would never have produced (it would have refused, leaving
  * the display untouched) — see `serializedSignatureOf`'s own doc comment for the full mechanics.
+ *
+ * `transient`, when it resolves to bytes inside THIS paragraph's own fragment
+ * ({@link fragmentTextWithoutTransient}), is cut out before tokenizing — the declared bytes never
+ * reach the tokenizer, so they can never turn into a phantom structural marker in the output. A
+ * `transient` naming some other scope leaves the fragment text untouched, same as no declaration at
+ * all.
  */
 function $settledParaNodes(
   para: ParaNode,
   sites: Map<NodeKey, SerializedSite>,
   context: Tier2Context,
   huskKeys: ReadonlySet<NodeKey>,
+  transient: TransientLiteral | undefined,
 ): SerializedLexicalNode[] | undefined {
   const { viewOptions, getMarker: getMarkerFn, logger } = context;
   const fragment = $buildParaFragment(para, getMarkerFn);
   if (!fragment) return undefined;
-  const content: MarkerContent[] = usfmFragmentToUsjContent(fragment.text, {
+  const fragmentText = transient
+    ? fragmentTextWithoutTransient(fragment, transient)
+    : fragment.text;
+  const content: MarkerContent[] = usfmFragmentToUsjContent(fragmentText, {
     getMarker: getMarkerFn,
   });
   if (content.length === 0) return undefined;
@@ -609,19 +688,25 @@ function $settledParaNodes(
  * tokenizer's default `\p` wrapper (plus the visible para prefix glyph and its trailing space) is
  * unwrapped, since none of that belongs inside a note, and a fixed-point rebuild refuses — same
  * reasoning as `$settledParaNodes`'s own check, see its doc comment.
+ *
+ * `transient` is cut out of the note's own fragment text the same way `$settledParaNodes` cuts it
+ * out of a paragraph's — see {@link fragmentTextWithoutTransient}'s doc comment; a declaration
+ * naming a node outside this note's content leaves `out.text` untouched.
  */
 function $settledNoteContent(
   note: NoteNode,
   sites: Map<NodeKey, SerializedSite>,
   context: Tier2Context,
   huskKeys: ReadonlySet<NodeKey>,
+  transient: TransientLiteral | undefined,
 ): { rebuilt: SerializedLexicalNode[]; contentNodes: LexicalNode[] } | undefined {
   const { viewOptions, getMarker: getMarkerFn, logger } = context;
   const built = $buildNoteFragment(note, getMarkerFn);
   if (!built) return undefined;
   const { out, contentNodes } = built;
   if (contentNodes.length === 0) return undefined;
-  const content: MarkerContent[] = usfmFragmentToUsjContent(out.text, {
+  const fragmentText = transient ? fragmentTextWithoutTransient(out, transient) : out.text;
+  const content: MarkerContent[] = usfmFragmentToUsjContent(fragmentText, {
     getMarker: getMarkerFn,
     isNoteContext: true,
   });
@@ -870,13 +955,21 @@ function $applySettledNoteGlyphRename(
  * nothing settleable is pending (the caller keeps whatever it already has). Call INSIDE a
  * `read()` of that same state. `serializedState` is mutated in place and must therefore be a fresh
  * `toJSON()` result the caller does not otherwise hold.
+ *
+ * `transientInput` is the advisory declaration from `EditorRef.setTransientInput` — re-verified
+ * here, against the live caret, every call ({@link $verifiedTransientLiteral}). A verified
+ * declaration settles its own scope even when `pendedKeys` is empty: the whole point is that the
+ * declared bytes never reach a consumer, and the paragraph or note they sit in may otherwise be
+ * perfectly settled already, with nothing else pending there to trigger a settle at all.
  */
 export function $settledUsj(
   serializedState: SerializedEditorState,
   pendedKeys: ReadonlySet<NodeKey>,
   context: Tier2Context,
+  transientInput?: TransientInput,
 ): Usj | undefined {
-  if (pendedKeys.size === 0) return undefined;
+  const transient = $verifiedTransientLiteral(transientInput);
+  if (pendedKeys.size === 0 && !transient) return undefined;
 
   const paraScopes = new Map<NodeKey, ParaNode>();
   const noteScopes = new Map<NodeKey, NoteNode>();
@@ -894,6 +987,16 @@ export function $settledUsj(
       const rename = $noteGlyphRenameTarget(node);
       if (rename) noteGlyphRenames.set(scope.getKey(), rename);
     } else paraScopes.set(scope.getKey(), scope);
+  }
+  if (transient) {
+    // No note-glyph-rename lookup for this scope: a transient declaration is plain typed text, not
+    // a bare-opener rename Tier 1 would route to `$applyOpenerRename` — see
+    // `$noteGlyphRenameTarget`'s own doc comment for what that shape looks like.
+    const scope = $settleScopeForNode(transient.node);
+    if (scope) {
+      if ($isNoteNode(scope)) noteScopes.set(scope.getKey(), scope);
+      else paraScopes.set(scope.getKey(), scope);
+    }
   }
   const husks = $emptiedOptbreakHusksOf(pendedKeys);
   if (paraScopes.size === 0 && noteScopes.size === 0 && husks.length === 0) return undefined;
@@ -917,7 +1020,7 @@ export function $settledUsj(
     const site = sites.get(note.getKey());
     const noteChildren = site ? serializedChildren(site.node) : undefined;
     if (!noteChildren) continue;
-    const built = $settledNoteContent(note, sites, context, huskKeys);
+    const built = $settledNoteContent(note, sites, context, huskKeys, transient);
     if (!built) continue;
     const firstSite = sites.get(built.contentNodes[0].getKey());
     if (!firstSite) continue;
@@ -929,7 +1032,7 @@ export function $settledUsj(
   for (const para of paraScopes.values()) {
     const site = sites.get(para.getKey());
     if (!site) continue;
-    const rebuilt = $settledParaNodes(para, sites, context, huskKeys);
+    const rebuilt = $settledParaNodes(para, sites, context, huskKeys, transient);
     if (!rebuilt) continue;
     const index = site.siblings.indexOf(site.node);
     if (index < 0) continue;

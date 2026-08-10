@@ -23,6 +23,15 @@ import {
 } from "shared-react";
 
 /**
+ * In-progress input an in-editor command surface has declared to the editor. `kind` names the shape
+ * of the claim so more can be added without widening the method; `run` is the exact byte sequence
+ * the surface expects to find immediately before the caret.
+ *
+ * @public
+ */
+export type TransientInput = { kind: "marker-literal"; run: string };
+
+/**
  * Forward reference for the editor.
  *
  * @public
@@ -79,6 +88,21 @@ export interface EditorRef {
    * one to consume the typed literal. No-op outside editable marker modes.
    */
   commitPendingMarkerEdits(): void;
+  /**
+   * Declares in-progress input that an in-editor command surface (e.g. the marker palette) will
+   * consume or discard — analogous to an IME composition string. While declared,
+   * {@link EditorRef.getUsj} excludes these bytes from its settled output: the containing paragraph
+   * settles as if they were absent. Editor state, on-screen content, `onUsjChange`, and OT deltas
+   * are untouched. One declaration at a time; calling again replaces it; `undefined` clears it.
+   *
+   * The declaration is ADVISORY. It is re-verified against the live caret at every `getUsj()`, and
+   * ignored whenever it does not hold — the caret moved off the node, the bytes immediately before
+   * the caret are not exactly `run`, the node is gone, or the caller forgot to clear. A stale
+   * declaration therefore costs at most one save carrying a visible phantom marker; it can never
+   * silently drop content the user typed. Callers should still clear it as soon as the input is
+   * consumed or the surface closes.
+   */
+  setTransientInput(input: TransientInput | undefined): void;
   /** Set the USJ Scripture data. */
   setUsj(usj: Usj): void;
   /** EXPERIMENTAL: Apply Operational Transform delta update. */
