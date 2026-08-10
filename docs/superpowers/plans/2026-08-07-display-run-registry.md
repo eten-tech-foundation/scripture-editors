@@ -6,6 +6,45 @@
 
 **Architecture:** A `DisplayRunDescriptor` names the eight duties for one kind (`ownerPredicate`, `ownerOf`, `expectedPieces`, `scanPieces`, `graceSite`, `settleScope`, `deletionPolicy`, `byteFormat`). The descriptor TYPE and the descriptor-parameterized drivers live in `libs/shared/src/nodes/usj/` (no converter imports). The descriptor INSTANCES are assembled one layer up in a new `libs/shared/src/displayRun/` module, which may legally import `converters/usfm` (`defaultMarkerAttribute`, `milestoneDefaultAttribute`) — the same escape hatch `libs/shared/src/plugins/PerfOperations/` already uses. Registration homes (`CharNodePlugin`, `TextSpacingPlugin`, `MarkerEditPlugin`) keep their current mode-gating and become thin wrappers over the shared driver. The tokenizer and the whole Tier-2 fragment/signature machinery stay OUT.
 
+**Relationship to Wave 4:** This plan was authored at head `cfc6a350`. Wave 4 (settled/virtual `getUsj`,
+`TransientInput`) has since landed FIRST on this branch (current head `1d4cbb54`, ~30 commits ahead),
+reversing the sequencing the "wave 4 plan builds on" language below originally implied. The new
+read-only settle, `packages/platform/src/editor/markerEdit/virtualSettle.utils.ts`, is a mirror —
+not a caller — of the surfaces this plan refactors:
+- It imports `$markerCanonicalText` and `BARE_OPENER_REGEX` directly from `markerEditTier1.utils.ts`
+  (the latter newly exported by wave 4 for exactly this reason). Neither name nor its behavior is
+  touched by any task below, so this import keeps resolving unchanged.
+- Its `$emptiedOptbreakHusksOf` is a read-only mirror of `$settlePendedDisplayOwner`'s optbreak
+  handling, and its module-level doc comment says so by describing that handling as the function's
+  "FIRST branch". Task 9 restructures `$settlePendedDisplayOwner` into registry dispatch, after which
+  the optbreak case is `optbreakDescriptor`'s arm in `displayRunDescriptors`, not literally the first
+  code path — Task 9 updates that doc comment as part of its own change (see Task 9's Files list).
+- Its note-glyph-rename mirror (`$noteGlyphRenameTarget`/`$applySettledNoteGlyphRename`) mirrors
+  `$applyOpenerRename`'s `$isNoteNode(parent)` branch, which no task below modifies — no co-update
+  needed there.
+- It imports `$buildNoteFragment`, `$buildParaFragment`, `$isRebuildSentinel`,
+  `$isReTokenizableMilestone`, `$settleScopeForNode`, `$signatureOf`, `ATOMIC_SENTINEL`,
+  `countSentinels`, `SIGNATURE_OPEN`/`SIGNATURE_CLOSE`, `toFragmentText` — all newly exported from
+  `tier2Rebuild.utils.ts` by wave 4. `tier2Rebuild.utils.ts` is not in any task's Files list (per the
+  Global Constraints below) and stays that way: no task may re-privatize or otherwise touch these.
+- Wave 4's own test suites (`packages/platform/src/editor/settledGetUsj.test.tsx`'s three describes —
+  uniform settling, virtual/real settle equivalence, Tier-2 fixed-point — plus
+  `packages/platform/src/editor/transientInput.test.tsx` and
+  `packages/platform/src/editor/markerEdit/virtualSettle.utils.test.tsx`, five suites across three
+  files, jointly "the wave-4 settle suites" below) exercise these mirrors directly. Every task from
+  Task 2 on adds them to its own verification commands (`pnpm vitest run settledGetUsj transientInput
+  virtualSettle` from `packages/platform`), and two of those suites carry stale doc-comment
+  references of their own to names this plan retires or moves — Task 2 (`virtualSettle.utils.test.tsx`
+  lines 185 and 199, which cite `displayRunDeletion.utils.ts` by name) and Task 4
+  (`settledGetUsj.test.tsx` lines 61–62, which cite `$syncCharAttributeDisplay`) fix these as part of
+  their own changes.
+- Wave 4 did NOT touch `markerEditTier2Trigger.utils.ts`, `attributeDisplay.utils.ts`, or
+  `MarkerEditPlugin.tsx` — every file:line anchor into those three files below was re-verified
+  against current head and needed no change. It DID touch `markerEditTier1.utils.ts` (exported
+  `BARE_OPENER_REGEX`, +4 lines below that point) and `pendedDisplayOwners.utils.ts` (added
+  `getPendedDisplayOwners`, +12 lines below that point) — every anchor into those two files below has
+  been shifted to match current head.
+
 **Tech Stack:** TypeScript, Lexical, React, vitest (per-package via pnpm), nx monorepo (`@eten-tech-foundation/platform-editor`, `shared`, `shared-react`).
 
 ## Global Constraints
@@ -21,6 +60,14 @@
 - Code comments stand on their own: no plan/task/spec-section/JIRA breadcrumbs in code comments.
 - Behavior-preserving refactor steps are pinned green BEFORE and AFTER: run the named suite before touching the file, confirm green, refactor, run it again.
 - `docs/superpowers/` is gitignored — `git add -f` any spec/plan file; lint-staged's `[FAILED] …ignored by .gitignore` lines on such commits are benign (the commit still lands; verify with `git log -1 --stat`).
+- **Wave-4 settle suites** (see "Relationship to Wave 4" above): five suites across three files —
+  `packages/platform/src/editor/settledGetUsj.test.tsx` (describes "settled getUsj — uniform
+  settling", "— virtual settle equals the real settle", "— output is always a Tier-2 fixed point"),
+  `packages/platform/src/editor/transientInput.test.tsx`, and
+  `packages/platform/src/editor/markerEdit/virtualSettle.utils.test.tsx`. Run via `cd
+  packages/platform && env -u _VOLTA_TOOL_RECURSION pnpm vitest run settledGetUsj transientInput
+  virtualSettle`. Every task from Task 2 through the wave-3 gate that touches a resolver, sync, or
+  dispatch surface runs this command alongside its other verification, expecting all PASS.
 
 ---
 
@@ -851,12 +898,20 @@ Then delete `libs/shared/src/nodes/usj/displayRunDeletion.utils.ts` and its test
 
 Update both files' `shared` imports accordingly.
 
+`displayRunDeletion.utils.ts` no longer exists after this step, but two wave-4 test comments still
+name it: `packages/platform/src/editor/markerEdit/virtualSettle.utils.test.tsx:185` ("… see
+displayRunDeletion.utils.ts's own doc comment on why both shapes must be recognized).") and `:199`
+("… deleted (pends the UnknownNode via $pendOwnersOfDestroyed, displayRunDeletion.utils.ts), and").
+Neither line calls anything from that module — both are prose citations only — so update them to
+name `displayRunOwner.utils.ts`'s `$ownerOfRunPiece` instead of editing any behavior in that test file.
+
 - [ ] **Step 4: Run the tests to verify they pass**
 
 ```bash
 cd libs/shared && env -u _VOLTA_TOOL_RECURSION pnpm vitest run displayRunOwner
 cd ../../packages/platform && env -u _VOLTA_TOOL_RECURSION pnpm vitest run markerEdit
 cd ../../packages/platform && env -u _VOLTA_TOOL_RECURSION pnpm vitest run tier2Rebuild.corpus
+cd ../../packages/platform && env -u _VOLTA_TOOL_RECURSION pnpm vitest run settledGetUsj transientInput virtualSettle
 ```
 Expected: all PASS; corpus 141/141, zero skips.
 
@@ -940,6 +995,7 @@ Drop now-unused imports from the `shared` import block (`$isAttributeRunNode`, `
 cd packages/platform && env -u _VOLTA_TOOL_RECURSION pnpm vitest run verseAttributeSettle
 cd packages/platform && env -u _VOLTA_TOOL_RECURSION pnpm vitest run milestoneAttributeSettle
 cd packages/platform && env -u _VOLTA_TOOL_RECURSION pnpm vitest run tier2Rebuild.corpus
+cd packages/platform && env -u _VOLTA_TOOL_RECURSION pnpm vitest run settledGetUsj transientInput virtualSettle
 ```
 Expected: all PASS; corpus 141/141, zero skips.
 
@@ -964,7 +1020,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 - Modify: `libs/shared-react/src/plugins/usj/CharNodePlugin.tsx:44,50-64`
 
 **Interfaces:**
-- Consumes: Task 1's descriptor type and registry; `$isDisplayOwnerPended(node): boolean` and `$reportDestroyedDisplayOwner(node): void` from `libs/shared/src/nodes/usj/pendedDisplayOwners.utils.ts:23` and `:39`; `$isDescendantOf(node, ancestorKey): boolean` from `libs/shared/src/nodes/usj/node.utils.ts:301`; `DELTA_CHANGE_TAG` from `libs/shared/src/nodes/usj/node-constants.ts`.
+- Consumes: Task 1's descriptor type and registry; `$isDisplayOwnerPended(node): boolean` and `$reportDestroyedDisplayOwner(node): void` from `libs/shared/src/nodes/usj/pendedDisplayOwners.utils.ts:35` and `:51` (wave 4 inserted `getPendedDisplayOwners` above both, +12 lines from this plan's authoring point); `$isDescendantOf(node, ancestorKey): boolean` from `libs/shared/src/nodes/usj/node.utils.ts:301`; `DELTA_CHANGE_TAG` from `libs/shared/src/nodes/usj/node-constants.ts`.
 - Produces:
   - `function $syncDisplayRun(descriptor: DisplayRunDescriptor, owner: LexicalNode): void`
   - `function $caretHoldsRunSite(descriptor: DisplayRunDescriptor, owner: LexicalNode): boolean`
@@ -1367,12 +1423,19 @@ function $syncCharAttributeDisplayNode(node: CharNode): void {
 and update its `shared` import to bring in `$syncDisplayRun` and `displayRunDescriptor` in place of
 `$syncCharAttributeDisplay`, `canonicalAttributeText`, and `defaultMarkerAttribute`.
 
+`$syncCharAttributeDisplay` no longer exists after this step, but a wave-4 test comment still names
+it: `packages/platform/src/editor/settledGetUsj.test.tsx:61-62`'s doc comment on
+`$findAttributeRun` — "the TextNode tagged textType 'attribute' that `$syncCharAttributeDisplay`
+(attributeDisplay.utils.ts) builds automatically …". It is prose only, no import or call; update it
+to name `$syncDisplayRun` with the char descriptor (displayRunSync.utils.ts) instead.
+
 - [ ] **Step 4: Run the tests to verify they pass**
 
 ```bash
 cd libs/shared && env -u _VOLTA_TOOL_RECURSION pnpm vitest run
 cd ../shared-react && env -u _VOLTA_TOOL_RECURSION pnpm vitest run
 cd ../../packages/platform && env -u _VOLTA_TOOL_RECURSION pnpm vitest run
+cd ../../packages/platform && env -u _VOLTA_TOOL_RECURSION pnpm vitest run settledGetUsj transientInput virtualSettle
 ```
 Expected: all PASS; corpus 141/141, zero skips. The existing char pins in
 `libs/shared/src/nodes/usj/attributeDisplay.utils.test.ts` and
@@ -1534,6 +1597,7 @@ Keep `$verseNodeTransform(node, context);` ahead of it.
 cd libs/shared && env -u _VOLTA_TOOL_RECURSION pnpm vitest run
 cd ../shared-react && env -u _VOLTA_TOOL_RECURSION pnpm vitest run
 cd ../../packages/platform && env -u _VOLTA_TOOL_RECURSION pnpm vitest run
+cd ../../packages/platform && env -u _VOLTA_TOOL_RECURSION pnpm vitest run settledGetUsj transientInput virtualSettle
 ```
 Expected: all PASS; corpus 141/141, zero skips. Re-point the existing verse tests' calls
 (`$syncVerseAttributeDisplay(verse, alt, pub)` → the two `$syncDisplayRun` calls;
@@ -1565,7 +1629,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 **Files:**
 - Modify: `libs/shared/src/nodes/usj/attributeDisplay.utils.ts:688-863` (delete `$isCaretAtMilestoneRunBoundary`, `$syncMilestoneDisplayRun`, `$hasCaretHeldMilestoneRun`; keep `$milestoneAttributeRunPieces`, `$milestoneRunEntirelyAbsent`, `MilestoneRunPieces`)
 - Modify: `packages/platform/src/editor/markerEdit/MarkerEditPlugin.tsx:131-136` (`$syncAndPendMilestone`)
-- Modify: `packages/platform/src/editor/markerEdit/markerEditTier1.utils.ts:294-309` (`$milestoneAttributeDisplayText` retires — its converter dependency is now the milestone descriptor's)
+- Modify: `packages/platform/src/editor/markerEdit/markerEditTier1.utils.ts:298-313` (`$milestoneAttributeDisplayText` retires — its converter dependency is now the milestone descriptor's; wave 4 shifted this +4 lines from this plan's authoring point by exporting `BARE_OPENER_REGEX` earlier in the file)
 - Modify: `packages/platform/src/editor/markerEdit/markerEditTier2Trigger.utils.ts:237` (the milestone branch of `$rependPendShapedNodes`)
 - Test: `libs/shared/src/nodes/usj/attributeDisplay.utils.test.ts:75-518` and `:818-947` (re-point), `packages/platform/src/editor/markerEdit/milestoneAttributeSettle.test.tsx` (re-point)
 
@@ -1597,7 +1661,7 @@ function $syncAndPendMilestone(node: MilestoneNode, context: MarkerEditContext):
 }
 ```
 
-Delete `$milestoneAttributeDisplayText` from `markerEditTier1.utils.ts:294-309` and its two
+Delete `$milestoneAttributeDisplayText` from `markerEditTier1.utils.ts:298-313` and its two
 consumers' imports. In `markerEditTier2Trigger.utils.ts:237`, replace
 `$hasCaretHeldMilestoneRun(node, $milestoneAttributeDisplayText(node))` with
 `$caretHoldsRunSite(displayRunDescriptor("milestone"), node)`.
@@ -1607,6 +1671,7 @@ consumers' imports. In `markerEditTier2Trigger.utils.ts:237`, replace
 ```bash
 cd libs/shared && env -u _VOLTA_TOOL_RECURSION pnpm vitest run
 cd ../../packages/platform && env -u _VOLTA_TOOL_RECURSION pnpm vitest run
+cd ../../packages/platform && env -u _VOLTA_TOOL_RECURSION pnpm vitest run settledGetUsj transientInput virtualSettle
 ```
 Expected: all PASS; corpus 141/141, zero skips. Re-point the milestone tests'
 `$syncMilestoneDisplayRun(m, text)` calls to `$syncDisplayRun(displayRunDescriptor("milestone"), m)`
@@ -1735,6 +1800,7 @@ nothing else in the file uses them.
 
 ```bash
 cd packages/platform && env -u _VOLTA_TOOL_RECURSION pnpm vitest run
+cd packages/platform && env -u _VOLTA_TOOL_RECURSION pnpm vitest run settledGetUsj transientInput virtualSettle
 ```
 Expected: all PASS; corpus 141/141, zero skips. `charAttributeDeletionSettle.test.tsx`'s
 "a genuine attribute clear settles quietly" case and `verseAttributeSettle.test.tsx`'s per-field
@@ -1754,7 +1820,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ## Task 8: Retire the last per-kind caret-held callers
 
 **Files:**
-- Modify: `packages/platform/src/editor/markerEdit/markerEditTier1.utils.ts:376-422` (the four grace arms of `$settlePendedDisplayOwner`), import block `:17-49`
+- Modify: `packages/platform/src/editor/markerEdit/markerEditTier1.utils.ts:380-426` (the four grace arms of `$settlePendedDisplayOwner`; wave 4 shifted this +4 lines from this plan's authoring point — see "Relationship to Wave 4"), import block `:17-49` (unshifted — above wave 4's edit point)
 - Modify: `packages/platform/src/editor/markerEdit/markerEditTier2Trigger.utils.ts:214-314` (the VerseNode/MilestoneNode/CharNode branches of `$rependPendShapedNodes`), import block `:43-63`
 - Test: `packages/platform/src/editor/markerEdit/markerEditUndoResettle.test.tsx`, `markerEditUndoRerenderResettle.test.tsx`
 
@@ -1772,7 +1838,7 @@ Expected: both PASS.
 
 - [ ] **Step 2: Re-point the callers**
 
-In `markerEditTier1.utils.ts`, replace the char/verse/milestone grace arms (lines 383–422) with:
+In `markerEditTier1.utils.ts`, replace the char/verse/milestone grace arms (lines 387–426) with:
 
 ```ts
   for (const kind of ["char", "va", "vp", "milestone"] as const) {
@@ -1800,6 +1866,7 @@ The MilestoneNode branch was already re-pointed in Task 6.
 
 ```bash
 cd packages/platform && env -u _VOLTA_TOOL_RECURSION pnpm vitest run
+cd packages/platform && env -u _VOLTA_TOOL_RECURSION pnpm vitest run settledGetUsj transientInput virtualSettle
 ```
 Expected: all PASS; corpus 141/141, zero skips.
 
@@ -1821,13 +1888,15 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ## Task 9: `$settlePendedDisplayOwner` becomes registry dispatch (and folds `huskRemoved` correctly)
 
 `$settlePendedDisplayOwner` returns `{ handled: false, mutated: false }` at
-`markerEditTier1.utils.ts:442` even when it removed a wrapper husk, and `$resolvePendingMarkers`
-discards `settled.mutated` on that path (`:473-477`). A settle that removed a husk but whose Tier-2
+`markerEditTier1.utils.ts:446` even when it removed a wrapper husk, and `$resolvePendingMarkers`
+discards `settled.mutated` on that path (`:477-481`). A settle that removed a husk but whose Tier-2
 rebuild then REFUSED (a fixed point) therefore reports "mutated nothing", so the caller tags the
-commit `HISTORY_MERGE_TAG` and a real mutation is merged into the previous undo entry.
+commit `HISTORY_MERGE_TAG` and a real mutation is merged into the previous undo entry. (Line numbers
+here and below are wave-4-shifted +4 from this plan's authoring point — see "Relationship to Wave 4".)
 
 **Files:**
-- Modify: `packages/platform/src/editor/markerEdit/markerEditTier1.utils.ts:339-443` (`$settlePendedDisplayOwner`), `:473-477` (`$resolvePendingMarkers`)
+- Modify: `packages/platform/src/editor/markerEdit/markerEditTier1.utils.ts:343-447` (`$settlePendedDisplayOwner`), `:477-481` (`$resolvePendingMarkers`)
+- Modify: `packages/platform/src/editor/markerEdit/virtualSettle.utils.ts:895-906` (`$emptiedOptbreakHusksOf`'s doc comment, which currently reads "the read-only mirror of `$settlePendedDisplayOwner`'s FIRST branch" — no longer literally the function's first code path once this task lands, since the optbreak case becomes `optbreakDescriptor`'s arm in the registry loop; reword to describe the dispatch structure, not a line position, while keeping the "FIRST" ordering claim only where Step 3 below actually preserves it, i.e. the husk-removal loop and the separator check still run before the descriptor loop)
 - Test: `packages/platform/src/editor/markerEdit/markerEditTier1.utils.test.tsx`
 
 **Interfaces:**
@@ -1882,7 +1951,7 @@ Expected: FAIL — `expect(mutated).toBe(true)` receives `false`.
 
 - [ ] **Step 3: Rewrite the settle as dispatch**
 
-Replace `$settlePendedDisplayOwner` (lines 339–443) with:
+Replace `$settlePendedDisplayOwner` (lines 343–447) with:
 
 ```ts
 /**
@@ -1964,7 +2033,7 @@ const opaqueUnknownDescriptor: DisplayRunDescriptor = {
 
 added to `displayRunDescriptors` after `optbreakDescriptor`.
 
-Then fix the caller at `markerEditTier1.utils.ts:473-477`:
+Then fix the caller at `markerEditTier1.utils.ts:477-481`:
 
 ```ts
     const settled = $settlePendedDisplayOwner(node, context);
@@ -1972,13 +2041,22 @@ Then fix the caller at `markerEditTier1.utils.ts:473-477`:
     if (settled.handled) continue;
 ```
 
+Then update `virtualSettle.utils.ts:895-906`'s doc comment on `$emptiedOptbreakHusksOf` (see this
+task's Files list) so it describes the optbreak case as `optbreakDescriptor`'s `remove-owner`/
+`read-only` arm in the registry dispatch loop, not `$settlePendedDisplayOwner`'s "FIRST branch" —
+the husk-removal loop and separator check that genuinely still run first are unaffected by this
+task and keep their own ordering language if any.
+
 - [ ] **Step 4: Run the tests to verify they pass**
 
 ```bash
 cd packages/platform && env -u _VOLTA_TOOL_RECURSION pnpm vitest run
+cd packages/platform && env -u _VOLTA_TOOL_RECURSION pnpm vitest run settledGetUsj transientInput virtualSettle
 ```
 Expected: all PASS; corpus 141/141, zero skips. `optbreakDeletionSettle.test.tsx` is the pin that
-the optbreak's `remove-owner` policy still fires through the new dispatch.
+the optbreak's `remove-owner` policy still fires through the new dispatch. The wave-4 suites are the
+pins that `virtualSettle.utils.ts`'s optbreak-husk mirror still agrees with the real settle now that
+both are registry-shaped.
 
 - [ ] **Step 5: Commit**
 
@@ -1994,7 +2072,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ## Task 10: `$rependPendShapedNodes` becomes registry dispatch
 
 **Files:**
-- Modify: `packages/platform/src/editor/markerEdit/markerEditTier2Trigger.utils.ts:214-314`
+- Modify: `packages/platform/src/editor/markerEdit/markerEditTier2Trigger.utils.ts:214-314`, including its function-level doc comment at `:207-212` — "Two more shapes pend for a DIFFERENT reason … See the UnknownNode and AttributeRunNode branches below" — which after this task is only half true: the AttributeRunNode-husk branch stays a literal branch (Step 3 below keeps it unchanged), but the optbreak case moves into the shared dispatch loop this task introduces, so it is no longer "the UnknownNode branch" that pends it. Reword to say the optbreak case is now the shared loop's `optbreakDescriptor` arm.
 - Test: `packages/platform/src/editor/markerEdit/markerEditUndoResettle.test.tsx`
 
 **Interfaces:**
@@ -2052,6 +2130,7 @@ shared loop above.
 
 ```bash
 cd packages/platform && env -u _VOLTA_TOOL_RECURSION pnpm vitest run
+cd packages/platform && env -u _VOLTA_TOOL_RECURSION pnpm vitest run settledGetUsj transientInput virtualSettle
 ```
 Expected: all PASS; corpus 141/141, zero skips. The two undo-resettle suites are the pins.
 
@@ -2200,6 +2279,7 @@ placed immediately after the `owner.isAttached()` guard in `$caretHoldsRunSite`.
 ```bash
 cd libs/shared && env -u _VOLTA_TOOL_RECURSION pnpm vitest run
 cd ../../packages/platform && env -u _VOLTA_TOOL_RECURSION pnpm vitest run
+cd ../../packages/platform && env -u _VOLTA_TOOL_RECURSION pnpm vitest run settledGetUsj transientInput virtualSettle
 ```
 Expected: all PASS; corpus 141/141, zero skips. The separator pins live in
 `packages/platform/src/editor/markerEdit/markerEditTier1.utils.test.tsx` and
@@ -2323,6 +2403,7 @@ comment on `$isDisplayRunPiece`'s call site so a future reader does not "fix" on
 ```bash
 cd libs/shared-react && env -u _VOLTA_TOOL_RECURSION pnpm vitest run
 cd ../../packages/platform && env -u _VOLTA_TOOL_RECURSION pnpm vitest run
+cd ../../packages/platform && env -u _VOLTA_TOOL_RECURSION pnpm vitest run settledGetUsj transientInput virtualSettle
 ```
 Expected: all PASS; corpus 141/141, zero skips. The delta round-trip and OT length-invariance pins
 in `libs/shared-react/src/plugins/usj/collab/` are the ones that catch a coordinate shift.
@@ -2449,6 +2530,7 @@ WHY the registration lives there (the mode-gating rationale) — reword them to 
 cd libs/shared && env -u _VOLTA_TOOL_RECURSION pnpm vitest run
 cd ../shared-react && env -u _VOLTA_TOOL_RECURSION pnpm vitest run
 cd ../../packages/platform && env -u _VOLTA_TOOL_RECURSION pnpm vitest run
+cd ../../packages/platform && env -u _VOLTA_TOOL_RECURSION pnpm vitest run settledGetUsj transientInput virtualSettle
 ```
 Expected: all PASS; corpus 141/141, zero skips. `testEnvironmentWithCharSync`'s `"engine-first"`
 plugin order is the pin that the double CharNode registration is order-independent.
@@ -2470,7 +2552,9 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 
 **Interfaces:**
 - Consumes: Tasks 1–13.
-- Produces: a green wave boundary the wave-4 plan builds on.
+- Produces: a green wave boundary confirming the registry lands cleanly on top of wave 4 (settled/
+  virtual `getUsj`, `TransientInput`), which — per "Relationship to Wave 4" above — landed FIRST on
+  this branch, reversing the sequencing this line originally assumed.
 
 - [ ] **Step 1: Repo-wide gate**
 
@@ -2486,8 +2570,11 @@ Expected: exit 0 from both. Judge by exit code, not output tail.
 ```bash
 cd packages/platform && env -u _VOLTA_TOOL_RECURSION pnpm vitest run tier2Rebuild.corpus
 cd packages/platform && env -u _VOLTA_TOOL_RECURSION pnpm vitest run charAttributeDeletionSettle optbreakDeletionSettle verseAttributeSettle milestoneAttributeSettle
+cd packages/platform && env -u _VOLTA_TOOL_RECURSION pnpm vitest run settledGetUsj transientInput virtualSettle
 ```
-Expected: corpus 141/141, ZERO skips; all four wave-1 bug-pin suites green.
+Expected: corpus 141/141, ZERO skips; all four wave-1 bug-pin suites green; all five wave-4 settle
+suites green (the registry landing on top of wave 4 must not regress the settled/virtual `getUsj`
+mirrors — see "Relationship to Wave 4").
 
 - [ ] **Step 3: Confirm the retired surface is gone**
 
@@ -2575,8 +2662,16 @@ to Task N", no "add appropriate error handling".
 
 ## Execution gate
 
-**This plan is NOT approved for execution.** Wave 3 begins only after TJ signs off on this plan.
-Two decisions in particular need explicit confirmation before any code lands:
+**TJ has signed off on this plan.** The two decisions that gated execution are both resolved, and
+this anchor re-grounding pass (against wave-4-landed code, current head `1d4cbb54`) is the remaining
+prerequisite before wave 3 begins:
 
-1. **Task 5's deliberate behavior change** — a complete-but-still-loose run now reports caret-held, because the pending wrap migration counts as a divergence. This makes the reporter agree with the sync (which already graces the migration) and gives the migration something to settle it, but it is a real change, not a pure refactor.
-2. **Task 12's asymmetry** — the ops-side exclusion is broadened to loose run pieces while `$getNodeOTContribution`'s delta-doc arm is deliberately left alone. That restores the exact pre-wave-2a contract, but it leaves the two coordinate systems disagreeing about a loose piece's length, which is worth a conscious "yes, later" rather than a silent one.
+1. **Task 5's deliberate behavior change — RULED YES.** A complete-but-still-loose run now reports
+   caret-held, because the pending wrap migration counts as a divergence. This makes the reporter
+   agree with the sync (which already graces the migration) and gives the migration something to
+   settle it — a real behavior change, not a pure refactor, and TJ confirmed it is the intended one.
+2. **Task 12's asymmetry — RULED ACCEPTED.** The ops-side exclusion is broadened to loose run pieces
+   while `$getNodeOTContribution`'s delta-doc arm is deliberately left alone. That restores the exact
+   pre-wave-2a contract, and TJ accepted that it leaves the two coordinate systems disagreeing about
+   a loose piece's length as a conscious "yes, later" for a future wave, not something this wave must
+   resolve.
