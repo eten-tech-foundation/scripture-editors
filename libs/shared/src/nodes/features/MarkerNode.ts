@@ -86,6 +86,22 @@ export class MarkerNode extends TextNode {
     return dom;
   }
 
+  override updateDOM(prevNode: this, dom: HTMLElement, config: EditorConfig): boolean {
+    // TextNode implements updateDOM, so unlike CharNode.updateDOM this can - and must - defer to
+    // super: its return value decides whether Lexical reuses the element or rebuilds it via
+    // createDOM. On reuse, createDOM does not run again, so the marker-derived attribute and class
+    // it set have to be rewritten here by hand. setMarker/setMarkerSyntax already reconcile the
+    // visible text; without this the presentational data-marker and syntax class go stale, which is
+    // the same gap CharNode.updateDOM closes for the char span.
+    const isRecreated = super.updateDOM(prevNode, dom, config);
+    if (prevNode.__marker !== this.__marker) dom.setAttribute("data-marker", this.__marker);
+    if (prevNode.__markerSyntax !== this.__markerSyntax) {
+      dom.classList.remove(prevNode.__markerSyntax);
+      dom.classList.add(this.__markerSyntax);
+    }
+    return isRecreated;
+  }
+
   override exportJSON(): SerializedMarkerNode {
     return {
       ...super.exportJSON(),

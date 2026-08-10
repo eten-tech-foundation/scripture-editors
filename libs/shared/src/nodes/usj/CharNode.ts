@@ -157,6 +157,21 @@ export class CharNode extends ElementNode {
     return marker !== undefined && VALID_CHAR_CROSS_REFERENCE_MARKERS.includes(marker);
   }
 
+  /**
+   * Whether a character marker belongs to the note-content families - footnote or cross-reference.
+   *
+   * These markers only ever occur inside a `NoteNode`, and unlike every other character marker they
+   * are written without a closing marker. Callers branch on this for one reason or the other, so the
+   * predicate names the family rather than either consequence; each call site documents which
+   * consequence it cares about.
+   *
+   * @param marker - The character marker to check.
+   * @returns `true` if the marker is a footnote or cross-reference marker, `false` otherwise.
+   */
+  static isNoteContentMarker(marker: string | undefined): boolean {
+    return CharNode.isValidFootnoteMarker(marker) || CharNode.isValidCrossReferenceMarker(marker);
+  }
+
   static override importDOM(): DOMConversionMap | null {
     return {
       span: (node: HTMLElement) => {
@@ -219,9 +234,29 @@ export class CharNode extends ElementNode {
     return dom;
   }
 
-  override updateDOM(): boolean {
-    // Returning false tells Lexical that this node does not need its
-    // DOM element replacing with a new copy from createDOM.
+  override updateDOM(prevNode: this, dom: HTMLElement, config: EditorConfig): boolean {
+    // Returning false tells Lexical the element can be reused — but reuse means createDOM does not
+    // run again, so a marker change has to be written onto the existing element by hand: the
+    // data-marker, the title (gated by showCharMarkerTitles, same as createDOM), and the usfm_*
+    // class.
+    //
+    // Scope: this span's own attributes and classes, nothing else. The synthesized marker children
+    // that markerMode "editable"/"visible" add are not touched here - $setCharNodeMarker
+    // (node.utils.ts) is what retargets those, and callers changing a marker on a rendered node
+    // should go through it. The collaboration path in delta-apply-update.utils.ts still calls
+    // setMarker directly, so it gets this attribute refresh but not the child retargeting.
+    //
+    // No super.updateDOM() call, unlike ParaNode.updateDOM: ParaNode extends ParagraphNode, which
+    // implements it. CharNode extends ElementNode, which does not, so super would reach
+    // LexicalNode's base method and throw.
+    if (prevNode.__marker !== this.__marker) {
+      dom.setAttribute("data-marker", this.__marker);
+      // Gated the same way createDOM gates it, so this never introduces a title the consumer
+      // asked to suppress.
+      if (config.theme?.showCharMarkerTitles !== false) dom.setAttribute("title", this.__marker);
+      dom.classList.remove(`usfm_${prevNode.__marker}`);
+      dom.classList.add(`usfm_${this.__marker}`);
+    }
     return false;
   }
 

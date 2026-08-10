@@ -577,6 +577,95 @@ export function $isSynthesizedMarkerNode(node: LexicalNode | null | undefined): 
 }
 
 /**
+ * Set a `CharNode`'s marker, keeping its content and identity.
+ *
+ * Use this rather than `CharNode.setMarker` whenever an existing `CharNode`'s marker changes in a
+ * rendered editor: it pairs the `setMarker` with the retargeting of the node's synthesized marker
+ * children, in the one order that works.
+ *
+ * Coalescing with an identically-marked adjacent sibling is deliberately not handled here:
+ * `$charNodeTransform` (`shared-react`'s `CharNodePlugin.tsx`) already does it on the next update
+ * cycle, proven for exactly this call in `CharNodePlugin.test.tsx`. Don't hand-roll it.
+ *
+ * Callers must pre-validate `marker`: passing a footnote or cross-reference marker (e.g. `"ft"`,
+ * `"xt"`) removes the node's closing marker child rather than rewriting it, because
+ * `addClosingMarker` never emits one for those families. That is a deliberate contract rather than a
+ * guard - see `$retargetSynthesizedMarkers` - and no current caller reaches it, since
+ * `EditorRef.replaceCharacterMarker` rejects those markers up front.
+ *
+ * @param charNode - The `CharNode` to change.
+ * @param marker - The character marker to change to. Must not be a footnote or cross-reference
+ *   marker; see above.
+ */
+export function $setCharNodeMarker(charNode: CharNode, marker: string): void {
+  // Before setMarker, not after. $retargetSynthesizedMarkers's ImmutableTypedTextNode branch
+  // (markerMode "visible") matches a child's text against the *old* marker's opening/closing form,
+  // read via charNode.getMarker() — reversed, that read would already return the new marker, and
+  // the stale child would silently go unmatched. Its MarkerNode branch (markerMode "editable")
+  // doesn't care about this order: MarkerNode.setMarker recomputes text from the new marker it's
+  // given plus its own stored __markerSyntax, not from anything read off charNode.
+  // Guarded by "matches marker children against the old marker, not the new one" in
+  // node-utils.test.ts - reverse these two calls and it fails.
+  $retargetSynthesizedMarkers(charNode, marker);
+  charNode.setMarker(marker);
+}
+
+/**
+ * Point a `CharNode`'s synthesized marker children at a new marker.
+ *
+ * Under `markerMode: "editable"` those children are `MarkerNode`s and under `"visible"` they are
+ * `ImmutableTypedTextNode`s with `textType: "marker"`; both are produced by the USJ editor
+ * adaptor's `addOpeningMarker` / `addClosingMarker` and neither is touched by `CharNode.setMarker`,
+ * so without this every marker change in those modes leaves the old marker's text on screen.
+ *
+ * Retargets rather than strips: stripping would leave the changed span looking unmarked, which
+ * reads worse than stale. The one exception is the closing marker child when `toMarker` is a
+ * note-content marker: `addClosingMarker` never emits a closing marker for those families, so the
+ * child is removed rather than rewritten to a form the adaptor would never produce (e.g. `\ft*`).
+ * That is a contract of the function, not a live path — `EditorRef.replaceCharacterMarker` rejects
+ * those markers up front.
+ *
+ * The old marker is read from the node itself rather than taken from a caller-supplied "from"
+ * marker, which callers may not know when the innermost marker was targeted.
+ *
+ * A child whose text is neither the opening nor the closing form of the old marker is left
+ * verbatim rather than rewritten by guesswork. This applies to both synthesized child flavors: a
+ * `MarkerNode` is a `TextNode` in default (non-token) mode, so a selection anchored inside its
+ * visible text can `splitText` it into a fragment whose `__marker` is stale but whose text no
+ * longer matches — rewriting that verbatim would re-expand it to the wrong marker.
+ *
+ * @param charNode - The `CharNode` whose marker is about to change.
+ * @param toMarker - The character marker to change to.
+ */
+function $retargetSynthesizedMarkers(charNode: CharNode, toMarker: string): void {
+  const fromMarker = charNode.getMarker();
+  const openingText = openingMarkerText(fromMarker);
+  const closingText = closingMarkerText(fromMarker);
+  // Note-content markers are written without a closing marker, so a closing child is removed rather
+  // than retargeted to a form `addClosingMarker` would never emit.
+  const dropsClosingMarker = CharNode.isNoteContentMarker(toMarker);
+  charNode.getChildren().forEach((child) => {
+    // Gate on the node type first: only a synthesized marker child is ever a candidate for
+    // rewriting or removal here, regardless of what its text happens to contain.
+    if (!$isSynthesizedMarkerNode(child)) return;
+
+    const text = child.getTextContent();
+    const isOpening = text === openingText;
+    const isClosing = !isOpening && text === closingText;
+    if (!isOpening && !isClosing) return;
+
+    if (isClosing && dropsClosingMarker) {
+      child.remove();
+      return;
+    }
+    // MarkerNode.setMarker recomputes the node's text for us.
+    if ($isMarkerNode(child)) child.setMarker(toMarker);
+    else if ($isVisibleMarkerNode(child))
+      child.setTextContent(isOpening ? openingMarkerText(toMarker) : closingMarkerText(toMarker));
+  });
+}
+
+/**
  * Remove all known properties of the `markerObject`.
  * @param markerObject - Scripture marker and its contents.
  * @param markerObjectProps - List of known properties to remove. Defaults to `MARKER_OBJECT_PROPS`.

@@ -2,6 +2,7 @@ import editorUsjAdaptor from "./adaptors/editor-usj.adaptor";
 import usjEditorAdaptor from "./adaptors/usj-editor.adaptor";
 import {
   $removeCharacterMarkerAtSelection,
+  $replaceCharacterMarkerAtSelection,
   getUsjMarkerAction,
   isCharacterMarkerSupported,
   isUsjMarkerSupported,
@@ -220,6 +221,15 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
   );
   editorUsjAdaptor.initialize(stableLogger);
 
+  /**
+   * Throws if `marker` is given but isn't a character marker the character marker actions can act
+   * on. An omitted marker is always allowed - it means "whatever marker is at the selection".
+   */
+  function assertCharacterMarkerSupported(marker: string | undefined) {
+    if (marker !== undefined && !isCharacterMarkerSupported(marker, nodeOptions.extraValidMarkers))
+      throw new Error(`Unsupported character marker '${marker}'`);
+  }
+
   useImperativeHandle(ref, () => ({
     focus() {
       editorRef.current?.focus();
@@ -350,11 +360,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
     },
     removeCharacterMarker(marker) {
       if (isReadonly) throw new Error("Cannot remove character marker in readonly mode");
-      if (
-        marker !== undefined &&
-        !isCharacterMarkerSupported(marker, nodeOptions.extraValidMarkers)
-      )
-        throw new Error(`Unsupported character marker '${marker}'`);
+      assertCharacterMarkerSupported(marker);
 
       // `discrete` so the update runs now rather than being deferred behind an in-progress one,
       // which would leave `didRemove` reporting `false` for a removal that did happen. Same reason
@@ -369,6 +375,28 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
         { discrete: true },
       );
       return didRemove;
+    },
+    replaceCharacterMarker(toMarker, fromMarker) {
+      if (isReadonly) throw new Error("Cannot replace character marker in readonly mode");
+      assertCharacterMarkerSupported(toMarker);
+      assertCharacterMarkerSupported(fromMarker);
+
+      // No `viewOptions` argument, unlike removeCharacterMarker above: replacement changes no text
+      // and strips no children, so it has nothing marker-mode-dependent to undo.
+      //
+      // `discrete` so the update runs now rather than being deferred behind an in-progress one,
+      // which would leave `didReplace` reporting `false` for a replacement that did happen. Same
+      // reason `removeCharacterMarker` above uses it.
+      let didReplace = false;
+      editorRef.current?.update(
+        () => {
+          const selection = $getSelection();
+          if ($isRangeSelection(selection))
+            didReplace = $replaceCharacterMarkerAtSelection(selection, toMarker, fromMarker);
+        },
+        { discrete: true },
+      );
+      return didReplace;
     },
     insertMarker(marker) {
       if (isReadonly) throw new Error("Cannot insert marker in readonly mode");

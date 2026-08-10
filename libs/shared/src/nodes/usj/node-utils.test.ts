@@ -1,6 +1,7 @@
+import { $createImmutableTypedTextNode } from "../features/ImmutableTypedTextNode.js";
 import { $createMarkerNode } from "../features/MarkerNode.js";
 import { $createTypedMarkNode, TypedMarkNode } from "../features/TypedMarkNode.js";
-import { $createCharNode } from "./CharNode.js";
+import { $createCharNode, CharNode } from "./CharNode.js";
 import { $createImmutableChapterNode } from "./ImmutableChapterNode.js";
 import { usjBaseNodes } from "./index.js";
 import {
@@ -12,6 +13,8 @@ import {
   $getLogicalTextLocation,
   $getTextNodeAtLogicalOffset,
   $isSomeChapterNode,
+  $setCharNodeMarker,
+  closingMarkerText,
   getNextVerse,
   getUnknownAttributes,
   isSelectionStartNodeExpectedError,
@@ -19,6 +22,7 @@ import {
   isVerseInRange,
   LogicalContentItem,
   LogicalTextItem,
+  openingMarkerText,
   parseNumberFromMarkerText,
   removeNodeAndAfter,
   removeNodesBeforeNode,
@@ -386,6 +390,203 @@ describe("Editor Node Utilities", () => {
         ),
       ).toBe(true);
       expect(isSelectionStartNodeExpectedError(new Error("some other error"))).toBe(false);
+    });
+  });
+
+  describe("$setCharNodeMarker()", () => {
+    let charNode!: CharNode;
+
+    it("retargets synthesized MarkerNode children in markerMode 'editable'", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        // Mirrors the USJ editor adaptor's createChar under markerMode "editable": a MarkerNode
+        // opening, each text child prefixed with NBSP, then a closing MarkerNode.
+        charNode = $createCharNode("nd");
+        $getRoot().append(
+          $createParaNode("p").append(
+            charNode.append(
+              $createMarkerNode("nd"),
+              $createTextNode(NBSP + "Lord"),
+              $createMarkerNode("nd", "closing"),
+            ),
+          ),
+        );
+      });
+
+      editor.update(
+        () => {
+          $setCharNodeMarker(charNode, "bd");
+        },
+        { discrete: true },
+      );
+
+      editor.getEditorState().read(() => {
+        expect(charNode.getMarker()).toBe("bd");
+        const text = charNode.getTextContent();
+        // The new marker is rendered, and no stale \nd or \nd* survives.
+        expect(text).toContain(openingMarkerText("bd"));
+        expect(text).toContain(closingMarkerText("bd"));
+        expect(text).not.toContain(openingMarkerText("nd"));
+        expect(text).not.toContain(closingMarkerText("nd"));
+        // The NBSP is presentation the adaptor added; this neither trims nor duplicates it.
+        expect(text).toContain(NBSP + "Lord");
+      });
+    });
+
+    it("retargets synthesized ImmutableTypedTextNode children in markerMode 'visible'", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        // Mirrors the USJ editor adaptor's createChar under markerMode "visible": immutable
+        // typed-text markers on both sides and no NBSP prefix on the content.
+        charNode = $createCharNode("nd");
+        $getRoot().append(
+          $createParaNode("p").append(
+            charNode.append(
+              $createImmutableTypedTextNode("marker", openingMarkerText("nd")),
+              $createTextNode("Lord"),
+              $createImmutableTypedTextNode("marker", closingMarkerText("nd")),
+            ),
+          ),
+        );
+      });
+
+      editor.update(
+        () => {
+          $setCharNodeMarker(charNode, "bd");
+        },
+        { discrete: true },
+      );
+
+      editor.getEditorState().read(() => {
+        expect(charNode.getMarker()).toBe("bd");
+        const text = charNode.getTextContent();
+        expect(text).toContain(openingMarkerText("bd"));
+        expect(text).toContain(closingMarkerText("bd"));
+        expect(text).not.toContain(openingMarkerText("nd"));
+        expect(text).not.toContain(closingMarkerText("nd"));
+      });
+    });
+
+    it("matches marker children against the old marker, not the new one", () => {
+      // Pins the ordering inside $setCharNodeMarker: the children are retargeted *before*
+      // charNode.setMarker runs, so the match reads the old marker off the node. Reverse the two
+      // calls and the read returns "bd", the \nd children match nothing, and they survive stale.
+      // The decoy child below already carries the new marker's opening form, so it must be left
+      // alone either way - it is the \nd children that tell the two orderings apart.
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        charNode = $createCharNode("nd");
+        $getRoot().append(
+          $createParaNode("p").append(
+            charNode.append(
+              $createImmutableTypedTextNode("marker", openingMarkerText("nd")),
+              $createTextNode("Lord"),
+              $createImmutableTypedTextNode("marker", openingMarkerText("bd")),
+              $createTextNode("God"),
+              $createImmutableTypedTextNode("marker", closingMarkerText("nd")),
+            ),
+          ),
+        );
+      });
+
+      editor.update(
+        () => {
+          $setCharNodeMarker(charNode, "bd");
+        },
+        { discrete: true },
+      );
+
+      editor.getEditorState().read(() => {
+        const text = charNode.getTextContent();
+        // Both old-marker children were matched and retargeted - nothing stale survives.
+        expect(text).not.toContain(openingMarkerText("nd"));
+        expect(text).not.toContain(closingMarkerText("nd"));
+        expect(text).toContain(closingMarkerText("bd"));
+        expect(text).toContain("Lord");
+        expect(text).toContain("God");
+      });
+    });
+
+    it("leaves a marker child alone when its text is not the expected opening or closing form", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        charNode = $createCharNode("nd");
+        $getRoot().append(
+          $createParaNode("p").append(
+            charNode.append(
+              // Not openingMarkerText("nd") or closingMarkerText("nd") — an unrecognized shape.
+              $createImmutableTypedTextNode("marker", "\\nd|x-custom"),
+              $createTextNode("Lord"),
+            ),
+          ),
+        );
+      });
+
+      editor.update(
+        () => {
+          $setCharNodeMarker(charNode, "bd");
+        },
+        { discrete: true },
+      );
+
+      editor.getEditorState().read(() => {
+        expect(charNode.getMarker()).toBe("bd");
+        // An unrecognized marker text is left verbatim, not rewritten by guesswork.
+        expect(charNode.getTextContent()).toContain("\\nd|x-custom");
+      });
+    });
+
+    it("leaves a plain TextNode alone even when its text is the closing marker form", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        charNode = $createCharNode("nd");
+        $getRoot().append(
+          $createParaNode("p").append(
+            // A plain TextNode is never a synthesized marker child, so the node-type gate comes
+            // first — matching text alone must not make it a rewrite candidate.
+            charNode.append($createTextNode("Lord"), $createTextNode(closingMarkerText("nd"))),
+          ),
+        );
+      });
+
+      editor.update(
+        () => {
+          $setCharNodeMarker(charNode, "bd");
+        },
+        { discrete: true },
+      );
+
+      editor.getEditorState().read(() => {
+        expect(charNode.getMarker()).toBe("bd");
+        expect(charNode.getTextContent()).toBe(`Lord${closingMarkerText("nd")}`);
+      });
+    });
+
+    it("drops the closing marker instead of rewriting it when the new marker is a footnote marker", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        charNode = $createCharNode("nd");
+        $getRoot().append(
+          $createParaNode("p").append(
+            charNode.append(
+              $createMarkerNode("nd"),
+              $createTextNode(NBSP + "Lord"),
+              $createMarkerNode("nd", "closing"),
+            ),
+          ),
+        );
+      });
+
+      editor.update(
+        () => {
+          $setCharNodeMarker(charNode, "ft");
+        },
+        { discrete: true },
+      );
+
+      editor.getEditorState().read(() => {
+        expect(charNode.getMarker()).toBe("ft");
+        // addClosingMarker never emits a closing marker for footnote/cross-reference markers, so
+        // the retargeted closing child is removed rather than rewritten to a `\ft*` the adaptor
+        // would never produce. Only the opening marker and the text remain.
+        expect(charNode.getChildrenSize()).toBe(2);
+        expect(charNode.getTextContent()).toContain(openingMarkerText("ft"));
+        expect(charNode.getTextContent()).not.toContain(closingMarkerText("ft"));
+      });
     });
   });
 

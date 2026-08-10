@@ -695,8 +695,8 @@ function addOpeningMarker(marker: string, nodes: SerializedLexicalNode[]) {
 }
 
 function addClosingMarker(marker: string, nodes: SerializedLexicalNode[], isSelfClosing = false) {
-  if (CharNode.isValidFootnoteMarker(marker) || CharNode.isValidCrossReferenceMarker(marker))
-    return;
+  // Note-content markers are written without a closing marker.
+  if (CharNode.isNoteContentMarker(marker)) return;
 
   if (_viewOptions?.markerMode === "editable") {
     if (isSelfClosing) nodes.push(createMarker("", "selfClosing"));

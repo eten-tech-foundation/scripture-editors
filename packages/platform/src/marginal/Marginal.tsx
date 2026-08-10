@@ -186,6 +186,9 @@ const Marginal = forwardRef(function Marginal<TLogger extends LoggerBasic>(
     removeCharacterMarker(marker) {
       return editorRef.current?.removeCharacterMarker(marker) ?? false;
     },
+    replaceCharacterMarker(toMarker, fromMarker) {
+      return editorRef.current?.replaceCharacterMarker(toMarker, fromMarker) ?? false;
+    },
     insertMarker(marker) {
       editorRef.current?.insertMarker(marker);
     },

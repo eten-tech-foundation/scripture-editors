@@ -159,6 +159,56 @@ export interface EditorRef {
    */
   removeCharacterMarker(marker?: string): boolean;
   /**
+   * Replace the character marker on the current editor selection, keeping its text content.
+   *
+   * Returns whether a marker was actually changed, so a caller can tell a real replacement from a
+   * refused or unmatched one. Works with both collapsed (changes the whole enclosing marker) and
+   * range (splits the marker, leaving the uncovered text with its original marker) selections.
+   *
+   * Returns `false` and does nothing, without throwing, when there is no matching character marker
+   * enclosing the selection, when that marker is already `toMarker`, when the selection is inside a
+   * note, when the change could not be confined to the selection (see below), or when there is no
+   * active selection at all. In every one of those cases the document and the selection are left
+   * untouched — no undo entry is added.
+   *
+   * @remarks
+   * Nested markers: text left uncovered by the selection keeps its original marker, and the inner
+   * and outer markers of a nested pair can each be changed independently while the selection covers
+   * them fully. When a range selection covers only *part* of a nested character marker's text and
+   * the *outer* marker is the one being changed, the request is refused and the document is left
+   * unchanged: recursive splitting of a nested marker's text is not implemented, so the marker
+   * could only be changed across that nested marker's entire span, including text the caller never
+   * selected. Refusing keeps the guarantee that replacement never alters unselected text.
+   *
+   * A replaced marker that ends up matching an adjacent sibling's is merged into it automatically.
+   * That merge is clean in the default marker mode. In the marker-visible modes (`"editable"` and
+   * `"visible"`), the merge can leave each side's synthesized marker text sitting side by side in
+   * the interior of the merged node (e.g. `\bd Lord\bd*\bd God\bd*` on screen instead of
+   * `\bd Lord God\bd*`). That stray interior marker text is excluded from USJ export and
+   * self-corrects the next time the document is loaded from USJ.
+   *
+   * Also in the marker-visible modes (`"editable"` and `"visible"`): a range selection strictly
+   * interior to a marker's text — touching neither its opening nor its closing boundary — leaves the
+   * changed run with no visible marker at all, while the unselected text on either side keeps the
+   * original marker (e.g. `\nd Lord\nd*` with the middle word changed renders as
+   * `\nd Lo\nd*rd\nd \nd*` rather than showing the new marker around the middle). The synthesized
+   * marker text lives at the boundaries, so the interior span that the split produces has none to
+   * retarget. Like the merge artifact above, this is presentation only: the change is correct in USJ
+   * export and self-corrects the next time the document is loaded from USJ.
+   *
+   * @param toMarker - The USFM character marker to change to, e.g. `"nd"`, `"wj"`. Footnote and
+   *   cross-reference character markers (e.g. `"ft"`, `"xt"`) are not supported: they only occur
+   *   inside notes, which replacement skips, so they throw rather than silently doing nothing.
+   * @param fromMarker - A USFM character marker to match. Omit to change the innermost character
+   *   marker enclosing the selection. Subject to the same footnote and cross-reference restriction
+   *   as `toMarker`.
+   * @returns `true` if a character marker was changed, `false` if the request was a no-op.
+   * @throws Will throw an error if the editor is in readonly mode.
+   * @throws Will throw an error if `toMarker` is not a supported character marker.
+   * @throws Will throw an error if `fromMarker` is given and is not a supported character marker.
+   */
+  replaceCharacterMarker(toMarker: string, fromMarker?: string): boolean;
+  /**
    * Insert a marker at the current editor selection, replicating the behavior of the
    * built-in marker menu. Works with both collapsed (insertion point) and range selections.
    *
