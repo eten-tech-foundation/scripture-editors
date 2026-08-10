@@ -32,6 +32,7 @@ import usjEditorAdaptor from "../adaptors/usj-editor.adaptor";
 import {
   $buildNoteFragment,
   $buildParaFragment,
+  $isRebuildSentinel,
   $isReTokenizableMilestone,
   $settleScopeForNode,
   $signatureOf,
@@ -403,15 +404,30 @@ function serializedRunsOf(
 
 /**
  * Every ParaNode's and CharNode's own `marker` field, in depth-first visiting order, over the
- * LIVE tree — ignoring everything else (text, glyphs, notes, unknown blocks, attribute-run
- * wrappers, …). Descends into EVERY ElementNode regardless of whether it matched, since a char
- * span can itself nest another char span.
+ * LIVE tree — ignoring everything else (text, glyphs, attribute-run wrappers, …), and NEVER
+ * descending into a node `$isRebuildSentinel` (tier2Rebuild.utils.ts) classifies as opaque — a
+ * note, an unknown block, a non-re-tokenizable milestone, or a char span with unrecoverable
+ * attributes. That gate is load-bearing, not defensive: `$appendSignature` checks
+ * `$isRebuildSentinel` BEFORE its own CharNode/generic-element branches, so a sentinel's entire
+ * subtree — including any char/para markers nested inside it — collapses to ONE opaque character
+ * in the signature and is NEVER walked. `rebuilt` mirrors this exactly: a sentinel is a single
+ * U+FFFC character embedded in a JSON text node at this point (pre-`replaceSerializedSentinels`,
+ * see both call sites), with no structure at all to recurse into. Descending into a sentinel HERE
+ * — e.g. an unrelated, unedited note that happens to contain its own nested char span — would
+ * collect markers the JSON side can never have a counterpart for (nothing on that side to compare
+ * them against), producing a spurious length mismatch that makes a genuine fixed point look like
+ * a structural change and forces a needless (and data-lossy, since it splices a fresh rebuild over
+ * a still-pending edit elsewhere in the SAME scope) rebuild. Otherwise descends into EVERY
+ * ElementNode regardless of whether it matched, since a char span can itself nest another char
+ * span.
  */
-function $liveStructuralMarkers(nodes: LexicalNode[]): string[] {
+function $liveStructuralMarkers(nodes: LexicalNode[], getMarkerFn: MarkerLookup): string[] {
   const markers: string[] = [];
   for (const node of nodes) {
+    if ($isRebuildSentinel(node, getMarkerFn)) continue;
     if ($isParaNode(node) || $isCharNode(node)) markers.push(node.getMarker());
-    if ($isElementNode(node)) markers.push(...$liveStructuralMarkers(node.getChildren()));
+    if ($isElementNode(node))
+      markers.push(...$liveStructuralMarkers(node.getChildren(), getMarkerFn));
   }
   return markers;
 }
@@ -460,17 +476,25 @@ function serializedStructuralMarkers(nodes: SerializedLexicalNode[]): string[] {
  * output — the exact inverse of the divergence this check exists to catch). Comparing filtered,
  * order-preserving SEQUENCES instead sidesteps the array-length mismatch entirely: only the
  * RELATIVE ORDER of Para/CharNode markers matters, never their raw position among unrelated
- * siblings. Safe to trust a mismatched sequence LENGTH as "not a fixed point" (rather than an
- * error) for the same reason a genuine structural difference is already safe here at all: the
- * signature string comparison this function is gated behind already guarantees the same COUNT
- * and nesting of "char"-tagged spans on both sides, so the sequences are expected to be the same
- * length whenever this function is reached.
+ * siblings.
+ *
+ * Safe to trust a mismatched sequence LENGTH as "not a fixed point" (rather than an error) for
+ * the same reason a genuine structural difference is already safe here at all: the signature
+ * string comparison this function is gated behind already guarantees the same COUNT and nesting
+ * of "char"-tagged spans among NON-OPAQUE content on both sides. It says nothing about markers
+ * INSIDE an opaque sentinel (a note, an unknown block, …), which the signature collapses to one
+ * character without ever looking inside — which is exactly why `$liveStructuralMarkers` must
+ * ALSO refuse to look inside one (see its own doc comment): without that gate, an unrelated
+ * sentinel's own nested char/para markers would inflate the live sequence with entries the JSON
+ * side, and the signature, both have no way to represent — a spurious length mismatch on a
+ * paragraph that IS a genuine fixed point, forcing a needless, data-lossy rebuild.
  */
 function $structuralMarkersAgree(
   liveNodes: LexicalNode[],
   jsonNodes: SerializedLexicalNode[],
+  getMarkerFn: MarkerLookup,
 ): boolean {
-  const liveMarkers = $liveStructuralMarkers(liveNodes);
+  const liveMarkers = $liveStructuralMarkers(liveNodes, getMarkerFn);
   const jsonMarkers = serializedStructuralMarkers(jsonNodes);
   return (
     liveMarkers.length === jsonMarkers.length &&
@@ -538,7 +562,7 @@ function $settledParaNodes(
   // genuine structural change (not just a marker) has already made the signature strings unequal.
   const isFixedPoint =
     serializedSignatureOf(rebuilt, getMarkerFn) === $signatureOf([para], getMarkerFn) &&
-    $structuralMarkersAgree([para], rebuilt);
+    $structuralMarkersAgree([para], rebuilt, getMarkerFn);
   if (isFixedPoint) {
     logger?.debug("[MarkerEdit] Settled USJ skipped: rebuild is a no-op (fixed point)");
     return undefined;
@@ -633,7 +657,7 @@ function $settledNoteContent(
   // divergence `$settledParaNodes` guards against.
   if (
     serializedSignatureOf(rebuilt, getMarkerFn) === $signatureOf(contentNodes, getMarkerFn) &&
-    $structuralMarkersAgree(contentNodes, rebuilt)
+    $structuralMarkersAgree(contentNodes, rebuilt, getMarkerFn)
   ) {
     logger?.debug("[MarkerEdit] Settled note USJ skipped: rebuild is a no-op (fixed point)");
     return undefined;
