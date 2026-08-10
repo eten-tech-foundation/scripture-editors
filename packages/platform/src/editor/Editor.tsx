@@ -284,15 +284,23 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
   // rather than by the host remembering to ask for it.
   const isBlockVerse = viewOptions.verseLayout === "block";
   const effectiveIsReadonly = isReadonly || isBlockVerse;
-  if (isBlockVerse && !isReadonly)
-    stableLogger?.error(
-      "Editor: the block verse layout is read-only; ignoring `isReadonly: false`. Set " +
-        "`isReadonly: true` alongside `verseLayout: 'block'`.",
-    );
-  if (isBlockVerse && requestedViewOptions.hasGutterParaMarkers)
-    stableLogger?.warn(
-      "Editor: `hasGutterParaMarkers` is not supported with the block verse layout and is ignored.",
-    );
+
+  // Reported from an effect, not the render body: a render can run many times (twice per render in
+  // StrictMode) for one misconfiguration, and repeating the message would bury it. Read the
+  // *requested* gutter flag - `viewOptions` has already had it normalized away.
+  const isIgnoringGutterMarkers =
+    isBlockVerse && (requestedViewOptions.hasGutterParaMarkers ?? false);
+  useEffect(() => {
+    if (isBlockVerse && !isReadonly)
+      stableLogger?.error(
+        "Editor: the block verse layout is read-only; ignoring `isReadonly: false`. Set " +
+          "`isReadonly: true` alongside `verseLayout: 'block'`.",
+      );
+    if (isIgnoringGutterMarkers)
+      stableLogger?.warn(
+        "Editor: `hasGutterParaMarkers` is not supported with the block verse layout and is ignored.",
+      );
+  }, [isBlockVerse, isReadonly, isIgnoringGutterMarkers, stableLogger]);
 
   // Editable-mode document-first marker-menu harness (drives shared-react's `UsjNodesMenuPlugin`
   // "editableHarness" branch; see its doc comment). `undefined` outside markerMode "editable" so

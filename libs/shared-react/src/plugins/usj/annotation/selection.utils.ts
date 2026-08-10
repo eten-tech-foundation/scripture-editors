@@ -530,7 +530,13 @@ function $getJsonPathIndexes(node: LexicalNode): number[] {
  * than confidently wrong.
  */
 function $hasVerseBlocks(): boolean {
-  return $getRoot().getChildren().some($isVerseBlockNode);
+  // Walks siblings rather than calling `getChildren()`, which would build an array of every root
+  // child. Both callers run on each selection change, including in the inline layouts where the
+  // scan finds nothing and would otherwise allocate that array on every cursor move.
+  for (let child = $getRoot().getFirstChild(); child; child = child.getNextSibling()) {
+    if ($isVerseBlockNode(child)) return true;
+  }
+  return false;
 }
 
 let hasWarnedUsjLocationsUnavailable = false;

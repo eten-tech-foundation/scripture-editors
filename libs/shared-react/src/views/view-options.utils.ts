@@ -260,14 +260,9 @@ export function getViewOptions(viewMode?: string | undefined): ViewOptions | und
 /**
  * Convert view options to view mode if the view exists.
  *
- * This inverts {@link getViewOptions} by comparison rather than by matching fields one at a time,
- * so a view option added in the future cannot be forgotten here and silently make two modes
- * indistinguishable.
- *
- * The comparison is exact: options must deep-equal what `getViewOptions` produces for a mode.
- * Options that were derived from a mode and then tweaked - say a formatted view with `noteMode`
- * changed to `"expanded"` - describe a view that is not one of the named modes, so they yield
- * `undefined` rather than the mode they started from.
+ * Inverts {@link getViewOptions} by comparison, so a view option added later cannot be forgotten
+ * here and leave two modes indistinguishable. Matching is exact: options derived from a mode and
+ * then tweaked describe a view that is no longer that mode, and yield `undefined`.
  *
  * @param viewOptions - View options of the editor.
  * @returns the view mode if the view is defined, `undefined` otherwise.

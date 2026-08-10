@@ -39,16 +39,12 @@ export type SerializedVerseBlockNode = Spread<
 >;
 
 export class VerseBlockNode extends ElementNode {
+  /** The verse marker verbatim. Authoritative: the range is derived from it, never stored. */
   __number: string;
-  __start: number;
-  __end: number;
 
   constructor(verseNumber = "", key?: NodeKey) {
     super(key);
     this.__number = verseNumber;
-    const { start, end } = parseVerseRange(verseNumber);
-    this.__start = start;
-    this.__end = end;
   }
 
   static override getType(): string {
@@ -67,14 +63,10 @@ export class VerseBlockNode extends ElementNode {
     return super.updateFromJSON(serializedNode).setNumber(serializedNode.number);
   }
 
-  /** Sets the verse marker, re-deriving the range bounds from it. */
   setNumber(verseNumber: string): this {
     if (this.__number === verseNumber) return this;
     const self = this.getWritable();
     self.__number = verseNumber;
-    const { start, end } = parseVerseRange(verseNumber);
-    self.__start = start;
-    self.__end = end;
     return self;
   }
 
@@ -84,27 +76,24 @@ export class VerseBlockNode extends ElementNode {
 
   /** The first and last verse numbers this block covers. A bridge covers more than one. */
   getRange(): { start: number; end: number } {
-    const self = this.getLatest();
-    return { start: self.__start, end: self.__end };
+    return parseVerseRange(this.getNumber());
   }
 
   override createDOM(): HTMLElement {
     const dom = document.createElement("div");
     dom.classList.add(VERSE_BLOCK_CLASS_NAME);
-    setVerseAttributes(dom, this.__number, this.__start, this.__end);
+    setVerseAttributes(dom, this.__number);
     return dom;
   }
 
   override updateDOM(prevNode: this, dom: HTMLElement): boolean {
-    if (prevNode.__number !== this.__number)
-      setVerseAttributes(dom, this.__number, this.__start, this.__end);
+    if (prevNode.__number !== this.__number) setVerseAttributes(dom, this.__number);
     return false;
   }
 
-  // No `exportDOM`/`importDOM` overrides. Lexical's default export already emits `createDOM`'s
-  // element, so copying a passage that spans verses carries these wrappers and their attributes.
-  // There is deliberately no import counterpart: block verse is a read-only view, so pasting one
-  // of these wrappers back in is not a supported flow.
+  // No `exportDOM`/`importDOM`: Lexical's default export already emits `createDOM`'s element, so a
+  // copied passage carries these wrappers. There is deliberately no import counterpart - block
+  // verse is read-only, so pasting one back in is not a supported flow.
 
   override exportJSON(): SerializedVerseBlockNode {
     const { start, end } = this.getRange();
@@ -132,10 +121,18 @@ export class VerseBlockNode extends ElementNode {
  * Attributes a layout consumes to place the block on a row; `data-verse-start`/`-end` let a bridge
  * span rows. Deliberately not `data-number`, which the inner verse marker span already uses.
  */
-function setVerseAttributes(dom: HTMLElement, verseNumber: string, start: number, end: number) {
+function setVerseAttributes(dom: HTMLElement, verseNumber: string) {
+  const { start, end } = parseVerseRange(verseNumber);
   dom.setAttribute("data-verse-number", verseNumber);
-  if (!isNaN(start)) dom.setAttribute("data-verse-start", start.toString());
-  if (!isNaN(end)) dom.setAttribute("data-verse-end", end.toString());
+  // Removed rather than skipped when unparseable, so a stale range from a previous number cannot
+  // survive on the element and be read as this verse's.
+  setOrRemoveAttribute(dom, "data-verse-start", start);
+  setOrRemoveAttribute(dom, "data-verse-end", end);
+}
+
+function setOrRemoveAttribute(dom: HTMLElement, name: string, value: number) {
+  if (isNaN(value)) dom.removeAttribute(name);
+  else dom.setAttribute(name, value.toString());
 }
 
 export function $createVerseBlockNode(verseNumber?: string): VerseBlockNode {

@@ -3,15 +3,12 @@
  * view (`ViewOptions.verseLayout`).
  *
  * USJ nests verses inside paragraphs; a layout that puts each verse on its own row needs the
- * opposite nesting. This runs as a post-pass over the serialized editor children, so every
- * `create*` function in `usj-editor.adaptor.ts` is untouched and the inline layouts cannot be
- * affected by it.
+ * opposite nesting. Running as a post-pass over the serialized children leaves every `create*`
+ * function in `usj-editor.adaptor.ts` untouched, so the inline layouts cannot be affected.
  *
- * The grouping semantics are ported from paranext-core's `sliceUsjToVerse`
+ * Semantics are ported from paranext-core's `sliceUsjToVerse`
  * (`extensions/src/platform-scripture-editor/src/scripture-text-grid/verse-display.utils.ts`),
- * generalized from "slice out one verse" to "group every verse in a single pass": collection is
- * per-paragraph so poetry keeps its lines, a verse stays open across paragraphs, combined verses
- * are emitted once, and headings and chapter markers close the open verse.
+ * generalized from slicing out one verse to grouping every verse in one pass.
  */
 
 import {
@@ -71,13 +68,10 @@ interface VerseRun {
 }
 
 /**
- * Groups each verse in the given editor children into a `VerseBlockNode` holding that verse's
- * paragraphs.
+ * Groups each verse into a `VerseBlockNode` holding that verse's paragraphs.
  *
- * Expects the children of the editor root, after implied paragraphs have been inserted, so every
- * paragraph container is already in place.
- *
- * @param children - The serialized root children to regroup.
+ * @param children - Children of the editor root, after implied paragraphs have been inserted so
+ *   that every paragraph container is already in place.
  * @param logger - Logger instance.
  * @returns the children with verses grouped into blocks.
  */
@@ -90,21 +84,21 @@ export function groupVersesIntoBlocks(
    * lines is collected whole. */
   let activeBlock: SerializedVerseBlockNode | undefined;
 
-  children.forEach((child) => {
+  for (const child of children) {
     // A table inside a verse is that verse's content. Closing the block here would orphan the rest
     // of the verse: the continuation paragraph has no verse marker of its own, so it would be
     // emitted outside every block and never appear on a row.
     if (isSerializedImmutableTableNode(child)) {
       if (activeBlock) activeBlock.children.push(child);
       else grouped.push(child);
-      return;
+      continue;
     }
 
     if (!isSerializedParagraph(child)) {
       // Book and chapter chrome are boundaries - an open verse never crosses a chapter marker.
       activeBlock = undefined;
       grouped.push(child);
-      return;
+      continue;
     }
 
     // Headings stay in the model as ordinary paragraphs between blocks. Whether an aligned view
@@ -112,7 +106,7 @@ export function groupVersesIntoBlocks(
     if (isSerializedParaNode(child) && STRUCTURAL_MARKERS.has(child.marker)) {
       activeBlock = undefined;
       grouped.push(child);
-      return;
+      continue;
     }
 
     splitIntoRuns(child.children, logger).forEach((run) => {
@@ -132,7 +126,7 @@ export function groupVersesIntoBlocks(
       grouped.push(activeBlock);
       if (fragment) activeBlock.children.push(fragment);
     });
-  });
+  }
 
   return grouped;
 }
@@ -144,10 +138,9 @@ function isSerializedParagraph(node: SerializedLexicalNode): node is SerializedP
 /**
  * Splits a paragraph's children at each verse marker.
  *
- * A comment mark can wrap a run that crosses a verse marker. Rather than letting the verse hide
- * inside it, the mark is split too and cloned onto each side with its IDs intact, so the comment
- * still renders across the boundary. There is no round-trip to corrupt: block verse refuses USJ
- * export.
+ * A comment mark can wrap a run that crosses a verse marker, so the mark is split too and cloned
+ * onto each side with its IDs intact, keeping the comment rendered across the boundary. Nothing
+ * round-trips from here to corrupt: block verse refuses USJ export.
  */
 function splitIntoRuns(nodes: SerializedLexicalNode[], logger?: LoggerBasic): VerseRun[] {
   const runs: VerseRun[] = [{ nodes: [] }];
@@ -169,7 +162,7 @@ function splitIntoRuns(nodes: SerializedLexicalNode[], logger?: LoggerBasic): Ve
       return;
     }
 
-    if (containsVerse(node)) {
+    if (logger && containsVerse(node)) {
       // USJ does not nest verses inside character or note content, so this is malformed input. It
       // stays with the surrounding run rather than being silently dropped.
       logger?.warn(
@@ -198,11 +191,9 @@ function containsVerse(node: SerializedLexicalNode): boolean {
 }
 
 /**
- * A copy of the paragraph holding only the given run.
- *
- * Spreads the source rather than listing fields so an implied paragraph stays implied - it has no
- * `marker`, and rebuilding it as a real paragraph would put a `\p` in the document that the source
- * USJ never had.
+ * A copy of the paragraph holding only the given run. Spreads the source rather than listing
+ * fields, so an implied paragraph stays implied - it has no `marker`, and rebuilding it as a real
+ * paragraph would put a `\p` in the document that the source USJ never had.
  */
 function createFragment(
   para: SerializedParagraph,
