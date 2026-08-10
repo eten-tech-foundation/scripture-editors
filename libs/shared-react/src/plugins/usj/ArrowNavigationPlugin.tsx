@@ -6,6 +6,7 @@ import {
   $selectPreviousVerse,
   ImmutableVerseNode,
 } from "../../nodes/usj";
+import { $advancePastParaPrefixes } from "./ParaMarkerPrefixCursorGuardPlugin";
 import { ViewOptions } from "../../views/view-options.utils";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { $findMatchingParent } from "@lexical/utils";
@@ -142,7 +143,9 @@ function $handleForwardNavigation(selection: RangeSelection): boolean {
       return true;
     } else if (nextNode.is(nextNode.getParent()?.getLastChild())) {
       // caret at end of node before collapsed note at end of para → move past note
-      nextNode.getParent()?.getNextSibling()?.selectStart();
+      const nextPara = nextNode.getParent()?.getNextSibling();
+      if (nextPara && !($isSomeParaNode(nextPara) && $advancePastParaPrefixes(nextPara)))
+        nextPara.selectStart();
       return true;
     }
   }

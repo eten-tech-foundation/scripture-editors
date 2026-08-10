@@ -46,6 +46,7 @@ import {
 } from "shared";
 import {
   $addTrailingSpace,
+  $advancePastParaPrefixes,
   $findNextVerseAfter,
   $findThisVerse,
   $insertNote,
@@ -236,7 +237,8 @@ export function getUsjMarkerAction(
             const paragraphContent = paragraph.getChildren();
             nodeToInsert.append(...paragraphContent);
             paragraph.replace(nodeToInsert);
-            nodeToInsert.selectStart();
+            if (!($isSomeParaNode(nodeToInsert) && $advancePastParaPrefixes(nodeToInsert)))
+              nodeToInsert.selectStart();
           }
         } else if (
           $isTextNode(node) &&
