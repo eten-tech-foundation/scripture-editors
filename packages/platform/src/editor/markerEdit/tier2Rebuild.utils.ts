@@ -311,6 +311,53 @@ function $flattenAttributeRuns(run: LexicalNode[]): LexicalNode[] {
 }
 
 /**
+ * A direct child TEXT NODE of a CharNode, for signature purposes — the mirror of
+ * `editor-usj.adaptor.ts`'s TWO SEPARATE structural-NBSP rules for a char's own content, which this
+ * must reproduce exactly, not conflate into one:
+ *
+ * 1. TEXT-FIRST content: `createChar` (usj-editor.adaptor.ts) prepends a structural NBSP directly
+ *    onto the first content child's OWN text (` name`, a MIXED node — separator plus real
+ *    content). Extraction strips exactly that one leading NBSP (`isCharChild &&
+ *    text.startsWith(NBSP) -> text.slice(1)`), keeping the rest as real content. Mirrored here by
+ *    stripping one leading NBSP off a node whose text is LONGER than just that one character.
+ * 2. ELEMENT-FIRST content (a nested char/note/milestone/verse comes first): `createChar` instead
+ *    inserts a whole SEPARATE text node containing NOTHING BUT that one NBSP (a pure spacer, never
+ *    merged with anything). Extraction drops such a node WHOLESALE (`text !== NBSP`), but the node
+ *    itself is real, structural evidence that a separator IS present — as opposed to a live tree
+ *    missing one, e.g. right after a user deletes the text between an opening glyph and a sentinel
+ *    span. Left UNSTRIPPED here (falls through to the plain `toFragmentText` value, " "), so the
+ *    signature still tells "has a separator" apart from "has none at all" for this shape.
+ *
+ * `toFragmentText`'s blanket NBSP->space normalization cannot make either distinction on its own —
+ * a structural separator and a user's own literal typed space both collapse to the same plain
+ * space — so without rule 1, a live char content run holding exactly one user-typed space can
+ * signature-match a fresh rebuild's own single structural NBSP by coincidence, and the fixed-point
+ * check refuses a rebuild that editor->USJ extraction would actually have produced DIFFERENT bytes
+ * for. Without rule 2 kept narrow to MIXED nodes only, a pure spacer node would collapse to nothing,
+ * making "a separator is present" signature-indistinguishable from "no separator at all" —
+ * silently defeating the fixed-point check's OTHER job of noticing a missing display separator
+ * needs restoring (tier2Rebuild.utils.test.tsx's "rebuilds (not aborts) when a sentinel span
+ * directly follows an opening glyph").
+ *
+ * This runs BEFORE `$replaceSentinels` splices anything (the fixed-point check's own comment,
+ * below, explains why): a fresh rebuild's would-be rule-2 spacer has NOT been split out into its
+ * own node yet at this point — it is still fused, in the SAME string, with the raw
+ * `ATOMIC_SENTINEL` placeholder character standing in for whatever preserved node follows it (e.g.
+ * `" ￼e"`, not yet `" "` + the preserved node + `"e"`). Stripping that NBSP by
+ * LENGTH alone would misread rule 2 as rule 1 the moment ANY content follows the placeholder
+ * inline. Checking the very next character is the placeholder itself catches it before the split:
+ * that is exactly the position `$replaceSentinels` cuts at, leaving the NBSP standing alone
+ * afterward — the same rule-2 shape as an unedited nested-char span, which never has a placeholder
+ * to begin with and is caught by the plain length check.
+ */
+function $charOwnChildSignatureText(node: TextNode): string {
+  const text = $textNodeFragmentText(node);
+  const isMixedRealContent =
+    text.length > 1 && text.startsWith(NBSP) && text.charAt(1) !== ATOMIC_SENTINEL;
+  return isMixedRealContent ? text.slice(1) : text;
+}
+
+/**
  * Structure-aware, sentinel-normalized signature of a node list, used ONLY to detect
  * a `$rebuildParas` no-op (fixed point). Marker glyphs and text contribute their
  * fragment text; every structural element (paragraph, CharNode span, verse-as-text,
@@ -320,8 +367,19 @@ function $flattenAttributeRuns(run: LexicalNode[]): LexicalNode[] {
  * nodes and the U+FFFC placeholders that stand in for them until `$replaceSentinels`
  * both collapse to `ATOMIC_SENTINEL`, so a pre-splice rebuild output and the paragraphs
  * it was derived from compare equal IFF the rebuild changed nothing that matters.
+ *
+ * `insideCharChildren` is true only while appending a CharNode's OWN direct children (set by this
+ * function's own CharNode branch below) — mirrors `editor-usj.adaptor.ts`'s `recurseNodes`'s
+ * `isCharChild` parameter exactly, including how it resets for anything nested one level deeper
+ * that is not itself another CharNode (which gets its own fresh `true` at its own branch). See
+ * `$charOwnChildSignatureText`'s doc comment for what it gates.
  */
-function $appendSignature(children: LexicalNode[], out: string[], getMarkerFn: MarkerLookup): void {
+function $appendSignature(
+  children: LexicalNode[],
+  out: string[],
+  getMarkerFn: MarkerLookup,
+  insideCharChildren = false,
+): void {
   for (let index = 0; index < children.length; index++) {
     const node = children[index];
     if ($isMilestoneNode(node)) {
@@ -414,7 +472,11 @@ function $appendSignature(children: LexicalNode[], out: string[], getMarkerFn: M
     } else if ($isLineBreakNode(node)) {
       out.push(" ");
     } else if ($isTextNode(node)) {
-      out.push(toFragmentText($textNodeFragmentText(node)));
+      out.push(
+        toFragmentText(
+          insideCharChildren ? $charOwnChildSignatureText(node) : $textNodeFragmentText(node),
+        ),
+      );
     } else if ($isCharNode(node)) {
       // A known-marker span that reaches here is NOT a sentinel ($isRebuildSentinel already
       // filtered unknown markers) — fold its own stored `unknownAttributes` into the signature
@@ -423,7 +485,7 @@ function $appendSignature(children: LexicalNode[], out: string[], getMarkerFn: M
       // was deleted but the field is still stale — so comparing children text alone could
       // mistake a genuine attribute change for a fixed point.
       out.push(SIGNATURE_OPEN, "char", JSON.stringify(node.getUnknownAttributes() ?? null));
-      $appendSignature(node.getChildren(), out, getMarkerFn);
+      $appendSignature(node.getChildren(), out, getMarkerFn, true);
       out.push(SIGNATURE_CLOSE);
     } else if ($isElementNode(node)) {
       out.push(SIGNATURE_OPEN, node.getType());

@@ -305,13 +305,19 @@ describe("$settledUsj — paragraph scopes", () => {
       // A CLOSED char span with PLAIN content (no pre-existing attribute) — the genuine Tier-2
       // fixed point shape (matching settledGetUsj.test.tsx's "half-typed attribute run appended
       // to a char span" corpus entry): `nd` has no default attribute, so typing an incomplete
-      // `|stuf` onto it is, once the structural NBSP separator and the user's own typed leading
-      // space both normalize to a plain space, byte-for-byte the SAME thing $rebuildParas's own
-      // fixed-point check would already produce — a genuine no-op that must NOT be spliced over.
+      // `|stuf` onto it degrades to literal content, byte-for-byte the SAME thing $rebuildParas's
+      // own fixed-point check would already produce — a genuine no-op that must NOT be spliced
+      // over. The content child carries its OWN structural leading NBSP up front (matching what
+      // `createChar`, usj-editor.adaptor.ts, actually builds for a real "name" char span) — the
+      // edit below appends onto it rather than overwriting the whole node, so this separator
+      // survives untouched, exactly like a real char span's own structural NBSP would (as opposed
+      // to a literal typed space landing in that position, which is a DIFFERENT, non-fixed-point
+      // shape — see settledGetUsj.test.tsx's own "half-typed attribute run appended" corpus entry
+      // and $charOwnChildSignatureText's doc comment, tier2Rebuild.utils.ts).
       const ndChar = $createCharNode("nd");
       ndChar.append(
         $createMarkerNode("nd"),
-        $createTextNode("name"),
+        $createTextNode(`${NBSP}name`),
         $createMarkerNode("nd", "closing"),
       );
 
@@ -337,7 +343,9 @@ describe("$settledUsj — paragraph scopes", () => {
     });
 
     // Half-type over the char span's plain content — the ONLY pend in this update. The
-    // unrelated note (and its own nested "bd" char span) is never touched.
+    // unrelated note (and its own nested "bd" char span) is never touched. Appends onto the
+    // existing text (leaving its own leading structural NBSP untouched), not a wholesale
+    // overwrite — see the fixture's own doc comment for why that distinction matters here.
     await act(async () => {
       editor.update(() => {
         const para = $getRoot().getChildren().find($isParaNode);
@@ -349,17 +357,16 @@ describe("$settledUsj — paragraph scopes", () => {
           .find((child) => $isTextNode(child) && !$isMarkerNode(child));
         if (!content || !$isTextNode(content))
           throw new Error("expected the char span's content text");
-        content.setTextContent(" name|stuf");
+        content.setTextContent(`${content.getTextContent()}|stuf`);
       });
       await Promise.resolve();
     });
 
     // The genuine fixed point is REFUSED: the settled output is byte-identical to the unsettled
-    // serialization for this paragraph — the user's own typed leading space survives, not
-    // dropped by a spuriously "not a fixed point" verdict caused by the unrelated note's own
-    // nested marker leaking into the live sequence (before the opacity gate: live sequence
-    // ["p","bd","nd"] vs. JSON sequence ["p","nd"] — a length mismatch that made a genuine fixed
-    // point look like a structural change).
+    // serialization for this paragraph — not dropped by a spuriously "not a fixed point" verdict
+    // caused by the unrelated note's own nested marker leaking into the live sequence (before the
+    // opacity gate: live sequence ["p","bd","nd"] vs. JSON sequence ["p","nd"] — a length
+    // mismatch that made a genuine fixed point look like a structural change).
     const settled = settledUsjOf(editor);
     const unsettled = unsettledUsjOf(editor);
     expect(settled?.content[0]).toEqual(unsettled?.content[0]);
@@ -705,14 +712,20 @@ describe("$settledUsj — expanded note scopes", () => {
       // A CLOSED char span with PLAIN content (no pre-existing attribute) — the exact shape
       // settledGetUsj.test.tsx's "half-typed attribute run appended to a char span" corpus entry
       // uses at the paragraph level, reproduced here inside note content: `nd` has no default
-      // attribute, so typing an incomplete `|stuf` onto it is, once the structural NBSP separator
-      // and the user's own typed leading space both normalize to a plain space, byte-for-byte the
-      // SAME thing $rebuildNoteContent's own fixed-point check would already produce — a genuine
-      // no-op, not a settleable edit.
+      // attribute, so typing an incomplete `|stuf` onto it degrades to literal content,
+      // byte-for-byte the SAME thing $rebuildNoteContent's own fixed-point check would already
+      // produce — a genuine no-op, not a settleable edit. The content child carries its OWN
+      // structural leading NBSP up front (matching what `createChar`, usj-editor.adaptor.ts,
+      // actually builds for a real "name" char span) — the edit below appends onto it rather than
+      // overwriting the whole node, so this separator survives untouched, exactly like a real char
+      // span's own structural NBSP would (as opposed to a literal typed space landing in that
+      // position, which is a DIFFERENT, non-fixed-point shape — see settledGetUsj.test.tsx's own
+      // "half-typed attribute run appended" corpus entry and $charOwnChildSignatureText's doc
+      // comment, tier2Rebuild.utils.ts).
       const ndChar = $createCharNode("nd");
       ndChar.append(
         $createMarkerNode("nd"),
-        $createTextNode("name"),
+        $createTextNode(`${NBSP}name`),
         $createMarkerNode("nd", "closing"),
       );
       note.append($createMarkerNode("f"), callerNode, ndChar, $createMarkerNode("f", "closing"));
@@ -731,7 +744,9 @@ describe("$settledUsj — expanded note scopes", () => {
     // Half-type over the char span's plain content, and rename an UNRELATED paragraph's own
     // opening glyph, in the SAME update — both bare/pending, proving the refusal below is a
     // per-scope decision made inside `$settledNoteContent`, not a short-circuit that abandons the
-    // whole document (mirroring the collapsed-note refusal test above).
+    // whole document (mirroring the collapsed-note refusal test above). Appends onto the existing
+    // text (leaving its own leading structural NBSP untouched), not a wholesale overwrite — see
+    // the fixture's own doc comment for why that distinction matters here.
     await act(async () => {
       editor.update(() => {
         const [refusingPara, settlingPara] = $getRoot().getChildren().filter($isParaNode);
@@ -744,7 +759,7 @@ describe("$settledUsj — expanded note scopes", () => {
           .find((child) => $isTextNode(child) && !$isMarkerNode(child));
         if (!content || !$isTextNode(content))
           throw new Error("expected the char span's content text");
-        content.setTextContent(" name|stuf");
+        content.setTextContent(`${content.getTextContent()}|stuf`);
 
         const settlingGlyph = settlingPara?.getFirstChild();
         if (!$isMarkerNode(settlingGlyph)) throw new Error("expected settlingPara's prefix glyph");

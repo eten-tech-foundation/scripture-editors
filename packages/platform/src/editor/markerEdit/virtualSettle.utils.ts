@@ -69,6 +69,7 @@ import {
   closingMarkerText,
   MarkerLookup,
   MarkerNode,
+  NBSP,
   NoteNode,
   openingMarkerText,
   ParaNode,
@@ -157,10 +158,37 @@ function serializedSignatureOf(nodes: SerializedLexicalNode[], getMarkerFn: Mark
   return out.join("");
 }
 
+/**
+ * A direct "text"-typed child of a "char" node, for signature purposes — the JSON-side mirror of
+ * `tier2Rebuild.utils.ts`'s `$charOwnChildSignatureText`. See that function's doc comment for the
+ * full mechanics: two SEPARATE structural-NBSP shapes `editor-usj.adaptor.ts` treats differently
+ * (a MIXED node — structural NBSP prepended onto real content — has just its leading NBSP sliced
+ * off; a PURE spacer node — nothing but that one NBSP, built for element-first content — is instead
+ * dropped wholesale by extraction, but must stay UNSTRIPPED here so the signature can still tell
+ * "a separator is present" apart from "no separator at all"), and why the check additionally
+ * excludes a leading NBSP immediately followed by `ATOMIC_SENTINEL`: this runs BEFORE
+ * `replaceSerializedSentinels` splices anything (both call sites' own doc comments), so a fresh
+ * rebuild's would-be pure-spacer node is still fused, in the SAME string, with the raw placeholder
+ * character standing in for whatever preserved node follows — stripping by length alone would
+ * misread that as the mixed case the moment content follows the placeholder inline.
+ */
+function charOwnChildSignatureText(text: string): string {
+  const isMixedRealContent =
+    text.length > 1 && text.startsWith(NBSP) && text.charAt(1) !== ATOMIC_SENTINEL;
+  return isMixedRealContent ? text.slice(1) : text;
+}
+
+/**
+ * `insideCharChildren` is true only while appending a "char" node's OWN direct children (set by
+ * this function's own "char" branch below) — the JSON-side mirror of `$appendSignature`'s own
+ * `insideCharChildren` parameter (tier2Rebuild.utils.ts), including how it resets for anything
+ * nested one level deeper that is not itself another "char" node.
+ */
 function appendSerializedSignature(
   children: SerializedLexicalNode[],
   out: string[],
   getMarkerFn: MarkerLookup,
+  insideCharChildren = false,
 ): void {
   for (let index = 0; index < children.length; index++) {
     const node = children[index];
@@ -262,7 +290,7 @@ function appendSerializedSignature(
     if (type === "char") {
       const char = node as { unknownAttributes?: unknown };
       out.push(SIGNATURE_OPEN, "char", JSON.stringify(char.unknownAttributes ?? null));
-      appendSerializedSignature(serializedChildren(node) ?? [], out, getMarkerFn);
+      appendSerializedSignature(serializedChildren(node) ?? [], out, getMarkerFn, true);
       out.push(SIGNATURE_CLOSE);
       continue;
     }
@@ -274,7 +302,7 @@ function appendSerializedSignature(
     }
     const text = serializedText(node);
     if (text !== undefined) {
-      out.push(toFragmentText(text));
+      out.push(toFragmentText(insideCharChildren ? charOwnChildSignatureText(text) : text));
       continue;
     }
     const nodeChildren = serializedChildren(node);
