@@ -29,13 +29,7 @@ import {
   TextNode,
 } from "lexical";
 import { createRef, RefObject, useEffect, useState } from "react";
-import {
-  $isCharNode,
-  $isNoteNode,
-  $isSomeParaNode,
-  $isSynthesizedMarkerNode,
-  NBSP,
-} from "shared";
+import { $isCharNode, $isNoteNode, $isSomeParaNode, $isSynthesizedMarkerNode, NBSP } from "shared";
 import { vi } from "vitest";
 
 /** USJ with book PSA for Editor sync effect test (clone of usjGen1v1 with book code changed) */
