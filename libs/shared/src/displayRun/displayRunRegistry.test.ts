@@ -1,13 +1,15 @@
 import { displayRunDescriptor } from "./displayRunRegistry.js";
-import { $createCharNode } from "../nodes/usj/CharNode.js";
+import { textTypeState } from "../nodes/collab/delta.state.js";
 import { $createMarkerNode } from "../nodes/features/MarkerNode.js";
+import { $createAttributeRunNode } from "../nodes/usj/AttributeRunNode.js";
+import { $createCharNode } from "../nodes/usj/CharNode.js";
 import { $createMilestoneNode } from "../nodes/usj/MilestoneNode.js";
 import { $createParaNode } from "../nodes/usj/ParaNode.js";
 import { $createVerseNode } from "../nodes/usj/VerseNode.js";
 import { getVisibleOpenMarkerText } from "../nodes/usj/node.utils.js";
 import { NBSP } from "../nodes/usj/node-constants.js";
 import { createBasicTestEnvironment } from "../nodes/usj/test.utils.js";
-import { $createTextNode, $getRoot } from "lexical";
+import { $createTextNode, $getRoot, $setState } from "lexical";
 import { describe, expect, it } from "vitest";
 
 describe("displayRunRegistry expectedPieces", () => {
@@ -94,6 +96,123 @@ describe("displayRunRegistry expectedPieces", () => {
         });
       },
       { discrete: true },
+    );
+  });
+});
+
+describe("displayRunRegistry scanPieces", () => {
+  it("reads a char span's attribute-tagged TextNode as `value`, with no opener/closer/wrapper", () => {
+    const { editor } = createBasicTestEnvironment();
+    editor.update(
+      () => {
+        const span = $createCharNode("w", { lemma: "grace" });
+        const value = $createTextNode("|grace");
+        $setState(value, textTypeState, "attribute");
+        span.append($createMarkerNode("w"), value, $createMarkerNode("w", "closing"));
+        $getRoot().append(span);
+        expect(displayRunDescriptor("char").scanPieces(span)).toEqual({ value });
+      },
+      { discrete: true },
+    );
+  });
+
+  it("reads a wrapped \\va run's pieces by NAME: opener/value/closer/wrapper", () => {
+    // The canonical (post-flip) shape: usj-editor.adaptor and $syncVerseAttributeRun always build
+    // a wanted run wrapped in an AttributeRunNode, so this is the shape scanPieces meets in
+    // practice, not the legacy loose-sibling shape.
+    const { editor } = createBasicTestEnvironment();
+    editor.update(
+      () => {
+        const verse = $createVerseNode("1", getVisibleOpenMarkerText("v", "1"), undefined, "2");
+        const wrapper = $createAttributeRunNode("va");
+        const opener = $createMarkerNode("va");
+        const value = $createTextNode(`${NBSP}2`);
+        $setState(value, textTypeState, "attribute");
+        const closer = $createMarkerNode("va", "closing");
+        wrapper.append(opener, value, closer);
+        $getRoot().append($createParaNode("p").append(verse, wrapper));
+        expect(displayRunDescriptor("va").scanPieces(verse)).toEqual({
+          opener,
+          value,
+          closer,
+          wrapper,
+        });
+      },
+      { discrete: true },
+    );
+  });
+
+  it("reads a wrapped \\vp run's pieces, anchored after \\va's own wrapper", () => {
+    const { editor } = createBasicTestEnvironment();
+    editor.update(
+      () => {
+        const verse = $createVerseNode(
+          "1",
+          getVisibleOpenMarkerText("v", "1"),
+          undefined,
+          "2",
+          "3",
+        );
+        const vaWrapper = $createAttributeRunNode("va");
+        const vaValue = $createTextNode(`${NBSP}2`);
+        $setState(vaValue, textTypeState, "attribute");
+        vaWrapper.append($createMarkerNode("va"), vaValue, $createMarkerNode("va", "closing"));
+
+        const vpWrapper = $createAttributeRunNode("vp");
+        const opener = $createMarkerNode("vp");
+        const value = $createTextNode(`${NBSP}3`);
+        $setState(value, textTypeState, "attribute");
+        const closer = $createMarkerNode("vp", "closing");
+        vpWrapper.append(opener, value, closer);
+
+        $getRoot().append($createParaNode("p").append(verse, vaWrapper, vpWrapper));
+        expect(displayRunDescriptor("vp").scanPieces(verse)).toEqual({
+          opener,
+          value,
+          closer,
+          wrapper: vpWrapper,
+        });
+      },
+      { discrete: true },
+    );
+  });
+
+  it("translates a wrapped milestone run's opening/attribute/closing fields to opener/value/closer", () => {
+    // $milestoneAttributeRunPieces returns opening/attribute/closing/wrapper — a DIFFERENT
+    // vocabulary from ScannedRun's opener/value/closer/wrapper. A regression that returns that
+    // shape unchanged type-checks with zero errors (every ScannedRun field is optional, so the
+    // untranslated shape is structurally assignable) and then silently reads as "no pieces"
+    // forever at runtime. toEqual below is what actually catches it: it fails both on the
+    // missing opener/value/closer AND on the leftover opening/attribute/closing keys.
+    const { editor } = createBasicTestEnvironment();
+    editor.update(
+      () => {
+        const milestone = $createMilestoneNode("qt-s", "q1");
+        const wrapper = $createAttributeRunNode("milestone");
+        const opener = $createMarkerNode("qt-s", "opening");
+        const value = $createTextNode(`${NBSP}|sid="q1"`);
+        $setState(value, textTypeState, "attribute");
+        const closer = $createMarkerNode("", "selfClosing");
+        wrapper.append(opener, value, closer);
+        $getRoot().append($createParaNode("p").append(milestone, wrapper));
+        expect(displayRunDescriptor("milestone").scanPieces(milestone)).toEqual({
+          opener,
+          value,
+          closer,
+          wrapper,
+        });
+      },
+      { discrete: true },
+    );
+  });
+});
+
+describe("displayRunDescriptor lookup", () => {
+  it("throws for an unregistered kind, naming it in the message", () => {
+    // "optbreak" is a valid DisplayRunKind, but this task registers only char/va/vp/milestone —
+    // pins both the throw and the documented message shape (displayRunRegistry.ts's doc comment).
+    expect(() => displayRunDescriptor("optbreak")).toThrow(
+      'No display-run descriptor registered for kind "optbreak"',
     );
   });
 });
