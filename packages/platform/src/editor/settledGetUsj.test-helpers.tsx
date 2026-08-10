@@ -11,13 +11,19 @@ import {
 } from "./adaptors/usj-editor.adaptor";
 import Editor from "./Editor";
 import { EditorRef } from "./editor.model";
-import { $rebuildParas, Tier2Context } from "./markerEdit/tier2Rebuild.utils";
+import { $rebuildNoteContent, $rebuildParas, Tier2Context } from "./markerEdit/tier2Rebuild.utils";
 import { Usj } from "@eten-tech-foundation/scripture-utilities";
 import { EditorRefPlugin } from "@lexical/react/LexicalEditorRefPlugin";
 import { act, render } from "@testing-library/react";
-import { $getRoot, LexicalEditor } from "lexical";
+import { $getRoot, $isElementNode, LexicalEditor, LexicalNode } from "lexical";
 import { createRef, ReactElement, RefObject } from "react";
-import { $isParaNode, getMarker as bundledGetMarker, TypedMarkNode } from "shared";
+import {
+  $isNoteNode,
+  $isParaNode,
+  getMarker as bundledGetMarker,
+  NoteNode,
+  TypedMarkNode,
+} from "shared";
 import { getViewOptions, STANDARD_VIEW_MODE, usjReactNodes, ViewOptions } from "shared-react";
 import { expect } from "vitest";
 // Reaching inside only for tests.
@@ -49,6 +55,12 @@ export function requireStandardViewOptions(): ViewOptions {
   const options = getViewOptions(STANDARD_VIEW_MODE);
   if (!options) throw new Error("Standard view options are required for these tests.");
   return options;
+}
+
+/** Standard view options with `noteMode: "expanded"` — see `mountExpandedNoteEditor`'s doc
+ * comment for why an expanded note needs a dedicated view. */
+function expandedNoteViewOptions(): ViewOptions {
+  return { ...requireStandardViewOptions(), noteMode: "expanded" };
 }
 
 export const spanUsj: Usj = {
@@ -105,30 +117,54 @@ export async function mountStandardViewEditor(
 export async function mountExpandedNoteEditor(
   usj: Usj,
 ): Promise<{ ref: RefObject<EditorRef | null>; lexical: LexicalEditor }> {
-  return mountEditor(usj, { ...requireStandardViewOptions(), noteMode: "expanded" });
+  return mountEditor(usj, expandedNoteViewOptions());
 }
 
-/** Load `usj` into a fresh headless standard-view editor; mirrors tier2Rebuild.corpus.test.tsx. */
-function loadHeadless(usj: Usj): LexicalEditor {
+/** Load `usj` into a fresh headless editor under `viewOptions`; mirrors
+ * tier2Rebuild.corpus.test.tsx's `loadEditor`. */
+function loadHeadless(usj: Usj, viewOptions: ViewOptions): LexicalEditor {
   initializeSerialize(undefined, undefined);
   reset();
-  const state = serializeEditorState(usj, requireStandardViewOptions());
+  const state = serializeEditorState(usj, viewOptions);
   const { editor } = createBasicTestEnvironment([TypedMarkNode, ...usjReactNodes]);
   editor.setEditorState(editor.parseEditorState(JSON.stringify({ root: state.root })));
   return editor;
 }
 
+/** Every NoteNode under `nodes`, depth-first — mirrors tier2Rebuild.corpus.test.tsx's
+ * `$collectParas` collection style, for the note-scope half of `expectTier2FixedPoint`. */
+function $collectNotes(nodes: LexicalNode[], out: NoteNode[] = []): NoteNode[] {
+  for (const node of nodes) {
+    if ($isNoteNode(node)) out.push(node);
+    if ($isElementNode(node)) $collectNotes(node.getChildren(), out);
+  }
+  return out;
+}
+
 /**
- * Assert `usj` is a Tier-2 fixed point: re-loaded on its own, every paragraph REFUSES a rebuild
- * (returns false) and mutates nothing. Anything else means a consumer was handed USJ that still had
- * settling left in it, which is the standing acceptance for settled output.
+ * Assert `usj` is a Tier-2 fixed point: re-loaded on its own, every paragraph REFUSES a
+ * `$rebuildParas` rebuild (returns false) and mutates nothing. Anything else means a consumer was
+ * handed USJ that still had settling left in it, which is the standing acceptance for settled
+ * output.
+ *
+ * `$rebuildParas` alone is not the whole property: it treats a NoteNode as one opaque sentinel and
+ * never looks inside it (`$isRebuildSentinel`, tier2Rebuild.utils.ts), so a note's own CONTENT is a
+ * separate re-tokenization scope with no fixed-point coverage from the paragraph walk alone. Every
+ * EXPANDED note in the reloaded tree is additionally driven through `$rebuildNoteContent`
+ * (mirroring `$rebuildParas`'s own refusal expectation) to close that gap. A COLLAPSED note is
+ * skipped, not asserted on: `$buildNoteFragment` always refuses a collapsed note regardless of
+ * content, so calling `$rebuildNoteContent` on one would only prove that guard rail exists, not
+ * anything about settled output.
+ *
+ * `expandedNotes` must match how `usj` would actually be displayed for any note it carries — the
+ * same flag `PendingShape.expandedNotes` (settledGetUsj.test.tsx) already threads into
+ * `mountStandardViewEditor`/`mountExpandedNoteEditor` for the live mount this settled output came
+ * from, so this reload sees the SAME note layout the original edit did.
  */
-export function expectTier2FixedPoint(usj: Usj): void {
-  const headless = loadHeadless(usj);
-  const context: Tier2Context = {
-    viewOptions: requireStandardViewOptions(),
-    getMarker: bundledGetMarker,
-  };
+export function expectTier2FixedPoint(usj: Usj, expandedNotes = false): void {
+  const viewOptions = expandedNotes ? expandedNoteViewOptions() : requireStandardViewOptions();
+  const headless = loadHeadless(usj, viewOptions);
+  const context: Tier2Context = { viewOptions, getMarker: bundledGetMarker };
   const changed: string[] = [];
   headless.update(
     () => {
@@ -137,6 +173,12 @@ export function expectTier2FixedPoint(usj: Usj): void {
         .filter($isParaNode)
         .forEach((para, index) => {
           if ($rebuildParas([para], context)) changed.push(`#${index} \\${para.getMarker()}`);
+        });
+      $collectNotes($getRoot().getChildren())
+        .filter((note) => note.getIsCollapsed() === false)
+        .forEach((note, index) => {
+          if ($rebuildNoteContent(note, context))
+            changed.push(`note#${index} \\${note.getMarker()}`);
         });
     },
     { discrete: true },

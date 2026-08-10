@@ -328,6 +328,15 @@ function $flattenAttributeRuns(run: LexicalNode[]): LexicalNode[] {
  *    span. Left UNSTRIPPED here (falls through to the plain `toFragmentText` value, " "), so the
  *    signature still tells "has a separator" apart from "has none at all" for this shape.
  *
+ *    One narrow, ACCEPTED consequence of rule 2 being keyed on shape rather than provenance: a
+ *    pure spacer node NOT actually followed by an element — a `glyph + pure-NBSP-spacer + plain
+ *    TEXT sibling` shape `createChar` itself never produces (only a hand-built fixture or a
+ *    pre-heal collab state would), since ordinary text-first content always uses rule 1's single
+ *    merged node instead — no longer coincidentally signature-matches a fresh rebuild's own merged
+ *    `NBSP + text` node, so the paragraph is no longer refused as a fixed point and converges to
+ *    that canonical merged form on its next touch. A converging canonicalization, not a
+ *    data-loss risk: the represented content is identical either way, only the node count changes.
+ *
  * `toFragmentText`'s blanket NBSP->space normalization cannot make either distinction on its own —
  * a structural separator and a user's own literal typed space both collapse to the same plain
  * space — so without rule 1, a live char content run holding exactly one user-typed space can
