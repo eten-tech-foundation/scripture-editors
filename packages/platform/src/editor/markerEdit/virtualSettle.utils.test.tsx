@@ -230,6 +230,66 @@ describe("$settledUsj — paragraph scopes", () => {
       ),
     ).toBe(false);
   });
+
+  it("does not falsely refuse (and silently revert) a bare char-span rename that comes AFTER a note sentinel in the same paragraph (structural-marker-walk truncation)", async () => {
+    const { editor } = await testEnvironment(() => {
+      // A collapsed note is sufficient as a PRESERVED SENTINEL here — $isRebuildSentinel treats
+      // ANY NoteNode as opaque regardless of collapsed state, and this note is never itself
+      // edited — it exists purely to sit BETWEEN two plain-text runs, so the rebuilt fragment's
+      // JSON collapses "text1 " + sentinel + " text2 " into ONE merged text node (pre-
+      // replaceSerializedSentinels), shrinking the JSON side relative to the live side.
+      const note = $createNoteNode("f", "+");
+      const boldChar = $createCharNode("bd");
+      boldChar.append($createMarkerNode("bd"), $createTextNode(`${NBSP}bold text`));
+      $getRoot().append(
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(`${NBSP}text1 `),
+          note,
+          $createTextNode(" text2 "),
+          boldChar,
+        ),
+      );
+    });
+
+    // A single, bare (no trailing space) rename on the char span AFTER the note — Tier 1's
+    // unconditional "stays pending" shape, needing no live caret. Live paragraph children:
+    // [glyph, "text1 ", NoteNode, " text2 ", CharNode] — 5 items; the freshly rebuilt JSON
+    // (pre-sentinel-replacement) has only 4 — [glyph, trailing-space, MERGED-text, CharNode].
+    await act(async () => {
+      editor.update(() => {
+        const para = $getRoot().getChildren().find($isParaNode);
+        if (!para) throw new Error("expected a ParaNode");
+        const boldChar = para.getChildren().find($isCharNode);
+        if (!boldChar) throw new Error("expected a char span");
+        const boldGlyph = boldChar.getFirstChild();
+        if (!$isMarkerNode(boldGlyph)) throw new Error("expected the char span's opening glyph");
+        boldGlyph.setTextContent("\\it");
+      });
+      await Promise.resolve();
+    });
+
+    const settled = settledUsjOf(editor);
+    const para = settled?.content[0];
+    if (!para || typeof para === "string") throw new Error("expected a para marker object");
+    // The rename genuinely settled: a "char" entry with marker "it" exists in the output. Before
+    // the fix, a raw-positional, Math.min-bounded walk paired the live NoteNode against the
+    // json CharNode (both arrays shifted out of alignment by the merge) and never reached the
+    // live CharNode at all — both halves of isFixedPoint passed, and the rename was silently
+    // reverted in the settled output (the char entry stayed "bd").
+    expect(
+      (para as MarkerObject).content?.some(
+        (entry) => typeof entry !== "string" && entry.type === "char" && entry.marker === "it",
+      ),
+    ).toBe(true);
+
+    // The editor itself stays untouched (read-only settle).
+    editor.getEditorState().read(() => {
+      const liveChar = $getRoot().getChildren().find($isParaNode)?.getChildren().find($isCharNode);
+      if (!liveChar) throw new Error("expected a char span");
+      expect(liveChar.getMarker()).toBe("bd");
+    });
+  });
 });
 
 describe("$settledUsj — expanded note scopes", () => {
@@ -501,6 +561,65 @@ describe("$settledUsj — expanded note scopes", () => {
         (entry) => typeof entry !== "string" && entry.type === "optbreak",
       ),
     ).toBe(false);
+  });
+
+  it("does not falsely refuse (and silently revert) a bare char-span rename that comes AFTER a sentinel INSIDE a note's own content (note-content variant of the structural-marker-walk truncation)", async () => {
+    const { editor } = await testEnvironmentExpanded(() => {
+      const note = $createNoteNode("f", "+");
+      note.setIsCollapsed(false);
+      const callerNode = $createTextNode(getEditableCallerText("+"));
+      $setState(callerNode, textTypeState, "note-caller-boundary");
+      // An UnknownNode is a preserved sentinel regardless of whether it is emptied or not — this
+      // one is left fully intact (its own token child untouched, never itself edited) purely to
+      // sit BETWEEN two plain-text runs, reproducing the SAME "merged JSON text node" shrink the
+      // paragraph-scope variant above exercises, this time inside a note's own content.
+      const optbreakToken = $createImmutableTypedTextNode("marker", "//");
+      const optbreak = $createUnknownNode("optbreak", "optbreak").append(optbreakToken);
+      const boldChar = $createCharNode("bd");
+      boldChar.append($createMarkerNode("bd"), $createTextNode(`${NBSP}bold text`));
+      note.append(
+        $createMarkerNode("f"),
+        callerNode,
+        $createTextNode("text1 "),
+        optbreak,
+        $createTextNode(" text2 "),
+        boldChar,
+        $createMarkerNode("f", "closing"),
+      );
+      $getRoot().append($createParaNode("p").append($createMarkerNode("p"), note));
+    });
+
+    // A single, bare rename on the char span AFTER the sentinel — the ONLY pend in this update,
+    // routing the note through $settledNoteContent alone (no co-settling husk this time).
+    await act(async () => {
+      editor.update(() => {
+        const para = $getRoot().getChildren().find($isParaNode);
+        if (!para) throw new Error("expected a ParaNode");
+        const note = para.getChildren().find($isNoteNode);
+        if (!note) throw new Error("expected a NoteNode");
+        const boldChar = note.getChildren().find($isCharNode);
+        if (!boldChar) throw new Error("expected a char span inside the note");
+        const boldGlyph = boldChar.getFirstChild();
+        if (!$isMarkerNode(boldGlyph)) throw new Error("expected the char span's opening glyph");
+        boldGlyph.setTextContent("\\it");
+      });
+      await Promise.resolve();
+    });
+
+    const settled = settledUsjOf(editor);
+    const para = settled?.content[0];
+    if (!para || typeof para === "string") throw new Error("expected a para marker object");
+    const note = (para as MarkerObject).content?.find(
+      (entry) => typeof entry !== "string" && entry.type === "note",
+    );
+    if (!note || typeof note === "string") throw new Error("expected a note marker object");
+    // The rename genuinely settled inside the note's own content — not silently reverted by a
+    // truncated structural-marker walk that never reached the char span.
+    expect(
+      (note as MarkerObject).content?.some(
+        (entry) => typeof entry !== "string" && entry.type === "char" && entry.marker === "it",
+      ),
+    ).toBe(true);
   });
 
   it("refuses a half-typed attribute run appended to a char span INSIDE an expanded note AS-IS (genuine Tier-2 fixed point, not a partial drop of the user's own bytes)", async () => {
