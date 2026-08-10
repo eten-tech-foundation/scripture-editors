@@ -10,7 +10,13 @@ import {
   RangeSelection,
 } from "lexical";
 import { useEffect } from "react";
-import { $isMarkerNode, $isParaMarkerPrefix, $isSomeParaNode, NBSP, SomeParaNode } from "shared";
+import {
+  $isMarkerNode,
+  $isSomeParaNode,
+  $isSynthesizedMarkerNode,
+  NBSP,
+  SomeParaNode,
+} from "shared";
 import { $isImmutableVerseNode, $isSomeVerseNode } from "../../nodes/usj";
 
 /**
@@ -56,7 +62,7 @@ export function $advancePastParaPrefixes(para: SomeParaNode): boolean {
   let skipCount = 0;
 
   while (child !== null) {
-    if ($isParaMarkerPrefix(child)) {
+    if ($isSynthesizedMarkerNode(child)) {
       skipCount++;
       child = child.getNextSibling();
       // In editable mode the para-marker prefix is followed by a NBSP TextNode (marker-trailing-space).
@@ -112,7 +118,7 @@ export function $guardCursorAtParaStart(selection: RangeSelection): boolean {
     const para = $getNodeByKey(anchor.key);
     if (!$isSomeParaNode(para)) return false;
     const first = para.getFirstChild();
-    if (!$isParaMarkerPrefix(first) && !$isImmutableVerseNode(first)) return false;
+    if (!$isSynthesizedMarkerNode(first) && !$isImmutableVerseNode(first)) return false;
     return $advancePastParaPrefixes(para);
   }
 
