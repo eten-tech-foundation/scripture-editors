@@ -201,11 +201,43 @@ describe("setTransientInput — a stale declaration is ignored, never trusted", 
     expect(paraMarkers(settled)).toEqual(["p", "q12", "p"]);
   });
 
-  it("ignores it when there is no caret at all", async () => {
+  it("falls back to the last-known caret when there is no live selection, honoring the declaration", async () => {
+    // A real cross-frame blur (e.g. a palette overlay click, which lives outside this editor's
+    // iframe) can null Lexical's live selection before a getUsj() read races it — the same shape
+    // as `$setSelection(null)` below. Live-verified: this is the pre-fix corruption shape (typing
+    // `\f`, then a window blur before the debounced save's getUsj() read), and the declared run
+    // must still be excluded from the save via the remembered caret, not just "settle normally".
     const { ref, lexical } = await mountStandardViewEditor(paletteUsj);
     act(() => ref.current?.setTransientInput({ kind: "marker-literal", run: "\\q1" }));
     await typePaletteLiteral(lexical, "\\q1");
 
+    await act(async () => {
+      lexical.update(() => $setSelection(null));
+      await Promise.resolve();
+    });
+
+    const settled = ref.current?.getUsj();
+    expect(allText(settled)).not.toContain("\\q1");
+    // No phantom paragraph: honored via the remembered caret exactly as if the selection had
+    // never gone missing.
+    expect(paraMarkers(settled)).toEqual(["p", "p"]);
+  });
+
+  it("still ignores it when the remembered caret no longer matches, even through the fallback", async () => {
+    // The fallback is not "trust any remembered caret" — it re-applies the SAME byte-exact check.
+    // Move the caret to a DIFFERENT node first (updating what gets remembered), then lose the live
+    // selection: the remembered caret no longer ends with the declared run, so the fallback must
+    // fail the same way a live mismatch already does.
+    const { ref, lexical } = await mountStandardViewEditor(paletteUsj);
+    act(() => ref.current?.setTransientInput({ kind: "marker-literal", run: "\\q1" }));
+    await typePaletteLiteral(lexical, "\\q1");
+
+    await act(async () => {
+      lexical.update(() => {
+        $textContaining("a second paragraph").select(0, 0);
+      });
+      await Promise.resolve();
+    });
     await act(async () => {
       lexical.update(() => $setSelection(null));
       await Promise.resolve();

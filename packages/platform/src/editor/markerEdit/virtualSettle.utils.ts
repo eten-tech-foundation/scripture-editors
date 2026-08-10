@@ -547,6 +547,15 @@ interface TransientLiteral {
   readonly run: string;
 }
 
+/** The last collapsed text-caret the editor observed — a text node's key plus the caret's offset
+ * into it. Tracked by `Editor.tsx` the same way MarkerEditPlugin's own BLUR_COMMAND handler tracks
+ * its `lastAnchorKey` (MarkerEditPlugin.tsx), and consumed only by
+ * {@link $verifiedTransientLiteral}'s fallback below. */
+export interface LastKnownCaret {
+  readonly key: NodeKey;
+  readonly offset: number;
+}
+
 /**
  * Resolve a declaration against the live caret, or `undefined` when it does not hold. Every check
  * is a fail-safe: an unverifiable declaration must degrade to "settle normally", because the cost
@@ -559,16 +568,41 @@ interface TransientLiteral {
  * text ENDING AT THE CARET to end with `run` is the same exact-match check, correct in both
  * positions. A collapsed selection is required for the same reason the surfaces that declare only
  * exist for one: a range selection means the surface claimed the keystrokes and nothing landed.
+ *
+ * `lastKnownCaret` is the fallback source when the live selection is not a `RangeSelection` at all
+ * (most commonly `null`) — a real cross-frame blur (clicking a renderer-overlay palette item, which
+ * lives OUTSIDE this editor's iframe) can null Lexical's live selection before this read runs,
+ * exactly the race MarkerEditPlugin's own BLUR_COMMAND handler documents and guards against with
+ * its `lastAnchorKey` fallback (see that handler's comments, MarkerEditPlugin.tsx). Live-verified
+ * before the WAVE-4 corruption case was reproduced live: a click that only blurs the window without
+ * consuming the pending literal degrades this check to "no live selection" while `pendedKeys` still
+ * carries the declared node, and a stale-selection read used to settle those bytes normally,
+ * producing a saved phantom marker — this fallback is what closes that gap. It does NOT apply when
+ * the live selection IS a `RangeSelection` but not collapsed: an extended range is concrete evidence
+ * the caret story genuinely changed, which must not be second-guessed with remembered data. The
+ * fallback reuses the SAME byte-exact check below, so a stale remembered caret degrades no
+ * differently than a stale declaration already does — at most one visible phantom marker, never
+ * silently dropped content.
  */
 function $verifiedTransientLiteral(
   input: TransientInput | undefined,
+  lastKnownCaret: LastKnownCaret | undefined,
 ): TransientLiteral | undefined {
   if (!input || input.run.length === 0) return undefined;
   const selection = $getSelection();
-  if (!$isRangeSelection(selection) || !selection.isCollapsed()) return undefined;
-  const node = selection.focus.getNode();
+  let node: LexicalNode | null;
+  let caretOffset: number;
+  if ($isRangeSelection(selection)) {
+    if (!selection.isCollapsed()) return undefined;
+    node = selection.focus.getNode();
+    caretOffset = selection.focus.offset;
+  } else if (lastKnownCaret) {
+    node = $getNodeByKey(lastKnownCaret.key);
+    caretOffset = lastKnownCaret.offset;
+  } else {
+    return undefined;
+  }
   if (!$isTextNode(node) || !node.isAttached()) return undefined;
-  const caretOffset = selection.focus.offset;
   if (!node.getTextContent().slice(0, caretOffset).endsWith(input.run)) return undefined;
   return { node, caretOffset, run: input.run };
 }
@@ -975,14 +1009,19 @@ function $applySettledNoteGlyphRename(
  * declaration settles its own scope even when `pendedKeys` is empty: the whole point is that the
  * declared bytes never reach a consumer, and the paragraph or note they sit in may otherwise be
  * perfectly settled already, with nothing else pending there to trigger a settle at all.
+ *
+ * `lastKnownCaret` is `Editor.tsx`'s remembered last-observed collapsed caret, used only as
+ * `$verifiedTransientLiteral`'s fallback when the live selection is absent (see its own doc
+ * comment for the exact race this closes).
  */
 export function $settledUsj(
   serializedState: SerializedEditorState,
   pendedKeys: ReadonlySet<NodeKey>,
   context: Tier2Context,
   transientInput?: TransientInput,
+  lastKnownCaret?: LastKnownCaret,
 ): Usj | undefined {
-  const transient = $verifiedTransientLiteral(transientInput);
+  const transient = $verifiedTransientLiteral(transientInput, lastKnownCaret);
   if (pendedKeys.size === 0 && !transient) return undefined;
 
   const paraScopes = new Map<NodeKey, ParaNode>();
