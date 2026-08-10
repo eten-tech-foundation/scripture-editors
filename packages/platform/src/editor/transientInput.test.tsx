@@ -168,7 +168,7 @@ describe("setTransientInput — forces its paragraph into the settle scopes even
 });
 
 describe("setTransientInput — a stale declaration is ignored, never trusted", () => {
-  it("ignores it when the caret has moved off the declared node", async () => {
+  it("ignores it when the caret moves to a node whose bytes don't end with the declared run", async () => {
     const { ref, lexical } = await mountStandardViewEditor(paletteUsj);
     act(() => ref.current?.setTransientInput({ kind: "marker-literal", run: "\\q1" }));
     await typePaletteLiteral(lexical, "\\q1");
