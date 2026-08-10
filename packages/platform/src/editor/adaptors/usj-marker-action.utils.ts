@@ -979,6 +979,50 @@ export function $replaceCharacterMarkerAtSelection(
 }
 
 /**
+ * Split the gap nodes into maximal runs of adjacent siblings — one `CharNode` wrapper each.
+ *
+ * Adjacency is checked with `getNextSibling()`, which subsumes a same-parent check: two nodes under
+ * different parents are never each other's siblings. Both cases have to break the run — gaps
+ * separated by covered content (`kolo ` and ` sana` around `\bd Mulu\bd*`) would have their text
+ * reordered by a shared wrapper, and gaps under different parents would be hoisted out of the
+ * element that holds them.
+ *
+ * Grouping happens before any wrapping: `append` moves a node out of its original parent, so
+ * adjacency can only be read off the untouched tree.
+ *
+ * @param gapNodes - The uncovered text nodes, in document order.
+ * @returns the runs to wrap, in document order.
+ */
+function $groupAdjacentGapRuns(gapNodes: TextNode[]): TextNode[][] {
+  const runs: TextNode[][] = [];
+  let currentRun: TextNode[] | undefined;
+  gapNodes.forEach((gapNode) => {
+    const previousGapNode = currentRun?.[currentRun.length - 1];
+    if (currentRun && previousGapNode?.getNextSibling()?.is(gapNode)) currentRun.push(gapNode);
+    else {
+      currentRun = [gapNode];
+      runs.push(currentRun);
+    }
+  });
+  return runs;
+}
+
+/**
+ * Wrap one run of adjacent uncovered text nodes in a new `CharNode` carrying `marker`.
+ *
+ * The wrapper is inserted where the run already is, then the run is appended into it — the shape
+ * `$wrapSelectionInTypedMarkNode` (`TypedMarkNode.ts`) uses, minus its mark-specific parts.
+ *
+ * @param run - Adjacent sibling text nodes to wrap.
+ * @param marker - The character marker for the new `CharNode`.
+ */
+function $wrapRunInCharNode(run: TextNode[], marker: string): void {
+  const wrapper = $createCharNode(marker);
+  run[0].insertBefore(wrapper);
+  wrapper.append(...run);
+}
+
+/**
  * Extend a character marker to cover the whole selection, keeping all of its text content.
  *
  * "Extend" means *make the whole selection carry `marker`*, however much of it already does — the
@@ -1016,9 +1060,7 @@ export function $extendCharacterMarkerAtSelection(
   const gapNodes = targetNodes.filter((targetNode) => !$getMatchingCharNode(targetNode, marker));
   if (gapNodes.length === 0) return false;
 
-  const wrapper = $createCharNode(marker);
-  gapNodes[0].insertBefore(wrapper);
-  wrapper.append(...gapNodes);
+  $groupAdjacentGapRuns(gapNodes).forEach((run) => $wrapRunInCharNode(run, marker));
   return true;
 }
 

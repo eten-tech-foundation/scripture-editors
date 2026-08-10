@@ -1837,6 +1837,77 @@ describe("USJ Marker Action Utils", () => {
       });
     });
 
+    it("wraps gaps on either side of a covered run separately, preserving text order", () => {
+      let koloTextNode!: TextNode;
+      let sanaTextNode!: TextNode;
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        koloTextNode = $createTextNode("kolo ");
+        sanaTextNode = $createTextNode(" sana");
+        $getRoot().append(
+          $createParaNode("p").append(
+            koloTextNode,
+            $createCharNode("bd").append($createTextNode("Mulu")),
+            sanaTextNode,
+          ),
+        );
+      });
+      updateSelection(editor, koloTextNode, 0, sanaTextNode, 5);
+
+      expect(sutExtendCharacterMarker(editor, "bd")).toBe(true);
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        // The two gaps are not adjacent siblings, so they must get one wrapper each. Appending both
+        // to a single wrapper would move " sana" next to "kolo " and scramble the text.
+        expect(para.getTextContent()).toBe("kolo Mulu sana");
+        const children = para.getChildren();
+        expect(children.length).toBe(3);
+        children.forEach((child) => {
+          if (!$isCharNode(child)) throw new Error("child is not a CharNode");
+          expect(child.getMarker()).toBe("bd");
+          expect(child.getChildren().some($isCharNode)).toBe(false);
+        });
+      });
+    });
+
+    it("wraps a gap that sits inside a different marker, nesting it there", () => {
+      let koloTextNode!: TextNode;
+      let muluTextNode!: TextNode;
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        koloTextNode = $createTextNode("kolo ");
+        muluTextNode = $createTextNode("Mulu");
+        $getRoot().append(
+          $createParaNode("p").append(koloTextNode, $createCharNode("nd").append(muluTextNode)),
+        );
+      });
+      // "[kolo \nd Mul]u\nd*"
+      updateSelection(editor, koloTextNode, 0, muluTextNode, 3);
+
+      expect(sutExtendCharacterMarker(editor, "bd")).toBe(true);
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        expect(para.getTextContent()).toBe("kolo Mulu");
+        const [outerBd, ndNode] = para.getChildren();
+        if (!$isCharNode(outerBd)) throw new Error("outerBd is not a CharNode");
+        if (!$isCharNode(ndNode)) throw new Error("ndNode is not a CharNode");
+        expect(outerBd.getMarker()).toBe("bd");
+        expect(outerBd.getTextContent()).toBe("kolo ");
+        // The piece inside \nd is wrapped where it sits. Extend is purely additive — it never
+        // rewrites the USJ of unselected text — so the nested-partial-coverage refusal that removal
+        // and replacement need does not apply. \nd itself is untouched.
+        expect(ndNode.getMarker()).toBe("nd");
+        const [innerBd, uncovered] = ndNode.getChildren();
+        if (!$isCharNode(innerBd)) throw new Error("innerBd is not a CharNode");
+        if (!$isTextNode(uncovered)) throw new Error("uncovered is not a TextNode");
+        expect(innerBd.getMarker()).toBe("bd");
+        expect(innerBd.getTextContent()).toBe("Mul");
+        expect(uncovered.getTextContent()).toBe("u");
+      });
+    });
+
     it("is a no-op for a collapsed selection", () => {
       const { editor } = createBasicTestEnvironment(nodes, () => {
         charTextNode = $createTextNode("Mulu");
