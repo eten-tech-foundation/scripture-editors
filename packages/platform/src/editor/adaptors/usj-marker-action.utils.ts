@@ -466,36 +466,7 @@ export function $removeCharacterMarkerAtSelection(
     }
   });
 
-  // Restore the range over the same characters so a toolbar caller can re-toggle without
-  // re-selecting: each target covers exactly the selected portion, so the range runs from the
-  // whole first target to the whole last. Three traps make this more than a no-op:
-  //
-  // - `TextNode.setTextContent` (the NBSP trim under `markerMode: "editable"`) mutates `__text`
-  //   without touching selection points, so a focus on a trimmed node ends up one past the new end.
-  // - `isBackward` is captured before the loop: a backward range's anchor is the *last* target, so
-  //   swapping the roles keeps it backward instead of normalizing to forward.
-  // - `$getSelection()` is re-fetched rather than reusing `selection`: `$unwrapNode` splices the
-  //   CharNode out with `NodeCaret.splice`, which calls `replace()` on it (Lexical 0.43.0,
-  //   `NodeCaret.splice` → `target.replace(node)`), and `LexicalNode.replace` clones the active
-  //   selection and `$setSelection`s the clone. So the parameter is left pointing at a detached
-  //   object and mutating it would have no effect. Note this is the CharNode's own
-  //   `ElementNode.replace()`, not `TextNode.replace()`.
-  //
-  // Skipped when a target didn't survive — its CharNode held only the empty-char placeholder and
-  // was removed outright — in which case Lexical's own selection repair applies instead.
-  const currentSelection = $getSelection();
-  const firstTargetNode = targetNodes[0];
-  const lastTargetNode = targetNodes[targetNodes.length - 1];
-  if (
-    $isRangeSelection(currentSelection) &&
-    firstTargetNode.isAttached() &&
-    lastTargetNode.isAttached()
-  ) {
-    const lastOffset = lastTargetNode.getTextContentSize();
-    if (isBackward)
-      currentSelection.setTextNodeRange(lastTargetNode, lastOffset, firstTargetNode, 0);
-    else currentSelection.setTextNodeRange(firstTargetNode, 0, lastTargetNode, lastOffset);
-  }
+  $restoreRangeOverTargets(targetNodes, isBackward);
 
   return didRemove;
 }
@@ -905,6 +876,46 @@ function $createCharNodeLike(charNode: CharNode): CharNode {
   return $copyNode(charNode);
 }
 
+/**
+ * Restore the range over exactly the characters the marker action acted on.
+ *
+ * Shared by removal and extension, so a toolbar caller can re-toggle without re-selecting: each
+ * target covers exactly the selected portion, so the range runs from the whole first target to the
+ * whole last. Three traps make this more than a no-op:
+ *
+ * - `TextNode.setTextContent` (removal's NBSP trim, extension's leading-space move) mutates
+ *   `__text` without touching selection points, so a focus on a trimmed node ends up one past the
+ *   new end.
+ * - `isBackward` must be captured by the caller *before* mutating: a backward range's anchor is the
+ *   *last* target, so swapping the roles keeps it backward instead of normalizing to forward.
+ * - `$getSelection()` is re-fetched rather than reusing the caller's `selection`: `$unwrapNode`
+ *   splices a CharNode out with `NodeCaret.splice`, which calls `replace()` on it (Lexical 0.43.0,
+ *   `NodeCaret.splice` → `target.replace(node)`), and `LexicalNode.replace` clones the active
+ *   selection and `$setSelection`s the clone. So the caller's parameter can be a detached object
+ *   that it would be pointless to mutate.
+ *
+ * Skipped when a target didn't survive — for removal, its CharNode held only the empty-char
+ * placeholder and was removed outright — in which case Lexical's own selection repair applies.
+ *
+ * @param targetNodes - The text nodes the action covered, in document order.
+ * @param isBackward - Whether the original selection was backward.
+ */
+function $restoreRangeOverTargets(targetNodes: TextNode[], isBackward: boolean): void {
+  const currentSelection = $getSelection();
+  const firstTargetNode = targetNodes[0];
+  const lastTargetNode = targetNodes[targetNodes.length - 1];
+  if (
+    !$isRangeSelection(currentSelection) ||
+    !firstTargetNode.isAttached() ||
+    !lastTargetNode.isAttached()
+  )
+    return;
+
+  const lastOffset = lastTargetNode.getTextContentSize();
+  if (isBackward) currentSelection.setTextNodeRange(lastTargetNode, lastOffset, firstTargetNode, 0);
+  else currentSelection.setTextNodeRange(firstTargetNode, 0, lastTargetNode, lastOffset);
+}
+
 // #endregion
 
 /**
@@ -1073,6 +1084,7 @@ export function $extendCharacterMarkerAtSelection(
   if (selection.isCollapsed()) return false;
 
   const nodes = selection.getNodes();
+  const isBackward = selection.isBackward();
   const [startOffset, endOffset] = getSelectionOffsets(selection);
   // Answered before `$getTargetNodes` splits anything — see `$hasUncoveredNode`.
   if (!$hasUncoveredNode(nodes, marker)) return false;
@@ -1087,6 +1099,7 @@ export function $extendCharacterMarkerAtSelection(
   if (gapNodes.length === 0) return false;
 
   $groupAdjacentGapRuns(gapNodes).forEach((run) => $wrapRunInCharNode(run, marker));
+  $restoreRangeOverTargets(targetNodes, isBackward);
   return true;
 }
 

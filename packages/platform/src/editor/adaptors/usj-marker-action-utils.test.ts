@@ -2104,6 +2104,53 @@ describe("USJ Marker Action Utils", () => {
         expect(para.getFirstChild()?.getTextContent()).toBe("kolo ");
       });
     });
+
+    it("leaves the selection over the same characters", () => {
+      let koloTextNode!: TextNode;
+      let muluTextNode!: TextNode;
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        koloTextNode = $createTextNode("kolo ");
+        muluTextNode = $createTextNode("Mulu");
+        $getRoot().append(
+          $createParaNode("p").append(koloTextNode, $createCharNode("bd").append(muluTextNode)),
+        );
+      });
+      updateSelection(editor, koloTextNode, 0, muluTextNode, 4);
+
+      sutExtendCharacterMarker(editor, "bd");
+
+      editor.getEditorState().read(() => {
+        const selection = $getSelection();
+        if (!$isRangeSelection(selection)) throw new Error("selection is not a RangeSelection");
+        expect(selection.getTextContent()).toBe("kolo Mulu");
+        expect(selection.isBackward()).toBe(false);
+      });
+    });
+
+    it("keeps a backward selection backward", () => {
+      let koloTextNode!: TextNode;
+      let muluTextNode!: TextNode;
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        koloTextNode = $createTextNode("kolo ");
+        muluTextNode = $createTextNode("Mulu");
+        $getRoot().append(
+          $createParaNode("p").append(koloTextNode, $createCharNode("bd").append(muluTextNode)),
+        );
+      });
+      // Anchor at the end, focus at the start.
+      updateSelection(editor, muluTextNode, 4, koloTextNode, 0);
+
+      sutExtendCharacterMarker(editor, "bd");
+
+      editor.getEditorState().read(() => {
+        const selection = $getSelection();
+        if (!$isRangeSelection(selection)) throw new Error("selection is not a RangeSelection");
+        expect(selection.getTextContent()).toBe("kolo Mulu");
+        // `isBackward` is captured before the mutation; restoring forward would silently flip the
+        // user's selection direction.
+        expect(selection.isBackward()).toBe(true);
+      });
+    });
   });
 
   describe("should insert a note", () => {
