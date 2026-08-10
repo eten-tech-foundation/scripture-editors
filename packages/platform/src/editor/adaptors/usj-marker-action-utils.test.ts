@@ -2300,6 +2300,37 @@ describe("USJ Marker Action Utils", () => {
       });
     });
 
+    it("skips a selection inside a CharNode nested in a NoteNode", () => {
+      let noteTextNode!: TextNode;
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        noteTextNode = $createTextNode("Lord");
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createTextNode("the "),
+            $createNoteNode("f", "+").append($createCharNode("nd").append(noteTextNode)),
+          ),
+        );
+      });
+      updateSelection(editor, noteTextNode, 0, noteTextNode, 4);
+
+      // `$getTargetNode` only drops a leaf whose *immediate* parent is a NoteNode, so this deeper
+      // shape reaches the gap filter. It's `$isInsideNote` that refuses it: without that guard the
+      // absent `$getMatchingCharNode` match would read as "uncovered" and wrap the note's text.
+      expect(sutExtendCharacterMarker(editor, "bd")).toBe(false);
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        const noteNode = para.getLastChild();
+        if (!$isNoteNode(noteNode)) throw new Error("noteNode is not a NoteNode");
+        const charNode = noteNode.getFirstChild();
+        if (!$isCharNode(charNode)) throw new Error("charNode is not a CharNode");
+        expect(charNode.getMarker()).toBe("nd");
+        expect(charNode.getChildren().some($isCharNode)).toBe(false);
+        expect(noteNode.getTextContent()).toBe("Lord");
+      });
+    });
+
     it("moves a leading space out of the new marker, as the insert path does", () => {
       const { editor } = createBasicTestEnvironment(nodes, () => {
         charTextNode = $createTextNode("the Mulu");

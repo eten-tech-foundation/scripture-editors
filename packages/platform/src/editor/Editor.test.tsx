@@ -794,6 +794,44 @@ describe("extendCharacterMarker through the editor ref", () => {
     expect(didExtend).toBe(false);
     expect(JSON.stringify(editorRef.getUsj())).toBe(before);
   });
+
+  it("removes a conflicting marker passed through the ref before extending", async () => {
+    const ref = createRef<EditorRef>();
+    let editor: LexicalEditor | undefined;
+    await act(async () => {
+      render(
+        <Editor ref={ref} defaultUsj={usjWithCharMarker}>
+          <GrabEditor onEditor={(e) => (editor = e)} />
+        </Editor>,
+      );
+    });
+    await flushQueuedEvents();
+    if (!ref.current || !editor) throw new Error("EditorRef did not mount");
+    const lexicalEditor = editor;
+    const editorRef = ref.current;
+
+    await selectCharNodeContent(lexicalEditor);
+    let didExtend = false;
+    await act(async () => {
+      // The unit suite covers the conflict logic itself; what this pins down is that the caller's
+      // list survives the `EditorRef` boundary at all — `Editor.tsx` validates every entry and
+      // forwards the array, and nothing else proves that forwarding happens.
+      didExtend = editorRef.extendCharacterMarker("bd", ["nd"]);
+    });
+    await flushQueuedEvents();
+
+    expect(didExtend).toBe(true);
+
+    // `\nd` is gone rather than nested inside `\bd`, and the surrounding plain text is untouched.
+    const para = editorRef.getUsj()?.content[2];
+    if (typeof para !== "object" || !("content" in para))
+      throw new Error("para is not a USJ para node");
+    expect(para.content).toEqual([
+      "the ",
+      { type: "char", marker: "bd", content: ["Lord"] },
+      " said",
+    ]);
+  });
 });
 
 const blankUsj: Usj = {

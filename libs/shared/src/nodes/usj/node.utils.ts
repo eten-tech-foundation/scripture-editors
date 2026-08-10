@@ -584,9 +584,15 @@ export function $isSynthesizedMarkerNode(node: LexicalNode | null | undefined): 
  * children, in the one order that works.
  *
  * Coalescing with an identically-marked adjacent sibling is deliberately not handled here:
- * `$charNodeTransform` (`shared-react`'s `CharNodePlugin.tsx`) already does it on the next update
- * cycle, and `CharNodePlugin.test.tsx` proves it for exactly this call. Don't hand-roll it, and
- * don't fight it.
+ * `$charNodeTransform` (`shared-react`'s `CharNodePlugin.tsx`) already does it, and
+ * `CharNodePlugin.test.tsx` proves it for exactly this call. Don't hand-roll it, and don't fight it.
+ *
+ * The merge is not deferred to a later update: Lexical runs node transforms to fixpoint inside the
+ * *same* `editor.update()`, before reconciliation and before any update listener fires, and the node
+ * this touches is dirty and therefore transformed. So no committed `EditorState` is ever observable
+ * with the un-coalesced pair in it. That matters wherever a caller copies an existing `CharNode`'s
+ * cid onto a new sibling and leans on this merge to reunite them — the duplicate cid has no window
+ * in which anything can read it.
  *
  * @param charNode - The `CharNode` to change.
  * @param marker - The character marker to change to.

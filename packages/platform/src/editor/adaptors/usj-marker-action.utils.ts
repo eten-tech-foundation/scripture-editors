@@ -149,8 +149,10 @@ export function isUsjMarkerSupported(marker: string): boolean {
 
 /**
  * Returns whether the given USFM marker is a character marker, and so can be removed by
- * {@link $removeCharacterMarkerAtSelection} or replaced by
- * {@link $replaceCharacterMarkerAtSelection}.
+ * {@link $removeCharacterMarkerAtSelection}, replaced by
+ * {@link $replaceCharacterMarkerAtSelection}, or extended by
+ * {@link $extendCharacterMarkerAtSelection} — which gates its `conflictingMarkers` entries through
+ * this too, since each one is removed by the same removal path.
  *
  * Deliberately stricter than {@link isUsjMarkerSupported}: that one also accepts para, note,
  * chapter, and verse markers, but these actions only ever target a `CharNode`, so `"p"` must be
@@ -533,6 +535,8 @@ export function $removeCharacterMarkerAtSelection(
   return didRemove;
 }
 
+// #region Helper functions for $removeCharacterMarkerAtSelection
+
 /**
  * Remove a `CharNode` but keep its text content in the parent.
  *
@@ -570,15 +574,17 @@ function $removeCharNodeKeepingContent(
   $unwrapNode(charNode);
 }
 
+// #endregion
+
 // #region Helper functions shared by the character marker actions
 
 /**
  * Resolve the selected nodes to the text nodes a marker action should act on.
  *
- * Shared by removal and replacement. The first and last nodes are trimmed to the selection offsets
- * by `$getTargetNode`; interior nodes are taken whole. Anything that doesn't resolve to a
- * `TextNode` — a skipped node, or an element with nothing selectable — is dropped, so an empty
- * result means the caller has nothing to do.
+ * Shared by removal, replacement, and extension. The first and last nodes are trimmed to the
+ * selection offsets by `$getTargetNode`; interior nodes are taken whole. Anything that doesn't
+ * resolve to a `TextNode` — a skipped node, or an element with nothing selectable — is dropped, so
+ * an empty result means the caller has nothing to do.
  *
  * @param nodes - The selected nodes, in document order.
  * @param startOffset - The selection's start offset within the first node.
@@ -603,7 +609,7 @@ function $getTargetNodes(nodes: LexicalNode[], startOffset: number, endOffset: n
 /**
  * Find the `CharNode` a marker action should act on, walking up from a target node.
  *
- * Shared by removal and replacement.
+ * Shared by removal, replacement, and extension.
  *
  * Returns `undefined` when nothing matches, which the caller treats as a no-op for that target
  * node. The walk is per-target, so a selection spanning a matching and a non-matching node still
@@ -632,6 +638,29 @@ function $getMatchingCharNode(node: LexicalNode, marker: string | undefined): Ch
     currentNode = currentNode.getParent();
   }
   return matchedCharNode;
+}
+
+/**
+ * Whether `node` sits anywhere inside a `NoteNode`, at any depth.
+ *
+ * `$isSkippedByMarkerAction` only recognizes note interiors one level deep (a leaf whose *immediate*
+ * parent is the `NoteNode`), so `$getTargetNode` still returns text nested deeper — the common
+ * `NoteNode > CharNode > TextNode` shape. Removal and replacement absorb that because
+ * `$getMatchingCharNode` returns `undefined` for such a node and they read `undefined` as "no match,
+ * do nothing". Extension reads the same `undefined` as "not covered", the opposite meaning, so it
+ * needs this guard to tell the two apart — without it, a gap run inside a note gets wrapped in a new
+ * `CharNode`, contradicting `extendCharacterMarker`'s documented refusal to touch note contents.
+ *
+ * @param node - The node to check.
+ * @returns `true` if a `NoteNode` encloses `node`.
+ */
+function $isInsideNote(node: LexicalNode): boolean {
+  let currentNode: LexicalNode | null = node;
+  while (currentNode && !$isSomeParaNode(currentNode)) {
+    if ($isNoteNode(currentNode)) return true;
+    currentNode = currentNode.getParent();
+  }
+  return false;
 }
 
 /**
@@ -719,7 +748,7 @@ function $isRefusedForNestedCoverage(
  * Whether the selection contains a `CharNode` matching `marker` that a marker action would actually
  * act on.
  *
- * Shared by removal and replacement.
+ * Shared by removal, replacement, and extension.
  *
  * Read-only, and answered *before* the splitting pass, so that a request which ends up a no-op
  * leaves the document completely untouched: `handleTextNode`'s `splitText` mutates the tree, and
@@ -762,24 +791,6 @@ function $hasActionableCharNode(
     if (charNode.getMarker() === excludeMarker) return false;
     return !$isRefusedForNestedCoverage(charNode, actionableNodes, fullyCoveredKeys);
   });
-}
-
-/**
- * Whether any actionable node in the selection is *not* already covered by `marker`.
- *
- * The read-only counterpart of the gap filter in `$extendCharacterMarkerAtSelection`, answered
- * before the splitting pass so a fully covered request never calls `handleTextNode`'s `splitText`
- * — which would put a documented no-op on the undo stack and produce an empty collab delta.
- *
- * Built on `$getActionableNodes`, which is deliberately no narrower than `$getTargetNode`, so this
- * can only ever be more permissive — it never wrongly refuses an extend that would have happened.
- *
- * @param nodes - The nodes in the selection.
- * @param marker - The character marker being extended.
- * @returns `true` if there is something left to cover.
- */
-function $hasUncoveredNode(nodes: LexicalNode[], marker: string): boolean {
-  return $getActionableNodes(nodes).some((node) => !$getMatchingCharNode(node, marker));
 }
 
 /**
@@ -1053,82 +1064,6 @@ export function $replaceCharacterMarkerAtSelection(
 }
 
 /**
- * Split the gap nodes into maximal runs of adjacent siblings — one `CharNode` wrapper each.
- *
- * Adjacency is checked with `getNextSibling()`, which subsumes a same-parent check: two nodes under
- * different parents are never each other's siblings. Both cases have to break the run — gaps
- * separated by covered content (`kolo ` and ` sana` around `\bd Mulu\bd*`) would have their text
- * reordered by a shared wrapper, and gaps under different parents would be hoisted out of the
- * element that holds them.
- *
- * Grouping happens before any wrapping: `append` moves a node out of its original parent, so
- * adjacency can only be read off the untouched tree.
- *
- * @param gapNodes - The uncovered text nodes, in document order.
- * @returns the runs to wrap, in document order.
- */
-function $groupAdjacentGapRuns(gapNodes: TextNode[]): TextNode[][] {
-  const runs: TextNode[][] = [];
-  let currentRun: TextNode[] | undefined;
-  gapNodes.forEach((gapNode) => {
-    const previousGapNode = currentRun?.[currentRun.length - 1];
-    if (currentRun && previousGapNode?.getNextSibling()?.is(gapNode)) currentRun.push(gapNode);
-    else {
-      currentRun = [gapNode];
-      runs.push(currentRun);
-    }
-  });
-  return runs;
-}
-
-/**
- * Wrap one run of adjacent uncovered text nodes in a new `CharNode` carrying `marker`.
- *
- * The wrapper is inserted where the run already is, then the run is appended into it — the shape
- * `$wrapSelectionInTypedMarkNode` (`TypedMarkNode.ts`) uses, minus its mark-specific parts.
- *
- * When a sibling of the run is already a `CharNode` carrying `marker`, the wrapper copies that
- * neighbor's identity via `$createCharNodeLike` instead of starting from a bare `$createCharNode`.
- * A fresh `CharNode` has no cid, and `$charNodeTransform`'s `$hasSameCharAttributes` check refuses
- * to merge a node that has one with one that doesn't — so in a collab document, where every
- * `CharNode` gets a cid, an identity-less wrapper would sit beside the neighbor forever instead of
- * merging into it.
- *
- * @remarks Insert-path parity (OQ-7): a marker never starts with a space, matching
- *   `$moveLeadingSpaceToPreviousNode`'s rule for the insert path. See the call below for the one
- *   exception.
- *
- * @remarks Previous-sibling preference: `.find` over `[previousSibling, nextSibling]` always picks
- *   the previous one when both are same-marker `CharNode`s. This is observable when the two
- *   neighbors carry different cids: the wrapper can only copy one identity, so it merges with
- *   whichever side it copied from and the result is two runs, not one, rather than merging with
- *   both.
- *
- * @param run - Adjacent sibling text nodes to wrap.
- * @param marker - The character marker for the new `CharNode`.
- */
-function $wrapRunInCharNode(run: TextNode[], marker: string): void {
-  const previousSibling = run[0].getPreviousSibling();
-  const nextSibling = run[run.length - 1].getNextSibling();
-  const neighborCharNode = [previousSibling, nextSibling].find(
-    (sibling): sibling is CharNode => $isCharNode(sibling) && sibling.getMarker() === marker,
-  );
-  const wrapper = neighborCharNode
-    ? $createCharNodeLike(neighborCharNode)
-    : $createCharNode(marker);
-  run[0].insertBefore(wrapper);
-  wrapper.append(...run);
-
-  // Insert-path parity (OQ-7): a marker never starts with a space. Skipped when the previous
-  // sibling is a same-marker CharNode, because `$moveLeadingSpaceToPreviousNode` would insert a
-  // plain space TextNode between the two runs — `$addTrailingSpace` no-ops on an element — and
-  // block the merge that makes them one marker. After merging the space is interior anyway.
-  const willMergeWithPreviousSibling =
-    $isCharNode(previousSibling) && previousSibling.getMarker() === marker;
-  if (!willMergeWithPreviousSibling) $moveLeadingSpaceToPreviousNode(run[0], wrapper);
-}
-
-/**
  * Extend a character marker to cover the whole selection, keeping all of its text content.
  *
  * "Extend" means *make the whole selection carry `marker`*, however much of it already does — the
@@ -1210,9 +1145,13 @@ export function $extendCharacterMarkerAtSelection(
   if (targetNodes.length === 0) return didChange;
 
   // A target is already covered when any ancestor up to the enclosing para carries `marker` — the
-  // same walk removal and replacement use to find their target. That one call is the whole
-  // coverage computation.
-  const gapNodes = targetNodes.filter((targetNode) => !$getMatchingCharNode(targetNode, marker));
+  // same walk removal and replacement use to find their target. Note interiors are screened
+  // separately by `$isInsideNote`, because an absent match means "uncovered" here but "do nothing"
+  // there, and `$getTargetNode` only drops note text one level deep. Kept in step with
+  // `$hasUncoveredNode`, the read-only pre-flight for this same filter.
+  const gapNodes = targetNodes.filter(
+    (targetNode) => !$isInsideNote(targetNode) && !$getMatchingCharNode(targetNode, marker),
+  );
   if (gapNodes.length > 0) {
     $groupAdjacentGapRuns(gapNodes).forEach((run) => $wrapRunInCharNode(run, marker));
     didChange = true;
@@ -1221,6 +1160,126 @@ export function $extendCharacterMarkerAtSelection(
   $restoreRangeOverTargets(targetNodes, isBackward);
   return didChange;
 }
+
+// #region Helper functions for $extendCharacterMarkerAtSelection
+
+/**
+ * Whether any actionable node in the selection is *not* already covered by `marker`.
+ *
+ * The read-only counterpart of the gap filter in `$extendCharacterMarkerAtSelection`, answered
+ * before the splitting pass so a fully covered request never calls `handleTextNode`'s `splitText`
+ * — which would put a documented no-op on the undo stack and produce an empty collab delta.
+ *
+ * Built on `$getActionableNodes`, which is deliberately no narrower than `$getTargetNode`, so this
+ * can only ever be more permissive — it never wrongly refuses an extend that would have happened.
+ *
+ * Note interiors are excluded up front by `$isInsideNote` rather than by an absent
+ * `$getMatchingCharNode` match: unlike removal and replacement, extension treats a missing match as
+ * "uncovered", so without that guard a note's text would read as something left to cover. Must stay
+ * in step with the gap filter in `$extendCharacterMarkerAtSelection`, which screens the same way.
+ *
+ * @param nodes - The nodes in the selection.
+ * @param marker - The character marker being extended.
+ * @returns `true` if there is something left to cover.
+ */
+function $hasUncoveredNode(nodes: LexicalNode[], marker: string): boolean {
+  return $getActionableNodes(nodes).some(
+    (node) => !$isInsideNote(node) && !$getMatchingCharNode(node, marker),
+  );
+}
+
+/**
+ * Split the gap nodes into maximal runs of adjacent siblings — one `CharNode` wrapper each.
+ *
+ * Adjacency is checked with `getNextSibling()`, which subsumes a same-parent check: two nodes under
+ * different parents are never each other's siblings. Both cases have to break the run — gaps
+ * separated by covered content (`kolo ` and ` sana` around `\bd Mulu\bd*`) would have their text
+ * reordered by a shared wrapper, and gaps under different parents would be hoisted out of the
+ * element that holds them.
+ *
+ * Grouping happens before any wrapping: `append` moves a node out of its original parent, so
+ * adjacency can only be read off the untouched tree.
+ *
+ * @param gapNodes - The uncovered text nodes, in document order.
+ * @returns the runs to wrap, in document order.
+ */
+function $groupAdjacentGapRuns(gapNodes: TextNode[]): TextNode[][] {
+  const runs: TextNode[][] = [];
+  let currentRun: TextNode[] | undefined;
+  gapNodes.forEach((gapNode) => {
+    const previousGapNode = currentRun?.[currentRun.length - 1];
+    if (currentRun && previousGapNode?.getNextSibling()?.is(gapNode)) currentRun.push(gapNode);
+    else {
+      currentRun = [gapNode];
+      runs.push(currentRun);
+    }
+  });
+  return runs;
+}
+
+/**
+ * Wrap one run of adjacent uncovered text nodes in a new `CharNode` carrying `marker`.
+ *
+ * The wrapper is inserted where the run already is, then the run is appended into it — the shape
+ * `$wrapSelectionInTypedMarkNode` (`TypedMarkNode.ts`) uses, minus its mark-specific parts.
+ *
+ * When a sibling of the run is already a `CharNode` carrying `marker`, the wrapper copies that
+ * neighbor's identity via `$createCharNodeLike` instead of starting from a bare `$createCharNode`.
+ * A fresh `CharNode` has no cid, and `$charNodeTransform`'s `$hasSameCharAttributes` check refuses
+ * to merge a node that has one with one that doesn't — so in a collab document, where every
+ * `CharNode` gets a cid, an identity-less wrapper would sit beside the neighbor forever instead of
+ * merging into it.
+ *
+ * @remarks Insert-path parity (OQ-7): a marker never starts with a space, matching
+ *   `$moveLeadingSpaceToPreviousNode`'s rule for the insert path. See the call below for the one
+ *   exception.
+ *
+ * @remarks The invariant behind the copied cid: two attached `CharNode`s may share one cid only
+ *   while they stay equivalent. `$charNodeTransform` normally reunites them inside the same
+ *   `editor.update()` (see `$setCharNodeMarker`), so nothing observes the pair. Even unmerged it is
+ *   invisible on the wire, because `$buildCharItem` emits `{style, cid}` per run and quill-delta's
+ *   `push` coalesces adjacent inserts with deep-equal attributes — the split and the merge serialize
+ *   identically. Both of those hold only while the attributes compare equal. An edit that changed
+ *   one half and not the other would break the coalescing and expose the duplicate cid to collab.
+ *   Not reachable today, and deliberately not asserted at runtime: the wrap can't observe a
+ *   divergence a later edit would introduce. The realistic way this breaks is `CharNodePlugin` not
+ *   being mounted — it is wired up only in platform's `Editor.tsx`, so lifting these utils toward
+ *   `shared` would silently start producing permanent duplicate-cid pairs. `Editor.test.tsx`'s
+ *   "covers the whole selection with one marker, not a nested pair" catches that by asserting
+ *   exactly one `char` node survives the merge.
+ *
+ * @remarks Previous-sibling preference: `.find` over `[previousSibling, nextSibling]` always picks
+ *   the previous one when both are same-marker `CharNode`s. This is observable when the two
+ *   neighbors carry different cids: the wrapper can only copy one identity, so it merges with
+ *   whichever side it copied from and the result is two runs, not one, rather than merging with
+ *   both.
+ *
+ * @param run - Adjacent sibling text nodes to wrap.
+ * @param marker - The character marker for the new `CharNode`.
+ */
+function $wrapRunInCharNode(run: TextNode[], marker: string): void {
+  const previousSibling = run[0].getPreviousSibling();
+  const nextSibling = run[run.length - 1].getNextSibling();
+  const neighborCharNode = [previousSibling, nextSibling].find(
+    (sibling): sibling is CharNode => $isCharNode(sibling) && sibling.getMarker() === marker,
+  );
+  const wrapper = neighborCharNode
+    ? $createCharNodeLike(neighborCharNode)
+    : $createCharNode(marker);
+  run[0].insertBefore(wrapper);
+  wrapper.append(...run);
+
+  // Insert-path parity (OQ-7): a marker never starts with a space. Skipped when the previous
+  // sibling is a same-marker CharNode, because `$moveLeadingSpaceToPreviousNode` would insert a
+  // plain space TextNode between the two runs — `$addTrailingSpace` no-ops on an element — and
+  // block the merge that makes them one marker. After merging the space is interior anyway.
+  // `.find` prefers the previous sibling (see the remark above), so identity against it is the
+  // whole test — no need to restate the same-marker rule.
+  const willMergeWithPreviousSibling = neighborCharNode === previousSibling;
+  if (!willMergeWithPreviousSibling) $moveLeadingSpaceToPreviousNode(run[0], wrapper);
+}
+
+// #endregion
 
 /**
  * Moves the leading space of a node following a verse node to the previous node.
