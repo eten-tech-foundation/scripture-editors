@@ -53,7 +53,7 @@ export default defineConfig({
       // Don't "clean up" the apparent duplication.
       entry: "src/index.ts",
       name: "@eten-tech-foundation/platform-editor",
-      // Two inputs, so the name must be derived per entry — a fixed "index"
+      // Several inputs, so the name must be derived per entry — a fixed "index"
       // makes Rollup dedup into index.js + index2.js.
       fileName: (_format: string, entryName: string) => `${entryName}.js`,
       // Change this to the formats you want to support.
@@ -67,6 +67,10 @@ export default defineConfig({
       input: {
         index: path.resolve(__dirname, "src/index.ts"),
         styles: path.resolve(__dirname, "src/styles.ts"),
+        // Optional UI stylesheets, kept out of styles.css so a consumer that supplies its own
+        // toolbar/context menu doesn't ship them (#516).
+        toolbar: path.resolve(__dirname, "src/toolbar.ts"),
+        "context-menu": path.resolve(__dirname, "src/context-menu.ts"),
       },
       external: [
         "react/jsx-runtime",

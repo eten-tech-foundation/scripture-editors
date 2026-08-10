@@ -23,15 +23,21 @@
       "default": "./dist/index.js"
     },
     "./styles.css": "./dist/styles.css",
-    "./comments.css": "./dist/index.css"
+    "./comments.css": "./dist/index.css",
+    "./toolbar.css": "./dist/toolbar.css",
+    "./context-menu.css": "./dist/context-menu.css"
   },
   "files": [
     "dist",
     "src",
     "!src/**/*.test.ts",
     "!src/**/*.test.tsx",
-    "!src/styles.css",
+    "!src/context-menu.ts",
+    "!src/context-menu.css",
+    "!src/toolbar.ts",
+    "!src/toolbar.css",
     "!src/styles.ts",
+    "!src/styles.css",
     "styles.css",
     "assets/images/icons/LICENSE.md"
   ],

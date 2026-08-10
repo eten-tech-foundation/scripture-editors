@@ -140,16 +140,33 @@ export default function App() {
 
 ## Styling
 
-The package ships a bundled stylesheet covering the Scripture nodes, the editor chrome and the marker menu. Import it once, wherever your app imports CSS:
+The package ships a stylesheet covering the editor chrome and the marker menu. Import it once, wherever your app imports CSS:
 
 ```ts
 import "@eten-tech-foundation/platform-editor/styles.css";
 ```
 
-The toolbar icons `editor.css` references are inlined into that stylesheet as data URIs, so **no asset copying is required**. Two things worth knowing:
+If you use the **built-in UI** (`hasExternalUI` is `false`, the default), also import the toolbar, and the context menu if you use it:
 
-- Importing it from a **bundler-processed stylesheet** works too (`@import "@eten-tech-foundation/platform-editor/styles.css";`), but a browser loading a plain `<link>`ed file cannot resolve a bare package specifier.
+```ts
+import "@eten-tech-foundation/platform-editor/toolbar.css";
+import "@eten-tech-foundation/platform-editor/context-menu.css";
+```
+
+They are separate entries so an app supplying its own toolbar or context menu doesn't ship styles it will override anyway.
+
+The toolbar icons are inlined as data URIs, so **no asset copying is required**. Two things worth knowing:
+
+- Importing from a **bundler-processed stylesheet** works too (`@import "@eten-tech-foundation/platform-editor/styles.css";`), but a browser loading a plain `<link>`ed file cannot resolve a bare package specifier.
 - If your host page sets a Content Security Policy, `img-src` must allow `data:` or the icons silently disappear — which looks like the stylesheet failed to load.
+
+### Scripture node styles are not bundled
+
+`usj-nodes.css` is deliberately **not** part of the bundle. Platform generates it per project, because it has to respond to project-specific stylesheets, `custom.sty` markers and the active view mode, so a fixed copy shipped in the package would be wrong for most consumers. The file in this repo is a placeholder for a formatted view.
+
+Until that generation lands, copy it out of the repo:
+
+- Scripture Nodes [/packages/platform/src/usj-nodes.css](/packages/platform/src/usj-nodes.css)
 
 If using the **commenting features** in the deprecated `<Marginal />` component, also import:
 
@@ -167,9 +184,12 @@ To restyle beyond CSS overrides, copy the sources out of this repo instead:
 
 - Scripture Nodes [/packages/platform/src/usj-nodes.css](/packages/platform/src/usj-nodes.css)
 - Editor [/packages/platform/src/editor/editor.css](/packages/platform/src/editor/editor.css)
+- Built-in toolbar [/packages/platform/src/editor/toolbar.css](/packages/platform/src/editor/toolbar.css)
+- Context menu [/packages/platform/src/editor/context-menu.css](/packages/platform/src/editor/context-menu.css)
+- TreeView, `debug` only [/packages/platform/src/editor/debug-tree-view.css](/packages/platform/src/editor/debug-tree-view.css)
 - Marker Menu [/libs/shared/src/styles/nodes-menu.css](/libs/shared/src/styles/nodes-menu.css)
 
-`editor.css` references its icons from [/packages/platform/assets](/packages/platform/assets) by absolute URL, so a hand-copied stylesheet also needs those assets served from your web root. Swap the vendored imports for `styles.css` rather than stacking both, or the rules double up.
+`toolbar.css` references its icons from [/packages/platform/assets](/packages/platform/assets) by absolute URL, so a hand-copied stylesheet also needs those assets served from your web root. Swap the vendored imports for `styles.css` rather than stacking both, or the rules double up.
 
 Comment styles, if using `<Marginal />`:
 

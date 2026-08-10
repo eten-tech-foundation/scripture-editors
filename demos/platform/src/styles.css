@@ -6,6 +6,11 @@
 @import "../../../packages/platform/src/marginal/comments/comment-editor.theme";
 @import "../../../packages/platform/src/marginal/comments/CommentPlugin";
 @import "../../../packages/platform/src/editor/editor";
+/* Split out of editor.css (#516): the built-in toolbar, the context menu and the debug TreeView
+   are their own entries so consumers with external UI don't ship them. The demo uses all three. */
+@import "../../../packages/platform/src/editor/toolbar";
+@import "../../../packages/platform/src/editor/context-menu";
+@import "../../../packages/platform/src/editor/debug-tree-view";
 @import "../../../libs/shared/src/styles/nodes-menu";
 @import "./app/app-overrides";
 

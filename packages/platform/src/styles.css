@@ -5,9 +5,14 @@
  * `@eten-tech-foundation/platform-editor/styles.css`. Icon SVGs referenced by
  * editor.css are inlined as data URIs at build time, so no assets need copying.
  *
- * Import order is the documented cascade: Scripture nodes, then the editor
- * chrome, then the marker menu.
+ * Scope: what every editor needs, whatever its configuration. Three things are
+ * deliberately NOT here:
+ *   - the built-in toolbar (`hasExternalUI: false`) and the context menu, which
+ *     ship as their own entries so a consumer supplying its own UI doesn't pay
+ *     for them: `platform-editor/toolbar.css`, `platform-editor/context-menu.css`;
+ *   - `usj-nodes.css`, which Platform generates per project — it has to respond to
+ *     project stylesheets, `custom.sty` markers and view modes, so a fixed copy in
+ *     the package would be wrong. Keep copying it (see README).
  */
-@import "./usj-nodes.css";
 @import "./editor/editor.css";
 @import "../../../libs/shared/src/styles/nodes-menu.css";
