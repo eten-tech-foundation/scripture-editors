@@ -2023,6 +2023,87 @@ describe("USJ Marker Action Utils", () => {
         expect(noteNode.getTextContent()).toBe("Lord");
       });
     });
+
+    it("moves a leading space out of the new marker, as the insert path does", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        charTextNode = $createTextNode("the Mulu");
+        $getRoot().append($createParaNode("p").append(charTextNode));
+      });
+      // "the[ Mulu]" — one text node, not two adjacent ones: Lexical's `$normalizeTextNode` merges
+      // same-format adjacent text siblings on commit, so a two-node fixture would be gone before
+      // the test could select it. The split happens inside the SUT, as it does in the real editor.
+      updateSelection(editor, charTextNode, 3, charTextNode, 8);
+
+      expect(sutExtendCharacterMarker(editor, "bd")).toBe(true);
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        expect(para.getTextContent()).toBe("the Mulu");
+        const [leading, wrapper] = para.getChildren();
+        if (!$isTextNode(leading)) throw new Error("leading is not a TextNode");
+        if (!$isCharNode(wrapper)) throw new Error("wrapper is not a CharNode");
+        // A \bd span never starts with a space — the rule `$moveLeadingSpaceToPreviousNode` already
+        // enforces on the insert path.
+        expect(leading.getTextContent()).toBe("the ");
+        expect(wrapper.getTextContent()).toBe("Mulu");
+      });
+    });
+
+    it("keeps a leading space inside the wrapper when it will merge with the previous run", () => {
+      let muluTextNode!: TextNode;
+      let koloTextNode!: TextNode;
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        muluTextNode = $createTextNode("Mulu");
+        koloTextNode = $createTextNode(" kolo");
+        $getRoot().append(
+          $createParaNode("p").append($createCharNode("bd").append(muluTextNode), koloTextNode),
+        );
+      });
+      updateSelection(editor, muluTextNode, 0, koloTextNode, 5);
+
+      expect(sutExtendCharacterMarker(editor, "bd")).toBe(true);
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        expect(para.getTextContent()).toBe("Mulu kolo");
+        // Moving the space out would put a plain TextNode between the two \bd runs and stop
+        // `$charNodeTransform` merging them. After the merge the space is interior, so the span
+        // still doesn't start with a space — the insert path's actual rule is honored.
+        const children = para.getChildren();
+        expect(children.length).toBe(2);
+        const [existing, wrapper] = children;
+        if (!$isCharNode(existing)) throw new Error("existing is not a CharNode");
+        if (!$isCharNode(wrapper)) throw new Error("wrapper is not a CharNode");
+        expect(existing.getTextContent()).toBe("Mulu");
+        expect(wrapper.getTextContent()).toBe(" kolo");
+      });
+    });
+
+    it("leaves an interior space alone when extending over it", () => {
+      let koloTextNode!: TextNode;
+      let muluTextNode!: TextNode;
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        koloTextNode = $createTextNode("kolo ");
+        muluTextNode = $createTextNode("Mulu");
+        $getRoot().append(
+          $createParaNode("p").append(koloTextNode, $createCharNode("bd").append(muluTextNode)),
+        );
+      });
+      updateSelection(editor, koloTextNode, 0, muluTextNode, 4);
+
+      sutExtendCharacterMarker(editor, "bd");
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        // No trailing-space handling is invented: the insert path has no opinion about it, and
+        // OQ-7 is still open. The space stays where the user put it.
+        expect(para.getTextContent()).toBe("kolo Mulu");
+        expect(para.getFirstChild()?.getTextContent()).toBe("kolo ");
+      });
+    });
   });
 
   describe("should insert a note", () => {

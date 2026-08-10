@@ -1020,6 +1020,10 @@ function $groupAdjacentGapRuns(gapNodes: TextNode[]): TextNode[][] {
  * `CharNode` gets a cid, an identity-less wrapper would sit beside the neighbor forever instead of
  * merging into it.
  *
+ * @remarks Insert-path parity (OQ-7): a marker never starts with a space, matching
+ *   `$moveLeadingSpaceToPreviousNode`'s rule for the insert path. See the call below for the one
+ *   exception.
+ *
  * @param run - Adjacent sibling text nodes to wrap.
  * @param marker - The character marker for the new `CharNode`.
  */
@@ -1034,6 +1038,14 @@ function $wrapRunInCharNode(run: TextNode[], marker: string): void {
     : $createCharNode(marker);
   run[0].insertBefore(wrapper);
   wrapper.append(...run);
+
+  // Insert-path parity (OQ-7): a marker never starts with a space. Skipped when the previous
+  // sibling is a same-marker CharNode, because `$moveLeadingSpaceToPreviousNode` would insert a
+  // plain space TextNode between the two runs — `$addTrailingSpace` no-ops on an element — and
+  // block the merge that makes them one marker. After merging the space is interior anyway.
+  const willMergeWithPreviousSibling =
+    $isCharNode(previousSibling) && previousSibling.getMarker() === marker;
+  if (!willMergeWithPreviousSibling) $moveLeadingSpaceToPreviousNode(run[0], wrapper);
 }
 
 /**
