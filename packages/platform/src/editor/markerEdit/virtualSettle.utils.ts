@@ -151,12 +151,19 @@ function serializedRunWrapperChildren(
  * to reuse `$signatureOf` on both sides the way the mutating settle does; this computes the exact
  * same signature directly from the JSON instead.
  *
- * Never needs `$isRebuildSentinel`'s node-kind classification: every node kind that check would
- * collapse to `ATOMIC_SENTINEL` on the live side (a note, an opaque block, a non-re-tokenizable
- * milestone, a char span with unrecoverable attributes) is, by construction, never produced FRESH
- * by the tokenizer — `$buildParaFragment` already replaced each one with a single ATOMIC_SENTINEL
- * character in the fragment text before tokenizing, so it rides through `rebuilt` as an ordinary
- * character inside a plain text node, not as a node of its own kind.
+ * Never needs `$isRebuildSentinel`'s node-kind classification — NOT because a sentinel-class kind
+ * (a note, an opaque block, a non-re-tokenizable milestone, a char span with unrecoverable
+ * attributes) can never appear FRESH here: it can. An unknown marker typed inside note content,
+ * for instance, tokenizes into a genuinely fresh "char" entry carrying `unknownAttributes`, which
+ * this function's own "char" branch below walks structurally rather than collapsing to one
+ * opaque character the way `$appendSignature` collapses its LIVE counterpart. The mirror stays
+ * safe anyway: a freshly-emitted sentinel-class node is, by definition, content that was NOT
+ * already sitting in the OLD live tree in that same opaque form, so `$signatureOf` of the old
+ * content can never equal what this function produces for it — the comparison this function feeds
+ * comes out UNEQUAL either way, which is exactly what correctly drives a splice instead of a
+ * mistaken no-op refusal. A matching signature is the only outcome that would need this function
+ * to classify a node identically to `$appendSignature`, and a fresh sentinel-class node can never
+ * produce one against content that didn't already contain it.
  */
 function serializedSignatureOf(nodes: SerializedLexicalNode[], getMarkerFn: MarkerLookup): string {
   const out: string[] = [];
@@ -625,7 +632,7 @@ function $verifiedTransientLiteral(
  * normalizes away, never a dropped sentinel placeholder), and it disappears on its own the next time
  * the declaration clears and a real settle re-derives the fragment from scratch.
  */
-function fragmentTextWithoutTransient(
+function $fragmentTextWithoutTransient(
   fragment: FragmentAccumulator,
   transient: TransientLiteral,
 ): string {
@@ -658,7 +665,7 @@ function fragmentTextWithoutTransient(
  * the display untouched) — see `serializedSignatureOf`'s own doc comment for the full mechanics.
  *
  * `transient`, when it resolves to bytes inside THIS paragraph's own fragment
- * ({@link fragmentTextWithoutTransient}), is cut out before tokenizing — the declared bytes never
+ * ({@link $fragmentTextWithoutTransient}), is cut out before tokenizing — the declared bytes never
  * reach the tokenizer, so they can never turn into a phantom structural marker in the output. A
  * `transient` naming some other scope leaves the fragment text untouched, same as no declaration at
  * all.
@@ -682,7 +689,7 @@ function $settledParaNodes(
   const fragment = $buildParaFragment(para, getMarkerFn);
   if (!fragment) return undefined;
   const fragmentText = transient
-    ? fragmentTextWithoutTransient(fragment, transient)
+    ? $fragmentTextWithoutTransient(fragment, transient)
     : fragment.text;
   const content: MarkerContent[] = usfmFragmentToUsjContent(fragmentText, {
     getMarker: getMarkerFn,
@@ -738,7 +745,7 @@ function $settledParaNodes(
  * reasoning as `$settledParaNodes`'s own check, see its doc comment.
  *
  * `transient` is cut out of the note's own fragment text the same way `$settledParaNodes` cuts it
- * out of a paragraph's — see {@link fragmentTextWithoutTransient}'s doc comment; a declaration
+ * out of a paragraph's — see {@link $fragmentTextWithoutTransient}'s doc comment; a declaration
  * naming a node outside this note's content leaves `out.text` untouched.
  */
 function $settledNoteContent(
@@ -753,7 +760,7 @@ function $settledNoteContent(
   if (!built) return undefined;
   const { out, contentNodes } = built;
   if (contentNodes.length === 0) return undefined;
-  const fragmentText = transient ? fragmentTextWithoutTransient(out, transient) : out.text;
+  const fragmentText = transient ? $fragmentTextWithoutTransient(out, transient) : out.text;
   const content: MarkerContent[] = usfmFragmentToUsjContent(fragmentText, {
     getMarker: getMarkerFn,
     isNoteContext: true,
@@ -819,6 +826,17 @@ function $settledNoteContent(
   // half-typed attribute run OR a bare char-span rename inside an expanded note would either get
   // silently dropped or silently refused — the same signature-equivalent-but-textually-different
   // divergence `$settledParaNodes` guards against.
+  //
+  // The paragraph-scope analogue of `$liveStructuralMarkers`'s opacity gate (an unrelated,
+  // un-edited co-resident note whose own nested char span inflates the live marker sequence, see
+  // that function's doc comment) has NO reachable note-content counterpart here: three attempts to
+  // construct "an un-edited sentinel span co-resident inside note content, alongside a genuine
+  // fixed-point elsewhere in that same content" all failed on mount — the note tokenizer re-parses
+  // its ENTIRE content on load whenever it sees a sentinel-shaped span at all, dissolving the
+  // separator-less marker+text shape the fixed-point pin needs before this call site is ever
+  // reached. The mechanism is still covered: `$structuralMarkersAgree` is the SAME function,
+  // exercised at this call site by the ordinary note-content settle tests, and the opacity gate
+  // inside `$liveStructuralMarkers` applies unconditionally regardless of which caller reached it.
   if (
     serializedSignatureOf(rebuilt, getMarkerFn) === $signatureOf(contentNodes, getMarkerFn) &&
     $structuralMarkersAgree(contentNodes, rebuilt, getMarkerFn)
