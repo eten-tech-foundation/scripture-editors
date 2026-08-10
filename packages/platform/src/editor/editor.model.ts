@@ -29,7 +29,10 @@ import {
  *
  * @public
  */
-export type TransientInput = { kind: "marker-literal"; run: string };
+export interface TransientInput {
+  kind: "marker-literal";
+  run: string;
+}
 
 /**
  * Forward reference for the editor.
