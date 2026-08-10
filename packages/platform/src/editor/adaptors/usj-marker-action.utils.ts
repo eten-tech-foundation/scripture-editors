@@ -1013,11 +1013,25 @@ function $groupAdjacentGapRuns(gapNodes: TextNode[]): TextNode[][] {
  * The wrapper is inserted where the run already is, then the run is appended into it — the shape
  * `$wrapSelectionInTypedMarkNode` (`TypedMarkNode.ts`) uses, minus its mark-specific parts.
  *
+ * When a sibling of the run is already a `CharNode` carrying `marker`, the wrapper copies that
+ * neighbor's identity via `$createCharNodeLike` instead of starting from a bare `$createCharNode`.
+ * A fresh `CharNode` has no cid, and `$charNodeTransform`'s `$hasSameCharAttributes` check refuses
+ * to merge a node that has one with one that doesn't — so in a collab document, where every
+ * `CharNode` gets a cid, an identity-less wrapper would sit beside the neighbor forever instead of
+ * merging into it.
+ *
  * @param run - Adjacent sibling text nodes to wrap.
  * @param marker - The character marker for the new `CharNode`.
  */
 function $wrapRunInCharNode(run: TextNode[], marker: string): void {
-  const wrapper = $createCharNode(marker);
+  const previousSibling = run[0].getPreviousSibling();
+  const nextSibling = run[run.length - 1].getNextSibling();
+  const neighborCharNode = [previousSibling, nextSibling].find(
+    (sibling): sibling is CharNode => $isCharNode(sibling) && sibling.getMarker() === marker,
+  );
+  const wrapper = neighborCharNode
+    ? $createCharNodeLike(neighborCharNode)
+    : $createCharNode(marker);
   run[0].insertBefore(wrapper);
   wrapper.append(...run);
 }

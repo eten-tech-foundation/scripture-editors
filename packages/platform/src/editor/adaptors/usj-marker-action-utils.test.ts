@@ -1908,6 +1908,52 @@ describe("USJ Marker Action Utils", () => {
       });
     });
 
+    it("copies the neighboring run's identity onto the wrapper so the two can merge", () => {
+      let koloTextNode!: TextNode;
+      let muluTextNode!: TextNode;
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        koloTextNode = $createTextNode("kolo ");
+        muluTextNode = $createTextNode("Mulu");
+        const charNode = $createCharNode("bd", { customAttr: "value" });
+        $setState(charNode, charIdState, "char-id");
+        $getRoot().append($createParaNode("p").append(koloTextNode, charNode.append(muluTextNode)));
+      });
+      updateSelection(editor, koloTextNode, 0, muluTextNode, 4);
+
+      sutExtendCharacterMarker(editor, "bd");
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        const wrapper = para.getFirstChild();
+        if (!$isCharNode(wrapper)) throw new Error("wrapper is not a CharNode");
+        // `$hasSameCharAttributes` requires both nodes to have a cid or neither to — a wrapper
+        // without one would never merge with its neighbor in a collab document.
+        expect($getState(wrapper, charIdState)).toBe("char-id");
+        expect(wrapper.getUnknownAttributes()).toEqual({ customAttr: "value" });
+      });
+    });
+
+    it("creates a plain wrapper when there is no neighboring run to match", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        charTextNode = $createTextNode("kolo Mulu");
+        $getRoot().append($createParaNode("p").append(charTextNode));
+      });
+      updateSelection(editor, charTextNode, 0, charTextNode, 9);
+
+      expect(sutExtendCharacterMarker(editor, "bd")).toBe(true);
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        const wrapper = para.getFirstChild();
+        if (!$isCharNode(wrapper)) throw new Error("wrapper is not a CharNode");
+        expect(wrapper.getMarker()).toBe("bd");
+        expect(wrapper.getTextContent()).toBe("kolo Mulu");
+        expect($getState(wrapper, charIdState)).toBeUndefined();
+      });
+    });
+
     it("is a no-op for a collapsed selection", () => {
       const { editor } = createBasicTestEnvironment(nodes, () => {
         charTextNode = $createTextNode("Mulu");
