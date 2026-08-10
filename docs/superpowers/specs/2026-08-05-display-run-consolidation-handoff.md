@@ -365,3 +365,12 @@ Phase 1 (targeted extraction) and phase 2a (the wrapper-element flip) landed 202
 independently in `docs/superpowers/plans/2026-08-07-display-run-registry.md`; the two waves touch
 no shared file (confirmed in the wave-4 plan's file-overlap audit) and either order is valid, so
 phase 2b can proceed without waiting on anything further from this wave.
+
+**Postscript addendum (2026-08-10, wave-4 final review):** one follow-up candidate from live
+verification — a PASSIVE palette session dismissed by blur clears its transient declaration
+while the trigger literal stays in the document, so a save in that window carries a settled
+phantom marker (visible, correctable; the wave's accepted no-caret-held-exception trade-off,
+never silent loss). Remediation candidates (recorded from the wave-4 fix report): keep the
+declaration alive until the literal is actually consumed/removed, or have passive dismiss also
+remove the trigger literal. Belongs to the host overlay service; revisit alongside the palette
+popover-across-navigation cosmetic.
