@@ -1,6 +1,6 @@
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { useEffect } from "react";
-import { $isParaMarkerPrefix, LoggerBasic, ParaNode, PARA_MARKER_DEFAULT } from "shared";
+import { $isSynthesizedMarkerNode, LoggerBasic, ParaNode, PARA_MARKER_DEFAULT } from "shared";
 import { ViewOptions } from "shared-react";
 
 /**
@@ -58,7 +58,7 @@ export function ParaMarkerPrefixGuardPlugin({
 export function $resetMarkerIfPrefixDeleted(para: ParaNode, logger?: LoggerBasic): void {
   if (para.getMarker() === PARA_MARKER_DEFAULT) return;
   if (para.isEmpty()) return;
-  if ($isParaMarkerPrefix(para.getFirstChild())) return;
+  if ($isSynthesizedMarkerNode(para.getFirstChild())) return;
   logger?.debug(
     `[ParaMarkerPrefixGuard] Resetting paragraph "${para.getMarker()}" → "${PARA_MARKER_DEFAULT}" (key ${para.getKey()})`,
   );

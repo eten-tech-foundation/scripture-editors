@@ -3,6 +3,7 @@
 import { $expectSelectionToBe } from "../../../../../libs/shared/src/nodes/usj/test.utils";
 import { ImmutableVerseNode, $createImmutableVerseNode } from "../../nodes/usj/ImmutableVerseNode";
 import { $isSomeVerseNode } from "../../nodes/usj/node-react.utils";
+import { $getRangeFromUsjSelection } from "./annotation/selection.utils";
 import { TextSpacingPlugin } from "./TextSpacingPlugin";
 import {
   baseTestEnvironment,
@@ -96,6 +97,89 @@ describe("TextSpacingPlugin", () => {
       expect(para.getChildren()).toHaveLength(1);
       const verseNode = para.getChildAtIndex(0);
       if (!$isSomeVerseNode(verseNode)) throw new Error("Expected some verse node");
+    });
+  });
+
+  it("should remove an empty verse's space that an edit left behind", async () => {
+    // Covers the space arriving via a user EDIT (type then delete); the sibling test below covers
+    // it arriving with already-loaded content. See `$textNodeTrailingSpaceTransform` for why the
+    // space must go. Unit-level guard only — the cross-process reload this prevents lives in core
+    // and is not exercised here.
+    const { editor } = await testEnvironment();
+
+    // Type between the two empty verses; the transform adds the structural trailing space.
+    await typeTextAfterNode(editor, "a", v1Node, 0);
+
+    let typedNode: TextNode | undefined;
+    editor.getEditorState().read(() => {
+      const para = $getRoot().getChildren()[1];
+      if (!$isParaNode(para)) throw new Error("Expected a ParaNode");
+      const node = para.getChildAtIndex(1);
+      if (!$isTextNode(node)) throw new Error("Expected a TextNode");
+      expect(node.getTextContent()).toBe("a ");
+      typedNode = node;
+    });
+
+    // Delete the "a", leaving only the structural space behind.
+    // `typedNode` is assigned in the read above.
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    await deleteTextAtSelection(editor, typedNode!, 0, typedNode!, 1);
+
+    editor.getEditorState().read(() => {
+      const para = $getRoot().getChildren()[1];
+      if (!$isParaNode(para)) throw new Error("Expected a ParaNode");
+      // The caret comes to rest on the paragraph itself, at the boundary just after verse 1 —
+      // the same resting position an untouched empty verse has. Asserting the exact node and
+      // offset matters: merely asserting a non-null selection would also pass when the space
+      // survives, because the caret then simply stays inside the leftover text node.
+      $expectSelectionToBe(para, 1);
+      // [verse 1, verse 2] — no exporter-visible content item for the now-empty verse.
+      expect($getLogicalContentItems(para)).toHaveLength(2);
+      expect(para.getTextContent()).toBe("");
+    });
+  });
+
+  it("should keep USJ content indexes resolvable after an empty verse's space is removed", async () => {
+    // Annotation and comment anchors resolve by logical content index, so a paragraph's item count
+    // here must match the shape core serves. Core drops the empty verse's space, giving
+    // [verse 1, verse 2, "tail"]; if the editor kept the space, logical index 2 would resolve to
+    // verse 2 instead of the tail text and every anchor after an empty verse would land one item
+    // early — the index-shift class guarded against in $verseNodeTransform.
+    let verse1: ImmutableVerseNode;
+    let tailText: TextNode;
+    const { editor } = await testEnvironment(() => {
+      verse1 = $createImmutableVerseNode("1");
+      tailText = $createTextNode("tail");
+      $getRoot().append($createParaNode().append(verse1, $createImmutableVerseNode("2"), tailText));
+    });
+
+    // Type into empty verse 1 then delete it again — the flow that leaves the structural space.
+    // `verse1` is assigned in the setup callback above.
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    await typeTextAfterNode(editor, "a", verse1!, 0);
+
+    let typedNode: TextNode | undefined;
+    editor.getEditorState().read(() => {
+      const para = $getRoot().getFirstChild();
+      if (!$isParaNode(para)) throw new Error("Expected a ParaNode");
+      const node = para.getChildAtIndex(1);
+      if (!$isTextNode(node)) throw new Error("Expected a TextNode");
+      typedNode = node;
+    });
+    // `typedNode` is assigned in the read above.
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    await deleteTextAtSelection(editor, typedNode!, 0, typedNode!, 1);
+
+    editor.getEditorState().read(() => {
+      // Logical index 2 is the tail text in core's shape; it must be the tail text here too.
+      const range = $getRangeFromUsjSelection({
+        start: { jsonPath: "$.content[0].content[2]", offset: 1 },
+      });
+      if (!range) throw new Error("Expected the USJ selection to resolve");
+      // `tailText` is assigned in the setup callback above.
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      expect(range.anchor.key).toBe(tailText!.getKey());
+      expect(range.anchor.offset).toBe(1);
     });
   });
 
@@ -262,7 +346,44 @@ describe("TextSpacingPlugin", () => {
     });
   });
 
-  it("should not remove a space if it precedes a verse", async () => {
+  it("should not add a space between adjacent text nodes of the same run", async () => {
+    // IME composition (complex scripts) and annotation-wrap splits can leave a verse's text as
+    // multiple adjacent TextNodes that Lexical does not merge (e.g. a segmented composition
+    // node). They are one logical text run, so no structural space belongs between them —
+    // inserting one corrupts the word itself (#513), e.g. Gujarati "કર્યું" becoming "કર્ય ું".
+    const { editor } = await testEnvironment(() => {
+      $getRoot().append(
+        $createParaNode().append(
+          $createImmutableVerseNode("1"),
+          $createTextNode("ab"),
+          $createTextNode("cd").setMode("segmented"),
+          $createImmutableVerseNode("2"),
+        ),
+      );
+    });
+
+    // Trigger an update (transforms run).
+    await act(async () => editor.update(() => undefined));
+
+    editor.getEditorState().read(() => {
+      const para = $getRoot().getFirstChild();
+      if (!$isParaNode(para)) throw new Error("Expected a ParaNode");
+      // One intact logical run. No canonical pre-verse space yet either: the tail is a
+      // composition segment, and text must never be mutated mid-composition — the space
+      // arrives from this same transform once the segment settles to a normal TextNode.
+      expect(para.getTextContent()).toBe("abcd");
+    });
+  });
+
+  it("should remove an empty verse's space that arrived with already-loaded content", async () => {
+    // Covers the space arriving with content the editor was LOADED with (e.g. a document whose USJ
+    // already carries it), not produced by an edit as in the sibling test above — the transform
+    // must clean it up on its first pass over existing content, without any edit to trigger it.
+    // See `$textNodeTrailingSpaceTransform` for why the space must go. Unit-level guard only.
+    //
+    // Note this stays narrower than "never remove a space before a verse": a space preceding a
+    // verse is still kept when it is genuine structural content — after a CharNode (see the
+    // annotation test below) or as a paragraph's leading text (see the deletion test below).
     const { editor } = await testEnvironment(() => {
       $getRoot().append(
         $createParaNode().append(
@@ -284,9 +405,11 @@ describe("TextSpacingPlugin", () => {
     editor.getEditorState().read(() => {
       const para = $getRoot().getFirstChild();
       if (!$isParaNode(para)) throw new Error("Expected a ParaNode");
-      expect(para.getChildren()).toHaveLength(3);
-      const spaceNode = para.getChildAtIndex(1);
-      expect($isTextNode(spaceNode) && spaceNode.getTextContent() === " ").toBe(true);
+      // [verse 1, verse 2] — the empty verse contributes no content item. Asserted on logical
+      // content items rather than children so this stays invariant to whether Lexical has yet
+      // garbage-collected the emptied text node.
+      expect($getLogicalContentItems(para)).toHaveLength(2);
+      expect(para.getTextContent()).toBe("");
     });
   });
 

@@ -15,6 +15,7 @@
   ],
   "dictionaryDefinitions": [],
   "dictionaries": [],
+  "ignoreRegExpList": ["GHSA(-[a-z0-9]{4}){3}"],
   "words": [
     "charis",
     "codesandbox",
@@ -23,6 +24,7 @@
     "deuterocanonical",
     "epitelete",
     "eten",
+    "ghsa",
     "hopkinson",
     "nrsv",
     "paratext",
