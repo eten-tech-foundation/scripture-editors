@@ -209,7 +209,7 @@ describe("displayRunRegistry scanPieces", () => {
 
 describe("displayRunDescriptor lookup", () => {
   it("throws for an unregistered kind, naming it in the message", () => {
-    // "separator" is a valid DisplayRunKind, but the owner-walk task registers only
+    // "separator" is a valid DisplayRunKind, but the registry currently registers only
     // char/va/vp/milestone/optbreak — pins both the throw and the documented message shape
     // (displayRunRegistry.ts's doc comment).
     expect(() => displayRunDescriptor("separator")).toThrow(

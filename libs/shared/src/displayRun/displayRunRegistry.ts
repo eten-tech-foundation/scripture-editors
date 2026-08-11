@@ -258,10 +258,14 @@ const milestoneDescriptor: DisplayRunDescriptor = {
     if ($isAttributeRunNode(start) && start.getRunKind() !== "milestone") return undefined;
     const previous = start.getPreviousSibling();
     // A milestone's run is a SINGLE wrapper (or one contiguous loose group) directly following its
-    // milestone — there is no second marker to cross, unlike a verse's `\va`/`\vp` pair.
-    if ($isMilestoneNode(previous)) return previous;
-    if (!previous || !$isMilestoneRunPiece(previous)) return undefined;
-    return $isAttributeRunNode(start) ? undefined : $milestoneOfLooseChain(start);
+    // milestone — there is no second marker to cross, unlike a verse's `\va`/`\vp` pair. A WRAPPER
+    // requires direct adjacency to the milestone (the builder always creates/heals it immediately
+    // after — never behind intervening debris), so it gets no chain walk of its own; a LOOSE piece
+    // delegates entirely to $milestoneOfLooseChain, which both walks the chain AND re-checks marker
+    // identity against any opening glyph it crosses — the check the retired sibling walk lacked, so
+    // a foreign opening glyph (any marker) adjacent to a milestone must not classify it as owner.
+    if ($isAttributeRunNode(start)) return $isMilestoneNode(previous) ? previous : undefined;
+    return $milestoneOfLooseChain(start);
   },
   expectedPieces: (owner) => {
     if (!$isMilestoneNode(owner)) return NO_RUN;
