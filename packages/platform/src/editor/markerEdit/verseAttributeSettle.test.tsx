@@ -528,23 +528,26 @@ describe("verse \\va/\\vp deletion settles (does not resurrect)", () => {
   it("crosses a WRAPPED \\va to find the owning verse when re-driving a LOOSE \\vp's caret-held pend (mixed shape)", async () => {
     // A mixed va-wrapped/vp-loose tree is transient post-flip (the next sync pass heals the loose
     // \vp forward into its own wrapper), but transient still means REAL for one commit — e.g. an
-    // undo-restored pre-flip state, or a partial collab materialization. $verseOfAttributeGlyph's
-    // walk-back (MarkerEditPlugin.tsx) must cross the WRAPPED \va to reach the owning verse when
-    // re-driving the pend off a dirtied LOOSE \vp glyph — without that, the pend is silently lost
-    // and a caret-held \vp edit would resurrect on departure instead of settling, exactly the bug
-    // class $verseOfAttributeSourceText/$ownerOfRunPiece already guard against for the SOURCE-SPAN
-    // and DESTROYED-piece classifiers.
+    // undo-restored pre-flip state, or a partial collab materialization. `$ownerOfRunPiece`'s
+    // walk-back (shared's displayRunOwner.utils.ts), which the MarkerNode transform below
+    // delegates to for its loose-glyph re-drive, must cross the WRAPPED \va to reach the owning
+    // verse when re-driving the pend off a dirtied LOOSE \vp glyph — without that, the pend is
+    // silently lost and a caret-held \vp edit would resurrect on departure instead of settling.
+    // `$ownerOfRunPiece` already crosses a wrapper correctly for the DESTROYED-piece classifier
+    // ($pendOwnersOfDestroyed) and $verseOfAttributeSourceText's own walk-back does the same for
+    // the SOURCE-SPAN case; this test pins the SAME crossing for the LIVE re-sync path the
+    // MarkerNode transform shares with the destroyed-piece classifier.
     //
     // Establishing the mixed shape (below) necessarily dirties the \va wrapper too (Lexical's
     // sibling list touches both neighbors of an insertion point), which independently pends the
-    // verse via the ALREADY-correct AttributeRunNode transform ($ownerOfAttributeRunWrapper) — not
-    // the function under test here. The caret is parked on the loose \vp's value WITHOUT diverging
+    // verse via the ALREADY-correct AttributeRunNode transform (also `$ownerOfRunPiece`-backed) —
+    // not the path under test here. The caret is parked on the loose \vp's value WITHOUT diverging
     // it, so that construction commit's pend check ($hasCaretHeldVerseAttributeRun, which requires
     // genuine divergence) stays false: mid-edit grace alone blocks the heal, the verse stays
     // UNPENDED, and the mixed shape survives. Only the SEPARATE, later commit below — which
     // diverges the loose \vp's value IN PLACE and explicitly dirties its still-loose opener glyph,
     // never touching the verse or the \va wrapper — can explain a pend from there on, isolating
-    // $verseOfAttributeGlyph's own contribution.
+    // the MarkerNode transform's own contribution.
     const { editor } = await testEnvironmentWithSpacing(() => {
       const verse = $createVerseNode("1", getVisibleOpenMarkerText("v", "1"), undefined, "2", "3");
       $getRoot().append(
