@@ -16,7 +16,6 @@ import {
 } from "lexical";
 import {
   $caretHoldsRunSite,
-  $hasCaretHeldMilestoneRun,
   $hasCaretHeldSeparatorGap,
   $isCharNode,
   $isMarkerNode,
@@ -32,7 +31,6 @@ import {
   $syncDisplayRun,
   $verseAttributeRunPieces,
   AttributeRunNode,
-  canonicalAttributeText,
   ChapterNode,
   closingMarkerText,
   displayRunDescriptor,
@@ -41,10 +39,6 @@ import {
   MarkerLookup,
   MarkerNode,
   MarkerType,
-  milestoneAttributes,
-  milestoneDefaultAttribute,
-  MilestoneNode,
-  NBSP,
   NoteNode,
   openingMarkerText,
   VerseNode,
@@ -298,23 +292,6 @@ export function $chapterNodeTransform(node: ChapterNode): void {
 }
 
 /**
- * The canonical NBSP+`|…` bytes `node` should display between its glyphs — shared between
- * `MarkerEditPlugin`'s registered transform and this file's pend resolution so both always agree
- * on what "canonical" means for a milestone. `milestoneAttributes` (attributeDisplay.utils.ts)
- * folds sid/eid/unknownAttributes into the same object usj-editor.adaptor's `addAttributes` builds
- * from a `MarkerObject`. Computed here rather than inside `shared`'s attributeDisplay.utils.ts:
- * `milestoneDefaultAttribute` lives in the converters, and `shared`'s nodes/usj module graph must
- * not import from there (converters/usfm already imports FROM nodes/usj, so the reverse import
- * would cycle) — same reason `$syncCharAttributeDisplayNode` lives in CharNodePlugin.tsx.
- * @param node - MilestoneNode whose display run needs updating.
- */
-export function $milestoneAttributeDisplayText(node: MilestoneNode): string {
-  const attributes = milestoneAttributes(node.getSid(), node.getEid(), node.getUnknownAttributes());
-  const text = canonicalAttributeText(attributes, milestoneDefaultAttribute(node.getMarker()));
-  return text ? NBSP + text : "";
-}
-
-/**
  * Every currently-attached but EMPTY `AttributeRunNode` wrapper riding on `node` (a verse's `\va`
  * and/or `\vp` wrapper, or a milestone's single wrapper) — every piece of that wrapper's run was
  * deleted, leaving a transient husk with nothing left to display (see {@link AttributeRunNode}'s
@@ -437,17 +414,32 @@ export function $settlePendedDisplayOwner(
     }
     if (migrated && !hasGenuineDivergence) return { handled: true, mutated: true };
   }
-  if (
-    $isMilestoneNode(node) &&
-    $hasCaretHeldMilestoneRun(node, $milestoneAttributeDisplayText(node))
-  ) {
-    // Same mid-edit grace for a milestone's diverged or deleted display run: the exceptKey
-    // protection covers only the node the caret is in (the run TextNode, or the flanking text
-    // for a just-deleted run), not the milestone's pended key — attributeDisplay.utils.ts.
-    // Settling now would rewrite or re-tokenize the run out from under the caret; it settles
-    // once the caret has actually departed.
-    context.pendingKeys.add(node.getKey());
-    return { handled: true, mutated: huskRemoved };
+  if ($isMilestoneNode(node)) {
+    const descriptor = displayRunDescriptor("milestone");
+    if ($caretHoldsRunSite(descriptor, node)) {
+      // Same mid-edit grace for a milestone's diverged or deleted display run: the exceptKey
+      // protection covers only the node the caret is in (the run TextNode, or the flanking text
+      // for a just-deleted run), not the milestone's pended key — displayRunSync.utils.ts.
+      // Settling now would rewrite or re-tokenize the run out from under the caret; it settles
+      // once the caret has actually departed.
+      context.pendingKeys.add(node.getKey());
+      return { handled: true, mutated: huskRemoved };
+    }
+    // The caret has genuinely departed. A run that diverges for EXACTLY the wrap-migration reason
+    // (its bytes are already canonical; only its AttributeRunNode wrapper is missing —
+    // $runNeedsOnlyWrapMigration, displayRunSync.utils.ts) is delivered HERE, by calling the same
+    // $syncDisplayRun driver construction/edits use — mirrors the verse arm above, but a milestone
+    // has only ONE run (unlike a verse's independent \va/\vp pair), so there is no second kind
+    // whose still-unresolved genuine divergence a migration could short-circuit past: migrating
+    // and returning is always safe outright. Falling all the way through to the Tier-2 rebuild
+    // probe for a wrap-only change would always REFUSE it on its own — an AttributeRunNode
+    // wrapper carries no bytes of its own, so the rebuilt signature is byte-identical to what is
+    // already displayed — leaving the run loose forever with nothing else to re-drive it, the
+    // exact gap the migration-pend behavior exists to close.
+    if ($runNeedsOnlyWrapMigration(descriptor, node)) {
+      $syncDisplayRun(descriptor, node);
+      return { handled: true, mutated: true };
+    }
   }
   if ($isMilestoneNode(node) && $milestoneRunEntirelyAbsent(node)) {
     // The display run is a milestone's ENTIRE visible byte representation, so deleting all of

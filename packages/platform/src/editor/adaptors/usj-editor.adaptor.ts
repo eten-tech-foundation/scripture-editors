@@ -763,8 +763,9 @@ function addCharAttributes(
  * reproduces it exactly rather than leaking a display-only space into content. `milestoneAttributes`
  * (attributeDisplay.utils.ts) folds `sid`/`eid` in first (in that order) before whatever else the
  * marker carries (chiefly `who`) — the full set, not just sid/eid, or an edit to a non-sid/eid
- * attribute would have nowhere to display and no way to ever be edited — shared with
- * `$syncMilestoneDisplayRun`'s node-state healing so the two computations cannot drift. */
+ * attribute would have nowhere to display and no way to ever be edited — shared with the milestone
+ * descriptor's `expectedPieces` (displayRun/displayRunRegistry.ts), which heals the shared
+ * `$syncDisplayRun` driver's node-state side, so the two computations cannot drift. */
 function addAttributes(markerObject: MarkerObject, nodes: SerializedLexicalNode[]) {
   if (markerObject.type !== "ms") return;
   if (_viewOptions?.markerMode !== "editable" && _viewOptions?.markerMode !== "visible") return;

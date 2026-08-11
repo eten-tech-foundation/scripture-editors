@@ -238,8 +238,8 @@ export function $appendVerseAttributeRun(
  * `addMilestoneAttributeRun` builds post-flip: one `AttributeRunNode` (runKind "milestone") holding
  * the opening glyph, an optional attribute TextNode (textType "attribute"), and the self-closing
  * glyph. `attributeText` is the FULL canonical bytes (NBSP-prefixed, e.g. `${NBSP}|sid="q1"`) —
- * the same shape `$milestoneAttributeDisplayText` (markerEditTier1.utils.ts) returns — or `""` for
- * a glyph pair with no attribute text between them.
+ * the same shape the milestone descriptor's `expectedPieces` (displayRun/displayRunRegistry.ts)
+ * derives — or `""` for a glyph pair with no attribute text between them.
  */
 export function $appendMilestoneRun(
   milestone: MilestoneNode,

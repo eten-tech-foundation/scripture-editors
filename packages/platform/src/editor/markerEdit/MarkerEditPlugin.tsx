@@ -13,7 +13,6 @@ import {
   $chapterNodeTransform,
   $isSelectionInMarkerNode,
   $markerNodeTransform,
-  $milestoneAttributeDisplayText,
   $resolvePendingMarkers,
   $verseNodeTransform,
   MarkerEditContext,
@@ -58,7 +57,6 @@ import {
 import { useEffect, useRef } from "react";
 import {
   $caretHoldsRunSite,
-  $hasCaretHeldMilestoneRun,
   $hasCaretHeldSeparatorGap,
   $isAttributeRunNode,
   $isCharNode,
@@ -67,7 +65,6 @@ import {
   $isVerseNode,
   $ownerOfRunPiece,
   $syncDisplayRun,
-  $syncMilestoneDisplayRun,
   AttributeRunNode,
   canonicalAttributeText,
   ChapterNode,
@@ -119,19 +116,25 @@ export const COMMIT_PENDING_MARKERS_COMMAND: LexicalCommand<void> = createComman
 );
 
 /**
- * Sync `node`'s milestone display run to its fields, and pend it while the caret holds the run's
- * site (mid-edit grace) so caret departure settles it ($resolvePendingMarkers). Shared by the
+ * Sync `node`'s milestone display run (the shared `$syncDisplayRun` driver, displayRunSync.utils.ts,
+ * parameterized by the milestone descriptor), and pend it while the caret holds the run's site
+ * (mid-edit grace) so caret departure settles it ($resolvePendingMarkers). Shared by the
  * MilestoneNode transform and the AttributeRunNode transform below — both re-drive this off
  * shared's `$ownerOfRunPiece` (displayRunOwner.utils.ts): a milestone's run rides as its FOLLOWING
  * SIBLINGS, so an edit that touches only a piece INSIDE the wrapper dirties the WRAPPER, not the
  * DecoratorNode-based MilestoneNode, whose own transform would then never fire. Running this off
  * the dirtied wrapper gives a run-only edit the pend path it needs; without it the run silently
  * resurrects from the still-set fields on the next unrelated dirtying.
+ *
+ * A complete but still-LOOSE run (byte-correct, just not yet migrated into its `AttributeRunNode`
+ * wrapper) now pends too, exactly like the verse kind ({@link $syncAndPendVerse}): the shared
+ * driver's `$runDiverges` counts the pending wrap migration itself as a divergence, so
+ * `$caretHoldsRunSite` reports it caret-held and this pends it for the departure settle to finish.
  */
 function $syncAndPendMilestone(node: MilestoneNode, context: MarkerEditContext): void {
-  const expectedText = $milestoneAttributeDisplayText(node);
-  $syncMilestoneDisplayRun(node, expectedText);
-  if (node.isAttached() && $hasCaretHeldMilestoneRun(node, expectedText))
+  const descriptor = displayRunDescriptor("milestone");
+  $syncDisplayRun(descriptor, node);
+  if (node.isAttached() && $caretHoldsRunSite(descriptor, node))
     context.pendingKeys.add(node.getKey());
 }
 
@@ -357,17 +360,17 @@ export function MarkerEditPlugin({
             ) === ""
           )
             continue;
-          // Same still-wanted exemption for a verse's own legitimate \va/\vp removal (the shared
-          // $syncDisplayRun driver clearing run debris once a field is gone,
-          // displayRunSync.utils.ts) and a milestone's own legitimate attribute-text removal
-          // ($syncMilestoneDisplayRun clearing it once no attributes remain). Without this, the
-          // pended-grace guard those syncs now carry ($isDisplayOwnerPended's early-return) would leave a
-          // spuriously-pended owner unable to heal a LATER legitimate field change until an
-          // unrelated caret departure re-tokenizes whatever bytes happen to be currently
-          // displayed, clobbering it. Precise per field when the destroyed piece(s) classified to
-          // specific fields (only altnumber cleared must not block a still-set pubnumber's own
-          // healing, and vice versa); falls back to the coarse both-cleared check when a piece
-          // couldn't be classified, which keeps the guard exactly as conservative as before.
+          // Same still-wanted exemption for a verse's own legitimate \va/\vp removal and a
+          // milestone's own legitimate attribute-text removal — both the shared $syncDisplayRun
+          // driver clearing run debris once its owner's state no longer calls for it
+          // (displayRunSync.utils.ts). Without this, the pended-grace guard the driver carries
+          // ($isDisplayOwnerPended's early-return) would leave a spuriously-pended owner unable to
+          // heal a LATER legitimate field change until an unrelated caret departure re-tokenizes
+          // whatever bytes happen to be currently displayed, clobbering it. Precise per field when
+          // the destroyed piece(s) classified to specific fields (only altnumber cleared must not
+          // block a still-set pubnumber's own healing, and vice versa); falls back to the coarse
+          // both-cleared check when a piece couldn't be classified, which keeps the guard exactly
+          // as conservative as before.
           if ($isVerseNode(owner)) {
             const fields = verseFieldsDestroyed.get(ownerKey);
             const stillWanted = fields
@@ -379,7 +382,11 @@ export function MarkerEditPlugin({
               : owner.getAltnumber() !== undefined || owner.getPubnumber() !== undefined;
             if (!stillWanted) continue;
           }
-          if ($isMilestoneNode(owner) && $milestoneAttributeDisplayText(owner) === "") continue;
+          if (
+            $isMilestoneNode(owner) &&
+            displayRunDescriptor("milestone").expectedPieces(owner).valueText === undefined
+          )
+            continue;
           context.pendingKeys.add(ownerKey);
         }
       });
@@ -435,9 +442,10 @@ export function MarkerEditPlugin({
         if (node.isAttached() && $caretHoldsRunSite(displayRunDescriptor("char"), node))
           context.pendingKeys.add(node.getKey());
       }),
-      // Self-healing milestone display run (attributeDisplay.utils.ts): a `MilestoneNode` exists
-      // in every markerMode, so — unlike CharNode/VerseNode, whose editable-only node types make
-      // an ungated shared-react plugin registration safe — this sync is registered HERE, gated by
+      // Self-healing milestone display run (the shared $syncDisplayRun driver,
+      // displayRunSync.utils.ts, parameterized by the milestone descriptor): a `MilestoneNode`
+      // exists in every markerMode, so — unlike CharNode/VerseNode, whose editable-only node types
+      // make an ungated shared-react plugin registration safe — this sync is registered HERE, gated by
       // this whole plugin's markerMode-"editable" check, so visible/hidden mode's
       // ImmutableTypedTextNode-based milestone runs (built by the adaptor, never edited) are never
       // touched. Same grace/pend pairing as the char/verse cases: while the caret holds the run's

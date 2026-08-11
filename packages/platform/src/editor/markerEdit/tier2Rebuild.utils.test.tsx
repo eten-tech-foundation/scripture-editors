@@ -1420,8 +1420,8 @@ describe("milestone run wrapped in AttributeRunNode (dual-read)", () => {
         const attributeNode = wrapper.getChildren()[1];
         if (!$isTextNode(attributeNode)) throw new Error("attribute text not found");
         // In-place value edit, keeping the leading NBSP — the demanding shape for fixed-point
-        // detection (attributeDisplay.utils.ts's $syncMilestoneDisplayRun never runs here, this
-        // is a raw hand-edit of the wrapped run).
+        // detection (the shared $syncDisplayRun driver, displayRunSync.utils.ts, never runs here,
+        // this is a raw hand-edit of the wrapped run).
         attributeNode.setTextContent(`${NBSP}|sid="q2"`);
         expect($rebuildParas([para], context)).toBe(true);
       },

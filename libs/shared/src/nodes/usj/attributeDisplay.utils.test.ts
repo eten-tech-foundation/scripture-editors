@@ -1,8 +1,6 @@
 import {
-  $hasCaretHeldMilestoneRun,
   $milestoneAttributeRunPieces,
   $milestoneRunEntirelyAbsent,
-  $syncMilestoneDisplayRun,
   $verseAttributeRunPieces,
   $verseOfAttributeSourceText,
   canonicalAttributeText,
@@ -72,7 +70,14 @@ describe("milestoneAttributes", () => {
   });
 });
 
-describe("milestone display run ($syncMilestoneDisplayRun / $hasCaretHeldMilestoneRun)", () => {
+/** Syncs `milestone`'s run via the shared driver — the re-pointed equivalent of the retired
+ * `$syncMilestoneDisplayRun(milestone, expectedAttributeText)`, which took the expected text as an
+ * explicit parameter instead of deriving it from the milestone's own sid/eid/unknownAttributes. */
+function $syncMilestoneRun(milestone: MilestoneNode): void {
+  $syncDisplayRun(displayRunDescriptor("milestone"), milestone);
+}
+
+describe("milestone display run ($syncDisplayRun / $caretHoldsRunSite, milestone descriptor)", () => {
   /** Builds `before <ms> after` under a fresh root paragraph and returns the milestone. */
   function buildBareMilestone(marker: string, sid?: string) {
     const { editor } = createBasicTestEnvironment();
@@ -116,7 +121,7 @@ describe("milestone display run ($syncMilestoneDisplayRun / $hasCaretHeldMilesto
 
     editor.update(
       () => {
-        $syncMilestoneDisplayRun(milestone, expectedText);
+        $syncMilestoneRun(milestone);
       },
       { discrete: true },
     );
@@ -136,7 +141,7 @@ describe("milestone display run ($syncMilestoneDisplayRun / $hasCaretHeldMilesto
     const { editor, milestone } = buildBareMilestone("qt-s");
     editor.update(
       () => {
-        $syncMilestoneDisplayRun(milestone, "");
+        $syncMilestoneRun(milestone);
       },
       { discrete: true },
     );
@@ -153,16 +158,19 @@ describe("milestone display run ($syncMilestoneDisplayRun / $hasCaretHeldMilesto
     const { editor, milestone } = buildBareMilestone("qt-s", "q1");
     editor.update(
       () => {
-        $syncMilestoneDisplayRun(milestone, `${NBSP}|sid="q1"`);
+        $syncMilestoneRun(milestone);
       },
       { discrete: true },
     );
 
     const before = editor.getEditorState().read(() => $readRun(milestone));
 
+    // Change sid so the driver's OWN expected-text derivation (from the milestone's fields, not a
+    // parameter) actually diverges from what is displayed.
     editor.update(
       () => {
-        $syncMilestoneDisplayRun(milestone, `${NBSP}|sid="q2"`);
+        milestone.setSid("q2");
+        $syncMilestoneRun(milestone);
       },
       { discrete: true },
     );
@@ -198,7 +206,7 @@ describe("milestone display run ($syncMilestoneDisplayRun / $hasCaretHeldMilesto
 
     editor.update(
       () => {
-        $syncMilestoneDisplayRun(milestone, expectedText);
+        $syncMilestoneRun(milestone);
       },
       { discrete: true },
     );
@@ -214,10 +222,9 @@ describe("milestone display run ($syncMilestoneDisplayRun / $hasCaretHeldMilesto
 
   it("is idempotent on an already-canonical run (no churn)", () => {
     const { editor, milestone } = buildBareMilestone("qt-s", "q1");
-    const expectedText = `${NBSP}|sid="q1"`;
     editor.update(
       () => {
-        $syncMilestoneDisplayRun(milestone, expectedText);
+        $syncMilestoneRun(milestone);
       },
       { discrete: true },
     );
@@ -226,7 +233,7 @@ describe("milestone display run ($syncMilestoneDisplayRun / $hasCaretHeldMilesto
 
     editor.update(
       () => {
-        $syncMilestoneDisplayRun(milestone, expectedText);
+        $syncMilestoneRun(milestone);
       },
       { discrete: true },
     );
@@ -242,7 +249,7 @@ describe("milestone display run ($syncMilestoneDisplayRun / $hasCaretHeldMilesto
     const canonicalText = `${NBSP}|sid="q1"`;
     editor.update(
       () => {
-        $syncMilestoneDisplayRun(milestone, canonicalText);
+        $syncMilestoneRun(milestone);
       },
       { discrete: true },
     );
@@ -269,7 +276,7 @@ describe("milestone display run ($syncMilestoneDisplayRun / $hasCaretHeldMilesto
 
     editor.update(
       () => {
-        $syncMilestoneDisplayRun(milestone, canonicalText);
+        $syncMilestoneRun(milestone);
       },
       { discrete: true },
     );
@@ -278,22 +285,21 @@ describe("milestone display run ($syncMilestoneDisplayRun / $hasCaretHeldMilesto
       // Grace held: the sync left the diverged text untouched rather than clobbering it.
       const run = $readRun(milestone);
       expect(run.attributeText).toBe(`${NBSP}|sid="q1x"`);
-      expect($hasCaretHeldMilestoneRun(milestone, canonicalText)).toBe(true);
+      expect($caretHoldsRunSite(displayRunDescriptor("milestone"), milestone)).toBe(true);
     });
   });
 
   it("reports not caret-held when the run is already canonical", () => {
     const { editor, milestone } = buildBareMilestone("qt-s", "q1");
-    const canonicalText = `${NBSP}|sid="q1"`;
     editor.update(
       () => {
-        $syncMilestoneDisplayRun(milestone, canonicalText);
+        $syncMilestoneRun(milestone);
       },
       { discrete: true },
     );
 
     editor.getEditorState().read(() => {
-      expect($hasCaretHeldMilestoneRun(milestone, canonicalText)).toBe(false);
+      expect($caretHoldsRunSite(displayRunDescriptor("milestone"), milestone)).toBe(false);
     });
   });
 
@@ -304,10 +310,9 @@ describe("milestone display run ($syncMilestoneDisplayRun / $hasCaretHeldMilesto
     // rebuild it from the milestone's intact fields, making the run undeletable (the deletion
     // visibly undoing itself).
     const { editor, milestone } = buildBareMilestone("qt-s", "q1");
-    const canonicalText = `${NBSP}|sid="q1"`;
     editor.update(
       () => {
-        $syncMilestoneDisplayRun(milestone, canonicalText);
+        $syncMilestoneRun(milestone);
       },
       { discrete: true },
     );
@@ -326,7 +331,7 @@ describe("milestone display run ($syncMilestoneDisplayRun / $hasCaretHeldMilesto
 
     editor.update(
       () => {
-        $syncMilestoneDisplayRun(milestone, canonicalText);
+        $syncMilestoneRun(milestone);
       },
       { discrete: true },
     );
@@ -335,7 +340,7 @@ describe("milestone display run ($syncMilestoneDisplayRun / $hasCaretHeldMilesto
       // Grace held: nothing was re-inserted — the deletion did not undo itself.
       expect($isMarkerNode(milestone.getNextSibling())).toBe(false);
       expect(milestone.getNextSibling()?.getTextContent()).toBe(" after");
-      expect($hasCaretHeldMilestoneRun(milestone, canonicalText)).toBe(true);
+      expect($caretHoldsRunSite(displayRunDescriptor("milestone"), milestone)).toBe(true);
       expect($milestoneRunEntirelyAbsent(milestone)).toBe(true);
     });
   });
@@ -345,10 +350,9 @@ describe("milestone display run ($syncMilestoneDisplayRun / $hasCaretHeldMilesto
     // rather than the end of the content before the milestone — both flanks are the same
     // insertion point and both must hold the grace.
     const { editor, milestone } = buildBareMilestone("qt-s", "q1");
-    const canonicalText = `${NBSP}|sid="q1"`;
     editor.update(
       () => {
-        $syncMilestoneDisplayRun(milestone, canonicalText);
+        $syncMilestoneRun(milestone);
       },
       { discrete: true },
     );
@@ -367,14 +371,14 @@ describe("milestone display run ($syncMilestoneDisplayRun / $hasCaretHeldMilesto
 
     editor.update(
       () => {
-        $syncMilestoneDisplayRun(milestone, canonicalText);
+        $syncMilestoneRun(milestone);
       },
       { discrete: true },
     );
 
     editor.getEditorState().read(() => {
       expect($isMarkerNode(milestone.getNextSibling())).toBe(false);
-      expect($hasCaretHeldMilestoneRun(milestone, canonicalText)).toBe(true);
+      expect($caretHoldsRunSite(displayRunDescriptor("milestone"), milestone)).toBe(true);
     });
   });
 
@@ -384,10 +388,9 @@ describe("milestone display run ($syncMilestoneDisplayRun / $hasCaretHeldMilesto
     // missing opening — never duplicate them (which would render the attribute bytes twice and
     // corrupt the next Tier-2 re-tokenization).
     const { editor, milestone } = buildBareMilestone("qt-s", "q1");
-    const canonicalText = `${NBSP}|sid="q1"`;
     editor.update(
       () => {
-        $syncMilestoneDisplayRun(milestone, canonicalText);
+        $syncMilestoneRun(milestone);
       },
       { discrete: true },
     );
@@ -407,7 +410,7 @@ describe("milestone display run ($syncMilestoneDisplayRun / $hasCaretHeldMilesto
 
     editor.update(
       () => {
-        $syncMilestoneDisplayRun(milestone, canonicalText);
+        $syncMilestoneRun(milestone);
       },
       { discrete: true },
     );
@@ -426,10 +429,9 @@ describe("milestone display run ($syncMilestoneDisplayRun / $hasCaretHeldMilesto
 
   it("does not report the run entirely absent while any piece remains", () => {
     const { editor, milestone } = buildBareMilestone("qt-s", "q1");
-    const canonicalText = `${NBSP}|sid="q1"`;
     editor.update(
       () => {
-        $syncMilestoneDisplayRun(milestone, canonicalText);
+        $syncMilestoneRun(milestone);
       },
       { discrete: true },
     );
@@ -450,7 +452,8 @@ describe("milestone display run ($syncMilestoneDisplayRun / $hasCaretHeldMilesto
   });
 
   it("leaves a diverged run unhealed while the owner is pended in the registry, and heals it again once unpended", () => {
-    // Pins the pended guard added to $syncMilestoneDisplayRun alongside $settlePendedDisplayOwner:
+    // Pins the shared $syncDisplayRun driver's pended guard (displayRunSync.utils.ts), which the
+    // milestone kind now goes through, alongside $settlePendedDisplayOwner:
     // with a REAL divergence and the caret parked somewhere none of this file's
     // caret-grace heuristics recognize, a milestone registered pended in
     // pendedDisplayOwners.utils.ts's side channel must leave the run unhealed — that decision is
@@ -461,7 +464,7 @@ describe("milestone display run ($syncMilestoneDisplayRun / $hasCaretHeldMilesto
     const canonicalText = `${NBSP}|sid="q1"`;
     editor.update(
       () => {
-        $syncMilestoneDisplayRun(milestone, canonicalText);
+        $syncMilestoneRun(milestone);
       },
       { discrete: true },
     );
@@ -487,7 +490,7 @@ describe("milestone display run ($syncMilestoneDisplayRun / $hasCaretHeldMilesto
 
     editor.update(
       () => {
-        $syncMilestoneDisplayRun(milestone, canonicalText);
+        $syncMilestoneRun(milestone);
       },
       { discrete: true },
     );
@@ -502,7 +505,7 @@ describe("milestone display run ($syncMilestoneDisplayRun / $hasCaretHeldMilesto
     pended.delete(milestone.getKey());
     editor.update(
       () => {
-        $syncMilestoneDisplayRun(milestone, canonicalText);
+        $syncMilestoneRun(milestone);
       },
       { discrete: true },
     );
@@ -869,14 +872,15 @@ describe("$verseOfAttributeSourceText", () => {
 // construct one directly (see usjBaseNodes' own doc comment, nodes/usj/index.ts).
 describe("AttributeRunNode wrapper recognition (dual-read)", () => {
   describe("milestone", () => {
-    /** Builds `before <ms> <AttributeRunNode wrapper>[pieces] after` and returns both. */
-    function buildWrappedMilestone(pieces: (wrapper: AttributeRunNode) => void) {
+    /** Builds `before <ms sid> <AttributeRunNode wrapper>[pieces] after` and returns both. `sid`
+     * defaults to "q1" — the value most tests want to match the wrapper's own built content. */
+    function buildWrappedMilestone(pieces: (wrapper: AttributeRunNode) => void, sid = "q1") {
       const { editor } = createBasicTestEnvironment();
       let milestone!: MilestoneNode;
       let wrapper!: AttributeRunNode;
       editor.update(
         () => {
-          milestone = $createMilestoneNode("qt-s", "q1");
+          milestone = $createMilestoneNode("qt-s", sid);
           wrapper = $createAttributeRunNode("milestone");
           pieces(wrapper);
           $getRoot().append(
@@ -909,7 +913,7 @@ describe("AttributeRunNode wrapper recognition (dual-read)", () => {
 
       editor.update(
         () => {
-          $syncMilestoneDisplayRun(milestone, canonicalText);
+          $syncMilestoneRun(milestone);
         },
         { discrete: true },
       );
@@ -942,7 +946,7 @@ describe("AttributeRunNode wrapper recognition (dual-read)", () => {
 
       editor.update(
         () => {
-          $syncMilestoneDisplayRun(milestone, canonicalText);
+          $syncMilestoneRun(milestone);
         },
         { discrete: true },
       );
@@ -958,16 +962,19 @@ describe("AttributeRunNode wrapper recognition (dual-read)", () => {
     });
 
     it("recognizes the caret anywhere inside the wrapper as holding the run's site (containment arm)", () => {
-      const canonicalText = `${NBSP}|sid="q1"`;
+      // sid ("different") deliberately mismatches the wrapper's own built value text ("q1") — a
+      // genuine VALUE divergence, so $runDiverges reports it via the value-text check alone,
+      // independent of the missing-wrapper divergence (the wrapper here already exists) — keeping
+      // this pin about the containment arm specifically.
       const { editor, milestone, wrapper } = buildWrappedMilestone((w: AttributeRunNode) => {
-        const attribute = $createTextNode(canonicalText);
+        const attribute = $createTextNode(`${NBSP}|sid="q1"`);
         $setState(attribute, textTypeState, "attribute");
         w.append(
           $createMarkerNode("qt-s", "opening"),
           attribute,
           $createMarkerNode("", "selfClosing"),
         );
-      });
+      }, "different");
 
       editor.update(
         () => {
@@ -981,9 +988,10 @@ describe("AttributeRunNode wrapper recognition (dual-read)", () => {
 
       editor.getEditorState().read(() => {
         expect($isAttributeRunNode(milestone.getNextSibling())).toBe(true);
-        // A DIVERGENT expected text with the caret held inside the wrapper must still report
-        // caret-held — proving the containment arm (not a geometry arm) recognizes this site.
-        expect($hasCaretHeldMilestoneRun(milestone, `${NBSP}|sid="different"`)).toBe(true);
+        // A DIVERGENT expected text (from the real sid mismatch above) with the caret held inside
+        // the wrapper must still report caret-held — proving the containment arm (not a geometry
+        // arm) recognizes this site.
+        expect($caretHoldsRunSite(displayRunDescriptor("milestone"), milestone)).toBe(true);
       });
     });
 
