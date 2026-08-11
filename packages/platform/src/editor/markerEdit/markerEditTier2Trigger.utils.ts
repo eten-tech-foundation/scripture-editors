@@ -39,7 +39,6 @@ import {
 import {
   $caretHoldsRunSite,
   $charClosingGlyph,
-  $hasCaretHeldSeparatorGap,
   $isAttributeRunNode,
   $isBookNode,
   $isChapterNode,
@@ -275,10 +274,8 @@ export function $rependPendShapedNodes(context: MarkerEditContext): void {
       return;
     }
     if ($isCharNode(node)) {
-      // A caret-held separator gap — the CharNode transform's pend condition
-      // (MarkerEditPlugin.tsx). The caret-held attribute-run divergence pend is the shared loop
-      // above.
-      if ($hasCaretHeldSeparatorGap(node)) context.pendingKeys.add(node.getKey());
+      // A caret-held separator gap and a caret-held attribute-run divergence — the CharNode
+      // transform's pend conditions (MarkerEditPlugin.tsx) — are both the shared loop above now.
       node.getChildren().forEach(visit);
       return;
     }

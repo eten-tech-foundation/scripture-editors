@@ -30,6 +30,7 @@ import {
   ExpectedRun,
   ScannedRun,
 } from "../nodes/usj/displayRunDescriptor.js";
+import { $hasCaretHeldSeparatorGap } from "../nodes/usj/markerSeparators.utils.js";
 import { $isMilestoneNode } from "../nodes/usj/MilestoneNode.js";
 import { NBSP } from "../nodes/usj/node-constants.js";
 import { $isVerseNode } from "../nodes/usj/VerseNode.js";
@@ -163,6 +164,21 @@ function verseDescriptor(marker: VerseAttributeMarker): DisplayRunDescriptor {
     },
   };
 }
+
+const separatorDescriptor: DisplayRunDescriptor = {
+  kind: "separator",
+  // The NBSP a char span shows after its opening glyph. Its "deletion" is a TEXT mutation (an NBSP
+  // prefix edit), not node destruction, so it has no owner walk and no destruction pend — its
+  // caret-grace path is what settles it, exactly as before joining the registry.
+  ownerPredicate: (node) => $isCharNode(node),
+  ownerOf: () => undefined,
+  expectedPieces: () => NO_RUN,
+  scanPieces: () => NO_PIECES,
+  graceSite: (owner) => $isCharNode(owner) && $hasCaretHeldSeparatorGap(owner),
+  settleScope: "owner",
+  deletionPolicy: "retokenize",
+  byteFormat: { writer: "kind-owned", glyphs: "none" },
+};
 
 const charDescriptor: DisplayRunDescriptor = {
   kind: "char",
@@ -366,16 +382,32 @@ const opaqueUnknownDescriptor: DisplayRunDescriptor = {
   byteFormat: { writer: "read-only", glyphs: "none" },
 };
 
+const nestedGlyphDescriptor: DisplayRunDescriptor = {
+  kind: "nestedGlyph",
+  // The `+` on a nested span's glyphs. Purely tree-derived and rewritten in place by its own sync;
+  // there is no state a user edit can leave half-finished, so it owes no pend or deletion duty.
+  ownerPredicate: (node) => $isCharNode(node),
+  ownerOf: () => undefined,
+  expectedPieces: () => NO_RUN,
+  scanPieces: () => NO_PIECES,
+  graceSite: () => false,
+  settleScope: "none",
+  deletionPolicy: "none",
+  byteFormat: { writer: "kind-owned", glyphs: "none" },
+};
+
 /** Every registered kind, in the order the pend/settle driver consults them. A `CharNode` matches
  * more than one descriptor (its separator gap and its attribute run), and the separator's grace
  * is checked first, preserving the order the per-kind arms ran in. */
 export const displayRunDescriptors: readonly DisplayRunDescriptor[] = [
+  separatorDescriptor,
   charDescriptor,
   verseDescriptor("va"),
   verseDescriptor("vp"),
   milestoneDescriptor,
   optbreakDescriptor,
   opaqueUnknownDescriptor,
+  nestedGlyphDescriptor,
 ];
 
 const byKind = new Map<DisplayRunKind, DisplayRunDescriptor>(
