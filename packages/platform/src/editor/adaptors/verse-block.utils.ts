@@ -53,6 +53,11 @@ const STRUCTURAL_MARKERS = new Set([
   "sp",
   "sr",
   "qa",
+  "sd",
+  "sd1",
+  "sd2",
+  "sd3",
+  "sd4",
 ]);
 
 /** A paragraph container whose children may hold verses. */
@@ -106,6 +111,15 @@ export function groupVersesIntoBlocks(
     if (isSerializedParaNode(child) && STRUCTURAL_MARKERS.has(child.marker)) {
       activeBlock = undefined;
       grouped.push(child);
+      continue;
+    }
+
+    // A paragraph with no content is vertical space, not verse content - `` is a stanza break.
+    // It has no run to split, and dropping it would delete it from the document. Keep it where it
+    // was: inside the open verse if there is one, so document order is preserved.
+    if (child.children.length === 0) {
+      if (activeBlock) activeBlock.children.push(child);
+      else grouped.push(child);
       continue;
     }
 
