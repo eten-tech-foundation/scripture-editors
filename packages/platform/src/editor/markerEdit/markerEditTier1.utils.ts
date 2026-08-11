@@ -15,7 +15,7 @@ import {
   NodeKey,
 } from "lexical";
 import {
-  $hasCaretHeldAttributeRun,
+  $caretHoldsRunSite,
   $hasCaretHeldMilestoneRun,
   $hasCaretHeldSeparatorGap,
   $hasCaretHeldVerseAttributeRun,
@@ -33,7 +33,7 @@ import {
   canonicalAttributeText,
   ChapterNode,
   closingMarkerText,
-  defaultMarkerAttribute,
+  displayRunDescriptor,
   getVisibleOpenMarkerText,
   isMilestoneHeuristicName,
   MarkerLookup,
@@ -384,19 +384,10 @@ export function $settlePendedDisplayOwner(
     context.pendingKeys.add(node.getKey());
     return { handled: true, mutated: false };
   }
-  if (
-    $isCharNode(node) &&
-    $hasCaretHeldAttributeRun(
-      node,
-      canonicalAttributeText(
-        node.getUnknownAttributes() ?? {},
-        defaultMarkerAttribute(node.getMarker()),
-      ),
-    )
-  ) {
+  if ($isCharNode(node) && $caretHoldsRunSite(displayRunDescriptor("char"), node)) {
     // Same mid-edit grace for a span's edited/deleted attribute display run (the exceptKey
     // protection covers only the run TextNode the caret is in, not the parent span's pended
-    // key) — attributeDisplay.utils.ts. Settling now would re-tokenize the run out from under
+    // key) — displayRunSync.utils.ts. Settling now would re-tokenize the run out from under
     // the user's caret; it settles once the caret has actually departed.
     context.pendingKeys.add(node.getKey());
     return { handled: true, mutated: false };

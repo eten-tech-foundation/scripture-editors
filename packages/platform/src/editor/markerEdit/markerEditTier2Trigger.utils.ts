@@ -41,8 +41,8 @@ import {
   TextNode,
 } from "lexical";
 import {
+  $caretHoldsRunSite,
   $charClosingGlyph,
-  $hasCaretHeldAttributeRun,
   $hasCaretHeldMilestoneRun,
   $hasCaretHeldSeparatorGap,
   $hasCaretHeldVerseAttributeRun,
@@ -56,8 +56,7 @@ import {
   $isVerseNode,
   $ownerOfRunPiece,
   $verseOfAttributeSourceText,
-  canonicalAttributeText,
-  defaultMarkerAttribute,
+  displayRunDescriptor,
   getVisibleOpenMarkerText,
   textTypeState,
 } from "shared";
@@ -103,8 +102,8 @@ export function $textNodeTier2Transform(node: TextNode, context: MarkerEditConte
   // nor the termination regex further down means anything for them — a `\`-free edit is just as
   // much a divergence from canonical as a "terminated"-looking one. The marker-edit engine
   // settles the run back to canonical on caret departure via `context.pendingKeys` (see
-  // `$hasCaretHeldAttributeRun`, MarkerEditPlugin.tsx) instead of this trigger ever
-  // re-tokenizing it directly.
+  // `$caretHoldsRunSite`, MarkerEditPlugin.tsx) instead of this trigger ever re-tokenizing it
+  // directly.
   if (textType === "attribute") {
     context.pendingKeys.add(node.getKey());
     return;
@@ -269,11 +268,8 @@ export function $rependPendShapedNodes(context: MarkerEditContext): void {
       // A caret-held separator gap or attribute-run divergence — the CharNode transform's
       // pend conditions (MarkerEditPlugin.tsx).
       if ($hasCaretHeldSeparatorGap(node)) context.pendingKeys.add(node.getKey());
-      const expectedText = canonicalAttributeText(
-        node.getUnknownAttributes() ?? {},
-        defaultMarkerAttribute(node.getMarker()),
-      );
-      if ($hasCaretHeldAttributeRun(node, expectedText)) context.pendingKeys.add(node.getKey());
+      if ($caretHoldsRunSite(displayRunDescriptor("char"), node))
+        context.pendingKeys.add(node.getKey());
       node.getChildren().forEach(visit);
       return;
     }

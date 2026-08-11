@@ -635,7 +635,7 @@ describe("getEditorDelta", () => {
 
   it("should exclude a char span's attribute display run from canonical contents ops", async () => {
     // \w word|gloss\w* — the display run is engine-owned presentation, re-derived from the char's
-    // own unknownAttributes by the CharNodePlugin sync ($syncCharAttributeDisplay), not by
+    // own unknownAttributes by the CharNodePlugin sync ($syncDisplayRun, char descriptor), not by
     // $applyUpdate (milestones, by contrast, have no such sync yet). Either way it must not shift
     // content length.
     const { editor } = await testEnvironment(() => {
