@@ -1,5 +1,11 @@
 import { $isSomeVerseNode, SomeVerseNode } from "../../../nodes/usj/node-react.utils";
-import { $hasAttributeRunAncestor, $isElementNodeClosing, DeltaOp, LF } from "./delta-common.utils";
+import {
+  $hasAttributeRunAncestor,
+  $isElementNodeClosing,
+  $isOwnParaPrefixGlyph,
+  DeltaOp,
+  LF,
+} from "./delta-common.utils";
 import {
   DeltaOpInsertNoteEmbed,
   OTBookAttribute,
@@ -20,13 +26,13 @@ import {
   $findFirstAncestorNoteNode,
   $isBookNode,
   $isCharNode,
+  $isDisplayRunPiece,
   $isImmutableUnmatchedNode,
   $isImpliedParaNode,
   $isMarkerNode,
   $isMilestoneNode,
   $isNoteNode,
   $isParaLikeNode,
-  $isParaMarkerPrefix,
   $isParaNode,
   $isSomeChapterNode,
   $isUnknownNode,
@@ -211,25 +217,6 @@ function $handleBlockNodes(
   }
 }
 
-/**
- * True when `node` is a paragraph's own marker-prefix glyph — the `\p`-style `MarkerNode` a
- * `ParaNode` carries as its first child in editable marker mode (`$createMarkerPrefix`,
- * markerEditDeletion.utils.ts). `$applyUpdate` re-synthesizes the whole prefix when materializing
- * the paragraph, so this glyph must never flow into content ops.
- *
- * The position check (first child of a `ParaNode`) is load-bearing, not decorative:
- * {@link $isParaMarkerPrefix} identifies the node SHAPE (a `MarkerNode`, in editable mode) but
- * that shape is reused for every other glyph in the tree too — a char span's own opener/closer, a
- * note's opening/closing glyph, a milestone's or verse's attribute-run glyph. Only a `MarkerNode`
- * sitting in the paragraph's own prefix slot is presentation scaffolding here; a char span's own
- * glyph, for instance, legitimately flows through as literal editable-mode text and must not be
- * caught by this check too.
- */
-function $isOwnParaPrefixGlyph(node: LexicalNode): boolean {
-  const parent = node.getParent();
-  return $isParaMarkerPrefix(node) && $isParaNode(parent) && parent.getFirstChild() === node;
-}
-
 function $handleTextNodes(
   currentNode: LexicalNode,
   ops: DeltaOp[],
@@ -261,18 +248,23 @@ function $handleTextNodes(
   // A char span's OWN opener/closer glyphs OUTSIDE a note legitimately flow through as literal
   // editable-mode text (the `char` attribute wrapper is layered on top, not a substitute) — only
   // a milestone's or a verse's \va/\vp display-run glyphs (presentation that duplicates state the
-  // embed op already carries) must never leak, in or out of a note. Those runs always ride
-  // wrapped in an AttributeRunNode now, so ANCESTRY ($hasAttributeRunAncestor) is the one
-  // exclusion needed for them — broader than a sibling-adjacency check would be, since it also
-  // catches a milestone's glyph pair with no attribute text between them (no attribute-tagged
-  // sibling to key off of) and needs no per-piece exemption for a char span's own nested glyphs
-  // (a verse's run never lands INSIDE a CharNode's own children the way the span's own bare `|…`
-  // run does). `currentNode` is a TextNode (guarded above), never itself a NoteNode, so the shared
-  // helper's inclusive start-node check reduces to a pure ancestor walk here.
+  // embed op already carries) must never leak, in or out of a note. `$isDisplayRunPiece` is keyed
+  // on the glyph's KIND (the display-run registry's owner walk), not on tree shape, so ONE check
+  // excludes a run glyph whether it rides wrapped in an AttributeRunNode (the adaptor's resting
+  // shape) or LOOSE — caret-grace, an undo stack, and a collab-materialized bare owner each leave
+  // a run's glyphs loose for at least one commit, and a loose glyph is exactly as much
+  // engine-owned display as a wrapped one. Being kind-keyed rather than shape-keyed, it also needs
+  // no per-piece exemption for a char span's own opener/closer or its own nested `|…` run: neither
+  // is a registered piece of any OTHER owner's run.
+  //
+  // This widens only the ops-stream exclusion. The delta-doc length side
+  // (`$getNodeOTContribution` in delta-common.utils.ts) still excludes solely the wrapped shape,
+  // via ancestry ($hasAttributeRunAncestor) — a pre-existing, intentional asymmetry between the
+  // two coordinate systems, not an oversight to fix by widening the length side to match.
   const isInNote = $findFirstAncestorNoteNode(currentNode) !== undefined;
   if (
     $isMarkerNode(currentNode) &&
-    (isInNote || $isOwnParaPrefixGlyph(currentNode) || $hasAttributeRunAncestor(currentNode))
+    (isInNote || $isOwnParaPrefixGlyph(currentNode) || $isDisplayRunPiece(currentNode))
   )
     return;
   // The para prefix's NBSP separator is presentation scaffolding ($createMarkerPrefix,

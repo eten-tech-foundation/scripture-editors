@@ -40,6 +40,7 @@ import {
   EMPTY_CHAR_PLACEHOLDER_TEXT,
   GENERATOR_NOTE_CALLER,
   getEditableCallerText,
+  getVisibleOpenMarkerText,
   NBSP,
   segmentState,
   textTypeState,
@@ -241,6 +242,30 @@ describe("getEditorDelta", () => {
       { insert: "after\\wj*", attributes: { char: { style: "wj" } } },
       { insert: LF, attributes: { para: { style: "q1" } } },
     ]);
+  });
+
+  it("excludes a LOOSE \\va run glyph from content ops", async () => {
+    // A run's pieces ride wrapped at rest, but caret-grace, an undo stack, and a
+    // collab-materialized bare verse all leave them loose for at least one commit. A loose glyph
+    // is exactly as much engine-owned display as a wrapped one, so its bytes must never reach the
+    // ops stream.
+    const ops = await getOpsFor(() => {
+      const verse = $createVerseNode("1", getVisibleOpenMarkerText("v", "1"), undefined, "2");
+      const value = $createTextNode(`${NBSP}2`);
+      $setState(value, textTypeState, "attribute");
+      $getRoot().append(
+        $createParaNode("p").append(
+          verse,
+          $createMarkerNode("va", "opening"),
+          value,
+          $createMarkerNode("va", "closing"),
+          $createTextNode("In the beginning"),
+        ),
+      );
+    });
+
+    const inserted = ops.map((op) => (typeof op.insert === "string" ? op.insert : "")).join("");
+    expect(inserted).not.toContain("\\va");
   });
 
   it("excludes an editable verse's own glyph text from content ops (only real content flows)", async () => {
