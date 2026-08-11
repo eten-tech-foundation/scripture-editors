@@ -209,6 +209,60 @@ export interface EditorRef {
    */
   replaceCharacterMarker(toMarker: string, fromMarker?: string): boolean;
   /**
+   * Extend a character marker to cover the whole current editor selection, keeping its text
+   * content.
+   *
+   * "Extend" means *make the whole selection carry `marker`*, however much of it already does —
+   * the mutation behind a toolbar's partial → all step. Only the parts of the selection not already
+   * carrying `marker` are wrapped, so no nested identical markers are produced: a selection of
+   * `kolo ` followed by a bold `Mulu`, extended with `"bd"`, becomes one bold run over the whole
+   * thing. A selection with no existing run of `marker` is wrapped in full.
+   *
+   * Returns whether the document was changed, so a caller can tell a real mutation from a no-op.
+   *
+   * Returns `false` and does nothing, without throwing, when the selection is collapsed, when it is
+   * already fully covered by `marker` and no conflicting marker is present, when it resolves to no
+   * editable text (for example inside a note), or when there is no active selection at all. In
+   * every one of those cases the document and the selection are left untouched — no undo entry is
+   * added.
+   *
+   * @remarks
+   * Text inside a *different* character marker is wrapped where it sits, nesting the new marker
+   * inside the existing one. Unlike {@link EditorRef.removeCharacterMarker} and
+   * {@link EditorRef.replaceCharacterMarker}, extension never rewrites the markup of text outside
+   * the selection, so it has no partial-coverage refusal.
+   *
+   * A leading space is moved out of a new marker, matching the behavior of
+   * {@link EditorRef.insertMarker}; trailing whitespace is left where the selection put it.
+   *
+   * Newly covered text is merged into an adjacent run carrying the same marker automatically. In
+   * the marker-visible modes (`"editable"` and `"visible"`) a newly created run has no visible
+   * marker text of its own until the document is reloaded from USJ. That is a presentation artifact
+   * only: it is excluded from USJ export and self-corrects on reload. In those same modes, a new
+   * wrapper can also absorb a neighboring run's synthesized marker text: the gap filter that finds
+   * uncovered text does not exclude a neighbor's opening/closing marker nodes, so extending `"bd"`
+   * over `\nd Mulu\nd*` can produce a `bd` run containing `\nd `, `Mulu`, `\nd*` rather than just
+   * `Mulu`. Also presentation-only, for the same reason: excluded from USJ export and self-corrects
+   * on reload.
+   *
+   * @param marker - The USFM character marker to extend, e.g. `"bd"`, `"nd"`, `"wj"`. Footnote and
+   *   cross-reference character markers (e.g. `"ft"`, `"xt"`) are not supported: they only occur
+   *   inside notes, which extension skips, so they throw rather than silently doing nothing.
+   * @param conflictingMarkers - Character markers that cannot coexist with `marker`; each is
+   *   removed from the selection before it is extended. Omit when nothing conflicts. Supplied by
+   *   the caller rather than defined here — which markers are mutually exclusive is a project
+   *   decision, not an editor one. Subject to the same footnote and cross-reference restriction as
+   *   `marker`. An entry equal to `marker` itself is ignored, since removing and re-wrapping the
+   *   same run would only lose that run's identity (e.g. its cid in a collab document) for no
+   *   effect.
+   * @returns `true` if the document was changed, `false` if the request was a no-op.
+   * @throws Will throw an error if the editor is in readonly mode.
+   * @throws Will throw an error if `marker` is not a supported character marker.
+   * @throws Will throw an error if any entry of `conflictingMarkers` is not a supported character
+   *   marker.
+   */
+  extendCharacterMarker(marker: string, conflictingMarkers?: readonly string[]): boolean;
+  /**
    * Insert a marker at the current editor selection, replicating the behavior of the
    * built-in marker menu. Works with both collapsed (insertion point) and range selections.
    *

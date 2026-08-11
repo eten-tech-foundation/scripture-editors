@@ -6,6 +6,7 @@ import {
   updateSelection,
 } from "../../../../../libs/shared/src/nodes/usj/test.utils";
 import {
+  $extendCharacterMarkerAtSelection,
   $removeCharacterMarkerAtSelection,
   $replaceCharacterMarkerAtSelection,
   getUsjMarkerAction,
@@ -134,6 +135,34 @@ function sutReplaceCharacterMarker(
     { discrete: true },
   );
   return didReplace;
+}
+
+/**
+ * Invokes the system under test inside a discrete update, the way `Editor.tsx` will.
+ *
+ * @returns whether the marker was extended, mirroring what `EditorRef.extendCharacterMarker` reports.
+ */
+function sutExtendCharacterMarker(
+  editor: LexicalEditor,
+  marker: string,
+  conflictingMarkers?: readonly string[],
+  viewOptions?: ViewOptions,
+): boolean {
+  let didExtend = false;
+  editor.update(
+    () => {
+      const selection = $getSelection();
+      if ($isRangeSelection(selection))
+        didExtend = $extendCharacterMarkerAtSelection(
+          selection,
+          marker,
+          conflictingMarkers,
+          viewOptions,
+        );
+    },
+    { discrete: true },
+  );
+  return didExtend;
 }
 
 describe("USJ Marker Action Utils", () => {
@@ -2052,6 +2081,525 @@ describe("USJ Marker Action Utils", () => {
     });
   });
 
+  describe("should extend a character marker", () => {
+    it("wraps the uncovered text beside an existing run without nesting", () => {
+      let koloTextNode!: TextNode;
+      let muluTextNode!: TextNode;
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        koloTextNode = $createTextNode("kolo ");
+        muluTextNode = $createTextNode("Mulu");
+        $getRoot().append(
+          $createParaNode("p").append(koloTextNode, $createCharNode("bd").append(muluTextNode)),
+        );
+      });
+      // "[kolo \bd Mulu\bd*]"
+      updateSelection(editor, koloTextNode, 0, muluTextNode, 4);
+
+      expect(sutExtendCharacterMarker(editor, "bd")).toBe(true);
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        // Every character survives, in order.
+        expect(para.getTextContent()).toBe("kolo Mulu");
+        // Two adjacent siblings, not one nested inside the other. `$charNodeTransform` merges them
+        // into one in the real editor; this headless environment registers no transforms, so the
+        // pre-merge shape is what's asserted here. The merged result is covered in `Editor.test.tsx`.
+        const children = para.getChildren();
+        expect(children.length).toBe(2);
+        const [extended, existing] = children;
+        if (!$isCharNode(extended)) throw new Error("extended is not a CharNode");
+        if (!$isCharNode(existing)) throw new Error("existing is not a CharNode");
+        expect(extended.getMarker()).toBe("bd");
+        expect(extended.getTextContent()).toBe("kolo ");
+        expect(existing.getMarker()).toBe("bd");
+        expect(existing.getTextContent()).toBe("Mulu");
+        expect(existing.getChildren().some($isCharNode)).toBe(false);
+      });
+    });
+
+    it("wraps gaps on either side of a covered run separately, preserving text order", () => {
+      let koloTextNode!: TextNode;
+      let sanaTextNode!: TextNode;
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        koloTextNode = $createTextNode("kolo ");
+        sanaTextNode = $createTextNode(" sana");
+        $getRoot().append(
+          $createParaNode("p").append(
+            koloTextNode,
+            $createCharNode("bd").append($createTextNode("Mulu")),
+            sanaTextNode,
+          ),
+        );
+      });
+      updateSelection(editor, koloTextNode, 0, sanaTextNode, 5);
+
+      expect(sutExtendCharacterMarker(editor, "bd")).toBe(true);
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        // The two gaps are not adjacent siblings, so they must get one wrapper each. Appending both
+        // to a single wrapper would move " sana" next to "kolo " and scramble the text.
+        expect(para.getTextContent()).toBe("kolo Mulu sana");
+        const children = para.getChildren();
+        expect(children.length).toBe(3);
+        children.forEach((child) => {
+          if (!$isCharNode(child)) throw new Error("child is not a CharNode");
+          expect(child.getMarker()).toBe("bd");
+          expect(child.getChildren().some($isCharNode)).toBe(false);
+        });
+      });
+    });
+
+    it("wraps a gap that sits inside a different marker, nesting it there", () => {
+      let koloTextNode!: TextNode;
+      let muluTextNode!: TextNode;
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        koloTextNode = $createTextNode("kolo ");
+        muluTextNode = $createTextNode("Mulu");
+        $getRoot().append(
+          $createParaNode("p").append(koloTextNode, $createCharNode("nd").append(muluTextNode)),
+        );
+      });
+      // "[kolo \nd Mul]u\nd*"
+      updateSelection(editor, koloTextNode, 0, muluTextNode, 3);
+
+      expect(sutExtendCharacterMarker(editor, "bd")).toBe(true);
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        expect(para.getTextContent()).toBe("kolo Mulu");
+        const [outerBd, ndNode] = para.getChildren();
+        if (!$isCharNode(outerBd)) throw new Error("outerBd is not a CharNode");
+        if (!$isCharNode(ndNode)) throw new Error("ndNode is not a CharNode");
+        expect(outerBd.getMarker()).toBe("bd");
+        expect(outerBd.getTextContent()).toBe("kolo ");
+        // The piece inside \nd is wrapped where it sits. Extend is purely additive — it never
+        // rewrites the USJ of unselected text — so the nested-partial-coverage refusal that removal
+        // and replacement need does not apply. \nd itself is untouched.
+        expect(ndNode.getMarker()).toBe("nd");
+        const [innerBd, uncovered] = ndNode.getChildren();
+        if (!$isCharNode(innerBd)) throw new Error("innerBd is not a CharNode");
+        if (!$isTextNode(uncovered)) throw new Error("uncovered is not a TextNode");
+        expect(innerBd.getMarker()).toBe("bd");
+        expect(innerBd.getTextContent()).toBe("Mul");
+        expect(uncovered.getTextContent()).toBe("u");
+      });
+    });
+
+    it("copies the neighboring run's identity onto the wrapper so the two can merge", () => {
+      let koloTextNode!: TextNode;
+      let muluTextNode!: TextNode;
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        koloTextNode = $createTextNode("kolo ");
+        muluTextNode = $createTextNode("Mulu");
+        const charNode = $createCharNode("bd", { customAttr: "value" });
+        $setState(charNode, charIdState, "char-id");
+        $getRoot().append($createParaNode("p").append(koloTextNode, charNode.append(muluTextNode)));
+      });
+      updateSelection(editor, koloTextNode, 0, muluTextNode, 4);
+
+      sutExtendCharacterMarker(editor, "bd");
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        const wrapper = para.getFirstChild();
+        if (!$isCharNode(wrapper)) throw new Error("wrapper is not a CharNode");
+        // `$hasSameCharAttributes` requires both nodes to have a cid or neither to — a wrapper
+        // without one would never merge with its neighbor in a collab document.
+        expect($getState(wrapper, charIdState)).toBe("char-id");
+        expect(wrapper.getUnknownAttributes()).toEqual({ customAttr: "value" });
+      });
+    });
+
+    it("creates a plain wrapper when there is no neighboring run to match", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        charTextNode = $createTextNode("kolo Mulu");
+        $getRoot().append($createParaNode("p").append(charTextNode));
+      });
+      updateSelection(editor, charTextNode, 0, charTextNode, 9);
+
+      expect(sutExtendCharacterMarker(editor, "bd")).toBe(true);
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        const wrapper = para.getFirstChild();
+        if (!$isCharNode(wrapper)) throw new Error("wrapper is not a CharNode");
+        expect(wrapper.getMarker()).toBe("bd");
+        expect(wrapper.getTextContent()).toBe("kolo Mulu");
+        expect($getState(wrapper, charIdState)).toBeUndefined();
+      });
+    });
+
+    it("is a no-op for a collapsed selection", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        charTextNode = $createTextNode("Mulu");
+        $getRoot().append($createParaNode("p").append(charTextNode));
+      });
+      updateSelection(editor, charTextNode, 2);
+
+      expect(sutExtendCharacterMarker(editor, "bd")).toBe(false);
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        expect(para.getChildren().some($isCharNode)).toBe(false);
+      });
+    });
+
+    it("is a no-op when the selection is already fully covered, without dirtying anything", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        charTextNode = $createTextNode("Mulu");
+        $getRoot().append($createParaNode("p").append($createCharNode("bd").append(charTextNode)));
+      });
+      // "\bd [Mul]u\bd*" — a partial selection, so a mutating implementation would `splitText`.
+      updateSelection(editor, charTextNode, 0, charTextNode, 3);
+
+      // The tree shape alone can't tell a no-op from a split-then-remerge: only the dirty sets can.
+      // An entry on the undo stack (and a collab delta) is exactly what must not happen here.
+      let dirtyLeafCount = 0;
+      const unregisterUpdateListener = editor.registerUpdateListener(({ dirtyLeaves }) => {
+        dirtyLeafCount += dirtyLeaves.size;
+      });
+
+      expect(sutExtendCharacterMarker(editor, "bd")).toBe(false);
+      unregisterUpdateListener();
+
+      expect(dirtyLeafCount).toBe(0);
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        expect(para.getChildren().length).toBe(1);
+        expect(para.getTextContent()).toBe("Mulu");
+      });
+    });
+
+    it("skips a selection inside a NoteNode", () => {
+      let noteTextNode!: TextNode;
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        noteTextNode = $createTextNode("Lord");
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createTextNode("the "),
+            $createNoteNode("f", "+").append(noteTextNode),
+          ),
+        );
+      });
+      updateSelection(editor, noteTextNode, 0, noteTextNode, 4);
+
+      // `$getTargetNode` drops a leaf whose immediate parent is a NoteNode, so nothing is
+      // actionable and the note's text is never wrapped.
+      expect(sutExtendCharacterMarker(editor, "bd")).toBe(false);
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        const noteNode = para.getLastChild();
+        if (!$isNoteNode(noteNode)) throw new Error("noteNode is not a NoteNode");
+        expect(noteNode.getChildren().some($isCharNode)).toBe(false);
+        expect(noteNode.getTextContent()).toBe("Lord");
+      });
+    });
+
+    it("skips a selection inside a CharNode nested in a NoteNode", () => {
+      let noteTextNode!: TextNode;
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        noteTextNode = $createTextNode("Lord");
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createTextNode("the "),
+            $createNoteNode("f", "+").append($createCharNode("nd").append(noteTextNode)),
+          ),
+        );
+      });
+      updateSelection(editor, noteTextNode, 0, noteTextNode, 4);
+
+      // `$getTargetNode` only drops a leaf whose *immediate* parent is a NoteNode, so this deeper
+      // shape reaches the gap filter. It's `$isInsideNote` that refuses it: without that guard the
+      // absent `$getMatchingCharNode` match would read as "uncovered" and wrap the note's text.
+      expect(sutExtendCharacterMarker(editor, "bd")).toBe(false);
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        const noteNode = para.getLastChild();
+        if (!$isNoteNode(noteNode)) throw new Error("noteNode is not a NoteNode");
+        const charNode = noteNode.getFirstChild();
+        if (!$isCharNode(charNode)) throw new Error("charNode is not a CharNode");
+        expect(charNode.getMarker()).toBe("nd");
+        expect(charNode.getChildren().some($isCharNode)).toBe(false);
+        expect(noteNode.getTextContent()).toBe("Lord");
+      });
+    });
+
+    it("moves a leading space out of the new marker, as the insert path does", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        charTextNode = $createTextNode("the Mulu");
+        $getRoot().append($createParaNode("p").append(charTextNode));
+      });
+      // "the[ Mulu]" — one text node, not two adjacent ones: Lexical's `$normalizeTextNode` merges
+      // same-format adjacent text siblings on commit, so a two-node fixture would be gone before
+      // the test could select it. The split happens inside the SUT, as it does in the real editor.
+      updateSelection(editor, charTextNode, 3, charTextNode, 8);
+
+      expect(sutExtendCharacterMarker(editor, "bd")).toBe(true);
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        expect(para.getTextContent()).toBe("the Mulu");
+        const [leading, wrapper] = para.getChildren();
+        if (!$isTextNode(leading)) throw new Error("leading is not a TextNode");
+        if (!$isCharNode(wrapper)) throw new Error("wrapper is not a CharNode");
+        // A \bd span never starts with a space — the rule `$moveLeadingSpaceToPreviousNode` already
+        // enforces on the insert path.
+        expect(leading.getTextContent()).toBe("the ");
+        expect(wrapper.getTextContent()).toBe("Mulu");
+      });
+    });
+
+    it("keeps a leading space inside the wrapper when it will merge with the previous run", () => {
+      let muluTextNode!: TextNode;
+      let koloTextNode!: TextNode;
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        muluTextNode = $createTextNode("Mulu");
+        koloTextNode = $createTextNode(" kolo");
+        $getRoot().append(
+          $createParaNode("p").append($createCharNode("bd").append(muluTextNode), koloTextNode),
+        );
+      });
+      updateSelection(editor, muluTextNode, 0, koloTextNode, 5);
+
+      expect(sutExtendCharacterMarker(editor, "bd")).toBe(true);
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        expect(para.getTextContent()).toBe("Mulu kolo");
+        // Moving the space out would put a plain TextNode between the two \bd runs and stop
+        // `$charNodeTransform` merging them. After the merge the space is interior, so the span
+        // still doesn't start with a space — the insert path's actual rule is honored.
+        const children = para.getChildren();
+        expect(children.length).toBe(2);
+        const [existing, wrapper] = children;
+        if (!$isCharNode(existing)) throw new Error("existing is not a CharNode");
+        if (!$isCharNode(wrapper)) throw new Error("wrapper is not a CharNode");
+        expect(existing.getTextContent()).toBe("Mulu");
+        expect(wrapper.getTextContent()).toBe(" kolo");
+      });
+    });
+
+    it("leaves an interior space alone when extending over it", () => {
+      let koloTextNode!: TextNode;
+      let muluTextNode!: TextNode;
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        koloTextNode = $createTextNode("kolo ");
+        muluTextNode = $createTextNode("Mulu");
+        $getRoot().append(
+          $createParaNode("p").append(koloTextNode, $createCharNode("bd").append(muluTextNode)),
+        );
+      });
+      updateSelection(editor, koloTextNode, 0, muluTextNode, 4);
+
+      sutExtendCharacterMarker(editor, "bd");
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        // No trailing-space handling is invented: the insert path has no opinion about it, and
+        // OQ-7 is still open. The space stays where the user put it.
+        expect(para.getTextContent()).toBe("kolo Mulu");
+        expect(para.getFirstChild()?.getTextContent()).toBe("kolo ");
+      });
+    });
+
+    it("leaves the selection over the same characters", () => {
+      let muluTextNode!: TextNode;
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        muluTextNode = $createTextNode(" Mulu");
+        $getRoot().append($createParaNode("p").append(muluTextNode));
+      });
+      updateSelection(editor, muluTextNode, 0, muluTextNode, 5);
+
+      sutExtendCharacterMarker(editor, "bd");
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        // The space moved out of the marker but stayed in the document.
+        expect(para.getTextContent()).toBe(" Mulu");
+        const selection = $getSelection();
+        if (!$isRangeSelection(selection)) throw new Error("selection is not a RangeSelection");
+        // The focus offset was 5 against a node the trim shortened to 4. Without the restore it is
+        // out of range, and Lexical's `setDOMSelectionBaseAndExtent` throws and warns.
+        expect(selection.getTextContent()).toBe("Mulu");
+        expect(selection.isBackward()).toBe(false);
+      });
+    });
+
+    it("keeps a backward selection backward", () => {
+      let muluTextNode!: TextNode;
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        muluTextNode = $createTextNode(" Mulu");
+        $getRoot().append($createParaNode("p").append(muluTextNode));
+      });
+      // Anchor at the end, focus at the start.
+      updateSelection(editor, muluTextNode, 5, muluTextNode, 0);
+
+      sutExtendCharacterMarker(editor, "bd");
+
+      editor.getEditorState().read(() => {
+        const selection = $getSelection();
+        if (!$isRangeSelection(selection)) throw new Error("selection is not a RangeSelection");
+        expect(selection.getTextContent()).toBe("Mulu");
+        // `isBackward` is captured before the mutation; restoring forward would silently flip the
+        // user's selection direction.
+        expect(selection.isBackward()).toBe(true);
+      });
+    });
+
+    it("removes a conflicting marker before extending over it", () => {
+      let muluTextNode!: TextNode;
+      let koloTextNode!: TextNode;
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        muluTextNode = $createTextNode("Mulu");
+        koloTextNode = $createTextNode("kolo");
+        $getRoot().append(
+          $createParaNode("p").append($createCharNode("it").append(muluTextNode), koloTextNode),
+        );
+      });
+      updateSelection(editor, muluTextNode, 0, koloTextNode, 4);
+
+      expect(sutExtendCharacterMarker(editor, "bd", ["it"])).toBe(true);
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        expect(para.getTextContent()).toBe("Mulukolo");
+        // \it is gone and \bd covers everything. The conflict list is the caller's — nothing about
+        // bd/it is hard-coded here (OQ-6).
+        const charNodes = para.getChildren().filter($isCharNode);
+        expect(charNodes.every((charNode) => charNode.getMarker() === "bd")).toBe(true);
+        expect(charNodes.map((charNode) => charNode.getTextContent()).join("")).toBe("Mulukolo");
+      });
+    });
+
+    it("ignores a conflicting marker that isn't in the selection", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        charTextNode = $createTextNode("kolo Mulu");
+        $getRoot().append($createParaNode("p").append(charTextNode));
+      });
+      updateSelection(editor, charTextNode, 0, charTextNode, 9);
+
+      expect(sutExtendCharacterMarker(editor, "bd", ["it"])).toBe(true);
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        const wrapper = para.getFirstChild();
+        if (!$isCharNode(wrapper)) throw new Error("wrapper is not a CharNode");
+        expect(wrapper.getMarker()).toBe("bd");
+        expect(wrapper.getTextContent()).toBe("kolo Mulu");
+      });
+    });
+
+    it("still extends when a conflicting marker's removal is refused", () => {
+      let muluTextNode!: TextNode;
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        muluTextNode = $createTextNode("Mulu");
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createCharNode("it").append($createCharNode("nd").append(muluTextNode)),
+          ),
+        );
+      });
+      // "\it \nd [Mu]lu\nd*\it*" — removing \it would have to strip it from the whole \nd span,
+      // including "lu", which the user never selected, so `$hasActionableCharNode` refuses it.
+      updateSelection(editor, muluTextNode, 0, muluTextNode, 2);
+
+      // Best-effort: the refused conflict is left in place and the extend still happens, rather
+      // than the whole call silently doing nothing.
+      expect(sutExtendCharacterMarker(editor, "bd", ["it"])).toBe(true);
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        expect(para.getTextContent()).toBe("Mulu");
+        const itNode = para.getFirstChild();
+        if (!$isCharNode(itNode)) throw new Error("itNode is not a CharNode");
+        expect(itNode.getMarker()).toBe("it");
+        const ndNode = itNode.getFirstChild();
+        if (!$isCharNode(ndNode)) throw new Error("ndNode is not a CharNode");
+        expect(ndNode.getMarker()).toBe("nd");
+        const bdNode = ndNode.getFirstChild();
+        if (!$isCharNode(bdNode)) throw new Error("bdNode is not a CharNode");
+        expect(bdNode.getMarker()).toBe("bd");
+        expect(bdNode.getTextContent()).toBe("Mu");
+      });
+    });
+
+    it("reports a change when only a conflicting marker was removed", () => {
+      let muluTextNode!: TextNode;
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        muluTextNode = $createTextNode("Mulu");
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createCharNode("bd").append($createCharNode("it").append(muluTextNode)),
+          ),
+        );
+      });
+      updateSelection(editor, muluTextNode, 0, muluTextNode, 4);
+
+      // Already fully covered by \bd, so the gap pass does nothing — but \it still had to go, and
+      // the caller must be told the document changed.
+      expect(sutExtendCharacterMarker(editor, "bd", ["it"])).toBe(true);
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        expect(para.getTextContent()).toBe("Mulu");
+        const bdNode = para.getFirstChild();
+        if (!$isCharNode(bdNode)) throw new Error("bdNode is not a CharNode");
+        expect(bdNode.getMarker()).toBe("bd");
+        expect(bdNode.getChildren().some($isCharNode)).toBe(false);
+      });
+    });
+
+    it("ignores a conflicting marker equal to the target marker, preserving the run's identity", () => {
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        charTextNode = $createTextNode("Mulu");
+        const charNode = $createCharNode("bd");
+        $setState(charNode, charIdState, "char-id");
+        $getRoot().append($createParaNode("p").append(charNode.append(charTextNode)));
+      });
+      updateSelection(editor, charTextNode, 0, charTextNode, 4);
+
+      // Passing "bd" as its own conflicting marker is caller error, but must not be treated as a
+      // real conflict: removing and re-wrapping the same run would strip its CharNode — including
+      // the cid — and rebuild a fresh, identity-less one. The selection is already fully covered by
+      // "bd", and "bd" is the only (self-referential) conflicting marker, so once it's ignored there
+      // is nothing left to do.
+      expect(sutExtendCharacterMarker(editor, "bd", ["bd"])).toBe(false);
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getFirstChild();
+        if (!$isParaNode(para)) throw new Error("para is not a ParaNode");
+        const charNode = para.getFirstChild();
+        if (!$isCharNode(charNode)) throw new Error("charNode is not a CharNode");
+        expect(charNode.getMarker()).toBe("bd");
+        expect(charNode.getTextContent()).toBe("Mulu");
+        // The cid survives untouched. Without the self-filter, the conflict pass would have removed
+        // this CharNode (stripping its cid) and the gap pass would then have rewrapped it with a
+        // fresh, cid-less identity.
+        expect($getState(charNode, charIdState)).toBe("char-id");
+      });
+    });
+  });
+
   describe("should insert a note", () => {
     const referenceCVText = `${reference.chapterNum}:${reference.verseNum} `;
 
@@ -2202,6 +2750,100 @@ describe("USJ Marker Action Utils", () => {
         const tailTextNode = insertedNode.getNextSibling();
         if (!$isTextNode(tailTextNode)) throw new Error("Tail node is not text");
         expect(tailTextNode.getTextContent()).toBe(" verse text ");
+      });
+    });
+  });
+
+  describe("should insert a char into a note", () => {
+    let noteCharTextNode: TextNode;
+    let noteSpacerTextNode: TextNode;
+
+    function $noteInitialEditorState() {
+      noteCharTextNode = $createTextNode("existing footnote text");
+      noteSpacerTextNode = $createTextNode(NBSP);
+      $getRoot().append(
+        $createImmutableChapterNode("1"),
+        $createParaNode().append(
+          $createImmutableVerseNode("1"),
+          $createTextNode("first verse text "),
+          $createNoteNode("f", "+", false).append(
+            $createCharNode("ft").append(noteCharTextNode),
+            noteSpacerTextNode,
+          ),
+        ),
+      );
+    }
+
+    // Regression test for PT-3780.
+    it("places the caret inside the newly inserted marker", () => {
+      const { editor } = createBasicTestEnvironment(nodes, $noteInitialEditorState);
+      const markerAction = getUsjMarkerAction(
+        "fk",
+        expandedNoteKeyRef,
+        undefined,
+        undefined,
+        undefined,
+        {
+          discrete: true,
+        },
+      );
+      // caret directly inside the note, after its existing content
+      updateSelection(editor, noteSpacerTextNode);
+
+      markerAction.action({ editor, reference });
+
+      editor.getEditorState().read(() => {
+        const insertedNode = noteSpacerTextNode.getNextSibling();
+        if (!$isCharNode(insertedNode)) throw new Error("Inserted node is not a char");
+        expect(insertedNode.getMarker()).toBe("fk");
+        expect($isNoteNode(insertedNode.getParent())).toBe(true);
+        const charTextNode = insertedNode.getChildAtIndex(0);
+        if (!$isTextNode(charTextNode))
+          throw new Error("Inserted char node does not have a text node");
+        $expectSelectionToBe(charTextNode);
+      });
+    });
+
+    // When the caret is inside an existing footnote CharNode, the new marker is inserted at the
+    // caret — the char is split so the marker lands between its two halves, inside the note.
+    it("splits the footnote char at the caret and inserts the marker between the halves", () => {
+      const { editor } = createBasicTestEnvironment(nodes, $noteInitialEditorState);
+      const markerAction = getUsjMarkerAction(
+        "fk",
+        expandedNoteKeyRef,
+        undefined,
+        undefined,
+        undefined,
+        {
+          discrete: true,
+        },
+      );
+      // caret in the middle of the existing footnote text (parent is the ft CharNode, not the note)
+      updateSelection(editor, noteCharTextNode, 8);
+
+      markerAction.action({ editor, reference });
+
+      editor.getEditorState().read(() => {
+        const ftChar = noteCharTextNode.getParent();
+        if (!$isCharNode(ftChar)) throw new Error("Existing footnote char is missing");
+        expect($isNoteNode(ftChar.getParent())).toBe(true);
+        // The text before the caret stays in the original char.
+        expect(ftChar.getTextContent()).toBe("existing");
+        // The new marker is inserted right after it, still inside the note.
+        const insertedNode = ftChar.getNextSibling();
+        if (!$isCharNode(insertedNode)) throw new Error("New marker is not after the split char");
+        expect(insertedNode.getMarker()).toBe("fk");
+        expect($isNoteNode(insertedNode.getParent())).toBe(true);
+        // The text after the caret moves into a following clone of the original char.
+        const tailChar = insertedNode.getNextSibling();
+        if (!$isCharNode(tailChar)) throw new Error("Tail footnote char is missing");
+        expect(tailChar.getMarker()).toBe("ft");
+        expect(tailChar.getTextContent()).toBe(" footnote text");
+        // The caret lands inside the new marker.
+        const charTextNode = insertedNode.getChildAtIndex(0);
+        if (!$isTextNode(charTextNode))
+          throw new Error("Inserted char node does not have a text node");
+        $expectSelectionToBe(charTextNode);
       });
     });
   });
