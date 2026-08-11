@@ -256,7 +256,11 @@ function $handleTextNodes(
   //   node between the owner and its wrapper (a remote insert landing at that boundary, an undo
   //   stack, a mid-edit tree) still leaves the wrapper's own contents ancestor-reachable, but the
   //   registry's per-kind `ownerOf` walks require exactly that adjacency and give up on the first
-  //   non-run-piece sibling, so it would miss this shape.
+  //   non-run-piece sibling, so it would miss this shape. (A few lines below, `isNodeAttributeText`
+  //   applies this same ancestor walk unconditionally to every surviving TextNode, wrapped glyph
+  //   or not — that independently backstops a wrapped piece even if this arm were removed, but
+  //   keeping it here too means this gate's OWN stated exclusion holds on its own, rather than by
+  //   incidental coupling to a check several lines away that could itself change independently.)
   // - $isDisplayRunPiece is keyed on the glyph's KIND (the display-run registry's owner walk), so
   //   it catches a run's glyphs riding LOOSE — caret-grace, an undo stack, and a
   //   collab-materialized bare owner each leave a run's glyphs loose for at least one commit, and
@@ -270,8 +274,8 @@ function $handleTextNodes(
   // delta-doc length side (`$getNodeOTContribution` in delta-common.utils.ts) deliberately keeps
   // counting a LOOSE run's glyphs (via $hasAttributeRunAncestor alone, unchanged) even though the
   // ops stream now excludes them — that is not a drift to fix by widening the length side to
-  // match, it is the same asymmetry the ops stream honored before wave 2a's loose-glyph exclusion
-  // was lost.
+  // match, it is the same asymmetry the ops stream honored before the earlier loose-glyph
+  // exclusion was removed.
   const isInNote = $findFirstAncestorNoteNode(currentNode) !== undefined;
   if (
     $isMarkerNode(currentNode) &&
