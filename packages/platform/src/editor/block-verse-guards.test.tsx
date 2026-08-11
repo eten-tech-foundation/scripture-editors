@@ -131,7 +131,8 @@ describe("block verse layout guards", () => {
     expect(() => ref.current?.insertMarker("p")).toThrow(/readonly/i);
   });
 
-  it("refuses to apply a delta update", async () => {
+  // A local update is a caller error, so it throws.
+  it("refuses a local delta update", async () => {
     const ref = createRef<EditorRef>();
     await act(async () => {
       render(
@@ -143,7 +144,28 @@ describe("block verse layout guards", () => {
       );
     });
 
-    expect(() => ref.current?.applyUpdate([{ retain: 1 }])).toThrow(/block verse/i);
+    expect(() => ref.current?.applyUpdate([{ retain: 1 }], "local")).toThrow(/block verse/i);
+  });
+
+  // A remote update is not: it arrives from a collaborator, and throwing into the host's op loop
+  // would tear it down. It is reported and dropped instead - a read-only view refreshes by being
+  // handed new USJ.
+  it("drops a remote delta update without throwing", async () => {
+    const logger = createLogger();
+    const ref = createRef<EditorRef>();
+    await act(async () => {
+      render(
+        <Editorial
+          ref={ref}
+          defaultUsj={usjGen1v1}
+          options={{ isReadonly: true, view: blockVerseOptions }}
+          logger={logger}
+        />,
+      );
+    });
+
+    expect(() => ref.current?.applyUpdate([{ retain: 1 }])).not.toThrow();
+    expect(logger.error).toHaveBeenCalledWith(expect.stringContaining("remote update"));
   });
 });
 

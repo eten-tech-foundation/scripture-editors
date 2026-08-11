@@ -12,8 +12,9 @@ import {
 import { useRef, useEffect, useState, useCallback } from "react";
 import {
   $getCommonAncestorCompatible,
-  $isParaNode,
   $isBookNode,
+  $isParaNode,
+  $isSomeParaNode,
   $isImmutableChapterNode,
   $isVerseBlockNode,
 } from "shared";
@@ -70,7 +71,7 @@ export function StateChangePlugin({ onStateChange }: { onStateChange?: OnStateCh
       // In the block verse layout the top-level element is the verse block, which carries no
       // marker of its own. The block marker the host wants is still the paragraph inside it that
       // holds the caret, so resolve through the block.
-      if ($isVerseBlockNode(node)) node = $findMatchingParent(anchorNode, $isParaNode) ?? node;
+      if ($isVerseBlockNode(node)) node = $findMatchingParent(anchorNode, $isSomeParaNode) ?? node;
 
       const nodeKey = node.getKey();
       const elementDOM = activeEditor.getElementByKey(nodeKey);

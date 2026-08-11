@@ -12,11 +12,13 @@
  */
 
 import {
+  CategoryType,
   isSerializedBookNode,
   isSerializedImpliedParaNode,
   isSerializedParaNode,
   isSerializedTypedMarkNode,
   isSomeSerializedChapterNode,
+  MarkerType,
   LoggerBasic,
   parseVerseRange,
   SerializedImpliedParaNode,
@@ -24,41 +26,30 @@ import {
   SerializedTypedMarkNode,
   SerializedVerseBlockNode,
   VERSE_BLOCK_TYPE,
+  usfmMarkers,
   VERSE_BLOCK_VERSION,
 } from "shared";
 import { isSomeSerializedVerseNode, SomeSerializedVerseNode } from "shared-react";
 import { SerializedLexicalNode } from "lexical";
 
 /**
- * Paragraph markers that begin a heading/structural block rather than verse content. Grouping stops
- * at these so a following section header does not become part of the preceding verse.
+ * Paragraph markers that begin a heading rather than verse content. Grouping stops at these so a
+ * following section header does not become part of the preceding verse.
  *
- * Deliberately hand-scoped to heading markers that can appear MID-CHAPTER (chapter-interior
- * structural boundaries), rather than derived from a marker category: the Titles/Headings category
- * also includes book-front titles (`mt`, `mte`, ...) that cannot interrupt a verse mid-chapter, and
- * categorizes `qa` as Poetry, so it would need a special case anyway.
+ * Derived from the generated marker data rather than hand-listed, so a heading marker added
+ * upstream cannot be silently swallowed into the preceding verse's block. `qa` is added because it
+ * is a poetry-acrostic heading that the data files under Poetry. The book titles this picks up
+ * (`mt*`) precede every verse, so treating them as boundaries costs nothing, and `mte*` closing an
+ * open verse at the end of a book is correct.
  */
 const STRUCTURAL_MARKERS = new Set([
-  "s",
-  "s1",
-  "s2",
-  "s3",
-  "s4",
-  "ms",
-  "ms1",
-  "ms2",
-  "ms3",
-  "mr",
-  "r",
-  "d",
-  "sp",
-  "sr",
+  ...Object.entries(usfmMarkers)
+    .filter(
+      ([, marker]) =>
+        marker.category === CategoryType.TitlesHeadings && marker.type === MarkerType.Paragraph,
+    )
+    .map(([marker]) => marker),
   "qa",
-  "sd",
-  "sd1",
-  "sd2",
-  "sd3",
-  "sd4",
 ]);
 
 /** A paragraph container whose children may hold verses. */

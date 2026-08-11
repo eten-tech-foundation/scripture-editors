@@ -134,6 +134,7 @@ import {
   TrailingNoteCaretGuardPlugin,
   UsjNodeOptions,
   UsjNodesMenuPlugin,
+  ViewOptions,
   usjBlockVerseNodes,
   usjReactNodes,
 } from "shared-react";
@@ -241,19 +242,31 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
   // not its reload effect, and `contextMenuOptions` isn't passed to `LoadStatePlugin` at all - so
   // of the three, only `viewOptions`'s identity can trigger the spurious reload this fix addresses.
   const requestedViewOptions = view ?? defaultViewOptions;
-  // Two paragraph-level features cannot work once a verse owns the block:
-  // - gutter markers are added to the source paragraph only, so the fragments a verse block is
-  //   split into would have a para marker but no marker prefix, and ParaMarkerPrefixGuardPlugin
-  //   would reset each of them to `\p`, wiping the poetry indentation this layout preserves;
+  // Paragraph-level features that cannot work once a verse owns the block:
+  // - a visible or editable `markerMode`, and gutter markers, both put a marker prefix in the
+  //   source paragraph only, so the fragments a verse block is split into keep their para marker
+  //   but lose the prefix - and ParaMarkerPrefixGuardPlugin, which those same settings enable,
+  //   then resets each fragment to `\p`, wiping the poetry indentation this layout preserves;
   // - the active-text box resolves the caret's top-level element, which is now the verse block
-  //   rather than a paragraph, so it would outline the whole verse and never find its verses.
-  // Neither is set by the block verse view itself; this only covers hand-composed options.
+  //   rather than a paragraph, so it would outline the whole verse and never find its verses;
+  // - without spacing the adaptor emits a line break before each verse marker, which belongs to
+  //   the run before it and so lands at the end of the *previous* verse's block.
+  // None is set by the block verse view itself; this only covers hand-composed options.
   // Normalizing before the deep-equality check below keeps the fresh object this spread produces
   // on every render from churning `viewOptions`'s identity.
-  const resolvedViewOptions =
+  const resolvedViewOptions: ViewOptions =
     isBlockVerseLayout(requestedViewOptions) &&
-    (requestedViewOptions.hasGutterParaMarkers || requestedViewOptions.hasActiveTextFocusBox)
-      ? { ...requestedViewOptions, hasGutterParaMarkers: false, hasActiveTextFocusBox: false }
+    (requestedViewOptions.markerMode !== "hidden" ||
+      !requestedViewOptions.hasSpacing ||
+      requestedViewOptions.hasGutterParaMarkers ||
+      requestedViewOptions.hasActiveTextFocusBox)
+      ? {
+          ...requestedViewOptions,
+          markerMode: "hidden",
+          hasSpacing: true,
+          hasGutterParaMarkers: false,
+          hasActiveTextFocusBox: false,
+        }
       : requestedViewOptions;
   const viewOptionsRef = useRef(resolvedViewOptions);
   if (!deepEqual(viewOptionsRef.current, resolvedViewOptions)) {
@@ -291,12 +304,10 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
   const effectiveIsReadonly = isReadonly || isBlockVerse;
 
   // Reported from an effect, not the render body: a render can run many times (twice per render in
-  // StrictMode) for one misconfiguration, and repeating the message would bury it. Read the
-  // *requested* flags - `viewOptions` has already had them normalized away.
-  const isIgnoringParaFeatures =
-    isBlockVerse &&
-    ((requestedViewOptions.hasGutterParaMarkers ?? false) ||
-      (requestedViewOptions.hasActiveTextFocusBox ?? false));
+  // StrictMode) for one misconfiguration, and repeating the message would bury it. Derived from
+  // whether normalization above actually replaced the requested options, so the condition can't
+  // drift out of step with the list of features it neutralizes.
+  const isIgnoringParaFeatures = resolvedViewOptions !== requestedViewOptions;
   // `stableLogger`, not `logger`: a host passing a fresh-but-equivalent logger object each render
   // must not re-run this effect and re-emit the message - the repetition it exists to avoid.
   useEffect(() => {
@@ -307,8 +318,8 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
       );
     if (isIgnoringParaFeatures)
       stableLogger?.warn(
-        "Editor: `hasGutterParaMarkers` and `hasActiveTextFocusBox` are not supported with the " +
-          "block verse layout and are ignored.",
+        "Editor: a visible `markerMode`, `hasSpacing: false`, `hasGutterParaMarkers` and " +
+          "`hasActiveTextFocusBox` are not supported with the block verse layout and are ignored.",
       );
   }, [isBlockVerse, isReadonly, isIgnoringParaFeatures, stableLogger]);
 
@@ -451,15 +462,18 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
       editorRef.current?.dispatchCommand(REDO_COMMAND, undefined);
     },
     cut() {
+      assertEditable("cut");
       editorRef.current?.dispatchCommand(CUT_COMMAND, null);
     },
     copy() {
       editorRef.current?.dispatchCommand(COPY_COMMAND, null);
     },
     paste() {
+      assertEditable("paste");
       if (editorRef.current) pasteSelection(editorRef.current);
     },
     pastePlainText() {
+      assertEditable("paste as plain text");
       if (editorRef.current) pasteSelectionAsPlainText(editorRef.current);
     },
     getUsj() {
@@ -510,7 +524,16 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
     },
     applyUpdate(ops, source = "remote") {
       // Delta ops address content by its position in the USJ, which this layout's regrouping
-      // changes, so applying them would edit the wrong nodes rather than fail.
+      // changes, so applying them would edit the wrong nodes rather than fail. A remote op is not
+      // a caller error, and throwing into a host's op loop would tear it down, so report and drop
+      // it - a read-only view refreshes by being handed new USJ, not by replaying deltas.
+      if (isBlockVerse && source === "remote") {
+        loggerRef.current?.error(
+          "Editor: ignoring a remote update in the block verse layout; reload the view with the " +
+            "new USJ instead.",
+        );
+        return;
+      }
       assertEditable("apply an update");
       editorRef.current?.update(
         () => {
