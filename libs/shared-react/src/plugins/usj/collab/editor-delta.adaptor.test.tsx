@@ -273,9 +273,13 @@ describe("getEditorDelta", () => {
     // The registry's per-kind `ownerOf` chain walk requires the wrapper to sit DIRECTLY after its
     // verse — it gives up at the first non-run-piece sibling — so an intervening node between the
     // owner and its wrapper (a remote insert landing at that boundary, an undo stack, a mid-edit
-    // tree) makes $isDisplayRunPiece alone miss it. $hasAttributeRunAncestor (a full ancestor
-    // walk, not adjacency-gated) still catches it regardless of what sits between the wrapper and
-    // its owner, so the ops gate must apply both checks together.
+    // tree) makes $isDisplayRunPiece alone miss it. This pins the OUTCOME (an unanchored wrapper's
+    // glyphs never reach ops), not a single mechanism: two independent checks in $handleTextNodes
+    // currently uphold it — the gate's own $hasAttributeRunAncestor arm, and (a few lines further
+    // down) `isNodeAttributeText`'s unconditional ancestor walk, which alone already excludes any
+    // TextNode with an AttributeRunNode ancestor regardless of adjacency. Deleting the gate's arm
+    // alone does NOT turn this red — that was verified directly — because the second check still
+    // catches it; only removing BOTH would.
     const ops = await getOpsFor(() => {
       const verse = $createVerseNode("1", getVisibleOpenMarkerText("v", "1"), undefined, "2");
       const vaWrapper = $createAttributeRunNode("va");
