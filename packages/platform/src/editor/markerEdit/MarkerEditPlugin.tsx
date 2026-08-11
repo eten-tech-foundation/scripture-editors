@@ -32,7 +32,6 @@ import {
   $getSelection,
   $getState,
   $isRangeSelection,
-  $isTextNode,
   BLUR_COMMAND,
   CLICK_COMMAND,
   COMMAND_PRIORITY_CRITICAL,
@@ -49,7 +48,6 @@ import {
   KEY_ENTER_COMMAND,
   PASTE_COMMAND,
   LexicalCommand,
-  LexicalNode,
   NodeKey,
   NodeMutation,
   TextNode,
@@ -59,20 +57,17 @@ import {
   $caretHoldsRunSite,
   $hasCaretHeldSeparatorGap,
   $isAttributeRunNode,
-  $isCharNode,
-  $isMarkerNode,
   $isMilestoneNode,
   $isVerseNode,
   $ownerOfRunPiece,
   $syncDisplayRun,
   AttributeRunNode,
-  canonicalAttributeText,
   ChapterNode,
   CharNode,
   CURSOR_CHANGE_TAG,
-  defaultMarkerAttribute,
   DELTA_CHANGE_TAG,
   displayRunDescriptor,
+  DisplayRunOwnerRef,
   getMarker as bundledGetMarker,
   ImmutableTypedTextNode,
   LoggerBasic,
@@ -164,37 +159,6 @@ function $syncAndPendVerse(node: VerseNode, context: MarkerEditContext): void {
     if (node.isAttached() && $caretHoldsRunSite(descriptor, node))
       context.pendingKeys.add(node.getKey());
   }
-}
-
-/**
- * Which of a verse's two independent attribute fields (`\va`'s altnumber, `\vp`'s pubnumber) a
- * just-destroyed run PIECE belonged to — or `undefined` when it cannot be classified. Evaluated in
- * the PREVIOUS editor state, same as {@link $ownerOfRunPiece} (shared's displayRunOwner.utils.ts),
- * which this refines: that classifier stops at the OWNING verse, one
- * identity shared by both `\va` and `\vp`, so `$pendOwnersOfDestroyed`'s still-wanted exemption
- * (below) cannot otherwise tell "the va run was destroyed, and altnumber is genuinely gone" apart
- * from "the va run was destroyed, but altnumber is still set" without also knowing which field the
- * destruction touched. A glyph reports its own marker directly; an attribute VALUE reports its
- * immediately preceding sibling's marker (the run pieces' fixed order — opener, value, closer —
- * means the value's own opener is always one step back, even when that opener is ALSO being
- * destroyed in the same commit: this reads the PREVIOUS state, where it still has its tree
- * position). Verse-only: a char span's attributes fold into ONE run, and a milestone has only one
- * field, so neither needs this distinction.
- */
-function $verseAttributeFieldOfDestroyedPiece(
-  piece: LexicalNode,
-): "altnumber" | "pubnumber" | undefined {
-  if ($isMarkerNode(piece)) {
-    if (piece.getMarker() === "va") return "altnumber";
-    if (piece.getMarker() === "vp") return "pubnumber";
-    return undefined;
-  }
-  if ($isTextNode(piece) && $getState(piece, textTypeState) === "attribute") {
-    const previous = piece.getPreviousSibling();
-    if ($isMarkerNode(previous) && previous.getMarker() === "va") return "altnumber";
-    if ($isMarkerNode(previous) && previous.getMarker() === "vp") return "pubnumber";
-  }
-  return undefined;
 }
 
 /**
@@ -316,78 +280,29 @@ export function MarkerEditPlugin({
       payload: { updateTags: Set<string>; prevEditorState: EditorState },
     ) => {
       if (payload.updateTags.has(HISTORIC_TAG) || payload.updateTags.has(DELTA_CHANGE_TAG)) return;
-      const ownerKeys: NodeKey[] = [];
-      // Which of a verse owner's two fields (altnumber/pubnumber) a destroyed piece belonged to —
-      // populated only for VerseNode owners, and only when classifiable (see
-      // $verseAttributeFieldOfDestroyedPiece). Lets the still-wanted exemption below tell "the va
-      // run was destroyed AND altnumber is genuinely gone" apart from "the va run was destroyed,
-      // but pubnumber (untouched) is still set" — a verse is the one owner kind with two
-      // independent fields sharing a single pended identity.
-      const verseFieldsDestroyed = new Map<NodeKey, Set<"altnumber" | "pubnumber">>();
+      const destroyedRuns: DisplayRunOwnerRef[] = [];
       payload.prevEditorState.read(() => {
         for (const [key, mutation] of mutations) {
           if (mutation !== "destroyed") continue;
           const destroyed = $getNodeByKey(key);
           if (!destroyed) continue;
           const ref = $ownerOfRunPiece(destroyed);
-          if (!ref) continue;
-          ownerKeys.push(ref.owner.getKey());
-          if ($isVerseNode(ref.owner)) {
-            const field = $verseAttributeFieldOfDestroyedPiece(destroyed);
-            if (field) {
-              const fields = verseFieldsDestroyed.get(ref.owner.getKey()) ?? new Set();
-              fields.add(field);
-              verseFieldsDestroyed.set(ref.owner.getKey(), fields);
-            }
-          }
+          if (ref) destroyedRuns.push({ owner: ref.owner, kind: ref.kind });
         }
       });
-      if (ownerKeys.length === 0) return;
+      if (destroyedRuns.length === 0) return;
       editor.getEditorState().read(() => {
-        for (const ownerKey of ownerKeys) {
-          const owner = $getNodeByKey(ownerKey);
+        for (const { owner: previousOwner, kind } of destroyedRuns) {
+          const owner = $getNodeByKey(previousOwner.getKey());
           if (!owner?.isAttached()) continue;
-          // A char span's own legitimate heal-removal (its attributes were cleared, so
-          // $syncDisplayRun removes the now-unwanted run) is ALSO a "destroyed" TextNode
-          // mutation from this listener's point of view. Only pend when the owner's
-          // CURRENT state still calls for a run — a genuine attribute clear must settle quietly,
-          // not sit pended (and so exempted from healing) until an unrelated caret departure.
-          if (
-            $isCharNode(owner) &&
-            canonicalAttributeText(
-              owner.getUnknownAttributes() ?? {},
-              defaultMarkerAttribute(owner.getMarker()),
-            ) === ""
-          )
-            continue;
-          // Same still-wanted exemption for a verse's own legitimate \va/\vp removal and a
-          // milestone's own legitimate attribute-text removal — both the shared $syncDisplayRun
-          // driver clearing run debris once its owner's state no longer calls for it
-          // (displayRunSync.utils.ts). Without this, the pended-grace guard the driver carries
-          // ($isDisplayOwnerPended's early-return) would leave a spuriously-pended owner unable to
-          // heal a LATER legitimate field change until an unrelated caret departure re-tokenizes
-          // whatever bytes happen to be currently displayed, clobbering it. Precise per field when
-          // the destroyed piece(s) classified to specific fields (only altnumber cleared must not
-          // block a still-set pubnumber's own healing, and vice versa); falls back to the coarse
-          // both-cleared check when a piece couldn't be classified, which keeps the guard exactly
-          // as conservative as before.
-          if ($isVerseNode(owner)) {
-            const fields = verseFieldsDestroyed.get(ownerKey);
-            const stillWanted = fields
-              ? [...fields].some(
-                  (field) =>
-                    (field === "altnumber" ? owner.getAltnumber() : owner.getPubnumber()) !==
-                    undefined,
-                )
-              : owner.getAltnumber() !== undefined || owner.getPubnumber() !== undefined;
-            if (!stillWanted) continue;
-          }
-          if (
-            $isMilestoneNode(owner) &&
-            displayRunDescriptor("milestone").expectedPieces(owner).valueText === undefined
-          )
-            continue;
-          context.pendingKeys.add(ownerKey);
+          // A sync's OWN legitimate heal-removal (the owner's state no longer calls for a run) is
+          // also a "destroyed" mutation here. Only pend when the owner's CURRENT state still wants
+          // the run: a genuine clear must settle quietly rather than sit pended — and so exempted
+          // from healing — until an unrelated caret departure. Keyed on the DESTROYED run's own
+          // kind, so clearing a verse's `\va` never blocks its still-set `\vp` from healing, and a
+          // milestone (whose glyph pair is unconditional) is never exempted at all.
+          if (!displayRunDescriptor(kind).expectedPieces(owner).wantsRun) continue;
+          context.pendingKeys.add(owner.getKey());
         }
       });
     };

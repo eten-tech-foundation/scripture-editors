@@ -10,7 +10,10 @@
  * the caret held the run loses locally and the user's typed bytes are never clobbered mid-sweep;
  * (3) deleting the whole run (the milestone's entire byte representation) deletes the milestone
  * rather than resurrecting the run; (4) a complete but caret-held-loose run migrates into its
- * `AttributeRunNode` wrapper on caret departure rather than being left loose forever.
+ * `AttributeRunNode` wrapper on caret departure rather than being left loose forever; (5) that same
+ * whole-run deletion still deletes the milestone even when it carried NO attribute text to begin
+ * with — a milestone's glyph pair is unconditional, so "no attribute text" must never be read as
+ * "no run wanted".
  *
  * Environment note: jsdom's selection reconciliation is unreliable across commits — a
  * programmatically placed caret can be yanked to an unrelated node by a follow-on native
@@ -35,6 +38,7 @@ import {
   viewOptions,
 } from "./markerEdit.test-helpers";
 import { $createMarkerPrefix } from "./markerEditDeletion.utils";
+import { COMMIT_PENDING_MARKERS_COMMAND } from "./MarkerEditPlugin";
 import { $resolvePendingMarkers, MarkerEditContext } from "./markerEditTier1.utils";
 import { $rebuildParas, Tier2Context } from "./tier2Rebuild.utils";
 import { act } from "@testing-library/react";
@@ -523,15 +527,17 @@ describe("collab-materialized milestone settles into a re-tokenizable run", () =
     });
   });
 
-  it("a legitimate local attribute clear does not pend the owner (no stuck grace)", async () => {
-    // The mutation listener that pends a display-run owner from a destroyed run PIECE
-    // (MarkerEditPlugin.tsx's $pendOwnersOfDestroyed) also sees the sync's OWN legitimate
-    // attribute-text removal as a "destroyed" mutation. Without the still-wanted exemption
-    // mirroring the char span's, a milestone whose attributes were genuinely cleared would sit
-    // spuriously pended — and since the shared $syncDisplayRun driver now leaves a pended owner's
-    // run alone (displayRunSync.utils.ts's own pended guard), a LATER legitimate sid set would
-    // never heal into a visible attribute run until an unrelated caret departure re-tokenized
-    // whatever bytes happened to be on screen, silently dropping it.
+  it("a legitimate local attribute clear settles quietly instead of sitting stuck", async () => {
+    // Unlike a char span or a verse, a milestone's glyph pair is UNCONDITIONAL — its descriptor's
+    // `expectedPieces(owner).wantsRun` is always `true` — so `$pendOwnersOfDestroyed`'s still-wanted
+    // exemption (MarkerEditPlugin.tsx) never applies to a milestone: the sync's OWN legitimate
+    // attribute-text removal (a "destroyed" TextNode mutation from the listener's point of view)
+    // pends the milestone exactly like a genuine deletion would. What must NOT happen is the pend
+    // sitting stuck: a commit that settles pendings (here, `COMMIT_PENDING_MARKERS_COMMAND` — the
+    // same forced-settle path the host dispatches before a save; there is no caret in this test to
+    // drive an ordinary departure settle) must re-tokenize the unchanged displayed bytes right back
+    // into the same cleared fields, so a LATER legitimate sid set still heals into a visible
+    // attribute run right away rather than being blocked by a leftover pend.
     const { editor } = await testEnvironment($twoParaFixture);
 
     editor.getEditorState().read(() => {
@@ -539,12 +545,16 @@ describe("collab-materialized milestone settles into a re-tokenizable run", () =
     });
 
     // Clear sid directly, with no caret at the run's site — the sync heals the attribute text
-    // away in THIS commit, and that removal is exactly what the mutation listener observes.
+    // away in THIS commit, and that removal is exactly what the mutation listener observes, and
+    // pends the milestone for the forced settle below.
     await act(async () =>
       editor.update(() => {
         $milestoneInFirstPara().setSid(undefined);
       }),
     );
+    await act(async () => {
+      editor.dispatchCommand(COMMIT_PENDING_MARKERS_COMMAND, undefined);
+    });
 
     editor.read(() => {
       expect($isDisplayOwnerPended($milestoneInFirstPara())).toBe(false);
@@ -554,8 +564,8 @@ describe("collab-materialized milestone settles into a re-tokenizable run", () =
       expect($isMarkerNode(closing) && closing.getMarkerSyntax() === "selfClosing").toBe(true);
     });
 
-    // Prove the exemption actually matters: a LATER legitimate sid set must heal into a visible
-    // attribute run right away, not be blocked by a leftover spurious pend.
+    // Prove the settle actually finished (not left stuck): a LATER legitimate sid set must heal
+    // into a visible attribute run right away, not be blocked by a leftover pend.
     await act(async () =>
       editor.update(() => {
         $milestoneInFirstPara().setSid("q7");
@@ -564,6 +574,37 @@ describe("collab-materialized milestone settles into a re-tokenizable run", () =
 
     editor.getEditorState().read(() => {
       expect($attributeRun().getTextContent()).toBe(`${NBSP}|sid="q7"`);
+    });
+  });
+
+  it("removes an attribute-LESS milestone whose whole run the user deleted", async () => {
+    // An attribute-less milestone still displays `\ts-s\*`, so its run is wanted even with no
+    // attribute text. Reading "no attribute text" as "no run wanted" exempts this deletion from
+    // pending, and the sync then resurrects the glyph pair on the next unrelated dirtying.
+    const { editor } = await testEnvironment(() => {
+      const para = $createParaNode("p");
+      const milestone = $createMilestoneNode("ts-s");
+      $getRoot().append(
+        para.append($createMarkerNode("p"), $createTextNode(NBSP), milestone, $createTextNode("x")),
+      );
+      $appendMilestoneRun(milestone, "");
+    });
+
+    await act(async () => {
+      editor.update(() => {
+        const milestone = $firstPara().getChildren().at(2);
+        if (!$isMilestoneNode(milestone)) throw new Error("milestone missing");
+        milestone.getNextSibling()?.remove();
+        const trailing = milestone.getNextSibling();
+        if ($isTextNode(trailing)) trailing.select(1, 1);
+      });
+    });
+    await act(async () => {
+      editor.dispatchCommand(COMMIT_PENDING_MARKERS_COMMAND, undefined);
+    });
+
+    editor.getEditorState().read(() => {
+      expect($firstPara().getChildren().some($isMilestoneNode)).toBe(false);
     });
   });
 });
