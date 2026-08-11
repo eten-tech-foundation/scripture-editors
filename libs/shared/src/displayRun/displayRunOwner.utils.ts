@@ -29,3 +29,17 @@ export function $ownerOfRunPiece(piece: LexicalNode): DisplayRunOwnerRef | undef
   }
   return undefined;
 }
+
+/**
+ * True when `node` is a piece of ANY registered display run — a run glyph, an attribute value, or
+ * anything riding inside a run wrapper. Engine-owned presentation, never content: it must not
+ * enter OT content ops or the editor→USJ conversion.
+ *
+ * Keyed on the piece's KIND (via {@link $ownerOfRunPiece}) rather than on tree shape, so both the
+ * wrapped shape the adaptor builds and the loose shape a mid-edit commit, an undo stack, or a
+ * collab-materialized bare owner can leave behind are excluded by the same rule. A shape-only
+ * check has to be re-broadened by hand each time a new shape becomes reachable.
+ */
+export function $isDisplayRunPiece(node: LexicalNode): boolean {
+  return $ownerOfRunPiece(node) !== undefined;
+}

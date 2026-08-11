@@ -483,13 +483,15 @@ function $isOpaqueContentNode(
 /**
  * True when `node` is a paragraph's own marker-prefix glyph — the `\p`-style MarkerNode a
  * ParaNode carries as its first child in editable marker mode ($createMarkerPrefix,
- * markerEditDeletion.utils.ts). Mirrors `editor-delta.adaptor.ts`'s `$isOwnParaPrefixGlyph`: the
- * position check (first child of a ParaNode) is load-bearing, since {@link $isParaMarkerPrefix}
- * identifies the node SHAPE, which is reused for every other glyph in the tree too (a char
- * span's own opener/closer, a note's glyphs, a milestone's or verse's bare attribute glyph) —
- * only a MarkerNode sitting in the paragraph's own prefix slot is presentation scaffolding.
+ * markerEditDeletion.utils.ts). The ONE definition, shared by this file's own OT-length
+ * accounting below and by `editor-delta.adaptor.ts`'s content-ops gate, so the two coordinate
+ * systems can never drift apart on what counts as the prefix glyph. The position check (first
+ * child of a ParaNode) is load-bearing, since {@link $isParaMarkerPrefix} identifies the node
+ * SHAPE, which is reused for every other glyph in the tree too (a char span's own opener/closer,
+ * a note's glyphs, a milestone's or verse's bare attribute glyph) — only a MarkerNode sitting in
+ * the paragraph's own prefix slot is presentation scaffolding.
  */
-function $isOwnParaPrefixGlyph(node: LexicalNode): boolean {
+export function $isOwnParaPrefixGlyph(node: LexicalNode): boolean {
   const parent = node.getParent();
   return $isParaMarkerPrefix(node) && $isParaNode(parent) && parent.getFirstChild() === node;
 }
