@@ -240,15 +240,19 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
   // not its reload effect, and `contextMenuOptions` isn't passed to `LoadStatePlugin` at all - so
   // of the three, only `viewOptions`'s identity can trigger the spurious reload this fix addresses.
   const requestedViewOptions = view ?? defaultViewOptions;
-  // Gutter markers are added to the source paragraph only, so the fragments a verse block is
-  // split into would have a para marker but no marker prefix - and ParaMarkerPrefixGuardPlugin
-  // would then reset each of them to `\p`, wiping the poetry indentation the block verse layout
-  // exists to preserve. Not a supported combination, so drop the gutter rather than the markers.
+  // Two paragraph-level features cannot work once a verse owns the block:
+  // - gutter markers are added to the source paragraph only, so the fragments a verse block is
+  //   split into would have a para marker but no marker prefix, and ParaMarkerPrefixGuardPlugin
+  //   would reset each of them to `\p`, wiping the poetry indentation this layout preserves;
+  // - the active-text box resolves the caret's top-level element, which is now the verse block
+  //   rather than a paragraph, so it would outline the whole verse and never find its verses.
+  // Neither is set by the block verse view itself; this only covers hand-composed options.
   // Normalizing before the deep-equality check below keeps the fresh object this spread produces
   // on every render from churning `viewOptions`'s identity.
   const resolvedViewOptions =
-    requestedViewOptions.verseLayout === "block" && requestedViewOptions.hasGutterParaMarkers
-      ? { ...requestedViewOptions, hasGutterParaMarkers: false }
+    requestedViewOptions.verseLayout === "block" &&
+    (requestedViewOptions.hasGutterParaMarkers || requestedViewOptions.hasActiveTextFocusBox)
+      ? { ...requestedViewOptions, hasGutterParaMarkers: false, hasActiveTextFocusBox: false }
       : requestedViewOptions;
   const viewOptionsRef = useRef(resolvedViewOptions);
   if (!deepEqual(viewOptionsRef.current, resolvedViewOptions)) {
@@ -287,20 +291,23 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
 
   // Reported from an effect, not the render body: a render can run many times (twice per render in
   // StrictMode) for one misconfiguration, and repeating the message would bury it. Read the
-  // *requested* gutter flag - `viewOptions` has already had it normalized away.
-  const isIgnoringGutterMarkers =
-    isBlockVerse && (requestedViewOptions.hasGutterParaMarkers ?? false);
+  // *requested* flags - `viewOptions` has already had them normalized away.
+  const isIgnoringParaFeatures =
+    isBlockVerse &&
+    ((requestedViewOptions.hasGutterParaMarkers ?? false) ||
+      (requestedViewOptions.hasActiveTextFocusBox ?? false));
   useEffect(() => {
     if (isBlockVerse && !isReadonly)
       stableLogger?.error(
         "Editor: the block verse layout is read-only; ignoring `isReadonly: false`. Set " +
           "`isReadonly: true` alongside `verseLayout: 'block'`.",
       );
-    if (isIgnoringGutterMarkers)
+    if (isIgnoringParaFeatures)
       stableLogger?.warn(
-        "Editor: `hasGutterParaMarkers` is not supported with the block verse layout and is ignored.",
+        "Editor: `hasGutterParaMarkers` and `hasActiveTextFocusBox` are not supported with the " +
+          "block verse layout and are ignored.",
       );
-  }, [isBlockVerse, isReadonly, isIgnoringGutterMarkers, stableLogger]);
+  }, [isBlockVerse, isReadonly, isIgnoringParaFeatures, stableLogger]);
 
   // Editable-mode document-first marker-menu harness (drives shared-react's `UsjNodesMenuPlugin`
   // "editableHarness" branch; see its doc comment). `undefined` outside markerMode "editable" so
