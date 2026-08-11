@@ -394,7 +394,7 @@ describe("verse \\va/\\vp deletion settles (does not resurrect)", () => {
     // classifies which field each destroyed piece belonged to and checks only THAT field.
     const { editor } = await testEnvironmentWithSpacing(() => {
       // Both fields set at construction: the VerseNode transform (TextSpacingPlugin's
-      // $syncVerseAttributeDisplayNode) heals both the \va and \vp triplets on mount.
+      // $syncDisplayRun registration) heals both the \va and \vp triplets on mount.
       const verse = $createVerseNode("1", getVisibleOpenMarkerText("v", "1"), undefined, "2", "3");
       $getRoot().append(
         $createParaNode("p").append(
@@ -618,7 +618,7 @@ describe("verse \\va/\\vp deletion settles (does not resurrect)", () => {
     //
     // That grace does NOT mean the verse stays unpended, though: the shared driver's $runDiverges
     // (displayRunSync.utils.ts) counts a wanted-but-unwrapped run as diverging in its own right,
-    // so $syncAndPendVerse's caret-held check reports \vp caret-held — genuinely true, its bytes
+    // so $syncAndPendOwner's caret-held check reports \vp caret-held — genuinely true, its bytes
     // already match pubnumber exactly, but it is still riding loose — and the construction commit
     // DOES pend the verse. The pend does not surface at a synchronous read here: the update
     // listener queues a deferred resolve on THIS SAME commit (the pended key is the VERSE's, never

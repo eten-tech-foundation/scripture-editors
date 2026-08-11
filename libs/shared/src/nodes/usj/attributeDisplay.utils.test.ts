@@ -1,6 +1,5 @@
 import {
   $milestoneAttributeRunPieces,
-  $milestoneRunEntirelyAbsent,
   $verseAttributeRunPieces,
   $verseOfAttributeSourceText,
   canonicalAttributeText,
@@ -12,7 +11,7 @@ import {
   AttributeRunNode,
 } from "./AttributeRunNode.js";
 import { $createCharNode } from "./CharNode.js";
-import { $caretHoldsRunSite, $syncDisplayRun } from "./displayRunSync.utils.js";
+import { $caretHoldsRunSite, $runEntirelyAbsent, $syncDisplayRun } from "./displayRunSync.utils.js";
 import { $createMilestoneNode, MilestoneNode } from "./MilestoneNode.js";
 import { getVisibleOpenMarkerText } from "./node.utils.js";
 import { NBSP } from "./node-constants.js";
@@ -341,7 +340,7 @@ describe("milestone display run ($syncDisplayRun / $caretHoldsRunSite, milestone
       expect($isMarkerNode(milestone.getNextSibling())).toBe(false);
       expect(milestone.getNextSibling()?.getTextContent()).toBe(" after");
       expect($caretHoldsRunSite(displayRunDescriptor("milestone"), milestone)).toBe(true);
-      expect($milestoneRunEntirelyAbsent(milestone)).toBe(true);
+      expect($runEntirelyAbsent(displayRunDescriptor("milestone"), milestone)).toBe(true);
     });
   });
 
@@ -423,7 +422,7 @@ describe("milestone display run ($syncDisplayRun / $caretHoldsRunSite, milestone
       expect(run.attributeKey).toBe(attributeKey);
       expect(run.closingKey).toBe(closerKey);
       expect(run.afterRunText).toBe(" after");
-      expect($milestoneRunEntirelyAbsent(milestone)).toBe(false);
+      expect($runEntirelyAbsent(displayRunDescriptor("milestone"), milestone)).toBe(false);
     });
   });
 
@@ -447,7 +446,7 @@ describe("milestone display run ($syncDisplayRun / $caretHoldsRunSite, milestone
     );
 
     editor.getEditorState().read(() => {
-      expect($milestoneRunEntirelyAbsent(milestone)).toBe(false);
+      expect($runEntirelyAbsent(displayRunDescriptor("milestone"), milestone)).toBe(false);
     });
   });
 
@@ -1001,7 +1000,7 @@ describe("AttributeRunNode wrapper recognition (dual-read)", () => {
       });
 
       editor.getEditorState().read(() => {
-        expect($milestoneRunEntirelyAbsent(milestone)).toBe(true);
+        expect($runEntirelyAbsent(displayRunDescriptor("milestone"), milestone)).toBe(true);
       });
     });
   });

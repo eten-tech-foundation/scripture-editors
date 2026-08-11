@@ -240,7 +240,7 @@ export function $rependPendShapedNodes(context: MarkerEditContext): void {
     }
     if ($isVerseNode(node)) {
       // A diverged verse glyph (an undone number-edit settle) — $verseNodeTransform's pend
-      // shape. The caret-held \va/\vp run divergence pend ($syncAndPendVerse's run pend,
+      // shape. The caret-held \va/\vp run divergence pend ($syncAndPendOwner's run pend,
       // MarkerEditPlugin.tsx) is the shared loop above.
       if (node.getTextContent() !== getVisibleOpenMarkerText("v", node.getNumber()))
         context.pendingKeys.add(node.getKey());

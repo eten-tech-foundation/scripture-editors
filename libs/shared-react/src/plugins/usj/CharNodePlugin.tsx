@@ -39,23 +39,14 @@ function useCharNode(editor: LexicalEditor) {
       editor.registerNodeTransform(CharNode, $syncOpenerSeparators),
       // Self-healing attribute display run: re-derive the `|…` run from unknownAttributes
       // whenever a span is dirtied — heals remote collab updates (delta-apply only calls
-      // setUnknownAttributes) and structure surgery. See displayRunSync.utils.ts's
-      // $syncDisplayRun, driven here with the char descriptor from displayRunRegistry.ts
-      // (`shared`).
-      editor.registerNodeTransform(CharNode, $syncCharAttributeDisplayNode),
+      // setUnknownAttributes) and structure surgery. $syncDisplayRun (displayRunSync.utils.ts,
+      // `shared`), driven here with the char descriptor from displayRunRegistry.ts (`shared`).
+      editor.registerNodeTransform(CharNode, (node) =>
+        $syncDisplayRun(displayRunDescriptor("char"), node),
+      ),
       editor.registerNodeTransform(TextNode, $charTextNodeTransform),
     );
   }, [editor]);
-}
-
-/**
- * Wraps {@link $syncDisplayRun} with the char descriptor. Kept as a thin per-kind wrapper so this
- * plugin's registration reads the same as its siblings and the transform signature Lexical
- * expects (one node argument) stays satisfied.
- * @param node - CharNode whose display run needs updating.
- */
-function $syncCharAttributeDisplayNode(node: CharNode): void {
-  $syncDisplayRun(displayRunDescriptor("char"), node);
 }
 
 /**

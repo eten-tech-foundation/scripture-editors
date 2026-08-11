@@ -29,6 +29,7 @@ import {
   $isTextNode,
   $setState,
   LexicalNode,
+  NodeKey,
 } from "lexical";
 
 /** Whether any piece of the run is currently in the tree. */
@@ -258,4 +259,23 @@ export function $syncDisplayRun(descriptor: DisplayRunDescriptor, owner: Lexical
     return;
   }
   $writeRun(descriptor, owner, pieces, expected);
+}
+
+/**
+ * Sync `owner`'s run for `descriptor`, then pend `owner` while the caret holds the run's site so
+ * caret departure settles it. The pairing every registration home needs: the sync leaves a
+ * caret-held divergence alone, and without the matching pend nothing would ever settle it — the
+ * run would silently resurrect from the owner's still-set state on the next unrelated dirtying.
+ *
+ * @param descriptor - The kind's descriptor.
+ * @param owner - The owner whose run to sync. Must be called inside `editor.update()`.
+ * @param pendingKeys - The marker-edit engine's live pending set.
+ */
+export function $syncAndPendDisplayRun(
+  descriptor: DisplayRunDescriptor,
+  owner: LexicalNode,
+  pendingKeys: Set<NodeKey>,
+): void {
+  $syncDisplayRun(descriptor, owner);
+  if (owner.isAttached() && $caretHoldsRunSite(descriptor, owner)) pendingKeys.add(owner.getKey());
 }
