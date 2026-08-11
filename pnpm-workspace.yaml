@@ -18,9 +18,13 @@ onlyBuiltDependencies:
 overrides:
   axios@<1.15.2: ">=1.15.2 <2"
   "@babel/plugin-transform-modules-systemjs@<7.29.4": ">=7.29.4 <8"
-  brace-expansion@<1.1.13: ">=1.1.13 <6"
-  brace-expansion@>=2.0.0 <2.0.3: ">=2.0.3 <6"
-  brace-expansion@>=4.0.0 <5.0.5: ">=5.0.5 <6"
+  # brace-expansion ReDoS (CVE-2025-5889) — patch within each major line; never bump across the
+  # CJS→ESM boundary. The old `<6` upper bounds let pnpm resolve CJS consumers (minimatch@3, which
+  # does `require('brace-expansion')`) up to v5, whose CJS interop shape is `{ default: fn }` — so
+  # `expand(pattern)` throws "expand is not a function" in the devpub/publish toolchain. v5 is left
+  # alone on purpose: minimatch@10 declares ^5.0.2 and 5.0.5 is not in a vulnerable range.
+  brace-expansion@<1.1.12: ">=1.1.12 <2"
+  brace-expansion@>=2.0.0 <2.0.2: ">=2.0.2 <3"
   fast-uri@<3.1.2: ">=3.1.2 <4"
   flatted@<=3.4.1: ">=3.4.2 <4"
   follow-redirects@<=1.15.11: ">=1.16.0 <2"
