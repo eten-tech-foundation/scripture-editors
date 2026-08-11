@@ -1,4 +1,4 @@
-import { serializeEditorState } from "./usj-editor.adaptor";
+import { initialize, serializeEditorState } from "./usj-editor.adaptor";
 import { Usj } from "@eten-tech-foundation/scripture-utilities";
 import { SerializedLexicalNode } from "lexical";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -303,6 +303,60 @@ describe("groupVersesIntoBlocks", () => {
 
     const [verseBlock] = verseBlocksIn(children);
     expect(textIn(verseBlock)).not.toContain("after the divider");
+  });
+
+  // A sidebar is not a paragraph, so an earlier version closed the block on it and left the rest
+  // of the verse outside every block. Any container that is not chrome has to stay with the verse.
+  it("keeps a sidebar and the text after it inside the open verse", () => {
+    const children = $groupUsj(
+      usjChapter(
+        {
+          type: "para",
+          marker: "p",
+          content: [{ type: "verse", marker: "v", number: "1", sid: "GEN 1:1" }, "before sidebar "],
+        },
+        {
+          type: "sidebar",
+          marker: "esb",
+          content: [{ type: "para", marker: "p", content: ["aside text"] }],
+        },
+        { type: "para", marker: "p", content: ["after sidebar "] },
+      ),
+    );
+
+    const verseBlocks = verseBlocksIn(children);
+    expect(verseBlocks).toHaveLength(1);
+    expect(textIn(verseBlocks[0])).toContain("after sidebar");
+  });
+
+  // Verses inside a table or sidebar cannot each own a row, so they are reported rather than
+  // silently absorbed.
+  it("warns when a container holds verses that cannot be grouped", () => {
+    const logger = { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() };
+    initialize(undefined, logger);
+
+    serializeEditorState(
+      usjChapter({
+        type: "table",
+        content: [
+          {
+            type: "table:row",
+            marker: "tr",
+            content: [
+              {
+                type: "table:cell",
+                marker: "tc1",
+                content: [{ type: "verse", marker: "v", number: "3", sid: "EZR 2:3" }, "Parosh"],
+              },
+            ],
+          },
+        ],
+      }),
+      blockVerseOptions,
+    );
+
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("not grouped into blocks"));
+    initialize(undefined, undefined);
   });
 
   it("keeps the verse marker as the first content of its block", () => {

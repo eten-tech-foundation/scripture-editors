@@ -24,7 +24,12 @@ export const NoteEditor = forwardRef<EditorRef, NoteEditorProps>(
         ...options,
         hasExternalUI: true,
         debug: false,
-        view: { ...(options?.view ?? getDefaultViewOptions()), noteMode: "expanded" },
+        // A note is edited inline, so the host's verse layout must not carry over.
+        view: {
+          ...(options?.view ?? getDefaultViewOptions()),
+          noteMode: "expanded",
+          verseLayout: "inline",
+        },
       };
     }, [options]);
 

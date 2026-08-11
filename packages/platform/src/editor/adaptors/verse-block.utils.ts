@@ -12,10 +12,11 @@
  */
 
 import {
-  isSerializedImmutableTableNode,
+  isSerializedBookNode,
   isSerializedImpliedParaNode,
   isSerializedParaNode,
   isSerializedTypedMarkNode,
+  isSomeSerializedChapterNode,
   LoggerBasic,
   parseVerseRange,
   SerializedImpliedParaNode,
@@ -90,19 +91,25 @@ export function groupVersesIntoBlocks(
   let activeBlock: SerializedVerseBlockNode | undefined;
 
   for (const child of children) {
-    // A table inside a verse is that verse's content. Closing the block here would orphan the rest
-    // of the verse: the continuation paragraph has no verse marker of its own, so it would be
-    // emitted outside every block and never appear on a row.
-    if (isSerializedImmutableTableNode(child)) {
-      if (activeBlock) activeBlock.children.push(child);
-      else grouped.push(child);
+    // Chrome is a boundary - an open verse never crosses a chapter marker.
+    if (isSerializedBookNode(child) || isSomeSerializedChapterNode(child)) {
+      activeBlock = undefined;
+      grouped.push(child);
       continue;
     }
 
     if (!isSerializedParagraph(child)) {
-      // Book and chapter chrome are boundaries - an open verse never crosses a chapter marker.
-      activeBlock = undefined;
-      grouped.push(child);
+      // Anything else at root - a table, an `\esb` sidebar - holds its content in a structure that
+      // cannot be split into one row per verse. Keeping it with the open verse is what preserves
+      // the rest of that verse: the paragraph after it carries no verse marker of its own, so
+      // closing the block here would leave that text outside every block and off every row.
+      if (logger && containsVerse(child))
+        logger.warn(
+          `Verses inside a '${child.type}' are not grouped into blocks; the whole node stays with ` +
+            `the surrounding verse.`,
+        );
+      if (activeBlock) activeBlock.children.push(child);
+      else grouped.push(child);
       continue;
     }
 

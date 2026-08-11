@@ -241,6 +241,19 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
   // `EditorConfig.theme`. Theme is the channel because its map permits arbitrary keys and is the
   // lowest-friction way to thread a node-rendering flag through `EditorConfig` without
   // introducing a new option object.
+  /**
+   * Refuses an operation that would change the document in the block verse layout. Its paragraphs
+   * are split across verse blocks, so an edit has no correct USJ to go back to; refusing is what
+   * keeps the rendered document and `getUsj()` from silently diverging.
+   */
+  const assertEditable = (operation: string) => {
+    if (isBlockVerse)
+      throw new Error(
+        `Cannot ${operation} in the block verse layout; it is a read-only view whose structure ` +
+          "does not match the source USJ.",
+      );
+  };
+
   const initialConfig = useMemo<InitialConfigType>(
     () => ({
       namespace: "platformEditor",
@@ -302,14 +315,9 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
       }
     },
     applyUpdate(ops, source = "remote") {
-      // Delta ops address content by its position in the USJ. The block verse layout regroups
-      // paragraphs, so those positions no longer describe this tree - applying them would edit the
-      // wrong nodes rather than fail.
-      if (isBlockVerse)
-        throw new Error(
-          "Cannot apply an update in the block verse layout; it is a read-only view whose " +
-            "structure does not match the source USJ.",
-        );
+      // Delta ops address content by its position in the USJ, which this layout's regrouping
+      // changes, so applying them would edit the wrong nodes rather than fail.
+      assertEditable("apply an update");
       editorRef.current?.update(
         () => {
           if (source === "remote") $addUpdateTag(DELTA_CHANGE_TAG);
@@ -391,6 +399,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
       annotationRef.current?.removeAnnotation(externalTypedMarkType(type), id);
     },
     formatPara(blockMarker) {
+      assertEditable("format a paragraph");
       editorRef.current?.update(() => {
         const selection = $getSelection();
         if ($isRangeSelection(selection)) {
@@ -489,6 +498,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
       markerAction.action({ editor: editorRef.current, reference: scrRef });
     },
     insertNote(marker, caller, selection) {
+      assertEditable("insert a note");
       editorRef.current?.update(() => {
         const noteNode = $insertNote(
           marker,
@@ -530,9 +540,9 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
       // `ignoreTags={blackListedChangeTags}` and short-circuits before calling this handler, so
       // only local user edits (which carry no blacklisted tag) ever reach this point.
 
-      // The block verse layout has no USJ to report: its paragraphs are split across verse blocks,
-      // so the export refuses. `editor.update()` still runs on a non-editable editor, so an
-      // untagged update from a host API call would otherwise reach that refusal from here.
+      // Nothing to report in the block verse layout: its paragraphs are split across verse blocks,
+      // so there is no USJ this tree corresponds to. The mutating entry points refuse before they
+      // can reach here (see `assertEditable`), so this is the last resort rather than the guard.
       if (isBlockVerse) return;
 
       const newUsj = editorUsjAdaptor.deserializeEditorState(editorState);
