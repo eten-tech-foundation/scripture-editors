@@ -33,12 +33,12 @@
  *
  * Builders construct the run (usj-editor.adaptor's `createChar`/`addAttributes`/
  * `addVerseAttributes`; transforms do not run on `setEditorState`), and
- * {@link $syncVerseAttributeDisplay}/{@link $syncMilestoneDisplayRun} — registered as VerseNode/
- * MilestoneNode transforms — re-derive it whenever a verse or milestone is dirtied, healing
- * remote collab updates (the collab materializer's `$createMilestone` builds a BARE
- * `MilestoneNode` with no run at all — delta-apply-update.utils.ts) and structure surgery. A char
- * span's own run follows the identical contract through the shared `$syncDisplayRun` driver
- * (displayRunSync.utils.ts), parameterized by the char kind's descriptor rather than defined in
+ * {@link $syncMilestoneDisplayRun} — registered as a MilestoneNode transform — re-derives it
+ * whenever a milestone is dirtied, healing remote collab updates (the collab materializer's
+ * `$createMilestone` builds a BARE `MilestoneNode` with no run at all —
+ * delta-apply-update.utils.ts) and structure surgery. A char span's own run and a verse's
+ * `\va`/`\vp` runs follow the identical contract through the shared `$syncDisplayRun` driver
+ * (displayRunSync.utils.ts), parameterized by each kind's own descriptor rather than defined in
  * this module. While the collapsed caret sits inside the run the sync leaves it alone (mid-edit
  * grace); the marker-edit engine settles it on caret departure by pending the edited run into its
  * Tier-2 completion path — the displayed bytes re-tokenize back into node state (last-write-wins,
@@ -60,7 +60,7 @@ import {
 } from "./AttributeRunNode.js";
 import { $isCharNode, CharNode } from "./CharNode.js";
 import { MilestoneNode } from "./MilestoneNode.js";
-import { NBSP, UnknownAttributes } from "./node-constants.js";
+import { UnknownAttributes } from "./node-constants.js";
 import { $isDescendantOf } from "./node.utils.js";
 import { $isDisplayOwnerPended } from "./pendedDisplayOwners.utils.js";
 import { $isVerseNode, VerseNode } from "./VerseNode.js";
@@ -250,224 +250,6 @@ export function $verseAttributeRunPieces(
   return { opener, value, closer, wrapper };
 }
 
-/** The display text a triplet's value should hold for `value`, or `undefined` for no triplet at
- * all — NBSP-prefixed (not bare, unlike a char's `|…` run) because the byte between `\va` and its
- * value is the file's real separator (`\va 2\va*`), and Tier-2's NBSP→space flattening reproduces
- * it exactly rather than leaking a display-only space into the captured attribute value. */
-function $verseAttributeTargetText(value: string | undefined): string | undefined {
-  return value ? NBSP + value : undefined;
-}
-
-/**
- * True when `pieces` diverge from what `value` should render as. When `value` is undefined the run
- * must be ENTIRELY absent — any surviving piece (opener/value/closer debris) diverges. When `value`
- * is wanted the run must be complete AND its value byte-exact — a missing opener, missing value,
- * missing closer, or stale value text all diverge. "No pieces, no value wanted" compares equal.
- */
-function $verseAttributeDiverges(
-  pieces: VerseAttributeRunPieces,
-  value: string | undefined,
-): boolean {
-  const { opener, value: valueNode, closer } = pieces;
-  if (value === undefined) return Boolean(opener || valueNode || closer);
-  return !(opener && closer && valueNode?.getTextContent() === $verseAttributeTargetText(value));
-}
-
-/**
- * Whether the collapsed caret holds a verse attribute run's SITE — inside the value TextNode when
- * it exists (the mid-edit grace, leaving the user's in-progress edit alone); or, when the run is
- * ENTIRELY absent (the user just deleted the whole `\va …\va*` run), at the run's insertion point —
- * the end of `after` (the verse, or a preceding `\va` closer) or the very start of `after`'s next
- * content sibling, where a range deletion collapses the caret; or, when only the VALUE was deleted
- * beside a surviving opener glyph, at the opener glyph's own end or on the closer glyph, where a
- * delete-through-the-value leaves it. Mirrors {@link $isCaretAtMilestoneRunBoundary}. Without these
- * arms the sync would re-derive the run from the still-set altnumber/pubnumber the instant the run
- * (or its value) is deleted and the deletion would visibly undo itself.
- *
- * When `pieces.wrapper` is set, the caret holding ANY position inside the wrapper's subtree (not
- * just a recognized piece) also counts — an element-point selection can land on the wrapper
- * itself, a shape the piece-specific arms below don't otherwise recognize.
- */
-function $isCaretAtVerseAttributeSite(
-  after: LexicalNode,
-  pieces: VerseAttributeRunPieces,
-): boolean {
-  const selection = $getSelection();
-  if (!$isRangeSelection(selection) || !selection.isCollapsed()) return false;
-  const anchorNode = selection.anchor.getNode();
-  const { opener, value, closer, wrapper } = pieces;
-  if (wrapper && (anchorNode.is(wrapper) || $isDescendantOf(anchorNode, wrapper.getKey())))
-    return true;
-  if (value) return anchorNode.is(value);
-  // Load-bearing, not just a loose-shape leftover: with no wrapper piece found at all, "run
-  // entirely absent" is read from the flank of `after` (the verse or a preceding closer) rather
-  // than from a wrapper's own position. This covers TWO cases that produce the identical
-  // wrapper-less tree shape — a genuinely loose run (pre-flip state, undo stack, or a
-  // collab-materialized bare verse) deleted before heal-forward ever wrapped it, AND a run that
-  // WAS wrapped but had its whole `AttributeRunNode` removed in one deletion (the wrapper
-  // reference here comes up empty either way, since the scan simply finds nothing at this
-  // position). Dropping this arm would leave a just-deleted WRAPPED run's caret ungraced too.
-  if (!opener && !closer) {
-    if (anchorNode.is(after) && selection.anchor.offset === after.getTextContentSize()) return true;
-    const next = after.getNextSibling();
-    return next !== null && anchorNode.is(next) && selection.anchor.offset === 0;
-  }
-  if (!opener) return false;
-  // Value missing beside a surviving opener glyph: the caret can hold the site at the closer glyph
-  // OR at the end of the opener glyph's own text (where deleting only the value collapses it).
-  const atOpenerEnd =
-    anchorNode.is(opener) && selection.anchor.offset === opener.getTextContentSize();
-  if (closer) return atOpenerEnd || anchorNode.is(closer);
-  return atOpenerEnd;
-}
-
-/**
- * Heal a single marker's run (insert missing pieces, rewrite a stale value, or remove leftover
- * debris), anchored immediately after `after`. Partial mangles are repaired AROUND the surviving
- * pieces — a leftover opener/value/closer is reused in place, never duplicated (the tolerant-pieces
- * fix for the value-deletion resurrect bug). Returns the node the NEXT marker's run should anchor
- * after — `after` itself when no run exists there, this run's wrapper once healed, or — while
- * caret-grace/pending defers the wrap migration on an already-complete loose triplet — its loose
- * closer, so `\va` and `\vp` chain correctly regardless of which shape is present. `verse` and
- * `after` name two different things:
- * `verse` is the run's OWNER — the identity the pended-registry check below looks up — while
- * `after` is only this call's scan/insertion ANCHOR, which for the chained `\vp` call is `\va`'s
- * wrapper (or `verse` itself), never the owner to check pended-ness against.
- *
- * A run that should EXIST always ends up inside a wrapper: an already-wrapped run is repaired in
- * place (a missing opener becomes the wrapper's first child; a missing value/closer still
- * `insertAfter`s the preceding piece, which already lives inside the wrapper); a run found as LOOSE
- * siblings — complete or partial, from a pre-flip editor state, an undo stack, or a
- * collab-materialized bare verse — is HEALED FORWARD: a new wrapper is created in the loose pieces'
- * own position and every surviving piece is moved inside it before any missing piece is built. This
- * is the one migration path from loose to wrapped, so a fully-correct but still-loose triplet (no
- * content to fix) is not skipped by the divergence check alone — `needsWrapping` below catches it.
- */
-function $syncVerseAttributeRun(
-  verse: VerseNode,
-  after: LexicalNode,
-  marker: VerseAttributeMarker,
-  value: string | undefined,
-): LexicalNode {
-  const pieces = $verseAttributeRunPieces(after, marker);
-  const { opener, value: valueNode, closer, wrapper: existingWrapper } = pieces;
-  const chainAnchor = existingWrapper ?? closer ?? after;
-  // A run that is WANTED but not yet wrapped needs healing-forward even when its content already
-  // matches — a complete, byte-correct LOOSE triplet still diverges from the wrapped shape every
-  // run must end up in.
-  const needsWrapping = value !== undefined && !existingWrapper;
-  if (!$verseAttributeDiverges(pieces, value) && !needsWrapping) return chainAnchor;
-  // The engine holds this verse pending (a run deletion/edit detected from the destruction
-  // itself, or caret-held divergence re-pended by $resolvePendingMarkers): healing now would
-  // resurrect or overwrite it before caret departure settles it — mirrors the shared
-  // $syncDisplayRun driver's pended guard (displayRunSync.utils.ts), which the char kind now
-  // goes through.
-  if ($isDisplayOwnerPended(verse)) return chainAnchor;
-  // Mid-edit grace: the caret holds the run's site (inside a live value, at a just-deleted run's
-  // insertion point, or beside a surviving glyph whose value was deleted). Leave it alone — the
-  // marker-edit engine settles it on caret departure, which also defers the wrap migration until
-  // the caret has left (a structural move under an active edit is exactly the interaction the
-  // caret-grace arms exist to prevent).
-  if ($isCaretAtVerseAttributeSite(after, pieces)) return chainAnchor;
-  const targetText = $verseAttributeTargetText(value);
-  if (targetText === undefined) {
-    // No run wanted: remove whatever debris survives, wrapped or loose. A wrapper that becomes
-    // empty here is left in place — a transient husk the marker-edit engine's deletion driver
-    // removes as part of settling the deletion (markerEditTier1.utils.ts's
-    // $settlePendedDisplayOwner).
-    opener?.remove();
-    valueNode?.remove();
-    closer?.remove();
-    return existingWrapper ?? after;
-  }
-  // Ensure a wrapper exists: reuse one already there, or heal any loose survivors forward into a
-  // freshly created one, inserted where the run belongs (directly after `after`, which is exactly
-  // where a surviving loose piece already sits — pieces are always contiguous immediately
-  // following `after`, per $verseAttributeRunPieces' tolerant scan).
-  const wrapper =
-    existingWrapper ??
-    (() => {
-      const created = $createAttributeRunNode(marker);
-      after.insertAfter(created);
-      if (opener) created.append(opener);
-      if (valueNode) created.append(valueNode);
-      if (closer) created.append(closer);
-      return created;
-    })();
-  // Repair around survivors, in fixed order: opener first inside the wrapper, then value, then
-  // closer. Each found piece already sits in its correct position (the tolerant scan reads them
-  // in order), so a missing one is inserted into its gap.
-  const openerGlyph =
-    opener ??
-    (() => {
-      const created = $createMarkerNode(marker, "opening");
-      const wrapperFirstChild = wrapper.getFirstChild();
-      if (wrapperFirstChild) wrapperFirstChild.insertBefore(created);
-      else wrapper.append(created);
-      return created;
-    })();
-  let workingValue = valueNode;
-  if (workingValue) {
-    if (workingValue.getTextContent() !== targetText) workingValue.setTextContent(targetText);
-  } else {
-    workingValue = $createTextNode(targetText);
-    $setState(workingValue, textTypeState, "attribute");
-    openerGlyph.insertAfter(workingValue);
-  }
-  if (!closer) {
-    const createdCloser = $createMarkerNode(marker, "closing");
-    workingValue.insertAfter(createdCloser);
-  }
-  return wrapper;
-}
-
-/**
- * Heal `verse`'s `\va`/`\vp` display triplets to match `altnumber`/`pubnumber`: insert a missing
- * triplet, rewrite a stale one, or remove a leftover one — except while the collapsed caret sits
- * inside a triplet's value (mid-edit grace), or while the marker-edit engine holds `verse` pended
- * (a triplet destroyed by something other than this call, or caret-held divergence re-pended by
- * `$resolvePendingMarkers`) — both of which the sync leaves alone for the marker-edit engine to
- * settle on caret departure. Idempotent — writes only on change, so the registering transform
- * converges.
- *
- * @param verse - The verse whose display triplets to sync. Must be called inside `editor.update()`.
- * @param altnumber - The `\va` value `verse` should display, or `undefined` for none.
- * @param pubnumber - The `\vp` value `verse` should display, or `undefined` for none.
- */
-export function $syncVerseAttributeDisplay(
-  verse: VerseNode,
-  altnumber: string | undefined,
-  pubnumber: string | undefined,
-): void {
-  if (!verse.isAttached()) return;
-  const afterVa = $syncVerseAttributeRun(verse, verse, "va", altnumber);
-  $syncVerseAttributeRun(verse, afterVa, "vp", pubnumber);
-}
-
-/**
- * True when `verse`'s `\va` or `\vp` triplet diverges from `altnumber`/`pubnumber` but the sync
- * is deliberately leaving it alone because the caret holds it. The marker-edit engine pends such
- * verses so caret departure settles them back to canonical.
- */
-export function $hasCaretHeldVerseAttributeRun(
-  verse: VerseNode,
-  altnumber: string | undefined,
-  pubnumber: string | undefined,
-): boolean {
-  if (!verse.isAttached()) return false;
-  const vaPieces = $verseAttributeRunPieces(verse, "va");
-  if ($verseAttributeDiverges(vaPieces, altnumber) && $isCaretAtVerseAttributeSite(verse, vaPieces))
-    return true;
-  // A diverging \va the caret does NOT hold is not "caret-held" (it would just heal in place),
-  // but that must not short-circuit the \vp check — the two runs are independent, and the
-  // caret can only ever be in one of them at a time.
-  const afterVa = vaPieces.wrapper ?? vaPieces.closer ?? verse;
-  const vpPieces = $verseAttributeRunPieces(afterVa, "vp");
-  return Boolean(
-    $verseAttributeDiverges(vpPieces, pubnumber) && $isCaretAtVerseAttributeSite(afterVa, vpPieces),
-  );
-}
-
 /**
  * The VerseNode whose `\va`/`\vp` SOURCE span `node` is content of, or `undefined`. A settled
  * empty run leaves a standalone `char va`/`char vp` span in the verse's run position (displayed
@@ -604,10 +386,10 @@ function $isCaretAtMilestoneRunBoundary(
   if (attribute) return anchorNode.is(attribute);
   // Load-bearing, not just a loose-shape leftover: with no wrapper piece found at all, "run
   // entirely absent" is read from the milestone's own flanking siblings rather than from a
-  // wrapper's own position. Covers the same two cases as the verse version above (
-  // $isCaretAtVerseAttributeSite) — a genuinely loose run deleted before heal-forward wrapped it,
-  // and a WRAPPED run whose whole `AttributeRunNode` was removed in one deletion — since both
-  // leave the identical wrapper-less tree shape for this scan to find nothing at.
+  // wrapper's own position. Covers the same two cases as the verse kind's flank grace
+  // ($verseFlankGrace, displayRunRegistry.ts) — a genuinely loose run deleted before heal-forward
+  // wrapped it, and a WRAPPED run whose whole `AttributeRunNode` was removed in one deletion —
+  // since both leave the identical wrapper-less tree shape for this scan to find nothing at.
   if (!opening && !closing) {
     const previous = milestone.getPreviousSibling();
     if (

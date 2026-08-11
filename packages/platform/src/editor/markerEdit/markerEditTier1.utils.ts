@@ -18,7 +18,6 @@ import {
   $caretHoldsRunSite,
   $hasCaretHeldMilestoneRun,
   $hasCaretHeldSeparatorGap,
-  $hasCaretHeldVerseAttributeRun,
   $isCharNode,
   $isMarkerNode,
   $isMilestoneNode,
@@ -394,7 +393,7 @@ export function $settlePendedDisplayOwner(
   }
   if (
     $isVerseNode(node) &&
-    $hasCaretHeldVerseAttributeRun(node, node.getAltnumber(), node.getPubnumber())
+    (["va", "vp"] as const).some((kind) => $caretHoldsRunSite(displayRunDescriptor(kind), node))
   ) {
     // Same mid-edit grace for a verse's deleted/diverged \va/\vp attribute run: the exceptKey
     // protection covers only the run TextNode (or verse text) the caret is in, not the verse's

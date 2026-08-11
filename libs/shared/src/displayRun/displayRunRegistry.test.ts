@@ -117,9 +117,9 @@ describe("displayRunRegistry scanPieces", () => {
   });
 
   it("reads a wrapped \\va run's pieces by NAME: opener/value/closer/wrapper", () => {
-    // The canonical (post-flip) shape: usj-editor.adaptor and $syncVerseAttributeRun always build
-    // a wanted run wrapped in an AttributeRunNode, so this is the shape scanPieces meets in
-    // practice, not the legacy loose-sibling shape.
+    // The canonical (post-flip) shape: usj-editor.adaptor and the shared $syncDisplayRun driver
+    // always build a wanted run wrapped in an AttributeRunNode, so this is the shape scanPieces
+    // meets in practice, not the legacy loose-sibling shape.
     const { editor } = createBasicTestEnvironment();
     editor.update(
       () => {

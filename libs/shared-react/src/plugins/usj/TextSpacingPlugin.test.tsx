@@ -23,6 +23,7 @@ import {
   $setSelection,
 } from "lexical";
 import {
+  $caretHoldsRunSite,
   $createCharNode,
   $createImmutableChapterNode,
   $createImmutableTypedTextNode,
@@ -33,7 +34,6 @@ import {
   $createUnknownNode,
   $createVerseNode,
   $getLogicalContentItems,
-  $hasCaretHeldVerseAttributeRun,
   $isAttributeRunNode,
   $isCharNode,
   $isParaNode,
@@ -41,6 +41,7 @@ import {
   $isUnknownNode,
   $isVisibleMarkerNode,
   $verseAttributeRunPieces,
+  displayRunDescriptor,
   NBSP,
   openingMarkerText,
   ParaNode,
@@ -780,7 +781,7 @@ describe("TextSpacingPlugin", () => {
   // the shared-react home that already registers VerseNode transforms (the spacing transform
   // above) — matching the CharNodePlugin precedent of one plugin owning all of a node type's
   // self-healing display syncs.
-  describe("attribute run healing ($syncVerseAttributeDisplay transform)", () => {
+  describe("attribute run healing ($syncDisplayRun transform, va/vp descriptors)", () => {
     /** A marker's opening/value/closing triplet anchored after `after`, if any — via
      * {@link $verseAttributeRunPieces}, so this helper reads correctly whether the sync healed the
      * run as loose siblings or (the shape it always heals forward to) inside an `AttributeRunNode`
@@ -793,6 +794,17 @@ describe("TextSpacingPlugin", () => {
       const { opener, value, closer, wrapper } = $verseAttributeRunPieces(after, marker);
       if (!opener || !value || !closer) return undefined;
       return { open: opener, value, close: closer, anchor: wrapper ?? closer };
+    }
+
+    /** Whether either of `verse`'s two independent run descriptors reports the caret holding its
+     * site — the re-pointed equivalent of the retired `$hasCaretHeldVerseAttributeRun(verse,
+     * altnumber, pubnumber)`, which took the same two values explicitly instead of reading them off
+     * the verse itself. */
+    function $hasCaretHeldVerseRun(verse: VerseNode): boolean {
+      return (
+        $caretHoldsRunSite(displayRunDescriptor("va"), verse) ||
+        $caretHoldsRunSite(displayRunDescriptor("vp"), verse)
+      );
     }
 
     it("heals missing \\va and \\vp runs from altnumber/pubnumber, va before vp", async () => {
@@ -947,7 +959,7 @@ describe("TextSpacingPlugin", () => {
 
       editor.getEditorState().read(() => {
         expect($attributeRun(verse, "va")?.value.getTextContent()).toBe(`${NBSP}23`);
-        expect($hasCaretHeldVerseAttributeRun(verse, "2", undefined)).toBe(true);
+        expect($hasCaretHeldVerseRun(verse)).toBe(true);
       });
     });
 
@@ -985,7 +997,7 @@ describe("TextSpacingPlugin", () => {
             if (!$isAttributeRunNode(wrapper)) throw new Error("\\va wrapper missing");
             wrapper.remove();
             verse.select(verse.getTextContentSize(), verse.getTextContentSize());
-            reportedCaretHeld = $hasCaretHeldVerseAttributeRun(verse, "2", undefined);
+            reportedCaretHeld = $hasCaretHeldVerseRun(verse);
           },
           { discrete: true },
         );
@@ -1020,7 +1032,7 @@ describe("TextSpacingPlugin", () => {
             );
             vpValue.setTextContent(`${NBSP}1c`);
             vpValue.select(vpValue.getTextContentSize(), vpValue.getTextContentSize());
-            reportedCaretHeld = $hasCaretHeldVerseAttributeRun(verse, "2", "1b");
+            reportedCaretHeld = $hasCaretHeldVerseRun(verse);
           },
           { discrete: true },
         );

@@ -45,7 +45,6 @@ import {
   $charClosingGlyph,
   $hasCaretHeldMilestoneRun,
   $hasCaretHeldSeparatorGap,
-  $hasCaretHeldVerseAttributeRun,
   $isAttributeRunNode,
   $isBookNode,
   $isChapterNode,
@@ -220,10 +219,10 @@ export function $rependPendShapedNodes(context: MarkerEditContext): void {
     }
     if ($isVerseNode(node)) {
       // A diverged verse glyph (an undone number-edit settle), or a caret-held \va/\vp run
-      // divergence — $verseNodeTransform plus the VerseNode transform's run pend.
+      // divergence — $verseNodeTransform plus $syncAndPendVerse's run pend (MarkerEditPlugin.tsx).
       if (
         node.getTextContent() !== getVisibleOpenMarkerText("v", node.getNumber()) ||
-        $hasCaretHeldVerseAttributeRun(node, node.getAltnumber(), node.getPubnumber())
+        (["va", "vp"] as const).some((kind) => $caretHoldsRunSite(displayRunDescriptor(kind), node))
       )
         context.pendingKeys.add(node.getKey());
       return;

@@ -276,13 +276,14 @@ const pendingShapes: PendingShape[] = [
       const wrapper = para.getChildren().find($isAttributeRunNode);
       if (!wrapper) throw new Error("expected an AttributeRunNode");
       wrapper.remove();
-      // Caret at the run's insertion point (the verse's own end) — the exact shape
-      // `$isCaretAtVerseAttributeSite` (attributeDisplay.utils.ts) recognizes as "held" for a run
-      // deleted in its ENTIRETY. Without it, the self-healing sync ($syncVerseAttributeRun, driven
-      // by MarkerEditPlugin's AttributeRunNode transform re-firing on the wrapper's own removal)
-      // resurrects the run from the verse's still-set altnumber in the SAME commit, before the
-      // deletion ever has a chance to sit pending — confirmed empirically: without this caret
-      // placement the live text still reads "\va 2\va*" immediately after this edit.
+      // Caret at the run's insertion point (the verse's own end) — the exact shape the verse
+      // descriptor's `graceSite` (displayRunRegistry.ts, via `$caretHoldsRunSite`,
+      // displayRunSync.utils.ts) recognizes as "held" for a run deleted in its ENTIRETY. Without
+      // it, the self-healing sync ($syncDisplayRun, driven by MarkerEditPlugin's AttributeRunNode
+      // transform re-firing on the wrapper's own removal) resurrects the run from the verse's
+      // still-set altnumber in the SAME commit, before the deletion ever has a chance to sit
+      // pending — confirmed empirically: without this caret placement the live text still reads
+      // "\va 2\va*" immediately after this edit.
       verse.select(verse.getTextContentSize(), verse.getTextContentSize());
     },
   },
