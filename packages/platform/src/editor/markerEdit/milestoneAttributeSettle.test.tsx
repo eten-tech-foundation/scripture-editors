@@ -1,14 +1,16 @@
 /**
  * Integration regression for the milestone display-run self-heal. The collab materializer
  * ($createMilestone, delta-apply-update.utils.ts) builds a BARE MilestoneNode with no display-run
- * siblings — before the self-heal transform (attributeDisplay.utils.ts's
- * $syncMilestoneDisplayRun, registered on MilestoneNode in MarkerEditPlugin.tsx), such a milestone
- * stayed a Tier-2 sentinel forever (tier2Rebuild.utils.ts's run.length > 0 guard): never editable,
- * never re-tokenizable. These tests prove: (1) a bare milestone heals into a full display run and
- * re-tokenizes through Tier 2 as ordinary content; (2) the settle rule is uniform — the DISPLAYED
- * BYTES win, so a remote field change that arrived while the caret held the run loses locally and
- * the user's typed bytes are never clobbered mid-sweep; (3) deleting the whole run (the
- * milestone's entire byte representation) deletes the milestone rather than resurrecting the run.
+ * siblings — before the self-heal (the shared $syncDisplayRun driver, displayRunSync.utils.ts,
+ * parameterized by the milestone descriptor and registered on MilestoneNode in
+ * MarkerEditPlugin.tsx), such a milestone stayed a Tier-2 sentinel forever (tier2Rebuild.utils.ts's
+ * run.length > 0 guard): never editable, never re-tokenizable. These tests prove: (1) a bare
+ * milestone heals into a full display run and re-tokenizes through Tier 2 as ordinary content; (2)
+ * the settle rule is uniform — the DISPLAYED BYTES win, so a remote field change that arrived while
+ * the caret held the run loses locally and the user's typed bytes are never clobbered mid-sweep;
+ * (3) deleting the whole run (the milestone's entire byte representation) deletes the milestone
+ * rather than resurrecting the run; (4) a complete but caret-held-loose run migrates into its
+ * `AttributeRunNode` wrapper on caret departure rather than being left loose forever.
  *
  * Environment note: jsdom's selection reconciliation is unreliable across commits — a
  * programmatically placed caret can be yanked to an unrelated node by a follow-on native
@@ -36,8 +38,9 @@ import { $createMarkerPrefix } from "./markerEditDeletion.utils";
 import { $resolvePendingMarkers, MarkerEditContext } from "./markerEditTier1.utils";
 import { $rebuildParas, Tier2Context } from "./tier2Rebuild.utils";
 import { act } from "@testing-library/react";
-import { $createTextNode, $getRoot, $isTextNode, TextNode } from "lexical";
+import { $createTextNode, $getRoot, $isTextNode, $setState, TextNode } from "lexical";
 import {
+  $createMarkerNode,
   $createMilestoneNode,
   $createParaNode,
   $isAttributeRunNode,
@@ -51,6 +54,7 @@ import {
   MilestoneNode,
   NBSP,
   ParaNode,
+  textTypeState,
   TypedMarkNode,
 } from "shared";
 // Reaching inside only for tests.
@@ -465,15 +469,69 @@ describe("collab-materialized milestone settles into a re-tokenizable run", () =
     expect(JSON.stringify(usj)).not.toContain('"type":"ms"');
   });
 
+  it("migrates a complete but caret-held-loose run into its wrapper on departure (migration-pend behavior)", async () => {
+    // A complete-but-still-LOOSE run (bytes already canonical, only its AttributeRunNode wrapper
+    // missing) is pended on caret-held mid-edit grace and DELIVERS the wrap migration on the next
+    // departure. $settlePendedDisplayOwner's milestone arm (markerEditTier1.utils.ts) recognizes
+    // exactly this divergence shape ($runNeedsOnlyWrapMigration, displayRunSync.utils.ts) and
+    // calls the shared $syncDisplayRun driver directly, rather than falling through to the Tier-2
+    // rebuild probe — a wrap-only change is byte-identical to what is already displayed (an
+    // AttributeRunNode wrapper carries no bytes of its own), so that probe would always REFUSE it
+    // as a fixed point and leave the run loose forever, with nothing else to re-drive it.
+    const { editor } = await testEnvironment(() => {
+      const [glyph, separator] = $createMarkerPrefix("p");
+      const [glyph2, separator2] = $createMarkerPrefix("p");
+      const milestone = $createMilestoneNode("qt-s", "q1");
+      const opening = $createMarkerNode("qt-s", "opening");
+      const attribute = $createTextNode(`${NBSP}|sid="q1"`); // byte-exact — no content divergence
+      $setState(attribute, textTypeState, "attribute");
+      $getRoot().append(
+        $createParaNode("p").append(
+          glyph,
+          separator,
+          $createTextNode("before "),
+          milestone,
+          opening,
+          attribute,
+          $createMarkerNode("", "selfClosing"),
+          $createTextNode(" after"),
+        ),
+        $createParaNode("p").append(glyph2, separator2, $createTextNode("body")),
+      );
+      // Caret parked on the loose (but byte-exact) attribute text: mid-edit grace blocks the
+      // construction commit's own healing attempt, and — the migration-pend behavior — also pends
+      // the milestone.
+      attribute.select(attribute.getTextContentSize(), attribute.getTextContentSize());
+    });
+
+    // Caret departs → the pended milestone's loose run settles by MIGRATING into its wrapper —
+    // not by re-tokenizing: there is nothing to re-tokenize, since the displayed bytes are already
+    // canonical and sid never changes.
+    await act(async () => editor.update(() => $bodyText().select(0, 0)));
+
+    editor.read(() => {
+      const msNode = $milestoneInFirstPara();
+      expect($isDisplayOwnerPended(msNode)).toBe(false);
+      // The ACTUAL wrap landed — not just a reporter's boolean: the wrapper is present, and the
+      // opening/attribute/closing pieces it now holds are the SAME bytes, untouched.
+      const { opening, attribute, closing, wrapper } = $milestoneAttributeRunPieces(msNode);
+      expect(wrapper).toBeDefined();
+      expect($isMarkerNode(opening) && opening.getMarkerSyntax() === "opening").toBe(true);
+      expect(attribute?.getTextContent()).toBe(`${NBSP}|sid="q1"`);
+      expect($isMarkerNode(closing) && closing.getMarkerSyntax() === "selfClosing").toBe(true);
+      expect(msNode.getSid()).toBe("q1"); // untouched — a migration, never a re-tokenize
+    });
+  });
+
   it("a legitimate local attribute clear does not pend the owner (no stuck grace)", async () => {
     // The mutation listener that pends a display-run owner from a destroyed run PIECE
     // (MarkerEditPlugin.tsx's $pendOwnersOfDestroyed) also sees the sync's OWN legitimate
     // attribute-text removal as a "destroyed" mutation. Without the still-wanted exemption
     // mirroring the char span's, a milestone whose attributes were genuinely cleared would sit
-    // spuriously pended — and since $syncMilestoneDisplayRun now leaves a pended owner's run
-    // alone (the guard added alongside $settlePendedDisplayOwner), a LATER legitimate sid set
-    // would never heal into a visible attribute run until an unrelated caret departure
-    // re-tokenized whatever bytes happened to be on screen, silently dropping it.
+    // spuriously pended — and since the shared $syncDisplayRun driver now leaves a pended owner's
+    // run alone (displayRunSync.utils.ts's own pended guard), a LATER legitimate sid set would
+    // never heal into a visible attribute run until an unrelated caret departure re-tokenized
+    // whatever bytes happened to be on screen, silently dropping it.
     const { editor } = await testEnvironment($twoParaFixture);
 
     editor.getEditorState().read(() => {

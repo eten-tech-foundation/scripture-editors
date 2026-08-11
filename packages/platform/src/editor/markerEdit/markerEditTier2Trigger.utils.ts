@@ -25,11 +25,7 @@
  */
 
 import { $requestTier2ForNode } from "./tier2Rebuild.utils";
-import {
-  $markerCanonicalText,
-  $milestoneAttributeDisplayText,
-  MarkerEditContext,
-} from "./markerEditTier1.utils";
+import { $markerCanonicalText, MarkerEditContext } from "./markerEditTier1.utils";
 import {
   $getRoot,
   $getSelection,
@@ -43,7 +39,6 @@ import {
 import {
   $caretHoldsRunSite,
   $charClosingGlyph,
-  $hasCaretHeldMilestoneRun,
   $hasCaretHeldSeparatorGap,
   $isAttributeRunNode,
   $isBookNode,
@@ -228,11 +223,11 @@ export function $rependPendShapedNodes(context: MarkerEditContext): void {
       return;
     }
     if ($isMilestoneNode(node)) {
-      // A caret-held milestone run divergence — $syncAndPendMilestone's pend condition.
-      // The run-entirely-absent shape is deliberately NOT pended here: a bare
-      // collab-materialized milestone legitimately has no run at rest, and pending it
+      // A caret-held milestone run divergence — $syncAndPendMilestone's pend condition
+      // (MarkerEditPlugin.tsx). The run-entirely-absent shape is deliberately NOT pended here: a
+      // bare collab-materialized milestone legitimately has no run at rest, and pending it
       // would DELETE it on the next departure ($resolvePendingMarkers' removal arm).
-      if ($hasCaretHeldMilestoneRun(node, $milestoneAttributeDisplayText(node)))
+      if ($caretHoldsRunSite(displayRunDescriptor("milestone"), node))
         context.pendingKeys.add(node.getKey());
       return;
     }
