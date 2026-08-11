@@ -16,7 +16,6 @@ import {
 } from "lexical";
 import {
   $caretHoldsRunSite,
-  $hasCaretHeldSeparatorGap,
   $isCharNode,
   $isMarkerNode,
   $isMilestoneNode,
@@ -336,13 +335,6 @@ export function $settlePendedDisplayOwner(
   for (const wrapper of $emptyAttributeRunWrappers(node)) {
     wrapper.remove();
     mutated = true;
-  }
-  if ($isCharNode(node) && $hasCaretHeldSeparatorGap(node)) {
-    // A deleted opener separator stays pending while the caret still sits at the gap (the
-    // exceptKey protection covers only the anchor node itself, not its parent span) — mid-edit
-    // grace, markerSeparators.utils.ts. It settles once the caret has actually departed.
-    context.pendingKeys.add(node.getKey());
-    return { handled: true, mutated };
   }
   // Grace PRE-PASS: every descriptor matching this node is checked for a caret-held run BEFORE any
   // settle action runs for ANY of them — a standing contract, not an artifact of iteration order. A

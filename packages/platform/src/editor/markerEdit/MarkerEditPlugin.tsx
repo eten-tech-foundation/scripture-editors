@@ -55,7 +55,6 @@ import {
 import { useEffect, useRef } from "react";
 import {
   $caretHoldsRunSite,
-  $hasCaretHeldSeparatorGap,
   $isAttributeRunNode,
   $isMilestoneNode,
   $isVerseNode,
@@ -345,17 +344,12 @@ export function MarkerEditPlugin({
       editor.registerNodeTransform(CharNode, (node) => {
         if (editor.isComposing()) return;
         $charNodeDeletionTransform(node, context);
-        // A just-deleted opener separator is left alone by the CharNodePlugin sync while the
-        // caret sits at it (mid-edit grace, markerSeparators.utils.ts); pend the span so caret
-        // departure settles it back to canonical via the Tier-2 completion path, exactly like a
-        // pending marker literal.
-        if (node.isAttached() && $hasCaretHeldSeparatorGap(node))
-          context.pendingKeys.add(node.getKey());
-        // Same grace/pend pairing for a deleted or diverged attribute display run
-        // (displayRunSync.utils.ts): while the caret holds it, CharNodePlugin's sync leaves it
-        // alone, so pend the span here for the caret-departure settle.
-        if (node.isAttached() && $caretHoldsRunSite(displayRunDescriptor("char"), node))
-          context.pendingKeys.add(node.getKey());
+        // Whatever the char span owns and the syncs left alone under caret-grace — its opener
+        // separator, its attribute display run — pends here for the caret-departure settle.
+        for (const kind of ["separator", "char"] as const) {
+          if (node.isAttached() && $caretHoldsRunSite(displayRunDescriptor(kind), node))
+            context.pendingKeys.add(node.getKey());
+        }
       }),
       // Self-healing milestone display run (the shared $syncDisplayRun driver,
       // displayRunSync.utils.ts, parameterized by the milestone descriptor): a `MilestoneNode`

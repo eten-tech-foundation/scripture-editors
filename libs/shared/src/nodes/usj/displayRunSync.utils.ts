@@ -91,13 +91,20 @@ export function $runEntirelyAbsent(descriptor: DisplayRunDescriptor, owner: Lexi
  * True when `owner`'s run diverges from what its state calls for but the collapsed caret holds the
  * run's SITE, so the sync must leave it alone and the marker-edit engine settle it on departure.
  *
- * Two arms are shared by every kind: the caret anywhere inside the run's wrapper subtree (an
- * element point can land on the wrapper itself, which no piece-specific arm recognizes), and the
- * caret inside a live value node. Everything else is the descriptor's own `graceSite` — the
- * insertion-point and glyph-debris anchors that differ by tree shape.
+ * Two arms are shared by every WRITER-DRIVEN kind: the caret anywhere inside the run's wrapper
+ * subtree (an element point can land on the wrapper itself, which no piece-specific arm
+ * recognizes), and the caret inside a live value node. Everything else is the descriptor's own
+ * `graceSite` — the insertion-point and glyph-debris anchors that differ by tree shape.
+ *
+ * A `"kind-owned"` writer (the separator, the nested glyph) skips both shared arms and `$runDiverges`
+ * entirely: its `expectedPieces`/`scanPieces` are deliberately empty, so the shared divergence rule
+ * would never see anything to grace. Its `graceSite` is authoritative on its own instead.
  */
 export function $caretHoldsRunSite(descriptor: DisplayRunDescriptor, owner: LexicalNode): boolean {
   if (!owner.isAttached()) return false;
+  // A kind-owned writer keeps its own divergence rule (a separator's missing NBSP is not a run
+  // piece at all), so its graceSite is authoritative on its own.
+  if (descriptor.byteFormat.writer === "kind-owned") return descriptor.graceSite(owner, {});
   const expected = descriptor.expectedPieces(owner);
   const pieces = descriptor.scanPieces(owner);
   if (!$runDiverges(descriptor, pieces, expected)) return false;

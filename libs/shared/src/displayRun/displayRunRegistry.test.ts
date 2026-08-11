@@ -1,4 +1,4 @@
-import { displayRunDescriptor } from "./displayRunRegistry.js";
+import { displayRunDescriptor, displayRunDescriptors } from "./displayRunRegistry.js";
 import { textTypeState } from "../nodes/collab/delta.state.js";
 import { $createMarkerNode } from "../nodes/features/MarkerNode.js";
 import { $createAttributeRunNode } from "../nodes/usj/AttributeRunNode.js";
@@ -209,11 +209,45 @@ describe("displayRunRegistry scanPieces", () => {
 
 describe("displayRunDescriptor lookup", () => {
   it("throws for an unregistered kind, naming it in the message", () => {
-    // "separator" is a valid DisplayRunKind, but the registry currently registers only
-    // char/va/vp/milestone/optbreak — pins both the throw and the documented message shape
-    // (displayRunRegistry.ts's doc comment).
-    expect(() => displayRunDescriptor("separator")).toThrow(
-      'No display-run descriptor registered for kind "separator"',
+    // Every DisplayRunKind is registered as of this task (separator/nestedGlyph were the last
+    // two), so the only way to reach the throw is a kind outside the union entirely — pins both
+    // the throw and the documented message shape (displayRunRegistry.ts's doc comment).
+    // @ts-expect-error ts(2345) - deliberately outside the DisplayRunKind union to exercise the throw
+    expect(() => displayRunDescriptor("bogus")).toThrow(
+      'No display-run descriptor registered for kind "bogus"',
+    );
+  });
+});
+
+describe("every registered kind declares every duty", () => {
+  it("covers separators and nested glyphs, and gives nested glyphs no edit surface", () => {
+    // A kind joins the registry by declaring all eight duties. Nested glyphs declare theirs as
+    // "no pend, no deletion, kind-owned writer" — an explicit decision, not an absent quadrant.
+    const separator = displayRunDescriptor("separator");
+    expect(separator.settleScope).toBe("owner");
+    expect(separator.deletionPolicy).toBe("retokenize");
+    expect(separator.byteFormat.writer).toBe("kind-owned");
+
+    const nestedGlyph = displayRunDescriptor("nestedGlyph");
+    expect(nestedGlyph.settleScope).toBe("none");
+    expect(nestedGlyph.deletionPolicy).toBe("none");
+    expect(nestedGlyph.byteFormat.writer).toBe("kind-owned");
+  });
+
+  it("registers every DisplayRunKind exactly once", () => {
+    const kinds = displayRunDescriptors.map((descriptor) => descriptor.kind);
+    expect(new Set(kinds).size).toBe(kinds.length);
+    expect(kinds).toEqual(
+      expect.arrayContaining([
+        "char",
+        "va",
+        "vp",
+        "milestone",
+        "optbreak",
+        "opaqueUnknown",
+        "separator",
+        "nestedGlyph",
+      ]),
     );
   });
 });
