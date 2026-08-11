@@ -702,6 +702,13 @@ export function usfmFragmentToUsjContent(
           // Empty `\cp` (paragraph-shaped, no end marker): PT9 never yields an empty pubnumber \u2014
           // it stays a first-class (empty) para element. Materialize the standalone paragraph
           // with no content, then fall through to process the boundary token normally.
+          //
+          // Unlike the char-shaped empty branch above, this one deliberately does NOT clear
+          // `attrTarget` (`startParagraph` leaves it alone), so the receptive window survives a
+          // materialized empty `\cp`. That is audited, not overlooked: `cp` is the only
+          // `shape: "para"` attribute marker, so the only way to reach a second fold through this
+          // window is a degenerate duplicate `\cp` on one chapter \u2014 closing it would add a branch
+          // for a shape no document has.
           startParagraph(attrCapture.marker);
           attrCapture = undefined;
         } else {

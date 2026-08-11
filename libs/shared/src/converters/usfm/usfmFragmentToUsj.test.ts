@@ -854,13 +854,73 @@ describe("usfmFragmentToUsjContent — verse, chapter, note, milestone, attribut
 
     it("an empty \\ca blocks a following \\cp the same way (chapter's own marker pair)", () => {
       // A chapter takes BOTH \ca and \cp, so it can exhibit the same cross-fold as a verse's
-      // \va/\vp. Captured from ParatextData: with an empty `\ca` in front, `\cp A` does NOT become
-      // the chapter's pubnumber — it stays its own (paragraph-shaped) element.
+      // \va/\vp. Both halves of this expectation are captured from ParatextData — see
+      // `VerseAttributeFoldRoundTripCaptureTests.EmptyCaThenCp_NeitherFolds` in paranext-core, which
+      // registers `ca`/`cp` with their real usfm.sty shapes (without them the markers are unknown to
+      // the fixture's stylesheet, and ParatextData's DEGRADATION rather than its fold rule is what
+      // gets captured) and pins `<char style="ca" /><para style="cp">A</para>`: `\ca` stays a
+      // first-class CHAR element, and `\cp A` does NOT become the chapter's pubnumber — it stays its
+      // own paragraph-shaped element.
       expect(usfmFragmentToUsjContent("\\c 1\n\\ca\\ca*\n\\cp A\n\\p body")).toEqual([
         { type: "chapter", marker: "c", number: "1" },
         { type: "char", marker: "ca" },
         { type: "para", marker: "cp", content: ["A"] },
         { type: "para", marker: "p", content: ["body"] },
+      ]);
+    });
+
+    it("keeps the line break between an empty \\va and a following \\vp as a content space", () => {
+      // Whitespace disposition, second-order to the blocked fold above. While a target is
+      // "receptive", whitespace before the attribute marker is HELD and then dropped as structural
+      // if the fold happens. Once the empty `\va` closes the window, the line break after it is
+      // ordinary text again — and the text rule (see the `case "text"` comment in
+      // usfmFragmentToUsj.ts) keeps a line break that precedes an INLINE token as a content space,
+      // dropping it only before a block boundary (a para/chapter token or fragment end). `\vp` is
+      // inline, so the break survives as `" "` between the two char elements.
+      //
+      // Pre-fix this space did not exist: `\vp` folded onto the verse, which consumed the held
+      // whitespace as structural. Only whole-file (or direct-converter) input reaches this path —
+      // engine fragments carry no line breaks.
+      expect(usfmFragmentToUsjContent("\\p \\v 11 \\va\\va*\n\\vp 11 vp\\vp* This verse.")).toEqual(
+        [
+          {
+            type: "para",
+            marker: "p",
+            content: [
+              { type: "verse", marker: "v", number: "11" },
+              { type: "char", marker: "va" },
+              " ",
+              { type: "char", marker: "vp", content: ["11 vp"] },
+              " This verse.",
+            ],
+          },
+        ],
+      );
+    });
+
+    it("keeps the line break after an empty \\cat in a sidebar as a content space", () => {
+      // The sidebar arm of the same disposition rule. `clearAttrTarget` drops held whitespace
+      // outright when the receptive target is a SIDEBAR (its content is block-level, so the break
+      // between `\esb`/`\cat` and the first block is never text). Closing the window at the empty
+      // `\cat` means the following line break never becomes held whitespace at all — it is ordinary
+      // text before an inline `\bd`, so it survives as `" "`, matching what the same break does
+      // anywhere else inside the sidebar's paragraph.
+      expect(usfmFragmentToUsjContent("\\esb\n\\cat \\cat*\n\\bd x\\bd*\n\\esbe")).toEqual([
+        {
+          type: "sidebar",
+          marker: "esb",
+          content: [
+            {
+              type: "para",
+              marker: "p",
+              content: [
+                { type: "char", marker: "cat" },
+                " ",
+                { type: "char", marker: "bd", content: ["x"] },
+              ],
+            },
+          ],
+        },
       ]);
     });
 
