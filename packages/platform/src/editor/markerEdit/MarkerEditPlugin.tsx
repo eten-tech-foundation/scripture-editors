@@ -199,7 +199,7 @@ export function MarkerEditPlugin({
     };
     contextRef.current = context;
     // Publishes the live pending set to the self-healing display syncs through a side channel.
-    // Every kind now runs through the ONE shared driver, `$syncDisplayRun`
+    // Every attribute-run kind now runs through the ONE shared driver, `$syncDisplayRun`
     // (displayRunSync.utils.ts, `shared`), parameterized by its own descriptor; only the
     // REGISTRATION differs by kind — `char` from CharNodePlugin and `va`/`vp` from
     // TextSpacingPlugin (both `shared-react`), `milestone` and `va`/`vp` again from this plugin's

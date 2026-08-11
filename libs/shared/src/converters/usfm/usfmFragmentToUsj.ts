@@ -717,7 +717,8 @@ export function usfmFragmentToUsjContent(
           //
           // What DOES re-enter the window is a foldable PARA token, and `cp` is the only
           // `shape: "para"` attribute marker \u2014 so that means a degenerate duplicate `\cp` on one
-          // chapter. Closing the window here would add a branch for a shape no document has.
+          // chapter, which does still fold across the materialized empty para (probed). Closing
+          // the window here would add a branch for a shape no document has.
           startParagraph(attrCapture.marker);
           attrCapture = undefined;
         } else {

@@ -876,9 +876,10 @@ describe("usfmFragmentToUsjContent — verse, chapter, note, milestone, attribut
       // A chapter takes BOTH \ca and \cp, so it can exhibit the same cross-fold as a verse's
       // \va/\vp. Both halves of this expectation are captured from ParatextData — see
       // `VerseAttributeFoldRoundTripCaptureTests.EmptyCaThenCp_NeitherFolds` in paranext-core, which
-      // registers `ca`/`cp` with their real usfm.sty shapes (without them the markers are unknown to
-      // the fixture's stylesheet, and ParatextData's DEGRADATION rather than its fold rule is what
-      // gets captured) and pins `<char style="ca" /><para style="cp">A</para>`: `\ca` stays a
+      // registers `ca` with its real usfm.sty shape (`cp` is already in the fixture's stylesheet in
+      // that shape; without the `ca` tag the marker is unknown to that stylesheet, and ParatextData's
+      // DEGRADATION rather than its fold rule is what gets captured) and pins
+      // `<char style="ca" /><para style="cp">A</para>`: `\ca` stays a
       // first-class CHAR element, and `\cp A` does NOT become the chapter's pubnumber — it stays its
       // own paragraph-shaped element.
       expect(usfmFragmentToUsjContent("\\c 1\n\\ca\\ca*\n\\cp A\n\\p body")).toEqual([
