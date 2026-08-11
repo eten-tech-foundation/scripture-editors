@@ -591,11 +591,12 @@ export function $hasCaretHeldVerseAttributeRun(
  * be loose (a bare `MarkerNode`/attribute `TextNode`) or a whole `AttributeRunNode` wrapper
  * crossed in one step — the adaptor always builds a wanted run wrapped now, so a `\vp` span
  * sitting behind a WRAPPED `\va` run (the only shape an altnumber-bearing verse can have
- * post-migration) must still walk past it to reach the verse. Sibling walk to
- * `$verseOfAttributeGlyph` (MarkerEditPlugin.tsx): that one starts from an opening run GLYPH and
- * walks back to find the owning verse for re-sync/re-pend; this one starts from a SOURCE SPAN's
- * content text and walks back to find the owning verse for the pend decision. Both classify the
- * same run-piece shapes over the same sibling chain and must keep agreeing on what counts as one.
+ * post-migration) must still walk past it to reach the verse. Sibling walk to `$ownerOfRunPiece`'s
+ * verse descriptors (displayRunRegistry.ts): those start from a run PIECE — including an opening
+ * glyph, the shape MarkerEditPlugin.tsx's MarkerNode transform re-drives its sync/pend from — and
+ * walk back to find the owning verse; this one starts from a SOURCE SPAN's content text and walks
+ * back to find the owning verse for the pend decision. Both classify the same run-piece shapes
+ * over the same sibling chain and must keep agreeing on what counts as one.
  */
 export function $verseOfAttributeSourceText(node: LexicalNode): VerseNode | undefined {
   const span = node.getParent();
