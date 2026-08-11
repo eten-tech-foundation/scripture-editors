@@ -20,6 +20,7 @@ import {
   GENERATOR_NOTE_CALLER,
   getDefaultViewMode,
   getViewOptions,
+  isBlockVerseLayout,
   HIDDEN_NOTE_CALLER,
   isInsertEmbedOpOfType,
   Marginal,
@@ -210,7 +211,9 @@ export default function App() {
 
   // The block verse layout is read-only in the editor regardless; force it here too so the
   // checkbox reflects what the editor is actually doing.
-  const isBlockVerseView = viewOptions?.verseLayout === "block";
+  // Only when the options are actually forwarded: with them off the editor never sees `view`, so
+  // claiming a forced read-only would describe an editor that is in fact editable and inline.
+  const isBlockVerseView = isOptionsDefined && isBlockVerseLayout(viewOptions);
   const effectiveIsReadonly = isReadonly || isBlockVerseView;
 
   const options = useMemo<EditorOptions | undefined>(

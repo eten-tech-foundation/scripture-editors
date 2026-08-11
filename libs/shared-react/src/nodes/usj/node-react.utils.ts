@@ -451,16 +451,11 @@ export function $selectPreviousVerse(selection: RangeSelection): boolean {
     // $resolveVerseNode found the verse via backward traversal across paragraphs.
     // That verse is behind the caret — it should be the ArrowUp target directly.
     const topLevel = anchorNode.getTopLevelElement();
-    // In the block verse layout the verse's paragraph is never top-level - its verse block is - so
-    // comparing the caret's block against that paragraph always differs, and every ArrowUp would
-    // re-select the verse the caret is already in. Compare block against block there instead.
-    // Only there: for a verse inside a table the paragraph is not top-level either, and comparing
-    // top-levels would change the existing behavior for that case.
-    const verseParentTopLevel = parent?.getTopLevelElement();
-    const isCaretOutsideVerseParent = $isVerseBlockNode(verseParentTopLevel)
-      ? topLevel !== verseParentTopLevel
-      : topLevel !== parent;
-    if (parent && topLevel && isCaretOutsideVerseParent) {
+    // Compare the caret's block against the verse's own block. Everywhere but the block verse
+    // layout a paragraph is its own top-level element - including inside a table, whose cells are
+    // shadow roots - so this is the same test as comparing against the paragraph. In block verse
+    // the paragraph's top-level element is its verse block, which is what makes it correct there.
+    if (parent && topLevel && topLevel !== parent.getTopLevelElement()) {
       prevVerse = currentVerse;
     }
     if (!prevVerse && parent && $isElementNode(parent)) {

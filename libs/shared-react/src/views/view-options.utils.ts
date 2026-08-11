@@ -272,9 +272,21 @@ export function getViewOptions(viewMode?: string | undefined): ViewOptions | und
 export function getViewMode(viewOptions: ViewOptions | undefined): ViewMode | undefined {
   if (!viewOptions) return undefined;
 
+  const normalized = withoutDefaultVerseLayout(viewOptions);
   return (Object.keys(viewModeToViewNames) as ViewMode[]).find((viewMode) =>
-    deepEqual(getViewOptions(viewMode), viewOptions),
+    deepEqual(withoutDefaultVerseLayout(getViewOptions(viewMode)), normalized),
   );
+}
+
+/**
+ * The options with an explicit `verseLayout: "inline"` dropped. It is the default, so saying it
+ * out loud describes the same view as leaving it out and must compare equal.
+ */
+function withoutDefaultVerseLayout(viewOptions: ViewOptions | undefined) {
+  if (viewOptions?.verseLayout !== "inline") return viewOptions;
+
+  const { verseLayout: _inline, ...rest } = viewOptions;
+  return rest;
 }
 
 /**
@@ -335,6 +347,22 @@ export function getVerseNodeClass(viewOptions: ViewOptions | undefined) {
   if (viewOptions.verseLayout === "block") return ImmutableVerseNode;
 
   return viewOptions.markerMode === "editable" ? VerseNode : ImmutableVerseNode;
+}
+
+/**
+ * Whether the view options select the block verse layout.
+ *
+ * That layout is read-only: its paragraphs are split across verse blocks, so an edit has no
+ * correct USJ to go back to. Anything that offers editing - or an affordance that depends on
+ * editing, such as comment authoring - should treat it as read-only whatever `isReadonly` says.
+ *
+ * @param viewOptions - View options of the editor.
+ * @returns `true` if verses are laid out as blocks.
+ *
+ * @public
+ */
+export function isBlockVerseLayout(viewOptions: ViewOptions | undefined): boolean {
+  return viewOptions?.verseLayout === "block";
 }
 
 /**

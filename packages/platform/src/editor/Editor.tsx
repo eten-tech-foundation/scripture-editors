@@ -116,6 +116,7 @@ import {
   getDefaultViewOptions,
   getInsertedNodeKey,
   getViewClassList,
+  isBlockVerseLayout,
   LoadStatePlugin,
   NoteNodePlugin,
   NoteShellCaretGuardPlugin,
@@ -250,7 +251,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
   // Normalizing before the deep-equality check below keeps the fresh object this spread produces
   // on every render from churning `viewOptions`'s identity.
   const resolvedViewOptions =
-    requestedViewOptions.verseLayout === "block" &&
+    isBlockVerseLayout(requestedViewOptions) &&
     (requestedViewOptions.hasGutterParaMarkers || requestedViewOptions.hasActiveTextFocusBox)
       ? { ...requestedViewOptions, hasGutterParaMarkers: false, hasActiveTextFocusBox: false }
       : requestedViewOptions;
@@ -286,7 +287,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
   // The block verse layout regroups each verse into its own element, splitting paragraphs that span
   // verses. That shape cannot be exported back to USJ, so the layout is read-only by construction
   // rather than by the host remembering to ask for it.
-  const isBlockVerse = viewOptions.verseLayout === "block";
+  const isBlockVerse = isBlockVerseLayout(viewOptions);
   const effectiveIsReadonly = isReadonly || isBlockVerse;
 
   // Reported from an effect, not the render body: a render can run many times (twice per render in
@@ -296,6 +297,8 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
     isBlockVerse &&
     ((requestedViewOptions.hasGutterParaMarkers ?? false) ||
       (requestedViewOptions.hasActiveTextFocusBox ?? false));
+  // `stableLogger`, not `logger`: a host passing a fresh-but-equivalent logger object each render
+  // must not re-run this effect and re-emit the message - the repetition it exists to avoid.
   useEffect(() => {
     if (isBlockVerse && !isReadonly)
       stableLogger?.error(

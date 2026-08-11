@@ -356,7 +356,9 @@ describe("groupVersesIntoBlocks", () => {
     );
 
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("not grouped into blocks"));
-    initialize(undefined, undefined);
+    // The adaptor's `setLogger` only assigns when its argument is truthy, so passing `undefined`
+    // would leave this dead mock installed for every test after this one.
+    initialize(undefined, { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() });
   });
 
   it("keeps the verse marker as the first content of its block", () => {

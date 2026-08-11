@@ -49,12 +49,6 @@
   line-height: 1.5;
 }
 
-/* Block-level box around one verse, so a layout can place the verse on a row. Positioning it is
-   the consuming app's job; this only has to not disturb the inline layouts, which never emit it. */
-.verse-block {
-  display: block;
-}
-
 .editor-placeholder {
   color: #999;
   overflow: hidden;
