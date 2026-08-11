@@ -791,6 +791,50 @@ describe("usfmFragmentToUsjContent — verse, chapter, note, milestone, attribut
       ]);
     });
 
+    it("an empty \\va blocks a following NON-empty \\vp from folding (both stay standalone chars)", () => {
+      // Ground truth, captured from ParatextData itself (GetChapterUsx on a project whose
+      // stylesheet knows va/vp): `\v 11 \va\va*\vp 11 vp\vp* This verse.` comes back as
+      // `<verse number="11"/><char style="va"/><char style="vp">11 vp</char> This verse.` — NEITHER
+      // marker folds, and both keep their document position. The empty `\va` materializes as real
+      // content, and real content between a verse and an attribute marker blocks the fold exactly
+      // the way a same-line space does (the fixture-v12 rule pinned above).
+      //
+      // Letting `\vp` fold across it silently REORDERED the document on the way back to USFM: the
+      // verse carried `pubnumber` (serialized immediately after `\v 11`) while the `\va` char
+      // trailed behind it, turning `\v 11 \va\va*\vp 11 vp\vp*` into
+      // `\v 11 \vp 11 vp\vp*\va \va*`. This is the shape a Standard-view edit produces whenever a
+      // user deletes an alternate verse number's text while a published number rides beside it.
+      expect(usfmFragmentToUsjContent("\\p \\v 11 \\va\\va*\\vp 11 vp\\vp* This verse.")).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: [
+            { type: "verse", marker: "v", number: "11" },
+            { type: "char", marker: "va" },
+            { type: "char", marker: "vp", content: ["11 vp"] },
+            " This verse.",
+          ],
+        },
+      ]);
+    });
+
+    it("blocks the following fold for the spaced empty spelling too (\\va \\va*)", () => {
+      // The same ParatextData capture, for the spelling a settled empty run actually displays
+      // (`\va \va*` — the char span's own separator space).
+      expect(usfmFragmentToUsjContent("\\p \\v 11 \\va \\va*\\vp 11 vp\\vp* This verse.")).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: [
+            { type: "verse", marker: "v", number: "11" },
+            { type: "char", marker: "va" },
+            { type: "char", marker: "vp", content: ["11 vp"] },
+            " This verse.",
+          ],
+        },
+      ]);
+    });
+
     it("keeps an empty \\ca a standalone char after the chapter, not an empty altnumber", () => {
       expect(usfmFragmentToUsjContent("\\c 1\n\\ca \\ca*\n\\p body")).toEqual([
         { type: "chapter", marker: "c", number: "1" },
@@ -804,6 +848,18 @@ describe("usfmFragmentToUsjContent — verse, chapter, note, milestone, attribut
       expect(usfmFragmentToUsjContent("\\c 2\n\\cp \n\\p body")).toEqual([
         { type: "chapter", marker: "c", number: "2" },
         { type: "para", marker: "cp" },
+        { type: "para", marker: "p", content: ["body"] },
+      ]);
+    });
+
+    it("an empty \\ca blocks a following \\cp the same way (chapter's own marker pair)", () => {
+      // A chapter takes BOTH \ca and \cp, so it can exhibit the same cross-fold as a verse's
+      // \va/\vp. Captured from ParatextData: with an empty `\ca` in front, `\cp A` does NOT become
+      // the chapter's pubnumber — it stays its own (paragraph-shaped) element.
+      expect(usfmFragmentToUsjContent("\\c 1\n\\ca\\ca*\n\\cp A\n\\p body")).toEqual([
+        { type: "chapter", marker: "c", number: "1" },
+        { type: "char", marker: "ca" },
+        { type: "para", marker: "cp", content: ["A"] },
         { type: "para", marker: "p", content: ["body"] },
       ]);
     });

@@ -19,7 +19,15 @@ import {
 } from "../adaptors/editor-usj.adaptor";
 import { $rebuildParas, Tier2Context } from "./tier2Rebuild.utils";
 import { act } from "@testing-library/react";
-import { $createTextNode, $getRoot, $isTextNode, $setState, LexicalNode } from "lexical";
+import {
+  $createTextNode,
+  $getRoot,
+  $getSelection,
+  $isRangeSelection,
+  $isTextNode,
+  $setState,
+  LexicalNode,
+} from "lexical";
 import {
   $createCharNode,
   $createMarkerNode,
@@ -236,6 +244,169 @@ describe("verse \\va/\\vp deletion settles (does not resurrect)", () => {
     expect(firstParaContent).toContainEqual({ type: "char", marker: "va" });
     // No altnumber survived anywhere.
     expect(JSON.stringify(usj)).not.toContain("altnumber");
+  });
+
+  it("emptying \\va's text beside a live \\vp keeps both markers in document order (no \\vp hoist)", async () => {
+    // The wave-3 gate's live check-3 repro, reproduced end to end. In Standard view the user
+    // selected a `\va` run's whole visible value and pressed Backspace, then moved the caret away.
+    // The verse also carried a `\vp` run, and the settle SWAPPED them on disk:
+    //   `\v 11 \va 11 va\va*\vp 11 vp\vp* This verse…`
+    //   → `\v 11 \vp 11 vp\vp*\va \va* This verse…`
+    // — the published number silently jumped in front of the alternate one. Emptying `\va` makes it
+    // a first-class char element (that part is the pinned empty form above), and the tokenizer then
+    // folded `\vp` onto the verse ACROSS it; USJ puts a verse attribute before any following
+    // sibling, so serializing back reordered the user's document. ParatextData folds NEITHER marker
+    // in that shape — see the pin in usfmFragmentToUsj.test.ts, captured from `GetChapterUsx`.
+    const { editor } = await testEnvironmentWithSpacing(() => {
+      const verse = $createVerseNode(
+        "11",
+        getVisibleOpenMarkerText("v", "11"),
+        undefined,
+        "11 va",
+        "11 vp",
+      );
+      $getRoot().append(
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          verse,
+          $createTextNode(" This verse."),
+        ),
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          $createTextNode("body"),
+        ),
+      );
+      $appendVerseAttributeRun(verse, "va", "11 va");
+      $appendVerseAttributeRun(verse, "vp", "11 vp");
+    });
+
+    const $firstPara = () => $getRoot().getChildren().filter($isParaNode)[0];
+    const $firstVerse = () =>
+      requireDefined($firstPara().getChildren().find($isVerseNode), "verse missing");
+    const $bodyTextNode = () => {
+      const body = $getRoot().getChildren().filter($isParaNode)[1].getLastChild();
+      if (!$isTextNode(body)) throw new Error("body text node missing");
+      return body;
+    };
+
+    // Place the caret once before the gesture, the way a real session always has: the engine's
+    // deferred resolution only runs once it has observed a caret, so a first-ever gesture would
+    // otherwise resolve the pends every mount-time transform pass left behind alongside this one.
+    await act(async () => editor.update(() => $bodyTextNode().select(0, 0)));
+
+    // The gesture: select the \va run's whole visible value and delete it through the selection,
+    // the way Backspace over a selection does — not by detaching the node.
+    await act(async () =>
+      editor.update(() => {
+        const { value } = $verseAttributeRunPieces($firstVerse(), "va");
+        if (!$isTextNode(value)) throw new Error("\\va value missing");
+        value.select(0, value.getTextContentSize());
+        const selection = $getSelection();
+        if (!$isRangeSelection(selection)) throw new Error("no range selection");
+        selection.removeText();
+      }),
+    );
+
+    // Caret-held grace: the deletion is pending, not settled — altnumber is untouched and nothing
+    // was re-derived between the surviving glyphs.
+    editor.getEditorState().read(() => {
+      const verse = $firstVerse();
+      expect(verse.getAltnumber()).toBe("11 va");
+      expect($verseAttributeRunPieces(verse, "va").value).toBeUndefined();
+    });
+
+    // Depart with a pure selection change → the pended verse settles via Tier 2.
+    await act(async () => editor.update(() => $bodyTextNode().select(0, 0)));
+
+    editor.getEditorState().read(() => {
+      // Displayed bytes keep the user's own marker order: `\va` still precedes `\vp`.
+      const settled = $firstPara().getTextContent();
+      expect(settled).toContain(`\\va${NBSP}\\va*\\vp${NBSP}11 vp\\vp*`);
+      expect(settled).not.toContain("\\vp*\\va");
+    });
+
+    initializeDeserialize(undefined);
+    const usj = requireDefined(
+      deserializeSerializedEditorState(editor.getEditorState().toJSON(), viewOptions),
+      "deserialized USJ",
+    );
+    const firstParaContent = (usj.content[0] as { content: unknown[] }).content;
+    // Neither marker folded: the verse carries no attributes at all, and both survive as char
+    // elements in their original order. A `pubnumber` here is the reorder — it serializes before
+    // every sibling of the verse, putting `\vp` ahead of the `\va` that precedes it on screen.
+    expect(firstParaContent[0]).toEqual({ type: "verse", marker: "v", number: "11" });
+    expect(firstParaContent[1]).toEqual({ type: "char", marker: "va" });
+    expect(firstParaContent[2]).toEqual({
+      type: "char",
+      marker: "vp",
+      content: ["11 vp"],
+    });
+  });
+
+  it("re-typing the emptied \\va value re-folds BOTH numbers back onto the verse", async () => {
+    // The escape hatch for the settle above: unfolding `\vp` alongside the emptied `\va` must not
+    // strand the user. Typing a value back into the empty `\va` span restores the shape where both
+    // markers fold again, so the display runs (and the verse's own state) come back in one settle.
+    const { editor } = await testEnvironmentWithSpacing(() => {
+      const verse = $createVerseNode("11", getVisibleOpenMarkerText("v", "11"), undefined);
+      const va = $createCharNode("va"); // the settled empty form: displayed `\va \va*`
+      va.append($createMarkerNode("va"), $createTextNode(NBSP), $createMarkerNode("va", "closing"));
+      const vp = $createCharNode("vp"); // unfolded beside it, displayed `\vp 11 vp\vp*`
+      vp.append(
+        $createMarkerNode("vp"),
+        $createTextNode(`${NBSP}11 vp`),
+        $createMarkerNode("vp", "closing"),
+      );
+      $getRoot().append(
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          verse,
+          va,
+          vp,
+          $createTextNode(" This verse."),
+        ),
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          $createTextNode("body"),
+        ),
+      );
+    });
+
+    const $firstPara = () => $getRoot().getChildren().filter($isParaNode)[0];
+    const $bodyTextNode = () => {
+      const body = $getRoot().getChildren().filter($isParaNode)[1].getLastChild();
+      if (!$isTextNode(body)) throw new Error("body text node missing");
+      return body;
+    };
+
+    await act(async () =>
+      editor.update(() => {
+        const va = requireDefined(
+          $firstPara()
+            .getChildren()
+            .filter($isCharNode)
+            .find((span) => span.getMarker() === "va"),
+          "va span missing",
+        );
+        const content = va.getChildAtIndex(1); // the NBSP separator text
+        if (!$isTextNode(content)) throw new Error("span content missing");
+        content.setTextContent(`${NBSP}11 va`); // the user types the value back
+        content.select(6, 6);
+      }),
+    );
+    await act(async () => editor.update(() => $bodyTextNode().select(0, 0)));
+
+    editor.getEditorState().read(() => {
+      const verse = requireDefined($firstPara().getChildren().find($isVerseNode), "verse missing");
+      expect(verse.getAltnumber()).toBe("11 va");
+      expect(verse.getPubnumber()).toBe("11 vp");
+      // Both source spans folded away into the verse's own display runs.
+      expect($firstPara().getChildren().some($isCharNode)).toBe(false);
+    });
   });
 
   it("the settled empty char va span is a Tier-2 fixed point (rebuild is a no-op)", async () => {
