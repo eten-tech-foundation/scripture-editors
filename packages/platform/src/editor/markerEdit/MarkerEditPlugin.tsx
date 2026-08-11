@@ -66,7 +66,7 @@ import {
   $isMarkerNode,
   $isMilestoneNode,
   $isVerseNode,
-  $ownerOfDestroyedRunPiece,
+  $ownerOfRunPiece,
   $syncMilestoneDisplayRun,
   $syncVerseAttributeDisplay,
   AttributeRunNode,
@@ -203,8 +203,8 @@ function $verseOfAttributeGlyph(node: MarkerNode): VerseNode | undefined {
 /**
  * Which of a verse's two independent attribute fields (`\va`'s altnumber, `\vp`'s pubnumber) a
  * just-destroyed run PIECE belonged to — or `undefined` when it cannot be classified. Evaluated in
- * the PREVIOUS editor state, same as {@link $ownerOfDestroyedRunPiece} (shared's
- * displayRunDeletion.utils.ts), which this refines: that classifier stops at the OWNING verse, one
+ * the PREVIOUS editor state, same as {@link $ownerOfRunPiece} (shared's displayRunOwner.utils.ts),
+ * which this refines: that classifier stops at the OWNING verse, one
  * identity shared by both `\va` and `\vp`, so `$pendOwnersOfDestroyed`'s still-wanted exemption
  * (below) cannot otherwise tell "the va run was destroyed, and altnumber is genuinely gone" apart
  * from "the va run was destroyed, but altnumber is still set" without also knowing which field the
@@ -240,8 +240,8 @@ function $verseAttributeFieldOfDestroyedPiece(
  * a piece INSIDE the wrapper is edited or removed: that dirties the WRAPPER (an ElementNode whose
  * children changed), not necessarily the owner itself, which the DecoratorNode-based MilestoneNode
  * and the following-sibling-shaped VerseNode run would otherwise never notice on their own (see
- * {@link $syncAndPendMilestone}/{@link $syncAndPendVerse}). Mirrors shared's `$runChainOwner`
- * (displayRunDeletion.utils.ts), which classifies the same run-piece/wrapper shapes for a
+ * {@link $syncAndPendMilestone}/{@link $syncAndPendVerse}). Mirrors shared's `$ownerOfRunPiece`
+ * (displayRunOwner.utils.ts), which classifies the same run-piece/wrapper shapes for a
  * DESTROYED node read from the previous state; this one walks the LIVE tree.
  */
 function $ownerOfAttributeRunWrapper(
@@ -392,15 +392,15 @@ export function MarkerEditPlugin({
           if (mutation !== "destroyed") continue;
           const destroyed = $getNodeByKey(key);
           if (!destroyed) continue;
-          const owner = $ownerOfDestroyedRunPiece(destroyed);
-          if (!owner) continue;
-          ownerKeys.push(owner.getKey());
-          if ($isVerseNode(owner)) {
+          const ref = $ownerOfRunPiece(destroyed);
+          if (!ref) continue;
+          ownerKeys.push(ref.owner.getKey());
+          if ($isVerseNode(ref.owner)) {
             const field = $verseAttributeFieldOfDestroyedPiece(destroyed);
             if (field) {
-              const fields = verseFieldsDestroyed.get(owner.getKey()) ?? new Set();
+              const fields = verseFieldsDestroyed.get(ref.owner.getKey()) ?? new Set();
               fields.add(field);
-              verseFieldsDestroyed.set(owner.getKey(), fields);
+              verseFieldsDestroyed.set(ref.owner.getKey(), fields);
             }
           }
         }
@@ -603,7 +603,7 @@ export function MarkerEditPlugin({
       // milestone's attribute text), a MarkerNode (a run's opening/closing glyphs, which
       // subclasses TextNode), an ImmutableTypedTextNode (a visible/hidden-mode milestone run's
       // DecoratorNode form), or an AttributeRunNode (the wrapper itself, destroyed as a whole —
-      // $ownerOfDestroyedRunPiece, displayRunDeletion.utils.ts, recognizes this shape directly).
+      // $ownerOfRunPiece, displayRunOwner.utils.ts, recognizes this shape directly).
       // Lexical dispatches mutation listeners by exact node type — MarkerNode being a TextNode
       // subclass does not make the TextNode registration see it, mirroring the transform dispatch
       // the TextNode catch-all comment above documents — so each class needs its own registration.

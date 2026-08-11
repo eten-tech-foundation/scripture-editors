@@ -182,7 +182,8 @@ describe("$settledUsj — paragraph scopes", () => {
     const { editor } = await testEnvironment(() => {
       // The husk's own token child, matching what usj-editor.adaptor.ts's `createUnknown` builds
       // for a live `\\optbreak` — an ImmutableTypedTextNode, not a plain TextNode (see
-      // displayRunDeletion.utils.ts's own doc comment on why both shapes must be recognized).
+      // displayRunOwner.utils.ts's `$ownerOfRunPiece` doc comment on why both shapes must be
+      // recognized).
       const optbreakToken = $createImmutableTypedTextNode("marker", "//");
       const optbreak = $createUnknownNode("optbreak", "optbreak").append(optbreakToken);
       $getRoot().append(
@@ -196,11 +197,11 @@ describe("$settledUsj — paragraph scopes", () => {
     });
 
     // Two INDEPENDENT pends in the SAME paragraph, in the SAME update: the husk's own token
-    // deleted (pends the UnknownNode via $pendOwnersOfDestroyed, displayRunDeletion.utils.ts), and
-    // a bare rename on the paragraph's own prefix glyph (Tier 1's unconditional "stays pending"
-    // shape). The rename routes this paragraph through $settledParaNodes, which rebuilds it from
-    // the LIVE tree — where the husk is STILL physically attached, since this settle never mutates
-    // the editor.
+    // deleted (pends the UnknownNode via $pendOwnersOfDestroyed, displayRunOwner.utils.ts's
+    // $ownerOfRunPiece), and a bare rename on the paragraph's own prefix glyph (Tier 1's
+    // unconditional "stays pending" shape). The rename routes this paragraph through
+    // $settledParaNodes, which rebuilds it from the LIVE tree — where the husk is STILL physically
+    // attached, since this settle never mutates the editor.
     await act(async () => {
       editor.update(() => {
         const para = $getRoot().getChildren().find($isParaNode);

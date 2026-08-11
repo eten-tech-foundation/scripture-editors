@@ -54,7 +54,7 @@ import {
   $isMilestoneNode,
   $isUnknownNode,
   $isVerseNode,
-  $ownerOfDestroyedRunPiece,
+  $ownerOfRunPiece,
   $verseOfAttributeSourceText,
   canonicalAttributeText,
   defaultMarkerAttribute,
@@ -300,11 +300,11 @@ export function $rependPendShapedNodes(context: MarkerEditContext): void {
       // keyed off the OWNING verse/milestone, not the wrapper itself ($emptyAttributeRunWrappers
       // only recognizes a VerseNode/MilestoneNode), so the owner — found by the same walk-back
       // MarkerEditPlugin's live AttributeRunNode transform uses via $ownerOfAttributeRunWrapper —
-      // is what gets pended here, not the wrapper's own key. `$ownerOfDestroyedRunPiece` is
-      // reused rather than duplicated: its first branch (`$isAttributeRunNode(piece)`) does
-      // exactly this walk, and nothing about it depends on the wrapper actually being destroyed
-      // — only on tree position, which this attached (undo-restored) wrapper still has.
-      const owner = $ownerOfDestroyedRunPiece(node);
+      // is what gets pended here, not the wrapper's own key. `$ownerOfRunPiece` is reused rather
+      // than duplicated: its verse/milestone descriptors' walk-back recognizes this shape
+      // directly, and nothing about it depends on the wrapper actually being destroyed — only on
+      // tree position, which this attached (undo-restored) wrapper still has.
+      const owner = $ownerOfRunPiece(node)?.owner;
       if (owner) context.pendingKeys.add(owner.getKey());
       return;
     }

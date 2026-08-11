@@ -11,8 +11,8 @@
  * Mounts only `MarkerEditPlugin` (`testEnvironment`) — no self-healing sync is involved: UnknownNode
  * has none (unknownUsfm.utils.ts's module doc: "nothing here ever re-tokenizes back into node
  * state, so there is no cache to keep honest and no sync to register"), so the cross-commit
- * mutation-listener pend (`$ownerOfDestroyedRunPiece`'s optbreak arm, displayRunDeletion.utils.ts)
- * plus `$settlePendedDisplayOwner`'s new optbreak arm are sufficient on their own.
+ * mutation-listener pend (`$ownerOfRunPiece`'s optbreak arm, displayRunOwner.utils.ts) plus
+ * `$settlePendedDisplayOwner`'s new optbreak arm are sufficient on their own.
  */
 
 import { requireDefined, testEnvironment } from "./markerEdit.test-helpers";

@@ -532,7 +532,7 @@ describe("verse \\va/\\vp deletion settles (does not resurrect)", () => {
     // walk-back (MarkerEditPlugin.tsx) must cross the WRAPPED \va to reach the owning verse when
     // re-driving the pend off a dirtied LOOSE \vp glyph — without that, the pend is silently lost
     // and a caret-held \vp edit would resurrect on departure instead of settling, exactly the bug
-    // class $verseOfAttributeSourceText/$runChainOwner already guard against for the SOURCE-SPAN
+    // class $verseOfAttributeSourceText/$ownerOfRunPiece already guard against for the SOURCE-SPAN
     // and DESTROYED-piece classifiers.
     //
     // Establishing the mixed shape (below) necessarily dirties the \va wrapper too (Lexical's
@@ -590,8 +590,8 @@ describe("verse \\va/\\vp deletion settles (does not resurrect)", () => {
     });
 
     // Diverge the loose \vp's value IN PLACE (never removed — a destroyed run piece would ALSO
-    // pend via the already-correct mutation-listener path, $ownerOfDestroyedRunPiece/
-    // $runChainOwner, masking whether THIS fix matters) and explicitly dirty the (still loose)
+    // pend via the already-correct mutation-listener path, $ownerOfRunPiece, masking whether THIS
+    // fix matters) and explicitly dirty the (still loose)
     // opener glyph — the trigger MarkerEditPlugin's registered MarkerNode transform reacts to.
     // Nothing here touches the verse or the \va wrapper.
     editor.update(
