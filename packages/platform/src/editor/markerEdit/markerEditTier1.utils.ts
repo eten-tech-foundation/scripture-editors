@@ -22,18 +22,17 @@ import {
   $isMilestoneNode,
   $isNoteNode,
   $isParaNode,
-  $isUnknownNode,
   $isVerseNode,
   $milestoneAttributeRunPieces,
-  $milestoneRunEntirelyAbsent,
   $runDiverges,
+  $runEntirelyAbsent,
   $runNeedsOnlyWrapMigration,
   $syncDisplayRun,
   $verseAttributeRunPieces,
   AttributeRunNode,
   ChapterNode,
   closingMarkerText,
-  displayRunDescriptor,
+  displayRunDescriptors,
   getVisibleOpenMarkerText,
   isMilestoneHeuristicName,
   MarkerLookup,
@@ -316,139 +315,100 @@ function $emptyAttributeRunWrappers(node: LexicalNode): AttributeRunNode[] {
 
 /**
  * The uniform deletion/pend settle for display-run OWNERS — the one place every kind's
- * grace-or-settle decision and entirely-absent deletion policy lives. Marker literals and plain
- * pending text are not owners and fall through (handled: false) to the caller's re-tokenize arm.
+ * grace-or-settle decision and entirely-absent deletion policy lives, driven entirely by the
+ * registry. Marker literals and plain pending text own no run and fall through (`handled: false`)
+ * to the caller's re-tokenize arm.
+ *
+ * `mutated` is meaningful on BOTH result paths: an emptied `AttributeRunNode` husk removed here, or
+ * a loose-but-canonical run migrated into its wrapper, is a visible change even when the caller's
+ * own re-tokenize then refuses at a fixed point — a settle pass that reports mutating nothing has
+ * its commit merged into the previous history entry.
  */
 export function $settlePendedDisplayOwner(
   node: LexicalNode,
   context: MarkerEditContext,
 ): { handled: boolean; mutated: boolean } {
-  if ($isUnknownNode(node)) {
-    // An optbreak's `//` token IS its entire USFM byte representation (unknownUsfm.utils.ts) —
-    // no marker, no attributes, nothing else to re-derive it from. Deleting the token (Lexical
-    // destroys a token-mode display child outright; there is no partial-edit state to grace)
-    // deletes the construct, exactly as deleting a milestone's entire run deletes the milestone:
-    // the alternative, an empty UnknownNode left behind, serializes an optbreak with no visible
-    // bytes and no caret-distinguishable position — the undead husk this arm retires. The
-    // flanking significant spaces are untouched: displayed bytes win, and they were never part
-    // of the node being removed.
-    if (node.getTag() === "optbreak" && node.getChildrenSize() === 0) {
-      node.remove();
-      return { handled: true, mutated: true };
-    }
-    // Every other UnknownNode kind is a permanent Tier-2 sentinel with no display run of its
-    // own to settle (unknownUsfm.utils.ts's module doc: these bytes are read-only rendering,
-    // never re-tokenized) — recognized so the caller's re-tokenize fallback never tries to route
-    // one through `$requestTier2ForNode`.
-    return { handled: true, mutated: false };
-  }
-  // Husk arm, mirrors the optbreak arm above: an emptied `AttributeRunNode` wrapper
-  // left attached to a verse or milestone is undead scaffolding with nothing left to display —
-  // removed here as a side effect (not an early return) so the OWNER's own policy below still
-  // runs against the cleaned-up tree in the SAME settle pass. Without that, a milestone whose
-  // wrapper was JUST emptied would leave the wrapper orphaned in the tree the instant
-  // `$milestoneRunEntirelyAbsent` (below) removes the milestone itself — ownership is
-  // POSITION-derived, so an orphaned wrapper with no owner immediately before it can never be
-  // cleaned up by anything else. `huskRemoved` folds into whichever arm below actually returns,
-  // so a settle pass that removed a husk is never misreported as having mutated nothing.
-  let huskRemoved = false;
+  // An emptied wrapper left attached to a verse or milestone is undead scaffolding with nothing
+  // left to display. Removed as a side effect, not an early return, so the OWNER's own policy
+  // below still runs against the cleaned-up tree in the SAME pass: ownership is position-derived,
+  // so a wrapper orphaned by its owner's removal could never be cleaned up by anything else.
+  let mutated = false;
   for (const wrapper of $emptyAttributeRunWrappers(node)) {
     wrapper.remove();
-    huskRemoved = true;
+    mutated = true;
   }
   if ($isCharNode(node) && $hasCaretHeldSeparatorGap(node)) {
     // A deleted opener separator stays pending while the caret still sits at the gap (the
     // exceptKey protection covers only the anchor node itself, not its parent span) — mid-edit
     // grace, markerSeparators.utils.ts. It settles once the caret has actually departed.
     context.pendingKeys.add(node.getKey());
-    return { handled: true, mutated: false };
+    return { handled: true, mutated };
   }
-  for (const kind of ["char", "va", "vp", "milestone"] as const) {
-    const descriptor = displayRunDescriptor(kind);
+  let handled = false;
+  // A verse's `\va`/`\vp` pair and a milestone's single run both migrate loose-but-canonical bytes
+  // into their wrapper here (via the same $syncDisplayRun driver construction/edits use) rather
+  // than falling through to Tier 2, which would always REFUSE a wrap-only change: an
+  // AttributeRunNode wrapper carries no bytes of its own, so the rebuilt signature is
+  // byte-identical to what is already displayed, leaving the run loose forever with nothing else
+  // to re-drive it — the exact gap the migration-pend behavior exists to close.
+  //
+  // Whether migrating settles the OWNER is decided only after every descriptor matching this node
+  // has been visited, never on the migrating descriptor's own turn: a verse's two runs are
+  // independent, so `\vp` migrating must never short-circuit past `\va`'s still-unresolved genuine
+  // divergence (e.g. a run destroyed by something else in a separate commit, which the sync's own
+  // destruction detection cannot see once this owner is already pended — the mutation would stay
+  // silently stale until an unrelated future edit dirties the verse again). Falling through to the
+  // Tier-2 re-tokenize below for that remaining divergence, even after a sibling kind migrated,
+  // gets both duties done in one settle pass. A milestone has only one matching descriptor, so the
+  // same deferred decision resolves after its single visit — equivalent to migrating and returning
+  // outright.
+  let migrated = false;
+  let hasGenuineDivergence = false;
+  for (const descriptor of displayRunDescriptors) {
+    if (descriptor.settleScope === "none") continue;
     if (!descriptor.ownerPredicate(node)) continue;
-    if (!$caretHoldsRunSite(descriptor, node)) continue;
-    // Mid-edit grace: the caret holds the run's site. The exceptKey protection covers only the
-    // node the caret is IN (the run's value, or the flanking text for a just-deleted run), not the
-    // owner's own pended key. Settling now would rewrite or re-tokenize the run out from under the
-    // caret; it settles once the caret has actually departed.
-    context.pendingKeys.add(node.getKey());
-    return { handled: true, mutated: huskRemoved };
-  }
-  if ($isVerseNode(node)) {
-    const kinds = ["va", "vp"] as const;
-    // The caret has genuinely departed (the unified grace loop above already returned otherwise).
-    // A run that diverges for EXACTLY the wrap-migration reason
-    // (its bytes are already canonical; only its AttributeRunNode wrapper is missing —
-    // $runNeedsOnlyWrapMigration, displayRunSync.utils.ts) is delivered HERE, by calling the same
-    // $syncDisplayRun driver construction/edits use — the one slice of it the settle may run
-    // directly, since the guard guarantees nothing else about the run's content is stale, so the
-    // call can only ever wrap it, never resurrect content the caret departure just left deleted or
-    // edited. Every OTHER divergence shape is a genuine, unresolved change (missing/stale value, a
-    // deleted run) and must still reach the Tier-2 re-tokenize below, where node state catches up
-    // with the displayed bytes — so BOTH kinds are checked before deciding: `va` and `vp` are
-    // INDEPENDENT, and one migrating must never short-circuit past the other's still-unresolved
-    // genuine divergence (e.g. a run destroyed by something else in a separate commit, which the
-    // sync's own destruction detection cannot see once this owner is already pended — the mutation
-    // stays silently stale until an unrelated future edit dirties the verse again). Falling all the
-    // way through to the Tier-2 rebuild probe for a wrap-only change would always REFUSE it on its
-    // own — an AttributeRunNode wrapper carries no bytes of its own, so the rebuilt signature is
-    // byte-identical to what is already displayed — leaving the run loose forever with nothing else
-    // to re-drive it, the exact gap the migration-pend behavior exists to close; migrating here
-    // first and STILL falling through when a genuine divergence remains elsewhere gets both duties
-    // done in one settle pass instead of requiring two.
-    let migrated = false;
-    let hasGenuineDivergence = false;
-    for (const kind of kinds) {
-      const descriptor = displayRunDescriptor(kind);
-      if ($runNeedsOnlyWrapMigration(descriptor, node)) {
-        $syncDisplayRun(descriptor, node);
-        migrated = true;
-        continue;
-      }
-      if ($runDiverges(descriptor, descriptor.scanPieces(node), descriptor.expectedPieces(node)))
-        hasGenuineDivergence = true;
+    if ($caretHoldsRunSite(descriptor, node)) {
+      // Mid-edit grace: settling now would rewrite or re-tokenize the run out from under the
+      // caret. It settles once the caret has actually departed.
+      context.pendingKeys.add(node.getKey());
+      return { handled: true, mutated };
     }
-    if (migrated && !hasGenuineDivergence) return { handled: true, mutated: true };
-  }
-  if ($isMilestoneNode(node)) {
-    const descriptor = displayRunDescriptor("milestone");
-    // The caret has genuinely departed (the unified grace loop above already returned otherwise).
-    // A run that diverges for EXACTLY the wrap-migration reason
-    // (its bytes are already canonical; only its AttributeRunNode wrapper is missing —
-    // $runNeedsOnlyWrapMigration, displayRunSync.utils.ts) is delivered HERE, by calling the same
-    // $syncDisplayRun driver construction/edits use — mirrors the verse arm above, but a milestone
-    // has only ONE run (unlike a verse's independent \va/\vp pair), so there is no second kind
-    // whose still-unresolved genuine divergence a migration could short-circuit past: migrating
-    // and returning is always safe outright. Falling all the way through to the Tier-2 rebuild
-    // probe for a wrap-only change would always REFUSE it on its own — an AttributeRunNode
-    // wrapper carries no bytes of its own, so the rebuilt signature is byte-identical to what is
-    // already displayed — leaving the run loose forever with nothing else to re-drive it, the
-    // exact gap the migration-pend behavior exists to close.
     if ($runNeedsOnlyWrapMigration(descriptor, node)) {
       $syncDisplayRun(descriptor, node);
+      migrated = true;
+      mutated = true; // a real structural write even when a sibling kind's divergence keeps this
+      // owner from being reported "handled" below (see the deferred-decision comment above).
+      continue;
+    }
+    if (descriptor.deletionPolicy === "none") {
+      // Nothing to settle, but the owner must still be reported as handled so the caller's
+      // re-tokenize fallback never routes it anywhere.
+      handled = true;
+      continue;
+    }
+    if (descriptor.deletionPolicy === "remove-owner" && $runEntirelyAbsent(descriptor, node)) {
+      // The display run is this owner's ENTIRE visible byte representation, so deleting all of it
+      // deletes the owner — displayed bytes win, exactly as deleting every byte of any other
+      // construct removes it. Guarded to the fully-absent shape: a partial mangle falls through
+      // and re-tokenizes instead. (An emptied wrapper husk was already removed above, so this
+      // correctly still fires for it.) Any flanking significant bytes are untouched: `node.remove()`
+      // touches only this node, never its siblings.
+      node.remove();
       return { handled: true, mutated: true };
     }
+    if ($runDiverges(descriptor, descriptor.scanPieces(node), descriptor.expectedPieces(node)))
+      hasGenuineDivergence = true;
   }
-  if ($isMilestoneNode(node) && $milestoneRunEntirelyAbsent(node)) {
-    // The display run is a milestone's ENTIRE visible byte representation, so deleting all of
-    // it deletes the milestone itself — displayed bytes win, exactly as deleting every byte of
-    // any other construct removes it. Guarded to the fully-absent shape: a partial mangle
-    // (any glyph or attribute text still present) falls through and re-tokenizes instead.
-    // Without this arm the paragraph rebuild would preserve the bare milestone as an atomic
-    // sentinel (tier2Rebuild.utils.ts's empty-run guard) and the deletion could never finish.
-    // (An emptied wrapper husk was already removed above, so this correctly still fires for it.)
-    node.remove();
-    return { handled: true, mutated: true };
-  }
-  // `handled: false` here regardless of `huskRemoved`: the caller ignores `mutated` on this path
-  // and instead falls through to its own re-tokenize arm ($requestTier2ForNode) — the existing,
-  // already-safe default for a verse whose pend wasn't (or is no longer, post-husk-cleanup) a
-  // recognized caret-held divergence. Routing through it here too, rather than reporting
-  // "handled" and stopping, keeps a verse's own altnumber/pubnumber able to re-derive a fresh
-  // (loose) run on the same pass if a husk was cleared out from under a value that is still
-  // wanted — `wrapper.remove()` alone does not dirty the VerseNode, so nothing else would
-  // otherwise re-trigger its sync.
-  return { handled: false, mutated: false };
+  if (migrated && !hasGenuineDivergence) return { handled: true, mutated };
+  // `handled: false` here regardless of `mutated`: the caller no longer discards `mutated` on this
+  // path (see `$resolvePendingMarkers`) — it still falls through to its own re-tokenize arm
+  // ($requestTier2ForNode), the existing, already-safe default for an owner whose pend wasn't (or
+  // is no longer, post-husk-cleanup/post-migration) a recognized settle shape. Routing through it
+  // here too, rather than reporting "handled" and stopping, keeps e.g. a verse's own
+  // altnumber/pubnumber able to re-derive a fresh (loose) run on the same pass if a husk was
+  // cleared out from under a value that is still wanted — `wrapper.remove()` alone does not dirty
+  // the VerseNode, so nothing else would otherwise re-trigger its sync.
+  return { handled, mutated };
 }
 
 /**
@@ -480,10 +440,12 @@ export function $resolvePendingMarkers(context: MarkerEditContext, exceptKey?: N
       continue;
     }
     const settled = $settlePendedDisplayOwner(node, context);
-    if (settled.handled) {
-      mutated = settled.mutated || mutated;
-      continue;
-    }
+    // Folded regardless of `handled`: a husk removal or wrap migration is a real mutation even on
+    // the `handled: false` path, where the settle still falls through to the re-tokenize arm below
+    // — a refused (fixed-point) rebuild must not make that earlier mutation disappear from the
+    // caller's own report (see `$settlePendedDisplayOwner`'s doc comment).
+    mutated = settled.mutated || mutated;
+    if (settled.handled) continue;
     // Pending plain-text nodes and departed verses/milestones re-tokenize. The settle rule is
     // uniform: the DISPLAYED BYTES win — Tier 2 re-tokenizes what the user sees (for a
     // milestone, scanMilestone re-derives sid/eid/unknownAttributes from its run's bytes), the

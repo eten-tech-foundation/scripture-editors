@@ -894,10 +894,12 @@ function canMergeSerializedText(a: SerializedLexicalNode, b: SerializedLexicalNo
 
 /**
  * A pended, currently-attached, emptied optbreak husk — the read-only mirror of
- * `$settlePendedDisplayOwner`'s FIRST branch (markerEditTier1.utils.ts): an optbreak's `//` token
- * IS its entire USFM byte representation, so once the (Lexical-token) child holding that token is
- * gone there is nothing left to re-derive, and the mutating settle removes the husk directly —
- * `node.remove()` — rather than routing it through `$settleScopeForNode`/a fragment rebuild.
+ * `$settlePendedDisplayOwner`'s (markerEditTier1.utils.ts) registry dispatch loop:
+ * `optbreakDescriptor`'s `remove-owner` deletion policy over its `read-only` byte format. An
+ * optbreak's `//` token IS its entire USFM byte representation, so once the (Lexical-token) child
+ * holding that token is gone there is nothing left to re-derive, and the mutating settle removes
+ * the husk directly — `node.remove()` — rather than routing it through
+ * `$settleScopeForNode`/a fragment rebuild.
  * `$settleScopeForNode` deliberately refuses EVERY `UnknownNode` (opaque blocks stay literal by
  * design), so a pended husk's own key never resolves to a para/note scope at all; without this
  * separate pass the read-only settle would silently leave the dead husk in the output while the
