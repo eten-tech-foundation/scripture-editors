@@ -222,15 +222,8 @@ export class CharNode extends ElementNode {
 
   override createDOM(config: EditorConfig): HTMLElement {
     const dom = document.createElement("span");
-    dom.setAttribute("data-marker", this.__marker);
-    // Consumers can suppress the per-char marker tooltip via
-    // `ViewOptions.showCharMarkerTitles = false` - useful when the marker name shouldn't
-    // surface as a browser tooltip on every char span. Default (undefined or true) preserves
-    // the marker hint for consumers that want it while authoring USFM.
-    if (config.theme?.showCharMarkerTitles !== false) {
-      dom.setAttribute("title", this.__marker);
-    }
-    dom.classList.add(this.__type, `usfm_${this.__marker}`);
+    applyMarkerToDom(dom, this.__marker, config);
+    dom.classList.add(this.__type);
     return dom;
   }
 
@@ -250,12 +243,10 @@ export class CharNode extends ElementNode {
     // implements it. CharNode extends ElementNode, which does not, so super would reach
     // LexicalNode's base method and throw.
     if (prevNode.__marker !== this.__marker) {
-      dom.setAttribute("data-marker", this.__marker);
-      // Gated the same way createDOM gates it, so this never introduces a title the consumer
-      // asked to suppress.
-      if (config.theme?.showCharMarkerTitles !== false) dom.setAttribute("title", this.__marker);
       dom.classList.remove(`usfm_${prevNode.__marker}`);
-      dom.classList.add(`usfm_${this.__marker}`);
+      // The same writes createDOM makes, so the two paths cannot drift: a reused element ends up
+      // indistinguishable from a freshly created one, title gating included.
+      applyMarkerToDom(dom, this.__marker, config);
     }
     return false;
   }
@@ -298,6 +289,29 @@ export class CharNode extends ElementNode {
   override isInline(): true {
     return true;
   }
+}
+
+/**
+ * Write a marker onto a `CharNode`'s rendered span.
+ *
+ * Shared by `createDOM` and `updateDOM` so the created and the reused element can't drift. Only the
+ * `usfm_*` class is added, never removed — `updateDOM` removes the previous marker's class itself,
+ * and `createDOM` has no previous marker to remove.
+ *
+ * @param dom - The span to write to.
+ * @param marker - The character marker to apply.
+ * @param config - The editor config, read for the `showCharMarkerTitles` theme flag.
+ */
+function applyMarkerToDom(dom: HTMLElement, marker: string, config: EditorConfig): void {
+  dom.setAttribute("data-marker", marker);
+  // Consumers can suppress the per-char marker tooltip via
+  // `ViewOptions.showCharMarkerTitles = false` - useful when the marker name shouldn't
+  // surface as a browser tooltip on every char span. Default (undefined or true) preserves
+  // the marker hint for consumers that want it while authoring USFM.
+  if (config.theme?.showCharMarkerTitles !== false) {
+    dom.setAttribute("title", marker);
+  }
+  dom.classList.add(`usfm_${marker}`);
 }
 
 function $convertCharElement(element: HTMLElement): DOMConversionOutput {

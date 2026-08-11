@@ -1,6 +1,7 @@
 import editorUsjAdaptor from "./adaptors/editor-usj.adaptor";
 import usjEditorAdaptor from "./adaptors/usj-editor.adaptor";
 import {
+  $extendCharacterMarkerAtSelection,
   $removeCharacterMarkerAtSelection,
   $replaceCharacterMarkerAtSelection,
   getUsjMarkerAction,
@@ -397,6 +398,35 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
         { discrete: true },
       );
       return didReplace;
+    },
+    extendCharacterMarker(marker, conflictingMarkers) {
+      if (isReadonly) throw new Error("Cannot extend character marker in readonly mode");
+      assertCharacterMarkerSupported(marker);
+      conflictingMarkers?.forEach((conflictingMarker) =>
+        assertCharacterMarkerSupported(conflictingMarker),
+      );
+
+      // `viewOptions` is forwarded for the same reason `removeCharacterMarker` above needs it:
+      // removing a conflicting marker has to strip that marker's synthesized content.
+      //
+      // `discrete` so the update runs now rather than being deferred behind an in-progress one,
+      // which would leave `didExtend` reporting `false` for an extension that did happen. Same
+      // reason `removeCharacterMarker` above uses it.
+      let didExtend = false;
+      editorRef.current?.update(
+        () => {
+          const selection = $getSelection();
+          if ($isRangeSelection(selection))
+            didExtend = $extendCharacterMarkerAtSelection(
+              selection,
+              marker,
+              conflictingMarkers,
+              viewOptions,
+            );
+        },
+        { discrete: true },
+      );
+      return didExtend;
     },
     insertMarker(marker) {
       if (isReadonly) throw new Error("Cannot insert marker in readonly mode");
