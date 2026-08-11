@@ -45,12 +45,13 @@ import {
   $isChapterNode,
   $isCharNode,
   $isMarkerNode,
-  $isMilestoneNode,
   $isUnknownNode,
   $isVerseNode,
   $ownerOfRunPiece,
+  $runEntirelyAbsent,
   $verseOfAttributeSourceText,
-  displayRunDescriptor,
+  DisplayRunDescriptor,
+  displayRunDescriptors,
   getVisibleOpenMarkerText,
   textTypeState,
 } from "shared";
@@ -179,6 +180,19 @@ export function $textNodeTier2Transform(node: TextNode, context: MarkerEditConte
 }
 
 /**
+ * Whether a settle would act on `owner` for `descriptor`'s kind purely from tree shape, with no
+ * caret involved. Only a run nothing can ever heal back qualifies: a `"read-only"` run that is
+ * absent always means "settle removes this owner", while a HEALABLE run's absence can equally mean
+ * "not built yet" (a collab-materialized bare milestone legitimately has no run at rest, and
+ * pending it would DELETE it on the next departure).
+ */
+function $isStaticSettleShape(descriptor: DisplayRunDescriptor, owner: LexicalNode): boolean {
+  if (descriptor.deletionPolicy !== "remove-owner") return false;
+  if (descriptor.byteFormat.writer !== "read-only") return false;
+  return $runEntirelyAbsent(descriptor, owner);
+}
+
+/**
  * Read-only re-pend scan for HISTORIC (undo/redo) commits. Lexical's history restores a
  * state via `setEditorState`, which never runs node transforms (`$applyAllTransforms`
  * lives only on the `editor.update` path), so every pend the transforms would have
@@ -202,7 +216,11 @@ export function $textNodeTier2Transform(node: TextNode, context: MarkerEditConte
  * husk) is not a caret-dependent divergence at all — it is statically re-derivable from its own
  * shape alone (tag "optbreak" plus zero children, or zero children on a wrapper, always means
  * "settle removes this node"), unlike every other pend here, whose correct resolution depends on
- * what the user is doing. See the UnknownNode and AttributeRunNode branches below.
+ * what the user is doing. The optbreak case is `$isStaticSettleShape`'s arm of the shared
+ * per-descriptor loop below (optbreakDescriptor's `deletionPolicy`/`byteFormat.writer` rather
+ * than a literal tag/children check) — it is no longer "the UnknownNode branch" that pends it.
+ * The AttributeRunNode wrapper case has no registered descriptor of its own yet, so it stays the
+ * literal branch below.
  */
 export function $rependPendShapedNodes(context: MarkerEditContext): void {
   const visit = (node: LexicalNode): void => {
@@ -212,22 +230,20 @@ export function $rependPendShapedNodes(context: MarkerEditContext): void {
         context.pendingKeys.add(node.getKey());
       return;
     }
-    if ($isVerseNode(node)) {
-      // A diverged verse glyph (an undone number-edit settle), or a caret-held \va/\vp run
-      // divergence — $verseNodeTransform plus $syncAndPendVerse's run pend (MarkerEditPlugin.tsx).
-      if (
-        node.getTextContent() !== getVisibleOpenMarkerText("v", node.getNumber()) ||
-        (["va", "vp"] as const).some((kind) => $caretHoldsRunSite(displayRunDescriptor(kind), node))
-      )
+    // Every registered display kind's owner re-pends by the SAME rule: a caret-held divergence, or
+    // a statically-settling shape. A restored state ran no transforms, so nothing else re-derives
+    // these pends and caret departure would settle nothing.
+    for (const descriptor of displayRunDescriptors) {
+      if (descriptor.settleScope === "none") continue;
+      if (!descriptor.ownerPredicate(node)) continue;
+      if ($caretHoldsRunSite(descriptor, node) || $isStaticSettleShape(descriptor, node))
         context.pendingKeys.add(node.getKey());
-      return;
     }
-    if ($isMilestoneNode(node)) {
-      // A caret-held milestone run divergence — $syncAndPendMilestone's pend condition
-      // (MarkerEditPlugin.tsx). The run-entirely-absent shape is deliberately NOT pended here: a
-      // bare collab-materialized milestone legitimately has no run at rest, and pending it
-      // would DELETE it on the next departure ($resolvePendingMarkers' removal arm).
-      if ($caretHoldsRunSite(displayRunDescriptor("milestone"), node))
+    if ($isVerseNode(node)) {
+      // A diverged verse glyph (an undone number-edit settle) — $verseNodeTransform's pend
+      // shape. The caret-held \va/\vp run divergence pend ($syncAndPendVerse's run pend,
+      // MarkerEditPlugin.tsx) is the shared loop above.
+      if (node.getTextContent() !== getVisibleOpenMarkerText("v", node.getNumber()))
         context.pendingKeys.add(node.getKey());
       return;
     }
@@ -259,26 +275,20 @@ export function $rependPendShapedNodes(context: MarkerEditContext): void {
       return;
     }
     if ($isCharNode(node)) {
-      // A caret-held separator gap or attribute-run divergence — the CharNode transform's
-      // pend conditions (MarkerEditPlugin.tsx).
+      // A caret-held separator gap — the CharNode transform's pend condition
+      // (MarkerEditPlugin.tsx). The caret-held attribute-run divergence pend is the shared loop
+      // above.
       if ($hasCaretHeldSeparatorGap(node)) context.pendingKeys.add(node.getKey());
-      if ($caretHoldsRunSite(displayRunDescriptor("char"), node))
-        context.pendingKeys.add(node.getKey());
       node.getChildren().forEach(visit);
       return;
     }
     if ($isUnknownNode(node)) {
-      // An emptied optbreak husk (an undone husk-removal settle restores it) is statically
-      // re-derivable from its own shape alone — tag "optbreak" plus zero children always means
-      // $settlePendedDisplayOwner's optbreak arm removes it, unlike a destruction pend, whose
-      // correct outcome depends on caret state. Pend it directly (that arm operates on THIS
-      // node, unlike the AttributeRunNode husk below, whose arm operates on its OWNER) so the
-      // next real departure re-removes the husk instead of it silently re-serializing an
-      // optbreak with no visible bytes forever. Every other UnknownNode kind (and every other
-      // book/chapter block) keeps literal text (degradation property) — the transform never
-      // pends inside them, so the scan does not descend into any of them.
-      if (node.getTag() === "optbreak" && node.getChildrenSize() === 0)
-        context.pendingKeys.add(node.getKey());
+      // An emptied optbreak husk (an undone husk-removal settle restores it) is now pended by the
+      // shared loop above, via `$isStaticSettleShape`'s optbreakDescriptor arm (that arm operates
+      // on THIS node, unlike the AttributeRunNode husk below, whose arm operates on its OWNER).
+      // Every UnknownNode kind (optbreak or opaque) still stops the walk here without descending:
+      // books/chapters/unknowns keep literal text (degradation property) — the transform never
+      // pends inside them.
       return;
     }
     if ($isBookNode(node) || $isChapterNode(node)) return;
