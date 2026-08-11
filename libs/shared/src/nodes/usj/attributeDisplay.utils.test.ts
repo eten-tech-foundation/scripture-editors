@@ -628,13 +628,12 @@ describe("verse attribute display run ($syncDisplayRun, va/vp descriptors)", () 
   });
 
   it("reports a complete but still-loose \\va run as caret-held so its wrap migration settles", () => {
-    // THE deliberate behavior delta (TJ-ruled, 2026-08-08): the old bespoke reporter compared only
-    // byte content, so a complete-but-loose triplet never counted as diverging and the caret sitting
-    // in it was never reported caret-held — nothing pended the wrap migration, and it was deferred
-    // indefinitely. The shared driver's $runDiverges (displayRunSync.utils.ts) counts a
-    // wrapper-written kind's missing wrapper as a divergence in its own right, so the SAME loose
-    // triplet now diverges, the caret inside it is graced (not clobbered mid-edit) AND reported
-    // caret-held — the marker-edit engine pends it, and the departure settle finishes the migration.
+    // A complete-but-loose triplet (byte-exact, only its AttributeRunNode wrapper missing) diverges
+    // in its own right: $runDiverges (displayRunSync.utils.ts) counts a wrapper-written kind's
+    // missing wrapper as a divergence regardless of content, so the caret inside such a triplet is
+    // graced (not clobbered mid-edit) AND reported caret-held here — a pure reporter-level check.
+    // The marker-edit engine's own pend/settle machinery (verseAttributeSettle.test.tsx's
+    // integration pins) is what actually delivers the wrap migration on caret departure.
     const { editor } = createBasicTestEnvironment();
     let verse!: VerseNode;
     let value!: TextNode;
@@ -1110,8 +1109,8 @@ describe("AttributeRunNode wrapper recognition (dual-read)", () => {
         () => {
           // altnumber ("different") deliberately mismatches the wrapper's own value text ("2") —
           // a genuine VALUE divergence, so $runDiverges reports it via the value-text check alone,
-          // independent of the wrap-migration divergence Task 5 added (the wrapper here already
-          // exists) — keeping this pin about the containment arm specifically.
+          // independent of the missing-wrapper divergence (the wrapper here already exists) —
+          // keeping this pin about the containment arm specifically.
           verse = $createVerseNode("1", getVisibleOpenMarkerText("v", "1"), undefined, "different");
           vaWrapper = $createAttributeRunNode("va");
           const value = $createTextNode(`${NBSP}2`);

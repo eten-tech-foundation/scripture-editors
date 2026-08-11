@@ -19,7 +19,7 @@ import {
 } from "../adaptors/editor-usj.adaptor";
 import { $rebuildParas, Tier2Context } from "./tier2Rebuild.utils";
 import { act } from "@testing-library/react";
-import { $createTextNode, $getRoot, $isTextNode, $setState } from "lexical";
+import { $createTextNode, $getRoot, $isTextNode, $setState, LexicalNode } from "lexical";
 import {
   $createCharNode,
   $createMarkerNode,
@@ -525,6 +525,78 @@ describe("verse \\va/\\vp deletion settles (does not resurrect)", () => {
     });
   });
 
+  it("migrates a complete but caret-held-loose \\va run into its wrapper on departure (migration-pend behavior)", async () => {
+    // A complete-but-still-LOOSE run (bytes already canonical, only its AttributeRunNode wrapper
+    // missing) is pended on caret-held mid-edit grace and DELIVERS the wrap migration on the next
+    // departure. $settlePendedDisplayOwner's verse arm
+    // (markerEditTier1.utils.ts) recognizes exactly this divergence shape
+    // ($runNeedsOnlyWrapMigration, displayRunSync.utils.ts) and calls the shared $syncDisplayRun
+    // driver directly, rather than falling through to the Tier-2 rebuild probe — a wrap-only
+    // change is byte-identical to what is already displayed (an AttributeRunNode wrapper carries
+    // no bytes of its own), so that probe would always REFUSE it as a fixed point and leave the
+    // run loose forever, with nothing else to re-drive it.
+    const { editor } = await testEnvironmentWithSpacing(() => {
+      const verse = $createVerseNode(
+        "1",
+        getVisibleOpenMarkerText("v", "1"),
+        undefined,
+        "2",
+        undefined,
+      );
+      const open = $createMarkerNode("va");
+      const value = $createTextNode(`${NBSP}2`); // matches altnumber exactly — no content divergence
+      $setState(value, textTypeState, "attribute");
+      $getRoot().append(
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          verse,
+          open,
+          value,
+          $createMarkerNode("va", "closing"),
+          $createTextNode("In the beginning"),
+        ),
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          $createTextNode("body"),
+        ),
+      );
+      // Caret parked on the loose (but byte-exact) value: mid-edit grace blocks the construction
+      // commit's own healing attempt, and — the migration-pend behavior — also pends the verse.
+      value.select(value.getTextContentSize(), value.getTextContentSize());
+    });
+
+    const $firstVerse = () =>
+      requireDefined(
+        $getRoot().getChildren().filter($isParaNode)[0].getChildren().find($isVerseNode),
+        "verse missing",
+      );
+    const $bodyTextNode = () => {
+      const body = $getRoot().getChildren().filter($isParaNode)[1].getLastChild();
+      if (!$isTextNode(body)) throw new Error("body text node missing");
+      return body;
+    };
+
+    // Caret departs → the pended verse's loose \va run settles by MIGRATING into its wrapper —
+    // not by re-tokenizing: there is nothing to re-tokenize, since the displayed bytes are already
+    // canonical and altnumber never changes.
+    await act(async () => editor.update(() => $bodyTextNode().select(0, 0)));
+
+    editor.read(() => {
+      const verse = $firstVerse();
+      expect($isDisplayOwnerPended(verse)).toBe(false);
+      // The ACTUAL wrap landed — not just a reporter's boolean: the wrapper is present, and the
+      // opener/value/closer pieces it now holds are the SAME bytes, untouched.
+      const { opener, value, closer, wrapper } = $verseAttributeRunPieces(verse, "va");
+      expect(wrapper).toBeDefined();
+      expect($isMarkerNode(opener) && opener.getMarker() === "va").toBe(true);
+      expect(value?.getTextContent()).toBe(`${NBSP}2`);
+      expect($isMarkerNode(closer) && closer.getMarkerSyntax() === "closing").toBe(true);
+      expect(verse.getAltnumber()).toBe("2"); // untouched — a migration, never a re-tokenize
+    });
+  });
+
   it("crosses a WRAPPED \\va to find the owning verse when re-driving a LOOSE \\vp's caret-held pend (mixed shape)", async () => {
     // A mixed va-wrapped/vp-loose tree is transient post-flip (the next sync pass heals the loose
     // \vp forward into its own wrapper), but transient still means REAL for one commit — e.g. an
@@ -542,12 +614,26 @@ describe("verse \\va/\\vp deletion settles (does not resurrect)", () => {
     // sibling list touches both neighbors of an insertion point), which independently pends the
     // verse via the ALREADY-correct AttributeRunNode transform (also `$ownerOfRunPiece`-backed) —
     // not the path under test here. The caret is parked on the loose \vp's value WITHOUT diverging
-    // it, so that construction commit's pend check ($hasCaretHeldVerseAttributeRun, which requires
-    // genuine divergence) stays false: mid-edit grace alone blocks the heal, the verse stays
-    // UNPENDED, and the mixed shape survives. Only the SEPARATE, later commit below — which
-    // diverges the loose \vp's value IN PLACE and explicitly dirties its still-loose opener glyph,
-    // never touching the verse or the \va wrapper — can explain a pend from there on, isolating
-    // the MarkerNode transform's own contribution.
+    // it, so mid-edit grace alone blocks the construction commit's own healing attempt.
+    //
+    // That grace does NOT mean the verse stays unpended, though: the shared driver's $runDiverges
+    // (displayRunSync.utils.ts) counts a wanted-but-unwrapped run as diverging in its own right,
+    // so $syncAndPendVerse's caret-held check reports \vp caret-held — genuinely true, its bytes
+    // already match pubnumber exactly, but it is still riding loose — and the construction commit
+    // DOES pend the verse. The pend does not surface at a synchronous read here: the update
+    // listener queues a deferred resolve on THIS SAME commit (the pended key is the VERSE's, never
+    // equal to the live anchor's own key, whatever piece the caret sits in), and by the time that
+    // microtask runs the caret has already moved off \vp's value to wherever mount/render leaves
+    // it — so the FIRST thing to happen after `testEnvironmentWithSpacing` resolves is already a
+    // completed departure settle, which delivers the \vp wrap migration (the same migration-pend
+    // behavior the settle always applies to a wanted-but-loose run once the caret departs).
+    // Relying on that incidental,
+    // uncontrolled departure to reach a clean "unpended" baseline is exactly the coincidental
+    // passing this test used to have; the explicit, deterministic departure below (a pure
+    // selection-change commit, which dirties no nodes and so cannot itself heal anything) replaces
+    // it, and the SAME settle it triggers is asserted directly instead of assumed. The mixed shape
+    // this test actually needs is then rebuilt in the isolated commit further down — see its own
+    // comment.
     const { editor } = await testEnvironmentWithSpacing(() => {
       const verse = $createVerseNode("1", getVisibleOpenMarkerText("v", "1"), undefined, "2", "3");
       $getRoot().append(
@@ -572,7 +658,7 @@ describe("verse \\va/\\vp deletion settles (does not resurrect)", () => {
       vpOpener.insertAfter(vpValue);
       vpValue.insertAfter(vpCloser);
       // Caret parked on the (non-diverging) loose value: mid-edit grace alone blocks the
-      // construction commit's own healing attempt, without registering a pend.
+      // construction commit's own healing attempt.
       vpValue.select(vpValue.getTextContentSize(), vpValue.getTextContentSize());
     });
 
@@ -581,27 +667,52 @@ describe("verse \\va/\\vp deletion settles (does not resurrect)", () => {
         $getRoot().getChildren().filter($isParaNode)[0].getChildren().find($isVerseNode),
         "verse missing",
       );
+    const $bodyTextNode = () => {
+      const body = $getRoot().getChildren().filter($isParaNode)[1].getLastChild();
+      if (!$isTextNode(body)) throw new Error("body text node missing");
+      return body;
+    };
+
+    // Deterministic departure: a PURE selection-change commit dirties no nodes, so this commit's
+    // own transform pass cannot touch the run either way — awaiting it still lets the deferred
+    // settle queued by construction's pend run to completion. That settle DELIVERS \vp's wrap
+    // (its bytes were already canonical, only the wrapper was missing —
+    // $runNeedsOnlyWrapMigration, displayRunSync.utils.ts), landing both runs wrapped and clearing
+    // the pend — asserted directly, not assumed from an uncontrolled caret move.
+    await act(async () => editor.update(() => $bodyTextNode().select(0, 0)));
 
     editor.read(() => {
       const verse = $firstVerse();
+      expect($isDisplayOwnerPended(verse)).toBe(false);
       const vaWrapper = $verseAttributeRunPieces(verse, "va").wrapper;
-      if (!vaWrapper) throw new Error("\\va wrapper missing after mount");
-      const vpPieces = $verseAttributeRunPieces(vaWrapper, "vp");
-      expect(vpPieces.wrapper).toBeUndefined(); // \vp survived mount genuinely loose
-      expect($isMarkerNode(vpPieces.opener) && vpPieces.opener.getMarker() === "vp").toBe(true);
-      expect($isDisplayOwnerPended(verse)).toBe(false); // no divergence yet — nothing pended
+      if (!vaWrapper) throw new Error("\\va wrapper missing");
+      expect($verseAttributeRunPieces(vaWrapper, "vp").wrapper).toBeDefined();
     });
 
-    // Diverge the loose \vp's value IN PLACE (never removed — a destroyed run piece would ALSO
-    // pend via the already-correct mutation-listener path, $ownerOfRunPiece, masking whether THIS
-    // fix matters) and explicitly dirty the (still loose)
-    // opener glyph — the trigger MarkerEditPlugin's registered MarkerNode transform reacts to.
-    // Nothing here touches the verse or the \va wrapper.
+    // Re-park the caret and dirty ONLY \vp's still-loose opener glyph — rebuilding the mixed shape
+    // (WRAPPED \va, LOOSE \vp) the deterministic departure above migrated away, mimicking an
+    // undo-restored pre-flip state (a real, if transient, shape the sync must still heal
+    // correctly) — then diverge the loose \vp's value IN PLACE (never removed — a destroyed run
+    // piece would ALSO pend via the already-correct mutation-listener path, $ownerOfRunPiece,
+    // masking whether THIS fix matters) and explicitly dirty the opener — the trigger
+    // MarkerEditPlugin's registered MarkerNode transform reacts to. Every step here — the unwrap,
+    // the divergence, and the caret placement that graces it — runs inside ONE discrete commit,
+    // read synchronously right after: nothing yields to the deferred settle microtask in between,
+    // so the isolated read below can only be explained by the SAME commit's own MarkerNode
+    // transform re-drive, never by the mixed-shape rebuild or the earlier departure settle.
     editor.update(
       () => {
         const verse = $firstVerse();
         const vaWrapper = $verseAttributeRunPieces(verse, "va").wrapper;
         if (!vaWrapper) throw new Error("\\va wrapper missing");
+        const vpWrapper = $verseAttributeRunPieces(vaWrapper, "vp").wrapper;
+        if (!vpWrapper) throw new Error("\\vp wrapper missing");
+        let anchor: LexicalNode = vaWrapper;
+        for (const piece of vpWrapper.getChildren()) {
+          anchor.insertAfter(piece);
+          anchor = piece;
+        }
+        vpWrapper.remove();
         const { opener, value } = $verseAttributeRunPieces(vaWrapper, "vp");
         if (!opener || !value) throw new Error("loose \\vp opener/value missing");
         value.setTextContent(`${NBSP}4`);

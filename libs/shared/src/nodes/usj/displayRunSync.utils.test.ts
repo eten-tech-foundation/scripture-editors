@@ -90,21 +90,21 @@ describe("$caretHoldsRunSite (char)", () => {
   });
 });
 
-// The brief's third describe block ("$caretHoldsRunSite (wrapper containment)") is deliberately
-// omitted: it never called $caretHoldsRunSite and read a node outside an editor.update()/read()
-// callback (a runtime error, not a passing assertion) — the char kind never wraps its run at all
-// (byteFormat.writer is "owner-children"), so the wrapper-containment arm needs a wrapper-writing
-// kind to exercise meaningfully. The verse suite below is that kind — its own wrapper-containment
-// pin lives with the re-pointed AttributeRunNode dual-read suite (attributeDisplay.utils.test.ts's
-// "recognizes the caret anywhere inside a \va wrapper as holding the run's site" — the caret sits
-// on the OPENING glyph at offset 0, a shape none of the verse descriptor's own geometry arms
-// recognize, so only the shared wrapper-containment arm can be reporting it).
+// $caretHoldsRunSite's wrapper-containment arm (the caret held anywhere inside a run's
+// AttributeRunNode subtree, not just a recognized piece) needs a wrapper-WRITING kind to exercise
+// meaningfully — the char kind's byteFormat.writer is "owner-children", so it never wraps its run
+// at all and cannot reach that arm. The verse suite below is that kind — its own
+// wrapper-containment pin lives with the re-pointed AttributeRunNode dual-read suite
+// (attributeDisplay.utils.test.ts's "recognizes the caret anywhere inside a \va wrapper as holding
+// the run's site" — the caret sits on the OPENING glyph at offset 0, a shape none of the verse
+// descriptor's own geometry arms recognize, so only the shared wrapper-containment arm can be
+// reporting it).
 
 describe("$syncDisplayRun (verse)", () => {
   /** `<p>␣<verse \v 1>In the beginning</p>` with a healed `\va` wrapper (altnumber "2") riding as
-   * the verse's immediate next sibling — the shape a `"va"`-descriptor sync builds from scratch,
-   * the driver's first live exercise of `$ensureWrapper` and the glyph writer (Task 4 landed both
-   * dead: the char kind never wraps). */
+   * the verse's immediate next sibling — the shape a `"va"`-descriptor sync builds from scratch.
+   * The char kind's byteFormat.writer is "owner-children" (it never wraps its run), so this is the
+   * driver's first LIVE exercise of `$ensureWrapper` and the wrapper-writing half of `$writeRun`. */
   function buildVerseWithVa() {
     const { editor } = createBasicTestEnvironment();
     let verse!: ReturnType<typeof $createVerseNode>;

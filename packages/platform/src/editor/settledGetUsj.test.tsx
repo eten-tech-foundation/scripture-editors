@@ -12,7 +12,7 @@ import {
 } from "./settledGetUsj.test-helpers";
 import { MarkerObject, Usj } from "@eten-tech-foundation/scripture-utilities";
 import { act } from "@testing-library/react";
-import { $getRoot, $getState, $isTextNode, TextNode } from "lexical";
+import { $getRoot, $getState, $isTextNode, LexicalNode, TextNode } from "lexical";
 import {
   $isAttributeRunNode,
   $isCharNode,
@@ -285,6 +285,40 @@ const pendingShapes: PendingShape[] = [
       // pending — confirmed empirically: without this caret placement the live text still reads
       // "\va 2\va*" immediately after this edit.
       verse.select(verse.getTextContentSize(), verse.getTextContentSize());
+    },
+  },
+  {
+    // The wrap-migration-only divergence (displayRunSync.utils.ts's
+    // `$runNeedsOnlyWrapMigration`): the run's bytes are already canonical, only its
+    // `AttributeRunNode` wrapper is missing. The real settle delivers this by calling the shared
+    // sync directly (markerEditTier1.utils.ts's verse arm) rather than re-tokenizing — there are
+    // no displayed bytes for a rebuild to read back into state. The virtual settle never
+    // represents wrapped-vs-loose at all (USJ has no such concept — both shapes read back to the
+    // identical `altnumber`), so both halves must agree on `altnumber: "2"` regardless of which
+    // one actually performs a wrap.
+    name: "verse va run left loose (wrap-migration-only divergence)",
+    usj: twoParaUsj([{ type: "verse", marker: "v", number: "1", altnumber: "2" }, "verse body"]),
+    $edit: () => {
+      const para = $getRoot().getChildren().find($isParaNode);
+      if (!para) throw new Error("expected a ParaNode");
+      const verse = para.getChildren().find($isVerseNode);
+      if (!verse) throw new Error("expected a VerseNode");
+      const wrapper = para.getChildren().find($isAttributeRunNode);
+      if (!wrapper) throw new Error("expected an AttributeRunNode");
+      // Unwrap the \va run back to loose siblings (mimics an undo-restored pre-flip state) —
+      // byte-exact, only the wrapper is gone.
+      let anchor: LexicalNode = verse;
+      const pieces = wrapper.getChildren();
+      for (const piece of pieces) {
+        anchor.insertAfter(piece);
+        anchor = piece;
+      }
+      wrapper.remove();
+      const value = pieces[1]; // opener, value, closer — the value rides in the middle
+      if (!$isTextNode(value)) throw new Error("expected the \\va value TextNode");
+      // Caret parked on the loose (but byte-exact) value: mid-edit grace blocks this commit's own
+      // healing attempt, and — the migration-pend behavior — also pends the verse.
+      value.select(value.getTextContentSize(), value.getTextContentSize());
     },
   },
   {

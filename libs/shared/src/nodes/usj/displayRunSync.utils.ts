@@ -56,6 +56,30 @@ export function $runDiverges(
   return descriptor.byteFormat.writer === "wrapper" && pieces.wrapper === undefined;
 }
 
+/**
+ * True when `owner`'s run diverges from `$runDiverges` for EXACTLY the wrap-migration reason: the
+ * value's bytes already match, both glyphs of a glyph-bearing kind are present, and the ONLY thing
+ * missing is the wrapper itself. This is the one slice of `$runDiverges` the marker-edit engine's
+ * departure settle may finish by calling `$syncDisplayRun` directly, instead of routing to a Tier-2
+ * re-tokenize: every OTHER divergence (a missing/stale value, a missing glyph) means the DISPLAYED
+ * bytes have genuinely drifted from `owner`'s own state — deleted or edited content — and only
+ * re-tokenizing (which reads the displayed bytes back into state) can settle that without
+ * resurrecting what the user just changed. A kind whose `byteFormat.writer` is not `"wrapper"`
+ * (nothing to migrate) always returns `false`.
+ */
+export function $runNeedsOnlyWrapMigration(
+  descriptor: DisplayRunDescriptor,
+  owner: LexicalNode,
+): boolean {
+  if (descriptor.byteFormat.writer !== "wrapper") return false;
+  const expected = descriptor.expectedPieces(owner);
+  if (!expected.wantsRun) return false;
+  const pieces = descriptor.scanPieces(owner);
+  if (pieces.value?.getTextContent() !== expected.valueText) return false;
+  if (descriptor.byteFormat.glyphs !== "none" && (!pieces.opener || !pieces.closer)) return false;
+  return pieces.wrapper === undefined;
+}
+
 /** True when NO piece of `owner`'s run remains — the run was deleted outright, as opposed to a
  * partial mangle that still leaves debris to repair around. */
 export function $runEntirelyAbsent(descriptor: DisplayRunDescriptor, owner: LexicalNode): boolean {

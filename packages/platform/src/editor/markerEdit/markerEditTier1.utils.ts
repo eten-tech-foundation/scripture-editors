@@ -27,6 +27,8 @@ import {
   $isVerseNode,
   $milestoneAttributeRunPieces,
   $milestoneRunEntirelyAbsent,
+  $runNeedsOnlyWrapMigration,
+  $syncDisplayRun,
   $verseAttributeRunPieces,
   AttributeRunNode,
   canonicalAttributeText,
@@ -391,16 +393,36 @@ export function $settlePendedDisplayOwner(
     context.pendingKeys.add(node.getKey());
     return { handled: true, mutated: false };
   }
-  if (
-    $isVerseNode(node) &&
-    (["va", "vp"] as const).some((kind) => $caretHoldsRunSite(displayRunDescriptor(kind), node))
-  ) {
-    // Same mid-edit grace for a verse's deleted/diverged \va/\vp attribute run: the exceptKey
-    // protection covers only the run TextNode (or verse text) the caret is in, not the verse's
-    // pended key. Settling now would re-tokenize the run out from under the caret; it settles
-    // once the caret has actually departed and the run's bytes are absent from the fragment.
-    context.pendingKeys.add(node.getKey());
-    return { handled: true, mutated: huskRemoved };
+  if ($isVerseNode(node)) {
+    const kinds = ["va", "vp"] as const;
+    if (kinds.some((kind) => $caretHoldsRunSite(displayRunDescriptor(kind), node))) {
+      // Same mid-edit grace for a verse's deleted/diverged \va/\vp attribute run: the exceptKey
+      // protection covers only the run TextNode (or verse text) the caret is in, not the verse's
+      // pended key. Settling now would re-tokenize the run out from under the caret; it settles
+      // once the caret has actually departed and the run's bytes are absent from the fragment.
+      context.pendingKeys.add(node.getKey());
+      return { handled: true, mutated: huskRemoved };
+    }
+    // The caret has genuinely departed. A run that diverges for EXACTLY the wrap-migration reason
+    // (its bytes are already canonical; only its AttributeRunNode wrapper is missing —
+    // $runNeedsOnlyWrapMigration, displayRunSync.utils.ts) is delivered HERE, by calling the same
+    // $syncDisplayRun driver construction/edits use — the one slice of it the settle may run
+    // directly, since the guard guarantees nothing else about the run's content is stale, so the
+    // call can only ever wrap it, never resurrect content the caret departure just left deleted or
+    // edited (that case is a DIFFERENT divergence shape and still falls through to the Tier-2
+    // re-tokenize below, where node state catches up with the displayed bytes instead). Falling
+    // all the way through to the Tier-2 rebuild probe for a wrap-only change would always REFUSE —
+    // an AttributeRunNode wrapper carries no bytes of its own, so the rebuilt signature is
+    // byte-identical to what is already displayed — leaving the run loose forever with nothing
+    // else to re-drive it, the exact gap the migration-pend behavior exists to close.
+    let migrated = false;
+    for (const kind of kinds) {
+      const descriptor = displayRunDescriptor(kind);
+      if (!$runNeedsOnlyWrapMigration(descriptor, node)) continue;
+      $syncDisplayRun(descriptor, node);
+      migrated = true;
+    }
+    if (migrated) return { handled: true, mutated: true };
   }
   if (
     $isMilestoneNode(node) &&
