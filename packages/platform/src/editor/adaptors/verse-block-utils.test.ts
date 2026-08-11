@@ -262,6 +262,49 @@ describe("groupVersesIntoBlocks", () => {
     expect(textIn(verseBlocks[0])).toContain("after table");
   });
 
+  // `` is a stanza break with no content. Dropping empty paragraphs would delete it from the
+  // document and shift every root index after it.
+  it("keeps an empty paragraph rather than dropping it", () => {
+    const children = $groupUsj(
+      usjChapter(
+        {
+          type: "para",
+          marker: "q1",
+          content: [{ type: "verse", marker: "v", number: "1", sid: "GEN 1:1" }, "first line "],
+        },
+        { type: "para", marker: "b" },
+        {
+          type: "para",
+          marker: "q1",
+          content: [{ type: "verse", marker: "v", number: "2", sid: "GEN 1:2" }, "second line "],
+        },
+      ),
+    );
+
+    const stanzaBreaks = [
+      ...children,
+      ...verseBlocksIn(children).flatMap((b) => b.children),
+    ].filter((node) => isSerializedParaNode(node) && node.marker === "b");
+    expect(stanzaBreaks).toHaveLength(1);
+  });
+
+  it("closes the open verse at a semantic divider", () => {
+    const children = $groupUsj(
+      usjChapter(
+        {
+          type: "para",
+          marker: "p",
+          content: [{ type: "verse", marker: "v", number: "1", sid: "GEN 1:1" }, "before "],
+        },
+        { type: "para", marker: "sd2", content: ["  "] },
+        { type: "para", marker: "p", content: ["after the divider "] },
+      ),
+    );
+
+    const [verseBlock] = verseBlocksIn(children);
+    expect(textIn(verseBlock)).not.toContain("after the divider");
+  });
+
   it("keeps the verse marker as the first content of its block", () => {
     const children = $groupUsj(
       usjChapter({
