@@ -131,6 +131,32 @@ describe("block verse layout guards", () => {
     expect(() => ref.current?.insertMarker("p")).toThrow(/readonly/i);
   });
 
+  // Same reasoning as the marker insert above, for the character-marker paths. Lexical does not
+  // block `editor.update()` on `editable: false`, so these have to refuse on the *effective*
+  // read-only state - gating on the raw `isReadonly` prop would let them mutate the document while
+  // `getUsj()` kept returning the unedited USJ.
+  it.each([
+    ["removeCharacterMarker", (ref: EditorRef) => ref.removeCharacterMarker("nd")],
+    ["replaceCharacterMarker", (ref: EditorRef) => ref.replaceCharacterMarker("nd", "bd")],
+    ["extendCharacterMarker", (ref: EditorRef) => ref.extendCharacterMarker("nd")],
+  ] as const)("refuses %s", async (_name, callMarkerMethod) => {
+    const ref = createRef<EditorRef>();
+    await act(async () => {
+      render(
+        <Editorial
+          ref={ref}
+          defaultUsj={usjGen1v1}
+          scrRef={{ book: "GEN", chapterNum: 1, verseNum: 1 }}
+          options={{ isReadonly: false, view: blockVerseOptions }}
+        />,
+      );
+    });
+
+    const editor = ref.current;
+    if (!editor) throw new Error("editor ref is not set");
+    expect(() => callMarkerMethod(editor)).toThrow(/readonly/i);
+  });
+
   // A local update is a caller error, so it throws.
   it("refuses a local delta update", async () => {
     const ref = createRef<EditorRef>();
