@@ -1,24 +1,24 @@
-import { $createAttributeRunNode, AttributeRunNode } from "./AttributeRunNode.js";
-import { $createCharNode, CharNode } from "./CharNode.js";
-import { $ownerOfDestroyedRunPiece } from "./displayRunDeletion.utils.js";
-import { $createMilestoneNode, MilestoneNode } from "./MilestoneNode.js";
-import { NBSP } from "./node-constants.js";
-import { getEditableCallerText } from "./node.utils.js";
-import { $createNoteNode } from "./NoteNode.js";
-import { $createParaNode } from "./ParaNode.js";
-import { createBasicTestEnvironment } from "./test.utils.js";
-import { $createVerseNode, VerseNode } from "./VerseNode.js";
+import { $ownerOfRunPiece } from "./displayRunOwner.utils.js";
+import { $createAttributeRunNode, AttributeRunNode } from "../nodes/usj/AttributeRunNode.js";
+import { $createCharNode, CharNode } from "../nodes/usj/CharNode.js";
+import { $createMilestoneNode, MilestoneNode } from "../nodes/usj/MilestoneNode.js";
+import { NBSP } from "../nodes/usj/node-constants.js";
+import { getEditableCallerText, getVisibleOpenMarkerText } from "../nodes/usj/node.utils.js";
+import { $createNoteNode } from "../nodes/usj/NoteNode.js";
+import { $createParaNode } from "../nodes/usj/ParaNode.js";
+import { createBasicTestEnvironment } from "../nodes/usj/test.utils.js";
+import { $createVerseNode, VerseNode } from "../nodes/usj/VerseNode.js";
 import {
   $createImmutableTypedTextNode,
   ImmutableTypedTextNode,
-} from "../features/ImmutableTypedTextNode.js";
-import { $createMarkerNode } from "../features/MarkerNode.js";
-import { $createUnknownNode, UnknownNode } from "../features/UnknownNode.js";
-import { textTypeState } from "../collab/delta.state.js";
+} from "../nodes/features/ImmutableTypedTextNode.js";
+import { $createMarkerNode } from "../nodes/features/MarkerNode.js";
+import { $createUnknownNode, UnknownNode } from "../nodes/features/UnknownNode.js";
+import { textTypeState } from "../nodes/collab/delta.state.js";
 import { $createTextNode, $getRoot, $setState, LexicalNode, TextNode } from "lexical";
 import { describe, expect, it } from "vitest";
 
-describe("$ownerOfDestroyedRunPiece", () => {
+describe("$ownerOfRunPiece", () => {
   describe("char span attribute run", () => {
     it("classifies a CharNode's direct-child attribute TextNode as owned by that CharNode", () => {
       const { editor } = createBasicTestEnvironment();
@@ -39,7 +39,7 @@ describe("$ownerOfDestroyedRunPiece", () => {
       );
 
       editor.getEditorState().read(() => {
-        expect($ownerOfDestroyedRunPiece(attributeRun)?.getKey()).toBe(charNode.getKey());
+        expect($ownerOfRunPiece(attributeRun)?.owner.getKey()).toBe(charNode.getKey());
       });
     });
   });
@@ -64,7 +64,7 @@ describe("$ownerOfDestroyedRunPiece", () => {
       );
 
       editor.getEditorState().read(() => {
-        expect($ownerOfDestroyedRunPiece(vaValue)?.getKey()).toBe(verse.getKey());
+        expect($ownerOfRunPiece(vaValue)?.owner.getKey()).toBe(verse.getKey());
       });
     });
 
@@ -85,7 +85,7 @@ describe("$ownerOfDestroyedRunPiece", () => {
       );
 
       editor.getEditorState().read(() => {
-        expect($ownerOfDestroyedRunPiece(vaClose)?.getKey()).toBe(verse.getKey());
+        expect($ownerOfRunPiece(vaClose)?.owner.getKey()).toBe(verse.getKey());
       });
     });
 
@@ -115,7 +115,7 @@ describe("$ownerOfDestroyedRunPiece", () => {
       );
 
       editor.getEditorState().read(() => {
-        expect($ownerOfDestroyedRunPiece(vpOpen)?.getKey()).toBe(verse.getKey());
+        expect($ownerOfRunPiece(vpOpen)?.owner.getKey()).toBe(verse.getKey());
       });
     });
 
@@ -136,7 +136,7 @@ describe("$ownerOfDestroyedRunPiece", () => {
       );
 
       editor.getEditorState().read(() => {
-        expect($ownerOfDestroyedRunPiece(strayAttrText)).toBeUndefined();
+        expect($ownerOfRunPiece(strayAttrText)).toBeUndefined();
       });
     });
   });
@@ -167,7 +167,7 @@ describe("$ownerOfDestroyedRunPiece", () => {
       );
 
       editor.getEditorState().read(() => {
-        expect($ownerOfDestroyedRunPiece(attributeText)?.getKey()).toBe(milestone.getKey());
+        expect($ownerOfRunPiece(attributeText)?.owner.getKey()).toBe(milestone.getKey());
       });
     });
 
@@ -186,7 +186,7 @@ describe("$ownerOfDestroyedRunPiece", () => {
       );
 
       editor.getEditorState().read(() => {
-        expect($ownerOfDestroyedRunPiece(opening)?.getKey()).toBe(milestone.getKey());
+        expect($ownerOfRunPiece(opening)?.owner.getKey()).toBe(milestone.getKey());
       });
     });
 
@@ -209,7 +209,7 @@ describe("$ownerOfDestroyedRunPiece", () => {
       );
 
       editor.getEditorState().read(() => {
-        expect($ownerOfDestroyedRunPiece(closing)?.getKey()).toBe(milestone.getKey());
+        expect($ownerOfRunPiece(closing)?.owner.getKey()).toBe(milestone.getKey());
       });
     });
   });
@@ -232,7 +232,7 @@ describe("$ownerOfDestroyedRunPiece", () => {
       );
 
       editor.getEditorState().read(() => {
-        expect($ownerOfDestroyedRunPiece(tokenText)?.getKey()).toBe(unknownNode.getKey());
+        expect($ownerOfRunPiece(tokenText)?.owner.getKey()).toBe(unknownNode.getKey());
       });
     });
 
@@ -258,7 +258,7 @@ describe("$ownerOfDestroyedRunPiece", () => {
       );
 
       editor.getEditorState().read(() => {
-        expect($ownerOfDestroyedRunPiece(tokenText)?.getKey()).toBe(unknownNode.getKey());
+        expect($ownerOfRunPiece(tokenText)?.owner.getKey()).toBe(unknownNode.getKey());
       });
     });
   });
@@ -282,7 +282,7 @@ describe("$ownerOfDestroyedRunPiece", () => {
       );
 
       editor.getEditorState().read(() => {
-        expect($ownerOfDestroyedRunPiece(wrapper)?.getKey()).toBe(milestone.getKey());
+        expect($ownerOfRunPiece(wrapper)?.owner.getKey()).toBe(milestone.getKey());
       });
     });
 
@@ -308,7 +308,7 @@ describe("$ownerOfDestroyedRunPiece", () => {
         // attributeText's own previous sibling (the opening glyph) is only meaningful relative to
         // OTHER pieces inside the wrapper — the walk must start from the WRAPPER's position, not
         // attributeText's own, to reach the milestone.
-        expect($ownerOfDestroyedRunPiece(attributeText)?.getKey()).toBe(milestone.getKey());
+        expect($ownerOfRunPiece(attributeText)?.owner.getKey()).toBe(milestone.getKey());
       });
     });
 
@@ -327,7 +327,7 @@ describe("$ownerOfDestroyedRunPiece", () => {
       );
 
       editor.getEditorState().read(() => {
-        expect($ownerOfDestroyedRunPiece(vaWrapper)?.getKey()).toBe(verse.getKey());
+        expect($ownerOfRunPiece(vaWrapper)?.owner.getKey()).toBe(verse.getKey());
       });
     });
 
@@ -351,7 +351,7 @@ describe("$ownerOfDestroyedRunPiece", () => {
       );
 
       editor.getEditorState().read(() => {
-        expect($ownerOfDestroyedRunPiece(vpWrapper)?.getKey()).toBe(verse.getKey());
+        expect($ownerOfRunPiece(vpWrapper)?.owner.getKey()).toBe(verse.getKey());
       });
     });
 
@@ -374,14 +374,14 @@ describe("$ownerOfDestroyedRunPiece", () => {
       );
 
       editor.getEditorState().read(() => {
-        expect($ownerOfDestroyedRunPiece(vaValue)?.getKey()).toBe(verse.getKey());
+        expect($ownerOfRunPiece(vaValue)?.owner.getKey()).toBe(verse.getKey());
       });
     });
 
     it("classifies a LOOSE \\vp opening glyph chained behind a \\va WRAPPER as owned by the VerseNode", () => {
       // Mid-migration mixed shape: \va already wrapped, \vp still loose (riding directly after
-      // the \va wrapper). $runChainOwner's walk-back from the loose \vp piece must cross the
-      // WHOLE \va wrapper in one step to reach the verse.
+      // the \va wrapper). The walk-back from the loose \vp piece must cross the WHOLE \va
+      // wrapper in one step to reach the verse.
       const { editor } = createBasicTestEnvironment();
       let verse!: VerseNode;
       let vpOpen!: LexicalNode;
@@ -402,7 +402,7 @@ describe("$ownerOfDestroyedRunPiece", () => {
       );
 
       editor.getEditorState().read(() => {
-        expect($ownerOfDestroyedRunPiece(vpOpen)?.getKey()).toBe(verse.getKey());
+        expect($ownerOfRunPiece(vpOpen)?.owner.getKey()).toBe(verse.getKey());
       });
     });
 
@@ -421,7 +421,7 @@ describe("$ownerOfDestroyedRunPiece", () => {
       );
 
       editor.getEditorState().read(() => {
-        expect($ownerOfDestroyedRunPiece(wrapper)).toBeUndefined();
+        expect($ownerOfRunPiece(wrapper)).toBeUndefined();
       });
     });
   });
@@ -439,7 +439,7 @@ describe("$ownerOfDestroyedRunPiece", () => {
       );
 
       editor.getEditorState().read(() => {
-        expect($ownerOfDestroyedRunPiece(plainText)).toBeUndefined();
+        expect($ownerOfRunPiece(plainText)).toBeUndefined();
       });
     });
 
@@ -457,7 +457,7 @@ describe("$ownerOfDestroyedRunPiece", () => {
       );
 
       editor.getEditorState().read(() => {
-        expect($ownerOfDestroyedRunPiece(prefixGlyph)).toBeUndefined();
+        expect($ownerOfRunPiece(prefixGlyph)).toBeUndefined();
       });
     });
 
@@ -475,8 +475,68 @@ describe("$ownerOfDestroyedRunPiece", () => {
       );
 
       editor.getEditorState().read(() => {
-        expect($ownerOfDestroyedRunPiece(callerText)).toBeUndefined();
+        expect($ownerOfRunPiece(callerText)).toBeUndefined();
       });
     });
+  });
+});
+
+describe("$ownerOfRunPiece marker identity", () => {
+  it("refuses a verse whose chain to the destroyed piece crosses a foreign glyph", () => {
+    // A run piece's owner is only the owner when EVERY sibling between them is a piece of that
+    // same kind's run. A `\nd` opener is not a `\va`/`\vp` run piece, so a value behind one is
+    // not the verse's run — claiming it would pend a verse for a deletion in unrelated content.
+    const { editor } = createBasicTestEnvironment();
+    editor.update(
+      () => {
+        const verse = $createVerseNode(
+          "1",
+          getVisibleOpenMarkerText("v", "1"),
+          undefined,
+          "2",
+          undefined,
+        );
+        const foreign = $createMarkerNode("nd", "opening");
+        const value = $createTextNode(`${NBSP}2`);
+        $setState(value, textTypeState, "attribute");
+        $getRoot().append($createParaNode("p").append(verse, foreign, value));
+        expect($ownerOfRunPiece(value)).toBeUndefined();
+      },
+      { discrete: true },
+    );
+  });
+
+  it("still crosses a preceding \\va wrapper to reach the verse owning a \\vp piece", () => {
+    const { editor } = createBasicTestEnvironment();
+    editor.update(
+      () => {
+        const verse = $createVerseNode(
+          "1",
+          getVisibleOpenMarkerText("v", "1"),
+          undefined,
+          "2",
+          "3",
+        );
+        const vaWrapper = $createAttributeRunNode("va");
+        const vaValue = $createTextNode(`${NBSP}2`);
+        $setState(vaValue, textTypeState, "attribute");
+        vaWrapper.append(
+          $createMarkerNode("va", "opening"),
+          vaValue,
+          $createMarkerNode("va", "closing"),
+        );
+        const vpWrapper = $createAttributeRunNode("vp");
+        const vpValue = $createTextNode(`${NBSP}3`);
+        $setState(vpValue, textTypeState, "attribute");
+        vpWrapper.append(
+          $createMarkerNode("vp", "opening"),
+          vpValue,
+          $createMarkerNode("vp", "closing"),
+        );
+        $getRoot().append($createParaNode("p").append(verse, vaWrapper, vpWrapper));
+        expect($ownerOfRunPiece(vpValue)).toEqual({ owner: verse, kind: "vp" });
+      },
+      { discrete: true },
+    );
   });
 });

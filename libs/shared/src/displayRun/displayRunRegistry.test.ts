@@ -209,10 +209,11 @@ describe("displayRunRegistry scanPieces", () => {
 
 describe("displayRunDescriptor lookup", () => {
   it("throws for an unregistered kind, naming it in the message", () => {
-    // "optbreak" is a valid DisplayRunKind, but this task registers only char/va/vp/milestone —
-    // pins both the throw and the documented message shape (displayRunRegistry.ts's doc comment).
-    expect(() => displayRunDescriptor("optbreak")).toThrow(
-      'No display-run descriptor registered for kind "optbreak"',
+    // "separator" is a valid DisplayRunKind, but the owner-walk task registers only
+    // char/va/vp/milestone/optbreak — pins both the throw and the documented message shape
+    // (displayRunRegistry.ts's doc comment).
+    expect(() => displayRunDescriptor("separator")).toThrow(
+      'No display-run descriptor registered for kind "separator"',
     );
   });
 });

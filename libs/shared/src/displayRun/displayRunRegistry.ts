@@ -7,10 +7,10 @@
  * both, so it can hold the assembly without a cycle — the same layering `plugins/PerfOperations`
  * uses. The drivers that CONSUME descriptors take one as a parameter and stay in `nodes/usj`.
  *
- * Every descriptor below stubs `ownerOf` as `() => undefined`: a piece's owner is not derivable
- * from the piece alone until the tightened sibling walk (the owner-walk task) lands, so this
- * field is deliberately left for that task to fill in on all four descriptors at once, rather
- * than repeated as a per-descriptor comment here.
+ * Each descriptor's `ownerOf` implements the ONE owner walk for its kind, keyed on marker
+ * identity: only pieces of that same kind's run may sit between a candidate piece and its owner,
+ * so a foreign glyph or unrelated content ends the walk with no owner. `$ownerOfRunPiece`
+ * (displayRunOwner.utils.ts) is the single classifier that consults every descriptor in order.
  */
 
 import {
@@ -22,6 +22,7 @@ import {
   milestoneAttributes,
   VerseAttributeMarker,
 } from "../nodes/usj/attributeDisplay.utils.js";
+import { $isAttributeRunNode } from "../nodes/usj/AttributeRunNode.js";
 import { $isCharNode } from "../nodes/usj/CharNode.js";
 import {
   DisplayRunDescriptor,
@@ -32,11 +33,15 @@ import {
 import { $isMilestoneNode } from "../nodes/usj/MilestoneNode.js";
 import { NBSP } from "../nodes/usj/node-constants.js";
 import { $isVerseNode } from "../nodes/usj/VerseNode.js";
+import { textTypeState } from "../nodes/collab/delta.state.js";
+import { $isImmutableTypedTextNode } from "../nodes/features/ImmutableTypedTextNode.js";
+import { $isMarkerNode } from "../nodes/features/MarkerNode.js";
+import { $isUnknownNode } from "../nodes/features/UnknownNode.js";
 import {
   defaultMarkerAttribute,
   milestoneDefaultAttribute,
 } from "../converters/usfm/usfmFragmentToUsj.js";
-import { $getSelection, $isRangeSelection, LexicalNode } from "lexical";
+import { $getSelection, $getState, $isRangeSelection, $isTextNode, LexicalNode } from "lexical";
 
 /** No run wanted and no value — the answer for an owner whose state carries nothing to display,
  * and the safe answer when a descriptor is handed a node of the wrong type. */
@@ -80,11 +85,57 @@ function $glyphDebrisGrace(pieces: ScannedRun): boolean {
   return atOpenerEnd;
 }
 
+/** Whether `node` is a piece of a verse's `\va`/`\vp` run — a whole wrapper (crossed in one step,
+ * so a `\vp` piece's walk passes its own `\va` wrapper), a `va`/`vp` glyph riding loose, or a
+ * loose attribute-tagged value. Loose shapes are transient (an undo stack, a collab-materialized
+ * bare verse, a mid-edit tree with one marker wrapped and the other not) but real for a commit. */
+function $isVerseRunPiece(node: LexicalNode): boolean {
+  if ($isAttributeRunNode(node)) return node.getRunKind() === "va" || node.getRunKind() === "vp";
+  if ($isMarkerNode(node)) return node.getMarker() === "va" || node.getMarker() === "vp";
+  return $isTextNode(node) && $getState(node, textTypeState) === "attribute";
+}
+
+/** The `va`/`vp` marker a loose value belongs to, read from the glyph immediately before it — the
+ * run pieces' fixed order puts a value's own opener exactly one step back, even in the previous
+ * state where that opener is also being destroyed. */
+function loosePieceMarker(node: LexicalNode): VerseAttributeMarker | undefined {
+  if ($isMarkerNode(node)) {
+    const marker = node.getMarker();
+    return marker === "va" || marker === "vp" ? marker : undefined;
+  }
+  const previous = node.getPreviousSibling();
+  if (!$isMarkerNode(previous)) return undefined;
+  const marker = previous.getMarker();
+  return marker === "va" || marker === "vp" ? marker : undefined;
+}
+
+/** Walk back from `start` over `marker`'s own run pieces to the VerseNode the run rides on. */
+function $verseOfRunChain(start: LexicalNode): LexicalNode | undefined {
+  for (
+    let previous = start.getPreviousSibling();
+    previous;
+    previous = previous.getPreviousSibling()
+  ) {
+    if ($isVerseNode(previous)) return previous;
+    if (!$isVerseRunPiece(previous)) return undefined;
+  }
+  return undefined;
+}
+
 function verseDescriptor(marker: VerseAttributeMarker): DisplayRunDescriptor {
   return {
     kind: marker,
     ownerPredicate: (node) => $isVerseNode(node),
-    ownerOf: () => undefined,
+    ownerOf: (node) => {
+      // A wrapper of this marker is its own walk start; a piece INSIDE one is only positioned
+      // relative to its siblings within the wrapper, so the walk starts from the wrapper instead.
+      if ($isAttributeRunNode(node))
+        return node.getRunKind() === marker ? $verseOfRunChain(node) : undefined;
+      const parent = node.getParent();
+      if ($isAttributeRunNode(parent))
+        return parent.getRunKind() === marker ? $verseOfRunChain(parent) : undefined;
+      return loosePieceMarker(node) === marker ? $verseOfRunChain(node) : undefined;
+    },
     expectedPieces: (owner) => {
       if (!$isVerseNode(owner)) return NO_RUN;
       const value = marker === "va" ? owner.getAltnumber() : owner.getPubnumber();
@@ -116,7 +167,12 @@ function verseDescriptor(marker: VerseAttributeMarker): DisplayRunDescriptor {
 const charDescriptor: DisplayRunDescriptor = {
   kind: "char",
   ownerPredicate: (node) => $isCharNode(node),
-  ownerOf: () => undefined,
+  ownerOf: (node) => {
+    // A char span's run is a direct TextNode child, never wrapped and never a glyph.
+    if (!$isTextNode(node) || $getState(node, textTypeState) !== "attribute") return undefined;
+    const parent = node.getParent();
+    return $isCharNode(parent) ? parent : undefined;
+  },
   expectedPieces: (owner) => {
     if (!$isCharNode(owner)) return NO_RUN;
     // A span with no closing glyph never carries a run regardless of its attributes: the adaptor
@@ -156,10 +212,57 @@ const charDescriptor: DisplayRunDescriptor = {
   },
 };
 
+/** Whether `node` is a loose piece of a milestone's run — an opening glyph, a self-closing glyph,
+ * or an attribute-tagged value. A milestone's opening glyph carries the milestone's OWN marker,
+ * which the chain walk re-checks against the candidate owner. */
+function $isMilestoneRunPiece(node: LexicalNode): boolean {
+  if ($isMarkerNode(node)) {
+    const syntax = node.getMarkerSyntax();
+    return syntax === "selfClosing" || syntax === "opening";
+  }
+  return $isTextNode(node) && $getState(node, textTypeState) === "attribute";
+}
+
+/** Walk back from a LOOSE milestone run piece over the run's other loose pieces to the milestone,
+ * requiring a matching marker on any opening glyph crossed. */
+function $milestoneOfLooseChain(start: LexicalNode): LexicalNode | undefined {
+  for (
+    let previous = start.getPreviousSibling();
+    previous;
+    previous = previous.getPreviousSibling()
+  ) {
+    if ($isMilestoneNode(previous)) {
+      const opening =
+        $isMarkerNode(start) && start.getMarkerSyntax() === "opening" ? start : undefined;
+      return !opening || opening.getMarker() === previous.getMarker() ? previous : undefined;
+    }
+    if (!$isMilestoneRunPiece(previous)) return undefined;
+  }
+  return undefined;
+}
+
 const milestoneDescriptor: DisplayRunDescriptor = {
   kind: "milestone",
   ownerPredicate: (node) => $isMilestoneNode(node),
-  ownerOf: () => undefined,
+  ownerOf: (node) => {
+    const start = $isAttributeRunNode(node)
+      ? node.getRunKind() === "milestone"
+        ? node
+        : undefined
+      : $isAttributeRunNode(node.getParent())
+        ? node.getParent()
+        : $isMilestoneRunPiece(node)
+          ? node
+          : undefined;
+    if (!start) return undefined;
+    if ($isAttributeRunNode(start) && start.getRunKind() !== "milestone") return undefined;
+    const previous = start.getPreviousSibling();
+    // A milestone's run is a SINGLE wrapper (or one contiguous loose group) directly following its
+    // milestone — there is no second marker to cross, unlike a verse's `\va`/`\vp` pair.
+    if ($isMilestoneNode(previous)) return previous;
+    if (!previous || !$isMilestoneRunPiece(previous)) return undefined;
+    return $isAttributeRunNode(start) ? undefined : $milestoneOfLooseChain(start);
+  },
   expectedPieces: (owner) => {
     if (!$isMilestoneNode(owner)) return NO_RUN;
     const attributes = milestoneAttributes(
@@ -220,6 +323,25 @@ const milestoneDescriptor: DisplayRunDescriptor = {
   },
 };
 
+const optbreakDescriptor: DisplayRunDescriptor = {
+  kind: "optbreak",
+  ownerPredicate: (node) => $isUnknownNode(node) && node.getTag() === "optbreak",
+  ownerOf: (node) => {
+    // The adaptor renders the `//` token as an ImmutableTypedTextNode (a read-only DecoratorNode),
+    // but an edited optbreak can hold a plain TextNode instead, so both are recognized.
+    const parent = node.getParent();
+    if (!$isUnknownNode(parent) || parent.getTag() !== "optbreak") return undefined;
+    return $isTextNode(node) || $isImmutableTypedTextNode(node) ? parent : undefined;
+  },
+  expectedPieces: () => ({ wantsRun: true, valueText: undefined }),
+  scanPieces: (owner) =>
+    $isUnknownNode(owner) ? { value: owner.getFirstChild() ?? undefined } : NO_PIECES,
+  graceSite: () => false,
+  settleScope: "owner",
+  deletionPolicy: "remove-owner",
+  byteFormat: { writer: "read-only", glyphs: "none" },
+};
+
 /** Every registered kind, in the order the pend/settle driver consults them. A `CharNode` matches
  * more than one descriptor (its separator gap and its attribute run), and the separator's grace
  * is checked first, preserving the order the per-kind arms ran in. */
@@ -228,6 +350,7 @@ export const displayRunDescriptors: readonly DisplayRunDescriptor[] = [
   verseDescriptor("va"),
   verseDescriptor("vp"),
   milestoneDescriptor,
+  optbreakDescriptor,
 ];
 
 const byKind = new Map<DisplayRunKind, DisplayRunDescriptor>(
