@@ -151,6 +151,9 @@ export function getViewOptions(viewMode?: string | undefined): ViewOptions | und
 export const HIDDEN_NOTE_CALLER = "-";
 
 // @public
+export function isBlockVerseLayout(viewOptions: ViewOptions | undefined): boolean;
+
+// @public
 export function isInsertEmbedOpOfType<T extends keyof OTEmbedTypes>(embedType: T, op: DeltaOp | undefined): op is DeltaOp & {
     insert: {
         [K in T]: OTEmbedTypes[K] | null;

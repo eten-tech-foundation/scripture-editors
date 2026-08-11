@@ -115,7 +115,14 @@ export function groupVersesIntoBlocks(
 
     // Headings stay in the model as ordinary paragraphs between blocks. Whether an aligned view
     // shows, hides, or spans them is a view-layer decision, so nothing is destroyed here.
-    if (isSerializedParaNode(child) && STRUCTURAL_MARKERS.has(child.marker)) {
+    // A heading marker that carries a verse is not a heading boundary: Hebrew psalm versification
+    // puts verse 1 inside the `\d` descriptor, and treating that as chrome would leave verse 1
+    // with no block at all. Such a paragraph falls through and is split like any other.
+    if (
+      isSerializedParaNode(child) &&
+      STRUCTURAL_MARKERS.has(child.marker) &&
+      !containsVerse(child)
+    ) {
       activeBlock = undefined;
       grouped.push(child);
       continue;

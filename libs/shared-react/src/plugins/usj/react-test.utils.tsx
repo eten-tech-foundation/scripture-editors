@@ -37,7 +37,11 @@ import { segmentState, SerializedNoteNode, SerializedParaNode, TypedMarkNode } f
 export async function baseTestEnvironment(
   $initialEditorState?: InitialEditorStateType,
   children?: ReactNode | undefined,
-  /** Defaults to the inline-verse registry; pass `usjBlockVerseNodes` for the block verse layout. */
+  /**
+   * Defaults to the inline-verse registry. For the block verse layout pass
+   * `[TypedMarkNode, ...usjBlockVerseNodes]`, which is what the real editor registers - neither
+   * node list includes `TypedMarkNode` on its own.
+   */
   nodes: readonly (Klass<LexicalNode> | LexicalNodeReplacement)[] = [
     TypedMarkNode,
     ...usjReactNodes,

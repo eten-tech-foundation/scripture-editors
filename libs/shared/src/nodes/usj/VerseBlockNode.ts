@@ -123,11 +123,13 @@ export class VerseBlockNode extends ElementNode {
  */
 function setVerseAttributes(dom: HTMLElement, verseNumber: string) {
   const { start, end } = parseVerseRange(verseNumber);
+  // Imported USFM can carry a reversed bridge like `3-1`, which would hand a layout a negative
+  // span. Publish the range only when it describes one, and remove rather than skip the
+  // attributes otherwise, so a stale range from a previous number cannot be read as this verse's.
+  const isPublishable = !isNaN(start) && !isNaN(end) && start <= end;
   dom.setAttribute("data-verse-number", verseNumber);
-  // Removed rather than skipped when unparseable, so a stale range from a previous number cannot
-  // survive on the element and be read as this verse's.
-  setOrRemoveAttribute(dom, "data-verse-start", start);
-  setOrRemoveAttribute(dom, "data-verse-end", end);
+  setOrRemoveAttribute(dom, "data-verse-start", isPublishable ? start : NaN);
+  setOrRemoveAttribute(dom, "data-verse-end", isPublishable ? end : NaN);
 }
 
 function setOrRemoveAttribute(dom: HTMLElement, name: string, value: number) {

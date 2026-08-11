@@ -43,6 +43,7 @@ export {
   getDefaultViewOptions,
   getViewMode,
   getViewOptions,
+  isBlockVerseLayout,
   isInsertEmbedOpOfType,
   PARAGRAPH_STRUCTURE_VIEW_MODE,
   viewModeToViewNames,

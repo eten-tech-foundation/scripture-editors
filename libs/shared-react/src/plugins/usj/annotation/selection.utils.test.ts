@@ -1672,8 +1672,12 @@ describe("block verse layout", () => {
     const { editor } = createBasicTestEnvironment(blockVerseNodes, () => {
       text = $createTextNode("the first verse ");
       const para = $createParaNode("p");
-      para.append($createImmutableVerseNode("1"), text);
-      $getRoot().append(isBlockLayout ? $createVerseBlockNode("1").append(para) : para);
+      const verseBlock = $createVerseBlockNode("1");
+      $getRoot().append(
+        isBlockLayout
+          ? verseBlock.append(para.append($createImmutableVerseNode("1"), text))
+          : para.append($createImmutableVerseNode("1"), text),
+      );
     });
     if (!text) throw new Error("expected the verse text to be created");
     updateSelection(editor, text, 1);
