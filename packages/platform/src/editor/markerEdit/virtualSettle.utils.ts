@@ -1151,10 +1151,11 @@ export function $settledUsj(
     // Merge the now-adjacent flanking text, mirroring the live reconciler's own coalesce of two
     // simple-mergeable TextNode siblings (see `canMergeSerializedText`'s doc comment) — the
     // mutating settle leaves the flanking significant spaces untouched at removal time
-    // ($settlePendedDisplayOwner's own doc comment) and relies on exactly this coalesce, followed
-    // by `normalizeSpaceRuns`, to collapse a run split across the removed husk. Only reachable for
-    // a husk pended alone (see this loop's own doc comment above) — a co-settling rebuild already
-    // produces correctly normalized text on its own, via the full tokenize+serialize pipeline.
+    // ($settlePendedDisplayOwner's remove-owner branch) and relies on exactly this coalesce,
+    // followed by `normalizeSpaceRuns`, to collapse a run split across the removed husk. Only
+    // reachable for a husk pended alone (see this loop's own doc comment above) — a co-settling
+    // rebuild already produces correctly normalized text on its own, via the full
+    // tokenize+serialize pipeline.
     const before = site.siblings[index - 1];
     const after = site.siblings[index];
     const beforeText = before && serializedText(before);

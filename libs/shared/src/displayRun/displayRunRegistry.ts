@@ -348,9 +348,14 @@ const optbreakDescriptor: DisplayRunDescriptor = {
 
 const opaqueUnknownDescriptor: DisplayRunDescriptor = {
   kind: "opaqueUnknown",
-  // Every UnknownNode kind other than an optbreak is a permanent Tier-2 sentinel whose bytes are
-  // read-only rendering, never re-tokenized. It owns no display run, but is recognized so the
-  // settle reports it handled and the caller never routes one through a rebuild that would bail.
+  // Scope is every UnknownNode kind EXCEPT optbreak — `ownerPredicate` excludes it explicitly, so
+  // `optbreakDescriptor` above is the sole owner of that kind. A non-optbreak UnknownNode is a
+  // permanent Tier-2 sentinel whose bytes are read-only rendering, never re-tokenized: it owns no
+  // display run, but is recognized so the settle reports it handled and the caller never routes one
+  // through a rebuild that would bail. (A pended optbreak that does NOT match `optbreakDescriptor`'s
+  // `remove-owner` shape — i.e. isn't entirely absent — falls through unhandled by either
+  // descriptor instead; harmlessly inert, since `$settleScopeForNode` refuses every `UnknownNode`
+  // outright, so the caller's `$requestTier2ForNode` fallback always bails on it too.)
   ownerPredicate: (node) => $isUnknownNode(node) && node.getTag() !== "optbreak",
   ownerOf: () => undefined,
   expectedPieces: () => NO_RUN,
