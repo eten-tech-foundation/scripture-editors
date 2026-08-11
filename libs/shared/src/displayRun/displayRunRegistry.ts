@@ -96,14 +96,21 @@ function $isVerseRunPiece(node: LexicalNode): boolean {
   return $isTextNode(node) && $getState(node, textTypeState) === "attribute";
 }
 
-/** The `va`/`vp` marker a loose value belongs to, read from the glyph immediately before it — the
- * run pieces' fixed order puts a value's own opener exactly one step back, even in the previous
- * state where that opener is also being destroyed. */
-function loosePieceMarker(node: LexicalNode): VerseAttributeMarker | undefined {
+/** The `va`/`vp` marker a loose piece belongs to: its own marker for a glyph, and for a value the
+ * marker of the glyph immediately before it — the run pieces' fixed order puts a value's own opener
+ * exactly one step back, even in the previous state where that opener is also being destroyed.
+ *
+ * The value arm requires the candidate to BE a run piece (an attribute-tagged TextNode), not merely
+ * to sit behind one, mirroring the milestone side's `$isMilestoneRunPiece` rule. Position alone is
+ * not enough: the ordinary verse text that follows a settled `\va …\va*` run also has that run's
+ * closing glyph as its previous sibling, and claiming it would pend the verse — and run a settle
+ * plus a whole-paragraph rebuild — for a deletion in unrelated content. */
+function $loosePieceMarker(node: LexicalNode): VerseAttributeMarker | undefined {
   if ($isMarkerNode(node)) {
     const marker = node.getMarker();
     return marker === "va" || marker === "vp" ? marker : undefined;
   }
+  if (!$isTextNode(node) || $getState(node, textTypeState) !== "attribute") return undefined;
   const previous = node.getPreviousSibling();
   if (!$isMarkerNode(previous)) return undefined;
   const marker = previous.getMarker();
@@ -135,7 +142,7 @@ function verseDescriptor(marker: VerseAttributeMarker): DisplayRunDescriptor {
       const parent = node.getParent();
       if ($isAttributeRunNode(parent))
         return parent.getRunKind() === marker ? $verseOfRunChain(parent) : undefined;
-      return loosePieceMarker(node) === marker ? $verseOfRunChain(node) : undefined;
+      return $loosePieceMarker(node) === marker ? $verseOfRunChain(node) : undefined;
     },
     expectedPieces: (owner) => {
       if (!$isVerseNode(owner)) return NO_RUN;
@@ -396,9 +403,14 @@ const nestedGlyphDescriptor: DisplayRunDescriptor = {
   byteFormat: { writer: "kind-owned", glyphs: "none" },
 };
 
-/** Every registered kind, in the order the pend/settle driver consults them. A `CharNode` matches
- * more than one descriptor (its separator gap and its attribute run), and the separator's grace
- * is checked first, preserving the order the per-kind arms ran in. */
+/** Every registered kind, in the order the pend/settle driver consults them. THREE descriptors
+ * declare `ownerPredicate: $isCharNode` — `separator` (the NBSP gap after an opening glyph), `char`
+ * (the span's own `|…` attribute run), and `nestedGlyph` (the `+` on a nested span's glyphs) — so a
+ * `CharNode` matches all three. `separator` is listed before `char`, so its grace is checked first,
+ * preserving the order the per-kind arms ran in. `nestedGlyph` never acts in the settle loops at
+ * all: its `settleScope` is `"none"`, so those loops skip it outright — its `+` is purely
+ * tree-derived and rewritten in place by its own sync, with no state a user edit can leave
+ * half-finished. */
 export const displayRunDescriptors: readonly DisplayRunDescriptor[] = [
   separatorDescriptor,
   charDescriptor,

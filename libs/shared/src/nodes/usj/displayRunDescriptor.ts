@@ -87,7 +87,14 @@ export interface RunByteFormat {
   readonly writer: "wrapper" | "owner-children" | "kind-owned" | "read-only";
   /** The wrapper's `runKind`, required when `writer` is `"wrapper"`. */
   readonly runKind?: AttributeRunKind;
-  /** Whether the run carries its own glyph pair, and whether that pair survives an empty value. */
+  /**
+   * Whether the run carries its own glyph pair. Only the `"none"` / not-`"none"` split is
+   * load-bearing — every consumer tests exactly that, and nothing branches on `"with-value"` vs
+   * `"unconditional"`. That pair is DOCUMENTATION: it records, at the descriptor, whether the kind's
+   * glyphs survive an empty value, but the behavior itself is carried by `expectedPieces`, whose
+   * `wantsRun` stays true for an attribute-less milestone and goes false for an empty char/verse.
+   * So read the two spellings as a label on the kind, never as a switch the drivers obey.
+   */
   readonly glyphs: "none" | "with-value" | "unconditional";
   /** The glyph pair's marker name for `owner`, required when `glyphs` is not `"none"`. */
   readonly glyphMarker?: (owner: LexicalNode) => string;

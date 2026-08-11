@@ -198,12 +198,14 @@ export function MarkerEditPlugin({
       logger,
     };
     contextRef.current = context;
-    // Publishes the live pending set to the self-healing display syncs — the shared char driver
-    // (displayRunSync.utils.ts) and the verse/milestone syncs still defined in
-    // attributeDisplay.utils.ts, both `shared`/`shared-react` — through a side channel: those
-    // syncs live below the engine in the module graph and cannot import it directly, but must
-    // still leave a pended owner's run alone instead of resurrecting a deletion the engine has
-    // not settled yet.
+    // Publishes the live pending set to the self-healing display syncs through a side channel.
+    // Every kind now runs through the ONE shared driver, `$syncDisplayRun`
+    // (displayRunSync.utils.ts, `shared`), parameterized by its own descriptor; only the
+    // REGISTRATION differs by kind — `char` from CharNodePlugin and `va`/`vp` from
+    // TextSpacingPlugin (both `shared-react`), `milestone` and `va`/`vp` again from this plugin's
+    // own transforms below. The driver lives below the engine in the module graph and cannot
+    // import it directly, but must still leave a pended owner's run alone instead of resurrecting
+    // a deletion the engine has not settled yet.
     const unregisterPended = registerPendedDisplayOwners(editor, context.pendingKeys);
     // Tracks the caret's node key as of the most recent commit — keyed off the selection FOCUS
     // (the live cursor end, so it stays correct even for a backward range selection), updated

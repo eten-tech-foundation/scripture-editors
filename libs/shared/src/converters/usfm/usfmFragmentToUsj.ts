@@ -705,10 +705,19 @@ export function usfmFragmentToUsjContent(
           //
           // Unlike the char-shaped empty branch above, this one deliberately does NOT clear
           // `attrTarget` (`startParagraph` leaves it alone), so the receptive window survives a
-          // materialized empty `\cp`. That is audited, not overlooked: `cp` is the only
-          // `shape: "para"` attribute marker, so the only way to reach a second fold through this
-          // window is a degenerate duplicate `\cp` on one chapter \u2014 closing it would add a branch
-          // for a shape no document has.
+          // materialized empty `\cp`. That is audited, not overlooked, on two counts.
+          //
+          // A CHAR-shaped attribute marker cannot reach the surviving window at all, so the
+          // document-order rewrite the char branch closes has no para-shaped twin. This branch only
+          // runs when the token that ENDS the capture is a para/chapter boundary; `\ca` is
+          // char-shaped, so it arrives while the capture is still open and falls to the
+          // unfoldable-markup arm below, which clears `attrTarget` BEFORE materializing the
+          // paragraph. `\c 1` \u23ce `\cp ` \u23ce `\ca 2\ca*` \u23ce `\p body` therefore leaves the chapter with
+          // no altnumber and the `\ca` an ordinary char span (pinned in usfmFragmentToUsj.test.ts).
+          //
+          // What DOES re-enter the window is a foldable PARA token, and `cp` is the only
+          // `shape: "para"` attribute marker \u2014 so that means a degenerate duplicate `\cp` on one
+          // chapter. Closing the window here would add a branch for a shape no document has.
           startParagraph(attrCapture.marker);
           attrCapture = undefined;
         } else {

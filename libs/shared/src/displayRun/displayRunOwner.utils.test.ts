@@ -119,6 +119,38 @@ describe("$ownerOfRunPiece", () => {
       });
     });
 
+    it("returns undefined for ORDINARY text riding directly after a complete loose \\va run", () => {
+      // The verse text that follows a settled `\va …\va*` run is plain content, not a run piece:
+      // its previous sibling happens to be the run's closing glyph, but position alone must not
+      // make it one. Recognizing it would pend the verse for a deletion in ordinary content —
+      // a whole-paragraph settle and rebuild for an edit the run has nothing to do with.
+      const { editor } = createBasicTestEnvironment();
+      let verse!: VerseNode;
+      let vaValue!: TextNode;
+      let verseText!: TextNode;
+      editor.update(
+        () => {
+          verse = $createVerseNode("1");
+          const vaOpen = $createMarkerNode("va", "opening");
+          vaValue = $createTextNode(`${NBSP}1a`);
+          $setState(vaValue, textTypeState, "attribute");
+          const vaClose = $createMarkerNode("va", "closing");
+          verseText = $createTextNode(" This verse.");
+          $getRoot().append(
+            $createParaNode("p").append(verse, vaOpen, vaValue, vaClose, verseText),
+          );
+        },
+        { discrete: true },
+      );
+
+      editor.getEditorState().read(() => {
+        expect($ownerOfRunPiece(verseText)).toBeUndefined();
+        // Positive control, same tree: the run's own attribute-tagged VALUE still resolves, so
+        // the refusal above is the untagged text being rejected, not the walk going blind.
+        expect($ownerOfRunPiece(vaValue)?.owner.getKey()).toBe(verse.getKey());
+      });
+    });
+
     it("returns undefined when ordinary content sits between the piece and a verse", () => {
       // verse, then plain text, then a stray attribute-tagged TextNode: the walk must stop at
       // the plain text and return undefined, never crossing ordinary content to reach the verse.
