@@ -363,25 +363,21 @@ export function $settlePendedDisplayOwner(
     context.pendingKeys.add(node.getKey());
     return { handled: true, mutated: false };
   }
-  if ($isCharNode(node) && $caretHoldsRunSite(displayRunDescriptor("char"), node)) {
-    // Same mid-edit grace for a span's edited/deleted attribute display run (the exceptKey
-    // protection covers only the run TextNode the caret is in, not the parent span's pended
-    // key) — displayRunSync.utils.ts. Settling now would re-tokenize the run out from under
-    // the user's caret; it settles once the caret has actually departed.
+  for (const kind of ["char", "va", "vp", "milestone"] as const) {
+    const descriptor = displayRunDescriptor(kind);
+    if (!descriptor.ownerPredicate(node)) continue;
+    if (!$caretHoldsRunSite(descriptor, node)) continue;
+    // Mid-edit grace: the caret holds the run's site. The exceptKey protection covers only the
+    // node the caret is IN (the run's value, or the flanking text for a just-deleted run), not the
+    // owner's own pended key. Settling now would rewrite or re-tokenize the run out from under the
+    // caret; it settles once the caret has actually departed.
     context.pendingKeys.add(node.getKey());
-    return { handled: true, mutated: false };
+    return { handled: true, mutated: huskRemoved };
   }
   if ($isVerseNode(node)) {
     const kinds = ["va", "vp"] as const;
-    if (kinds.some((kind) => $caretHoldsRunSite(displayRunDescriptor(kind), node))) {
-      // Same mid-edit grace for a verse's deleted/diverged \va/\vp attribute run: the exceptKey
-      // protection covers only the run TextNode (or verse text) the caret is in, not the verse's
-      // pended key. Settling now would re-tokenize the run out from under the caret; it settles
-      // once the caret has actually departed and the run's bytes are absent from the fragment.
-      context.pendingKeys.add(node.getKey());
-      return { handled: true, mutated: huskRemoved };
-    }
-    // The caret has genuinely departed. A run that diverges for EXACTLY the wrap-migration reason
+    // The caret has genuinely departed (the unified grace loop above already returned otherwise).
+    // A run that diverges for EXACTLY the wrap-migration reason
     // (its bytes are already canonical; only its AttributeRunNode wrapper is missing —
     // $runNeedsOnlyWrapMigration, displayRunSync.utils.ts) is delivered HERE, by calling the same
     // $syncDisplayRun driver construction/edits use — the one slice of it the settle may run
@@ -416,16 +412,8 @@ export function $settlePendedDisplayOwner(
   }
   if ($isMilestoneNode(node)) {
     const descriptor = displayRunDescriptor("milestone");
-    if ($caretHoldsRunSite(descriptor, node)) {
-      // Same mid-edit grace for a milestone's diverged or deleted display run: the exceptKey
-      // protection covers only the node the caret is in (the run TextNode, or the flanking text
-      // for a just-deleted run), not the milestone's pended key — displayRunSync.utils.ts.
-      // Settling now would rewrite or re-tokenize the run out from under the caret; it settles
-      // once the caret has actually departed.
-      context.pendingKeys.add(node.getKey());
-      return { handled: true, mutated: huskRemoved };
-    }
-    // The caret has genuinely departed. A run that diverges for EXACTLY the wrap-migration reason
+    // The caret has genuinely departed (the unified grace loop above already returned otherwise).
+    // A run that diverges for EXACTLY the wrap-migration reason
     // (its bytes are already canonical; only its AttributeRunNode wrapper is missing —
     // $runNeedsOnlyWrapMigration, displayRunSync.utils.ts) is delivered HERE, by calling the same
     // $syncDisplayRun driver construction/edits use — mirrors the verse arm above, but a milestone
