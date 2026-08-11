@@ -167,8 +167,10 @@ function isSerializedParagraph(node: SerializedLexicalNode): node is SerializedP
  * Splits a paragraph's children at each verse marker.
  *
  * A comment mark can wrap a run that crosses a verse marker, so the mark is split too and cloned
- * onto each side with its IDs intact, keeping the comment rendered across the boundary. Nothing
- * round-trips from here to corrupt: block verse refuses USJ export.
+ * onto each side with its IDs intact, keeping the comment rendered across the boundary. Sharing an
+ * ID across the clones is what the annotation registry already expects - it maps one ID to a set of
+ * mark node keys (`AnnotationPlugin`'s `Map<string, Set<NodeKey>>`), because a mark can be split
+ * for other reasons too. Nothing round-trips from here to corrupt: block verse refuses USJ export.
  */
 function splitIntoRuns(nodes: SerializedLexicalNode[], logger?: LoggerBasic): VerseRun[] {
   const runs: VerseRun[] = [{ nodes: [] }];

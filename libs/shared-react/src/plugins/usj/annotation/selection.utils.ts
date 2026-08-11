@@ -530,9 +530,14 @@ function $getJsonPathIndexes(node: LexicalNode): number[] {
  * than confidently wrong.
  */
 function $hasVerseBlocks(): boolean {
-  // Walks siblings rather than calling `getChildren()`, which would build an array of every root
-  // child. Both callers run on each selection change, including in the inline layouts where the
-  // scan finds nothing and would otherwise allocate that array on every cursor move.
+  // Both callers run on every selection change, so this walks siblings and exits at the first
+  // block rather than calling `getChildren()`, which would build an array of every root child.
+  //
+  // The layout is known from `ViewOptions.verseLayout`, and an editor registers `VerseBlockNode`
+  // only for that layout, so `editor.hasNodes([VerseBlockNode])` looks like a cheaper answer. It
+  // is not available here: `$getEditor()` needs an active *editor*, and these functions are
+  // called from `editorState.read()` as well, which establishes only an active editor state.
+  // Reading the layout instead would mean threading `ViewOptions` through every caller.
   for (let child = $getRoot().getFirstChild(); child; child = child.getNextSibling()) {
     if ($isVerseBlockNode(child)) return true;
   }
