@@ -59,7 +59,7 @@ import {
   $isMilestoneNode,
   $isVerseNode,
   $ownerOfRunPiece,
-  $syncDisplayRun,
+  $syncAndPendDisplayRun,
   AttributeRunNode,
   ChapterNode,
   CharNode,
@@ -110,54 +110,30 @@ export const COMMIT_PENDING_MARKERS_COMMAND: LexicalCommand<void> = createComman
 );
 
 /**
- * Sync `node`'s milestone display run (the shared `$syncDisplayRun` driver, displayRunSync.utils.ts,
- * parameterized by the milestone descriptor), and pend it while the caret holds the run's site
- * (mid-edit grace) so caret departure settles it ($resolvePendingMarkers). Shared by the
- * MilestoneNode transform and the AttributeRunNode transform below — both re-drive this off
- * shared's `$ownerOfRunPiece` (displayRunOwner.utils.ts): a milestone's run rides as its FOLLOWING
- * SIBLINGS, so an edit that touches only a piece INSIDE the wrapper dirties the WRAPPER, not the
- * DecoratorNode-based MilestoneNode, whose own transform would then never fire. Running this off
- * the dirtied wrapper gives a run-only edit the pend path it needs; without it the run silently
- * resurrects from the still-set fields on the next unrelated dirtying.
+ * Sync and pend every run `node` owns (the shared `$syncAndPendDisplayRun` helper,
+ * displayRunSync.utils.ts): the sync leaves a caret-held divergence alone, and the matching pend
+ * lets caret departure settle it ($resolvePendingMarkers) — without it a run would silently
+ * resurrect from the owner's still-set state on the next unrelated dirtying. A verse owns two
+ * independent runs (`\va`, `\vp`) that must be driven in that order — `\vp`'s scan and insertion
+ * anchor both depend on `\va`'s wrapper already being in place — and a milestone owns one.
+ *
+ * Shared by the VerseNode/MilestoneNode transforms and the MarkerNode/AttributeRunNode re-drives
+ * below — both of the latter re-drive this off shared's `$ownerOfRunPiece`
+ * (displayRunOwner.utils.ts): a run rides as the owner's FOLLOWING SIBLINGS (a milestone is a
+ * DecoratorNode and a verse is itself a TextNode, so neither can hold the run as children), so an
+ * edit that touches only a piece INSIDE the run — or a wrapper, or a glyph riding LOOSE — dirties
+ * that piece/wrapper, not the owner, whose own transform would then never fire. Running this off
+ * the dirtied piece gives a run-only edit the pend path it needs.
  *
  * A complete but still-LOOSE run (byte-correct, just not yet migrated into its `AttributeRunNode`
- * wrapper) now pends too, exactly like the verse kind ({@link $syncAndPendVerse}): the shared
- * driver's `$runDiverges` counts the pending wrap migration itself as a divergence, so
- * `$caretHoldsRunSite` reports it caret-held and this pends it for the departure settle to finish.
+ * wrapper) pends too: the shared driver's `$runDiverges` counts the pending wrap migration itself
+ * as a divergence, so `$caretHoldsRunSite` reports it caret-held and this pends it for the
+ * departure settle to finish.
  */
-function $syncAndPendMilestone(node: MilestoneNode, context: MarkerEditContext): void {
-  const descriptor = displayRunDescriptor("milestone");
-  $syncDisplayRun(descriptor, node);
-  if (node.isAttached() && $caretHoldsRunSite(descriptor, node))
-    context.pendingKeys.add(node.getKey());
-}
-
-/**
- * Sync `node`'s verse `\va`/`\vp` display runs (the shared `$syncDisplayRun` driver,
- * displayRunSync.utils.ts, parameterized by each marker's own descriptor), and pend it while the
- * caret holds a run's site (mid-edit grace) so caret departure settles it ($resolvePendingMarkers).
- * The verse analogue of {@link $syncAndPendMilestone}: a verse's runs ride as its FOLLOWING
- * SIBLINGS, so an edit that touches only a run — a piece INSIDE an already-wrapped run's wrapper,
- * or a glyph riding LOOSE — dirties that piece/wrapper, not the VerseNode (a TextNode whose own
- * transform fires only when the verse node itself is dirtied). Both shapes are found by shared's
- * `$ownerOfRunPiece` (displayRunOwner.utils.ts), re-driven from the MarkerNode transform's loose-
- * glyph re-drive and the AttributeRunNode transform below. Running this off either path gives a
- * run-only edit the pend path it needs; without it the edited run would silently resurrect from
- * the still-set altnumber/pubnumber on the next unrelated dirtying.
- *
- * A complete but still-LOOSE run (byte-correct, just not yet migrated into its `AttributeRunNode`
- * wrapper) now pends too: the shared driver's `$runDiverges` counts the pending wrap migration
- * itself as a divergence, so `$caretHoldsRunSite` reports it caret-held and this pends it for the
- * departure settle to finish — where the old bespoke verse sync graced the migration but never
- * pended it, leaving it deferred indefinitely.
- */
-function $syncAndPendVerse(node: VerseNode, context: MarkerEditContext): void {
-  for (const kind of ["va", "vp"] as const) {
-    const descriptor = displayRunDescriptor(kind);
-    $syncDisplayRun(descriptor, node);
-    if (node.isAttached() && $caretHoldsRunSite(descriptor, node))
-      context.pendingKeys.add(node.getKey());
-  }
+function $syncAndPendOwner(node: VerseNode | MilestoneNode, context: MarkerEditContext): void {
+  const kinds = $isVerseNode(node) ? (["va", "vp"] as const) : (["milestone"] as const);
+  for (const kind of kinds)
+    $syncAndPendDisplayRun(displayRunDescriptor(kind), node, context.pendingKeys);
 }
 
 /**
@@ -318,7 +294,7 @@ export function MarkerEditPlugin({
         // idempotent, so the extra invocation is either a no-op or legitimate earlier healing,
         // matching the destruction-listener path's own closer-inclusive classification.
         const ref = $ownerOfRunPiece(node);
-        if (ref && $isVerseNode(ref.owner)) $syncAndPendVerse(ref.owner, context);
+        if (ref && $isVerseNode(ref.owner)) $syncAndPendOwner(ref.owner, context);
       }),
       editor.registerNodeTransform(VerseNode, (node) => {
         if (editor.isComposing()) return;
@@ -327,11 +303,11 @@ export function MarkerEditPlugin({
         // (displayRunSync.utils.ts): while the caret holds a run's site, the sync leaves it alone,
         // so pend the verse here for the caret-departure settle — otherwise a full-run deletion
         // never re-tokenizes and the sync just re-derives the run from the still-set
-        // altnumber/pubnumber (the deletion silently undoes itself). $syncAndPendVerse also
+        // altnumber/pubnumber (the deletion silently undoes itself). $syncAndPendOwner also
         // re-runs the sync itself here — redundant with TextSpacingPlugin's own VerseNode
         // transform in the same pass, but idempotent, so the verse's grace/pend pairing lives in
         // exactly one place regardless of which transform a given commit happens to dirty.
-        $syncAndPendVerse(node, context);
+        $syncAndPendOwner(node, context);
       }),
       editor.registerNodeTransform(ChapterNode, (node) => {
         if (editor.isComposing()) return;
@@ -344,8 +320,14 @@ export function MarkerEditPlugin({
       editor.registerNodeTransform(CharNode, (node) => {
         if (editor.isComposing()) return;
         $charNodeDeletionTransform(node, context);
-        // Whatever the char span owns and the syncs left alone under caret-grace — its opener
-        // separator, its attribute display run — pends here for the caret-departure settle.
+        // Pend only — do NOT sync here. Unlike VerseNode/MilestoneNode (whose runs have no other
+        // registration home unconditionally covering every host), a char span's run sync already
+        // lives in CharNodePlugin.tsx (shared-react), and several test hosts mount this engine
+        // WITHOUT CharNodePlugin (e.g. markerEdit.test-helpers.tsx's `testEnvironment`) — calling
+        // $syncDisplayRun here too would derive/clear runs on those hosts that today never get
+        // one, a real behavior change, not just a convergent double-registration. Whatever the
+        // char span owns and CharNodePlugin's own sync left alone under caret-grace — its opener
+        // separator, its attribute display run — still pends here for the caret-departure settle.
         for (const kind of ["separator", "char"] as const) {
           if (node.isAttached() && $caretHoldsRunSite(displayRunDescriptor(kind), node))
             context.pendingKeys.add(node.getKey());
@@ -366,7 +348,7 @@ export function MarkerEditPlugin({
       // ($resolvePendingMarkers).
       editor.registerNodeTransform(MilestoneNode, (node) => {
         if (editor.isComposing()) return;
-        $syncAndPendMilestone(node, context);
+        $syncAndPendOwner(node, context);
       }),
       editor.registerNodeTransform(AttributeRunNode, (node) => {
         if (editor.isComposing()) return;
@@ -375,8 +357,8 @@ export function MarkerEditPlugin({
         // would otherwise never notice. Re-drive the owner's own sync/pend off the wrapper.
         const ref = $ownerOfRunPiece(node);
         if (!ref) return;
-        if ($isMilestoneNode(ref.owner)) $syncAndPendMilestone(ref.owner, context);
-        else if ($isVerseNode(ref.owner)) $syncAndPendVerse(ref.owner, context);
+        if ($isMilestoneNode(ref.owner) || $isVerseNode(ref.owner))
+          $syncAndPendOwner(ref.owner, context);
       }),
       editor.registerNodeTransform(NoteNode, (node) => {
         if (editor.isComposing()) return;

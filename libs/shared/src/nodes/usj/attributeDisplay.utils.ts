@@ -42,8 +42,9 @@
  * grace); the marker-edit engine settles it on caret departure by pending the edited run into its
  * Tier-2 completion path — the displayed bytes re-tokenize back into node state (last-write-wins,
  * uniformly across chars, verses, and milestones), and a milestone whose run was deleted OUTRIGHT
- * ({@link $milestoneRunEntirelyAbsent}) is itself removed, since the run is its entire byte
- * representation. `MilestoneNode` is the SAME type in every mode — unlike the char/verse
+ * ({@link $runEntirelyAbsent}, displayRunSync.utils.ts, parameterized by the milestone descriptor)
+ * is itself removed, since the run is its entire byte representation. `MilestoneNode` is the SAME
+ * type in every mode — unlike the char/verse
  * EDITABLE node types, which never appear outside editable mode — so its sync is registered only
  * in `MarkerEditPlugin.tsx`, which is itself markerMode-"editable"-gated, to keep visible/hidden
  * mode's `ImmutableTypedTextNode`-based milestone runs (built by the adaptor, never edited)
@@ -291,8 +292,9 @@ export interface MilestoneRunPieces {
  * milestone has none of them, and a mid-edit tree can be missing any subset (only the opening
  * deleted leaves attribute + closer debris; only the closer deleted leaves opening + attribute).
  * The tolerant scan lets callers repair only the genuinely missing/stale pieces around whatever
- * survives — never duplicating a leftover — and lets {@link $milestoneRunEntirelyAbsent}
- * distinguish "every byte of the run deleted" from a partial mangle. Exported as the single
+ * survives — never duplicating a leftover — and lets {@link $runEntirelyAbsent}
+ * (displayRunSync.utils.ts, parameterized by the milestone descriptor) distinguish "every byte of
+ * the run deleted" from a partial mangle. Exported as the single
  * definition of "a milestone's run" — the Tier-2 rebuild's `$milestoneDisplayRun` delegates to it
  * so the sync and the rebuild can never disagree about which siblings make up the run.
  *
@@ -328,15 +330,4 @@ export function $milestoneAttributeRunPieces(milestone: MilestoneNode): Mileston
   }
   if ($isMarkerNode(cursor) && cursor.getMarkerSyntax() === "selfClosing") closing = cursor;
   return { opening, attribute, closing, wrapper };
-}
-
-/**
- * True when NO piece of `milestone`'s display run remains — the run (the milestone's ENTIRE
- * visible byte representation) has been deleted outright, as opposed to a partial mangle that
- * still leaves debris to repair around. The marker-edit engine's settle path removes such a
- * milestone on caret departure: deleting all of a construct's bytes deletes the construct.
- */
-export function $milestoneRunEntirelyAbsent(milestone: MilestoneNode): boolean {
-  const { opening, attribute, closing } = $milestoneAttributeRunPieces(milestone);
-  return !opening && !attribute && !closing;
 }

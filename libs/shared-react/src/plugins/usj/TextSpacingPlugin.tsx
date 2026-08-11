@@ -62,20 +62,15 @@ function useTextSpacing(editor: LexicalEditor) {
       // setPubnumber) and structure surgery. Registered here (not a dedicated VerseNodePlugin,
       // which doesn't exist) because this is already the shared-react home that registers
       // VerseNode transforms (the spacing transform above) — same one-node-type-owns-its-syncs
-      // shape CharNodePlugin uses for chars. See displayRunSync.utils.ts (`shared`).
-      editor.registerNodeTransform(VerseNode, $syncVerseAttributeDisplayNode),
+      // shape CharNodePlugin uses for chars. $syncDisplayRun (displayRunSync.utils.ts, `shared`),
+      // driven `\va` first so `\vp`'s scan and insertion anchor find the healed `\va` wrapper
+      // already in place.
+      editor.registerNodeTransform(VerseNode, (node) => {
+        $syncDisplayRun(displayRunDescriptor("va"), node);
+        $syncDisplayRun(displayRunDescriptor("vp"), node);
+      }),
     );
   }, [editor]);
-}
-
-/**
- * Wraps {@link $syncDisplayRun} with the verse's two independent run descriptors — `\va` first, so
- * `\vp`'s scan and insertion anchor find the healed `\va` wrapper already in place.
- * @param node - VerseNode whose \va/\vp display runs need updating.
- */
-function $syncVerseAttributeDisplayNode(node: VerseNode): void {
-  $syncDisplayRun(displayRunDescriptor("va"), node);
-  $syncDisplayRun(displayRunDescriptor("vp"), node);
 }
 
 /**

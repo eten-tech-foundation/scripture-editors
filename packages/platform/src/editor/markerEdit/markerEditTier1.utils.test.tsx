@@ -792,7 +792,7 @@ describe("$settlePendedDisplayOwner AttributeRunNode husk arm (dual-read)", () =
 
   it("removes an empty milestone wrapper husk, then removes the milestone itself (run entirely absent)", () => {
     // Mirrors the optbreak arm this one is modeled on: the empty wrapper is undead scaffolding
-    // removed as a side effect, and the OWNER's own policy (milestoneRunEntirelyAbsent, since
+    // removed as a side effect, and the OWNER's own policy ($runEntirelyAbsent, since
     // nothing survives the husk's removal either) still runs in the SAME settle pass.
     const { editor } = createBasicTestEnvironment();
     let milestone!: MilestoneNode;
