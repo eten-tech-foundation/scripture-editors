@@ -344,6 +344,25 @@ export function $settlePendedDisplayOwner(
     context.pendingKeys.add(node.getKey());
     return { handled: true, mutated };
   }
+  // Grace PRE-PASS: every descriptor matching this node is checked for a caret-held run BEFORE any
+  // settle action runs for ANY of them — a standing contract, not an artifact of iteration order. A
+  // verse's `\va`/`\vp` are two INDEPENDENT runs sharing one pended owner identity; if `\va` rides
+  // loose-but-canonical (needing only a wrap migration) while the caret is actively mid-edit inside
+  // `\vp`'s value, migrating `\va` first would move three nodes beside a live caret — a DOM mutation
+  // under the user's mid-typing selection — before this same pass ever discovers `\vp` must re-pend
+  // the whole owner untouched. Checking every matching descriptor's grace to completion FIRST, and
+  // only then running any migration/deletion, guarantees a caret-held owner is re-pended with
+  // NOTHING moved, regardless of which sibling kind's turn would otherwise come first.
+  for (const descriptor of displayRunDescriptors) {
+    if (descriptor.settleScope === "none") continue;
+    if (!descriptor.ownerPredicate(node)) continue;
+    if ($caretHoldsRunSite(descriptor, node)) {
+      // Mid-edit grace: settling now would rewrite or re-tokenize the run out from under the
+      // caret. It settles once the caret has actually departed.
+      context.pendingKeys.add(node.getKey());
+      return { handled: true, mutated };
+    }
+  }
   let handled = false;
   // A verse's `\va`/`\vp` pair and a milestone's single run both migrate loose-but-canonical bytes
   // into their wrapper here (via the same $syncDisplayRun driver construction/edits use) rather
@@ -362,17 +381,15 @@ export function $settlePendedDisplayOwner(
   // gets both duties done in one settle pass. A milestone has only one matching descriptor, so the
   // same deferred decision resolves after its single visit — equivalent to migrating and returning
   // outright.
+  //
+  // No grace check runs in THIS loop: the pre-pass above already established that no matching
+  // descriptor is caret-held, over the tree as it stood before any action here — every write below
+  // is therefore safe to perform unconditionally.
   let migrated = false;
   let hasGenuineDivergence = false;
   for (const descriptor of displayRunDescriptors) {
     if (descriptor.settleScope === "none") continue;
     if (!descriptor.ownerPredicate(node)) continue;
-    if ($caretHoldsRunSite(descriptor, node)) {
-      // Mid-edit grace: settling now would rewrite or re-tokenize the run out from under the
-      // caret. It settles once the caret has actually departed.
-      context.pendingKeys.add(node.getKey());
-      return { handled: true, mutated };
-    }
     if ($runNeedsOnlyWrapMigration(descriptor, node)) {
       $syncDisplayRun(descriptor, node);
       migrated = true;

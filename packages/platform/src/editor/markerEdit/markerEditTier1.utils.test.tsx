@@ -1031,13 +1031,78 @@ describe("$settlePendedDisplayOwner verse migration + fallthrough interaction", 
     // the settle must NOT report handled here; the caller's own re-tokenize fallthrough is what
     // actually resolves \va (this test only pins the DECISION; the fallthrough's own re-tokenize
     // behavior for a destroyed run is covered elsewhere, e.g. verseAttributeSettle.test.tsx's
-    // "clears altnumber on caret departure after the whole \va triplet is deleted").
-    expect(result.handled).toBe(false);
+    // "clears altnumber on caret departure after the whole \va triplet is deleted"). `mutated: true`
+    // regardless of `handled: false`: \vp's migration is a real structural write, and the caller
+    // now folds `mutated` on this path too, so a Tier-2 fixed point covering \va elsewhere must not
+    // make \vp's already-performed migration disappear from the report.
+    expect(result).toEqual({ handled: false, mutated: true });
     editor.getEditorState().read(() => {
       // \vp still migrated into its wrapper — a real mutation performed before falling through.
       const { wrapper } = $verseAttributeRunPieces(verse, "vp");
       expect(wrapper).toBeDefined();
       expect(wrapper?.getChildrenSize()).toBe(3);
+    });
+  });
+
+  it("re-pends the whole verse untouched when the caret holds \\vp's site, even though \\va is a loose-but-canonical migration candidate", () => {
+    // The grace PRE-PASS contract: every matching descriptor's caret-held check must run to
+    // completion BEFORE any migration/deletion touches the tree, not interleaved per descriptor in
+    // registry order. \va here rides loose but byte-exact (a migration candidate, same shape as the
+    // positive-control test below) while the caret sits inside \vp's live value — mid-edit on a
+    // SIBLING run of the same owner. Migrating \va first (registry order visits it before \vp) would
+    // move three nodes beside a live caret mid-typing; the pre-pass must instead find \vp caret-held
+    // and re-pend the WHOLE owner before \va's migration ever runs.
+    const { editor } = createBasicTestEnvironment();
+    let verse!: VerseNode;
+    let vaValue!: TextNode;
+    editor.update(
+      () => {
+        verse = $createVerseNode("1", getVisibleOpenMarkerText("v", "1"), undefined, "2", "3");
+        const vaOpener = $createMarkerNode("va");
+        vaValue = $createTextNode(`${NBSP}2`);
+        $setState(vaValue, textTypeState, "attribute");
+        const vaCloser = $createMarkerNode("va", "closing");
+        const vpOpener = $createMarkerNode("vp");
+        const vpValue = $createTextNode(`${NBSP}3`);
+        $setState(vpValue, textTypeState, "attribute");
+        const vpCloser = $createMarkerNode("vp", "closing");
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createTextNode(NBSP),
+            verse,
+            vaOpener,
+            vaValue,
+            vaCloser,
+            vpOpener,
+            vpValue,
+            vpCloser,
+            $createTextNode("In the beginning"),
+          ),
+        );
+        // Caret inside \vp's live value: still loose (no wrapper), so this counts as caret-held
+        // (the pending wrap migration is itself a divergence — $runDiverges, displayRunSync.utils.ts).
+        vpValue.select(1, 1);
+      },
+      { discrete: true },
+    );
+
+    const context = buildContext();
+    let result!: { handled: boolean; mutated: boolean };
+    editor.update(
+      () => {
+        result = $settlePendedDisplayOwner(verse, context);
+      },
+      { discrete: true },
+    );
+
+    expect(result).toEqual({ handled: true, mutated: false });
+    expect(context.pendingKeys.has(verse.getKey())).toBe(true);
+    editor.getEditorState().read(() => {
+      // Nothing moved: \va is still loose (no wrapper materialized by an unwanted migration).
+      const { wrapper } = $verseAttributeRunPieces(verse, "va");
+      expect(wrapper).toBeUndefined();
+      expect(vaValue.isAttached()).toBe(true);
+      expect(vaValue.getTextContent()).toBe(`${NBSP}2`);
     });
   });
 
