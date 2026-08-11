@@ -320,14 +320,16 @@ export function MarkerEditPlugin({
       editor.registerNodeTransform(CharNode, (node) => {
         if (editor.isComposing()) return;
         $charNodeDeletionTransform(node, context);
-        // Pend only — do NOT sync here. Unlike VerseNode/MilestoneNode (whose runs have no other
-        // registration home unconditionally covering every host), a char span's run sync already
-        // lives in CharNodePlugin.tsx (shared-react), and several test hosts mount this engine
-        // WITHOUT CharNodePlugin (e.g. markerEdit.test-helpers.tsx's `testEnvironment`) — calling
-        // $syncDisplayRun here too would derive/clear runs on those hosts that today never get
-        // one, a real behavior change, not just a convergent double-registration. Whatever the
-        // char span owns and CharNodePlugin's own sync left alone under caret-grace — its opener
-        // separator, its attribute display run — still pends here for the caret-departure settle.
+        // Pend only — do NOT sync here. The char kind's sync has exactly one registration home,
+        // CharNodePlugin.tsx (shared-react); this engine owns only the pend half for chars —
+        // unlike VerseNode/MilestoneNode, which have no other unconditional registration home
+        // and so are synced AND pended here. That is not just a style choice: several test
+        // hosts mount this engine WITHOUT CharNodePlugin (e.g. markerEdit.test-helpers.tsx's
+        // `testEnvironment`), so calling $syncDisplayRun here too would derive/clear runs on
+        // those hosts that today never get one — a real behavior change, not a free convergent
+        // no-op. Whatever the char span owns and CharNodePlugin's own sync left alone under
+        // caret-grace — its opener separator, its attribute display run — still pends here for
+        // the caret-departure settle.
         for (const kind of ["separator", "char"] as const) {
           if (node.isAttached() && $caretHoldsRunSite(displayRunDescriptor(kind), node))
             context.pendingKeys.add(node.getKey());

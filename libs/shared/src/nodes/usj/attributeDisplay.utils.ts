@@ -38,17 +38,16 @@
  * descriptor rather than defined in this module — re-deriving the run whenever its owner is
  * dirtied, healing remote collab updates (the collab materializer's `$createMilestone` builds a
  * BARE `MilestoneNode` with no run at all — delta-apply-update.utils.ts) and structure surgery.
- * While the collapsed caret sits inside the run the sync leaves it alone (mid-edit
- * grace); the marker-edit engine settles it on caret departure by pending the edited run into its
- * Tier-2 completion path — the displayed bytes re-tokenize back into node state (last-write-wins,
+ * While the collapsed caret sits inside the run the sync leaves it alone (mid-edit grace); the
+ * marker-edit engine settles it on caret departure by pending the edited run into its Tier-2
+ * completion path — the displayed bytes re-tokenize back into node state (last-write-wins,
  * uniformly across chars, verses, and milestones), and a milestone whose run was deleted OUTRIGHT
- * ({@link $runEntirelyAbsent}, displayRunSync.utils.ts, parameterized by the milestone descriptor)
- * is itself removed, since the run is its entire byte representation. `MilestoneNode` is the SAME
- * type in every mode — unlike the char/verse
- * EDITABLE node types, which never appear outside editable mode — so its sync is registered only
- * in `MarkerEditPlugin.tsx`, which is itself markerMode-"editable"-gated, to keep visible/hidden
- * mode's `ImmutableTypedTextNode`-based milestone runs (built by the adaptor, never edited)
- * untouched.
+ * (the shared `$runEntirelyAbsent` check, displayRunSync.utils.ts, parameterized by the milestone
+ * descriptor) is itself removed, since the run is its entire byte representation. `MilestoneNode`
+ * is the SAME type in every mode — unlike the char/verse EDITABLE node types, which never appear
+ * outside editable mode — so its sync is registered only in `MarkerEditPlugin.tsx`, which is itself
+ * markerMode-"editable"-gated, to keep visible/hidden mode's `ImmutableTypedTextNode`-based
+ * milestone runs (built by the adaptor, never edited) untouched.
  */
 
 import { $isMarkerNode, MarkerNode } from "../features/MarkerNode.js";
@@ -292,11 +291,11 @@ export interface MilestoneRunPieces {
  * milestone has none of them, and a mid-edit tree can be missing any subset (only the opening
  * deleted leaves attribute + closer debris; only the closer deleted leaves opening + attribute).
  * The tolerant scan lets callers repair only the genuinely missing/stale pieces around whatever
- * survives — never duplicating a leftover — and lets {@link $runEntirelyAbsent}
+ * survives — never duplicating a leftover — and lets the shared `$runEntirelyAbsent` check
  * (displayRunSync.utils.ts, parameterized by the milestone descriptor) distinguish "every byte of
- * the run deleted" from a partial mangle. Exported as the single
- * definition of "a milestone's run" — the Tier-2 rebuild's `$milestoneDisplayRun` delegates to it
- * so the sync and the rebuild can never disagree about which siblings make up the run.
+ * the run deleted" from a partial mangle. Exported as the single definition of "a milestone's run"
+ * — the Tier-2 rebuild's `$milestoneDisplayRun` delegates to it so the sync and the rebuild can
+ * never disagree about which siblings make up the run.
  *
  * When `milestone`'s immediately following sibling is an `AttributeRunNode` whose `runKind` is
  * `"milestone"`, the SAME tolerant scan runs over the wrapper's CHILDREN instead of `milestone`'s
