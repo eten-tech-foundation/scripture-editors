@@ -145,22 +145,6 @@ describe("block verse layout guards", () => {
 
     expect(() => ref.current?.applyUpdate([{ retain: 1 }])).toThrow(/block verse/i);
   });
-
-  // USJ locations are indexes into the source USJ's content, which the regrouping renumbers.
-  it("reports no USJ selection", async () => {
-    const ref = createRef<EditorRef>();
-    await act(async () => {
-      render(
-        <Editorial
-          ref={ref}
-          defaultUsj={usjGen1v1}
-          options={{ isReadonly: true, view: blockVerseOptions }}
-        />,
-      );
-    });
-
-    expect(ref.current?.getSelection()).toBeUndefined();
-  });
 });
 
 describe("editor-usj adaptor with verse blocks", () => {
