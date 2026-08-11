@@ -59,8 +59,8 @@ function $findNdChar(): CharNode {
 }
 
 /** `char`'s own attribute display run — the TextNode tagged textType "attribute" that
- * `$syncCharAttributeDisplay` (attributeDisplay.utils.ts) builds automatically once the span
- * carries real `unknownAttributes` and has a closing glyph. */
+ * `$syncDisplayRun` with the char descriptor (displayRunSync.utils.ts) builds automatically once
+ * the span carries real `unknownAttributes` and has a closing glyph. */
 function $findAttributeRun(char: CharNode): TextNode {
   const run = char
     .getChildren()
@@ -100,8 +100,8 @@ describe("settled getUsj — uniform settling", () => {
 
     // Half-type over the attribute run: replace its canonical bytes with an incomplete `|stuf`,
     // and leave the caret inside it — the exact caret shape the MUTATING sync's mid-edit grace
-    // (`$isCaretAtAttributeRunBoundary`, attributeDisplay.utils.ts) would recognize and leave
-    // alone. The read-only settle grants no such grace.
+    // (`$caretHoldsRunSite`, displayRunSync.utils.ts) would recognize and leave alone. The
+    // read-only settle grants no such grace.
     await act(async () => {
       lexical.update(() => {
         const run = $findAttributeRun($findNdChar());

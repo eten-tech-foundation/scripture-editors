@@ -33,21 +33,22 @@
  *
  * Builders construct the run (usj-editor.adaptor's `createChar`/`addAttributes`/
  * `addVerseAttributes`; transforms do not run on `setEditorState`), and
- * {@link $syncCharAttributeDisplay}/{@link $syncVerseAttributeDisplay}/
- * {@link $syncMilestoneDisplayRun} — registered as CharNode/VerseNode/MilestoneNode transforms —
- * re-derive it whenever a span, verse, or milestone is dirtied, healing remote collab updates
- * (the collab materializer's `$createMilestone` builds a BARE `MilestoneNode` with no run at
- * all — delta-apply-update.utils.ts) and structure surgery. While the collapsed caret sits
- * inside the run the sync leaves it alone (mid-edit grace); the marker-edit engine settles it on
- * caret departure by pending the edited run into its Tier-2 completion path — the displayed
- * bytes re-tokenize back into node state (last-write-wins, uniformly across chars, verses, and
- * milestones), and a milestone whose run was deleted OUTRIGHT ({@link $milestoneRunEntirelyAbsent})
- * is itself removed, since the run is its entire byte representation. Unlike the char/
- * verse syncs (registered in shared-react plugins that always run, relying on the char/verse
- * EDITABLE node types never appearing outside editable mode), `MilestoneNode` is the SAME type
- * in every mode — so its sync is registered only in `MarkerEditPlugin.tsx`, which is itself
- * markerMode-"editable"-gated, to keep visible/hidden mode's `ImmutableTypedTextNode`-based
- * milestone runs (built by the adaptor, never edited) untouched.
+ * {@link $syncVerseAttributeDisplay}/{@link $syncMilestoneDisplayRun} — registered as VerseNode/
+ * MilestoneNode transforms — re-derive it whenever a verse or milestone is dirtied, healing
+ * remote collab updates (the collab materializer's `$createMilestone` builds a BARE
+ * `MilestoneNode` with no run at all — delta-apply-update.utils.ts) and structure surgery. A char
+ * span's own run follows the identical contract through the shared `$syncDisplayRun` driver
+ * (displayRunSync.utils.ts), parameterized by the char kind's descriptor rather than defined in
+ * this module. While the collapsed caret sits inside the run the sync leaves it alone (mid-edit
+ * grace); the marker-edit engine settles it on caret departure by pending the edited run into its
+ * Tier-2 completion path — the displayed bytes re-tokenize back into node state (last-write-wins,
+ * uniformly across chars, verses, and milestones), and a milestone whose run was deleted OUTRIGHT
+ * ({@link $milestoneRunEntirelyAbsent}) is itself removed, since the run is its entire byte
+ * representation. `MilestoneNode` is the SAME type in every mode — unlike the char/verse
+ * EDITABLE node types, which never appear outside editable mode — so its sync is registered only
+ * in `MarkerEditPlugin.tsx`, which is itself markerMode-"editable"-gated, to keep visible/hidden
+ * mode's `ImmutableTypedTextNode`-based milestone runs (built by the adaptor, never edited)
+ * untouched.
  */
 
 import { $createMarkerNode, $isMarkerNode, MarkerNode } from "../features/MarkerNode.js";
@@ -59,20 +60,14 @@ import {
 } from "./AttributeRunNode.js";
 import { $isCharNode, CharNode } from "./CharNode.js";
 import { MilestoneNode } from "./MilestoneNode.js";
-import { DELTA_CHANGE_TAG, NBSP, UnknownAttributes } from "./node-constants.js";
+import { NBSP, UnknownAttributes } from "./node-constants.js";
 import { $isDescendantOf } from "./node.utils.js";
-import {
-  $isDisplayOwnerPended,
-  $reportDestroyedDisplayOwner,
-} from "./pendedDisplayOwners.utils.js";
+import { $isDisplayOwnerPended } from "./pendedDisplayOwners.utils.js";
 import { $isVerseNode, VerseNode } from "./VerseNode.js";
 import {
   $createTextNode,
-  $getEditor,
-  $getNodeByKey,
   $getSelection,
   $getState,
-  $hasUpdateTag,
   $isRangeSelection,
   $isTextNode,
   $setState,
@@ -171,114 +166,6 @@ export function $charAttributeDisplayNode(char: CharNode): TextNode | undefined 
       (child): child is TextNode =>
         $isTextNode(child) && $getState(child, textTypeState) === "attribute",
     );
-}
-
-/**
- * Whether the collapsed caret sits where the display run already is, or — when the run is
- * missing — at its insertion point. Mirrors {@link $isCaretAtOpenerBoundary}
- * (markerSeparators.utils.ts): a boundary the caret can hold in more than one shape after an
- * edit. `closingGlyph` is the insertion anchor, and the caret can sit at it either by landing on
- * the glyph itself or at the text-end of the content immediately before it.
- */
-function $isCaretAtAttributeRunBoundary(
-  run: TextNode | undefined,
-  closingGlyph: MarkerNode | undefined,
-): boolean {
-  const selection = $getSelection();
-  if (!$isRangeSelection(selection) || !selection.isCollapsed()) return false;
-  const anchorNode = selection.anchor.getNode();
-  if (run) return anchorNode.is(run);
-  if (!closingGlyph) return false;
-  if (anchorNode.is(closingGlyph)) return true;
-  const lastContent = closingGlyph.getPreviousSibling();
-  return (
-    lastContent !== null &&
-    anchorNode.is(lastContent) &&
-    selection.anchor.offset === lastContent.getTextContentSize()
-  );
-}
-
-/**
- * Heal `char`'s attribute display run to `expectedText`: insert it before the closing glyph when
- * missing, rewrite it in place when stale, or remove it when `expectedText` is `""` — except
- * while the collapsed caret holds the run (mid-edit grace, see
- * {@link $isCaretAtAttributeRunBoundary}), or while a wanted run has just been destroyed by
- * something other than this call (see the destruction check below), both of which the sync
- * leaves alone for the marker-edit engine to settle on caret departure. A span with no closing
- * glyph never carries a run regardless of `expectedText` (see {@link $charClosingGlyph}).
- * Idempotent — writes only on change, so the registering transform converges.
- *
- * @param char - The char span whose display run to sync. Must be called inside `editor.update()`.
- * @param expectedText - The canonical attribute bytes `char` should display, or `""` for none.
- */
-export function $syncCharAttributeDisplay(char: CharNode, expectedText: string): void {
-  // An earlier transform in the same pass may have merged/removed the span (adjacent-span
-  // combining); a detached span has no tree position to derive from.
-  if (!char.isAttached()) return;
-  const closingGlyph = $charClosingGlyph(char);
-  const targetText = closingGlyph ? expectedText : "";
-  const run = $charAttributeDisplayNode(char);
-  // A missing run reads as "" so a missing-and-unwanted run compares equal without a run lookup.
-  if ((run?.getTextContent() ?? "") === targetText) return;
-  // The engine holds this owner pending — a run deletion it detected from the destruction itself
-  // rather than from the caret's shape (see MarkerEditPlugin's mutation-listener pend). Healing
-  // now would resurrect the deletion before caret departure settles it, for exactly the caret
-  // shapes {@link $isCaretAtAttributeRunBoundary} below does not recognize (e.g. an element-point
-  // selection left after the run is removed).
-  if ($isDisplayOwnerPended(char)) return;
-  // A run that is WANTED (`targetText` non-empty) but currently ABSENT, and existed in the
-  // last-COMMITTED state (the state as of the start of this update, before anything below runs),
-  // was destroyed by something other than this call — this branch only runs with `run ===
-  // undefined`, and the only place below that ever removes a run does so exclusively when
-  // `targetText === ""`, the opposite of this condition, so a call can never be reacting to its
-  // own prior removal here. Detecting the destruction from the LAST-COMMITTED state, inside the
-  // sync's own decision path, keeps the result independent of which plugin's transforms happen to
-  // run first on the shared dirty CharNode: mount order varies across hosts (the real app mounts
-  // `CharNodePlugin` before `MarkerEditPlugin`), so a caller-side check reacting to "the run is
-  // already gone" would only see that in time under ONE of the two orders. A remote collab apply
-  // is excluded: `$applyEmbedAttributes` (delta-apply-update.utils.ts) clears `unknownAttributes`
-  // directly, which already makes `targetText` empty before this sync next runs, so this branch
-  // is not the normal path a remote clear takes — the tag check is kept as an explicit guard
-  // against pending on a remote commit regardless.
-  if (targetText !== "" && run === undefined && !$hasUpdateTag(DELTA_CHANGE_TAG)) {
-    const existedBefore = $getEditor()
-      .getEditorState()
-      .read(() => {
-        const previous = $getNodeByKey(char.getKey());
-        return $isCharNode(previous) && $charAttributeDisplayNode(previous) !== undefined;
-      });
-    if (existedBefore) {
-      $reportDestroyedDisplayOwner(char);
-      return;
-    }
-  }
-  if ($isCaretAtAttributeRunBoundary(run, closingGlyph)) return;
-  if (targetText === "") {
-    run?.remove();
-    return;
-  }
-  if (run) {
-    run.setTextContent(targetText);
-    return;
-  }
-  const newRun = $createTextNode(targetText);
-  $setState(newRun, textTypeState, "attribute");
-  closingGlyph?.insertBefore(newRun);
-}
-
-/**
- * True when `char`'s display run diverges from `expectedText` but the sync is deliberately
- * leaving it alone because the caret holds it — mid-edit, or, for a missing run, sitting at its
- * would-be insertion point. The marker-edit engine pends such spans so caret departure settles
- * them back to canonical via Tier-2.
- */
-export function $hasCaretHeldAttributeRun(char: CharNode, expectedText: string): boolean {
-  if (!char.isAttached()) return false;
-  const closingGlyph = $charClosingGlyph(char);
-  const targetText = closingGlyph ? expectedText : "";
-  const run = $charAttributeDisplayNode(char);
-  if ((run?.getTextContent() ?? "") === targetText) return false;
-  return $isCaretAtAttributeRunBoundary(run, closingGlyph);
 }
 
 /**
@@ -472,8 +359,9 @@ function $syncVerseAttributeRun(
   if (!$verseAttributeDiverges(pieces, value) && !needsWrapping) return chainAnchor;
   // The engine holds this verse pending (a run deletion/edit detected from the destruction
   // itself, or caret-held divergence re-pended by $resolvePendingMarkers): healing now would
-  // resurrect or overwrite it before caret departure settles it — mirrors
-  // $syncCharAttributeDisplay's pended guard (this file).
+  // resurrect or overwrite it before caret departure settles it — mirrors the shared
+  // $syncDisplayRun driver's pended guard (displayRunSync.utils.ts), which the char kind now
+  // goes through.
   if ($isDisplayOwnerPended(verse)) return chainAnchor;
   // Mid-edit grace: the caret holds the run's site (inside a live value, at a just-deleted run's
   // insertion point, or beside a surviving glyph whose value was deleted). Leave it alone — the
@@ -688,16 +576,17 @@ export function $milestoneRunEntirelyAbsent(milestone: MilestoneNode): boolean {
 
 /**
  * Whether the collapsed caret sits where a milestone's attribute TextNode already is, or — when
- * pieces are missing — at the run's edit site. Mirrors {@link $isCaretAtAttributeRunBoundary}
- * (the char version), including its missing-run arm: when the run is ENTIRELY absent (a
- * just-deleted run), its insertion point is the milestone's flank — the end of the previous
- * sibling or the start of the next — where a deletion collapses the caret; without that arm the
- * sync would re-derive the run from the milestone's still-set fields the instant it was deleted
- * and the deletion would visibly undo itself. When only the attribute text is missing beside a
- * surviving opening glyph, the site is the self-closing glyph (or the end of the opening glyph's
- * own text). A missing glyph next to OTHER surviving pieces is deliberately not caret-graced —
- * inserting a missing structural glyph beside existing content cannot corrupt anything the user
- * is mid-typing, unlike overwriting the attribute text.
+ * pieces are missing — at the run's edit site. Mirrors the char kind's insertion-point grace (now
+ * `$caretHoldsRunSite`'s shared reporter plus the char descriptor's `graceSite`,
+ * displayRunSync.utils.ts / displayRunRegistry.ts), including its missing-run arm: when the run
+ * is ENTIRELY absent (a just-deleted run), its insertion point is the milestone's flank — the end
+ * of the previous sibling or the start of the next — where a deletion collapses the caret; without
+ * that arm the sync would re-derive the run from the milestone's still-set fields the instant it
+ * was deleted and the deletion would visibly undo itself. When only the attribute text is missing
+ * beside a surviving opening glyph, the site is the self-closing glyph (or the end of the opening
+ * glyph's own text). A missing glyph next to OTHER surviving pieces is deliberately not
+ * caret-graced — inserting a missing structural glyph beside existing content cannot corrupt
+ * anything the user is mid-typing, unlike overwriting the attribute text.
  *
  * When `wrapper` is set, the caret holding ANY position inside the wrapper's subtree (not just a
  * recognized piece) also counts — an element-point selection can land on the wrapper itself, a
@@ -789,8 +678,9 @@ export function $syncMilestoneDisplayRun(
     return;
   // The engine holds this milestone pending (a run deletion/edit detected from the destruction
   // itself, or caret-held divergence re-pended by $resolvePendingMarkers): healing now would
-  // resurrect or overwrite it before caret departure settles it — mirrors
-  // $syncCharAttributeDisplay's pended guard (this file).
+  // resurrect or overwrite it before caret departure settles it — mirrors the shared
+  // $syncDisplayRun driver's pended guard (displayRunSync.utils.ts), which the char kind now
+  // goes through.
   if ($isDisplayOwnerPended(milestone)) return;
   if ($isCaretAtMilestoneRunBoundary(milestone, pieces)) return;
 

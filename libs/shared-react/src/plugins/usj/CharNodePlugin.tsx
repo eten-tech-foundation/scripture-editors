@@ -6,13 +6,12 @@ import { useEffect } from "react";
 import {
   $hasSameCharAttributes,
   $isCharNode,
-  $syncCharAttributeDisplay,
+  $syncDisplayRun,
   $syncNestedGlyphs,
   $syncOpenerSeparators,
-  canonicalAttributeText,
   charIdState,
   CharNode,
-  defaultMarkerAttribute,
+  displayRunDescriptor,
   EMPTY_CHAR_PLACEHOLDER_TEXT,
 } from "shared";
 
@@ -48,19 +47,13 @@ function useCharNode(editor: LexicalEditor) {
 }
 
 /**
- * Wraps {@link $syncCharAttributeDisplay} with the expected canonical text, computed here rather
- * than inside `shared`'s attributeDisplay.utils.ts: `defaultMarkerAttribute` lives in the
- * converters, and `shared`'s nodes/usj module graph must not import from there (converters/usfm
- * already imports FROM nodes/usj, so the reverse import would cycle) — see
- * attributeDisplay.utils.ts for the ownership rules this enforces.
+ * Wraps {@link $syncDisplayRun} with the char descriptor. Kept as a thin per-kind wrapper so this
+ * plugin's registration reads the same as its siblings and the transform signature Lexical
+ * expects (one node argument) stays satisfied.
  * @param node - CharNode whose display run needs updating.
  */
 function $syncCharAttributeDisplayNode(node: CharNode): void {
-  const expectedText = canonicalAttributeText(
-    node.getUnknownAttributes() ?? {},
-    defaultMarkerAttribute(node.getMarker()),
-  );
-  $syncCharAttributeDisplay(node, expectedText);
+  $syncDisplayRun(displayRunDescriptor("char"), node);
 }
 
 /**

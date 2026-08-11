@@ -16,6 +16,7 @@ import { Klass, LexicalNode, LexicalNodeReplacement, ParagraphNode } from "lexic
 
 export * from "./attributeDisplay.utils.js";
 export * from "./displayRunDescriptor.js";
+export * from "./displayRunSync.utils.js";
 export * from "./pendedDisplayOwners.utils.js";
 export * from "./AttributeRunNode.js";
 export * from "./BookNode.js";

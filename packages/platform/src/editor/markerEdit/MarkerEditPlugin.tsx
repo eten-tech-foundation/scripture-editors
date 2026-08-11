@@ -57,7 +57,7 @@ import {
 } from "lexical";
 import { useEffect, useRef } from "react";
 import {
-  $hasCaretHeldAttributeRun,
+  $caretHoldsRunSite,
   $hasCaretHeldMilestoneRun,
   $hasCaretHeldSeparatorGap,
   $hasCaretHeldVerseAttributeRun,
@@ -76,6 +76,7 @@ import {
   CURSOR_CHANGE_TAG,
   defaultMarkerAttribute,
   DELTA_CHANGE_TAG,
+  displayRunDescriptor,
   getMarker as bundledGetMarker,
   ImmutableTypedTextNode,
   LoggerBasic,
@@ -287,10 +288,11 @@ export function MarkerEditPlugin({
     // fully reconciled, so this catches the CROSS-commit case (a deletion whose commit doesn't
     // itself dirty the owner) and serves as the general, node-kind-agnostic sweep; a char span's
     // run is additionally caught SAME-commit, order-independently of which plugin's transforms
-    // run first, directly inside the sync's own decision path ($syncCharAttributeDisplay,
-    // attributeDisplay.utils.ts) — this listener's char coverage is therefore mostly redundant
-    // with that (harmless: both write into the same Set) except where this listener sees a
-    // destroyed run piece the sync's own removal produced (see the still-wanted guard below).
+    // run first, directly inside the sync's own decision path ($syncDisplayRun with the char
+    // descriptor, displayRunSync.utils.ts) — this listener's char coverage is therefore mostly
+    // redundant with that (harmless: both write into the same Set) except where this listener
+    // sees a destroyed run piece the sync's own removal produced (see the still-wanted guard
+    // below).
     // HISTORIC (undo/redo) commits re-pend by re-scanning the RESTORED state directly
     // ($rependPendShapedNodes) — reacting to their destroyed-node diff here as well would just
     // duplicate that work against a state the restore itself, not a user edit, produced. A
@@ -334,8 +336,8 @@ export function MarkerEditPlugin({
           const owner = $getNodeByKey(ownerKey);
           if (!owner?.isAttached()) continue;
           // A char span's own legitimate heal-removal (its attributes were cleared, so
-          // $syncCharAttributeDisplay removes the now-unwanted run) is ALSO a "destroyed"
-          // TextNode mutation from this listener's point of view. Only pend when the owner's
+          // $syncDisplayRun removes the now-unwanted run) is ALSO a "destroyed" TextNode
+          // mutation from this listener's point of view. Only pend when the owner's
           // CURRENT state still calls for a run — a genuine attribute clear must settle quietly,
           // not sit pended (and so exempted from healing) until an unrelated caret departure.
           if (
@@ -420,13 +422,9 @@ export function MarkerEditPlugin({
         if (node.isAttached() && $hasCaretHeldSeparatorGap(node))
           context.pendingKeys.add(node.getKey());
         // Same grace/pend pairing for a deleted or diverged attribute display run
-        // (attributeDisplay.utils.ts): while the caret holds it, CharNodePlugin's sync leaves it
+        // (displayRunSync.utils.ts): while the caret holds it, CharNodePlugin's sync leaves it
         // alone, so pend the span here for the caret-departure settle.
-        const expectedText = canonicalAttributeText(
-          node.getUnknownAttributes() ?? {},
-          defaultMarkerAttribute(node.getMarker()),
-        );
-        if (node.isAttached() && $hasCaretHeldAttributeRun(node, expectedText))
+        if (node.isAttached() && $caretHoldsRunSite(displayRunDescriptor("char"), node))
           context.pendingKeys.add(node.getKey());
       }),
       // Self-healing milestone display run (attributeDisplay.utils.ts): a `MilestoneNode` exists

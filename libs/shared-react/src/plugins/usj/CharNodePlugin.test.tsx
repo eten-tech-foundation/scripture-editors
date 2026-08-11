@@ -3,15 +3,16 @@ import { baseTestEnvironment } from "./react-test.utils";
 import { act } from "@testing-library/react";
 import { $getRoot, $createTextNode, $getState, $isTextNode, $setState, TextNode } from "lexical";
 import {
+  $caretHoldsRunSite,
   $createCharNode,
   $createMarkerNode,
   $createParaNode,
-  $hasCaretHeldAttributeRun,
   $isCharNode,
   $isMarkerNode,
   $isParaNode,
   charIdState,
   CharNode,
+  displayRunDescriptor,
   NBSP,
   textTypeState,
 } from "shared";
@@ -620,7 +621,7 @@ describe("CharNodePlugin", () => {
   // Self-healing attribute display runs: node state (CharNode.__unknownAttributes) is the truth,
   // and the display run is a derived cache that must follow it — including remote collab updates
   // (delta-apply calls only setUnknownAttributes, never touches the run) and structure surgery.
-  describe("attribute run healing ($syncCharAttributeDisplay transform)", () => {
+  describe("attribute run healing ($syncDisplayRun transform, char descriptor)", () => {
     /** `char`'s direct-child display run — the TextNode tagged textType "attribute" — if any. */
     function attributeRun(char: CharNode): TextNode | undefined {
       return char
@@ -799,7 +800,7 @@ describe("CharNodePlugin", () => {
         // The deletion stuck: no run reappeared while the caret still holds the glyph.
         expect(attributeRun(ndChar)).toBeUndefined();
         // And the pend signal reports the held divergence for the settle path to pick up.
-        expect($hasCaretHeldAttributeRun(ndChar, '|lemma="grace"')).toBe(true);
+        expect($caretHoldsRunSite(displayRunDescriptor("char"), ndChar)).toBe(true);
       });
     });
 
