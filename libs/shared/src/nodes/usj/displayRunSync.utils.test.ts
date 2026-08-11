@@ -1,6 +1,7 @@
 import { $isAttributeRunNode } from "./AttributeRunNode.js";
 import { $createCharNode } from "./CharNode.js";
 import { $caretHoldsRunSite, $syncDisplayRun } from "./displayRunSync.utils.js";
+import { $createMilestoneNode } from "./MilestoneNode.js";
 import { getVisibleOpenMarkerText } from "./node.utils.js";
 import { NBSP } from "./node-constants.js";
 import { registerPendedDisplayOwners } from "./pendedDisplayOwners.utils.js";
@@ -172,5 +173,59 @@ describe("$syncDisplayRun (verse)", () => {
       expect(vp.getRunKind()).toBe("vp");
       expect(vp.getChildren().at(1)?.getTextContent()).toBe(`${NBSP}3`);
     });
+  });
+});
+
+describe("$syncDisplayRun (milestone)", () => {
+  /** `<p>before <ms qt-s sid="q1"> after</p>` with a healed run riding as the milestone's
+   * immediate next sibling — the shape a `"milestone"`-descriptor sync builds from scratch. */
+  function buildMilestoneWithRun() {
+    const { editor } = createBasicTestEnvironment();
+    let milestone!: ReturnType<typeof $createMilestoneNode>;
+    editor.update(
+      () => {
+        milestone = $createMilestoneNode("qt-s", "q1");
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createTextNode("before "),
+            milestone,
+            $createTextNode(" after"),
+          ),
+        );
+        $syncDisplayRun(displayRunDescriptor("milestone"), milestone);
+      },
+      { discrete: true },
+    );
+    return { editor, milestone };
+  }
+
+  it("reports the owner instead of resurrecting a run deleted in the same commit", () => {
+    // The destruction check is the driver's, so — same as the verse pin above — it covers
+    // milestones too: before the milestone kind went through this shared driver, the bespoke
+    // milestone sync's OWN caret-grace/pended checks covered a same-commit deletion by
+    // recognizing the deleted-run flank as a grace site, a milestone-specific mechanism replaced
+    // here by the driver's general destruction detection. Parking the caret somewhere that
+    // mechanism does NOT recognize proves this test exercises $runDestroyedSinceLastCommit rather
+    // than incidentally passing through graceSite.
+    const { editor, milestone } = buildMilestoneWithRun();
+    const pended = new Set<string>();
+    const unregister = registerPendedDisplayOwners(editor, pended);
+    editor.update(
+      () => {
+        milestone.getNextSibling()?.remove();
+        // Park the caret on the leading text's START, well away from any graced site (the
+        // milestone descriptor's own flank grace recognizes only the END of the preceding
+        // sibling or the START of the following one — neither is this position).
+        const before = milestone.getPreviousSibling();
+        if ($isTextNode(before)) before.select(0, 0);
+        $syncDisplayRun(displayRunDescriptor("milestone"), milestone);
+      },
+      { discrete: true },
+    );
+    editor.getEditorState().read(() => {
+      expect($isAttributeRunNode(milestone.getNextSibling())).toBe(false);
+      expect(pended.has(milestone.getKey())).toBe(true);
+    });
+    unregister();
   });
 });
