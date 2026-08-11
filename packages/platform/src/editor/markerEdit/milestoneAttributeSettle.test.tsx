@@ -552,6 +552,18 @@ describe("collab-materialized milestone settles into a re-tokenizable run", () =
         $milestoneInFirstPara().setSid(undefined);
       }),
     );
+
+    // Pin the actual mechanism, not just its outcome: the milestone MUST be pended here, between
+    // the clearing commit and the forced settle — proving `$pendOwnersOfDestroyed` really did add
+    // it (the still-wanted exemption never applies to a milestone), rather than this test merely
+    // observing a byte-identical Tier-2 re-tokenize that would look the same whether or not
+    // anything was ever pended. Without this, reverting the exemption-removal (restoring the old
+    // `valueText === undefined` check, which WOULD exempt this legitimate clear) leaves every
+    // other assertion in this test passing — the removal-then-forced-settle would go unpinned.
+    editor.read(() => {
+      expect($isDisplayOwnerPended($milestoneInFirstPara())).toBe(true);
+    });
+
     await act(async () => {
       editor.dispatchCommand(COMMIT_PENDING_MARKERS_COMMAND, undefined);
     });
