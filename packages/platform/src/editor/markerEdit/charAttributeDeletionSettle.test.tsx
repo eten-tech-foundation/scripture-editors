@@ -15,8 +15,8 @@
  * `Editor.tsx` mounts `CharNodePlugin` before `MarkerEditPlugin`, the inverse of this suite's
  * original harness order. A fix that only prevents the resurrection under one order is not fixed
  * for hosts using the other, so destruction detection lives in the sync's OWN decision path
- * (attributeDisplay.utils.ts) rather than in a caller-side transform, and both orders must pass
- * identically here as proof.
+ * (`$syncDisplayRun`, displayRunSync.utils.ts) rather than in a caller-side transform, and both
+ * orders must pass identically here as proof.
  *
  * The last two tests cover the two review findings on that fix: a remote (collab) commit must
  * never pend an owner from a destroyed run (I-1), and the sync's own legitimate attribute-clear
@@ -231,7 +231,7 @@ describe("char attribute-run deletion settles (TJ repro, 2026-08-05)", () => {
     // preserved" — with the owner never pended, CharNodePlugin's self-heal sync (mounted here
     // alongside the engine) re-derives the run from the char's still-set `unknownAttributes`
     // within the SAME commit (its destruction-detection branch is itself excluded on a
-    // DELTA_CHANGE_TAG commit — attributeDisplay.utils.ts), so there is nothing left pending for
+    // DELTA_CHANGE_TAG commit — displayRunSync.utils.ts), so there is nothing left pending for
     // a later departure to settle. A subsequent, unrelated caret departure must therefore be a
     // pure no-op: no settle ever fires to (wrongly) re-clear the attributes a remote peer still
     // wants displayed.
