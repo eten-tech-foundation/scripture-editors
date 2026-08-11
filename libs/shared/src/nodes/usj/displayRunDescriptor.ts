@@ -119,7 +119,7 @@ export interface DisplayRunDescriptor {
   /** What `owner`'s run currently is in the tree. */
   readonly scanPieces: (owner: LexicalNode) => ScannedRun;
   /** Caret anchors this kind graces BEYOND the shared ones (inside the wrapper's subtree, or on
-   * the value node), which `$caretHoldsRunSite` already covers for every kind. */
+   * the value node), which `$caretHoldsRunSite` already covers for every writer-driven kind. */
   readonly graceSite: (owner: LexicalNode, pieces: ScannedRun) => boolean;
   readonly settleScope: SettleScope;
   readonly deletionPolicy: DeletionPolicy;

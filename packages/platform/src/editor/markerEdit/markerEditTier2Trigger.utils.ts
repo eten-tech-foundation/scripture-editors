@@ -275,7 +275,8 @@ export function $rependPendShapedNodes(context: MarkerEditContext): void {
     }
     if ($isCharNode(node)) {
       // A caret-held separator gap and a caret-held attribute-run divergence — the CharNode
-      // transform's pend conditions (MarkerEditPlugin.tsx) — are both the shared loop above now.
+      // transform's pend conditions (MarkerEditPlugin.tsx) — are both covered by the shared loop
+      // above.
       node.getChildren().forEach(visit);
       return;
     }
