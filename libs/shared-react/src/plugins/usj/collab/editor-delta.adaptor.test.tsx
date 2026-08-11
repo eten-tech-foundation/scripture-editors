@@ -267,6 +267,40 @@ describe("getEditorDelta", () => {
 
     const inserted = ops.map((op) => (typeof op.insert === "string" ? op.insert : "")).join("");
     expect(inserted).not.toContain("\\va");
+    expect(inserted).toContain("In the beginning");
+  });
+
+  it("excludes a \\va run's glyphs from content ops even when its AttributeRunNode wrapper is separated from the owning verse by intervening content", async () => {
+    // The registry's per-kind `ownerOf` chain walk requires the wrapper to sit DIRECTLY after its
+    // verse — it gives up at the first non-run-piece sibling — so an intervening node between the
+    // owner and its wrapper (a remote insert landing at that boundary, an undo stack, a mid-edit
+    // tree) makes $isDisplayRunPiece alone miss it. $hasAttributeRunAncestor (a full ancestor
+    // walk, not adjacency-gated) still catches it regardless of what sits between the wrapper and
+    // its owner, so the ops gate must apply both checks together.
+    const ops = await getOpsFor(() => {
+      const verse = $createVerseNode("1", getVisibleOpenMarkerText("v", "1"), undefined, "2");
+      const vaWrapper = $createAttributeRunNode("va");
+      const vaValue = $createTextNode(`${NBSP}2`);
+      $setState(vaValue, textTypeState, "attribute");
+      vaWrapper.append(
+        $createMarkerNode("va", "opening"),
+        vaValue,
+        $createMarkerNode("va", "closing"),
+      );
+      $getRoot().append(
+        $createParaNode("p").append(
+          verse,
+          $createTextNode("between "), // intervening content — breaks wrapper/owner adjacency
+          vaWrapper,
+          $createTextNode("In the beginning"),
+        ),
+      );
+    });
+
+    const inserted = ops.map((op) => (typeof op.insert === "string" ? op.insert : "")).join("");
+    expect(inserted).not.toContain("\\va");
+    expect(inserted).toContain("between ");
+    expect(inserted).toContain("In the beginning");
   });
 
   it("excludes an editable verse's own glyph text from content ops (only real content flows)", async () => {

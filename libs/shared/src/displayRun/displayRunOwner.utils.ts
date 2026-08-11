@@ -31,14 +31,21 @@ export function $ownerOfRunPiece(piece: LexicalNode): DisplayRunOwnerRef | undef
 }
 
 /**
- * True when `node` is a piece of ANY registered display run — a run glyph, an attribute value, or
- * anything riding inside a run wrapper. Engine-owned presentation, never content: it must not
- * enter OT content ops or the editor→USJ conversion.
+ * True when `node` is a piece — a run glyph or an attribute value — of a display run whose kind
+ * implements an owner walk (currently `va`/`vp`, `milestone`, `char`, and `optbreak`; see each
+ * descriptor's `ownerOf` in displayRunRegistry.ts). A kind with no owner walk (`separator`,
+ * `opaqueUnknown`, `nestedGlyph` — their `ownerOf` always returns `undefined`) never reports true
+ * here, regardless of what `node` is. Engine-owned presentation, never content, for the kinds it
+ * does cover: it must not enter OT content ops or the editor→USJ conversion.
  *
  * Keyed on the piece's KIND (via {@link $ownerOfRunPiece}) rather than on tree shape, so both the
  * wrapped shape the adaptor builds and the loose shape a mid-edit commit, an undo stack, or a
- * collab-materialized bare owner can leave behind are excluded by the same rule. A shape-only
- * check has to be re-broadened by hand each time a new shape becomes reachable.
+ * collab-materialized bare owner can leave behind are recognized by the same rule — WHEN the
+ * piece is directly adjacent to (or one wrapper-hop from) its owner, which is what each `ownerOf`
+ * walk requires. It is therefore NOT a full ancestor check: a wrapped piece separated from its
+ * owner by an intervening node, or nested more than one level below its wrapper, reports false
+ * here even though it is still presentation — callers that also need that shape covered pair this
+ * with an ancestry check (see `editor-delta.adaptor.ts`'s glyph gate).
  */
 export function $isDisplayRunPiece(node: LexicalNode): boolean {
   return $ownerOfRunPiece(node) !== undefined;
