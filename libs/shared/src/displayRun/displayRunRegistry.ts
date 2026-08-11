@@ -346,6 +346,21 @@ const optbreakDescriptor: DisplayRunDescriptor = {
   byteFormat: { writer: "read-only", glyphs: "none" },
 };
 
+const opaqueUnknownDescriptor: DisplayRunDescriptor = {
+  kind: "opaqueUnknown",
+  // Every UnknownNode kind other than an optbreak is a permanent Tier-2 sentinel whose bytes are
+  // read-only rendering, never re-tokenized. It owns no display run, but is recognized so the
+  // settle reports it handled and the caller never routes one through a rebuild that would bail.
+  ownerPredicate: (node) => $isUnknownNode(node) && node.getTag() !== "optbreak",
+  ownerOf: () => undefined,
+  expectedPieces: () => NO_RUN,
+  scanPieces: () => NO_PIECES,
+  graceSite: () => false,
+  settleScope: "owner",
+  deletionPolicy: "none",
+  byteFormat: { writer: "read-only", glyphs: "none" },
+};
+
 /** Every registered kind, in the order the pend/settle driver consults them. A `CharNode` matches
  * more than one descriptor (its separator gap and its attribute run), and the separator's grace
  * is checked first, preserving the order the per-kind arms ran in. */
@@ -355,6 +370,7 @@ export const displayRunDescriptors: readonly DisplayRunDescriptor[] = [
   verseDescriptor("vp"),
   milestoneDescriptor,
   optbreakDescriptor,
+  opaqueUnknownDescriptor,
 ];
 
 const byKind = new Map<DisplayRunKind, DisplayRunDescriptor>(

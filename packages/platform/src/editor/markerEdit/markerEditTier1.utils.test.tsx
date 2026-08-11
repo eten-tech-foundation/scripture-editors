@@ -864,11 +864,12 @@ describe("$settlePendedDisplayOwner AttributeRunNode husk arm (dual-read)", () =
       { discrete: true },
     );
 
-    // `handled: false` regardless of the husk removal — the caller falls through to its own
-    // re-tokenize arm (see this function's doc comment on the final return), which is the
-    // existing, already-safe default for a verse whose pend isn't a recognized caret-held
-    // divergence. `mutated` is unused by the caller on this path (documented, not asserted here).
-    expect(result.handled).toBe(false);
+    // `handled: false` regardless of the husk removal — the caller still falls through to its own
+    // re-tokenize arm (see this function's doc comment on the final return), the existing,
+    // already-safe default for a verse whose pend isn't a recognized caret-held divergence. But
+    // `mutated: true` — the husk removal is a real change, and `$resolvePendingMarkers` now folds
+    // it in on this path too, so a rebuild that refuses as a fixed point never reports it away.
+    expect(result).toEqual({ handled: false, mutated: true });
     editor.getEditorState().read(() => {
       expect(verse.isAttached()).toBe(true);
       expect(vaWrapper.isAttached()).toBe(false);
@@ -902,6 +903,68 @@ describe("$settlePendedDisplayOwner AttributeRunNode husk arm (dual-read)", () =
       // strictly to an EMPTY wrapper.
       expect(milestone.isAttached()).toBe(true);
       expect(wrapper.isAttached()).toBe(true);
+    });
+  });
+});
+
+describe("$resolvePendingMarkers folds a husk-only settle's mutation", () => {
+  function buildContext(): MarkerEditContext {
+    return {
+      viewOptions,
+      getMarker: bundledGetMarker,
+      pendingKeys: new Set<NodeKey>(),
+      splitExpected: { current: false },
+      rebuildAttempted: new Set<string>(),
+    };
+  }
+
+  it("reports a husk removal as a mutation even when the settle's rebuild refuses", () => {
+    // A refused (fixed-point) rebuild returns false, but removing an emptied AttributeRunNode husk
+    // IS a visible mutation. Reporting it as "mutated nothing" makes the caller merge the commit
+    // into the previous history entry, burying a real change under one dead Ctrl+Z. The empty
+    // wrapper contributes no bytes of its own, so the fallthrough re-tokenize below genuinely finds
+    // nothing changed in the displayed text and refuses — this shape is exactly how that refusal is
+    // reached, not an artificial stand-in for it.
+    const { editor } = createBasicTestEnvironment();
+    let verse!: VerseNode;
+    let vaWrapper!: AttributeRunNode;
+    editor.update(
+      () => {
+        // No altnumber/pubnumber — a genuinely cleared field, so nothing re-derives a fresh run,
+        // and the verse's own glyph text is already canonical. The paragraph's own `\p` marker
+        // glyph is included (unlike the direct-call husk tests above, which never reach the
+        // tokenizer): without it, the rebuilt fragment would always synthesize one, so the
+        // rebuild's signature would genuinely differ from the current tree's — a real splice, not
+        // the fixed-point refusal this test is pinning.
+        verse = $createVerseNode("1", getVisibleOpenMarkerText("v", "1"));
+        vaWrapper = $createAttributeRunNode("va");
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createMarkerNode("p"),
+            $createTextNode(NBSP),
+            verse,
+            vaWrapper,
+            $createTextNode("x"),
+          ),
+        );
+      },
+      { discrete: true },
+    );
+
+    const context = buildContext();
+    context.pendingKeys.add(verse.getKey());
+    let mutated = false;
+    editor.update(
+      () => {
+        mutated = $resolvePendingMarkers(context);
+      },
+      { discrete: true },
+    );
+
+    expect(mutated).toBe(true);
+    editor.getEditorState().read(() => {
+      expect(vaWrapper.isAttached()).toBe(false);
+      expect(verse.isAttached()).toBe(true);
     });
   });
 });
