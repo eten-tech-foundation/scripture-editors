@@ -203,6 +203,8 @@ The following items are recorded as deferred and not addressed in this plan:
 
 ---
 
+10. **Attribute-context paste residuals (2026-08-11, tracked follow-up):** two uncharacterized residuals from the attribute-run paste fix are recorded for investigation, not fixed here: (a) a mixed selection reaching past a char span's closing glyph into following sibling text may still corrupt on replacement — the available evidence suggests this class is a pre-existing selection-edit/engine behavior (typed input over the same selection showed the same anecdotal shape), not paste-specific; (b) a wide selection with one end merely touching an attribute run now takes the attribute paste path for the whole replacement, skipping the `\c`/`\id` strip and NBSP normalization for the body-side text — unverified (cross-paragraph mixed selections would not hold in jsdom during probing).
+
 ## Test Mapping (S1–S7)
 
 | Semantic | Pinning Test |
