@@ -249,10 +249,12 @@ export function MarkerEditPlugin({
       logger,
     };
     contextRef.current = context;
-    // Publishes the live pending set to the self-healing displays syncs (attributeDisplay.utils.ts,
-    // shared/shared-react) through a side channel: those syncs live below the engine in the module
-    // graph and cannot import it directly, but must still leave a pended owner's run alone instead
-    // of resurrecting a deletion the engine has not settled yet.
+    // Publishes the live pending set to the self-healing display syncs — the shared char driver
+    // (displayRunSync.utils.ts) and the verse/milestone syncs still defined in
+    // attributeDisplay.utils.ts, both `shared`/`shared-react` — through a side channel: those
+    // syncs live below the engine in the module graph and cannot import it directly, but must
+    // still leave a pended owner's run alone instead of resurrecting a deletion the engine has
+    // not settled yet.
     const unregisterPended = registerPendedDisplayOwners(editor, context.pendingKeys);
     // Tracks the caret's node key as of the most recent commit — keyed off the selection FOCUS
     // (the live cursor end, so it stays correct even for a backward range selection), updated
