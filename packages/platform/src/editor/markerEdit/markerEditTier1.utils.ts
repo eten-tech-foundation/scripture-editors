@@ -27,6 +27,7 @@ import {
   $isVerseNode,
   $milestoneAttributeRunPieces,
   $milestoneRunEntirelyAbsent,
+  $runDiverges,
   $runNeedsOnlyWrapMigration,
   $syncDisplayRun,
   $verseAttributeRunPieces,
@@ -409,20 +410,32 @@ export function $settlePendedDisplayOwner(
     // $syncDisplayRun driver construction/edits use — the one slice of it the settle may run
     // directly, since the guard guarantees nothing else about the run's content is stale, so the
     // call can only ever wrap it, never resurrect content the caret departure just left deleted or
-    // edited (that case is a DIFFERENT divergence shape and still falls through to the Tier-2
-    // re-tokenize below, where node state catches up with the displayed bytes instead). Falling
-    // all the way through to the Tier-2 rebuild probe for a wrap-only change would always REFUSE —
-    // an AttributeRunNode wrapper carries no bytes of its own, so the rebuilt signature is
-    // byte-identical to what is already displayed — leaving the run loose forever with nothing
-    // else to re-drive it, the exact gap the migration-pend behavior exists to close.
+    // edited. Every OTHER divergence shape is a genuine, unresolved change (missing/stale value, a
+    // deleted run) and must still reach the Tier-2 re-tokenize below, where node state catches up
+    // with the displayed bytes — so BOTH kinds are checked before deciding: `va` and `vp` are
+    // INDEPENDENT, and one migrating must never short-circuit past the other's still-unresolved
+    // genuine divergence (e.g. a run destroyed by something else in a separate commit, which the
+    // sync's own destruction detection cannot see once this owner is already pended — the mutation
+    // stays silently stale until an unrelated future edit dirties the verse again). Falling all the
+    // way through to the Tier-2 rebuild probe for a wrap-only change would always REFUSE it on its
+    // own — an AttributeRunNode wrapper carries no bytes of its own, so the rebuilt signature is
+    // byte-identical to what is already displayed — leaving the run loose forever with nothing else
+    // to re-drive it, the exact gap the migration-pend behavior exists to close; migrating here
+    // first and STILL falling through when a genuine divergence remains elsewhere gets both duties
+    // done in one settle pass instead of requiring two.
     let migrated = false;
+    let hasGenuineDivergence = false;
     for (const kind of kinds) {
       const descriptor = displayRunDescriptor(kind);
-      if (!$runNeedsOnlyWrapMigration(descriptor, node)) continue;
-      $syncDisplayRun(descriptor, node);
-      migrated = true;
+      if ($runNeedsOnlyWrapMigration(descriptor, node)) {
+        $syncDisplayRun(descriptor, node);
+        migrated = true;
+        continue;
+      }
+      if ($runDiverges(descriptor, descriptor.scanPieces(node), descriptor.expectedPieces(node)))
+        hasGenuineDivergence = true;
     }
-    if (migrated) return { handled: true, mutated: true };
+    if (migrated && !hasGenuineDivergence) return { handled: true, mutated: true };
   }
   if (
     $isMilestoneNode(node) &&

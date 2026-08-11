@@ -37,6 +37,7 @@ import {
   $createVerseNode,
   $isCharNode,
   $isParaNode,
+  $verseAttributeRunPieces,
   AttributeRunNode,
   ChapterNode,
   CharNode,
@@ -901,6 +902,131 @@ describe("$settlePendedDisplayOwner AttributeRunNode husk arm (dual-read)", () =
       // strictly to an EMPTY wrapper.
       expect(milestone.isAttached()).toBe(true);
       expect(wrapper.isAttached()).toBe(true);
+    });
+  });
+});
+
+describe("$settlePendedDisplayOwner verse migration + fallthrough interaction", () => {
+  function buildContext(): MarkerEditContext {
+    return {
+      viewOptions,
+      getMarker: bundledGetMarker,
+      pendingKeys: new Set<NodeKey>(),
+      splitExpected: { current: false },
+      rebuildAttempted: new Set<string>(),
+    };
+  }
+
+  it("migrates \\vp's loose-but-canonical run and still falls through when \\va carries a genuine (non-migration) divergence", () => {
+    // \va and \vp are two INDEPENDENT runs sharing one pended verse identity. Traced gap: a settle
+    // that reports handled the moment ONE kind's wrap migration lands would short-circuit past
+    // the OTHER kind's still-unresolved genuine divergence — e.g. a run destroyed by something
+    // else in an earlier commit, which the sync's own destruction detection cannot see once the
+    // owner is already pended (its pended-owner gate runs first, displayRunSync.utils.ts). Left
+    // unresolved, a destroyed run sits stale — altnumber still set, no bytes displayed — until
+    // some unrelated LATER edit happens to dirty the verse again.
+    const { editor } = createBasicTestEnvironment();
+    let verse!: VerseNode;
+    let other!: TextNode;
+    editor.update(
+      () => {
+        // \va's run is entirely gone (as if destroyed by something else in an earlier commit)
+        // while altnumber is still set. \vp rides loose but byte-exact — needs only the wrap.
+        verse = $createVerseNode("1", getVisibleOpenMarkerText("v", "1"), undefined, "2", "3");
+        const vpOpener = $createMarkerNode("vp");
+        const vpValue = $createTextNode(`${NBSP}3`);
+        $setState(vpValue, textTypeState, "attribute");
+        const vpCloser = $createMarkerNode("vp", "closing");
+        other = $createTextNode("elsewhere");
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createTextNode(NBSP),
+            verse,
+            vpOpener,
+            vpValue,
+            vpCloser,
+            $createTextNode("In the beginning"),
+          ),
+          $createParaNode("p").append(other),
+        );
+        // Caret parked away from both runs' sites — the settle must treat the caret as departed.
+        other.select(0, 0);
+      },
+      { discrete: true },
+    );
+
+    const context = buildContext();
+    let result!: { handled: boolean; mutated: boolean };
+    editor.update(
+      () => {
+        result = $settlePendedDisplayOwner(verse, context);
+      },
+      { discrete: true },
+    );
+
+    // \vp's migration is a real, correct write, but \va's genuine divergence remains unresolved —
+    // the settle must NOT report handled here; the caller's own re-tokenize fallthrough is what
+    // actually resolves \va (this test only pins the DECISION; the fallthrough's own re-tokenize
+    // behavior for a destroyed run is covered elsewhere, e.g. verseAttributeSettle.test.tsx's
+    // "clears altnumber on caret departure after the whole \va triplet is deleted").
+    expect(result.handled).toBe(false);
+    editor.getEditorState().read(() => {
+      // \vp still migrated into its wrapper — a real mutation performed before falling through.
+      const { wrapper } = $verseAttributeRunPieces(verse, "vp");
+      expect(wrapper).toBeDefined();
+      expect(wrapper?.getChildrenSize()).toBe(3);
+    });
+  });
+
+  it("reports handled when the only divergence is \\vp's wrap migration (no genuine divergence elsewhere)", () => {
+    // Negative control: with \va already canonical (nothing to resolve), a settle that migrates
+    // \vp alone DOES report handled — the common case this fix must not regress.
+    const { editor } = createBasicTestEnvironment();
+    let verse!: VerseNode;
+    let other!: TextNode;
+    editor.update(
+      () => {
+        verse = $createVerseNode(
+          "1",
+          getVisibleOpenMarkerText("v", "1"),
+          undefined,
+          undefined,
+          "3",
+        );
+        const vpOpener = $createMarkerNode("vp");
+        const vpValue = $createTextNode(`${NBSP}3`);
+        $setState(vpValue, textTypeState, "attribute");
+        const vpCloser = $createMarkerNode("vp", "closing");
+        other = $createTextNode("elsewhere");
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createTextNode(NBSP),
+            verse,
+            vpOpener,
+            vpValue,
+            vpCloser,
+            $createTextNode("In the beginning"),
+          ),
+          $createParaNode("p").append(other),
+        );
+        other.select(0, 0);
+      },
+      { discrete: true },
+    );
+
+    const context = buildContext();
+    let result!: { handled: boolean; mutated: boolean };
+    editor.update(
+      () => {
+        result = $settlePendedDisplayOwner(verse, context);
+      },
+      { discrete: true },
+    );
+
+    expect(result).toEqual({ handled: true, mutated: true });
+    editor.getEditorState().read(() => {
+      const { wrapper } = $verseAttributeRunPieces(verse, "vp");
+      expect(wrapper).toBeDefined();
     });
   });
 });

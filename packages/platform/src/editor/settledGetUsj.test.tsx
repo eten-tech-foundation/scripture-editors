@@ -258,8 +258,8 @@ const pendingShapes: PendingShape[] = [
       // A collapsed caret must be anchored in THIS node before typing, or
       // `$textNodeTier2Transform`'s whole-text termination check sees the already-complete
       // `\nd body\nd*` span and re-tokenizes it inline, in this same commit, before the edit ever
-      // has a chance to sit pending — the same caret-anchoring requirement Task 5's report
-      // documents for a terminated literal.
+      // has a chance to sit pending — any terminated literal needs its caret anchored the same way
+      // to stay pending instead of resolving inline.
       const text = $textContaining("plain body");
       text.setTextContent("plain \\nd body\\nd* tail");
       text.select(0, 0);
