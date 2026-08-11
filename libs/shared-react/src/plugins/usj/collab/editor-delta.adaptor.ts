@@ -248,23 +248,36 @@ function $handleTextNodes(
   // A char span's OWN opener/closer glyphs OUTSIDE a note legitimately flow through as literal
   // editable-mode text (the `char` attribute wrapper is layered on top, not a substitute) — only
   // a milestone's or a verse's \va/\vp display-run glyphs (presentation that duplicates state the
-  // embed op already carries) must never leak, in or out of a note. `$isDisplayRunPiece` is keyed
-  // on the glyph's KIND (the display-run registry's owner walk), not on tree shape, so ONE check
-  // excludes a run glyph whether it rides wrapped in an AttributeRunNode (the adaptor's resting
-  // shape) or LOOSE — caret-grace, an undo stack, and a collab-materialized bare owner each leave
-  // a run's glyphs loose for at least one commit, and a loose glyph is exactly as much
-  // engine-owned display as a wrapped one. Being kind-keyed rather than shape-keyed, it also needs
-  // no per-piece exemption for a char span's own opener/closer or its own nested `|…` run: neither
-  // is a registered piece of any OTHER owner's run.
+  // embed op already carries) must never leak, in or out of a note. TWO checks are needed together
+  // here, neither a superset of the other:
+  // - $hasAttributeRunAncestor walks EVERY ancestor, so it catches a wrapped glyph regardless of
+  //   how deep it rides or whether the wrapper sits directly after its owner — an intervening
+  //   node between the owner and its wrapper (a remote insert landing at that boundary, an undo
+  //   stack, a mid-edit tree) still leaves the wrapper's own contents ancestor-reachable, but the
+  //   registry's per-kind `ownerOf` walks require exactly that adjacency and give up on the first
+  //   non-run-piece sibling, so it would miss this shape.
+  // - $isDisplayRunPiece is keyed on the glyph's KIND (the display-run registry's owner walk), so
+  //   it catches a run's glyphs riding LOOSE — caret-grace, an undo stack, and a
+  //   collab-materialized bare owner each leave a run's glyphs loose for at least one commit, and
+  //   a loose glyph is exactly as much engine-owned display as a wrapped one — a shape
+  //   $hasAttributeRunAncestor (ancestry into a wrapper) cannot see at all.
+  // Being kind-keyed rather than shape-keyed, $isDisplayRunPiece also needs no per-piece exemption
+  // for a char span's own opener/closer or its own nested `|…` run: neither is a registered piece
+  // of any OTHER owner's run.
   //
-  // This widens only the ops-stream exclusion. The delta-doc length side
-  // (`$getNodeOTContribution` in delta-common.utils.ts) still excludes solely the wrapped shape,
-  // via ancestry ($hasAttributeRunAncestor) — a pre-existing, intentional asymmetry between the
-  // two coordinate systems, not an oversight to fix by widening the length side to match.
+  // This union widens only the ops-stream exclusion, restoring the historical contract: the
+  // delta-doc length side (`$getNodeOTContribution` in delta-common.utils.ts) deliberately keeps
+  // counting a LOOSE run's glyphs (via $hasAttributeRunAncestor alone, unchanged) even though the
+  // ops stream now excludes them — that is not a drift to fix by widening the length side to
+  // match, it is the same asymmetry the ops stream honored before wave 2a's loose-glyph exclusion
+  // was lost.
   const isInNote = $findFirstAncestorNoteNode(currentNode) !== undefined;
   if (
     $isMarkerNode(currentNode) &&
-    (isInNote || $isOwnParaPrefixGlyph(currentNode) || $isDisplayRunPiece(currentNode))
+    (isInNote ||
+      $isOwnParaPrefixGlyph(currentNode) ||
+      $hasAttributeRunAncestor(currentNode) ||
+      $isDisplayRunPiece(currentNode))
   )
     return;
   // The para prefix's NBSP separator is presentation scaffolding ($createMarkerPrefix,
