@@ -852,6 +852,26 @@ describe("usfmFragmentToUsjContent — verse, chapter, note, milestone, attribut
       ]);
     });
 
+    it("keeps a \\ca after an empty \\cp a standalone char — it never folds onto the chapter", () => {
+      // The reverse pairing of the case below, and the one shape that could still reach the
+      // receptive window an empty `\cp` deliberately leaves open (see the empty-cp branch's
+      // comment in usfmFragmentToUsj.ts). It does not: `\ca` is char-shaped, so it arrives while
+      // the `\cp` capture is still open and takes the unfoldable-markup arm, which closes the
+      // window before materializing the `\cp` paragraph. The `\ca` is then reprocessed as an
+      // ordinary char span inside that paragraph, and the chapter gets NO altnumber — so the
+      // document-order rewrite the char-shaped empty branch had to close (a folded attribute
+      // serializing ahead of an element that precedes it) cannot arise here.
+      expect(usfmFragmentToUsjContent("\\c 1\n\\cp \n\\ca 2\\ca*\n\\p body")).toEqual([
+        { type: "chapter", marker: "c", number: "1" },
+        {
+          type: "para",
+          marker: "cp",
+          content: [{ type: "char", marker: "ca", content: ["2"] }],
+        },
+        { type: "para", marker: "p", content: ["body"] },
+      ]);
+    });
+
     it("an empty \\ca blocks a following \\cp the same way (chapter's own marker pair)", () => {
       // A chapter takes BOTH \ca and \cp, so it can exhibit the same cross-fold as a verse's
       // \va/\vp. Both halves of this expectation are captured from ParatextData — see

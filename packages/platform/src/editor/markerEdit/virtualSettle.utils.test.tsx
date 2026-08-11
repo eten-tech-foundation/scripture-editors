@@ -182,7 +182,7 @@ describe("$settledUsj — paragraph scopes", () => {
     const { editor } = await testEnvironment(() => {
       // The husk's own token child, matching what usj-editor.adaptor.ts's `createUnknown` builds
       // for a live `\\optbreak` — an ImmutableTypedTextNode, not a plain TextNode (see
-      // displayRunOwner.utils.ts's `$ownerOfRunPiece` doc comment on why both shapes must be
+      // displayRunRegistry.ts's `optbreakDescriptor.ownerOf` on why both shapes must be
       // recognized).
       const optbreakToken = $createImmutableTypedTextNode("marker", "//");
       const optbreak = $createUnknownNode("optbreak", "optbreak").append(optbreakToken);
