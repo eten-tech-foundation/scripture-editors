@@ -125,6 +125,34 @@ describe("getViewMode", () => {
       expect(getViewMode(viewOptions)).toBeUndefined();
     },
   );
+
+  // Spelling an optional field's default out describes the same view as leaving it out, so it must
+  // still resolve. `Editor` produces exactly such an object when it normalizes away the features
+  // the block verse layout cannot support, and hosts routinely pass a fully-spelled-out object.
+  it.each([
+    ["the gutter and focus box off", { hasGutterParaMarkers: false, hasActiveTextFocusBox: false }],
+    ["char marker titles on", { showCharMarkerTitles: true }],
+    ["an inline verse layout", { verseLayout: "inline" }],
+    ["explicit undefined", { hasGutterParaMarkers: undefined, verseLayout: undefined }],
+  ] as const)("still resolves formatted with %s spelled out", (_description, override) => {
+    const formattedViewOptions = getViewOptions(FORMATTED_VIEW_MODE);
+    if (!formattedViewOptions) throw new Error("formatted view options are not defined");
+    const viewOptions: ViewOptions = { ...formattedViewOptions, ...override };
+
+    expect(getViewMode(viewOptions)).toBe(FORMATTED_VIEW_MODE);
+  });
+
+  it("still resolves block verse with the neutralized para features spelled out", () => {
+    const blockVerseViewOptions = getViewOptions(BLOCK_VERSE_VIEW_MODE);
+    if (!blockVerseViewOptions) throw new Error("block verse view options are not defined");
+    const viewOptions: ViewOptions = {
+      ...blockVerseViewOptions,
+      hasGutterParaMarkers: false,
+      hasActiveTextFocusBox: false,
+    };
+
+    expect(getViewMode(viewOptions)).toBe(BLOCK_VERSE_VIEW_MODE);
+  });
 });
 
 describe("getVerseNodeClass", () => {

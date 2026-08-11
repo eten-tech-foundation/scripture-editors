@@ -205,8 +205,10 @@ export function getViewOptions(viewMode?: string | undefined): ViewOptions | und
  * Convert view options to view mode if the view exists.
  *
  * Inverts {@link getViewOptions} by comparison, so a view option added later cannot be forgotten
- * here and leave two modes indistinguishable. Matching is exact: options derived from a mode and
- * then tweaked describe a view that is no longer that mode, and yield `undefined`.
+ * here and leave two modes indistinguishable. Matching is exact once each unset optional field is
+ * filled in with its default, so spelling a default out still matches, but options derived from a
+ * mode and then genuinely tweaked describe a view that is no longer that mode and yield
+ * `undefined`.
  *
  * @param viewOptions - View options of the editor.
  * @returns the view mode if the view is defined, `undefined` otherwise.
@@ -216,25 +218,36 @@ export function getViewOptions(viewMode?: string | undefined): ViewOptions | und
 export function getViewMode(viewOptions: ViewOptions | undefined): ViewMode | undefined {
   if (!viewOptions) return undefined;
 
-  const normalized = withoutDefaults(viewOptions);
+  const normalized = canonicalize(viewOptions);
   return (Object.keys(viewModeToViewNames) as ViewMode[]).find((viewMode) =>
-    deepEqual(withoutDefaults(getViewOptions(viewMode)), normalized),
+    deepEqual(canonicalize(getViewOptions(viewMode)), normalized),
   );
 }
 
 /**
- * The options with anything that means "not set" removed: a key whose value is `undefined`, and an
- * explicit `verseLayout: "inline"`, which is that field's documented default. Spelling either out
- * describes the same view as leaving it out, and the comparison counts keys, so both have to go.
+ * Each optional field's documented default, so options that spell a default out compare equal to
+ * options that leave it out - they describe the same view, and the comparison counts keys.
+ *
+ * `noteMode` is absent deliberately: it has no default (call sites read `undefined` inconsistently,
+ * some as collapsed and some as not), so it is part of what identifies a mode and has to be given.
  */
-function withoutDefaults(viewOptions: ViewOptions | undefined) {
+const optionalViewOptionDefaults = {
+  showCharMarkerTitles: true,
+  hasGutterParaMarkers: false,
+  hasActiveTextFocusBox: false,
+  verseLayout: "inline",
+} as const satisfies Partial<ViewOptions>;
+
+/** The options with every unset optional field filled in with its default. */
+function canonicalize(viewOptions: ViewOptions | undefined) {
   if (!viewOptions) return viewOptions;
 
-  return Object.fromEntries(
-    Object.entries(viewOptions).filter(
-      ([key, value]) => value !== undefined && !(key === "verseLayout" && value === "inline"),
-    ),
+  // Strip the `undefined`-valued keys first - spreading them over the defaults would reinstate the
+  // very "not set" state the defaults exist to resolve.
+  const setOptions = Object.fromEntries(
+    Object.entries(viewOptions).filter(([, value]) => value !== undefined),
   );
+  return { ...optionalViewOptionDefaults, ...setOptions };
 }
 
 /**

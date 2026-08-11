@@ -446,7 +446,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
       );
     },
     removeCharacterMarker(marker) {
-      if (isReadonly) throw new Error("Cannot remove character marker in readonly mode");
+      if (effectiveIsReadonly) throw new Error("Cannot remove character marker in readonly mode");
       assertCharacterMarkerSupported(marker);
 
       // `discrete` so the update runs now rather than being deferred behind an in-progress one,
@@ -464,7 +464,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
       return didRemove;
     },
     replaceCharacterMarker(toMarker, fromMarker) {
-      if (isReadonly) throw new Error("Cannot replace character marker in readonly mode");
+      if (effectiveIsReadonly) throw new Error("Cannot replace character marker in readonly mode");
       assertCharacterMarkerSupported(toMarker);
       assertCharacterMarkerSupported(fromMarker);
 
@@ -486,7 +486,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
       return didReplace;
     },
     extendCharacterMarker(marker, conflictingMarkers) {
-      if (isReadonly) throw new Error("Cannot extend character marker in readonly mode");
+      if (effectiveIsReadonly) throw new Error("Cannot extend character marker in readonly mode");
       assertCharacterMarkerSupported(marker);
       conflictingMarkers?.forEach((conflictingMarker) =>
         assertCharacterMarkerSupported(conflictingMarker),
