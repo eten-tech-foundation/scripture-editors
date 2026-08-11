@@ -424,6 +424,33 @@ describe("$ownerOfRunPiece", () => {
         expect($ownerOfRunPiece(wrapper)).toBeUndefined();
       });
     });
+
+    it("returns undefined for a milestone wrapper preceded by loose run-piece debris (a wrapper requires DIRECT adjacency, never a chain walk)", () => {
+      // The builder invariant is that a wrapper is always created/healed directly after its
+      // milestone — this loose-debris-then-wrapper shape never occurs at rest. Pinned anyway: the
+      // wrapper arm of the walk deliberately does not fall back to $milestoneOfLooseChain, so a
+      // future regression that re-adds a chain walk for wrapper starts would silently start
+      // resolving this shape instead of refusing it.
+      const { editor } = createBasicTestEnvironment();
+      let wrapper!: AttributeRunNode;
+      editor.update(
+        () => {
+          const milestone = $createMilestoneNode("qt-s", "q1");
+          const looseDebris = $createMarkerNode("qt-s", "opening");
+          wrapper = $createAttributeRunNode("milestone");
+          wrapper.append(
+            $createMarkerNode("qt-s", "opening"),
+            $createMarkerNode("", "selfClosing"),
+          );
+          $getRoot().append($createParaNode("p").append(milestone, looseDebris, wrapper));
+        },
+        { discrete: true },
+      );
+
+      editor.getEditorState().read(() => {
+        expect($ownerOfRunPiece(wrapper)).toBeUndefined();
+      });
+    });
   });
 
   describe("negatives", () => {
@@ -538,5 +565,57 @@ describe("$ownerOfRunPiece marker identity", () => {
       },
       { discrete: true },
     );
+  });
+});
+
+describe("$ownerOfRunPiece milestone marker identity", () => {
+  it("refuses a milestone whose adjacent glyph carries a different marker", () => {
+    // Mirror of the verse case above: a milestone's run has only one marker throughout, so an
+    // opening glyph riding directly after the milestone must carry the SAME marker to count as
+    // that milestone's own run piece. A foreign `\nd` opener must not classify the milestone as
+    // its owner — the mirror image of the bug this task exists to fix.
+    const { editor } = createBasicTestEnvironment();
+    let foreignOpener!: LexicalNode;
+    editor.update(
+      () => {
+        const milestone = $createMilestoneNode("qt-s", "q1");
+        foreignOpener = $createMarkerNode("nd", "opening");
+        $getRoot().append(
+          $createParaNode("p").append(
+            milestone,
+            foreignOpener,
+            $createTextNode("in the beginning"),
+          ),
+        );
+      },
+      { discrete: true },
+    );
+
+    editor.getEditorState().read(() => {
+      expect($ownerOfRunPiece(foreignOpener)).toBeUndefined();
+    });
+  });
+
+  it("still resolves a matching-marker opening glyph riding directly after the milestone", () => {
+    const { editor } = createBasicTestEnvironment();
+    let milestone!: MilestoneNode;
+    let matchingOpener!: LexicalNode;
+    editor.update(
+      () => {
+        milestone = $createMilestoneNode("qt-s", "q1");
+        matchingOpener = $createMarkerNode("qt-s", "opening");
+        const attributeText = $createTextNode(`${NBSP}|sid="q1"`);
+        $setState(attributeText, textTypeState, "attribute");
+        const closing = $createMarkerNode("", "selfClosing");
+        $getRoot().append(
+          $createParaNode("p").append(milestone, matchingOpener, attributeText, closing),
+        );
+      },
+      { discrete: true },
+    );
+
+    editor.getEditorState().read(() => {
+      expect($ownerOfRunPiece(matchingOpener)).toEqual({ owner: milestone, kind: "milestone" });
+    });
   });
 });
