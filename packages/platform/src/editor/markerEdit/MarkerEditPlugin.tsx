@@ -380,7 +380,11 @@ export function MarkerEditPlugin({
         // A run can ride loose for one transient commit — heal-forward wraps `\va` and `\vp`
         // independently, so mid-edit caret-grace on one marker can leave the other unwrapped. A
         // dirtied loose glyph is the only signal its owner's run changed: the verse itself stays
-        // clean, and there is no wrapper to dirty.
+        // clean, and there is no wrapper to dirty. Unlike the retired opener-only walk this
+        // replaced, a dirtied loose `\va*`/`\vp*` CLOSER now also re-drives the owner here too —
+        // harmless, since the sync's heal/pend decisions are caret- and divergence-gated and
+        // idempotent, so the extra invocation is either a no-op or legitimate earlier healing,
+        // matching the destruction-listener path's own closer-inclusive classification.
         const ref = $ownerOfRunPiece(node);
         if (ref && $isVerseNode(ref.owner)) $syncAndPendVerse(ref.owner, context);
       }),
