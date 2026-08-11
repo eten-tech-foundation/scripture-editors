@@ -374,3 +374,51 @@ never silent loss). Remediation candidates (recorded from the wave-4 fix report)
 declaration alive until the literal is actually consumed/removed, or have passive dismiss also
 remove the trigger literal. Belongs to the host overlay service; revisit alongside the palette
 popover-across-navigation cosmetic.
+
+## Postscript (2026-08-11): Wave 3 gate — phase 2b (display-run registry) complete
+
+Task 14 (the wave-3 gate) confirms **phase 2b has landed**: every display-run kind (`char`, `va`,
+`vp`, `milestone`, `optbreak`, `opaqueUnknown`, `separator`, `nestedGlyph`) is a registered
+descriptor, and all the per-kind machinery now dispatches on the registry — one shared sync driver
+(`$syncDisplayRun`), one caret-held reporter (`$caretHoldsRunSite`, with kind-owned writers
+delegating to their own `graceSite`), one owner walk (`$ownerOfRunPiece`), one settle driver with
+the grace pre-pass contract (every matching descriptor's caret-held check completes before any
+settle write), deliver-on-settle wrap migration that never short-circuits the other kind's genuine
+divergence, the historic re-pend scan as registry dispatch, a kind-keyed collab ops exclusion
+(`$isDisplayRunPiece`, unioned with the ancestry check as defense-in-depth; the para-prefix
+predicate deduped), and one sync-and-pend registration helper. The ops-vs-length coordinate
+asymmetry is deliberately restored (ops excludes loose run pieces; the delta-doc length side keeps
+counting them) — a conscious "yes, later". `MarkerEditPlugin`'s CharNode transform keeps its
+pend-only loop via a brief-sanctioned escape hatch: five test hosts mount the engine without
+`CharNodePlugin`, and the abandoned double-sync attempt also surfaced one unexplained unhandled
+exception — any future re-attempt must identify that exception's source first.
+
+Gate results: editor repo-wide `nx run-many -t lint,typecheck,test` and root `eslint .` clean;
+corpus 141/141 paragraphs, 0 skip-listed; the four wave-1 bug-pin suites (26 tests) and the wave-4
+settle suites (46 tests) green; the retired per-kind surface greps clean (hits are self-labeled
+historical comments only). Scope caveat, recorded so the gate does not over-claim: the
+equivalence/fixed-point suites cannot detect grace/migration divergences (virtualSettle models
+neither) — suite-level green plus the per-task review ledgers in
+`.superpowers/sdd/2026-08-07-display-run-registry/progress.md` is the wave's equivalence evidence.
+
+Live verification (Standard view, dev app): the `\va` run renders as one green superscript run;
+edit-and-depart settles to disk; optbreak deletion leaves no husk; deleting an attribute-less
+milestone's run removes the milestone node (the still-wanted exemption fix, confirmed live). The
+fifth check exposed a **pre-existing** converter bug (reproduced by execution at the wave-3 base):
+deleting a `\va` run's text and departing correctly leaves the empty `\va \va*` husk
+(ParatextData-verified behavior — the run pair survives; the in-DOM NBSP is the char span's own
+separator, disk byte 0x20), but the USFM→USJ converter's empty-attribute-span branch left
+`attrTarget` receptive, so the following `\vp` folded onto the verse across the empty span and
+serialization reordered the document (`\vp` hoisted ahead of `\va`). Fixed by closing the window
+in the materializing branch (the symmetry the markup-abort path already had); ParatextData ground
+truth is a committed capture test (paranext-core
+`c-sharp-tests/Projects/VerseAttributeFoldRoundTripCaptureTests.cs`, 7 rows with real usfm.sty
+shapes); second-order whitespace dispositions pinned; re-verified live — document order holds on
+disk and the (now unfolded) `\vp` renders sanely as an ordinary char span.
+
+One further **pre-existing** defect was found during that diagnosis and deliberately deferred to
+its own task: a pended run PIECE key (`textType: "attribute"`) routes straight to a
+whole-paragraph re-tokenize with no owner-grace check, settling a caret-held run mid-deletion;
+the proposed fix (map piece→owner via `$ownerOfRunPiece` at the pend boundary) changes settle
+dispatch for all kinds and does not belong in a gate fix round. Remaining deferred minors live in
+the wave's SDD ledger.
