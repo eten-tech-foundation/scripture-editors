@@ -7,19 +7,31 @@ import Editorial from "../Editorial";
 import { flushQueuedEvents } from "./editor-test.utils";
 import { ContentJsonPath, Usj } from "@eten-tech-foundation/scripture-utilities";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
-import { act, render } from "@testing-library/react";
+// Deep import: the marker-menu list component isn't exposed from shared-react's package entry.
+// eslint-disable-next-line @nx/enforce-module-boundaries
+import { NodeSelectionMenu, OptionItem } from "../../../../libs/shared-react/src/plugins/NodesMenu";
+import { getUsjMarkerAction } from "./adaptors/usj-marker-action.utils";
+import { act, fireEvent, render } from "@testing-library/react";
 import {
+  $createPoint,
+  $createRangeSelection,
   $getRoot,
+  $getSelection,
+  $isElementNode,
+  $isRangeSelection,
   $isTextNode,
+  $setSelection,
   CAN_UNDO_COMMAND,
   COMMAND_PRIORITY_CRITICAL,
   KEY_DOWN_COMMAND,
   LexicalEditor,
+  LexicalNode,
   TextNode,
 } from "lexical";
 import { createRef, RefObject, useEffect, useState } from "react";
 import {
   $isCharNode,
+  $isNoteNode,
   $isSomeParaNode,
   $isSynthesizedMarkerNode,
   closingMarkerText,
@@ -331,6 +343,46 @@ describe("replaceCharacterMarker guards", () => {
   });
 });
 
+describe("extendCharacterMarker guards", () => {
+  it("throws in readonly mode", async () => {
+    const ref = await createReadonlyEditorRefForTesting();
+    const editor = ref.current;
+    if (!editor) throw new Error("Editor not mounted");
+
+    expect(() => editor.extendCharacterMarker("bd")).toThrow(
+      "Cannot extend character marker in readonly mode",
+    );
+  });
+
+  it("throws for a para marker, which extension can never act on", async () => {
+    const ref = await createEditorRefForTesting();
+    const editor = ref.current;
+    if (!editor) throw new Error("Editor not mounted");
+
+    expect(() => editor.extendCharacterMarker("p")).toThrow("Unsupported character marker 'p'");
+  });
+
+  it("throws for an unsupported conflicting marker", async () => {
+    const ref = await createEditorRefForTesting();
+    const editor = ref.current;
+    if (!editor) throw new Error("Editor not mounted");
+
+    // The injected list is caller-supplied data (OQ-6), so it gets the same validation as the
+    // target marker rather than being trusted.
+    expect(() => editor.extendCharacterMarker("bd", ["zzz"])).toThrow(
+      "Unsupported character marker 'zzz'",
+    );
+  });
+
+  it("returns false without throwing when there is no selection", async () => {
+    const ref = await createEditorRefForTesting();
+    const editor = ref.current;
+    if (!editor) throw new Error("Editor not mounted");
+
+    expect(editor.extendCharacterMarker("bd")).toBe(false);
+  });
+});
+
 /** Grabs the underlying Lexical editor so tests can dispatch commands the public ref doesn't expose. */
 function GrabEditor({ onEditor }: { onEditor: (editor: LexicalEditor) => void }): null {
   const [editor] = useLexicalComposerContext();
@@ -362,6 +414,245 @@ const usjWithVerseInParagraphMiddle: Usj = {
     },
   ],
 };
+
+const usjWithFootnote: Usj = {
+  type: "USJ",
+  version: "3.1",
+  content: [
+    { type: "book", marker: "id", code: "GEN", content: ["Test Book"] },
+    { type: "chapter", marker: "c", number: "1" },
+    {
+      type: "para",
+      marker: "p",
+      content: [
+        { type: "verse", marker: "v", number: "1" },
+        "first verse text ",
+        {
+          type: "note",
+          marker: "f",
+          caller: "+",
+          content: [
+            { type: "char", marker: "fr", content: ["1:1 "] },
+            { type: "char", marker: "ft", content: ["existing footnote text"] },
+          ],
+        },
+      ],
+    },
+  ],
+};
+
+/** Mounts the editor with a footnote and returns the real Lexical editor plus the public ref. */
+async function mountFootnoteEditor(): Promise<{
+  lexicalEditor: LexicalEditor;
+  editorRef: EditorRef;
+}> {
+  const ref = createRef<EditorRef>();
+  let editor: LexicalEditor | undefined;
+  await act(async () => {
+    render(
+      <Editor
+        ref={ref}
+        defaultUsj={usjWithFootnote}
+        scrRef={{ book: "GEN", chapterNum: 1, verseNum: 1 }}
+        onScrRefChange={vi.fn()}
+      >
+        <GrabEditor onEditor={(e) => (editor = e)} />
+      </Editor>,
+    );
+  });
+  await flushQueuedEvents();
+  if (!editor || !ref.current) throw new Error("Editor did not mount");
+  return { lexicalEditor: editor, editorRef: ref.current };
+}
+
+/** Depth-first walk of the current editor state (call inside an editor read/update). */
+function $walk(node: LexicalNode, visit: (node: LexicalNode) => void): void {
+  visit(node);
+  if ($isElementNode(node)) node.getChildren().forEach((child) => $walk(child, visit));
+}
+
+/** The text node inside the note's char with the given marker (e.g. the "ft" content). */
+function $findNoteCharText(marker: string): LexicalNode | undefined {
+  let text: LexicalNode | undefined;
+  $walk($getRoot(), (node) => {
+    if (!text && $isCharNode(node) && node.getMarker() === marker)
+      text = node.getChildAtIndex(0) ?? undefined;
+  });
+  return text;
+}
+
+/** The note's own trailing spacer text node (a direct child of the note, not inside a char). */
+function $findNoteTrailingSpacer(): LexicalNode | undefined {
+  let note: LexicalNode | undefined;
+  $walk($getRoot(), (node) => {
+    if (!note && $isNoteNode(node)) note = node;
+  });
+  if (!$isNoteNode(note)) return undefined;
+  const textChildren = note.getChildren().filter($isTextNode);
+  return textChildren[textChildren.length - 1];
+}
+
+/** Place a collapsed caret at `offset` in the text node the finder returns, then insert `marker`. */
+async function insertMarkerAtCaret(
+  lexicalEditor: LexicalEditor,
+  editorRef: EditorRef,
+  $findTarget: () => LexicalNode | undefined,
+  offset: number,
+  marker: string,
+): Promise<void> {
+  await act(async () => {
+    lexicalEditor.update(() => {
+      const target = $findTarget();
+      if (!target) throw new Error("Caret target text node not found");
+      const selection = $createRangeSelection();
+      selection.anchor = $createPoint(target.getKey(), offset, "text");
+      selection.focus = $createPoint(target.getKey(), offset, "text");
+      $setSelection(selection);
+    });
+  });
+  await act(async () => {
+    editorRef.insertMarker(marker);
+  });
+  await flushQueuedEvents();
+}
+
+/** Assert the caret is collapsed inside a note's char with the given marker. */
+function $expectCaretInsideNoteMarker(marker: string): void {
+  const selection = $getSelection();
+  if (!$isRangeSelection(selection)) throw new Error("Expected a range selection");
+  expect(selection.isCollapsed()).toBe(true);
+  // The caret lands inside the new marker (not stolen onto a note spacer by a transform)...
+  const caretChar = selection.anchor.getNode().getParent();
+  if (!$isCharNode(caretChar)) throw new Error("Caret is not inside a char");
+  expect(caretChar.getMarker()).toBe(marker);
+  // ...and the new marker stays inside the note rather than escaping into the paragraph.
+  expect($isNoteNode(caretChar.getParent())).toBe(true);
+}
+
+// End-to-end guard for PT-3780: the marker-action test file runs on a bare editor with no
+// plugins, so it can't see the NoteNode/CharNode transforms. Those transforms are what previously
+// stole the caret out of the new marker onto a note spacer, so these cases must be covered with
+// the real plugins mounted.
+describe("insert char inside a footnote (PT-3780, end-to-end)", () => {
+  it("keeps the marker in the note and the caret inside it — caret in existing footnote text", async () => {
+    const { lexicalEditor, editorRef } = await mountFootnoteEditor();
+    await insertMarkerAtCaret(lexicalEditor, editorRef, () => $findNoteCharText("ft"), 8, "fk");
+    lexicalEditor.getEditorState().read(() => $expectCaretInsideNoteMarker("fk"));
+  });
+
+  it("keeps the marker in the note and the caret inside it — caret on a note spacer", async () => {
+    const { lexicalEditor, editorRef } = await mountFootnoteEditor();
+    await insertMarkerAtCaret(lexicalEditor, editorRef, $findNoteTrailingSpacer, 1, "fk");
+    lexicalEditor.getEditorState().read(() => $expectCaretInsideNoteMarker("fk"));
+  });
+
+  // The demo (and the real note-editing flow) uses an expanded-note view; earlier cases used the
+  // default collapsed view. Cover the expanded view with a different marker too.
+  it("keeps the marker in the note and the caret inside it — expanded notes + fq", async () => {
+    const ref = createRef<EditorRef>();
+    let editor: LexicalEditor | undefined;
+    await act(async () => {
+      render(
+        <Editor
+          ref={ref}
+          defaultUsj={usjWithFootnote}
+          scrRef={{ book: "GEN", chapterNum: 1, verseNum: 1 }}
+          onScrRefChange={vi.fn()}
+          options={{
+            view: {
+              markerMode: "hidden",
+              noteMode: "expanded",
+              hasSpacing: true,
+              isFormattedFont: true,
+            },
+          }}
+        >
+          <GrabEditor onEditor={(e) => (editor = e)} />
+        </Editor>,
+      );
+    });
+    await flushQueuedEvents();
+    const lexicalEditor = editor;
+    const editorRef = ref.current;
+    if (!lexicalEditor || !editorRef) throw new Error("Editor did not mount");
+
+    // Caret at offset 8 splits "existing footnote text" into "existing" | fq | " footnote text".
+    await insertMarkerAtCaret(lexicalEditor, editorRef, () => $findNoteCharText("ft"), 8, "fq");
+    lexicalEditor.getEditorState().read(() => {
+      $expectCaretInsideNoteMarker("fq");
+      // End-to-end (with transforms) the ft char is split at the caret and fq sits between the
+      // halves: the note's char runs are fr, ft("existing"), fq, ft(" footnote text").
+      let note: LexicalNode | undefined;
+      $walk($getRoot(), (n) => {
+        if (!note && $isNoteNode(n)) note = n;
+      });
+      if (!$isNoteNode(note)) throw new Error("note not found");
+      const charRuns: { marker: string; text: string }[] = [];
+      $walk(note, (n) => {
+        if ($isCharNode(n)) charRuns.push({ marker: n.getMarker(), text: n.getTextContent() });
+      });
+      expect(charRuns.map((c) => c.marker)).toEqual(["fr", "ft", "fq", "ft"]);
+      expect(charRuns[1].text).toBe("existing");
+      expect(charRuns[3].text).toBe(" footnote text");
+    });
+  });
+});
+
+// The floating marker menu (typeahead) can't be opened/positioned in jsdom, but its list component
+// renders plain <button role="menuitem"> options. This drives the real menu -> option-action seam
+// (Editor.tsx wires the menu's action to the same getUsjMarkerAction that insertMarker uses) with
+// the real plugins mounted, so a click ends up inside the new marker rather than on a note spacer.
+describe("insert char via the marker menu (PT-3780, popover path)", () => {
+  it("clicking the fk option inserts it in the note with the caret inside it", async () => {
+    const scrRef = { book: "GEN", chapterNum: 1, verseNum: 1 };
+    const expandedNoteKeyRef = { current: undefined as string | undefined };
+    // Mirrors Editor.tsx's `getMarkerAction={(marker) => getUsjMarkerAction(marker, ...)}` wiring.
+    const fkOption: OptionItem = {
+      name: "fk",
+      label: "fk",
+      description: "",
+      action: (editor: LexicalEditor) =>
+        getUsjMarkerAction("fk", expandedNoteKeyRef).action({ editor, reference: scrRef }),
+    };
+
+    const ref = createRef<EditorRef>();
+    let editor: LexicalEditor | undefined;
+    await act(async () => {
+      render(
+        <Editor ref={ref} defaultUsj={usjWithFootnote} scrRef={scrRef} onScrRefChange={vi.fn()}>
+          <GrabEditor onEditor={(e) => (editor = e)} />
+          <NodeSelectionMenu options={[fkOption]} />
+        </Editor>,
+      );
+    });
+    await flushQueuedEvents();
+    const lexicalEditor = editor;
+    if (!lexicalEditor) throw new Error("Editor did not mount");
+
+    // Place a collapsed caret inside the existing footnote text.
+    await act(async () => {
+      lexicalEditor.update(() => {
+        const target = $findNoteCharText("ft");
+        if (!target) throw new Error("ft char text not found");
+        const selection = $createRangeSelection();
+        selection.anchor = $createPoint(target.getKey(), 8, "text");
+        selection.focus = $createPoint(target.getKey(), 8, "text");
+        $setSelection(selection);
+      });
+    });
+
+    const fkButton = Array.from(document.querySelectorAll('[role="menuitem"]')).find((el) =>
+      el.textContent?.includes("fk"),
+    );
+    if (!fkButton) throw new Error("fk menu option did not render");
+    await act(async () => {
+      fireEvent.click(fkButton);
+    });
+    await flushQueuedEvents();
+
+    lexicalEditor.getEditorState().read(() => $expectCaretInsideNoteMarker("fk"));
+  });
+});
 
 describe("undo after a verse-spanning delete (PT-4102 regression)", () => {
   // A guarded two-step delete over a range containing a verse marker used to leave undo dead:
@@ -450,6 +741,45 @@ async function selectCharNodeContent(editor: LexicalEditor): Promise<void> {
           );
         if (!textNode) throw new Error("Expected a text node inside a CharNode");
         textNode.select(0, textNode.getTextContentSize());
+      },
+      { discrete: true },
+    );
+  });
+}
+
+const usjWithPartialCharMarker: Usj = {
+  type: "USJ",
+  version: "3.1",
+  content: [
+    { type: "book", marker: "id", code: "GEN", content: ["Test Book"] },
+    { type: "chapter", marker: "c", number: "1" },
+    {
+      type: "para",
+      marker: "p",
+      content: ["kolo ", { type: "char", marker: "bd", content: ["Mulu"] }],
+    },
+  ],
+};
+
+/** Selects the whole first para, from its first text node to the end of its last. */
+async function selectWholePara(editor: LexicalEditor): Promise<void> {
+  await act(async () => {
+    editor.update(
+      () => {
+        const para = $getRoot().getChildren().find($isSomeParaNode);
+        if (!para) throw new Error("Expected a para node");
+        // Text points, not element points: `getSelectionOffsets` reads `anchor.offset` verbatim,
+        // so an element point's child index would be mistaken for a character offset.
+        // Not just `$isTextNode`: `MarkerNode` extends `TextNode`, so a marker-visible mode would
+        // otherwise put the synthesized marker text at either end.
+        const textNodes = para.getAllTextNodes().filter((node) => !$isSynthesizedMarkerNode(node));
+        const firstTextNode = textNodes[0];
+        const lastTextNode = textNodes[textNodes.length - 1];
+        if (!firstTextNode || !lastTextNode) throw new Error("Expected text nodes in the para");
+        const selection = $createRangeSelection();
+        selection.anchor.set(firstTextNode.getKey(), 0, "text");
+        selection.focus.set(lastTextNode.getKey(), lastTextNode.getTextContentSize(), "text");
+        $setSelection(selection);
       },
       { discrete: true },
     );
@@ -685,6 +1015,160 @@ describe("replaceCharacterMarker through the editor ref", () => {
     expect(serialized).toContain('"marker":"bd"');
     expect(serialized).not.toContain('"marker":"nd"');
     expect(serialized).toContain('"Lord"');
+  });
+});
+
+describe("extendCharacterMarker through the editor ref", () => {
+  it("covers the whole selection with one marker, not a nested pair", async () => {
+    const ref = createRef<EditorRef>();
+    let editor: LexicalEditor | undefined;
+    await act(async () => {
+      render(
+        <Editor ref={ref} defaultUsj={usjWithPartialCharMarker}>
+          <GrabEditor onEditor={(e) => (editor = e)} />
+        </Editor>,
+      );
+    });
+    await flushQueuedEvents();
+    if (!ref.current || !editor) throw new Error("EditorRef did not mount");
+    const lexicalEditor = editor;
+    const editorRef = ref.current;
+
+    await selectWholePara(lexicalEditor);
+    let didExtend = false;
+    await act(async () => {
+      didExtend = editorRef.extendCharacterMarker("bd");
+    });
+    await flushQueuedEvents();
+
+    expect(didExtend).toBe(true);
+
+    // The whole point of the ticket: a naive wrap over this selection yields
+    // `\bd kolo \bd Mulu\bd*\bd*`. `$charNodeTransform` merges the new run into the existing one,
+    // so exactly one `char` node comes out and nothing is nested inside it.
+    const para = editorRef.getUsj()?.content[2];
+    if (typeof para !== "object" || !("content" in para))
+      throw new Error("para is not a USJ para node");
+    expect(para.content?.length).toBe(1);
+    const [charContent] = para.content ?? [];
+    if (typeof charContent !== "object" || !("marker" in charContent))
+      throw new Error("charContent is not a USJ char node");
+    expect(charContent.marker).toBe("bd");
+    expect(charContent.content).toEqual(["kolo Mulu"]);
+  });
+
+  it("coalesces several separate runs in the selection into one", async () => {
+    const usjWithTwoRuns: Usj = {
+      type: "USJ",
+      version: "3.1",
+      content: [
+        { type: "book", marker: "id", code: "GEN", content: ["Test Book"] },
+        { type: "chapter", marker: "c", number: "1" },
+        {
+          type: "para",
+          marker: "p",
+          content: [
+            { type: "char", marker: "bd", content: ["kolo"] },
+            " ana ",
+            { type: "char", marker: "bd", content: ["Mulu"] },
+          ],
+        },
+      ],
+    };
+    const ref = createRef<EditorRef>();
+    let editor: LexicalEditor | undefined;
+    await act(async () => {
+      render(
+        <Editor ref={ref} defaultUsj={usjWithTwoRuns}>
+          <GrabEditor onEditor={(e) => (editor = e)} />
+        </Editor>,
+      );
+    });
+    await flushQueuedEvents();
+    if (!ref.current || !editor) throw new Error("EditorRef did not mount");
+    const lexicalEditor = editor;
+    const editorRef = ref.current;
+
+    await selectWholePara(lexicalEditor);
+    await act(async () => {
+      editorRef.extendCharacterMarker("bd");
+    });
+    await flushQueuedEvents();
+
+    const para = editorRef.getUsj()?.content[2];
+    if (typeof para !== "object" || !("content" in para))
+      throw new Error("para is not a USJ para node");
+    expect(para.content?.length).toBe(1);
+    const [charContent] = para.content ?? [];
+    if (typeof charContent !== "object" || !("marker" in charContent))
+      throw new Error("charContent is not a USJ char node");
+    expect(charContent.marker).toBe("bd");
+    expect(charContent.content).toEqual(["kolo ana Mulu"]);
+  });
+
+  it("is a no-op on an already fully covered selection", async () => {
+    const ref = createRef<EditorRef>();
+    let editor: LexicalEditor | undefined;
+    await act(async () => {
+      render(
+        <Editor ref={ref} defaultUsj={usjWithCharMarker}>
+          <GrabEditor onEditor={(e) => (editor = e)} />
+        </Editor>,
+      );
+    });
+    await flushQueuedEvents();
+    if (!ref.current || !editor) throw new Error("EditorRef did not mount");
+    const lexicalEditor = editor;
+    const editorRef = ref.current;
+
+    const before = JSON.stringify(editorRef.getUsj());
+    await selectCharNodeContent(lexicalEditor);
+    let didExtend = false;
+    await act(async () => {
+      didExtend = editorRef.extendCharacterMarker("nd");
+    });
+    await flushQueuedEvents();
+
+    expect(didExtend).toBe(false);
+    expect(JSON.stringify(editorRef.getUsj())).toBe(before);
+  });
+
+  it("removes a conflicting marker passed through the ref before extending", async () => {
+    const ref = createRef<EditorRef>();
+    let editor: LexicalEditor | undefined;
+    await act(async () => {
+      render(
+        <Editor ref={ref} defaultUsj={usjWithCharMarker}>
+          <GrabEditor onEditor={(e) => (editor = e)} />
+        </Editor>,
+      );
+    });
+    await flushQueuedEvents();
+    if (!ref.current || !editor) throw new Error("EditorRef did not mount");
+    const lexicalEditor = editor;
+    const editorRef = ref.current;
+
+    await selectCharNodeContent(lexicalEditor);
+    let didExtend = false;
+    await act(async () => {
+      // The unit suite covers the conflict logic itself; what this pins down is that the caller's
+      // list survives the `EditorRef` boundary at all — `Editor.tsx` validates every entry and
+      // forwards the array, and nothing else proves that forwarding happens.
+      didExtend = editorRef.extendCharacterMarker("bd", ["nd"]);
+    });
+    await flushQueuedEvents();
+
+    expect(didExtend).toBe(true);
+
+    // `\nd` is gone rather than nested inside `\bd`, and the surrounding plain text is untouched.
+    const para = editorRef.getUsj()?.content[2];
+    if (typeof para !== "object" || !("content" in para))
+      throw new Error("para is not a USJ para node");
+    expect(para.content).toEqual([
+      "the ",
+      { type: "char", marker: "bd", content: ["Lord"] },
+      " said",
+    ]);
   });
 });
 
