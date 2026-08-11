@@ -172,7 +172,8 @@ function $milestoneDisplayRun(children: LexicalNode[], index: number): LexicalNo
 /**
  * Display siblings after a VerseNode that belong to its \va/\vp display triplets: an opening
  * MarkerNode, an attribute TextNode, and a closing MarkerNode for `\va`, then the same shape for
- * `\vp` (attributeDisplay.utils.ts's `$syncVerseAttributeDisplay`/usj-editor.adaptor's
+ * `\vp` (displayRunSync.utils.ts's `$syncDisplayRun`, parameterized by the `va`/`vp` descriptors in
+ * displayRunRegistry.ts; usj-editor.adaptor's
  * `addVerseAttributes`). A verse that re-tokenizes (the common case — see `verseNeedsSentinel`)
  * flows the run as ordinary fragment content right after the verse's own glyph text, so the
  * tokenizer's attrCapture folds `\va`/`\vp` back onto the freshly re-derived verse exactly as it
@@ -228,7 +229,7 @@ function $verseAttributeRun(children: LexicalNode[], index: number): LexicalNode
 /**
  * A verse whose state is not fully recoverable from its visible text stays atomic.
  * altnumber/pubnumber round-trip through the \va/\vp display run
- * (attributeDisplay.utils.ts's `$syncVerseAttributeDisplay`, usj-editor.adaptor's
+ * (displayRunSync.utils.ts's `$syncDisplayRun`, usj-editor.adaptor's
  * `addVerseAttributes`), and `sid` is reconciled separately by carry-over in `$rebuildParas`
  * (pairing old and new verses by position/number) rather than kept alive by atomicity — only
  * `unknownAttributes`, which has no display representation at all, forces the sentinel.
@@ -433,7 +434,7 @@ function $appendSignature(
       const run = $verseAttributeRun(children, index);
       if (verseNeedsSentinel(node)) out.push(ATOMIC_SENTINEL);
       else {
-        // The run text is a DERIVED CACHE ($syncVerseAttributeDisplay, attributeDisplay.utils.ts)
+        // The run text is a DERIVED CACHE ($syncDisplayRun, displayRunSync.utils.ts)
         // that can lag the verse's own altnumber/pubnumber state — an in-place value edit that
         // keeps the triplet's structural NBSP and changes only the value bytes produces run text
         // byte-identical on both sides of this comparison (it was edited directly on the live OLD

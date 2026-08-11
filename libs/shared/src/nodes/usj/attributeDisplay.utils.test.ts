@@ -1,10 +1,8 @@
 import {
   $hasCaretHeldMilestoneRun,
-  $hasCaretHeldVerseAttributeRun,
   $milestoneAttributeRunPieces,
   $milestoneRunEntirelyAbsent,
   $syncMilestoneDisplayRun,
-  $syncVerseAttributeDisplay,
   $verseAttributeRunPieces,
   $verseOfAttributeSourceText,
   canonicalAttributeText,
@@ -16,6 +14,7 @@ import {
   AttributeRunNode,
 } from "./AttributeRunNode.js";
 import { $createCharNode } from "./CharNode.js";
+import { $caretHoldsRunSite, $syncDisplayRun } from "./displayRunSync.utils.js";
 import { $createMilestoneNode, MilestoneNode } from "./MilestoneNode.js";
 import { getVisibleOpenMarkerText } from "./node.utils.js";
 import { NBSP } from "./node-constants.js";
@@ -25,6 +24,7 @@ import { createBasicTestEnvironment, updateSelection } from "./test.utils.js";
 import { $createVerseNode, VerseNode } from "./VerseNode.js";
 import { $createMarkerNode, $isMarkerNode } from "../features/MarkerNode.js";
 import { textTypeState } from "../collab/delta.state.js";
+import { displayRunDescriptor } from "../../displayRun/displayRunRegistry.js";
 import { $createTextNode, $getRoot, $isTextNode, $setState, TextNode } from "lexical";
 import { describe, expect, it } from "vitest";
 
@@ -516,7 +516,15 @@ describe("milestone display run ($syncMilestoneDisplayRun / $hasCaretHeldMilesto
   });
 });
 
-describe("verse attribute display run ($syncVerseAttributeDisplay)", () => {
+/** Syncs both of `verse`'s independent run descriptors — the re-pointed equivalent of the retired
+ * `$syncVerseAttributeDisplay(verse, altnumber, pubnumber)`, which derived the same two values from
+ * the verse itself. */
+function $syncVerseAttributeRuns(verse: VerseNode): void {
+  $syncDisplayRun(displayRunDescriptor("va"), verse);
+  $syncDisplayRun(displayRunDescriptor("vp"), verse);
+}
+
+describe("verse attribute display run ($syncDisplayRun, va/vp descriptors)", () => {
   /** Builds `<verse \\v 1><va opener>␣2<va closer>In the beginning` under a fresh root
    * paragraph, with the `\va` triplet already healed onto the verse (mirrors
    * `buildBareMilestone`'s shape for the verse case), and returns the verse. */
@@ -539,7 +547,7 @@ describe("verse attribute display run ($syncVerseAttributeDisplay)", () => {
             $createTextNode("In the beginning"),
           ),
         );
-        $syncVerseAttributeDisplay(verse, verse.getAltnumber(), verse.getPubnumber());
+        $syncVerseAttributeRuns(verse);
       },
       { discrete: true },
     );
@@ -562,8 +570,8 @@ describe("verse attribute display run ($syncVerseAttributeDisplay)", () => {
   });
 
   it("leaves a diverged \\va run unhealed while the owner is pended in the registry, and heals it again once unpended", () => {
-    // Mirrors the milestone pin above, for $syncVerseAttributeDisplay's own pended guard (inside
-    // $syncVerseAttributeRun, keyed on the OWNING verse — see that function's doc comment).
+    // Mirrors the milestone pin above, for the shared $syncDisplayRun driver's own pended guard
+    // (displayRunSync.utils.ts), which the verse kind now goes through like every other kind.
     const { editor, verse } = buildVerseWithVa();
 
     // Remove ONLY the value TextNode (opener + closer glyphs survive as debris — a real
@@ -587,7 +595,7 @@ describe("verse attribute display run ($syncVerseAttributeDisplay)", () => {
 
     editor.update(
       () => {
-        $syncVerseAttributeDisplay(verse, verse.getAltnumber(), verse.getPubnumber());
+        $syncVerseAttributeRuns(verse);
       },
       { discrete: true },
     );
@@ -605,7 +613,7 @@ describe("verse attribute display run ($syncVerseAttributeDisplay)", () => {
     pended.delete(verse.getKey());
     editor.update(
       () => {
-        $syncVerseAttributeDisplay(verse, verse.getAltnumber(), verse.getPubnumber());
+        $syncVerseAttributeRuns(verse);
       },
       { discrete: true },
     );
@@ -617,6 +625,51 @@ describe("verse attribute display run ($syncVerseAttributeDisplay)", () => {
     });
 
     unregister();
+  });
+
+  it("reports a complete but still-loose \\va run as caret-held so its wrap migration settles", () => {
+    // THE deliberate behavior delta (TJ-ruled, 2026-08-08): the old bespoke reporter compared only
+    // byte content, so a complete-but-loose triplet never counted as diverging and the caret sitting
+    // in it was never reported caret-held — nothing pended the wrap migration, and it was deferred
+    // indefinitely. The shared driver's $runDiverges (displayRunSync.utils.ts) counts a
+    // wrapper-written kind's missing wrapper as a divergence in its own right, so the SAME loose
+    // triplet now diverges, the caret inside it is graced (not clobbered mid-edit) AND reported
+    // caret-held — the marker-edit engine pends it, and the departure settle finishes the migration.
+    const { editor } = createBasicTestEnvironment();
+    let verse!: VerseNode;
+    let value!: TextNode;
+    editor.update(
+      () => {
+        verse = $createVerseNode(
+          "1",
+          getVisibleOpenMarkerText("v", "1"),
+          undefined,
+          "2",
+          undefined,
+        );
+        const open = $createMarkerNode("va");
+        value = $createTextNode(`${NBSP}2`); // byte-exact — no content divergence, only the wrapper is missing
+        $setState(value, textTypeState, "attribute");
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createTextNode(NBSP),
+            verse,
+            open,
+            value,
+            $createMarkerNode("va", "closing"),
+            $createTextNode("In the beginning"),
+          ),
+        );
+        value.select(value.getTextContentSize(), value.getTextContentSize());
+      },
+      { discrete: true },
+    );
+
+    editor.getEditorState().read(() => {
+      // Still loose — nothing here migrated it forward.
+      expect($verseAttributeRunPieces(verse, "va").wrapper).toBeUndefined();
+      expect($caretHoldsRunSite(displayRunDescriptor("va"), verse)).toBe(true);
+    });
   });
 });
 
@@ -644,7 +697,8 @@ describe("$verseOfAttributeSourceText", () => {
   });
 
   it("returns the verse when the vp span sits after a WRAPPED \\va run (the post-migration shape)", () => {
-    // The PRIMARY shape: usj-editor.adaptor and $syncVerseAttributeRun always build a wanted run
+    // The PRIMARY shape: usj-editor.adaptor and the shared $syncDisplayRun driver always build a
+    // wanted run
     // wrapped in an AttributeRunNode now (the heal-forward migration), so a verse with altnumber
     // set has its \va run riding as ONE wrapper sibling, not three loose glyph/value pieces — the
     // only shape an altnumber-bearing verse can have post-migration. The vp span's content must
@@ -975,7 +1029,7 @@ describe("AttributeRunNode wrapper recognition (dual-read)", () => {
 
       editor.update(
         () => {
-          $syncVerseAttributeDisplay(verse, verse.getAltnumber(), verse.getPubnumber());
+          $syncVerseAttributeRuns(verse);
         },
         { discrete: true },
       );
@@ -1034,7 +1088,7 @@ describe("AttributeRunNode wrapper recognition (dual-read)", () => {
 
       editor.update(
         () => {
-          $syncVerseAttributeDisplay(verse, verse.getAltnumber(), verse.getPubnumber());
+          $syncVerseAttributeRuns(verse);
         },
         { discrete: true },
       );
@@ -1054,7 +1108,11 @@ describe("AttributeRunNode wrapper recognition (dual-read)", () => {
       let vaWrapper!: AttributeRunNode;
       editor.update(
         () => {
-          verse = $createVerseNode("1", getVisibleOpenMarkerText("v", "1"), undefined, "2");
+          // altnumber ("different") deliberately mismatches the wrapper's own value text ("2") —
+          // a genuine VALUE divergence, so $runDiverges reports it via the value-text check alone,
+          // independent of the wrap-migration divergence Task 5 added (the wrapper here already
+          // exists) — keeping this pin about the containment arm specifically.
+          verse = $createVerseNode("1", getVisibleOpenMarkerText("v", "1"), undefined, "different");
           vaWrapper = $createAttributeRunNode("va");
           const value = $createTextNode(`${NBSP}2`);
           $setState(value, textTypeState, "attribute");
@@ -1085,7 +1143,7 @@ describe("AttributeRunNode wrapper recognition (dual-read)", () => {
       );
 
       editor.getEditorState().read(() => {
-        expect($hasCaretHeldVerseAttributeRun(verse, "different", verse.getPubnumber())).toBe(true);
+        expect($caretHoldsRunSite(displayRunDescriptor("va"), verse)).toBe(true);
       });
     });
   });

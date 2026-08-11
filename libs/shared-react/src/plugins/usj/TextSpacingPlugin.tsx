@@ -24,8 +24,9 @@ import {
   $isParaMarkerPrefix,
   $isTypedMarkNode,
   $isUnknownNode,
-  $syncVerseAttributeDisplay,
+  $syncDisplayRun,
   CharNode,
+  displayRunDescriptor,
   NoteNode,
   textTypeState,
   VerseNode,
@@ -56,25 +57,25 @@ function useTextSpacing(editor: LexicalEditor) {
       editor.registerNodeTransform(TextNode, (node) => $textNodeInUnknownTransform(node, editor)),
       editor.registerNodeTransform(VerseNode, $verseNodeTransform),
       editor.registerNodeTransform(ImmutableVerseNode, $verseNodeTransform),
-      // Self-healing \va/\vp display triplets: re-derive them from altnumber/pubnumber whenever
+      // Self-healing \va/\vp display runs: re-derive them from altnumber/pubnumber whenever
       // a verse is dirtied — heals remote collab updates (delta-apply only calls setAltnumber/
       // setPubnumber) and structure surgery. Registered here (not a dedicated VerseNodePlugin,
       // which doesn't exist) because this is already the shared-react home that registers
       // VerseNode transforms (the spacing transform above) — same one-node-type-owns-its-syncs
-      // shape CharNodePlugin uses for chars. See attributeDisplay.utils.ts (`shared`).
+      // shape CharNodePlugin uses for chars. See displayRunSync.utils.ts (`shared`).
       editor.registerNodeTransform(VerseNode, $syncVerseAttributeDisplayNode),
     );
   }, [editor]);
 }
 
 /**
- * Wraps {@link $syncVerseAttributeDisplay} with the verse's own current values — unlike the char
- * sync, no import-cycle concern forces these to be computed at the call site; kept as a thin
- * wrapper anyway to mirror `CharNodePlugin`'s established shape.
- * @param node - VerseNode whose \va/\vp display triplets need updating.
+ * Wraps {@link $syncDisplayRun} with the verse's two independent run descriptors — `\va` first, so
+ * `\vp`'s scan and insertion anchor find the healed `\va` wrapper already in place.
+ * @param node - VerseNode whose \va/\vp display runs need updating.
  */
 function $syncVerseAttributeDisplayNode(node: VerseNode): void {
-  $syncVerseAttributeDisplay(node, node.getAltnumber(), node.getPubnumber());
+  $syncDisplayRun(displayRunDescriptor("va"), node);
+  $syncDisplayRun(displayRunDescriptor("vp"), node);
 }
 
 /**

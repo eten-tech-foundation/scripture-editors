@@ -60,15 +60,14 @@ import {
   $caretHoldsRunSite,
   $hasCaretHeldMilestoneRun,
   $hasCaretHeldSeparatorGap,
-  $hasCaretHeldVerseAttributeRun,
   $isAttributeRunNode,
   $isCharNode,
   $isMarkerNode,
   $isMilestoneNode,
   $isVerseNode,
   $ownerOfRunPiece,
+  $syncDisplayRun,
   $syncMilestoneDisplayRun,
-  $syncVerseAttributeDisplay,
   AttributeRunNode,
   canonicalAttributeText,
   ChapterNode,
@@ -137,7 +136,8 @@ function $syncAndPendMilestone(node: MilestoneNode, context: MarkerEditContext):
 }
 
 /**
- * Sync `node`'s verse `\va`/`\vp` display runs to its altnumber/pubnumber, and pend it while the
+ * Sync `node`'s verse `\va`/`\vp` display runs (the shared `$syncDisplayRun` driver,
+ * displayRunSync.utils.ts, parameterized by each marker's own descriptor), and pend it while the
  * caret holds a run's site (mid-edit grace) so caret departure settles it ($resolvePendingMarkers).
  * The verse analogue of {@link $syncAndPendMilestone}: a verse's runs ride as its FOLLOWING
  * SIBLINGS, so an edit that touches only a run — a piece INSIDE an already-wrapped run's wrapper,
@@ -147,13 +147,20 @@ function $syncAndPendMilestone(node: MilestoneNode, context: MarkerEditContext):
  * glyph re-drive and the AttributeRunNode transform below. Running this off either path gives a
  * run-only edit the pend path it needs; without it the edited run would silently resurrect from
  * the still-set altnumber/pubnumber on the next unrelated dirtying.
+ *
+ * A complete but still-LOOSE run (byte-correct, just not yet migrated into its `AttributeRunNode`
+ * wrapper) now pends too: the shared driver's `$runDiverges` counts the pending wrap migration
+ * itself as a divergence, so `$caretHoldsRunSite` reports it caret-held and this pends it for the
+ * departure settle to finish — where the old bespoke verse sync graced the migration but never
+ * pended it, leaving it deferred indefinitely.
  */
 function $syncAndPendVerse(node: VerseNode, context: MarkerEditContext): void {
-  const altnumber = node.getAltnumber();
-  const pubnumber = node.getPubnumber();
-  $syncVerseAttributeDisplay(node, altnumber, pubnumber);
-  if (node.isAttached() && $hasCaretHeldVerseAttributeRun(node, altnumber, pubnumber))
-    context.pendingKeys.add(node.getKey());
+  for (const kind of ["va", "vp"] as const) {
+    const descriptor = displayRunDescriptor(kind);
+    $syncDisplayRun(descriptor, node);
+    if (node.isAttached() && $caretHoldsRunSite(descriptor, node))
+      context.pendingKeys.add(node.getKey());
+  }
 }
 
 /**
@@ -350,11 +357,11 @@ export function MarkerEditPlugin({
             ) === ""
           )
             continue;
-          // Same still-wanted exemption for a verse's own legitimate \va/\vp removal
-          // ($syncVerseAttributeDisplay clearing triplet debris once a field is gone) and a
-          // milestone's own legitimate attribute-text removal ($syncMilestoneDisplayRun clearing
-          // it once no attributes remain). Without this, the pended-grace guard those syncs now
-          // carry (attributeDisplay.utils.ts's $isDisplayOwnerPended early-return) would leave a
+          // Same still-wanted exemption for a verse's own legitimate \va/\vp removal (the shared
+          // $syncDisplayRun driver clearing run debris once a field is gone,
+          // displayRunSync.utils.ts) and a milestone's own legitimate attribute-text removal
+          // ($syncMilestoneDisplayRun clearing it once no attributes remain). Without this, the
+          // pended-grace guard those syncs now carry ($isDisplayOwnerPended's early-return) would leave a
           // spuriously-pended owner unable to heal a LATER legitimate field change until an
           // unrelated caret departure re-tokenizes whatever bytes happen to be currently
           // displayed, clobbering it. Precise per field when the destroyed piece(s) classified to
@@ -396,15 +403,14 @@ export function MarkerEditPlugin({
         if (editor.isComposing()) return;
         $verseNodeTransform(node, context);
         // Same grace/pend pairing for a deleted or diverged \va/\vp attribute run
-        // (attributeDisplay.utils.ts): while the caret holds the run's site, TextSpacingPlugin's
-        // sync leaves it alone, so pend the verse here for the caret-departure settle — otherwise
-        // a full-triplet deletion never re-tokenizes and the sync just re-derives the run from the
-        // still-set altnumber/pubnumber (the deletion silently undoes itself).
-        if (
-          node.isAttached() &&
-          $hasCaretHeldVerseAttributeRun(node, node.getAltnumber(), node.getPubnumber())
-        )
-          context.pendingKeys.add(node.getKey());
+        // (displayRunSync.utils.ts): while the caret holds a run's site, the sync leaves it alone,
+        // so pend the verse here for the caret-departure settle — otherwise a full-run deletion
+        // never re-tokenizes and the sync just re-derives the run from the still-set
+        // altnumber/pubnumber (the deletion silently undoes itself). $syncAndPendVerse also
+        // re-runs the sync itself here — redundant with TextSpacingPlugin's own VerseNode
+        // transform in the same pass, but idempotent, so the verse's grace/pend pairing lives in
+        // exactly one place regardless of which transform a given commit happens to dirty.
+        $syncAndPendVerse(node, context);
       }),
       editor.registerNodeTransform(ChapterNode, (node) => {
         if (editor.isComposing()) return;

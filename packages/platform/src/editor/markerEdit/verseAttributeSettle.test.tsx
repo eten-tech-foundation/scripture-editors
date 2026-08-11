@@ -315,7 +315,7 @@ describe("verse \\va/\\vp deletion settles (does not resurrect)", () => {
     // (MarkerEditPlugin.tsx's $pendOwnersOfDestroyed) also sees the sync's OWN legitimate
     // triplet removal as a "destroyed" mutation. Without the still-wanted exemption mirroring
     // the char span's, a verse whose altnumber/pubnumber were both genuinely cleared would sit
-    // spuriously pended — and since $syncVerseAttributeDisplay now leaves a pended owner's run
+    // spuriously pended — and since $syncDisplayRun now leaves a pended owner's run
     // alone (the guard added alongside $settlePendedDisplayOwner), a LATER legitimate altnumber
     // set would never heal into a visible \va run until an unrelated caret departure
     // re-tokenized whatever bytes happened to be on screen, silently dropping it.
@@ -389,7 +389,7 @@ describe("verse \\va/\\vp deletion settles (does not resurrect)", () => {
     // — coarse, because a verse's \va and \vp triplets are two INDEPENDENT runs sharing one owner
     // identity. Clearing only altnumber legitimately destroys just the \va triplet in this commit;
     // requiring pubnumber (never touched) to ALSO be undefined would spuriously pend the verse and
-    // — since $syncVerseAttributeDisplay leaves a pended owner's runs alone entirely — block a
+    // — since $syncDisplayRun leaves a pended owner's runs alone entirely — block a
     // LATER legitimate altnumber set from healing until an unrelated caret departure. The fix
     // classifies which field each destroyed piece belonged to and checks only THAT field.
     const { editor } = await testEnvironmentWithSpacing(() => {
