@@ -127,6 +127,25 @@ export async function testEnvironmentWithCharSync(
 }
 
 /**
+ * Like `testEnvironmentWithCharSync` (app mount order only), but also mounts `HistoryPlugin` — for
+ * undo/redo pins on a char-attribute-run fixture, where both the self-healing sync AND undo
+ * availability are needed at once (`historyTestEnvironment` alone has no `CharNodePlugin`, and the
+ * sibling char-attribute suites that need the sync have no `HistoryPlugin`).
+ */
+export async function testEnvironmentWithCharSyncAndHistory($initialEditorState: () => void) {
+  initializeSerialize(undefined, undefined);
+  reset();
+  return baseTestEnvironment(
+    $initialEditorState,
+    <>
+      <CharNodePlugin />
+      <MarkerEditPlugin viewOptions={getViewOptions(STANDARD_VIEW_MODE)} />
+      <HistoryPlugin />
+    </>,
+  );
+}
+
+/**
  * Like `testEnvironment`, but in Standard view with EXPANDED notes (`markerMode: "editable"`,
  * `noteMode: "expanded"`) — the combination that used to make `getViewMode` return undefined and
  * silently disable the standard-view whitespace machinery.

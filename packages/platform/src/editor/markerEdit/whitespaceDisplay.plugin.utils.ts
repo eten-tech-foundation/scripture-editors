@@ -218,6 +218,13 @@ function $insertPastedText(text: string): void {
  * when no value text exists yet (an empty `\qt-s \*` run with nothing typed between the glyphs). A
  * char span's run has no such wrapper (it rides as a bare child of the `CharNode`), so the
  * textType tag alone covers it.
+ *
+ * The `AttributeRunNode`-ancestor branch also matches a selection landing on the wrapper's OWN
+ * opening/self-closing `MarkerNode` glyphs (`\va`, `\va*`, a milestone's `\*`), not only its
+ * textType-"attribute" value text — deliberately: a `MarkerNode` is itself an ordinary `TextNode`,
+ * so `selection.insertText` at a glyph point behaves exactly as it would for typing there (the
+ * same paste-≡-typing guarantee this whole file exists to uphold), and it is harmless the same way
+ * inserting into any other plain text is.
  */
 function $isNodeInAttributeContext(node: LexicalNode): boolean {
   if ($isTextNode(node) && $getState(node, textTypeState) === "attribute") return true;
@@ -227,33 +234,43 @@ function $isNodeInAttributeContext(node: LexicalNode): boolean {
 }
 
 /**
- * True when `selection` sits ENTIRELY inside attribute-display text — both its anchor and focus
- * satisfy {@link $isNodeInAttributeContext}. A collapsed caret trivially qualifies when its one
- * point does; a real (non-collapsed) selection qualifies only when BOTH ends do, so a selection
- * that starts inside an attribute run and extends into ordinary content (or vice versa) does not
- * — see `$handlePasteForStandardView`'s doc comment for why that edge case is deliberately left to
- * the ordinary paste path rather than specialized here.
+ * True when `selection` touches attribute-display text at EITHER end — its anchor OR its focus
+ * satisfies {@link $isNodeInAttributeContext}. A collapsed caret trivially qualifies when its one
+ * point does. A real (non-collapsed) selection qualifies even when only ONE end is inside an
+ * attribute run and the other reaches into ordinary content: under the paste-≡-typing principle, a
+ * user typing a character over such a mixed selection gets exactly `selection.insertText`'s own
+ * behavior — remove the whole selected range (whatever nodes it spans, attribute or not), then
+ * insert at the resulting collapsed point — so paste must take the identical path rather than
+ * declining into a branch (Lexical's rich-node paste, or this file's own newline-splitting
+ * external-paste pipeline) that can corrupt the attribute-run end of the range. See
+ * `$handlePasteForStandardView`'s doc comment for the two corruption shapes this closes.
  */
 function $isSelectionInAttributeContext(selection: RangeSelection): boolean {
   return (
-    $isNodeInAttributeContext(selection.anchor.getNode()) &&
+    $isNodeInAttributeContext(selection.anchor.getNode()) ||
     $isNodeInAttributeContext(selection.focus.getNode())
   );
 }
 
 /**
- * Paste normalization for a selection sitting inside attribute-display text — the binding design
- * principle: paste ≡ typing the same characters at the same caret. `\r`/`\n` collapse to a single
- * space (attribute values are single-line; PT9 has no multi-line attribute byte shape), and the
- * result is inserted via the exact `selection.insertText` a keystroke uses — no chapter/book-id
- * strip, no positional NBSP mapping, no marker tokenization, all of which exist for BODY content's
- * marker-recognition and whitespace-display invariants and apply to none of it: a pasted `\c 5` or
- * `\p` here is literal value text, not a structural marker, and `$displayWhitespaceTransform`
- * (this file) already skips textType "attribute" nodes outright, so a literal NBSP a user TYPES
- * into an attribute run is never touched — a pasted one must not be treated any differently. The
- * existing attribute pend/settle machinery (`$textNodeTier2Transform`'s attribute-tagged early
- * return, `$resolvePendingMarkers`) takes over identically whether the text arrived by typing or
- * this call.
+ * Paste normalization for a selection touching attribute-display text — the binding design
+ * principle: paste ≡ typing the same characters at the same caret. Each `\n` in `text` becomes a
+ * single space (a PER-NEWLINE replacement, not a run-collapsing one: `"a\n\nb"` becomes `"a  b"`,
+ * two spaces, matching what two individual Enter-less keystrokes over an attribute run would
+ * produce — attribute values are single-line, so there is no multi-line attribute byte shape to
+ * collapse INTO). `text` is assumed already normalized to bare `\n` line endings by the caller
+ * (`$handlePasteForStandardView` runs `.replace(/\r\n?/g, "\n")` before calling this) — no `\r`
+ * reaches this function. The result is inserted via the exact `selection.insertText` a keystroke
+ * uses — no chapter/book-id strip, no positional NBSP mapping, no marker tokenization, all of which
+ * exist for BODY content's marker-recognition and whitespace-display invariants and apply to none
+ * of it: a pasted `\c 5` or `\p` here is literal value text, not a structural marker, and
+ * `$displayWhitespaceTransform` (this file) already skips textType "attribute" nodes outright, so a
+ * literal NBSP a user TYPES into an attribute run is never touched — a pasted one must not be
+ * treated any differently. For a non-collapsed (mixed or fully-inside) selection,
+ * `selection.insertText` removes the selected range before inserting, the same as it does for a
+ * typed keystroke over that selection — no separate removal step is needed here. The existing
+ * attribute pend/settle machinery (`$textNodeTier2Transform`'s attribute-tagged early return,
+ * `$resolvePendingMarkers`) takes over identically whether the text arrived by typing or this call.
  */
 function $insertPastedTextIntoAttributeContext(selection: RangeSelection, text: string): void {
   selection.insertText(text.replace(/\n/g, " "));
@@ -286,20 +303,45 @@ function $insertPastedTextIntoAttributeContext(selection: RangeSelection, text: 
  * protected editor's plain-text pastes get NO NBSP normalization at all, since this handler
  * never runs for them); or no text can be resolved.
  *
- * The same-namespace-flavor decline is SUSPENDED when the selection sits entirely inside an
- * attribute display run ({@link $isSelectionInAttributeContext}). Live repro (2026-08-11): pasting
- * plain text at the end of a char span's `|who="hi"` run, with an internal same-editor
- * `application/x-lexical-editor` payload also on the clipboard (e.g. copied from elsewhere in the
- * SAME document), made this handler decline and fall through to Lexical's default rich-paste node
- * insertion — which does not know an attribute run's text must stay inside its one tagged
- * TextNode, and merged the run, the closing glyph, and even the FOLLOWING paragraph's own sibling
- * text into one plain node: the attribute display and the closing marker both vanished, and the
- * pasted bytes ended up loose in body content. Attribute value bytes are never rich content — a
- * user cannot "type formatting" into one either — so this handler must always claim a paste
- * landing there and insert it as plain text ({@link $insertPastedTextIntoAttributeContext}),
- * regardless of what other MIME flavors the clipboard also carries. Structure protection still
- * takes precedence (checked first, below): an attribute run inside a protected document defers to
- * the same protection contract as everything else.
+ * The same-namespace-flavor decline is SUSPENDED whenever the selection TOUCHES attribute-display
+ * text at either end ({@link $isSelectionInAttributeContext}). TJ's live repro (2026-08-11, filed
+ * against a pre-branch build): existing span `\nd asdf|who="hi"\nd*`, caret at the end of the
+ * `who="hi"` run, paste plain text `sid="things"` — the `who` attribute display and the closing
+ * `\nd*` glyph both vanished from the editor, the pasted text rendered outside the span, and the
+ * saved file diverged from the editor. `sid="things"` carries no NBSP, and that pre-branch build's
+ * `$handlePasteForStandardView` still had its OLD gate (documented above: "previously this only
+ * claimed NBSP-bearing pastes") — so the most plausible mechanism is that OLD gate declining an
+ * NBSP-free paste outright and falling through to Lexical's own default rich-paste node insertion,
+ * not the same-namespace-flavor path below (this branch's OWN copy already carries `text/plain`
+ * unconditionally, per the doc comment above, and the "private Lexical flavor is dead on Ctrl+V"
+ * fact recorded in the semantics doc's S3 still holds for the reconstructed-`DataTransfer` paste
+ * path this repro most likely used). What both mechanisms — the old NBSP gate and this file's own
+ * same-namespace-flavor decline — share is the SAME failure shape once either one declines: Lexical's
+ * default rich-paste node insertion has no notion that an attribute run's text must stay inside its
+ * one tagged TextNode, and (reproduced directly on THIS branch, see
+ * `attributeContextPasteFidelity.test.tsx`'s "root cause" describe) merges the run, the closing
+ * glyph, and even the FOLLOWING paragraph's own sibling text into one plain node: the attribute
+ * display and the closing marker both vanish, and the pasted bytes end up loose in body content.
+ * Confirmed regression classes on THIS branch, closed by this suspension: (1) a live native paste
+ * event that still carries a same-namespace `application/x-lexical-editor` flavor (S2's own
+ * documented case for when that CAN still reach a handler, unlike the reconstructed-`DataTransfer`
+ * path); (2) a multi-line plain-text payload, which the ordinary external-paste pipeline below
+ * would split into real paragraphs via `selection.insertParagraph()` — inside an attribute run that
+ * is exactly as destructive as the rich-paste shape; (3) a marker-bearing payload (`\c 5`), which
+ * the ordinary pipeline's `$stripPastedChapterAndBookId` would eat bytes out of an attribute VALUE
+ * that were never a chapter token to begin with; (4) a MIXED selection (one end inside the run, one
+ * end outside) combined with either (1) or (2) above — the selection touches attribute context, so
+ * it must not be allowed to reach either risky branch merely because its OTHER end sits outside.
+ * Attribute value bytes are never rich content — a user cannot "type formatting" into one either —
+ * so this handler must always claim a paste touching one and insert it as plain text
+ * ({@link $insertPastedTextIntoAttributeContext}), regardless of what other MIME flavors the
+ * clipboard also carries. Structure protection still takes precedence (checked first, below): an
+ * attribute run inside a protected document defers to the same protection contract as everything
+ * else. One further pre-existing precedence is UNCHANGED by this suspension: the CRITICAL-priority
+ * in-note multi-line `PASTE_COMMAND` claim (`MarkerEditPlugin.tsx`) still runs BEFORE this handler
+ * and still wins for a multi-line payload whose selection touches EXPANDED note content — an
+ * attribute run that happens to sit inside an expanded note's content is reached by this handler
+ * (and this suspension) only when that in-note claim itself declines.
  */
 export function $handlePasteForStandardView(
   event: ClipboardEvent | null | undefined,

@@ -1,26 +1,39 @@
 /**
- * Paste (and cut) fidelity for a selection sitting inside an attribute display run — a char span's
- * `|attrs` list, a milestone's attribute run, or a verse's `\va`/`\vp` run. Live repro (TJ,
- * 2026-08-11): existing span `\nd asdf|who="hi"\nd*`, caret inside/after the `who="hi"` run, paste
- * plain text `sid="things"`. Observed: the `who` attribute display AND the closing `\nd*` glyph
- * disappeared from the editor, the pasted text rendered visually outside the span, and the saved
- * file diverged from the editor (`\nd asdf|who="hi"\nd*sid="things"` — the pasted bytes landed
- * after the closer, in body text).
+ * Paste (and cut) fidelity for a selection that TOUCHES an attribute display run — a char span's
+ * `|attrs` list, a milestone's attribute run, or a verse's `\va`/`\vp` run.
  *
- * Root cause: `$handlePasteForStandardView` (whitespaceDisplay.plugin.utils.ts) declined the paste
- * whenever the clipboard also carried a same-namespace `application/x-lexical-editor` MIME flavor
- * (the guard that keeps a same-editor rich copy on its exact-node-tree fast path everywhere else),
- * handing off to Lexical's own default rich-paste node insertion. That default path has no notion
- * that an attribute run's text must stay inside its ONE tagged TextNode — it merged the run, the
- * char's own closing glyph, and even the FOLLOWING paragraph sibling's text into a single plain
- * node, destroying the attribute display, the closing marker, and the paragraph boundary in one
- * move. Reproduced directly below (see "root cause" describe block) and fixed by never declining a
- * paste whose selection sits inside attribute-display text, regardless of what other MIME flavors
- * the clipboard also carries — see `$handlePasteForStandardView`'s doc comment for the full design.
+ * TJ's live repro (filed 2026-08-11, against a pre-branch build): existing span
+ * `\nd asdf|who="hi"\nd*`, caret at the end of the `who="hi"` run, paste plain text
+ * `sid="things"`. Observed: the `who` attribute display AND the closing `\nd*` glyph disappeared
+ * from the editor, the pasted text rendered visually outside the span, and the saved file diverged
+ * from the editor. `sid="things"` carries no NBSP, and the pre-branch build's paste handler still
+ * had its OLD NBSP-gated form (generalized to claim every external paste, NBSP or not, on
+ * 2026-08-07 — see `$handlePasteForStandardView`'s own doc comment) — so the most plausible
+ * mechanism is that OLD gate declining an NBSP-free paste outright and falling through to Lexical's
+ * default rich-paste node insertion, NOT a same-namespace `application/x-lexical-editor` payload on
+ * the clipboard. On THIS branch's current code, a single-line, NBSP-free, flavor-free external
+ * paste like TJ's literal repro was already safe (see the "typed characterization"/"paste ≡ typed"
+ * pins below, which pin that fact rather than a corruption).
+ *
+ * What this file's "root cause" describe block reproduces and fixes is the SHAPE that corruption
+ * takes whenever ANY handler declines an attribute-context paste to Lexical's default rich-paste
+ * node insertion: it has no notion that an attribute run's text must stay inside its ONE tagged
+ * TextNode, and merges the run, the closing glyph, and even the FOLLOWING paragraph sibling's text
+ * into one plain node — destroying the attribute display, the closing marker, and the paragraph
+ * boundary in one move. Confirmed regression classes on this branch, each pinned below: a live
+ * native paste event that still carries a same-namespace `application/x-lexical-editor` flavor; a
+ * multi-line plain-text payload (the ordinary pipeline splits it via `insertParagraph()`); a
+ * marker-bearing payload (the ordinary pipeline's `\c`/`\id` strip eats bytes out of an attribute
+ * VALUE that were never a chapter token); and a selection that only PARTLY touches the attribute
+ * run combined with either of the first two. Fixed by always routing a paste whose selection
+ * TOUCHES attribute-display text through plain-text insertion, regardless of what other MIME
+ * flavors the clipboard also carries or how much of the selection sits outside the run — see
+ * `$handlePasteForStandardView`'s doc comment for the full design.
  *
  * Binding design principle: paste in attribute context ≡ typing the same characters at the same
- * caret. Every "paste ≡ typed" pin below proves paste and the character-by-character TYPED
- * equivalent settle to the identical USJ, not merely to individually-plausible-looking results.
+ * caret (or over the same selection). Every "paste ≡ typed" pin below proves paste and the
+ * character-by-character TYPED equivalent settle to the identical USJ, not merely to
+ * individually-plausible-looking results.
  */
 
 import {
@@ -28,6 +41,7 @@ import {
   requireDefined,
   testEnvironment,
   testEnvironmentWithCharSync,
+  testEnvironmentWithCharSyncAndHistory,
   testEnvironmentWithSpacing,
   viewOptions,
   pasteEvent,
@@ -52,6 +66,7 @@ import {
   LexicalEditor,
   PASTE_COMMAND,
   TextNode,
+  UNDO_COMMAND,
 } from "lexical";
 import {
   $createCharNode,
@@ -140,6 +155,16 @@ async function pasteAndFlush(
 /** Moves the caret to `$select` and flushes the deferred departure-settle microtask. */
 async function departAndSettle(editor: EditorHandle, $select: () => void): Promise<void> {
   await act(async () => editor.update($select));
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+}
+
+/** One `UNDO_COMMAND` dispatch, flushed the same way a paste is — matches
+ * `markerPasteFidelity.test.tsx`'s `undoAndSettle`. */
+async function undoAndSettle(editor: EditorHandle): Promise<void> {
+  await act(async () => editor.dispatchCommand(UNDO_COMMAND, undefined));
   await act(async () => {
     await Promise.resolve();
     await Promise.resolve();
@@ -284,16 +309,37 @@ describe("paste ≡ typed (TJ's repro shape): plain-text-only paste at the end o
 
     expect(usjOf(editor)).toEqual(await typedResult());
   });
+
+  it("undo after the paste restores the exact pre-paste USJ in one step", async () => {
+    const { editor } = await testEnvironmentWithCharSyncAndHistory($charFixture);
+    const preUsj = usjOf(editor);
+    await act(async () =>
+      editor.update(() => {
+        const run = $charAttributeRun($firstChar());
+        run.select(run.getTextContentSize(), run.getTextContentSize());
+      }),
+    );
+
+    await pasteAndFlush(editor, { "text/plain": 'sid="things"' });
+    await departAndSettle(editor, () => $bodyTextNode().select(0, 0));
+    await undoAndSettle(editor);
+
+    expect(usjOf(editor)).toEqual(preUsj);
+  });
 });
 
-describe("root cause: an internal same-editor copy on the clipboard must not corrupt the run", () => {
+describe("root cause: a native paste event carrying a same-namespace application/x-lexical-editor flavor must not corrupt the run", () => {
   it("pasting plain text ALONGSIDE a same-namespace application/x-lexical-editor payload settles identically to a plain-only paste (regression for the live corruption)", async () => {
     // Build the same-namespace rich payload the way a real same-editor Ctrl+C would: select some
     // plain text elsewhere in the SAME editor and capture $getLexicalContent, exactly as
     // copyToClipboard does. `$handlePasteForStandardView`'s same-namespace-flavor guard exists so
-    // an internal copy elsewhere in the document keeps its exact-node-tree fast path — but that
-    // guard must never win over an attribute-context destination; this reproduces the corruption
-    // the guard used to cause there.
+    // a live native paste event that still carries the flavor (a genuine same-page copy, not the
+    // reconstructed-DataTransfer paste path S3's own doc comment shows can never carry it) keeps
+    // Lexical's exact-node-tree fast path for ORDINARY content — but that guard must never win over
+    // an attribute-context destination; this reproduces the corruption class the guard used to
+    // cause there (a confirmed regression class on this branch — not necessarily TJ's own
+    // pre-branch repro, whose most plausible mechanism was the OLD NBSP-gated handler; see this
+    // file's header comment).
     const { editor } = await testEnvironmentWithCharSync(() => {
       $charFixture();
       $getRoot().append(
@@ -390,9 +436,29 @@ describe("replace-selection paste inside the attribute value", () => {
       expect($firstChar().getUnknownAttributes()).toEqual({ who: "bye" });
     });
   });
+
+  it("undo after the replace-selection paste restores the exact pre-paste USJ in one step", async () => {
+    const { editor } = await testEnvironmentWithCharSyncAndHistory($charFixture);
+    const preUsj = usjOf(editor);
+    await act(async () =>
+      editor.update(() => {
+        const run = $charAttributeRun($firstChar());
+        const text = run.getTextContent();
+        const valueStart = text.indexOf('"') + 1;
+        const valueEnd = text.lastIndexOf('"');
+        run.select(valueStart, valueEnd);
+      }),
+    );
+
+    await pasteAndFlush(editor, { "text/plain": "bye" });
+    await departAndSettle(editor, () => $bodyTextNode().select(0, 0));
+    await undoAndSettle(editor);
+
+    expect(usjOf(editor)).toEqual(preUsj);
+  });
 });
 
-describe("multi-line payload collapses to a single space (attribute values are single-line)", () => {
+describe("multi-line payload collapses to a single space, per newline (attribute values are single-line)", () => {
   it('paste "a\\nb" into the attribute run: the raw display text becomes "...a b...", not two paragraphs', async () => {
     const { editor } = await testEnvironmentWithCharSync($charFixture);
     await act(async () =>
@@ -410,6 +476,42 @@ describe("multi-line payload collapses to a single space (attribute values are s
       expect($getRoot().getChildren().filter($isParaNode)).toHaveLength(2);
       expect($charAttributeRun($firstChar()).getTextContent()).toBe('|who="hi"a b');
     });
+  });
+
+  it('paste "a\\n\\nb" (two consecutive newlines): each `\\n` becomes its OWN space — "...a  b..." with TWO spaces, not one collapsed space', async () => {
+    // Pins that the replacement is per-newline (`text.replace(/\n/g, " ")`), not a run-collapsing
+    // one — there is no "multiple blank lines" concept to collapse INTO for a single-line
+    // attribute value; two newlines are two individually-typed line breaks, so they become two
+    // individually-typed spaces.
+    const { editor } = await testEnvironmentWithCharSync($charFixture);
+    await act(async () =>
+      editor.update(() => {
+        const run = $charAttributeRun($firstChar());
+        run.select(run.getTextContentSize(), run.getTextContentSize());
+      }),
+    );
+
+    await pasteAndFlush(editor, { "text/plain": "a\n\nb" });
+
+    editor.getEditorState().read(() => {
+      expect($charAttributeRun($firstChar()).getTextContent()).toBe('|who="hi"a  b');
+    });
+  });
+
+  it("undo after the multi-line paste restores the exact pre-paste USJ in one step", async () => {
+    const { editor } = await testEnvironmentWithCharSyncAndHistory($charFixture);
+    const preUsj = usjOf(editor);
+    await act(async () =>
+      editor.update(() => {
+        const run = $charAttributeRun($firstChar());
+        run.select(run.getTextContentSize(), run.getTextContentSize());
+      }),
+    );
+
+    await pasteAndFlush(editor, { "text/plain": "a\nb" });
+    await undoAndSettle(editor);
+
+    expect(usjOf(editor)).toEqual(preUsj);
   });
 });
 
@@ -466,32 +568,99 @@ describe("CUT of a selection inside the attribute value", () => {
 });
 
 describe("mixed selection: spans BOTH attribute and non-attribute content", () => {
-  it("declines the attribute-context path (selection anchor is in-run, focus is on the closing glyph) — falls through to the ordinary paste path unchanged", async () => {
-    // Design choice (brief-permitted either way): a selection that only PARTLY sits inside
-    // attribute-display text is declined here rather than collapsed to attribute-side behavior —
-    // the ordinary paste path already inserts via plain `selection.insertText` for a payload with
-    // no newline/tab, so it cannot reproduce the node-insertion corruption class this file's
-    // "root cause" pin fixes; specializing a case this rare (and structurally ambiguous — should a
-    // paste spanning INTO the closing glyph reformat the marker too?) is not worth the complexity.
+  // Design choice (brief-permitted either way): a selection that only PARTLY sits inside
+  // attribute-display text now TAKES the attribute-context path (widened from an earlier
+  // both-ends-must-qualify check) rather than declining it — under paste ≡ typing, a user typing a
+  // character over this exact selection gets `selection.insertText`'s own removeText-then-insert
+  // behavior regardless of which node the selection's OTHER end sits on, so paste must take the
+  // identical path instead of falling through to a branch (the ordinary pipeline's
+  // `insertParagraph()` for a multi-line payload, or Lexical's rich-node paste for a
+  // same-namespace-flavored one) that CAN corrupt the attribute-run end of the range — reproduced
+  // in the two pins below this one, each of which used to reach exactly one of those two branches
+  // before the OR-widening.
+  function $selectRunThroughCloserStart(): void {
+    const char = $firstChar();
+    const run = $charAttributeRun(char);
+    const closer = $charCloser(char);
+    run.select(0, 0); // anchor: start of the run (attribute context)...
+    const selection = $getSelection();
+    if ($isRangeSelection(selection)) selection.focus.set(closer.getKey(), 0, "text"); // ...focus: start of the closer (NOT attribute-tagged) — spans the run's full text
+  }
+
+  it("plain single-line payload: claims the attribute path, replacing the selected range with the pasted text", async () => {
     const { editor } = await testEnvironmentWithCharSync($charFixture);
-    await act(async () =>
-      editor.update(() => {
-        const char = $firstChar();
-        const run = $charAttributeRun(char);
-        const closer = $charCloser(char);
-        run.select(0, 0); // start inside the run...
-        const selection = $getSelection();
-        if ($isRangeSelection(selection)) selection.focus.set(closer.getKey(), 0, "text"); // ...end on the closer, NOT attribute-tagged
-      }),
-    );
+    await act(async () => editor.update($selectRunThroughCloserStart));
 
     await pasteAndFlush(editor, { "text/plain": "X" });
 
-    // No crash, and no attribute-context special-casing applied: the ordinary path's plain
-    // `insertText` replaced the selected range (the whole run) with "X", consuming the run text
-    // node's content but leaving the rest of the document structurally sane.
+    // No crash, and the document stays structurally sane: still 2 paragraphs, closer still present
+    // (the mixed range covered only the run's own text, never reaching into the closer glyph).
     editor.getEditorState().read(() => {
+      const char = $firstChar();
       expect($getRoot().getChildren().filter($isParaNode)).toHaveLength(2);
+      expect($charCloser(char).getTextContent()).toBe("\\nd*");
+    });
+  });
+
+  it("mixed selection + same-namespace application/x-lexical-editor flavor: does not reach Lexical's rich-paste node insertion (regression for the corruption class this closes)", async () => {
+    // Before the OR-widening, this exact shape (one end in attribute context, one end not) failed
+    // the (then AND-based) attribute-context check, so the same-namespace-flavor decline above ran
+    // unconditionally and handed the paste to Lexical's default rich-paste node insertion — the
+    // SAME corruption class as the "root cause" describe block above, reached via a mixed selection
+    // instead of a fully-inside one.
+    const { editor } = await testEnvironmentWithCharSync(() => {
+      $charFixture();
+      $getRoot().append(
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          $createTextNode('sid="things"'),
+        ),
+      );
+    });
+    let lexicalPayload = "";
+    await act(async () =>
+      editor.update(() => {
+        const source = $getRoot().getChildren().filter($isParaNode)[2].getLastChild();
+        if (!$isTextNode(source)) throw new Error("copy source text missing");
+        source.select(0, source.getTextContentSize());
+        lexicalPayload = $getLexicalContent(editor) ?? "";
+      }),
+    );
+    expect(lexicalPayload).not.toBe("");
+
+    await act(async () => editor.update($selectRunThroughCloserStart));
+    await pasteAndFlush(editor, {
+      "text/plain": 'sid="things"',
+      "application/x-lexical-editor": lexicalPayload,
+    });
+
+    // MUST-NOT: the closer must still exist, and no sibling paragraph text may have been swallowed
+    // into the char span — the exact corruption shape a decline into Lexical's rich-paste path
+    // produces.
+    editor.getEditorState().read(() => {
+      const char = $firstChar();
+      expect($getRoot().getChildren().filter($isParaNode)).toHaveLength(3);
+      expect($charCloser(char).getTextContent()).toBe("\\nd*");
+      expect(char.getTextContent()).not.toContain("body");
+    });
+  });
+
+  it('mixed selection + multi-line plain payload ("a\\nb"): collapses to a single space instead of splitting the paragraph via insertParagraph()', async () => {
+    // Before the OR-widening, this exact shape fell through to the ordinary external-paste
+    // pipeline ($insertPastedText), whose newline handling calls `selection.insertParagraph()` —
+    // splitting the paragraph with the selection still anchored inside the char span's own
+    // attribute run, corrupting its structure.
+    const { editor } = await testEnvironmentWithCharSync($charFixture);
+    await act(async () => editor.update($selectRunThroughCloserStart));
+
+    await pasteAndFlush(editor, { "text/plain": "a\nb" });
+
+    editor.getEditorState().read(() => {
+      // Still exactly 2 paragraphs — no paragraph split — and the closer survived.
+      const char = $firstChar();
+      expect($getRoot().getChildren().filter($isParaNode)).toHaveLength(2);
+      expect($charCloser(char).getTextContent()).toBe("\\nd*");
     });
   });
 });
