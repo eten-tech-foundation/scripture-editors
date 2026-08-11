@@ -672,6 +672,15 @@ export function usfmFragmentToUsjContent(
         if (attrCapture.value.trim() === "") {
           container().push({ type: "char", marker: attrCapture.marker, content: [] });
           attrCapture = undefined;
+          // The materialized element is REAL CONTENT, so the target stops being receptive — the
+          // same rule a plain-text token applies through `clearAttrTarget` above. Without this, a
+          // following attribute marker folded ACROSS the element now separating it from its target
+          // (`\v 11 \va\va*\vp 11 vp\vp*` put `pubnumber` on the verse while the `\va` char trailed
+          // behind it), and USJ cannot express that order: serializing back put the published
+          // number FIRST, silently rewriting the document as `\v 11 \vp 11 vp\vp*\va \va*`.
+          // ParatextData folds NEITHER marker here — captured from `GetChapterUsx`, it emits
+          // `<char style="va"/><char style="vp">11 vp</char>` in document order.
+          clearAttrTarget();
           continue;
         }
         // Explicit close with plain-text content: fold as the target's attribute, TRIMMED —
