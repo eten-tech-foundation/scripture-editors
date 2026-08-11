@@ -216,21 +216,25 @@ export function getViewOptions(viewMode?: string | undefined): ViewOptions | und
 export function getViewMode(viewOptions: ViewOptions | undefined): ViewMode | undefined {
   if (!viewOptions) return undefined;
 
-  const normalized = withoutDefaultVerseLayout(viewOptions);
+  const normalized = withoutDefaults(viewOptions);
   return (Object.keys(viewModeToViewNames) as ViewMode[]).find((viewMode) =>
-    deepEqual(withoutDefaultVerseLayout(getViewOptions(viewMode)), normalized),
+    deepEqual(withoutDefaults(getViewOptions(viewMode)), normalized),
   );
 }
 
 /**
- * The options with an explicit `verseLayout: "inline"` dropped. It is the default, so saying it
- * out loud describes the same view as leaving it out and must compare equal.
+ * The options with anything that means "not set" removed: a key whose value is `undefined`, and an
+ * explicit `verseLayout: "inline"`, which is that field's documented default. Spelling either out
+ * describes the same view as leaving it out, and the comparison counts keys, so both have to go.
  */
-function withoutDefaultVerseLayout(viewOptions: ViewOptions | undefined) {
-  if (viewOptions?.verseLayout !== "inline") return viewOptions;
+function withoutDefaults(viewOptions: ViewOptions | undefined) {
+  if (!viewOptions) return viewOptions;
 
-  const { verseLayout: _inline, ...rest } = viewOptions;
-  return rest;
+  return Object.fromEntries(
+    Object.entries(viewOptions).filter(
+      ([key, value]) => value !== undefined && !(key === "verseLayout" && value === "inline"),
+    ),
+  );
 }
 
 /**
