@@ -2,7 +2,7 @@
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import { usjGen1v1 } from "../../../utilities/src/converters/usj/converter-test.data";
 import Editor from "./Editor";
-import { EditorOptions, EditorRef } from "./editor.model";
+import { EditorOptions, EditorProps, EditorRef } from "./editor.model";
 import Editorial from "../Editorial";
 import { flushQueuedEvents } from "./editor-test.utils";
 import { ContentJsonPath, Usj } from "@eten-tech-foundation/scripture-utilities";
@@ -24,20 +24,18 @@ import {
   $setSelection,
   CAN_UNDO_COMMAND,
   COMMAND_PRIORITY_CRITICAL,
-  KEY_DELETE_COMMAND,
-  KEY_DOWN_COMMAND,
-  LexicalCommand,
   LexicalEditor,
   LexicalNode,
   TextNode,
 } from "lexical";
-import { createRef, RefObject, useEffect, useState } from "react";
+import { createRef, PropsWithChildren, RefObject, useEffect, useState } from "react";
 import {
   $isCharNode,
   $isNoteNode,
   $isSomeParaNode,
   $isSynthesizedMarkerNode,
   closingMarkerText,
+  LoggerBasic,
   NBSP,
   openingMarkerText,
 } from "shared";
@@ -121,22 +119,26 @@ const testRange = {
   end: { jsonPath: versePath, offset: verseTextLength },
 };
 
-async function createEditorRefForTesting(): Promise<RefObject<EditorRef | null>> {
+async function createEditorRefForTesting(
+  props: PropsWithChildren<EditorProps<LoggerBasic>> = {},
+): Promise<RefObject<EditorRef | null>> {
   const ref = createRef<EditorRef>();
   await act(async () => {
-    render(<Editor ref={ref} defaultUsj={sampleUsj} />);
+    render(<Editor ref={ref} defaultUsj={sampleUsj} {...props} />);
   });
   if (!ref.current) throw new Error("EditorRef did not mount");
   return ref;
 }
 
 async function createReadonlyEditorRefForTesting(): Promise<RefObject<EditorRef | null>> {
-  const ref = createRef<EditorRef>();
-  await act(async () => {
-    render(<Editor ref={ref} defaultUsj={sampleUsj} options={{ isReadonly: true }} />);
-  });
-  if (!ref.current) throw new Error("EditorRef did not mount");
-  return ref;
+  return createEditorRefForTesting({ options: { isReadonly: true } });
+}
+
+/** Reads the current imperative handle. `Editor`'s `useImperativeHandle` has no dependency array,
+ * so React installs a fresh handle on every render — a handle captured at mount goes stale. */
+function getEditorRef(ref: RefObject<EditorRef | null>): EditorRef {
+  if (!ref.current) throw new Error("EditorRef is not mounted");
+  return ref.current;
 }
 
 function getMarkElement(): HTMLElement {
@@ -395,44 +397,44 @@ function GrabEditor({ onEditor }: { onEditor: (editor: LexicalEditor) => void })
   return null;
 }
 
-/** Renders the platform <Editor> and returns both the public ref and the underlying Lexical editor
- * (needed to dispatch key commands). Covers the setup every delete/undo test repeats. */
+/** Renders the platform <Editor> and returns the public ref, the underlying Lexical editor
+ * (needed to dispatch key events on its root element), and a snapshot of the just-loaded document
+ * — the state a single undo must restore. The snapshot is cloned because getUsj() before any edit
+ * hands back the fixture object itself, and comparisons need an independent copy. Covers the setup
+ * every delete/undo test repeats. */
 async function mountEditorForUndo(config: {
   usj: Usj;
   scrRef: SerializedVerseRef;
   structureProtectionMode: EditorOptions["structureProtectionMode"];
-}): Promise<{ editorRef: EditorRef; lexicalEditor: LexicalEditor }> {
-  const ref = createRef<EditorRef>();
+}): Promise<{
+  ref: RefObject<EditorRef | null>;
+  lexicalEditor: LexicalEditor;
+  originalUsj: Usj;
+}> {
   let editor: LexicalEditor | undefined;
-  await act(async () => {
-    render(
-      <Editor
-        ref={ref}
-        defaultUsj={config.usj}
-        scrRef={config.scrRef}
-        onScrRefChange={vi.fn()}
-        options={{ structureProtectionMode: config.structureProtectionMode }}
-      >
-        <GrabEditor onEditor={(e) => (editor = e)} />
-      </Editor>,
-    );
+  const ref = await createEditorRefForTesting({
+    defaultUsj: config.usj,
+    scrRef: config.scrRef,
+    onScrRefChange: vi.fn(),
+    options: { structureProtectionMode: config.structureProtectionMode },
+    children: <GrabEditor onEditor={(e) => (editor = e)} />,
   });
   await flushQueuedEvents();
-  if (!ref.current || !editor) throw new Error("EditorRef did not mount");
-  return { editorRef: ref.current, lexicalEditor: editor };
+  if (!editor) throw new Error("Lexical editor was not captured");
+  const loaded = getEditorRef(ref).getUsj();
+  if (!loaded) throw new Error("editor did not load USJ");
+  return { ref, lexicalEditor: editor, originalUsj: structuredClone(loaded) };
 }
 
-/** Dispatches a synthetic Delete keydown as `command`. Guarded mode listens on KEY_DOWN_COMMAND
- * (StructureKeyboardPlugin drives the two-step delete from there); Power mode ("off") has no such
- * listener, so its native delete must go straight to KEY_DELETE_COMMAND — jsdom can't carry a real
- * DOM keydown far enough to reach RichTextPlugin on its own. */
-async function pressDeleteKey(
-  editor: LexicalEditor,
-  command: LexicalCommand<KeyboardEvent>,
-): Promise<void> {
+/** Presses Delete as a real DOM keydown on the editor root, exactly as a user gesture arrives.
+ * Lexical's root listener turns it into KEY_DOWN_COMMAND and then KEY_DELETE_COMMAND, so the one
+ * event drives both guarded mode (StructureKeyboardPlugin listens on KEY_DOWN_COMMAND) and Power
+ * mode's fully native delete. */
+async function pressDeleteKey(editor: LexicalEditor): Promise<void> {
+  const rootElement = editor.getRootElement();
+  if (!rootElement) throw new Error("Editor has no root element");
   await act(async () => {
-    editor.dispatchCommand(
-      command,
+    rootElement.dispatchEvent(
       new KeyboardEvent("keydown", { key: "Delete", bubbles: true, cancelable: true }),
     );
   });
@@ -697,43 +699,41 @@ describe("undo after a verse-spanning delete (PT-4102 regression)", () => {
   // synchronously mid-commit, corrupting the history stack. A single deletion must be a single
   // undoable step that a single undo fully restores.
   it("restores the deleted text and verse marker with a single undo", async () => {
-    const { editorRef, lexicalEditor } = await mountEditorForUndo({
+    const { ref, lexicalEditor, originalUsj } = await mountEditorForUndo({
       usj: usjWithVerseInParagraphMiddle,
       scrRef: { book: "GEN", chapterNum: 1, verseNum: 1 },
       structureProtectionMode: "guarded",
     });
-    // Snapshot the loaded document; a single undo must return to exactly this.
-    const original = editorRef.getUsj();
-    if (!original) throw new Error("editor did not load USJ");
 
     // Select "pha " + verse marker + "Bra" — a range that spans the verse marker.
     await act(async () => {
-      editorRef.setSelection({
+      getEditorRef(ref).setSelection({
         start: { jsonPath: "$.content[2].content[0]", offset: 2 },
         end: { jsonPath: "$.content[2].content[2]", offset: 3 },
       });
     });
 
     // Guarded two-step delete: the first Delete arms the range, the second removes it.
-    await pressDeleteKey(lexicalEditor, KEY_DOWN_COMMAND);
-    await pressDeleteKey(lexicalEditor, KEY_DOWN_COMMAND);
+    await pressDeleteKey(lexicalEditor);
+    await pressDeleteKey(lexicalEditor);
     await flushQueuedEvents();
 
     // Precondition: the range (verse marker + surrounding text) was actually deleted.
-    const afterDelete = JSON.stringify(editorRef.getUsj());
+    const afterDelete = JSON.stringify(getEditorRef(ref).getUsj());
     expect(afterDelete).not.toContain('"number":"2"');
     expect(afterDelete).not.toContain("Alpha ");
 
     await act(async () => {
-      editorRef.undo();
+      getEditorRef(ref).undo();
     });
     await flushQueuedEvents();
 
-    expect(editorRef.getUsj()).toEqual(original);
+    expect(getEditorRef(ref).getUsj()).toEqual(originalUsj);
   });
 });
 
-/** Mark 1 with two adjacent verses (7 and 8) inside one paragraph — the PT-4125 repro shape. */
+/** Mark 1 with verses 6-8 inside one paragraph — the PT-4125 repro shape. Verse 6 exists so the
+ * mounted scrRef (MRK 1:6) names a verse that is really in the document, per the ticket's repro. */
 const usjWithTwoAdjacentVerses: Usj = {
   type: "USJ",
   version: "3.1",
@@ -744,6 +744,7 @@ const usjWithTwoAdjacentVerses: Usj = {
       type: "para",
       marker: "p",
       content: [
+        { type: "verse", marker: "v", number: "6" },
         "Six ",
         { type: "verse", marker: "v", number: "7" },
         "Seven ",
@@ -766,37 +767,36 @@ describe("undo after a native verse delete (PT-4125 regression)", () => {
   // deleteCharacter, which needs domSelection.modify (unimplemented in jsdom). A range delete drives
   // the same verse-destruction -> mutation-listener -> history path.
   it("restores both deleted verse markers with a single undo (Mark 1:7-8 scenario)", async () => {
-    const { editorRef, lexicalEditor } = await mountEditorForUndo({
+    const { ref, lexicalEditor, originalUsj } = await mountEditorForUndo({
       usj: usjWithTwoAdjacentVerses,
       scrRef: { book: "MRK", chapterNum: 1, verseNum: 6 },
       structureProtectionMode: "off",
     });
-    // Snapshot the loaded document; a single undo must return to exactly this.
-    const original = editorRef.getUsj();
-    if (!original) throw new Error("editor did not load USJ");
 
-    // Select from inside "Six " through the start of "Eight " — spans both verse markers (7 and 8).
+    // Select from the end of "Six " through the start of "Eight " — spans both verse markers (7
+    // and 8) plus the text of verse 7, while the selection starts inside the referenced verse 6.
     await act(async () => {
-      editorRef.setSelection({
-        start: { jsonPath: "$.content[2].content[0]", offset: 4 },
-        end: { jsonPath: "$.content[2].content[4]", offset: 0 },
+      getEditorRef(ref).setSelection({
+        start: { jsonPath: "$.content[2].content[1]", offset: "Six ".length },
+        end: { jsonPath: "$.content[2].content[5]", offset: 0 },
       });
     });
 
-    await pressDeleteKey(lexicalEditor, KEY_DELETE_COMMAND);
+    await pressDeleteKey(lexicalEditor);
     await flushQueuedEvents();
 
-    // Precondition: both verse markers were actually deleted.
-    const afterDelete = JSON.stringify(editorRef.getUsj());
+    // Precondition: both verse markers and the text between them were actually deleted.
+    const afterDelete = JSON.stringify(getEditorRef(ref).getUsj());
     expect(afterDelete).not.toContain('"number":"7"');
     expect(afterDelete).not.toContain('"number":"8"');
+    expect(afterDelete).not.toContain("Seven ");
 
     await act(async () => {
-      editorRef.undo();
+      getEditorRef(ref).undo();
     });
     await flushQueuedEvents();
 
-    expect(editorRef.getUsj()).toEqual(original);
+    expect(getEditorRef(ref).getUsj()).toEqual(originalUsj);
   });
 });
 
