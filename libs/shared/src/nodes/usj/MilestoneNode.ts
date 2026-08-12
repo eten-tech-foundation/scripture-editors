@@ -177,6 +177,20 @@ export class MilestoneNode extends DecoratorNode<string> {
     return false;
   }
 
+  /**
+   * A milestone paints nothing of its own: in editable marker mode its `\qt-s …\*` glyphs are real
+   * sibling nodes, and in the other modes an `ImmutableTypedTextNode` carries them.
+   *
+   * Keep this payload EMPTY. A decorator payload with STABLE IDENTITY is unsound for any node that
+   * can be re-parented, and a milestone can be — it rides a Tier-2 paragraph rebuild as a preserved
+   * sentinel and is moved into the freshly created paragraph, whose children Lexical builds new
+   * elements for. Lexical skips notifying its decorator listener whenever the payload is unchanged
+   * (`reconcileDecorator` bails on `currentDecorators[key] === decorator`, and equal strings always
+   * compare equal), so `@lexical/react`'s portal would stay bound to the OLD, detached element and
+   * the live one would render nothing from then on. `""` is what makes that harmless here: there is
+   * nothing to lose. Giving this node visible payload would reintroduce exactly that defect — render
+   * such bytes from `createDOM` instead, the way `ImmutableTypedTextNode` does.
+   */
   override decorate(): string {
     return "";
   }
