@@ -351,15 +351,14 @@ marker menu uses the stylesheet's `Endmarker`. The two differ for any tag where 
 
 ---
 
-## 7c. Defects outside these tracks
-
-Real defects that no track here owns. Recorded so nobody chases them, and so nobody compensates for
-them in editor code — a workaround inside the editor would make the eventual upstream fix a
-double-correction.
+## 7c. The save path runs through this repo
 
 **Whitespace-only text nodes are lost in USJ to USX serialization.** The editor's save path is
 `editor USJ -> usjToUsxString() -> setChapterUSX() -> ParatextData -> USFM`, so
-`@eten-tech-foundation/scripture-utilities` sits in the middle of every save.
+`@eten-tech-foundation/scripture-utilities` sits in the middle of every save — and that package is
+`packages/utilities` IN THIS REPO, a sibling of `platform`, `shared`, and `shared-react`. The
+converter is `packages/utilities/src/converters/usj/usj-to-usx.ts`. **Owned by the whitespace
+track**, not by anyone else and not by anyone upstream.
 
 A whitespace-only text node that is the FIRST CHILD of an element is elided: the serializer emits
 `<note …><char style="fr">` with no text node between the tags, so the parser has nothing to read
@@ -373,14 +372,15 @@ closer, which Paratext treats as note text content.
 
 Notes for whoever picks this up:
 
-- **Not an editor defect.** All four editor-side legs preserve the space — the tokenizer, the
-  adaptor round trip, the transform pass, and `UsjReaderWriter.toUsfm()`. `toUsfm` in particular is
-  byte-exact green on this fixture AND is not in the save path at all; do not use it to reason about
-  save behavior.
+- **Not an editor-layer defect.** All four legs above the converter preserve the space — the
+  tokenizer, the adaptor round trip, the transform pass, and `UsjReaderWriter.toUsfm()`. `toUsfm` in
+  particular is byte-exact green on this fixture AND is not in the save path at all; do not use it
+  to reason about save behavior.
 - **ParatextData is exonerated** without needing a C# capture test: the space is already gone before
   the C# side receives the USX.
-- **The regression net belongs in paranext-core** as a USJ to USX to USJ round-trip suite over the
-  existing fixtures — the fifth leg, and the one nothing covered.
+- **The regression net is a fifth leg**, USJ to USX to USJ, over the fixtures that already exist.
+  `packages/utilities/src/converters/usj/optbreak-whitespace.test.ts` is the precedent — that
+  directory already carries a whitespace-specific converter suite.
 
 ---
 

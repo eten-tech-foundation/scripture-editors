@@ -36,11 +36,18 @@ rebuild alongside the paragraph and note pair, the scope resolver widened, a thi
 and the read-only mirror in the virtual settle. The note scope is the proof that a non-paragraph
 scope works.
 
-**The one real unknown** is why `chapter` sits in `$inLiteralOnlyBlock` beside `book` and opaque
-unknowns. That exclusion exists so a literal the engine will never rebuild cannot leave a stuck
-pending key — circular with the missing scope, but it may also be carrying the documented
-"chapter junk-text edits fall back to the stored number" behavior. Establish which before removing
-it. That is an investigation task, not a design unknown.
+**The `$inLiteralOnlyBlock` question is settled — it is purely circular.** `tier2Rebuild.utils.ts`
+contains ZERO references to chapter nodes: there is no chapter-specific guard rail, no bail, no
+special case. Chapters are excluded from the trigger paths only because nothing rebuilds them, which
+is the very gap the new scope closes. Its own doc comment says as much — it names
+"`$rebuildParas` refuses to re-tokenize" as the reason, and `$rebuildParas` refuses only because a
+chapter is not a paragraph.
+
+So the exclusion entry for chapter comes out when the scope goes in. `book` sits in the same
+circular position; `UnknownNode` does NOT — that one is an independent policy, since
+`$settleScopeForNode` returns `undefined` for opaque blocks by design.
+
+Nothing else about this scope is undecided. The remaining work is implementation.
 
 ### Decision: no read-only intermediate
 
@@ -142,10 +149,12 @@ coincidence.
 
 ### Stage C — the chapter settle scope, then `ca`
 
-6. **Investigate `$inLiteralOnlyBlock`'s chapter entry**: establish whether it guards anything beyond
-   the missing scope before removing it.
-7. Add the chapter settle scope: fragment builder, rebuild, widened scope resolver, third dispatch
-   branch, and the read-only mirror in the virtual settle. Mirror the note scope's shape.
+6. Add the chapter settle scope: fragment builder, rebuild, widened scope resolver, third dispatch
+   branch, and the read-only mirror in the virtual settle. Mirror the note scope's shape, and drop
+   chapter from `$inLiteralOnlyBlock` in the same change — the investigation is done and that entry
+   is purely circular.
+7. Pin that a chapter with no pending edits REFUSES a rebuild, the same fixed-point expectation
+   `$rebuildParas` and `$rebuildNoteContent` already carry.
 8. A chapter's `\ca` renders as a display run, mirroring the verse `\va` descriptor.
 9. Editing the value settles canonically on caret departure; deleting the run clears `altnumber`
    with no resurrection.
