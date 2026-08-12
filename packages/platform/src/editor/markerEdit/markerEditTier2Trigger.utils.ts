@@ -292,9 +292,13 @@ export function $rependPendShapedNodes(context: MarkerEditContext): void {
     if ($isBookNode(node) || $isChapterNode(node)) return;
     if ($isAttributeRunNode(node) && node.getChildrenSize() === 0) {
       // An emptied AttributeRunNode wrapper (an undone husk-removal settle restores it) is the
-      // same statically-re-derivable shape as the optbreak husk above: zero children always
-      // means $settlePendedDisplayOwner's husk arm removes it (AttributeRunNode.ts's own doc —
-      // the wrapper is pure editor-owned scaffolding with nothing left to display). That arm is
+      // same statically-re-derivable shape as the optbreak husk above: zero children means
+      // $settlePendedDisplayOwner's husk arm removes it (AttributeRunNode.ts's own doc — the
+      // wrapper is pure editor-owned scaffolding with nothing left to display). Statically
+      // re-derivable, not unconditional: like every other settle write, the removal waits behind
+      // the owner's grace pre-pass, so a caret sitting IN the husk (where deleting a run's last
+      // byte leaves it) defers it to the caret's departure. Pending is right either way — it is the
+      // departure settle this scan exists to arm. That arm is
       // keyed off the OWNING verse/milestone, not the wrapper itself ($emptyAttributeRunWrappers
       // only recognizes a VerseNode/MilestoneNode), so the owner — found by `$ownerOfRunPiece`
       // (shared's displayRunOwner.utils.ts), the same walk MarkerEditPlugin's live

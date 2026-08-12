@@ -28,6 +28,7 @@ import {
   $isTextNode,
   $setSelection,
   $setState,
+  LexicalEditor,
   LexicalNode,
 } from "lexical";
 import {
@@ -307,8 +308,47 @@ describe("verse \\va/\\vp deletion settles (does not resurrect)", () => {
     return para.getChildren().findIndex((child) => child.is(topLevel));
   };
 
-  /** The `\va` run's wrapper index in the first paragraph — the deletion site is at or after it. */
-  const $vaWrapperParaChildIndex = () => $firstPara().getChildren().findIndex($isAttributeRunNode);
+  /**
+   * The caret is somewhere in the window the deleted `\vp` run occupied: at or after the surviving
+   * `\va` wrapper (index 0 is the `\p` glyph — the paragraph START a rebuild dumps it at) and no
+   * further than the trailing text node that followed the run (so a caret flung past the whole
+   * paragraph fails too). Both bounds are positions, not a single expected index: the exact landing
+   * spot inside that window — the emptied wrapper, its neighbor, offset 0 vs. text end — is
+   * Lexical's business, and pinning it would break on any harmless selection-normalization change.
+   */
+  const $expectCaretAtDeletionSite = () => {
+    const children = $firstPara().getChildren();
+    const caretIndex = $caretParaChildIndex();
+    expect(caretIndex).toBeGreaterThanOrEqual(children.findIndex($isAttributeRunNode));
+    expect(caretIndex).toBeLessThanOrEqual(children.length - 1);
+  };
+
+  /**
+   * Everything the departure settle owes once grace has held the deleted run: the emptied
+   * `AttributeRunNode` husk the reorder now leaves in place under the caret is GONE, `pubnumber` is
+   * cleared, and the round-tripped USJ carries no `pubnumber` either.
+   */
+  const expectVpFullySettled = (editor: LexicalEditor) => {
+    editor.getEditorState().read(() => {
+      const verse = $firstVerse();
+      expect(verse.getPubnumber()).toBeUndefined();
+      // No `\vp` run structure survives anywhere in the paragraph — neither a husk nor a
+      // resurrected run. (`\va` legitimately keeps its own wrapper.)
+      const vpWrappers = $firstPara()
+        .getChildren()
+        .filter($isAttributeRunNode)
+        .filter((wrapper) => wrapper.getRunKind() === "vp");
+      expect(vpWrappers).toHaveLength(0);
+      expect($firstPara().getTextContent()).not.toContain("\\vp");
+    });
+
+    initializeDeserialize(undefined);
+    const usj = requireDefined(
+      deserializeSerializedEditorState(editor.getEditorState().toJSON(), viewOptions),
+      "deserialized USJ",
+    );
+    expect(JSON.stringify(usj)).not.toContain("pubnumber");
+  };
 
   it("keeps the caret at the deletion site when the whole \\vp run is selected and deleted", async () => {
     // TJ's live repro, gesture 1: select every piece of `\vp 11 vp\vp*` and delete. The caret must
@@ -337,10 +377,19 @@ describe("verse \\va/\\vp deletion settles (does not resurrect)", () => {
 
     editor.getEditorState().read(() => {
       expect($firstPara().getTextContent()).not.toContain("\\vp");
-      // The caret is still at the deletion site — at or after the surviving `\va` run — NOT
-      // dumped at the paragraph start (child 0, the `\p` glyph) by a mid-gesture rebuild.
-      expect($caretParaChildIndex()).toBeGreaterThanOrEqual($vaWrapperParaChildIndex());
+      // The caret is still at the deletion site — NOT dumped at the paragraph start (child 0, the
+      // `\p` glyph) by a mid-gesture rebuild.
+      $expectCaretAtDeletionSite();
     });
+
+    // Grace deferred the settle, it did not cancel it. Depart to the second paragraph: the emptied
+    // `\vp` wrapper the caret was sitting in — which the grace pre-pass now deliberately leaves in
+    // place, where it used to be removed out from under the caret — must be cleaned up here, along
+    // with the `pubnumber` whose run the user deleted. Without this continuation a regression that
+    // leaked the husk forever would keep the whole suite green: the direct husk-arm pins run with
+    // no selection at all, so they never exercise the grace path this reorder created.
+    await act(async () => editor.update(() => $secondParaTextNode().select(0, 0)));
+    expectVpFullySettled(editor);
   });
 
   it("keeps the caret at the deletion site when \\vp is backspaced away one character at a time", async () => {
@@ -389,8 +438,13 @@ describe("verse \\va/\\vp deletion settles (does not resurrect)", () => {
 
     editor.getEditorState().read(() => {
       expect($firstPara().getTextContent()).not.toContain("\\vp");
-      expect($caretParaChildIndex()).toBeGreaterThanOrEqual($vaWrapperParaChildIndex());
+      $expectCaretAtDeletionSite();
     });
+
+    // Same departure fence as the selection gesture above: the husk grace left behind is cleaned
+    // up, and `pubnumber` goes with it.
+    await act(async () => editor.update(() => $secondParaTextNode().select(0, 0)));
+    expectVpFullySettled(editor);
   });
 
   it("emptying \\va's text beside a live \\vp keeps both markers in document order (no \\vp hoist)", async () => {
