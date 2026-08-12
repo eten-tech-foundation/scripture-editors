@@ -18,13 +18,17 @@ import {
   TextNode,
 } from "lexical";
 import {
+  $createAttributeRunNode,
   $createCharNode,
   $createImmutableTypedTextNode,
   $createImpliedParaNode,
   $createImmutableChapterNode,
   $createMarkerNode,
+  $createMilestoneNode,
   $createNoteNode,
   $createParaNode,
+  $createVerseNode,
+  AttributeRunNode,
   CharNode,
   ImpliedParaNode,
   MarkerNode,
@@ -1009,6 +1013,109 @@ describe("\\fp boundary in expanded note", () => {
       editor.getEditorState().read(() => {
         $expectSelectionToBe(ftText);
       });
+    });
+  });
+});
+
+describe("Milestone display run", () => {
+  /**
+   * Standard view's editable milestone shape: a zero-width `MilestoneNode` (a `DecoratorNode`)
+   * followed by ONE `AttributeRunNode` wrapper holding its `\qt-s`…`\*` glyph pair.
+   */
+  async function milestoneRunEnvironment() {
+    let precedingText: TextNode;
+    let openingGlyph: MarkerNode;
+    let wrapper: AttributeRunNode;
+    const { editor } = await testEnvironment(() => {
+      precedingText = $createTextNode("before ");
+      openingGlyph = $createMarkerNode("qt-s", "opening");
+      wrapper = $createAttributeRunNode("milestone").append(
+        openingGlyph,
+        $createMarkerNode("", "selfClosing"),
+      );
+      $getRoot().append(
+        $createParaNode().append(
+          precedingText,
+          $createMilestoneNode("qt-s", "ms1"),
+          wrapper,
+          $createTextNode(" after"),
+        ),
+      );
+    });
+    return {
+      editor,
+      precedingText: precedingText!,
+      openingGlyph: openingGlyph!,
+      wrapper: wrapper!,
+    };
+  }
+
+  it("should move to the end of the preceding text when moving backward from the run's first glyph", async () => {
+    const { editor, precedingText, openingGlyph } = await milestoneRunEnvironment();
+    updateSelection(editor, openingGlyph, 0);
+
+    await pressKey(editor, "ArrowLeft");
+
+    editor.getEditorState().read(() => {
+      $expectSelectionToBe(precedingText);
+    });
+  });
+
+  it("should move to the end of the preceding text when moving backward from an element point at the wrapper's start", async () => {
+    const { editor, precedingText, wrapper } = await milestoneRunEnvironment();
+    updateSelection(editor, wrapper, 0);
+
+    await pressKey(editor, "ArrowLeft");
+
+    editor.getEditorState().read(() => {
+      $expectSelectionToBe(precedingText);
+    });
+  });
+
+  it("should leave the run's leading edge to the browser when moving forward", async () => {
+    const { editor, openingGlyph } = await milestoneRunEnvironment();
+    updateSelection(editor, openingGlyph, 0);
+
+    await pressKey(editor, "ArrowRight");
+
+    editor.getEditorState().read(() => {
+      $expectSelectionToBe(openingGlyph, 0);
+    });
+  });
+
+  it("should not claim a backward move from inside the glyph text", async () => {
+    const { editor, openingGlyph } = await milestoneRunEnvironment();
+    updateSelection(editor, openingGlyph, 1);
+
+    await pressKey(editor, "ArrowLeft");
+
+    editor.getEditorState().read(() => {
+      $expectSelectionToBe(openingGlyph, 1);
+    });
+  });
+
+  it("should not claim a backward move out of a verse's \\va run, whose owner is text rather than a decorator", async () => {
+    let openingGlyph: MarkerNode;
+    const { editor } = await testEnvironment(() => {
+      openingGlyph = $createMarkerNode("va", "opening");
+      $getRoot().append(
+        $createParaNode().append(
+          $createVerseNode("1"),
+          $createAttributeRunNode("va").append(
+            openingGlyph,
+            $createTextNode("2"),
+            $createMarkerNode("va", "closing"),
+          ),
+          $createTextNode("verse text"),
+        ),
+      );
+    });
+    updateSelection(editor, openingGlyph!, 0);
+
+    await pressKey(editor, "ArrowLeft");
+
+    editor.getEditorState().read(() => {
+      $expectSelectionToBe(openingGlyph!, 0);
     });
   });
 });

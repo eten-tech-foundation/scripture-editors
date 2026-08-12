@@ -5,10 +5,23 @@ import {
   isSerializedAttributeRunNode,
   SerializedAttributeRunNode,
 } from "./AttributeRunNode.js";
+import { $createMilestoneNode } from "./MilestoneNode.js";
 import { $createParaNode, ParaNode } from "./ParaNode.js";
 import { createBasicTestEnvironment } from "./test.utils.js";
-import { $createTextNode, $getRoot, $isElementNode, SerializedElementNode } from "lexical";
-import { describe, expect, it } from "vitest";
+import { $createMarkerNode } from "../features/MarkerNode.js";
+import { usjBaseNodes } from "./index.js";
+import {
+  $createTextNode,
+  $getRoot,
+  $getSelection,
+  $isElementNode,
+  $isRangeSelection,
+  ElementNode,
+  LexicalEditor,
+  SerializedElementNode,
+  TextNode,
+} from "lexical";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 describe("AttributeRunNode", () => {
   describe("create/clone/serialize round-trip", () => {
@@ -221,6 +234,115 @@ describe("AttributeRunNode", () => {
       editor.update(() => {
         expect($createAttributeRunNode("va").canBeEmpty()).toBe(true);
       });
+    });
+  });
+
+  // Why `ArrowNavigationPlugin` (shared-react) carries a leading-edge hop for a milestone's
+  // display run. Lexical hops a collapsed caret across a `DecoratorNode` itself
+  // (`RangeSelection.modify` → `$modifySelectionAroundDecoratorsAndBlocks`) only while the
+  // decorator is a SIBLING of the caret's own node; its fallback scan, which does walk out
+  // through ancestors, claims only NON-inline decorators, and a `MilestoneNode` is inline
+  // (`DecoratorNode.isInline()` defaults to `true`). Putting the run's glyphs inside this
+  // wrapper made the milestone the WRAPPER's sibling rather than the glyph's, so Lexical now
+  // declines and defers to the browser's native `Selection.modify` — which cannot carry a caret
+  // backward across the milestone's empty `contenteditable="false"` decorator span.
+  //
+  // Both tests stub the native move to a no-op, standing in for that browser refusal, and assert
+  // which side of the boundary Lexical itself resolves. They are characterization pins on
+  // Lexical, not on our fix: if a future Lexical starts handling the wrapped shape on its own,
+  // the second test fails and the plugin-side hop can be retired.
+  describe("caret traversal across the wrapper's leading edge", () => {
+    const restoreNativeModify: (() => void)[] = [];
+
+    afterEach(() => {
+      restoreNativeModify.splice(0).forEach((restore) => restore());
+    });
+
+    /**
+     * Stubs the browser's native `Selection.modify` to a no-op and reports the spy. jsdom
+     * implements no `modify` at all, so the property is defined outright rather than spied on.
+     */
+    function stubNativeModify() {
+      const domSelection = window.getSelection();
+      if (!domSelection) throw new Error("no DOM selection");
+      const previous = Object.getOwnPropertyDescriptor(domSelection, "modify");
+      const spy = vi.fn();
+      Object.defineProperty(domSelection, "modify", {
+        configurable: true,
+        writable: true,
+        value: spy,
+      });
+      restoreNativeModify.push(() => {
+        if (previous) Object.defineProperty(domSelection, "modify", previous);
+        else Reflect.deleteProperty(domSelection, "modify");
+      });
+      return spy;
+    }
+
+    /**
+     * A paragraph reading `before ` + a `qt-s` milestone + its `\qt-s`…`\*` glyph pair, with the
+     * pair either inside an `AttributeRunNode` (today's shape) or riding loose as bare following
+     * siblings (the shape before the run was wrapped).
+     */
+    function milestoneRunEditor(shape: "wrapped" | "loose"): LexicalEditor {
+      return createBasicTestEnvironment(usjBaseNodes, () => {
+        const glyphs = [$createMarkerNode("qt-s", "opening"), $createMarkerNode("", "selfClosing")];
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createTextNode("before "),
+            $createMilestoneNode("qt-s", "ms1"),
+            ...(shape === "wrapped"
+              ? [$createAttributeRunNode("milestone").append(...glyphs)]
+              : glyphs),
+            $createTextNode(" after"),
+          ),
+        );
+      }).editor;
+    }
+
+    it("hops out of a LOOSE (pre-wrapper) run itself, without consulting the browser", () => {
+      const editor = milestoneRunEditor("loose");
+      const nativeModify = stubNativeModify();
+
+      editor.update(
+        () => {
+          const para = $getRoot().getFirstChildOrThrow<ElementNode>();
+          const [precedingText, , openingGlyph] = para.getChildren();
+          (openingGlyph as TextNode).select(0, 0);
+
+          const selection = $getSelection();
+          if (!$isRangeSelection(selection)) throw new Error("no range selection");
+          selection.modify("move", true, "character");
+
+          expect(nativeModify).not.toHaveBeenCalled();
+          expect(selection.anchor.key).toBe(precedingText.getKey());
+          expect(selection.anchor.offset).toBe("before ".length);
+        },
+        { discrete: true },
+      );
+    });
+
+    it("leaves a WRAPPED run's leading edge to the browser, which strands the caret inside the run", () => {
+      const editor = milestoneRunEditor("wrapped");
+      const nativeModify = stubNativeModify();
+
+      editor.update(
+        () => {
+          const para = $getRoot().getFirstChildOrThrow<ElementNode>();
+          const wrapper = para.getChildren()[2] as AttributeRunNode;
+          const openingGlyph = wrapper.getFirstChildOrThrow<TextNode>();
+          openingGlyph.select(0, 0);
+
+          const selection = $getSelection();
+          if (!$isRangeSelection(selection)) throw new Error("no range selection");
+          selection.modify("move", true, "character");
+
+          expect(nativeModify).toHaveBeenCalled();
+          expect(selection.anchor.key).toBe(openingGlyph.getKey());
+          expect(selection.anchor.offset).toBe(0);
+        },
+        { discrete: true },
+      );
     });
   });
 });

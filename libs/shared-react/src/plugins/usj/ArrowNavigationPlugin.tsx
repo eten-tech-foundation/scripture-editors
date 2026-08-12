@@ -11,10 +11,15 @@ import { ViewOptions } from "../../views/view-options.utils";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { $findMatchingParent } from "@lexical/utils";
 import {
+  $getCollapsedCaretRange,
   $getSelection,
+  $getSiblingCaret,
+  $isDecoratorNode,
   $isElementNode,
   $isRangeSelection,
   $isTextNode,
+  $normalizeCaret,
+  $setSelectionFromCaretRange,
   COMMAND_PRIORITY_HIGH,
   KEY_DOWN_COMMAND,
   LexicalEditor,
@@ -26,6 +31,7 @@ import {
   $findFirstAncestorNoteNode,
   $getNextNode,
   $getPreviousNode,
+  $isAttributeRunNode,
   $isBookNode,
   $isCharNode,
   $isImmutableChapterNode,
@@ -33,6 +39,7 @@ import {
   $isMarkerNode,
   $isNoteNode,
   $isSomeParaNode,
+  AttributeRunNode,
   CharNode,
   ImmutableChapterNode,
   NoteNode,
@@ -167,7 +174,8 @@ function $navigateVerseVertically(
 
 /**
  * Registers arrow-key handling for USJ scripture: verse-to-verse vertical movement when needed,
- * and horizontal movement around notes and chapter boundaries.
+ * and horizontal movement around notes, chapter boundaries, and the leading edge of a
+ * decorator-owned attribute display run.
  *
  * TODO: When the caret is before an empty verse number in an otherwise empty para, pressing up or
  * down moves the caret to after the verse number in the para above/below rather than staying
@@ -226,6 +234,7 @@ function useArrowKeys(editor: LexicalEditor, viewOptions: ViewOptions | undefine
       } else if (isMovingBackward(direction, event.key)) {
         isHandled =
           (!hasModifier && $handleBackwardFpNavigation(selection)) ||
+          (!hasModifier && $handleBackwardDisplayRunNavigation(selection)) ||
           $handleBackwardNavigation(selection, viewOptions);
       }
 
@@ -340,6 +349,55 @@ function $selectBeforeFpSpan(fpNode: CharNode): boolean {
   if (!parent) return false;
   const fpIndex = fpNode.getIndexWithinParent();
   parent.select(fpIndex, fpIndex);
+  return true;
+}
+
+// --- The caret stop at a decorator-owned display run's leading edge ---
+//
+// A milestone's display run — its `\qt-s`…`\*` glyph pair and any attribute value — rides inside
+// ONE inline `AttributeRunNode` immediately following the `MilestoneNode` that owns it, and that
+// owner is a `DecoratorNode` that renders nothing: an empty `contenteditable="false"` span.
+// Lexical hops a collapsed caret across a decorator on its own only while the decorator is a
+// SIBLING of the caret's own node; the fallback scan that does walk out through ancestors claims
+// only NON-inline decorators, and a milestone is inline. With the run's glyphs one level down
+// inside the wrapper, the milestone is the WRAPPER's sibling rather than the glyph's, so Lexical
+// declines and defers to the browser's native `Selection.modify` — which will not carry a caret
+// backward across an empty non-editable span, leaving the caret unable to leave the run leftward
+// at all. These handlers make the hop instead, landing exactly where Lexical's own decorator
+// handling would: the position before the owner, normalized to the end of the preceding text when
+// there is text there.
+//
+// Only the run's LEADING edge needs this. Moving forward off its trailing edge crosses into
+// ordinary text, and a verse's `\va`/`\vp` wrapper is owned by a `VerseNode` — a `TextNode`, not a
+// decorator — so the browser carries the caret over both boundaries natively.
+
+/** The `AttributeRunNode` whose very start the collapsed caret sits at, if any. */
+function $getAttributeRunAtStart(selection: RangeSelection): AttributeRunNode | undefined {
+  const anchor = selection.anchor;
+  if (anchor.offset !== 0) return undefined;
+
+  const anchorNode = anchor.getNode();
+  // Element point directly on the wrapper (e.g. an empty wrapper, or a click-placed caret).
+  if (anchor.type === "element") return $isAttributeRunNode(anchorNode) ? anchorNode : undefined;
+
+  // Text point at offset 0 of the run's first piece — the opening marker glyph.
+  const parent = anchorNode.getParent();
+  if (!$isAttributeRunNode(parent) || !anchorNode.is(parent.getFirstChild())) return undefined;
+  return parent;
+}
+
+/** Helper to handle the backward hop out of a display run whose owner is a decorator. */
+function $handleBackwardDisplayRunNavigation(selection: RangeSelection): boolean {
+  const wrapper = $getAttributeRunAtStart(selection);
+  if (!wrapper) return false;
+
+  // Ownership is position-derived: a wrapper directly follows the leaf it belongs to.
+  const owner = wrapper.getPreviousSibling();
+  if (!$isDecoratorNode(owner) || owner.isIsolated()) return false;
+
+  $setSelectionFromCaretRange(
+    $getCollapsedCaretRange($normalizeCaret($getSiblingCaret(owner, "previous"))),
+  );
   return true;
 }
 
