@@ -63,7 +63,7 @@ import { baseTestEnvironment } from "../../../../../../libs/shared-react/src/plu
  * deletes its entry as part of its fix, and the entry failing to fail afterwards is itself
  * meaningful. Do NOT add an entry for a NEW failure without a named mechanism and a named owner.
  */
-const KNOWN_FAILURES: Record<string, string> = {
+const KNOWN_FAILURES: { [fixtureName: string]: string } = {
   "milestones (ts)":
     "whitespace track: $addTrailingSpace fabricates a trailing space on text whose next sibling " +
     "is a MilestoneNode — the transform's exemption list omits that node class",
