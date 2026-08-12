@@ -14,7 +14,9 @@ import {
   $createLineBreakNode,
   $createTextNode,
   $getRoot,
+  COMMAND_PRIORITY_NORMAL,
   KEY_DOWN_COMMAND,
+  LexicalEditor,
   TextNode,
 } from "lexical";
 import {
@@ -1022,7 +1024,7 @@ describe("Milestone display run", () => {
    * Standard view's editable milestone shape: a zero-width `MilestoneNode` (a `DecoratorNode`)
    * followed by ONE `AttributeRunNode` wrapper holding its `\qt-s`…`\*` glyph pair.
    */
-  async function milestoneRunEnvironment() {
+  async function milestoneRunEnvironment(textDirection: "ltr" | "rtl" = "ltr") {
     let precedingText: TextNode;
     let openingGlyph: MarkerNode;
     let wrapper: AttributeRunNode;
@@ -1041,13 +1043,69 @@ describe("Milestone display run", () => {
           $createTextNode(" after"),
         ),
       );
-    });
+    }, textDirection);
     return {
       editor,
       precedingText: precedingText!,
       openingGlyph: openingGlyph!,
       wrapper: wrapper!,
     };
+  }
+
+  /**
+   * The same milestone with its glyphs riding LOOSE as bare following siblings — the shape before
+   * the run was wrapped. Used as the parity control for which keystrokes Lexical ever hopped.
+   */
+  async function looseMilestoneRunEnvironment() {
+    let precedingText: TextNode;
+    let openingGlyph: MarkerNode;
+    const { editor } = await testEnvironment(() => {
+      precedingText = $createTextNode("before ");
+      openingGlyph = $createMarkerNode("qt-s", "opening");
+      $getRoot().append(
+        $createParaNode().append(
+          precedingText,
+          $createMilestoneNode("qt-s", "ms1"),
+          openingGlyph,
+          $createMarkerNode("", "selfClosing"),
+          $createTextNode(" after"),
+        ),
+      );
+    });
+    return { editor, precedingText: precedingText!, openingGlyph: openingGlyph! };
+  }
+
+  /**
+   * Watches whether the plugin DECLINED a key. The listener sits at NORMAL priority — below the
+   * plugin's HIGH, above Lexical's own EDITOR-level arrow handling — so it fires only on a
+   * decline, and swallowing the key there keeps Lexical's native fall-through (which jsdom does
+   * not implement) out of a test that is only about the claim decision.
+   */
+  function watchForDecline(editor: LexicalEditor) {
+    const state = { declined: false };
+    const unregister = editor.registerCommand(
+      KEY_DOWN_COMMAND,
+      () => {
+        state.declined = true;
+        return true;
+      },
+      COMMAND_PRIORITY_NORMAL,
+    );
+    return { state, unregister };
+  }
+
+  /** Presses `key` with modifiers held; `pressKey` covers the unmodified case. */
+  async function pressModifiedKey(
+    editor: LexicalEditor,
+    key: string,
+    modifiers: Pick<KeyboardEventInit, "altKey" | "ctrlKey" | "metaKey" | "shiftKey">,
+  ) {
+    await act(async () => {
+      editor.dispatchCommand(
+        KEY_DOWN_COMMAND,
+        new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...modifiers }),
+      );
+    });
   }
 
   it("should move to the end of the preceding text when moving backward from the run's first glyph", async () => {
@@ -1066,6 +1124,18 @@ describe("Milestone display run", () => {
     updateSelection(editor, wrapper, 0);
 
     await pressKey(editor, "ArrowLeft");
+
+    editor.getEditorState().read(() => {
+      $expectSelectionToBe(precedingText);
+    });
+  });
+
+  // Backward is keyed on LOGICAL direction, not the physical key: in RTL, ArrowRight is backward.
+  it("should move to the end of the preceding text when moving backward in RTL", async () => {
+    const { editor, precedingText, openingGlyph } = await milestoneRunEnvironment("rtl");
+    updateSelection(editor, openingGlyph, 0);
+
+    await pressKey(editor, "ArrowRight");
 
     editor.getEditorState().read(() => {
       $expectSelectionToBe(precedingText);
@@ -1094,7 +1164,7 @@ describe("Milestone display run", () => {
     });
   });
 
-  it("should not claim a backward move out of a verse's \\va run, whose owner is text rather than a decorator", async () => {
+  it("should not claim a backward move out of a verse's \\va run", async () => {
     let openingGlyph: MarkerNode;
     const { editor } = await testEnvironment(() => {
       openingGlyph = $createMarkerNode("va", "opening");
@@ -1116,6 +1186,92 @@ describe("Milestone display run", () => {
 
     editor.getEditorState().read(() => {
       $expectSelectionToBe(openingGlyph!, 0);
+    });
+  });
+
+  // The structural rule is the registry's, not "the owner happens to be a decorator": a wrapper is
+  // a milestone's only when its own runKind says so AND a MilestoneNode sits directly before it.
+  it("should not claim a backward move out of a non-milestone-kind wrapper that follows a milestone", async () => {
+    let openingGlyph: MarkerNode;
+    const { editor } = await testEnvironment(() => {
+      openingGlyph = $createMarkerNode("va", "opening");
+      $getRoot().append(
+        $createParaNode().append(
+          $createTextNode("before "),
+          $createMilestoneNode("qt-s", "ms1"),
+          $createAttributeRunNode("va").append(
+            openingGlyph,
+            $createTextNode("2"),
+            $createMarkerNode("va", "closing"),
+          ),
+          $createTextNode(" after"),
+        ),
+      );
+    });
+    updateSelection(editor, openingGlyph!, 0);
+
+    const { state, unregister } = watchForDecline(editor);
+    let declined = false;
+    try {
+      await pressKey(editor, "ArrowLeft");
+      declined = state.declined;
+    } finally {
+      unregister();
+    }
+
+    expect(declined).toBe(true);
+    editor.getEditorState().read(() => {
+      $expectSelectionToBe(openingGlyph!, 0);
+    });
+  });
+
+  // Modified arrows are excluded from the hop because Lexical never hopped them either — before or
+  // after the run was wrapped. Its keydown gate matches modifiers EXACTLY (only shift is allowed
+  // through to `KEY_ARROW_LEFT_COMMAND`), so ctrl+ArrowLeft dispatches the unhandled
+  // `MOVE_TO_START` and alt+ArrowLeft dispatches nothing; both reach the browser
+  // un-preventDefaulted with word/line granularity. The LOOSE (pre-wrapper) case below is the
+  // parity control: it shows there is no earlier behavior to restore for those keystrokes.
+  it("should not hop a ctrl-modified backward move even in the pre-wrapper shape", async () => {
+    const { editor, openingGlyph } = await looseMilestoneRunEnvironment();
+    updateSelection(editor, openingGlyph, 0);
+
+    await pressModifiedKey(editor, "ArrowLeft", { ctrlKey: true });
+
+    editor.getEditorState().read(() => {
+      $expectSelectionToBe(openingGlyph, 0);
+    });
+  });
+
+  it("should hop an unmodified backward move in the pre-wrapper shape (Lexical's own decorator handling)", async () => {
+    const { editor, precedingText, openingGlyph } = await looseMilestoneRunEnvironment();
+    updateSelection(editor, openingGlyph, 0);
+
+    await pressKey(editor, "ArrowLeft");
+
+    editor.getEditorState().read(() => {
+      $expectSelectionToBe(precedingText);
+    });
+  });
+
+  it("should not claim a ctrl-modified backward move out of the run", async () => {
+    const { editor, openingGlyph } = await milestoneRunEnvironment();
+    updateSelection(editor, openingGlyph, 0);
+
+    await pressModifiedKey(editor, "ArrowLeft", { ctrlKey: true });
+
+    editor.getEditorState().read(() => {
+      $expectSelectionToBe(openingGlyph, 0);
+    });
+  });
+
+  it("should not claim an alt-modified backward move out of the run", async () => {
+    const { editor, openingGlyph } = await milestoneRunEnvironment();
+    updateSelection(editor, openingGlyph, 0);
+
+    await pressModifiedKey(editor, "ArrowLeft", { altKey: true });
+
+    editor.getEditorState().read(() => {
+      $expectSelectionToBe(openingGlyph, 0);
     });
   });
 });

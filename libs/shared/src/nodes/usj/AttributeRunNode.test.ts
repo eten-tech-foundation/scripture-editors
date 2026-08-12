@@ -244,13 +244,16 @@ describe("AttributeRunNode", () => {
   // through ancestors, claims only NON-inline decorators, and a `MilestoneNode` is inline
   // (`DecoratorNode.isInline()` defaults to `true`). Putting the run's glyphs inside this
   // wrapper made the milestone the WRAPPER's sibling rather than the glyph's, so Lexical now
-  // declines and defers to the browser's native `Selection.modify` — which cannot carry a caret
-  // backward across the milestone's empty `contenteditable="false"` decorator span.
+  // declines and defers to the browser's native `Selection.modify`. That delegation is the trap:
+  // the browser is left to carry the caret backward across the milestone's empty
+  // `contenteditable="false"` decorator span, which it does not do.
   //
-  // Both tests stub the native move to a no-op, standing in for that browser refusal, and assert
-  // which side of the boundary Lexical itself resolves. They are characterization pins on
-  // Lexical, not on our fix: if a future Lexical starts handling the wrapped shape on its own,
-  // the second test fails and the plugin-side hop can be retired.
+  // What these two tests demonstrate is the DELEGATION — which side of the boundary Lexical
+  // resolves for itself — with the native move stubbed to a no-op so nothing depends on jsdom
+  // (which implements none) or on real caret geometry. The browser's own refusal is not modelled
+  // here; only a live run can show that. They are characterization pins on Lexical, not on our
+  // fix: if a future Lexical starts resolving the wrapped shape itself, the second test fails and
+  // the plugin-side hop in `ArrowNavigationPlugin` can be retired.
   describe("caret traversal across the wrapper's leading edge", () => {
     const restoreNativeModify: (() => void)[] = [];
 
@@ -322,7 +325,7 @@ describe("AttributeRunNode", () => {
       );
     });
 
-    it("leaves a WRAPPED run's leading edge to the browser, which strands the caret inside the run", () => {
+    it("delegates a WRAPPED run's leading edge to the browser's native move instead", () => {
       const editor = milestoneRunEditor("wrapped");
       const nativeModify = stubNativeModify();
 
