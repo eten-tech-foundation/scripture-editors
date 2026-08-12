@@ -23,7 +23,7 @@ export type SerializedImmutableTypedTextNode = Spread<
 
 export const IMMUTABLE_TYPED_TEXT_VERSION = 1;
 
-export class ImmutableTypedTextNode extends DecoratorNode<string> {
+export class ImmutableTypedTextNode extends DecoratorNode<null> {
   __textType: string;
   __text: string;
 
@@ -100,10 +100,20 @@ export class ImmutableTypedTextNode extends DecoratorNode<string> {
     const dom = document.createElement("span");
     dom.setAttribute("data-text-type", this.__textType);
     dom.classList.add(this.__textType);
+    // The glyph bytes are written into the element itself, NOT rendered through the decorator
+    // portal — see `decorate` for why. The resulting DOM is identical either way (React rendered
+    // the same string as this element's only text child), so nothing downstream changes shape.
+    dom.textContent = this.__text;
     return dom;
   }
 
-  override updateDOM(): boolean {
+  override updateDOM(prevNode: this, dom: HTMLElement): boolean {
+    // Keep the rendered bytes in step with an in-place `setTextContent` (the JSON update path is
+    // its only caller); the guard means an untouched node writes nothing. `__textType` is
+    // deliberately NOT re-applied here — it is only ever set while building a node from JSON,
+    // before this element exists, so the class list has never been able to go stale, and
+    // re-deriving it would be a behavior change this fix does not need.
+    if (prevNode.__text !== this.__text) dom.textContent = this.__text;
     // Returning false tells Lexical that this node does not need its
     // DOM element replacing with a new copy from createDOM.
     return false;
@@ -118,8 +128,30 @@ export class ImmutableTypedTextNode extends DecoratorNode<string> {
     return { element };
   }
 
-  override decorate(): string {
-    return this.getTextContent();
+  /**
+   * No decorator payload: the glyph bytes are rendered by {@link createDOM} instead.
+   *
+   * This node used to return its text here, so `@lexical/react`'s `useDecorators` painted the
+   * bytes into this element through a React portal. That is unsound for a value with STABLE
+   * IDENTITY. Lexical only notifies its decorator listener when the decorator value actually
+   * changes — `reconcileDecorator` bails on `currentDecorators[key] === decorator` — and two equal
+   * strings always compare equal. So whenever Lexical DESTROYS and RE-CREATES this node's element
+   * while the node itself survives (`$createNode` runs for every child of a freshly created parent,
+   * which is exactly what re-parenting a node does), the map never changed, no listener fired,
+   * `useDecorators` never rebuilt its portal list, and the portal stayed pointed at the OLD,
+   * detached element. The new element was left permanently EMPTY — the glyph vanished from the
+   * screen while the node, the USJ, and the file on disk all still carried it, and only remounting
+   * the editor brought it back.
+   *
+   * The marker-edit engine re-parents preserved nodes on every Tier-2 paragraph rebuild
+   * (`$replaceSentinels`, tier2Rebuild.utils.ts, moves each preserved node into the rebuilt
+   * paragraph), so an `\optbreak`'s `//` token — a child of the preserved `UnknownNode` — blanked
+   * out the first time anything else in its paragraph settled. Rendering from `createDOM` removes
+   * the portal indirection entirely: the bytes travel with the element that carries them, so any
+   * number of re-parents keeps them, and there is one less React portal per glyph.
+   */
+  override decorate(): null {
+    return null;
   }
 
   override exportJSON(): SerializedImmutableTypedTextNode {

@@ -24,7 +24,7 @@ export type SerializedImmutableUnmatchedNode = Spread<
   SerializedLexicalNode
 >;
 
-export class ImmutableUnmatchedNode extends DecoratorNode<string> {
+export class ImmutableUnmatchedNode extends DecoratorNode<null> {
   __marker: string;
 
   constructor(marker = "", key?: NodeKey) {
@@ -87,13 +87,19 @@ export class ImmutableUnmatchedNode extends DecoratorNode<string> {
     dom.title = isClosing
       ? `This closing marker has no matching opening marker!`
       : `This opening marker has no matching closing marker!`;
+    // The flagged marker's bytes are written into the element itself, NOT rendered through the
+    // decorator portal — see `decorate` for why.
+    dom.textContent = `\\${this.__marker}${ZWSP}`;
     return dom;
   }
 
-  override updateDOM(): boolean {
-    // Returning false tells Lexical that this node does not need its
-    // DOM element replacing with a new copy from createDOM.
-    return false;
+  override updateDOM(prevNode: this): boolean {
+    // A marker change rewrites data-marker, the title, and the rendered bytes together, so let
+    // Lexical rebuild the element from createDOM rather than patching three things by hand.
+    // (`setMarker` only ever runs while building a node from JSON, before this element exists, so
+    // in practice this is always the false branch.) Returning false tells Lexical that this node
+    // does not need its DOM element replacing with a new copy from createDOM.
+    return prevNode.__marker !== this.__marker;
   }
 
   override exportDOM(editor: LexicalEditor): DOMExportOutput {
@@ -106,8 +112,20 @@ export class ImmutableUnmatchedNode extends DecoratorNode<string> {
     return { element };
   }
 
-  override decorate(): string {
-    return `\\${this.getMarker()}${ZWSP}`;
+  /**
+   * No decorator payload: the flagged bytes are rendered by {@link createDOM} instead. Same
+   * unsound-stable-identity reason as `ImmutableTypedTextNode.decorate` (whose doc comment carries
+   * the full account) — Lexical's `reconcileDecorator` skips notifying its listener when the
+   * decorator value is unchanged, so re-creating this node's element while the node survives left
+   * `useDecorators`' React portal painting into the old, detached element and the live one empty.
+   *
+   * Reachable for exactly the same reason too: an unmatched marker is a preserved Tier-2 sentinel
+   * (`$appendNodesFragment`'s catch-all, tier2Rebuild.utils.ts), so `$replaceSentinels` re-parents
+   * it into the rebuilt paragraph and its `\marker` glyph blanked out the moment anything else in
+   * that paragraph settled.
+   */
+  override decorate(): null {
+    return null;
   }
 
   override exportJSON(): SerializedImmutableUnmatchedNode {
