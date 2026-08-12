@@ -37,6 +37,7 @@ import {
   $createVerseNode,
   $isCharNode,
   $isParaNode,
+  $isVerseNode,
   $verseAttributeRunPieces,
   AttributeRunNode,
   ChapterNode,
@@ -1156,5 +1157,170 @@ describe("$settlePendedDisplayOwner verse migration + fallthrough interaction", 
       const { wrapper } = $verseAttributeRunPieces(verse, "vp");
       expect(wrapper).toBeDefined();
     });
+  });
+});
+
+describe("$resolvePendingMarkers routes a pended run PIECE through its owner's grace", () => {
+  function buildContext(): MarkerEditContext {
+    return {
+      viewOptions,
+      getMarker: bundledGetMarker,
+      pendingKeys: new Set<NodeKey>(),
+      splitExpected: { current: false },
+      rebuildAttempted: new Set<string>(),
+    };
+  }
+
+  /** A verse carrying BOTH wrapped runs (`\va 11 va\va*\vp 11 vp\vp*`) in a `\p` paragraph. */
+  function $buildVaVpVerse(): {
+    verse: VerseNode;
+    vaValue: TextNode;
+    vpValue: TextNode;
+  } {
+    const verse = $createVerseNode(
+      "11",
+      getVisibleOpenMarkerText("v", "11"),
+      undefined,
+      "11 va",
+      "11 vp",
+    );
+    const vaWrapper = $createAttributeRunNode("va");
+    const vaValue = $createTextNode(`${NBSP}11 va`);
+    $setState(vaValue, textTypeState, "attribute");
+    vaWrapper.append($createMarkerNode("va"), vaValue, $createMarkerNode("va", "closing"));
+    const vpWrapper = $createAttributeRunNode("vp");
+    const vpValue = $createTextNode(`${NBSP}11 vp`);
+    $setState(vpValue, textTypeState, "attribute");
+    vpWrapper.append($createMarkerNode("vp"), vpValue, $createMarkerNode("vp", "closing"));
+    $getRoot().append(
+      $createParaNode("p").append(
+        $createMarkerNode("p"),
+        $createTextNode(NBSP),
+        verse,
+        vaWrapper,
+        vpWrapper,
+        $createTextNode(" This verse."),
+      ),
+      $createParaNode("p").append(
+        $createMarkerNode("p"),
+        $createTextNode(NBSP),
+        $createTextNode("body"),
+      ),
+    );
+    return { verse, vaValue, vpValue };
+  }
+
+  /** The verse, re-queried — a settle that re-tokenizes the paragraph replaces every node in it. */
+  function $firstVerse(): VerseNode {
+    const verse = $getRoot().getChildren().filter($isParaNode)[0].getChildren().find($isVerseNode);
+    if (!verse) throw new Error("verse missing");
+    return verse;
+  }
+
+  /** The second paragraph's body text — re-queried, since Lexical merges its NBSP prefix and
+   * "body" into one node on the first commit. */
+  function $bodyTextNode(): TextNode {
+    const body = $getRoot().getChildren().filter($isParaNode)[1].getLastChild();
+    if (!$isTextNode(body)) throw new Error("body text node missing");
+    return body;
+  }
+
+  it("graces a caret-held \\va run when a SIBLING \\vp piece's key is what resolves", () => {
+    // The grace-contract violation: `$textNodeTier2Transform` pends every attribute-run value under
+    // its OWN key, so the resolve pass can be handed a run PIECE. A piece matches no descriptor's
+    // `ownerPredicate`, so `$settlePendedDisplayOwner` reports it unhandled and the caller
+    // re-tokenizes the piece's whole PARAGRAPH — with no owner-grace check anywhere on that path.
+    // Here the caret sits mid-edit inside the `\va` value while the SIBLING `\vp` value's key
+    // resolves: the rebuild re-tokenizes the transient `\va 11 v` bytes out from under the user.
+    const { editor } = createBasicTestEnvironment();
+    let verse!: VerseNode;
+    let vaValue!: TextNode;
+    let vpValue!: TextNode;
+    editor.update(
+      () => {
+        ({ verse, vaValue, vpValue } = $buildVaVpVerse());
+      },
+      { discrete: true },
+    );
+    const vaValueKey = vaValue.getKey();
+
+    const context = buildContext();
+    editor.update(
+      () => {
+        // Mid-edit inside `\va`'s value (a character deleted off its end), caret in the bytes.
+        vaValue.setTextContent(`${NBSP}11 v`);
+        vaValue.select(vaValue.getTextContentSize(), vaValue.getTextContentSize());
+        // What the TextNode catch-all transform does with the sibling run's value: pend its OWN key.
+        context.pendingKeys.add(vpValue.getKey());
+      },
+      { discrete: true },
+    );
+
+    editor.update(
+      () => {
+        // `exceptKey` is the caret's own node — the `\va` value — exactly as MarkerEditPlugin
+        // computes it. It shields that node's own key, never the sibling piece's.
+        $resolvePendingMarkers(context, vaValueKey);
+      },
+      { discrete: true },
+    );
+
+    editor.getEditorState().read(() => {
+      // The caret-held run was NOT settled: its value node still exists (same key, not replaced by
+      // a rebuild) and still carries the user's transient mid-edit bytes.
+      expect(vaValue.isAttached()).toBe(true);
+      expect(vaValue.getTextContent()).toBe(`${NBSP}11 v`);
+      // The verse's own state was not re-derived from those mid-edit bytes either.
+      expect(verse.getAltnumber()).toBe("11 va");
+    });
+    // The owner is re-pended, so the settle still happens once the caret departs.
+    expect(context.pendingKeys.has(verse.getKey())).toBe(true);
+  });
+
+  it("settles the owner ONCE when several pended pieces of its runs resolve in one pass", () => {
+    // Dedup: `\va`'s and `\vp`'s values both pend under their own keys in the same commit, and both
+    // map to the same verse. The owner's settle must run once — a second run would re-probe the
+    // already-rebuilt paragraph, and its refused (fixed-point) rebuild still creates parse orphans.
+    const { editor } = createBasicTestEnvironment();
+    let vaValue!: TextNode;
+    let vpValue!: TextNode;
+    editor.update(
+      () => {
+        ({ vaValue, vpValue } = $buildVaVpVerse());
+      },
+      { discrete: true },
+    );
+
+    const context = buildContext();
+    editor.update(
+      () => {
+        // Both values edited, then the caret departs to the other paragraph: nothing is caret-held,
+        // so the owner genuinely settles.
+        vaValue.setTextContent(`${NBSP}11 VA`);
+        vpValue.setTextContent(`${NBSP}11 VP`);
+        context.pendingKeys.add(vaValue.getKey());
+        context.pendingKeys.add(vpValue.getKey());
+        $bodyTextNode().select(0, 0);
+      },
+      { discrete: true },
+    );
+
+    let mutated = false;
+    editor.update(
+      () => {
+        mutated = $resolvePendingMarkers(context);
+      },
+      { discrete: true },
+    );
+
+    expect(mutated).toBe(true);
+    editor.getEditorState().read(() => {
+      // The displayed bytes won: both edited values folded back onto the verse.
+      const settled = $firstVerse();
+      expect(settled.getAltnumber()).toBe("11 VA");
+      expect(settled.getPubnumber()).toBe("11 VP");
+    });
+    // Every pended key was consumed — no leak, and no owner key left behind by the second piece.
+    expect(context.pendingKeys.size).toBe(0);
   });
 });

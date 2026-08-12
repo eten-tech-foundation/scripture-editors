@@ -20,11 +20,13 @@ import {
 import { $rebuildParas, Tier2Context } from "./tier2Rebuild.utils";
 import { act } from "@testing-library/react";
 import {
+  $createRangeSelection,
   $createTextNode,
   $getRoot,
   $getSelection,
   $isRangeSelection,
   $isTextNode,
+  $setSelection,
   $setState,
   LexicalNode,
 } from "lexical";
@@ -244,6 +246,151 @@ describe("verse \\va/\\vp deletion settles (does not resurrect)", () => {
     expect(firstParaContent).toContainEqual({ type: "char", marker: "va" });
     // No altnumber survived anywhere.
     expect(JSON.stringify(usj)).not.toContain("altnumber");
+  });
+
+  /**
+   * A verse carrying BOTH wrapped runs — `\v 11 \va 11 va\va*\vp 11 vp\vp* This verse.` — plus a
+   * second paragraph to park the caret in. TJ's live repro shape.
+   */
+  function $buildVaVpParas(): void {
+    const verse = $createVerseNode(
+      "11",
+      getVisibleOpenMarkerText("v", "11"),
+      undefined,
+      "11 va",
+      "11 vp",
+    );
+    $getRoot().append(
+      $createParaNode("p").append(
+        $createMarkerNode("p"),
+        $createTextNode(NBSP),
+        verse,
+        $createTextNode(" This verse."),
+      ),
+      $createParaNode("p").append(
+        $createMarkerNode("p"),
+        $createTextNode(NBSP),
+        $createTextNode("body"),
+      ),
+    );
+    $appendVerseAttributeRun(verse, "va", "11 va");
+    $appendVerseAttributeRun(verse, "vp", "11 vp");
+  }
+
+  const $firstPara = () => $getRoot().getChildren().filter($isParaNode)[0];
+  const $firstVerse = () =>
+    requireDefined($firstPara().getChildren().find($isVerseNode), "verse missing");
+  const $secondParaTextNode = () => {
+    const body = $getRoot().getChildren().filter($isParaNode)[1].getLastChild();
+    if (!$isTextNode(body)) throw new Error("body text node missing");
+    return body;
+  };
+
+  /**
+   * Where the collapsed caret sits, as an index into the FIRST paragraph's own children (the
+   * anchor's top-level ancestor there). Index 0 is the `\p` marker glyph — the paragraph START,
+   * where a rebuild that cannot map the caret forward dumps it.
+   */
+  const $caretParaChildIndex = () => {
+    const selection = $getSelection();
+    if (!$isRangeSelection(selection)) throw new Error("no range selection");
+    const para = $firstPara();
+    let node: LexicalNode = selection.anchor.getNode();
+    if (node.is(para)) return selection.anchor.offset;
+    let parent = node.getParent();
+    while (parent && !parent.is(para)) {
+      node = parent;
+      parent = node.getParent();
+    }
+    if (!parent) return -1; // the caret left the first paragraph entirely
+    const topLevel = node;
+    return para.getChildren().findIndex((child) => child.is(topLevel));
+  };
+
+  /** The `\va` run's wrapper index in the first paragraph — the deletion site is at or after it. */
+  const $vaWrapperParaChildIndex = () => $firstPara().getChildren().findIndex($isAttributeRunNode);
+
+  it("keeps the caret at the deletion site when the whole \\vp run is selected and deleted", async () => {
+    // TJ's live repro, gesture 1: select every piece of `\vp 11 vp\vp*` and delete. The caret must
+    // stay where the run was — it jumped to the START of the paragraph instead.
+    const { editor } = await testEnvironmentWithSpacing($buildVaVpParas);
+
+    // Place the caret once before the gesture, the way a real session always has: the engine's
+    // deferred resolution only runs once it has observed a caret.
+    await act(async () => editor.update(() => $secondParaTextNode().select(0, 0)));
+
+    await act(async () =>
+      editor.update(() => {
+        const vaWrapper = requireDefined(
+          $verseAttributeRunPieces($firstVerse(), "va").wrapper,
+          "\\va wrapper missing",
+        );
+        const { opener, closer } = $verseAttributeRunPieces(vaWrapper, "vp");
+        if (!opener || !closer) throw new Error("\\vp glyphs missing");
+        const selection = $createRangeSelection();
+        selection.anchor.set(opener.getKey(), 0, "text");
+        selection.focus.set(closer.getKey(), closer.getTextContentSize(), "text");
+        $setSelection(selection);
+        selection.removeText();
+      }),
+    );
+
+    editor.getEditorState().read(() => {
+      expect($firstPara().getTextContent()).not.toContain("\\vp");
+      // The caret is still at the deletion site — at or after the surviving `\va` run — NOT
+      // dumped at the paragraph start (child 0, the `\p` glyph) by a mid-gesture rebuild.
+      expect($caretParaChildIndex()).toBeGreaterThanOrEqual($vaWrapperParaChildIndex());
+    });
+  });
+
+  it("keeps the caret at the deletion site when \\vp is backspaced away one character at a time", async () => {
+    // TJ's live repro, gesture 2: delete the `\vp` run right-to-left, one character per Backspace.
+    // The caret held its place for every character — until the leftmost backslash went, taking the
+    // run's last surviving byte with it, at which point it jumped to the paragraph start.
+    const { editor } = await testEnvironmentWithSpacing($buildVaVpParas);
+
+    await act(async () => editor.update(() => $secondParaTextNode().select(0, 0)));
+    // Park the caret at the very end of the `\vp` closer glyph, where the gesture starts.
+    await act(async () =>
+      editor.update(() => {
+        const vaWrapper = requireDefined(
+          $verseAttributeRunPieces($firstVerse(), "va").wrapper,
+          "\\va wrapper missing",
+        );
+        const { closer } = $verseAttributeRunPieces(vaWrapper, "vp");
+        if (!closer) throw new Error("\\vp closer missing");
+        closer.select(closer.getTextContentSize(), closer.getTextContentSize());
+      }),
+    );
+
+    // jsdom cannot drive Lexical's collapsed-caret `deleteCharacter` (it needs the DOM selection's
+    // `modify`, which jsdom does not implement), so each Backspace is a one-character backward
+    // range deletion — the same editor-state edit, through the same `removeText` the sibling
+    // selection-deletion gestures here use.
+    const $backspaceOnce = () => {
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) throw new Error("no range selection");
+      const { anchor } = selection;
+      const anchorNode = anchor.getNode();
+      if (anchor.type !== "text" || !$isTextNode(anchorNode) || anchor.offset === 0)
+        throw new Error(
+          `Backspace needs a text caret past offset 0; got ${anchor.type} ${anchorNode.getType()}[${anchor.offset}]`,
+        );
+      anchorNode.select(anchor.offset - 1, anchor.offset);
+      const range = $getSelection();
+      if (!$isRangeSelection(range)) throw new Error("no range selection");
+      range.removeText();
+    };
+
+    // 13 characters: the `\vp` opener, its NBSP-prefixed ` 11 vp` value, and the `\vp*` closer. The
+    // last one is the leftmost backslash — the keystroke the caret jump was reported for.
+    for (let step = 0; step < 13; step++)
+      await act(async () => editor.update(() => $backspaceOnce()));
+
+    editor.getEditorState().read(() => {
+      expect($firstPara().getTextContent()).not.toContain("\\vp");
+      expect($caretParaChildIndex()).toBeGreaterThanOrEqual($vaWrapperParaChildIndex());
+    });
   });
 
   it("emptying \\va's text beside a live \\vp keeps both markers in document order (no \\vp hoist)", async () => {
