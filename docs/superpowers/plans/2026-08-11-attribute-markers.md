@@ -11,19 +11,45 @@ written, editable, settling canonically, round-tripping byte-identically.
 Today, standalone `ca`/`cp`/`cat` render correctly. As ATTRIBUTE markers — `ca`/`cp` on a chapter,
 `cat` on a note — they do not appear at all.
 
-## The honest sequencing problem
+## Sequencing
 
-**Every display item in this track has a prerequisite outside it.** Read this before scheduling.
+One genuine prerequisite, and it lives INSIDE this track.
 
-| Target | Blocked by |
+| Target | Status |
 | --- | --- |
-| `ca` on a chapter | **Chapters have no settle path.** Tier 2 never rebuilds a chapter, so edited chapter bytes have nowhere to settle. Displaying them editable recreates the milestone edit-loss class. |
-| `cp` on a chapter | The same, PLUS a block-level display run (see below). |
-| `cat` on a note | Collapsed note bodies are sentinels, so note-internal attribute bytes are not display candidates. |
-| `cat` on a sidebar | The bytes are ALREADY rendered inside the sidebar's read-only `UnknownNode`. Making them editable is the unknown-blocks track's work. |
+| `cat` in the note editor and expanded mode | **Unblocked.** `cat` is note content and belongs wherever note content is shown. Collapsed notes correctly do not show it — that is not the requirement. |
+| `cat` on a sidebar | **Not a defect.** It renders today; the contrary report came from a testUSFM copy that lacked sidebar `cat`. |
+| Space after `\cat*` is being deleted | **Unblocked, and a live losslessness defect.** See below. |
+| `ca` on a chapter | Needs the chapter settle scope (task 4). Near-mechanical afterward — the same shape as `va`. |
+| `cp` on a chapter | The same scope, PLUS block-level display-run work. That work is SCOPE, not a blocker. |
 
-Two pieces of this track have NO prerequisite and can start immediately: the ParatextData capture
-test, and sourcing the shared facts from the markers map. Start there.
+### The chapter settle scope
+
+Editing displayed marker bytes requires something to re-tokenize them. That machinery is scoped, and
+`$settleScopeForNode` today resolves to `ParaNode | NoteNode`, with `$requestTier2ForNode`
+dispatching to `$rebuildParas` or `$rebuildNoteContent`. Chapters are top-level siblings of
+paragraphs, so no scope claims them and edited chapter bytes have nowhere to settle — displaying them
+editable would recreate the milestone edit-loss class.
+
+The fix is the third instance of an existing pattern, not a new one: a chapter fragment builder and
+rebuild alongside the paragraph and note pair, the scope resolver widened, a third dispatch branch,
+and the read-only mirror in the virtual settle. The note scope is the proof that a non-paragraph
+scope works.
+
+**The one real unknown** is why `chapter` sits in `$inLiteralOnlyBlock` beside `book` and opaque
+unknowns. That exclusion exists so a literal the engine will never rebuild cannot leave a stuck
+pending key — circular with the missing scope, but it may also be carrying the documented
+"chapter junk-text edits fall back to the stored number" behavior. Establish which before removing
+it. That is an investigation task, not a design unknown.
+
+### Decision: no read-only intermediate
+
+`ca` and `cat` go straight to editable. `cp` follows in the same track, also straight to editable.
+
+A read-only intermediate for `cp` would not avoid its expensive part: the chapter settle scope is
+shared with `ca` and gets built regardless, so `cp`'s remaining cost is purely the block-level
+display work — which a read-only pass would have to design once and then redesign. Sequence `cp`
+last; do not stage it.
 
 ## Why `cp` is the hard one
 
@@ -88,24 +114,47 @@ coincidence.
    block: the index is located in one string and the slice taken from another; they are equal on
    entry but can diverge after an earlier branch mutates one of them.
 
-### Stage A — `cat`, after its prerequisites
+### Stage A — the space-after-closer defect, unblocked
 
-4. Sidebar `cat` becomes editable, once unknown-block editability lands. **First verify the
-   observed-versus-code discrepancy**: the code renders the sidebar's `\cat` bytes, but it was
-   reported as not appearing. Establish which is true before designing.
-5. Note `cat` displays, once note-content display exists for collapsed notes.
+4. **A space after an attribute marker's closer must survive as content.** Paratext treats
+   whitespace after an attribute marker as text content rather than as an optional structural space
+   — the behavior the markers map records as `isSpaceAfterAttributeMarkersContent`, which is true for
+   the Paratext map variants the editor targets. The editor currently DELETES it:
 
-### Stage B — `ca`, after a chapter-settle story exists
+   ```
+   in:  \fe + \cat things\cat* \fr 1:12 \ft More footnote text. …\fe*
+   out: \fe + \cat things\cat*\fr 1:12 \ft More footnote text. …\fe*
+   ```
 
-6. A chapter's `\ca` renders as a display run, mirroring the verse `\va` descriptor.
-7. Editing the value settles canonically on caret departure.
-8. Deleting the run clears `altnumber` with no resurrection.
+   This is a byte the user never touched disappearing on round trip — an Invariant I violation in
+   the losslessness direction, and a pure tokenizer/adaptor concern testable with no UI. The 2SA
+   fixtures already document the expected behavior for this exact `\fe + \cat things\cat* \fr` line,
+   so the failing test can be lifted from them.
 
-### Stage C — `cp`, after Stage B
+   Check the sibling positions while here: the same space class after `\va*`, `\vp*`, and `\ca*`.
+   The verse-11 and verse-12 fixture rows distinguish "space after" (kept as leading text content)
+   from "space between" (blocks the fold) — both must hold.
 
-9. Block-level display-run support: whichever of a block wrapper or a new writer mode the design
-   picks, decided against the four problems above.
-10. Fold and unfold across the node-kind boundary: typing a marker into `cp` produces a real
+### Stage B — `cat` where note content is shown, unblocked
+
+5. `cat` displays and edits in the note editor and in expanded note mode — wherever note content is
+   shown. Collapsed notes deliberately do not show it.
+
+### Stage C — the chapter settle scope, then `ca`
+
+6. **Investigate `$inLiteralOnlyBlock`'s chapter entry**: establish whether it guards anything beyond
+   the missing scope before removing it.
+7. Add the chapter settle scope: fragment builder, rebuild, widened scope resolver, third dispatch
+   branch, and the read-only mirror in the virtual settle. Mirror the note scope's shape.
+8. A chapter's `\ca` renders as a display run, mirroring the verse `\va` descriptor.
+9. Editing the value settles canonically on caret departure; deleting the run clears `altnumber`
+   with no resurrection.
+
+### Stage D — `cp`
+
+10. Block-level display-run support: whichever of a block wrapper or a new writer mode the design
+    picks, decided against the four problems above.
+11. Fold and unfold across the node-kind boundary: typing a marker into `cp` produces a real
     paragraph; removing it folds back to `pubnumber`.
 
 ## Acceptance

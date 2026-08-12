@@ -96,16 +96,36 @@ Each is red-first. Behavior statements, not line references, so the plan survive
   accidental double spaces. We have no equivalent, so each path must be exact rather than
   approximately right.
 
-## Open question — blocking task 11's scope only
+## The primitive already exists — this track is an extraction, not a build
 
-The product owner wants Enter inside a note to close AND reopen the stack around `\fp`:
+RESOLVED (owner-confirmed): `\fq` + Enter already does the whole operation correctly. In
+`\ft start \+nd asdf\+nd* end` with the caret between `as` and `df`:
 
 ```
-\ft test \+nd as\+nd*\fp \ft \+nd df\+nd* test
+\ft start \+nd as\+nd*\fq \ft \+nd df\+nd* end
 ```
 
-PT9 does not do this — its `\fp` path closes implicitly and never reopens. The owner cited `\fq`
-insertion as behaving that way. **Confirm whether `\fq` mid-nesting actually reopens the stack in
-Platform.Bible today.** If it does, this primitive gains a second caller and the note-Enter case
-joins this track. If it does not, the reopen-on-`\fp` behavior is a new product decision and should
-be scoped separately rather than smuggled in here.
+with the caret immediately before the reopened `\ft`. The stack closes innermost-to-outermost, the
+new marker lands, and the stack reopens outermost-to-innermost — including the implicit close of
+`\ft` by the sibling `\fq`. That is the target behavior, and it is a DELIBERATE improvement over PT9,
+which never reopens on this path.
+
+So the work is: find the code that already does this on the marker-apply path, extract it, and give
+it three callers instead of one.
+
+| Caller | Today |
+| --- | --- |
+| `\fq` + Enter (marker apply) | **Correct.** The reference implementation. |
+| `\fp` + Enter (note Enter) | Closes the stack, never reopens it. |
+| Ctrl+Space | Closes only the innermost, and puts the space INSIDE the surviving outer span. |
+
+`\fq` + Space does no special insertion at all, consistent with the ratified Space-versus-Enter
+split — Space is type-through, Enter is the apply path. Leave it alone.
+
+This reorders the task list: extraction moves EARLY (characterize the working `\fq` path first, then
+extract), and the Ctrl+Space and `\fp` behaviors become new callers of proven code rather than new
+implementations. Task 11 is no longer a trailing refactor.
+
+**Caret placement differs by caller and is intentional:** `\fq` leaves the caret before the reopened
+stack; Ctrl+Space leaves it after the space, at the start of the reopened run. The extracted
+primitive takes caret placement as a parameter rather than deciding it.
