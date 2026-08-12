@@ -114,26 +114,26 @@ coincidence.
    block: the index is located in one string and the slice taken from another; they are equal on
    entry but can diverge after an earlier branch mutates one of them.
 
-### Stage A — the space-after-closer defect, unblocked
+### Stage A — the space-after-closer defect: NOT THIS TRACK
 
-4. **A space after an attribute marker's closer must survive as content.** Paratext treats
-   whitespace after an attribute marker as text content rather than as an optional structural space
-   — the behavior the markers map records as `isSpaceAfterAttributeMarkersContent`, which is true for
-   the Paratext map variants the editor targets. The editor currently DELETES it:
+4. **RESOLVED as an upstream defect. Do not fix it here, and do not compensate for it in editor
+   code.** The reported symptom is real:
 
    ```
    in:  \fe + \cat things\cat* \fr 1:12 \ft More footnote text. …\fe*
    out: \fe + \cat things\cat*\fr 1:12 \ft More footnote text. …\fe*
    ```
 
-   This is a byte the user never touched disappearing on round trip — an Invariant I violation in
-   the losslessness direction, and a pure tokenizer/adaptor concern testable with no UI. The 2SA
-   fixtures already document the expected behavior for this exact `\fe + \cat things\cat* \fr` line,
-   so the failing test can be lifted from them.
+   It was traced to `usjToUsxString` in `@eten-tech-foundation/scripture-utilities`, which elides a
+   whitespace-only text node that is the first child of an element. Every editor-side leg preserves
+   the space. See the invariants doc §7c for the measurement and for why `UsjReaderWriter.toUsfm()`
+   is irrelevant here despite being byte-exact green on the same fixture.
 
-   Check the sibling positions while here: the same space class after `\va*`, `\vp*`, and `\ca*`.
-   The verse-11 and verse-12 fixture rows distinguish "space after" (kept as leading text content)
-   from "space between" (blocks the fold) — both must hold.
+   What this track SHOULD still verify, because they are genuinely its own semantics: the
+   "space after" versus "space between" distinction around `\va*`, `\vp*`, and `\ca*`. The verse-11
+   and verse-12 fixture rows separate them — a space AFTER the closer is leading text content, a
+   space BETWEEN the target and the attribute marker BLOCKS the fold. Both must hold, and they are
+   one character apart.
 
 ### Stage B — `cat` where note content is shown, unblocked
 
