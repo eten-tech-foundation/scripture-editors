@@ -1,6 +1,6 @@
 /**
  * The node-level half of the optbreak-glyph-vanish regression (live QA 2026-08-12; the
- * user-visible gesture is pinned in `packages/platform`'s optbreakGlyphRerender.test.tsx).
+ * user-visible gesture is pinned in `packages/platform`'s glyphDecoratorRerender.test.tsx).
  *
  * `ImmutableTypedTextNode` renders every read-only USFM glyph run — a book id, an `UnknownNode`'s
  * display bytes, an `\optbreak`'s `//` token. It used to paint those bytes through the DECORATOR
