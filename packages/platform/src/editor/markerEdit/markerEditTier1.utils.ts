@@ -23,6 +23,7 @@ import {
   $isParaNode,
   $isVerseNode,
   $milestoneAttributeRunPieces,
+  $ownerOfRunPiece,
   $runDiverges,
   $runEntirelyAbsent,
   $runNeedsOnlyWrapMigration,
@@ -327,15 +328,7 @@ export function $settlePendedDisplayOwner(
   node: LexicalNode,
   context: MarkerEditContext,
 ): { handled: boolean; mutated: boolean } {
-  // An emptied wrapper left attached to a verse or milestone is undead scaffolding with nothing
-  // left to display. Removed as a side effect, not an early return, so the OWNER's own policy
-  // below still runs against the cleaned-up tree in the SAME pass: ownership is position-derived,
-  // so a wrapper orphaned by its owner's removal could never be cleaned up by anything else.
   let mutated = false;
-  for (const wrapper of $emptyAttributeRunWrappers(node)) {
-    wrapper.remove();
-    mutated = true;
-  }
   // Grace PRE-PASS: every descriptor matching this node is checked for a caret-held run BEFORE any
   // settle action runs for ANY of them — a standing contract, not an artifact of iteration order. A
   // verse's `\va`/`\vp` are two INDEPENDENT runs sharing one pended owner identity; if `\va` rides
@@ -345,6 +338,18 @@ export function $settlePendedDisplayOwner(
   // the whole owner untouched. Checking every matching descriptor's grace to completion FIRST, and
   // only then running any migration/deletion, guarantees a caret-held owner is re-pended with
   // NOTHING moved, regardless of which sibling kind's turn would otherwise come first.
+  //
+  // The emptied-wrapper husk cleanup below is INSIDE that "nothing moved" guarantee, which is why
+  // it no longer runs ahead of this loop: deleting a run's every byte collapses the caret onto the
+  // emptied wrapper itself (an ELEMENT point on the husk — where the run used to be, which is
+  // exactly where the user expects to keep typing). Removing the husk first destroyed the caret's
+  // own node, Lexical relocated the point to the PREVIOUS run's wrapper, and the grace arms —
+  // which recognize the run's insertion site, not an arbitrary element point on a sibling — then
+  // saw nothing caret-held and re-tokenized the whole paragraph mid-gesture. The rebuild cannot map
+  // an element point onto a rebuilt text offset, so it dumped the caret at the paragraph START
+  // (the live bug: deleting a `\vp` run, by selection or by backspacing it away one character at a
+  // time, sent the caret to the top of the verse). Graced, the husk simply survives until the caret
+  // genuinely departs, and the settle removes it then.
   for (const descriptor of displayRunDescriptors) {
     if (descriptor.settleScope === "none") continue;
     if (!descriptor.ownerPredicate(node)) continue;
@@ -354,6 +359,14 @@ export function $settlePendedDisplayOwner(
       context.pendingKeys.add(node.getKey());
       return { handled: true, mutated };
     }
+  }
+  // An emptied wrapper left attached to a verse or milestone is undead scaffolding with nothing
+  // left to display. Removed as a side effect, not an early return, so the OWNER's own policy
+  // below still runs against the cleaned-up tree in the SAME pass: ownership is position-derived,
+  // so a wrapper orphaned by its owner's removal could never be cleaned up by anything else.
+  for (const wrapper of $emptyAttributeRunWrappers(node)) {
+    wrapper.remove();
+    mutated = true;
   }
   let handled = false;
   // A verse's `\va`/`\vp` pair and a milestone's single run both migrate loose-but-canonical bytes
@@ -435,11 +448,20 @@ export function $resolvePendingMarkers(context: MarkerEditContext, exceptKey?: N
   let mutated = false;
   if (context.pendingKeys.size === 0) return mutated;
   const keys = [...context.pendingKeys].filter((key) => key !== exceptKey);
+  // Owners already routed through their settle in THIS pass. Several pended PIECES can map to one
+  // owner (a verse's `\va` and `\vp` values are two runs sharing one owner identity, and every
+  // attribute value pends under its own key — $textNodeTier2Transform), and the settle is not
+  // idempotent-for-free: a second run would re-probe the paragraph the first one already rebuilt,
+  // and even a refused (fixed-point) probe leaves parse orphans that count as dirty leaves.
+  const settledOwners = new Set<NodeKey>();
   for (const key of keys) {
-    context.pendingKeys.delete(key);
     const node: LexicalNode | null = $getNodeByKey(key);
-    if (!node?.isAttached()) continue;
+    if (!node?.isAttached()) {
+      context.pendingKeys.delete(key);
+      continue;
+    }
     if ($isMarkerNode(node)) {
+      context.pendingKeys.delete(key);
       const text = node.getTextContent();
       if (text === $markerCanonicalText(node)) continue;
       const bare = BARE_OPENER_REGEX.exec(text);
@@ -448,7 +470,40 @@ export function $resolvePendingMarkers(context: MarkerEditContext, exceptKey?: N
       else mutated = $requestTier2ForNode(node, context) || mutated;
       continue;
     }
-    const settled = $settlePendedDisplayOwner(node, context);
+    // A pended run PIECE settles at its OWNER. `$settlePendedDisplayOwner` recognizes only owners
+    // (`descriptor.ownerPredicate`), so a piece used to match nothing, report itself unhandled, and
+    // fall straight through to the re-tokenize arm below — a whole-paragraph rebuild with NO
+    // owner-grace check anywhere on the path. That bypassed the grace contract entirely: a sibling
+    // piece's key could re-tokenize a run the caret was actively mid-editing (a `\vp` value's key
+    // settling the `\va` value under the user's caret, mid-deletion). Mapping first — through
+    // `$ownerOfRunPiece` (shared's displayRunOwner.utils.ts), the ONE piece→owner classifier every
+    // other pend path already uses — puts the owner's grace pre-pass back in front of both arms: a
+    // caret-held owner is re-pended untouched and settles on departure instead. A piece whose walk
+    // finds no owner (plain pending text, a literal, an unregistered kind) keeps today's behavior,
+    // re-tokenizing its own scope.
+    const owner = $ownerOfRunPiece(node)?.owner;
+    const target = owner?.isAttached() ? owner : node;
+    const targetKey = target.getKey();
+    if (settledOwners.has(targetKey)) {
+      // This owner already settled (or re-pended under grace) earlier in the pass. Consume the
+      // piece's key, but never the OWNER's own — a grace re-pend added that key back deliberately.
+      if (key !== targetKey) context.pendingKeys.delete(key);
+      continue;
+    }
+    if (targetKey === exceptKey) {
+      // `exceptKey` shields the node the caret is still in from being settled. The filter above
+      // applies it to the PENDED key; mapping can reach that same node from a piece's key instead,
+      // so honor it here too — the owner keeps its pend and settles once the caret departs.
+      context.pendingKeys.delete(key);
+      context.pendingKeys.add(targetKey);
+      continue;
+    }
+    context.pendingKeys.delete(key);
+    // The owner's own pend (if it has one this pass) is consumed by the settle below, so a later
+    // key of it is a dedup skip rather than a second settle.
+    if (key !== targetKey) context.pendingKeys.delete(targetKey);
+    settledOwners.add(targetKey);
+    const settled = $settlePendedDisplayOwner(target, context);
     // Folded regardless of `handled`: a husk removal or wrap migration is a real mutation even on
     // the `handled: false` path, where the settle still falls through to the re-tokenize arm below
     // — a refused (fixed-point) rebuild must not make that earlier mutation disappear from the
@@ -461,8 +516,11 @@ export function $resolvePendingMarkers(context: MarkerEditContext, exceptKey?: N
     // same last-write-wins convergence chars and verses use. A remote field change that
     // arrived while the caret held the run (mid-edit grace) loses locally and converges
     // through the normal save/OT path; settling from node state instead would rewrite the
-    // run's displayed bytes and could clobber text the user just typed there.
-    mutated = $requestTier2ForNode(node, context) || mutated;
+    // run's displayed bytes and could clobber text the user just typed there. Routed on `target`
+    // (the piece's owner where it has one) rather than the raw pended node: both resolve to the
+    // same scope — a run rides as its owner's following siblings, or as its children for a char
+    // span — so this is the same rebuild, reached only after the owner's grace has declined.
+    mutated = $requestTier2ForNode(target, context) || mutated;
   }
   return mutated;
 }
