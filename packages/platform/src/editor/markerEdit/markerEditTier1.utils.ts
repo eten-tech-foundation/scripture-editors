@@ -319,10 +319,12 @@ function $emptyAttributeRunWrappers(node: LexicalNode): AttributeRunNode[] {
  * registry. Marker literals and plain pending text own no run and fall through (`handled: false`)
  * to the caller's re-tokenize arm.
  *
- * `mutated` is meaningful on BOTH result paths: an emptied `AttributeRunNode` husk removed here, or
- * a loose-but-canonical run migrated into its wrapper, is a visible change even when the caller's
- * own re-tokenize then refuses at a fixed point — a settle pass that reports mutating nothing has
- * its commit merged into the previous history entry.
+ * `mutated` is meaningful on both SETTLING result paths: an emptied `AttributeRunNode` husk removed
+ * here, or a loose-but-canonical run migrated into its wrapper, is a visible change even when the
+ * caller's own re-tokenize then refuses at a fixed point — a settle pass that reports mutating
+ * nothing has its commit merged into the previous history entry. The GRACE return is the exception
+ * and always reports `mutated: false`: every write this function can make now lives after the grace
+ * pre-pass (see below), so a graced owner is by construction one nothing has touched.
  */
 export function $settlePendedDisplayOwner(
   node: LexicalNode,
@@ -355,9 +357,11 @@ export function $settlePendedDisplayOwner(
     if (!descriptor.ownerPredicate(node)) continue;
     if ($caretHoldsRunSite(descriptor, node)) {
       // Mid-edit grace: settling now would rewrite or re-tokenize the run out from under the
-      // caret. It settles once the caret has actually departed.
+      // caret. It settles once the caret has actually departed. `mutated: false` literally, not
+      // `mutated`: nothing this function writes can have run yet at this point, and stating that
+      // keeps the guarantee readable rather than dependent on where the husk loop happens to sit.
       context.pendingKeys.add(node.getKey());
-      return { handled: true, mutated };
+      return { handled: true, mutated: false };
     }
   }
   // An emptied wrapper left attached to a verse or milestone is undead scaffolding with nothing

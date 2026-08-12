@@ -37,7 +37,6 @@ import {
   $createVerseNode,
   $isCharNode,
   $isParaNode,
-  $isVerseNode,
   $verseAttributeRunPieces,
   AttributeRunNode,
   ChapterNode,
@@ -1210,21 +1209,6 @@ describe("$resolvePendingMarkers routes a pended run PIECE through its owner's g
     return { verse, vaValue, vpValue };
   }
 
-  /** The verse, re-queried — a settle that re-tokenizes the paragraph replaces every node in it. */
-  function $firstVerse(): VerseNode {
-    const verse = $getRoot().getChildren().filter($isParaNode)[0].getChildren().find($isVerseNode);
-    if (!verse) throw new Error("verse missing");
-    return verse;
-  }
-
-  /** The second paragraph's body text — re-queried, since Lexical merges its NBSP prefix and
-   * "body" into one node on the first commit. */
-  function $bodyTextNode(): TextNode {
-    const body = $getRoot().getChildren().filter($isParaNode)[1].getLastChild();
-    if (!$isTextNode(body)) throw new Error("body text node missing");
-    return body;
-  }
-
   it("graces a caret-held \\va run when a SIBLING \\vp piece's key is what resolves", () => {
     // The grace-contract violation: `$textNodeTier2Transform` pends every attribute-run value under
     // its OWN key, so the resolve pass can be handed a run PIECE. A piece matches no descriptor's
@@ -1277,16 +1261,26 @@ describe("$resolvePendingMarkers routes a pended run PIECE through its owner's g
     expect(context.pendingKeys.has(verse.getKey())).toBe(true);
   });
 
-  it("settles the owner ONCE when several pended pieces of its runs resolve in one pass", () => {
-    // Dedup: `\va`'s and `\vp`'s values both pend under their own keys in the same commit, and both
-    // map to the same verse. The owner's settle must run once — a second run would re-probe the
-    // already-rebuilt paragraph, and its refused (fixed-point) rebuild still creates parse orphans.
+  it("keeps a graced owner's re-pend when its OWN key resolves after a piece's in the same pass", () => {
+    // The pass consumes keys as it goes, and mapping means one owner can be reached from several of
+    // them: BOTH run values plus the owner's own key, all pended in one commit — the ordinary shape
+    // when a verse's runs and the verse itself are dirtied together. The caret holds the `\va` run,
+    // so the FIRST key to arrive graces the owner and re-pends it; every later key for that same
+    // owner must leave that re-pend alone. Consuming keys unconditionally at the top of the loop —
+    // as the pass did before pieces were mapped, when a key only ever meant itself — deletes the
+    // owner's own key AFTER the grace re-added it, and the settle is lost for good: the run stays
+    // mid-edit forever and the next departure has nothing to resolve.
     const { editor } = createBasicTestEnvironment();
+    let verse!: VerseNode;
     let vaValue!: TextNode;
     let vpValue!: TextNode;
+    let vaOpener!: MarkerNode;
     editor.update(
       () => {
-        ({ vaValue, vpValue } = $buildVaVpVerse());
+        ({ verse, vaValue, vpValue } = $buildVaVpVerse());
+        const opener = $verseAttributeRunPieces(verse, "va").opener;
+        if (!opener) throw new Error("\\va opener missing");
+        vaOpener = opener;
       },
       { discrete: true },
     );
@@ -1294,16 +1288,94 @@ describe("$resolvePendingMarkers routes a pended run PIECE through its owner's g
     const context = buildContext();
     editor.update(
       () => {
-        // Both values edited, then the caret departs to the other paragraph: nothing is caret-held,
-        // so the owner genuinely settles.
-        vaValue.setTextContent(`${NBSP}11 VA`);
-        vpValue.setTextContent(`${NBSP}11 VP`);
+        // `\va` mid-edit with the caret parked on its opening glyph — inside the run's wrapper, so
+        // the owner is caret-held. The caret's own node is the GLYPH, so neither pended value key
+        // is shielded by `exceptKey`: both reach the mapping.
+        vaValue.setTextContent(`${NBSP}11 v`);
+        vaOpener.select(vaOpener.getTextContentSize(), vaOpener.getTextContentSize());
+        // Insertion order is the pass's iteration order: both pieces first, the owner's own key
+        // last — the ordering in which a top-of-loop delete would discard the grace re-pend.
         context.pendingKeys.add(vaValue.getKey());
         context.pendingKeys.add(vpValue.getKey());
-        $bodyTextNode().select(0, 0);
+        context.pendingKeys.add(verse.getKey());
       },
       { discrete: true },
     );
+
+    editor.update(
+      () => {
+        $resolvePendingMarkers(context, vaOpener.getKey());
+      },
+      { discrete: true },
+    );
+
+    // The owner is still pended — the grace survived every later key for it — and it is the ONLY
+    // key left: both pieces were consumed by the owner they map to.
+    expect(context.pendingKeys.has(verse.getKey())).toBe(true);
+    expect([...context.pendingKeys]).toEqual([verse.getKey()]);
+    editor.getEditorState().read(() => {
+      // Nothing settled: the mid-edit bytes and both run values are exactly as the user left them.
+      expect(vaValue.isAttached()).toBe(true);
+      expect(vaValue.getTextContent()).toBe(`${NBSP}11 v`);
+      expect(vpValue.isAttached()).toBe(true);
+      expect(verse.getAltnumber()).toBe("11 va");
+    });
+  });
+
+  it("settles the owner ONCE when two pended pieces of its runs resolve in one pass", () => {
+    // Dedup. `\va` rides wrapped and canonical, `\vp` loose but byte-exact: the settle MIGRATES
+    // `\vp` into its wrapper and reports the owner handled, so nothing re-tokenizes. Both run
+    // values are pended, and both map to this one verse — the second must not drive a second
+    // settle, which would find nothing left to migrate, report the owner UNhandled, and fall
+    // through to a whole-paragraph Tier-2 probe the first settle deliberately avoided.
+    //
+    // The paragraph deliberately carries no `\p` marker glyph, so such a probe is not a
+    // fixed-point refusal: the rebuilt fragment synthesizes the missing glyph, the signature
+    // differs, and the splice replaces every node in the paragraph. That is what makes the second
+    // settle OBSERVABLE here — node identity, not a log or a counter.
+    const { editor } = createBasicTestEnvironment();
+    let verse!: VerseNode;
+    let vaValue!: TextNode;
+    let vpValue!: TextNode;
+    let other!: TextNode;
+    editor.update(
+      () => {
+        verse = $createVerseNode(
+          "11",
+          getVisibleOpenMarkerText("v", "11"),
+          undefined,
+          "11 va",
+          "11 vp",
+        );
+        const vaWrapper = $createAttributeRunNode("va");
+        vaValue = $createTextNode(`${NBSP}11 va`);
+        $setState(vaValue, textTypeState, "attribute");
+        vaWrapper.append($createMarkerNode("va"), vaValue, $createMarkerNode("va", "closing"));
+        // `\vp` loose (no wrapper) but byte-exact — the wrap-migration shape.
+        vpValue = $createTextNode(`${NBSP}11 vp`);
+        $setState(vpValue, textTypeState, "attribute");
+        other = $createTextNode("elsewhere");
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createTextNode(NBSP),
+            verse,
+            vaWrapper,
+            $createMarkerNode("vp"),
+            vpValue,
+            $createMarkerNode("vp", "closing"),
+            $createTextNode(" This verse."),
+          ),
+          $createParaNode("p").append(other),
+        );
+        // Caret well away from both runs: nothing is graced, so the settle genuinely acts.
+        other.select(0, 0);
+      },
+      { discrete: true },
+    );
+
+    const context = buildContext();
+    context.pendingKeys.add(vaValue.getKey());
+    context.pendingKeys.add(vpValue.getKey());
 
     let mutated = false;
     editor.update(
@@ -1313,14 +1385,21 @@ describe("$resolvePendingMarkers routes a pended run PIECE through its owner's g
       { discrete: true },
     );
 
-    expect(mutated).toBe(true);
+    expect(mutated).toBe(true); // the migration is a real write
+    expect(context.pendingKeys.size).toBe(0); // both piece keys consumed, nothing leaked
     editor.getEditorState().read(() => {
-      // The displayed bytes won: both edited values folded back onto the verse.
-      const settled = $firstVerse();
-      expect(settled.getAltnumber()).toBe("11 VA");
-      expect(settled.getPubnumber()).toBe("11 VP");
+      // No second settle re-probed the paragraph: every node the first settle left in place is
+      // still the same node. (Asserted first — a splice detaches these, and reading anything else
+      // off a detached reference throws instead of failing an assertion.)
+      expect(verse.isAttached()).toBe(true);
+      expect(vaValue.isAttached()).toBe(true);
+      expect(vpValue.isAttached()).toBe(true);
+      // `\vp` migrated into its wrapper — the settle the FIRST key drove.
+      const vaWrapper = $verseAttributeRunPieces(verse, "va").wrapper;
+      expect($verseAttributeRunPieces(vaWrapper ?? verse, "vp").wrapper).toBeDefined();
+      // And the verse's own state was never re-derived from a rebuild.
+      expect(verse.getAltnumber()).toBe("11 va");
+      expect(verse.getPubnumber()).toBe("11 vp");
     });
-    // Every pended key was consumed — no leak, and no owner key left behind by the second piece.
-    expect(context.pendingKeys.size).toBe(0);
   });
 });
