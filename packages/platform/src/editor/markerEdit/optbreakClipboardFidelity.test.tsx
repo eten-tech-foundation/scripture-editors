@@ -1,5 +1,5 @@
 /**
- * Optbreak (`//`) copy/paste coverage (Task 11, filed 2026-08-13). Live symptom (TJ, most likely a
+ * Optbreak (`//`) copy/paste coverage (filed 2026-08-13). Live symptom (TJ, most likely a
  * pre-branch or parent-branch build): copying a selection containing an optbreak put `//` on the
  * clipboard correctly, but pasting that same clipboard back did NOT insert the optbreak, while
  * pasting external plaintext `//` DID.
@@ -17,32 +17,51 @@
  *   below.
  * - **H2**: `$normalizePastedNbsp`'s marker-token regexes (`whitespaceDisplay.plugin.utils.ts`)
  *   only match `\`-shaped tokens — an NBSP adjacent to `//` would not be recognized as display
- *   whitespace and would corrupt into a data `~`. Characterized below: this branch's own copy
- *   walker (`$selectionToUsfmText`) inverts every TextNode's NBSP to a plain space
- *   unconditionally (the note-internal-separator special case aside), so `text/plain` never
+ *   whitespace and would fall to the blanket data-`~` rule instead. Characterized below: this
+ *   branch's own copy walker (`$selectionToUsfmText`) inverts every TextNode's NBSP to a plain
+ *   space unconditionally (the note-internal-separator special case aside), so `text/plain` never
  *   carries an NBSP next to `//` to begin with — H2 does not bite the round trip this task is
- *   scoped to. A synthetic html-only foreign payload that DOES carry such an NBSP is
- *   characterized (not "fixed" — unreachable via this branch's own copy, reachable only via a
- *   foreign clipboard source) for completeness.
- * - **H3** (confirmed root cause): the same-namespace `application/x-lexical-editor` fast path
- *   (S2 in the clipboard semantics doc) reconstructs nodes via `@lexical/clipboard`'s JSON
- *   generator/parser, not DOM `importDOM`. That generator (`$appendNodesToJSON`, inside
- *   `@lexical/clipboard`'s `LexicalClipboard.dev.js`) computes `shouldExclude` from
- *   `currentNode.excludeFromCopy('html')` — the literal string `'html'`, hardcoded, for EVERY
- *   copy-out destination including the lexical-JSON flavor (both `$appendNodesToJSON` and
- *   `$appendNodesToHTML` pass this same literal; `'clone'` is never passed by any Lexical-shipped
- *   code path in the installed version). `UnknownNode.excludeFromCopy` (`UnknownNode.ts`) returned
- *   `destination !== "clone"` — excluding itself from BOTH real HTML generation AND the
- *   lexical-JSON flavor. When a node is excluded, `$appendNodesToJSON` does not drop it silently —
- *   it HOISTS the excluded node's own children into the parent's list in its place. For an
- *   optbreak, that stranded the `//` `ImmutableTypedTextNode` (a DecoratorNode) as a bare sibling
- *   with no owning `UnknownNode` wrapper: `$parseSerializedNode` on paste reconstructed a loose
- *   decorator, not a recognized optbreak — `$isUnknownNode` is false for it, and nothing
- *   re-tokenizes a decorator's text. Fixed by scoping `UnknownNode.excludeFromCopy` to leave
- *   "optbreak" out of the exclusion: unlike `ref` (whose children are real, independently-legible
- *   prose text — already a documented, accepted lossy construct for the PLAIN payload path,
- *   `clipboardCorpusRoundTrip.test.tsx`'s `KNOWN_LOSSY`), an optbreak's only child is a
- *   content-free decorator token whose entire meaning depends on staying wrapped.
+ *   scoped to, and doubly so: this branch's own `text/html` never carries `//` at all for an
+ *   optbreak either (see the `text/html` pin below), so there is no `//` in P10's OWN html for a
+ *   foreign NBSP to even land beside. A synthetic html-only foreign payload that DOES carry such
+ *   an NBSP is characterized (not "fixed" — unreachable via this branch's own copy, reachable only
+ *   via a genuinely foreign clipboard source) for completeness: the NBSP is genuine data from that
+ *   foreign source, and settles to the correct display form for real data-NBSP (`~`), just one
+ *   position off from where a marker-adjacent rule would have recognized it as a separator.
+ * - **H3** (confirmed root cause, TWO independent gaps): the same-namespace
+ *   `application/x-lexical-editor` fast path (S2 in the clipboard semantics doc) reconstructs
+ *   nodes via `@lexical/clipboard`'s JSON generator/parser, not DOM `importDOM`. That generator
+ *   (`$appendNodesToJSON`, inside `@lexical/clipboard`'s `LexicalClipboard.dev.js`) computes
+ *   `shouldExclude` from `currentNode.excludeFromCopy('html')` — the literal string `'html'`,
+ *   hardcoded, for EVERY copy-out destination `$appendNodesToJSON` handles (`'clone'` is never
+ *   passed by any Lexical-shipped code path in the installed version). `UnknownNode.excludeFromCopy`
+ *   (`UnknownNode.ts`) returned `destination !== "clone"` — excluding itself unconditionally. When
+ *   a node is excluded, `$appendNodesToJSON` does not drop it silently — it HOISTS the excluded
+ *   node's own children into the parent's list in its place. For an optbreak, that stranded the
+ *   `//` `ImmutableTypedTextNode` (a DecoratorNode) as a bare sibling with no owning `UnknownNode`
+ *   wrapper: `$parseSerializedNode` on paste reconstructed a loose decorator, not a recognized
+ *   optbreak — `$isUnknownNode` is false for it, and nothing re-tokenizes a decorator's text.
+ *   `text/html` is UNAFFECTED by this whole mechanism: `$appendNodesToHTML` (`@lexical/html`)
+ *   computes the same `excludeFromCopy('html')` value but returns early on `UnknownNode`'s
+ *   unconditional `{element: null}` export BEFORE ever consulting it — so the fix below changes
+ *   ONLY the lexical-JSON flavor. Fixed by narrowing `UnknownNode.excludeFromCopy` to leave a
+ *   CHILD-BEARING "optbreak" out of the exclusion. A SECOND, independent gap surfaced while
+ *   verifying that fix: a selection whose ending boundary resolves to an ELEMENT-type point ON the
+ *   optbreak at offset 0 (touching the wrapper without covering its own `//` child) still marked
+ *   the wrapper "selected" under Lexical's default `isSelected` (key-membership in
+ *   `selection.getNodes()`, blind to the node's own child count), producing a CHILDLESS
+ *   `{type:"optbreak"}` placeholder in the lexical-JSON copy even though the live node has a
+ *   child — disagreeing with `text/plain`, which correctly emits nothing for that same boundary.
+ *   `excludeFromCopy` cannot see this (it has no visibility into which children a given selection
+ *   will include), so a scoped `isSelected` override closes it directly, mirroring
+ *   `$selectionToUsfmText`'s own `getNodes()`-based walk. Every OTHER `UnknownNode` kind (figure,
+ *   table, sidebar, periph, ref) keeps the OLD, still-excluding behavior — not because their
+ *   content differs meaningfully (it doesn't: every kind's marker/attribute bytes are the same
+ *   content-free `ImmutableTypedTextNode` display decorators optbreak's `//` is), but pending
+ *   per-kind paste verification this task did not do; the measured, more severe residual for those
+ *   kinds (a lexical-flavor figure paste renders its full literal USFM bytes on screen while the
+ *   USJ silently drops the figure node and its attributes) is recorded in the clipboard semantics
+ *   doc's "Deferred / Out of Scope" list rather than fixed here.
  */
 
 import { MarkerEditPlugin } from "./MarkerEditPlugin";
@@ -219,21 +238,64 @@ describe("copy characterization: what the walker actually emits around an optbre
     expect(html).toContain("after");
   });
 
-  it("characterization only (not fixed — unreachable via this branch's own copy): a synthetic html-only foreign payload with an NBSP directly before `//` still recognizes the optbreak token, but the NBSP survives as a spurious data `~` rather than a plain space", async () => {
+  it("carrier agreement at a childless boundary: a selection ending exactly at the optbreak's own start (touching the wrapper, not its `//` child) excludes it from BOTH carriers, not just text/plain", async () => {
+    // Before the `isSelected` override (`UnknownNode.ts`), this selection shape — a focus point
+    // resolving as an ELEMENT-type point ON the optbreak at offset 0 — still marked the WRAPPER
+    // "selected" under Lexical's default `isSelected` (key-membership in `selection.getNodes()`,
+    // blind to whether any of the wrapper's own children are actually covered), even though the
+    // `//` child itself was not selected. `$appendNodesToJSON` then serialized a CHILDLESS
+    // `{type:"unknown", tag:"optbreak", children:[]}` placeholder into the lexical-JSON payload —
+    // a carrier disagreement (`text/plain`, walking the same `getNodes()` list via
+    // `$selectionToUsfmText`, correctly emitted nothing for this boundary). Measured directly
+    // against this exact selection shape before writing the fix.
+    const { editor } = await renderUsjEditor(optbreakUsj());
+    let optbreakKey = "";
+    editor.getEditorState().read(() => {
+      const optbreak = $getRoot()
+        .getChildren()
+        .filter($isParaNode)[0]
+        .getChildren()
+        .find($isUnknownNode);
+      if (!optbreak) throw new Error("expected an optbreak UnknownNode");
+      optbreakKey = optbreak.getKey();
+    });
+    await act(async () =>
+      editor.update(() => {
+        const para = $getRoot().getChildren().filter($isParaNode)[0];
+        const selection = $createRangeSelection();
+        selection.anchor = $createPoint(para.getKey(), 2, "element"); // right before "before "
+        selection.focus = $createPoint(optbreakKey, 0, "element"); // touches the wrapper, covers none of its content
+        $setSelection(selection);
+      }),
+    );
+    const { event, getData } = copyEvent();
+    await act(async () => editor.dispatchCommand(COPY_COMMAND, event));
+    expect(getData("text/plain")).not.toContain("//");
+    expect(getData("application/x-lexical-editor")).not.toContain("optbreak");
+  });
+
+  it("characterization only (not fixed — unreachable via this branch's own copy): a synthetic html-only foreign payload with an NBSP directly before `//` still settles to a real optbreak node, with the foreign source's own NBSP kept as data `~` rather than folded into a display space", async () => {
     // $normalizePastedNbsp's marker-token regexes only match `\`-shaped tokens (AFTER_MARKER_NBSP /
     // BEFORE_MARKER_NBSP, whitespaceDisplay.plugin.utils.ts) — `//` has no backslash, so neither
     // pass recognizes an NBSP next to it, and the final blanket `.replaceAll(NBSP, "~")` converts
-    // it to a literal data tilde. The optbreak TOKEN itself still recognizes correctly (the
-    // tokenizer's `//` split, usfmFragmentToUsj.ts, is a plain string `.split("//")`, unaffected
-    // by an adjacent `~`) — H2's "breaking optbreak tokenization" does not manifest as a lost or
-    // garbled optbreak, only as one spurious `~` byte the source never had. This shape is reachable
-    // only via a foreign clipboard source supplying `text/html` with no `text/plain` at all — this
-    // branch's own copy never produces it (the two pins above).
+    // it to a literal data tilde — the correct display form for genuine data-NBSP, just one
+    // position off from where a marker-adjacent rule would have folded it to a space instead. The
+    // optbreak TOKEN itself still tokenizes correctly on caret departure (the tokenizer's `//`
+    // split, usfmFragmentToUsj.ts, is a plain string `.split("//")`, unaffected by an adjacent
+    // `~`) — asserted below by settling and checking the resulting USJ, not just the pre-settle
+    // display text. This shape is reachable only via a foreign clipboard source supplying
+    // `text/html` with no `text/plain` at all — this branch's own copy never produces it (the two
+    // pins above).
     let text: TextNode;
     const { editor } = await testEnvironment(() => {
       const para = $createParaNode("p");
       text = $createTextNode("body");
-      $getRoot().append(para.append($createMarkerNode("p"), text));
+      const departurePara = $createParaNode("p");
+      const departureText = $createTextNode("depart here");
+      $getRoot().append(
+        para.append($createMarkerNode("p"), text),
+        departurePara.append($createMarkerNode("p"), departureText),
+      );
     });
     await act(async () => editor.update(() => text.select(0, 0)));
     const { event } = pasteEvent({ "text/html": `<p>before${NBSP}// after</p>` });
@@ -245,7 +307,25 @@ describe("copy characterization: what the walker actually emits around an optbre
     );
     expect(handled).toBe(true);
     editor.getEditorState().read(() => {
+      // Pre-settle display text: the literal, un-tokenized bytes the paste inserted.
       expect($getRoot().getTextContent()).toContain("before~// after");
+    });
+    // Depart to the second paragraph and settle — the same caret-departure requirement
+    // `optbreakUsj`'s doc comment (above) explains for every other pasted-literal-`//` pin here.
+    await act(async () =>
+      editor.update(() => {
+        const secondPara = $getRoot().getChildren().filter($isParaNode)[1];
+        const departureText = secondPara?.getLastChild();
+        if (!departureText || !$isTextNode(departureText))
+          throw new Error("expected the 'depart here' paragraph's text node");
+        departureText.select(0, 0);
+      }),
+    );
+    await settle();
+    editor.getEditorState().read(() => {
+      const firstPara = $getRoot().getChildren().filter($isParaNode)[0];
+      expect(firstPara.getChildren().some($isUnknownNode)).toBe(true);
+      expect(firstPara.getTextContent().replaceAll(NBSP, " ")).toBe("\\p before~// afterbody");
     });
   });
 });
@@ -347,15 +427,63 @@ describe("paste round trip: all three payload shapes carry a copied optbreak bac
     await settle();
     expect(usjOf(editor)).toEqual(beforePaste);
   });
+
+  it("undo after a PLAIN-payload paste is TWO steps, by the engine's own pend/settle design — not a regression from the H3 fix", async () => {
+    // The real multi-step-undo shape lives here, not in the lexical-flavor path above: a plain
+    // payload's literal `//` inserts via `selection.insertText` in the FIRST update
+    // (`pasteAndSettle`'s paste step) and only re-tokenizes into an optbreak node in the SECOND,
+    // separate update the caret-departure step triggers (see `optbreakUsj`'s doc comment — a
+    // pasted `//` always pends until departure, identically to a TYPED `//`). Measured (not
+    // assumed): this is genuinely TWO undo steps, and that is INTENTIONAL, pre-existing engine
+    // design, unrelated to and unchanged by the H3 fix — `MarkerEditPlugin.tsx`'s own comment on
+    // the departure-settle commit states it plainly: "a resolve that actually settled anything
+    // keeps its own [history] entry (undo must restore the pre-settle literal)". This mirrors how
+    // ANY pending literal behaves on this branch (typed or pasted, `//` or a backslash marker
+    // terminated only by departure, not by its own closer) — undo peels back one COMMIT at a
+    // time, and the settle is its own commit by design so that undoing it lands on the exact
+    // pre-settle literal rather than skipping past it.
+    const payload = await copyOptbreakContentPayload();
+    const { editor } = await freshEmptyHost(true); // withHistory
+    const beforePaste = usjOf(editor);
+    await pasteAndSettle(editor, { "text/plain": payload["text/plain"] });
+    expect(usjOf(editor)).toEqual(optbreakUsj());
+    // First undo: reverts the departure-triggered SETTLE only, landing on the pre-settle literal
+    // `//` text — not yet back to the empty pre-paste host.
+    await act(async () => editor.dispatchCommand(UNDO_COMMAND, undefined));
+    await settle();
+    const afterFirstUndo = usjOf(editor);
+    const firstUndoPara = afterFirstUndo.content[2];
+    if (typeof firstUndoPara === "string")
+      throw new Error("paragraph corrupted into a bare string");
+    expect(firstUndoPara.content).toEqual(["before // after"]);
+    // Second undo: reverts the paste's own insertion, landing back on the true pre-paste state.
+    await act(async () => editor.dispatchCommand(UNDO_COMMAND, undefined));
+    await settle();
+    expect(usjOf(editor)).toEqual(beforePaste);
+  });
 });
 
 describe("cut across an optbreak", () => {
   it("cuts the optbreak (and its flanking text) out: the clipboard holds the same bytes a copy of the identical selection would, and no optbreak node remains", async () => {
+    // Two independent editors (rather than one editor dispatching COPY then CUT in sequence) —
+    // the same pattern `clipboardCopyFidelity.test.tsx`'s "cut = copy + removeText" describe uses,
+    // for the same reason: a second command dispatch on the SAME editor lets Lexical's own DOM-
+    // selection reconciliation collapse the just-set programmatic selection under jsdom before the
+    // handler runs, which would make this a test of that reconciliation quirk instead of cut/copy
+    // byte parity.
+    const { editor: copyEditor } = await renderUsjEditor(optbreakUsj());
+    await act(async () => copyEditor.update($selectParaContent));
+    const copyStub = copyEvent();
+    await act(async () => copyEditor.dispatchCommand(COPY_COMMAND, copyStub.event));
+    const copiedPlainText = copyStub.getData("text/plain");
+    expect(copiedPlainText).toBe("before // after"); // sanity: the byte-equality check below is
+    // only meaningful if this is actually the optbreak's own bytes, not an accidental empty match
+
     const { editor } = await renderUsjEditor(optbreakUsj());
     await act(async () => editor.update($selectParaContent));
     const { event, getData } = copyEvent();
     await act(async () => editor.dispatchCommand(CUT_COMMAND, event));
-    expect(getData("text/plain")).toBe("before // after");
+    expect(getData("text/plain")).toBe(copiedPlainText);
     const usj = usjOf(editor);
     const para = usj.content[2];
     if (typeof para === "string") throw new Error("paragraph corrupted into a bare string");
