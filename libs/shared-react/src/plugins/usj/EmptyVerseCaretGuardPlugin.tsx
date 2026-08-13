@@ -14,6 +14,7 @@ import {
 } from "lexical";
 import { useEffect, useRef } from "react";
 import {
+  $caretHostAtBoundary,
   $createCursorPlaceholderNode,
   $isCursorPlaceholderOnlyText,
   $removeCursorPlaceholder,
@@ -47,9 +48,10 @@ export function $emptyVerseNeedingHost(): SomeVerseNode | undefined {
   const verse = children[anchor.offset - 1];
   if (!$isSomeVerseNode(verse)) return undefined;
 
+  // A text node already hosts the caret at this boundary (real content or an existing placeholder).
+  if ($caretHostAtBoundary(element, anchor.offset)) return undefined;
+
   const following = children[anchor.offset];
-  // A text node already hosts the caret here (real content or an existing placeholder).
-  if ($isTextNode(following)) return undefined;
   // Nothing, or another verse marker, follows: this verse has no caret host.
   if (following === undefined || $isSomeVerseNode(following)) return verse;
   return undefined;

@@ -14,6 +14,7 @@ import {
   $isMarkerNode,
   $isSomeParaNode,
   $isSynthesizedMarkerNode,
+  $placeCaretAtBoundary,
   NBSP,
   SomeParaNode,
 } from "shared";
@@ -51,8 +52,9 @@ export function ParaMarkerPrefixCursorGuardPlugin(): null {
  * - Para-marker prefix (`MarkerNode` or `ImmutableTypedTextNode`) and its trailing NBSP.
  * - Leading verse nodes (`VerseNode` or `ImmutableVerseNode`).
  *
- * Places the cursor at the start of the first content `TextNode` that follows, or at the
- * element offset just after all skipped nodes when no content `TextNode` exists yet.
+ * Places the cursor at the content boundary just past them, under the shared convention for what a
+ * boundary's caret position is (`$placeCaretAtBoundary`): the start of the first content `TextNode`
+ * that follows, or an element point at that boundary when no `TextNode` hosts it yet.
  *
  * Also called directly when programmatically navigating to a verse whose paragraph has a
  * non-text first child (e.g. in `ScriptureReferencePlugin`).
@@ -80,11 +82,7 @@ export function $advancePastParaPrefixes(para: SomeParaNode): boolean {
 
   if (skipCount === 0) return false;
 
-  if ($isTextNode(child)) {
-    child.select(0, 0);
-  } else {
-    para.select(skipCount, skipCount);
-  }
+  $placeCaretAtBoundary(para, skipCount);
   return true;
 }
 

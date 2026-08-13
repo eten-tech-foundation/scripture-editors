@@ -20,6 +20,7 @@ import {
   $isMarkerNode,
   $isSynthesizedMarkerNode,
   $isParaNode,
+  $placeCaretAtBoundary,
   canonicalAttributeText,
   CharNode,
   defaultMarkerAttribute,
@@ -47,17 +48,20 @@ export function $createMarkerPrefix(marker: string) {
 }
 
 /**
- * Places the caret at the content side of a paragraph's `[glyph, separator, ...content]` prefix.
- * Text content selects at its own offset 0. Anything else — no content yet (fresh empty
- * paragraph) or element content (e.g. a red-letter `\wj` CharNode first) — gets an element point
- * at child index 2, the content boundary: typing there inserts plain text at content start
- * instead of the caret jumping to the paragraph end (`selectEnd`), which is wrong for element
- * content and, before the separator was token-mode, let typing merge into the separator itself.
+ * Places the caret at the content side of a paragraph's `[glyph, separator, ...content]` prefix —
+ * child index 2, the content boundary — under the shared convention for what a boundary's caret
+ * position is: text content selects at its own offset 0, and anything else (no content yet in a
+ * fresh empty paragraph, or element content such as a leading red-letter `\wj` CharNode) gets the
+ * element point. Typing there inserts plain text at content start instead of the caret jumping to
+ * the paragraph end (`selectEnd`), which is wrong for element content and, before the separator was
+ * token-mode, let typing merge into the separator itself.
+ *
+ * The index is fixed rather than scanned because these callers have just built or retagged the
+ * prefix and know its shape; `$advancePastParaPrefixes` (shared-react) finds the same kind of
+ * boundary by scanning when the shape is not known.
  */
 export function $selectParaContentStart(para: ParaNode): void {
-  const contentChild = para.getChildAtIndex(2);
-  if (contentChild && $isTextNode(contentChild)) contentChild.select(0, 0);
-  else para.select(2, 2);
+  $placeCaretAtBoundary(para, 2);
 }
 
 /**

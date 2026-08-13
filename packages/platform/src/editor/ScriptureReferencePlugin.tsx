@@ -108,6 +108,7 @@ import {
   $isBookNode,
   $isParaNode,
   $isSomeChapterNode,
+  $placeCaretAtBoundary,
   BookNode,
   CURSOR_CHANGE_TAG,
   getSelectionStartNode,
@@ -457,9 +458,12 @@ function $moveCaretToVerseStart(chapterNum: number, verseNum: number) {
   if (!verseOrParaNode) return;
 
   if ($isParaNode(verseOrParaNode)) {
-    const firstChild = verseOrParaNode.getFirstChild();
-    if ($isTextNode(firstChild)) firstChild.select(0, 0);
-    else if (!$advancePastParaPrefixes(verseOrParaNode)) verseOrParaNode.select(0, 0);
+    // A text first child is content already, so there is nothing structural to skip; anything else
+    // may be a marker/verse prefix. Either way the caret ends at a content boundary of the
+    // paragraph — the one past the prefix when there was one, its own first otherwise.
+    const skippedPrefix =
+      !$isTextNode(verseOrParaNode.getFirstChild()) && $advancePastParaPrefixes(verseOrParaNode);
+    if (!skippedPrefix) $placeCaretAtBoundary(verseOrParaNode, 0);
   } else verseOrParaNode.selectNext(0, 0);
 }
 

@@ -39,6 +39,7 @@ import {
   $isMilestoneNode,
   $isNoteNode,
   $isSomeParaNode,
+  $placeCaretAtBoundary,
   CharNode,
   ImmutableChapterNode,
   NoteNode,
@@ -319,12 +320,10 @@ function $handleForwardFpNavigation(selection: RangeSelection): boolean {
     return false;
   }
 
-  const firstChild = fpNode.getFirstChild();
-  // Land at the start of the new visual line: offset 0 of the span's first text (the editable
-  // marker glyph, or content text when glyphs are hidden). A non-text first child (the
-  // non-editable marker glyph) takes an element point before it instead.
-  if ($isTextNode(firstChild)) firstChild.select(0, 0);
-  else fpNode.select(0, 0);
+  // Land at the start of the new visual line: the span's first content boundary — offset 0 of its
+  // first text (the editable marker glyph, or content text when glyphs are hidden), or an element
+  // point when a non-text first child (the non-editable marker glyph) hosts no caret there.
+  $placeCaretAtBoundary(fpNode, 0);
   return true;
 }
 
@@ -596,7 +595,15 @@ function $scanSeed(
   return $stepOver(anchorNode, direction, block);
 }
 
-/** The single resting position for the screen location `landing` sits at. */
+/**
+ * The single resting position for the screen location `landing` sits at.
+ *
+ * The preference is backward — the end of the nearest preceding visible text — and deliberately the
+ * opposite of the forward one the content-boundary convention states (`$placeCaretAtBoundary`,
+ * shared): what precedes an arrow landing is rendered content the caret has just walked over, so the
+ * end of it is the outermost position at that location, whereas what precedes a content boundary is
+ * structure that typed text must not merge into.
+ */
 function $canonicalize(landing: CaretLanding, block: ElementNode): CaretLanding {
   // A text point with a character before it in its own node is already the outermost position at
   // its location — nothing invisible separates it from rendered content on its left.

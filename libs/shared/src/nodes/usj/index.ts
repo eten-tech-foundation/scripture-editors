@@ -18,6 +18,7 @@ import { VerseNode } from "./VerseNode.js";
 import { Klass, LexicalNode, LexicalNodeReplacement, ParagraphNode } from "lexical";
 
 export * from "./attributeDisplay.utils.js";
+export * from "./caretBoundaries.utils.js";
 export * from "./charGlyphs.utils.js";
 export * from "./displayRunDescriptor.js";
 export * from "./displayRunSync.utils.js";
