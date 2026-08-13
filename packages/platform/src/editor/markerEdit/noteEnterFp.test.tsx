@@ -42,7 +42,7 @@ import {
   NBSP,
   textTypeState,
 } from "shared";
-import { StructureProtectionPlugin } from "shared-react";
+import { StructureKeyboardPlugin } from "shared-react";
 // Reaching inside only for tests (same pattern as markerEdit.test-helpers).
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import { baseTestEnvironment } from "../../../../../libs/shared-react/src/plugins/usj/react-test.utils";
@@ -1023,7 +1023,7 @@ describe("multi-line plain-text paste inside note content", () => {
       serializedState(noteUsx(`closed="false"`)),
       <>
         <MarkerEditPlugin viewOptions={viewOptions} />
-        <StructureProtectionPlugin isStructureProtected />
+        <StructureKeyboardPlugin structureProtectionMode="protected" />
       </>,
     );
 

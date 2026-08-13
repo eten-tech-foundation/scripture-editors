@@ -467,7 +467,7 @@ function recurseNodes(
         markers.push(
           createTableMarker(
             node as SerializedImmutableTableNode,
-            recurseNodes((node as SerializedImmutableTableNode).children),
+            recurseNodes((node as SerializedImmutableTableNode).children, viewOptions),
           ),
         );
         break;
@@ -475,7 +475,7 @@ function recurseNodes(
         markers.push(
           createTableRowMarker(
             node as SerializedImmutableTableRowNode,
-            recurseNodes((node as SerializedImmutableTableRowNode).children),
+            recurseNodes((node as SerializedImmutableTableRowNode).children, viewOptions),
           ),
         );
         break;
@@ -483,7 +483,7 @@ function recurseNodes(
         markers.push(
           createTableCellMarker(
             node as SerializedImmutableTableCellNode,
-            recurseNodes((node as SerializedImmutableTableCellNode).children),
+            recurseNodes((node as SerializedImmutableTableCellNode).children, viewOptions),
           ),
         );
         break;

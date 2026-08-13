@@ -26,7 +26,7 @@ import {
   $isBookNode,
   $isCharNode,
   $isMarkerNode,
-  $isParaMarkerPrefix,
+  $isSynthesizedMarkerNode,
   $isParaNode,
   $isSomeChapterNode,
   ParaNode,
@@ -131,7 +131,7 @@ export function $isAtParagraphContentStart(
   if (!firstChild) return false;
 
   let contentStart: LexicalNode | null = firstChild;
-  if ($isParaMarkerPrefix(firstChild)) {
+  if ($isSynthesizedMarkerNode(firstChild)) {
     if (anchorNode.is(firstChild)) return true;
     contentStart = firstChild.getNextSibling();
     if ($isTrailingSpaceNode(contentStart)) {

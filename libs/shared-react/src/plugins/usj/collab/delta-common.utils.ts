@@ -23,9 +23,9 @@ import {
   $isMilestoneNode,
   $isNoteNode,
   $isParaLikeNode,
-  $isParaMarkerPrefix,
   $isParaNode,
   $isSomeChapterNode,
+  $isSynthesizedMarkerNode,
   $isUnknownNode,
   ImmutableUnmatchedNode,
   MilestoneNode,
@@ -486,14 +486,14 @@ function $isOpaqueContentNode(
  * markerEditDeletion.utils.ts). The ONE definition, shared by this file's own OT-length
  * accounting below and by `editor-delta.adaptor.ts`'s content-ops gate, so the two coordinate
  * systems can never drift apart on what counts as the prefix glyph. The position check (first
- * child of a ParaNode) is load-bearing, since {@link $isParaMarkerPrefix} identifies the node
+ * child of a ParaNode) is load-bearing, since {@link $isSynthesizedMarkerNode} identifies the node
  * SHAPE, which is reused for every other glyph in the tree too (a char span's own opener/closer,
  * a note's glyphs, a milestone's or verse's bare attribute glyph) — only a MarkerNode sitting in
  * the paragraph's own prefix slot is presentation scaffolding.
  */
 export function $isOwnParaPrefixGlyph(node: LexicalNode): boolean {
   const parent = node.getParent();
-  return $isParaMarkerPrefix(node) && $isParaNode(parent) && parent.getFirstChild() === node;
+  return $isSynthesizedMarkerNode(node) && $isParaNode(parent) && parent.getFirstChild() === node;
 }
 
 /**

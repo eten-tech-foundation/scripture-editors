@@ -90,7 +90,7 @@ interface UsjMarkerAction {
  * double-counts editable VerseNodes and can land past the note when one precedes the insertion
  * point — without touching any OT coordinate code.
  */
-export interface UsjMarkerActionResult extends MarkerAction {
+export interface UsjMarkerActionWithNoteKey extends MarkerAction {
   getInsertedNoteKey?: () => string | undefined;
 }
 
@@ -234,7 +234,7 @@ export function getUsjMarkerAction(
   logger?: LoggerBasic,
   /** Included for tests, e.g. `{ discrete: true }` */
   editorUpdateOptions?: EditorUpdateOptions,
-): UsjMarkerActionResult {
+): UsjMarkerActionWithNoteKey {
   // Note markers are handled directly via $insertNote (no serialization round-trip).
   if (NoteNode.isValidMarker(marker)) {
     // Captured synchronously inside the `editor.update()` callback below - Lexical's callback
@@ -306,57 +306,6 @@ export function getUsjMarkerAction(
               nodeToInsert.selectStart();
           }
         } else if (
-          $isTextNode(node) &&
-          !$isMarkerNode(node) &&
-          selection.isCollapsed() &&
-          ($isNoteNode(nodeParent) ||
-            ($isCharNode(nodeParent) && $isNoteNode(nodeParent.getParent())))
-        ) {
-          // Inserting into a NoteNode. The caret sits on the note's own text (a spacer) or inside
-          // one of its CharNodes; insert the new marker as a sibling within the note so it can't
-          // escape into the surrounding paragraph.
-          const caretChar = $isCharNode(nodeParent) ? nodeParent : undefined;
-          // When the caret is inside a char, split it there: the content after the caret moves into
-          // a following clone so the new marker lands between the two halves (not after the char).
-          const charTail = caretChar
-            ? $collectSiblingsFromCaret(node, selection.anchor.offset)
-            : [];
-          const noteChildAnchor = caretChar ?? node;
-          let lastInsertedNode: LexicalNode = noteChildAnchor.insertAfter(nodeToInsert);
-          if ($isVisibleMarkerNode(nodeToInsert)) {
-            // We are using visible marker mode so the `nodeToInsert` is just the marker. Get the
-            // CharNode with content to insert after it.
-            const _viewOptions: ViewOptions = {
-              ...(viewOptions || getDefaultViewOptions()),
-              markerMode: "hidden",
-            };
-            const serializedLexicalNode = createLexicalUsjNode(
-              content,
-              usjEditorAdaptor,
-              _viewOptions,
-            );
-            const charNodeToInsert = $createNodeFromSerializedNode(serializedLexicalNode);
-            lastInsertedNode = lastInsertedNode.insertAfter(charNodeToInsert);
-          }
-          if (charTail.length > 0 && caretChar) {
-            // Move the after-caret content into a clone of the split char, right after the marker.
-            // Use $createCharNodeLike (not a hand-rolled $createCharNode) so the clone keeps the
-            // char's identity - notably charIdState - and $charNodeTransform can re-merge the halves
-            // if the marker between them is later removed.
-            const tailChar = $createCharNodeLike(caretChar).append(...charTail);
-            lastInsertedNode.insertAfter(tailChar);
-            if (caretChar.isEmpty()) caretChar.remove();
-          } else if (!$isTextNode(lastInsertedNode.getNextSibling())) {
-            // Add a trailing spacer only if one doesn't already follow. Inserting between a char and
-            // its existing spacer would leave two adjacent spacers, which a note transform collapses
-            // with a selectEnd that steals the caret out of the new marker.
-            lastInsertedNode.insertAfter($createTextNode(NBSP));
-          }
-          // Land the caret inside the new marker's content, not before it (PT-3780). selectEnd
-          // leaves it after the empty-char placeholder, which the placeholder transform strips on
-          // the first keystroke.
-          if ($isElementNode(lastInsertedNode)) lastInsertedNode.selectEnd();
-        } else if (
           $isCharNode(nodeToInsert) &&
           $isTextNode(node) &&
           !$isMarkerNode(node) &&
@@ -426,6 +375,57 @@ export function getUsjMarkerAction(
               nodeToInsert.selectEnd();
             }
           }
+        } else if (
+          $isTextNode(node) &&
+          !$isMarkerNode(node) &&
+          selection.isCollapsed() &&
+          ($isNoteNode(nodeParent) ||
+            ($isCharNode(nodeParent) && $isNoteNode(nodeParent.getParent())))
+        ) {
+          // Inserting into a NoteNode. The caret sits on the note's own text (a spacer) or inside
+          // one of its CharNodes; insert the new marker as a sibling within the note so it can't
+          // escape into the surrounding paragraph.
+          const caretChar = $isCharNode(nodeParent) ? nodeParent : undefined;
+          // When the caret is inside a char, split it there: the content after the caret moves into
+          // a following clone so the new marker lands between the two halves (not after the char).
+          const charTail = caretChar
+            ? $collectSiblingsFromCaret(node, selection.anchor.offset)
+            : [];
+          const noteChildAnchor = caretChar ?? node;
+          let lastInsertedNode: LexicalNode = noteChildAnchor.insertAfter(nodeToInsert);
+          if ($isVisibleMarkerNode(nodeToInsert)) {
+            // We are using visible marker mode so the `nodeToInsert` is just the marker. Get the
+            // CharNode with content to insert after it.
+            const _viewOptions: ViewOptions = {
+              ...(viewOptions || getDefaultViewOptions()),
+              markerMode: "hidden",
+            };
+            const serializedLexicalNode = createLexicalUsjNode(
+              content,
+              usjEditorAdaptor,
+              _viewOptions,
+            );
+            const charNodeToInsert = $createNodeFromSerializedNode(serializedLexicalNode);
+            lastInsertedNode = lastInsertedNode.insertAfter(charNodeToInsert);
+          }
+          if (charTail.length > 0 && caretChar) {
+            // Move the after-caret content into a clone of the split char, right after the marker.
+            // Use $createCharNodeLike (not a hand-rolled $createCharNode) so the clone keeps the
+            // char's identity - notably charIdState - and $charNodeTransform can re-merge the halves
+            // if the marker between them is later removed.
+            const tailChar = $createCharNodeLike(caretChar).append(...charTail);
+            lastInsertedNode.insertAfter(tailChar);
+            if (caretChar.isEmpty()) caretChar.remove();
+          } else if (!$isTextNode(lastInsertedNode.getNextSibling())) {
+            // Add a trailing spacer only if one doesn't already follow. Inserting between a char and
+            // its existing spacer would leave two adjacent spacers, which a note transform collapses
+            // with a selectEnd that steals the caret out of the new marker.
+            lastInsertedNode.insertAfter($createTextNode(NBSP));
+          }
+          // Land the caret inside the new marker's content, not before it (PT-3780). selectEnd
+          // leaves it after the empty-char placeholder, which the placeholder transform strips on
+          // the first keystroke.
+          if ($isElementNode(lastInsertedNode)) lastInsertedNode.selectEnd();
         } else {
           selection.insertNodes([nodeToInsert]);
           $moveVerseFollowingSpaceToPreviousNode(nodeToInsert);
@@ -677,7 +677,7 @@ function getMarkerAction(marker: string): UsjMarkerAction | undefined {
             CharNode.isValidCrossReferenceMarker(marker)
           )
             (content as MarkerContent & { closed?: string }).closed = "false";
-          return [content];
+          return { content: [content] };
         },
       };
     }

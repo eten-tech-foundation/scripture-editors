@@ -18,7 +18,7 @@ import {
 import {
   $createMarkerNode,
   $isMarkerNode,
-  $isParaMarkerPrefix,
+  $isSynthesizedMarkerNode,
   $isParaNode,
   canonicalAttributeText,
   CharNode,
@@ -152,7 +152,7 @@ export function $paraMarkerDeletionTransform(para: ParaNode, context: MarkerEdit
   // (below) re-dirties the paragraph and re-enters this transform, and that re-entry must land
   // here and stop — with the injection branch checked first, every re-entry re-injected and the
   // transform looped endlessly.
-  if ($isParaMarkerPrefix(para.getFirstChild())) {
+  if ($isSynthesizedMarkerNode(para.getFirstChild())) {
     $healMarkerTrailingSeparator(para);
     return;
   }

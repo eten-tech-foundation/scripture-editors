@@ -55,7 +55,7 @@ vi.mock("@lexical/clipboard", async (importOriginal) => {
 });
 
 /**
- * jsdom (see StructureProtectionPlugin.test.tsx's `htmlPasteEvent`) doesn't implement
+ * jsdom (see StructureKeyboardPlugin.test.tsx's `htmlPasteEvent`) doesn't implement
  * `ClipboardEvent`/`DataTransfer`; the handler under test only touches
  * `clipboardData.setData`/`preventDefault`, so a minimal stub covers it.
  */

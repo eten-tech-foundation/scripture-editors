@@ -122,9 +122,9 @@ export interface EditorOptions {
     hasExternalUI?: boolean;
     hasSpellCheck?: boolean;
     isReadonly?: boolean;
-    isStructureProtected?: boolean;
     markerMenuTrigger?: string;
     nodes?: UsjNodeOptions;
+    structureProtectionMode?: StructureProtectionMode;
     styleInfo?: StyleInfo;
     textDirection?: TextDirection;
     view?: ViewOptions;
@@ -152,6 +152,7 @@ export interface EditorRef {
     commitPendingMarkerEdits(): void;
     copy(): void;
     cut(): void;
+    extendCharacterMarker(marker: string, conflictingMarkers?: readonly string[]): boolean;
     focus(): void;
     formatPara(blockMarker: string): void;
     getElementByKey(nodeKey: string): HTMLElement | undefined;
@@ -174,6 +175,8 @@ export interface EditorRef {
     pastePlainText(): void;
     redo(): void;
     removeAnnotation(type: string, id: string): void;
+    removeCharacterMarker(marker?: string): boolean;
+    replaceCharacterMarker(toMarker: string, fromMarker?: string): boolean;
     replaceEmbedUpdate(embedNodeKey: string, insertEmbedOps: DeltaOp[]): void;
     selectNote(noteKeyOrIndex: string | number): void;
     setAnnotation(selection: AnnotationRange, type: string, id: string, callbacks?: {
@@ -466,6 +469,9 @@ export interface StateChangeSnapshot {
     canUndo: boolean;
     contextMarker: string | undefined;
 }
+
+// @public
+export type StructureProtectionMode = "off" | "guarded" | "protected";
 
 // @public
 export interface StyleInfo {

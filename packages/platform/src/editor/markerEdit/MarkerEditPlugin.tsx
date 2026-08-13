@@ -561,7 +561,7 @@ export function MarkerEditPlugin({
           // selection touches an expanded note are claimed and replayed with note semantics.
           //
           // Registered at COMMAND_PRIORITY_CRITICAL: with structure protection on (the
-          // Simple-mode default) StructureProtectionPlugin handles PASTE at HIGH and
+          // Simple-mode default) StructureKeyboardPlugin handles PASTE at HIGH and
           // sanitize-inserts any html-bearing payload before a lower-priority claim could run —
           // but an `\fp` break edits NOTE CONTENT, not document structure, so the in-note claim
           // must win. Outranking the standard-view NBSP normalization at HIGH is fine because
