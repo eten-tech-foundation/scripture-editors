@@ -561,6 +561,13 @@ function $liftOutOfChar(node: LexicalNode, char: CharNode): void {
   // span carrying the same flag. Without it the clone has no closer AND no closed="false", so the
   // marker-edit engine reads its (correct) missing closer as deletion damage and rebuilds the note.
   const isUnclosed = char.getUnknownAttributes()?.closed === "false";
+  // Glyphs are markerMode "editable" presentation — a MarkerNode never exists in "hidden" or
+  // "visible" mode. The clone is ALWAYS structurally reopened (that is the PT9 close-and-reopen
+  // this function implements); it only renders `\marker` when the span it reopens does. Derived
+  // from `char`'s actual children, the same way `hasCloser` is, rather than threading viewOptions.
+  const hasOpener = char
+    .getChildren()
+    .some((child) => $isMarkerNode(child) && child.getMarkerSyntax() === "opening");
   // Content strictly after `node`, excluding char's own closing glyph.
   const after: LexicalNode[] = [];
   for (let sibling = node.getNextSibling(); sibling; ) {
@@ -571,11 +578,14 @@ function $liftOutOfChar(node: LexicalNode, char: CharNode): void {
   char.insertAfter(node); // node leaves char, becomes its next sibling
   if (after.length > 0) {
     const right = $createCharNode(marker, isUnclosed ? { closed: "false" } : undefined);
-    right.append($createMarkerNode(marker, "opening", nested), ...after);
+    if (hasOpener) right.append($createMarkerNode(marker, "opening", nested), ...after);
+    else right.append(...after);
     if (hasCloser) right.append($createMarkerNode(marker, "closing", nested));
-    // Structural NBSP only when the first content node is text (mirrors createChar).
+    // Structural NBSP only when the first content node is text (mirrors createChar) AND the
+    // clone actually carries an opening glyph — the NBSP is the separator between the two.
     const [firstContent] = after;
     if (
+      hasOpener &&
       $isTextNode(firstContent) &&
       !$isMarkerNode(firstContent) &&
       !firstContent.getTextContent().startsWith(NBSP)

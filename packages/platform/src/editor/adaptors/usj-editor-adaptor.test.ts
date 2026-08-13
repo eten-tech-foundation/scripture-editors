@@ -1463,45 +1463,39 @@ describe("unknown-node display (USFM byte runs, editable mode)", () => {
     expect(content.text).toBe("The Title");
   });
 
-  it("table:row opens with \\tr and never closes; a spanning table:cell re-encodes colspan into its opening", () => {
+  // This pinned the never-closes rule on table/table:row/table:cell until paranext-core#2487
+  // taught the adaptor to build real ImmutableTable* nodes for those three types: they no longer
+  // reach `createUnknown`, so the table arm of `unknownDisplayParts` (including
+  // `tableCellMarkerWithSpan`) is unreachable from the adaptor. `periph` is the other open-ended
+  // division marker, so the same contract is pinned through it here. Whether that dead table arm
+  // should go, and how tables/figures/sidebars reconcile overall, is PT-4198.
+  it("periph opens with its marker and alt text, keeps other attributes, and never closes", () => {
     const children = unknownChildren(
       usjWithUnknown({
-        type: "table",
-        content: [
-          {
-            type: "table:row",
-            marker: "tr",
-            content: [
-              {
-                type: "table:cell",
-                marker: "tc1",
-                colspan: "2",
-                content: ["cell1"],
-              } as MarkerObject,
-            ],
-          } as MarkerObject,
-        ],
+        type: "periph",
+        marker: "periph",
+        alt: "Title Page",
+        id: "title",
+        content: ["periph content"],
       } as MarkerObject),
       getViewOptions(STANDARD_VIEW_MODE),
     );
 
-    // The "table" container itself carries no bytes of its own — no display children.
-    expect(children).toHaveLength(1);
-    const [row] = children;
-    if (!isSerializedUnknownNode(row)) throw new Error("No table:row node found");
-    expect(row.children).toHaveLength(2); // opening marker + the cell (no closer, no attributes)
-    const [rowOpening, cell] = row.children;
-    if (!isSerializedImmutableTypedTextNode(rowOpening))
-      throw new Error("No row opening marker found");
-    expect(rowOpening.text).toBe("\\tr ");
-    if (!isSerializedUnknownNode(cell)) throw new Error("No table:cell node found");
-    expect(cell.children).toHaveLength(2); // opening marker + content (no closer, no attributes)
-    const [cellOpening, cellContent] = cell.children;
-    if (!isSerializedImmutableTypedTextNode(cellOpening))
-      throw new Error("No cell opening marker found");
-    expect(cellOpening.text).toBe("\\tc1-2 ");
-    if (!isSerializedTextNode(cellContent)) throw new Error("No cell content text node found");
-    expect(cellContent.text).toBe("cell1");
+    // Opening marker (carrying the alt as literal content) + attribute run + content; no closer.
+    expect(children).toHaveLength(3);
+    const [opening, attribute, content] = children;
+    if (!isSerializedImmutableTypedTextNode(opening)) throw new Error("No opening marker found");
+    expect(opening.textType).toBe("marker");
+    expect(opening.text).toBe("\\periph Title Page");
+    if (!isSerializedImmutableTypedTextNode(attribute)) throw new Error("No attribute run found");
+    expect(attribute.textType).toBe("attribute");
+    expect(attribute.text).toBe('|id="title"');
+    if (!isSerializedTextNode(content)) throw new Error("No content text node found");
+    expect(content.text).toBe("periph content");
+    // An open-ended division marker never closes: exactly one "marker"-typed run, the opener.
+    expect(
+      children.filter((c) => isSerializedImmutableTypedTextNode(c) && c.textType === "marker"),
+    ).toHaveLength(1);
   });
 
   it("optbreak renders the real '//' token as its only child — no attribute or closing run", () => {
@@ -1517,7 +1511,10 @@ describe("unknown-node display (USFM byte runs, editable mode)", () => {
     expect(opening.text).toBe("//");
   });
 
-  it("ref and the table container carry no USFM bytes of their own — no display children at all", () => {
+  // `table` used to be the second case here; it now builds a real ImmutableTableNode instead of
+  // an UnknownNode (paranext-core#2487), leaving `ref` — a wrapper USJ invented that USFM never
+  // carried — as the only kind that contributes no bytes at all. See the periph test above.
+  it("ref carries no USFM bytes of its own — no display children at all", () => {
     const refChildren = unknownChildren(
       usjWithUnknown({
         type: "ref",
@@ -1528,15 +1525,6 @@ describe("unknown-node display (USFM byte runs, editable mode)", () => {
     );
     expect(refChildren).toHaveLength(1);
     expect(refChildren.some(isSerializedImmutableTypedTextNode)).toBe(false);
-
-    const tableChildren = unknownChildren(
-      usjWithUnknown({
-        type: "table",
-        content: [{ type: "table:row", marker: "tr", content: [] } as MarkerObject],
-      } as MarkerObject),
-      getViewOptions(STANDARD_VIEW_MODE),
-    );
-    expect(tableChildren.some(isSerializedImmutableTypedTextNode)).toBe(false);
   });
 
   it("builds no display children in visible or hidden marker modes", () => {
