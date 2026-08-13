@@ -14,6 +14,7 @@ import {
   $getSelection,
   $isDecoratorNode,
   $isElementNode,
+  $isLineBreakNode,
   $isRangeSelection,
   $isTextNode,
   COMMAND_PRIORITY_HIGH,
@@ -415,7 +416,21 @@ function $selectBeforeFpSpan(fpNode: CharNode): boolean {
 //
 // Scope: unmodified ArrowLeft/ArrowRight, collapsed caret, editable-marker mode (where display runs
 // and glyph text exist at all), and only within the caret's own block. At a block edge this declines
-// and the existing paragraph/line handling runs. Direction is LOGICAL — `isMovingForward` maps the
+// and the existing paragraph/line handling runs — which means the FIRST press into a new paragraph
+// is not normalized: a paragraph opening with a milestone still costs one invisible press on entry,
+// since the press that arrives there crossed a block edge and was never this rule's to resolve.
+//
+// PRECEDENCE: this runs LAST in both chains, so the note, chapter, book and `\fp` handlers above get
+// first refusal and keep their own contracts unchanged. Where one of them claims, one-crossing and
+// canonicalization simply do not apply — `$selectBeforeFpSpan`, for instance, deliberately rests on
+// element points this rule would never leave the caret on. That is the intended split: those
+// handlers encode specific editorial behavior, and this one only decides what "one press" means
+// wherever nothing else has an opinion.
+//
+// One seam is invisible to any classifier by construction: an expanded note's `\fp` line break is a
+// CSS pseudo-element (`.note.expanded .usfm_fp::before`) with no node behind it, so no tree walk can
+// see that a line ended. `$handleForwardFpNavigation`/`$handleBackwardFpNavigation` own that seam
+// and run first — it must stay that way. Direction is LOGICAL — `isMovingForward` maps the
 // physical key through the root's `dir`, so RTL mirrors for free. Claiming the key keeps Lexical's
 // own `KEY_ARROW_*` handling from running at all, so `$moveCharacter` never double-applies and no
 // native `Selection.modify` is consulted; the whole traversal is decided from the tree, which is
@@ -469,7 +484,13 @@ function firstGraphemeEnd(text: string): number {
   return codePoint === undefined ? 0 : String.fromCodePoint(codePoint).length;
 }
 
-/** The offset where `text`'s last grapheme begins — where a backward crossing into it lands. */
+/**
+ * The offset where `text`'s last grapheme begins — where a backward crossing into it lands.
+ *
+ * Scans the whole string: `Intl.Segmenter` only walks forward, and a bounded tail scan can be wrong,
+ * because whether a trailing code point begins a grapheme depends on what precedes it. The strings
+ * are marker glyphs and short attribute values, and one runs per boundary press.
+ */
 function lastGraphemeStart(text: string): number {
   if (graphemeSegmenter) {
     let start = 0;
@@ -495,17 +516,29 @@ function $isTraversableText(node: LexicalNode | null | undefined): node is TextN
 }
 
 /**
- * Rendered as one indivisible glyph: crossing it is a single stop, and the caret never lands inside.
- * A COLLAPSED note qualifies whole — only its caller is on screen, and its hidden content must not
- * be walked into. Every decorator is one except a `MilestoneNode`, the one node here that renders
- * nothing at all; a new zero-width decorator belongs in that exception, or traversal will stop on it.
+ * Occupies space on screen but holds no caret positions of its own: crossing it is a single stop,
+ * and the caret never lands inside.
+ *
+ * The list is deliberately explicit, because a node wrongly called invisible is stepped over
+ * silently — the caret sails past it and the press lands a stop too far. Anything new that takes up
+ * room without offering caret positions belongs here.
  */
 function $isVisibleAtom(node: LexicalNode): boolean {
-  // The collapsed flag is undefined until the note plugin settles it; an unsettled note counts as
-  // expanded, matching what is on screen before the collapse lands.
+  // A line break occupies the rest of its line and ends it. Its two sides are genuinely different
+  // places, so it is crossed like any other glyph — never skipped. The unformatted view puts one
+  // before every verse, so getting this wrong strands a whole view's line starts and ends.
+  if ($isLineBreakNode(node)) return true;
+  // A COLLAPSED note shows only its caller; its hidden content must not be walked into. The flag is
+  // undefined until the note plugin settles it, and an unsettled note counts as expanded, matching
+  // what is on screen before the collapse lands.
   if ($isNoteNode(node)) return node.getIsCollapsed() === true;
+  // Token-mode text is indivisible by Lexical's own rule.
+  if ($isTextNode(node)) return node.isToken() && node.getTextContentSize() > 0;
+  // Every decorator renders SOMETHING — a note caller, an immutable glyph, a verse or chapter
+  // number — except the zero-width anchors listed here, which render nothing at all. A new
+  // zero-width decorator must join this list, or traversal will come to rest on it.
   if ($isDecoratorNode(node)) return !$isMilestoneNode(node);
-  return $isTextNode(node) && node.isToken() && node.getTextContentSize() > 0;
+  return false;
 }
 
 /** The next node in document order in `direction`, stepping out of ancestors, bounded by `block`. */

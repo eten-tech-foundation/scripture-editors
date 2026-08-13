@@ -16,11 +16,14 @@ import {
   $createTextNode,
   $getRoot,
   $getSelection,
+  $isElementNode,
   $isRangeSelection,
+  $isTextNode,
   $setState,
   KEY_DOWN_COMMAND,
   LexicalEditor,
   LexicalNode,
+  LineBreakNode,
   TextNode,
 } from "lexical";
 import {
@@ -1071,6 +1074,31 @@ describe("Visible-stop traversal (editable markers)", () => {
     };
   }
 
+  /**
+   * The caret's LOCATION, reporting an element point as the equivalent text point where one exists.
+   * A position between two nodes has two spellings — the element point between them and offset 0 of
+   * the node after — and Lexical settles on one or the other depending on when its own selection
+   * reconciliation runs. They are the same place, so pins about WHERE the caret is compare this.
+   */
+  function locationOf(editor: LexicalEditor): string {
+    let location = "";
+    editor.getEditorState().read(() => {
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) throw new Error("no range selection");
+      const { anchor } = selection;
+      const node = anchor.getNode();
+      if (anchor.type === "element" && $isElementNode(node)) {
+        const child = node.getChildAtIndex(anchor.offset);
+        if ($isTextNode(child)) {
+          location = `text:${child.getKey()}@0`;
+          return;
+        }
+      }
+      location = `${anchor.type}:${anchor.key}@${anchor.offset}`;
+    });
+    return location;
+  }
+
   /** Reads the caret as a comparable tuple, for round-trip closure. */
   function caretOf(editor: LexicalEditor): string {
     let caret = "";
@@ -1353,6 +1381,161 @@ describe("Visible-stop traversal (editable markers)", () => {
 
       editor.getEditorState().read(() => {
         $expectSelectionToBe(openingGlyph!, 1);
+      });
+    });
+  });
+
+  // The unformatted view is editable-marker too, so the normalizer runs there — and it is the one
+  // view whose paragraphs carry real line breaks: with `hasSpacing: false` the adaptor emits a
+  // `LineBreakNode` before EVERY verse (usj-editor.adaptor.ts). A line break ends its line and its
+  // two sides are genuinely different places, so it must be crossed like a glyph. Classified
+  // invisible it would be stepped over, taking the line-start and line-end positions with it.
+  describe("a line break before a verse (unformatted view)", () => {
+    async function lineBrokenEnvironment() {
+      let firstLine: TextNode;
+      let verse: VerseNode;
+      let lineBreak: LineBreakNode;
+      const { editor } = await testEnvironment(
+        () => {
+          firstLine = $createTextNode("first line");
+          lineBreak = $createLineBreakNode();
+          verse = $createVerseNode("2");
+          $createParaNode();
+          $getRoot().append(
+            $createParaNode().append(firstLine, lineBreak, verse, $createTextNode("second line")),
+          );
+        },
+        "ltr",
+        unformattedView,
+      );
+      return { editor, firstLine: firstLine!, verse: verse!, lineBreak: lineBreak! };
+    }
+
+    // The stop just past the break is the new line's start, before the verse number — resolved as
+    // the element point after the break, which is the same place as offset 0 of the verse.
+    it("crosses the break in ONE press forward, resting at the start of the new line", async () => {
+      const { editor, firstLine, verse } = await lineBrokenEnvironment();
+      updateSelection(editor, firstLine);
+
+      await pressKey(editor, "ArrowRight");
+
+      expect(locationOf(editor)).toBe(`text:${verse.getKey()}@0`);
+    });
+
+    it("crosses the break in ONE press backward, resting at the end of the previous line", async () => {
+      const { editor, firstLine, verse } = await lineBrokenEnvironment();
+      updateSelection(editor, verse, 0);
+
+      await pressKey(editor, "ArrowLeft");
+
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(firstLine);
+      });
+    });
+
+    // Classified invisible, the break would be stepped over: forward would land one grapheme inside
+    // the next line and backward before the previous line's last character, losing both line-edge
+    // positions and breaking closure.
+    it("does not skip past the break's far side in either direction", async () => {
+      const { editor, firstLine, verse } = await lineBrokenEnvironment();
+      updateSelection(editor, firstLine);
+      const start = locationOf(editor);
+
+      await pressKey(editor, "ArrowRight");
+      const afterBreak = locationOf(editor);
+      await pressKey(editor, "ArrowLeft");
+
+      expect(afterBreak).toBe(`text:${verse.getKey()}@0`);
+      expect(locationOf(editor)).toBe(start);
+    });
+  });
+
+  // Two seams the normalizer must NOT own, both in the unformatted view's expanded notes.
+  describe("seams other handlers own", () => {
+    /** An expanded note whose `\fp` span carries the CSS-only line break. */
+    async function expandedNoteEnvironment() {
+      let ftText: TextNode;
+      let fpSpan: CharNode;
+      let fpContent: TextNode;
+      const { editor } = await testEnvironment(
+        () => {
+          ftText = $createTextNode("footnote stuff ");
+          fpSpan = $createCharNode("fp");
+          fpContent = $createTextNode("fp content");
+          $getRoot().append(
+            $createParaNode().append(
+              $createImmutableVerseNode("1"),
+              $createNoteNode("f", "+", false).append(
+                $createImmutableNoteCallerNode("+", "preview"),
+                $createCharNode("ft").append(ftText),
+                fpSpan.append(fpContent),
+              ),
+            ),
+          );
+        },
+        "ltr",
+        unformattedView,
+      );
+      return { editor, ftText: ftText!, fpSpan: fpSpan!, fpContent: fpContent! };
+    }
+
+    // The `\fp` break is a CSS pseudo-element with no node behind it, so no tree classifier can see
+    // that a line ended there. The fp handlers run first and keep it; the normalizer never sees it.
+    it("leaves the CSS-only \\fp line break to the fp handlers", async () => {
+      const { editor, ftText, fpContent } = await expandedNoteEnvironment();
+      updateSelection(editor, ftText);
+
+      await pressKey(editor, "ArrowRight");
+
+      // `$handleForwardFpNavigation`'s own landing — the head of the span's first text, a stop the
+      // one-crossing rule would not have rested on.
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(fpContent, 0);
+      });
+    });
+
+    it("leaves the backward \\fp hop to the fp handlers", async () => {
+      const { editor, ftText, fpSpan } = await expandedNoteEnvironment();
+      updateSelection(editor, fpSpan, 0);
+
+      await pressKey(editor, "ArrowLeft");
+
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(ftText);
+      });
+    });
+
+    // The note handlers get first refusal, and where they claim, their landings stand — element
+    // points the one-crossing rule would never come to rest on. Characterized here in
+    // editable-marker mode, since the note pins above all run in the formatted view.
+    it("leaves a collapsed note's boundary to the note handlers", async () => {
+      let para: ParaNode;
+      let afterNote: TextNode;
+      const { editor } = await testEnvironment(
+        () => {
+          afterNote = $createTextNode("verse text");
+          para = $createParaNode();
+          $getRoot().append(
+            para.append(
+              $createImmutableVerseNode("1"),
+              $createNoteNode("f", "+", true).append(
+                $createImmutableNoteCallerNode("+", "preview"),
+                $createCharNode("ft").append($createTextNode("note text")),
+              ),
+              afterNote,
+            ),
+          );
+        },
+        "ltr",
+        standardView,
+      );
+      updateSelection(editor, afterNote!, 0);
+
+      await pressKey(editor, "ArrowLeft");
+
+      // `$handleBackwardNavigation`'s collapsed-note branch: an element point before the note.
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(para!, 1);
       });
     });
   });
