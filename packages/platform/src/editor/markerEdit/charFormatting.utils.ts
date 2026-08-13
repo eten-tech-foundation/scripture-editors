@@ -13,8 +13,9 @@ import {
   TextNode,
 } from "lexical";
 import {
+  $buildContinuationCharSpan,
+  $continuationCharAttributes,
   $createCharNode,
-  $createMarkerNode,
   $isCharNode,
   $isMarkerNode,
   CharNode,
@@ -33,20 +34,14 @@ import {
  * only there. There is no non-editable caller to render glyph-free for.
  */
 export function $splitCharNodeAt(char: CharNode, textNode: TextNode, offset: number): CharNode {
-  const marker = char.getMarker();
-  // The right half stays in the same parent as `char` (`char.insertAfter(right)` below), so it
-  // shares `char`'s nesting: if `char` is itself nested inside another char span its glyphs carry
-  // the `+`, and the right half's fresh opener/closer must too — otherwise a Tier-2 re-tokenization
-  // of the visible text reads the bare `\w` as close-on-bare and flattens the nesting.
-  const nested = $isCharNode(char.getParent());
-  // Keep any DISPLAY attributes (`|name="value"` bytes) on the LEFT half only (`char`);
-  // duplicating them into both halves would double those bytes on serialization. But `closed`
-  // is structural state, not an attribute byte: an implicitly-closed span (`closed="false"`, no
-  // closing glyph) splits into TWO implicitly-closed spans, so the right half must carry the flag
-  // too — otherwise the marker-edit engine reads its (correct) missing closer as deletion damage
-  // and routes it through Tier 2. Closer-ness keys on this state, never on the marker family.
-  const isUnclosed = char.getUnknownAttributes()?.closed === "false";
-  const right = $createCharNode(marker, isUnclosed ? { closed: "false" } : undefined);
+  // The right half is a CONTINUATION of `char`: it keeps `char`'s marker, its `closed` state (an
+  // implicitly-closed span splits into two implicitly-closed spans, or the marker-edit engine reads
+  // the right half's correct missing closer as deletion damage), and — since it stays in the same
+  // parent (`char.insertAfter(right)` below) — its nesting, so its fresh glyphs carry the `+` when
+  // `char`'s do. All of that shape is the shared continuation convention (charGlyphs.utils.ts in
+  // `shared`); DISPLAY attributes (`|name="value"` bytes) are deliberately not among it, staying on
+  // the left half so serialization can't double them.
+  const right = $createCharNode(char.getMarker(), $continuationCharAttributes(char));
   const rightChildren: LexicalNode[] = [];
 
   let splitPoint: LexicalNode | undefined;
@@ -67,7 +62,6 @@ export function $splitCharNodeAt(char: CharNode, textNode: TextNode, offset: num
   // move splitPoint and everything after it (except the closer glyph) to the right span
   const children = char.getChildren();
   const startIndex = splitPoint ? children.findIndex((c) => c.is(splitPoint)) : -1;
-  const hasCloser = children.some((c) => $isMarkerNode(c) && c.getMarkerSyntax() === "closing");
   if (startIndex >= 0) {
     // Everything after the split point moves — nested element spans included. Collecting only
     // text nodes stranded a nested char span in the LEFT half while the text around it moved
@@ -79,12 +73,9 @@ export function $splitCharNodeAt(char: CharNode, textNode: TextNode, offset: num
     }
   }
   if (rightChildren.length > 0) {
-    // structural NBSP separator between the opening glyph and the content it opens
-    const first = rightChildren[0];
-    if ($isTextNode(first) && !first.getTextContent().startsWith(NBSP))
-      first.setTextContent(NBSP + first.getTextContent());
-    right.append($createMarkerNode(marker, "opening", nested), ...rightChildren);
-    if (hasCloser) right.append($createMarkerNode(marker, "closing", nested));
+    // `true`: glyphs (and their separator NBSP) unconditionally — see the note above about every
+    // caller here being a marker-EDIT operation, which only runs in markerMode "editable".
+    $buildContinuationCharSpan(right, char, rightChildren, true);
     char.insertAfter(right);
   }
   return right;

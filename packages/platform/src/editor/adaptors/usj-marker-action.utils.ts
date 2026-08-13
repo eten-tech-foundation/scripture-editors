@@ -19,6 +19,8 @@ import {
   TextNode,
 } from "lexical";
 import {
+  $buildContinuationCharSpan,
+  $continuationCharAttributes,
   $createCharNode,
   $createMarkerNode,
   $createNodeFromSerializedNode,
@@ -546,16 +548,6 @@ function $charContainer(char: CharNode): LexicalNode | null {
  * convention, and nesting (its glyphs carry the `+` when `char` was itself nested).
  */
 function $liftOutOfChar(node: LexicalNode, char: CharNode, renderGlyphs: boolean): void {
-  const marker = char.getMarker();
-  const nested = $isCharNode(char.getParent());
-  const hasCloser = char
-    .getChildren()
-    .some((child) => $isMarkerNode(child) && child.getMarkerSyntax() === "closing");
-  // The reopened clone must reproduce `char`'s closer CONVENTION, which keys on state: an
-  // implicitly-closed span (closed="false", no closing glyph) reopens as another implicitly-closed
-  // span carrying the same flag. Without it the clone has no closer AND no closed="false", so the
-  // marker-edit engine reads its (correct) missing closer as deletion damage and rebuilds the note.
-  const isUnclosed = char.getUnknownAttributes()?.closed === "false";
   // Content strictly after `node`, excluding char's own closing glyph.
   const after: LexicalNode[] = [];
   for (let sibling = node.getNextSibling(); sibling; ) {
@@ -565,26 +557,16 @@ function $liftOutOfChar(node: LexicalNode, char: CharNode, renderGlyphs: boolean
   }
   char.insertAfter(node); // node leaves char, becomes its next sibling
   if (after.length > 0) {
-    const right = $createCharNode(marker, isUnclosed ? { closed: "false" } : undefined);
     // The clone ALWAYS reopens structurally — that is the PT9 close-and-reopen this function
     // implements, and it happens in every marker mode. `renderGlyphs` only decides whether the
-    // clone also carries the VISIBLE `\marker` opener: a MarkerNode is markerMode "editable"
-    // presentation, so fabricating one in "hidden"/"visible" mode puts literal `\ft ` text into
-    // the content. The closer needs no gate — it is copied only when `char` itself has a closing
-    // glyph, which only exists in editable mode anyway.
-    if (renderGlyphs) right.append($createMarkerNode(marker, "opening", nested), ...after);
-    else right.append(...after);
-    if (hasCloser) right.append($createMarkerNode(marker, "closing", nested));
-    // Structural NBSP only when the first content node is text (mirrors createChar) and the clone
-    // carries an opening glyph — the NBSP is the separator between the glyph and its content.
-    const [firstContent] = after;
-    if (
-      renderGlyphs &&
-      $isTextNode(firstContent) &&
-      !$isMarkerNode(firstContent) &&
-      !firstContent.getTextContent().startsWith(NBSP)
-    )
-      firstContent.setTextContent(NBSP + firstContent.getTextContent());
+    // clone also carries the VISIBLE `\marker` opener (and therefore its separator NBSP): a
+    // MarkerNode is markerMode "editable" presentation, so fabricating one in "hidden"/"visible"
+    // mode puts literal `\ft ` text into the content. The rest of the shape — the closer copied
+    // only when `char` renders one, the `+` when `char` is nested, and the closed="false" carried
+    // onto the clone so its (correct) missing closer isn't read as deletion damage — is the shared
+    // continuation convention (charGlyphs.utils.ts in `shared`).
+    const right = $createCharNode(char.getMarker(), $continuationCharAttributes(char));
+    $buildContinuationCharSpan(right, char, after, renderGlyphs);
     node.insertAfter(right);
   }
   if (char.getChildren().every($isMarkerNode)) char.remove();
