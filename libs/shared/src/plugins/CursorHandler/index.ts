@@ -1,1 +1,8 @@
-export { registerCursorHandlers, CURSOR_PLACEHOLDER_CHAR } from "./core/index.js";
+export {
+  registerCursorHandlers,
+  CURSOR_PLACEHOLDER_CHAR,
+  $createCursorPlaceholderNode,
+  $removeCursorPlaceholder,
+  $isCursorPlaceholderOnlyText,
+  isCursorPlaceholderOnly,
+} from "./core/index.js";
