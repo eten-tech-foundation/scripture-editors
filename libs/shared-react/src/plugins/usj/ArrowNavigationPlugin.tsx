@@ -271,7 +271,9 @@ function $selectBeforeFpSpan(fpNode: CharNode): boolean {
 // tripwire for a Lexical upgrade: if the wrapped shape starts being resolved by Lexical again, that
 // pin fails and the backward handler can be retired.
 //
-// COVERED: both directions, collapsed, UNMODIFIED arrows. Two cases are knowingly left as they are:
+// COVERED: both directions, collapsed, UNMODIFIED arrows, and only where the caret's own sibling
+// chain reaches the milestone — directly, or across one milestone-kind wrapper it is leaving. Three
+// cases are knowingly left as they are:
 //   - Shift-extend stays trapped. Restoring it needs an extend of the focus alone, not the
 //     collapsed range these handlers set. This is a genuine regression from the wrapper: before it,
 //     shift+ArrowLeft was resolved by Lexical; wrapped, it falls through to the native move.
@@ -282,6 +284,15 @@ function $selectBeforeFpSpan(fpNode: CharNode): boolean {
 //     ctrl+ArrowLeft dispatches `MOVE_TO_START`, which nothing anywhere registers a handler for,
 //     and alt+ArrowLeft dispatches nothing at all. Both reach the browser un-preventDefaulted, with
 //     word/line granularity this character hop would not reproduce.
+//   - FORWARD out of a NON-milestone inline element that ends exactly where a milestone begins:
+//     `\add word\add*\qt-s\*`, or a note closing immediately before one. The step-out below is
+//     deliberately narrow — it leaves only a milestone-kind wrapper — so a caret at the end of an
+//     `\add` span's last text has no next sibling this lookup will follow, and the move falls
+//     through to Lexical, whose sibling scan finds nothing across the span boundary and whose
+//     ancestor fallback rejects the inline milestone. That is the same fall-through signature as
+//     the two bugs above, so the shape keeps at least the dead stop and may be a forward hard trap;
+//     which one is a live-only question. Not generalized here on purpose: widening the step-out to
+//     any inline element is a behavior decision beyond restoring the run's own traversal.
 //
 // Both handlers are scoped structurally to the milestone kind, mirroring the display-run registry's
 // own ownership rule (`displayRunRegistry.ts`, `milestoneDescriptor.ownerOf`: a wrapper's owner is
@@ -325,7 +336,11 @@ function $getMilestoneAfterCaret(selection: RangeSelection): MilestoneNode | und
   const anchor = selection.anchor;
   const anchorNode = anchor.getNode();
 
-  // Element point: whichever child sits at the caret's index comes next.
+  // Element point: whichever child sits at the caret's index comes next. An element point at a
+  // wrapper's END (offset === childrenSize) deliberately does NOT step out the way the equivalent
+  // text point below does — normal traversal never produces one there (Lexical resolves into the
+  // last child's text), so it only arises from a click or a programmatic selection, and widening
+  // this branch to match would add a path with no traversal behind it to keep honest.
   if (anchor.type === "element") {
     const next = $isElementNode(anchorNode) ? anchorNode.getChildAtIndex(anchor.offset) : undefined;
     return $isMilestoneNode(next) ? next : undefined;
@@ -341,8 +356,12 @@ function $getMilestoneAfterCaret(selection: RangeSelection): MilestoneNode | und
   // exactly where the next milestone begins (two milestones back to back, no text between) is
   // crossed as well. This mirrors the backward side, which steps out of the wrapper to find its
   // owner; without it that shape keeps the same dead stop, with nothing before it to fall back to.
+  // The wrapper being LEFT is held to the same registry rule as the one being entered — kind plus a
+  // `MilestoneNode` owner directly before it — so a mid-edit husk that has lost its owner cannot
+  // originate a hop.
   const wrapper = anchorNode.getParent();
   if (!$isAttributeRunNode(wrapper) || wrapper.getRunKind() !== "milestone") return undefined;
+  if (!$isMilestoneNode(wrapper.getPreviousSibling())) return undefined;
   const afterWrapper = wrapper.getNextSibling();
   return $isMilestoneNode(afterWrapper) ? afterWrapper : undefined;
 }
