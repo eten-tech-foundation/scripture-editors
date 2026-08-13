@@ -430,11 +430,13 @@ function $selectBeforeFpSpan(fpNode: CharNode): boolean {
 // One seam is invisible to any classifier by construction: an expanded note's `\fp` line break is a
 // CSS pseudo-element (`.note.expanded .usfm_fp::before`) with no node behind it, so no tree walk can
 // see that a line ended. `$handleForwardFpNavigation`/`$handleBackwardFpNavigation` own that seam
-// and run first — it must stay that way. Direction is LOGICAL — `isMovingForward` maps the
-// physical key through the root's `dir`, so RTL mirrors for free. Claiming the key keeps Lexical's
-// own `KEY_ARROW_*` handling from running at all, so `$moveCharacter` never double-applies and no
-// native `Selection.modify` is consulted; the whole traversal is decided from the tree, which is
-// also what makes press counts measurable without browser caret geometry.
+// and run first — it must stay that way.
+//
+// Direction is LOGICAL — `isMovingForward` maps the physical key through the root's `dir`, so RTL
+// mirrors for free. Claiming the key keeps Lexical's own `KEY_ARROW_*` handling from running at
+// all, so `$moveCharacter` never double-applies and no native `Selection.modify` is consulted; the
+// whole traversal is decided from the tree, which is also what makes press counts measurable
+// without browser caret geometry.
 //
 // Clicks and programmatic selection are untouched — this is arrow traversal only, so a caret parked
 // on a non-canonical position by other means is normalized by its next arrow press rather than
