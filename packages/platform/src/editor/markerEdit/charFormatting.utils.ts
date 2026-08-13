@@ -26,6 +26,11 @@ import {
  * right-hand span (with fresh opener/closer glyphs). When nothing follows the offset — the
  * caret sits at the span's content end — nothing moves and the returned span is NOT attached
  * to the tree; check `isAttached()` before relying on it.
+ *
+ * Glyphs are emitted unconditionally, unlike `$liftOutOfChar`'s reopen: every path here is a
+ * marker-EDIT operation (Ctrl+Space, the close-tag palette item), and those only run in
+ * markerMode "editable" — `MarkerEditPlugin` gates on it and `Editor.tsx` builds the marker menu
+ * only there. There is no non-editable caller to render glyph-free for.
  */
 export function $splitCharNodeAt(char: CharNode, textNode: TextNode, offset: number): CharNode {
   const marker = char.getMarker();
@@ -42,7 +47,6 @@ export function $splitCharNodeAt(char: CharNode, textNode: TextNode, offset: num
   // and routes it through Tier 2. Closer-ness keys on this state, never on the marker family.
   const isUnclosed = char.getUnknownAttributes()?.closed === "false";
   const right = $createCharNode(marker, isUnclosed ? { closed: "false" } : undefined);
-  const rightOpener = $createMarkerNode(marker, "opening", nested);
   const rightChildren: LexicalNode[] = [];
 
   let splitPoint: LexicalNode | undefined;
@@ -75,11 +79,11 @@ export function $splitCharNodeAt(char: CharNode, textNode: TextNode, offset: num
     }
   }
   if (rightChildren.length > 0) {
-    // structural NBSP prefix for the right span's first text
+    // structural NBSP separator between the opening glyph and the content it opens
     const first = rightChildren[0];
     if ($isTextNode(first) && !first.getTextContent().startsWith(NBSP))
       first.setTextContent(NBSP + first.getTextContent());
-    right.append(rightOpener, ...rightChildren);
+    right.append($createMarkerNode(marker, "opening", nested), ...rightChildren);
     if (hasCloser) right.append($createMarkerNode(marker, "closing", nested));
     char.insertAfter(right);
   }

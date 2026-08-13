@@ -288,7 +288,13 @@ export function getUsjMarkerAction(
         ) {
           // A non-NEST style applied INSIDE an open char span: PT9 closes the enclosing char
           // styles and reopens the ones with content after the point — it never nests the span.
-          $applyNonNestInsideChar(selection, nodeToInsert, node, innermostChar);
+          $applyNonNestInsideChar(
+            selection,
+            nodeToInsert,
+            node,
+            innermostChar,
+            viewOptions?.markerMode === "editable",
+          );
         } else if (selection.getTextContent().length > 0) {
           // If the selection has text content, wrap the text selection in an inline node
           $wrapTextSelectionInInlineNode(selection, () =>
@@ -550,7 +556,7 @@ function $charContainer(char: CharNode): LexicalNode | null {
  * half left with only glyphs is dropped. The reopened clone keeps `char`'s marker, closer
  * convention, and nesting (its glyphs carry the `+` when `char` was itself nested).
  */
-function $liftOutOfChar(node: LexicalNode, char: CharNode): void {
+function $liftOutOfChar(node: LexicalNode, char: CharNode, renderGlyphs: boolean): void {
   const marker = char.getMarker();
   const nested = $isCharNode(char.getParent());
   const hasCloser = char
@@ -571,11 +577,20 @@ function $liftOutOfChar(node: LexicalNode, char: CharNode): void {
   char.insertAfter(node); // node leaves char, becomes its next sibling
   if (after.length > 0) {
     const right = $createCharNode(marker, isUnclosed ? { closed: "false" } : undefined);
-    right.append($createMarkerNode(marker, "opening", nested), ...after);
+    // The clone ALWAYS reopens structurally — that is the PT9 close-and-reopen this function
+    // implements, and it happens in every marker mode. `renderGlyphs` only decides whether the
+    // clone also carries the VISIBLE `\marker` opener: a MarkerNode is markerMode "editable"
+    // presentation, so fabricating one in "hidden"/"visible" mode puts literal `\ft ` text into
+    // the content. The closer needs no gate — it is copied only when `char` itself has a closing
+    // glyph, which only exists in editable mode anyway.
+    if (renderGlyphs) right.append($createMarkerNode(marker, "opening", nested), ...after);
+    else right.append(...after);
     if (hasCloser) right.append($createMarkerNode(marker, "closing", nested));
-    // Structural NBSP only when the first content node is text (mirrors createChar).
+    // Structural NBSP only when the first content node is text (mirrors createChar) and the clone
+    // carries an opening glyph — the NBSP is the separator between the glyph and its content.
     const [firstContent] = after;
     if (
+      renderGlyphs &&
       $isTextNode(firstContent) &&
       !$isMarkerNode(firstContent) &&
       !firstContent.getTextContent().startsWith(NBSP)
@@ -599,6 +614,7 @@ function $applyNonNestInsideChar(
   newSpan: CharNode,
   anchorNode: LexicalNode,
   innermostChar: CharNode,
+  renderGlyphs: boolean,
 ): void {
   const container = $charContainer(innermostChar);
   let liftTarget: LexicalNode = newSpan;
@@ -629,7 +645,7 @@ function $applyNonNestInsideChar(
     liftTarget.getParent() !== container &&
     $isCharNode(liftTarget.getParent())
   )
-    $liftOutOfChar(liftTarget, liftTarget.getParent() as CharNode);
+    $liftOutOfChar(liftTarget, liftTarget.getParent() as CharNode, renderGlyphs);
   if (liftTarget !== newSpan) {
     // Wrap the lifted selection text in the new span (now at container level), replacing its
     // empty-content placeholder and taking the structural NBSP as the span's first content.
