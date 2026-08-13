@@ -21,6 +21,7 @@ import {
   KEY_DOWN_COMMAND,
   LexicalEditor,
   LexicalNode,
+  PointType,
   RangeSelection,
   TextNode,
 } from "lexical";
@@ -172,7 +173,8 @@ function $navigateVerseVertically(
 /**
  * Registers arrow-key handling for USJ scripture: verse-to-verse vertical movement when needed,
  * and horizontal movement around notes and chapter boundaries. In editable-marker mode it also
- * normalizes horizontal traversal so every press crosses exactly one piece of rendered content.
+ * normalizes horizontal traversal — plain arrows and shift-extensions alike — so every press
+ * crosses exactly one piece of rendered content.
  *
  * TODO: When the caret is before an empty verse number in an otherwise empty para, pressing up or
  * down moves the caret to after the verse number in the para above/below rather than staying
@@ -207,7 +209,38 @@ function useArrowKeys(editor: LexicalEditor, viewOptions: ViewOptions | undefine
 
     const $handleKeyDown = (event: KeyboardEvent): boolean => {
       const selection = $getSelection();
-      if (!$isRangeSelection(selection) || !selection.isCollapsed()) return false;
+      if (!$isRangeSelection(selection)) return false;
+
+      // Display runs and glyph text — the stacked invisible positions the normalizer exists for —
+      // are built only in editable-marker mode; the other views keep the browser's own traversal.
+      const normalizesStops = viewOptions?.markerMode === "editable";
+      const rootElement = editor.getRootElement();
+
+      // Shift+horizontal arrow grows the selection by the same visible stops the collapsed caret
+      // walks: the FOCUS moves one rendered position, the anchor stays put. Without it, selecting
+      // through a display run inherits the traversal the normalizer exists to replace — the focus
+      // stalls on invisible stops, and at a run's left edge it could not move at all, because
+      // Lexical hands an extend across a zero-width decorator to the browser exactly as it does a
+      // collapsed move. Shift ONLY: ctrl/alt/meta arrows keep their own word and line granularity.
+      if (
+        normalizesStops &&
+        rootElement &&
+        (event.key === "ArrowLeft" || event.key === "ArrowRight") &&
+        event.shiftKey &&
+        !event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey
+      ) {
+        const textDirection = rootElement.dir || "ltr";
+        const isHandled = $extendOneVisibleStop(
+          selection,
+          isMovingForward(textDirection, event.key) ? "next" : "previous",
+        );
+        if (isHandled) event.preventDefault();
+        return isHandled;
+      }
+
+      if (!selection.isCollapsed()) return false;
 
       if (event.key === "ArrowUp" || event.key === "ArrowDown") {
         if (event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return false;
@@ -216,13 +249,9 @@ function useArrowKeys(editor: LexicalEditor, viewOptions: ViewOptions | undefine
       }
       if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return false;
 
-      const inputDiv = editor.getRootElement();
-      if (!inputDiv) return false;
+      if (!rootElement) return false;
 
-      const direction = inputDiv.dir || "ltr";
-      // Display runs and glyph text — the stacked invisible positions the normalizer exists for —
-      // are built only in editable-marker mode; the other views keep the browser's own traversal.
-      const normalizesStops = viewOptions?.markerMode === "editable";
+      const direction = rootElement.dir || "ltr";
       // The `\fp` boundary hops apply only to plain arrow moves: modified arrows (shift range
       // extension, word/line jumps) keep native semantics.
       const hasModifier = event.shiftKey || event.altKey || event.ctrlKey || event.metaKey;
@@ -550,27 +579,26 @@ function $canonicalize(landing: CaretLanding, block: ElementNode): CaretLanding 
   return { kind: "element", node: parent, offset: rendered.getIndexWithinParent() + 1 };
 }
 
-/** Where a single press lands, or `undefined` when the block edge leaves nothing to cross. */
+/** Where a single press lands from `point`, or `undefined` when the block edge leaves nothing to cross. */
 function $resolveOneVisibleStop(
-  selection: RangeSelection,
+  point: PointType,
   direction: TraversalDirection,
 ): CaretLanding | undefined {
-  const anchor = selection.anchor;
-  const anchorNode = anchor.getNode();
+  const anchorNode = point.getNode();
   const block = $blockOf(anchorNode);
   if (!block) return undefined;
 
   // Inside a text node the browser's own grapheme and bidi handling is better than a tree walk, so
   // those moves are declined — except a backward step off the first character, whose landing at
   // offset 0 is one of the stacked positions and has to be canonicalized.
-  if (anchor.type === "text" && $isTraversableText(anchorNode)) {
-    if (direction === "next" && anchor.offset < anchorNode.getTextContentSize()) return undefined;
-    if (direction === "previous" && anchor.offset > 1) return undefined;
-    if (direction === "previous" && anchor.offset === 1)
+  if (point.type === "text" && $isTraversableText(anchorNode)) {
+    if (direction === "next" && point.offset < anchorNode.getTextContentSize()) return undefined;
+    if (direction === "previous" && point.offset > 1) return undefined;
+    if (direction === "previous" && point.offset === 1)
       return $canonicalize({ kind: "text", node: anchorNode, offset: 0 }, block);
   }
 
-  const seed = $scanSeed(anchorNode, anchor.offset, anchor.type, direction, block);
+  const seed = $scanSeed(anchorNode, point.offset, point.type, direction, block);
   const rendered = $scanForRendered(seed, direction, block);
   if (!rendered) return undefined;
 
@@ -589,21 +617,46 @@ function $resolveOneVisibleStop(
   );
 }
 
-/** Moves the caret one visible stop in `direction`; `false` leaves the press to other handling. */
-function $moveOneVisibleStop(selection: RangeSelection, direction: TraversalDirection): boolean {
-  const landing = $resolveOneVisibleStop(selection, direction);
+/**
+ * Applies one visible stop in `direction`. `collapse` walks the caret; `extend` moves only the
+ * selection's focus, so a shift-arrow grows the range by the same stops. `false` leaves the press to
+ * other handling.
+ */
+function $applyOneVisibleStop(
+  selection: RangeSelection,
+  direction: TraversalDirection,
+  alter: "collapse" | "extend",
+): boolean {
+  // A collapsed move reads the anchor and an extend reads the focus — the live end of the range,
+  // so it stays correct for a selection that was already extended backwards.
+  const point = alter === "collapse" ? selection.anchor : selection.focus;
+  const landing = $resolveOneVisibleStop(point, direction);
   if (!landing) return false;
-  // Already there (a canonicalization that resolved back onto the caret): report the press as
+  // Already there (a canonicalization that resolved back onto the point): report the press as
   // unhandled rather than claiming a keystroke that changes nothing.
   if (
-    landing.node.is(selection.anchor.getNode()) &&
-    landing.offset === selection.anchor.offset &&
-    landing.kind === selection.anchor.type
+    landing.node.is(point.getNode()) &&
+    landing.offset === point.offset &&
+    landing.kind === point.type
   ) {
     return false;
   }
-  landing.node.select(landing.offset, landing.offset);
+  if (alter === "collapse") {
+    landing.node.select(landing.offset, landing.offset);
+    return true;
+  }
+  selection.focus.set(landing.node.getKey(), landing.offset, landing.kind);
   return true;
+}
+
+/** Moves the caret one visible stop in `direction`; `false` leaves the press to other handling. */
+function $moveOneVisibleStop(selection: RangeSelection, direction: TraversalDirection): boolean {
+  return $applyOneVisibleStop(selection, direction, "collapse");
+}
+
+/** Extends the selection's focus one visible stop, leaving its anchor where it is. */
+function $extendOneVisibleStop(selection: RangeSelection, direction: TraversalDirection): boolean {
+  return $applyOneVisibleStop(selection, direction, "extend");
 }
 
 /** Helper to handle forward arrow key navigation logic */
