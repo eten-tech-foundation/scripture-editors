@@ -6,7 +6,7 @@
 import { $expectSelectionToBe } from "../../../../../libs/shared/src/nodes/usj/test.utils";
 import { $createImmutableNoteCallerNode, $createImmutableVerseNode } from "../../nodes/usj";
 import { getDefaultViewOptions } from "../../views/view-options.utils";
-import { ArrowNavigationPlugin } from "./ArrowNavigationPlugin";
+import { ArrowNavigationPlugin, hasVisualLineBeyondCaret } from "./ArrowNavigationPlugin";
 import { TextDirectionPlugin } from "./TextDirectionPlugin";
 import { baseTestEnvironment, pressKey, updateSelection } from "./react-test.utils";
 import { $createLineBreakNode, $createTextNode, $getRoot, TextNode } from "lexical";
@@ -480,6 +480,69 @@ describe("Arrow up/down verse navigation", () => {
         $expectSelectionToBe(v1Text!, 0);
       });
     });
+  });
+});
+
+// The visual-line gate (PT-4308): custom verse-jumping must yield to native single-line movement
+// when the caret's verse wraps onto further lines. These exercise the pure decision directly with
+// synthetic rects, since jsdom has no layout to produce real ones.
+describe("hasVisualLineBeyondCaret", () => {
+  const line = (top: number): { top: number; bottom: number; height: number } => ({
+    top,
+    bottom: top + 16,
+    height: 16,
+  });
+
+  it("ArrowDown: reports a line below when the verse wraps past the caret's line", () => {
+    const caret = line(100);
+    const rects = [line(100), line(120), line(140)]; // caret on the first of three wrapped lines
+    expect(hasVisualLineBeyondCaret(caret, rects, "down")).toBe(true);
+  });
+
+  it("ArrowDown: reports no line below when the caret is on the last visual line", () => {
+    const caret = line(140);
+    const rects = [line(100), line(120), line(140)];
+    expect(hasVisualLineBeyondCaret(caret, rects, "down")).toBe(false);
+  });
+
+  it("ArrowUp: reports a line above when the caret is below the block's first line", () => {
+    const caret = line(140);
+    const rects = [line(100), line(120), line(140)];
+    expect(hasVisualLineBeyondCaret(caret, rects, "up")).toBe(true);
+  });
+
+  it("ArrowUp: reports no line above when the caret is on the first visual line", () => {
+    const caret = line(100);
+    const rects = [line(100), line(120), line(140)];
+    expect(hasVisualLineBeyondCaret(caret, rects, "up")).toBe(false);
+  });
+
+  it("treats a single-line verse as having no line beyond in either direction", () => {
+    const caret = line(100);
+    const rects = [line(100)];
+    expect(hasVisualLineBeyondCaret(caret, rects, "down")).toBe(false);
+    expect(hasVisualLineBeyondCaret(caret, rects, "up")).toBe(false);
+  });
+
+  it("cannot measure without layout (zero-height caret, e.g. jsdom) — returns false so verse-jump is kept", () => {
+    const caret = { top: 0, bottom: 0, height: 0 };
+    const rects = [line(100), line(120)];
+    expect(hasVisualLineBeyondCaret(caret, rects, "down")).toBe(false);
+  });
+
+  it("ignores sub-pixel wobble on the caret's own line", () => {
+    const caret = line(100);
+    const rects = [{ top: 100.5, bottom: 116.5, height: 16 }]; // same line, sub-pixel offset
+    expect(hasVisualLineBeyondCaret(caret, rects, "down")).toBe(false);
+  });
+
+  it("ignores a taller inline box on the caret's own line (verse number / note caller)", () => {
+    const caret = line(100); // top 100, bottom 116
+    // A raised, taller inline sharing the caret's line: it descends below the caret box but starts
+    // on the same line, so it must NOT read as a wrapped line (this fails under a raw-bottom test).
+    const tallerSameLineInline = { top: 94, bottom: 124, height: 30 };
+    expect(hasVisualLineBeyondCaret(caret, [caret, tallerSameLineInline], "down")).toBe(false);
+    expect(hasVisualLineBeyondCaret(caret, [caret, tallerSameLineInline], "up")).toBe(false);
   });
 });
 
