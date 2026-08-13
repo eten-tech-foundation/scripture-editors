@@ -10,6 +10,7 @@ import { ViewOptions } from "../../views/view-options.utils";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { $findMatchingParent } from "@lexical/utils";
 import {
+  $getChildCaret,
   $getCollapsedCaretRange,
   $getSelection,
   $getSiblingCaret,
@@ -41,12 +42,13 @@ import {
   AttributeRunNode,
   CharNode,
   ImmutableChapterNode,
+  MilestoneNode,
   NoteNode,
 } from "shared";
 
 /**
  * Registers arrow-key handling for USJ scripture: verse-to-verse vertical movement when needed,
- * and horizontal movement around notes, chapter boundaries, and the leading edge of a milestone's
+ * and horizontal movement around notes, chapter boundaries, and the edges of a milestone's
  * attribute display run.
  *
  * TODO: When the caret is before an empty verse number in an otherwise empty para, pressing up or
@@ -111,6 +113,7 @@ function useArrowKeys(editor: LexicalEditor, viewOptions: ViewOptions | undefine
       if (isMovingForward(direction, event.key)) {
         isHandled =
           (!hasModifier && $handleForwardFpNavigation(selection)) ||
+          (!hasModifier && $handleForwardMilestoneRunNavigation(selection)) ||
           $handleForwardNavigation(selection);
       } else if (isMovingBackward(direction, event.key)) {
         isHandled =
@@ -233,48 +236,57 @@ function $selectBeforeFpSpan(fpNode: CharNode): boolean {
   return true;
 }
 
-// --- The caret stop at a milestone display run's leading edge ---
+// --- Caret traversal at a milestone display run's edges ---
 //
 // A milestone's display run — its `\qt-s`…`\*` glyph pair and any attribute value — rides inside
 // ONE inline `AttributeRunNode` immediately following the `MilestoneNode` that owns it, and that
-// owner is a `DecoratorNode` rendering nothing: an empty `contenteditable="false"` span.
+// owner is a `DecoratorNode` rendering nothing: an empty `contenteditable="false"` span. Being both
+// a real caret boundary AND zero-width, it breaks arrow navigation in two different ways, one per
+// direction.
 //
-// Lexical (pinned at 0.43.0) resolves a caret move across a decorator itself only while the
-// decorator is a SIBLING of the caret's own node (`$modifySelectionAroundDecoratorsAndBlocks`);
-// the fallback scan that does walk out through ancestors claims only NON-inline decorators, and a
-// milestone is inline. With the run's glyphs one level down inside the wrapper the milestone is
-// the WRAPPER's sibling rather than the glyph's, so Lexical declines and defers to the browser's
-// native `Selection.modify` — which will not carry a caret backward across an empty non-editable
-// span. `@lexical/rich-text`'s ArrowLeft handler has already called `preventDefault` by then (its
-// own `$shouldOverrideDefaultCharacterSelection` DOES see the decorator through the wrapper), so
-// the keystroke is consumed and nothing happens at all: the caret cannot leave the run leftward.
-// This handler makes the hop instead, landing exactly where Lexical's own decorator handling did
-// before the run was wrapped — the position before the owner, normalized to the end of the
-// preceding text when there is text there.
+// BACKWARD, the caret cannot get out of the run at all. Lexical (pinned at 0.43.0) resolves a caret
+// move across a decorator itself only while the decorator is a SIBLING of the caret's own node
+// (`$modifySelectionAroundDecoratorsAndBlocks`); the fallback scan that does walk out through
+// ancestors claims only NON-inline decorators, and a milestone is inline. With the run's glyphs one
+// level down inside the wrapper the milestone is the WRAPPER's sibling rather than the glyph's, so
+// Lexical declines and defers to the browser's native `Selection.modify` — which will not carry a
+// caret backward across an empty non-editable span. `@lexical/rich-text`'s ArrowLeft handler has
+// already called `preventDefault` by then (its own `$shouldOverrideDefaultCharacterSelection` DOES
+// see the decorator through the wrapper), so the keystroke is consumed and nothing happens at all.
+// The backward handler makes the hop instead, landing exactly where Lexical's own decorator
+// handling did before the run was wrapped — the position before the owner, normalized to the end of
+// the preceding text when there is text there.
 //
-// `AttributeRunNode.test.ts` (shared) pins that Lexical-side behavior directly, and is the
-// tripwire for a Lexical upgrade: if the wrapped shape starts being resolved by Lexical again,
-// that pin fails and this handler can be retired.
+// FORWARD, the caret gets in, but only after stopping on a position that renders nowhere. Lexical
+// DOES resolve the move onto the decorator, then normalizes: `$normalizeCaret` of the position
+// after it descends into an adjacent TEXT node but not into an element, and what follows a
+// milestone is the wrapper. So the caret lands on an element point between the decorator and the
+// wrapper — a stop at the same x as the position before the milestone, since the milestone renders
+// nothing. On screen a press appeared to do nothing at all: the caret did not move, it only changed
+// colour, from the paragraph's black to the dim grey the run's own styling gives it. Entering a run
+// therefore cost two presses, and the harmless-looking extra one is why nobody could tell the caret
+// had moved. The forward handler descends into the run instead, so one press enters it.
 //
-// COVERED: backward, collapsed, UNMODIFIED arrows. Three cases are knowingly left to the browser:
+// `AttributeRunNode.test.ts` (shared) pins the backward Lexical-side behavior directly, and is the
+// tripwire for a Lexical upgrade: if the wrapped shape starts being resolved by Lexical again, that
+// pin fails and the backward handler can be retired.
+//
+// COVERED: both directions, collapsed, UNMODIFIED arrows. Two cases are knowingly left as they are:
 //   - Shift-extend stays trapped. Restoring it needs an extend of the focus alone, not the
-//     collapsed range set below. This is a genuine regression from the wrapper: before it,
+//     collapsed range these handlers set. This is a genuine regression from the wrapper: before it,
 //     shift+ArrowLeft was resolved by Lexical; wrapped, it falls through to the native move.
 //   - Ctrl/Alt/Meta arrows are excluded because Lexical never hopped them either, before or after
 //     the wrapper — so claiming them here would be new behavior, not restored parity. Its keydown
-//     gate (`isMoveBackward`, an EXACT modifier match allowing only shift) dispatches
-//     `KEY_ARROW_LEFT_COMMAND` for unmodified/shifted ArrowLeft alone; ctrl+ArrowLeft dispatches
-//     `MOVE_TO_START`, which nothing anywhere registers a handler for, and alt+ArrowLeft dispatches
-//     nothing at all. Both reach the browser un-preventDefaulted, with word/line granularity this
-//     character hop would not reproduce.
-//   - FORWARD off the run's trailing edge. That usually crosses into ordinary text, which the
-//     browser handles, but two adjacent milestones (`wrapper` → `MilestoneNode` → `wrapper`, with
-//     no text between) put the same empty decorator in the way. Known and unfixed.
+//     gate (`isMoveBackward`/`isMoveForward`, EXACT modifier matches allowing only shift) dispatch
+//     `KEY_ARROW_LEFT_COMMAND`/`KEY_ARROW_RIGHT_COMMAND` for unmodified/shifted arrows alone;
+//     ctrl+ArrowLeft dispatches `MOVE_TO_START`, which nothing anywhere registers a handler for,
+//     and alt+ArrowLeft dispatches nothing at all. Both reach the browser un-preventDefaulted, with
+//     word/line granularity this character hop would not reproduce.
 //
-// Scoped structurally to the milestone kind, mirroring the display-run registry's own ownership
-// rule (`displayRunRegistry.ts`, `milestoneDescriptor.ownerOf`: a wrapper's owner is the
-// `MilestoneNode` directly before it, and only for a "milestone" `runKind`). Testing instead that
-// the owner is any decorator would rest on a view-mode coincidence rather than a rule — an
+// Both handlers are scoped structurally to the milestone kind, mirroring the display-run registry's
+// own ownership rule (`displayRunRegistry.ts`, `milestoneDescriptor.ownerOf`: a wrapper's owner is
+// the `MilestoneNode` directly before it, and only for a "milestone" `runKind`). Testing instead
+// that the owner is any decorator would rest on a view-mode coincidence rather than a rule — an
 // editable-mode `VerseNode` is a `TextNode`, but `ImmutableVerseNode` is a `DecoratorNode`, so a
 // verse's `\va`/`\vp` wrapper would start matching wherever the immutable form is built.
 
@@ -304,6 +316,51 @@ function $handleBackwardMilestoneRunNavigation(selection: RangeSelection): boole
 
   $setSelectionFromCaretRange(
     $getCollapsedCaretRange($normalizeCaret($getSiblingCaret(owner, "previous"))),
+  );
+  return true;
+}
+
+/** The `MilestoneNode` the collapsed caret sits immediately before, if any. */
+function $getMilestoneAfterCaret(selection: RangeSelection): MilestoneNode | undefined {
+  const anchor = selection.anchor;
+  const anchorNode = anchor.getNode();
+
+  // Element point: whichever child sits at the caret's index comes next.
+  if (anchor.type === "element") {
+    const next = $isElementNode(anchorNode) ? anchorNode.getChildAtIndex(anchor.offset) : undefined;
+    return $isMilestoneNode(next) ? next : undefined;
+  }
+
+  // Text point: only at the very end of its text does anything else come next.
+  if (anchor.offset !== anchorNode.getTextContentSize()) return undefined;
+
+  const next = anchorNode.getNextSibling();
+  if (next) return $isMilestoneNode(next) ? next : undefined;
+
+  // Nothing follows it inside its parent — step out of a milestone's own run, so a run that ends
+  // exactly where the next milestone begins (two milestones back to back, no text between) is
+  // crossed as well. This mirrors the backward side, which steps out of the wrapper to find its
+  // owner; without it that shape keeps the same dead stop, with nothing before it to fall back to.
+  const wrapper = anchorNode.getParent();
+  if (!$isAttributeRunNode(wrapper) || wrapper.getRunKind() !== "milestone") return undefined;
+  const afterWrapper = wrapper.getNextSibling();
+  return $isMilestoneNode(afterWrapper) ? afterWrapper : undefined;
+}
+
+/** Helper to handle the forward hop across a milestone into its display run. */
+function $handleForwardMilestoneRunNavigation(selection: RangeSelection): boolean {
+  const milestone = $getMilestoneAfterCaret(selection);
+  if (!milestone) return false;
+
+  // Ownership is position-derived: the wrapper directly follows the leaf it belongs to.
+  const wrapper = milestone.getNextSibling();
+  if (!$isAttributeRunNode(wrapper) || wrapper.getRunKind() !== "milestone") return false;
+
+  // A CHILD caret, unlike the sibling caret Lexical's own handling normalizes, descends into the
+  // run — landing at offset 0 of its first glyph, or on the wrapper itself if the run is an empty
+  // husk mid-edit.
+  $setSelectionFromCaretRange(
+    $getCollapsedCaretRange($normalizeCaret($getChildCaret(wrapper, "next"))),
   );
   return true;
 }
