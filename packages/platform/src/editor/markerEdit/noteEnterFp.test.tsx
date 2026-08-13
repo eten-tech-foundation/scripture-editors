@@ -9,6 +9,7 @@ import {
   $noteContentText,
   findOnlyNote,
   noteUsx,
+  plainTextPasteEvent,
   renderStandardEditorWithCollapsedNote,
   renderStandardEditorWithUnclosedNote,
   requireDefined,
@@ -758,12 +759,6 @@ describe("multi-line plain-text paste inside note content", () => {
     return { clipboardData, preventDefault: () => undefined } as unknown as ClipboardEvent;
   }
 
-  /** A paste event whose only payload is `text/plain` — what pasting from a plain-text source
-   * (terminal, text editor, address bar) delivers. */
-  function plainTextPasteEvent(text: string): ClipboardEvent {
-    return pasteEventWith({ "text/plain": text });
-  }
-
   /** Paste the given event with the selection set by `$select` — one update, like a real paste. */
   async function pasteEventAt(
     editor: LexicalEditor,
@@ -1104,14 +1099,36 @@ describe("multi-line plain-text paste inside note content", () => {
         expect(note.getTextContent()).toContain("stuff");
       });
     });
+
+    it("strips \\c/\\id bytes from a multi-line paste — they never land in note content", async () => {
+      // Single-line in-note pastes decline to the main external-paste handler
+      // ($handlePasteForStandardView, whitespaceDisplay.plugin.utils.ts), which already strips
+      // `\c`/`\id`; this CRITICAL multi-line claim is a SEPARATE code path that did not share the
+      // strip until now. A `\c`/`\id` token landing in note content re-tokenizes through the same
+      // Tier 2 tokenizer a paragraph does, so it is just as reachable — and just as save-poisoning
+      // (a live-verified `\c` paste anywhere puts a second chapter node in the editor and fails
+      // every subsequent PDP save) — as one landing in body text.
+      const { editor } = await renderStandardEditorWithUnclosedNote();
+
+      await pasteAt(editor, "first\n\\c 5\nlast", $selectFtEnd);
+
+      editor.getEditorState().read(() => {
+        const note = findOnlyNote($getRoot());
+        expect(note.getTextContent()).not.toContain("\\c");
+      });
+    });
   });
 
-  it("normalizes a pasted data-NBSP to `~` like the single-line path (round-trips to NBSP in USJ)", async () => {
-    // This claim outranks the standard-view paste normalization at HIGH, so it must apply the
-    // same display mapping itself: a pasted data-NBSP lands as `~` (its display form). Inserted
-    // raw, the NBSP is indistinguishable from a display-NBSP (a plain space in a run) and
-    // serialization corrupts it into a plain space. A pasted literal `~` is untouched — it IS
-    // the display form and already round-trips to a data NBSP, exactly like typing `~`.
+  it("normalizes a pasted data-NBSP with no marker adjacency to `~` (round-trips to NBSP in USJ)", async () => {
+    // This claim outranks the standard-view paste normalization at HIGH, so it runs its own NBSP
+    // normalization — the SAME positional rule that path uses (`$normalizePastedNbsp`,
+    // whitespaceDisplay.plugin.utils.ts), not a divergent mapping of its own. This payload has no
+    // marker literal anywhere near its NBSP, so it lands as `~` (genuine data) under the
+    // positional rule exactly as it would under a blanket one — the positional-vs-blanket
+    // distinction only shows up for a marker-adjacent NBSP (see the next test). Inserted raw, the
+    // NBSP is indistinguishable from a display-NBSP (a plain space in a run) and serialization
+    // would corrupt it into a plain space; a pasted literal `~` is untouched — it IS the display
+    // form and already round-trips to a data NBSP, exactly like typing `~`.
     const { editor } = await renderStandardEditorWithUnclosedNote();
 
     await pasteAt(editor, `tilde~data${NBSP}pair\nnext`, $selectFtEnd);
@@ -1138,6 +1155,60 @@ describe("multi-line plain-text paste inside note content", () => {
     expect(
       contentStrings.some((contentString) => contentString.includes(`tilde${NBSP}data${NBSP}pair`)),
     ).toBe(true);
+  });
+
+  it("normalizes a marker-adjacent pasted NBSP positionally, not into `~` (the same corruption class the main paste path was fixed for)", async () => {
+    // Before this was wired to the shared positional rule, this claim's OWN blanket NBSP→`~`
+    // mapping turned the required separator after a marker's opener into data, corrupting a
+    // recognizable `\nd`…`\nd*` pair the same way a same-editor footnote paste once corrupted
+    // `\f`/`\fr`/`\ft` on the main external-paste path (whitespaceDisplay.plugin.utils.test.tsx's
+    // "2026-08-07 live-repro" pin). Multi-line so this CRITICAL in-note claim (not the HIGH
+    // external-paste handler) is the one doing the normalization.
+    const { editor } = await renderStandardEditorWithUnclosedNote();
+
+    await pasteAt(editor, `\\nd${NBSP}light\\nd*\nsecond`, $selectFtEnd);
+
+    const usj = requireDefined(
+      editorUsjAdaptor.deserializeEditorState(editor.getEditorState(), viewOptions),
+      "editor state did not serialize to USJ",
+    );
+    const chars: MarkerContent[] = [];
+    const walk = (content: MarkerContent[] | undefined): void => {
+      content?.forEach((item) => {
+        if (typeof item !== "string") {
+          chars.push(item);
+          walk(item.content);
+        }
+      });
+    };
+    walk(usj.content);
+    // The pasted pair tokenized into a real `nd` char span (not literal, never-recognized text) —
+    // the same structural proof the main path's doubled-glyph pin uses.
+    expect(chars.some((item) => typeof item !== "string" && item.marker === "nd")).toBe(true);
+    editor.getEditorState().read(() => {
+      const note = findOnlyNote($getRoot());
+      expect(note.getTextContent()).not.toContain("~");
+    });
+  });
+
+  it("normalizes a data-NBSP at the start of a note's SECOND \\fp line to a plain space, not `~` — the same leading-NBSP-per-line pass the main paste path uses", async () => {
+    // `$normalizePastedNbsp`'s leading-NBSP pass is `gm`-flagged: `^` matches right after every
+    // `\n`, not just at the very start of the whole paste (whitespaceDisplay.plugin.utils.test.tsx
+    // pins the identical outcome for the main external-paste path). A leading NBSP reads as a
+    // structural separator with nothing in front of it to match against, the same as a partial
+    // selection starting exactly at a char span's own leading separator.
+    const { editor } = await renderStandardEditorWithUnclosedNote();
+
+    await pasteAt(editor, `first\n${NBSP}second`, $selectFtEnd);
+
+    editor.getEditorState().read(() => {
+      const note = findOnlyNote($getRoot());
+      const chars = note.getChildren().filter($isCharNode);
+      expect(chars.map((c) => c.getMarker())).toEqual(["ft", "fp"]);
+      // Leading NBSP on the second line became a plain space, not data (`~`).
+      expect(chars[1].getTextContent()).toContain(" second");
+      expect(chars[1].getTextContent()).not.toContain("~");
+    });
   });
 
   it("serializes the two-\\fp note to USJ with no newline characters (the paragraph look is display-only)", async () => {

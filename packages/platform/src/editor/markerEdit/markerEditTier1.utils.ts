@@ -47,6 +47,24 @@ export interface MarkerEditContext extends Tier2Context {
   pendingKeys: Set<NodeKey>;
   splitExpected: { current: boolean };
   /**
+   * Narrows `Tier2Context.pasteRebuildArmed` from optional to REQUIRED: the marker-edit engine
+   * (`MarkerEditPlugin.tsx`) always constructs and maintains this field, unlike a bare
+   * `Tier2Context` a test may build directly to exercise the tokenizer/rebuild machinery alone
+   * (where "not a paste rebuild" is simply the field's absence). See its doc comment on
+   * `Tier2Context` for what it does.
+   */
+  pasteRebuildArmed: { current: boolean };
+  /**
+   * Mirrors the host `Editor`'s `isStructureProtected` option. Read by
+   * `$handlePasteForStandardView` (whitespaceDisplay.plugin.utils.ts), which must decline a
+   * protected document's paste so `StructureProtectionPlugin`'s HTML sanitizer still governs it —
+   * both register at `COMMAND_PRIORITY_HIGH`, and the marker-edit engine mounts first, so without
+   * this check its unconditional external-paste claim would starve the sanitizer. Wiring, not
+   * engine state: refreshed every render alongside `viewOptions`/`getMarker`/`logger` rather than
+   * gating the registration effect, so toggling it doesn't tear down and reset the engine.
+   */
+  isStructureProtected: boolean;
+  /**
    * Literal text already submitted to `$requestTier2ForNode` this commit.
    * `$rebuildParas` is deterministic (the degradation property): a paragraph
    * whose rebuild still contains a fragment the tokenizer cannot resolve into anything new
@@ -94,8 +112,13 @@ export function $markerCanonicalText(node: MarkerNode): string {
 /** Same-positional-kind rule for paragraph openers. Stylesheet-first:
  * a marker the effective sheet KNOWS classifies by its styleType; heuristics
  * cover only markers absent from the sheet. Unknown markers stay as typed
- * (Tier-1 renames to unknown markers stay in place). */
-function isParaKindMarker(marker: string, getMarkerFn: MarkerLookup): boolean {
+ * (Tier-1 renames to unknown markers stay in place). Exported for
+ * `tier2Rebuild.utils.ts`'s own-marker-prefix dedup, which needs the SAME
+ * stylesheet-first/unknown-as-paragraph classification `$buildParaFragment`
+ * already uses for the paragraph's own marker — a second, narrower
+ * `type === MarkerType.Paragraph` check there disagreed with it for any
+ * unknown/custom.sty marker. */
+export function isParaKindMarker(marker: string, getMarkerFn: MarkerLookup): boolean {
   const clean = marker.replace(/^\+/, "");
   if (clean === "v" || clean === "c") return false;
   const kind = getMarkerFn(clean)?.type;

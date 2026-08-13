@@ -13,15 +13,33 @@ import {
   copyToClipboard,
   LexicalClipboardData,
 } from "@lexical/clipboard";
-import { $getSelection, $getState, $isRangeSelection, LexicalEditor, TextNode } from "lexical";
 import {
+  $createTabNode,
+  $getCharacterOffsets,
+  $getSelection,
+  $getState,
+  $isDecoratorNode,
+  $isElementNode,
+  $isLineBreakNode,
+  $isRangeSelection,
+  $isTextNode,
+  LexicalEditor,
+  LexicalNode,
+  RangeSelection,
+  TextNode,
+} from "lexical";
+import {
+  $isAttributeRunNode,
   $isBookNode,
   $isChapterNode,
   $isCharNode,
+  $isNoteNode,
   $isUnknownNode,
+  GENERATOR_NOTE_CALLER,
   NBSP,
   textTypeState,
 } from "shared";
+import { $isImmutableNoteCallerNode } from "shared-react";
 
 /** Spaces in runs display as NBSP so they are visible while typing. */
 export function $displayWhitespaceTransform(node: TextNode): void {
@@ -74,39 +92,387 @@ export function htmlPasteText(html: string): string {
 }
 
 /**
- * Standard-view PASTE normalization: a pasted data-NBSP must appear on screen as `~` (the
- * display form; serialization inverts `~` back to a real NBSP, so the DATA stays an NBSP).
- * Without this, a pasted NBSP landed as a raw NBSP — indistinguishable from a display-NBSP
- * (which represents a plain space inside a run) — so nothing showed on screen live, and
- * serialization then corrupted it into a plain space; the `~` only appeared after an app
- * reload re-ran the load-time mapping. Internal pastes (application/x-lexical-editor payload)
- * are already in display form and pass through untouched. For the rare NBSP-bearing external
- * paste this inserts the normalized PLAIN text (foreign `text/html` formatting is dropped —
- * preserving the NBSP data beats preserving formatting the sanitizer would mostly strip
- * anyway). The same NBSP-bearing check also covers `text/html` (word-processor copies carry the
- * space as a literal `&nbsp;`): some sources omit `text/plain` entirely, or their browser-
- * generated `text/plain` has already collapsed `&nbsp;` to a plain space, losing the marker
- * before it ever reaches this handler — so `text/html`, and the pasted text it decodes to
- * (`htmlPasteText` above), are checked too, falling back to that decoded text when it's the
- * only place the NBSP survives.
+ * A marker token this handler recognizes for positional NBSP normalization: a plain or
+ * nested-char marker (`\nd`, `\+nd`), either one's closer (`\nd*`, `\+nd*`), or a milestone's
+ * anonymous self-closer (`\*`).
  */
-export function $handlePasteForStandardView(event: ClipboardEvent | null | undefined): boolean {
+const AFTER_MARKER_NBSP = /(\\(?:\+?[a-z0-9-]+\*?|\*))\u00A0/gi;
+const BEFORE_MARKER_NBSP = /\u00A0(?=\\(?:\+?[a-z0-9-]+\*?|\*))/gi;
+
+/**
+ * Positional NBSP normalization for an external paste's resolved text. Standard view has no
+ * `text/html` fidelity carrier for foreign sources (`$handlePasteForStandardView` below drops
+ * formatting entirely and re-tokenizes the plain text), so a `text/html` payload's NBSPs are the
+ * only clue to which spaces were meaningful markup vs. plain content — and the browser's own
+ * clipboard round-trip (and a same-editor paste, whose private Lexical flavor does not survive
+ * `navigator.clipboard.read()` — see `$handlePasteForStandardView`'s doc comment) both carry a
+ * DISPLAY-NBSP (a Standard-view run space, a marker's own trailing separator, or a note's
+ * internal spacer — `createNote` in `usj-editor.adaptor.ts` appends one after EVERY child, not
+ * just the first, so one sits directly before `\ft`/`\f*` and every other child after the caller)
+ * as a real NBSP, indistinguishable at this point from a genuine data-NBSP (PT9's `~` glyph).
+ *
+ * The two are told apart POSITIONALLY, mirroring PT9's `PostprocessUsfm`, in three passes:
+ *
+ * 1. A leading NBSP — at the very start of the text, or right after a newline (a later paragraph
+ *    of a multi-line paste can itself start mid-span) — reads as a structural separator with
+ *    nothing in front of it to match against (a partial selection starting exactly at a char
+ *    span's structural leading NBSP) and becomes a plain space.
+ * 2. An NBSP immediately FOLLOWING a marker token is the required opener/closer separator and
+ *    becomes a plain space (e.g. the mandatory space after `\f`/`\fr`, or a char span's own
+ *    leading separator when the marker literal IS present in the pasted text).
+ * 3. An NBSP immediately PRECEDING a marker token is a structural spacer with no source
+ *    counterpart — `createNote`'s inter-child spacer sits exactly here — and is DROPPED entirely
+ *    (neither spaced nor kept as data): `\nd Lord\u00A0\nd*` settles to `\nd Lord\nd*`, matching
+ *    the source USFM, which needs no byte there at all.
+ *
+ * Passes 2 and 3 both match against the SAME `AFTER_MARKER_NBSP`/`BEFORE_MARKER_NBSP` token set,
+ * so a marker recognized by one is recognized by the other. Every remaining NBSP is genuine data
+ * and is preserved as `~`, the same display form typed data-NBSP takes, so serialization
+ * round-trips it to a real NBSP instead of silently collapsing it to a plain space or dropping it.
+ */
+export function $normalizePastedNbsp(text: string): string {
+  return text
+    .replace(/^\u00A0/gm, " ")
+    .replace(AFTER_MARKER_NBSP, "$1 ")
+    .replace(BEFORE_MARKER_NBSP, "")
+    .replaceAll(NBSP, "~");
+}
+
+/** A `\c`/`\id` marker token ANYWHERE in a line, capturing its payload up to — but not including —
+ * the next marker or line end. Not anchored to the line's start: a chapter/book-id token can sit
+ * mid-line (`x \c 5 y`, a paste landing mid-sentence), and an anchor there would silently miss it
+ * — the exact live-repro shape (see `$stripPastedChapterAndBookId`'s doc comment). Global so more
+ * than one occurrence on the same line is fully swept, not just the first. */
+const CHAPTER_OR_BOOK_ID_TOKEN = /\\(?:c|id)(?![\w-])[^\n\\]*/g;
+
+/**
+ * Drops every pasted `\c`/`\id` token and its payload (the chapter number / book code, up to the
+ * next marker or newline) before insertion. Both create a document-structural node PT9 allows
+ * only once per book (a `ChapterNode`/`BookNode`, materialized from the marker name alone —
+ * `usj-editor.adaptor.ts` — same as a real load), and Standard view has no per-paste "am I the
+ * only one" check the way an initial document load does. Live repro (2026-08-07): pasting a bare
+ * `\c 2` mid-chapter created a second chapter node in the editor; every subsequent save then
+ * failed with the PDP's "Multiple chapter markers present" (the error surfaces only in the
+ * renderer log — disk and other editors silently stop updating). `\id` is the book-level twin of
+ * the same hazard and is stripped identically. A token need not be its own line — `x \c 5 y`
+ * mid-paragraph reaches the same tokenizer branch (chapter/book-id tokens are recognized wherever
+ * they occur, not just at a fragment's start) and left unstripped produces the identical poisoned
+ * shape: a second chapter node PLUS the trailing bytes (`y`) stranding as a bare top-level USJ
+ * string outside any paragraph, since a chapter token closes the enclosing paragraph the same way
+ * it does on a real load.
+ *
+ * Splits on lines and strips per line (not one global pass over the whole text) so a token that
+ * consumes an ENTIRE line can cleanly take that line's own newline with it too (no stray empty
+ * paragraph left behind). A token sharing a line with a LATER marker — `\c 5\v 1 In the
+ * beginning` — only loses its own bytes: the token regex stops at the next `\`, leaving `\v 1 In
+ * the beginning` to paste normally. But `[^\n\\]*` has no such stop when nothing marker-shaped
+ * follows on the line: the mid-line `x \c 5 y` shape above loses the token's trailing payload TOO,
+ * all the way to the newline — `x \c 5 y` strips down to `x ` alone, the trailing `y` dropped
+ * along with the marker (pinned in `markerPasteFidelity.test.tsx`). A line that already carried no
+ * other content becomes empty after stripping and is dropped from the output entirely, rather than
+ * surviving as a blank paragraph; a line that was ALREADY blank in the source paste (nothing to do
+ * with `\c`/`\id`) is left alone.
+ *
+ * Exported for the in-note CRITICAL multi-line paste claim (`MarkerEditPlugin.tsx`), which shares
+ * this strip the same way it shares `$normalizePastedNbsp` — a `\c`/`\id` token pasted into note
+ * content is just as reachable (the note-content Tier 2 rebuild tokenizes literal text the same
+ * way a paragraph rebuild does) and just as harmful there.
+ */
+export function $stripPastedChapterAndBookId(text: string): string {
+  return text
+    .split("\n")
+    .map((line) => {
+      const stripped = line.replace(CHAPTER_OR_BOOK_ID_TOKEN, "");
+      return stripped === "" && line !== "" ? undefined : stripped;
+    })
+    .filter((line): line is string => line !== undefined)
+    .join("\n");
+}
+
+/**
+ * Inserts external paste text at the current selection, splitting on newlines into separate
+ * paragraphs and tabs into `TabNode`s — reproducing `@lexical/clipboard`'s own text/plain
+ * fallback (`$insertDataTransferForRichText`'s non-HTML branch) directly here instead of calling
+ * it, so a `text/html` payload never reaches Lexical's HTML import path (the whole point of
+ * `$handlePasteForStandardView` claiming external pastes: Standard view re-tokenizes markers
+ * from plain text, it does not import foreign markup). `text` is assumed already normalized to
+ * bare `\n` line endings by the caller — no `\r` reaches this function.
+ */
+function $insertPastedText(text: string): void {
+  const parts = text.split(/(\n|\t)/);
+  if (parts[parts.length - 1] === "") parts.pop();
+  for (const part of parts) {
+    const selection = $getSelection();
+    if (!$isRangeSelection(selection)) return;
+    if (part === "\n") selection.insertParagraph();
+    else if (part === "\t") selection.insertNodes([$createTabNode()]);
+    else selection.insertText(part);
+  }
+}
+
+/**
+ * True when `node` is part of an attribute display run: a TextNode tagged textType "attribute"
+ * (a char span's bare `|…` run, a verse's `\va`/`\vp` value, or a milestone's attribute text — all
+ * three share this one tag), or `node` itself / one of its ancestors is an `AttributeRunNode` — the
+ * structural wrapper a verse/milestone run rides in, reachable by an element-point selection even
+ * when no value text exists yet (an empty `\qt-s \*` run with nothing typed between the glyphs). A
+ * char span's run has no such wrapper (it rides as a bare child of the `CharNode`), so the
+ * textType tag alone covers it.
+ *
+ * The `AttributeRunNode`-ancestor branch also matches a selection landing on the wrapper's OWN
+ * opening/self-closing `MarkerNode` glyphs (`\va`, `\va*`, a milestone's `\*`), not only its
+ * textType-"attribute" value text — deliberately: a `MarkerNode` is itself an ordinary `TextNode`,
+ * so `selection.insertText` at a glyph point behaves exactly as it would for typing there (the
+ * same paste-≡-typing guarantee this whole file exists to uphold), and it is harmless the same way
+ * inserting into any other plain text is.
+ */
+function $isNodeInAttributeContext(node: LexicalNode): boolean {
+  if ($isTextNode(node) && $getState(node, textTypeState) === "attribute") return true;
+  for (let ancestor: LexicalNode | null = node; ancestor; ancestor = ancestor.getParent())
+    if ($isAttributeRunNode(ancestor)) return true;
+  return false;
+}
+
+/**
+ * True when `selection` touches attribute-display text at EITHER end — its anchor OR its focus
+ * satisfies {@link $isNodeInAttributeContext}. A collapsed caret trivially qualifies when its one
+ * point does. A real (non-collapsed) selection qualifies even when only ONE end is inside an
+ * attribute run and the other reaches into ordinary content: under the paste-≡-typing principle, a
+ * user typing a character over such a mixed selection gets exactly `selection.insertText`'s own
+ * behavior — remove the whole selected range (whatever nodes it spans, attribute or not), then
+ * insert at the resulting collapsed point — so paste must take the identical path rather than
+ * declining into a branch (Lexical's rich-node paste, or this file's own newline-splitting
+ * external-paste pipeline) that can corrupt the attribute-run end of the range. See
+ * `$handlePasteForStandardView`'s doc comment for the two corruption shapes this closes.
+ */
+function $isSelectionInAttributeContext(selection: RangeSelection): boolean {
+  return (
+    $isNodeInAttributeContext(selection.anchor.getNode()) ||
+    $isNodeInAttributeContext(selection.focus.getNode())
+  );
+}
+
+/**
+ * Paste normalization for a selection touching attribute-display text — the binding design
+ * principle: paste ≡ typing the same characters at the same caret. Each `\n` in `text` becomes a
+ * single space (a PER-NEWLINE replacement, not a run-collapsing one: `"a\n\nb"` becomes `"a  b"`,
+ * two spaces, matching what two individual Enter-less keystrokes over an attribute run would
+ * produce — attribute values are single-line, so there is no multi-line attribute byte shape to
+ * collapse INTO). `text` is assumed already normalized to bare `\n` line endings by the caller
+ * (`$handlePasteForStandardView` runs `.replace(/\r\n?/g, "\n")` before calling this) — no `\r`
+ * reaches this function. The result is inserted via the exact `selection.insertText` a keystroke
+ * uses — no chapter/book-id strip, no positional NBSP mapping, no marker tokenization, all of which
+ * exist for BODY content's marker-recognition and whitespace-display invariants and apply to none
+ * of it: a pasted `\c 5` or `\p` here is literal value text, not a structural marker, and
+ * `$displayWhitespaceTransform` (this file) already skips textType "attribute" nodes outright, so a
+ * literal NBSP a user TYPES into an attribute run is never touched — a pasted one must not be
+ * treated any differently. For a non-collapsed (mixed or fully-inside) selection,
+ * `selection.insertText` removes the selected range before inserting, the same as it does for a
+ * typed keystroke over that selection — no separate removal step is needed here. The existing
+ * attribute pend/settle machinery (`$textNodeTier2Transform`'s attribute-tagged early return,
+ * `$resolvePendingMarkers`) takes over identically whether the text arrived by typing or this call.
+ */
+function $insertPastedTextIntoAttributeContext(selection: RangeSelection, text: string): void {
+  selection.insertText(text.replace(/\n/g, " "));
+}
+
+/**
+ * Standard-view PASTE normalization: every external paste (no same-namespace
+ * `application/x-lexical-editor` payload) is routed through the plain-text USFM carrier instead
+ * of Lexical's HTML import — Standard view has markers as real text, so re-tokenizing pasted
+ * text is the SAME mechanism that recognizes typed markers, and it is the only carrier that
+ * survives `navigator.clipboard.read()` at all: Chromium's async clipboard-read API exposes only
+ * a fixed sanctioned MIME allow-list (`text/plain`, `text/html`, and a short list of others) —
+ * the private `application/x-lexical-editor` flavor Lexical writes on copy is not one of them, so
+ * the `DataTransfer` `pasteSelection` (`clipboard.utils.ts`) rebuilds from `navigator.clipboard.
+ * read()` can never contain it. A real Ctrl+V — even a same-editor paste of the editor's own
+ * copy — therefore always rides `text/html`/`text/plain` like any external source. Previously
+ * this only claimed NBSP-bearing pastes and inserted the text with a BLANKET NBSP→`~` mapping;
+ * live repro (2026-08-07) showed that corrupts a same-editor paste of its own copy — every
+ * display-NBSP (the separator after `\f`/`\fr`/`\ft`) became a literal `~`, turning recognized
+ * markers into unknown-marker soup — and a browser-hop `\nd …\nd*` paste came back with an
+ * unmatched closer. `$normalizePastedNbsp` above replaces that blanket mapping with the
+ * positional rule.
+ *
+ * Declines (returns `false`, lets Lexical's own paste handling run) when: the payload carries a
+ * same-namespace Lexical flavor (the sync `ClipboardEvent` path — a null-payload dispatch or a
+ * live native paste event that still has it — keeps the exact node-tree fast path); the document
+ * is structure-protected (`StructureProtectionPlugin` must sanitize the HTML payload instead —
+ * this handler runs at the same `COMMAND_PRIORITY_HIGH` but registers earlier, so without this
+ * check it would claim the paste first and starve that sanitizer — a recorded trade-off: a
+ * protected editor's plain-text pastes get NO NBSP normalization at all, since this handler
+ * never runs for them); or no text can be resolved.
+ *
+ * The same-namespace-flavor decline is SUSPENDED whenever the selection TOUCHES attribute-display
+ * text at either end ({@link $isSelectionInAttributeContext}). TJ's live repro (2026-08-11, filed
+ * against a pre-branch build): existing span `\nd asdf|who="hi"\nd*`, caret at the end of the
+ * `who="hi"` run, paste plain text `sid="things"` — the `who` attribute display and the closing
+ * `\nd*` glyph both vanished from the editor, the pasted text rendered outside the span, and the
+ * saved file diverged from the editor. `sid="things"` carries no NBSP, and that pre-branch build's
+ * `$handlePasteForStandardView` still had its OLD gate (documented above: "previously this only
+ * claimed NBSP-bearing pastes") — so the most plausible mechanism is that OLD gate declining an
+ * NBSP-free paste outright and falling through to Lexical's own default rich-paste node insertion,
+ * not the same-namespace-flavor path below (this branch's OWN copy already carries `text/plain`
+ * unconditionally, per the doc comment above, and the "private Lexical flavor is dead on Ctrl+V"
+ * fact recorded in the semantics doc's S3 still holds for the reconstructed-`DataTransfer` paste
+ * path this repro most likely used). What both mechanisms — the old NBSP gate and this file's own
+ * same-namespace-flavor decline — share is the SAME failure shape once either one declines: Lexical's
+ * default rich-paste node insertion has no notion that an attribute run's text must stay inside its
+ * one tagged TextNode, and (reproduced directly on THIS branch, see
+ * `attributeContextPasteFidelity.test.tsx`'s "root cause" describe) merges the run, the closing
+ * glyph, and even the FOLLOWING paragraph's own sibling text into one plain node: the attribute
+ * display and the closing marker both vanish, and the pasted bytes end up loose in body content.
+ * Confirmed regression classes on THIS branch, closed by this suspension: (1) a live native paste
+ * event that still carries a same-namespace `application/x-lexical-editor` flavor (S2's own
+ * documented case for when that CAN still reach a handler, unlike the reconstructed-`DataTransfer`
+ * path); (2) a multi-line plain-text payload, which the ordinary external-paste pipeline below
+ * would split into real paragraphs via `selection.insertParagraph()` — inside an attribute run that
+ * is exactly as destructive as the rich-paste shape; (3) a marker-bearing payload (`\c 5`), which
+ * the ordinary pipeline's `$stripPastedChapterAndBookId` would eat bytes out of an attribute VALUE
+ * that were never a chapter token to begin with; (4) a MIXED selection (one end inside the run, one
+ * end outside) combined with either (1) or (2) above — the selection touches attribute context, so
+ * it must not be allowed to reach either risky branch merely because its OTHER end sits outside.
+ * Attribute value bytes are never rich content — a user cannot "type formatting" into one either —
+ * so this handler must always claim a paste touching one and insert it as plain text
+ * ({@link $insertPastedTextIntoAttributeContext}), regardless of what other MIME flavors the
+ * clipboard also carries. Structure protection still takes precedence (checked first, below): an
+ * attribute run inside a protected document defers to the same protection contract as everything
+ * else. One further pre-existing precedence is UNCHANGED by this suspension: the CRITICAL-priority
+ * in-note multi-line `PASTE_COMMAND` claim (`MarkerEditPlugin.tsx`) still runs BEFORE this handler
+ * and still wins for a multi-line payload whose selection touches EXPANDED note content — an
+ * attribute run that happens to sit inside an expanded note's content is reached by this handler
+ * (and this suspension) only when that in-note claim itself declines.
+ */
+export function $handlePasteForStandardView(
+  event: ClipboardEvent | null | undefined,
+  isStructureProtected = false,
+  armSplitExpected: () => void = () => undefined,
+  armPasteRebuildDedup: () => void = () => undefined,
+): boolean {
   if (!event || !("clipboardData" in event) || !event.clipboardData) return false;
-  if (event.clipboardData.getData("application/x-lexical-editor")) return false;
+  const selection = $getSelection();
+  const inAttributeContext =
+    $isRangeSelection(selection) && $isSelectionInAttributeContext(selection);
+  if (!inAttributeContext && event.clipboardData.getData("application/x-lexical-editor"))
+    return false;
+  if (isStructureProtected) return false;
   const plain = event.clipboardData.getData("text/plain");
   const html = event.clipboardData.getData("text/html");
-  const htmlText = html ? htmlPasteText(html) : "";
-  const text = plain.includes(NBSP)
-    ? plain
-    : html.includes(NBSP) || htmlText.includes(NBSP)
-      ? htmlText
-      : undefined;
+  // Line endings normalize to bare `\n` before anything else — matching the in-note CRITICAL
+  // PASTE_COMMAND claim (MarkerEditPlugin.tsx) — so a `\r\n` (or bare `\r`) clipboard breaks
+  // correctly instead of inserting a literal `\r` control character into the document.
+  const text = (plain || (html ? htmlPasteText(html) : "")).replace(/\r\n?/g, "\n");
   if (!text) return false;
-  const selection = $getSelection();
   if (!$isRangeSelection(selection)) return false;
   event.preventDefault();
-  selection.insertText(text.replaceAll(NBSP, "~"));
+  if (inAttributeContext) {
+    $insertPastedTextIntoAttributeContext(selection, text);
+    return true;
+  }
+  // Arms `Tier2Context.pasteRebuildArmed` for this paste's own update, BEFORE inserting —
+  // unconditionally, unlike `armSplitExpected` below, because a SINGLE-line paste (no newline at
+  // all) can just as easily trigger the immediate own-marker-prefix dedup rebuild (`\p one` pasted
+  // right after an existing `\p` host's prefix) as a multi-line one can.
+  armPasteRebuildDedup();
+  const normalized = $normalizePastedNbsp($stripPastedChapterAndBookId(text));
+  // @lexical/clipboard's own text/plain handling calls `selection.insertParagraph()` directly
+  // per newline (never INSERT_PARAGRAPH_COMMAND), so the engine's INSERT_PARAGRAPH_COMMAND
+  // handler can't arm `splitExpected` for it, and the LOW-priority PASTE_COMMAND handler that
+  // used to arm it for every paste never runs once this HIGH-priority handler claims the
+  // command — so it must be armed here, before inserting, for any paste that will split.
+  if (normalized.includes("\n")) armSplitExpected();
+  $insertPastedText(normalized);
   return true;
+}
+
+/**
+ * Whether `node` is a collapsed note's internal display separator: a bare single-NBSP text node
+ * `createNote` (`usj-editor.adaptor.ts`) inserts purely so a caller/content children render apart
+ * on screen. USFM never needs a byte to separate a closing marker from the next `\marker` token,
+ * so only ONE placement of this family has a real source counterpart — the separator directly
+ * after the caller, which is the mandatory space between a note's caller and its first content
+ * marker (`\f + \fr …`). Every other placement (between content children, before the note's own
+ * closing marker) has nothing in the source USFM to reproduce and must contribute nothing.
+ */
+function $isNoteInternalDisplaySeparator(node: TextNode): boolean {
+  if (node.getTextContent() !== NBSP) return false;
+  const parent = node.getParent();
+  if (!$isNoteNode(parent)) return false;
+  return !$isImmutableNoteCallerNode(node.getPreviousSibling());
+}
+
+/** The nearest enclosing `NoteNode`'s USJ caller value, falling back to the auto-generated-caller
+ * marker (`+`) when the note has none set. */
+function $noteCallerText(callerNode: LexicalNode): string {
+  const noteNode = callerNode.getParent();
+  const caller = $isNoteNode(noteNode) ? noteNode.getCaller() : undefined;
+  return caller || GENERATOR_NOTE_CALLER;
+}
+
+/**
+ * Source-faithful USFM text of `selection` — the `text/plain` leg of Standard-view copy/cut. Walks
+ * `selection.getNodes()` the same way `RangeSelection.getTextContent()` does (single `\n` between
+ * non-inline block boundaries, anchor/focus offsets respected on the boundary text nodes,
+ * `DecoratorNode`s contributing their own text; an inline element like `AttributeRunNode` or
+ * `NoteNode` contributes nothing itself, its children being walked as their own list entries), with
+ * two USFM-specific corrections:
+ *
+ * 1. An `ImmutableNoteCallerNode` — which renders as `""` on screen for a collapsed note with an
+ *    auto-generated caller — contributes the enclosing note's real USJ caller (`+`, `-`, or a
+ *    literal) plus its own leading separating space (the mandatory space after `\f`/`\x`). The node
+ *    itself is left untouched (`getTextContent()` still returns `""`): it serves every view mode,
+ *    and formatted-view prose copy depends on staying caller-free.
+ * 2. NBSP inverts to a plain space per node instead of via a blanket `replaceAll` — a note's
+ *    internal display-only separators (`$isNoteInternalDisplaySeparator`) contribute nothing
+ *    instead of becoming phantom spaces; every other NBSP (marker-trailing spaces, a char span's
+ *    structural leading separator, a verse's own marker-to-number gap) represents a real source
+ *    space and still maps to one. Data-NBSP (displayed as `~`) is untouched either way.
+ */
+export function $selectionToUsfmText(selection: RangeSelection): string {
+  const nodes = selection.getNodes();
+  if (nodes.length === 0) return "";
+  const firstNode = nodes[0];
+  const lastNode = nodes[nodes.length - 1];
+  const { anchor, focus } = selection;
+  const isBefore = anchor.isBefore(focus);
+  const [anchorOffset, focusOffset] = $getCharacterOffsets(selection);
+  let text = "";
+  let prevWasElement = true;
+  for (const node of nodes) {
+    if ($isElementNode(node) && !node.isInline()) {
+      if (!prevWasElement) text += "\n";
+      prevWasElement = !node.isEmpty();
+      continue;
+    }
+    prevWasElement = false;
+    if ($isImmutableNoteCallerNode(node)) {
+      if (node !== lastNode || !selection.isCollapsed()) text += ` ${$noteCallerText(node)}`;
+    } else if ($isTextNode(node)) {
+      let nodeText = node.getTextContent();
+      if (node === firstNode) {
+        if (node === lastNode) {
+          if (
+            anchor.type !== "element" ||
+            focus.type !== "element" ||
+            focus.offset === anchor.offset
+          )
+            nodeText =
+              anchorOffset < focusOffset
+                ? nodeText.slice(anchorOffset, focusOffset)
+                : nodeText.slice(focusOffset, anchorOffset);
+        } else nodeText = isBefore ? nodeText.slice(anchorOffset) : nodeText.slice(focusOffset);
+      } else if (node === lastNode) {
+        nodeText = isBefore ? nodeText.slice(0, focusOffset) : nodeText.slice(0, anchorOffset);
+      }
+      text += $isNoteInternalDisplaySeparator(node) ? "" : nodeText.replaceAll(NBSP, " ");
+    } else if (
+      ($isDecoratorNode(node) || $isLineBreakNode(node)) &&
+      (node !== lastNode || !selection.isCollapsed())
+    ) {
+      text += node.getTextContent();
+    }
+  }
+  return text;
 }
 
 /**
@@ -120,7 +486,7 @@ export function $getStandardViewClipboardData(
   const selection = $getSelection();
   if (!$isRangeSelection(selection) || selection.isCollapsed()) return undefined;
   const data: LexicalClipboardData = {
-    "text/plain": selection.getTextContent().replaceAll(NBSP, " "),
+    "text/plain": $selectionToUsfmText(selection),
   };
   const html = $getHtmlContent(editor);
   const lexical = $getLexicalContent(editor);

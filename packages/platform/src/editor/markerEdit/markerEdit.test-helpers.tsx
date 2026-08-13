@@ -127,6 +127,25 @@ export async function testEnvironmentWithCharSync(
 }
 
 /**
+ * Like `testEnvironmentWithCharSync` (app mount order only), but also mounts `HistoryPlugin` — for
+ * undo/redo pins on a char-attribute-run fixture, where both the self-healing sync AND undo
+ * availability are needed at once (`historyTestEnvironment` alone has no `CharNodePlugin`, and the
+ * sibling char-attribute suites that need the sync have no `HistoryPlugin`).
+ */
+export async function testEnvironmentWithCharSyncAndHistory($initialEditorState: () => void) {
+  initializeSerialize(undefined, undefined);
+  reset();
+  return baseTestEnvironment(
+    $initialEditorState,
+    <>
+      <CharNodePlugin />
+      <MarkerEditPlugin viewOptions={getViewOptions(STANDARD_VIEW_MODE)} />
+      <HistoryPlugin />
+    </>,
+  );
+}
+
+/**
  * Like `testEnvironment`, but in Standard view with EXPANDED notes (`markerMode: "editable"`,
  * `noteMode: "expanded"`) — the combination that used to make `getViewMode` return undefined and
  * silently disable the standard-view whitespace machinery.
@@ -327,4 +346,54 @@ export function $noteContentText(note: NoteNode): TextNode {
       (node): node is TextNode => $isTextNode(node) && node.getTextContent().includes("A note"),
     );
   return requireDefined(text, "note content text node not found");
+}
+
+/**
+ * jsdom doesn't implement `ClipboardEvent`/`DataTransfer`; the copy/cut handlers under test only
+ * touch `clipboardData.getData`/`setData`/`preventDefault`, so a minimal stub covers both dispatch
+ * and direct-call sites. Shared by every suite that dispatches `COPY_COMMAND`/`CUT_COMMAND`.
+ */
+export function copyEvent(): { event: ClipboardEvent; getData: (type: string) => string } {
+  const store = new Map<string, string>();
+  const clipboardData = {
+    getData: (type: string) => store.get(type) ?? "",
+    setData: (type: string, data: string) => {
+      store.set(type, data);
+    },
+  };
+  return {
+    event: { clipboardData, preventDefault: vi.fn() } as unknown as ClipboardEvent,
+    getData: (type: string) => clipboardData.getData(type),
+  };
+}
+
+/**
+ * jsdom-safe paste-event stub carrying an arbitrary clipboard MIME payload. `types`/`files` are
+ * populated so Lexical's own default paste handling (reached whenever a Standard-view/protection
+ * handler declines and the dispatch falls through to a lower-priority `PASTE_COMMAND` listener)
+ * can duck-type it the same way a real `ClipboardEvent` would — jsdom implements neither
+ * `ClipboardEvent` nor `DataTransfer`. Shared by every suite that dispatches `PASTE_COMMAND` or
+ * calls a paste handler directly.
+ */
+export function pasteEvent(payload: { [key: string]: string }): {
+  event: ClipboardEvent;
+  prevented: () => boolean;
+} {
+  const store = new Map(Object.entries(payload));
+  const preventDefault = vi.fn();
+  const clipboardData = {
+    types: [...store.keys()],
+    files: [],
+    getData: (type: string) => store.get(type) ?? "",
+  };
+  return {
+    event: { clipboardData, preventDefault } as unknown as ClipboardEvent,
+    prevented: () => preventDefault.mock.calls.length > 0,
+  };
+}
+
+/** A paste event whose only payload is `text/plain` — what pasting from a plain-text source
+ * (terminal, text editor, address bar) delivers. */
+export function plainTextPasteEvent(text: string): ClipboardEvent {
+  return pasteEvent({ "text/plain": text }).event;
 }
