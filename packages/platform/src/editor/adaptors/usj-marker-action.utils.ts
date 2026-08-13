@@ -18,7 +18,6 @@ import {
   RangeSelection,
   TextNode,
 } from "lexical";
-import { $splitCharNodeAt } from "../markerEdit/charFormatting.utils";
 import {
   $createCharNode,
   $createMarkerNode,
@@ -316,7 +315,12 @@ export function getUsjMarkerAction(
           $isTextNode(node) &&
           !$isMarkerNode(node) &&
           $isCharNode(node.getParent()) &&
-          selection.isCollapsed()
+          selection.isCollapsed() &&
+          // NEST-able only. A non-NEST style at a caret inside ANY char span — nested or note-level
+          // — is already claimed by the `$applyNonNestInsideChar` branch above, whose guard is this
+          // one minus this test. Stating it here rather than branching on it inside keeps that
+          // division visible at the guard instead of implying a second non-NEST path exists.
+          isNestInPlaceCharNode(nodeToInsert)
         ) {
           // Caret inside a char span — a body span (`\nd Lord`) or a note's content span (the
           // `\ft` of an expanded footnote). The generic `selection.insertNodes` fallback below
@@ -324,16 +328,13 @@ export function getUsjMarkerAction(
           // the new span on the wrapper paragraph AFTER the note (outside `\f*`, invalid), and for
           // a body span it split the host span and left a closer-less half that triggers a
           // destructive Tier-2 rebuild. Instead splice at the span's own level, following PT9's
-          // per-style split (StyleApplicator.ApplyCharacterStyle):
-          // - NEST-able styles (OccursUnder contains NEST: \w, \nd, \wj, ...) nest IN PLACE —
-          //   PT9 emits `\+marker` at the caret and closes it immediately, leaving every open
-          //   span open. Split only the anchor TEXT and put the new span between the halves,
-          //   INSIDE the span holding the caret; its glyphs get the `+` (see below).
-          // - Note-content styles (\fq, \fk, ...) get PT9's close-all-and-reopen shape: split
-          //   the span at the caret and put the new span between the halves. At the span's
-          //   content end `$splitCharNodeAt` attaches nothing and the new span simply follows
-          //   the whole span — still before the note's closing glyph, which sits after all
-          //   content children.
+          // per-style rule (StyleApplicator.ApplyCharacterStyle). This branch is the NEST-able
+          // half of it: styles whose OccursUnder contains NEST (\w, \nd, \wj, ...) nest IN
+          // PLACE — PT9 emits `\+marker` at the caret and closes it immediately, leaving every
+          // open span open. Split only the anchor TEXT and put the new span between the halves,
+          // INSIDE the span holding the caret; its glyphs get the `+` (see below). Non-NEST
+          // styles get PT9's close-all-and-reopen instead, in the `$applyNonNestInsideChar`
+          // branch above — they never reach here.
           //
           // `nodeToInsert` already carries the note-content span convention that
           // `$createNoteContentChar` builds and `createChar` loads: an opening glyph with
@@ -341,31 +342,19 @@ export function getUsjMarkerAction(
           // markers (\fq, \xt, ...) no closing glyph plus closed="false" recorded.
           const charSpan = node.getParent();
           if ($isCharNode(charSpan)) {
-            if (isNestInPlaceCharNode(nodeToInsert)) {
-              const offset = selection.anchor.offset;
-              if (offset === 0) node.insertBefore(nodeToInsert);
-              else if (offset >= node.getTextContentSize()) node.insertAfter(nodeToInsert);
-              else {
-                const [leftHalf] = node.splitText(offset);
-                leftHalf.insertAfter(nodeToInsert);
-              }
-              // The span now nests inside the caret's char span, so its editable glyphs carry the
-              // `+` (matching the load path) — otherwise a Tier-2 re-tokenization of the visible
-              // text would read the bare `\w` as close-on-bare and flatten the nesting.
-              nodeToInsert.getChildren().forEach((child) => {
-                if ($isMarkerNode(child)) child.setNested(true);
-              });
-            } else {
-              // A note-content non-NEST style at a caret directly in a note-level span (not nested
-              // in another char): split the span and drop the new span between the halves. Non-NEST
-              // styles inside a NESTED span are handled earlier by $applyNonNestInsideChar (PT9
-              // close-and-reopen), so they never reach here.
-              $splitCharNodeAt(charSpan, node, selection.anchor.offset);
-              charSpan.insertAfter(nodeToInsert);
-              // A split before all content leaves the left span glyph-only; drop it (the same
-              // emptied-half cleanup Ctrl+Space's split performs).
-              if (charSpan.getChildren().every($isMarkerNode)) charSpan.remove();
+            const offset = selection.anchor.offset;
+            if (offset === 0) node.insertBefore(nodeToInsert);
+            else if (offset >= node.getTextContentSize()) node.insertAfter(nodeToInsert);
+            else {
+              const [leftHalf] = node.splitText(offset);
+              leftHalf.insertAfter(nodeToInsert);
             }
+            // The span now nests inside the caret's char span, so its editable glyphs carry the
+            // `+` (matching the load path) — otherwise a Tier-2 re-tokenization of the visible
+            // text would read the bare `\w` as close-on-bare and flatten the nesting.
+            nodeToInsert.getChildren().forEach((child) => {
+              if ($isMarkerNode(child)) child.setNested(true);
+            });
             // Caret INSIDE the new span at its content position — same convention as the
             // generic char path below: typed text appends after the placeholder and
             // CharNodePlugin strips the placeholder once real content exists.
