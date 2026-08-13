@@ -47,6 +47,7 @@ import { $isNoteNode, NoteNode } from "./NoteNode.js";
 import { $isParaNode, ParaNode } from "./ParaNode.js";
 import { $isVerseNode, VerseNode } from "./VerseNode.js";
 import { EMPTY_CHAR_PLACEHOLDER_TEXT, NBSP, UnknownAttributes } from "./node-constants.js";
+import { isCursorPlaceholderOnly } from "../../plugins/CursorHandler/index.js";
 
 export type NodesWithMarker =
   | BookNode
@@ -885,7 +886,9 @@ export function $shouldIgnoreNodeForContentIndexes(node: LexicalNode | null | un
     if (textType === "marker-trailing-space" || textType === "attribute") return true;
 
     const text = node.getTextContent();
-    if (text === "" || text === NBSP) return true;
+    // "" / NBSP are presentation-only; a bare cursor host (EmptyVerseCaretGuardPlugin) likewise
+    // carries no content, so it must not shift annotation content indexes while it rests.
+    if (text === "" || text === NBSP || isCursorPlaceholderOnly(text)) return true;
   }
   return false;
 }

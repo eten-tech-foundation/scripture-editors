@@ -34,6 +34,133 @@ import {
   NoteNode,
 } from "shared";
 
+/** A minimal rectangle shape ({@link DOMRect}-compatible) for visual-line comparisons. */
+interface LineRect {
+  top: number;
+  bottom: number;
+  height: number;
+}
+
+/**
+ * Is there a visual line beyond the caret in `direction`, among a set of candidate line rects?
+ * Pure geometry, kept separate from the DOM so it is unit-testable ({@link $caretHasVisualLineBeyond}
+ * supplies the rects). Returns `false` for a zero-height caret (e.g. jsdom has no layout) so callers
+ * fall back to their default rather than act on a phantom line.
+ *
+ * A wrapped line sits clear of the caret's own line, so this compares the line gap (a rect that
+ * starts below the caret / ends above it) rather than raw top/bottom — otherwise a taller inline on
+ * the caret's *own* line (a verse number or note caller) would read as a wrapped line. The
+ * tolerance scales with caret height so it holds across font sizes and zoom.
+ *
+ * @param caretRect - The collapsed caret's bounding rect.
+ * @param lineRects - Candidate per-line rects to test (e.g. from `Range.getClientRects()`).
+ * @param direction - `"down"` looks for a line below the caret; `"up"` a line above.
+ */
+export function hasVisualLineBeyondCaret(
+  caretRect: LineRect,
+  lineRects: LineRect[],
+  direction: "up" | "down",
+): boolean {
+  if (caretRect.height === 0) return false;
+  const tolerance = caretRect.height / 4; // sub-pixel slack, well under a full line gap.
+  return lineRects.some((rect) =>
+    direction === "down"
+      ? rect.top >= caretRect.bottom - tolerance
+      : rect.bottom <= caretRect.top + tolerance,
+  );
+}
+
+/**
+ * Whether the current verse's text has a wrapped line beyond the caret in `direction`. Custom
+ * verse-to-verse navigation only fires from a verse's first visual line, so this stops ArrowDown
+ * from skipping the rest of a wrapped verse and jumping to the next one (PT-4308).
+ *
+ * The verse's content is measured across blocks — bounded by the surrounding `[data-marker="v"]`
+ * verse markers — because a verse can wrap across several `\q` poetry paragraphs; measuring only the
+ * caret's own paragraph would miss those lines. Returns `false` when layout cannot be measured
+ * (e.g. jsdom), so the caller keeps the existing verse-jump.
+ */
+function $caretHasVisualLineBeyond(editor: LexicalEditor, direction: "up" | "down"): boolean {
+  if (typeof window === "undefined") return false;
+  const domSelection = window.getSelection();
+  if (!domSelection || domSelection.rangeCount === 0) return false;
+  const root = editor.getRootElement();
+  if (!root) return false;
+
+  try {
+    const caretRange = domSelection.getRangeAt(0);
+    // Only measure this editor's caret: ignore a selection that lives elsewhere on the page or in
+    // another document (an iframe host), which would otherwise be measured against our markers.
+    if (!root.contains(caretRange.startContainer)) return false;
+    const caretRect = caretRange.getBoundingClientRect();
+    const caretStart = caretRange.cloneRange();
+    caretStart.collapse(true);
+
+    // Bound the measurement to the current verse: the last marker strictly before the caret (so the
+    // verse whose content the caret is in) and the first marker after it. The comparison is
+    // position-based (a plain sibling walk can't handle element-point carets, e.g. a caret at an
+    // element offset between decorator siblings), so it scans markers in document order. This runs
+    // only on ArrowUp/ArrowDown at a verse boundary — not on every keystroke — over one editor's
+    // worth of verses (a chapter), so the linear scan is not a hot path.
+    const markers = Array.from(root.querySelectorAll('[data-marker="v"]'));
+    let current: Element | undefined;
+    let next: Element | undefined;
+    for (const marker of markers) {
+      const markerRange = document.createRange();
+      markerRange.selectNode(marker);
+      if (caretStart.compareBoundaryPoints(Range.START_TO_START, markerRange) > 0) {
+        current = marker;
+      } else {
+        next = marker;
+        break;
+      }
+    }
+    if (!current) return false;
+
+    const contentRange = document.createRange();
+    contentRange.setStartAfter(current);
+    if (next) contentRange.setEndBefore(next);
+    else contentRange.setEnd(root, root.childNodes.length);
+    return hasVisualLineBeyondCaret(
+      caretRect,
+      Array.from(contentRange.getClientRects()),
+      direction,
+    );
+  } catch {
+    // No layout engine (e.g. jsdom: Range has no getBoundingClientRect): cannot detect a wrapped
+    // line, so fall back to the existing verse-jump rather than suppressing it.
+    return false;
+  }
+}
+
+/**
+ * Handles an ArrowUp/ArrowDown press for verse-to-verse navigation. Intercepts only when the caret
+ * is at a verse boundary and native movement would leave the verse; when the verse wraps onto
+ * further lines it yields to the browser's visual-line movement instead (PT-4308).
+ *
+ * @returns `true` (and prevents default) when it moved the caret to an adjacent verse; otherwise
+ *   `false` so Lexical/the browser handles the key.
+ */
+function $navigateVerseVertically(
+  editor: LexicalEditor,
+  selection: RangeSelection,
+  direction: "up" | "down",
+  event: KeyboardEvent,
+): boolean {
+  // Don't intercept when the caret isn't at a verse boundary, or when the verse wraps onto a
+  // further line in this direction (let the browser move by visual line instead). `||` short-circuits
+  // so the DOM measurement only runs once the cheap boundary check passes.
+  if (
+    !$shouldAttemptVerticalVerseNavigation(selection) ||
+    $caretHasVisualLineBeyond(editor, direction)
+  )
+    return false;
+  const isHandled =
+    direction === "up" ? $selectPreviousVerse(selection) : $selectNextVerse(selection);
+  if (isHandled) event.preventDefault();
+  return isHandled;
+}
+
 /**
  * Registers arrow-key handling for USJ scripture: verse-to-verse vertical movement when needed,
  * and horizontal movement around notes and chapter boundaries.
@@ -73,19 +200,10 @@ function useArrowKeys(editor: LexicalEditor, viewOptions: ViewOptions | undefine
       const selection = $getSelection();
       if (!$isRangeSelection(selection) || !selection.isCollapsed()) return false;
 
-      if (event.key === "ArrowUp") {
+      if (event.key === "ArrowUp" || event.key === "ArrowDown") {
         if (event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return false;
-        if (!$shouldAttemptVerticalVerseNavigation(selection)) return false;
-        const isHandled = $selectPreviousVerse(selection);
-        if (isHandled) event.preventDefault();
-        return isHandled;
-      }
-      if (event.key === "ArrowDown") {
-        if (event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return false;
-        if (!$shouldAttemptVerticalVerseNavigation(selection)) return false;
-        const isHandled = $selectNextVerse(selection);
-        if (isHandled) event.preventDefault();
-        return isHandled;
+        const direction = event.key === "ArrowUp" ? "up" : "down";
+        return $navigateVerseVertically(editor, selection, direction, event);
       }
       if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return false;
 

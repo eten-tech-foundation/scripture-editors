@@ -13,6 +13,7 @@ import {
 } from "lexical";
 import { Op } from "quill-delta";
 import {
+  $isCursorPlaceholderOnlyText,
   $isDescendantOf,
   $isImmutableUnmatchedNode,
   $isMilestoneNode,
@@ -375,6 +376,11 @@ function isRetainOp(op: DeltaOp): op is { retain: number } {
 
 /** Calculate the OT length contribution of a single node. */
 function $getNodeOTContribution(node: LexicalNode): number {
+  // A bare cursor host (EmptyVerseCaretGuardPlugin) is a transient, collab-invisible node: its
+  // insertion is never emitted, so it must contribute nothing to OT positions or the local doc
+  // would drift one position ahead of every peer while a host rests.
+  if ($isCursorPlaceholderOnlyText(node)) return 0;
+
   if ($isTextNode(node)) return node.getTextContentSize();
 
   if ($isEmbedNode(node)) return 1;

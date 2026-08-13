@@ -1,6 +1,7 @@
 import { $createImmutableTypedTextNode } from "../features/ImmutableTypedTextNode.js";
 import { $createMarkerNode } from "../features/MarkerNode.js";
 import { $createTypedMarkNode, TypedMarkNode } from "../features/TypedMarkNode.js";
+import { $createCursorPlaceholderNode } from "../../plugins/CursorHandler/index.js";
 import { $createCharNode, CharNode } from "./CharNode.js";
 import { $createImmutableChapterNode } from "./ImmutableChapterNode.js";
 import { usjBaseNodes } from "./index.js";
@@ -767,6 +768,28 @@ describe("Editor Node Utilities", () => {
           $createParaNode().append(
             $createCharNode("nd").append($createTextNode("aaa")),
             $createTextNode(NBSP),
+            $createCharNode("nd").append($createTextNode("bbb")),
+          ),
+        );
+      });
+
+      editor.getEditorState().read(() => {
+        const items = $getFirstParaItems();
+
+        expect(items).toHaveLength(2);
+        expect(items[0].type).toBe("element");
+        expect(items[1].type).toBe("element");
+      });
+    });
+
+    it("skips a bare cursor host so it does not shift annotation content indexes", () => {
+      // A transient caret host (EmptyVerseCaretGuardPlugin) carries no content, so it must not
+      // appear as a content item — otherwise annotations after it would be mis-anchored (PT-4308).
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        $getRoot().append(
+          $createParaNode().append(
+            $createCharNode("nd").append($createTextNode("aaa")),
+            $createCursorPlaceholderNode(),
             $createCharNode("nd").append($createTextNode("bbb")),
           ),
         );

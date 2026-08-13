@@ -27,6 +27,7 @@ import {
   ImmutableUnmatchedNode,
   isSerializedImpliedParaNode,
   isSerializedTypedMarkNode,
+  isCursorPlaceholderOnly,
   LoggerBasic,
   MarkerNode,
   MILESTONE_VERSION,
@@ -485,6 +486,9 @@ function recurseNodes(
       case TextNode.getType():
         if (
           serializedTextNode.text &&
+          // Drop a bare caret host (EmptyVerseCaretGuardPlugin). A legitimate ZWSP inside real text
+          // (Thai/Khmer line breaks) is not placeholder-only, so it still passes and is preserved.
+          !isCursorPlaceholderOnly(serializedTextNode.text) &&
           serializedTextNode.text !== NBSP &&
           !serializedTextNode.text.startsWith(NODE_ATTRIBUTE_PREFIX) &&
           (!noteCaller || serializedTextNode.text !== getEditableCallerText(noteCaller))
