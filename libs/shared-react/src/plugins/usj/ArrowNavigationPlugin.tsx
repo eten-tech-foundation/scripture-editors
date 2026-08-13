@@ -10,27 +10,24 @@ import { ViewOptions } from "../../views/view-options.utils";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { $findMatchingParent } from "@lexical/utils";
 import {
-  $getChildCaret,
-  $getCollapsedCaretRange,
   $getSelection,
-  $getSiblingCaret,
+  $isDecoratorNode,
   $isElementNode,
   $isRangeSelection,
   $isTextNode,
-  $normalizeCaret,
-  $setSelectionFromCaretRange,
   COMMAND_PRIORITY_HIGH,
+  ElementNode,
   KEY_DOWN_COMMAND,
   LexicalEditor,
   LexicalNode,
   RangeSelection,
+  TextNode,
 } from "lexical";
 import { useEffect } from "react";
 import {
   $findFirstAncestorNoteNode,
   $getNextNode,
   $getPreviousNode,
-  $isAttributeRunNode,
   $isBookNode,
   $isCharNode,
   $isImmutableChapterNode,
@@ -39,17 +36,15 @@ import {
   $isMilestoneNode,
   $isNoteNode,
   $isSomeParaNode,
-  AttributeRunNode,
   CharNode,
   ImmutableChapterNode,
-  MilestoneNode,
   NoteNode,
 } from "shared";
 
 /**
  * Registers arrow-key handling for USJ scripture: verse-to-verse vertical movement when needed,
- * and horizontal movement around notes, chapter boundaries, and the edges of a milestone's
- * attribute display run.
+ * and horizontal movement around notes and chapter boundaries. In editable-marker mode it also
+ * normalizes horizontal traversal so every press crosses exactly one piece of rendered content.
  *
  * TODO: When the caret is before an empty verse number in an otherwise empty para, pressing up or
  * down moves the caret to after the verse number in the para above/below rather than staying
@@ -106,6 +101,9 @@ function useArrowKeys(editor: LexicalEditor, viewOptions: ViewOptions | undefine
       if (!inputDiv) return false;
 
       const direction = inputDiv.dir || "ltr";
+      // Display runs and glyph text — the stacked invisible positions the normalizer exists for —
+      // are built only in editable-marker mode; the other views keep the browser's own traversal.
+      const normalizesStops = viewOptions?.markerMode === "editable";
       // The `\fp` boundary hops apply only to plain arrow moves: modified arrows (shift range
       // extension, word/line jumps) keep native semantics.
       const hasModifier = event.shiftKey || event.altKey || event.ctrlKey || event.metaKey;
@@ -113,13 +111,13 @@ function useArrowKeys(editor: LexicalEditor, viewOptions: ViewOptions | undefine
       if (isMovingForward(direction, event.key)) {
         isHandled =
           (!hasModifier && $handleForwardFpNavigation(selection)) ||
-          (!hasModifier && $handleForwardMilestoneRunNavigation(selection)) ||
-          $handleForwardNavigation(selection);
+          $handleForwardNavigation(selection) ||
+          (!hasModifier && normalizesStops && $moveOneVisibleStop(selection, "next"));
       } else if (isMovingBackward(direction, event.key)) {
         isHandled =
           (!hasModifier && $handleBackwardFpNavigation(selection)) ||
-          (!hasModifier && $handleBackwardMilestoneRunNavigation(selection)) ||
-          $handleBackwardNavigation(selection, viewOptions);
+          $handleBackwardNavigation(selection, viewOptions) ||
+          (!hasModifier && normalizesStops && $moveOneVisibleStop(selection, "previous"));
       }
 
       if (isHandled) event.preventDefault();
@@ -236,151 +234,256 @@ function $selectBeforeFpSpan(fpNode: CharNode): boolean {
   return true;
 }
 
-// --- Caret traversal at a milestone display run's edges ---
+// --- The visible-stop normalizer ---
 //
-// A milestone's display run — its `\qt-s`…`\*` glyph pair and any attribute value — rides inside
-// ONE inline `AttributeRunNode` immediately following the `MilestoneNode` that owns it, and that
-// owner is a `DecoratorNode` rendering nothing: an empty `contenteditable="false"` span. Being both
-// a real caret boundary AND zero-width, it breaks arrow navigation in two different ways, one per
-// direction.
+// ONE rule for horizontal arrow traversal, replacing the per-shape hops that preceded it: an
+// unmodified arrow press must cross exactly ONE piece of RENDERED content — a visible character, or
+// a visible atom (a note caller, an immutable glyph, a collapsed note) crossed whole. Everything
+// that renders nothing is stepped over, however many tree positions it contributes: element
+// boundaries, wrapper seams, and zero-width decorators such as a `MilestoneNode`, whose `decorate()`
+// returns "".
 //
-// BACKWARD, the caret cannot get out of the run at all. Lexical (pinned at 0.43.0) resolves a caret
-// move across a decorator itself only while the decorator is a SIBLING of the caret's own node
-// (`$modifySelectionAroundDecoratorsAndBlocks`); the fallback scan that does walk out through
-// ancestors claims only NON-inline decorators, and a milestone is inline. With the run's glyphs one
-// level down inside the wrapper the milestone is the WRAPPER's sibling rather than the glyph's, so
-// Lexical declines and defers to the browser's native `Selection.modify` — which will not carry a
-// caret backward across an empty non-editable span. `@lexical/rich-text`'s ArrowLeft handler has
-// already called `preventDefault` by then (its own `$shouldOverrideDefaultCharacterSelection` DOES
-// see the decorator through the wrapper), so the keystroke is consumed and nothing happens at all.
-// The backward handler makes the hop instead, landing exactly where Lexical's own decorator
-// handling did before the run was wrapped — the position before the owner, normalized to the end of
-// the preceding text when there is text there.
+// Those invisible positions are the whole problem. A milestone anchor sits between the text before
+// it and its own `\qt-s`…`\*` display run, so the run's leading seam alone stacks up to five tree
+// positions at ONE screen location — end of the preceding text, before the anchor, after the anchor,
+// the wrapper's own start, offset 0 of its first glyph. Lexical and the browser stop at several of
+// them, so a press moved the caret without moving anything the eye could follow; a caret in a marker
+// glyph merely changes colour, from the paragraph's black to the run's dim grey. Nested spans stack
+// more seams (`\add word\add*\qt-s\*` measured three presses to cross `*`→`\`), and where the seam
+// is a zero-width decorator with no text on the far side the browser refuses the move outright, so
+// the caret could not leave a run leftward at all.
 //
-// FORWARD, the caret gets in, but only after stopping on a position that renders nowhere. Lexical
-// DOES resolve the move onto the decorator, then normalizes: `$normalizeCaret` of the position
-// after it descends into an adjacent TEXT node but not into an element, and what follows a
-// milestone is the wrapper. So the caret lands on an element point between the decorator and the
-// wrapper — a stop at the same x as the position before the milestone, since the milestone renders
-// nothing. On screen a press appeared to do nothing at all: the caret did not move, it only changed
-// colour, from the paragraph's black to the dim grey the run's own styling gives it. Entering a run
-// therefore cost two presses, and the harmless-looking extra one is why nobody could tell the caret
-// had moved. The forward handler descends into the run instead, so one press enters it.
+// Two halves make one press equal one visible crossing:
+//   - MOVE: from the caret, walk in the press direction, skipping everything that renders nothing,
+//     until the first rendered thing; cross exactly it. Crossing a visible text node means landing
+//     one grapheme INTO it, not at its edge — the edge is the position the caret just left.
+//   - CANONICALIZE: where several tree positions share one screen location, only ONE is a resting
+//     place — the outermost, earliest in document order: the end of the nearest preceding visible
+//     text. That is Lexical's own convention for a plain text/text seam
+//     (`resolveSelectionPointOnBoundary`), extended across the invisible nodes it does not look
+//     through. It keeps round trips exact — N presses one way and N back returns to the very same
+//     tree position — and it keeps typing predictable, since the two positions flanking a run's
+//     opening glyph put typed text in different nodes.
 //
-// `AttributeRunNode.test.ts` (shared) pins the backward Lexical-side behavior directly, and is the
-// tripwire for a Lexical upgrade: if the wrapped shape starts being resolved by Lexical again, that
-// pin fails and the backward handler can be retired.
+// Scope: unmodified ArrowLeft/ArrowRight, collapsed caret, editable-marker mode (where display runs
+// and glyph text exist at all), and only within the caret's own block. At a block edge this declines
+// and the existing paragraph/line handling runs. Direction is LOGICAL — `isMovingForward` maps the
+// physical key through the root's `dir`, so RTL mirrors for free. Claiming the key keeps Lexical's
+// own `KEY_ARROW_*` handling from running at all, so `$moveCharacter` never double-applies and no
+// native `Selection.modify` is consulted; the whole traversal is decided from the tree, which is
+// also what makes press counts measurable without browser caret geometry.
 //
-// COVERED: both directions, collapsed, UNMODIFIED arrows, and only where the caret's own sibling
-// chain reaches the milestone — directly, or across one milestone-kind wrapper it is leaving. Three
-// cases are knowingly left as they are:
-//   - Shift-extend stays trapped. Restoring it needs an extend of the focus alone, not the
-//     collapsed range these handlers set. This is a genuine regression from the wrapper: before it,
-//     shift+ArrowLeft was resolved by Lexical; wrapped, it falls through to the native move.
-//   - Ctrl/Alt/Meta arrows are excluded because Lexical never hopped them either, before or after
-//     the wrapper — so claiming them here would be new behavior, not restored parity. Its keydown
-//     gate (`isMoveBackward`/`isMoveForward`, EXACT modifier matches allowing only shift) dispatch
-//     `KEY_ARROW_LEFT_COMMAND`/`KEY_ARROW_RIGHT_COMMAND` for unmodified/shifted arrows alone;
-//     ctrl+ArrowLeft dispatches `MOVE_TO_START`, which nothing anywhere registers a handler for,
-//     and alt+ArrowLeft dispatches nothing at all. Both reach the browser un-preventDefaulted, with
-//     word/line granularity this character hop would not reproduce.
-//   - FORWARD out of a NON-milestone inline element that ends exactly where a milestone begins:
-//     `\add word\add*\qt-s\*`, or a note closing immediately before one. The step-out below is
-//     deliberately narrow — it leaves only a milestone-kind wrapper — so a caret at the end of an
-//     `\add` span's last text has no next sibling this lookup will follow, and the move falls
-//     through to Lexical, whose sibling scan finds nothing across the span boundary and whose
-//     ancestor fallback rejects the inline milestone. That is the same fall-through signature as
-//     the two bugs above, so the shape keeps at least the dead stop and may be a forward hard trap;
-//     which one is a live-only question. Not generalized here on purpose: widening the step-out to
-//     any inline element is a behavior decision beyond restoring the run's own traversal.
+// Clicks and programmatic selection are untouched — this is arrow traversal only, so a caret parked
+// on a non-canonical position by other means is normalized by its next arrow press rather than
+// underneath the user.
 //
-// Both handlers are scoped structurally to the milestone kind, mirroring the display-run registry's
-// own ownership rule (`displayRunRegistry.ts`, `milestoneDescriptor.ownerOf`: a wrapper's owner is
-// the `MilestoneNode` directly before it, and only for a "milestone" `runKind`). Testing instead
-// that the owner is any decorator would rest on a view-mode coincidence rather than a rule — an
-// editable-mode `VerseNode` is a `TextNode`, but `ImmutableVerseNode` is a `DecoratorNode`, so a
-// verse's `\va`/`\vp` wrapper would start matching wherever the immutable form is built.
+// KNOWN APPROXIMATIONS, both disclosed rather than silently smoothed:
+//   - Moves that stay INSIDE one text node are declined, so the browser keeps applying its own
+//     grapheme and bidi rules there — the cases a tree walk cannot see. The one exception is a
+//     backward step off a text node's first character, which must be claimed because its landing
+//     needs canonicalizing. A backward step that lands on offset 0 from further in (only possible
+//     when the FIRST grapheme spans several code units) is left to the browser and so rests on a
+//     non-canonical position until the next boundary press normalizes it.
+//   - Visual bidi order inside mixed-direction text is not modelled; traversal is logical.
 
-/** The `AttributeRunNode` whose very start the collapsed caret sits at, if any. */
-function $getAttributeRunAtStart(selection: RangeSelection): AttributeRunNode | undefined {
-  const anchor = selection.anchor;
-  if (anchor.offset !== 0) return undefined;
+type TraversalDirection = "next" | "previous";
 
-  const anchorNode = anchor.getNode();
-  // Element point directly on the wrapper (e.g. an empty wrapper, or a click-placed caret).
-  if (anchor.type === "element") return $isAttributeRunNode(anchorNode) ? anchorNode : undefined;
+/** Where a resolved move lands: a text point, or an element point between two children. */
+type CaretLanding =
+  | { kind: "text"; node: TextNode; offset: number }
+  | { kind: "element"; node: ElementNode; offset: number };
 
-  // Text point at offset 0 of the run's first piece — the opening marker glyph.
-  const parent = anchorNode.getParent();
-  if (!$isAttributeRunNode(parent) || !anchorNode.is(parent.getFirstChild())) return undefined;
-  return parent;
+/**
+ * Minimal shape of `Intl.Segmenter`, declared locally so this file does not depend on the ambient
+ * lib target carrying it. Absent at runtime, the code-point fallbacks below still keep the caret off
+ * the inside of a surrogate pair.
+ */
+interface GraphemeSegmenter {
+  segment(input: string): Iterable<{ index: number; segment: string }>;
 }
 
-/** Helper to handle the backward hop out of a milestone's display run. */
-function $handleBackwardMilestoneRunNavigation(selection: RangeSelection): boolean {
-  const wrapper = $getAttributeRunAtStart(selection);
-  if (!wrapper || wrapper.getRunKind() !== "milestone") return false;
+const graphemeSegmenter: GraphemeSegmenter | undefined = (() => {
+  const intl = Intl as unknown as {
+    Segmenter?: new (
+      locales?: string | undefined,
+      options?: { granularity: string },
+    ) => GraphemeSegmenter;
+  };
+  return intl.Segmenter ? new intl.Segmenter(undefined, { granularity: "grapheme" }) : undefined;
+})();
 
-  // Ownership is position-derived: the wrapper directly follows the leaf it belongs to.
-  const owner = wrapper.getPreviousSibling();
-  if (!$isMilestoneNode(owner)) return false;
-
-  $setSelectionFromCaretRange(
-    $getCollapsedCaretRange($normalizeCaret($getSiblingCaret(owner, "previous"))),
-  );
-  return true;
+/** The offset just past `text`'s first grapheme — where a forward crossing into it lands. */
+function firstGraphemeEnd(text: string): number {
+  if (graphemeSegmenter) {
+    for (const { segment } of graphemeSegmenter.segment(text)) return segment.length;
+  }
+  const codePoint = text.codePointAt(0);
+  return codePoint === undefined ? 0 : String.fromCodePoint(codePoint).length;
 }
 
-/** The `MilestoneNode` the collapsed caret sits immediately before, if any. */
-function $getMilestoneAfterCaret(selection: RangeSelection): MilestoneNode | undefined {
+/** The offset where `text`'s last grapheme begins — where a backward crossing into it lands. */
+function lastGraphemeStart(text: string): number {
+  if (graphemeSegmenter) {
+    let start = 0;
+    for (const { index } of graphemeSegmenter.segment(text)) start = index;
+    return start;
+  }
+  const codePoint = text.codePointAt(Math.max(0, text.length - 2));
+  const isSurrogatePair = codePoint !== undefined && codePoint > 0xffff;
+  return Math.max(0, text.length - (isSurrogatePair ? 2 : 1));
+}
+
+/** The block the traversal is confined to — arrows leave a block through the handlers above. */
+function $blockOf(node: LexicalNode): ElementNode | undefined {
+  for (let current: LexicalNode | null = node; current; current = current.getParent()) {
+    if ($isElementNode(current) && !current.isInline()) return current;
+  }
+  return undefined;
+}
+
+/** Text the caret walks through one character at a time. */
+function $isTraversableText(node: LexicalNode | null | undefined): node is TextNode {
+  return $isTextNode(node) && !node.isToken() && node.getTextContentSize() > 0;
+}
+
+/**
+ * Rendered as one indivisible glyph: crossing it is a single stop, and the caret never lands inside.
+ * A COLLAPSED note qualifies whole — only its caller is on screen, and its hidden content must not
+ * be walked into. Every decorator is one except a `MilestoneNode`, the one node here that renders
+ * nothing at all; a new zero-width decorator belongs in that exception, or traversal will stop on it.
+ */
+function $isVisibleAtom(node: LexicalNode): boolean {
+  // The collapsed flag is undefined until the note plugin settles it; an unsettled note counts as
+  // expanded, matching what is on screen before the collapse lands.
+  if ($isNoteNode(node)) return node.getIsCollapsed() === true;
+  if ($isDecoratorNode(node)) return !$isMilestoneNode(node);
+  return $isTextNode(node) && node.isToken() && node.getTextContentSize() > 0;
+}
+
+/** The next node in document order in `direction`, stepping out of ancestors, bounded by `block`. */
+function $stepOver(
+  from: LexicalNode,
+  direction: TraversalDirection,
+  block: ElementNode,
+): LexicalNode | undefined {
+  for (let current: LexicalNode | null = from; current && !current.is(block); ) {
+    const sibling = direction === "next" ? current.getNextSibling() : current.getPreviousSibling();
+    if (sibling) return sibling;
+    current = current.getParent();
+  }
+  return undefined;
+}
+
+/**
+ * The first node rendering anything, starting AT `seed` and walking `direction` — descending into
+ * elements that are not atoms, stepping over everything invisible.
+ */
+function $scanForRendered(
+  seed: LexicalNode | undefined,
+  direction: TraversalDirection,
+  block: ElementNode,
+): LexicalNode | undefined {
+  for (let cursor = seed; cursor; ) {
+    if ($isVisibleAtom(cursor)) return cursor;
+    if ($isElementNode(cursor)) {
+      const child = direction === "next" ? cursor.getFirstChild() : cursor.getLastChild();
+      cursor = child ?? $stepOver(cursor, direction, block);
+      continue;
+    }
+    if ($isTraversableText(cursor)) return cursor;
+    cursor = $stepOver(cursor, direction, block);
+  }
+  return undefined;
+}
+
+/** The node a scan should consider first when leaving the caret's position in `direction`. */
+function $scanSeed(
+  anchorNode: LexicalNode,
+  anchorOffset: number,
+  anchorType: "text" | "element",
+  direction: TraversalDirection,
+  block: ElementNode,
+): LexicalNode | undefined {
+  if (anchorType === "element" && $isElementNode(anchorNode)) {
+    const child = anchorNode.getChildAtIndex(
+      direction === "next" ? anchorOffset : anchorOffset - 1,
+    );
+    return child ?? $stepOver(anchorNode, direction, block);
+  }
+  return $stepOver(anchorNode, direction, block);
+}
+
+/** The single resting position for the screen location `landing` sits at. */
+function $canonicalize(landing: CaretLanding, block: ElementNode): CaretLanding {
+  // A text point with a character before it in its own node is already the outermost position at
+  // its location — nothing invisible separates it from rendered content on its left.
+  if (landing.kind === "text" && landing.offset > 0) return landing;
+
+  const seed = $scanSeed(landing.node, landing.offset, landing.kind, "previous", block);
+  const rendered = $scanForRendered(seed, "previous", block);
+  // Nothing rendered precedes it (the block's leading edge): the landing is already outermost.
+  if (!rendered) return landing;
+  if ($isTraversableText(rendered))
+    return { kind: "text", node: rendered, offset: rendered.getTextContentSize() };
+
+  const parent = rendered.getParent();
+  if (!parent) return landing;
+  return { kind: "element", node: parent, offset: rendered.getIndexWithinParent() + 1 };
+}
+
+/** Where a single press lands, or `undefined` when the block edge leaves nothing to cross. */
+function $resolveOneVisibleStop(
+  selection: RangeSelection,
+  direction: TraversalDirection,
+): CaretLanding | undefined {
   const anchor = selection.anchor;
   const anchorNode = anchor.getNode();
+  const block = $blockOf(anchorNode);
+  if (!block) return undefined;
 
-  // Element point: whichever child sits at the caret's index comes next. An element point at a
-  // wrapper's END (offset === childrenSize) deliberately does NOT step out the way the equivalent
-  // text point below does — normal traversal never produces one there (Lexical resolves into the
-  // last child's text), so it only arises from a click or a programmatic selection, and widening
-  // this branch to match would add a path with no traversal behind it to keep honest.
-  if (anchor.type === "element") {
-    const next = $isElementNode(anchorNode) ? anchorNode.getChildAtIndex(anchor.offset) : undefined;
-    return $isMilestoneNode(next) ? next : undefined;
+  // Inside a text node the browser's own grapheme and bidi handling is better than a tree walk, so
+  // those moves are declined — except a backward step off the first character, whose landing at
+  // offset 0 is one of the stacked positions and has to be canonicalized.
+  if (anchor.type === "text" && $isTraversableText(anchorNode)) {
+    if (direction === "next" && anchor.offset < anchorNode.getTextContentSize()) return undefined;
+    if (direction === "previous" && anchor.offset > 1) return undefined;
+    if (direction === "previous" && anchor.offset === 1)
+      return $canonicalize({ kind: "text", node: anchorNode, offset: 0 }, block);
   }
 
-  // Text point: only at the very end of its text does anything else come next.
-  if (anchor.offset !== anchorNode.getTextContentSize()) return undefined;
+  const seed = $scanSeed(anchorNode, anchor.offset, anchor.type, direction, block);
+  const rendered = $scanForRendered(seed, direction, block);
+  if (!rendered) return undefined;
 
-  const next = anchorNode.getNextSibling();
-  if (next) return $isMilestoneNode(next) ? next : undefined;
+  if ($isTraversableText(rendered)) {
+    const text = rendered.getTextContent();
+    const offset = direction === "next" ? firstGraphemeEnd(text) : lastGraphemeStart(text);
+    return $canonicalize({ kind: "text", node: rendered, offset }, block);
+  }
 
-  // Nothing follows it inside its parent — step out of a milestone's own run, so a run that ends
-  // exactly where the next milestone begins (two milestones back to back, no text between) is
-  // crossed as well. This mirrors the backward side, which steps out of the wrapper to find its
-  // owner; without it that shape keeps the same dead stop, with nothing before it to fall back to.
-  // The wrapper being LEFT is held to the same registry rule as the one being entered — kind plus a
-  // `MilestoneNode` owner directly before it — so a mid-edit husk that has lost its owner cannot
-  // originate a hop.
-  const wrapper = anchorNode.getParent();
-  if (!$isAttributeRunNode(wrapper) || wrapper.getRunKind() !== "milestone") return undefined;
-  if (!$isMilestoneNode(wrapper.getPreviousSibling())) return undefined;
-  const afterWrapper = wrapper.getNextSibling();
-  return $isMilestoneNode(afterWrapper) ? afterWrapper : undefined;
+  const parent = rendered.getParent();
+  if (!parent) return undefined;
+  const index = rendered.getIndexWithinParent();
+  return $canonicalize(
+    { kind: "element", node: parent, offset: direction === "next" ? index + 1 : index },
+    block,
+  );
 }
 
-/** Helper to handle the forward hop across a milestone into its display run. */
-function $handleForwardMilestoneRunNavigation(selection: RangeSelection): boolean {
-  const milestone = $getMilestoneAfterCaret(selection);
-  if (!milestone) return false;
-
-  // Ownership is position-derived: the wrapper directly follows the leaf it belongs to.
-  const wrapper = milestone.getNextSibling();
-  if (!$isAttributeRunNode(wrapper) || wrapper.getRunKind() !== "milestone") return false;
-
-  // A CHILD caret, unlike the sibling caret Lexical's own handling normalizes, descends into the
-  // run — landing at offset 0 of its first glyph, or on the wrapper itself if the run is an empty
-  // husk mid-edit.
-  $setSelectionFromCaretRange(
-    $getCollapsedCaretRange($normalizeCaret($getChildCaret(wrapper, "next"))),
-  );
+/** Moves the caret one visible stop in `direction`; `false` leaves the press to other handling. */
+function $moveOneVisibleStop(selection: RangeSelection, direction: TraversalDirection): boolean {
+  const landing = $resolveOneVisibleStop(selection, direction);
+  if (!landing) return false;
+  // Already there (a canonicalization that resolved back onto the caret): report the press as
+  // unhandled rather than claiming a keystroke that changes nothing.
+  if (
+    landing.node.is(selection.anchor.getNode()) &&
+    landing.offset === selection.anchor.offset &&
+    landing.kind === selection.anchor.type
+  ) {
+    return false;
+  }
+  landing.node.select(landing.offset, landing.offset);
   return true;
 }
 
