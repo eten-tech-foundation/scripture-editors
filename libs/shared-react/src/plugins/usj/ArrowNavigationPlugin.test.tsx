@@ -1340,7 +1340,6 @@ describe("Visible-stop traversal (editable markers)", () => {
           firstLine = $createTextNode("first line");
           lineBreak = $createLineBreakNode();
           verse = $createVerseNode("2");
-          $createParaNode();
           $getRoot().append(
             $createParaNode().append(firstLine, lineBreak, verse, $createTextNode("second line")),
           );
@@ -1516,6 +1515,8 @@ describe("Visible-stop traversal (editable markers)", () => {
     // The stacked positions include element points on the PARAGRAPH, which render at the line's
     // left margin rather than at the seam — landing on one flashed the caret across the screen. No
     // press may come to rest there, from any of the positions a click can leave the caret on.
+    // (Scoped to THESE run-seam shapes: after a LineBreakNode the paragraph element point renders
+    // at the next line's start, not the margin, and the line-break pins deliberately rest there.)
     it("never rests on a paragraph element point", async () => {
       const starts: ["preceding text" | "glyph" | "wrapper", number, string][] = [
         ["preceding text", "before ".length, "ArrowRight"],
