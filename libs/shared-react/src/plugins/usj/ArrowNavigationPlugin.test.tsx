@@ -1405,6 +1405,86 @@ describe("Visible-stop traversal (editable markers)", () => {
       });
     });
   });
+
+  // Shift-arrows grow a selection by the same stops the caret walks: the focus moves one rendered
+  // position, the anchor never does. Leftward out of a run this also lifts a recorded stall — an
+  // extend across the zero-width milestone anchor was handed to the browser, which would not make
+  // it, exactly as a collapsed move was not.
+  describe("shift-extension", () => {
+    /** The selection as `anchor -> focus`, so a pin can say the anchor held still. */
+    function rangeOf(editor: LexicalEditor): string {
+      let range = "";
+      editor.getEditorState().read(() => {
+        const selection = $getSelection();
+        if (!$isRangeSelection(selection)) throw new Error("no range selection");
+        const { anchor, focus } = selection;
+        range = `${anchor.type}:${anchor.key}@${anchor.offset} -> ${focus.type}:${focus.key}@${focus.offset}`;
+      });
+      return range;
+    }
+
+    it("extends the focus into a run in one press, leaving the anchor put", async () => {
+      const { editor, precedingText, openingGlyph } = await milestoneRunEnvironment();
+      updateSelection(editor, precedingText);
+
+      await pressModifiedKey(editor, "ArrowRight", { shiftKey: true });
+
+      expect(rangeOf(editor)).toBe(
+        `text:${precedingText.getKey()}@${"before ".length} -> text:${openingGlyph.getKey()}@1`,
+      );
+    });
+
+    it("extends the focus out of a run leftward in one press, leaving the anchor put", async () => {
+      const { editor, precedingText, openingGlyph } = await milestoneRunEnvironment();
+      updateSelection(editor, openingGlyph, 1);
+
+      await pressModifiedKey(editor, "ArrowLeft", { shiftKey: true });
+
+      expect(rangeOf(editor)).toBe(
+        `text:${openingGlyph.getKey()}@1 -> text:${precedingText.getKey()}@${"before ".length}`,
+      );
+    });
+
+    it("mirrors in RTL, where shift+ArrowLeft extends forward", async () => {
+      const { editor, precedingText, openingGlyph } = await milestoneRunEnvironment("rtl");
+      updateSelection(editor, precedingText);
+
+      await pressModifiedKey(editor, "ArrowLeft", { shiftKey: true });
+
+      expect(rangeOf(editor)).toBe(
+        `text:${precedingText.getKey()}@${"before ".length} -> text:${openingGlyph.getKey()}@1`,
+      );
+    });
+
+    it("keeps the anchor put while the focus crosses a seam and comes back", async () => {
+      const { editor, precedingText } = await milestoneRunEnvironment();
+      updateSelection(editor, precedingText);
+      const collapsed = rangeOf(editor);
+
+      await pressModifiedKey(editor, "ArrowRight", { shiftKey: true });
+      const extended = rangeOf(editor);
+      await pressModifiedKey(editor, "ArrowLeft", { shiftKey: true });
+
+      expect(extended).not.toBe(collapsed);
+      expect(rangeOf(editor)).toBe(collapsed);
+    });
+
+    it("leaves ctrl- and alt-modified shift arrows alone", async () => {
+      for (const modifiers of [
+        { shiftKey: true, ctrlKey: true },
+        { shiftKey: true, altKey: true },
+      ]) {
+        const { editor, openingGlyph } = await milestoneRunEnvironment();
+        updateSelection(editor, openingGlyph, 1);
+
+        await pressModifiedKey(editor, "ArrowLeft", modifiers);
+
+        editor.getEditorState().read(() => {
+          $expectSelectionToBe(openingGlyph, 1);
+        });
+      }
+    });
+  });
 });
 
 async function testEnvironment(
