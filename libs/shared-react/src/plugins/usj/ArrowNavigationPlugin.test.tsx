@@ -1025,18 +1025,19 @@ describe("Milestone display run", () => {
    * followed by ONE `AttributeRunNode` wrapper holding its `\qt-s`…`\*` glyph pair.
    */
   async function milestoneRunEnvironment(textDirection: "ltr" | "rtl" = "ltr") {
+    let para: ParaNode;
     let precedingText: TextNode;
     let openingGlyph: MarkerNode;
+    let closingGlyph: MarkerNode;
     let wrapper: AttributeRunNode;
     const { editor } = await testEnvironment(() => {
       precedingText = $createTextNode("before ");
       openingGlyph = $createMarkerNode("qt-s", "opening");
-      wrapper = $createAttributeRunNode("milestone").append(
-        openingGlyph,
-        $createMarkerNode("", "selfClosing"),
-      );
+      closingGlyph = $createMarkerNode("", "selfClosing");
+      wrapper = $createAttributeRunNode("milestone").append(openingGlyph, closingGlyph);
+      para = $createParaNode();
       $getRoot().append(
-        $createParaNode().append(
+        para.append(
           precedingText,
           $createMilestoneNode("qt-s", "ms1"),
           wrapper,
@@ -1046,8 +1047,10 @@ describe("Milestone display run", () => {
     }, textDirection);
     return {
       editor,
+      para: para!,
       precedingText: precedingText!,
       openingGlyph: openingGlyph!,
+      closingGlyph: closingGlyph!,
       wrapper: wrapper!,
     };
   }
@@ -1142,7 +1145,83 @@ describe("Milestone display run", () => {
     });
   });
 
-  it("should leave the run's leading edge to the browser when moving forward", async () => {
+  // The milestone renders nothing, so the caret stop the decorator contributes sits at the same x
+  // as the end of the text before it: entering the run used to cost a press that moved nothing on
+  // screen. Forward arrows now hop that dead stop and land on the run's first glyph.
+  it("should enter the run in one forward press from the end of the preceding text", async () => {
+    const { editor, precedingText, openingGlyph } = await milestoneRunEnvironment();
+    updateSelection(editor, precedingText);
+
+    await pressKey(editor, "ArrowRight");
+
+    editor.getEditorState().read(() => {
+      $expectSelectionToBe(openingGlyph, 0);
+    });
+  });
+
+  it("should enter the run in one forward press from an element point before the milestone", async () => {
+    const { editor, para, openingGlyph } = await milestoneRunEnvironment();
+    updateSelection(editor, para, 1);
+
+    await pressKey(editor, "ArrowRight");
+
+    editor.getEditorState().read(() => {
+      $expectSelectionToBe(openingGlyph, 0);
+    });
+  });
+
+  // Forward is keyed on LOGICAL direction too: in RTL, ArrowLeft is forward.
+  it("should enter the run in one forward press in RTL", async () => {
+    const { editor, precedingText, openingGlyph } = await milestoneRunEnvironment("rtl");
+    updateSelection(editor, precedingText);
+
+    await pressKey(editor, "ArrowLeft");
+
+    editor.getEditorState().read(() => {
+      $expectSelectionToBe(openingGlyph, 0);
+    });
+  });
+
+  // Two milestones back to back put the same zero-width decorator between one run's trailing edge
+  // and the next run's first glyph, with no text in between to break the fall. The forward hop
+  // steps out of the run it is leaving, so it covers that shape too.
+  it("should cross into the next run when two milestones are adjacent", async () => {
+    let firstRunCloser: MarkerNode;
+    let secondRunOpener: MarkerNode;
+    const { editor } = await testEnvironment(() => {
+      firstRunCloser = $createMarkerNode("", "selfClosing");
+      secondRunOpener = $createMarkerNode("qt-e", "opening");
+      $getRoot().append(
+        $createParaNode().append(
+          $createTextNode("before "),
+          $createMilestoneNode("qt-s", "ms1"),
+          $createAttributeRunNode("milestone").append(
+            $createMarkerNode("qt-s", "opening"),
+            firstRunCloser,
+          ),
+          $createMilestoneNode("qt-e", undefined, "ms1"),
+          $createAttributeRunNode("milestone").append(
+            secondRunOpener,
+            $createMarkerNode("", "selfClosing"),
+          ),
+          $createTextNode(" after"),
+        ),
+      );
+    });
+    updateSelection(editor, firstRunCloser!);
+
+    await pressKey(editor, "ArrowRight");
+
+    editor.getEditorState().read(() => {
+      $expectSelectionToBe(secondRunOpener!, 0);
+    });
+  });
+
+  // Widened from an earlier pin that read "leave the run's leading edge to the browser when moving
+  // forward": the leading edge IS claimed now, but only when the caret is APPROACHING it — from
+  // before the milestone, or off the end of an immediately preceding milestone's run. A caret
+  // already inside the run traverses its glyph text natively, as it always did.
+  it("should not claim a forward move from inside the run's first glyph", async () => {
     const { editor, openingGlyph } = await milestoneRunEnvironment();
     updateSelection(editor, openingGlyph, 0);
 
@@ -1150,6 +1229,17 @@ describe("Milestone display run", () => {
 
     editor.getEditorState().read(() => {
       $expectSelectionToBe(openingGlyph, 0);
+    });
+  });
+
+  it("should not claim a forward move off the run's trailing edge into ordinary text", async () => {
+    const { editor, closingGlyph } = await milestoneRunEnvironment();
+    updateSelection(editor, closingGlyph);
+
+    await pressKey(editor, "ArrowRight");
+
+    editor.getEditorState().read(() => {
+      $expectSelectionToBe(closingGlyph);
     });
   });
 
