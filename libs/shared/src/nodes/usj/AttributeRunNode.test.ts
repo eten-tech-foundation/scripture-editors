@@ -237,8 +237,9 @@ describe("AttributeRunNode", () => {
     });
   });
 
-  // Why `ArrowNavigationPlugin` (shared-react) carries a leading-edge hop for a milestone's
-  // display run. Lexical hops a collapsed caret across a `DecoratorNode` itself
+  // Why `ArrowNavigationPlugin` (shared-react) resolves horizontal arrow traversal from the tree in
+  // editable-marker mode instead of leaving it to Lexical and the browser. Lexical moves a collapsed
+  // caret across a `DecoratorNode` itself
   // (`RangeSelection.modify` → `$modifySelectionAroundDecoratorsAndBlocks`) only while the
   // decorator is a SIBLING of the caret's own node; its fallback scan, which does walk out
   // through ancestors, claims only NON-inline decorators, and a `MilestoneNode` is inline
@@ -252,8 +253,9 @@ describe("AttributeRunNode", () => {
   // resolves for itself — with the native move stubbed to a no-op so nothing depends on jsdom
   // (which implements none) or on real caret geometry. The browser's own refusal is not modelled
   // here; only a live run can show that. They are characterization pins on Lexical, not on our
-  // fix: if a future Lexical starts resolving the wrapped shape itself, the second test fails and
-  // the plugin-side hop in `ArrowNavigationPlugin` can be retired.
+  // fix: if a future Lexical starts resolving the wrapped shape itself, the second test fails —
+  // which is the signal to re-measure how much of the plugin-side traversal is still earning its
+  // keep.
   describe("caret traversal across the wrapper's leading edge", () => {
     const restoreNativeModify: (() => void)[] = [];
 

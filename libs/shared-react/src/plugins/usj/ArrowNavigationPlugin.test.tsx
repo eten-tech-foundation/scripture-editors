@@ -5,7 +5,8 @@
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import { $expectSelectionToBe } from "../../../../../libs/shared/src/nodes/usj/test.utils";
 import { $createImmutableNoteCallerNode, $createImmutableVerseNode } from "../../nodes/usj";
-import { getDefaultViewOptions } from "../../views/view-options.utils";
+import { getDefaultViewOptions, getViewOptions } from "../../views/view-options.utils";
+import { STANDARD_VIEW_MODE, UNFORMATTED_VIEW_MODE } from "../../views/view-mode.model";
 import { ArrowNavigationPlugin, hasVisualLineBeyondCaret } from "./ArrowNavigationPlugin";
 import { TextDirectionPlugin } from "./TextDirectionPlugin";
 import { baseTestEnvironment, pressKey, updateSelection } from "./react-test.utils";
@@ -14,9 +15,12 @@ import {
   $createLineBreakNode,
   $createTextNode,
   $getRoot,
-  COMMAND_PRIORITY_NORMAL,
+  $getSelection,
+  $isRangeSelection,
+  $setState,
   KEY_DOWN_COMMAND,
   LexicalEditor,
+  LexicalNode,
   TextNode,
 } from "lexical";
 import {
@@ -35,6 +39,8 @@ import {
   ImpliedParaNode,
   MarkerNode,
   ParaNode,
+  textTypeState,
+  VerseNode,
 } from "shared";
 
 describe("Note collapsed", () => {
@@ -1019,82 +1025,62 @@ describe("\\fp boundary in expanded note", () => {
   });
 });
 
-describe("Milestone display run", () => {
-  /**
-   * Standard view's editable milestone shape: a zero-width `MilestoneNode` (a `DecoratorNode`)
-   * followed by ONE `AttributeRunNode` wrapper holding its `\qt-s`…`\*` glyph pair.
-   */
+// One press, one visible crossing. Every shape below stacks several tree positions at a single
+// screen location — a zero-width milestone anchor, a wrapper seam, a span boundary — and each used
+// to cost a press that moved nothing the eye could follow. These pins are press COUNTS: one press
+// must land past exactly one rendered character, and N presses back must return to the very same
+// tree position.
+//
+// All of them run in editable-marker mode, the only mode that builds display runs and glyph text
+// at all; the other views keep the browser's own traversal untouched.
+describe("Visible-stop traversal (editable markers)", () => {
+  const standardView = getViewOptions(STANDARD_VIEW_MODE);
+  const unformattedView = getViewOptions(UNFORMATTED_VIEW_MODE);
+
+  /** `before |\qt-s\*| after` — a milestone anchor and its display run mid-paragraph. */
   async function milestoneRunEnvironment(textDirection: "ltr" | "rtl" = "ltr") {
     let para: ParaNode;
     let precedingText: TextNode;
     let openingGlyph: MarkerNode;
     let closingGlyph: MarkerNode;
+    let followingText: TextNode;
     let wrapper: AttributeRunNode;
-    const { editor } = await testEnvironment(() => {
-      precedingText = $createTextNode("before ");
-      openingGlyph = $createMarkerNode("qt-s", "opening");
-      closingGlyph = $createMarkerNode("", "selfClosing");
-      wrapper = $createAttributeRunNode("milestone").append(openingGlyph, closingGlyph);
-      para = $createParaNode();
-      $getRoot().append(
-        para.append(
-          precedingText,
-          $createMilestoneNode("qt-s", "ms1"),
-          wrapper,
-          $createTextNode(" after"),
-        ),
-      );
-    }, textDirection);
+    const { editor } = await testEnvironment(
+      () => {
+        precedingText = $createTextNode("before ");
+        openingGlyph = $createMarkerNode("qt-s", "opening");
+        closingGlyph = $createMarkerNode("", "selfClosing");
+        followingText = $createTextNode(" after");
+        wrapper = $createAttributeRunNode("milestone").append(openingGlyph, closingGlyph);
+        para = $createParaNode();
+        $getRoot().append(
+          para.append(precedingText, $createMilestoneNode("qt-s", "ms1"), wrapper, followingText),
+        );
+      },
+      textDirection,
+      standardView,
+    );
     return {
       editor,
       para: para!,
       precedingText: precedingText!,
       openingGlyph: openingGlyph!,
       closingGlyph: closingGlyph!,
+      followingText: followingText!,
       wrapper: wrapper!,
     };
   }
 
-  /**
-   * The same milestone with its glyphs riding LOOSE as bare following siblings — the shape before
-   * the run was wrapped. Used as the parity control for which keystrokes Lexical ever hopped.
-   */
-  async function looseMilestoneRunEnvironment() {
-    let precedingText: TextNode;
-    let openingGlyph: MarkerNode;
-    const { editor } = await testEnvironment(() => {
-      precedingText = $createTextNode("before ");
-      openingGlyph = $createMarkerNode("qt-s", "opening");
-      $getRoot().append(
-        $createParaNode().append(
-          precedingText,
-          $createMilestoneNode("qt-s", "ms1"),
-          openingGlyph,
-          $createMarkerNode("", "selfClosing"),
-          $createTextNode(" after"),
-        ),
-      );
+  /** Reads the caret as a comparable tuple, for round-trip closure. */
+  function caretOf(editor: LexicalEditor): string {
+    let caret = "";
+    editor.getEditorState().read(() => {
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) throw new Error("no range selection");
+      const { anchor } = selection;
+      caret = `${anchor.type}:${anchor.key}@${anchor.offset}`;
     });
-    return { editor, precedingText: precedingText!, openingGlyph: openingGlyph! };
-  }
-
-  /**
-   * Watches whether the plugin DECLINED a key. The listener sits at NORMAL priority — below the
-   * plugin's HIGH, above Lexical's own EDITOR-level arrow handling — so it fires only on a
-   * decline, and swallowing the key there keeps Lexical's native fall-through (which jsdom does
-   * not implement) out of a test that is only about the claim decision.
-   */
-  function watchForDecline(editor: LexicalEditor) {
-    const state = { declined: false };
-    const unregister = editor.registerCommand(
-      KEY_DOWN_COMMAND,
-      () => {
-        state.declined = true;
-        return true;
-      },
-      COMMAND_PRIORITY_NORMAL,
-    );
-    return { state, unregister };
+    return caret;
   }
 
   /** Presses `key` with modifiers held; `pressKey` covers the unmodified case. */
@@ -1111,257 +1097,372 @@ describe("Milestone display run", () => {
     });
   }
 
-  it("should move to the end of the preceding text when moving backward from the run's first glyph", async () => {
-    const { editor, precedingText, openingGlyph } = await milestoneRunEnvironment();
-    updateSelection(editor, openingGlyph, 0);
+  describe("a milestone run's leading seam", () => {
+    it("crosses the opening glyph's backslash in ONE press forward", async () => {
+      const { editor, precedingText, openingGlyph } = await milestoneRunEnvironment();
+      updateSelection(editor, precedingText);
 
-    await pressKey(editor, "ArrowLeft");
+      await pressKey(editor, "ArrowRight");
 
-    editor.getEditorState().read(() => {
-      $expectSelectionToBe(precedingText);
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(openingGlyph, 1);
+      });
     });
-  });
 
-  it("should move to the end of the preceding text when moving backward from an element point at the wrapper's start", async () => {
-    const { editor, precedingText, wrapper } = await milestoneRunEnvironment();
-    updateSelection(editor, wrapper, 0);
+    it("crosses back out of the run in ONE press backward", async () => {
+      const { editor, precedingText, openingGlyph } = await milestoneRunEnvironment();
+      updateSelection(editor, openingGlyph, 1);
 
-    await pressKey(editor, "ArrowLeft");
-
-    editor.getEditorState().read(() => {
-      $expectSelectionToBe(precedingText);
-    });
-  });
-
-  // Backward is keyed on LOGICAL direction, not the physical key: in RTL, ArrowRight is backward.
-  it("should move to the end of the preceding text when moving backward in RTL", async () => {
-    const { editor, precedingText, openingGlyph } = await milestoneRunEnvironment("rtl");
-    updateSelection(editor, openingGlyph, 0);
-
-    await pressKey(editor, "ArrowRight");
-
-    editor.getEditorState().read(() => {
-      $expectSelectionToBe(precedingText);
-    });
-  });
-
-  // The milestone renders nothing, so the caret stop the decorator contributes sits at the same x
-  // as the end of the text before it: entering the run used to cost a press that moved nothing on
-  // screen. Forward arrows now hop that dead stop and land on the run's first glyph.
-  it("should enter the run in one forward press from the end of the preceding text", async () => {
-    const { editor, precedingText, openingGlyph } = await milestoneRunEnvironment();
-    updateSelection(editor, precedingText);
-
-    await pressKey(editor, "ArrowRight");
-
-    editor.getEditorState().read(() => {
-      $expectSelectionToBe(openingGlyph, 0);
-    });
-  });
-
-  it("should enter the run in one forward press from an element point before the milestone", async () => {
-    const { editor, para, openingGlyph } = await milestoneRunEnvironment();
-    updateSelection(editor, para, 1);
-
-    await pressKey(editor, "ArrowRight");
-
-    editor.getEditorState().read(() => {
-      $expectSelectionToBe(openingGlyph, 0);
-    });
-  });
-
-  // Forward is keyed on LOGICAL direction too: in RTL, ArrowLeft is forward.
-  it("should enter the run in one forward press in RTL", async () => {
-    const { editor, precedingText, openingGlyph } = await milestoneRunEnvironment("rtl");
-    updateSelection(editor, precedingText);
-
-    await pressKey(editor, "ArrowLeft");
-
-    editor.getEditorState().read(() => {
-      $expectSelectionToBe(openingGlyph, 0);
-    });
-  });
-
-  // Two milestones back to back put the same zero-width decorator between one run's trailing edge
-  // and the next run's first glyph, with no text in between to break the fall. The forward hop
-  // steps out of the run it is leaving, so it covers that shape too.
-  it("should cross into the next run when two milestones are adjacent", async () => {
-    let firstRunCloser: MarkerNode;
-    let secondRunOpener: MarkerNode;
-    const { editor } = await testEnvironment(() => {
-      firstRunCloser = $createMarkerNode("", "selfClosing");
-      secondRunOpener = $createMarkerNode("qt-e", "opening");
-      $getRoot().append(
-        $createParaNode().append(
-          $createTextNode("before "),
-          $createMilestoneNode("qt-s", "ms1"),
-          $createAttributeRunNode("milestone").append(
-            $createMarkerNode("qt-s", "opening"),
-            firstRunCloser,
-          ),
-          $createMilestoneNode("qt-e", undefined, "ms1"),
-          $createAttributeRunNode("milestone").append(
-            secondRunOpener,
-            $createMarkerNode("", "selfClosing"),
-          ),
-          $createTextNode(" after"),
-        ),
-      );
-    });
-    updateSelection(editor, firstRunCloser!);
-
-    await pressKey(editor, "ArrowRight");
-
-    editor.getEditorState().read(() => {
-      $expectSelectionToBe(secondRunOpener!, 0);
-    });
-  });
-
-  // Widened from an earlier pin that read "leave the run's leading edge to the browser when moving
-  // forward": the leading edge IS claimed now, but only when the caret is APPROACHING it — from
-  // before the milestone, or off the end of an immediately preceding milestone's run. A caret
-  // already inside the run traverses its glyph text natively, as it always did.
-  it("should not claim a forward move from inside the run's first glyph", async () => {
-    const { editor, openingGlyph } = await milestoneRunEnvironment();
-    updateSelection(editor, openingGlyph, 0);
-
-    await pressKey(editor, "ArrowRight");
-
-    editor.getEditorState().read(() => {
-      $expectSelectionToBe(openingGlyph, 0);
-    });
-  });
-
-  it("should not claim a forward move off the run's trailing edge into ordinary text", async () => {
-    const { editor, closingGlyph } = await milestoneRunEnvironment();
-    updateSelection(editor, closingGlyph);
-
-    await pressKey(editor, "ArrowRight");
-
-    editor.getEditorState().read(() => {
-      $expectSelectionToBe(closingGlyph);
-    });
-  });
-
-  it("should not claim a backward move from inside the glyph text", async () => {
-    const { editor, openingGlyph } = await milestoneRunEnvironment();
-    updateSelection(editor, openingGlyph, 1);
-
-    await pressKey(editor, "ArrowLeft");
-
-    editor.getEditorState().read(() => {
-      $expectSelectionToBe(openingGlyph, 1);
-    });
-  });
-
-  it("should not claim a backward move out of a verse's \\va run", async () => {
-    let openingGlyph: MarkerNode;
-    const { editor } = await testEnvironment(() => {
-      openingGlyph = $createMarkerNode("va", "opening");
-      $getRoot().append(
-        $createParaNode().append(
-          $createVerseNode("1"),
-          $createAttributeRunNode("va").append(
-            openingGlyph,
-            $createTextNode("2"),
-            $createMarkerNode("va", "closing"),
-          ),
-          $createTextNode("verse text"),
-        ),
-      );
-    });
-    updateSelection(editor, openingGlyph!, 0);
-
-    await pressKey(editor, "ArrowLeft");
-
-    editor.getEditorState().read(() => {
-      $expectSelectionToBe(openingGlyph!, 0);
-    });
-  });
-
-  // The structural rule is the registry's, not "the owner happens to be a decorator": a wrapper is
-  // a milestone's only when its own runKind says so AND a MilestoneNode sits directly before it.
-  it("should not claim a backward move out of a non-milestone-kind wrapper that follows a milestone", async () => {
-    let openingGlyph: MarkerNode;
-    const { editor } = await testEnvironment(() => {
-      openingGlyph = $createMarkerNode("va", "opening");
-      $getRoot().append(
-        $createParaNode().append(
-          $createTextNode("before "),
-          $createMilestoneNode("qt-s", "ms1"),
-          $createAttributeRunNode("va").append(
-            openingGlyph,
-            $createTextNode("2"),
-            $createMarkerNode("va", "closing"),
-          ),
-          $createTextNode(" after"),
-        ),
-      );
-    });
-    updateSelection(editor, openingGlyph!, 0);
-
-    const { state, unregister } = watchForDecline(editor);
-    let declined = false;
-    try {
       await pressKey(editor, "ArrowLeft");
-      declined = state.declined;
-    } finally {
-      unregister();
-    }
 
-    expect(declined).toBe(true);
-    editor.getEditorState().read(() => {
-      $expectSelectionToBe(openingGlyph!, 0);
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(precedingText);
+      });
+    });
+
+    // A click can still park the caret on one of the stacked positions; the next press normalizes
+    // it rather than moving underneath the user, so it still crosses exactly one character.
+    it("crosses one character backward from an element point at the wrapper's start", async () => {
+      const { editor, precedingText, wrapper } = await milestoneRunEnvironment();
+      updateSelection(editor, wrapper, 0);
+
+      await pressKey(editor, "ArrowLeft");
+
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(precedingText, "before ".length - 1);
+      });
+    });
+
+    it("mirrors in RTL, where ArrowLeft is forward", async () => {
+      const { editor, precedingText, openingGlyph } = await milestoneRunEnvironment("rtl");
+      updateSelection(editor, precedingText);
+
+      await pressKey(editor, "ArrowLeft");
+
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(openingGlyph, 1);
+      });
     });
   });
 
-  // Modified arrows are excluded from the hop because Lexical never hopped them either — before or
-  // after the run was wrapped. Its keydown gate matches modifiers EXACTLY (only shift is allowed
-  // through to `KEY_ARROW_LEFT_COMMAND`), so ctrl+ArrowLeft dispatches the unhandled
-  // `MOVE_TO_START` and alt+ArrowLeft dispatches nothing; both reach the browser
-  // un-preventDefaulted with word/line granularity. The LOOSE (pre-wrapper) case below is the
-  // parity control: it shows there is no earlier behavior to restore for those keystrokes.
-  it("should not hop a ctrl-modified backward move even in the pre-wrapper shape", async () => {
-    const { editor, openingGlyph } = await looseMilestoneRunEnvironment();
-    updateSelection(editor, openingGlyph, 0);
+  /** `\add word\add*\qt-s\*` — the `*`→`\` seam the maintainer measured at three presses. */
+  async function spanThenMilestoneEnvironment() {
+    let addCloser: MarkerNode;
+    let openingGlyph: MarkerNode;
+    const { editor } = await testEnvironment(
+      () => {
+        addCloser = $createMarkerNode("add", "closing");
+        openingGlyph = $createMarkerNode("qt-s", "opening");
+        $getRoot().append(
+          $createParaNode().append(
+            $createTextNode("x "),
+            $createCharNode("add").append(
+              $createMarkerNode("add", "opening"),
+              $createTextNode("word"),
+              addCloser,
+            ),
+            $createMilestoneNode("qt-s", "ms1"),
+            $createAttributeRunNode("milestone").append(
+              openingGlyph,
+              $createMarkerNode("", "selfClosing"),
+            ),
+            $createTextNode(" after"),
+          ),
+        );
+      },
+      "ltr",
+      standardView,
+    );
+    return { editor, addCloser: addCloser!, openingGlyph: openingGlyph! };
+  }
 
-    await pressModifiedKey(editor, "ArrowLeft", { ctrlKey: true });
+  describe("a span boundary that meets a milestone", () => {
+    it("crosses the seam in ONE press forward", async () => {
+      const { editor, addCloser, openingGlyph } = await spanThenMilestoneEnvironment();
+      updateSelection(editor, addCloser);
 
-    editor.getEditorState().read(() => {
-      $expectSelectionToBe(openingGlyph, 0);
+      await pressKey(editor, "ArrowRight");
+
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(openingGlyph, 1);
+      });
+    });
+
+    it("crosses the seam in ONE press backward", async () => {
+      const { editor, addCloser, openingGlyph } = await spanThenMilestoneEnvironment();
+      updateSelection(editor, openingGlyph, 1);
+
+      await pressKey(editor, "ArrowLeft");
+
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(addCloser);
+      });
     });
   });
 
-  it("should hop an unmodified backward move in the pre-wrapper shape (Lexical's own decorator handling)", async () => {
-    const { editor, precedingText, openingGlyph } = await looseMilestoneRunEnvironment();
-    updateSelection(editor, openingGlyph, 0);
+  /** `\qt-s\*\qt-e\*` — two zero-width anchors with no text between the runs. */
+  async function adjacentMilestonesEnvironment() {
+    let firstCloser: MarkerNode;
+    let secondOpener: MarkerNode;
+    const { editor } = await testEnvironment(
+      () => {
+        firstCloser = $createMarkerNode("", "selfClosing");
+        secondOpener = $createMarkerNode("qt-e", "opening");
+        $getRoot().append(
+          $createParaNode().append(
+            $createTextNode("x "),
+            $createMilestoneNode("qt-s", "ms1"),
+            $createAttributeRunNode("milestone").append(
+              $createMarkerNode("qt-s", "opening"),
+              firstCloser,
+            ),
+            $createMilestoneNode("qt-e", undefined, "ms1"),
+            $createAttributeRunNode("milestone").append(
+              secondOpener,
+              $createMarkerNode("", "selfClosing"),
+            ),
+            $createTextNode(" after"),
+          ),
+        );
+      },
+      "ltr",
+      standardView,
+    );
+    return { editor, firstCloser: firstCloser!, secondOpener: secondOpener! };
+  }
 
-    await pressKey(editor, "ArrowLeft");
+  describe("two milestones back to back", () => {
+    it("crosses into the next run in ONE press forward", async () => {
+      const { editor, firstCloser, secondOpener } = await adjacentMilestonesEnvironment();
+      updateSelection(editor, firstCloser);
 
-    editor.getEditorState().read(() => {
-      $expectSelectionToBe(precedingText);
+      await pressKey(editor, "ArrowRight");
+
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(secondOpener, 1);
+      });
+    });
+
+    it("crosses back into the previous run in ONE press backward", async () => {
+      const { editor, firstCloser, secondOpener } = await adjacentMilestonesEnvironment();
+      updateSelection(editor, secondOpener, 1);
+
+      await pressKey(editor, "ArrowLeft");
+
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(firstCloser);
+      });
     });
   });
 
-  it("should not claim a ctrl-modified backward move out of the run", async () => {
-    const { editor, openingGlyph } = await milestoneRunEnvironment();
-    updateSelection(editor, openingGlyph, 0);
+  // The rule is not milestone-specific: every display run's seams normalize the same way.
+  describe("other display runs", () => {
+    it("crosses into a verse's \\va run in ONE press", async () => {
+      let verse: VerseNode;
+      let openingGlyph: MarkerNode;
+      const { editor } = await testEnvironment(
+        () => {
+          verse = $createVerseNode("1");
+          openingGlyph = $createMarkerNode("va", "opening");
+          $getRoot().append(
+            $createParaNode().append(
+              verse,
+              $createAttributeRunNode("va").append(
+                openingGlyph,
+                $createTextNode("2"),
+                $createMarkerNode("va", "closing"),
+              ),
+              $createTextNode("verse text"),
+            ),
+          );
+        },
+        "ltr",
+        standardView,
+      );
+      updateSelection(editor, verse!);
 
-    await pressModifiedKey(editor, "ArrowLeft", { ctrlKey: true });
+      await pressKey(editor, "ArrowRight");
 
-    editor.getEditorState().read(() => {
-      $expectSelectionToBe(openingGlyph, 0);
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(openingGlyph!, 1);
+      });
+    });
+
+    it("crosses into a char span's own |attribute run in ONE press", async () => {
+      let word: TextNode;
+      let attribute: TextNode;
+      const { editor } = await testEnvironment(
+        () => {
+          word = $createTextNode("word");
+          attribute = $createTextNode('|lemma="x"');
+          $getRoot().append(
+            $createParaNode().append(
+              $createTextNode("x "),
+              $createCharNode("w").append(
+                $createMarkerNode("w", "opening"),
+                word,
+                attribute,
+                $createMarkerNode("w", "closing"),
+              ),
+              $createTextNode(" after"),
+            ),
+          );
+          $setState(attribute, textTypeState, "attribute");
+        },
+        "ltr",
+        standardView,
+      );
+      updateSelection(editor, word!);
+
+      await pressKey(editor, "ArrowRight");
+
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(attribute!, 1);
+      });
+    });
+
+    it("crosses from an expanded note's last text into a following milestone run in ONE press", async () => {
+      let noteText: TextNode;
+      let openingGlyph: MarkerNode;
+      const { editor } = await testEnvironment(
+        () => {
+          noteText = $createTextNode("note text");
+          openingGlyph = $createMarkerNode("qt-s", "opening");
+          $getRoot().append(
+            $createParaNode().append(
+              $createImmutableVerseNode("1"),
+              $createNoteNode("f", "+").append(
+                $createImmutableNoteCallerNode("+", "preview"),
+                $createCharNode("ft").append(noteText),
+              ),
+              $createMilestoneNode("qt-s", "ms1"),
+              $createAttributeRunNode("milestone").append(
+                openingGlyph,
+                $createMarkerNode("", "selfClosing"),
+              ),
+              $createTextNode(" after"),
+            ),
+          );
+        },
+        "ltr",
+        unformattedView,
+      );
+      updateSelection(editor, noteText!);
+
+      await pressKey(editor, "ArrowRight");
+
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(openingGlyph!, 1);
+      });
     });
   });
 
-  it("should not claim an alt-modified backward move out of the run", async () => {
-    const { editor, openingGlyph } = await milestoneRunEnvironment();
-    updateSelection(editor, openingGlyph, 0);
+  describe("closure and containment", () => {
+    // Where several tree positions share one screen location only ONE is a resting place, so a seam
+    // crossed one way and back returns to the identical tree position — same node, same offset,
+    // same point type. Closure across the seams is what canonicalization buys and what was broken:
+    // before it, crossing out of a run and back landed on the run's own glyph instead of the text.
+    //
+    // Presses that stay INSIDE a text node are deliberately left to the browser (its grapheme and
+    // bidi rules beat a tree walk), and jsdom implements no native `Selection.modify`, so a longer
+    // N-out/N-back walk cannot be driven here. Each seam is therefore closed on its own, across
+    // every shape that stacks positions.
+    it("returns to the identical position when each seam is crossed out and back", async () => {
+      const milestone = await milestoneRunEnvironment();
+      const span = await spanThenMilestoneEnvironment();
+      const adjacent = await adjacentMilestonesEnvironment();
+      const seams: [string, LexicalEditor, LexicalNode, number][] = [
+        ["milestone run leading seam", milestone.editor, milestone.precedingText, "before ".length],
+        ["span-to-milestone seam", span.editor, span.addCloser, "\\add*".length],
+        ["milestone-to-milestone seam", adjacent.editor, adjacent.firstCloser, "\\*".length],
+      ];
 
-    await pressModifiedKey(editor, "ArrowLeft", { altKey: true });
+      for (const [seam, editor, node, offset] of seams) {
+        updateSelection(editor, node, offset);
+        const start = caretOf(editor);
 
-    editor.getEditorState().read(() => {
-      $expectSelectionToBe(openingGlyph, 0);
+        await pressKey(editor, "ArrowRight");
+        const crossed = caretOf(editor);
+        await pressKey(editor, "ArrowLeft");
+
+        expect(crossed, `${seam} did not move`).not.toBe(start);
+        expect(caretOf(editor), `${seam} did not close`).toBe(start);
+      }
+    });
+
+    // The stacked positions include element points on the PARAGRAPH, which render at the line's
+    // left margin rather than at the seam — landing on one flashed the caret across the screen. No
+    // press may come to rest there, from any of the positions a click can leave the caret on.
+    it("never rests on a paragraph element point", async () => {
+      const starts: ["preceding text" | "glyph" | "wrapper", number, string][] = [
+        ["preceding text", "before ".length, "ArrowRight"],
+        ["glyph", 1, "ArrowLeft"],
+        ["glyph", 0, "ArrowLeft"],
+        ["wrapper", 0, "ArrowLeft"],
+      ];
+
+      for (const [from, offset, key] of starts) {
+        // A fresh editor per start: re-seeding a selection on a mounted one drives Lexical's
+        // scroll-into-view, which jsdom cannot measure.
+        const { editor, para, precedingText, openingGlyph, wrapper } =
+          await milestoneRunEnvironment();
+        const node =
+          from === "preceding text" ? precedingText : from === "glyph" ? openingGlyph : wrapper;
+        updateSelection(editor, node, offset);
+
+        await pressKey(editor, key);
+
+        editor.getEditorState().read(() => {
+          const selection = $getSelection();
+          if (!$isRangeSelection(selection)) throw new Error("no range selection");
+          expect(selection.anchor.key, `${key} from ${from}@${offset}`).not.toBe(para.getKey());
+        });
+      }
+    });
+
+    it("leaves modified arrows alone", async () => {
+      for (const modifiers of [{ ctrlKey: true }, { altKey: true }, { metaKey: true }]) {
+        const { editor, openingGlyph } = await milestoneRunEnvironment();
+        updateSelection(editor, openingGlyph, 1);
+
+        await pressModifiedKey(editor, "ArrowLeft", modifiers);
+
+        editor.getEditorState().read(() => {
+          $expectSelectionToBe(openingGlyph, 1);
+        });
+      }
+    });
+
+    // Outside editable-marker mode there are no display runs or glyph text to stack positions, so
+    // the browser's own traversal is left in place.
+    it("does not normalize outside editable-marker mode", async () => {
+      let para: ParaNode;
+      let precedingText: TextNode;
+      const { editor } = await testEnvironment(() => {
+        precedingText = $createTextNode("before ");
+        para = $createParaNode();
+        $getRoot().append(
+          para.append(
+            precedingText,
+            $createMilestoneNode("qt-s", "ms1"),
+            $createAttributeRunNode("milestone").append(
+              $createMarkerNode("qt-s", "opening"),
+              $createMarkerNode("", "selfClosing"),
+            ),
+            $createTextNode(" after"),
+          ),
+        );
+      });
+      updateSelection(editor, precedingText!);
+
+      await pressKey(editor, "ArrowRight");
+
+      // Lexical's own handling, unchanged: it resolves the move onto the milestone anchor and stops
+      // on the paragraph element point before the wrapper — the invisible stop the normalizer
+      // removes in editable-marker mode, left in place here.
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(para!, 2);
+      });
     });
   });
 });
