@@ -37,6 +37,7 @@ import {
   createLexicalUsjNode,
   defaultStyleInfo,
   EMPTY_CHAR_PLACEHOLDER_TEXT,
+  StyleInfo,
   getNextVerse,
   getSelectionStartNode,
   isVerseInRange,
@@ -235,6 +236,8 @@ export function getUsjMarkerAction(
   logger?: LoggerBasic,
   /** Included for tests, e.g. `{ discrete: true }` */
   editorUpdateOptions?: EditorUpdateOptions,
+  /** Project stylesheet; falls back to the bundled one. Decides NEST membership. */
+  styleInfo?: StyleInfo,
 ): UsjMarkerActionWithNoteKey {
   // Note markers are handled directly via $insertNote (no serialization round-trip).
   if (NoteNode.isValidMarker(marker)) {
@@ -285,7 +288,7 @@ export function getUsjMarkerAction(
           $isCharNode(nodeToInsert) &&
           innermostChar &&
           sameNode &&
-          !isNestInPlaceCharNode(nodeToInsert)
+          !isNestInPlaceCharNode(nodeToInsert, styleInfo)
         ) {
           // A non-NEST style applied INSIDE an open char span: PT9 closes the enclosing char
           // styles and reopens the ones with content after the point — it never nests the span.
@@ -322,7 +325,7 @@ export function getUsjMarkerAction(
           // — is already claimed by the `$applyNonNestInsideChar` branch above, whose guard is this
           // one minus this test. Stating it here rather than branching on it inside keeps that
           // division visible at the guard instead of implying a second non-NEST path exists.
-          isNestInPlaceCharNode(nodeToInsert)
+          isNestInPlaceCharNode(nodeToInsert, styleInfo)
         ) {
           // Caret inside a char span — a body span (`\nd Lord`) or a note's content span (the
           // `\ft` of an expanded footnote). The generic `selection.insertNodes` fallback below
@@ -490,9 +493,16 @@ function $collectSiblingsFromCaret(node: TextNode, offset: number): LexicalNode[
  * explicit closer: a span with the implicit-close convention (closed="false", no closing glyph —
  * \xt is the one NEST-able such marker) would swallow the rest of the host span's content on
  * serialization, since without its own closer the marker runs to the parent's.
+ *
+ * NEST membership is read from the PROJECT stylesheet when the host supplies one, falling back to
+ * the bundled `usfm.sty` — the same `styleInfo ?? defaultStyleInfo` resolution the rest of the
+ * editor uses (see `MarkerValidationPlugin` and `Editor`'s marker-menu items). A project sheet
+ * that adds or removes NEST on a marker therefore decides nest-vs-split for it, rather than the
+ * bundled sheet answering for a marker the project has redefined.
  */
-function isNestInPlaceCharNode(charNode: CharNode): boolean {
-  const occursUnder = defaultStyleInfo.markers[charNode.getMarker()]?.occursUnder ?? [];
+function isNestInPlaceCharNode(charNode: CharNode, styleInfo?: StyleInfo): boolean {
+  const effectiveStyleInfo = styleInfo ?? defaultStyleInfo;
+  const occursUnder = effectiveStyleInfo.markers[charNode.getMarker()]?.occursUnder ?? [];
   return occursUnder.includes("NEST") && charNode.getUnknownAttributes()?.closed !== "false";
 }
 

@@ -29,7 +29,7 @@ import { MarkerMenuItem } from "./markerItemSource";
 import { $isAtParagraphContentStart } from "./markerMenuContext.utils";
 import { SerializedVerseRef } from "@sillsdev/scripture";
 import { $getEditor, $getSelection, $isRangeSelection, $isTextNode, LexicalNode } from "lexical";
-import { $isMarkerNode, $isParaNode, LoggerBasic, NoteNode, ParaNode } from "shared";
+import { $isMarkerNode, $isParaNode, LoggerBasic, NoteNode, ParaNode, StyleInfo } from "shared";
 import { UsjNodeOptions, ViewOptions } from "shared-react";
 import { MutableRefObject } from "react";
 
@@ -131,6 +131,8 @@ export interface ApplyMarkerMenuSelectionDeps {
   viewOptions?: ViewOptions;
   nodeOptions?: UsjNodeOptions;
   logger?: LoggerBasic;
+  /** Project stylesheet; decides NEST membership for nest-vs-split. */
+  styleInfo?: StyleInfo;
 }
 
 /**
@@ -207,6 +209,8 @@ export function $applyMarkerMenuSelection(
     deps.viewOptions,
     deps.nodeOptions,
     deps.logger,
+    undefined,
+    deps.styleInfo,
   );
   markerAction.action({ editor: $getEditor(), reference });
   return undefined;

@@ -42,11 +42,13 @@ import {
   $isMarkerNode,
   $isParaNode,
   CharNode,
+  defaultStyleInfo,
   getEditableCallerText,
   MarkerNode,
   NBSP,
   NoteNode,
   ParaNode,
+  StyleInfo,
   textTypeState,
 } from "shared";
 import { CharNodePlugin, TextSpacingPlugin } from "shared-react";
@@ -93,12 +95,24 @@ function $createTrailingSpaceNode(): TextNode {
 
 const reference = { book: "GEN", chapterNum: 1, verseNum: 1 };
 
-function makeDeps(): ApplyMarkerMenuSelectionDeps {
+function makeDeps(styleInfo?: StyleInfo): ApplyMarkerMenuSelectionDeps {
   return {
     expandedNoteKeyRef: { current: undefined },
     viewOptions,
     nodeOptions: {},
     logger: undefined,
+    styleInfo,
+  };
+}
+
+/** The bundled sheet with `occursUnder` overridden for one marker, as a project sheet may do. */
+function styleInfoWithOccursUnder(marker: string, occursUnder: string[]): StyleInfo {
+  return {
+    ...defaultStyleInfo,
+    markers: {
+      ...defaultStyleInfo.markers,
+      [marker]: { ...defaultStyleInfo.markers[marker], occursUnder },
+    },
   };
 }
 
@@ -1138,6 +1152,32 @@ describe("$applyMarkerMenuSelection", () => {
         editor.getEditorState().read(() => {
           const w = ftChar.getChildren().filter($isCharNode)[0];
           expect(w.getTextContent()).toContain("X");
+        });
+      });
+
+      // The nest-vs-split decision must read the PROJECT stylesheet when the host supplies one,
+      // like every other marker decision in the editor. \w is NEST-able in the bundled usfm.sty;
+      // a project sheet that drops NEST from it must make it close-and-reopen instead.
+      it("honors a project stylesheet that removes NEST from \\w — splits instead of nesting", async () => {
+        const { editor, note, ftChar, ftContent } = await setUpExpandedFootnote();
+        await act(async () => editor.update(() => ftContent.select(3, 3)));
+
+        await act(async () =>
+          editor.update(() => {
+            $applyMarkerMenuSelection(
+              wItem,
+              { trigger: "backslash", literalPrefixLanded: false },
+              reference,
+              makeDeps(styleInfoWithOccursUnder("w", [])),
+            );
+          }),
+        );
+
+        editor.getEditorState().read(() => {
+          // Close-and-reopen: the \ft closes before the new span and reopens after it, all at
+          // note level — not the single nested \w the bundled sheet produces.
+          expect(childCharMarkers(note)).toEqual(["ft", "w", "ft"]);
+          expect(childCharMarkers(ftChar)).toEqual([]);
         });
       });
 

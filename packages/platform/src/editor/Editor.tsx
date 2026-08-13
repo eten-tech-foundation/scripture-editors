@@ -566,6 +566,8 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
         viewOptions,
         nodeOptions,
         stableLogger,
+        undefined,
+        styleInfo,
       );
       markerAction.action({ editor: editorRef.current, reference: scrRef });
       // Read the note branch's captured key right after `action(...)` returns - Lexical's
@@ -603,6 +605,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
           viewOptions,
           nodeOptions,
           logger,
+          styleInfo,
         });
       });
       return insertedNoteKey;
@@ -744,6 +747,8 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
                   viewOptions,
                   nodeOptions,
                   stableLogger,
+                  undefined,
+                  styleInfo,
                 )
               }
               editableHarness={editableMarkerMenuHarness}
