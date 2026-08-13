@@ -205,8 +205,25 @@ export class UnknownNode extends ElementNode {
     return false;
   }
 
+  // Narrowed from an unconditional `return destination !== "clone"` to leave "optbreak" out of
+  // the exclusion. @lexical/clipboard's own copy-out machinery (`$appendNodesToJSON` for the
+  // `application/x-lexical-editor` flavor, `$appendNodesToHTML` for `text/html`) both pass the
+  // literal string `'html'` as `destination` for EVERY copy-out format, not only actual HTML
+  // generation — `'clone'` is never passed by any Lexical-shipped code path in the installed
+  // version (confirmed by reading `LexicalClipboard.dev.js`/`LexicalHtml.dev.js`), so the old,
+  // unconditional form excluded every `UnknownNode` from BOTH flavors unconditionally. Excluding a
+  // node does not drop it silently: `$appendNodesToJSON` hoists the excluded node's own children
+  // into its parent's list in its place. For an optbreak, whose only child is the `//`
+  // `ImmutableTypedTextNode` display token (a content-free DecoratorNode with no meaning once
+  // separated from its owning `UnknownNode`), that stranded a loose decorator on the
+  // same-namespace `application/x-lexical-editor` paste fast path — `$parseSerializedNode`
+  // reconstructed the bare decorator, not a recognized optbreak, so the paste silently lost the
+  // discretionary line break (live report: copying an optbreak worked, pasting the same clipboard
+  // back did not restore it). Kept excluded for every OTHER kind (figure, table, sidebar, periph,
+  // ref): those either carry real, independently-legible child content (`ref`) or are block-level
+  // constructs whose copy-out behavior is untouched by this task and not verified here.
   override excludeFromCopy(destination: "clone" | "html"): boolean {
-    return destination !== "clone";
+    return this.getTag() === "optbreak" ? false : destination !== "clone";
   }
 }
 
