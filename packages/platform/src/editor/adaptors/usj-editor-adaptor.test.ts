@@ -520,14 +520,18 @@ describe("USJ Editor Adaptor", () => {
     reset();
     const visibleView: ViewOptions = { ...getDefaultViewOptions(), markerMode: "visible" };
 
-    // Positive control: the same note WITHOUT closed="false" carries the closing glyph.
+    // Positive control: the same note WITHOUT closed="false" carries its closing glyph. Closer
+    // display keys on each span's OWN closed state, and the inner \ft is explicitly closed in the
+    // source USX, so it renders `\ft*` in both shapes — the note's `\f*` is the only glyph that
+    // distinguishes them.
     const closedNote = noteOf(serializeEditorState(noteUsx(""), visibleView));
-    expect(glyphTexts(closedNote.children)).toEqual(["\\f ", "\\ft", "\\f*"]);
+    expect(glyphTexts(closedNote.children)).toEqual(["\\f ", "\\ft", "\\ft*", "\\f*"]);
 
     reset();
     const unclosedNote = noteOf(serializeEditorState(noteUsx(' closed="false"'), visibleView));
-    // Unclosed: the opening glyph keeps its plain-space separator, and no closer is synthesized.
-    expect(glyphTexts(unclosedNote.children)).toEqual(["\\f ", "\\ft"]);
+    // Unclosed: the opening glyph keeps its plain-space separator and no NOTE closer is
+    // synthesized, while the explicitly-closed inner \ft still carries its own.
+    expect(glyphTexts(unclosedNote.children)).toEqual(["\\f ", "\\ft", "\\ft*"]);
     expect(unclosedNote.isCollapsed).toBe(false);
   });
 
@@ -839,10 +843,13 @@ describe("USJ Editor Adaptor", () => {
     const milestone = para.children[milestoneIndex];
     if (!isSerializedMilestoneNode(milestone)) throw new Error("No milestone node found");
     expect(milestone.marker).toBe("ts-s");
-    const [openingGlyph, terminatorGlyph] = para.children.slice(
-      milestoneIndex + 1,
-      milestoneIndex + 3,
-    );
+    // In editable marker modes the milestone's display pieces ride in ONE attribute-run wrapper
+    // that follows the milestone node, rather than as loose siblings — even when the milestone
+    // carries no attributes, as here.
+    const wrapper = para.children[milestoneIndex + 1];
+    if (!isSerializedAttributeRunNode(wrapper)) throw new Error("No milestone wrapper found");
+    expect(wrapper.runKind).toBe("milestone");
+    const [openingGlyph, terminatorGlyph] = wrapper.children;
     if (!isSerializedMarkerNode(openingGlyph)) throw new Error("No milestone opening glyph found");
     expect(openingGlyph.marker).toBe("ts-s");
     expect(openingGlyph.markerSyntax).toBe("opening");
@@ -850,17 +857,17 @@ describe("USJ Editor Adaptor", () => {
     expect(terminatorGlyph.marker).toBe("");
     expect(terminatorGlyph.markerSyntax).toBe("selfClosing");
 
-    // The terminator's editable glyph text is the bare `\*` (derived at import).
+    // The terminator's editable glyph text is the bare `\*` (derived at import). Collected by
+    // descent, since the milestone's glyphs now sit one level down inside the wrapper.
     const { editor } = createBasicTestEnvironment(usjReactNodes);
     editor.parseEditorState(state).read(() => {
       const livePara = $getRoot().getFirstChild();
       if (!$isElementNode(livePara)) throw new Error("No live para node found");
-      expect(
-        livePara
-          .getChildren()
-          .filter($isMarkerNode)
-          .map((glyph) => glyph.getTextContent()),
-      ).toEqual(["\\p", "\\ts-s", "\\*"]);
+      const glyphTextsOf = (node: LexicalNode): string[] => {
+        if ($isMarkerNode(node)) return [node.getTextContent()];
+        return $isElementNode(node) ? node.getChildren().flatMap(glyphTextsOf) : [];
+      };
+      expect(livePara.getChildren().flatMap(glyphTextsOf)).toEqual(["\\p", "\\ts-s", "\\*"]);
     });
   });
 });

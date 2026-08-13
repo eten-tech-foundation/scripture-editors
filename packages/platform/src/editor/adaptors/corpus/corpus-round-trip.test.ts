@@ -9,8 +9,10 @@ import {
   initialize as initializeDeserialize,
 } from "../editor-usj.adaptor";
 import { usxStringToUsj } from "@eten-tech-foundation/scripture-utilities";
-import { SerializedEditorState } from "lexical";
+import { SerializedEditorState, SerializedLexicalNode } from "lexical";
 import {
+  isSerializedAttributeRunNode,
+  isSerializedImmutableTypedTextNode,
   isSerializedMarkerNode,
   isSerializedMilestoneNode,
   isSerializedParaNode,
@@ -99,6 +101,22 @@ describe("corpus forward anchors (standard view)", () => {
     throw new Error("No unknown node found");
   }
 
+  /**
+   * The DATA children of a node — what round-trips back to USJ — with the engine-owned display
+   * decoration stripped: the opening/closing glyphs, attribute runs, and real-USFM token pieces
+   * that editable marker modes render for unknown kinds. Those display shapes are pinned
+   * byte-exactly in usj-editor-adaptor.test.ts; these anchors are about the DATA surviving the
+   * trip, so they read through the decoration rather than restating it.
+   */
+  function dataChildren(children: SerializedLexicalNode[]): SerializedLexicalNode[] {
+    return children.filter(
+      (child) =>
+        !isSerializedMarkerNode(child) &&
+        !isSerializedAttributeRunNode(child) &&
+        !isSerializedImmutableTypedTextNode(child),
+    );
+  }
+
   /** The first body para (marker "p") among root children. */
   function findBodyPara(state: SerializedEditorState): SerializedParaNode {
     const para = state.root.children.find(
@@ -114,14 +132,14 @@ describe("corpus forward anchors (standard view)", () => {
     const table = findUnknownNode(state);
     expect(table.tag).toBe("table");
     expect(table.marker).toBeUndefined();
-    const rows = table.children.map((row) => {
+    const rows = dataChildren(table.children).map((row) => {
       if (!isSerializedUnknownNode(row)) throw new Error("Table row is not an unknown node");
       return {
         tag: row.tag,
         marker: row.marker,
-        cells: row.children.map((cell) => {
+        cells: dataChildren(row.children).map((cell) => {
           if (!isSerializedUnknownNode(cell)) throw new Error("Table cell is not an unknown node");
-          const [text] = cell.children;
+          const [text] = dataChildren(cell.children);
           if (!isSerializedTextNode(text)) throw new Error("Table cell has no text");
           return {
             tag: cell.tag,
@@ -160,8 +178,9 @@ describe("corpus forward anchors (standard view)", () => {
     expect(figure.tag).toBe("figure");
     expect(figure.marker).toBe("fig");
     expect(figure.unknownAttributes).toEqual({ file: "cn01617.jpg", size: "span", ref: "1:31" });
-    expect(figure.children).toHaveLength(1);
-    const [caption] = figure.children;
+    const figureData = dataChildren(figure.children);
+    expect(figureData).toHaveLength(1);
+    const [caption] = figureData;
     if (!isSerializedTextNode(caption)) throw new Error("Figure has no caption text");
     expect(caption.text).toBe("At once they left their nets.");
     expect(caption.mode).toBe("token");
@@ -174,8 +193,9 @@ describe("corpus forward anchors (standard view)", () => {
     expect(sidebar.tag).toBe("sidebar");
     expect(sidebar.marker).toBe("esb");
     expect(sidebar.unknownAttributes).toEqual({ category: "History" });
-    expect(sidebar.children).toHaveLength(1);
-    const [innerPara] = sidebar.children;
+    const sidebarData = dataChildren(sidebar.children);
+    expect(sidebarData).toHaveLength(1);
+    const [innerPara] = sidebarData;
     if (!isSerializedParaNode(innerPara)) throw new Error("Sidebar content is not a para");
     expect(innerPara.marker).toBe("p");
     // The inner para is a REAL paragraph — [glyph, NBSP separator] prefix plus normal-mode
@@ -197,14 +217,19 @@ describe("corpus forward anchors (standard view)", () => {
     const state = serializeFixture("milestones (ts)");
 
     const para = findBodyPara(state);
-    const shapes = para.children.map((node) => {
-      if (isSerializedMilestoneNode(node)) return { kind: "ms", marker: node.marker };
-      if (isSerializedMarkerNode(node))
-        return { kind: "glyph", marker: node.marker, markerSyntax: node.markerSyntax };
-      if (isSomeSerializedVerseNode(node)) return { kind: "verse", number: node.number };
-      if (isSerializedTextNode(node)) return { kind: "text", text: node.text };
-      throw new Error(`Unexpected node type '${node.type}'`);
-    });
+    // Editable marker modes group each milestone's display pieces into ONE attribute-run wrapper
+    // riding after the milestone node; flatten it so this anchor still reads the glyph sequence
+    // in document order.
+    const shapes = para.children
+      .flatMap((node) => (isSerializedAttributeRunNode(node) ? node.children : [node]))
+      .map((node) => {
+        if (isSerializedMilestoneNode(node)) return { kind: "ms", marker: node.marker };
+        if (isSerializedMarkerNode(node))
+          return { kind: "glyph", marker: node.marker, markerSyntax: node.markerSyntax };
+        if (isSomeSerializedVerseNode(node)) return { kind: "verse", number: node.number };
+        if (isSerializedTextNode(node)) return { kind: "text", text: node.text };
+        throw new Error(`Unexpected node type '${node.type}'`);
+      });
     expect(shapes).toEqual([
       { kind: "glyph", marker: "p", markerSyntax: "opening" },
       { kind: "text", text: NBSP },
@@ -228,7 +253,8 @@ describe("corpus forward anchors (standard view)", () => {
     if (!isSerializedUnknownNode(optbreak)) throw new Error("No optbreak unknown node found");
     expect(optbreak.tag).toBe("optbreak");
     expect(optbreak.marker).toBeUndefined();
-    expect(optbreak.children).toEqual([]);
+    // No data content of its own — the `//` it renders in editable modes is display, not data.
+    expect(dataChildren(optbreak.children)).toEqual([]);
     // Position matters: the break must sit BETWEEN the two text halves, not before or after.
     const before = para.children[optbreakIndex - 1];
     if (!isSerializedTextNode(before)) throw new Error("No text before the optbreak");
