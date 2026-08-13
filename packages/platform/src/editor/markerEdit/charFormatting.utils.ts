@@ -42,6 +42,7 @@ export function $splitCharNodeAt(char: CharNode, textNode: TextNode, offset: num
   // and routes it through Tier 2. Closer-ness keys on this state, never on the marker family.
   const isUnclosed = char.getUnknownAttributes()?.closed === "false";
   const right = $createCharNode(marker, isUnclosed ? { closed: "false" } : undefined);
+  const rightOpener = $createMarkerNode(marker, "opening", nested);
   const rightChildren: LexicalNode[] = [];
 
   let splitPoint: LexicalNode | undefined;
@@ -63,11 +64,6 @@ export function $splitCharNodeAt(char: CharNode, textNode: TextNode, offset: num
   const children = char.getChildren();
   const startIndex = splitPoint ? children.findIndex((c) => c.is(splitPoint)) : -1;
   const hasCloser = children.some((c) => $isMarkerNode(c) && c.getMarkerSyntax() === "closing");
-  // Glyphs are markerMode "editable" presentation — a MarkerNode never exists in "hidden" or
-  // "visible" mode. Derive the right half's glyph shape from the LEFT half's actual children
-  // (the same way `hasCloser` does) instead of threading viewOptions in: the reopened span is
-  // always structurally reopened, but it only renders `\marker` when the span it split from does.
-  const hasOpener = children.some((c) => $isMarkerNode(c) && c.getMarkerSyntax() === "opening");
   if (startIndex >= 0) {
     // Everything after the split point moves — nested element spans included. Collecting only
     // text nodes stranded a nested char span in the LEFT half while the text around it moved
@@ -79,15 +75,11 @@ export function $splitCharNodeAt(char: CharNode, textNode: TextNode, offset: num
     }
   }
   if (rightChildren.length > 0) {
-    if (hasOpener) {
-      // structural NBSP separator that sits between the opening glyph and the content it opens
-      const first = rightChildren[0];
-      if ($isTextNode(first) && !first.getTextContent().startsWith(NBSP))
-        first.setTextContent(NBSP + first.getTextContent());
-      right.append($createMarkerNode(marker, "opening", nested), ...rightChildren);
-    } else {
-      right.append(...rightChildren);
-    }
+    // structural NBSP prefix for the right span's first text
+    const first = rightChildren[0];
+    if ($isTextNode(first) && !first.getTextContent().startsWith(NBSP))
+      first.setTextContent(NBSP + first.getTextContent());
+    right.append(rightOpener, ...rightChildren);
     if (hasCloser) right.append($createMarkerNode(marker, "closing", nested));
     char.insertAfter(right);
   }
