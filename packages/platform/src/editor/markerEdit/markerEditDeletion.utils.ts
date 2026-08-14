@@ -7,7 +7,14 @@
 import { $requestTier2ForNode } from "./tier2Rebuild.utils";
 import { MarkerEditContext } from "./markerEditTier1.utils";
 import { $dfs } from "@lexical/utils";
-import { $createTextNode, $getSelection, $isRangeSelection, $isTextNode, $setState } from "lexical";
+import {
+  $createTextNode,
+  $getSelection,
+  $getState,
+  $isRangeSelection,
+  $isTextNode,
+  $setState,
+} from "lexical";
 import {
   $createMarkerNode,
   $createMarkerTrailingSeparator,

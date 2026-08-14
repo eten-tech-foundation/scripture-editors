@@ -6,7 +6,7 @@
  * The whole feature in one map. Three representations:
  *
  * - USFM bytes (host side): `~` means NBSP; ParatextData collapses space runs on reformat.
- * - USJ: a real ` ` for `~`; plain spaces for spaces.
+ * - USJ: a real NBSP (U+00A0) for `~`; plain spaces for spaces.
  * - Standard-view editor DOM: DISPLAY text — a stored NBSP renders as a literal `~` (visible and
  *   editable), and spaces inside a run of 2+ render as NBSP so they stay visible while typing
  *   instead of HTML-collapsing. Runs exist transiently: normalization is an event (serialization,

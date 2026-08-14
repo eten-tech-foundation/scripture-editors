@@ -47,11 +47,17 @@ function noteContent(closed: string | undefined): MarkerContent[] {
   ];
 }
 
-// Expected spans per markerMode. In editable mode a span opens with its MarkerNode glyph and
-// real content carries the structural NBSP prefix; an empty span holds the lone-NBSP placeholder
-// WITHOUT the prefix. Note-content chars are implicitly closed (`\fr`/`\fq`/`\ft` never take a
-// USFM closer), so both twins record closed="false" and emit no closing glyph — on the forward
-// side even when the source USJ omitted the attribute (the derived-flag honesty rule).
+// Expected spans per markerMode when the source USJ records closed="false" (what ParatextData
+// always supplies on a closer-less span). In editable mode a span opens with its MarkerNode glyph
+// and real content carries the structural NBSP prefix; an empty span holds the lone-NBSP
+// placeholder WITHOUT the prefix. Both twins record closed="false" and emit no closing glyph.
+//
+// When the source OMITS the flag the twins deliberately DIVERGE, and that divergence is this
+// suite's subject rather than a drift to fix: closer display keys on the span's recorded state,
+// never on the marker family, so the forward adaptor renders a closer and synthesizes nothing —
+// that is what makes an explicitly-closed `\xt text\xt*` round-trip its `\xt*` byte-identically.
+// The runtime note-content builder still stamps closed="false" because it is choosing the
+// insertion DEFAULT for a content marker, which is a different decision from display.
 const EDITABLE_CHARS: NormalizedCharShape[] = [
   {
     kind: "char",
@@ -136,45 +142,82 @@ const HIDDEN_CHARS: NormalizedCharShape[] = [
   },
 ];
 
+/**
+ * The LOADED-side expectation when the source USJ omits `closed`: the span renders its closing
+ * glyph in the shape that markerMode dictates, and no `closed` flag is synthesized onto it.
+ */
+function withRenderedCloser(
+  shapes: NormalizedCharShape[],
+  markerMode: ViewOptions["markerMode"],
+): NormalizedCharShape[] {
+  return shapes.map((shape) => {
+    if (markerMode === "editable")
+      return {
+        ...shape,
+        closed: undefined,
+        children: [
+          ...shape.children,
+          { kind: "markerGlyph", marker: shape.marker, markerSyntax: "closing", nested: false },
+        ],
+      };
+    if (markerMode === "visible")
+      return {
+        ...shape,
+        closed: undefined,
+        children: [
+          ...shape.children,
+          { kind: "typedText", textType: "marker", text: `\\${shape.marker}*` },
+        ],
+      };
+    // Hidden mode renders no glyphs at all, so only the absent flag distinguishes it.
+    return { ...shape, closed: undefined };
+  });
+}
+
 interface CharTwinCombo {
   name: string;
   markerMode: ViewOptions["markerMode"];
-  /** Explicit `closed="false"` on the source USJ chars, or omitted (forward adaptor derives it). */
+  /** Explicit `closed="false"` on the source USJ chars, or omitted (twins then diverge). */
   explicitClosed: string | undefined;
-  expected: NormalizedCharShape[];
+  expectedLoaded: NormalizedCharShape[];
+  expectedInserted: NormalizedCharShape[];
 }
 
 const combos: CharTwinCombo[] = [
   {
-    name: "editable, closed derived",
+    name: "editable, closed omitted (twins diverge by design)",
     markerMode: "editable",
     explicitClosed: undefined,
-    expected: EDITABLE_CHARS,
+    expectedLoaded: withRenderedCloser(EDITABLE_CHARS, "editable"),
+    expectedInserted: EDITABLE_CHARS,
   },
   {
     name: "editable, closed explicit",
     markerMode: "editable",
     explicitClosed: "false",
-    expected: EDITABLE_CHARS,
+    expectedLoaded: EDITABLE_CHARS,
+    expectedInserted: EDITABLE_CHARS,
   },
   {
-    name: "visible, closed derived",
+    name: "visible, closed omitted (twins diverge by design)",
     markerMode: "visible",
     explicitClosed: undefined,
-    expected: VISIBLE_CHARS,
+    expectedLoaded: withRenderedCloser(VISIBLE_CHARS, "visible"),
+    expectedInserted: VISIBLE_CHARS,
   },
   {
-    name: "hidden, closed derived",
+    name: "hidden, closed omitted (twins diverge by design)",
     markerMode: "hidden",
     explicitClosed: undefined,
-    expected: HIDDEN_CHARS,
+    expectedLoaded: withRenderedCloser(HIDDEN_CHARS, "hidden"),
+    expectedInserted: HIDDEN_CHARS,
   },
 ];
 
 describe("char shape twins: createChar (forward adaptor) vs the note-content char builder", () => {
   it.each(combos)(
     "$name: both paths build the same char spans",
-    ({ markerMode, explicitClosed, expected }) => {
+    ({ markerMode, explicitClosed, expectedLoaded, expectedInserted }) => {
       const viewOptions: ViewOptions = {
         markerMode,
         noteMode: "collapsed",
@@ -193,8 +236,8 @@ describe("char shape twins: createChar (forward adaptor) vs the note-content cha
         .map(normalizeSerializedChar);
 
       // Pin the span shapes themselves first, so both twins drifting together still fails loudly.
-      expect(loadedChars).toEqual(expected);
-      expect(insertedChars).toEqual(expected);
+      expect(loadedChars).toEqual(expectedLoaded);
+      expect(insertedChars).toEqual(expectedInserted);
     },
   );
 });

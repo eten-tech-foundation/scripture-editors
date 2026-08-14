@@ -15,7 +15,6 @@ import { MarkerContent, USJ_TYPE, USJ_VERSION } from "@eten-tech-foundation/scri
 import {
   $getNodeByKey,
   $getSelection,
-  $getState,
   $isElementNode,
   $isLineBreakNode,
   $isRangeSelection,
@@ -47,7 +46,6 @@ import {
   NBSP,
   NoteNode,
   ParaNode,
-  textTypeState,
   usfmFragmentToUsjContent,
   VerseNode,
 } from "shared";

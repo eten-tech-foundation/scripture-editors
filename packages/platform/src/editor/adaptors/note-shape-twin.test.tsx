@@ -20,7 +20,7 @@ import {
   serializeLoadedNote,
   usjDocWithNote,
 } from "./twin-pin.test-helpers";
-import { MarkerContent } from "@eten-tech-foundation/scripture-utilities";
+import { MarkerContent, MarkerObject } from "@eten-tech-foundation/scripture-utilities";
 import { NBSP } from "shared";
 import { MarkerMode, NoteMode, ViewOptions } from "shared-react";
 
@@ -28,10 +28,22 @@ import { MarkerMode, NoteMode, ViewOptions } from "shared-react";
  * The logical note both twins build: `\f +` with an `\fr` reference and an empty `\ft` — exactly
  * what `$insertNote("f", "+", …, GEN 1:5)` produces at a collapsed selection.
  */
-const NOTE_CONTENT: MarkerContent[] = [
-  { type: "char", marker: "fr", content: ["1:5 "] },
-  { type: "char", marker: "ft" },
-];
+/**
+ * A note-content char carrying the `closed="false"` ParatextData records on every genuinely
+ * closer-less span. `MarkerObject` does not declare `closed`, so it is set through a widened local
+ * (the same shape `usfmFragmentToUsj.ts` uses) rather than a type assertion.
+ */
+function closedFalseChar(marker: string, content?: string): MarkerObject {
+  const char: MarkerObject & { closed?: string } = { type: "char", marker, closed: "false" };
+  if (content !== undefined) char.content = [content];
+  return char;
+}
+
+// The content chars carry closed="false" because that is the shape real project data delivers. It
+// also keeps this test on its own subject — note LAYOUT across the mode matrix — rather than the
+// separate question of what the forward adaptor does when the source USJ OMITS the flag, which
+// char-shape-twin pins.
+const NOTE_CONTENT: MarkerContent[] = [closedFalseChar("fr", "1:5 "), closedFalseChar("ft")];
 
 // Building blocks for the expected shapes. Glyph texts are hard-coded display forms (not the
 // helpers the implementations call) so a drift in those contracts fails this test.
