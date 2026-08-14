@@ -589,10 +589,10 @@ describe("$applyMarkerMenuSelection", () => {
 
   describe("open kind — note insertion returns the created note's key", () => {
     it("returns the inserted NoteNode's Lexical key so hosts can track the editing session", async () => {
-      // The popover flow needs the TRUE key of a palette-created note: the delta-doc-derived key
-      // (getInsertedNodeKey) double-counts editable VerseNodes and lands past the note, making
-      // the popover's replaceEmbedUpdate silently no-op. insertMarker already returns the true
-      // key; applyMarkerMenuSelection must too, so hosts reuse the same key correction.
+      // The popover flow needs the TRUE key of a palette-created note: re-deriving it from
+      // delta-doc coordinates (getInsertedNodeKey) can resolve the wrong node, making the
+      // popover's replaceEmbedUpdate silently no-op. insertMarker already returns the true key;
+      // applyMarkerMenuSelection must too, so hosts never have to re-derive one.
       let text: TextNode;
       const { editor } = await fullHarnessEnvironment(() => {
         const para = $createParaNode("p");

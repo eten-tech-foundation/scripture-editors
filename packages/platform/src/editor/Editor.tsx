@@ -572,9 +572,9 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
       markerAction.action({ editor: editorRef.current, reference: scrRef });
       // Read the note branch's captured key right after `action(...)` returns - Lexical's
       // `editor.update()` callback runs synchronously, so this is already populated. Gives the
-      // host the note's TRUE key directly, bypassing the "delta-doc" OT coordinate derivation
-      // (`getInsertedNodeKey`, used by `handleChange`'s `onUsjChange` below) that double-counts
-      // editable VerseNodes and can point past the note when one precedes it.
+      // host the note's TRUE key directly instead of re-deriving it from "delta-doc" OT
+      // coordinates (`getInsertedNodeKey`, used by `handleChange`'s `onUsjChange` below): the key
+      // is known exactly here, so it cannot drift with the coordinate systems.
       return markerAction.getInsertedNoteKey?.();
     },
     getMarkerMenuContext() {

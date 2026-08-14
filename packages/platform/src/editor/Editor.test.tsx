@@ -1428,9 +1428,10 @@ describe("isFocused()", () => {
 });
 
 describe("insertMarker return value", () => {
-  // GEN 1:1 with a verse preceding the seed text - the exact shape that makes the host's
+  // GEN 1:1 with a verse preceding the seed text - the shape that historically made the host's
   // "delta-doc" `getInsertedNodeKey` derivation (used only for the popover auto-open path, not
-  // here) double-count the editable VerseNode and land past the note.
+  // here) land past the note. `insertMarker` reports the key directly, so it never depended on
+  // that derivation being right.
   const noteReference = { book: "GEN", chapterNum: 1, verseNum: 1 };
 
   /** Finds the first TextNode whose content includes `substring`. `getAllTextNodes()` is the

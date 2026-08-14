@@ -189,9 +189,9 @@ export function $applyMarkerMenuSelection(
 
   // Note markers insert directly (we are already inside `editor.update()`, so the action
   // wrapper's nested update would be QUEUED and its inserted-note key unavailable). The returned
-  // TRUE Lexical key feeds the host's popover editing session: the delta-doc-derived key
-  // (getInsertedNodeKey) double-counts editable VerseNodes and lands past the note, making
-  // replaceEmbedUpdate silently no-op — the same reason EditorRef.insertMarker returns it.
+  // TRUE Lexical key feeds the host's popover editing session directly, rather than having the
+  // host re-derive it from delta-doc coordinates (getInsertedNodeKey) — a wrong key there makes
+  // replaceEmbedUpdate silently no-op. Same reason EditorRef.insertMarker returns it.
   if (NoteNode.isValidMarker(item.marker)) {
     return $insertNoteForMarker(
       item.marker,
