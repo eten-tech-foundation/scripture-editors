@@ -596,6 +596,13 @@ function $getNodeOTContribution(node: LexicalNode, coordinates: OTCoordinateSyst
       coordinates === "delta-doc" &&
       ($isOwnParaPrefixGlyph(node) ||
         $getState(node, textTypeState) === "marker-trailing-space" ||
+        // An attribute value keyed by its own state, not by ancestry: a CHAR span's run is a direct
+        // TextNode child of the span, never wrapped (`displayRunRegistry.ts`'s char descriptor
+        // writes "owner-children"), so `$hasAttributeRunAncestor` cannot see it. That shape is at
+        // rest on every `\w …|strong="…"\w*`, and the ops stream already omits those bytes
+        // (`isNodeAttributeText` in editor-delta.adaptor.ts), so counting them here would put this
+        // side out of step with the op stream on ordinary Scripture.
+        $getState(node, textTypeState) === "attribute" ||
         $hasAttributeRunAncestor(node))
     )
       return 0;

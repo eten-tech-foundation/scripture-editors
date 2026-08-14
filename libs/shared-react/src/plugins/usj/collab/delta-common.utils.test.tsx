@@ -1454,6 +1454,74 @@ describe("apply coordinates (AttributeRunNode wrapper pieces)", () => {
 });
 
 /**
+ * A char span's attribute run is NOT wrapped — the display-run registry declares it "a direct
+ * TextNode child, never wrapped and never a glyph" (`displayRunRegistry.ts`'s char descriptor,
+ * `byteFormat.writer: "owner-children"`). So `$hasAttributeRunAncestor` cannot see it, and the
+ * delta-doc arm must recognize it by its `textType` state instead — exactly as the ops stream
+ * already does (`editor-delta.adaptor.ts`'s `isNodeAttributeText`).
+ *
+ * This is the shape real editable-mode documents carry at rest for any `\w …|strong="…"\w*`, so a
+ * delta-doc count that includes those bytes disagrees with the op stream on ordinary Scripture and
+ * mis-resolves `getInsertedNodeKey`'s reverse lookup for anything after the span.
+ */
+describe("delta-doc coordinates (a char span's own unwrapped attribute run)", () => {
+  let attributeNode: LexicalNode | undefined;
+
+  /**
+   * Editable-mode document shape:
+   *
+   * ```
+   * root
+   * └─ ParaNode "p"
+   *    ├─ CharNode "w"
+   *    │   ├─ MarkerNode "\w" (opening)                  (glyph)
+   *    │   ├─ TextNode NBSP+"grace"                       (content)
+   *    │   ├─ TextNode NBSP+|strong="G5485" (attribute)   (display; ops exclude it)
+   *    │   └─ MarkerNode "\w*" (closing)                  (glyph)
+   *    └─ TextNode " tail"
+   * ```
+   */
+  function $buildCharAttributeDoc() {
+    const attribute = $createTextNode(`${NBSP}|strong="G5485"`);
+    $setState(attribute, textTypeState, "attribute");
+    attributeNode = attribute;
+    const char = $createCharNode("w").append(
+      $createMarkerNode("w", "opening"),
+      $createTextNode(`${NBSP}grace`),
+      attribute,
+      $createMarkerNode("w", "closing"),
+    );
+    $getRoot().append($createParaNode("p").append(char, $createTextNode(" tail")));
+  }
+
+  it("excludes a char span's attribute run from delta-doc counting but not apply", async () => {
+    const { editor } = await testEnvironment($buildCharAttributeDoc);
+    if (!attributeNode) throw new Error("attributeNode not initialized");
+    const attribute = attributeNode;
+
+    const { apply, deltaDoc, attributeLength } = editor.getEditorState().read(() => {
+      const para = $getRoot().getFirstChild();
+      if (!$isParaNode(para)) throw new Error("para not found");
+      const tail = para.getLastChild();
+      if (!tail) throw new Error("tail text not found");
+      return {
+        apply: $getOTPositionOfNode(tail, "apply"),
+        deltaDoc: $getOTPositionOfNode(tail),
+        attributeLength: attribute.getTextContentSize(),
+      };
+    });
+
+    if (apply === undefined || deltaDoc === undefined)
+      throw new Error("tail position not resolved");
+
+    // "apply" keeps counting the raw text, matching what `$applyUpdate`'s traversals actually walk.
+    expect(apply).toBeGreaterThan(attributeLength);
+    // delta-doc drops exactly those bytes — the same ones the ops stream omits.
+    expect(deltaDoc).toBe(apply - attributeLength);
+  });
+});
+
+/**
  * An editable `VerseNode` (a TextNode subclass whose `__text` IS the "\v 1 " glyph) counts as ONE
  * opaque OT unit — the same 1 unit as the doc delta's verse embed op and as `$applyUpdate`'s
  * traversals — NOT its glyph-text length. So the two coordinate systems coincide across a verse,
