@@ -235,6 +235,28 @@ Extend these; never weaken them.
 
 ---
 
+## 5a. Approval gate: C# serialization
+
+**Do not change C# serialization code without discussing it with the repo owner first.** This is a
+human approval gate, not a technical constraint, and it binds every track.
+
+Several tracks legitimately investigate the USJ-to-USFM and USX-to-USFM paths, and at least one open
+question — where the `\cat*` space is actually lost — may well land on the C# side. That is expected.
+What is not permitted is fixing it unilaterally.
+
+If you find a defect in the USJ/USFM conversion paths that lives in C#:
+
+1. Stop before editing.
+2. Bring the owner the PROBLEM and your PROPOSED SOLUTION together — what the defect is, how you
+   established it, and what you would change.
+3. Wait for a decision.
+
+Capture tests that RECORD ParatextData's behavior are encouraged and are not covered by this gate —
+pinning what the C# side does today is how these questions get settled. The gate is on changing the
+serialization behavior itself.
+
+---
+
 ## 6. The fixed-point test
 
 Invariant V's enforcement arm, and the safety net every other track relies on. It belongs to the

@@ -91,6 +91,12 @@ Each track gets its own chat. Every prompt should open with this preamble:
 > (`env -u _VOLTA_TOOL_RECURSION` prefixes pnpm/nx). Comments stand on their own — no plan-task or
 > ticket breadcrumbs. Commit messages end with the repo's `Co-Authored-By` convention.
 >
+> **Approval gate — C# serialization.** Do not change C# serialization code without discussing it
+> with the repo owner first. If you find a defect in the USJ/USFM or USX/USFM conversion paths that
+> lives in C#, stop before editing and bring the owner the problem and your proposed solution
+> together, then wait for a decision. Capture tests that RECORD ParatextData's behavior are
+> encouraged and are not covered by this gate — the gate is on changing serialization behavior.
+>
 > Do not implement before presenting your reading of the plan and getting sign-off. If the plan is
 > wrong about the code, say so and stop — several of its claims were already corrected once.
 >
