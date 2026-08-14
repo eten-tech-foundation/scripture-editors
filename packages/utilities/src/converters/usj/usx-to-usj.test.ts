@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import {
   usjGen1v1,
   usjGen1v1ImpliedPara,
@@ -50,5 +51,18 @@ describe("USX to USJ Converter", () => {
   it("should convert from USX to USJ with nonstandard features", () => {
     const usj = usxStringToUsj(usxGen1v1Nonstandard);
     expect(usj).toEqual(usjGen1v1Nonstandard);
+  });
+
+  it("should throw on malformed USX", () => {
+    expect(() => usxStringToUsj('<usx version="3.1"><para style="p">unclosed</usx>')).toThrow();
+  });
+
+  it("should throw a helpful error when DOMParser is not available", () => {
+    vi.stubGlobal("DOMParser", undefined);
+    expect(() => usxStringToUsj(usxGen1v1)).toThrow(/DOM environment/);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 });

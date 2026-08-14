@@ -23,6 +23,19 @@ For data that conforms to [USX/USJ v3.1](https://docs.usfm.bible/usfm/3.1/):
 npm install @eten-tech-foundation/scripture-utilities
 ```
 
+### Environment
+
+The USX⇔USJ converters use the platform's native `DOMParser` and `XMLSerializer`, available in
+browsers, web views, and test environments like jsdom. In Node.js, provide them as globals before
+converting, e.g.:
+
+```ts
+import { DOMParser, XMLSerializer } from "@xmldom/xmldom";
+
+globalThis.DOMParser = DOMParser;
+globalThis.XMLSerializer = XMLSerializer;
+```
+
 ## Usage
 
 ```ts

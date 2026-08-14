@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import {
   usjGen1v1,
   usjGen1v1ImpliedPara,
@@ -78,5 +79,19 @@ describe("USJ to USX Converter", () => {
     const usx = usjToUsxString(usjEph1v1Whitespace);
     const usj = usxStringToUsj(usx);
     expect(usj).toEqual(usjEph1v1Whitespace);
+  });
+
+  it("should throw a helpful error when DOMParser is not available", () => {
+    vi.stubGlobal("DOMParser", undefined);
+    expect(() => usjToUsxString(EMPTY_USJ)).toThrow(/DOM environment/);
+  });
+
+  it("should throw a helpful error when XMLSerializer is not available", () => {
+    vi.stubGlobal("XMLSerializer", undefined);
+    expect(() => usjToUsxString(EMPTY_USJ)).toThrow(/DOM environment/);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 });
