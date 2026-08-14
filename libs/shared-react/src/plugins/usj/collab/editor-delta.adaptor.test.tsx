@@ -1249,17 +1249,23 @@ describe("getEditorDelta", () => {
       expect(delta.ops).toEqual(opsGen1v1ImpliedPara);
     });
 
-    // Skipped pending a decision on the canonical delta shape for unknown items — two independent
-    // gaps, not a single missing normalization:
-    //   1. Attribute/id noise: the adaptor round-trips a chapter `sid` ("GEN 1"), a note `eid`,
-    //      and `attr-unknown`/`category`/`closed` on notes and chars that the fixture omits.
-    //   2. Shape divergence (the larger one): `opsWithUnknownItems` collapses every unknown item
-    //      (z/wat, optbreak, ref, sidebar, periph, figure, cell) into one flat text insert, while
-    //      the adaptor now emits a structured `unknown` insert per item (tag, attributes, nested
-    //      contents). Regenerating the fixture to the structured shape would just assert whatever
-    //      the code emits, so it needs the collab wire-contract owner to confirm structured
-    //      unknown-node ops are the intended canonical form (or normalize the adaptor to the flat
-    //      shape) before un-skipping — do not blindly regenerate.
+    // Skipped: TABLES HAVE NO OT REPRESENTATION. `opsWithUnknownItems` is stale in ways that are
+    // now settled (see below), but it cannot be refreshed yet because the emitted ops LOSE the
+    // table: since table/table:row/table:cell became real ImmutableTable* nodes, nothing in
+    // `getEditorDelta` matches them (it dispatches on book/para/char/note/milestone/unknown/… and
+    // `rich-text-ot.model` defines embeds for immutable-chapter and immutable-verse but none for
+    // tables), so the whole table flattens to its descendant text — this fixture's `tc1` cell,
+    // carrying marker and `category`, arrives on the wire as a bare `{ insert: "cell1" }`.
+    // Refreshing the fixture now would pin that loss as expected, so the adaptor (and the OT
+    // model) need a table representation first.
+    //
+    // Settled, and NOT reasons to keep skipping:
+    //   - Structured per-item `unknown` inserts ARE the canonical shape — six hand-written tests
+    //     in this file assert them directly, so the fixture's one flat text run is simply old.
+    //   - Carrying `sid`/`eid`/`attr-unknown`/`category`/`closed` is intended: `getEditorDelta`
+    //     has emitted chapter/verse/milestone `sid` (and milestone `eid`) since before this work,
+    //     several `ops*` fixtures assert it, and this state's note `eid` is an UNKNOWN ATTRIBUTE
+    //     the fixture plants on purpose — unknown-attribute passthrough is what it exists to test.
     it.skip("should roundtrip the editor state with unknown items", async () => {
       const { editor } = await testEnvironment();
       const editorState = editor.parseEditorState(editorStateWithUnknownItems);
