@@ -21,13 +21,25 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
-    }
+    },
+    "./styles.css": "./dist/styles.css",
+    "./comments.css": "./dist/index.css",
+    "./toolbar.css": "./dist/toolbar.css",
+    "./context-menu.css": "./dist/context-menu.css"
   },
   "files": [
     "dist",
     "src",
     "!src/**/*.test.ts",
-    "!src/**/*.test.tsx"
+    "!src/**/*.test.tsx",
+    "!src/context-menu.ts",
+    "!src/context-menu.css",
+    "!src/toolbar.ts",
+    "!src/toolbar.css",
+    "!src/styles.ts",
+    "!src/styles.css",
+    "styles.css",
+    "assets/images/icons/LICENSE.md"
   ],
   "scripts": {
     "generate:test-data": "cross-env GENERATE_TEST_DATA=1 pnpm vitest run generate-2sa-lexical-states",

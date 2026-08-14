@@ -1,0 +1,6 @@
+/*
+ * Stable path for resolvers that don't honour the "exports" map (webpack 4,
+ * older Metro/Jest). Bundlers that do honour it get dist/styles.css directly
+ * through the "./styles.css" subpath.
+ */
+@import "./dist/styles.css";
