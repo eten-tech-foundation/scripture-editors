@@ -39,6 +39,7 @@ import {
   $isMarkerNode,
   $isParaLikeNode,
   $isTypedMarkNode,
+  $isVerseBlockNode,
   $isVisibleMarkerNode,
   $shouldIgnoreNodeForContentIndexes,
   ImmutableTypedTextNode,
@@ -67,6 +68,11 @@ import {
 export function $getRangeFromUsjSelection(
   selection: SelectionRange | AnnotationRange,
 ): RangeSelection | undefined {
+  if ($hasVerseBlocks()) {
+    warnUsjLocationsUnavailable();
+    return undefined;
+  }
+
   const { start } = selection;
   let { end } = selection;
   end ??= start;
@@ -97,6 +103,11 @@ export function $getRangeFromUsjSelection(
  *   or `undefined` if there is no valid range selection.
  */
 export function $getUsjSelectionFromEditor(): SelectionRange | undefined {
+  if ($hasVerseBlocks()) {
+    warnUsjLocationsUnavailable();
+    return undefined;
+  }
+
   const editorSelection = $getSelection();
   if (!editorSelection || !$isRangeSelection(editorSelection)) return;
 
@@ -507,4 +518,41 @@ function $getJsonPathIndexes(node: LexicalNode): number[] {
     current = parent;
   }
   return jsonPathIndexes;
+}
+
+/**
+ * Whether the document uses the block verse layout.
+ *
+ * USJ locations are indexes into the source USJ's content. That layout regroups verses into blocks,
+ * splitting any paragraph that spans verses into one fragment per verse, so the editor's content
+ * indexes no longer line up with the USJ's - and no amount of treating the block itself as
+ * transparent fixes the renumbering underneath. Locations are therefore unavailable there, rather
+ * than confidently wrong.
+ */
+function $hasVerseBlocks(): boolean {
+  // Both callers run on every selection change, so this walks siblings and exits at the first
+  // block rather than calling `getChildren()`, which would build an array of every root child.
+  //
+  // The layout is known from `ViewOptions.verseLayout`, and an editor registers `VerseBlockNode`
+  // only for that layout, so `editor.hasNodes([VerseBlockNode])` looks like a cheaper answer. It
+  // is not available here: `$getEditor()` needs an active *editor*, and these functions are
+  // called from `editorState.read()` as well, which establishes only an active editor state.
+  // Reading the layout instead would mean threading `ViewOptions` through every caller.
+  for (let child = $getRoot().getFirstChild(); child; child = child.getNextSibling()) {
+    if ($isVerseBlockNode(child)) return true;
+  }
+  return false;
+}
+
+let hasWarnedUsjLocationsUnavailable = false;
+
+/** Warns once per session; the callers run on every selection change. */
+function warnUsjLocationsUnavailable() {
+  if (hasWarnedUsjLocationsUnavailable) return;
+  hasWarnedUsjLocationsUnavailable = true;
+  // eslint-disable-next-line no-console -- these are `$` functions with no logger threaded in.
+  console.warn(
+    "USJ selection locations are unavailable in the block verse layout: its paragraphs are split " +
+      "across verse blocks, so editor content indexes do not match the source USJ.",
+  );
 }

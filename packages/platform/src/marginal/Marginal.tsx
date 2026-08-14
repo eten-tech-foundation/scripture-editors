@@ -6,6 +6,7 @@ import useCommentStoreRef from "./comments/use-comment-store-ref.hook";
 import useMissingCommentsProps from "./comments/use-missing-comments-props.hook";
 import { Usj } from "@eten-tech-foundation/scripture-utilities";
 import { LexicalCollaboration } from "@lexical/react/LexicalCollaborationContext";
+import { isBlockVerseLayout } from "shared-react";
 import {
   ForwardedRef,
   forwardRef,
@@ -94,7 +95,10 @@ const Marginal = forwardRef(function Marginal<TLogger extends LoggerBasic>(
   const [toolbarEndRef, setToolbarEndRef] = useState<RefObject<HTMLElement | null> | null>(null);
   const { children, onCommentChange, onUsjChange, showCommentsContainerRef, ...editorProps } =
     props as PropsWithChildren<MarginalProps<TLogger>>;
-  const { logger, options: { isReadonly } = {} } = props;
+  const { logger, options: { isReadonly, view } = {} } = props;
+  // Matches what `Editor` enforces: the block verse layout is read-only whether or not the host
+  // said so, and comment authoring on a read-only view would anchor nothing.
+  const isReadonlyView = (isReadonly ?? false) || isBlockVerseLayout(view);
   const [commentStoreRef, setCommentStoreRef] = useCommentStoreRef();
   useMissingCommentsProps(editorProps, commentStoreRef);
 
@@ -246,7 +250,9 @@ const Marginal = forwardRef(function Marginal<TLogger extends LoggerBasic>(
         <CommentPlugin
           setCommentStore={setCommentStoreRef}
           onChange={handleCommentChange}
-          showCommentsContainerRef={isReadonly ? null : (showCommentsContainerRef ?? toolbarEndRef)}
+          showCommentsContainerRef={
+            isReadonlyView ? null : (showCommentsContainerRef ?? toolbarEndRef)
+          }
           commentContainerRef={commentContainerRef}
           logger={editorProps.logger}
         />

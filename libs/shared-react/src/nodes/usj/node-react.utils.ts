@@ -43,6 +43,7 @@ import {
   $isNoteNode,
   $isParaNode,
   $isSomeChapterNode,
+  $isVerseBlockNode,
   $isVerseNode,
   $moveSelectionToEnd,
   closingMarkerText,
@@ -102,6 +103,9 @@ export function $isSomeVerseNode(node: LexicalNode | null | undefined): node is 
   return $isVerseNode(node) || $isImmutableVerseNode(node);
 }
 
+/** Serialized form of {@link SomeVerseNode}. */
+export type SomeSerializedVerseNode = SerializedVerseNode | SerializedImmutableVerseNode;
+
 /**
  * Checks if the given node is a SerializedVerseNode or SerializedImmutableVerseNode.
  * @param node - The serialized node to check.
@@ -109,7 +113,7 @@ export function $isSomeVerseNode(node: LexicalNode | null | undefined): node is 
  */
 export function isSomeSerializedVerseNode(
   node: SerializedLexicalNode | null | undefined,
-): node is SerializedVerseNode | SerializedImmutableVerseNode {
+): node is SomeSerializedVerseNode {
   return isSerializedVerseNode(node) || isSerializedImmutableVerseNode(node);
 }
 
@@ -346,7 +350,34 @@ function $addSpaceNodes(
  * @returns the first paragraph node.
  */
 export function $getFirstPara(nodes: LexicalNode[]) {
-  return nodes.find((node) => $isParaNode(node));
+  return $expandVerseBlocks(nodes).find((node) => $isParaNode(node));
+}
+
+/**
+ * The given nodes with any `VerseBlockNode` replaced by its own paragraphs.
+ *
+ * In the block verse layout a verse sits two levels below the root - `VerseBlockNode > ParaNode >
+ * verse` - so anything searching for verses or paragraphs has to see through the block. Returns
+ * the input unchanged when there are no verse blocks, leaving the inline layouts untouched.
+ */
+function $expandVerseBlocks(nodes: LexicalNode[]): LexicalNode[] {
+  if (!nodes.some($isVerseBlockNode)) return nodes;
+
+  return nodes.flatMap((node) => ($isVerseBlockNode(node) ? node.getChildren() : node));
+}
+
+/**
+ * The nodes among which a verse marker would sit, for a container that might hold one.
+ *
+ * For a paragraph that is its own children. For a verse block it is the children of each of its
+ * paragraphs, in document order, since the block holds paragraphs and the markers live inside
+ * those. Callers can then treat both the same way.
+ */
+function $getVerseSiblings(node: LexicalNode | null | undefined): LexicalNode[] {
+  if (!$isElementNode(node)) return [];
+  if ($isVerseBlockNode(node)) return node.getChildren().flatMap($getVerseSiblings);
+
+  return node.getChildren();
 }
 
 /**
@@ -355,12 +386,10 @@ export function $getFirstPara(nodes: LexicalNode[]) {
  * @param verseNum - Verse number to look for.
  * @returns the verse node if found, `undefined` otherwise.
  */
-export function $findVerseInNode(node: LexicalNode, verseNum: number) {
-  if (!$isElementNode(node)) return;
-
-  const children = node.getChildren();
+export function $findVerseInNode(node: LexicalNode, verseNum: number): SomeVerseNode | undefined {
+  const children = $getVerseSiblings(node);
   const verseNode = children.find(
-    (node) => $isSomeVerseNode(node) && isVerseInRange(verseNum, node.getNumber()),
+    (child) => $isSomeVerseNode(child) && isVerseInRange(verseNum, child.getNumber()),
   );
   return verseNode as SomeVerseNode | undefined;
 }
@@ -385,10 +414,8 @@ export function $findVerseOrPara(nodes: LexicalNode[], verseNum: number) {
  * @param node - Node with potential verses in children.
  * @returns the verse node if found, `undefined` otherwise.
  */
-export function $findNextVerseInNode(node: LexicalNode) {
-  if (!$isElementNode(node)) return;
-  const children = node.getChildren();
-  const verseNode = children.find((node) => $isSomeVerseNode(node));
+export function $findNextVerseInNode(node: LexicalNode): SomeVerseNode | undefined {
+  const verseNode = $getVerseSiblings(node).find((child) => $isSomeVerseNode(child));
   return verseNode as SomeVerseNode | undefined;
 }
 
@@ -456,11 +483,12 @@ export function $findNextVerseAfter(verseNode: SomeVerseNode): SomeVerseNode | u
  * @param node - Node with potential verses in children.
  * @returns the verse node if found, `undefined` otherwise.
  */
-export function $findLastVerseInNode(node: LexicalNode | null | undefined) {
-  if (!node || !$isElementNode(node)) return;
-
-  const children = node.getChildren();
-  return children.findLast((n): n is SomeVerseNode => $isSomeVerseNode(n));
+export function $findLastVerseInNode(
+  node: LexicalNode | null | undefined,
+): SomeVerseNode | undefined {
+  return $getVerseSiblings(node).findLast((child): child is SomeVerseNode =>
+    $isSomeVerseNode(child),
+  );
 }
 
 /**
@@ -660,14 +688,14 @@ export function $selectNextVerse(selection: RangeSelection): boolean {
       }
     }
     if (!nextVerse && parent) {
-      let nextPara = parent.getNextSibling();
+      let nextPara = $getNextSearchSibling(parent);
       while (nextPara && !$isSomeChapterNode(nextPara)) {
         const verse = $findNextVerseInNode(nextPara);
         if (verse) {
           nextVerse = verse;
           break;
         }
-        nextPara = nextPara.getNextSibling();
+        nextPara = $getNextSearchSibling(nextPara);
       }
     }
   } else {
@@ -710,21 +738,25 @@ export function $selectPreviousVerse(selection: RangeSelection): boolean {
     // $resolveVerseNode found the verse via backward traversal across paragraphs.
     // That verse is behind the caret — it should be the ArrowUp target directly.
     const topLevel = anchorNode.getTopLevelElement();
-    if (parent && topLevel && topLevel !== parent) {
+    // Compare the caret's block against the verse's own block. Everywhere but the block verse
+    // layout a paragraph is its own top-level element - including inside a table, whose cells are
+    // shadow roots - so this is the same test as comparing against the paragraph. In block verse
+    // the paragraph's top-level element is its verse block, which is what makes it correct there.
+    if (parent && topLevel && topLevel !== parent.getTopLevelElement()) {
       prevVerse = currentVerse;
     }
     if (!prevVerse && parent && $isElementNode(parent)) {
       prevVerse = $findPreviousVerseInSiblings(parent, currentVerse.getIndexWithinParent());
     }
     if (!prevVerse && parent) {
-      let prevPara = parent.getPreviousSibling();
+      let prevPara = $getPreviousSearchSibling(parent);
       while (prevPara && !$isSomeChapterNode(prevPara)) {
         const verse = $findLastVerseInNode(prevPara);
         if (verse) {
           prevVerse = verse;
           break;
         }
-        prevPara = prevPara.getPreviousSibling();
+        prevPara = $getPreviousSearchSibling(prevPara);
       }
     }
   } else {
@@ -743,6 +775,30 @@ export function $selectPreviousVerse(selection: RangeSelection): boolean {
   if (!prevVerse) return false;
   prevVerse.selectNext(0, 0);
   return true;
+}
+
+/**
+ * The next node to search when walking forward looking for a verse.
+ *
+ * Normally the node's next sibling. In the block verse layout a paragraph's siblings run out at
+ * the end of its verse block, so the walk continues from the block's own next sibling rather than
+ * stopping inside it. Behaves exactly like `getNextSibling` for a top-level node.
+ */
+function $getNextSearchSibling(node: LexicalNode): LexicalNode | null {
+  const nextSibling = node.getNextSibling();
+  if (nextSibling) return nextSibling;
+
+  const topLevel = node.getTopLevelElement();
+  return topLevel && topLevel !== node ? topLevel.getNextSibling() : null;
+}
+
+/** Mirror of {@link $getNextSearchSibling} for a backward walk. */
+function $getPreviousSearchSibling(node: LexicalNode): LexicalNode | null {
+  const previousSibling = node.getPreviousSibling();
+  if (previousSibling) return previousSibling;
+
+  const topLevel = node.getTopLevelElement();
+  return topLevel && topLevel !== node ? topLevel.getPreviousSibling() : null;
 }
 
 /**

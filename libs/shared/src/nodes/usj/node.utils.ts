@@ -833,6 +833,29 @@ export function isVerseRange(verseRange: string | undefined): boolean {
   return !!verseRange && verseRange.includes("-");
 }
 
+/**
+ * Parses a (possibly combined/partial) verse marker into its numeric bounds.
+ *
+ * Unlike {@link isVerseInRange}, this never throws: a marker that isn't numeric yields `NaN` bounds
+ * for the caller to reject. Verse numbers come from imported USFM and are not guaranteed to be
+ * well-formed.
+ *
+ * @param verseRange - The verse marker, e.g. `"5"`, `"14-15"`, `"3a"`.
+ * @returns the first and last verse numbers the marker covers.
+ * @example
+ *   "5" - `{ start: 5, end: 5 }`
+ *   "14-15" - `{ start: 14, end: 15 }`
+ *   "1-3a" - `{ start: 1, end: 3 }`
+ *   "3a" - `{ start: 3, end: 3 }`
+ *   "abc" - `{ start: NaN, end: NaN }`
+ */
+export function parseVerseRange(verseRange: string): { start: number; end: number } {
+  const parts = verseRange.split("-");
+  const start = parseInt(parts[0], 10);
+  const end = parts.length > 1 ? parseInt(parts[parts.length - 1], 10) : start;
+  return { start, end };
+}
+
 function getSelectionStartNodeInner(selection: BaseSelection | null): LexicalNode | undefined {
   if (!selection) return undefined;
 

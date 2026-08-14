@@ -37,11 +37,13 @@ export { default as Editorial } from "./Editorial";
 export { default as Marginal } from "./marginal/Marginal";
 export { GENERATOR_NOTE_CALLER, HIDDEN_NOTE_CALLER } from "shared";
 export {
+  BLOCK_VERSE_VIEW_MODE,
   directionToNames,
   getDefaultViewMode,
   getDefaultViewOptions,
   getViewMode,
   getViewOptions,
+  isBlockVerseLayout,
   isInsertEmbedOpOfType,
   PARAGRAPH_STRUCTURE_VIEW_MODE,
   viewModeToViewNames,
@@ -85,6 +87,7 @@ export type {
   TextDirection,
   UsjLocation,
   UsjNodeOptions,
+  VerseLayout,
   ViewMode,
   ViewOptions,
 } from "shared-react";
