@@ -35,17 +35,99 @@ import {
 
 const nodes = [ParaNode, VerseNode, ImmutableVerseNode, MarkerNode, ImmutableTypedTextNode];
 
-function runGuard(editor: ReturnType<typeof createBasicTestEnvironment>["editor"]): boolean {
+function runGuard(
+  editor: ReturnType<typeof createBasicTestEnvironment>["editor"],
+  markersAreInline = false,
+): boolean {
   let corrected = false;
   editor.update(
     () => {
       const selection = $getSelection();
-      if ($isRangeSelection(selection)) corrected = $guardCursorAtParaStart(selection);
+      if ($isRangeSelection(selection))
+        corrected = $guardCursorAtParaStart(selection, markersAreInline);
     },
     { discrete: true },
   );
   return corrected;
 }
+
+describe("marker rendering decides whether the prefix is caret territory", () => {
+  // Standard view renders a paragraph's marker INLINE as editable text, so it is content the user
+  // clicks into deliberately — to edit the marker. Correcting a click there (or anywhere else in
+  // the paragraph) fights the user: clicking must land where it was aimed, and arrow keys must be
+  // able to reach the same positions a click can.
+  describe("inline markers (markerMode editable, e.g. Standard view)", () => {
+    it("leaves an element-0 click alone instead of advancing past the marker prefix", () => {
+      let para!: ParaNode;
+      let content!: TextNode;
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        para = $createParaNode("q1");
+        content = $createTextNode("Blessed is the man");
+        $getRoot().append(
+          para.append($createMarkerNode("q1"), $createTextNode(NBSP), content),
+        );
+      });
+
+      updateSelection(editor, para, 0);
+
+      expect(runGuard(editor, true)).toBe(false);
+
+      editor.getEditorState().read(() => {
+        const selection = $getSelection();
+        if (!$isRangeSelection(selection)) throw new Error("no range selection");
+        // Lexical resolves an element point at offset 0 onto the first child, so the caret sits in
+        // the marker glyph — where the click aimed. What must NOT happen is the guard hauling it
+        // past the prefix to the content, which is the correction the gutter views need.
+        expect(selection.anchor.key).not.toBe(content.getKey());
+      });
+    });
+
+    it("leaves a click INSIDE the inline marker glyph alone — it is editable text", () => {
+      let glyph!: MarkerNode;
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        glyph = $createMarkerNode("q1");
+        const para = $createParaNode("q1");
+        $getRoot().append(
+          para.append(glyph, $createTextNode(NBSP), $createTextNode("Blessed is the man")),
+        );
+      });
+
+      updateSelection(editor, glyph, 2);
+
+      expect(runGuard(editor, true)).toBe(false);
+
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(glyph, 2);
+      });
+    });
+  });
+
+  // Simple's gutter view renders the marker OUTSIDE the text flow, as a decorator. Nothing there is
+  // editable, so no caret position inside it is reachable by arrow keys — a click that lands there
+  // must be pulled to the nearest real content position, or the caret sits somewhere the keyboard
+  // can never return to.
+  describe("gutter markers (markerMode hidden with a visible marker node)", () => {
+    it("moves a click that landed on the gutter marker to the content text", () => {
+      let para!: ParaNode;
+      let content!: TextNode;
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        const gutterMarker = $createImmutableTypedTextNode("marker", "\\q1 ");
+        content = $createTextNode("Blessed is the man");
+        para = $createParaNode("q1");
+        $getRoot().append(para.append(gutterMarker, content));
+      });
+
+      // A click on a decorator resolves to the element point just before it.
+      updateSelection(editor, para, 0);
+
+      expect(runGuard(editor, false)).toBe(true);
+
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(content, 0);
+      });
+    });
+  });
+});
 
 describe("$guardCursorAtParaStart", () => {
   describe("hidden mode: ImmutableVerseNode as first child (Simple view)", () => {
@@ -290,7 +372,7 @@ describe("ParaMarkerPrefixCursorGuardPlugin (CLICK_COMMAND integration)", () => 
       CLICK_COMMAND,
       () => {
         const selection = $getSelection();
-        if ($isRangeSelection(selection)) $guardCursorAtParaStart(selection);
+        if ($isRangeSelection(selection)) $guardCursorAtParaStart(selection, false);
         return false;
       },
       COMMAND_PRIORITY_EDITOR,
@@ -326,7 +408,7 @@ describe("ParaMarkerPrefixCursorGuardPlugin (CLICK_COMMAND integration)", () => 
       CLICK_COMMAND,
       () => {
         const selection = $getSelection();
-        if ($isRangeSelection(selection)) $guardCursorAtParaStart(selection);
+        if ($isRangeSelection(selection)) $guardCursorAtParaStart(selection, false);
         return false;
       },
       COMMAND_PRIORITY_EDITOR,

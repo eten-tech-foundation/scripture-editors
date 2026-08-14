@@ -10,6 +10,7 @@ import {
   RangeSelection,
 } from "lexical";
 import { useEffect } from "react";
+import { ViewOptions } from "../../views/view-options.utils";
 import {
   $isMarkerNode,
   $isSomeParaNode,
@@ -29,20 +30,28 @@ import { $isImmutableVerseNode, $isSomeVerseNode } from "../../nodes/usj";
  * correction is committed in a single cycle — other listeners (e.g. `OnSelectionChangePlugin`)
  * see only the corrected cursor, never the intermediate prefix position.
  */
-export function ParaMarkerPrefixCursorGuardPlugin(): null {
+export function ParaMarkerPrefixCursorGuardPlugin({
+  viewOptions,
+}: {
+  viewOptions?: ViewOptions;
+}): null {
   const [editor] = useLexicalComposerContext();
+  // Whether a paragraph's marker renders INLINE, as editable text in the flow, rather than in the
+  // gutter. That single fact decides whether the prefix is caret territory at all, so it has to
+  // reach the guard — see `$guardCursorAtParaStart`.
+  const markersAreInline = viewOptions?.markerMode === "editable";
 
   useEffect(() => {
     return editor.registerCommand(
       CLICK_COMMAND,
       () => {
         const selection = $getSelection();
-        if ($isRangeSelection(selection)) $guardCursorAtParaStart(selection);
+        if ($isRangeSelection(selection)) $guardCursorAtParaStart(selection, markersAreInline);
         return false;
       },
       COMMAND_PRIORITY_EDITOR,
     );
-  }, [editor]);
+  }, [editor, markersAreInline]);
 
   return null;
 }
@@ -107,8 +116,17 @@ export function $advancePastParaPrefixes(para: SomeParaNode): boolean {
  * Exported only for direct unit testing; production callers reach it through
  * `ParaMarkerPrefixCursorGuardPlugin`.
  */
-export function $guardCursorAtParaStart(selection: RangeSelection): boolean {
+export function $guardCursorAtParaStart(
+  selection: RangeSelection,
+  markersAreInline: boolean,
+): boolean {
   if (!selection.isCollapsed()) return false;
+  // Inline markers (markerMode "editable", e.g. Standard view) are ordinary editable content: the
+  // user clicks into them ON PURPOSE to edit the marker, and the arrow normalizer traverses them a
+  // grapheme at a time. Correcting a click there would both fight that intent and make a position
+  // the keyboard can reach unreachable by mouse. Only a marker rendered OUTSIDE the flow — the
+  // gutter — is territory no caret should rest in.
+  if (markersAreInline) return false;
   const { anchor } = selection;
 
   // Case 1: element anchor at offset 0 in a ParaNode whose first child blocks content insertion.
@@ -120,7 +138,9 @@ export function $guardCursorAtParaStart(selection: RangeSelection): boolean {
     return $advancePastParaPrefixes(para);
   }
 
-  // Case 2: text anchor inside a MarkerNode that is the first child of a ParaNode.
+  // Case 2: a text anchor inside the marker itself. Only reachable for the inline flavor, which
+  // returns above — kept because a `MarkerNode` can still be the anchor when a mode change leaves
+  // one in the tree while this guard is already scoped to non-inline rendering.
   if (anchor.type === "text") {
     const anchorNode = $getNodeByKey(anchor.key);
     if (!$isMarkerNode(anchorNode)) return false;
