@@ -8,6 +8,7 @@ import { getDefaultViewOptions, ViewOptions } from "../../../views/view-options.
 import { CharNodePlugin } from "../CharNodePlugin";
 import { baseTestEnvironment } from "../react-test.utils";
 import { $applyUpdate } from "./delta-apply-update.utils";
+import { getEditorDelta } from "./editor-delta.adaptor";
 import {
   $getNodeFromOTPosition,
   $getOTPositionOfNode,
@@ -1518,6 +1519,71 @@ describe("delta-doc coordinates (a char span's own unwrapped attribute run)", ()
     expect(apply).toBeGreaterThan(attributeLength);
     // delta-doc drops exactly those bytes — the same ones the ops stream omits.
     expect(deltaDoc).toBe(apply - attributeLength);
+  });
+});
+
+/**
+ * The acceptance property behind the host's retired `correctEditingNoteKeyAfterInsert`: after a
+ * note is inserted, the host reads the new note's key by reverse-mapping the retain out of the OP
+ * STREAM (`getInsertedNodeKey` over `onUsjChange` ops) and opens its popover on that key. If the
+ * delta-doc lookup counts bytes the ops stream omitted, that retain resolves to a node BEFORE the
+ * note and the popover's Save silently no-ops on a key that is not a note.
+ *
+ * The retain here is therefore derived from `getEditorDelta`, never from `$getOTPositionOfNode`:
+ * taking it from the position helper would make both sides of the round trip use the same
+ * counting and could not detect the two sides disagreeing, which IS the bug.
+ */
+describe("inserted-note key resolution across a preceding char attribute run", () => {
+  let noteNode: NoteNode | undefined;
+
+  function $buildCharAttributeNoteDoc() {
+    const attribute = $createTextNode(`${NBSP}|strong="G5485"`);
+    $setState(attribute, textTypeState, "attribute");
+    const note = $createNoteNode("f", GENERATOR_NOTE_CALLER);
+    noteNode = note;
+    $getRoot().append(
+      $createParaNode("p").append(
+        $createCharNode("w").append(
+          $createMarkerNode("w", "opening"),
+          $createTextNode(`${NBSP}grace`),
+          attribute,
+          $createMarkerNode("w", "closing"),
+        ),
+        note.append(
+          $createImmutableNoteCallerNode(GENERATOR_NOTE_CALLER, "note text"),
+          $createCharNode("ft").append($createTextNode("note text")),
+        ),
+        $createTextNode(" tail"),
+      ),
+    );
+  }
+
+  it("resolves the note the ops stream points at, not a node shifted by the attribute bytes", async () => {
+    const { editor } = await testEnvironment($buildCharAttributeNoteDoc);
+    if (!noteNode) throw new Error("noteNode not initialized");
+    const note = noteNode;
+    const editorState = editor.getEditorState();
+
+    // Walk the real op stream to the note embed; its running length is the retain a genuine
+    // insert produces.
+    const { ops: deltaOps } = getEditorDelta(editorState);
+    let retain = 0;
+    for (const op of deltaOps) {
+      const { insert } = op;
+      if (insert && typeof insert === "object" && "note" in insert) break;
+      retain += typeof insert === "string" ? insert.length : 1;
+    }
+
+    const insertOps: DeltaOp[] = [
+      { retain },
+      {
+        insert: {
+          note: { style: "f", caller: GENERATOR_NOTE_CALLER, contents: { ops: [] } },
+        },
+      },
+    ];
+
+    expect(getInsertedNodeKey(insertOps, editorState)).toBe(note.getKey());
   });
 });
 
