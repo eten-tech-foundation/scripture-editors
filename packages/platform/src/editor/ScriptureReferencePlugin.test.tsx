@@ -31,10 +31,14 @@ import {
 import { useEffect, useState } from "react";
 import {
   $createBookNode,
+  $createCharNode,
   $createImmutableChapterNode,
+  $createMilestoneNode,
+  $createNoteNode,
   $createParaNode,
   $isBookNode,
   getSelectionStartNode,
+  ParaNode,
 } from "shared";
 import { $createImmutableVerseNode, usjReactNodes } from "shared-react";
 
@@ -81,6 +85,10 @@ let secondVerseTextNode: TextNode;
 let thirdVerseTextNode: TextNode;
 let chapter1Verse2Text: TextNode;
 let chapter2Verse2Text: TextNode;
+let noteVerseTextNode: TextNode;
+let milestoneVerseTextNode: TextNode;
+let charVerseFirstTextNode: TextNode;
+let emptyVersePara: ParaNode;
 
 beforeAll(() => {
   // jsdom's Range lacks getBoundingClientRect; Lexical's post-commit scroll-into-view calls it
@@ -300,6 +308,85 @@ describe("ScriptureReferencePlugin", () => {
 
       editor.getEditorState().read(() => {
         $expectSelectionToBe(thirdVerseTextNode, 2);
+      });
+      expect(mockOnScrRefChange).not.toHaveBeenCalled();
+    });
+
+    // A verse's content does not always begin with text. When it begins with a node that renders
+    // no caret of its own — a collapsed note (its glyphs are hidden; only the caller shows) or a
+    // decorator such as a milestone — parking the caret at "offset 0 of whatever follows the
+    // marker" leaves the browser drawing NOTHING: the same dead position PT-4308's
+    // `EmptyVerseCaretGuardPlugin` exists to repair for empty verses. Live repro (Standard view,
+    // demos/platform): navigate to a verse whose marker is followed by a collapsed note and the
+    // caret vanishes (`Range.getClientRects()` returns 0) until one arrow press moves it onto the
+    // verse text. Verse navigation must land on a position the caret can actually be seen at.
+    it("places the caret on the verse text when a collapsed note follows the marker", async () => {
+      const { editor, setScrRef } = await testEnvironment(
+        scrRef,
+        mockOnScrRefChange,
+        $verseContentStartingWithNonTextState,
+      );
+      updateSelection(editor, firstVerseTextNode, 2);
+
+      await setScrRef({ ...scrRef, verseNum: 2 });
+
+      editor.getEditorState().read(() => {
+        // NOT inside the note (whose glyph text is hidden while collapsed).
+        $expectSelectionToBe(noteVerseTextNode, 0);
+      });
+      expect(mockOnScrRefChange).not.toHaveBeenCalled();
+    });
+
+    it("places the caret on the verse text when a milestone decorator follows the marker", async () => {
+      const { editor, setScrRef } = await testEnvironment(
+        scrRef,
+        mockOnScrRefChange,
+        $verseContentStartingWithNonTextState,
+      );
+      updateSelection(editor, firstVerseTextNode, 2);
+
+      await setScrRef({ ...scrRef, verseNum: 3 });
+
+      editor.getEditorState().read(() => {
+        // NOT the element point beside the decorator, which renders no caret.
+        $expectSelectionToBe(milestoneVerseTextNode, 0);
+      });
+      expect(mockOnScrRefChange).not.toHaveBeenCalled();
+    });
+
+    it("places the caret inside a char span that opens the verse (its glyph hosts the caret)", async () => {
+      const { editor, setScrRef } = await testEnvironment(
+        scrRef,
+        mockOnScrRefChange,
+        $verseContentStartingWithNonTextState,
+      );
+      updateSelection(editor, firstVerseTextNode, 2);
+
+      await setScrRef({ ...scrRef, verseNum: 4 });
+
+      editor.getEditorState().read(() => {
+        // A char span is the verse's own content, so the caret goes to its first text — which in
+        // editable-marker mode is the visible `\nd` glyph — rather than skipping the span.
+        $expectSelectionToBe(charVerseFirstTextNode, 0);
+      });
+      expect(mockOnScrRefChange).not.toHaveBeenCalled();
+    });
+
+    it("leaves an element point for an empty verse, where the empty-verse caret guard repairs it", async () => {
+      const { editor, setScrRef } = await testEnvironment(
+        scrRef,
+        mockOnScrRefChange,
+        $verseContentStartingWithNonTextState,
+      );
+      updateSelection(editor, firstVerseTextNode, 2);
+
+      await setScrRef({ ...scrRef, verseNum: 5 });
+
+      editor.getEditorState().read(() => {
+        // Nothing follows the marker, so no node can host the caret; the boundary element point is
+        // exactly the state `EmptyVerseCaretGuardPlugin` detects and repairs with a caret host.
+        // The caret must NOT run on into the next verse looking for text.
+        $expectSelectionToBe(emptyVersePara, 1);
       });
       expect(mockOnScrRefChange).not.toHaveBeenCalled();
     });
@@ -1020,6 +1107,44 @@ function $defaultInitialEditorState() {
     $createParaNode().append($createImmutableVerseNode("1"), firstVerseTextNode),
     $createParaNode().append($createImmutableVerseNode("2"), secondVerseTextNode),
     $createParaNode().append($createImmutableVerseNode("3-4"), thirdVerseTextNode),
+  );
+}
+
+/**
+ * A GEN chapter whose verses open with something other than text: a collapsed note (verse 2), a
+ * milestone decorator (verse 3), a char span (verse 4), and nothing at all (verse 5, an empty verse
+ * whose para continues with verse 6). Verse-start placement has to answer each of those.
+ */
+function $verseContentStartingWithNonTextState() {
+  firstVerseTextNode = $createTextNode("first verse text ");
+  noteVerseTextNode = $createTextNode("note verse text ");
+  milestoneVerseTextNode = $createTextNode("milestone verse text ");
+  charVerseFirstTextNode = $createTextNode("char verse text ");
+  emptyVersePara = $createParaNode().append(
+    $createImmutableVerseNode("5"),
+    $createImmutableVerseNode("6"),
+    $createTextNode("sixth verse text "),
+  );
+
+  $getRoot().append(
+    $createBookNode("GEN").append($createTextNode("Test Book")),
+    $createImmutableChapterNode("1"),
+    $createParaNode().append($createImmutableVerseNode("1"), firstVerseTextNode),
+    $createParaNode().append(
+      $createImmutableVerseNode("2"),
+      $createNoteNode("f", "+", true).append($createTextNode("note body ")),
+      noteVerseTextNode,
+    ),
+    $createParaNode().append(
+      $createImmutableVerseNode("3"),
+      $createMilestoneNode("ts-s"),
+      milestoneVerseTextNode,
+    ),
+    $createParaNode().append(
+      $createImmutableVerseNode("4"),
+      $createCharNode("nd").append(charVerseFirstTextNode),
+    ),
+    emptyVersePara,
   );
 }
 

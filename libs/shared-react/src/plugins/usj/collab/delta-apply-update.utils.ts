@@ -85,6 +85,7 @@ import {
   LoggerBasic,
   NBSP,
   NoteNode,
+  $createGutterMarkerNode,
   openingMarkerText,
   ParaNode,
   segmentState,
@@ -1759,7 +1760,15 @@ function $createPara(paraAttributes: OTParaAttribute, viewOptions: ViewOptions) 
     separator.setMode("token");
     para.append($createMarkerNode(style), separator);
   } else if (viewOptions.markerMode === "visible" || viewOptions.hasGutterParaMarkers) {
-    para.append($createImmutableTypedTextNode("marker", openingMarkerText(style) + NBSP));
+    // A gutter glyph is a non-selectable aid, so it must carry the flag the caret guard keys on —
+    // a paragraph arriving from a peer has to be as unclickable as one the load adaptor built.
+    // markerMode "visible" renders the same node kind INLINE, where the flag must stay off.
+    const glyph = openingMarkerText(style) + NBSP;
+    para.append(
+      viewOptions.hasGutterParaMarkers
+        ? $createGutterMarkerNode(glyph)
+        : $createImmutableTypedTextNode("marker", glyph),
+    );
   }
   return para;
 }

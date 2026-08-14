@@ -54,6 +54,7 @@ import {
   $isParaNode,
   CharNode,
   closingMarkerText,
+  gutterMarkerState,
   HIDDEN_NOTE_CALLER,
   ImmutableTypedTextNode,
   ImpliedParaNode,
@@ -97,6 +98,17 @@ import {
   ViewOptions,
 } from "shared-react";
 import { MockInstance } from "vitest";
+
+/** Whether a serialized glyph carries the gutter-marker flag ({@link gutterMarkerState}). */
+function isGutterMarker(node: SerializedLexicalNode): boolean {
+  const stateObject: unknown = node[NODE_STATE_KEY];
+  return (
+    !!stateObject &&
+    typeof stateObject === "object" &&
+    gutterMarkerState.key in stateObject &&
+    stateObject[gutterMarkerState.key] === true
+  );
+}
 
 describe("USJ Editor Adaptor", () => {
   let consoleWarnSpy: MockInstance;
@@ -180,6 +192,9 @@ describe("USJ Editor Adaptor", () => {
     if (!isSerializedImmutableTypedTextNode(pFirst)) throw new Error("No para marker found");
     expect(pFirst.textType).toBe("marker");
     expect(pFirst.text).toBe(`${openingMarkerText("p")}${NBSP}`);
+    // This glyph renders INLINE among the words, so it is not flagged as a gutter marker: the flag
+    // is what makes a marker unclickable, and it belongs only to the glyphs in the gutter.
+    expect(isGutterMarker(pFirst)).toBe(false);
 
     // Verse is immutable with showMarker flag
     const verse2 = pPara.children.find(
@@ -250,6 +265,7 @@ describe("USJ Editor Adaptor", () => {
     if (!isSerializedImmutableTypedTextNode(bookMarker)) throw new Error("No book marker found");
     expect(bookMarker.textType).toBe("marker");
     expect(bookMarker.text).toBe(`${openingMarkerText("id")}${NBSP}`);
+    expect(isGutterMarker(bookMarker)).toBe(true);
 
     // Para 'p' begins with a typed-text marker (rendered for the gutter to consume)
     const pPara = serializedEditorState.root.children[VERSE_PARA_INDEX];
@@ -258,6 +274,10 @@ describe("USJ Editor Adaptor", () => {
     if (!isSerializedImmutableTypedTextNode(pFirst)) throw new Error("No para marker found");
     expect(pFirst.textType).toBe("marker");
     expect(pFirst.text).toBe(`${openingMarkerText("p")}${NBSP}`);
+    // Flagged as a gutter marker, which is what keeps the caret out of it
+    // (ParaMarkerPrefixCursorGuardPlugin, shared-react) — the node cannot be told apart from an
+    // inline glyph any other way.
+    expect(isGutterMarker(pFirst)).toBe(true);
 
     // Verse is immutable and does NOT show its inline marker (markerMode is "hidden")
     const verse2 = pPara.children.find(

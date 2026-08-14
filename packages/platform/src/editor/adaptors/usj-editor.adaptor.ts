@@ -45,6 +45,7 @@ import {
   getPreviewTextFromSerializedNodes,
   getUnknownAttributes,
   getVisibleOpenMarkerText,
+  gutterMarkerState,
   IMMUTABLE_CHAPTER_VERSION,
   IMMUTABLE_TYPED_TEXT_VERSION,
   IMMUTABLE_UNMATCHED_VERSION,
@@ -277,7 +278,7 @@ function createBook(markerObject: MarkerObject): SerializedBookNode {
   } else if (_viewOptions?.hasGutterParaMarkers) {
     // Gutter mode hides inline markers, but the paragraph-structure view still wants the \id
     // tag visible in the gutter alongside the other paragraph-level markers (\h, \s1, \p, ...).
-    children.push(createImmutableTypedText("marker", openingMarkerText(marker) + NBSP));
+    children.push(createImmutableTypedText("marker", openingMarkerText(marker) + NBSP, true));
   }
   const text = getTextContent(markerObject.content);
   // Display-encode like any other text content: the reverse adaptor inverts display whitespace
@@ -457,7 +458,15 @@ function createPara(
     // Keep in sync with `$createMarkerPrefix` (markerEditDeletion.utils.ts).
     children.push(createMarker(marker), createText(NBSP, "marker-trailing-space", "token"));
   else if (_viewOptions?.markerMode === "visible" || _viewOptions?.hasGutterParaMarkers)
-    children.push(createImmutableTypedText("marker", openingMarkerText(marker) + NBSP));
+    // The gutter flag rides on the glyph, so whether this paragraph's marker is an aid in the
+    // gutter or inline text stays legible from the node alone, wherever it is read later.
+    children.push(
+      createImmutableTypedText(
+        "marker",
+        openingMarkerText(marker) + NBSP,
+        _viewOptions?.hasGutterParaMarkers,
+      ),
+    );
   children.push(...childNodes);
   if (isStandardView()) {
     // Paragraph-leading spaces display as NBSP so they stay visible and typable at the start of
@@ -536,7 +545,13 @@ function createTableCell(
   if (_viewOptions?.markerMode === "editable")
     children.push(createMarker(cellMarker), createText(NBSP, "marker-trailing-space"));
   else if (_viewOptions?.markerMode === "visible" || _viewOptions?.hasGutterParaMarkers)
-    children.push(createImmutableTypedText("marker", openingMarkerText(cellMarker) + NBSP));
+    children.push(
+      createImmutableTypedText(
+        "marker",
+        openingMarkerText(cellMarker) + NBSP,
+        _viewOptions?.hasGutterParaMarkers,
+      ),
+    );
   children.push(...childNodes);
   const unknownAttributes = getUnknownAttributes<ImmutableTableCellMarker>(
     markerObject,
@@ -773,16 +788,27 @@ function createText(
   return serializedTextNode;
 }
 
+/**
+ * A read-only glyph run.
+ *
+ * `isGutterMarker` marks a marker glyph the view renders in the GUTTER rather than inline among the
+ * words — the fact that makes it unclickable ({@link gutterMarkerState}, shared). It is a property
+ * of the glyph, not of the mode: the same node class renders both flavors, and a document can carry
+ * both at once. This is the serialized twin of `$createGutterMarkerNode`.
+ */
 function createImmutableTypedText(
   textType: string,
   text: string,
+  isGutterMarker = false,
 ): SerializedImmutableTypedTextNode {
-  return {
+  const serializedNode: SerializedImmutableTypedTextNode = {
     type: ImmutableTypedTextNode.getType(),
     text,
     textType,
     version: IMMUTABLE_TYPED_TEXT_VERSION,
   };
+  if (isGutterMarker) serializedNode[NODE_STATE_KEY] = { [gutterMarkerState.key]: true };
+  return serializedNode;
 }
 
 /** An `attribute-run` wrapper ({@link AttributeRunNode}) holding `children` — the ONE sibling a

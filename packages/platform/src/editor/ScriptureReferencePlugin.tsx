@@ -94,18 +94,23 @@ import { SerializedVerseRef } from "@sillsdev/scripture";
 import {
   $getRoot,
   $getSelection,
+  $isElementNode,
   $isTextNode,
   COMMAND_PRIORITY_LOW,
   EditorState,
+  ElementNode,
   LexicalEditor,
   SELECTION_CHANGE_COMMAND,
+  TextNode,
 } from "lexical";
 import { useEffect, useRef } from "react";
 import {
+  $caretHostAtBoundary,
   $findChapter,
   $findNextChapter,
   $findThisChapter,
   $isBookNode,
+  $isNoteNode,
   $isParaNode,
   $isSomeChapterNode,
   $placeCaretAtBoundary,
@@ -123,8 +128,10 @@ import {
   $findThisVerse,
   $findVerseOrPara,
   $getEffectiveVerseForBcv,
+  $isSomeVerseNode,
   $resolveVerseNode,
   ImmutableVerseNode,
+  SomeVerseNode,
 } from "shared-react";
 
 /** "idle": selection changes are the user's. "navigating": an external scrRef change (or a book
@@ -464,7 +471,56 @@ function $moveCaretToVerseStart(chapterNum: number, verseNum: number) {
     const skippedPrefix =
       !$isTextNode(verseOrParaNode.getFirstChild()) && $advancePastParaPrefixes(verseOrParaNode);
     if (!skippedPrefix) $placeCaretAtBoundary(verseOrParaNode, 0);
-  } else verseOrParaNode.selectNext(0, 0);
+  } else $placeCaretAtVerseContentStart(verseOrParaNode);
+}
+
+/**
+ * Parks the caret at the start of `verse`'s content: the first position past its marker that the
+ * browser will actually draw a caret at.
+ *
+ * `selectNext(0, 0)` — what this used to do — names the position after the marker without asking
+ * whether anything renders there, and both ways it can miss are real documents:
+ *
+ * - a verse whose content opens with a NOTE. Lexical normalizes the resulting element point into
+ *   the first text it can find, which is the note's own `\f` glyph — hidden text while the note is
+ *   collapsed, so the caret disappears into it.
+ * - a verse whose content opens with a DECORATOR (a milestone, an unknown block). Nothing there can
+ *   carry a text point, so the position stays a bare element point, which draws no caret either —
+ *   the same dead-position class PT-4308 documents for empty verses.
+ *
+ * Both look identical to the user: verse navigation leaves no visible caret, and the first arrow
+ * press appears to conjure one out of nowhere (it moves the caret onto rendered text). So walk
+ * forward to the first boundary that has a caret host, treating a note as an annotation hanging off
+ * the verse rather than the start of its text, and descending into anything else that is content
+ * (a `\nd` char span opening a verse hosts the caret in its own glyph). Stop at the next verse
+ * marker: a verse with no content of its own must not borrow the following verse's text — the
+ * element point left behind is exactly the state `EmptyVerseCaretGuardPlugin` detects and repairs
+ * with a caret host of its own.
+ */
+function $placeCaretAtVerseContentStart(verse: SomeVerseNode) {
+  const para = verse.getParent();
+  if (!para) return;
+  const contentStart = verse.getIndexWithinParent() + 1;
+  const host = $findVerseContentCaretHost(para, contentStart);
+  if (host) host.select(0, 0);
+  else $placeCaretAtBoundary(para, contentStart);
+}
+
+/** The caret host at or after the boundary before `parent`'s child at `index`, without leaving the
+ * verse that boundary belongs to (i.e. stopping at the next verse marker). */
+function $findVerseContentCaretHost(parent: ElementNode, index: number): TextNode | undefined {
+  for (let childIndex = index; childIndex < parent.getChildrenSize(); childIndex += 1) {
+    const child = parent.getChildAtIndex(childIndex);
+    // An editable verse marker is itself a TextNode, so this has to come before the host check.
+    if ($isSomeVerseNode(child)) return undefined;
+    const host = $caretHostAtBoundary(parent, childIndex);
+    if (host) return host;
+    if ($isElementNode(child) && !$isNoteNode(child)) {
+      const nestedHost = $findVerseContentCaretHost(child, 0);
+      if (nestedHost) return nestedHost;
+    }
+  }
+  return undefined;
 }
 
 /** `book|chapter` identity of a state's document, for detecting same-document reloads. */

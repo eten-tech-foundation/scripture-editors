@@ -1,5 +1,8 @@
 import {
   $applyNodeReplacement,
+  $getState,
+  $setState,
+  createState,
   DecoratorNode,
   DOMConversionMap,
   DOMConversionOutput,
@@ -22,6 +25,29 @@ export type SerializedImmutableTypedTextNode = Spread<
 >;
 
 export const IMMUTABLE_TYPED_TEXT_VERSION = 1;
+
+/** The `textType` every USFM marker glyph carries, whichever way the view renders it. */
+const MARKER_TEXT_TYPE = "marker";
+
+/**
+ * Marks a marker glyph as one the view renders in the GUTTER — the fixed column beside the text
+ * (`hasGutterParaMarkers`) — rather than inline among the words.
+ *
+ * The distinction cannot be read off the node's class or its `textType`: the gutter aid and
+ * markerMode "visible"'s INLINE glyph are both an `ImmutableTypedTextNode` with
+ * `textType: "marker"`. Nor can it be read off the view, because "is this marker in the gutter?" is
+ * asked one node at a time — a document can carry gutter markers and inline glyphs at once (a
+ * book's `\id` line, for one). So the fact travels on the node that has it, set where the glyph is
+ * built, and it is what makes gutter markers unclickable in
+ * `ParaMarkerPrefixCursorGuardPlugin` (shared-react) while inline glyphs keep their caret.
+ *
+ * Set on the SERIALIZED twin by the USJ→editor adaptor's `createImmutableTypedText`
+ * (usj-editor.adaptor.ts, platform), which builds JSON rather than live nodes — the same split the
+ * `textType` state already has.
+ */
+export const gutterMarkerState = createState("isGutterMarker", {
+  parse: (value) => value === true,
+});
 
 export class ImmutableTypedTextNode extends DecoratorNode<null> {
   __textType: string;
@@ -156,6 +182,10 @@ export class ImmutableTypedTextNode extends DecoratorNode<null> {
 
   override exportJSON(): SerializedImmutableTypedTextNode {
     return {
+      // Spread first so this node's own properties win: super contributes the NodeState (e.g.
+      // `gutterMarkerState`), which `updateFromJSON` reads back, so a glyph that round-trips
+      // through JSON stays the same KIND of glyph.
+      ...super.exportJSON(),
       type: this.getType(),
       textType: this.getTextType(),
       text: this.getTextContent(),
@@ -182,6 +212,29 @@ export function $createImmutableTypedTextNode(
   text?: string,
 ): ImmutableTypedTextNode {
   return $applyNodeReplacement(new ImmutableTypedTextNode(textType, text));
+}
+
+/**
+ * Creates a marker glyph that renders in the gutter — see {@link gutterMarkerState}.
+ *
+ * @param text - The glyph's bytes, e.g. `\q1` plus its separator.
+ * @returns the marker node, flagged as gutter-rendered.
+ */
+export function $createGutterMarkerNode(text: string): ImmutableTypedTextNode {
+  return $setState($createImmutableTypedTextNode(MARKER_TEXT_TYPE, text), gutterMarkerState, true);
+}
+
+/**
+ * Whether the node is a marker glyph the view renders in the gutter, which is never a place a
+ * caret may come to rest — see {@link gutterMarkerState}.
+ *
+ * @param node - The node to check.
+ * @returns `true` for a gutter-rendered marker glyph.
+ */
+export function $isGutterMarkerNode(
+  node: LexicalNode | null | undefined,
+): node is ImmutableTypedTextNode {
+  return $isImmutableTypedTextNode(node) && $getState(node, gutterMarkerState);
 }
 
 function isTypedTextElement(node: HTMLElement | null | undefined): boolean {
