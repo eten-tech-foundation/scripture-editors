@@ -44,12 +44,14 @@ import {
   Usj,
   usxStringToUsj,
 } from "@eten-tech-foundation/scripture-utilities";
+import { act } from "@testing-library/react";
 import { deepEqual } from "fast-equals";
 import {
   $createTextNode,
   $getRoot,
   $isTextNode,
   $setState,
+  LexicalEditor,
   SerializedEditorState,
   SerializedTextNode,
   TextNode,
@@ -57,6 +59,7 @@ import {
 import {
   $createImmutableVerseNode,
   getViewOptions,
+  NoteCallerOnClick,
   STANDARD_VIEW_MODE,
   TextSpacingPlugin,
   usjReactNodes,
@@ -808,5 +811,171 @@ describe("Editor USJ Adaptor — caret-host placeholder", () => {
     // reappearing because the transform re-added it.
     const para = result?.content?.[0] as MarkerObject;
     expect(para.content).toEqual(["one", { type: "optbreak" }, "two"]);
+  });
+});
+
+// A note caller's click payload carries the clicked note's document-order index, and its whole
+// point is that the index is a coordinate into a notes list built from the document's USJ (a
+// footnotes pane): the host reads `usjNotes[index]` instead of hunting for a matching note by
+// content. These pin that equivalence through the real adaptors in both directions — USJ in via
+// the load adaptor, a real click on a rendered caller, and the same document back out via the
+// editor -> USJ adaptor.
+describe("Note caller index vs the USJ note walk", () => {
+  const standardViewOptions = getViewOptions(STANDARD_VIEW_MODE);
+
+  /** A footnote whose single `\ft` span carries `text`. */
+  function footnote(text: string): MarkerObject {
+    return {
+      type: "note",
+      marker: "f",
+      caller: "+",
+      content: [{ type: "char", marker: "ft", content: [text] }],
+    };
+  }
+
+  /** The document's notes in the order a USJ walk yields them. */
+  function usjNotesInOrder(usj: Usj | undefined): MarkerObject[] {
+    const notes: MarkerObject[] = [];
+    const walk = (items: MarkerContent[] | undefined) => {
+      (items ?? []).forEach((item) => {
+        if (typeof item === "string") return;
+        if (item.type === "note") notes.push(item);
+        else walk(item.content);
+      });
+    };
+    walk(usj?.content);
+    return notes;
+  }
+
+  /** Every string a note holds, joined — enough to name which note an entry is. */
+  function noteText(note: MarkerObject): string {
+    const strings: string[] = [];
+    const walk = (items: MarkerContent[] | undefined) => {
+      (items ?? []).forEach((item) => {
+        if (typeof item === "string") strings.push(item);
+        else walk(item.content);
+      });
+    };
+    walk(note.content);
+    return strings.join("");
+  }
+
+  function createNoteIndexCapture() {
+    let capturedGetNoteIndex: (() => number | undefined) | undefined;
+
+    const noteCallerOnClick: NoteCallerOnClick = (
+      _event,
+      _noteNodeKey,
+      _isCollapsed,
+      _getCaller,
+      _setCaller,
+      _getNoteOps,
+      getNoteIndex,
+    ) => {
+      capturedGetNoteIndex = getNoteIndex;
+    };
+
+    const captureGetNoteIndex = () => {
+      if (!capturedGetNoteIndex) throw new Error("getNoteIndex was not captured");
+      return capturedGetNoteIndex();
+    };
+
+    return { captureGetNoteIndex, noteCallerOnClick };
+  }
+
+  /** Loads `usj` into a rendered editor whose callers report their clicks to `noteCallerOnClick`. */
+  async function loadNotesEditor(usj: Usj, noteCallerOnClick: NoteCallerOnClick) {
+    initializeSerialize({ noteCallerOnClick }, undefined);
+    reset();
+    const serializedState = serializeEditorState(usj, standardViewOptions);
+    const { editor: liveEditor } = await baseTestEnvironment();
+    // Parsed from the serialized OBJECT, not a JSON string: the caller nodes carry the click
+    // callback as a live function, which stringifying would drop.
+    await act(async () => {
+      liveEditor.setEditorState(liveEditor.parseEditorState(serializedState));
+    });
+    return liveEditor;
+  }
+
+  /** Clicks the caller at `callerIndex` in rendered order and returns the index it reported. */
+  async function clickCallerNoteIndex(
+    liveEditor: LexicalEditor,
+    callerIndex: number,
+    captureGetNoteIndex: () => number | undefined,
+  ): Promise<number> {
+    const button = liveEditor.getRootElement()?.querySelectorAll("button")[callerIndex];
+    if (!button) throw new Error(`No caller button at index ${callerIndex}`);
+
+    await act(async () => {
+      button.click();
+    });
+    const noteIndex = captureGetNoteIndex();
+    if (noteIndex === undefined) throw new Error(`No index reported for caller ${callerIndex}`);
+    return noteIndex;
+  }
+
+  it("indexes each clicked caller to that note's own entry in the USJ walk", async () => {
+    const usj: Usj = {
+      ...EMPTY_USJ,
+      content: [
+        { type: "para", marker: "p", content: ["In the beginning ", footnote("First note")] },
+        {
+          type: "para",
+          marker: "p",
+          content: ["and the earth ", footnote("Second note"), " was ", footnote("Third note")],
+        },
+      ],
+    };
+    const { captureGetNoteIndex, noteCallerOnClick } = createNoteIndexCapture();
+    const liveEditor = await loadNotesEditor(usj, noteCallerOnClick);
+
+    // The second note in the document is the FIRST in its own paragraph, so a per-paragraph count
+    // would report 0 for it and 1 for the third.
+    const firstIndex = await clickCallerNoteIndex(liveEditor, 0, captureGetNoteIndex);
+    const secondIndex = await clickCallerNoteIndex(liveEditor, 1, captureGetNoteIndex);
+    const thirdIndex = await clickCallerNoteIndex(liveEditor, 2, captureGetNoteIndex);
+
+    initializeDeserialize(undefined);
+    const roundTripped = editorUsjAdaptor.deserializeEditorState(
+      liveEditor.getEditorState(),
+      standardViewOptions,
+    );
+
+    // The list a footnotes pane builds from the saved USJ — the coordinates the index addresses.
+    const noteTexts = usjNotesInOrder(roundTripped).map(noteText);
+    expect(noteTexts).toEqual(["First note", "Second note", "Third note"]);
+    expect(noteTexts[firstIndex]).toBe("First note");
+    expect(noteTexts[secondIndex]).toBe("Second note");
+    expect(noteTexts[thirdIndex]).toBe("Third note");
+  });
+
+  it("tells two identical notes apart, which their USJ entries cannot", async () => {
+    const usj: Usj = {
+      ...EMPTY_USJ,
+      content: [
+        {
+          type: "para",
+          marker: "p",
+          content: ["In the beginning ", footnote("Same note"), " and ", footnote("Same note")],
+        },
+      ],
+    };
+    const { captureGetNoteIndex, noteCallerOnClick } = createNoteIndexCapture();
+    const liveEditor = await loadNotesEditor(usj, noteCallerOnClick);
+
+    const secondIndex = await clickCallerNoteIndex(liveEditor, 1, captureGetNoteIndex);
+
+    initializeDeserialize(undefined);
+    const roundTripped = editorUsjAdaptor.deserializeEditorState(
+      liveEditor.getEditorState(),
+      standardViewOptions,
+    );
+
+    // Deep-equal entries: the content comparison this API replaced would answer 0 for both, so the
+    // index is the only thing that can name the note the user actually clicked.
+    const notes = usjNotesInOrder(roundTripped);
+    expect(notes).toHaveLength(2);
+    expect(notes[0]).toEqual(notes[1]);
+    expect(secondIndex).toBe(1);
   });
 });

@@ -5,12 +5,17 @@
  * serialized to USJ), so after any save/reload every note shows the LOAD path's shape — a note
  * built by the runtime path must be structurally identical or it visibly changes on reload.
  * This suite makes the two functions' mutual "keep updated with" comments an enforced invariant
- * across the full markerMode × noteMode × closed matrix.
+ * across every markerMode ("editable", "visible", "hidden") paired with `closed` recorded or
+ * omitted, at the "collapsed" and "expanded" note modes.
  *
- * Every cell of the matrix is representable on both sides, so none are skipped. The one shape
- * deliberately OUT of the matrix is `caller: ""`: `$createWholeNote` then renders no caller node
- * at all — a layout that exists only for the delta-driven embedded note editor, while the forward
- * adaptor always renders a caller. The two paths never meet on that input.
+ * `NoteMode`'s third value, "expandInline", has no rows because it cannot differ today: both
+ * paths read `noteMode` only through `isCollapsedNoteMode` (`noteMode !== "expanded"`), so
+ * "expandInline" builds exactly what "collapsed" builds. Rows for it would re-run the collapsed
+ * ones; if either path ever reads the mode directly, it needs its own.
+ *
+ * The one shape deliberately OUT of the matrix is `caller: ""`: `$createWholeNote` then renders no
+ * caller node at all — a layout that exists only for the delta-driven embedded note editor, while
+ * the forward adaptor always renders a caller. The two paths never meet on that input.
  */
 import {
   buildInsertedSerializedNote,

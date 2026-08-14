@@ -185,28 +185,28 @@ interface CharTwinCombo {
 
 const combos: CharTwinCombo[] = [
   {
-    name: "editable, closed omitted (twins diverge by design)",
+    name: "editable, closed omitted — twins diverge: the loaded span renders a closing glyph and records no closed flag, the inserted one records closed=false",
     markerMode: "editable",
     explicitClosed: undefined,
     expectedLoaded: withRenderedCloser(EDITABLE_CHARS, "editable"),
     expectedInserted: EDITABLE_CHARS,
   },
   {
-    name: "editable, closed explicit",
+    name: "editable, closed explicit — twins agree: both paths build the same char spans",
     markerMode: "editable",
     explicitClosed: "false",
     expectedLoaded: EDITABLE_CHARS,
     expectedInserted: EDITABLE_CHARS,
   },
   {
-    name: "visible, closed omitted (twins diverge by design)",
+    name: "visible, closed omitted — twins diverge: the loaded span renders a closing glyph and records no closed flag, the inserted one records closed=false",
     markerMode: "visible",
     explicitClosed: undefined,
     expectedLoaded: withRenderedCloser(VISIBLE_CHARS, "visible"),
     expectedInserted: VISIBLE_CHARS,
   },
   {
-    name: "hidden, closed omitted (twins diverge by design)",
+    name: "hidden, closed omitted — twins diverge: with no glyphs either way, only the closed flag differs (absent on the loaded span, false on the inserted one)",
     markerMode: "hidden",
     explicitClosed: undefined,
     expectedLoaded: withRenderedCloser(HIDDEN_CHARS, "hidden"),
@@ -215,29 +215,26 @@ const combos: CharTwinCombo[] = [
 ];
 
 describe("char shape twins: createChar (forward adaptor) vs the note-content char builder", () => {
-  it.each(combos)(
-    "$name: both paths build the same char spans",
-    ({ markerMode, explicitClosed, expectedLoaded, expectedInserted }) => {
-      const viewOptions: ViewOptions = {
-        markerMode,
-        noteMode: "collapsed",
-        hasSpacing: true,
-        isFormattedFont: true,
-      };
+  it.each(combos)("$name", ({ markerMode, explicitClosed, expectedLoaded, expectedInserted }) => {
+    const viewOptions: ViewOptions = {
+      markerMode,
+      noteMode: "collapsed",
+      hasSpacing: true,
+      isFormattedFont: true,
+    };
 
-      const loadedChars = serializeLoadedNote(
-        usjDocWithNote(noteContent(explicitClosed)),
-        viewOptions,
-      )
-        .children.filter(isSerializedCharNode)
-        .map(normalizeSerializedChar);
-      const insertedChars = buildInsertedSerializedNote(viewOptions, QUOTED_WORD_RANGE)
-        .children.filter(isSerializedCharNode)
-        .map(normalizeSerializedChar);
+    const loadedChars = serializeLoadedNote(
+      usjDocWithNote(noteContent(explicitClosed)),
+      viewOptions,
+    )
+      .children.filter(isSerializedCharNode)
+      .map(normalizeSerializedChar);
+    const insertedChars = buildInsertedSerializedNote(viewOptions, QUOTED_WORD_RANGE)
+      .children.filter(isSerializedCharNode)
+      .map(normalizeSerializedChar);
 
-      // Pin the span shapes themselves first, so both twins drifting together still fails loudly.
-      expect(loadedChars).toEqual(expectedLoaded);
-      expect(insertedChars).toEqual(expectedInserted);
-    },
-  );
+    // Pin the span shapes themselves first, so both twins drifting together still fails loudly.
+    expect(loadedChars).toEqual(expectedLoaded);
+    expect(insertedChars).toEqual(expectedInserted);
+  });
 });

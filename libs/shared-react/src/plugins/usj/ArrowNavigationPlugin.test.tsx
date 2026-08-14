@@ -1244,6 +1244,38 @@ describe("Visible-stop traversal (editable markers)", () => {
       });
     });
 
+    // The other arm of the same seeding rule: at the separator's LEFT edge the atom is already
+    // behind a backward press, so the scan has to step OVER it and cross the glyph instead.
+    // Seeding the atom there — what an unconditional rule would do — crosses nothing the caret is
+    // not already past, and the press comes to rest at the seam it started from.
+    //
+    // The caret is parked and the key dispatched in ONE update because Lexical re-spells a text
+    // point at a node's offset 0 as the end of the previous text node whenever it resolves the DOM
+    // selection again; a press answered on the freshly parked spelling is the only window in which
+    // this arm decides anything.
+    it("crosses into the glyph backward from the separator's left edge", async () => {
+      const { editor, prefixGlyph, separator } = await paraPrefixEnvironment();
+
+      await act(async () => {
+        editor.update(
+          () => {
+            separator.select(0, 0);
+            editor.dispatchCommand(
+              KEY_DOWN_COMMAND,
+              new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true, cancelable: true }),
+            );
+          },
+          { discrete: true },
+        );
+      });
+
+      // Between `q` and `1` — one grapheme back from the end of `\q1`, so the caret MOVED instead
+      // of re-spelling the position it started at (the glyph's end, offset 3).
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(prefixGlyph, 2);
+      });
+    });
+
     // Forward across this seam is deliberately NOT pinned here. The position after the separator
     // has two equally correct spellings (the separator's own right edge, and offset 0 of the body
     // text), and which one Lexical settles on depends on selection reconciliation that jsdom does
