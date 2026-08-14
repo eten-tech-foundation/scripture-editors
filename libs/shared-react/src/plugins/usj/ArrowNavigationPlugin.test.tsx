@@ -33,6 +33,7 @@ import {
   $createImpliedParaNode,
   $createImmutableChapterNode,
   $createMarkerNode,
+  $createMarkerTrailingSeparator,
   $createMilestoneNode,
   $createNoteNode,
   $createParaNode,
@@ -1171,6 +1172,59 @@ describe("Visible-stop traversal (editable markers)", () => {
         $expectSelectionToBe(openingGlyph, 1);
       });
     });
+  });
+
+  /**
+   * `\q1 body text` — a paragraph's own marker prefix: the glyph, then the token-mode NBSP
+   * separator, then content. The separator is an ATOM (token mode), so the caret's position at its
+   * right edge is one of the stacked spellings, and a press must still cross exactly one rendered
+   * thing.
+   */
+  async function paraPrefixEnvironment() {
+    let prefixGlyph: MarkerNode;
+    let separator: TextNode;
+    let bodyText: TextNode;
+    const { editor } = await testEnvironment(
+      () => {
+        prefixGlyph = $createMarkerNode("q1", "opening");
+        separator = $createMarkerTrailingSeparator();
+        bodyText = $createTextNode("body text");
+        $getRoot().append($createParaNode("q1").append(prefixGlyph, separator, bodyText));
+      },
+      "ltr",
+      standardView,
+    );
+    return {
+      editor,
+      prefixGlyph: prefixGlyph!,
+      separator: separator!,
+      bodyText: bodyText!,
+    };
+  }
+
+  describe("a paragraph's marker prefix", () => {
+    // Regression: the caret sitting INSIDE the separator (its right edge, offset 1) seeded the
+    // backward scan at the separator's SIBLING, so the press skipped the separator entirely and
+    // landed inside the glyph — two rendered positions in one press (`\q1 ` put the caret between
+    // `q` and `1`). Forward was unaffected, which is what made it look like a backward-only bug.
+    it("crosses the separator in ONE press backward from its right edge", async () => {
+      const { editor, prefixGlyph, separator } = await paraPrefixEnvironment();
+      updateSelection(editor, separator, 1);
+
+      await pressKey(editor, "ArrowLeft");
+
+      // The end of `\q1` — the same screen location as the separator's left edge, and the
+      // canonical spelling of it. Crucially NOT an offset inside the glyph.
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(prefixGlyph);
+      });
+    });
+
+    // Forward across this seam is deliberately NOT pinned here. The position after the separator
+    // has two equally correct spellings (the separator's own right edge, and offset 0 of the body
+    // text), and which one Lexical settles on depends on selection reconciliation that jsdom does
+    // not reproduce faithfully. Pinning one would assert an environment artifact rather than
+    // behavior; forward traversal is covered by the seams above.
   });
 
   /** `\add word\add*\qt-s\*` — the `*`→`\` seam the maintainer measured at three presses. */

@@ -592,6 +592,18 @@ function $scanSeed(
     );
     return child ?? $stepOver(anchorNode, direction, block);
   }
+  // A text point INSIDE an atom — token-mode text such as a paragraph's marker-trailing separator
+  // — sits at one of that atom's own edges, so the atom is the very thing this press has to cross.
+  // Seeding a sibling skips it and lands a stop too far: from the right edge of `\q1 `'s
+  // separator, a backward press sailed past the separator into the glyph and came to rest between
+  // `q` and `1`. Only seed the atom when it still has content on the side we are moving toward; at
+  // its far edge the atom is already behind the caret and the scan should go on to the sibling.
+  if (
+    anchorType === "text" &&
+    $isVisibleAtom(anchorNode) &&
+    (direction === "next" ? anchorOffset < anchorNode.getTextContentSize() : anchorOffset > 0)
+  )
+    return anchorNode;
   return $stepOver(anchorNode, direction, block);
 }
 
