@@ -4,49 +4,65 @@ How to run the six tracks, what may run in parallel, and how the branches conver
 
 ## Branch model
 
-Base for everything: **`standard-view`** in each repo. Every track branches from it and merges back
-into one integration branch per repo, so the end state is one branch per repo containing all the
-work.
+Base for everything: **`standard-view`** in each repo. The end state is one branch per repo
+containing all the work.
+
+Two things land on the base BEFORE the parallel phase: the planning nets, and the settle-loop fix.
+They travel together in a single merge.
 
 ```
-scripture-editors/standard-view ──┬── sv/whitespace ────────┐
-                                  ├── sv/char-stack ────────┤
-                                  ├── sv/settle-loop ───────┼──> sv/integration ──> PR
-                                  ├── sv/structural-caret ──┤
-                                  ├── sv/attribute-markers ─┤
-                                  └── sv/unknown-blocks ────┘
+standard-view-planning ──> sv/settle-loop ──┐
+                                            ├──> merge to standard-view ──┐
+     (invariants doc + corpus nets)  ───────┘                             │
+                                                                          v
+                             ┌── sv/whitespace ────────┐
+                             ├── sv/char-stack ────────┤
+                             ├── sv/structural-caret ──┼──> sv/integration ──> PR
+                             ├── sv/attribute-markers ─┤
+                             └── sv/unknown-blocks ────┘
 
-paranext-core/standard-view ──────┬── sv/core-capture-tests ┐
-                                  └── sv/core-followups ────┴──> sv/integration ──> PR
+paranext-core/standard-view ──┬── sv/core-capture-tests ┐
+                              └── sv/core-followups ────┴──> sv/integration ──> PR
 ```
 
-Track 0's output is a prerequisite for everyone, so it lands on `standard-view` directly (or is the
-first merge into integration) before the others branch.
+## Phase 1 — settle-loop-safety, alone (SERIAL, blocks everything)
 
-## Track 0 — land the nets first (SERIAL, blocks everything)
+Branch `sv/settle-loop` off **`standard-view-planning`**, not off `standard-view` — it needs the
+invariants doc, its own plan, and the corpus nets, all of which live there.
 
-Small, and it is what makes the parallel phase safe. Already written and committed on
-`standard-view-planning`:
+Why this goes first rather than last:
 
-- the invariants doc,
-- the transform fixed-point suite,
-- the testUSFM corpus editor legs,
-- five skip-list entries naming mechanism and owner.
+- It is the only defect that **freezes the app**, from two keystrokes. No track should inherit a base
+  where that is true.
+- It changes **run-piece classification for all eight registered kinds** — the highest blast radius
+  in the set. Landing it in the base means the four parallel tracks branch from a state that already
+  has it, instead of each merging across it afterward.
+- It **dissolves the grace collision** with the whitespace track rather than managing it. Both
+  rewrite how grace is decided across `$caretHoldsRunSite` and its six call sites; sequencing removes
+  the conflict instead of coordinating it.
 
-**Action:** merge `standard-view-planning` into `standard-view` first. Every other track branches
-after that, so all six inherit the net and the shared vocabulary.
+## Phase 2 — the merge (SERIAL)
 
-## Parallel groups
+Merge `sv/settle-loop` into `standard-view-planning`, then `standard-view-planning` into
+`standard-view`. One event, carrying:
 
-| Group | Tracks | Why they can share a phase |
+- the invariants doc and shared vocabulary,
+- the transform fixed-point suite and the testUSFM corpus editor legs,
+- the skip-list entries naming mechanism and owner,
+- the settle-loop fix.
+
+Every remaining track branches after this, so all of them inherit the nets, the vocabulary, and the
+freeze fix.
+
+## Phase 3 — the parallel phase
+
+| Group | Tracks | Notes |
 | --- | --- | --- |
-| **A (fully parallel)** | whitespace · char-stack · unknown-blocks · attribute-markers Stage 0 | Disjoint primary files; the known collisions are listed below and are all resolvable by ordering within a track, not between them |
-| **B (parallel, but start after A's owners are known)** | structural-deletion-and-caret | Shares the bug-1 repro with char-stack and edits caret code the recent normalizer work touched |
-| **C (serialized against A)** | settle-loop-safety | Changes run-piece classification for all eight registered kinds — the highest blast radius in the set |
+| **A (fully parallel)** | whitespace · char-stack · unknown-blocks · attribute-markers Stage 0 | Disjoint primary files; remaining collisions are listed below |
+| **B (parallel, slight lag)** | structural-deletion-and-caret | Start once char-stack has claimed its half of bug 1, so the shared test has one owner |
 
-**Recommended:** run A's four in parallel now, B alongside once char-stack has claimed its half of
-bug 1, and C either first-and-alone or last-and-alone. C's blast radius is the deciding factor, not
-its difficulty.
+With settle-loop already in the base, the whitespace track's provenance-grace work has no competitor
+and Group A is genuinely concurrent.
 
 ## Known collisions
 
@@ -54,7 +70,7 @@ its difficulty.
 | --- | --- | --- |
 | `markerEditDeletion.utils.ts` (para-prefix absorb) | whitespace ↔ closers/char-stack | Whitespace hands the absorb half over, or they agree a split before starting |
 | `markerEditTier1.utils.ts` | whitespace ↔ char-stack | Split by function |
-| `$caretHoldsRunSite` + 6 call sites | whitespace (provenance grace) ↔ settle-loop (piece classification) | **Real conflict.** Both rewrite how grace is decided. Sequence them; do not run concurrently |
+| `$caretHoldsRunSite` + 6 call sites | whitespace (provenance grace) ↔ settle-loop (piece classification) | **Resolved by phasing.** Settle-loop lands in the base first, so whitespace builds on the new classification rather than racing it. Whitespace must re-read that code after phase 2 |
 | bug 1 repro | char-stack (content) ↔ structural-caret (caret) | One shared test; agree who writes it |
 | `\ca*` damaged closer | settle-loop ↔ attribute-markers | Only if chapters gain display first |
 
@@ -84,17 +100,27 @@ Each track gets its own chat. Every prompt should open with this preamble:
 
 Then the per-track line:
 
-1. **whitespace** — plan `docs/superpowers/plans/2026-08-11-whitespace-ownership.md`. Start with
-   tasks 1-3 (the USX parser); they are independent of everything and of the moving branch.
-2. **char-stack** — plan `docs/superpowers/plans/2026-08-11-char-stack-split.md`. This is an
+**Phase 1, run this one alone and first:**
+
+1. **settle-loop-safety** — plan `docs/superpowers/plans/2026-08-14-settle-loop-safety.md`. Branch off
+   `standard-view-planning`. Highest severity and highest blast radius. Land task 3 (piece
+   classification by rendered bytes) before task 4 (the loop guard) — the guard is a backstop and can
+   mask the real defect if it goes first.
+
+**Phase 3, after the merge — branch these off the updated `standard-view`:**
+
+2. **whitespace** — plan `docs/superpowers/plans/2026-08-11-whitespace-ownership.md`. Start with
+   tasks 1-3 (the USX parser); they are independent of everything else. Re-read
+   `$caretHoldsRunSite` and its call sites first — settle-loop changed that code in phase 1.
+3. **char-stack** — plan `docs/superpowers/plans/2026-08-11-char-stack-split.md`. This is an
    EXTRACTION of working code, not a new build; characterize the reference implementation first.
-3. **settle-loop-safety** — plan `docs/superpowers/plans/2026-08-14-settle-loop-safety.md`. Highest
-   severity and highest blast radius. Do not run concurrently with the whitespace track's grace work.
 4. **structural-deletion-and-caret** — plan
    `docs/superpowers/plans/2026-08-14-structural-deletion-and-caret.md`. Write the
-   transient-emptiness pin before touching the guard.
+   transient-emptiness pin before touching the guard. Coordinate the bug-1 shared test with
+   char-stack.
 5. **attribute-markers** — plan `docs/superpowers/plans/2026-08-11-attribute-markers.md`. Stage 0 is
-   startable now and is mostly in paranext-core; the display stages need the chapter settle scope.
+   startable immediately and is mostly in paranext-core; the display stages need the chapter settle
+   scope.
 6. **unknown-blocks** — plan `docs/superpowers/plans/2026-08-11-unknown-blocks.md`. Diagnose before
    designing; three of its four defects have no root cause yet.
 
