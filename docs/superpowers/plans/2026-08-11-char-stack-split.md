@@ -27,9 +27,11 @@ Two corrections to earlier assumptions, both load-bearing:
   (innermost-first) and emits index 0 without a `+`, so a two-deep stack comes back with the markers
   swapped. The path is untested in PT9 — its suite only covers single-level cases. **We reopen
   outermost-first.** Port the intent, not the code.
-- **`\fp`, marker-dropdown insertion, and paragraph splits are NOT this primitive.** They rely on
-  implicit parser closing with no reopen; PT9 drops character styles across a paragraph split. See
-  the open question below.
+- **In PT9, `\fp`, marker-dropdown insertion, and paragraph splits are NOT this primitive** — they
+  rely on implicit parser closing with no reopen, and PT9 drops character styles across a paragraph
+  split. **We deliberately diverge on all three.** The owner wants the stack reopened after `\fp`
+  and after a paragraph split, and `\fq` already does it correctly. So the primitive gains callers
+  PT9 never had; see "Deliberate divergence" below.
 
 ## Current defects
 
@@ -110,14 +112,38 @@ new marker lands, and the stack reopens outermost-to-innermost — including the
 `\ft` by the sibling `\fq`. That is the target behavior, and it is a DELIBERATE improvement over PT9,
 which never reopens on this path.
 
-So the work is: find the code that already does this on the marker-apply path, extract it, and give
-it three callers instead of one.
+**Located.** It is NOT in `markerMenuApply.utils.ts` or `markerEditNote.utils.ts` as this plan
+originally guessed. It lives in the adaptor's marker-action module,
+`packages/platform/src/editor/adaptors/usj-marker-action.utils.ts`:
+
+- `$liftOutOfChar` (~:561) — the single-level close-and-reopen primitive.
+- `$applyNonNestInsideChar` (~:594) — the driver that iterates it up the stack, stopping at
+  `$charContainer` (the nearest non-char ancestor: note or paragraph).
+
+The ordering is correct and **falls out of the loop shape rather than from explicit ordering code**:
+each iteration closes the current innermost span and reopens a continuation after the lifted node, so
+the next iteration's "after" set already contains that continuation. Closers emerge
+innermost-to-outermost, openers outermost-to-innermost.
+
+Reached via `$applyMarkerMenuSelection` → `getUsjMarkerAction` → the non-NEST-inside-a-span guard.
+NEST-vs-split is stylesheet-driven, which is why `\fq` (no NEST) takes this path and `\nd` (NEST)
+nests in place instead. Behavior is already pinned — see the `describe("non-NEST apply from INSIDE a
+char span closes and reopens (PT9 StyleApplicator)")` suite in `markerMenuApply.utils.test.tsx`.
+
+**Caret nuance to carry into the extraction:** the code parks the caret INSIDE the new span's own
+content, not "before the reopened `\ft`" as this plan previously said. Same screen position,
+different tree point. Specify the extracted primitive's caret parameter as a tree point, not as a
+description — Ctrl+Space wants a different point than `\fq` does.
+
+So the work is an extraction with **five** callers, not three.
 
 | Caller | Today |
 | --- | --- |
 | `\fq` + Enter (marker apply) | **Correct.** The reference implementation. |
-| `\fp` + Enter (note Enter) | Closes the stack, never reopens it. |
+| `\fp` + Enter (note Enter) | Closes the stack, never reopens. Also has a depth-2 content gap: it collects only the caret's own innermost-span siblings, so outer-span content after a nested span is left behind. |
 | Ctrl+Space | Closes only the innermost, and puts the space INSIDE the surviving outer span. |
+| **Paragraph split mid-span (new bug 1)** | Lexical's generic inline split runs unmodified. |
+| **Paragraph split mid-NESTED-span (new bug 2)** | Same, iterated per level. |
 
 `\fq` + Space does no special insertion at all, consistent with the ratified Space-versus-Enter
 split — Space is type-through, Enter is the apply path. Leave it alone.
@@ -126,6 +152,42 @@ This reorders the task list: extraction moves EARLY (characterize the working `\
 extract), and the Ctrl+Space and `\fp` behaviors become new callers of proven code rather than new
 implementations. Task 11 is no longer a trailing refactor.
 
-**Caret placement differs by caller and is intentional:** `\fq` leaves the caret before the reopened
-stack; Ctrl+Space leaves it after the space, at the start of the reopened run. The extracted
-primitive takes caret placement as a parameter rather than deciding it.
+**Caret placement differs by caller and is intentional.** The extracted primitive takes a caret tree
+point as a parameter rather than deciding it.
+
+## Deliberate divergence: paragraph splits DO reopen the stack
+
+PT9 drops character styles across a paragraph split. We do not. New bugs 1 and 2 are the same defect
+at depth 1 and depth 2, and the owner's stated expectation is that the tail is re-wrapped in the same
+marker with the same attributes. **Record this as a decision, not an oversight** — a later reader
+comparing against PT9 will otherwise "restore parity" and reintroduce it.
+
+### Why the split path breaks today
+
+Lexical's `RangeSelection.insertParagraph` splits every inline ancestor via `$splitNodeAtPoint`,
+which calls `CharNode.insertNewAfter`. That builds a continuation span with **no opening glyph, no
+closing glyph, and no `unknownAttributes`** — only `closed:"false"` is carried, deliberately. Then:
+
+- **The LEFT span** keeps its opener but has lost its attribute run and its closer to the split. Its
+  `unknownAttributes` STATE is untouched, which is exactly why the file still has the attributes
+  while the screen does not. It cannot regenerate the run either: the char descriptor's
+  `expectedPieces` returns no run when the closing glyph is absent.
+- **The RIGHT span** has a non-marker first child, so the deletion transform reads it as
+  opener-less and unwraps it. The unwrap then DISCARDS the moved attribute bytes — it filters out
+  `textType === "attribute"` children and re-derives replacements from the span's own
+  `unknownAttributes`, which the bare continuation span does not have.
+
+At depth 2 the unwrap cascade runs twice, dropping both closers — the reported "unformatted text,
+closing markers gone."
+
+**The fix is to make the split a caller of the primitive**: close the stack innermost-to-outermost on
+the left, reopen it outermost-to-innermost in the new paragraph, using the `$liftOutOfChar` /
+continuation-span shape instead of Lexical's `insertNewAfter`.
+
+### The caret half is NOT this track
+
+Bug 1's third symptom — caret landing at the end of the new paragraph — has a separate cause. The
+Enter-menu apply places an ELEMENT point on the paragraph, and the unwrap's reinsertion loop then
+drags that point forward past every reinserted child without pulling it back on the matching remove.
+That is a general defect of element-point caret placement surviving a same-commit unwrap, not
+char-stack-specific. It belongs to the structural-deletion-and-caret track.
