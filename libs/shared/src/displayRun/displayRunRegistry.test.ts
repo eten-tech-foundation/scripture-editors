@@ -6,6 +6,7 @@ import { $createCharNode } from "../nodes/usj/CharNode.js";
 import { $createMilestoneNode } from "../nodes/usj/MilestoneNode.js";
 import { $createParaNode } from "../nodes/usj/ParaNode.js";
 import { $createVerseNode } from "../nodes/usj/VerseNode.js";
+import { $runDiverges } from "../nodes/usj/displayRunSync.utils.js";
 import { getVisibleOpenMarkerText } from "../nodes/usj/node.utils.js";
 import { NBSP } from "../nodes/usj/node-constants.js";
 import { createBasicTestEnvironment } from "../nodes/usj/test.utils.js";
@@ -196,6 +197,125 @@ describe("displayRunRegistry scanPieces", () => {
         wrapper.append(opener, value, closer);
         $getRoot().append($createParaNode("p").append(milestone, wrapper));
         expect(displayRunDescriptor("milestone").scanPieces(milestone)).toEqual({
+          opener,
+          value,
+          closer,
+          wrapper,
+        });
+      },
+      { discrete: true },
+    );
+  });
+});
+
+describe("displayRunRegistry sees damaged glyph BYTES, not just node state", () => {
+  // Editing a glyph's characters rewrites only its text: `marker` and `markerSyntax` are stored
+  // fields that no text edit touches. A scan that reads state alone therefore reports a `\va` whose
+  // `*` the user just deleted as a perfectly good closer, so the run reads canonical to the
+  // registry while the marker engine holds that same glyph pending — the disagreement that silently
+  // suppressed the run's mid-edit caret grace and let the settle re-tokenize the paragraph out from
+  // under the caret. Byte-damaged glyphs must be reported ABSENT so the run diverges.
+
+  it("drops a \\va closer whose `*` was deleted, and reports the run diverged", () => {
+    const { editor } = createBasicTestEnvironment();
+    editor.update(
+      () => {
+        const verse = $createVerseNode("1", getVisibleOpenMarkerText("v", "1"), undefined, "2");
+        const wrapper = $createAttributeRunNode("va");
+        const opener = $createMarkerNode("va");
+        const value = $createTextNode(`${NBSP}2`);
+        $setState(value, textTypeState, "attribute");
+        const closer = $createMarkerNode("va", "closing");
+        $getRoot().append(
+          $createParaNode("p").append(verse, wrapper.append(opener, value, closer)),
+        );
+
+        closer.setTextContent("\\va"); // the user deletes the `*`
+        // State is untouched — this is exactly why a state-only scan is fooled.
+        expect(closer.getMarker()).toBe("va");
+        expect(closer.getMarkerSyntax()).toBe("closing");
+
+        const descriptor = displayRunDescriptor("va");
+        const pieces = descriptor.scanPieces(verse);
+        expect(pieces.closer).toBeUndefined();
+        expect(pieces).toEqual({ opener, value, closer: undefined, wrapper });
+        expect($runDiverges(descriptor, pieces, descriptor.expectedPieces(verse))).toBe(true);
+      },
+      { discrete: true },
+    );
+  });
+
+  it("drops a \\va opener whose backslash was deleted", () => {
+    const { editor } = createBasicTestEnvironment();
+    editor.update(
+      () => {
+        const verse = $createVerseNode("1", getVisibleOpenMarkerText("v", "1"), undefined, "2");
+        const wrapper = $createAttributeRunNode("va");
+        const opener = $createMarkerNode("va");
+        const value = $createTextNode(`${NBSP}2`);
+        $setState(value, textTypeState, "attribute");
+        const closer = $createMarkerNode("va", "closing");
+        $getRoot().append(
+          $createParaNode("p").append(verse, wrapper.append(opener, value, closer)),
+        );
+
+        opener.setTextContent("va");
+
+        const descriptor = displayRunDescriptor("va");
+        const pieces = descriptor.scanPieces(verse);
+        // The scan runs in fixed order, so a dropped opener leaves the cursor on the opener's own
+        // node — which is not attribute-tagged text, so nothing downstream is misread as the value.
+        expect(pieces.opener).toBeUndefined();
+        expect(pieces.value).toBeUndefined();
+        expect($runDiverges(descriptor, pieces, descriptor.expectedPieces(verse))).toBe(true);
+      },
+      { discrete: true },
+    );
+  });
+
+  it("drops a milestone's self-closing glyph whose `*` was deleted", () => {
+    const { editor } = createBasicTestEnvironment();
+    editor.update(
+      () => {
+        const milestone = $createMilestoneNode("qt-s", "q1");
+        const wrapper = $createAttributeRunNode("milestone");
+        const opener = $createMarkerNode("qt-s", "opening");
+        const value = $createTextNode(`${NBSP}|sid="q1"`);
+        $setState(value, textTypeState, "attribute");
+        const closer = $createMarkerNode("", "selfClosing");
+        $getRoot().append(
+          $createParaNode("p").append(milestone, wrapper.append(opener, value, closer)),
+        );
+
+        closer.setTextContent("\\");
+
+        const descriptor = displayRunDescriptor("milestone");
+        const pieces = descriptor.scanPieces(milestone);
+        expect(pieces.closer).toBeUndefined();
+        expect($runDiverges(descriptor, pieces, descriptor.expectedPieces(milestone))).toBe(true);
+      },
+      { discrete: true },
+    );
+  });
+
+  it("keeps a NESTED span's `\\+w*` closer, whose canonical bytes carry the `+`", () => {
+    // The canonical form is (marker, syntax, nesting) — not `\marker*` — so a nested glyph must
+    // not be mistaken for a damaged one. Nothing else in the registry distinguishes them.
+    const { editor } = createBasicTestEnvironment();
+    editor.update(
+      () => {
+        const verse = $createVerseNode("1", getVisibleOpenMarkerText("v", "1"), undefined, "2");
+        const wrapper = $createAttributeRunNode("va");
+        const opener = $createMarkerNode("va", "opening", true);
+        const value = $createTextNode(`${NBSP}2`);
+        $setState(value, textTypeState, "attribute");
+        const closer = $createMarkerNode("va", "closing", true);
+        $getRoot().append(
+          $createParaNode("p").append(verse, wrapper.append(opener, value, closer)),
+        );
+
+        expect(closer.getTextContent()).toBe("\\+va*");
+        expect(displayRunDescriptor("va").scanPieces(verse)).toEqual({
           opener,
           value,
           closer,

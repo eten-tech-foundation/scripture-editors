@@ -50,7 +50,7 @@
  * milestone runs (built by the adaptor, never edited) untouched.
  */
 
-import { $isMarkerNode, MarkerNode } from "../features/MarkerNode.js";
+import { $isCanonicalMarkerNode, $isMarkerNode, MarkerNode } from "../features/MarkerNode.js";
 import { textTypeState } from "../collab/delta.state.js";
 import { $isAttributeRunNode, AttributeRunNode } from "./AttributeRunNode.js";
 import { $isCharNode, CharNode } from "./CharNode.js";
@@ -195,6 +195,16 @@ export interface VerseAttributeRunPieces {
  * sync still heals whichever shape — loose siblings (a pre-flip editor state, an undo stack, or a
  * collab-materialized bare owner) or an existing wrapper — is actually in the tree.
  *
+ * A glyph is a piece only while its RENDERED BYTES still spell what its state describes
+ * ({@link $isCanonicalMarkerNode}). Editing a glyph's characters leaves its marker and syntax
+ * untouched, so a state-only scan reports a damaged `\va` (the `*` deleted) as a perfectly good
+ * closer: the run reads canonical here while the marker engine holds the same glyph pending,
+ * and that standing disagreement is what silently suppressed the run's mid-edit caret grace —
+ * `$runDiverges` saw nothing wrong, so the settle re-tokenized the whole paragraph out from
+ * under the caret two keystrokes into the edit. Byte-damaged glyphs are therefore reported
+ * ABSENT, which is the truth the rest of the pipeline already knows how to handle: the run
+ * diverges, the caret graces it, and departure settles it.
+ *
  * Exported (mirrors {@link $milestoneAttributeRunPieces}) so `markerEditTier1.utils.ts`'s
  * deletion-settle path (`packages/platform`) can locate a verse's wrapper(s) directly to detect
  * and clean up an emptied husk.
@@ -215,7 +225,8 @@ export function $verseAttributeRunPieces(
   if (
     $isMarkerNode(cursor) &&
     cursor.getMarkerSyntax() === "opening" &&
-    cursor.getMarker() === marker
+    cursor.getMarker() === marker &&
+    $isCanonicalMarkerNode(cursor)
   ) {
     opener = cursor;
     cursor = cursor.getNextSibling();
@@ -229,7 +240,8 @@ export function $verseAttributeRunPieces(
   if (
     $isMarkerNode(cursor) &&
     cursor.getMarkerSyntax() === "closing" &&
-    cursor.getMarker() === marker
+    cursor.getMarker() === marker &&
+    $isCanonicalMarkerNode(cursor)
   )
     closer = cursor;
   return { opener, value, closer, wrapper };
@@ -304,6 +316,10 @@ export interface MilestoneRunPieces {
  * this shape now; the sync still heals whichever shape — loose siblings (a pre-flip editor state,
  * an undo stack, or a collab-materialized bare milestone) or an existing wrapper — is actually in
  * the tree.
+ *
+ * As in {@link $verseAttributeRunPieces}, a glyph counts as a piece only while its rendered bytes
+ * still spell what its state describes ({@link $isCanonicalMarkerNode}) — a byte-damaged glyph is
+ * reported absent so the run diverges and the caret can grace the mid-edit shape.
  */
 export function $milestoneAttributeRunPieces(milestone: MilestoneNode): MilestoneRunPieces {
   let opening: MarkerNode | undefined;
@@ -318,7 +334,8 @@ export function $milestoneAttributeRunPieces(milestone: MilestoneNode): Mileston
   if (
     $isMarkerNode(cursor) &&
     cursor.getMarkerSyntax() === "opening" &&
-    cursor.getMarker() === milestone.getMarker()
+    cursor.getMarker() === milestone.getMarker() &&
+    $isCanonicalMarkerNode(cursor)
   ) {
     opening = cursor;
     cursor = cursor.getNextSibling();
@@ -327,6 +344,11 @@ export function $milestoneAttributeRunPieces(milestone: MilestoneNode): Mileston
     attribute = cursor;
     cursor = cursor.getNextSibling();
   }
-  if ($isMarkerNode(cursor) && cursor.getMarkerSyntax() === "selfClosing") closing = cursor;
+  if (
+    $isMarkerNode(cursor) &&
+    cursor.getMarkerSyntax() === "selfClosing" &&
+    $isCanonicalMarkerNode(cursor)
+  )
+    closing = cursor;
   return { opening, attribute, closing, wrapper };
 }

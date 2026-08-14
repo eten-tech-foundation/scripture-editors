@@ -30,6 +30,7 @@ import {
   CharNode,
   createMarkerLookup,
   getVisibleOpenMarkerText,
+  LoggerBasic,
   MarkerNode,
   MilestoneNode,
   NBSP,
@@ -86,6 +87,32 @@ export async function testEnvironmentWithSpacing($initialEditorState: () => void
     $initialEditorState,
     <>
       <MarkerEditPlugin viewOptions={getViewOptions(STANDARD_VIEW_MODE)} />
+      <TextSpacingPlugin />
+    </>,
+  );
+}
+
+/**
+ * Like `testEnvironment`, but with EVERY display-run sync the real app mounts — `CharNodePlugin`
+ * and `TextSpacingPlugin` around the engine, in `Editor.tsx`'s own order. The narrower helpers
+ * above each omit one of them, which is fine for a test scoped to one kind's sync but hides
+ * cross-plugin interactions: the settle-loop freeze needed the CHAR sync's adjacent-span merge and
+ * the VERSE run's pend/settle in the same tree, and reproduces on neither helper alone.
+ *
+ * `logger` is optional and passed straight to the engine — the settle-cascade backstop reports
+ * itself only through `logger.warn`, so a test asserting the backstop fired needs one.
+ */
+export async function testEnvironmentWithDisplaySyncs(
+  $initialEditorState: () => void,
+  logger?: LoggerBasic,
+) {
+  initializeSerialize(undefined, undefined);
+  reset();
+  return baseTestEnvironment(
+    $initialEditorState,
+    <>
+      <CharNodePlugin />
+      <MarkerEditPlugin viewOptions={getViewOptions(STANDARD_VIEW_MODE)} logger={logger} />
       <TextSpacingPlugin />
     </>,
   );

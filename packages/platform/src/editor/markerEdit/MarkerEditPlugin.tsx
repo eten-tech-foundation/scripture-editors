@@ -110,6 +110,20 @@ export const COMMIT_PENDING_MARKERS_COMMAND: LexicalCommand<void> = createComman
 );
 
 /**
+ * How many deferred settles may MUTATE back-to-back, with no user gesture between them, before the
+ * engine stops settling and leaves the document pending.
+ *
+ * A healthy settle mutates once — the rebuild splices, the freshly built nodes re-arm the
+ * transforms, and the follow-up resolve refuses at the fixed point. Chained scopes can legitimately
+ * take a few more. Nothing legitimate approaches this bound, and reaching it means a scope is
+ * rebuilding to a genuinely different structure every pass, which the fixed-point refusal cannot
+ * stop by construction. This is the BACKSTOP, not a fix: it converts a frozen application into a
+ * logged warning and an unsettled document, whose pending literals still serialize as bytes
+ * ParatextData parses. Anything that trips it is a defect to find and remove.
+ */
+const MAX_SETTLE_CASCADE_DEPTH = 8;
+
+/**
  * Sync and pend every run `node` owns (the shared `$syncAndPendDisplayRun` helper,
  * displayRunSync.utils.ts): the sync leaves a caret-held divergence alone, and the matching pend
  * lets caret departure settle it ($resolvePendingMarkers) — without it a run would silently
@@ -232,6 +246,12 @@ export function MarkerEditPlugin({
     // One pending-marker resolution queued at a time; disposed on effect cleanup.
     let resolveQueued = false;
     let disposed = false;
+    // Deferred settles that MUTATED back-to-back with no user gesture between them — the
+    // termination backstop for the deferred resolve/rebuild cascade (see
+    // MAX_SETTLE_CASCADE_DEPTH). Reset by any real in-editor gesture, so the bound is per
+    // gesture rather than per session, and by any settle that changed nothing (the cascade
+    // reached its fixed point and stopped on its own).
+    let settleCascadeDepth = 0;
     // Deletion driver, arming half: a locally-destroyed display-run piece pends its OWNER, read
     // from the previous state — deletion intent comes from the destruction itself, never from
     // caret geometry (the per-kind caret heuristics above only recognize specific in-progress
@@ -487,6 +507,7 @@ export function MarkerEditPlugin({
           // Without this, literals typed before a yank could never settle via a mouse-only
           // caret departure.
           appPlacedCaret = false;
+          settleCascadeDepth = 0;
           return false;
         },
         COMMAND_PRIORITY_LOW,
@@ -498,6 +519,7 @@ export function MarkerEditPlugin({
           // suppression window opened by a scrRef-sync yank. Runs for every keydown,
           // ahead of the Ctrl+Space handling below.
           appPlacedCaret = false;
+          settleCascadeDepth = 0;
           if (!event.ctrlKey || event.altKey || event.shiftKey || event.metaKey) return false;
           if (event.key !== " " && event.code !== "Space") return false;
           // Only claim the keystroke (preventDefault + return true) when we actually acted;
@@ -820,10 +842,24 @@ export function MarkerEditPlugin({
         queueMicrotask(() => {
           resolveQueued = false;
           if (disposed) return;
+          if (settleCascadeDepth >= MAX_SETTLE_CASCADE_DEPTH) {
+            // Fail safe, loudly. Returning without mutating produces no commit, so nothing
+            // re-queues and the cascade ends here; the pending keys stay pending and settle on
+            // the user's next gesture, which resets the depth. The warning names the surviving
+            // pends because the scope that keeps rebuilding is always among them.
+            context.logger?.warn(
+              `[MarkerEdit] settle cascade exceeded ${MAX_SETTLE_CASCADE_DEPTH} consecutive ` +
+                `mutating passes; leaving ${context.pendingKeys.size} node(s) pending. This is a ` +
+                `rebuild that never reaches a fixed point — pending keys: ` +
+                `${[...context.pendingKeys].join(", ")}`,
+            );
+            return;
+          }
           // lastAnchorKey is re-read here: if further commits landed before this microtask,
           // the freshest anchor wins (never except a node the caret has already left).
           editor.update(() => {
             const mutated = $resolvePendingMarkers(context, lastAnchorKey);
+            settleCascadeDepth = mutated ? settleCascadeDepth + 1 : 0;
             // A resolve pass that only REFUSED (fixed-point rebuilds — e.g. a re-pended
             // degradation literal after an undo, or a canonical attribute run) changes nothing
             // visible, but each refused $rebuildParas probe still created parse orphans that

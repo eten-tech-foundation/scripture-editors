@@ -385,6 +385,42 @@ describe("CharNodePlugin", () => {
     });
   });
 
+  it("should NOT combine adjacent CharNodes that render their own marker glyphs", async () => {
+    // In the editable-marker views a span's glyphs ARE its displayed bytes. Combining two such
+    // spans moves BOTH glyph pairs into the survivor, so one span displays `\nd a\nd*\nd b\nd*` —
+    // bytes that re-tokenize straight back into two spans, which this transform merges again.
+    // Neither side ever equals the other, so the Tier-2 rebuild's fixed-point refusal cannot fire
+    // and the settle cascade spins the main thread forever (the live freeze: deleting the `*` from
+    // a `\va*` closer re-tokenizes into exactly this adjacent-span shape). Glyph-less spans — every
+    // other view mode, and the collab/structure-surgery paths this merge exists for — still merge.
+    const { editor } = await testEnvironment(() => {
+      $getRoot().append(
+        $createParaNode().append(
+          $createCharNode("nd").append(
+            $createMarkerNode("nd"),
+            $createTextNode(`${NBSP}Lord`),
+            $createMarkerNode("nd", "closing"),
+          ),
+          $createCharNode("nd").append(
+            $createMarkerNode("nd"),
+            $createTextNode(`${NBSP}God`),
+            $createMarkerNode("nd", "closing"),
+          ),
+        ),
+      );
+    });
+
+    editor.getEditorState().read(() => {
+      const p = $getRoot().getFirstChild();
+      if (!$isParaNode(p)) throw new Error("Expected a ParaNode");
+      expect(p.getChildrenSize()).toBe(2);
+      const [first, second] = p.getChildren();
+      if (!$isCharNode(first) || !$isCharNode(second)) throw new Error("Expected CharNodes");
+      expect(first.getTextContent()).toBe(`\\nd${NBSP}Lord\\nd*`);
+      expect(second.getTextContent()).toBe(`\\nd${NBSP}God\\nd*`);
+    });
+  });
+
   it("should combine 3 adjacent CharNodes with same marker on update", async () => {
     let ndCharNode: CharNode;
     const { editor } = await testEnvironment(() => {
