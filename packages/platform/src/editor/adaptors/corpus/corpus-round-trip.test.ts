@@ -12,6 +12,9 @@ import { usxStringToUsj } from "@eten-tech-foundation/scripture-utilities";
 import { SerializedEditorState, SerializedLexicalNode } from "lexical";
 import {
   isSerializedAttributeRunNode,
+  isSerializedImmutableTableCellNode,
+  isSerializedImmutableTableNode,
+  isSerializedImmutableTableRowNode,
   isSerializedImmutableTypedTextNode,
   isSerializedMarkerNode,
   isSerializedMilestoneNode,
@@ -126,46 +129,46 @@ describe("corpus forward anchors (standard view)", () => {
     return para;
   }
 
-  it("table: rows and cells load as unknown nodes with token-mode text", () => {
+  it("table: rows and cells load as their own immutable table nodes, cell text token-mode", () => {
     const state = serializeFixture("table with header and cells");
 
-    const table = findUnknownNode(state);
-    expect(table.tag).toBe("table");
-    expect(table.marker).toBeUndefined();
+    // Tables are NOT unknown nodes: the adaptor builds dedicated ImmutableTable* nodes for
+    // table/table:row/table:cell, so none of them reaches the unknown path. The table also rides
+    // at root level rather than inside the body paragraph.
+    const table = state.root.children.find((child) => isSerializedImmutableTableNode(child));
+    if (!isSerializedImmutableTableNode(table)) throw new Error("No immutable table node found");
     const rows = dataChildren(table.children).map((row) => {
-      if (!isSerializedUnknownNode(row)) throw new Error("Table row is not an unknown node");
+      if (!isSerializedImmutableTableRowNode(row))
+        throw new Error("Table row is not an immutable table row node");
       return {
-        tag: row.tag,
         marker: row.marker,
         cells: dataChildren(row.children).map((cell) => {
-          if (!isSerializedUnknownNode(cell)) throw new Error("Table cell is not an unknown node");
-          const [text] = dataChildren(cell.children);
-          if (!isSerializedTextNode(text)) throw new Error("Table cell has no text");
-          return {
-            tag: cell.tag,
-            marker: cell.marker,
-            align: cell.unknownAttributes?.align,
-            text: text.text,
-            mode: text.mode,
-          };
+          if (!isSerializedImmutableTableCellNode(cell))
+            throw new Error("Table cell is not an immutable table cell node");
+          // The cell's own USFM bytes (its opening glyph and the space after it) are display, so
+          // read the cell's CONTENT as the text its data children carry.
+          const text = dataChildren(cell.children)
+            .map((child) => (isSerializedTextNode(child) ? child.text : ""))
+            .join("")
+            .trim();
+          if (!text) throw new Error("Table cell has no text");
+          return { marker: cell.marker, align: cell.align, text };
         }),
       };
     });
     expect(rows).toEqual([
       {
-        tag: "table:row",
         marker: "tr",
         cells: [
-          { tag: "table:cell", marker: "th1", align: "start", text: "Day", mode: "token" },
-          { tag: "table:cell", marker: "th2", align: "start", text: "Tribe", mode: "token" },
+          { marker: "th1", align: "start", text: "Day" },
+          { marker: "th2", align: "start", text: "Tribe" },
         ],
       },
       {
-        tag: "table:row",
         marker: "tr",
         cells: [
-          { tag: "table:cell", marker: "tc1", align: "start", text: "First", mode: "token" },
-          { tag: "table:cell", marker: "tc2", align: "start", text: "Judah", mode: "token" },
+          { marker: "tc1", align: "start", text: "First" },
+          { marker: "tc2", align: "start", text: "Judah" },
         ],
       },
     ]);
