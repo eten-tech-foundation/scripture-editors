@@ -77,8 +77,33 @@ Four distinct problems beyond the chapter-settle blocker:
 **In:** the capture test; markers-map sourcing; `cat` display and editing once its prerequisites
 land; `ca`/`cp` display and editing once the chapter-settle story exists.
 
-**Out:** the chapter-settle story itself (own effort, see below); unknown-block editability (its own
-track); the display-run registry construction (in flight elsewhere).
+**Out:** unknown-block editability (its own track).
+
+### The display-run registry has LANDED — this track builds on it
+
+No longer in flight. Verified against `standard-view`:
+
+- Registry `libs/shared/src/displayRun/displayRunRegistry.ts`; descriptor type
+  `libs/shared/src/nodes/usj/displayRunDescriptor.ts`; owner walk `displayRunOwner.utils.ts`; sync
+  driver `displayRunSync.utils.ts`.
+- The descriptor has **nine required members** — `kind` plus eight duties. Its own module doc says
+  "eight fields," counting duties and excluding the identity key; do not scope from that sentence.
+- **Eight kinds are registered**, not the four this plan assumed: `separator`, `char`, `va`, `vp`,
+  `milestone`, `optbreak`, `opaqueUnknown`, `nestedGlyph`. Registration ORDER is load-bearing —
+  three descriptors share `ownerPredicate: $isCharNode`, and `separator` must precede `char`.
+- `verseDescriptor("va")` is the template a chapter `ca` descriptor copies: `settleScope: "owner"`,
+  `deletionPolicy: "retokenize"`, `byteFormat: { writer: "wrapper", runKind, glyphs: "with-value",
+  closerSyntax: "closing", insertRunAfter }`.
+
+Two registry facts are direct, unchanged costs for `cp`: `byteFormat.writer` is
+`"wrapper" | "owner-children" | "kind-owned" | "read-only"` — all inline, no block value — and
+`closerSyntax` is `"closing" | "selfClosing"`, with no slot for "closed implicitly at the next block
+boundary."
+
+**Trap:** `scanPieces`'s field translation is NOT compiler-enforced — the fields are optional on both
+sides — so a wrongly-shaped chapter `scanPieces` compiles clean and silently reads as permanently
+empty. `displayRunRegistry.test.ts`'s scanPieces suite is the only net; extend it with the
+descriptor.
 
 ## Two sources of truth — the intended resolution
 
@@ -89,9 +114,15 @@ can subsume the other:
 - The markers map models the SERIALIZER and holds `hasStructuralSpaceAfterCloseAttributeMarker`, the
   `isSpaceAfterAttributeMarkersContent` spec-versus-Paratext switch, and version variants.
 - The editor's table models the PARSER matching ParatextData, and holds behaviors the map cannot
-  express: a same-line space before an attribute marker BLOCKS the fold; markup in the content
-  aborts the fold; an empty span is never an empty attribute; `cat` is receptive only directly after
+  express: a same-line space before an attribute marker BLOCKS the fold (a line break is structural
+  and still folds); markup in the content aborts the fold; an empty span is never an empty attribute
+  AND clears the receptive target so a following attribute marker cannot fold across it; an empty
+  `cp` materializes an empty para without clearing the target; `cat` is receptive only directly after
   `\esb` or right after a note's caller.
+
+The empty-span rules landed after this plan was first written and are the parser-side twin of the
+capture test's headline finding. The table itself is unchanged — same five markers, same shapes,
+same hosts.
 
 **Resolution: derive the shared facts from the map; keep the parser-behavior deltas local, explicit,
 and named.** Do not collapse either into the other. A test asserting the two agree on the shared
@@ -103,15 +134,30 @@ coincidence.
 
 ### Stage 0 — no prerequisites, start here
 
-1. **ParatextData capture test** (paranext-core C#). Follow the existing capture-test pattern:
-   dummy project, one `[TestCase]` per authored form, three assertions per case (USFM to USX, USX to
-   USFM bytes, then a re-read asserting the round trip is a fixed point). Cover `ca` closed and
-   unclosed, `cp` plain and with markup, `cat` on a note and on a sidebar, and the whitespace matrix
-   from the 2SA fixtures.
-   **Pin the divergence deliberately** where ParatextData is wrong: for `cp` containing markup it
-   folds into `pubnumber` and strands the markers at document root, while our tokenizer produces the
-   corrected block. The C# test records ParatextData's actual behavior; it must not become a reason
-   to change our tokenizer.
+1. **EXTEND the existing capture test — it is roughly 60% done, not missing.**
+   `c-sharp-tests/Projects/VerseAttributeFoldRoundTripCaptureTests.cs` already exists (304 lines) and
+   already uses exactly the three-assertion pattern this plan called for. What it pins today: the
+   fold-versus-first-class rule for `va`/`vp`/`ca`/`cp`, the empty-span block, document-order
+   preservation on disk, and byte-level fixed-pointness — across seven cases in two `[TestCase]`
+   methods.
+
+   Its headline finding is one this plan should absorb: **an attribute marker folds only when its own
+   span has content, and an EMPTY span blocks the NEXT attribute marker from folding too** — both
+   stay first-class, in document order.
+
+   Four gaps remain, in value order:
+   - **`cp` with markup** — the deliberate-divergence pin (ParatextData folds into `pubnumber` and
+     strands the markers at document root; our tokenizer produces the corrected block). Highest
+     value and completely absent. Record ParatextData's real behavior; it must never become a reason
+     to change our tokenizer.
+   - **`cat` — zero coverage**, on a note or a sidebar.
+   - **`ca` unclosed** — only closed `\ca …\ca*` forms appear.
+   - **The 2SA whitespace matrix** — no space-after-closer versus space-between rows.
+
+   Note the stylesheet mechanics: the fixture registers tags per-project via `AddTag` because
+   `DummyScrStylesheet` lacks `va`/`vp`/`ca`, and without them ParatextData degrades those spans to
+   unknown PARAGRAPHS. Check whether `cat` needs the same treatment before writing its cases. Read
+   `c-sharp-tests/Usfm31NestingTripwireTests.cs` first — it also pins attribute behavior.
 2. **Agreement test.** Assert the editor's attribute-marker table and the markers map agree on every
    marker, attribute name, shape, and host set. This is the anti-drift guard, and it is where the
    marker-name-versus-node-type keying difference gets pinned rather than left implicit.
@@ -146,6 +192,14 @@ coincidence.
 
 5. `cat` displays and edits in the note editor and in expanded note mode — wherever note content is
    shown. Collapsed notes deliberately do not show it.
+
+   **Correction to this plan's earlier diagnosis:** expanded mode does not show `cat` either, and the
+   reason is simpler than "collapsed note bodies are sentinels." NO adaptor ever builds the bytes.
+   `createNote` in `usj-editor.adaptor.ts` carries `category` onto the serialized node and emits
+   children of opening glyph, caller, content, closing glyph — no `\cat` bytes in EITHER branch; the
+   collapsed/expanded split changes only caller shape and NBSP spacing. The note editor's own
+   adaptor (`packages/scribe/src/editor/adaptors/note-usj-editor.adaptor.ts`) is identical. So this
+   task touches BOTH adaptors, and there is no "expanded already works" starting point.
 
 ### Stage C — the chapter settle scope, then `ca`
 
