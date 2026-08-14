@@ -351,36 +351,52 @@ marker menu uses the stylesheet's `Endmarker`. The two differ for any tag where 
 
 ---
 
-## 7c. The save path runs through this repo
+## 7c. Whitespace loss in the USX converters
 
-**Whitespace-only text nodes are lost in USJ to USX serialization.** The editor's save path is
-`editor USJ -> usjToUsxString() -> setChapterUSX() -> ParatextData -> USFM`, so
-`@eten-tech-foundation/scripture-utilities` sits in the middle of every save — and that package is
-`packages/utilities` IN THIS REPO, a sibling of `platform`, `shared`, and `shared-react`. The
-converter is `packages/utilities/src/converters/usj/usj-to-usx.ts`. **Owned by the whitespace
-track**, not by anyone else and not by anyone upstream.
+**The loss is on the PARSE side, not the serialize side.** An earlier revision of this section said
+the opposite; it was derived from a round-trip probe that could not tell the two halves apart, and
+running the converters separately settles it.
 
-A whitespace-only text node that is the FIRST CHILD of an element is elided: the serializer emits
-`<note …><char style="fr">` with no text node between the tags, so the parser has nothing to read
-back. Measured over all five testUSFM oracles, this is the only content loss in that leg —
-one instance, `$[11].content[1].content[0]` in 2SA-1, a `" "` before `char:fr` inside an `\fe` note.
-Everything else round-trips identically once `sid`/`eid`/`vid` are ignored, and those are derived
-metadata the writer never outputs.
+The converters are `packages/utilities/src/converters/usj/` IN THIS REPO — `@eten-tech-foundation/
+scripture-utilities` is `packages/utilities`, a sibling of `platform`, `shared`, and `shared-react`.
+**Owned by the whitespace track.**
+
+- `usj-to-usx.ts` **elides nothing.** It creates and appends a text node for every string
+  unconditionally, and the XML serializer writes whitespace-only nodes verbatim. Unchanged since
+  2025.
+- `usx-to-usj.ts` drops them. Its first-child branch requires the trimmed value to be non-empty, so a
+  whitespace-only first child never becomes text. Its tail-text branch is more careful and rescues an
+  exact single space — which is why the loss is asymmetric.
+
+Measured boundary matrix (serialize always correct; every loss is on read-back):
+
+| Shape | Round-trips? |
+| --- | --- |
+| whitespace-only FIRST child | **lost** |
+| whitespace-only ONLY child | **lost** (content is then deleted entirely) |
+| whitespace-only LAST child, single space | preserved |
+| single space BETWEEN two elements | preserved |
+| **multi-space between two elements** | **lost** — only an exact single space is rescued |
+| multi-space first child | **lost** |
 
 User-visible form: `\fe + \cat things\cat* \fr …` loses the space after the attribute marker's
 closer, which Paratext treats as note text content.
 
-Notes for whoever picks this up:
+### Two corrections that change what to do next
 
-- **Not an editor-layer defect.** All four legs above the converter preserve the space — the
-  tokenizer, the adaptor round trip, the transform pass, and `UsjReaderWriter.toUsfm()`. `toUsfm` in
-  particular is byte-exact green on this fixture AND is not in the save path at all; do not use it
-  to reason about save behavior.
-- **ParatextData is exonerated** without needing a C# capture test: the space is already gone before
-  the C# side receives the USX.
-- **The regression net is a fifth leg**, USJ to USX to USJ, over the fixtures that already exist.
-  `packages/utilities/src/converters/usj/optbreak-whitespace.test.ts` is the precedent — that
-  directory already carries a whitespace-specific converter suite.
+- **ParatextData is NOT exonerated.** The save path is
+  `editor USJ -> usjToUsxString() -> setChapterUSX() -> ParatextData`, and it never calls
+  `usxStringToUsj`. Since the serializer preserves the space, the space IS present in the USX handed
+  to C#. So the user-visible loss is either on the LOAD leg
+  (`getChapterUSX() -> usxStringToUsj -> editor`) or inside ParatextData. **Re-derive which before
+  estimating the fix**, and do not skip the C# capture test on the strength of the earlier claim.
+- **`UsjReaderWriter.toUsfm()` remains irrelevant** — byte-exact green on this fixture and not in the
+  save path at all. That much still holds; do not use it to reason about save behavior.
+
+The regression net is still a USJ-to-USX-to-USJ suite over the existing fixtures, and it will still
+go red — but it conflates both converters, so a failure there localizes nothing on its own. Pair it
+with a direct USX-to-USJ assertion.
+`packages/utilities/src/converters/usj/optbreak-whitespace.test.ts` is the precedent.
 
 ---
 

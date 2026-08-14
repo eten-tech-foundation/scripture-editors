@@ -83,15 +83,16 @@ const KNOWN_FAILURES: { [fixtureName: string]: string } = {};
 /**
  * The same contract as {@link KNOWN_FAILURES}, for the transform leg below.
  *
- * Both entries are the SAME defect as the two in `corpus-transform-fixed-point.test.tsx` —
+ * Both entries are the SAME defect as the three in `corpus-transform-fixed-point.test.tsx` —
  * `$addTrailingSpace` fabricating a trailing space on a dirtied text node whose next sibling is a
- * node class its exemption list omits. The rich fixtures widen the known site list from two classes
- * to four, which is the whole reason this suite exists.
+ * node class its exemption list omits. The rich fixtures widen the known site list, which is the
+ * whole reason this suite exists.
  */
 const KNOWN_TRANSFORM_FAILURES: { [fixtureName: string]: string } = {
   "testUSFM-2SA-1.usj":
     "whitespace track: $addTrailingSpace fabricates a trailing space before a milestone, before a " +
-    "block-level figure, and before a ref",
+    "block-level figure, and before an ImmutableUnmatchedNode (the `\\ref*` unmatched closer). An " +
+    "inline unknown such as `ref` itself IS exempted and is not a site",
   "testUSFM-2SA-2.usj":
     "whitespace track: $addTrailingSpace fabricates a trailing space on the last text node of NOTE " +
     "content — a context absent from the authored corpus",

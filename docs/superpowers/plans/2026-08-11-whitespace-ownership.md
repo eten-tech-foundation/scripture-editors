@@ -47,37 +47,58 @@ blocks' own defects (that track supplies the failing fixture, this track lands t
 
 ### Task 1 — the converter, fully specified and independent
 
-`packages/utilities/src/converters/usj/usj-to-usx.ts` elides a whitespace-only text node that is the
-first child of an element, so `<note …><char style="fr">` is emitted with nothing between the tags
-and the parser has nothing to read back. This is in the editor's real save path and is the only
-content loss measured in that leg.
+**The defect is in the PARSER, `usx-to-usj.ts` — not the serializer.** `usj-to-usx.ts` emits every
+string unconditionally and the XML serializer writes whitespace-only nodes verbatim; it is unchanged
+since 2025. `usx-to-usj.ts` drops them: its first-child branch requires a non-empty trimmed value,
+while its tail-text branch rescues an exact single space. See invariants §7c for the measured
+boundary matrix.
 
-1. **Red:** a USJ-to-USX-to-USJ round trip over the five testUSFM oracles. Expect exactly one
-   failure — `$[11].content[1].content[0]`, a `" "` before `char:fr` inside an `\fe` note in 2SA-1 —
-   and zero other differences once `sid`/`eid`/`vid` are ignored, since those are derived metadata
-   the writer never outputs. Follow `optbreak-whitespace.test.ts` in the same directory, which is
-   the existing precedent for a whitespace-specific converter suite.
-2. **Green:** emit whitespace-only text nodes rather than eliding them. Verify the fix at the
-   boundary cases the round trip does not reach on its own: a whitespace-only node as the LAST child,
-   as the ONLY child, and between two elements.
-3. **Guard:** confirm the USX stays valid and that `usxStringToUsj` reads the emitted whitespace back
-   verbatim — it already preserves inter-element whitespace as text content, which is why the loss is
-   on the serialize side only.
+1. **Red, direct:** a USX-to-USJ assertion over the whole boundary matrix — whitespace-only as first
+   child, as only child, as last child, single space between elements, MULTI-space between elements,
+   multi-space first child. Four of those six are lost today. Follow `optbreak-whitespace.test.ts` in
+   the same directory.
+2. **Red, end-to-end:** a USJ-to-USX-to-USJ round trip over the five testUSFM oracles. It fails on
+   2SA-1, but it conflates both converters, so keep it as a NET and diagnose with task 1.
+3. **Green:** preserve whitespace-only text nodes on read-back. Multi-space between elements is part
+   of the fix, not a follow-up — today only an exact single space survives there.
+4. **Re-derive the user-visible path before closing this out.** The save leg never calls
+   `usxStringToUsj`, so the space IS in the USX handed to C#. The reported symptom therefore comes
+   from the LOAD leg or from ParatextData, and a parser fix alone may not resolve it. Settle it with
+   a C# capture case; do not rely on the retracted "ParatextData is exonerated" claim.
 
-This task is independent of everything else here and of the moving branch. Do it first.
+Tasks 1-3 are independent of everything else here and of the moving branch. Do them first. Task 4 may
+hand work to the attribute-markers track's capture-test extension.
 
 ### Task 2 — the transform's four jobs
 
-4. **Red:** un-skip the four known-failure entries in `corpus-transform-fixed-point.test.tsx` and
-   `corpus-testusfm-round-trip.test.tsx`. All four are `$addTrailingSpace` fabricating on a dirtied
-   text node whose next sibling is a node class its exemption list omits: a milestone, a block-level
-   figure, a `ref`, and the last text node of NOTE content.
-5. **Red:** a lone space typed into an empty paragraph survives. Same for wrapping a whitespace-only
+5. **Red:** un-skip the FIVE known-failure entries across `corpus-transform-fixed-point.test.tsx`
+   (three) and `corpus-testusfm-round-trip.test.tsx` (two). All are `$addTrailingSpace` fabricating
+   on a dirtied text node whose next sibling is a node class the exemption list omits: a milestone,
+   a block-level figure, an `ImmutableUnmatchedNode`, the last text node of NOTE content, and a
+   table cell.
+
+   Two corrections to earlier drafts of this list: **`ref` is NOT a site** — it is an inline unknown,
+   it IS exempted, and there is a green pin saying so; the 2SA-1 third site is the `\ref*` unmatched
+   closer. And the **table cell** site appeared only when table cells changed representation, which
+   is the strongest available argument for landing the fixed-point suite before the tracks start.
+
+   The exemption list is twelve conditions plus a last-child-of-para-like guard. `MilestoneNode`,
+   `ImmutableUnmatchedNode`, and `ImmutableTableCellNode` are absent from it, and block unknowns fall
+   through because condition 10 gates on `isInlineTag()` where the inline set is exactly
+   `{optbreak, ref}`.
+6. **Red:** a lone space typed into an empty paragraph survives. Same for wrapping a whitespace-only
    selection, which currently produces an empty span beside the orphaned space.
-6. **Green:** split the transform's jobs. Preserve stays; fabricate, delete, and absorb go.
-7. **Regression:** a space the source file HAD must still survive a rebuild, a collab apply, and a
-   paste. This is the job being kept, and nothing currently pins it — write the pin before touching
-   the transform.
+7. **Green:** split the transform's jobs. Preserve stays; fabricate and delete go.
+
+   **ABSORB is not in this transform.** The trailing-space transform returns early on already-spaced
+   text, so a second typed space survives there. The real absorb sites are the two separators: the
+   para-prefix heal in `markerEditDeletion.utils.ts` canonicalizes a typed plain space into an
+   engine-owned NBSP, and `$syncOpenerSeparators` re-prefixes NBSP once the caret leaves. The first
+   of those is a **Closers-owned file** — see Risks.
+8. **Regression:** a space the source file HAD must still survive a rebuild, a collab apply, and a
+   paste. This is the job being kept, nothing currently pins it, and `$addTrailingSpace` cannot tell
+   a preserved space from a fabricated one — there is no code path that knows whether the space was
+   in the source. Write the pin before touching the transform.
 
 ### Task 3 — separator deletion means what the bytes mean
 
@@ -95,20 +116,44 @@ This task is independent of everything else here and of the moving branch. Do it
     verse 5 and `\v 7 5` is verse 7 followed by text `5`. Derived from the map, not a marker list.
 13. A space typed at an opener separator lands with the caret between the two spaces, not past both.
 
+## Provenance: extend the existing convention, do not invent one
+
+The plan's proposed "heal machine drift, never a user edit" rule **already exists for display runs**
+and should be extended rather than re-derived. Update tags live in `node-constants.ts`; the collab
+path tags remote applies with `DELTA_CHANGE_TAG`, and two decisions already gate on provenance:
+`$runDestroyedSinceLastCommit` suppresses a heal on a remote apply, and the marker-edit plugin
+suppresses a pend on `HISTORIC_TAG` or `DELTA_CHANGE_TAG`. There is a test precedent pinning the
+behavior.
+
+Two gaps this track inherits: there is **no paste tag**, which task 8's regression pin needs; and
+none of the whitespace transforms or the separator syncs read any tag today.
+
 ## Acceptance
 
-- All four skip-list entries deleted, both suites green with no skips.
-- The converter round trip green over all five oracles.
+- All FIVE skip-list entries deleted, both suites green with no skips.
+- The direct USX-to-USJ boundary matrix green, including multi-space between elements.
 - Corpus suites at full count, zero skips; lint and typecheck clean in root and nx contexts.
-- No transform fabricates, deletes, or absorbs; the preserve job is pinned.
+- No transform fabricates or deletes; the preserve job is pinned; the two separator absorb sites are
+  resolved or explicitly handed to the closers track.
 
 ## Risks
 
+- **Replacing caret grace is now REGISTRY-WIDE, not one module.** The separator joined the
+  display-run registry as its own kind, with `graceSite` wired through the generic
+  `$caretHoldsRunSite` dispatch — which has six non-test call sites across the sync driver, the
+  marker-edit plugin, Tier 1, and the Tier-2 trigger. The ownership table gives this track only
+  `markerSeparators.utils.ts`; the registry and its consumers belong elsewhere. **This is the largest
+  scope change since the plan was written** and the one most likely to force a sequencing decision
+  with the other tracks.
+- **The absorb sites are Closers-owned.** The para-prefix heal lives in `markerEditDeletion.utils.ts`.
+  Either hand task 7's absorb half to that track or agree a split before starting.
 - **This track shares `markerEditTier1.utils.ts` with the closers track.** Split by function or
-  sequence. The invariants doc's ownership table records the contention.
-- **`TextSpacingPlugin` is moving.** The display-run registry work reworked it while this plan was
-  written. Rebase before starting task 2; task 1 is unaffected.
-- **Task 7's regression pin is the load-bearing one.** Every other task removes behavior; that one
-  protects the behavior worth keeping. If it cannot be written first, the rest of task 2 waits.
+  sequence.
+- **Task 8's regression pin is the load-bearing one.** Every other task removes behavior; that one
+  protects the behavior worth keeping. If it cannot be written first, the rest of task 2 waits. Note
+  it needs a paste-provenance signal that does not exist yet.
 - **Space reuse overlaps the char-stack track**, which pulls an existing intra-span space out of a
   span. That is a content edit at a site this track is also changing.
+- The para-prefix separator (`$createMarkerTrailingSeparator`, `MARKER_TRAILING_SPACE_TEXT_TYPE`) and
+  the char-opener separator (`markerSeparators.utils.ts`) are **different primitives**. Task 3 item 9
+  builds on the former; do not conflate them.
