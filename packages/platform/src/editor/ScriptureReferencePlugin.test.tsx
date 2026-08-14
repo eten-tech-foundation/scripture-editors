@@ -586,6 +586,40 @@ describe("ScriptureReferencePlugin", () => {
       });
     });
 
+    // Platform.Bible loads ONE CHAPTER at a time, and only chapter 1's USJ carries the book's
+    // opening `\id` line - every other chapter arrives as a document with no BookNode at all. Such
+    // an arrival is still the document the navigation was waiting for, so it must place the caret
+    // exactly like a book-bearing one; otherwise the swap's null selection is what the user is
+    // left with, and the caret simply vanishes on every chapter change.
+    it("places the caret when the arriving chapter document carries no book node", async () => {
+      const { editor, setScrRef } = await testEnvironment(scrRef, mockOnScrRefChange);
+
+      await setScrRef({ book: "GEN", chapterNum: 2, verseNum: 9 });
+      await swapDocument(editor, $bookLessChapter2State);
+      await flushQueuedEvents();
+
+      editor.getEditorState().read(() => {
+        const startNode = getSelectionStartNodeForTest($getSelection());
+        expect(startNode?.getTextContent()).toBe("verse nine ");
+      });
+    });
+
+    // The same document shape on MOUNT: opening the editor directly on any chapter but the first
+    // must still put the caret at the reference, not leave the editor with no selection.
+    it("places the caret on mounting a chapter document that carries no book node", async () => {
+      const { editor } = await testEnvironment(
+        { book: "GEN", chapterNum: 2, verseNum: 9 },
+        mockOnScrRefChange,
+        $bookLessChapter2State,
+      );
+      await flushQueuedEvents();
+
+      editor.getEditorState().read(() => {
+        const startNode = getSelectionStartNodeForTest($getSelection());
+        expect(startNode?.getTextContent()).toBe("verse nine ");
+      });
+    });
+
     it("keeps the caret still when two reports echo back in order (FIFO, not a slot)", async () => {
       const { editor, setScrRef } = await testEnvironment(scrRef, mockOnScrRefChange);
       await pressEditor(editor); // ensure idle
@@ -1189,6 +1223,20 @@ function $twoChapterState() {
 function $chapter2State() {
   $getRoot().append(
     $createBookNode("GEN").append($createTextNode("Test Book")),
+    $createImmutableChapterNode("2"),
+    $createParaNode().append($createImmutableVerseNode("8"), $createTextNode("verse eight ")),
+    $createParaNode().append($createImmutableVerseNode("9"), $createTextNode("verse nine ")),
+    $createParaNode().append($createImmutableVerseNode("10"), $createTextNode("verse ten ")),
+  );
+}
+
+/**
+ * The same chapter 2, as Platform.Bible actually serves it: a chapter-only document with NO book
+ * node. Only chapter 1's USJ carries the book's opening `\id` line, so every other chapter arrives
+ * unable to name its own book.
+ */
+function $bookLessChapter2State() {
+  $getRoot().append(
     $createImmutableChapterNode("2"),
     $createParaNode().append($createImmutableVerseNode("8"), $createTextNode("verse eight ")),
     $createParaNode().append($createImmutableVerseNode("9"), $createTextNode("verse nine ")),

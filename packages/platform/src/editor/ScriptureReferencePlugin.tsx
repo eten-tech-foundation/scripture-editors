@@ -115,7 +115,9 @@ import {
   $isSomeChapterNode,
   $placeCaretAtBoundary,
   BookNode,
+  ChapterNode,
   CURSOR_CHANGE_TAG,
+  ImmutableChapterNode,
   getSelectionStartNode,
   isVerseInRange,
   isVerseRange,
@@ -221,6 +223,45 @@ export function ScriptureReferencePlugin({
           });
         },
         { skipInitialization: false },
+      ),
+    [editor],
+  );
+
+  // documentChanged, second signal: chapter-only documents. Platform.Bible serves ONE CHAPTER at a
+  // time and only the first chapter's USJ carries the book's opening `\id` line, so every other
+  // chapter arrives as a document with NO BookNode - invisible to the listener above, which sees a
+  // chapter 1 -> N swap as "destroyed" alone (early-returned) and an N -> M swap as nothing at all.
+  // Left unseen, the swap's null selection is never repaired and the caret vanishes on every
+  // chapter change and on mounting anywhere but the first chapter.
+  //
+  // The two signals are disjoint by construction: this one stands down whenever the committed
+  // document HAS a book code, which is exactly the case the BookNode listener can see for itself.
+  // Both chapter flavors are watched because the view mode picks between them (editable markers
+  // render ChapterNode, hidden markers ImmutableChapterNode) and either may be the one a document
+  // is built from; within one commit only the populated flavor reports anything but "destroyed".
+  useEffect(
+    () =>
+      mergeRegister(
+        ...[ChapterNode, ImmutableChapterNode].map((chapterClass) =>
+          editor.registerMutationListener(
+            chapterClass,
+            (nodeMutations, { prevEditorState }) => {
+              const kinds = [...nodeMutations.values()];
+              if (kinds.every((kind) => kind === "destroyed")) return;
+              // A document that can name its own book is the BookNode listener's to handle; acting
+              // on it here too would run onDocumentChanged twice for one commit.
+              if (getCommittedBookCode(editor)) return;
+              onDocumentChanged(machineRef.current, editor, undefined, {
+                hasCreated: kinds.includes("created"),
+                hasDestroyed: kinds.includes("destroyed"),
+                isSameDocumentReload:
+                  getBookChapterIdentity(prevEditorState) ===
+                  getBookChapterIdentity(editor.getEditorState()),
+              });
+            },
+            { skipInitialization: false },
+          ),
+        ),
       ),
     [editor],
   );
@@ -364,8 +405,12 @@ function onDocumentChanged(
   if (batch.hasCreated) machine.sawDocument = true;
 
   if (machine.phase === "navigating") {
-    // Silence - except the arrival of the document the navigation is waiting for.
-    if (batch.hasCreated && bookCode && bookCode === machine.scrRef.book) {
+    // Silence - except the arrival of the document the navigation is waiting for. A document with
+    // no book code cannot contradict the prop (I1's no-book fallback: it cannot name its own book,
+    // so the prop is the sole authority), so it is always the arrival being waited for; only a
+    // document that names a DIFFERENT book is the stale one this gate exists to skip. Same rule as
+    // onPropChanged's placement gate.
+    if (batch.hasCreated && (!bookCode || bookCode === machine.scrRef.book)) {
       schedulePlacingCaretAtVerseStart(machine, editor);
     }
     return;
