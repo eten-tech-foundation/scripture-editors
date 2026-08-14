@@ -520,51 +520,75 @@ function $moveCaretToVerseStart(chapterNum: number, verseNum: number) {
 }
 
 /**
- * Parks the caret at the start of `verse`'s content: the first position past its marker that the
- * browser will actually draw a caret at.
+ * Parks the caret at the very start of `verse`'s content — immediately after the space that follows
+ * the verse number, and BEFORE anything that content opens with: a note caller, a char span, a
+ * milestone. Verse navigation names a location in the text; it must never step over content to
+ * reach it, so the caret lands on the same side of the verse's first thing every time.
  *
- * `selectNext(0, 0)` — what this used to do — names the position after the marker without asking
- * whether anything renders there, and both ways it can miss are real documents:
+ * That position is the boundary just past the verse marker. Naming it is easy; expressing it as a
+ * point the browser will actually DRAW a caret at is the work, because the obvious spellings fail:
  *
- * - a verse whose content opens with a NOTE. Lexical normalizes the resulting element point into
- *   the first text it can find, which is the note's own `\f` glyph — hidden text while the note is
- *   collapsed, so the caret disappears into it.
- * - a verse whose content opens with a DECORATOR (a milestone, an unknown block). Nothing there can
- *   carry a text point, so the position stays a bare element point, which draws no caret either —
- *   the same dead-position class PT-4308 documents for empty verses.
+ * - `verse.selectNext(0, 0)` selects INTO the following node. When that is a collapsed note, Lexical
+ *   resolves it to the note's own `\f`/`\x` glyph — hidden while collapsed — and the caret vanishes.
+ * - the boundary's element point (`para.select(i, i)`) draws nothing at all when no text node
+ *   follows it. Measured in the app: `Range.getClientRects()` returns 0 there.
+ * - walking FORWARD to the next node that can host a caret does draw one, but on the wrong side of
+ *   the caller — the reported bug this replaces.
  *
- * Both look identical to the user: verse navigation leaves no visible caret, and the first arrow
- * press appears to conjure one out of nowhere (it moves the caret onto rendered text). So walk
- * forward to the first boundary that has a caret host, treating a note as an annotation hanging off
- * the verse rather than the start of its text, and descending into anything else that is content
- * (a `\nd` char span opening a verse hosts the caret in its own glyph). Stop at the next verse
- * marker: a verse with no content of its own must not borrow the following verse's text — the
- * element point left behind is exactly the state `EmptyVerseCaretGuardPlugin` detects and repairs
- * with a caret host of its own.
+ * So the position is expressed, in order of preference, as:
+ *
+ * 1. offset 0 of the text node that follows the boundary — plain content, the common case;
+ * 2. the END of the verse marker itself, when the marker is editable text (Standard/Unformatted
+ *    views, where a verse is a `VerseNode` whose text is literally `\v 9 `). That is the same screen
+ *    location — after the marker's own trailing space, left of the caller — and it is already where
+ *    arrow navigation rests when walking leftward out of the verse's content;
+ * 3. the first text at the START of a char span that opens the verse, when the marker is an
+ *    immutable decorator and so cannot host anything. Descending is still the boundary, not past it:
+ *    only the first-child chain is followed, never a later sibling. A note is never descended into —
+ *    a caller is an annotation hanging off the verse, not the start of its text;
+ * 4. the boundary's element point. An empty verse (nothing follows, or the next verse marker does)
+ *    always takes this branch, deliberately: it is the state `EmptyVerseCaretGuardPlugin` detects
+ *    and repairs with a caret host of its own, and the caret must not borrow the next verse's text.
  */
 function $placeCaretAtVerseContentStart(verse: SomeVerseNode) {
   const para = verse.getParent();
   if (!para) return;
   const contentStart = verse.getIndexWithinParent() + 1;
-  const host = $findVerseContentCaretHost(para, contentStart);
-  if (host) host.select(0, 0);
+
+  // The verse has no content of its own when nothing follows the marker or the next verse marker
+  // does — and an editable verse marker is itself a TextNode, so this has to be asked before the
+  // caret-host question, which would otherwise answer with the NEXT verse's marker.
+  const opening = para.getChildAtIndex(contentStart);
+  if (!opening || $isSomeVerseNode(opening)) {
+    $placeCaretAtBoundary(para, contentStart);
+    return;
+  }
+
+  const host = $caretHostAtBoundary(para, contentStart);
+  if (host) {
+    host.select(0, 0);
+    return;
+  }
+
+  // Content the caret must stay in front of, with nothing at the boundary able to carry a point.
+  if ($isTextNode(verse)) {
+    const markerEnd = verse.getTextContentSize();
+    verse.select(markerEnd, markerEnd);
+    return;
+  }
+
+  const nested =
+    $isElementNode(opening) && !$isNoteNode(opening) ? $firstCaretHost(opening) : undefined;
+  if (nested) nested.select(0, 0);
   else $placeCaretAtBoundary(para, contentStart);
 }
 
-/** The caret host at or after the boundary before `parent`'s child at `index`, without leaving the
- * verse that boundary belongs to (i.e. stopping at the next verse marker). */
-function $findVerseContentCaretHost(parent: ElementNode, index: number): TextNode | undefined {
-  for (let childIndex = index; childIndex < parent.getChildrenSize(); childIndex += 1) {
-    const child = parent.getChildAtIndex(childIndex);
-    // An editable verse marker is itself a TextNode, so this has to come before the host check.
-    if ($isSomeVerseNode(child)) return undefined;
-    const host = $caretHostAtBoundary(parent, childIndex);
-    if (host) return host;
-    if ($isElementNode(child) && !$isNoteNode(child)) {
-      const nestedHost = $findVerseContentCaretHost(child, 0);
-      if (nestedHost) return nestedHost;
-    }
-  }
+/** The caret host at the very START of `element`'s content: its first-child chain only, so the
+ * caret can never skip over content on its way to somewhere drawable. Notes are not entered. */
+function $firstCaretHost(element: ElementNode): TextNode | undefined {
+  const first = element.getFirstChild();
+  if ($isTextNode(first)) return first;
+  if ($isElementNode(first) && !$isNoteNode(first)) return $firstCaretHost(first);
   return undefined;
 }
 

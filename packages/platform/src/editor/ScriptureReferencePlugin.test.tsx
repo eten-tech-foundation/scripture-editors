@@ -36,11 +36,13 @@ import {
   $createMilestoneNode,
   $createNoteNode,
   $createParaNode,
+  $createVerseNode,
   $isBookNode,
   getSelectionStartNode,
+  getVisibleOpenMarkerText,
   ParaNode,
 } from "shared";
-import { $createImmutableVerseNode, usjReactNodes } from "shared-react";
+import { $createImmutableVerseNode, SomeVerseNode, usjReactNodes } from "shared-react";
 
 beforeAll(() => {
   // jsdom has no layout engine, so it never implemented `Range.getBoundingClientRect` (unlike
@@ -85,9 +87,13 @@ let secondVerseTextNode: TextNode;
 let thirdVerseTextNode: TextNode;
 let chapter1Verse2Text: TextNode;
 let chapter2Verse2Text: TextNode;
-let noteVerseTextNode: TextNode;
-let milestoneVerseTextNode: TextNode;
 let charVerseFirstTextNode: TextNode;
+let plainVerseTextNode: TextNode;
+let noteVerseMarker: SomeVerseNode;
+let milestoneVerseMarker: SomeVerseNode;
+let charVerseMarker: SomeVerseNode;
+let emptyVerseMarker: SomeVerseNode;
+let noteVersePara: ParaNode;
 let emptyVersePara: ParaNode;
 
 beforeAll(() => {
@@ -312,62 +318,105 @@ describe("ScriptureReferencePlugin", () => {
       expect(mockOnScrRefChange).not.toHaveBeenCalled();
     });
 
-    // A verse's content does not always begin with text. When it begins with a node that renders
-    // no caret of its own — a collapsed note (its glyphs are hidden; only the caller shows) or a
-    // decorator such as a milestone — parking the caret at "offset 0 of whatever follows the
-    // marker" leaves the browser drawing NOTHING: the same dead position PT-4308's
-    // `EmptyVerseCaretGuardPlugin` exists to repair for empty verses. Live repro (Standard view,
-    // demos/platform): navigate to a verse whose marker is followed by a collapsed note and the
-    // caret vanishes (`Range.getClientRects()` returns 0) until one arrow press moves it onto the
-    // verse text. Verse navigation must land on a position the caret can actually be seen at.
-    it("places the caret on the verse text when a collapsed note follows the marker", async () => {
+    // A verse's content does not always begin with text, and verse navigation must land on the
+    // SAME SIDE of whatever it does begin with every time: immediately after the space that follows
+    // the verse number, before a note caller, a char span, or a milestone. Reported from Standard
+    // view in the app — `\v 8 *Layta`, Ctrl+Up onto verse 8, and the caret came to rest to the
+    // RIGHT of the footnote caller because placement walked forward looking for something that
+    // could draw a caret. In Standard view it never has to: the verse marker is itself editable
+    // text (`\v 8 `), so its end is a real text point at exactly that screen location — measured in
+    // the app at x=84.59 with the caller starting at x=87.61, and it is where an ArrowLeft out of
+    // the verse's content already rests.
+    it("rests at the end of the editable verse marker when a collapsed note opens the verse", async () => {
       const { editor, setScrRef } = await testEnvironment(
         scrRef,
         mockOnScrRefChange,
-        $verseContentStartingWithNonTextState,
+        $editableVerseContentStartingWithNonTextState,
       );
       updateSelection(editor, firstVerseTextNode, 2);
 
       await setScrRef({ ...scrRef, verseNum: 2 });
 
       editor.getEditorState().read(() => {
-        // NOT inside the note (whose glyph text is hidden while collapsed).
-        $expectSelectionToBe(noteVerseTextNode, 0);
+        // LEFT of the caller. Not inside the note, and not the text past it.
+        $expectSelectionToBe(noteVerseMarker, noteVerseMarker.getTextContentSize());
       });
       expect(mockOnScrRefChange).not.toHaveBeenCalled();
     });
 
-    it("places the caret on the verse text when a milestone decorator follows the marker", async () => {
+    it("rests at the end of the editable verse marker when a milestone decorator opens the verse", async () => {
       const { editor, setScrRef } = await testEnvironment(
         scrRef,
         mockOnScrRefChange,
-        $verseContentStartingWithNonTextState,
+        $editableVerseContentStartingWithNonTextState,
       );
       updateSelection(editor, firstVerseTextNode, 2);
 
       await setScrRef({ ...scrRef, verseNum: 3 });
 
       editor.getEditorState().read(() => {
-        // NOT the element point beside the decorator, which renders no caret.
-        $expectSelectionToBe(milestoneVerseTextNode, 0);
+        // Not the element point beside the decorator, which renders no caret, and not the text
+        // beyond it.
+        $expectSelectionToBe(milestoneVerseMarker, milestoneVerseMarker.getTextContentSize());
       });
       expect(mockOnScrRefChange).not.toHaveBeenCalled();
     });
 
-    it("places the caret inside a char span that opens the verse (its glyph hosts the caret)", async () => {
+    it("rests at the end of the editable verse marker when a char span opens the verse", async () => {
       const { editor, setScrRef } = await testEnvironment(
         scrRef,
         mockOnScrRefChange,
-        $verseContentStartingWithNonTextState,
+        $editableVerseContentStartingWithNonTextState,
       );
       updateSelection(editor, firstVerseTextNode, 2);
 
       await setScrRef({ ...scrRef, verseNum: 4 });
 
       editor.getEditorState().read(() => {
-        // A char span is the verse's own content, so the caret goes to its first text — which in
-        // editable-marker mode is the visible `\nd` glyph — rather than skipping the span.
-        $expectSelectionToBe(charVerseFirstTextNode, 0);
+        // Before the span's own `\nd` glyph, not inside it — the same screen location, and the one
+        // position that means "the very start of this verse" whatever the verse opens with.
+        $expectSelectionToBe(charVerseMarker, charVerseMarker.getTextContentSize());
+      });
+      expect(mockOnScrRefChange).not.toHaveBeenCalled();
+    });
+
+    it("stops at the next verse marker for an empty verse with an editable marker", async () => {
+      const { editor, setScrRef } = await testEnvironment(
+        scrRef,
+        mockOnScrRefChange,
+        $editableVerseContentStartingWithNonTextState,
+      );
+      updateSelection(editor, firstVerseTextNode, 2);
+
+      await setScrRef({ ...scrRef, verseNum: 5 });
+
+      editor.getEditorState().read(() => {
+        // Nothing but the NEXT verse marker follows, so placement leaves the boundary element point
+        // — and in editable-marker mode Lexical's own selection normalization then resolves that to
+        // the end of this verse's marker, which draws a caret in the right place. Either way the
+        // caret must NOT run on into verse 6's text.
+        $expectSelectionToBe(emptyVerseMarker, emptyVerseMarker.getTextContentSize());
+      });
+      expect(mockOnScrRefChange).not.toHaveBeenCalled();
+    });
+
+    // Every view but Standard/Unformatted renders a verse as a childless `ImmutableVerseNode`
+    // decorator, which cannot host a caret, so the marker's end is not available as a position
+    // there. The rule is the same — never step past what the verse opens with — and it is only the
+    // expression of it that changes.
+    it("places the caret on the verse text when the verse opens with text", async () => {
+      const { editor, setScrRef } = await testEnvironment(
+        scrRef,
+        mockOnScrRefChange,
+        $immutableVerseContentStartingWithNonTextState,
+      );
+      updateSelection(editor, firstVerseTextNode, 2);
+
+      await setScrRef({ ...scrRef, verseNum: 6 });
+
+      editor.getEditorState().read(() => {
+        // The common case, unchanged: offset 0 of the text node that follows the marker.
+        $expectSelectionToBe(plainVerseTextNode, 0);
       });
       expect(mockOnScrRefChange).not.toHaveBeenCalled();
     });
@@ -376,7 +425,7 @@ describe("ScriptureReferencePlugin", () => {
       const { editor, setScrRef } = await testEnvironment(
         scrRef,
         mockOnScrRefChange,
-        $verseContentStartingWithNonTextState,
+        $immutableVerseContentStartingWithNonTextState,
       );
       updateSelection(editor, firstVerseTextNode, 2);
 
@@ -387,6 +436,42 @@ describe("ScriptureReferencePlugin", () => {
         // exactly the state `EmptyVerseCaretGuardPlugin` detects and repairs with a caret host.
         // The caret must NOT run on into the next verse looking for text.
         $expectSelectionToBe(emptyVersePara, 1);
+      });
+      expect(mockOnScrRefChange).not.toHaveBeenCalled();
+    });
+
+    it("descends into a char span that opens the verse when the marker is an immutable decorator", async () => {
+      const { editor, setScrRef } = await testEnvironment(
+        scrRef,
+        mockOnScrRefChange,
+        $immutableVerseContentStartingWithNonTextState,
+      );
+      updateSelection(editor, firstVerseTextNode, 2);
+
+      await setScrRef({ ...scrRef, verseNum: 4 });
+
+      editor.getEditorState().read(() => {
+        // The span's first text is its own start, so this is still the boundary, not past it.
+        $expectSelectionToBe(charVerseFirstTextNode, 0);
+      });
+      expect(mockOnScrRefChange).not.toHaveBeenCalled();
+    });
+
+    it("leaves the boundary element point when a note opens a verse with an immutable marker", async () => {
+      const { editor, setScrRef } = await testEnvironment(
+        scrRef,
+        mockOnScrRefChange,
+        $immutableVerseContentStartingWithNonTextState,
+      );
+      updateSelection(editor, firstVerseTextNode, 2);
+
+      await setScrRef({ ...scrRef, verseNum: 2 });
+
+      editor.getEditorState().read(() => {
+        // A caller is an annotation, never descended into, and nothing before it can carry a text
+        // point once the marker is a decorator — measured in the app, the element point here draws
+        // no caret. Correct side with no caret beats visible caret on the wrong side.
+        $expectSelectionToBe(noteVersePara, 1);
       });
       expect(mockOnScrRefChange).not.toHaveBeenCalled();
     });
@@ -1146,40 +1231,54 @@ function $defaultInitialEditorState() {
 
 /**
  * A GEN chapter whose verses open with something other than text: a collapsed note (verse 2), a
- * milestone decorator (verse 3), a char span (verse 4), and nothing at all (verse 5, an empty verse
- * whose para continues with verse 6). Verse-start placement has to answer each of those.
+ * milestone decorator (verse 3), a char span (verse 4), nothing at all (verse 5, an empty verse
+ * whose para continues with verse 6), and plain text (verse 6). Verse-start placement has to answer
+ * each of those.
+ *
+ * `$createVerse` chooses the marker shape, which is what decides where a caret can be drawn at all:
+ * Standard and Unformatted views render a verse as an editable `VerseNode` whose text is literally
+ * `\v 2 `, every other view as a childless `ImmutableVerseNode` decorator.
  */
-function $verseContentStartingWithNonTextState() {
+function $appendVerseContentStartingWithNonText($createVerse: (number: string) => SomeVerseNode) {
   firstVerseTextNode = $createTextNode("first verse text ");
-  noteVerseTextNode = $createTextNode("note verse text ");
-  milestoneVerseTextNode = $createTextNode("milestone verse text ");
   charVerseFirstTextNode = $createTextNode("char verse text ");
-  emptyVersePara = $createParaNode().append(
-    $createImmutableVerseNode("5"),
-    $createImmutableVerseNode("6"),
-    $createTextNode("sixth verse text "),
+  plainVerseTextNode = $createTextNode("plain verse text ");
+  noteVerseMarker = $createVerse("2");
+  milestoneVerseMarker = $createVerse("3");
+  charVerseMarker = $createVerse("4");
+  noteVersePara = $createParaNode().append(
+    noteVerseMarker,
+    $createNoteNode("f", "+", true).append($createTextNode("note body ")),
+    $createTextNode("note verse text "),
   );
+  emptyVerseMarker = $createVerse("5");
+  emptyVersePara = $createParaNode().append(emptyVerseMarker, $createVerse("6"), plainVerseTextNode);
 
   $getRoot().append(
     $createBookNode("GEN").append($createTextNode("Test Book")),
     $createImmutableChapterNode("1"),
-    $createParaNode().append($createImmutableVerseNode("1"), firstVerseTextNode),
+    $createParaNode().append($createVerse("1"), firstVerseTextNode),
+    noteVersePara,
     $createParaNode().append(
-      $createImmutableVerseNode("2"),
-      $createNoteNode("f", "+", true).append($createTextNode("note body ")),
-      noteVerseTextNode,
-    ),
-    $createParaNode().append(
-      $createImmutableVerseNode("3"),
+      milestoneVerseMarker,
       $createMilestoneNode("ts-s"),
-      milestoneVerseTextNode,
+      $createTextNode("milestone verse text "),
     ),
-    $createParaNode().append(
-      $createImmutableVerseNode("4"),
-      $createCharNode("nd").append(charVerseFirstTextNode),
-    ),
+    $createParaNode().append(charVerseMarker, $createCharNode("nd").append(charVerseFirstTextNode)),
     emptyVersePara,
   );
+}
+
+/** The above with Standard view's editable verse markers, whose text is literally `\v N `. */
+function $editableVerseContentStartingWithNonTextState() {
+  $appendVerseContentStartingWithNonText((number) =>
+    $createVerseNode(number, getVisibleOpenMarkerText("v", number)),
+  );
+}
+
+/** The above with the immutable verse decorator every non-editable-marker view renders. */
+function $immutableVerseContentStartingWithNonTextState() {
+  $appendVerseContentStartingWithNonText($createImmutableVerseNode);
 }
 
 /** Same outline as `$defaultInitialEditorState` but with a parameterized book code (for book-sync tests). */
