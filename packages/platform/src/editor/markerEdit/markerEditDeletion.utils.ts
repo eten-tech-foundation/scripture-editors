@@ -11,9 +11,13 @@ import {
   $createTextNode,
   $getSelection,
   $getState,
+  $isElementNode,
   $isRangeSelection,
   $isTextNode,
   $setState,
+  LexicalNode,
+  PointType,
+  RangeSelection,
 } from "lexical";
 import {
   $createMarkerNode,
@@ -137,6 +141,86 @@ function $healMarkerTrailingSeparator(para: ParaNode): void {
   glyph.insertAfter($createMarkerTrailingSeparator());
 }
 
+/**
+ * Whether `point` sits at `para`'s very `edge` — before its first byte ("start") or after its
+ * last ("end"). Judged positionally: the point must be at its own node's matching edge, and that
+ * node (and every ancestor up to `para`) must be the edge-most child, so the answer is right for
+ * any content shape — glyph text, char spans, decorator atoms like a verse number.
+ */
+function $isPointAtParaEdge(point: PointType, para: ParaNode, edge: "start" | "end"): boolean {
+  const node = point.getNode();
+  if (node.is(para)) {
+    return edge === "start" ? point.offset === 0 : point.offset === para.getChildrenSize();
+  }
+  const size =
+    point.type === "text"
+      ? node.getTextContentSize()
+      : $isElementNode(node)
+        ? node.getChildrenSize()
+        : 0;
+  if (edge === "start" ? point.offset !== 0 : point.offset !== size) return false;
+  for (let current = node; !current.is(para); ) {
+    if (edge === "start" ? current.getPreviousSibling() : current.getNextSibling()) return false;
+    const parent = current.getParent();
+    if (parent === null) return false; // the point is not inside `para` at all
+    current = parent;
+  }
+  return true;
+}
+
+/** The paragraph `node` is, or the one it sits inside; `undefined` outside any paragraph. */
+function $paraOf(node: LexicalNode): ParaNode | undefined {
+  for (let current: LexicalNode | null = node; current; current = current.getParent()) {
+    if ($isParaNode(current)) return current;
+  }
+  return undefined;
+}
+
+/**
+ * The `ParaNode`s whose ENTIRE visible representation lies inside `selection`: every paragraph
+ * the selection touches, except an edge paragraph the selection enters or leaves mid-way.
+ * Candidates come from the selected nodes' paragraph ANCESTORS, not from the selected-node list
+ * alone — `selection.getNodes()` never includes an element the anchor or focus sits inside, so a
+ * selection covering exactly one paragraph reports only that paragraph's children.
+ */
+function $parasFullyCoveredBySelection(selection: RangeSelection): ParaNode[] {
+  const isBackward = selection.isBackward();
+  const start = isBackward ? selection.focus : selection.anchor;
+  const end = isBackward ? selection.anchor : selection.focus;
+  const candidates = new Set<ParaNode>();
+  for (const node of selection.getNodes()) {
+    const para = $paraOf(node);
+    if (para) candidates.add(para);
+  }
+  return [...candidates].filter((para) => {
+    const containsStart = $paraOf(start.getNode())?.is(para) ?? false;
+    const containsEnd = $paraOf(end.getNode())?.is(para) ?? false;
+    if (containsStart && !$isPointAtParaEdge(start, para, "start")) return false;
+    if (containsEnd && !$isPointAtParaEdge(end, para, "end")) return false;
+    return true;
+  });
+}
+
+/**
+ * Deletion driver, paragraph arm: records — BEFORE a user delete gesture executes — every
+ * paragraph whose entire visible representation the live selection covers, into
+ * `context.wholeParaDeleteExpected`. `$paraMarkerDeletionTransform` reads that provenance at the
+ * end of the same commit to tell a user's completed whole-paragraph delete (reap it) apart from
+ * transient emptiness (leave it alone). Paragraph equivalent of the display-run registry's
+ * `remove-owner` deletion policy, keyed on the destruction gesture itself, never on caret
+ * geometry.
+ *
+ * Mutating context state only (reads the editor): call from a command handler (delete keys, cut)
+ * ahead of the handler that performs the deletion; never claims the event.
+ */
+export function $armWholeParaDeletion(context: MarkerEditContext): void {
+  const expected = context.wholeParaDeleteExpected;
+  if (!expected) return;
+  const selection = $getSelection();
+  if (!$isRangeSelection(selection) || selection.isCollapsed()) return;
+  for (const para of $parasFullyCoveredBySelection(selection)) expected.add(para.getKey());
+}
+
 export function $paraMarkerDeletionTransform(para: ParaNode, context: MarkerEditContext): void {
   // Branch order is load-bearing. Heal-first is the termination anchor: injecting a prefix
   // (below) re-dirties the paragraph and re-enters this transform, and that re-entry must land
@@ -162,9 +246,32 @@ export function $paraMarkerDeletionTransform(para: ParaNode, context: MarkerEdit
     return;
   }
 
-  // Transient mid-edit emptiness (a select-all-delete, a rebuild emptying a paragraph before
-  // refilling it): not a marker deletion, so leave it for the pass that repopulates it.
-  if (para.isEmpty()) return;
+  if (para.isEmpty()) {
+    // Emptiness alone is not evidence of anything: a rebuild legitimately empties a paragraph
+    // before refilling it, so an unattributed empty paragraph is left for the pass that
+    // repopulates it. Only PROVENANCE reaps: a user delete gesture whose pre-delete selection
+    // covered this paragraph's entire visible representation ($armWholeParaDeletion) means the
+    // user deleted the whole construct, and displayed bytes are the document — the paragraph
+    // goes with its bytes instead of surviving as an invisible line that still serializes its
+    // marker.
+    if (!context.wholeParaDeleteExpected?.has(para.getKey())) return;
+    context.wholeParaDeleteExpected.delete(para.getKey());
+    const isLastPara = !para
+      .getParent()
+      ?.getChildren()
+      .some((sibling) => $isParaNode(sibling) && !sibling.is(para));
+    if (isLastPara) {
+      // The document keeps at least one paragraph: the survivor of a delete-everything gesture
+      // resets to the default marker with its visible prefix, ready to type into — the same
+      // fallback as deleting a lone paragraph's marker.
+      $setParaMarkerWithPrefix(para, PARA_MARKER_DEFAULT);
+      context.logger?.debug(`[MarkerEdit] whole-para delete of the last para: reset to \\p`);
+      return;
+    }
+    para.remove();
+    context.logger?.debug(`[MarkerEdit] removed para whose whole representation was deleted`);
+    return;
+  }
 
   const previous = para.getPreviousSibling();
   if ($isParaNode(previous)) {

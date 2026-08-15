@@ -47,6 +47,18 @@ export interface MarkerEditContext extends Tier2Context {
   pendingKeys: Set<NodeKey>;
   splitExpected: { current: boolean };
   /**
+   * Paragraphs whose ENTIRE visible representation the current commit's user deletion covered —
+   * armed by the delete-key command handlers from the pre-delete selection
+   * (`$armWholeParaDeletion`), consumed by `$paraMarkerDeletionTransform`'s empty-paragraph
+   * branch, and reset every commit by the plugin's update listener. This is the paragraph
+   * equivalent of the display-run registry's `remove-owner` deletion policy: deleting every
+   * displayed byte of a construct deletes the construct. It is a PROVENANCE signal — emptiness
+   * alone must never reap a paragraph, because rebuilds legitimately empty one transiently.
+   * Optional so contexts built without the deletion wiring (narrow test harnesses) simply never
+   * reap — the guard's safe default.
+   */
+  wholeParaDeleteExpected?: Set<NodeKey>;
+  /**
    * Literal text already submitted to `$requestTier2ForNode` this commit.
    * `$rebuildParas` is deterministic (the degradation property): a paragraph
    * whose rebuild still contains a fragment the tokenizer cannot resolve into anything new

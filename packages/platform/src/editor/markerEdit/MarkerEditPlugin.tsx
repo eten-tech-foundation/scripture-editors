@@ -1,5 +1,6 @@
 import { $removeCharFormattingFromSelection } from "./charFormatting.utils";
 import {
+  $armWholeParaDeletion,
   $charNodeDeletionTransform,
   $noteDeletionTransform,
   $paraMarkerDeletionTransform,
@@ -208,6 +209,7 @@ export function MarkerEditPlugin({
       getMarker: getMarker ?? bundledGetMarker,
       pendingKeys: new Set<NodeKey>(),
       splitExpected: { current: false },
+      wholeParaDeleteExpected: new Set<NodeKey>(),
       rebuildAttempted: new Set<string>(),
       logger,
     };
@@ -500,6 +502,18 @@ export function MarkerEditPlugin({
           ]
         : []),
       editor.registerCommand(
+        CUT_COMMAND,
+        () => {
+          // Cutting a whole paragraph is the same whole-representation deletion as the delete
+          // keys — arm the paragraph reap from the pre-cut selection. CRITICAL so it runs ahead
+          // of whichever handler performs the removal (the standard-view CUT claim at HIGH, or
+          // Lexical's own at EDITOR); never claims the event.
+          $armWholeParaDeletion(context);
+          return false;
+        },
+        COMMAND_PRIORITY_CRITICAL,
+      ),
+      editor.registerCommand(
         CLICK_COMMAND,
         () => {
           // A mouse click re-establishes user intent over the caret, ending the app-placed
@@ -520,6 +534,11 @@ export function MarkerEditPlugin({
           // ahead of the Ctrl+Space handling below.
           appPlacedCaret = false;
           settleCascadeDepth = 0;
+          // Deletion driver, paragraph arm: record — from the still-intact selection, before
+          // Lexical's own delete handling runs at lower priority — which paragraphs this delete
+          // gesture covers whole, so the paragraph transform can reap them by provenance.
+          // Never claims the key.
+          if (event.key === "Backspace" || event.key === "Delete") $armWholeParaDeletion(context);
           if (!event.ctrlKey || event.altKey || event.shiftKey || event.metaKey) return false;
           if (event.key !== " " && event.code !== "Space") return false;
           // Only claim the keystroke (preventDefault + return true) when we actually acted;
@@ -729,6 +748,7 @@ export function MarkerEditPlugin({
       ),
       editor.registerUpdateListener(({ editorState, tags }) => {
         context.splitExpected.current = false;
+        context.wholeParaDeleteExpected?.clear();
         context.rebuildAttempted.clear();
         // Typing path: ScriptureReferencePlugin's async scrRef echo re-enters
         // `$moveCursorToVerseStart` and yanks the caret to the para/verse start via
