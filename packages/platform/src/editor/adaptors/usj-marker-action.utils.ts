@@ -19,12 +19,11 @@ import {
   TextNode,
 } from "lexical";
 import {
-  $buildContinuationCharSpan,
-  $continuationCharAttributes,
   $createCharNode,
   $createMarkerNode,
   $createNodeFromSerializedNode,
   $findChapter,
+  $innermostCharAncestor,
   $isCharNode,
   $isMarkerNode,
   $isNoteNode,
@@ -32,6 +31,7 @@ import {
   $isSynthesizedMarkerNode,
   $isTypedMarkNode,
   $isVisibleMarkerNode,
+  $liftOutOfCharStack,
   $setCharNodeMarker,
   CharNode,
   createLexicalUsjNode,
@@ -297,7 +297,6 @@ export function getUsjMarkerAction(
             selection,
             nodeToInsert,
             node,
-            innermostChar,
             viewOptions?.markerMode === "editable",
           );
         } else if (selection.getTextContent().length > 0) {
@@ -534,60 +533,12 @@ function $ensureNestedSpanClosed(charNode: CharNode): void {
   }
 }
 
-/** Nearest CharNode at or above `node` (the innermost char span the point sits in), or undefined. */
-function $innermostCharAncestor(node: LexicalNode): CharNode | undefined {
-  let current: LexicalNode | null = node;
-  while (current) {
-    if ($isCharNode(current)) return current;
-    current = current.getParent();
-  }
-  return undefined;
-}
-
-/** The nearest non-char ancestor of `char` — the note or paragraph a bare char marker lands in. */
-function $charContainer(char: CharNode): LexicalNode | null {
-  let parent: LexicalNode | null = char.getParent();
-  while (parent && $isCharNode(parent)) parent = parent.getParent();
-  return parent;
-}
-
-/**
- * Lift `node` OUT of the char span `char` to `char`'s parent, splitting `char` around it: content
- * before `node` stays in `char` (its "before" half), content after `node` moves to a fresh
- * reopened clone inserted after `node`, and `node` itself becomes a sibling of `char`. A "before"
- * half left with only glyphs is dropped. The reopened clone keeps `char`'s marker, closer
- * convention, and nesting (its glyphs carry the `+` when `char` was itself nested).
- */
-function $liftOutOfChar(node: LexicalNode, char: CharNode, renderGlyphs: boolean): void {
-  // Content strictly after `node`, excluding char's own closing glyph.
-  const after: LexicalNode[] = [];
-  for (let sibling = node.getNextSibling(); sibling; ) {
-    const next = sibling.getNextSibling();
-    if (!($isMarkerNode(sibling) && sibling.getMarkerSyntax() === "closing")) after.push(sibling);
-    sibling = next;
-  }
-  char.insertAfter(node); // node leaves char, becomes its next sibling
-  if (after.length > 0) {
-    // The clone ALWAYS reopens structurally — that is the PT9 close-and-reopen this function
-    // implements, and it happens in every marker mode. `renderGlyphs` only decides whether the
-    // clone also carries the VISIBLE `\marker` opener (and therefore its separator NBSP): a
-    // MarkerNode is markerMode "editable" presentation, so fabricating one in "hidden"/"visible"
-    // mode puts literal `\ft ` text into the content. The rest of the shape — the closer copied
-    // only when `char` renders one, the `+` when `char` is nested, and the closed="false" carried
-    // onto the clone so its (correct) missing closer isn't read as deletion damage — is the shared
-    // continuation convention (charGlyphs.utils.ts in `shared`).
-    const right = $createCharNode(char.getMarker(), $continuationCharAttributes(char));
-    $buildContinuationCharSpan(right, char, after, renderGlyphs);
-    node.insertAfter(right);
-  }
-  if (char.getChildren().every($isMarkerNode)) char.remove();
-}
-
 /**
  * Apply a non-NEST char style at a point or selection that sits INSIDE an open char span, following
  * PT9's StyleApplicator: close every enclosing char style before the point and reopen the ones with
  * content after it (never nest the new span). The new span — and every reopened right half — is
- * lifted to the nearest non-char container (the note or paragraph a bare marker would land in).
+ * lifted to the nearest non-char container (the note or paragraph a bare marker would land in) by
+ * the shared close-and-reopen primitive (`$liftOutOfCharStack`, charStack.utils.ts in `shared`).
  * Handles a collapsed caret and a selection within a single text node; other multi-node selections
  * fall back to the caller's generic wrap.
  */
@@ -595,10 +546,8 @@ function $applyNonNestInsideChar(
   selection: RangeSelection,
   newSpan: CharNode,
   anchorNode: LexicalNode,
-  innermostChar: CharNode,
   renderGlyphs: boolean,
 ): void {
-  const container = $charContainer(innermostChar);
   let liftTarget: LexicalNode = newSpan;
   if (selection.isCollapsed() || !$isTextNode(anchorNode)) {
     // Caret: place the (empty) new span at the caret inside the innermost span.
@@ -622,12 +571,7 @@ function $applyNonNestInsideChar(
     if (selected.getTextContentSize() > end - start) selected = selected.splitText(end - start)[0];
     liftTarget = selected;
   }
-  while (
-    liftTarget.getParent() &&
-    liftTarget.getParent() !== container &&
-    $isCharNode(liftTarget.getParent())
-  )
-    $liftOutOfChar(liftTarget, liftTarget.getParent() as CharNode, renderGlyphs);
+  $liftOutOfCharStack(liftTarget, renderGlyphs);
   if (liftTarget !== newSpan) {
     // Wrap the lifted selection text in the new span (now at container level), replacing its
     // empty-content placeholder and taking the structural NBSP as the span's first content.

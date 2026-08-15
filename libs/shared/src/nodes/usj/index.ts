@@ -20,6 +20,7 @@ import { Klass, LexicalNode, LexicalNodeReplacement, ParagraphNode } from "lexic
 export * from "./attributeDisplay.utils.js";
 export * from "./caretBoundaries.utils.js";
 export * from "./charGlyphs.utils.js";
+export * from "./charStack.utils.js";
 export * from "./displayRunDescriptor.js";
 export * from "./displayRunSync.utils.js";
 export * from "./pendedDisplayOwners.utils.js";

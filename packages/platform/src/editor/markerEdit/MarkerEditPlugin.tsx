@@ -1,4 +1,7 @@
-import { $removeCharFormattingFromSelection } from "./charFormatting.utils";
+import {
+  $removeCharFormattingFromSelection,
+  $splitParagraphAtCharStack,
+} from "./charFormatting.utils";
 import {
   $charNodeDeletionTransform,
   $noteDeletionTransform,
@@ -568,7 +571,12 @@ export function MarkerEditPlugin({
         INSERT_PARAGRAPH_COMMAND,
         () => {
           context.splitExpected.current = true; // consumed by $paraMarkerDeletionTransform below
-          return false;
+          // A caret inside character-styled text needs the style stack closed on the left and
+          // reopened in the new paragraph. The generic rich-text split builds a glyph-less
+          // continuation span instead, which the deletion transform then unwraps — the tail comes
+          // out unformatted with its closing markers gone. Claiming the command performs the whole
+          // split here so the generic one never runs on this shape.
+          return $splitParagraphAtCharStack();
         },
         COMMAND_PRIORITY_HIGH,
       ),

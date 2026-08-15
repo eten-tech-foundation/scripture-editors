@@ -22,8 +22,10 @@ import {
   $createCharNode,
   $createMarkerNode,
   $findFirstAncestorNoteNode,
+  $isCharContentEmpty,
   $isCharNode,
   $isMarkerNode,
+  $liftOutOfCharStack,
   $withCharContentNbspPrefix,
   EMPTY_CHAR_PLACEHOLDER_TEXT,
   MarkerLookup,
@@ -31,21 +33,6 @@ import {
   NBSP,
   NoteNode,
 } from "shared";
-
-/**
- * The in-span content after `from` that rides along with an `\fp` break — every later sibling
- * (text runs, nested spans) in document order. Leaving them behind stranded them in the old
- * span on the wrong side of the break, reordering the content. The old span's closing glyph
- * (if any) is excluded: it stays and is removed with the emptied span. When the break's anchor
- * text sits directly under the note (`anchorIsNoteChild`), the siblings are separate note
- * children, not span content — nothing rides along.
- */
-function $followingSpanContent(from: TextNode, anchorIsNoteChild: boolean): LexicalNode[] {
-  if (anchorIsNoteChild) return [];
-  return from
-    .getNextSiblings()
-    .filter((sibling) => !($isMarkerNode(sibling) && sibling.getMarkerSyntax() === "closing"));
-}
 
 /**
  * Outcome of the in-note break handlers (`$handleEnterInNote`, `$handlePasteLinesInNote`):
@@ -292,21 +279,38 @@ function $startFpAtCaret(): boolean {
   const size = textAnchor?.getTextContentSize() ?? 0;
   const anchorIsNoteChild = textAnchor !== undefined && textAnchor.is(noteChild);
 
-  // One shape for every caret position: EVERYTHING after the caret within the span moves into
-  // the new `\fp`, in document order. The anchor text contributes itself (caret before all of
-  // it), its split-off tail (caret mid-text), or nothing (caret at its end); its following
-  // in-span siblings ride along in all three cases. Moving any less than this strands content
-  // in the old span on the wrong side of the break, reordering it — the same defect surfaced
-  // independently in each caret position when they had separate move logic.
+  // One shape for every caret position: EVERYTHING after the caret within the note's content
+  // child moves into the new `\fp`, in document order, still wearing its character styles.
+  //
+  // The break marker is parked at the caret INSIDE the innermost span first and then lifted out
+  // of every span nested within `noteChild` (`$liftOutOfCharStack`, the shared close-and-reopen):
+  // each nested style closes before the break and reopens after it, and the lift leaves the whole
+  // after-caret remainder — reopened spans and the outer span's own trailing content alike — as
+  // `fp`'s following siblings. Collecting only the ANCHOR's siblings instead saw just the
+  // innermost span's content, so an outer span's text after a nested span stayed on the wrong
+  // side of the break, and the reopened styles were dropped entirely.
+  //
+  // `noteChild` itself is deliberately not reopened: an `\fp` REPLACES the note-content span as
+  // the note's content container, which is what a footnote-paragraph break means.
   let afterCaret: LexicalNode[] = [];
-  if (textAnchor) {
-    if (offset === 0 && size > 0) {
-      afterCaret = [textAnchor, ...$followingSpanContent(textAnchor, anchorIsNoteChild)];
-    } else if (offset > 0 && offset < size) {
+  if (textAnchor && !anchorIsNoteChild) {
+    if (offset <= 0) textAnchor.insertBefore(fp);
+    else if (offset >= size) textAnchor.insertAfter(fp);
+    else {
       const [, tail] = textAnchor.splitText(offset) as [TextNode, TextNode];
-      afterCaret = [tail, ...$followingSpanContent(tail, anchorIsNoteChild)];
-    } else {
-      afterCaret = $followingSpanContent(textAnchor, anchorIsNoteChild);
+      tail.insertBefore(fp);
+    }
+    $liftOutOfCharStack(fp, true, noteChild);
+    afterCaret = fp
+      .getNextSiblings()
+      .filter((sibling) => !($isMarkerNode(sibling) && sibling.getMarkerSyntax() === "closing"));
+  } else if (textAnchor) {
+    // The caret sits on the note's OWN text (a spacer), not inside a content span: the following
+    // siblings are separate note children, so nothing rides along with the break.
+    if (offset === 0 && size > 0) afterCaret = [textAnchor];
+    else if (offset > 0 && offset < size) {
+      const [, tail] = textAnchor.splitText(offset) as [TextNode, TextNode];
+      afterCaret = [tail];
     }
   }
 
@@ -324,12 +328,13 @@ function $startFpAtCaret(): boolean {
       $withCharContentNbspPrefix(firstMoved);
     fp.append(...afterCaret);
   }
-  // A CharNode always retains its opening MarkerNode glyph, so `getChildrenSize()` is never
-  // 0 after the content moved out — test emptiness EXCLUDING markers (mirrors
-  // `$unwrapCharNode`'s `!$isMarkerNode` filter) so a now-content-less original span (e.g.
-  // the emptied `\ft` after a break before all of its content) is actually removed instead
-  // of lingering as a marker-only `\ft\fp`.
-  if ($isCharNode(noteChild) && noteChild.getChildren().every($isMarkerNode)) noteChild.remove();
+  // A CharNode always retains its opening MarkerNode glyph, so `getChildrenSize()` is never 0
+  // after the content moved out — ask the shared content-emptiness rule instead, so a
+  // now-content-less original span (the emptied `\ft` after a break before all of its content) is
+  // removed rather than lingering as a marker-only `\ft\fp`. The rule counts the glyphs' own
+  // structural separator as no content, which a bare marker-only test would miss whenever the
+  // separator is a standalone spacer rather than a text prefix.
+  if ($isCharNode(noteChild) && $isCharContentEmpty(noteChild)) noteChild.remove();
 
   $selectBreakPoint(fp);
   return true;
