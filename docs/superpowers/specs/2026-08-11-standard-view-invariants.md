@@ -448,10 +448,31 @@ extend its reach.
 
 **Contended, needing explicit coordination:**
 
-- `markerEditTier1.utils.ts` — Marker resolution and Whitespace both reach into it. Split by
-  function, or sequence them.
-- `markerEditDeletion.utils.ts` — Marker resolution owns it; the Whitespace track's separator-absorb
-  work lives in its para-prefix heal. Agree a split before either starts.
+Two files are contended by multiple tracks running concurrently. **Split by FUNCTION, not by file.**
+The proposals below are the starting point — a track that needs to deviate says so in its chat and
+agrees it with the other claimants before editing, rather than discovering the conflict at merge.
+
+**`markerEditDeletion.utils.ts` — three claimants:**
+
+| Function | Owner |
+| --- | --- |
+| `$healMarkerTrailingSeparator` (the para-prefix absorb site) | Whitespace |
+| `$charNodeDeletionTransform`, `$unwrapCharNode` | Marker resolution |
+| `$paraMarkerDeletionTransform` (the empty-paragraph guard) | Structural deletion and caret |
+
+Char-stack may also reach `$unwrapCharNode` — the paragraph-split bugs run through it today. If its
+fix stops the split from producing a glyph-less span at all, it never needs to touch the unwrap;
+confirm which before assuming.
+
+**`markerEditTier1.utils.ts` — two claimants:**
+
+| Concern | Owner |
+| --- | --- |
+| Separator grace and pend reporting; the tokenize-identity routing | Whitespace |
+| Closer-glyph resolution; typed-literal resolution timing | Marker resolution |
+
+`$resolvePendingMarkers` is reachable from both. Neither track should restructure it unilaterally —
+if either needs to, raise it with the other first.
 - The trailing-space transform's block-unknown exemption — Whitespace owns the transform; Unknown
   blocks owns the failing fixture. Whitespace lands the fix.
 - The verse-adjacent typed-character repro — Whitespace owns the fabricated space, Structural
