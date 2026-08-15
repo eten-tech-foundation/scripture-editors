@@ -428,7 +428,7 @@ One owner per file. If a track needs a file it does not own, coordinate rather t
 
 | Track | Owns |
 | --- | --- |
-| Closers | `markerEditTier1.utils.ts` (closer paths), `ImmutableUnmatchedNode.ts`, `markerEditDeletion.utils.ts` |
+| Marker resolution (was "Closers") | `markerEditTier1.utils.ts` (closer paths), `ImmutableUnmatchedNode.ts`, `markerEditDeletion.utils.ts` — plan `2026-08-15-marker-resolution.md` |
 | Whitespace | `TextSpacingPlugin.tsx`, `markerSeparators.utils.ts`, `whitespaceDisplay.plugin.utils.ts`, the fixed-point test |
 | Char-stack split | `charFormatting.utils.ts`, `markerEditNote.utils.ts` (Enter-in-note), the new shared primitive |
 | Attribute markers | `ATTRIBUTE_MARKERS` in `usfmFragmentToUsj.ts`, `attributeDisplay.utils.ts`, the new descriptors |
@@ -437,19 +437,25 @@ One owner per file. If a track needs a file it does not own, coordinate rather t
 | Coordinates | `delta-common.utils.ts`, `editor-delta.adaptor.ts`, caret anchoring |
 | Glyph kinds | Extending the display-run registry to opener, closer, nested `+`, separator, and para prefix |
 
-**Not a track — already in flight.** The display-run registry itself (`libs/shared/src/displayRun/`,
-`displayRunSync.utils.ts`, the descriptor shape) is being built on `standard-view-pt-4187` right now.
-Its descriptor already carries eight REQUIRED fields, so omitting a duty for a new kind is a type
-error rather than a silently dead quadrant — Invariant III enforced by the compiler. The remaining
-work is the **Glyph kinds** track above: the registry today covers display runs (attribute,
-milestone, verse), not glyphs. Do not re-plan the registry; extend its reach.
+**Not a track — already landed.** The display-run registry (`libs/shared/src/displayRun/`,
+`displayRunSync.utils.ts`, the descriptor shape) shipped. Its descriptor carries NINE required
+members — `kind` plus eight duties — so omitting a duty for a new kind is a type error rather than a
+silently dead quadrant: Invariant III enforced by the compiler. Eight kinds are registered
+(`separator`, `char`, `va`, `vp`, `milestone`, `optbreak`, `opaqueUnknown`, `nestedGlyph`), and
+registration order is load-bearing. The remaining work is the **Glyph kinds** track above — the
+registry covers display runs, not the opener/closer/para-prefix glyphs. Do not re-plan the registry;
+extend its reach.
 
 **Contended, needing explicit coordination:**
 
-- `markerEditTier1.utils.ts` — Closers and Whitespace both reach into it. Split by function, or
-  sequence them.
+- `markerEditTier1.utils.ts` — Marker resolution and Whitespace both reach into it. Split by
+  function, or sequence them.
+- `markerEditDeletion.utils.ts` — Marker resolution owns it; the Whitespace track's separator-absorb
+  work lives in its para-prefix heal. Agree a split before either starts.
 - The trailing-space transform's block-unknown exemption — Whitespace owns the transform; Unknown
   blocks owns the failing fixture. Whitespace lands the fix.
+- The verse-adjacent typed-character repro — Whitespace owns the fabricated space, Structural
+  deletion and caret owns the caret position. One shared test.
 
 **Off limits until the settled-`getUsj()` work lands:** `tier2Rebuild.utils.ts`,
 `virtualSettle.utils.ts`, `settledGetUsj*`. They are actively being edited on

@@ -58,6 +58,20 @@ palette with Escape costs the user their cursor.
 has app-wide overlay-dismiss handling on Escape. Establish which layer clears the selection before
 designing; do not assume it is the palette.
 
+### 4. A typed character lands with the caret before it, not after
+
+With `\v 2 Da` and the caret between `2` and the following space, typing `\` leaves the caret BEFORE
+the backslash rather than after it, so the next keystroke lands on the wrong side. Same with the caret
+between the verse glyph and the first space.
+
+The other half of that repro — a fabricated space appearing before the typed character — is the
+whitespace track's (its task 14). **This track owns only the caret position.** Coordinate the shared
+test with that chat rather than each writing one.
+
+Worth checking against defect 2 before designing: both are "a caret placement that does not survive
+what the commit does around it," and they may share a fix. If they do not, say so explicitly — the
+verse-adjacent case may be a plain off-by-one at the insertion point rather than a point-drag.
+
 ## Scope
 
 **In:** paragraph deletion semantics; element-point caret survival across same-commit structural

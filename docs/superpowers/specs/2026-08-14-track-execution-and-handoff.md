@@ -129,6 +129,11 @@ Then the per-track line:
    scope.
 6. **unknown-blocks** — plan `docs/superpowers/plans/2026-08-11-unknown-blocks.md`. Diagnose before
    designing; three of its four defects have no root cause yet.
+7. **marker-resolution** — plan `docs/superpowers/plans/2026-08-15-marker-resolution.md`. Added after
+   the first Phase 3 worktrees were cut, so it needs its own. This is the original list's LARGEST
+   cluster: closer edit timing, closer matching, and typed-marker resolution timing. It shares
+   `markerEditTier1.utils.ts` AND `markerEditDeletion.utils.ts` with whitespace — agree the split
+   before either starts.
 
 ## Handoff and integration
 

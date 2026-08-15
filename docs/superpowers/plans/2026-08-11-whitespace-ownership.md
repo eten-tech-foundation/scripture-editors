@@ -115,6 +115,18 @@ hand work to the attribute-markers track's capture-test extension.
 12. Leading-attribute whitespace collapses per the markers map's `leadingAttributes`, so `\v  5` is
     verse 5 and `\v 7 5` is verse 7 followed by text `5`. Derived from the map, not a marker list.
 13. A space typed at an opener separator lands with the caret between the two spaces, not past both.
+14. **Typing any character next to a verse must not fabricate a space.** With `\v 2 Da` and the caret
+    between `2` and the following space, typing `\` yields `\v 2 \ Da` — a space that was never there
+    appears BEFORE the typed character. Expected `\v 2\ Da`. Same with the caret between the verse
+    glyph and the first space, yielding `\v \ 2 Da`.
+
+    This reaches the fabrication defect by a different route than task 5: not a dirtied text node
+    gaining a TRAILING space, but a verse-adjacent insertion gaining a LEADING one. Establish whether
+    it is the same transform before fixing — if `$verseNodeTransform` is responsible, tasks 5 and 14
+    share a fix; if not, it is a distinct site and the exemption reasoning differs.
+
+    The CARET half of this repro — landing before the typed backslash instead of after it — belongs
+    to the structural-deletion-and-caret track. Same repro, two owners; coordinate the shared test.
 
 ## Provenance: extend the existing convention, do not invent one
 
