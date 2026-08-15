@@ -274,6 +274,51 @@ describe("user deletes a paragraph's entire visible representation", () => {
     expect(paraMarkersOf(usjOf(editor))).toEqual(["p", "q1"]);
   });
 
+  it("lands the caret at the JUNCTION when deleting only the visible prefix merges the para", async () => {
+    // Select just the `\q1 ` prefix — glyph start through content start — and delete. The
+    // marker-deleted branch merges the paragraph's content into the previous paragraph; the
+    // caret must come to rest at the junction (the start of the moved content), not be flung
+    // to the merged paragraph's end.
+    let first!: ParaNode, second!: ParaNode;
+    const { editor } = await testEnvironment(() => {
+      ({ first, second } = $appendTwoParas());
+    });
+
+    await act(async () =>
+      editor.update(() => {
+        const glyph = second.getFirstChild();
+        if (!$isMarkerNode(glyph)) throw new Error("expected the paragraph's marker glyph");
+        const content = second.getLastChild();
+        if (content === null) throw new Error("expected paragraph content");
+        const selection = $createRangeSelection();
+        selection.anchor.set(glyph.getKey(), 0, "text");
+        selection.focus.set(content.getKey(), 0, "text");
+        $setSelection(selection);
+        editor.dispatchCommand(
+          KEY_DOWN_COMMAND,
+          new KeyboardEvent("keydown", { key: "Backspace", bubbles: true, cancelable: true }),
+        );
+      }),
+    );
+
+    editor.getEditorState().read(() => {
+      expect(second.isAttached()).toBe(false); // merged into the previous paragraph
+      expect(first.getTextContent()).toContain("one");
+      expect(first.getTextContent()).toContain("two");
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) throw new Error("no range selection after merge");
+      expect(selection.isCollapsed()).toBe(true);
+      const { anchor } = selection;
+      const anchorNode = anchor.getNode();
+      // The junction: offset 0 of the moved content ("two"), inside the surviving paragraph.
+      expect(anchorNode.getParent()?.getKey()).toBe(first.getKey());
+      expect(anchor.type).toBe("text");
+      const text = anchorNode.getTextContent();
+      expect(text.slice(anchor.offset)).toContain("two");
+      expect(text.slice(anchor.offset)).not.toContain("one");
+    });
+  });
+
   it("does not reap when a typed character replaces the selection instead of a delete key", async () => {
     // Typing over a whole-paragraph selection is a REPLACEMENT, not a whole-representation
     // delete: Lexical lands the typed text in the selection's anchor node — the marker glyph —

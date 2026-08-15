@@ -322,7 +322,18 @@ export function $unwrapCharNode(char: CharNode): void {
   // content (where the closer glyph used to be) so the bytes survive serialization.
   const attributesText = unknownAttributesText(char);
   if (attributesText) children.push($createTextNode(attributesText));
-  children.forEach((child) => char.insertBefore(child));
+  // Reinsert AFTER the span (in order), then drop the span — never insertBefore. The tree comes
+  // out identical either way, but not the caret: a collapsed ELEMENT point at the span's own
+  // boundary (the content-start placement a same-commit paragraph split parks there) is advanced
+  // by Lexical past every node inserted AT its offset and is not pulled back by the wrapper's
+  // removal, so before-insertion dragged the caret to the far side of the unwrapped content.
+  // After-insertion leaves the point where it is; removing the span then resolves it onto the
+  // first reinserted child — the content start the caret meant all along.
+  let anchor: LexicalNode = char;
+  for (const child of children) {
+    anchor.insertAfter(child);
+    anchor = child;
+  }
   char.remove();
 }
 
