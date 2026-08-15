@@ -706,7 +706,21 @@ export function usfmFragmentToUsjContent(
         Object.assign(attrCapture.target, {
           [attrCapture.attrName]: toUsjText(attrCapture.value.trim()),
         });
+        const foldedMarker = attrCapture.marker;
         attrCapture = undefined;
+        // The chapter path alone consumes ONE whitespace-only token after a successful fold,
+        // unconditionally — not gated on a `\cp` following — so a same-line space between
+        // `\ca*` and `\cp` is structural and `\cp` still folds, and the space before an
+        // ordinary char span vanishes too. The verse path has no such skip: the identical
+        // space between `\va*` and `\vp` BLOCKS the `\vp` fold (the v12 rule). Both sides are
+        // captured through ParatextData in paranext-core's
+        // VerseAttributeFoldRoundTripCaptureTests (`FilledCaThenCp_BothFold`,
+        // `SpaceAfterFoldedCa_IsConsumedEvenWithoutCp`,
+        // `SpaceBetweenVaCloserAndVp_BlocksVpFold_SpaceIsContent`).
+        if (foldedMarker === "ca") {
+          const next = tokens[tokenIndex + 1];
+          if (next?.kind === "text" && /^[\s\u200B]*$/.test(next.text)) tokenIndex++;
+        }
         continue;
       }
       if (attrCapture.shape === "para" && (token.kind === "para" || token.kind === "chapter")) {

@@ -890,6 +890,32 @@ describe("usfmFragmentToUsjContent — verse, chapter, note, milestone, attribut
       ]);
     });
 
+    it("folds \\cp across a same-line space after a folded \\ca (chapter-only skip)", () => {
+      // The chapter path is ASYMMETRIC to the verse path here: after a successful \ca fold,
+      // ParatextData consumes ONE whitespace-only token unconditionally, so a same-line space
+      // between `\ca*` and `\cp` is structural and \cp still folds — while the identical space
+      // between `\va*` and `\vp` blocks the \vp fold (the v12 rule above). Captured in
+      // paranext-core's `VerseAttributeFoldRoundTripCaptureTests.FilledCaThenCp_BothFold`
+      // (`\c 1 \ca 2\ca* \cp A \p` yields altnumber AND pubnumber on the chapter).
+      expect(usfmFragmentToUsjContent("\\c 1 \\ca 2\\ca* \\cp A\n\\p x")).toEqual([
+        { type: "chapter", marker: "c", number: "1", altnumber: "2", pubnumber: "A" },
+        { type: "para", marker: "p", content: ["x"] },
+      ]);
+    });
+
+    it("consumes the space after a folded \\ca even when no \\cp follows", () => {
+      // The skip is not gated on what comes next: the whitespace-only token after the fold is
+      // consumed outright, so the space never becomes chapter-level text content before an
+      // ordinary char span. Captured in paranext-core's
+      // `VerseAttributeFoldRoundTripCaptureTests.SpaceAfterFoldedCa_IsConsumedEvenWithoutCp`
+      // (`<chapter altnumber="2" /><char style="nd">x</char>`, no text node between).
+      expect(usfmFragmentToUsjContent("\\c 1 \\ca 2\\ca* \\nd x\\nd*\n\\p y")).toEqual([
+        { type: "chapter", marker: "c", number: "1", altnumber: "2" },
+        { type: "char", marker: "nd", content: ["x"] },
+        { type: "para", marker: "p", content: ["y"] },
+      ]);
+    });
+
     it("keeps the line break between an empty \\va and a following \\vp as a content space", () => {
       // Whitespace disposition, second-order to the blocked fold above. While a target is
       // "receptive", whitespace before the attribute marker is HELD and then dropped as structural
