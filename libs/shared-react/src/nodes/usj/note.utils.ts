@@ -34,6 +34,7 @@ import {
   $createCharNode,
   $createImmutableTypedTextNode,
   $createMarkerNode,
+  $createMarkerTrailingSeparator,
   $createNoteNode,
   $getNoteCallerPreviewText,
   $isCharNode,
@@ -331,7 +332,12 @@ export function $createWholeNote(
       note.append(callerNode, ...contentNodes);
     }
   } else {
-    const $createSpaceNodeFn = () => $createTextNode(NBSP);
+    // The engine-owned NBSP separators of a collapsed note's layout, in the same tagged token
+    // shape as the para-marker prefix separator (and as the load path's `createNote` builds
+    // them): a bare NBSP TextNode merged into adjacent plain content on the first normalization
+    // pass, after which serialization's exact-NBSP drop could no longer see the separator and
+    // one display byte leaked into USJ as a data space.
+    const $createSpaceNodeFn = () => $createMarkerTrailingSeparator();
     const spacedContentNodes = contentNodes.flatMap($addSpaceNodes($createSpaceNodeFn));
     if (caller === "") note.append(...spacedContentNodes);
     else {

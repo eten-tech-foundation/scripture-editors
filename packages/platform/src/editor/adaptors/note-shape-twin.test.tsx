@@ -78,8 +78,9 @@ const NOTE_CLOSE_TYPED: NormalizedNodeShape = {
 const CALLER_TEXT: NormalizedNodeShape = { kind: "text", text: ` +${NBSP}`, mode: "normal" };
 /** Collapsed-layout caller node; both twins derive the same "1:5" preview from the content. */
 const CALLER_NODE: NormalizedNodeShape = { kind: "noteCaller", caller: "+", previewText: "1:5" };
-/** Collapsed-layout NBSP spacer (after the caller and after each content child). */
-const SPACER: NormalizedNodeShape = { kind: "text", text: NBSP, mode: "normal" };
+/** Collapsed-layout NBSP spacer (after the caller and after each content child) — the tagged
+ * token separator shape, so Lexical normalization can never merge it into adjacent content. */
+const SPACER: NormalizedNodeShape = { kind: "text", text: NBSP, mode: "token" };
 
 // The note-content char spans per markerMode (their internals are pinned exhaustively in
 // char-shape-twin.test.tsx; here they anchor child order within the note).

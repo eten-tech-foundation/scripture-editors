@@ -63,18 +63,7 @@ import { baseTestEnvironment } from "../../../../../../libs/shared-react/src/plu
  * deletes its entry as part of its fix, and the entry failing to fail afterwards is itself
  * meaningful. Do NOT add an entry for a NEW failure without a named mechanism and a named owner.
  */
-const KNOWN_FAILURES: { [fixtureName: string]: string } = {
-  "milestones (ts)":
-    "whitespace track: $addTrailingSpace fabricates a trailing space on text whose next sibling " +
-    "is a MilestoneNode — the transform's exemption list omits that node class",
-  "figure (USFM 3 attributes)":
-    "whitespace track: $addTrailingSpace fabricates a trailing space on text whose next sibling " +
-    "is a block-level UnknownNode — only INLINE unknowns are exempted",
-  "table with header and cells":
-    "whitespace track: $addTrailingSpace fabricates a trailing space inside a table cell. This " +
-    "one APPEARED when table cells changed representation — the exemption list did not learn the " +
-    "new shape, which is exactly the class this suite exists to catch",
-};
+const KNOWN_FAILURES: { [fixtureName: string]: string } = {};
 
 function requireStandardViewOptions(): ViewOptions {
   const options = getViewOptions(STANDARD_VIEW_MODE);

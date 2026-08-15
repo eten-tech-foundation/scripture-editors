@@ -624,7 +624,12 @@ function createNote(
     callerNode = createText(getEditableCallerText(caller));
     children.push(callerNode, ...childNodes);
   } else {
-    const spaceNode = createText(NBSP);
+    // The engine-owned NBSP separators of a collapsed note's layout, in the same tagged token
+    // shape as the para-marker prefix separator above: a BARE `createText(NBSP)` here merged
+    // into adjacent plain content text on the first normalization pass (Lexical merges simple
+    // text nodes with equal state), after which the reverse adaptor's exact-NBSP drop could no
+    // longer see the separator and one display byte leaked into USJ as a data space.
+    const spaceNode = createText(NBSP, MARKER_TRAILING_SPACE_TEXT_TYPE, "token");
     callerNode = createNoteCaller(caller, childNodes);
     children.push(callerNode, spaceNode, ...childNodes.flatMap(addSpaceNodes(spaceNode)));
   }

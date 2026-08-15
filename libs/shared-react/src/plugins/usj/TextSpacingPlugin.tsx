@@ -20,8 +20,6 @@ import {
   $isAttributeRunNode,
   $isCharNode,
   $isNoteNode,
-  $isParaLikeNode,
-  $isSynthesizedMarkerNode,
   $isTypedMarkNode,
   $isUnknownNode,
   $syncDisplayRun,
@@ -74,21 +72,22 @@ function useTextSpacing(editor: LexicalEditor) {
 }
 
 /**
- * Ensures a TextNode has trailing spacing when needed for inline scripture content.
+ * Maintains the ONE engine-owned structural space in running text: a text run directly before a
+ * verse ends with a space, matching the canonical USJ shape ParatextData itself produces on a
+ * round trip to disk. Every other space is document content the user owns, so the transform adds
+ * nothing anywhere else — spaces it once fabricated before milestones, block unknowns (figures),
+ * table-cell ends, and unmatched closers were bytes the file never had, and under the writer's
+ * no-separators rule each one changed the saved file.
  *
- * The transform does nothing when the node is not editable, already has meaningful trailing
- * whitespace, precedes a note, or is inside or adjacent to CharNode or TypedMarkNode content. It
- * also does nothing for a node that is inside any UnknownNode (block or inline), or that
- * immediately precedes an INLINE UnknownNode (e.g. an optbreak `//` or a `ref`) — a block-level
- * UnknownNode's PRECEDING text (figures, sidebars, etc.) still gets the ordinary trailing-space
- * treatment.
+ * It also deletes almost nothing. The one deletion kept is an empty verse's space-only content
+ * (a verse marker immediately precedes the node) — see the comment on `isEmptyVerseContent` for
+ * why that space cannot round-trip and what limits the check. A lone space anywhere else — an
+ * empty paragraph, before a milestone, at the end of a paragraph — is a byte the user or the
+ * source put there and survives.
  *
- * If the node contains only a single space and is not followed by a verse node, that placeholder
- * space is removed instead of preserved. It is also removed when the node is an empty verse's
- * entire content (a verse marker immediately precedes it) — see the comment on
- * `isEmptyVerseContent` for why, and for the limits of that check.
- *
- * Trailing space is not added if the node is the last child of a para-like node.
+ * The exemption early-returns keep the transform away from contexts that own their own spacing:
+ * non-editable nodes, already-spaced text, note/char/typed-mark adjacency, unknown-node content,
+ * adjacent same-run text nodes, inline unknowns (optbreak, ref), and attribute display runs.
  *
  * @param node - TextNode that might need updating.
  */
@@ -155,9 +154,8 @@ function $textNodeTrailingSpaceTransform(node: TextNode): void {
   const isEmptyVerseContent =
     $isSomeVerseNode(node.getPreviousSibling()) && (text === "" || text === " ");
 
-  // Remove space-only placeholders that don't precede a verse, or that are an empty verse's
-  // entire content.
-  if ((text === " " && !$isSomeVerseNode(nextSibling)) || isEmptyVerseContent) {
+  // Remove a space that is an empty verse's entire content.
+  if (isEmptyVerseContent) {
     // Two separate loop protections, BOTH load-bearing — dropping either reintroduces an infinite
     // transform cycle, which Lexical escalates into a crash:
     //   - this `text !== ""` guard stops a self-loop, because `setTextContent` goes through
@@ -170,10 +168,11 @@ function $textNodeTrailingSpaceTransform(node: TextNode): void {
     return;
   }
 
-  // Don't add trailing space if it's the last node in a paragraph-like node.
-  if ($isParaLikeNode(parent) && node.is(parent.getLastChild())) return;
-
-  $addTrailingSpace(node);
+  // The one canonical add. Anything else the next sibling might be — nothing, a milestone, a
+  // block unknown, a table-cell end — canonically has NO engine space before it, so adding one
+  // fabricates a byte. (A node with no next sibling is also how this covers "last child of a
+  // paragraph": there is no verse to space against.)
+  if ($isSomeVerseNode(nextSibling)) $addTrailingSpace(node);
 }
 
 /**
@@ -201,19 +200,22 @@ function $verseNodeTransform(node: SomeVerseNode): void {
   let previousSibling: LexicalNode | null = node.getPreviousSibling();
   while ($isTypedMarkNode(previousSibling)) previousSibling = previousSibling.getLastChild();
 
+  // Insert the structural space ONLY before the predecessors whose canonical disk shape carries
+  // one — an allowlist, not an exclusion list, because every predecessor class outside it
+  // (milestones, block unknowns, notes, attribute runs, marker prefixes) canonically abuts the
+  // verse with NO space, and inserting one there fabricates a byte the file never had. The
+  // exclusion-list form this replaced fabricated exactly that way each time a new node class
+  // appeared (most recently MilestoneNode).
+  //
+  // - A char span before a verse: canonical USJ that ParatextData re-inserts on its own round
+  //   trip — the one predecessor where the space is engine-owned.
+  // - Text inside an annotation wrapper: bare text gets its structural space from
+  //   $textNodeTrailingSpaceTransform, but wrapped text can't (that transform skips
+  //   TypedMarkNode parents), so the space is inserted here instead and coalesces onto the same
+  //   USJ text run.
   if (
-    previousSibling &&
-    !$isSomeVerseNode(previousSibling) &&
-    !$isUnknownNode(previousSibling) &&
-    // Para marker prefixes are presentation scaffolding, not USJ content, so no structural
-    // space belongs after them — and an inserted plain " " would be exporter-visible USJ
-    // content that shifts every content index in the paragraph (see PT-3835). Their visual
-    // separation comes from the prefix nodes' own text.
-    !$isSynthesizedMarkerNode(previousSibling) &&
-    // Bare text before a verse gets its structural space from $textNodeTrailingSpaceTransform;
-    // text inside an annotation wrapper can't (that transform skips TypedMarkNode parents), so
-    // the space is inserted here instead and coalesces onto the same USJ text run.
-    (!$isTextNode(previousSibling) || $isTypedMarkNode(previousSibling.getParent()))
+    $isCharNode(previousSibling) ||
+    ($isTextNode(previousSibling) && $isTypedMarkNode(previousSibling.getParent()))
   )
     node.insertBefore($createTextNode(" "));
 }
