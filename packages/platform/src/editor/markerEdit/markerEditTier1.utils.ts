@@ -246,6 +246,16 @@ export function $markerNodeTransform(node: MarkerNode, context: MarkerEditContex
 // separator plus optional trailing text the user typed inside the node.
 const VERSE_TEXT_REGEX = /^\\v[ \u00A0]+([^ \u00A0\\]+)(?:[ \u00A0]([\s\S]*))?$/;
 
+// Number token followed DIRECTLY by a `\`-initiated rest, no separator between: `\` is one of
+// the tokenizer's name-scan terminators, so it ends the number's word where an ordinary
+// character would extend it (`\v 1a`). Typed between the number and the glyph's display space
+// (`\v 1\ `), the rest \u2014 backslash plus whatever followed it in the glyph, including that
+// space, which stops being number-adjacent display and becomes content \u2014 extracts to a plain
+// sibling exactly like VERSE_TEXT_REGEX's separated rest. Without this arm the shape fell
+// through to a whole-paragraph Tier-2 rebuild that produced the SAME tree but lost the caret
+// (observed at the paragraph start, three words from the typed character).
+const VERSE_MARKER_REST_REGEX = /^(\\v[ \u00A0]+([^ \u00A0\\]+))(\\[\s\S]*)$/;
+
 export function $verseNodeTransform(node: VerseNode, context: MarkerEditContext): void {
   const text = node.getTextContent();
   const expected = getVisibleOpenMarkerText("v", node.getNumber());
@@ -260,6 +270,30 @@ export function $verseNodeTransform(node: VerseNode, context: MarkerEditContext)
   }
   const match = VERSE_TEXT_REGEX.exec(text);
   if (!match) {
+    const markerRest = VERSE_MARKER_REST_REGEX.exec(text);
+    if (markerRest) {
+      // Extract the `\`-initiated rest as content, keeping the caret on the character the user
+      // just typed: a caret inside the rest maps to its same character in the extracted node;
+      // a caret elsewhere (or none — a programmatic edit) is left untouched.
+      const [, prefix, numberToken, rest] = markerRest;
+      const selection = $getSelection();
+      const caretOffset =
+        $isRangeSelection(selection) &&
+        selection.isCollapsed() &&
+        selection.anchor.key === node.getKey()
+          ? selection.anchor.offset
+          : undefined;
+      context.pendingKeys.delete(node.getKey());
+      node.setNumber(numberToken); // PT9 GetNextWord: whole word, valid or not
+      node.setTextContent(getVisibleOpenMarkerText("v", numberToken));
+      const restNode = $createTextNode(rest);
+      node.insertAfter(restNode);
+      if (caretOffset !== undefined && caretOffset >= prefix.length) {
+        const target = Math.min(caretOffset - prefix.length, rest.length);
+        restNode.select(target, target);
+      }
+      return;
+    }
     // `\v` prefix broken: PT9 re-tokenizes and the token becomes plain text
     context.pendingKeys.delete(node.getKey());
     $requestTier2ForNode(node, context);
