@@ -104,6 +104,23 @@ describe("usfmFragmentToUsjContent — core", () => {
     ]);
   });
 
+  it("matches the FIRST closer of an open span; later same-marker closers stay unmatched", () => {
+    // The re-matching rule the editor relies on: an unmatched closer's bytes flowing through a
+    // rebuild are consumed by the first open frame of the same marker, and only the first — a
+    // second `\nd*` has no frame left and flags as unmatched.
+    expect(usfmFragmentToUsjContent("\\p \\nd asdf \\nd* fdsa \\nd*")).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [
+          { type: "char", marker: "nd", content: ["asdf "] },
+          " fdsa ",
+          { type: "unmatched", marker: "nd*" },
+        ],
+      },
+    ]);
+  });
+
   it("closes the open char span before flagging an unmatched closer (PT9 pop-until-match)", () => {
     // PT9 (UsfmParser End token) pops open char styles until it matches or hits a non-char
     // boundary; a mismatched `\qt*` still closes the open `\nd` (closed="false"), then flags the

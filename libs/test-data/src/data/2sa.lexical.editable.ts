@@ -4859,7 +4859,12 @@ export const lexicalEditable2Sa: SerializedEditorState = {
           {
             type: "unmatched",
             marker: "*",
-            version: 1,
+            text: "\\*",
+            detail: 0,
+            format: 0,
+            mode: "normal",
+            style: "",
+            version: 2,
           },
           {
             type: "text",
@@ -4952,7 +4957,12 @@ export const lexicalEditable2Sa: SerializedEditorState = {
           {
             type: "unmatched",
             marker: "*",
-            version: 1,
+            text: "\\*",
+            detail: 0,
+            format: 0,
+            mode: "normal",
+            style: "",
+            version: 2,
           },
           {
             type: "text",
@@ -5001,7 +5011,12 @@ export const lexicalEditable2Sa: SerializedEditorState = {
           {
             type: "unmatched",
             marker: "*",
-            version: 1,
+            text: "\\*",
+            detail: 0,
+            format: 0,
+            mode: "normal",
+            style: "",
+            version: 2,
           },
           {
             type: "text",
@@ -5050,7 +5065,12 @@ export const lexicalEditable2Sa: SerializedEditorState = {
           {
             type: "unmatched",
             marker: "*",
-            version: 1,
+            text: "\\*",
+            detail: 0,
+            format: 0,
+            mode: "normal",
+            style: "",
+            version: 2,
           },
           {
             type: "text",
@@ -11430,7 +11450,12 @@ export const lexicalEditable2Sa: SerializedEditorState = {
           {
             type: "unmatched",
             marker: "ref*",
-            version: 1,
+            text: "\\ref*",
+            detail: 0,
+            format: 0,
+            mode: "normal",
+            style: "",
+            version: 2,
           },
         ],
         direction: null,

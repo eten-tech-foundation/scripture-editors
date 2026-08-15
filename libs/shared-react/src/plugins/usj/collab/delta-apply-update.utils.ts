@@ -1550,7 +1550,7 @@ function $insertEmbedAtCurrentIndex(
   } else if (isInsertEmbedOpOfType("unknown", op)) {
     newNodeToInsert = $createUnknown(op, viewOptions, nodeOptions, logger);
   } else if (isInsertEmbedOpOfType("unmatched", op)) {
-    newNodeToInsert = $createImmutableUnmatched(op.insert.unmatched);
+    newNodeToInsert = $createImmutableUnmatched(op.insert.unmatched, viewOptions);
   }
   // While it would be technically and structurally possible to add a ParaNode here, it's not the
   // way Quill (and therefore flat rich-text docs) handles paragraphs which is always by inserting a
@@ -1967,13 +1967,21 @@ function $createInlineNodesFromOps(
   return nodes;
 }
 
-function $createImmutableUnmatched(unmatchedData: OTUnmatchedEmbed | null) {
+function $createImmutableUnmatched(
+  unmatchedData: OTUnmatchedEmbed | null,
+  viewOptions: ViewOptions,
+) {
   if (!unmatchedData) return;
 
   const { marker } = unmatchedData;
   if (!marker) return;
 
-  return $createImmutableUnmatchedNode(marker);
+  const node = $createImmutableUnmatchedNode(marker);
+  // Shape-twin with the forward adaptor's `createUnmatched`: editable marker mode edits the
+  // flagged bytes in place (the marker-edit engine settles them), so the node is ordinary
+  // "normal" text there; every other mode keeps the constructor's atomic "token".
+  if (viewOptions.markerMode === "editable") node.setMode("normal");
+  return node;
 }
 
 /**

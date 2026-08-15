@@ -17,6 +17,7 @@ import {
 import {
   $caretHoldsRunSite,
   $isCanonicalMarkerNode,
+  $isCanonicalUnmatchedNode,
   $isCharNode,
   $isMarkerNode,
   $isMilestoneNode,
@@ -35,6 +36,7 @@ import {
   closingMarkerText,
   displayRunDescriptors,
   getVisibleOpenMarkerText,
+  ImmutableUnmatchedNode,
   isMilestoneHeuristicName,
   MarkerLookup,
   MarkerNode,
@@ -232,6 +234,31 @@ export function $markerNodeTransform(node: MarkerNode, context: MarkerEditContex
   // implicitly-closed span `closed="false"` (ParatextData emits it whenever a char span has no
   // explicit closer — see paranext-core's footnote-util test USJ), and the adaptor skips the
   // closing glyph for such spans, exactly as it does for auto-closed notes.
+  context.pendingKeys.add(node.getKey());
+}
+
+/**
+ * Pend/settle for an unmatched marker's editable bytes, mirroring the closer arm of
+ * {@link $markerNodeTransform}: at rest the node consumes its pend; every byte deleted deletes
+ * the construct outright (displayed bytes win); anything else is a mid-edit divergence that
+ * pends and settles through Tier 2 on caret departure/Enter/blur \u2014 where the bytes flow into the
+ * fragment as text and the tokenizer decides what, if anything, they now close.
+ *
+ * Mutating: call inside `editor.update()` (runs from MarkerEditPlugin's node transform).
+ */
+export function $unmatchedNodeTransform(
+  node: ImmutableUnmatchedNode,
+  context: MarkerEditContext,
+): void {
+  if (node.getTextContent() === "") {
+    context.pendingKeys.delete(node.getKey());
+    node.remove();
+    return;
+  }
+  if ($isCanonicalUnmatchedNode(node)) {
+    context.pendingKeys.delete(node.getKey());
+    return;
+  }
   context.pendingKeys.add(node.getKey());
 }
 

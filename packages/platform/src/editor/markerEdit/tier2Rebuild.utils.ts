@@ -29,6 +29,7 @@ import {
   $hasUnrecoverableAttributes,
   $isAttributeRunNode,
   $isCharNode,
+  $isImmutableUnmatchedNode,
   $isMarkerNode,
   $isMilestoneNode,
   $isNoteNode,
@@ -476,6 +477,12 @@ function $appendSignature(
       // glyph/content boundary — e.g. glyph "\q extra" vs. glyph "\q" + content
       // "extra" — changes the signature instead of silently canceling out.
       out.push(SIGNATURE_OPEN, "marker", toFragmentText(node.getTextContent()), SIGNATURE_CLOSE);
+    } else if ($isImmutableUnmatchedNode(node)) {
+      // Tagged for the same reason as marker glyphs: an unmatched element's BYTES are identical
+      // to the literal text it resolves from (`\*` typed as text vs the flagged element), so a
+      // bare-text contribution would make that resolution signature-invisible and the
+      // fixed-point refusal would block it forever.
+      out.push(SIGNATURE_OPEN, "unmatched", toFragmentText(node.getTextContent()), SIGNATURE_CLOSE);
     } else if ($isRebuildSentinel(node, getMarkerFn)) {
       out.push(ATOMIC_SENTINEL);
     } else if ($isLineBreakNode(node)) {
