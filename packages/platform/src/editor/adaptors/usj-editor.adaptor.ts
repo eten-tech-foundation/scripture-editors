@@ -526,12 +526,29 @@ function createTableRow(
   childNodes: SerializedLexicalNode[] = [],
 ): SerializedImmutableTableRowNode {
   const unknownAttributes = getUnknownAttributes(markerObject, TABLE_ROW_MARKER_OBJECT_PROPS);
+  const rowMarker = markerObject.marker ?? TABLE_ROW_DEFAULT_MARKER;
+  const children: SerializedLexicalNode[] = [];
+  // A row's `\tr ` bytes are displayed on exactly the terms its cells' bytes are (`createTableCell`
+  // below): the row marker is real USFM the document carries, and a row that renders none of it
+  // leaves a typed `\tr` with nothing on screen — the paragraph splits, the rest of the sentence
+  // moves into the row, and there is no glyph to delete to undo any of it.
+  if (_viewOptions?.markerMode === "editable")
+    children.push(createMarker(rowMarker), createText(NBSP, MARKER_TRAILING_SPACE_TEXT_TYPE));
+  else if (_viewOptions?.markerMode === "visible" || _viewOptions?.hasGutterParaMarkers)
+    children.push(
+      createImmutableTypedText(
+        "marker",
+        openingMarkerText(rowMarker) + NBSP,
+        _viewOptions?.hasGutterParaMarkers,
+      ),
+    );
+  children.push(...childNodes);
   return removeUndefinedProperties({
     ...createBaseElement(),
     type: ImmutableTableRowNode.getType(),
-    marker: markerObject.marker ?? TABLE_ROW_DEFAULT_MARKER,
+    marker: rowMarker,
     unknownAttributes,
-    children: childNodes,
+    children,
     version: IMMUTABLE_TABLE_ROW_VERSION,
   });
 }
