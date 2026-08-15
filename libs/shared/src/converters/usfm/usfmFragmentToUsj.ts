@@ -307,9 +307,22 @@ function tokenize(fragment: string, getMarkerFn: MarkerLookup, isNoteContext: bo
  * ParatextData emits them. The relation data is parser-level in ParatextData (not in any
  * stylesheet), so it is hardcoded here; `cat` supports two target types — an open note
  * (`f`/`fe`/`x`/`ef`/`efe`/`ex`) and an `esb` sidebar — so `targetTypes` is a list.
+ *
+ * This table models the PARSER, keyed by USJ node type, deliberately matching ParatextData's
+ * fold-at-parse behavior (which is keyed by token TYPE, not by a host-marker list). The markers
+ * map in paranext-core (`markers-map-3.0.model.ts`) models the SERIALIZER and keys the same
+ * relation by host MARKER NAME. The two agree on every shared fact — the agreement test beside
+ * this module (`attributeMarkersMapAgreement.test.ts`) pins that, and pins the keying
+ * difference explicitly. Parser-only behaviors (a same-line space before the marker blocks the
+ * fold; markup in the content aborts it; an empty span never folds) stay local to this
+ * converter and are pinned in its own tests.
  */
-const ATTRIBUTE_MARKERS: {
-  [marker: string]: { attrName: string; targetTypes: readonly string[]; shape: "char" | "para" };
+export const ATTRIBUTE_MARKERS: {
+  readonly [marker: string]: {
+    readonly attrName: string;
+    readonly targetTypes: readonly string[];
+    readonly shape: "char" | "para";
+  };
 } = {
   ca: { attrName: "altnumber", targetTypes: ["chapter"], shape: "char" },
   cp: { attrName: "pubnumber", targetTypes: ["chapter"], shape: "para" },
