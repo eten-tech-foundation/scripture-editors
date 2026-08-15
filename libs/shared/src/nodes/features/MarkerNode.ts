@@ -172,6 +172,31 @@ export function isSerializedMarkerNode(
 }
 
 /**
+ * Whether `node`'s RENDERED bytes still spell the glyph its own state describes — the single
+ * definition of "this glyph is at rest", as opposed to mid-edit (pend-shaped).
+ *
+ * A glyph's text is a cache of (marker, syntax, nested) that only the setters below rewrite, so a
+ * user edit to the displayed characters — deleting the `*` from `\va*`, backspacing into `\qt-s` —
+ * leaves the node's state fully intact while the bytes on screen say something else. Anything that
+ * classifies a glyph must ask this, not just the state: a glyph whose bytes have drifted is
+ * mid-edit, and treating it as canonical is how a run comes to be canonical to one subsystem and
+ * pending to another at the same time. That standing disagreement is the defect shape this
+ * predicate exists to make impossible, so it belongs next to the `__text` writer it mirrors, not
+ * beside any one of its callers — the marker transform, the pending-marker resolve, the historic
+ * re-pend scan, the read-only settle, and the display-run piece scanners all key on it. A nested
+ * span's `\+w*` is canonical FOR A NESTED GLYPH; the `+` comes from the node's own stored nesting,
+ * so a rest-state nested glyph is never mistaken for a damaged one.
+ *
+ * Read-only: call inside `editor.getEditorState().read(...)` or an update.
+ */
+export function $isCanonicalMarkerNode(node: MarkerNode): boolean {
+  return (
+    node.getTextContent() ===
+    getMarkerText(node.getMarker(), node.getMarkerSyntax(), node.getNested())
+  );
+}
+
+/**
  * The single writer of a glyph's `__text` — the ONLY place the `+` becomes literal characters.
  * `marker` is always clean (`"w"`); `nested` contributes the `+` (`\+w`). Called from the
  * constructor and every setter, so `__text` always reflects (marker, syntax, nested) — keeping

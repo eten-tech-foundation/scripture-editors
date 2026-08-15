@@ -6,6 +6,7 @@ import { useEffect } from "react";
 import {
   $hasSameCharAttributes,
   $isCharNode,
+  $isMarkerNode,
   $syncDisplayRun,
   $syncNestedGlyphs,
   $syncOpenerSeparators,
@@ -50,6 +51,25 @@ function useCharNode(editor: LexicalEditor) {
 }
 
 /**
+ * Whether `node` renders its own marker glyphs — the editable-marker views build every char span
+ * with an opening `MarkerNode` (and, for a closed span, a matching closer), while the visible and
+ * hidden views build none at all.
+ *
+ * Combining two glyph-bearing spans is not a normalization but a byte change: the survivor keeps
+ * BOTH spans' glyphs among its children, so a merged pair displays `\nd a\nd*\nd b\nd*` while
+ * being ONE span. Re-tokenizing those bytes — what every settle does — yields two spans again,
+ * which this transform merges again, and the rebuild's fixed-point refusal never fires because
+ * each side genuinely differs from the other. That is a live editor freeze, reachable from any
+ * edit that leaves two same-attribute spans adjacent (deleting the `*` from a `\va*` closer
+ * re-tokenizes into exactly that shape). Where the glyphs are absent there are no bytes to
+ * contradict, so the merge stays: adjacent same-attribute runs really are equivalent there, and
+ * that is the case delta-apply and structure surgery rely on.
+ */
+function $rendersOwnGlyphs(node: CharNode): boolean {
+  return node.getChildren().some($isMarkerNode);
+}
+
+/**
  * Combine adjacent CharNodes with the same attributes.
  * @param node - CharNode thats needs updating.
  * @param editor - LexicalEditor instance.
@@ -61,6 +81,9 @@ function $charNodeTransform(node: CharNode): void {
     node.remove();
     return;
   }
+
+  // Glyph-bearing spans are the displayed bytes; see `$rendersOwnGlyphs`.
+  if ($rendersOwnGlyphs(node)) return;
 
   const style = node.getMarker();
   // `\fp` (footnote-paragraph) spans are exempt from combining: each span IS a paragraph

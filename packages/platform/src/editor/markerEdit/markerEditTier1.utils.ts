@@ -16,6 +16,7 @@ import {
 } from "lexical";
 import {
   $caretHoldsRunSite,
+  $isCanonicalMarkerNode,
   $isCharNode,
   $isMarkerNode,
   $isMilestoneNode,
@@ -39,7 +40,6 @@ import {
   MarkerNode,
   MarkerType,
   NoteNode,
-  openingMarkerText,
   VerseNode,
 } from "shared";
 
@@ -69,21 +69,6 @@ const TERMINATED_OPENER_REGEX = /^\\(\+?[\w-]+)[ \u00A0]$/;
 // uses \u2014 a second, independently-derived regex could silently drift out of sync with this one.
 export const BARE_OPENER_REGEX = /^\\(\+?[\w-]+)$/;
 const CLOSER_FORM_REGEX = /^\\\+?[\w-]*\*$/;
-
-/** The rest-state display text a marker glyph should carry — derived from the node's stored
- * marker, syntax, and nesting. A glyph whose text differs is mid-edit (pend-shaped). Exported for
- * the historic re-pend scan ($rependPendShapedNodes), which must classify glyph divergence with
- * the same rule the MarkerNode transform and `$resolvePendingMarkers` use. */
-export function $markerCanonicalText(node: MarkerNode): string {
-  const syntax = node.getMarkerSyntax();
-  // A nested char span's glyphs carry the `+` prefix (`\+w …\+w*`); the canonical text must derive
-  // the same `+` from the node's stored nesting so a rest-state nested glyph is not mistaken for a
-  // mid-edit rename.
-  const nested = node.getNested();
-  if (syntax === "closing") return closingMarkerText(node.getMarker(), nested);
-  if (syntax === "selfClosing") return closingMarkerText("");
-  return openingMarkerText(node.getMarker(), nested);
-}
 
 // Milestone-name heuristic shared with the fragment tokenizer (`isMilestoneHeuristicName`):
 // only stylesheet-family milestone names (`\qt#-s/-e`, `\ts-s/-e`) plus annotation comment
@@ -209,7 +194,7 @@ export function $applyOpenerRename(
 
 export function $markerNodeTransform(node: MarkerNode, context: MarkerEditContext): void {
   const text = node.getTextContent();
-  if (text === $markerCanonicalText(node)) {
+  if ($isCanonicalMarkerNode(node)) {
     context.pendingKeys.delete(node.getKey());
     return;
   }
@@ -482,7 +467,7 @@ export function $resolvePendingMarkers(context: MarkerEditContext, exceptKey?: N
     if ($isMarkerNode(node)) {
       context.pendingKeys.delete(key);
       const text = node.getTextContent();
-      if (text === $markerCanonicalText(node)) continue;
+      if ($isCanonicalMarkerNode(node)) continue;
       const bare = BARE_OPENER_REGEX.exec(text);
       if (node.getMarkerSyntax() === "opening" && bare)
         mutated = $applyOpenerRename(node, bare[1], context) || mutated;

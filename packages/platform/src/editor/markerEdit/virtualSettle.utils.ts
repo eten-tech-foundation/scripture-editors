@@ -30,7 +30,7 @@
 import { deserializeSerializedEditorState } from "../adaptors/editor-usj.adaptor";
 import usjEditorAdaptor from "../adaptors/usj-editor.adaptor";
 import { TransientInput } from "../editor.model";
-import { $markerCanonicalText, BARE_OPENER_REGEX } from "./markerEditTier1.utils";
+import { BARE_OPENER_REGEX } from "./markerEditTier1.utils";
 import {
   $buildNoteFragment,
   $buildParaFragment,
@@ -67,6 +67,7 @@ import {
   TextNode,
 } from "lexical";
 import {
+  $isCanonicalMarkerNode,
   $isCharNode,
   $isMarkerNode,
   $isNoteNode,
@@ -947,7 +948,7 @@ function $noteGlyphRenameTarget(
   const parent = node.getParent();
   if (!$isNoteNode(parent)) return undefined;
   const text = node.getTextContent();
-  if (text === $markerCanonicalText(node)) return undefined;
+  if ($isCanonicalMarkerNode(node)) return undefined;
   const bare = BARE_OPENER_REGEX.exec(text);
   if (!bare) return undefined;
   const newMarker = bare[1];

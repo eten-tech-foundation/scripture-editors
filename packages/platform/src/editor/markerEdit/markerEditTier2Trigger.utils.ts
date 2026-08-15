@@ -25,7 +25,7 @@
  */
 
 import { $requestTier2ForNode } from "./tier2Rebuild.utils";
-import { $markerCanonicalText, MarkerEditContext } from "./markerEditTier1.utils";
+import { MarkerEditContext } from "./markerEditTier1.utils";
 import {
   $getRoot,
   $getSelection,
@@ -41,6 +41,7 @@ import {
   $charClosingGlyph,
   $isAttributeRunNode,
   $isBookNode,
+  $isCanonicalMarkerNode,
   $isChapterNode,
   $isCharNode,
   $isMarkerNode,
@@ -225,8 +226,7 @@ export function $rependPendShapedNodes(context: MarkerEditContext): void {
   const visit = (node: LexicalNode): void => {
     if ($isMarkerNode(node)) {
       // Mid-edit glyph text (an undone rename settle) — $markerNodeTransform's pend shape.
-      if (node.getTextContent() !== $markerCanonicalText(node))
-        context.pendingKeys.add(node.getKey());
+      if (!$isCanonicalMarkerNode(node)) context.pendingKeys.add(node.getKey());
       return;
     }
     // Every registered display kind's owner re-pends by the SAME rule: a caret-held divergence, or
