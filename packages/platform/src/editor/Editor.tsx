@@ -23,6 +23,7 @@ import {
 } from "./markerMenu/markerMenuApply.utils";
 import { $getMarkerMenuContext } from "./markerMenu/markerMenuContext.utils";
 import { $applyParaMarker } from "./markerEdit/applyParaMarker.utils";
+import { EscapeKeyPlugin } from "./EscapeKeyPlugin";
 import { COMMIT_PENDING_MARKERS_COMMAND, MarkerEditPlugin } from "./markerEdit/MarkerEditPlugin";
 import { MarkerValidationPlugin } from "./markerEdit/MarkerValidationPlugin";
 import { $settledUsj, LastKnownCaret } from "./markerEdit/virtualSettle.utils";
@@ -781,6 +782,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
           {viewOptions?.markerMode !== "editable" && <CommandMenuPlugin logger={stableLogger} />}
           <ContextMenuPlugin options={contextMenuOptions} />
           <EmptyVerseCaretGuardPlugin />
+          <EscapeKeyPlugin />
           <MarkerEditPlugin viewOptions={viewOptions} getMarker={markerLookup} logger={logger} />
           <MarkerValidationPlugin styleInfo={styleInfo} viewOptions={viewOptions} logger={logger} />
           <NoteNodePlugin
