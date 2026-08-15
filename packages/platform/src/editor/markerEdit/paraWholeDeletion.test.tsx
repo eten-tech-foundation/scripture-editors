@@ -34,6 +34,7 @@ import {
   $getSelection,
   $isRangeSelection,
   $setSelection,
+  CUT_COMMAND,
   KEY_DOWN_COMMAND,
   LexicalEditor,
 } from "lexical";
@@ -272,6 +273,48 @@ describe("user deletes a paragraph's entire visible representation", () => {
       expect(second.getTextContent()).not.toContain("two");
     });
     expect(paraMarkersOf(usjOf(editor))).toEqual(["p", "q1"]);
+  });
+
+  it("removes the paragraph when it is CUT whole (same whole-representation deletion)", async () => {
+    // jsdom implements no ClipboardEvent; the standard-view cut handler duck-types
+    // `clipboardData` off the payload, so a plain object exercises the same path a real
+    // browser event takes.
+    const written = new Map<string, string>();
+    const cutEvent = {
+      clipboardData: {
+        setData: (type: string, value: string) => void written.set(type, value),
+        getData: () => "",
+        types: [],
+        files: [],
+      },
+      preventDefault: () => undefined,
+    } as unknown as ClipboardEvent;
+
+    let second!: ParaNode;
+    const { editor } = await testEnvironment(() => {
+      ({ second } = $appendTwoParas());
+    });
+
+    await act(async () =>
+      editor.update(() => {
+        const glyph = second.getFirstChild();
+        if (!$isMarkerNode(glyph)) throw new Error("expected the paragraph's marker glyph");
+        const last = second.getLastChild();
+        if (last === null) throw new Error("expected paragraph content");
+        const selection = $createRangeSelection();
+        selection.anchor.set(glyph.getKey(), 0, "text");
+        selection.focus.set(last.getKey(), last.getTextContentSize(), "text");
+        $setSelection(selection);
+        editor.dispatchCommand(CUT_COMMAND, cutEvent);
+      }),
+    );
+
+    editor.getEditorState().read(() => {
+      expect(second.isAttached()).toBe(false);
+      expect($getRoot().getChildren().filter($isParaNode)).toHaveLength(1);
+    });
+    expect(paraMarkersOf(usjOf(editor))).toEqual(["p"]);
+    expect(written.get("text/plain")).toContain("two"); // the cut content reached the clipboard
   });
 
   it("lands the caret at the JUNCTION when deleting only the visible prefix merges the para", async () => {
