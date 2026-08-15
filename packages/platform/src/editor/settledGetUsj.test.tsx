@@ -21,8 +21,11 @@ import {
   $isParaNode,
   $isUnknownNode,
   $isVerseNode,
+  $noteCategoryRunPieces,
+  $noteEditableCallerNode,
   CharNode,
   getPendedDisplayOwners,
+  NBSP,
   NoteNode,
   textTypeState,
 } from "shared";
@@ -200,6 +203,15 @@ const noteUsj = (noteContent: MarkerObject["content"]): Usj => ({
   ],
 });
 
+/** {@link noteUsj} with `category="People"` on the note — the `\cat` run shapes' fixture. */
+function categoryNoteUsj(...noteContent: NonNullable<MarkerObject["content"]>): Usj {
+  const usj = noteUsj(noteContent.length > 0 ? noteContent : ["note body"]);
+  const para = usj.content?.[2] as MarkerObject;
+  const note = para.content?.[1] as MarkerObject;
+  note.category = "People";
+  return usj;
+}
+
 /** The first paragraph's text node whose content includes `needle`. */
 function $textContaining(needle: string) {
   const node = $getRoot()
@@ -342,6 +354,40 @@ const pendingShapes: PendingShape[] = [
     usj: noteUsj(["note body"]),
     expandedNotes: true,
     $edit: () => $findNoteOpeningGlyph().setTextContent("\\fe"),
+  },
+  {
+    // Both halves must fold the edited `\cat` value back onto the note's `category` — the run's
+    // displayed bytes win, and the serialized note field must follow them in the virtual output
+    // exactly as the real settle's `setCategory` does.
+    name: "note category run value edited",
+    usj: categoryNoteUsj(),
+    expandedNotes: true,
+    $edit: () => {
+      const value = $noteCategoryRunPieces($findNote()).value;
+      if (!value) throw new Error("expected the \\cat value TextNode");
+      value.setTextContent(`${NBSP}Places`);
+      value.select(value.getTextContentSize(), value.getTextContentSize());
+    },
+  },
+  {
+    // Deleting the whole run clears `category` in both halves — no resurrection from the note's
+    // still-set state on either path. The note's content is a `\ft` char span (the shape real
+    // notes have) rather than plain text: with PLAIN text directly after the run, Lexical's
+    // adjacent-text normalization merges the note body into the editable caller the moment the
+    // wrapper between them is removed, dissolving the caller anchor — the rebuild then refuses
+    // (preserve-or-refuse on the caller check) and the deletion sits unresolved.
+    name: "note category run deleted",
+    usj: categoryNoteUsj({ type: "char", marker: "ft", content: ["note body"], closed: "false" }),
+    expandedNotes: true,
+    $edit: () => {
+      const note = $findNote();
+      const pieces = $noteCategoryRunPieces(note);
+      if (!pieces.wrapper) throw new Error("expected the \\cat wrapper");
+      pieces.wrapper.remove();
+      const caller = $noteEditableCallerNode(note);
+      if (!caller) throw new Error("expected the editable caller");
+      caller.select(caller.getTextContentSize(), caller.getTextContentSize());
+    },
   },
   {
     // Edge pin: an INVALID target marker routes `$applyOpenerRename` to Tier 2

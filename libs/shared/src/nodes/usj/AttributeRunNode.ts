@@ -45,10 +45,13 @@ export const ATTRIBUTE_RUN_VERSION = 1;
 export const ATTRIBUTE_RUN_CLASS_NAME = "attribute-run";
 
 /**
- * Which leaf owner's display run an `AttributeRunNode` wraps: a verse's `\va` value triplet, its
- * `\vp` value triplet, or a milestone's attribute value.
+ * Which owner's display run an `AttributeRunNode` wraps: a verse's `\va` value triplet, its
+ * `\vp` value triplet, a milestone's attribute value, or a note's `\cat` category triplet. The
+ * first three owners are leaves that cannot hold children; a note CAN (it is an ElementNode), so
+ * its `cat` wrapper rides as a CHILD of the note — directly after the caller, where the file
+ * puts the `\cat` span — rather than as a following sibling.
  */
-export type AttributeRunKind = "va" | "vp" | "milestone";
+export type AttributeRunKind = "va" | "vp" | "milestone" | "cat";
 
 export type SerializedAttributeRunNode = Spread<
   {

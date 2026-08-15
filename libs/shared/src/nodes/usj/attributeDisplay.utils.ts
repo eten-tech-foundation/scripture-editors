@@ -56,6 +56,8 @@ import { $isAttributeRunNode, AttributeRunNode } from "./AttributeRunNode.js";
 import { $isCharNode, CharNode } from "./CharNode.js";
 import { MilestoneNode } from "./MilestoneNode.js";
 import { UnknownAttributes } from "./node-constants.js";
+import { getEditableCallerText } from "./node.utils.js";
+import { NoteNode } from "./NoteNode.js";
 import { $isVerseNode, VerseNode } from "./VerseNode.js";
 import { $getState, $isTextNode, LexicalNode, TextNode } from "lexical";
 
@@ -213,11 +215,26 @@ export function $verseAttributeRunPieces(
   after: LexicalNode,
   marker: VerseAttributeMarker,
 ): VerseAttributeRunPieces {
+  return $attributeMarkerRunPieces(after.getNextSibling(), marker);
+}
+
+/**
+ * The shared tolerant scan behind {@link $verseAttributeRunPieces} and
+ * {@link $noteCategoryRunPieces}: an attribute MARKER's run pieces — opener `MarkerNode`
+ * (matching `marker`), value TextNode (textType "attribute"), closer `MarkerNode` — read in their
+ * fixed order starting at `cursor`, each piece individually optional, descending into an
+ * `AttributeRunNode` wrapper whose `runKind` matches `marker` when one sits at `cursor`. The two
+ * public entry points differ only in where the run RIDES (a verse's following siblings vs a
+ * note's children after the caller), which is entirely captured by the starting cursor.
+ */
+function $attributeMarkerRunPieces(
+  cursor: LexicalNode | null,
+  marker: VerseAttributeMarker | "cat",
+): VerseAttributeRunPieces {
   let opener: MarkerNode | undefined;
   let value: TextNode | undefined;
   let closer: MarkerNode | undefined;
   let wrapper: AttributeRunNode | undefined;
-  let cursor: LexicalNode | null = after.getNextSibling();
   if ($isAttributeRunNode(cursor) && cursor.getRunKind() === marker) {
     wrapper = cursor;
     cursor = cursor.getFirstChild();
@@ -245,6 +262,42 @@ export function $verseAttributeRunPieces(
   )
     closer = cursor;
   return { opener, value, closer, wrapper };
+}
+
+/**
+ * The TextNode carrying a note's EDITABLE caller (` + ` with an NBSP tail —
+ * `getEditableCallerText`), skipping any leading opening glyph(s) — the anchor a note's `\cat`
+ * run scans from and is inserted after. `undefined` outside the expanded editable shape: a
+ * collapsed note renders its caller as a DecoratorNode and deliberately shows no category run,
+ * and visible/hidden modes build no editable caller at all. Deriving the anchor from tree shape
+ * (rather than viewOptions) keeps the cat sync a structural no-op in every mode that never
+ * builds the run, the same rule {@link $charClosingGlyph} applies for a char span's run.
+ */
+export function $noteEditableCallerNode(note: NoteNode): TextNode | undefined {
+  const children = note.getChildren();
+  let index = 0;
+  while (index < children.length) {
+    const child = children[index];
+    if (!$isMarkerNode(child) || child.getMarkerSyntax() !== "opening") break;
+    index++;
+  }
+  const caller = children[index];
+  if ($isTextNode(caller) && caller.getTextContent() === getEditableCallerText(note.getCaller()))
+    return caller;
+  return undefined;
+}
+
+/**
+ * A note's `\cat` category display run — the same opener/value/closer triplet shape a verse's
+ * `\va`/`\vp` runs take ({@link $verseAttributeRunPieces}), riding as the note's CHILDREN
+ * directly after the editable caller (a `NoteNode` is an ElementNode, so unlike the leaf owners
+ * its run needs no sibling position). Empty pieces when the note has no editable caller anchor —
+ * the collapsed and non-editable shapes, which never carry a run.
+ */
+export function $noteCategoryRunPieces(note: NoteNode): VerseAttributeRunPieces {
+  const caller = $noteEditableCallerNode(note);
+  if (!caller) return {};
+  return $attributeMarkerRunPieces(caller.getNextSibling(), "cat");
 }
 
 /**

@@ -40,6 +40,7 @@ import {
   $signatureOf,
   ATOMIC_SENTINEL,
   countSentinels,
+  extractLeadingCategoryFold,
   FragmentAccumulator,
   FragmentSpan,
   SIGNATURE_CLOSE,
@@ -74,6 +75,7 @@ import {
   $isParaNode,
   $isUnknownNode,
   closingMarkerText,
+  getEditableCallerText,
   MarkerLookup,
   MarkerNode,
   NBSP,
@@ -755,7 +757,18 @@ function $settledNoteContent(
   context: Tier2Context,
   huskKeys: ReadonlySet<NodeKey>,
   transient: TransientLiteral | undefined,
-): { rebuilt: SerializedLexicalNode[]; contentNodes: LexicalNode[] } | undefined {
+):
+  | {
+      /** Fresh content children to splice in — absent when the content is already a fixed point
+       * and only the CATEGORY needs patching. */
+      rebuilt: SerializedLexicalNode[] | undefined;
+      contentNodes: LexicalNode[];
+      /** The category the fold derived (undefined = none), with whether it differs from the
+       * note's current state — the caller patches the serialized note's own field on change. */
+      category: string | undefined;
+      categoryChanged: boolean;
+    }
+  | undefined {
   const { viewOptions, getMarker: getMarkerFn, logger } = context;
   const built = $buildNoteFragment(note, getMarkerFn);
   if (!built) return undefined;
@@ -771,9 +784,39 @@ function $settledNoteContent(
     logger?.warn("[MarkerEdit] Settled note USJ skipped: sentinel/preserved-node count mismatch");
     return undefined;
   }
+  // Mirrors `$rebuildNoteContent` exactly from here: unwrap the tokenizer's default `\p` at the
+  // USJ level, fold a leading `\cat` span onto the category, then serialize the WHOLE note so
+  // `createNote` rebuilds the folded category's canonical display run in the same pass — and
+  // unwrap the serialized note's shell (opening glyph(s), caller, trailing closing glyph(s))
+  // to recover the content children.
+  const [tokenizedWrapper] = content;
+  if (
+    content.length !== 1 ||
+    typeof tokenizedWrapper !== "object" ||
+    tokenizedWrapper.type !== "para"
+  ) {
+    logger?.warn("[MarkerEdit] Settled note USJ skipped: unexpected tokenized shape");
+    return undefined;
+  }
+  const noteContent = tokenizedWrapper.content ?? [];
+  const foldedCategory = extractLeadingCategoryFold(noteContent);
+  const categoryChanged = note.getCategory() !== foldedCategory;
   const noteViewOptions: ViewOptions = { ...viewOptions, noteMode: "expanded" };
   const topLevel = usjEditorAdaptor.serializeEditorState(
-    { type: USJ_TYPE, version: USJ_VERSION, content },
+    {
+      type: USJ_TYPE,
+      version: USJ_VERSION,
+      content: [
+        {
+          ...note.getUnknownAttributes(),
+          type: "note",
+          marker: note.getMarker(),
+          caller: note.getCaller(),
+          ...(foldedCategory !== undefined && { category: foldedCategory }),
+          content: noteContent,
+        },
+      ],
+    },
     noteViewOptions,
   ).root.children;
   const wrapperChildren = topLevel.length === 1 ? serializedChildren(topLevel[0]) : undefined;
@@ -782,24 +825,24 @@ function $settledNoteContent(
     return undefined;
   }
   let contentStart = 0;
-  const first = wrapperChildren[0] as { type?: string; markerSyntax?: string } | undefined;
-  // Mirrors `$rebuildNoteContent`'s own `markerSyntax === "opening"` check exactly: the ONLY
-  // marker this unwrap may ever drop is the editable `\p` wrapper's own visible prefix glyph — a
-  // "marker"-typed sibling that is NOT an opening glyph (a stray closing/self-closing marker,
-  // which the tokenizer never emits in this slot but which this check must not silently eat
-  // regardless) must fall through and stay in the content instead.
-  if (first?.type === "marker" && first.markerSyntax === "opening") {
-    contentStart = 1;
-    const second = wrapperChildren[1];
-    const secondState = second as { type?: string; $?: { textType?: string } } | undefined;
-    if (
-      secondState &&
-      secondState.type !== "marker" &&
-      secondState.$?.textType === "marker-trailing-space"
-    )
-      contentStart = 2;
+  while (contentStart < wrapperChildren.length) {
+    const node = wrapperChildren[contentStart] as { type?: string; markerSyntax?: string };
+    if (node.type !== "marker" || node.markerSyntax !== "opening") break;
+    contentStart++;
   }
-  const rebuilt = wrapperChildren.slice(contentStart);
+  const serializedCaller = wrapperChildren[contentStart] as { text?: string } | undefined;
+  if (serializedCaller?.text !== getEditableCallerText(note.getCaller())) {
+    logger?.warn("[MarkerEdit] Settled note USJ skipped: serialized note lacks the caller");
+    return undefined;
+  }
+  contentStart++;
+  let contentEnd = wrapperChildren.length;
+  while (contentEnd > contentStart) {
+    const node = wrapperChildren[contentEnd - 1] as { type?: string; markerSyntax?: string };
+    if (node.type !== "marker" || node.markerSyntax !== "closing") break;
+    contentEnd--;
+  }
+  const rebuilt = wrapperChildren.slice(contentStart, contentEnd);
   if (rebuilt.length === 0) return undefined;
   if (countSerializedSentinels(rebuilt) !== out.sentinels.length) {
     logger?.warn(
@@ -842,11 +885,17 @@ function $settledNoteContent(
     serializedSignatureOf(rebuilt, getMarkerFn) === $signatureOf(contentNodes, getMarkerFn) &&
     $structuralMarkersAgree(contentNodes, rebuilt, getMarkerFn)
   ) {
+    // A content fixed point with a CHANGED category is the edited-value shape (the displayed run
+    // already IS the canonical bytes, only the note's own field lags) — nothing to splice, but
+    // the category patch must still reach the caller. Mirrors `$rebuildNoteContent`'s own
+    // category-catch-up-on-fixed-point behavior.
+    if (categoryChanged)
+      return { rebuilt: undefined, contentNodes, category: foldedCategory, categoryChanged };
     logger?.debug("[MarkerEdit] Settled note USJ skipped: rebuild is a no-op (fixed point)");
     return undefined;
   }
   replaceSerializedSentinels(rebuilt, runs);
-  return { rebuilt, contentNodes };
+  return { rebuilt, contentNodes, category: foldedCategory, categoryChanged };
 }
 
 /** The custom node-state a serialized text node carries under Lexical's `$` state key, or
@@ -1093,9 +1142,17 @@ export function $settledUsj(
   for (const note of noteScopes.values()) {
     const site = sites.get(note.getKey());
     const noteChildren = site ? serializedChildren(site.node) : undefined;
-    if (!noteChildren) continue;
+    if (!site || !noteChildren) continue;
     const built = $settledNoteContent(note, sites, context, huskKeys, transient);
     if (!built) continue;
+    // The category fold's result patches the serialized note's OWN field — the settled USJ a
+    // consumer reads must carry the category the displayed bytes fold to, not the stale state.
+    if (built.categoryChanged) {
+      const serializedNote = site.node as { category?: string };
+      if (built.category === undefined) delete serializedNote.category;
+      else serializedNote.category = built.category;
+    }
+    if (!built.rebuilt) continue;
     const firstSite = sites.get(built.contentNodes[0].getKey());
     if (!firstSite) continue;
     const start = noteChildren.indexOf(firstSite.node);

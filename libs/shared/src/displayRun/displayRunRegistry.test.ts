@@ -4,10 +4,11 @@ import { $createMarkerNode } from "../nodes/features/MarkerNode.js";
 import { $createAttributeRunNode } from "../nodes/usj/AttributeRunNode.js";
 import { $createCharNode } from "../nodes/usj/CharNode.js";
 import { $createMilestoneNode } from "../nodes/usj/MilestoneNode.js";
+import { $createNoteNode } from "../nodes/usj/NoteNode.js";
 import { $createParaNode } from "../nodes/usj/ParaNode.js";
 import { $createVerseNode } from "../nodes/usj/VerseNode.js";
 import { $runDiverges } from "../nodes/usj/displayRunSync.utils.js";
-import { getVisibleOpenMarkerText } from "../nodes/usj/node.utils.js";
+import { getEditableCallerText, getVisibleOpenMarkerText } from "../nodes/usj/node.utils.js";
 import { NBSP } from "../nodes/usj/node-constants.js";
 import { createBasicTestEnvironment } from "../nodes/usj/test.utils.js";
 import { $createTextNode, $getRoot, $setState } from "lexical";
@@ -67,6 +68,38 @@ describe("displayRunRegistry expectedPieces", () => {
           valueText: `${NBSP}2`,
         });
         expect(displayRunDescriptor("vp").expectedPieces(verse)).toEqual({
+          wantsRun: false,
+          valueText: undefined,
+        });
+      },
+      { discrete: true },
+    );
+  });
+
+  it("derives a note's NBSP-prefixed \\cat value only when expanded, never when collapsed", () => {
+    const { editor } = createBasicTestEnvironment();
+    editor.update(
+      () => {
+        const expanded = $createNoteNode("f", "+", false, "People");
+        const collapsed = $createNoteNode("f", "+", true, "People");
+        const noCategory = $createNoteNode("f", "+", false);
+        $getRoot().append(
+          $createParaNode("p").append(expanded),
+          $createParaNode("p").append(collapsed),
+          $createParaNode("p").append(noCategory),
+        );
+        const descriptor = displayRunDescriptor("cat");
+        expect(descriptor.expectedPieces(expanded)).toEqual({
+          wantsRun: true,
+          valueText: `${NBSP}People`,
+        });
+        // A collapsed note deliberately shows no category run at all — its content is not inline
+        // display text — so the still-set category must not make the sync fabricate one.
+        expect(descriptor.expectedPieces(collapsed)).toEqual({
+          wantsRun: false,
+          valueText: undefined,
+        });
+        expect(descriptor.expectedPieces(noCategory)).toEqual({
           wantsRun: false,
           valueText: undefined,
         });
@@ -173,6 +206,56 @@ describe("displayRunRegistry scanPieces", () => {
           closer,
           wrapper: vpWrapper,
         });
+      },
+      { discrete: true },
+    );
+  });
+
+  it("reads a note's wrapped \\cat run from its children, anchored after the editable caller", () => {
+    // The run rides INSIDE the note (a NoteNode is an ElementNode), directly after the editable
+    // caller TextNode — the position `\f + \cat People\cat*` puts the span in the file. The same
+    // untranslated-shape trap as the milestone case below applies: every ScannedRun field is
+    // optional, so a scan that anchors wrongly (or returns another shape) type-checks clean and
+    // reads as permanently empty — this toEqual is the net.
+    const { editor } = createBasicTestEnvironment();
+    editor.update(
+      () => {
+        const note = $createNoteNode("f", "+", false, "People");
+        const wrapper = $createAttributeRunNode("cat");
+        const opener = $createMarkerNode("cat");
+        const value = $createTextNode(`${NBSP}People`);
+        $setState(value, textTypeState, "attribute");
+        const closer = $createMarkerNode("cat", "closing");
+        wrapper.append(opener, value, closer);
+        note.append(
+          $createMarkerNode("f"),
+          $createTextNode(getEditableCallerText("+")),
+          wrapper,
+          $createTextNode("note body"),
+          $createMarkerNode("f", "closing"),
+        );
+        $getRoot().append($createParaNode("p").append(note));
+        expect(displayRunDescriptor("cat").scanPieces(note)).toEqual({
+          opener,
+          value,
+          closer,
+          wrapper,
+        });
+      },
+      { discrete: true },
+    );
+  });
+
+  it("finds no \\cat pieces on a collapsed note, whose caller is not the editable anchor", () => {
+    const { editor } = createBasicTestEnvironment();
+    editor.update(
+      () => {
+        // A collapsed note's caller is a DecoratorNode the anchor scan does not recognize, so the
+        // scan reports no pieces — even if stray cat-shaped children were somehow present.
+        const note = $createNoteNode("f", "+", true, "People");
+        note.append($createTextNode("collapsed body"));
+        $getRoot().append($createParaNode("p").append(note));
+        expect(displayRunDescriptor("cat").scanPieces(note)).toEqual({});
       },
       { discrete: true },
     );

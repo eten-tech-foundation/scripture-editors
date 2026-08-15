@@ -1039,10 +1039,36 @@ export function $buildNoteFragment(
 }
 
 /**
+ * A foldable leading `\cat` span's category value, REMOVED from `content` — or `undefined` with
+ * `content` untouched. Foldable mirrors ParatextData's note-category parse: explicitly closed
+ * (no `closed` metadata and no other attributes riding the span), exactly one plain-text content
+ * item, non-whitespace after the trim ParatextData applies, and no preserved-node placeholder
+ * inside. Position zero of the note-content fragment IS "directly after the caller" — the only
+ * place the fold ever happens.
+ */
+export function extractLeadingCategoryFold(content: MarkerContent[]): string | undefined {
+  const first = content[0];
+  if (typeof first !== "object" || first.type !== "char" || first.marker !== "cat")
+    return undefined;
+  const keys = Object.keys(first);
+  if (!keys.every((key) => key === "type" || key === "marker" || key === "content"))
+    return undefined;
+  if (!first.content || first.content.length !== 1) return undefined;
+  const text = first.content[0];
+  if (typeof text !== "string" || text.includes(ATOMIC_SENTINEL)) return undefined;
+  const trimmed = text.trim();
+  if (trimmed === "") return undefined;
+  content.shift();
+  return trimmed;
+}
+
+/**
  * Note-scoped Tier 2 re-tokenization. Mirrors `$rebuildParas` but
  * operates on a single note's CONTENT children. The note node identity, its opening
  * marker(s), its caller, and its closing marker(s) are PRESERVED; only the content is
- * re-tokenized. Preserve-or-refuse: any guard-rail failure returns false with the note
+ * re-tokenized — with the note's `category` DERIVED from it each pass (the leading `\cat`
+ * fold), so the displayed run bytes win exactly like every other settled byte. Preserve-or-
+ * refuse: any guard-rail failure returns false with the note
  * untouched (never a partial mutation, never an infinite loop). A NoteNode inside a
  * PARAGRAPH rebuild stays an atomic sentinel; only this path descends into its content.
  *
@@ -1091,11 +1117,54 @@ export function $rebuildNoteContent(note: NoteNode, context: Tier2Context): bool
     return false;
   }
 
-  // Serialize note content with noteMode:"expanded" so char spans render editable inline,
-  // then UNWRAP the tokenizer's default \p wrapper (root -> para -> content).
+  // The tokenizer wraps a note-content fragment in its default `\p` — unwrap it here (the
+  // USJ-side twin of the serialized-side unwrap this function used to do), refusing any other
+  // top-level shape.
+  const [tokenizedWrapper] = content;
+  if (
+    content.length !== 1 ||
+    typeof tokenizedWrapper !== "object" ||
+    tokenizedWrapper.type !== "para"
+  ) {
+    logger?.warn("[MarkerEdit] Note Tier 2 aborted: unexpected tokenized shape");
+    return false;
+  }
+  const noteContent = tokenizedWrapper.content ?? [];
+
+  // The category fold, mirrored from ParatextData's parse: a `\cat` span DIRECTLY after the
+  // note's caller — which is position zero of this content fragment, since the fragment starts
+  // right after the caller — folds onto the note as its `category` iff it is explicitly closed
+  // with non-empty plain-text content. Anything else (markup inside, an empty span, an unclosed
+  // span, a preserved-node placeholder, text before it) is NOT foldable and stays first-class
+  // content, exactly as ParatextData keeps it. The note's category is then whatever folded — or
+  // cleared when nothing did, so deleting the displayed run genuinely deletes the category
+  // instead of the sync resurrecting it from stale state.
+  const foldedCategory = extractLeadingCategoryFold(noteContent);
+
+  // Serialize the WHOLE note — shell plus rebuilt content — with noteMode:"expanded" so char
+  // spans render editable inline, then unwrap the shell (opening glyph(s), caller, trailing
+  // closing glyph(s)) to get the fresh content children. Serializing through `createNote` rather
+  // than through a bare `\p` wrapper is what rebuilds the folded category's canonical `\cat`
+  // display run in the SAME pass: the fresh children then carry the run exactly where the live
+  // tree's do, so the fixed-point signature comparison below sees like against like — a
+  // content-only serialization never rebuilt the run, making every category-bearing rebuild look
+  // structurally different from its own output forever.
   const noteViewOptions: ViewOptions = { ...viewOptions, noteMode: "expanded" };
   const serialized = usjEditorAdaptor.serializeEditorState(
-    { type: USJ_TYPE, version: USJ_VERSION, content },
+    {
+      type: USJ_TYPE,
+      version: USJ_VERSION,
+      content: [
+        {
+          ...note.getUnknownAttributes(),
+          type: "note",
+          marker: note.getMarker(),
+          caller: note.getCaller(),
+          ...(foldedCategory !== undefined && { category: foldedCategory }),
+          content: noteContent,
+        },
+      ],
+    },
     noteViewOptions,
   );
   const topLevel = serialized.root.children;
@@ -1105,30 +1174,54 @@ export function $rebuildNoteContent(note: NoteNode, context: Tier2Context): bool
     logger?.warn("[MarkerEdit] Note Tier 2 aborted: unexpected serialized shape");
     return false;
   }
-  // The editable \p wrapper prepends a visible para MarkerNode + marker-trailing-space
-  // that must NOT enter the note content; drop ONLY that leading prefix pair on unwrap. Other
-  // MarkerNodes among the unwrapped children are real display glyphs — e.g. a freshly tokenized
-  // milestone's opening `\ts-s` and self-closing `\*` glyphs are SIBLINGS of the MilestoneNode —
-  // and a strip-every-MarkerNode filter ate them, leaving the milestone glyph-less until reload.
+  // Unwrap the serialized note's own shell the same way `$buildNoteFragment` sliced the live
+  // one: skip leading opening MarkerNode(s) and the caller text, drop trailing closing
+  // MarkerNode(s). Other MarkerNodes among the remaining children are real display glyphs — a
+  // freshly tokenized milestone's opening `\ts-s` and self-closing `\*` glyphs, or the rebuilt
+  // `\cat` run's own pair — and must survive.
   const parsed = wrapperChildren.map((child) => $parseSerializedNode(child));
   let contentStart = 0;
-  if ($isMarkerNode(parsed[0]) && parsed[0].getMarkerSyntax() === "opening") {
-    contentStart = 1;
-    const second = parsed[1];
-    if ($isMarkerTrailingSeparator(second)) contentStart = 2;
+  while (contentStart < parsed.length) {
+    const node = parsed[contentStart];
+    if (!$isMarkerNode(node) || node.getMarkerSyntax() !== "opening") break;
+    contentStart++;
   }
-  const newNodes = parsed.slice(contentStart);
+  const serializedCaller = parsed[contentStart];
+  if (
+    !$isTextNode(serializedCaller) ||
+    serializedCaller.getTextContent() !== getEditableCallerText(note.getCaller())
+  ) {
+    logger?.warn("[MarkerEdit] Note Tier 2 aborted: serialized note lacks the editable caller");
+    return false;
+  }
+  contentStart++;
+  let contentEnd = parsed.length;
+  while (contentEnd > contentStart) {
+    const node = parsed[contentEnd - 1];
+    if (!$isMarkerNode(node) || node.getMarkerSyntax() !== "closing") break;
+    contentEnd--;
+  }
+  const newNodes = parsed.slice(contentStart, contentEnd);
   if (newNodes.length === 0) {
     logger?.debug("[MarkerEdit] Note Tier 2 skipped: no content nodes after unwrap");
     return false;
   }
 
+  // The category write happens whether or not the content splice below is refused: an EDITED
+  // `\cat` value serializes to the same canonical bytes the live tree already displays (the
+  // user's edit IS those bytes), so the structural comparison legitimately reports a fixed point
+  // — but the note's `category` state still lags the displayed value and must catch up here.
+  // Idempotent (`setCategory` no-ops on equality), so an unchanged category adds nothing.
+  const categoryChanged = note.getCategory() !== foldedCategory;
+  if (categoryChanged) note.setCategory(foldedCategory);
+
   // Fixed-point refusal (preserve-or-refuse) on the CONTENT nodes only: if the freshly
   // tokenized content is structurally identical to what it was derived from, splicing it
-  // would re-arm the trigger and loop. Compare BEFORE any mutation and bail.
+  // would re-arm the trigger and loop. Compare BEFORE any mutation and bail — reporting the
+  // category catch-up (a real mutation) when one happened.
   if ($signatureOf(newNodes, getMarkerFn) === $signatureOf(contentNodes, getMarkerFn)) {
     logger?.debug("[MarkerEdit] Note Tier 2 skipped: rebuild is a no-op (fixed point)");
-    return false;
+    return categoryChanged;
   }
 
   // Splice: insert the new content before the first old content node (or before the

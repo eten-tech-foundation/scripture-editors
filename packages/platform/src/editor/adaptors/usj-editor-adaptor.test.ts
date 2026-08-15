@@ -54,6 +54,7 @@ import {
   $isParaNode,
   CharNode,
   closingMarkerText,
+  getEditableCallerText,
   gutterMarkerState,
   HIDDEN_NOTE_CALLER,
   ImmutableTypedTextNode,
@@ -1534,6 +1535,100 @@ describe("verse attribute display (\\va/\\vp runs)", () => {
     );
     expect(hiddenChildren).toHaveLength(1);
     expect(hiddenChildren.some((n) => textTypeOf(n) === "attribute")).toBe(false);
+  });
+});
+
+describe("note category display (\\cat run)", () => {
+  /** The node-state `textType` tag of a serialized text node, or `undefined` for anything else. */
+  function textTypeOf(node: SerializedLexicalNode): unknown {
+    if (!isSerializedTextNode(node)) return undefined;
+    const stateObject: unknown = node[NODE_STATE_KEY];
+    return stateObject && typeof stateObject === "object" && "textType" in stateObject
+      ? stateObject.textType
+      : undefined;
+  }
+
+  /** Standard-view options, asserted present so overrides can spread a definite base. */
+  function standardViewOptions(): ViewOptions {
+    const options = getViewOptions(STANDARD_VIEW_MODE);
+    if (!options) throw new Error("Standard view options are required for these tests.");
+    return options;
+  }
+
+  /** Serializes a one-paragraph USJ wrapping `noteObject` and returns the NOTE's children. */
+  function noteChildren(noteObject: MarkerObject, viewOptions?: ViewOptions) {
+    initialize(undefined, undefined);
+    reset();
+    const state = serializeEditorState(
+      {
+        ...EMPTY_USJ,
+        content: [{ type: "para", marker: "p", content: ["Text ", noteObject] } as MarkerObject],
+      },
+      viewOptions,
+    );
+    const para = state.root.children[0];
+    if (!isSerializedParaNode(para)) throw new Error("No para node found");
+    const note = para.children.find((child) => isSerializedNoteNode(child));
+    if (!note || !isSerializedNoteNode(note)) throw new Error("No note node found");
+    return note.children;
+  }
+
+  const noteWithCategory = {
+    type: "note",
+    marker: "f",
+    caller: "+",
+    category: "People",
+    content: [{ type: "char", marker: "ft", content: ["A footnote."] }],
+  } as MarkerObject;
+
+  it("wraps \\cat glyphs and the NBSP-prefixed value directly after the caller (editable expanded)", () => {
+    const children = noteChildren(noteWithCategory, {
+      ...standardViewOptions(),
+      noteMode: "expanded",
+    });
+    // [opening \f glyph][editable caller][cat run][content ft span][closing \f* glyph]
+    const callerIndex = children.findIndex(
+      (child) => isSerializedTextNode(child) && child.text === getEditableCallerText("+"),
+    );
+    expect(callerIndex).toBeGreaterThan(0);
+    const run = children[callerIndex + 1];
+    if (!isSerializedAttributeRunNode(run) || run.runKind !== "cat")
+      throw new Error("No cat attribute-run wrapper directly after the caller");
+    expect(run.children).toHaveLength(3);
+    const [opener, value, closer] = run.children;
+    if (!isSerializedMarkerNode(opener)) throw new Error("No \\cat opening marker found");
+    expect(opener.marker).toBe("cat");
+    expect(opener.markerSyntax).toBe("opening");
+    if (!isSerializedTextNode(value)) throw new Error("No \\cat value text node found");
+    expect(value.text).toBe(`${NBSP}People`);
+    expect(textTypeOf(value)).toBe("attribute");
+    if (!isSerializedMarkerNode(closer)) throw new Error("No \\cat closing marker found");
+    expect(closer.marker).toBe("cat");
+    expect(closer.markerSyntax).toBe("closing");
+  });
+
+  it("builds no run when the note has no category", () => {
+    const children = noteChildren({ ...noteWithCategory, category: undefined } as MarkerObject, {
+      ...standardViewOptions(),
+      noteMode: "expanded",
+    });
+    expect(children.some((child) => isSerializedAttributeRunNode(child))).toBe(false);
+  });
+
+  it("builds no run in collapsed notes — the category is deliberately not shown there", () => {
+    const children = noteChildren(noteWithCategory, getViewOptions(STANDARD_VIEW_MODE));
+    expect(children.some((child) => isSerializedAttributeRunNode(child))).toBe(false);
+    // The category still rides the note's own serialized state, so nothing is lost.
+  });
+
+  it("builds no run in visible marker mode, matching the \\va/\\vp editable-only rule", () => {
+    const children = noteChildren(noteWithCategory, {
+      ...getDefaultViewOptions(),
+      markerMode: "visible",
+      noteMode: "expanded",
+    });
+    expect(children.some((child) => isSerializedAttributeRunNode(child))).toBe(false);
+    expect(children.some((child) => textTypeOf(child) === "attribute")).toBe(false);
   });
 });
 
