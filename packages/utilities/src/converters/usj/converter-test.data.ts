@@ -2773,8 +2773,34 @@ export const editorStateWithUnknownItems = {
   },
 } as unknown as SerializedEditorState;
 
+/**
+ * {@link editorStateWithUnknownItems} with the table removed, for consumers that cannot represent
+ * one.
+ *
+ * The delta/OT wire format is the case in point: `rich-text-ot.model` defines embeds for
+ * `immutable-chapter` and `immutable-verse` only, and `getEditorDelta` dispatches on
+ * book/para/char/note/milestone/unknown — so an `ImmutableTable*` subtree flattens to its
+ * descendant text, and the `tc1` cell's marker and attributes leave on the wire as a bare
+ * `{ insert: "cell1" }`. Everything ELSE this fixture carries — genuinely unknown node types, and
+ * unknown attributes on standard ones — round-trips correctly, so the table is the only part that
+ * has to sit out.
+ *
+ * Derived rather than copied: the two must differ by exactly the table and nothing else, or the
+ * table-free assertions stop saying anything about the fixture they claim to mirror.
+ */
+export const editorStateWithUnknownItemsNoTable = {
+  root: {
+    ...editorStateWithUnknownItems.root,
+    children: editorStateWithUnknownItems.root.children.filter(
+      (child) => child.type !== "immutable-table",
+    ),
+  },
+} as unknown as SerializedEditorState;
+
 export const opsWithUnknownItems = [
-  // TODO: missing unknown attributes
+  // Predates both the structured per-item `unknown` embed shape and unknown-attribute passthrough;
+  // see `opsWithUnknownItemsNoTable` for the current shape. Refreshing this one needs an OT table
+  // representation first, or it would pin the flattened cell below as expected.
   { insert: "\n", attributes: { book: { style: "id", code: "GEN" } } },
   { insert: { chapter: { style: "c", number: "1" } } },
   { insert: { verse: { style: "v", number: "1" } } },
@@ -2792,6 +2818,114 @@ export const opsWithUnknownItems = [
   },
   { insert: { milestone: { style: "ts" } } },
   { insert: "wat content?Mk 9.50sidebar contentperiph contentfigure contentcell1" },
+  { insert: "\n", attributes: { para: { style: "p" } } },
+];
+
+/**
+ * The ops {@link editorStateWithUnknownItemsNoTable} currently produces.
+ *
+ * Unknown node types emit as STRUCTURED per-item embeds carrying `tag`, `marker` and every unknown
+ * attribute — contrast {@link opsWithUnknownItems}, whose single flat text run predates that shape.
+ *
+ * MIXED ORACLE — read before changing. Most of this records CORRECT behavior, but the `book`,
+ * `chapter`, `verse`, `milestone` and `para` ops record a known emit-side gap: their unknown
+ * attributes (`category`, `attr-unknown`) are dropped rather than carried. Those five are marked
+ * inline. The correct shape is specified by the skipped parity test in
+ * `editor-delta.adaptor.test.tsx`; when that gap is closed this fixture must gain the attributes,
+ * and a green run here is NOT evidence the drop is intended.
+ */
+export const opsWithUnknownItemsNoTable = [
+  // Drops `category` and `attr-unknown`.
+  { insert: "\n", attributes: { book: { style: "id", code: "GEN" } } },
+  // Carries `sid`; drops `category` and `attr-unknown`.
+  { insert: { chapter: { style: "c", number: "1", sid: "GEN 1" } } },
+  // Drops `category` and `attr-unknown`.
+  { insert: { verse: { style: "v", number: "1" } } },
+  { insert: "First part of the first verse " },
+  {
+    insert: {
+      note: {
+        style: "f",
+        caller: "+",
+        eid: "watEid",
+        "attr-unknown": "watAttr",
+        contents: {
+          ops: [
+            {
+              insert: "3:2 ",
+              attributes: {
+                char: {
+                  style: "fr",
+                  category: "watCat",
+                  "attr-unknown": "watAttr",
+                  closed: "false",
+                },
+              },
+            },
+          ],
+        },
+      },
+    },
+  },
+  // Drops `category` and `attr-unknown`.
+  { insert: { milestone: { style: "ts" } } },
+  {
+    insert: {
+      unknown: {
+        tag: "wat",
+        marker: "z",
+        category: "watCat",
+        "attr-unknown": "watAttr",
+        contents: { ops: [{ insert: "wat content?" }] },
+      },
+    },
+  },
+  { insert: { unknown: { tag: "optbreak", category: "watCat" } } },
+  {
+    insert: {
+      unknown: {
+        tag: "ref",
+        category: "watCat",
+        loc: "MRK 9:50",
+        gen: "true",
+        contents: { ops: [{ insert: "Mk 9.50" }] },
+      },
+    },
+  },
+  {
+    insert: {
+      unknown: {
+        tag: "sidebar",
+        marker: "esb",
+        category: "watCat",
+        contents: { ops: [{ insert: "sidebar content" }] },
+      },
+    },
+  },
+  {
+    insert: {
+      unknown: {
+        tag: "periph",
+        category: "watCat",
+        alt: "periph title",
+        contents: { ops: [{ insert: "periph content" }] },
+      },
+    },
+  },
+  {
+    insert: {
+      unknown: {
+        tag: "figure",
+        marker: "fig",
+        category: "watCat",
+        file: "file.jpg",
+        size: "span",
+        ref: "1.18",
+        contents: { ops: [{ insert: "figure content" }] },
+      },
+    },
+  },
+  // Drops `category` and `attr-unknown`.
   { insert: "\n", attributes: { para: { style: "p" } } },
 ];
 

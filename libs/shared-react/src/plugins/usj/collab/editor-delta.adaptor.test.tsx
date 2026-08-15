@@ -9,6 +9,7 @@ import {
   editorStateGen1v1Nonstandard,
   editorStateGen1v1Standard,
   editorStateWithUnknownItems,
+  editorStateWithUnknownItemsNoTable,
   opsGen1v1,
   opsGen1v1Editable,
   opsGen1v1ImpliedPara,
@@ -16,6 +17,7 @@ import {
   opsGen1v1Nonstandard,
   opsGen1v1Standard,
   opsWithUnknownItems,
+  opsWithUnknownItemsNoTable,
 } from "../../../../../../packages/utilities/src/converters/usj/converter-test.data";
 import { $createImmutableNoteCallerNode } from "../../../nodes/usj/ImmutableNoteCallerNode";
 import { $createImmutableVerseNode } from "../../../nodes/usj/ImmutableVerseNode";
@@ -1249,30 +1251,80 @@ describe("getEditorDelta", () => {
       expect(delta.ops).toEqual(opsGen1v1ImpliedPara);
     });
 
-    // Skipped: TABLES HAVE NO OT REPRESENTATION. `opsWithUnknownItems` is stale in ways that are
-    // now settled (see below), but it cannot be refreshed yet because the emitted ops LOSE the
-    // table: since table/table:row/table:cell became real ImmutableTable* nodes, nothing in
+    // The table-free half of this fixture. Everything the whole-document state was built to cover
+    // EXCEPT the table survives the wire, so it is asserted here rather than parked behind the one
+    // shape that does not: genuinely unknown node types (`z`, `optbreak`, `ref`, `esb`, `periph`,
+    // `fig`) emit as structured per-item embeds, and unknown attributes ride along on note, char
+    // and unknown embeds.
+    //
+    // `opsWithUnknownItemsNoTable` is a MIXED oracle — its book/chapter/verse/milestone/para ops
+    // record the emit-side attribute gap specified by the skipped parity test below, and are
+    // marked inline in the fixture. Do not read a green run here as endorsing that shape.
+    it("should roundtrip the editor state with unknown items, minus the table", async () => {
+      const { editor } = await testEnvironment();
+      const editorState = editor.parseEditorState(editorStateWithUnknownItemsNoTable);
+
+      const delta = getEditorDelta(editorState);
+
+      expect(delta.ops).toEqual(opsWithUnknownItemsNoTable);
+    });
+
+    // Skipped: TABLES HAVE NO OT REPRESENTATION. Owned by the track that decides whether tables
+    // become editable and how tables/figures/sidebars reconcile — the same work that owns the dead
+    // table arm of `unknownDisplayParts`.
+    //
+    // Since table/table:row/table:cell became real ImmutableTable* nodes, nothing in
     // `getEditorDelta` matches them (it dispatches on book/para/char/note/milestone/unknown/… and
     // `rich-text-ot.model` defines embeds for immutable-chapter and immutable-verse but none for
     // tables), so the whole table flattens to its descendant text — this fixture's `tc1` cell,
     // carrying marker and `category`, arrives on the wire as a bare `{ insert: "cell1" }`.
-    // Refreshing the fixture now would pin that loss as expected, so the adaptor (and the OT
-    // model) need a table representation first.
-    //
-    // Settled, and NOT reasons to keep skipping:
-    //   - Structured per-item `unknown` inserts ARE the canonical shape — six hand-written tests
-    //     in this file assert them directly, so the fixture's one flat text run is simply old.
-    //   - Carrying `sid`/`eid`/`attr-unknown`/`category`/`closed` is intended: `getEditorDelta`
-    //     has emitted chapter/verse/milestone `sid` (and milestone `eid`) since before this work,
-    //     several `ops*` fixtures assert it, and this state's note `eid` is an UNKNOWN ATTRIBUTE
-    //     the fixture plants on purpose — unknown-attribute passthrough is what it exists to test.
-    it.skip("should roundtrip the editor state with unknown items", async () => {
+    // Refreshing `opsWithUnknownItems` now would pin that loss as expected, so the adaptor (and
+    // the OT model) need a table representation first. Deleting this entry is part of that fix;
+    // the test above already covers everything else the fixture was built for.
+    it.skip("should roundtrip the editor state with unknown items, including the table", async () => {
       const { editor } = await testEnvironment();
       const editorState = editor.parseEditorState(editorStateWithUnknownItems);
 
       const delta = getEditorDelta(editorState);
 
       expect(delta.ops).toEqual(opsWithUnknownItems);
+    });
+
+    // Skipped: THE EMIT SIDE DROPS UNKNOWN ATTRIBUTES THAT THE APPLY SIDE ACCEPTS. Owned by the
+    // collab track.
+    //
+    // This is a send/receive asymmetry, not a design choice. `delta-apply-update.utils.ts` calls
+    // `getUnknownAttributes` for all seven kinds — book, para, chapter, verse, milestone, note and
+    // unknown — so a received op carrying `category` on a chapter is parsed and restored. But
+    // `editor-delta.adaptor.ts` only writes them back for note, unknown and char. A client that
+    // holds unknown attributes on a book, para, chapter, verse or milestone therefore drops them
+    // the moment it transmits: the receiver is built to accept what the sender never sends.
+    //
+    // The node state is intact and serialization to USJ is unaffected — the loss is confined to
+    // the collab wire, which is why it survives the round-trip suites. Asserted here against the
+    // CORRECT shape rather than the current one, so closing the gap turns this green.
+    it.skip("should carry unknown attributes on every embed kind the apply side accepts", async () => {
+      const { editor } = await testEnvironment();
+      const editorState = editor.parseEditorState(editorStateWithUnknownItemsNoTable);
+
+      const delta = getEditorDelta(editorState);
+
+      const unknownAttrs = { category: "watCat", "attr-unknown": "watAttr" };
+      expect(delta.ops[0]).toEqual({
+        insert: LF,
+        attributes: { book: { style: "id", code: "GEN", ...unknownAttrs } },
+      });
+      expect(delta.ops[1]).toEqual({
+        insert: { chapter: { style: "c", number: "1", sid: "GEN 1", ...unknownAttrs } },
+      });
+      expect(delta.ops[2]).toEqual({
+        insert: { verse: { style: "v", number: "1", ...unknownAttrs } },
+      });
+      expect(delta.ops[5]).toEqual({ insert: { milestone: { style: "ts", ...unknownAttrs } } });
+      expect(delta.ops.at(-1)).toEqual({
+        insert: LF,
+        attributes: { para: { style: "p", ...unknownAttrs } },
+      });
     });
 
     // Emitting `closed: "false"` on implicitly-closed char spans is correct by design (it matches
