@@ -138,10 +138,15 @@ export function $applyOpenerRename(
   newMarker: string,
   context: MarkerEditContext,
 ): boolean {
-  // A typed `+` prefix is a NEST instruction, not a rename: only Tier 2 (re-tokenizing the
-  // visible glyph text, which now carries the `+`) can express the resulting nesting. Tier 1's
-  // in-place rename would strip the `+` and silently discard the nest intent, so route to Tier 2.
-  if (newMarker.startsWith("+")) {
+  // A typed `+` prefix on a NON-nested glyph is a NEST instruction, not a rename: only Tier 2
+  // (re-tokenizing the visible glyph text, which now carries the `+`) can express the resulting
+  // nesting. Tier 1's in-place rename would strip the `+` and silently discard the nest intent,
+  // so route to Tier 2. On a glyph that is ALREADY nested, the `+` is just the glyph's own
+  // canonical spelling (`\+nd` retyped to `\+wj `) — no nesting is being requested that the tree
+  // doesn't already have — so it falls through to the ordinary in-place rename below, which
+  // mirrors the nested closer. Routing it to Tier 2 instead re-tokenized `\+wj … \+nd*` and
+  // stranded the untouched closer as unmatched.
+  if (newMarker.startsWith("+") && !node.getNested()) {
     return $requestTier2ForNode(node, context);
   }
   const parent = node.getParent();
