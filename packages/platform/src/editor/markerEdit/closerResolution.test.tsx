@@ -9,7 +9,8 @@
 import { $appendCharPara, requireDefined } from "./markerEdit.test-helpers";
 import { testEnvironment } from "./markerEdit.test-helpers";
 import { act } from "@testing-library/react";
-import { $getSelection, $isRangeSelection, $isTextNode } from "lexical";
+import { $getSelection, $isRangeSelection, $isTextNode, TextNode } from "lexical";
+import { $isMarkerNode } from "shared";
 
 function $caret(): { key: string; offset: number } {
   const selection = $getSelection();
@@ -66,11 +67,12 @@ describe("closer-glyph edits pend and settle on caret departure", () => {
         parts.closer.select(3, 3);
       }),
     );
-    // Caret departs into the span's content text: the pended closer settles.
+    // Caret departs into the span's content text (not a glyph — MarkerNode extends TextNode):
+    // the pended closer settles.
     await act(async () =>
       editor.update(() => {
         const content = requireDefined(
-          parts.char.getChildren().find($isTextNode),
+          parts.char.getChildren().find((n): n is TextNode => $isTextNode(n) && !$isMarkerNode(n)),
           "span content text missing",
         );
         content.select(1, 1);

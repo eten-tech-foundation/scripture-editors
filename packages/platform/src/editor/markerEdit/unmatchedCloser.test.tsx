@@ -10,8 +10,9 @@
 import { $appendCharPara, requireDefined, testEnvironment } from "./markerEdit.test-helpers";
 import { $dfs } from "@lexical/utils";
 import { act } from "@testing-library/react";
-import { $createTextNode, $getRoot, $isTextNode } from "lexical";
+import { $createTextNode, $getRoot, $isTextNode, $setState } from "lexical";
 import {
+  $createCharNode,
   $createImmutableUnmatchedNode,
   $createMarkerNode,
   $createParaNode,
@@ -21,6 +22,7 @@ import {
   $isParaNode,
   ImmutableUnmatchedNode,
   NBSP,
+  textTypeState,
 } from "shared";
 
 function $firstPara() {
@@ -137,6 +139,56 @@ describe("an unmatched closer is editable text", () => {
       const unmatched = $allUnmatched();
       expect(unmatched).toHaveLength(1);
       expect(unmatched[0].getMarker()).toBe("nd*");
+    });
+  });
+
+  it("deleting an unmatched nested closer removes only itself", async () => {
+    // The live repro: an UNCLOSED enclosing span whose content ends with a proper nested `\+w`
+    // span (default attribute) followed by a stray unmatched `\+w*`. Deleting the stray closer
+    // must delete the stray closer — not the enclosing span's contents.
+    let unmatched: ImmutableUnmatchedNode;
+    let inner: ReturnType<typeof $createCharNode>;
+    let enclosing: ReturnType<typeof $createCharNode>;
+    const { editor } = await testEnvironment(() => {
+      enclosing = $createCharNode("add");
+      enclosing.setUnknownAttributes({ closed: "false" });
+      inner = $createCharNode("w");
+      inner.setUnknownAttributes({ lemma: "faith" });
+      const attrRun = $createTextNode("|faith");
+      $setState(attrRun, textTypeState, "attribute");
+      unmatched = $createImmutableUnmatchedNode("+w*");
+      $getRoot().append(
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          enclosing.append(
+            $createMarkerNode("add"),
+            $createTextNode(`${NBSP}say `),
+            inner.append(
+              $createMarkerNode("w", "opening", true),
+              $createTextNode(`${NBSP}faith`),
+              attrRun,
+              $createMarkerNode("w", "closing", true),
+            ),
+            unmatched,
+          ),
+        ),
+      );
+    });
+    await act(async () =>
+      editor.update(() => {
+        const selection = unmatched.select(0, unmatched.getTextContentSize());
+        selection.removeText();
+      }),
+    );
+    await act(async () => editor.update(() => $firstPara().getFirstChild()?.selectStart()));
+    editor.getEditorState().read(() => {
+      expect($allUnmatched()).toHaveLength(0);
+      expect(inner.isAttached()).toBe(true);
+      expect(inner.getTextContent()).toContain("faith");
+      expect(inner.getUnknownAttributes()?.lemma).toBe("faith");
+      expect(enclosing.isAttached()).toBe(true);
+      expect(enclosing.getTextContent()).toContain("say");
     });
   });
 
