@@ -215,18 +215,18 @@ export function $markerNodeTransform(node: MarkerNode, context: MarkerEditContex
     return;
   }
   // Closer / selfClosing: one-way authority — closer edits never rename the span. Damage or
-  // retype settles through Tier 2, whose tokenizer turns non-marker residue (`wj*` after the `\`
-  // is deleted) into PLAIN text and re-closes the span per its rules — a `*`-terminated form
-  // resolves now, anything else stays pending until the caret departs (mid-edit grace). A char
-  // span the user leaves open re-closes WITHOUT a regenerated `\marker*` glyph: the tokenizer
-  // marks every implicitly-closed span `closed="false"` (ParatextData emits it whenever a char
-  // span has no explicit closer — see paranext-core's footnote-util test USJ), and the adaptor
-  // skips the closing glyph for such spans, exactly as it does for auto-closed notes.
-  if (text.endsWith("*")) {
-    context.pendingKeys.delete(node.getKey());
-    $requestTier2ForNode(node, context);
-    return;
-  }
+  // retype ALWAYS pends and settles through Tier 2 on caret departure/Enter/blur
+  // ($resolvePendingMarkers), never in the editing commit. An opener has a genuine completion
+  // gesture (the typed trailing separator) to resolve on; a closer has none — its trailing `*` is
+  // still there through every mid-glyph edit, so a `*`-terminated form is evidence of nothing.
+  // Resolving on it re-tokenized the span out from under the caret on the FIRST keystroke,
+  // leaving the retyped closer unmatched — and, as a decorator, uneditable — with the caret
+  // ejected. The settle's tokenizer turns non-marker residue (`wj*` after the `\` is deleted)
+  // into PLAIN text and re-closes the span per its rules. A char span the user leaves open
+  // re-closes WITHOUT a regenerated `\marker*` glyph: the tokenizer marks every
+  // implicitly-closed span `closed="false"` (ParatextData emits it whenever a char span has no
+  // explicit closer — see paranext-core's footnote-util test USJ), and the adaptor skips the
+  // closing glyph for such spans, exactly as it does for auto-closed notes.
   context.pendingKeys.add(node.getKey());
 }
 

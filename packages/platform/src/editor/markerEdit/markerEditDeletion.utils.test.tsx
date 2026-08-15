@@ -371,10 +371,10 @@ describe("deletion semantics", () => {
   });
 
   it("re-tokenizes a PARTIAL closer-glyph deletion via Tier 2: residue becomes PLAIN text", async () => {
-    // Deleting the `\` of `\nd*` degrades the glyph: the residue (`nd*`) must become NORMAL
-    // text via the Tier-2 re-tokenization — never stay marker-styled inside a MarkerNode — and
-    // the span re-closes per tokenizer rules (USJ has no closed="false" for char spans, so it
-    // auto-closes at the paragraph end).
+    // Deleting the `\` of `\nd*` degrades the glyph: once the caret departs (closer edits pend
+    // mid-edit), the residue (`nd*`) must become NORMAL text via the Tier-2 re-tokenization —
+    // never stay marker-styled inside a MarkerNode — and the span re-closes per tokenizer rules
+    // (USJ has no closed="false" for char spans, so it auto-closes at the paragraph end).
     const { editor } = await testEnvironment(() => {
       const para = $createParaNode("p");
       const char = $createCharNode("nd");
@@ -398,6 +398,12 @@ describe("deletion semantics", () => {
           .getAllTextNodes()
           .find((n) => $isMarkerNode(n) && n.getMarkerSyntax() === "closing");
         closer?.spliceText(0, 1, "", true); // delete ONLY the backslash: `\nd*` → `nd*`
+      }),
+    );
+    // The damaged closer pends while the caret sits in it; departure settles it through Tier 2.
+    await act(async () =>
+      editor.update(() => {
+        $getRoot().getChildren().filter($isParaNode)[0].getFirstChild()?.selectStart();
       }),
     );
     editor.getEditorState().read(() => {

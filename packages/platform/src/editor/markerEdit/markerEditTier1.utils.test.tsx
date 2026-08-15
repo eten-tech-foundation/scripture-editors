@@ -283,10 +283,12 @@ describe("Tier 1 char/note opener rename", () => {
     });
   });
 
-  it("routes a closer mismatch edit to Tier 2 (span rebuilt by the tokenizer)", async () => {
+  it("routes a closer mismatch edit to Tier 2 on caret departure (span rebuilt by the tokenizer)", async () => {
     let parts: ReturnType<typeof $appendCharPara>;
     const { editor } = await testEnvironment(() => (parts = $appendCharPara()));
     await act(async () => editor.update(() => parts.closer.setTextContent("\\wj*")));
+    // Closer edits pend (mid-edit grace); the caret moving elsewhere settles the glyph.
+    await act(async () => editor.update(() => parts.marker.select(0, 0)));
     // Tokenizer sees `\nd ␣Lord\wj*`: the span auto-closes, and the unmatched `\wj*`
     // closer resolves to an ImmutableUnmatchedNode (PT9 sink.Unmatched), not literal text.
     const json = JSON.stringify(editor.getEditorState().toJSON());
