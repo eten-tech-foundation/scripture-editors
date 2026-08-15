@@ -221,6 +221,39 @@ export function $markerNodeTransform(node: MarkerNode, context: MarkerEditContex
     context.pendingKeys.add(node.getKey());
     return;
   }
+  // Text typed at the very END of an intact char-span closer merges into the glyph (`\nd*x`).
+  // The name scan ends at the `*`, so those bytes re-tokenize as the canonical closer plus plain
+  // text after the span — an in-place split is re-tokenization identity (Invariant I's one
+  // sanctioned optimization), applied immediately so the typed character never rides styled
+  // inside the span until a departure settles it. Same shape as $verseNodeTransform's rest
+  // split. Scoped to the span's OWN last-child closer; every other closer divergence (damage,
+  // retype, run closers) pends below.
+  if (node.getMarkerSyntax() === "closing") {
+    const parent = node.getParent();
+    const canonical = closingMarkerText(node.getMarker(), node.getNested());
+    if (
+      $isCharNode(parent) &&
+      node.getMarker() === parent.getMarker() &&
+      parent.getLastChild()?.is(node) &&
+      text.startsWith(canonical) &&
+      text.length > canonical.length
+    ) {
+      const selection = $getSelection();
+      const caretOffset =
+        $isRangeSelection(selection) &&
+        selection.isCollapsed() &&
+        selection.anchor.key === node.getKey() &&
+        selection.anchor.offset > canonical.length
+          ? selection.anchor.offset - canonical.length
+          : undefined;
+      const rest = $createTextNode(text.slice(canonical.length));
+      node.setTextContent(canonical);
+      parent.insertAfter(rest);
+      if (caretOffset !== undefined) rest.select(caretOffset, caretOffset);
+      context.pendingKeys.delete(node.getKey());
+      return;
+    }
+  }
   // Closer / selfClosing: one-way authority — closer edits never rename the span. Damage or
   // retype ALWAYS pends and settles through Tier 2 on caret departure/Enter/blur
   // ($resolvePendingMarkers), never in the editing commit. An opener has a genuine completion

@@ -58,6 +58,31 @@ describe("closer-glyph edits pend and settle on caret departure", () => {
     });
   });
 
+  it("typing at the end of a closer produces unstyled text after the span", async () => {
+    let parts: ReturnType<typeof $appendCharPara>;
+    const { editor } = await testEnvironment(() => (parts = $appendCharPara()));
+    await act(async () =>
+      editor.update(() => {
+        // A click just after `\nd*` maps to the glyph's own text end; typing there merges into
+        // the glyph. The bytes `\nd*x` re-tokenize as the closer plus plain text, so the split
+        // is applied in place, immediately — the typed character must not ride styled inside
+        // the span until a departure settles it.
+        parts.closer.select(4, 4);
+        const selection = $getSelection();
+        if (!$isRangeSelection(selection)) throw new Error("expected a range selection");
+        selection.insertText("x");
+      }),
+    );
+    editor.getEditorState().read(() => {
+      expect(parts.closer.getTextContent()).toBe("\\nd*");
+      const next = parts.char.getNextSibling();
+      if (!$isTextNode(next)) throw new Error("expected plain text after the span");
+      expect(next.getTextContent()).toBe("x");
+      // The caret follows the typed character so continued typing stays unstyled.
+      expect($caret()).toEqual({ key: next.getKey(), offset: 1 });
+    });
+  });
+
   it("settles through Tier 2 when the caret departs the glyph", async () => {
     let parts: ReturnType<typeof $appendCharPara>;
     const { editor } = await testEnvironment(() => (parts = $appendCharPara()));
