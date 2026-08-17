@@ -117,19 +117,59 @@ describe("$liftOutOfCharStack", () => {
     );
   });
 
-  it("stops inside the span named by `stopAt`", () => {
-    const { editor, content, outer } = buildNestedStack();
+  it("ends an implicitly-closed span at an implicitly-closed marker and hands it the remainder", () => {
+    // `\ft A \+nd holy\+nd* B` with a `\fq` at the caret inside `\nd`. `\nd` closes explicitly, so
+    // it closes and reopens; `\ft` closes IMPLICITLY and `\fq` does too, so writing `\fq` is how
+    // `\ft` ends — no `\ft*`, no reopened `\ft`, and everything after becomes `\fq`'s content.
+    const { editor } = createBasicTestEnvironment();
     editor.update(
       () => {
-        const lifted = $createTextNode("|");
+        const content = $createTextNode(`${NBSP}holy`);
+        const ft = $createCharNode("ft", { closed: "false" });
+        const fq = $createCharNode("fq", { closed: "false" }).append($createMarkerNode("fq"));
+        $getRoot().append(
+          $createParaNode("p").append(
+            ft.append(
+              $createMarkerNode("ft"),
+              $createTextNode(`${NBSP}A `),
+              $createCharNode("nd").append(
+                $createMarkerNode("nd", "opening", true),
+                content,
+                $createMarkerNode("nd", "closing", true),
+              ),
+              $createTextNode(" B"),
+            ),
+          ),
+        );
+        const [left] = content.splitText(3); // between "ho" and "ly"
+        left.insertAfter(fq);
+
+        $liftOutOfCharStack(fq, true);
+
+        // `\fq` shows no separator here for the same reason a reopened span does not: its content
+        // is element-first, so the standalone NBSP spacer comes from the separator sync when the
+        // span is next dirtied, and no plugin runs it in this harness.
+        expect($usfmBytes($getRoot())).toBe("\\ft A \\+nd ho\\+nd*\\fq\\+nd ly\\+nd* B");
+        expect($innermostCharAncestor(content)?.getMarker()).toBe("nd");
+        expect($charStackContainer(fq)?.getType()).toBe("para");
+      },
+      { discrete: true },
+    );
+  });
+
+  it("reopens an explicitly-closed span even for an implicitly-closed marker", () => {
+    // The mirror of the case above: `\wj` needs a real `\wj*`, which a `\fq` cannot supply, so it
+    // closes and reopens around the new marker instead of handing over its remainder.
+    const { editor, content } = buildNestedStack();
+    editor.update(
+      () => {
+        const fq = $createCharNode("fq", { closed: "false" }).append($createMarkerNode("fq"));
         const [left] = content.splitText(4);
-        left.insertAfter(lifted);
+        left.insertAfter(fq);
 
-        $liftOutOfCharStack(lifted, true, outer);
+        $liftOutOfCharStack(fq, true);
 
-        // `\nd` closed and reopened; `\wj` — the stop — did not, so the lifted node is still inside it.
-        expect($usfmBytes($getRoot())).toBe("\\wj \\+nd thi\\+nd*|\\+nd ng\\+nd*\\wj*");
-        expect($innermostCharAncestor(lifted)?.is(outer)).toBe(true);
+        expect($usfmBytes($getRoot())).toBe("\\wj \\+nd thi\\+nd*\\wj*\\fq\\wj\\+nd ng\\+nd*\\wj*");
       },
       { discrete: true },
     );

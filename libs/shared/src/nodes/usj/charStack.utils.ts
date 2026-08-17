@@ -28,7 +28,11 @@
  */
 
 import { $isMarkerNode } from "../features/MarkerNode.js";
-import { $buildContinuationCharSpan, $continuationCharAttributes } from "./charGlyphs.utils.js";
+import {
+  $buildContinuationCharSpan,
+  $charOwesClosingGlyph,
+  $continuationCharAttributes,
+} from "./charGlyphs.utils.js";
 import { $createCharNode, $isCharNode, CharNode } from "./CharNode.js";
 import { textTypeState } from "../collab/delta.state.js";
 import { NBSP } from "./node-constants.js";
@@ -81,12 +85,61 @@ export function $isCharContentEmpty(char: CharNode): boolean {
 }
 
 /**
+ * Whether writing `node`'s own opening marker is ITSELF how `char` ends, so there is nothing to
+ * close and nothing to reopen.
+ *
+ * True when both spans close implicitly — the `closed="false"` convention ParatextData stamps on
+ * note-content and cross-reference markers (`\ft`, `\fq`, `\fr`, `\fp`, `\xt`, …), which are
+ * terminated by the next bare marker rather than by an end marker. Putting `\fq` at a caret inside
+ * `\ft` therefore emits no `\ft*` and no reopened `\ft`: the remainder of `\ft`'s content simply
+ * belongs to `\fq` now.
+ *
+ * False whenever either side closes explicitly. An explicitly-closed `char` (`\wj`) must emit its
+ * `\wj*` and reopen afterwards, because the new marker cannot terminate it; and an
+ * explicitly-closed `node` (`\add`) ends at its own `\add*`, so `char`'s remaining content is not
+ * part of it and does need reopening.
+ *
+ * Read-only: safe inside `editor.update()` or either read form.
+ */
+function $endsImplicitly(node: LexicalNode, char: CharNode): node is CharNode {
+  return $isCharNode(node) && !$charOwesClosingGlyph(node) && !$charOwesClosingGlyph(char);
+}
+
+/**
+ * Move `content` into `span`, which is a freshly built, still content-less marker taking over the
+ * remainder of the span it just ended ({@link $endsImplicitly}). Any placeholder the builder gave
+ * `span` is dropped so the moved nodes become its real content, and a leading text run takes the
+ * structural separator the opening glyph owes it (markerSeparators.utils.ts) — the same shape
+ * {@link $buildContinuationCharSpan} gives a reopened clone.
+ *
+ * Mutating: call inside `editor.update()`.
+ */
+function $absorbIntoCharSpan(span: CharNode, content: LexicalNode[], renderGlyphs: boolean): void {
+  if ($isCharContentEmpty(span))
+    span.getChildren().forEach((child: LexicalNode) => {
+      if (!$isMarkerNode(child)) child.remove();
+    });
+  const [first] = content;
+  if (
+    renderGlyphs &&
+    $isTextNode(first) &&
+    !$isMarkerNode(first) &&
+    !first.getTextContent().startsWith(NBSP)
+  )
+    first.setTextContent(NBSP + first.getTextContent());
+  span.append(...content);
+}
+
+/**
  * Lift `node` OUT of the char span `char` to `char`'s parent, splitting `char` around it: content
  * before `node` stays in `char` (its "before" half), content after `node` moves to a fresh reopened
  * clone inserted after `node`, and `node` itself becomes a sibling of `char`. A half left with no
  * content ({@link $isCharContentEmpty}) is dropped rather than serialized as an empty marker pair.
  * The reopened clone keeps `char`'s marker, closer convention, and nesting (its glyphs carry the
  * `+` when `char` was itself nested).
+ *
+ * The one shape with no reopened clone is a `node` that ends `char` implicitly
+ * ({@link $endsImplicitly}): there the content after `node` moves INTO it instead.
  *
  * `renderGlyphs` decides only whether the clone carries the VISIBLE `\marker` opener and its
  * separator NBSP — a `MarkerNode` is markerMode "editable" presentation, so fabricating one in
@@ -103,20 +156,31 @@ export function $liftOutOfChar(node: LexicalNode, char: CharNode, renderGlyphs: 
   // duplicating it would double those bytes on serialization). Carrying the bytes to the clone
   // left the attributes displayed on a span that does not have them and missing from the span that
   // does — the same content-versus-presentation split `$unwrapCharNode` makes.
+  //
+  // Only a span that closes EXPLICITLY can own a display run: the run is anchored to the closing
+  // glyph, and a `closed="false"` span renders neither (attributeDisplay.utils.ts). So inside one
+  // of those — note content, chiefly — `attribute`-tagged text is not a run and is ordinary
+  // content that must ride along with everything else after the caret.
+  const ownsDisplayRun = $charOwesClosingGlyph(char);
   const after: LexicalNode[] = [];
   for (let sibling = node.getNextSibling(); sibling; ) {
     const next = sibling.getNextSibling();
     const isCloser = $isMarkerNode(sibling) && sibling.getMarkerSyntax() === "closing";
-    const isDisplayRun = $getState(sibling, textTypeState) === "attribute";
+    const isDisplayRun = ownsDisplayRun && $getState(sibling, textTypeState) === "attribute";
     if (!isCloser && !isDisplayRun) after.push(sibling);
     sibling = next;
   }
+  const endsImplicitly = $endsImplicitly(node, char);
   char.insertAfter(node); // node leaves char, becomes its next sibling
   if (after.length > 0) {
-    const right = $createCharNode(char.getMarker(), $continuationCharAttributes(char));
-    $buildContinuationCharSpan(right, char, after, renderGlyphs);
-    node.insertAfter(right);
-    if ($isCharContentEmpty(right)) right.remove();
+    if (endsImplicitly) {
+      $absorbIntoCharSpan(node, after, renderGlyphs);
+    } else {
+      const right = $createCharNode(char.getMarker(), $continuationCharAttributes(char));
+      $buildContinuationCharSpan(right, char, after, renderGlyphs);
+      node.insertAfter(right);
+      if ($isCharContentEmpty(right)) right.remove();
+    }
   }
   if ($isCharContentEmpty(char)) char.remove();
 }
@@ -124,7 +188,8 @@ export function $liftOutOfChar(node: LexicalNode, char: CharNode, renderGlyphs: 
 /**
  * Lift `node` out of EVERY char span enclosing it, closing each on the way out and reopening the
  * ones with content after it — the whole close-and-reopen. `node` comes to rest in the nearest
- * non-char container ({@link $charStackContainer}), unless `stopAt` names a span to stop inside.
+ * non-char container ({@link $charStackContainer}), carrying with it the content of any span it
+ * ended implicitly on the way ({@link $endsImplicitly}).
  *
  * Callers that place something in the gap (an unformatted space, a new non-nesting char span, a
  * paragraph-split marker) insert it at the caret first and lift THAT; the caret point they want
@@ -132,19 +197,12 @@ export function $liftOutOfChar(node: LexicalNode, char: CharNode, renderGlyphs: 
  *
  * @param node - The node to lift. Must already be attached at the point the gap belongs.
  * @param renderGlyphs - Whether this document displays char glyphs (markerMode "editable").
- * @param stopAt - Stop while `node` is still inside this span, instead of going all the way to the
- *   container. Used by the in-note break, which reopens the spans nested inside the note's content
- *   span but replaces that span itself.
  *
  * Mutating: call inside `editor.update()`.
  */
-export function $liftOutOfCharStack(
-  node: LexicalNode,
-  renderGlyphs: boolean,
-  stopAt?: LexicalNode,
-): void {
+export function $liftOutOfCharStack(node: LexicalNode, renderGlyphs: boolean): void {
   let parent = node.getParent();
-  while ($isCharNode(parent) && !(stopAt && parent.is(stopAt))) {
+  while ($isCharNode(parent)) {
     $liftOutOfChar(node, parent, renderGlyphs);
     parent = node.getParent();
   }

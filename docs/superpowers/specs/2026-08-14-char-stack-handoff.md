@@ -85,21 +85,35 @@ move. It is not quite:
    attributes displayed on a span that does not have them and missing from the span that does. This
    is the same content-versus-presentation split `$unwrapCharNode` already makes.
 
-**`\fp` + Enter reopens the NESTED stack, not the note-content span itself.** The plan's caller table
-says the `\fp` path "closes the stack, never reopens", which read literally would mean
-`\ft A \fp \ft note` — the `\fq` shape with `fp` substituted. I did not do that. An `\fp` marks a new
-paragraph *within* the note, so it replaces `\ft` as the note's content container; reopening `\ft`
-after it would add bytes to every flat-note Enter and change 27 existing green tests' shape for a
-case that has no defect. What I fixed is the two defects the plan actually names — the dropped nested
-styles and the stranded outer-span content:
+**A footnote char marker ENDS the span it is written inside; it does not close and reopen it.**
+This is an owner correction to the plan, which recorded the `\fq` apply as already correct. It was
+not: it reopened an `\ft` after the new marker.
+
+A note-content marker carries the implicit-close convention (`closed="false"`, no closing glyph) and
+is terminated by the next bare marker. So writing `\fq` — or `\fp`, or `\xt`, or any of them — at a
+caret inside `\ft` IS how that `\ft` ends. No `\ft*` is emitted, no `\ft` is reopened, and
+everything after the caret becomes the new marker's content. Explicitly-closed spans in between
+(`\+nd`) still close and reopen, now inside the new marker.
 
 ```
-\f + \ft A \+nd ho|ly\+nd* B\f*      (caret at |)
-before:  \f + \ft A \+nd ho\+nd* B\fp ly\f*      " B" stranded before the break, \nd dropped
-after:   \f + \ft A \+nd ho\+nd*\fp \+nd ly\+nd* B\f*
+\f + \ft A \+nd ho|ly\+nd* B\f*                     (caret at |, press Enter or apply \fq)
+
+\fp before this work:  \f + \ft A \+nd ho\+nd* B\fp ly\f*
+\fq before this work:  \f + \ft A \+nd ho\+nd*\fq \ft \+nd ly\+nd* B\f*
+both, now:             \f + \ft A \+nd ho\+nd*\fp \+nd ly\+nd* B\f*
 ```
 
-**This is the one place I want a decision** (§6).
+The rule lives in the primitive as `$endsImplicitly`, keyed on BOTH spans carrying `closed="false"`,
+so it discriminates correctly in the cases that must NOT change:
+
+| At a caret inside | Applying | Result |
+| --- | --- | --- |
+| `\ft` (implicit) | `\fq`/`\fp`/`\xt` (implicit) | `\ft` ends; new marker takes the remainder |
+| `\ft` (implicit) | `\w`/`\add` (explicit) | `\ft` closes and REOPENS after the new span |
+| `\wj` (explicit) | anything | `\wj*` emitted, `\wj` REOPENS |
+
+A range SELECTION still reopens in every case: the new marker's extent ends where the selection
+does, so the text after it needs its style back.
 
 **Range Ctrl+Space: one defect fixed, one deferred.** The plan names only the decline. Probing the
 range path turned up a second, worse defect that is not about nesting at all — selecting the WORD
@@ -179,33 +193,92 @@ covers the same files.
 
 ---
 
-## 6. What I want signed off
+## 6. Open items, with enough detail to settle without me
 
-**One design question.** Should `\fp` + Enter reopen the note-content span (`\ft`) as well as the
-nested spans? I implemented "no" (§3) because it keeps the flat-note behavior identical and matches
-what `\fp` means structurally. If the intent was the literal `\fq` shape —
-`\ft A \fp \ft note` for every Enter in a note, flat or nested — say so and it is a two-line change
-(drop the `stopAt` argument), but it changes the bytes of every existing footnote break.
+### 6a. Range Ctrl+Space is not stack-aware — needs a `$unwrapCharNode` decision
 
-**One scope call to confirm.** The stack-aware range clear (§3) needs child-index boundary
-detection and an answer for a fully covered attributed span's literal `|name="value"` bytes. The
-second half lands on `$unwrapCharNode`, which the contended-file table gives to marker resolution, so
-I stopped rather than change it. If you want it in this track, it needs that coordination first.
+**Repro.** Standard view. `\p \wj \+nd holy\+nd*\wj*`. Double-click `holy`, press Ctrl+Space.
 
-**One recommended follow-up with a bigger blast radius.** The paragraph-split fix intercepts
-INSERT_PARAGRAPH_COMMAND, which Enter dispatches but `@lexical/clipboard`'s text/plain paste does
-not. Both could be fixed at once by teaching `CharNode.insertNewAfter` to build a real continuation:
-Lexical passes it an element point carrying the split index, so it can insert the left half's closing
-glyph before the children that are about to move and return a continuation carrying the opening
-glyph, and Lexical's own `newElement.append(firstToAppend, ...)` then completes the shape at every
-nesting level. That would make the generic split correct for every caller and let the INSERT_PARAGRAPH
-interception be deleted. I did not do it: it changes a `shared` node class for all three apps and
-every view mode, and the plan specified the caller-side fix. Worth doing deliberately, not as a
-drive-by.
+**Now:** `\p \wj holy\wj*` — `\nd` cleared, no empty pair, but `\wj` still applies. At depth 1
+(`\p \nd holy\nd*`) the same gesture is fully correct: `\p holy`.
 
-**One cross-track finding, for the whitespace track.** A Ctrl+Space that emits its space at the very
-end of a paragraph loses it: `$textNodeTrailingSpaceTransform` (`TextSpacingPlugin.tsx:160`) empties
-any lone-space text node whose next sibling is not a verse, and that branch runs BEFORE the
+**Why it stops at one level.** The range branch asks "does the selection start/end mid-span" by TEXT
+OFFSET inside the span's own direct text child (`charFormatting.utils.ts`, the `startsMidSpan` /
+`endsMidSpan` pair). For the innermost span the boundary IS a text offset, so it works. For `\wj`
+the boundary is a whole child — the `\nd` span — so both tests read false and control falls to
+`$unwrapCharNode(char)`, which would unwrap all of `\wj` including text the user never selected.
+Today that case cannot arise because `chars` only ever collects one level; making it collect the
+stack is what would expose it.
+
+**Proposed fix.** Two parts, and the second is the one that needs a decision:
+
+1. Detect the boundaries by CHILD INDEX as well as text offset, so an outer span can be split at the
+   child holding the selection edge. Self-contained, inside `charFormatting.utils.ts`.
+2. Decide what a FULLY covered attributed span does with its literal `|name="value"` bytes. Today
+   `$unwrapCharNode` reconstructs them as plain text after the content, which is PT9's behavior for
+   an unwrap. Clearing formatting over `\w holy|lemma="grace"\w*` should plausibly do the same —
+   but `$unwrapCharNode` belongs to the marker-resolution track in the invariants' contended-file
+   table (`markerEditDeletion.utils.ts`), so changing or generalizing it is a coordination, not a
+   free choice. If the answer is "keep the bytes exactly as `$unwrapCharNode` does today", part 1
+   alone is enough and no coordination is needed.
+
+### 6b. Multi-line paste mid-span still takes the generic split
+
+**Repro.** Standard view. `\p \nd thing\nd*`. Put the caret between `thi` and `ng`. Paste two
+lines of plain text (`"one\ntwo"`).
+
+**Now** (measured): `["\p \nd thione", "\p twong"]`. The closing marker is gone from the left half
+and the span's own tail `ng` has been stranded, unformatted, after the pasted `two` in the new
+paragraph — the same damage Enter used to do, plus a reordering.
+
+**Why.** `@lexical/clipboard`'s text/plain handling calls `selection.insertParagraph()` directly per
+newline instead of dispatching INSERT_PARAGRAPH_COMMAND, which is the hook the Enter fix uses.
+`MarkerEditPlugin`'s PASTE handler already documents this and arms `splitExpected` by hand for the
+same reason.
+
+**Proposed fix**, which also subsumes the Enter fix rather than sitting beside it: teach
+`CharNode.insertNewAfter` to build a real continuation. Lexical's `$splitNodeAtPoint` hands it a
+`RangeSelection` whose anchor is an ELEMENT point on the span carrying the split index, so it can
+(a) insert the left half's closing glyph at that index, before the children about to move, and
+(b) return a continuation carrying the opening glyph with the right nesting and `closed` state.
+Lexical's own `newElement.append(firstToAppend, ...firstToAppend.getNextSiblings())` then completes
+the shape, and because `$splitNodeAtPoint` recurses up the inline ancestors it works at every nesting
+depth. The generic split becomes correct for EVERY caller — Enter, paste, programmatic — and
+`$splitParagraphAtCharStack` plus its INSERT_PARAGRAPH interception can be deleted.
+
+Not done because it changes a `shared` node class used by all three apps and every marker mode
+(the glyph emission would have to be inferred from the span's existing children, the way
+`$buildContinuationCharSpan` infers it via `$charHasClosingGlyph`), and the plan specified the
+caller-side fix. It wants its own red-first pass, not a drive-by.
+
+### 6c. Caret placement after a paragraph split through a stack — structural-caret's
+
+**Repro.** Standard view. `\p \wj \+nd thing\+nd*\wj*`. Caret between `thi` and `ng`. Enter.
+
+**Now:** the content is correct (`\p \wj \+nd thi\+nd*\wj*` / `\p \wj \+nd ng\+nd*\wj*`) and
+the caret is an ELEMENT point on the new paragraph at child index 2 — the content boundary, just
+past the injected `[glyph, separator]` prefix and BEFORE the reopened `\wj`. Typing there inserts
+plain text ahead of the span rather than continuing inside it.
+
+**Why it is that shape.** `$splitParagraphAtCharStack` leaves an element point at offset 0 on the new
+paragraph — the same shape `RangeSelection.insertParagraph` leaves — because that is what
+`$injectMarkerPrefix` recognizes in order to move the caret to the content side of the prefix it is
+about to splice in. `$placeCaretAtBoundary` then deliberately uses an element point for element
+content ("a leading red-letter `\wj` CharNode" is its own example).
+
+**The question for that track:** should the caret descend INTO the reopened span's content (past its
+separator, like `$selectBreakPoint` does for the in-note break) when the new paragraph's first child
+is a char span? I did not change it because element-point caret placement at a paragraph boundary is
+a general convention, not a char-stack decision, and the plan assigns bug 1's caret symptom there.
+Note that the ORIGINAL symptom the plan describes — "caret landing at the end of the new paragraph",
+caused by the unwrap's reinsertion loop dragging an element point — is gone, because the split no
+longer produces a span for the unwrap to run on.
+
+### 6d. Cross-track finding, for the whitespace track
+
+A Ctrl+Space that emits its space at the very end of a paragraph loses it:
+`$textNodeTrailingSpaceTransform` (`TextSpacingPlugin.tsx:160`) empties any lone-space text node
+whose next sibling is not a verse, and that branch runs BEFORE the
 `$isParaLikeNode(parent) && node.is(parent.getLastChild())` exemption two lines below it. This is
 invariants §7's "deleting a lone space" defect reached from a new direction, and writer rule 3 says
 the trailing space is free in the file. I did not touch that file — it is the whitespace track's. The
