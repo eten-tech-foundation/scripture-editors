@@ -4,9 +4,10 @@ Branch `sv/attribute-markers` (scripture-editors) + `sv/attribute-markers-core` 
 Plan: `docs/superpowers/plans/2026-08-11-attribute-markers.md`. Governing invariants:
 `docs/superpowers/specs/2026-08-11-standard-view-invariants.md`.
 
-Stages 0, A, B, and C shipped in full. Stage D (`cp`) is deliberately NOT implemented — it needs
-a design decision that is TJ's to make, and Stage C changed the economics of that decision
-(§"Stage D" below). No C# serialization code was changed; the gate was never crossed.
+Stages 0, A, B, and C shipped in full, and Stage D (`cp`) shipped in its INLINE form after TJ
+chose that option: both chapter attribute markers display and edit on the chapter's own line.
+Moving `\cp` to its own line (PT9 Standard View's visual layout) is ticketed separately, as is
+the cross-block fold-back. No C# serialization code was changed; the gate was never crossed.
 
 ---
 
@@ -51,23 +52,20 @@ platform-bible-utils dependency to import live. Also pins alt-before-pub host or
 
 ### Stage 0.3 — the writer's `ca` special case (paranext-core, TypeScript — NOT under the C# gate)
 
-Resolved by REMOVAL, against captured ground truth. ParatextData's own USX→USFM write
-(`SetChapterUsx` → `GetChapterUsfm`, the provider path the editor's save uses) puts a folded,
-empty, or unclosed `\ca` on the SAME line as `\c`, one space (`\c 1 \ca 2\ca*`) — exactly what
-`UsjReaderWriter.toUsfm()`'s default path produces. The special case fabricated `\c 1\n \ca …`,
-a hand-authored fixture shape no ParatextData writer emits; its own comment suspected as much.
-Removing it also removed the latent index/slice inconsistency the plan flagged (index located in
-the mutated output, slice taken from the unmutated input).
-
-Consequence: the three testUSFM 2SA fixtures' `\c`/`\ca` lines joined to the canonical same-line
-form ('\n ' → ' ' — parses identically, `.usj` oracles untouched), the 2SA-1 locations table
-shrank by the byte that no longer exists (the old two-byte separator's second entry deleted,
-24 later chapter-1-verse-0 offsets decremented), and the vendored corpus copies re-copied. The
-full platform-bible-utils suite (450 tests) and the scripture-editors corpus (zero divergence)
-are green against the new bytes. `libs/test-data`'s `2sa.usj-locations.ts` keeps its
-`usfmVerseLocation` values as documentation-only cross-references ("not used in assertions") —
-a handful are now off by one against the new fixture bytes; harmless, flagged here rather than
-churned.
+Resolved by KEEPING the newline-plus-space, now documented and de-bugged (an earlier pass on this
+track removed it; TJ's correction reversed that). The measured facts, both now in the code
+comment: Paratext 9's STANDARD VIEW save — the writer of the overwhelming majority of real
+files — emits `\c 1` ⏎ ` \ca 2\ca*`, because its display structure (Standard.xslt) renders the
+`\ca` span OUTSIDE the chapter's block div; ParatextData's USX→USFM path (`SetChapterUsx` →
+`GetChapterUsfm`, captured in VerseAttributeFoldRoundTripCaptureTests) writes same-line
+`\c 1 \ca 2\ca*`. The two writers genuinely disagree; `toUsfm()` sides with Standard View for
+byte fidelity with existing files, and the two spellings parse identically (line-break
+whitespace before an attribute marker is structural). The latent inconsistency the plan flagged
+is fixed in place: the backslash index and the two-character slice both read the mutated output
+string now. The 2SA fixtures and the 2SA-1 locations table keep their authored Standard-View
+shape. Note a churn source only C#/upstream could change: a chapter saved THROUGH Platform.Bible
+normalizes to the same-line shape on disk regardless, because ParatextData regenerates the
+stored USFM from USX.
 
 ### Stage A — space-after vs space-between, and a real fold fix
 
@@ -165,20 +163,12 @@ The plan's corrected diagnosis held exactly: no adaptor built `\cat` bytes anywh
 
 ## 3. What I deliberately did not do
 
-- **Stage D (`cp`) — deferred to you, with a recommendation.** The plan's four problems are
-  real, but Stage C changed their weight. What already works today: the chapter fragment/rebuild
-  folds `\cp` bytes (`\c 1 …\cp A` folds `pubnumber` — the tokenizer's chapter path, including
-  the new whitespace skip), the rebuild's multi-node splice already UNFOLDS a markup-carrying
-  `cp` into a real paragraph at chapter level, and `pubnumber` carry-over keeps the undisplayed
-  attribute safe. What remains is exactly two things: (1) the DISPLAY choice — I recommend an
-  INLINE run inside the chapter line (`\c 1 \ca 2\ca* \cp A`), which re-tokenizes correctly
-  through the existing scope and avoids inventing a block-level display-run vocabulary; the
-  file's own line break before `\cp` is writer normalization, not content. That needs one new
-  descriptor slot for "opener glyph, no closer" — vocabulary the Glyph-kinds track also touches,
-  so agree the shape with it. (2) The fold-BACK (task 11: deleting the markup from a real `cp`
-  paragraph re-folds it onto the chapter) — a cross-block rebuild scope no current scope
-  expresses; without it the editor tree stays PDP-convergent-but-not-identical until reload.
-  I was not confident designing either unilaterally.
+- **`cp` block-level display.** `cp` now displays and edits INLINE on the chapter's line
+  (implemented after TJ chose that option); moving it to its own line — PT9 Standard View's
+  visual layout — is ticketed separately. The remaining genuinely-open piece either way: folding
+  a real `cp` PARAGRAPH back onto the chapter (deleting the markup that unfolded it) needs a
+  cross-block rebuild scope no current scope expresses; until then the editor tree stays
+  PDP-convergent-but-not-identical after such an edit until reload.
 - **No C# serialization changes.** The gate was never reached: nothing in this track's findings
   requires a C# change. The one serialization-behavior change (the `ca` newline special case) is
   TypeScript in paranext-core, resolved against capture-test ground truth — review it as
@@ -232,8 +222,13 @@ view (a doc with `\c 1 \ca 2\ca*`, `\cp`, and a categorized footnote — 2SA-1 h
 6. **Collab**, if easy: a remote category/altnumber change while the local caret is elsewhere
    should heal the run in place; while the local caret is mid-edit IN the run, local bytes win
    until departure.
-7. **`\cp` is still state-only**: confirm a `\cp`-bearing chapter round-trips unchanged (carry-
-   over) even after editing its `\ca`.
+7. **Chapter `\cp`** (inline on the chapter line, after the `\ca` run): edit the value →
+   departure updates pubnumber. Delete the run → pubnumber gone, `\ca` untouched. Type markup
+   into the value (`\nd x\nd*`) and depart → the chapter loses pubnumber and a REAL `\cp`
+   paragraph materializes below it (matching Paratext keeping a marker-bearing `\cp`
+   first-class). Empty the value → an empty first-class `\cp` paragraph. Note the known gap:
+   deleting the markup from that real `\cp` paragraph does NOT re-fold it onto the chapter until
+   reload.
 
 ---
 
