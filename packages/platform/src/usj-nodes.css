@@ -2392,7 +2392,12 @@
   border-collapse: collapse;
 }
 
-.usfm td {
+/* PT9 emits EVERY cell as a `<td>`, header cells included (`<td class="usfm_th1">`), so its own
+   rule needs only the one selector. `ImmutableTableCellNode` renders a real `<th>` for `th*`
+   markers, which is better markup but matches no `td` selector — so header cells got neither the
+   border nor the padding until `th` was named here too. */
+.usfm td,
+.usfm th {
   border: 1px solid #000000;
   page-break-inside: avoid;
   /* FB27281 adding padding based on font size*/
@@ -2400,8 +2405,18 @@
   padding-left: 0.28em;
 }
 
+/* Unreachable today, and kept deliberately: PT9 wraps a row's own `\tr` glyph in a real
+   `<td class="markercell">`, which needs its border removed because `td` above gives it one. Our
+   glyph rides instead in the ANONYMOUS table cell the browser generates around the only non-cell
+   content of a `<tr>` — not a `td` element, so it matches neither rule and has no border to reset.
+   It does miss `td`'s horizontal padding, which the rule below restores directly on the glyph. */
 .usfm td.markercell {
   border-style: none;
+}
+
+.usfm .table-row > .opening,
+.usfm .table-row > .marker {
+  padding-inline-start: 0.28em;
 }
 
 .usfm rt {

@@ -92,11 +92,34 @@ best. Paratext 9 resolves it identically — every `<tr>` it emits carries
 `style="TEXT-INDENT: 0in;"`. Cells need nothing of their own: with the row at zero they inherit
 zero, which is also why PT9 stamps the row and not the cells.
 
+The indent itself is not a mistake to delete: `\Marker tr` in `usfm.sty` carries
+`\LeftMargin .5` and `\FirstLineIndent -.25`, and our `10vw` / `-5vw` are exactly those at
+CSSCreator's ×20 scaling. It is correct for a `\tr` rendered as a block — which happens here in note
+content, where table assembly is disabled and a `\tr` stays a `ParaNode` carrying `usfm_tr`. PT9
+keeps the rule and cancels it per row for the same reason, and its XSLT says so outright:
+`<!-- Cancel any text indent so that the table markers are visible -->`
+(`ScriptureViews/Standard.xslt:717`). The cancel is unconditional there — no marker mode, no view,
+no stylesheet gates it.
+
 One structural difference from PT9 remains, deliberately: PT9 puts the row's glyph in a REAL
 `<td class="markercell">`, where ours rides in the browser's anonymous cell. Layout-equivalent — an
-anonymous cell participates in the table's column structure like any other — but PT9's is stylable
-and ours is not. If that leading column ever needs width or padding of its own, that is the change
-to make, and it needs a node to hang the cell on.
+anonymous cell participates in the table's column structure like any other — but an anonymous box is
+not a `td` ELEMENT, so it matches neither the `.usfm td` padding rule nor the `.usfm td.markercell`
+border reset already ported into usj-nodes.css (that reset has therefore never matched anything).
+The border it does not need; the horizontal padding it did miss, and a rule on the glyph itself now
+supplies it. Making it a real `<td>` needs a node to hang the cell on — Lexical maps one node to one
+element, and `getDOMSlot` cannot route SOME children into a wrapper and leave the rest as siblings —
+so it means a new display-only node class in the document schema, through both adaptors, plus
+fixture regeneration. Not worth 0.28em; recorded in case that column ever needs a width of its own.
+
+### Adjacent defect found while checking PT9. Fixed.
+
+PT9 emits every cell as a `<td>`, header cells included (`<td class="usfm_th1 align_start">`), so
+`ScriptureBase.css` styles them with a single `td` selector. `ImmutableTableCellNode` renders a real
+`<th>` for `th*` markers — better markup, but it matched no `td` selector, so **header cells had
+neither the border nor the padding** the ported rule gives body cells. Fixed by naming `th` in the
+selector rather than by giving up the semantic element. Pre-existing and outside the plan; one
+selector, easily reverted.
 
 ### Defect 2 — `\fig ` does not gray out. Diagnosed; deliberately no code change.
 
