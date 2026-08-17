@@ -21,6 +21,7 @@ import {
   $continuationCharAttributes,
   $createCharNode,
   $innermostCharAncestor,
+  $isCharContentEmpty,
   $isCharNode,
   $isMarkerNode,
   $isSomeParaNode,
@@ -108,6 +109,24 @@ function $firstContentTextFrom(node: LexicalNode | null): TextNode | undefined {
     if (found) return found;
   }
   return undefined;
+}
+
+/**
+ * Drops any of `spans` a boundary split left holding no content — an empty `\nd \nd*` pair is
+ * fabricated bytes in the file, not a cleared style. Reachable whenever the selection starts or
+ * ends one character inside a span's edge, which is what selecting the WORD does: the structural
+ * separator is not part of the word, so the range starts at offset 1 and the span splits instead
+ * of being unwrapped whole.
+ *
+ * `$splitCharNodeAt` returns an unattached span when nothing moved into it, so attachment is
+ * checked before the content test.
+ *
+ * Mutating: call inside `editor.update()`.
+ */
+function $dropContentEmptySpans(...spans: CharNode[]): void {
+  spans.forEach((span) => {
+    if (span.isAttached() && $isCharContentEmpty(span)) span.remove();
+  });
 }
 
 /**
@@ -200,22 +219,23 @@ export function $removeCharFormattingFromSelection(): boolean {
       // first: that leaves the START boundary's (node, offset) — which may be the
       // very same text node as the end's — still valid for the second split.
       const tail = $splitCharNodeAt(char, endNode, focusPoint.offset);
-      void tail; // tail keeps the style
       const middle = $splitCharNodeAt(char, startNode, anchorPoint.offset);
       $unwrapCharNode(middle);
+      $dropContentEmptySpans(char, tail); // the two segments that keep the style
       continue;
     }
     if (startsMidSpan) {
       // selection starts mid-span: keep the left part styled, unwrap the right
       const right = $splitCharNodeAt(char, startNode, anchorPoint.offset);
       $unwrapCharNode(right);
+      $dropContentEmptySpans(char);
       continue;
     }
     if (endsMidSpan) {
       // selection ends mid-span: unwrap the left part, keep the right styled
       const right = $splitCharNodeAt(char, endNode, focusPoint.offset);
-      void right; // right keeps the style
       $unwrapCharNode(char);
+      $dropContentEmptySpans(right);
       continue;
     }
     $unwrapCharNode(char);

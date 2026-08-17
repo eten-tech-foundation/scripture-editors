@@ -660,6 +660,44 @@ describe("Ctrl+Space", () => {
     expect(handled).toBe(true);
     editor.getEditorState().read(() => expect($getRoot().getTextContent()).toContain("abcdef"));
   });
+
+  it("leaves no empty marker pair when the range covers a span's whole word", async () => {
+    // A double-click selects the WORD, not the span's structural separator, so the range starts at
+    // offset 1 and the span splits rather than being unwrapped whole. The left half is then a
+    // marker pair around nothing — fabricated bytes in the file, not a cleared style.
+    let content: TextNode;
+    const { editor } = await testEnvironmentWithDisplaySyncs(() => {
+      const para = $createParaNode("p");
+      const nd = $createCharNode("nd");
+      content = $createTextNode(`${NBSP}holy`);
+      $getRoot().append(
+        para.append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          nd.append($createMarkerNode("nd"), content, $createMarkerNode("nd", "closing")),
+        ),
+      );
+    });
+    await act(async () => editor.update(() => content.select(1, 5)));
+    await act(async () => {
+      editor.dispatchCommand(
+        KEY_DOWN_COMMAND,
+        new KeyboardEvent("keydown", { key: " ", ctrlKey: true }),
+      );
+    });
+
+    editor.getEditorState().read(() => {
+      const para = requireDefined($getRoot().getChildren().filter($isParaNode)[0], "para missing");
+      expect(para.getChildren().filter($isCharNode)).toHaveLength(0);
+      expect(
+        para
+          .getAllTextNodes()
+          .map((textNode) => textNode.getTextContent())
+          .join("")
+          .replaceAll(NBSP, " "),
+      ).toBe("\\p holy");
+    });
+  });
 });
 
 describe("Ctrl+Space through a nested character-style stack", () => {
@@ -821,6 +859,28 @@ describe("Ctrl+Space through a nested character-style stack", () => {
     editor
       .getEditorState()
       .read(() => expect($usfmBytes($onlyPara())).toBe("\\p  \\wj \\+nd thing\\+nd*\\wj*"));
+  });
+
+  it("clears the innermost style over a range without leaving an empty marker pair", async () => {
+    let parts: ReturnType<typeof $appendNestedStackPara>;
+    const { editor } = await testEnvironmentWithDisplaySyncs(
+      () => (parts = $appendNestedStackPara()),
+    );
+    // the word, not the span's structural separator — the range starts at offset 1
+    await act(async () => editor.update(() => parts.content.select(1, 6)));
+    await pressCtrlSpace(editor);
+
+    editor.getEditorState().read(() => {
+      const spans = $onlyPara()
+        .getAllTextNodes()
+        .flatMap((textNode) => {
+          const parent = textNode.getParent();
+          return $isCharNode(parent) ? [parent] : [];
+        });
+      expect(spans.some((span) => span.getMarker() === "nd")).toBe(false);
+      // Nothing anywhere is a marker pair around no content.
+      expect($usfmBytes($onlyPara())).not.toContain("\\+nd \\+nd*");
+    });
   });
 
   it("reuses the space one character ahead instead of inserting a second one", async () => {
