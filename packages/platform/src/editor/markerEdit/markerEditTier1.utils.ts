@@ -9,10 +9,12 @@ import {
   $createTextNode,
   $getNodeByKey,
   $getSelection,
+  $getState,
   $isRangeSelection,
   $isTextNode,
   LexicalNode,
   NodeKey,
+  TextNode,
 } from "lexical";
 import {
   $caretHoldsRunSite,
@@ -42,6 +44,7 @@ import {
   MarkerNode,
   MarkerType,
   NoteNode,
+  textTypeState,
   VerseNode,
 } from "shared";
 
@@ -327,9 +330,28 @@ export function $verseNodeTransform(node: VerseNode, context: MarkerEditContext)
   node.setNumber(numberToken); // PT9 GetNextWord: whole word, valid or not
   node.setTextContent(getVisibleOpenMarkerText("v", numberToken));
   if (rest) {
-    const restNode = $createTextNode(rest);
-    node.insertAfter(restNode);
-    restNode.select(rest.length, rest.length);
+    // Merge the rest into an existing following plain text node rather than always inserting a
+    // fresh one. A fresh node fragments a literal the user is mid-typing across siblings — the
+    // live failure: `\` typed at the verse's end split out alone, the next keystroke landed in
+    // yet another node, and the resolve's caret shield (which covers the caret's contiguous
+    // run) had nothing contiguous to cover, so `\vbut…` glued together in the rebuild fragment
+    // and settled as a terminated unknown marker mid-word. Only an ordinary content node
+    // qualifies: never a glyph (exact-type check), a token (the para-prefix separator), or an
+    // attribute-run value riding beside the verse.
+    const next = node.getNextSibling();
+    if (
+      $isTextNode(next) &&
+      next.getType() === TextNode.getType() &&
+      next.getMode() === "normal" &&
+      $getState(next, textTypeState) !== "attribute"
+    ) {
+      next.setTextContent(rest + next.getTextContent());
+      next.select(rest.length, rest.length);
+    } else {
+      const restNode = $createTextNode(rest);
+      node.insertAfter(restNode);
+      restNode.select(rest.length, rest.length);
+    }
   }
 }
 
@@ -499,10 +521,54 @@ export function $settlePendedDisplayOwner(
   return { handled, mutated };
 }
 
+/** Whether `node` is ordinary plain content text — the kind a mid-typing literal run is made of:
+ * exact TextNode (glyph subclasses excluded), normal mode (the token para-prefix separator
+ * excluded), and not an attribute-run value. */
+function $isPlainContentText(node: LexicalNode): node is TextNode {
+  return (
+    $isTextNode(node) &&
+    node.getType() === TextNode.getType() &&
+    node.getMode() === "normal" &&
+    $getState(node, textTypeState) !== "attribute"
+  );
+}
+
+/**
+ * The caret shield as a SET: `exceptKey` plus every plain content-text sibling contiguous with
+ * it. A literal the user is mid-typing is not guaranteed to be one node — the verse-split path
+ * (and any boundary-point insertion) can leave `\` and the just-typed `v` as separate siblings —
+ * and a shield that protects only the caret's own node then reads the rest of the run as
+ * "departed" and settles it mid-word (the live `\vbut…` unknown-paragraph split). Contiguity is
+ * the boundary: anything that is not plain content text (a glyph, the token separator, an
+ * attribute value, an element) ends the run, so pends beyond it still settle on genuine
+ * departure exactly as before.
+ */
+function $exceptKeysAround(exceptKey: NodeKey | undefined): Set<NodeKey> {
+  const keys = new Set<NodeKey>();
+  if (exceptKey === undefined) return keys;
+  keys.add(exceptKey);
+  const exceptNode = $getNodeByKey(exceptKey);
+  if (!exceptNode?.isAttached()) return keys;
+  for (
+    let sibling = exceptNode.getPreviousSibling();
+    sibling && $isPlainContentText(sibling);
+    sibling = sibling.getPreviousSibling()
+  )
+    keys.add(sibling.getKey());
+  for (
+    let sibling = exceptNode.getNextSibling();
+    sibling && $isPlainContentText(sibling);
+    sibling = sibling.getNextSibling()
+  )
+    keys.add(sibling.getKey());
+  return keys;
+}
+
 /**
  * Completion trigger. PT9 completes mid-edit markers via its 1s debounced
  * reformat; our deterministic equivalents are Enter, blur, and the caret
- * leaving the node (`exceptKey` keeps the node still being edited pending).
+ * leaving the node (`exceptKey` keeps the node still being edited pending — widened to the
+ * caret's contiguous plain-text run, see {@link $exceptKeysAround}).
  *
  * Mutating (settles pending nodes via {@link $applyOpenerRename} / Tier 2 rebuilds): call inside
  * `editor.update()` — never synchronously from an update/mutation listener.
@@ -516,7 +582,8 @@ export function $settlePendedDisplayOwner(
 export function $resolvePendingMarkers(context: MarkerEditContext, exceptKey?: NodeKey): boolean {
   let mutated = false;
   if (context.pendingKeys.size === 0) return mutated;
-  const keys = [...context.pendingKeys].filter((key) => key !== exceptKey);
+  const exceptKeys = $exceptKeysAround(exceptKey);
+  const keys = [...context.pendingKeys].filter((key) => !exceptKeys.has(key));
   // Owners already routed through their settle in THIS pass. Several pended PIECES can map to one
   // owner (a verse's `\va` and `\vp` values are two runs sharing one owner identity, and every
   // attribute value pends under its own key — $textNodeTier2Transform), and the settle is not
@@ -559,10 +626,11 @@ export function $resolvePendingMarkers(context: MarkerEditContext, exceptKey?: N
       if (key !== targetKey) context.pendingKeys.delete(key);
       continue;
     }
-    if (targetKey === exceptKey) {
-      // `exceptKey` shields the node the caret is still in from being settled. The filter above
-      // applies it to the PENDED key; mapping can reach that same node from a piece's key instead,
-      // so honor it here too — the owner keeps its pend and settles once the caret departs.
+    if (exceptKeys.has(targetKey)) {
+      // The shield covers the node the caret is still in (and its contiguous run). The filter
+      // above applies it to the PENDED key; mapping can reach a shielded node from a piece's key
+      // instead, so honor it here too — the owner keeps its pend and settles once the caret
+      // departs.
       context.pendingKeys.delete(key);
       context.pendingKeys.add(targetKey);
       continue;
