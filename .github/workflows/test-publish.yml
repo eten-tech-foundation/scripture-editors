@@ -120,3 +120,81 @@ jobs:
         uses: mxschmitt/action-tmate@v3
         with:
           limit-access-to-actor: true
+
+  # Publishing platform-editor and bumping `main` to the next version used to be two independent
+  # manual steps, so forgetting either one left the repo broken but silent. Doing the bump here
+  # makes it a consequence of publishing rather than something to remember. See PT-4389.
+  bump-platform-version:
+    name: Open platform-editor version bump PR
+    needs: test
+    # Mirrors the `pnpm publish platform-editor` step's condition. `needs: test` means a failed or
+    # skipped publish never reaches this job.
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/platform_v') && contains(github.ref, '.') }}
+    runs-on: ubuntu-latest
+
+    # Scoped to this job so the test matrix keeps the read-only token declared at workflow level.
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Bump to the next patch version
+        id: bump
+        shell: bash
+        run: |
+          published="${GITHUB_REF_NAME#platform_v}"
+          current="$(node -p "require('./packages/platform/package.json').version")"
+
+          # Only bump when `main` still advertises the version we just published. If someone already
+          # bumped it, or the tag lags `main`, leave it alone rather than guessing.
+          if [ "$current" != "$published" ]; then
+            echo "main is at $current but $published was published; skipping bump." >> "$GITHUB_STEP_SUMMARY"
+            echo "skipped=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          cd ./packages/platform
+          next="$(npm version patch --no-git-tag-version)"
+          next="${next#v}"
+          cd ../..
+
+          echo "next=$next" >> "$GITHUB_OUTPUT"
+          echo "branch=chore/bump-platform-editor-$next" >> "$GITHUB_OUTPUT"
+          echo "skipped=false" >> "$GITHUB_OUTPUT"
+
+      - name: Open the pull request
+        if: ${{ steps.bump.outputs.skipped == 'false' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NEXT: ${{ steps.bump.outputs.next }}
+          BRANCH: ${{ steps.bump.outputs.branch }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git checkout -b "$BRANCH"
+          git add packages/platform/package.json
+          git commit -m "platform: bump version for next release"
+          git push origin "$BRANCH"
+
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "platform: bump version to $NEXT for next release" \
+            --body "$(cat <<EOF
+          Opened automatically after \`$GITHUB_REF_NAME\` published \`@eten-tech-foundation/platform-editor\` to npm.
+
+          Bumps \`packages/platform/package.json\` so the next release has an unclaimed version to tag.
+
+          Note: PRs opened with \`GITHUB_TOKEN\` do not trigger workflow runs. Close and reopen this PR,
+          or push an empty commit, if a Test run is needed before merging.
+
+          Automated by \`.github/workflows/test-publish.yml\` (PT-4389).
+          EOF
+          )"
