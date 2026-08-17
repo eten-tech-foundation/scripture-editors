@@ -26,6 +26,17 @@ describe("ImmutableTableRowNode", () => {
     });
   });
 
+  it("zeroes its first-line indent inline, where no stylesheet rule can be outranked", () => {
+    // A `\tr`'s hanging indent belongs to a block of text, not to a table: left in place it drags
+    // the row's own marker glyph — which the browser wraps in an anonymous, unstyleable cell —
+    // clear outside the table. Inline because a project StyleInfo's own `.usfm_tr` rule outranks
+    // any static selector; Paratext 9 stamps the same inline style on every `<tr>` it emits.
+    withEditor([ImmutableTableRowNode, ImmutableTableCellNode], () => {
+      // Read back as "0px": the CSSOM normalizes a bare zero length to its canonical unit form.
+      expect($createImmutableTableRowNode("tr").createDOM().style.textIndent).toBe("0px");
+    });
+  });
+
   it("round-trips through JSON", () => {
     withEditor([ImmutableTableRowNode, ImmutableTableCellNode], () => {
       const json = $createImmutableTableRowNode("tr").exportJSON();

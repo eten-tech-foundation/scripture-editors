@@ -78,6 +78,26 @@ is table content until the next block marker, which is what ParatextData does); 
 "hides the following content" is that nothing on screen explained the split and there was no glyph to
 delete to undo it.
 
+**Showing the glyph exposed a latent CSS defect, fixed with it.** The glyph and its NBSP separator
+are the only non-cell children of the `<tr>`, so the browser wraps them in an ANONYMOUS table cell.
+`.text-spacing .usfm_tr` carries a `-5vw` hanging indent — right for a `\tr` rendered as a block of
+text, meaningless in a real table — which that anonymous box inherits, and which has no class to
+reset it the way `.table-cell` resets the real cells. On screen the glyph flew off to the left of
+the table. `ImmutableTableRowNode.createDOM` now stamps `text-indent: 0` inline.
+
+Inline, not a stylesheet rule, because no static selector reliably wins: a project `StyleInfo` that
+gives `tr` a `firstLineIndent` emits `.editor-input.usfm .usfm_tr { text-indent: … }`
+(`generateUsjCss.ts:91`), injected after the static sheet at a specificity a static rule ties at
+best. Paratext 9 resolves it identically — every `<tr>` it emits carries
+`style="TEXT-INDENT: 0in;"`. Cells need nothing of their own: with the row at zero they inherit
+zero, which is also why PT9 stamps the row and not the cells.
+
+One structural difference from PT9 remains, deliberately: PT9 puts the row's glyph in a REAL
+`<td class="markercell">`, where ours rides in the browser's anonymous cell. Layout-equivalent — an
+anonymous cell participates in the table's column structure like any other — but PT9's is stylable
+and ours is not. If that leading column ever needs width or padding of its own, that is the change
+to make, and it needs a node to hang the cell on.
+
 ### Defect 2 — `\fig ` does not gray out. Diagnosed; deliberately no code change.
 
 Graying is not marker-driven at all. `.unknown-block` / `.unknown-inline` (usj-nodes.css) key off
@@ -169,6 +189,7 @@ for sidebar, figure, and the generic unknown span alike.
 | File | Change |
 | --- | --- |
 | `packages/platform/src/editor/adaptors/usj-editor.adaptor.ts` | `createTableRow` renders the row's `\tr ` glyph, mirroring `createTableCell`'s per-mode shape |
+| `libs/shared/src/nodes/usj/ImmutableTableRowNode.ts` | zeroes the row's first-line indent inline, so the new glyph is not dragged outside the table |
 | `packages/platform/src/editor/markerEdit/tier2Rebuild.utils.ts` | `$selectAfterSentinelRun` — the caret lands after an opaque construct the rebuild put at the end, not before it |
 | `libs/shared-react/src/plugins/usj/OpaqueBlockGuardPlugin.tsx` | new — refuses an edit aimed inside an opaque construct |
 | `libs/shared-react/src/plugins/usj/index.ts` | exports it |
@@ -208,7 +229,7 @@ one predicate — `$opaqueBlockAncestor` — is where it comes back out.
 
 Foreground runs, no new skips.
 
-- `nx test shared` — 32 files, 472 passed, 0 skipped.
+- `nx test shared` — 32 files, 473 passed, 0 skipped.
 - `nx test shared-react` — 26 files, 1533 passed, 2 skipped (both pre-existing).
 - `nx test @eten-tech-foundation/platform-editor` — 55 files, 1037 passed, 5 skipped (all
   pre-existing: 2 in `corpus-testusfm-round-trip`, 3 in `corpus-transform-fixed-point`).
@@ -242,11 +263,12 @@ reader comparing it to the typed-character test should not expect the same failu
 
 ## 7. Please test by hand
 
-1. **The row glyph's layout.** `ImmutableTableRowNode.createDOM` builds a real `<tr>`, and the row's
-   glyph is now a non-cell child of it, so the browser wraps it in an anonymous cell — the `\tr `
-   should appear as a leading column. This is the one thing that could not be checked headlessly. If
-   it misaligns the columns, the alternative is rendering the row glyph outside the `<tr>` or
-   positioning it; say the word.
+1. **The row glyph's layout**, in a running editor — the one thing no headless test reaches, since
+   jsdom does no layout. Expect the `\tr ` as a narrow leading column, rows aligned with each other.
+   The first cut of this fix got it wrong (the glyph flew off to the left of the table on the
+   inherited `\tr` hanging indent); the inline `text-indent: 0` is what corrects it, so this is
+   worth re-checking against a project whose stylesheet gives `tr` a `FirstLineIndent` as well as
+   against the bundled one.
 2. **Type `\tr ` mid-sentence** in standard view. Expect: the paragraph splits, the `\tr ` glyph is
    visible, the sentence tail is inside the row. Then try deleting the `\tr ` glyph — the row has no
    settle scope (`$settleScopeForNode` returns `undefined` inside a table), so I expect the deletion
