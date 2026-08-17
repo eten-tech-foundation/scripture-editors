@@ -131,6 +131,17 @@ ${USX_FOOTER}`,
 ${USX_FOOTER}`,
   },
   {
+    // Note-content spaces are CONTENT, not structure: only the caller's space is
+    // leading-attribute structure. A note authored WITHOUT spaces between its spans
+    // (`\f + \fr 2.0\fq stuff\ft text\f*`) must round-trip spaceless — the collapsed layout's
+    // NBSP spacers are view scaffolding, rebuilt at load and dropped at save, and must never
+    // surface as data spaces the file did not have.
+    name: "note without content spaces between spans",
+    usx: book(
+      `<para style="p"><verse number="1" style="v" />Text<note caller="+" style="f"><char style="fr" closed="false">2.0</char><char style="fq" closed="false">stuff</char><char style="ft" closed="false">text</char></note> after.</para>`,
+    ),
+  },
+  {
     name: "unclosed note (closed=false)",
     usx: book(
       `<para style="p"><verse number="1" style="v" />Text<note caller="+" style="f" closed="false"><char style="fr" closed="false">1.1 </char><char style="ft" closed="false">Unterminated note</char></note></para>`,
