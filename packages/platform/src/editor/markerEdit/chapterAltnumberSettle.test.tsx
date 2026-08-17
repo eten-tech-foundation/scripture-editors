@@ -217,6 +217,42 @@ describe("chapter \\ca alternate-number run", () => {
     });
   });
 
+  it("emptying the value settles to a first-class char ca at root, altnumber cleared", async () => {
+    // The editor-side twin of the captured ParatextData pin (EmptyCaAlone/EmptyCaThenCp in
+    // paranext-core's VerseAttributeFoldRoundTripCaptureTests): an EMPTY \ca span never folds —
+    // it degrades to a first-class char element sitting after the chapter at ROOT level, the
+    // same shape the 2SA-2 corpus fixture loads to.
+    const { editor } = await renderChapterEditor(chapterUsj({ altnumber: "2" }));
+
+    await act(async () => {
+      editor.update(() => {
+        const value = requireDefined(
+          $chapterAltnumberRunPieces($findChapter()).value,
+          "ca value not found",
+        );
+        value.setTextContent(NBSP);
+        value.select(value.getTextContentSize(), value.getTextContentSize());
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () =>
+      editor.update(() => {
+        $textOutsideChapter().select(0, 0);
+      }),
+    );
+
+    editor.getEditorState().read(() => {
+      const chapter = $findChapter();
+      expect(chapter.getAltnumber()).toBeUndefined();
+      expect(
+        $getRoot()
+          .getChildren()
+          .map((child) => child.getType()),
+      ).toEqual(["book", "chapter", "char", "para"]);
+    });
+  });
+
   it("a chapter with no pending edits refuses a rebuild (fixed point)", async () => {
     const { editor } = await renderChapterEditor(chapterUsj({ altnumber: "2" }));
     await act(async () =>
