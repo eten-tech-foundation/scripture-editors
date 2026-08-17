@@ -230,7 +230,7 @@ export function $verseAttributeRunPieces(
  */
 function $attributeMarkerRunPieces(
   cursor: LexicalNode | null,
-  marker: VerseAttributeMarker | "cat" | "ca",
+  marker: VerseAttributeMarker | "cat" | "ca" | "cp",
 ): VerseAttributeRunPieces {
   let opener: MarkerNode | undefined;
   let value: TextNode | undefined;
@@ -326,6 +326,30 @@ export function $chapterAltnumberRunPieces(chapter: ChapterNode): VerseAttribute
   const glyph = $chapterGlyphTextNode(chapter);
   if (!glyph) return {};
   return $attributeMarkerRunPieces(glyph.getNextSibling(), "ca");
+}
+
+/** The child a chapter's `\cp` run is anchored after: `\ca`'s wrapper (or, while caret-grace
+ * defers the wrap, its loose closer), else the `\c N` glyph text — the chapter twin of
+ * `$verseRunAnchor`'s `\vp` arm. Shared by the scanner and the writer so the two can never
+ * disagree about where the run belongs. `undefined` when the glyph anchor is gone. */
+export function $chapterCpAnchor(chapter: ChapterNode): LexicalNode | undefined {
+  const glyph = $chapterGlyphTextNode(chapter);
+  if (!glyph) return undefined;
+  const ca = $attributeMarkerRunPieces(glyph.getNextSibling(), "ca");
+  return ca.wrapper ?? ca.closer ?? glyph;
+}
+
+/**
+ * A chapter's `\cp` published-number display run — opener glyph + NBSP-prefixed value, with NO
+ * closing glyph: `\cp`'s span closes implicitly at the next block boundary in the file, so its
+ * displayed run is bounded by its wrapper alone. Rides directly after the `\ca` run (or the
+ * `\c N` glyph when there is none) — document order `ca` before `cp`, the order ParatextData
+ * preserves on disk. Empty pieces when the glyph anchor is gone.
+ */
+export function $chapterPubnumberRunPieces(chapter: ChapterNode): VerseAttributeRunPieces {
+  const anchor = $chapterCpAnchor(chapter);
+  if (!anchor) return {};
+  return $attributeMarkerRunPieces(anchor.getNextSibling(), "cp");
 }
 
 /**

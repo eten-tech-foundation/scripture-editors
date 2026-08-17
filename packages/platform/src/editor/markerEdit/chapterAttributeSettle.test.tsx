@@ -1,9 +1,10 @@
 /**
- * Integration regressions for the chapter settle scope and its `\ca` alternate-number display
- * run: display, edit-settle, deletion-settle, typed-literal fold, and the no-pending fixed-point
- * refusal. Chapters were the one displayed construct with NO settle scope — editable bytes with
- * nowhere to re-tokenize would have recreated the milestone edit-loss class (editable on screen,
- * silently discarded on save) — so these pins are what make displaying `\ca` safe at all.
+ * Integration regressions for the chapter settle scope and its `\ca`/`\cp` display runs:
+ * display, edit-settle, deletion-settle, typed-literal folds, the block unfold, and the
+ * no-pending fixed-point refusal. Chapters were the one displayed construct with NO settle
+ * scope — editable bytes with nowhere to re-tokenize would have recreated the milestone
+ * edit-loss class (editable on screen, silently discarded on save) — so these pins are what
+ * make displaying either run safe at all.
  */
 
 import { requireDefined, viewOptions } from "./markerEdit.test-helpers";
@@ -15,11 +16,13 @@ import {
   serializeEditorState,
 } from "../adaptors/usj-editor.adaptor";
 import { act } from "@testing-library/react";
-import { $getRoot, TextNode } from "lexical";
+import { $createTextNode, $getRoot, TextNode } from "lexical";
 import {
   $chapterAltnumberRunPieces,
   $chapterGlyphTextNode,
+  $chapterPubnumberRunPieces,
   $isChapterNode,
+  $isParaNode,
   ChapterNode,
   getMarker as bundledGetMarker,
   getVisibleOpenMarkerText,
@@ -270,7 +273,7 @@ describe("chapter \\ca alternate-number run", () => {
     );
   });
 
-  it("a rebuild carries sid and an undisplayed pubnumber over, and derives altnumber from bytes", async () => {
+  it("a rebuild carries sid over, and derives altnumber AND pubnumber from bytes", async () => {
     const { editor } = await renderChapterEditor(
       chapterUsj({ altnumber: "2", pubnumber: "II", sid: "GEN 1" }),
     );
@@ -287,10 +290,22 @@ describe("chapter \\ca alternate-number run", () => {
     editor.getEditorState().read(() => {
       const chapter = $findChapter();
       expect(chapter.getAltnumber()).toBe("4");
-      // sid never derives from bytes; pubnumber has no display yet — both must survive.
+      // sid never derives from bytes and is carried; pubnumber now rides its own displayed
+      // `\cp` run, whose bytes flow through the same fragment — it survives BY re-tokenizing.
       expect(chapter.getSid()).toBe("GEN 1");
       expect(chapter.getPubnumber()).toBe("II");
     });
+  });
+
+  it("a chapter with both runs and no pending edits refuses a rebuild (fixed point)", async () => {
+    // Canonical parity for the closer-less \cp shape: the adaptor's built runs must re-tokenize
+    // and re-serialize to the identical structure, or every unrelated settle would churn.
+    const { editor } = await renderChapterEditor(chapterUsj({ altnumber: "2", pubnumber: "A" }));
+    await act(async () =>
+      editor.update(() => {
+        expect($rebuildChapter($findChapter(), context)).toBe(false);
+      }),
+    );
   });
 
   it("refuses a rebuild whose bytes no longer tokenize as a chapter (kind change)", async () => {
@@ -306,5 +321,226 @@ describe("chapter \\ca alternate-number run", () => {
         expect($findChapter().getAltnumber()).toBe("2");
       }),
     );
+  });
+});
+
+describe("chapter \\cp published-number run", () => {
+  it("loads closer-less after the \\ca run, canonical bytes", async () => {
+    const { editor } = await renderChapterEditor(chapterUsj({ altnumber: "2", pubnumber: "A" }));
+    editor.getEditorState().read(() => {
+      const chapter = $findChapter();
+      expect(chapter.getPubnumber()).toBe("A");
+      const pieces = $chapterPubnumberRunPieces(chapter);
+      expect(pieces.wrapper).toBeDefined();
+      expect(pieces.opener?.getTextContent()).toBe("\\cp");
+      expect(pieces.value?.getTextContent()).toBe(`${NBSP}A`);
+      // \cp has NO closing glyph — its span closes implicitly at the next block boundary in the
+      // file, so the wrapper alone bounds the value.
+      expect(pieces.closer).toBeUndefined();
+      // Anchored directly after \ca's wrapper — the alt-before-pub document order.
+      const caWrapper = requireDefined(
+        $chapterAltnumberRunPieces(chapter).wrapper,
+        "ca wrapper not found",
+      );
+      expect(caWrapper.getNextSibling()?.is(pieces.wrapper)).toBe(true);
+    });
+  });
+
+  it("editing the value settles onto pubnumber on caret departure", async () => {
+    const { editor } = await renderChapterEditor(chapterUsj({ altnumber: "2", pubnumber: "A" }));
+
+    await act(async () =>
+      editor.update(() => {
+        const value = requireDefined(
+          $chapterPubnumberRunPieces($findChapter()).value,
+          "cp value not found",
+        );
+        value.setTextContent(`${NBSP}B`);
+        value.select(value.getTextContentSize(), value.getTextContentSize());
+      }),
+    );
+
+    // Grace holds while the caret sits in the value.
+    editor.getEditorState().read(() => {
+      expect($findChapter().getPubnumber()).toBe("A");
+    });
+
+    await act(async () =>
+      editor.update(() => {
+        $textOutsideChapter().select(0, 0);
+      }),
+    );
+
+    editor.getEditorState().read(() => {
+      const chapter = $findChapter();
+      expect(chapter.getPubnumber()).toBe("B");
+      expect(chapter.getAltnumber()).toBe("2");
+      const pieces = $chapterPubnumberRunPieces(chapter);
+      expect(pieces.value?.getTextContent()).toBe(`${NBSP}B`);
+      expect(pieces.opener?.getTextContent()).toBe("\\cp");
+    });
+  });
+
+  it("deleting the whole run clears pubnumber on caret departure with no resurrection", async () => {
+    const { editor } = await renderChapterEditor(chapterUsj({ altnumber: "2", pubnumber: "A" }));
+
+    let openerResurrected: boolean | undefined;
+    await act(async () => {
+      editor.update(() => {
+        const chapter = $findChapter();
+        const wrapper = requireDefined(
+          $chapterPubnumberRunPieces(chapter).wrapper,
+          "cp wrapper not found",
+        );
+        wrapper.remove();
+        const glyph = requireDefined($chapterGlyphTextNode(chapter), "glyph not found");
+        glyph.select(glyph.getTextContentSize(), glyph.getTextContentSize());
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+      editor.getEditorState().read(() => {
+        openerResurrected = $chapterPubnumberRunPieces($findChapter()).opener !== undefined;
+      });
+    });
+    expect(openerResurrected).toBe(false);
+
+    await act(async () =>
+      editor.update(() => {
+        $textOutsideChapter().select(0, 0);
+      }),
+    );
+
+    editor.getEditorState().read(() => {
+      const chapter = $findChapter();
+      expect(chapter.getPubnumber()).toBeUndefined();
+      // The untouched \ca run survives the sibling run's deletion.
+      expect(chapter.getAltnumber()).toBe("2");
+      expect($chapterPubnumberRunPieces(chapter).opener).toBeUndefined();
+      expect($chapterPubnumberRunPieces(chapter).wrapper).toBeUndefined();
+    });
+  });
+
+  it("typing \\cp bytes at the end of the chapter line folds to pubnumber on departure", async () => {
+    const { editor } = await renderChapterEditor(chapterUsj({ altnumber: "2" }));
+
+    // Simulate typed text landing as a fresh plain TextNode at the end of the chapter's line —
+    // after the \ca run — the shape typing at the line end produces.
+    await act(async () =>
+      editor.update(() => {
+        const chapter = $findChapter();
+        const typed = $createTextNode("\\cp B");
+        chapter.append(typed);
+        typed.select(typed.getTextContentSize(), typed.getTextContentSize());
+      }),
+    );
+
+    await act(async () =>
+      editor.update(() => {
+        $textOutsideChapter().select(0, 0);
+      }),
+    );
+
+    editor.getEditorState().read(() => {
+      const chapter = $findChapter();
+      expect(chapter.getPubnumber()).toBe("B");
+      expect(chapter.getAltnumber()).toBe("2");
+      const pieces = $chapterPubnumberRunPieces(chapter);
+      expect(pieces.value?.getTextContent()).toBe(`${NBSP}B`);
+    });
+  });
+
+  it("markup typed into the value unfolds to a real cp paragraph below the chapter", async () => {
+    const { editor } = await renderChapterEditor(chapterUsj({ altnumber: "2", pubnumber: "A" }));
+
+    await act(async () =>
+      editor.update(() => {
+        const value = requireDefined(
+          $chapterPubnumberRunPieces($findChapter()).value,
+          "cp value not found",
+        );
+        value.setTextContent(`${NBSP}A \\nd x\\nd*`);
+        value.select(value.getTextContentSize(), value.getTextContentSize());
+      }),
+    );
+    await act(async () =>
+      editor.update(() => {
+        $textOutsideChapter().select(0, 0);
+      }),
+    );
+
+    editor.getEditorState().read(() => {
+      const chapter = $findChapter();
+      // Markup in the span aborts the fold, exactly as ParatextData keeps a \cp with markers as
+      // its own marker: pubnumber clears and a REAL cp paragraph materializes below the chapter.
+      expect(chapter.getPubnumber()).toBeUndefined();
+      expect(chapter.getAltnumber()).toBe("2");
+      const next = chapter.getNextSibling();
+      if (!$isParaNode(next)) throw new Error("expected a cp ParaNode after the chapter");
+      expect(next.getMarker()).toBe("cp");
+    });
+  });
+
+  it("emptying the value settles to an empty first-class cp paragraph, pubnumber cleared", async () => {
+    const { editor } = await renderChapterEditor(chapterUsj({ altnumber: "2", pubnumber: "A" }));
+
+    await act(async () => {
+      editor.update(() => {
+        const value = requireDefined(
+          $chapterPubnumberRunPieces($findChapter()).value,
+          "cp value not found",
+        );
+        value.setTextContent(NBSP);
+        value.select(value.getTextContentSize(), value.getTextContentSize());
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () =>
+      editor.update(() => {
+        $textOutsideChapter().select(0, 0);
+      }),
+    );
+
+    editor.getEditorState().read(() => {
+      const chapter = $findChapter();
+      // ParatextData never yields an empty pubnumber: the empty span stays a first-class
+      // (empty) cp paragraph.
+      expect(chapter.getPubnumber()).toBeUndefined();
+      const next = chapter.getNextSibling();
+      if (!$isParaNode(next)) throw new Error("expected a cp ParaNode after the chapter");
+      expect(next.getMarker()).toBe("cp");
+    });
+  });
+
+  it("editing BOTH runs' values settles both in one departure", async () => {
+    const { editor } = await renderChapterEditor(chapterUsj({ altnumber: "2", pubnumber: "A" }));
+
+    await act(async () =>
+      editor.update(() => {
+        const chapter = $findChapter();
+        const caValue = requireDefined(
+          $chapterAltnumberRunPieces(chapter).value,
+          "ca value not found",
+        );
+        const cpValue = requireDefined(
+          $chapterPubnumberRunPieces(chapter).value,
+          "cp value not found",
+        );
+        caValue.setTextContent(`${NBSP}3`);
+        cpValue.setTextContent(`${NBSP}B`);
+        cpValue.select(cpValue.getTextContentSize(), cpValue.getTextContentSize());
+      }),
+    );
+    await act(async () =>
+      editor.update(() => {
+        $textOutsideChapter().select(0, 0);
+      }),
+    );
+
+    editor.getEditorState().read(() => {
+      const chapter = $findChapter();
+      expect(chapter.getAltnumber()).toBe("3");
+      expect(chapter.getPubnumber()).toBe("B");
+    });
   });
 });

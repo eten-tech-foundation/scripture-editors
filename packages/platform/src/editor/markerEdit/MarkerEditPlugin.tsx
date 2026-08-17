@@ -157,7 +157,10 @@ function $syncAndPendOwner(
       ? (["milestone"] as const)
       : $isNoteNode(node)
         ? (["cat"] as const)
-        : (["ca"] as const);
+        : // A chapter's two runs must be driven in this order — `\cp`'s scan and insertion
+          // anchor both depend on `\ca`'s wrapper already being in place, the same dependency
+          // a verse's `\vp` has on `\va`.
+          (["ca", "cp"] as const);
   for (const kind of kinds)
     $syncAndPendDisplayRun(displayRunDescriptor(kind), node, context.pendingKeys);
 }

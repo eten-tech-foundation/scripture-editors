@@ -1275,10 +1275,9 @@ export function $buildChapterFragment(
 /**
  * Chapter-scoped Tier 2 re-tokenization — the third settle scope, beside `$rebuildParas` and
  * `$rebuildNoteContent`. The whole chapter node re-serializes from its re-tokenized bytes:
- * `number` and `altnumber` come from the bytes (the tokenizer's chapter-path attrCapture folds a
- * well-formed `\ca` span back onto the chapter), while `sid` — never derivable from visible
- * bytes — is carried over, and `pubnumber` is carried over only when the bytes did not fold one
- * (its `\cp` display is block-shaped and not yet rendered, so absent bytes must not clear it).
+ * `number`, `altnumber`, and `pubnumber` come from the bytes (the tokenizer's chapter-path
+ * attrCapture folds well-formed `\ca`/`\cp` spans back onto the chapter), while `sid` — never
+ * derivable from visible bytes — is carried over.
  *
  * Preserve-or-refuse: the re-tokenized output must BE a chapter — an edit that would change the
  * node's KIND (the `\c` bytes rewritten into some other marker, or deleted) refuses and stays a
@@ -1318,11 +1317,9 @@ export function $rebuildChapter(chapter: ChapterNode, context: Tier2Context): bo
     return false;
   }
 
-  // Carry-over BEFORE serialization, so the fresh node and its (future) display children are
-  // built from the reconciled fields.
+  // Sid carry-over BEFORE serialization — never derivable from visible bytes. `altnumber` and
+  // `pubnumber` both come from the bytes now that both runs display: absent bytes mean deleted.
   if (chapter.getSid() !== undefined) freshChapter.sid = chapter.getSid();
-  if (freshChapter.pubnumber === undefined && chapter.getPubnumber() !== undefined)
-    freshChapter.pubnumber = chapter.getPubnumber();
 
   const serialized = usjEditorAdaptor.serializeEditorState(
     { type: USJ_TYPE, version: USJ_VERSION, content },

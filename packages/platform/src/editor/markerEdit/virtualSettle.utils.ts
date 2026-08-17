@@ -1074,8 +1074,8 @@ function $applySettledNoteGlyphRename(
 /**
  * The serialized nodes a settled chapter becomes — or `undefined` when the settle refuses.
  * Mirrors `$rebuildChapter` (tier2Rebuild.utils.ts) read-only, decision for decision: the same
- * fragment, the same must-still-be-a-chapter guard, the same sid/pubnumber carry-over, and the
- * same fixed-point refusal.
+ * fragment, the same must-still-be-a-chapter guard, the same sid carry-over, and the same
+ * fixed-point refusal.
  */
 function $settledChapter(
   chapter: ChapterNode,
@@ -1097,8 +1097,6 @@ function $settledChapter(
     return undefined;
   }
   if (chapter.getSid() !== undefined) freshChapter.sid = chapter.getSid();
-  if (freshChapter.pubnumber === undefined && chapter.getPubnumber() !== undefined)
-    freshChapter.pubnumber = chapter.getPubnumber();
   const rebuilt = usjEditorAdaptor.serializeEditorState(
     { type: USJ_TYPE, version: USJ_VERSION, content },
     viewOptions,

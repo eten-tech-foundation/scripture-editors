@@ -109,21 +109,28 @@ describe("displayRunRegistry expectedPieces", () => {
     );
   });
 
-  it("derives a chapter's NBSP-prefixed \\ca value from altnumber alone", () => {
+  it("derives a chapter's NBSP-prefixed \\ca and \\cp values independently", () => {
     const { editor } = createBasicTestEnvironment();
     editor.update(
       () => {
-        const withAlt = $createChapterNode("1", undefined, "2");
-        withAlt.append($createTextNode(getVisibleOpenMarkerText("c", "1") ?? ""));
+        const withBoth = $createChapterNode("1", undefined, "2", "A");
+        withBoth.append($createTextNode(getVisibleOpenMarkerText("c", "1") ?? ""));
         const without = $createChapterNode("3");
         without.append($createTextNode(getVisibleOpenMarkerText("c", "3") ?? ""));
-        $getRoot().append(withAlt, without);
-        const descriptor = displayRunDescriptor("ca");
-        expect(descriptor.expectedPieces(withAlt)).toEqual({
+        $getRoot().append(withBoth, without);
+        expect(displayRunDescriptor("ca").expectedPieces(withBoth)).toEqual({
           wantsRun: true,
           valueText: `${NBSP}2`,
         });
-        expect(descriptor.expectedPieces(without)).toEqual({
+        expect(displayRunDescriptor("cp").expectedPieces(withBoth)).toEqual({
+          wantsRun: true,
+          valueText: `${NBSP}A`,
+        });
+        expect(displayRunDescriptor("ca").expectedPieces(without)).toEqual({
+          wantsRun: false,
+          valueText: undefined,
+        });
+        expect(displayRunDescriptor("cp").expectedPieces(without)).toEqual({
           wantsRun: false,
           valueText: undefined,
         });
@@ -292,6 +299,51 @@ describe("displayRunRegistry scanPieces", () => {
           closer,
           wrapper,
         });
+      },
+      { discrete: true },
+    );
+  });
+
+  it("reads a chapter's closer-less \\cp run, anchored after \\ca's own wrapper", () => {
+    // \cp is the one kind with NO closing glyph (its span closes implicitly at the next block
+    // boundary in the file), so its scanned pieces are opener + value + wrapper with `closer`
+    // genuinely absent — and it rides after the \ca wrapper, the alt-before-pub document order.
+    const { editor } = createBasicTestEnvironment();
+    editor.update(
+      () => {
+        const chapter = $createChapterNode("1", undefined, "2", "A");
+        const caWrapper = $createAttributeRunNode("ca");
+        const caValue = $createTextNode(`${NBSP}2`);
+        $setState(caValue, textTypeState, "attribute");
+        caWrapper.append($createMarkerNode("ca"), caValue, $createMarkerNode("ca", "closing"));
+
+        const cpWrapper = $createAttributeRunNode("cp");
+        const opener = $createMarkerNode("cp");
+        const value = $createTextNode(`${NBSP}A`);
+        $setState(value, textTypeState, "attribute");
+        cpWrapper.append(opener, value);
+
+        chapter.append(
+          $createTextNode(getVisibleOpenMarkerText("c", "1") ?? ""),
+          caWrapper,
+          cpWrapper,
+        );
+        $getRoot().append(chapter);
+        expect(displayRunDescriptor("cp").scanPieces(chapter)).toEqual({
+          opener,
+          value,
+          wrapper: cpWrapper,
+          closer: undefined,
+        });
+        // A canonical closer-less run does NOT diverge: the divergence rule must not demand the
+        // closer this kind never has.
+        expect(
+          $runDiverges(
+            displayRunDescriptor("cp"),
+            displayRunDescriptor("cp").scanPieces(chapter),
+            displayRunDescriptor("cp").expectedPieces(chapter),
+          ),
+        ).toBe(false);
       },
       { discrete: true },
     );

@@ -1601,6 +1601,54 @@ describe("chapter alternate-number display (\\ca run)", () => {
     expect(chapter.children.some((child) => isSerializedAttributeRunNode(child))).toBe(false);
   });
 
+  it("builds the closer-less \\cp run after the \\ca run, in document order (editable)", () => {
+    const chapter = serializedChapter(
+      {
+        type: "chapter",
+        marker: "c",
+        number: "1",
+        altnumber: "2",
+        pubnumber: "A",
+      } as MarkerObject,
+      getViewOptions(STANDARD_VIEW_MODE),
+    );
+    if (!isSerializedChapterNode(chapter)) throw new Error("No editable chapter node found");
+    // [glyph text "\c 1 "][ca run][cp run] — the alt-before-pub document order ParatextData
+    // preserves on disk, all on the chapter's own line.
+    expect(chapter.children).toHaveLength(3);
+    const [, caRun, cpRun] = chapter.children;
+    if (!isSerializedAttributeRunNode(caRun) || caRun.runKind !== "ca")
+      throw new Error("No ca attribute-run wrapper found");
+    if (!isSerializedAttributeRunNode(cpRun) || cpRun.runKind !== "cp")
+      throw new Error("No cp attribute-run wrapper found");
+    // \cp has NO closing marker — its span closes implicitly at the next block boundary in the
+    // file, so the run is opener + value only, bounded by its wrapper.
+    expect(cpRun.children).toHaveLength(2);
+    const [opener, value] = cpRun.children;
+    if (!isSerializedMarkerNode(opener)) throw new Error("No \\cp opening marker found");
+    expect(opener.marker).toBe("cp");
+    expect(opener.markerSyntax).toBe("opening");
+    if (!isSerializedTextNode(value)) throw new Error("No \\cp value text node found");
+    expect(value.text).toBe(`${NBSP}A`);
+  });
+
+  it("builds only the \\cp run when altnumber is absent, directly after the glyph text", () => {
+    const chapter = serializedChapter(
+      { type: "chapter", marker: "c", number: "1", pubnumber: "A" } as MarkerObject,
+      getViewOptions(STANDARD_VIEW_MODE),
+    );
+    if (!isSerializedChapterNode(chapter)) throw new Error("No editable chapter node found");
+    expect(chapter.children).toHaveLength(2);
+    const [, cpRun] = chapter.children;
+    if (!isSerializedAttributeRunNode(cpRun) || cpRun.runKind !== "cp")
+      throw new Error("No cp attribute-run wrapper found");
+    expect(
+      chapter.children.some(
+        (child) => isSerializedAttributeRunNode(child) && child.runKind === "ca",
+      ),
+    ).toBe(false);
+  });
+
   it("builds no run in visible/hidden marker modes (immutable chapters carry state only)", () => {
     for (const markerMode of ["visible", "hidden"] as const) {
       const chapter = serializedChapter(chapterWithAltnumber, {

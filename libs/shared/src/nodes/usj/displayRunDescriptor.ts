@@ -25,6 +25,7 @@ export type DisplayRunKind =
   | "vp"
   | "cat"
   | "ca"
+  | "cp"
   | "milestone"
   | "optbreak"
   | "opaqueUnknown"
@@ -100,8 +101,11 @@ export interface RunByteFormat {
   readonly glyphs: "none" | "with-value" | "unconditional";
   /** The glyph pair's marker name for `owner`, required when `glyphs` is not `"none"`. */
   readonly glyphMarker?: (owner: LexicalNode) => string;
-  /** The trailing glyph's syntax, required when `glyphs` is not `"none"`. */
-  readonly closerSyntax?: "closing" | "selfClosing";
+  /** The trailing glyph's syntax, required when `glyphs` is not `"none"`. `"none"` means the
+   * kind has an OPENER but no trailing glyph at all (a chapter's `\cp`, whose span closes
+   * implicitly at the next block boundary in the file): the writer builds no closer and the
+   * divergence rule does not demand one. */
+  readonly closerSyntax?: "closing" | "selfClosing" | "none";
   /** The owner's own child the run is inserted BEFORE, for `"owner-children"` writers. */
   readonly insertRunBefore?: (owner: LexicalNode) => LexicalNode | undefined;
   /** The sibling the run's wrapper is inserted AFTER, for `"wrapper"` writers. Also the scan

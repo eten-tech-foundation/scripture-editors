@@ -16,6 +16,7 @@ import { $getRoot, $getState, $isTextNode, LexicalNode, TextNode } from "lexical
 import {
   $chapterAltnumberRunPieces,
   $chapterGlyphTextNode,
+  $chapterPubnumberRunPieces,
   $isAttributeRunNode,
   $isChapterNode,
   $isCharNode,
@@ -207,14 +208,17 @@ const noteUsj = (noteContent: MarkerObject["content"]): Usj => ({
   ],
 });
 
-/** A two-paragraph doc whose chapter carries `altnumber="2"` — the `\ca` run shapes' fixture. */
-function chapterCaUsj(): Usj {
+/** A two-paragraph doc whose chapter carries `altnumber="2"` (and `pubnumber` when given) — the
+ * `\ca`/`\cp` run shapes' fixture. */
+function chapterCaUsj(pubnumber?: string): Usj {
+  const chapter: MarkerObject = { type: "chapter", marker: "c", number: "1", altnumber: "2" };
+  if (pubnumber !== undefined) chapter.pubnumber = pubnumber;
   return {
     type: "USJ",
     version: "3.1",
     content: [
       { type: "book", marker: "id", code: "GEN", content: ["GEN"] },
-      { type: "chapter", marker: "c", number: "1", altnumber: "2" },
+      chapter,
       { type: "para", marker: "p", content: ["body text"] },
       { type: "para", marker: "p", content: ["depart here"] },
     ],
@@ -404,6 +408,33 @@ const pendingShapes: PendingShape[] = [
       const glyph = $chapterGlyphTextNode(chapter);
       if (!glyph) throw new Error("expected the chapter glyph text");
       glyph.select(glyph.getTextContentSize(), glyph.getTextContentSize());
+    },
+  },
+  {
+    // The closer-less `\cp` run: both halves must fold the edited value back onto `pubnumber`.
+    name: "chapter published-number run value edited",
+    usj: chapterCaUsj("A"),
+    $edit: () => {
+      const value = $chapterPubnumberRunPieces($findChapterNode()).value;
+      if (!value) throw new Error("expected the \\cp value TextNode");
+      value.setTextContent(`${NBSP}B`);
+      value.select(value.getTextContentSize(), value.getTextContentSize());
+    },
+  },
+  {
+    // Deleting the whole `\cp` run clears `pubnumber` in both halves — no resurrection.
+    name: "chapter published-number run deleted",
+    usj: chapterCaUsj("A"),
+    $edit: () => {
+      const chapter = $findChapterNode();
+      const pieces = $chapterPubnumberRunPieces(chapter);
+      if (!pieces.wrapper) throw new Error("expected the \\cp wrapper");
+      pieces.wrapper.remove();
+      // The realistic collapse point for this deletion: the end of the \ca run's closer glyph,
+      // the last text before where the \cp run stood.
+      const caCloser = $chapterAltnumberRunPieces(chapter).closer;
+      if (!caCloser) throw new Error("expected the \\ca closer glyph");
+      caCloser.select(caCloser.getTextContentSize(), caCloser.getTextContentSize());
     },
   },
   {

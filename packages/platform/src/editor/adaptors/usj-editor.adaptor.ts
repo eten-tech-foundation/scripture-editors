@@ -313,15 +313,17 @@ function createChapter(
   let showMarker: boolean | undefined;
   if (_viewOptions?.markerMode === "visible") showMarker = true;
 
-  // The altnumber's `\ca` display run rides directly after the `\c N` glyph text — the same-line
-  // file position `\c 1 \ca 2\ca*` ParatextData writes — inside the chapter's own children (an
-  // editable ChapterNode is an ElementNode, so like a note's `\cat` run and unlike a verse's
-  // sibling-riding runs). Editable mode only, mirroring the other attribute-marker runs; the
-  // immutable chapter node types carry altnumber as state with no display bytes.
+  // The chapter's attribute display runs ride directly after the `\c N` glyph text — the
+  // same-line byte position `\c 1 \ca 2\ca* \cp A` the chapter fragment re-tokenizes — inside
+  // the chapter's own children (an editable ChapterNode is an ElementNode, so like a note's
+  // `\cat` run and unlike a verse's sibling-riding runs), in the alt-before-pub document order
+  // ParatextData preserves on disk. Editable mode only, mirroring the other attribute-marker
+  // runs; the immutable chapter node types carry the values as state with no display bytes.
   const editableChildren: SerializedLexicalNode[] = [
     createText(getVisibleOpenMarkerText(marker, number) ?? ""),
   ];
-  if (_viewOptions?.markerMode === "editable") addChapterAttributeRun(altnumber, editableChildren);
+  if (_viewOptions?.markerMode === "editable")
+    addChapterAttributeRuns(altnumber, pubnumber, editableChildren);
 
   return _viewOptions?.markerMode === "editable"
     ? removeUndefinedProperties({
@@ -985,17 +987,31 @@ function addNoteCategoryRun(category: string | undefined, nodes: SerializedLexic
   );
 }
 
-/** Chapter alternate-number display: the `\ca` twin of {@link addNoteCategoryRun}, riding inside
- * the editable chapter's children directly after its `\c N` glyph text. */
-function addChapterAttributeRun(altnumber: string | undefined, nodes: SerializedLexicalNode[]) {
-  if (altnumber === undefined) return;
-  nodes.push(
-    createAttributeRun("ca", [
-      createMarker("ca", "opening"),
-      createText(NBSP + altnumber, "attribute"),
-      createMarker("ca", "closing"),
-    ]),
-  );
+/** Chapter attribute display: `\ca` (altnumber) then `\cp` (pubnumber), riding inside the
+ * editable chapter's children directly after its `\c N` glyph text — each the note-`\cat` shape
+ * ({@link addNoteCategoryRun}), except `\cp` builds NO closing glyph: its span closes implicitly
+ * at the next block boundary in the file, so its wrapper alone bounds the value, and the chapter
+ * fragment's end (or the following run/text) terminates it on re-tokenize. */
+function addChapterAttributeRuns(
+  altnumber: string | undefined,
+  pubnumber: string | undefined,
+  nodes: SerializedLexicalNode[],
+) {
+  if (altnumber !== undefined)
+    nodes.push(
+      createAttributeRun("ca", [
+        createMarker("ca", "opening"),
+        createText(NBSP + altnumber, "attribute"),
+        createMarker("ca", "closing"),
+      ]),
+    );
+  if (pubnumber !== undefined)
+    nodes.push(
+      createAttributeRun("cp", [
+        createMarker("cp", "opening"),
+        createText(NBSP + pubnumber, "attribute"),
+      ]),
+    );
 }
 
 function reIndex(indexes: number[], offset: number): number[] {
