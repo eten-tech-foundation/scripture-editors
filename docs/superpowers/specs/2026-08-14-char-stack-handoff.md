@@ -30,7 +30,8 @@ sort.
 | --- | --- | --- |
 | `\fq` + Enter — `$applyNonNestInsideChar` | The reference implementation | Unchanged behavior; now calls `$liftOutOfCharStack` |
 | Ctrl+Space — `$removeCharFormattingFromSelection` | Split the innermost span only, space landed INSIDE the surviving outer span | Space is placed at the caret and lifted out of the whole stack, so it belongs to no span |
-| Ctrl+Space on a range | Declined the key when the range held no char spans | Always handled; still inserts no space |
+| Ctrl+Space on a range | Declined the key when the range held no char spans; cleared the innermost level only | Always handled, still inserts no space, and clears every level with the attribute bytes kept as plain text |
+| Multi-line paste mid-span — new PASTE claim | `@lexical/clipboard`'s bare `insertParagraph()` per newline tore the span | Claimed and replayed through INSERT_PARAGRAPH_COMMAND, so it takes the same split as Enter |
 | `\fp` + Enter — `$startFpAtCaret` | Closed the stack, never reopened; collected only the anchor's own siblings | Break marker lifted out of the spans nested inside the note-content child, so nested styles reopen inside the `\fp` and the outer span's trailing content rides along |
 | Paragraph split mid-span — new `$splitParagraphAtCharStack` | Lexical's generic inline split | `MarkerEditPlugin`'s INSERT_PARAGRAPH handler claims the command and splits through the primitive |
 
@@ -171,8 +172,8 @@ covers the same files.
 
 ## 5. Deliberately not done
 
-- **Multi-line paste mid-span** — the only char-stack route still taking the generic split. §6b has
-  the measured damage and two candidate fixes with their blast radius.
+- **Internal (`application/x-lexical-editor`) rich paste mid-span** — the one paste flavor the claim
+  deliberately skips, so its node semantics survive. §6b.
 - **Bug 1's original caret symptom** — "caret landing at the end of the new paragraph" — is gone
   without being fixed: it came from the unwrap's reinsertion loop, and the split no longer produces a
   span for the unwrap to run on. Where the caret goes after a split is now settled (§6c).
@@ -206,68 +207,60 @@ implementation. The primitive now also re-emits a dropped span's attribute bytes
 `canonicalAttributeText` — the same serializer `$unwrapCharNode` uses, so the two paths cannot spell
 the same attributes differently.
 
-### 6b. Multi-line paste mid-span still takes the generic split
+### 6b — DONE (narrowly). Multi-line paste closes and reopens the stack
 
-**Repro.** Standard view. `\p \nd thing\nd*`. Put the caret between `thi` and `ng`. Paste two
-lines of plain text (`"one\ntwo"`).
+Owner call after seeing the spike: do the narrow fix, drop the general one. The general fix's only
+advantage was closing and reopening around an inserted VERSE, and inline markers span verse markers
+fine — so today's `\p \nd thi \v 5 ng\nd*` is correct and the general fix would have made it
+worse. What remained were its two defects, both measured:
 
-**Now** (measured): `["\p \nd thione", "\p twong"]`. The closing marker is gone from the left half
-and the span's own tail `ng` has been stranded, unformatted, after the pasted `two` in the new
-paragraph — the same damage Enter used to do, plus a reordering.
+1. It cannot supply the opening glyph's separator, because Lexical moves the children in after
+   `insertNewAfter` returns, and the missing space does not heal — the settle re-tokenizes `\ndng`
+   into a marker named `ndng` in a paragraph of its own:
+   `["\p \nd thione\nd*", "\p two", "\ndng "]`.
+2. It does not place the caret, so the INSERT_PARAGRAPH interception could not have been deleted
+   anyway: Enter then `X` gave `["\p \nd thi\nd*", "\p X\ndng\nd*"]`.
 
-**Why.** `@lexical/clipboard`'s text/plain handling calls `selection.insertParagraph()` directly per
-newline instead of dispatching INSERT_PARAGRAPH_COMMAND, which is the hook the Enter fix uses.
-`MarkerEditPlugin`'s PASTE handler already documents this and arms `splitExpected` by hand for the
-same reason.
+**What shipped instead.** `MarkerEditPlugin` claims a multi-line paste at a caret inside a
+paragraph-contained char stack and replays it as the two steps the user would have done by hand:
+insert the line, dispatch INSERT_PARAGRAPH_COMMAND, insert the next. The command is the hook the
+Enter fix already owns, so the split reuses `$splitParagraphAtCharStack` — which prefixes the
+separator eagerly and puts the caret inside the reopened run, fixing both spike defects for free.
 
-**Two ways to fix it, and they differ in blast radius.**
+```
+\p \nd thing\nd*   caret at thi|ng, paste "one\ntwo"
 
-*Narrow:* claim the paste path as well, the way Enter is claimed. Fixes only paste.
+before:  ["\p \nd thione",       "\p twong"]      closer gone, "two" and "ng" unstyled
+after:   ["\p \nd thione\nd*",   "\p \nd twong\nd*"]
+```
 
-*Wide:* teach `CharNode.insertNewAfter` to build a real continuation. Lexical's `$splitNodeAtPoint`
-hands it a `RangeSelection` whose anchor is an ELEMENT point on the span carrying the split index,
-so it can (a) insert the left half's closing glyph at that index, before the children about to move,
-and (b) return a continuation carrying the opening glyph with the right nesting and `closed` state.
-Lexical's own `newElement.append(firstToAppend, ...firstToAppend.getNextSiblings())` completes the
-shape, and because `$splitNodeAtPoint` recurses up the inline ancestors it works at every depth.
+Both lines end up inside the style, which is the expected reading — the old behavior put the first
+line in and the rest out purely because `insertParagraph` ends by selecting the new block's start.
 
-**I spiked the wide fix and measured it, then reverted.** Fixture `\p \nd thing\nd*` (and
-`\p \wj \+nd thing\+nd*\wj*` for the depth-2 row), caret at `thi|ng`, full plugin stack:
+**Deliberately not claimed**, each verified:
 
-| Route | Today | Wide fix, spiked |
+| Payload | Behavior | Why |
 | --- | --- | --- |
-| Enter, depth 1 | `["\p \nd thi\nd*", "\p \nd ng\nd*"]` (already fixed) | same |
-| Enter, depth 2 | `["\p \wj \+nd thi\+nd*\wj*", "\p \wj \+nd ng\+nd*\wj*"]` (already fixed) | same |
-| multi-line plain-text paste `"one\ntwo"` | `["\p \nd thione", "\p twong"]` | `["\p \nd thione\nd*", "\p two\ndng\nd*"]` |
-| `insertNodes` with a block node | `["\p \nd thi", "\pBLOCKng "]` | `["\p \nd thi\nd*\pBLOCK\nd ng\nd*"]` |
-| `insertNodes` with an inline node (verse) | `["\p \nd thi \v 5 ng\nd*"]` — verse swallowed INTO the span | `["\p \nd thi\nd* \v 5 \nd ng\nd*"]` — verse between two intact spans |
+| single line | unchanged, no split | nothing to split |
+| multi-line outside any char style | unchanged, generic split | nothing to tear |
+| `text/plain` (with or without html alongside) | claimed | the measured break |
+| `text/html` only | claimed, via the decoded text | word processors and browsers ship this shape; it reached the generic split too |
+| `application/x-lexical-editor` (internal copy) | NOT claimed | its real nodes carry structure a line replay would flatten. An internal multi-paragraph copy pasted mid-span still takes the generic split — the remaining gap, same shape as the note claim's |
 
-**Two findings that make the wide fix bigger than it looks. Do not adopt it as written.**
+### 6b-note. A whitespace-track finding this turned up
 
-1. **It cannot supply the opener separator, and the missing space CORRUPTS.** Look at the paste row:
-   `\ndng`, not `\nd ng`. `insertNewAfter` returns BEFORE Lexical moves the children in, so it has
-   no leading text node to prefix the structural NBSP onto — the eager prefix
-   `$buildContinuationCharSpan` does is not available there. The separator sync does not fill it in,
-   because the caret sits at that very boundary and the sync's mid-edit grace leaves it alone. Moving
-   the caret away then makes it worse, not better: the settle re-tokenizes the bytes and `\ndng`
-   becomes a marker named `ndng` in a paragraph of its own —
-   `["\p \nd thione\nd*", "\p two", "\ndng "]`. Measured.
-2. **It does not place the caret, so the interception cannot simply be deleted.** With the wide fix
-   on and `$splitParagraphAtCharStack` disabled, Enter then typing `X` gives
-   `["\p \nd thi\nd*", "\p X\ndng\nd*"]` — `X` outside the reopened span, losing §6c. Lexical's
-   `insertParagraph` ends with `newBlock.selectStart()`, which lands on the opening glyph.
+A multi-line paste whose text contains an NBSP never reaches any of the above, because
+`$handlePasteForStandardView` (`whitespaceDisplay.plugin.utils.ts`, HIGH, registered earlier) claims
+any NBSP-carrying paste and inserts the WHOLE payload with a single `selection.insertText(...)`. The
+newlines survive as literal `\n` characters inside one text node:
 
-So the wide fix is the right shape but needs a separator answer and a caret answer before it can
-replace anything. The narrow fix (claim paste) buys the paste row only and leaves the verse row.
+```
+\p \nd thing\nd*   caret at thi|ng, paste "one<NBSP>x\ntwo"
+->  ["\p \nd thione~x\ntwong\nd*"]        one paragraph, a literal newline in the text
+```
 
-**View modes.** `insertNewAfter` cannot see `ViewOptions`, so it must infer glyph emission from the
-span's own children ("does `this` have an opening `MarkerNode` child"), the same inference
-`$buildContinuationCharSpan` makes via `$charHasClosingGlyph`. That is correct for **editable**
-(MarkerNode children present → emit) and **hidden** (none → emit none). **"visible" mode is a gap**:
-its marker bytes are `ImmutableTypedTextNode`s, not `MarkerNode`s, so the inference says "no glyphs"
-and the continuation comes out with no visible marker bytes. Not a regression — today it emits
-nothing either — but the wide fix would leave visible mode unimproved unless it also materializes
-that shape.
+Nothing to do with char stacks — it is the same for a paste into plain text — but it is the reason
+that handler's pastes look untouched by this work. Whitespace track's file; I did not touch it.
 
 ### 6c — DONE. The caret continues the reopened style
 
@@ -327,6 +320,10 @@ Standard view, editable markers, expanded notes where relevant.
    `holy`). Expect `\+nd` reopened inside the `\fp` and `" B"` to follow the break, not precede it.
 7. **Enter in a plain flat footnote** (`\ft A note`). Expect exactly the old behavior — this is the
    regression check for §6.
-8. **Undo each of the above once.** Each of these happens inside a single `editor.update`, so one
+8. **Paste two lines mid-word inside `\nd`** (copy `one` / newline / `two` from a plain-text
+   editor). Expect both lines inside the style: `\nd thione\nd*` then `\nd twong\nd*`. Repeat from
+   a word processor or browser (html-only clipboard) — same result. An internal copy from this
+   editor is the known gap and still tears the span.
+9. **Undo each of the above once.** Each of these happens inside a single `editor.update`, so one
    undo should restore the original completely — worth confirming, since I checked the update
    boundary in code but did not exercise undo end-to-end.

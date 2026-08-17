@@ -302,6 +302,25 @@ export function $closeCharSpanAtCaret(endMarker: string): boolean {
 }
 
 /**
+ * Whether the selection sits inside a character-style stack that a PARAGRAPH split would tear —
+ * the gate for routing an input that splits paragraphs through {@link $splitParagraphAtCharStack}
+ * instead of the generic rich-text split.
+ *
+ * Read from the focus, the live end of the selection, so a range about to be replaced is judged by
+ * where the replacement will land. A stack inside a NOTE is excluded: a break there is an `\fp`,
+ * not a paragraph split.
+ *
+ * Read-only: safe inside `editor.update()` or either read form.
+ */
+export function $isSelectionInParagraphCharStack(): boolean {
+  const selection = $getSelection();
+  if (!$isRangeSelection(selection)) return false;
+  const node = selection.focus.getNode();
+  if (!$innermostCharAncestor(node)) return false;
+  return $isSomeParaNode($charStackContainer(node));
+}
+
+/**
  * Splits the paragraph at a caret sitting inside character-styled text, closing the whole open
  * character-style stack on the left and reopening it in the new paragraph — the tail keeps its
  * markers, its attributes, and its nesting. Returns `false` (mutating nothing) when the caret is

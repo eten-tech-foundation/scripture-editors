@@ -23,6 +23,7 @@ import {
   ElementNode,
   INSERT_PARAGRAPH_COMMAND,
   KEY_ENTER_COMMAND,
+  PASTE_COMMAND,
   LexicalEditor,
   TextNode,
 } from "lexical";
@@ -47,6 +48,32 @@ function $usfmBytes(node: ElementNode): string {
     .map((textNode) => textNode.getTextContent())
     .join("")
     .replaceAll(NBSP, " ");
+}
+
+const globalStubs: { DragEvent?: unknown; ClipboardEvent?: unknown } = globalThis;
+if (typeof globalStubs.DragEvent === "undefined")
+  globalStubs.DragEvent = class DragEvent extends Event {};
+if (typeof globalStubs.ClipboardEvent === "undefined")
+  globalStubs.ClipboardEvent = class ClipboardEvent extends Event {};
+
+/**
+ * A paste event whose only payload is `text/plain` — what pasting from a plain-text source
+ * delivers, and the shape `@lexical/clipboard` splits paragraphs for. Duck-typed rather than a real
+ * `ClipboardEvent`, which jsdom does not implement (mirrors the note paste tests).
+ */
+function pasteEventWith(flavors: { [mime: string]: string }): ClipboardEvent {
+  return {
+    clipboardData: {
+      types: Object.keys(flavors),
+      files: [],
+      getData: (type: string) => flavors[type] ?? "",
+    },
+    preventDefault: () => undefined,
+  } as unknown as ClipboardEvent;
+}
+
+function plainTextPasteEvent(text: string): ClipboardEvent {
+  return pasteEventWith({ "text/plain": text });
 }
 
 function $paras(): ParaNode[] {
@@ -197,6 +224,88 @@ describe("Enter inside a character style", () => {
       // The typed character continues the innermost reopened style, immediately before the
       // content the split carried over — not as plain text ahead of the whole stack.
       expect($usfmBytes(paras[1])).toBe("\\p \\wj \\+nd Xng\\+nd*\\wj*");
+    });
+  });
+
+  it("closes and reopens the style for every line break of a pasted multi-line text", async () => {
+    // `@lexical/clipboard` inserts plain text line by line with a bare `selection.insertParagraph()`
+    // between, never the command — so without a claim the paste tore the span exactly the way Enter
+    // used to, and each line after the first landed OUTSIDE the reopened style.
+    let content: TextNode;
+    const { editor } = await testEnvironmentWithDisplaySyncs(() => (content = $appendCharPara()));
+    await act(async () => editor.update(() => content.select(4, 4))); // "thi|ng"
+
+    await act(async () => {
+      editor.dispatchCommand(PASTE_COMMAND, plainTextPasteEvent("one\ntwo"));
+    });
+
+    editor.getEditorState().read(() => {
+      const paras = $paras();
+      expect(paras).toHaveLength(2);
+      expect($usfmBytes(paras[0])).toBe("\\p \\nd thione\\nd*");
+      expect($usfmBytes(paras[1])).toBe("\\p \\nd twong\\nd*");
+    });
+  });
+
+  it("does the same for a source that ships only text/html", async () => {
+    // Word processors and browsers commonly paste html with no text/plain alongside. Those reach
+    // the generic split too, so the claim reads the decoded html when text/plain is absent.
+    let content: TextNode;
+    const { editor } = await testEnvironmentWithDisplaySyncs(() => (content = $appendCharPara()));
+    await act(async () => editor.update(() => content.select(4, 4)));
+
+    await act(async () => {
+      editor.dispatchCommand(
+        PASTE_COMMAND,
+        pasteEventWith({ "text/html": "<p>one</p><p>two</p>" }),
+      );
+    });
+
+    editor.getEditorState().read(() => {
+      const paras = $paras();
+      expect(paras).toHaveLength(2);
+      expect($usfmBytes(paras[0])).toBe("\\p \\nd thione\\nd*");
+      expect($usfmBytes(paras[1])).toBe("\\p \\nd twong\\nd*");
+    });
+  });
+
+  it("leaves a single-line paste alone — nothing splits", async () => {
+    // Asserted on the resulting bytes, not on `dispatchCommand`'s return: the rich-text handler
+    // claims every paste at the bottom of the chain, so that boolean says nothing about this claim.
+    let content: TextNode;
+    const { editor } = await testEnvironmentWithDisplaySyncs(() => (content = $appendCharPara()));
+    await act(async () => editor.update(() => content.select(4, 4)));
+
+    await act(async () => {
+      editor.dispatchCommand(PASTE_COMMAND, plainTextPasteEvent("one"));
+    });
+
+    editor.getEditorState().read(() => {
+      expect($paras()).toHaveLength(1);
+      expect($usfmBytes($paras()[0])).toBe("\\p \\nd thioneng\\nd*");
+    });
+  });
+
+  it("leaves a multi-line paste outside any character style to the ordinary split", async () => {
+    let text: TextNode;
+    const { editor } = await testEnvironmentWithDisplaySyncs(() => {
+      const para = $createParaNode("p");
+      text = $createTextNode("plain");
+      // Tagged so Lexical does not merge the separator into the body text and detach the handle.
+      const separator = $createTextNode(NBSP);
+      $setState(separator, textTypeState, "marker-trailing-space");
+      $getRoot().append(para.append($createMarkerNode("p"), separator, text));
+    });
+    await act(async () => editor.update(() => text.select(2, 2)));
+
+    await act(async () => {
+      editor.dispatchCommand(PASTE_COMMAND, plainTextPasteEvent("one\ntwo"));
+    });
+
+    editor.getEditorState().read(() => {
+      const paras = $paras();
+      expect(paras).toHaveLength(2);
+      expect(paras.every((para) => para.getChildren().filter($isCharNode).length === 0)).toBe(true);
     });
   });
 

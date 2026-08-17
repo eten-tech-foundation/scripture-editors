@@ -1,4 +1,5 @@
 import {
+  $isSelectionInParagraphCharStack,
   $removeCharFormattingFromSelection,
   $splitParagraphAtCharStack,
 } from "./charFormatting.utils";
@@ -646,6 +647,55 @@ export function MarkerEditPlugin({
           return false;
         },
         COMMAND_PRIORITY_CRITICAL,
+      ),
+      editor.registerCommand(
+        PASTE_COMMAND,
+        (event) => {
+          // A multi-line plain-text paste at a caret inside a character-style stack has to close
+          // and reopen that stack at every line break, exactly as Enter does. It cannot get there
+          // on its own: @lexical/clipboard inserts the lines with a bare `selection.insertParagraph()`
+          // between them, never INSERT_PARAGRAPH_COMMAND, so the handler above never sees it and the
+          // generic inline split tears the span — closing marker gone, and every line after the
+          // first landing OUTSIDE the reopened style because `insertParagraph` ends by selecting the
+          // new block's start.
+          //
+          // Claimed narrowly and replayed as the same two steps the user would have performed by
+          // hand: text, then the command. Only multi-line, since a single line never splits; only
+          // inside a stack, so every other paste is left exactly as it was; and never an INTERNAL
+          // rich paste, whose real nodes carry structure a line replay would flatten. text/plain is
+          // authoritative when present, falling back to the decoded text/html — some sources (word
+          // processors, browsers) ship html alone, and those pastes otherwise reach the generic
+          // split and tear the span. Inside a stack that trade is worth it, the same call the
+          // in-note claim above makes.
+          //
+          // At HIGH, and registered AFTER the standard-view NBSP normalization at the same
+          // priority, which claims any paste carrying an NBSP and so never reaches this.
+          const clipboardData =
+            event && typeof event === "object" && "clipboardData" in event
+              ? (event as ClipboardEvent).clipboardData
+              : null;
+          if (!clipboardData) return false;
+          if (clipboardData.getData("application/x-lexical-editor")) return false;
+          const plainText = clipboardData.getData("text/plain");
+          const pastedText = plainText || htmlPasteText(clipboardData.getData("text/html"));
+          if (!pastedText) return false;
+          const lines = pastedText.replace(/\r\n?/g, "\n").split("\n");
+          if (lines.length < 2) return false;
+          if (!$isSelectionInParagraphCharStack()) return false;
+          event?.preventDefault();
+          const selection = $getSelection();
+          if ($isRangeSelection(selection) && !selection.isCollapsed()) selection.removeText();
+          lines.forEach((line, index) => {
+            // The split goes through the command so it takes the char-stack path above and arms
+            // `splitExpected` for the paragraph transform, exactly as Enter does.
+            if (index > 0) editor.dispatchCommand(INSERT_PARAGRAPH_COMMAND, undefined);
+            if (line === "") return;
+            const lineSelection = $getSelection();
+            if ($isRangeSelection(lineSelection)) lineSelection.insertText(line);
+          });
+          return true;
+        },
+        COMMAND_PRIORITY_HIGH,
       ),
       editor.registerCommand(
         PASTE_COMMAND,
