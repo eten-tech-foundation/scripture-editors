@@ -56,6 +56,7 @@ import {
   closingMarkerText,
   getEditableCallerText,
   gutterMarkerState,
+  isSerializedChapterNode,
   HIDDEN_NOTE_CALLER,
   ImmutableTypedTextNode,
   ImpliedParaNode,
@@ -1535,6 +1536,79 @@ describe("verse attribute display (\\va/\\vp runs)", () => {
     );
     expect(hiddenChildren).toHaveLength(1);
     expect(hiddenChildren.some((n) => textTypeOf(n) === "attribute")).toBe(false);
+  });
+});
+
+describe("chapter alternate-number display (\\ca run)", () => {
+  /** The node-state `textType` tag of a serialized text node, or `undefined` for anything else. */
+  function textTypeOf(node: SerializedLexicalNode): unknown {
+    if (!isSerializedTextNode(node)) return undefined;
+    const stateObject: unknown = node[NODE_STATE_KEY];
+    return stateObject && typeof stateObject === "object" && "textType" in stateObject
+      ? stateObject.textType
+      : undefined;
+  }
+
+  /** Serializes a USJ whose content is [chapterObject, one para] and returns the CHAPTER node. */
+  function serializedChapter(chapterObject: MarkerObject, viewOptions?: ViewOptions) {
+    initialize(undefined, undefined);
+    reset();
+    const state = serializeEditorState(
+      {
+        ...EMPTY_USJ,
+        content: [chapterObject, { type: "para", marker: "p", content: ["text"] } as MarkerObject],
+      },
+      viewOptions,
+    );
+    return state.root.children[0];
+  }
+
+  const chapterWithAltnumber = {
+    type: "chapter",
+    marker: "c",
+    number: "1",
+    altnumber: "2",
+  } as MarkerObject;
+
+  it("wraps \\ca glyphs and the NBSP-prefixed value directly after the \\c glyph text (editable)", () => {
+    const chapter = serializedChapter(chapterWithAltnumber, getViewOptions(STANDARD_VIEW_MODE));
+    if (!isSerializedChapterNode(chapter)) throw new Error("No editable chapter node found");
+    // [glyph text "\c 1"][ca run] — the same-line file position `\c 1 \ca 2\ca*`.
+    expect(chapter.children).toHaveLength(2);
+    const [glyph, run] = chapter.children;
+    if (!isSerializedTextNode(glyph)) throw new Error("No chapter glyph text found");
+    if (!isSerializedAttributeRunNode(run) || run.runKind !== "ca")
+      throw new Error("No ca attribute-run wrapper after the chapter glyph");
+    expect(run.children).toHaveLength(3);
+    const [opener, value, closer] = run.children;
+    if (!isSerializedMarkerNode(opener)) throw new Error("No \\ca opening marker found");
+    expect(opener.marker).toBe("ca");
+    expect(opener.markerSyntax).toBe("opening");
+    if (!isSerializedTextNode(value)) throw new Error("No \\ca value text node found");
+    expect(value.text).toBe(`${NBSP}2`);
+    expect(textTypeOf(value)).toBe("attribute");
+    if (!isSerializedMarkerNode(closer)) throw new Error("No \\ca closing marker found");
+    expect(closer.marker).toBe("ca");
+    expect(closer.markerSyntax).toBe("closing");
+  });
+
+  it("builds no run when the chapter has no altnumber", () => {
+    const chapter = serializedChapter(
+      { type: "chapter", marker: "c", number: "1" } as MarkerObject,
+      getViewOptions(STANDARD_VIEW_MODE),
+    );
+    if (!isSerializedChapterNode(chapter)) throw new Error("No editable chapter node found");
+    expect(chapter.children.some((child) => isSerializedAttributeRunNode(child))).toBe(false);
+  });
+
+  it("builds no run in visible/hidden marker modes (immutable chapters carry state only)", () => {
+    for (const markerMode of ["visible", "hidden"] as const) {
+      const chapter = serializedChapter(chapterWithAltnumber, {
+        ...getDefaultViewOptions(),
+        markerMode,
+      });
+      expect(isSerializedImmutableChapterNode(chapter)).toBe(true);
+    }
   });
 });
 

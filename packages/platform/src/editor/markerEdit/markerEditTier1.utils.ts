@@ -23,6 +23,8 @@ import {
   $isNoteNode,
   $isParaNode,
   $isVerseNode,
+  $chapterAltnumberRunPieces,
+  $isChapterNode,
   $milestoneAttributeRunPieces,
   $noteCategoryRunPieces,
   $ownerOfRunPiece,
@@ -290,10 +292,10 @@ export function $chapterNodeTransform(node: ChapterNode): void {
 
 /**
  * Every currently-attached but EMPTY `AttributeRunNode` wrapper riding on `node` (a verse's `\va`
- * and/or `\vp` wrapper, a milestone's single wrapper, or a note's `\cat` wrapper) — every piece
- * of that wrapper's run was deleted, leaving a transient husk with nothing left to display (see
- * {@link AttributeRunNode}'s own doc comment). A verse can carry up to two independent husks; a
- * milestone or note at most one.
+ * and/or `\vp` wrapper, a milestone's single wrapper, a note's `\cat` wrapper, or a chapter's
+ * `\ca` wrapper) — every piece of that wrapper's run was deleted, leaving a transient husk with
+ * nothing left to display (see {@link AttributeRunNode}'s own doc comment). A verse can carry up
+ * to two independent husks; the other owners at most one each.
  */
 function $emptyAttributeRunWrappers(node: LexicalNode): AttributeRunNode[] {
   if ($isMilestoneNode(node)) {
@@ -302,6 +304,10 @@ function $emptyAttributeRunWrappers(node: LexicalNode): AttributeRunNode[] {
   }
   if ($isNoteNode(node)) {
     const { wrapper } = $noteCategoryRunPieces(node);
+    return wrapper && wrapper.getChildrenSize() === 0 ? [wrapper] : [];
+  }
+  if ($isChapterNode(node)) {
+    const { wrapper } = $chapterAltnumberRunPieces(node);
     return wrapper && wrapper.getChildrenSize() === 0 ? [wrapper] : [];
   }
   if ($isVerseNode(node)) {

@@ -14,7 +14,10 @@ import { MarkerObject, Usj } from "@eten-tech-foundation/scripture-utilities";
 import { act } from "@testing-library/react";
 import { $getRoot, $getState, $isTextNode, LexicalNode, TextNode } from "lexical";
 import {
+  $chapterAltnumberRunPieces,
+  $chapterGlyphTextNode,
   $isAttributeRunNode,
+  $isChapterNode,
   $isCharNode,
   $isMarkerNode,
   $isNoteNode,
@@ -23,6 +26,7 @@ import {
   $isVerseNode,
   $noteCategoryRunPieces,
   $noteEditableCallerNode,
+  ChapterNode,
   CharNode,
   getPendedDisplayOwners,
   NBSP,
@@ -203,6 +207,27 @@ const noteUsj = (noteContent: MarkerObject["content"]): Usj => ({
   ],
 });
 
+/** A two-paragraph doc whose chapter carries `altnumber="2"` — the `\ca` run shapes' fixture. */
+function chapterCaUsj(): Usj {
+  return {
+    type: "USJ",
+    version: "3.1",
+    content: [
+      { type: "book", marker: "id", code: "GEN", content: ["GEN"] },
+      { type: "chapter", marker: "c", number: "1", altnumber: "2" },
+      { type: "para", marker: "p", content: ["body text"] },
+      { type: "para", marker: "p", content: ["depart here"] },
+    ],
+  };
+}
+
+/** The single editable ChapterNode in the tree. */
+function $findChapterNode(): ChapterNode {
+  const chapter = $getRoot().getChildren().find($isChapterNode);
+  if (!chapter) throw new Error("expected a ChapterNode");
+  return chapter;
+}
+
 /** {@link noteUsj} with `category="People"` on the note — the `\cat` run shapes' fixture. */
 function categoryNoteUsj(...noteContent: NonNullable<MarkerObject["content"]>): Usj {
   const usj = noteUsj(noteContent.length > 0 ? noteContent : ["note body"]);
@@ -354,6 +379,32 @@ const pendingShapes: PendingShape[] = [
     usj: noteUsj(["note body"]),
     expandedNotes: true,
     $edit: () => $findNoteOpeningGlyph().setTextContent("\\fe"),
+  },
+  {
+    // Both halves must fold the edited `\ca` value back onto the chapter's `altnumber` — the
+    // chapter settle scope's virtual mirror ($settledChapter) against the real $rebuildChapter.
+    name: "chapter alternate-number run value edited",
+    usj: chapterCaUsj(),
+    $edit: () => {
+      const value = $chapterAltnumberRunPieces($findChapterNode()).value;
+      if (!value) throw new Error("expected the \\ca value TextNode");
+      value.setTextContent(`${NBSP}9`);
+      value.select(value.getTextContentSize(), value.getTextContentSize());
+    },
+  },
+  {
+    // Deleting the whole `\ca` run clears `altnumber` in both halves — no resurrection.
+    name: "chapter alternate-number run deleted",
+    usj: chapterCaUsj(),
+    $edit: () => {
+      const chapter = $findChapterNode();
+      const pieces = $chapterAltnumberRunPieces(chapter);
+      if (!pieces.wrapper) throw new Error("expected the \\ca wrapper");
+      pieces.wrapper.remove();
+      const glyph = $chapterGlyphTextNode(chapter);
+      if (!glyph) throw new Error("expected the chapter glyph text");
+      glyph.select(glyph.getTextContentSize(), glyph.getTextContentSize());
+    },
   },
   {
     // Both halves must fold the edited `\cat` value back onto the note's `category` — the run's

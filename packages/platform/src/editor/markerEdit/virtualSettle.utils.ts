@@ -32,6 +32,7 @@ import usjEditorAdaptor from "../adaptors/usj-editor.adaptor";
 import { TransientInput } from "../editor.model";
 import { BARE_OPENER_REGEX } from "./markerEditTier1.utils";
 import {
+  $buildChapterFragment,
   $buildNoteFragment,
   $buildParaFragment,
   $isRebuildSentinel,
@@ -69,11 +70,13 @@ import {
 } from "lexical";
 import {
   $isCanonicalMarkerNode,
+  $isChapterNode,
   $isCharNode,
   $isMarkerNode,
   $isNoteNode,
   $isParaNode,
   $isUnknownNode,
+  ChapterNode,
   closingMarkerText,
   getEditableCallerText,
   MarkerLookup,
@@ -1069,6 +1072,59 @@ function $applySettledNoteGlyphRename(
 }
 
 /**
+ * The serialized nodes a settled chapter becomes — or `undefined` when the settle refuses.
+ * Mirrors `$rebuildChapter` (tier2Rebuild.utils.ts) read-only, decision for decision: the same
+ * fragment, the same must-still-be-a-chapter guard, the same sid/pubnumber carry-over, and the
+ * same fixed-point refusal.
+ */
+function $settledChapter(
+  chapter: ChapterNode,
+  context: Tier2Context,
+  transient: TransientLiteral | undefined,
+): SerializedLexicalNode[] | undefined {
+  const { viewOptions, getMarker: getMarkerFn, logger } = context;
+  const out = $buildChapterFragment(chapter, getMarkerFn);
+  if (!out) return undefined;
+  const fragmentText = transient ? $fragmentTextWithoutTransient(out, transient) : out.text;
+  const content: MarkerContent[] = usfmFragmentToUsjContent(fragmentText, {
+    getMarker: getMarkerFn,
+  });
+  const [freshChapter] = content;
+  if (content.length === 0 || typeof freshChapter !== "object" || freshChapter.type !== "chapter")
+    return undefined;
+  if (countSentinels(content) !== 0) {
+    logger?.warn("[MarkerEdit] Settled chapter USJ skipped: unexpected preserved-node placeholder");
+    return undefined;
+  }
+  if (chapter.getSid() !== undefined) freshChapter.sid = chapter.getSid();
+  if (freshChapter.pubnumber === undefined && chapter.getPubnumber() !== undefined)
+    freshChapter.pubnumber = chapter.getPubnumber();
+  const rebuilt = usjEditorAdaptor.serializeEditorState(
+    { type: USJ_TYPE, version: USJ_VERSION, content },
+    viewOptions,
+  ).root.children;
+  if (rebuilt.length === 0) return undefined;
+  // Refuse only when the structure AND the chapter's own fields are already settled. An edited
+  // run's fresh serialization is byte-identical to the displayed edit while
+  // number/altnumber/pubnumber still lag it — the real settle reconciles the fields in place on
+  // that fixed point; here the fresh serialized chapter already CARRIES the reconciled fields,
+  // so returning it (the whole slot is replaced either way) is the read-only mirror of that.
+  const fieldsLag =
+    chapter.getNumber() !== (freshChapter.number ?? "") ||
+    chapter.getAltnumber() !== freshChapter.altnumber ||
+    chapter.getPubnumber() !== freshChapter.pubnumber;
+  if (
+    !fieldsLag &&
+    serializedSignatureOf(rebuilt, getMarkerFn) === $signatureOf([chapter], getMarkerFn) &&
+    $structuralMarkersAgree([chapter], rebuilt, getMarkerFn)
+  ) {
+    logger?.debug("[MarkerEdit] Settled chapter USJ skipped: rebuild is a no-op (fixed point)");
+    return undefined;
+  }
+  return rebuilt;
+}
+
+/**
  * The settled USJ for the editor state `serializedState` was exported from, or `undefined` when
  * nothing settleable is pending (the caller keeps whatever it already has). Call INSIDE a
  * `read()` of that same state. `serializedState` is mutated in place and must therefore be a fresh
@@ -1096,33 +1152,42 @@ export function $settledUsj(
 
   const paraScopes = new Map<NodeKey, ParaNode>();
   const noteScopes = new Map<NodeKey, NoteNode>();
+  const chapterScopes = new Map<NodeKey, ChapterNode>();
   const noteGlyphRenames = new Map<
     NodeKey,
     { glyph: MarkerNode; note: NoteNode; oldMarker: string; newMarker: string }
   >();
+  const addScope = (scope: ParaNode | NoteNode | ChapterNode) => {
+    if ($isNoteNode(scope)) noteScopes.set(scope.getKey(), scope);
+    else if ($isChapterNode(scope)) chapterScopes.set(scope.getKey(), scope);
+    else paraScopes.set(scope.getKey(), scope);
+  };
   for (const key of pendedKeys) {
     const node = $getNodeByKey(key);
     if (!node?.isAttached()) continue;
     const scope = $settleScopeForNode(node);
     if (!scope) continue;
+    addScope(scope);
     if ($isNoteNode(scope)) {
-      noteScopes.set(scope.getKey(), scope);
       const rename = $noteGlyphRenameTarget(node);
       if (rename) noteGlyphRenames.set(scope.getKey(), rename);
-    } else paraScopes.set(scope.getKey(), scope);
+    }
   }
   if (transient) {
     // No note-glyph-rename lookup for this scope: a transient declaration is plain typed text, not
     // a bare-opener rename Tier 1 would route to `$applyOpenerRename` — see
     // `$noteGlyphRenameTarget`'s own doc comment for what that shape looks like.
     const scope = $settleScopeForNode(transient.node);
-    if (scope) {
-      if ($isNoteNode(scope)) noteScopes.set(scope.getKey(), scope);
-      else paraScopes.set(scope.getKey(), scope);
-    }
+    if (scope) addScope(scope);
   }
   const husks = $emptiedOptbreakHusksOf(pendedKeys);
-  if (paraScopes.size === 0 && noteScopes.size === 0 && husks.length === 0) return undefined;
+  if (
+    paraScopes.size === 0 &&
+    noteScopes.size === 0 &&
+    chapterScopes.size === 0 &&
+    husks.length === 0
+  )
+    return undefined;
   const huskKeys = new Set(husks.map((husk) => husk.getKey()));
 
   const sites = new Map<NodeKey, SerializedSite>();
@@ -1164,6 +1229,19 @@ export function $settledUsj(
     const site = sites.get(para.getKey());
     if (!site) continue;
     const rebuilt = $settledParaNodes(para, sites, context, huskKeys, transient);
+    if (!rebuilt) continue;
+    const index = site.siblings.indexOf(site.node);
+    if (index < 0) continue;
+    site.siblings.splice(index, 1, ...rebuilt);
+  }
+
+  // Chapters are top-level and disjoint from both passes above — a chapter is never inside a
+  // paragraph or a note — so ordering against them is free. The whole chapter node's slot is
+  // replaced, mirroring `$rebuildChapter`'s whole-node splice.
+  for (const chapter of chapterScopes.values()) {
+    const site = sites.get(chapter.getKey());
+    if (!site) continue;
+    const rebuilt = $settledChapter(chapter, context, transient);
     if (!rebuilt) continue;
     const index = site.siblings.indexOf(site.node);
     if (index < 0) continue;

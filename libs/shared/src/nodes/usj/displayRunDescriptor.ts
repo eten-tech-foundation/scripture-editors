@@ -24,6 +24,7 @@ export type DisplayRunKind =
   | "va"
   | "vp"
   | "cat"
+  | "ca"
   | "milestone"
   | "optbreak"
   | "opaqueUnknown"

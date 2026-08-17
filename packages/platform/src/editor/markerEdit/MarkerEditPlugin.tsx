@@ -57,6 +57,7 @@ import {
   $caretHoldsRunSite,
   $isAttributeRunNode,
   $isMilestoneNode,
+  $isChapterNode,
   $isNoteNode,
   $isVerseNode,
   $ownerOfRunPiece,
@@ -147,14 +148,16 @@ const MAX_SETTLE_CASCADE_DEPTH = 8;
  * departure settle to finish.
  */
 function $syncAndPendOwner(
-  node: VerseNode | MilestoneNode | NoteNode,
+  node: VerseNode | MilestoneNode | NoteNode | ChapterNode,
   context: MarkerEditContext,
 ): void {
   const kinds = $isVerseNode(node)
     ? (["va", "vp"] as const)
     : $isMilestoneNode(node)
       ? (["milestone"] as const)
-      : (["cat"] as const);
+      : $isNoteNode(node)
+        ? (["cat"] as const)
+        : (["ca"] as const);
   for (const kind of kinds)
     $syncAndPendDisplayRun(displayRunDescriptor(kind), node, context.pendingKeys);
 }
@@ -324,9 +327,10 @@ export function MarkerEditPlugin({
         // harmless, since the sync's heal/pend decisions are caret- and divergence-gated and
         // idempotent, so the extra invocation is either a no-op or legitimate earlier healing,
         // matching the destruction-listener path's own closer-inclusive classification. A note's
-        // loose `\cat` glyphs re-drive their note the same way.
+        // loose `\cat` glyphs and a chapter's loose `\ca` glyphs re-drive their owners the same
+        // way.
         const ref = $ownerOfRunPiece(node);
-        if (ref && ($isVerseNode(ref.owner) || $isNoteNode(ref.owner)))
+        if (ref && ($isVerseNode(ref.owner) || $isNoteNode(ref.owner) || $isChapterNode(ref.owner)))
           $syncAndPendOwner(ref.owner, context);
       }),
       editor.registerNodeTransform(VerseNode, (node) => {
@@ -345,6 +349,9 @@ export function MarkerEditPlugin({
       editor.registerNodeTransform(ChapterNode, (node) => {
         if (editor.isComposing()) return;
         $chapterNodeTransform(node);
+        // Self-healing `\ca` alternate-number run + the grace/pend pairing, the same shape the
+        // NoteNode transform below carries for `\cat`.
+        if (node.isAttached()) $syncAndPendOwner(node, context);
       }),
       editor.registerNodeTransform(ParaNode, (node) => {
         if (editor.isComposing()) return;
@@ -393,7 +400,12 @@ export function MarkerEditPlugin({
         // own sync/pend off the wrapper.
         const ref = $ownerOfRunPiece(node);
         if (!ref) return;
-        if ($isMilestoneNode(ref.owner) || $isVerseNode(ref.owner) || $isNoteNode(ref.owner))
+        if (
+          $isMilestoneNode(ref.owner) ||
+          $isVerseNode(ref.owner) ||
+          $isNoteNode(ref.owner) ||
+          $isChapterNode(ref.owner)
+        )
           $syncAndPendOwner(ref.owner, context);
       }),
       editor.registerNodeTransform(NoteNode, (node) => {

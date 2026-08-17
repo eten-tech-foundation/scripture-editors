@@ -3,6 +3,7 @@ import { textTypeState } from "../nodes/collab/delta.state.js";
 import { $createMarkerNode } from "../nodes/features/MarkerNode.js";
 import { $createAttributeRunNode } from "../nodes/usj/AttributeRunNode.js";
 import { $createCharNode } from "../nodes/usj/CharNode.js";
+import { $createChapterNode } from "../nodes/usj/ChapterNode.js";
 import { $createMilestoneNode } from "../nodes/usj/MilestoneNode.js";
 import { $createNoteNode } from "../nodes/usj/NoteNode.js";
 import { $createParaNode } from "../nodes/usj/ParaNode.js";
@@ -100,6 +101,29 @@ describe("displayRunRegistry expectedPieces", () => {
           valueText: undefined,
         });
         expect(descriptor.expectedPieces(noCategory)).toEqual({
+          wantsRun: false,
+          valueText: undefined,
+        });
+      },
+      { discrete: true },
+    );
+  });
+
+  it("derives a chapter's NBSP-prefixed \\ca value from altnumber alone", () => {
+    const { editor } = createBasicTestEnvironment();
+    editor.update(
+      () => {
+        const withAlt = $createChapterNode("1", undefined, "2");
+        withAlt.append($createTextNode(getVisibleOpenMarkerText("c", "1") ?? ""));
+        const without = $createChapterNode("3");
+        without.append($createTextNode(getVisibleOpenMarkerText("c", "3") ?? ""));
+        $getRoot().append(withAlt, without);
+        const descriptor = displayRunDescriptor("ca");
+        expect(descriptor.expectedPieces(withAlt)).toEqual({
+          wantsRun: true,
+          valueText: `${NBSP}2`,
+        });
+        expect(descriptor.expectedPieces(without)).toEqual({
           wantsRun: false,
           valueText: undefined,
         });
@@ -236,6 +260,33 @@ describe("displayRunRegistry scanPieces", () => {
         );
         $getRoot().append($createParaNode("p").append(note));
         expect(displayRunDescriptor("cat").scanPieces(note)).toEqual({
+          opener,
+          value,
+          closer,
+          wrapper,
+        });
+      },
+      { discrete: true },
+    );
+  });
+
+  it("reads a chapter's wrapped \\ca run from its children, anchored after the \\c glyph text", () => {
+    // Same untranslated-shape trap as the note/milestone cases: an anchor mistake compiles clean
+    // and reads permanently empty. The run rides inside the editable ChapterNode (an ElementNode)
+    // directly after its `\c N` glyph TextNode — the same-line file position `\c 1 \ca 2\ca*`.
+    const { editor } = createBasicTestEnvironment();
+    editor.update(
+      () => {
+        const chapter = $createChapterNode("1", undefined, "2");
+        const wrapper = $createAttributeRunNode("ca");
+        const opener = $createMarkerNode("ca");
+        const value = $createTextNode(`${NBSP}2`);
+        $setState(value, textTypeState, "attribute");
+        const closer = $createMarkerNode("ca", "closing");
+        wrapper.append(opener, value, closer);
+        chapter.append($createTextNode(getVisibleOpenMarkerText("c", "1") ?? ""), wrapper);
+        $getRoot().append(chapter);
+        expect(displayRunDescriptor("ca").scanPieces(chapter)).toEqual({
           opener,
           value,
           closer,

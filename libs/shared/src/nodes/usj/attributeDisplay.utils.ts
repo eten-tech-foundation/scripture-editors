@@ -53,6 +53,7 @@
 import { $isCanonicalMarkerNode, $isMarkerNode, MarkerNode } from "../features/MarkerNode.js";
 import { textTypeState } from "../collab/delta.state.js";
 import { $isAttributeRunNode, AttributeRunNode } from "./AttributeRunNode.js";
+import { ChapterNode } from "./ChapterNode.js";
 import { $isCharNode, CharNode } from "./CharNode.js";
 import { MilestoneNode } from "./MilestoneNode.js";
 import { UnknownAttributes } from "./node-constants.js";
@@ -229,7 +230,7 @@ export function $verseAttributeRunPieces(
  */
 function $attributeMarkerRunPieces(
   cursor: LexicalNode | null,
-  marker: VerseAttributeMarker | "cat",
+  marker: VerseAttributeMarker | "cat" | "ca",
 ): VerseAttributeRunPieces {
   let opener: MarkerNode | undefined;
   let value: TextNode | undefined;
@@ -298,6 +299,33 @@ export function $noteCategoryRunPieces(note: NoteNode): VerseAttributeRunPieces 
   const caller = $noteEditableCallerNode(note);
   if (!caller) return {};
   return $attributeMarkerRunPieces(caller.getNextSibling(), "cat");
+}
+
+/**
+ * The plain TextNode carrying an editable chapter's `\c N` glyph — its first child — the anchor
+ * a chapter's `\ca` run scans from and is inserted after. Accepts the node while it remains a
+ * plain (non-glyph, non-attribute) TextNode even when its BYTES are mid-edit — unlike the note's
+ * caller, the chapter glyph is itself editable display text, so an exact-text requirement would
+ * dissolve the anchor on the first keystroke of a number rename. `undefined` when the glyph text
+ * was deleted outright or the chapter is not the editable element shape.
+ */
+export function $chapterGlyphTextNode(chapter: ChapterNode): TextNode | undefined {
+  const first = chapter.getFirstChild();
+  if (!$isTextNode(first) || $isMarkerNode(first)) return undefined;
+  if ($getState(first, textTypeState) === "attribute") return undefined;
+  return first;
+}
+
+/**
+ * A chapter's `\ca` alternate-number display run — the identical triplet shape and child
+ * position as a note's `\cat` run ({@link $noteCategoryRunPieces}): an editable `ChapterNode` is
+ * an ElementNode, and the run rides directly after its `\c N` glyph text, where the file puts
+ * the span (`\c 1 \ca 2\ca*`). Empty pieces when the glyph anchor is gone.
+ */
+export function $chapterAltnumberRunPieces(chapter: ChapterNode): VerseAttributeRunPieces {
+  const glyph = $chapterGlyphTextNode(chapter);
+  if (!glyph) return {};
+  return $attributeMarkerRunPieces(glyph.getNextSibling(), "ca");
 }
 
 /**

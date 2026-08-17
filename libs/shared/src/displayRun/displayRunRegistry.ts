@@ -14,6 +14,8 @@
  */
 
 import {
+  $chapterAltnumberRunPieces,
+  $chapterGlyphTextNode,
   $charAttributeDisplayNode,
   $charClosingGlyph,
   $milestoneAttributeRunPieces,
@@ -25,6 +27,7 @@ import {
   VerseAttributeMarker,
 } from "../nodes/usj/attributeDisplay.utils.js";
 import { $isAttributeRunNode } from "../nodes/usj/AttributeRunNode.js";
+import { $isChapterNode } from "../nodes/usj/ChapterNode.js";
 import { $isCharNode } from "../nodes/usj/CharNode.js";
 import { $isNoteNode } from "../nodes/usj/NoteNode.js";
 import {
@@ -317,6 +320,78 @@ const catDescriptor: DisplayRunDescriptor = {
   },
 };
 
+/** Whether `node` is a loose piece of a chapter's `\ca` run — a `ca` glyph, or an
+ * attribute-tagged value whose own opener (one step back) is a `ca` glyph. Same value-arm rule as
+ * `$isLooseCatPiece`. */
+function $isLooseCaPiece(node: LexicalNode): boolean {
+  if ($isMarkerNode(node)) return node.getMarker() === "ca";
+  if (!$isTextNode(node) || $getState(node, textTypeState) !== "attribute") return false;
+  const previous = node.getPreviousSibling();
+  return $isMarkerNode(previous) && previous.getMarker() === "ca";
+}
+
+/** Walk back from `start` over the ca run's own pieces to the chapter's `\c N` glyph anchor, and
+ * from there to the ChapterNode the run rides in — the chapter twin of `$noteOfCatChain`. */
+function $chapterOfCaChain(start: LexicalNode): LexicalNode | undefined {
+  const parent = start.getParent();
+  if (!$isChapterNode(parent)) return undefined;
+  const anchor = $chapterGlyphTextNode(parent);
+  if (!anchor) return undefined;
+  for (
+    let previous = start.getPreviousSibling();
+    previous;
+    previous = previous.getPreviousSibling()
+  ) {
+    if (previous.is(anchor)) return parent;
+    if (!$isLooseCaPiece(previous)) return undefined;
+  }
+  return undefined;
+}
+
+const chapterCaDescriptor: DisplayRunDescriptor = {
+  kind: "ca",
+  ownerPredicate: (node) => $isChapterNode(node),
+  ownerOf: (node) => {
+    // An editable chapter's run rides as its CHILDREN (a ChapterNode is an ElementNode), directly
+    // after the `\c N` glyph text — the same child-positioned shape as a note's `\cat` run.
+    if ($isAttributeRunNode(node))
+      return node.getRunKind() === "ca" && $isChapterNode(node.getParent())
+        ? (node.getParent() ?? undefined)
+        : undefined;
+    const parent = node.getParent();
+    if ($isAttributeRunNode(parent))
+      return parent.getRunKind() === "ca" && $isChapterNode(parent.getParent())
+        ? (parent.getParent() ?? undefined)
+        : undefined;
+    return $isLooseCaPiece(node) ? $chapterOfCaChain(node) : undefined;
+  },
+  expectedPieces: (owner) => {
+    if (!$isChapterNode(owner)) return NO_RUN;
+    const altnumber = owner.getAltnumber();
+    if (altnumber === undefined) return NO_RUN;
+    return { wantsRun: true, valueText: NBSP + altnumber };
+  },
+  scanPieces: (owner) => ($isChapterNode(owner) ? $chapterAltnumberRunPieces(owner) : NO_PIECES),
+  graceSite: (owner, pieces) => {
+    if (!$isChapterNode(owner)) return false;
+    if (!pieces.opener && !pieces.closer) {
+      const anchor = $chapterGlyphTextNode(owner);
+      return anchor !== undefined && $verseFlankGrace(anchor);
+    }
+    return $glyphDebrisGrace(pieces);
+  },
+  settleScope: "owner",
+  deletionPolicy: "retokenize",
+  byteFormat: {
+    writer: "wrapper",
+    runKind: "ca",
+    glyphs: "with-value",
+    glyphMarker: () => "ca",
+    closerSyntax: "closing",
+    insertRunAfter: (owner) => ($isChapterNode(owner) ? $chapterGlyphTextNode(owner) : undefined),
+  },
+};
+
 /** Whether `node` is a loose piece of a milestone's run — an opening glyph, a self-closing glyph,
  * or an attribute-tagged value. A milestone's opening glyph carries the milestone's OWN marker,
  * which the chain walk re-checks against the candidate owner. */
@@ -489,9 +564,9 @@ const nestedGlyphDescriptor: DisplayRunDescriptor = {
  * declare `ownerPredicate: $isCharNode` — `separator` (the NBSP gap after an opening glyph), `char`
  * (the span's own `|…` attribute run), and `nestedGlyph` (the `+` on a nested span's glyphs) — so a
  * `CharNode` matches all three. `separator` is listed before `char`, so its grace is checked first,
- * preserving the order the per-kind arms ran in. `cat` is listed before `milestone` so a loose
- * `cat` glyph is claimed by its own descriptor first — the milestone loose-piece test accepts ANY
- * opening glyph and only rejects it deeper in its chain walk. `nestedGlyph` never acts in the
+ * preserving the order the per-kind arms ran in. `cat` and `ca` are listed before `milestone` so their
+ * loose glyphs are claimed by their own descriptors first — the milestone loose-piece test
+ * accepts ANY opening glyph and only rejects it deeper in its chain walk. `nestedGlyph` never acts in the
  * settle loops at all: its `settleScope` is `"none"`, so those loops skip it outright — its `+` is
  * purely tree-derived and rewritten in place by its own sync, with no state a user edit can leave
  * half-finished. */
@@ -501,6 +576,7 @@ export const displayRunDescriptors: readonly DisplayRunDescriptor[] = [
   verseDescriptor("va"),
   verseDescriptor("vp"),
   catDescriptor,
+  chapterCaDescriptor,
   milestoneDescriptor,
   optbreakDescriptor,
   opaqueUnknownDescriptor,

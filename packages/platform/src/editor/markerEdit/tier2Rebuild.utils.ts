@@ -28,6 +28,7 @@ import {
 import {
   $hasUnrecoverableAttributes,
   $isAttributeRunNode,
+  $isChapterNode,
   $isCharNode,
   $isMarkerNode,
   $isMilestoneNode,
@@ -40,6 +41,7 @@ import {
   $verseAttributeRunPieces,
   getEditableCallerText,
   isMilestoneHeuristicName,
+  ChapterNode,
   LoggerBasic,
   MarkerLookup,
   MarkerType,
@@ -1250,7 +1252,123 @@ export function $rebuildNoteContent(note: NoteNode, context: Tier2Context): bool
 }
 
 /**
- * The re-tokenization SCOPE a node belongs to: the expanded note whose content contains it, or
+ * Build the re-tokenizable fragment for an editable chapter's OWN displayed bytes — its `\c N`
+ * glyph text plus (when displayed) its `\ca` run's bytes. Preserve-or-refuse (returns
+ * undefined) when the chapter carries unknown attributes (bytes cannot re-derive them) or when
+ * anything among its children degrades to a preserved-node sentinel (nothing the adaptor builds
+ * there ever should).
+ *
+ * Exported for the read-only settle (virtualSettle.utils.ts), the same sharing contract
+ * `$buildNoteFragment` has.
+ */
+export function $buildChapterFragment(
+  chapter: ChapterNode,
+  getMarkerFn: MarkerLookup,
+): FragmentAccumulator | undefined {
+  if (Object.keys(chapter.getUnknownAttributes() ?? {}).length > 0) return undefined;
+  const out: FragmentAccumulator = { text: "", spans: [], sentinels: [] };
+  $appendNodesFragment(chapter.getChildren(), out, getMarkerFn);
+  if (out.sentinels.length > 0) return undefined;
+  return out;
+}
+
+/**
+ * Chapter-scoped Tier 2 re-tokenization — the third settle scope, beside `$rebuildParas` and
+ * `$rebuildNoteContent`. The whole chapter node re-serializes from its re-tokenized bytes:
+ * `number` and `altnumber` come from the bytes (the tokenizer's chapter-path attrCapture folds a
+ * well-formed `\ca` span back onto the chapter), while `sid` — never derivable from visible
+ * bytes — is carried over, and `pubnumber` is carried over only when the bytes did not fold one
+ * (its `\cp` display is block-shaped and not yet rendered, so absent bytes must not clear it).
+ *
+ * Preserve-or-refuse: the re-tokenized output must BE a chapter — an edit that would change the
+ * node's KIND (the `\c` bytes rewritten into some other marker, or deleted) refuses and stays a
+ * pending literal rather than restructuring the document from a chapter-scoped settle. Deleting
+ * a chapter outright is `$chapterNodeTransform`'s existing empty-children path, not this one.
+ */
+export function $rebuildChapter(chapter: ChapterNode, context: Tier2Context): boolean {
+  const { viewOptions, getMarker: getMarkerFn, logger } = context;
+  const out = $buildChapterFragment(chapter, getMarkerFn);
+  if (!out) {
+    logger?.debug("[MarkerEdit] Chapter Tier 2 skipped: chapter excluded by guard rails");
+    return false;
+  }
+
+  // Capture the caret as a fragment offset before mutating — mirror `$rebuildParas`.
+  let caretOffset: number | undefined;
+  let anchorInChapter = false;
+  const selection = $getSelection();
+  if ($isRangeSelection(selection)) {
+    for (let node: LexicalNode | null = selection.anchor.getNode(); node; node = node.getParent())
+      if (chapter.is(node)) {
+        anchorInChapter = true;
+        break;
+      }
+    if (selection.isCollapsed())
+      caretOffset = caretSpanTextOffset(out.spans, selection.anchor.key, selection.anchor.offset);
+  }
+
+  const content: MarkerContent[] = usfmFragmentToUsjContent(out.text, { getMarker: getMarkerFn });
+  const [freshChapter] = content;
+  if (content.length === 0 || typeof freshChapter !== "object" || freshChapter.type !== "chapter") {
+    logger?.debug("[MarkerEdit] Chapter Tier 2 skipped: bytes no longer tokenize as a chapter");
+    return false;
+  }
+  if (countSentinels(content) !== 0) {
+    logger?.warn("[MarkerEdit] Chapter Tier 2 aborted: unexpected preserved-node placeholder");
+    return false;
+  }
+
+  // Carry-over BEFORE serialization, so the fresh node and its (future) display children are
+  // built from the reconciled fields.
+  if (chapter.getSid() !== undefined) freshChapter.sid = chapter.getSid();
+  if (freshChapter.pubnumber === undefined && chapter.getPubnumber() !== undefined)
+    freshChapter.pubnumber = chapter.getPubnumber();
+
+  const serialized = usjEditorAdaptor.serializeEditorState(
+    { type: USJ_TYPE, version: USJ_VERSION, content },
+    viewOptions,
+  );
+  const newNodes = serialized.root.children.map((child) => $parseSerializedNode(child));
+  if (!$isChapterNode(newNodes[0])) {
+    logger?.warn("[MarkerEdit] Chapter Tier 2 aborted: serialized output is not a chapter");
+    return false;
+  }
+
+  // Fixed-point refusal (preserve-or-refuse), the same comparison the other two scopes make —
+  // but with the STATE catch-up the note scope's category write also needs: an edited (or
+  // deleted) run's fresh serialization is byte-identical to what the live tree already displays
+  // (the user's edit IS those bytes), so the structural comparison legitimately reports a fixed
+  // point while `number`/`altnumber`/`pubnumber` still lag the displayed bytes. Reconcile them
+  // here; the splice path below needs none of this (the fresh node replaces the chapter, state
+  // and all).
+  if ($signatureOf(newNodes, getMarkerFn) === $signatureOf([chapter], getMarkerFn)) {
+    let reconciled = false;
+    if (chapter.getNumber() !== (freshChapter.number ?? "")) {
+      chapter.setNumber(freshChapter.number ?? "");
+      reconciled = true;
+    }
+    if (chapter.getAltnumber() !== freshChapter.altnumber) {
+      chapter.setAltnumber(freshChapter.altnumber);
+      reconciled = true;
+    }
+    if (chapter.getPubnumber() !== freshChapter.pubnumber) {
+      chapter.setPubnumber(freshChapter.pubnumber);
+      reconciled = true;
+    }
+    if (!reconciled)
+      logger?.debug("[MarkerEdit] Chapter Tier 2 skipped: rebuild is a no-op (fixed point)");
+    return reconciled;
+  }
+
+  newNodes.forEach((node) => chapter.insertBefore(node));
+  chapter.remove();
+  $restoreSelectionAtOffset(newNodes, caretOffset, anchorInChapter, getMarkerFn);
+  return true;
+}
+
+/**
+ * The re-tokenization SCOPE a node belongs to: the expanded note whose content contains it, the
+ * editable chapter whose display bytes contain it, or
  * the paragraph that contains it — or `undefined` when it has neither (an opaque block interior,
  * where the bytes stay literal, or a detached node). The nearest Note or Para wins — a note inside
  * a paragraph is its own scope: the note node, its marker glyphs, and its caller are preserved
@@ -1271,11 +1389,14 @@ export function $rebuildNoteContent(note: NoteNode, context: Tier2Context): bool
  * a consumer reads and the structure a later real settle produces would be derived from different
  * regions of the document.
  */
-export function $settleScopeForNode(node: LexicalNode): ParaNode | NoteNode | undefined {
-  let scope: ParaNode | NoteNode | undefined;
+export function $settleScopeForNode(
+  node: LexicalNode,
+): ParaNode | NoteNode | ChapterNode | undefined {
+  let scope: ParaNode | NoteNode | ChapterNode | undefined;
   for (let current: LexicalNode | null = node; current; current = current.getParent()) {
     if ($isUnknownNode(current)) return undefined;
-    if (!scope && ($isNoteNode(current) || $isParaNode(current))) scope = current;
+    if (!scope && ($isNoteNode(current) || $isParaNode(current) || $isChapterNode(current)))
+      scope = current;
   }
   return scope;
 }
@@ -1287,5 +1408,7 @@ export function $settleScopeForNode(node: LexicalNode): ParaNode | NoteNode | un
 export function $requestTier2ForNode(node: LexicalNode, context: Tier2Context): boolean {
   const scope = $settleScopeForNode(node);
   if (!scope) return false;
-  return $isNoteNode(scope) ? $rebuildNoteContent(scope, context) : $rebuildParas([scope], context);
+  if ($isNoteNode(scope)) return $rebuildNoteContent(scope, context);
+  if ($isChapterNode(scope)) return $rebuildChapter(scope, context);
+  return $rebuildParas([scope], context);
 }

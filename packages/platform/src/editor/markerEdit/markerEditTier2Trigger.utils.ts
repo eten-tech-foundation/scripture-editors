@@ -76,22 +76,43 @@ function $isInClosedCharSpan(node: LexicalNode): boolean {
 }
 
 /**
- * Whether `node` sits inside a block whose text the tokenizer keeps literal — a book id, a
- * chapter, or an opaque UnknownNode block (sidebar, periph, figure, …). These are the
+ * Whether `node` sits inside a block whose text the tokenizer keeps literal — a book id or an
+ * opaque UnknownNode block (sidebar, periph, figure, …). These are the
  * degradation-property contexts `$rebuildParas` refuses to re-tokenize (the paragraph guard
  * rails and `$requestTier2ForNode`'s opaque-block bail), so a divergence there can never
  * settle. Both the backslash path and the `//` optbreak path below skip such nodes: pending
  * a literal the engine will never rebuild would only leave a stuck key.
+ *
+ * Chapters USED to sit in this list, and their entry was purely circular: nothing about a
+ * chapter's bytes is literal-by-policy — they were excluded only because no scope rebuilt them.
+ * `$rebuildChapter` (tier2Rebuild.utils.ts) is that scope now, so a chapter's display bytes pend
+ * and settle like any paragraph's. `book` stays: it has no settle scope, deliberately.
  */
 function $inLiteralOnlyBlock(node: LexicalNode): boolean {
   for (let parent = node.getParent(); parent; parent = parent.getParent())
-    if ($isBookNode(parent) || $isChapterNode(parent) || $isUnknownNode(parent)) return true;
+    if ($isBookNode(parent) || $isUnknownNode(parent)) return true;
   return false;
 }
 
 export function $textNodeTier2Transform(node: TextNode, context: MarkerEditContext): void {
   const text = node.getTextContent();
   const textType = $getState(node, textTypeState);
+  // A plain TextNode inside an editable CHAPTER is the chapter's own `\c N` glyph (or stray
+  // mid-edit text beside it) — bytes whose CANONICAL form already contains a terminated marker
+  // shape. The immediate-rebuild arm below would therefore re-tokenize the chapter on ANY
+  // incidental dirtying (removing the adjacent `\ca` run marks the glyph dirty through Lexical's
+  // sibling bookkeeping), settling a mid-gesture deletion under the user with no grace. Chapters
+  // settle strictly on caret departure instead: canonical bytes have nothing pending; anything
+  // else pends its own key, and departure's `$rebuildChapter` re-tokenizes the displayed bytes.
+  // (The run's VALUE was already pended by the attribute branch below; its glyphs are
+  // MarkerNodes, which exact-type dispatch never routes here.)
+  const chapterParent = node.getParent();
+  if (textType !== "attribute" && $isChapterNode(chapterParent)) {
+    if (text === getVisibleOpenMarkerText("c", chapterParent.getNumber()))
+      context.pendingKeys.delete(node.getKey());
+    else context.pendingKeys.add(node.getKey());
+    return;
+  }
   // Attribute runs (char and milestone alike) always pend and never re-tokenize from here:
   // their bytes legitimately contain arbitrary characters, so neither the backslash check below
   // nor the termination regex further down means anything for them — a `\`-free edit is just as
@@ -289,7 +310,10 @@ export function $rependPendShapedNodes(context: MarkerEditContext): void {
       // pends inside them.
       return;
     }
-    if ($isBookNode(node) || $isChapterNode(node)) return;
+    // Books keep literal text (degradation property); chapters now DESCEND — their glyph text and
+    // `\ca` run pieces are pend-shaped display bytes with a settle scope of their own
+    // ($rebuildChapter), so an undone chapter settle must re-pend exactly like a paragraph's.
+    if ($isBookNode(node)) return;
     if ($isAttributeRunNode(node) && node.getChildrenSize() === 0) {
       // An emptied AttributeRunNode wrapper (an undone husk-removal settle restores it) is the
       // same statically-re-derivable shape as the optbreak husk above: zero children means
