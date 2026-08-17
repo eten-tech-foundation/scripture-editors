@@ -111,6 +111,7 @@ import {
   LoadStatePlugin,
   NoteNodePlugin,
   OnSelectionChangePlugin,
+  OpaqueBlockGuardPlugin,
   ParaMarkerPrefixCursorGuardPlugin,
   ParaNodePlugin,
   pasteSelection,
@@ -789,6 +790,9 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
             viewOptions={viewOptions}
             logger={stableLogger}
           />
+          {/* Not gated on viewOptions: a construct the editor cannot model is read-only in every
+              marker mode, so the guard that keeps edits out of one is too. */}
+          <OpaqueBlockGuardPlugin />
           <ParaMarkerPrefixCursorGuardPlugin />
           <ParaMarkerPrefixGuardPlugin viewOptions={viewOptions} logger={stableLogger} />
           <ParaNodePlugin />
