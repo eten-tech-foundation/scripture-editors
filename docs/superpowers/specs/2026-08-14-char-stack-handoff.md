@@ -224,27 +224,41 @@ same reason.
 
 *Narrow:* claim the paste path as well, the way Enter is claimed. Fixes only paste.
 
-*Wide, and what I would recommend:* teach `CharNode.insertNewAfter` to build a real continuation.
-Lexical's `$splitNodeAtPoint` hands it a `RangeSelection` whose anchor is an ELEMENT point on the
-span carrying the split index, so it can (a) insert the left half's closing glyph at that index,
-before the children about to move, and (b) return a continuation carrying the opening glyph with the
-right nesting and `closed` state. Lexical's own
-`newElement.append(firstToAppend, ...firstToAppend.getNextSiblings())` completes the shape, and
-because `$splitNodeAtPoint` recurses up the inline ancestors it works at every nesting depth. The
-generic split becomes correct for every caller, and `$splitParagraphAtCharStack` plus its
-INSERT_PARAGRAPH interception can be deleted.
+*Wide:* teach `CharNode.insertNewAfter` to build a real continuation. Lexical's `$splitNodeAtPoint`
+hands it a `RangeSelection` whose anchor is an ELEMENT point on the span carrying the split index,
+so it can (a) insert the left half's closing glyph at that index, before the children about to move,
+and (b) return a continuation carrying the opening glyph with the right nesting and `closed` state.
+Lexical's own `newElement.append(firstToAppend, ...firstToAppend.getNextSiblings())` completes the
+shape, and because `$splitNodeAtPoint` recurses up the inline ancestors it works at every depth.
 
-Everything that would change, i.e. every route into `CharNode.insertNewAfter`:
+**I spiked the wide fix and measured it, then reverted.** Fixture `\p \nd thing\nd*` (and
+`\p \wj \+nd thing\+nd*\wj*` for the depth-2 row), caret at `thi|ng`, full plugin stack:
 
-| Route | Reached by | Today |
+| Route | Today | Wide fix, spiked |
 | --- | --- | --- |
-| `insertParagraph()` via INSERT_PARAGRAPH_COMMAND | Enter | already fixed by the interception |
-| `insertParagraph()` called directly | multi-line plain-text paste | broken, measured above |
-| `insertNodes()` CASE 3 (`$wrapInlineNodes` → `insertParagraph()`) | pasting block/rich content mid-span | same generic split, unverified |
-| `insertNodes()` CASE 2 (all-inline nodes) | inserting an inline node at a caret inside a span — e.g. a verse marker | measured: `\p \nd thi\nd*` + verse mid-word ends as `\p \nd thi \v 5 ng\nd*`, i.e. the split happens, the continuation is unwrapped, and a Tier-2 rebuild re-tokenizes the damaged bytes and swallows the verse INTO the span |
+| Enter, depth 1 | `["\p \nd thi\nd*", "\p \nd ng\nd*"]` (already fixed) | same |
+| Enter, depth 2 | `["\p \wj \+nd thi\+nd*\wj*", "\p \wj \+nd ng\+nd*\wj*"]` (already fixed) | same |
+| multi-line plain-text paste `"one\ntwo"` | `["\p \nd thione", "\p twong"]` | `["\p \nd thione\nd*", "\p two\ndng\nd*"]` |
+| `insertNodes` with a block node | `["\p \nd thi", "\pBLOCKng "]` | `["\p \nd thi\nd*\pBLOCK\nd ng\nd*"]` |
+| `insertNodes` with an inline node (verse) | `["\p \nd thi \v 5 ng\nd*"]` — verse swallowed INTO the span | `["\p \nd thi\nd* \v 5 \nd ng\nd*"]` — verse between two intact spans |
 
-The last row is the reason to prefer the wide fix: the narrow one leaves it. I have not verified what
-the wide fix produces there — that needs its own red-first pass.
+**Two findings that make the wide fix bigger than it looks. Do not adopt it as written.**
+
+1. **It cannot supply the opener separator, and the missing space CORRUPTS.** Look at the paste row:
+   `\ndng`, not `\nd ng`. `insertNewAfter` returns BEFORE Lexical moves the children in, so it has
+   no leading text node to prefix the structural NBSP onto — the eager prefix
+   `$buildContinuationCharSpan` does is not available there. The separator sync does not fill it in,
+   because the caret sits at that very boundary and the sync's mid-edit grace leaves it alone. Moving
+   the caret away then makes it worse, not better: the settle re-tokenizes the bytes and `\ndng`
+   becomes a marker named `ndng` in a paragraph of its own —
+   `["\p \nd thione\nd*", "\p two", "\ndng "]`. Measured.
+2. **It does not place the caret, so the interception cannot simply be deleted.** With the wide fix
+   on and `$splitParagraphAtCharStack` disabled, Enter then typing `X` gives
+   `["\p \nd thi\nd*", "\p X\ndng\nd*"]` — `X` outside the reopened span, losing §6c. Lexical's
+   `insertParagraph` ends with `newBlock.selectStart()`, which lands on the opening glyph.
+
+So the wide fix is the right shape but needs a separator answer and a caret answer before it can
+replace anything. The narrow fix (claim paste) buys the paste row only and leaves the verse row.
 
 **View modes.** `insertNewAfter` cannot see `ViewOptions`, so it must infer glyph emission from the
 span's own children ("does `this` have an opening `MarkerNode` child"), the same inference
