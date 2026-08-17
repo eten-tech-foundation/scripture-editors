@@ -861,7 +861,9 @@ describe("Ctrl+Space through a nested character-style stack", () => {
       .read(() => expect($usfmBytes($onlyPara())).toBe("\\p  \\wj \\+nd thing\\+nd*\\wj*"));
   });
 
-  it("clears the innermost style over a range without leaving an empty marker pair", async () => {
+  it("clears EVERY level of the stack over a range", async () => {
+    // Ctrl+Space over a selection is an unformatter, so a range covering all of a stack's content
+    // leaves the text bare — both spans are nothing without it.
     let parts: ReturnType<typeof $appendNestedStackPara>;
     const { editor } = await testEnvironmentWithDisplaySyncs(
       () => (parts = $appendNestedStackPara()),
@@ -871,15 +873,96 @@ describe("Ctrl+Space through a nested character-style stack", () => {
     await pressCtrlSpace(editor);
 
     editor.getEditorState().read(() => {
-      const spans = $onlyPara()
-        .getAllTextNodes()
-        .flatMap((textNode) => {
-          const parent = textNode.getParent();
-          return $isCharNode(parent) ? [parent] : [];
-        });
-      expect(spans.some((span) => span.getMarker() === "nd")).toBe(false);
-      // Nothing anywhere is a marker pair around no content.
-      expect($usfmBytes($onlyPara())).not.toContain("\\+nd \\+nd*");
+      expect($usfmBytes($onlyPara())).toBe("\\p thing");
+      expect($onlyPara().getChildren().filter($isCharNode)).toHaveLength(0);
+    });
+  });
+
+  it("keeps a partially covered outer style around the unformatted run", async () => {
+    let content: TextNode;
+    const { editor } = await testEnvironmentWithDisplaySyncs(() => {
+      const para = $createParaNode("p");
+      const wj = $createCharNode("wj");
+      const nd = $createCharNode("nd");
+      content = $createTextNode(`${NBSP}holy`);
+      $getRoot().append(
+        para.append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          wj.append(
+            $createMarkerNode("wj"),
+            $createTextNode(`${NBSP}A `),
+            nd.append(
+              $createMarkerNode("nd", "opening", true),
+              content,
+              $createMarkerNode("nd", "closing", true),
+            ),
+            $createTextNode(" B"),
+            $createMarkerNode("wj", "closing"),
+          ),
+        ),
+      );
+    });
+    await act(async () => editor.update(() => content.select(1, 5))); // "holy"
+    await pressCtrlSpace(editor);
+
+    editor.getEditorState().read(() => {
+      // `\wj` extends past the selection on both sides, so it closes before the unformatted run
+      // and reopens after it; `\nd`, which the run covered entirely, is gone.
+      expect($usfmBytes($onlyPara())).toBe("\\p \\wj A \\wj*holy\\wj  B\\wj*");
+    });
+  });
+
+  describe("attribute bytes survive as plain text when the span goes", () => {
+    /** `\p \w holy<runText>\w*` with `attributes` as the span's state and `runText` as its run. */
+    async function unformatWord(attributes: { [name: string]: string }, runText: string) {
+      // The engine alone: the attribute-run sync re-dirties a freshly built attributed span and
+      // parks the caret at the paragraph start, which would clobber the selection under test.
+      let content: TextNode;
+      const { editor } = await testEnvironment(() => {
+        const para = $createParaNode("p");
+        const w = $createCharNode("w", attributes);
+        content = $createTextNode(`${NBSP}holy`);
+        const displayRun = $createTextNode(runText);
+        $setState(displayRun, textTypeState, "attribute");
+        $getRoot().append(
+          para.append(
+            $createMarkerNode("p"),
+            $createTextNode(NBSP),
+            w.append(
+              $createMarkerNode("w"),
+              content,
+              displayRun,
+              $createMarkerNode("w", "closing"),
+            ),
+          ),
+        );
+      });
+      await act(async () =>
+        editor.update(() => {
+          content.select(1, 5);
+          $removeCharFormattingFromSelection();
+        }),
+      );
+      let bytes = "";
+      editor.getEditorState().read(() => (bytes = $usfmBytes($onlyPara())));
+      return bytes;
+    }
+
+    it("collapses a lone default attribute to its bare value", async () => {
+      expect(await unformatWord({ lemma: "grace" }, "|grace")).toBe("\\p holy|grace");
+    });
+
+    it("keeps the name for a non-default attribute", async () => {
+      expect(await unformatWord({ gloss: "stuff" }, '|gloss="stuff"')).toBe(
+        '\\p holy|gloss="stuff"',
+      );
+    });
+
+    it("keeps every name when there is more than one attribute", async () => {
+      expect(
+        await unformatWord({ lemma: "things", gloss: "stuff" }, '|lemma="things" gloss="stuff"'),
+      ).toBe('\\p holy|lemma="things" gloss="stuff"');
     });
   });
 

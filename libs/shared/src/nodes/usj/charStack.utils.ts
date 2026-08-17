@@ -34,9 +34,11 @@ import {
   $continuationCharAttributes,
 } from "./charGlyphs.utils.js";
 import { $createCharNode, $isCharNode, CharNode } from "./CharNode.js";
+import { canonicalAttributeText } from "./attributeDisplay.utils.js";
 import { textTypeState } from "../collab/delta.state.js";
+import { defaultMarkerAttribute } from "../../converters/usfm/usfmFragmentToUsj.js";
 import { NBSP } from "./node-constants.js";
-import { $getState, $isTextNode, LexicalNode } from "lexical";
+import { $createTextNode, $getState, $isElementNode, $isTextNode, LexicalNode } from "lexical";
 
 /**
  * The innermost char span a point sits in: the nearest `CharNode` at or above `node`, or
@@ -75,13 +77,49 @@ export function $charStackContainer(node: LexicalNode): LexicalNode | null {
  * Read-only: safe inside `editor.update()` or either read form.
  */
 export function $isCharContentEmpty(char: CharNode): boolean {
+  // The display run is a rendering of the span's attribute state, not content — a span holding
+  // nothing but its own `|name="value"` bytes has had its content taken away and is empty. Only a
+  // span that closes explicitly can own a run at all ({@link $ownsDisplayRun}); inside an
+  // implicitly-closed one, `attribute`-tagged text is ordinary content.
+  const ownsDisplayRun = $ownsDisplayRun(char);
   return char
     .getChildren()
     .every(
       (child) =>
         $isMarkerNode(child) ||
+        (ownsDisplayRun && $getState(child, textTypeState) === "attribute") ||
         ($isTextNode(child) && child.getTextContent().replaceAll(NBSP, "") === ""),
     );
+}
+
+/**
+ * Whether `char` can own a display run at all. The run is anchored to the closing glyph, and a
+ * `closed="false"` span renders neither (attributeDisplay.utils.ts), so inside one — note content,
+ * chiefly — `attribute`-tagged text is not a run but ordinary content.
+ *
+ * Read-only: safe inside `editor.update()` or either read form.
+ */
+function $ownsDisplayRun(char: CharNode): boolean {
+  return $charOwesClosingGlyph(char);
+}
+
+/**
+ * Remove `char`, leaving its attribute bytes behind as plain text after `contentEnd` when it has
+ * any. Paratext 9 keeps an unwrapped span's attributes as literal bytes, and the span is the only
+ * thing that carried them — dropping it silently would delete `|lemma="grace"` from the file.
+ * Routed through {@link canonicalAttributeText}, the same one serializer `$unwrapCharNode` uses, so
+ * the two paths cannot spell the same attributes differently: a lone default attribute collapses to
+ * `|value`, anything else stays `|name="value" …`.
+ *
+ * Mutating: call inside `editor.update()`.
+ */
+function $removeCharKeepingAttributeBytes(char: CharNode, contentEnd: LexicalNode): void {
+  const attributes = char.getUnknownAttributes();
+  const bytes = attributes
+    ? canonicalAttributeText(attributes, defaultMarkerAttribute(char.getMarker()))
+    : "";
+  if (bytes !== "") contentEnd.insertAfter($createTextNode(bytes));
+  char.remove();
 }
 
 /**
@@ -157,11 +195,10 @@ export function $liftOutOfChar(node: LexicalNode, char: CharNode, renderGlyphs: 
   // left the attributes displayed on a span that does not have them and missing from the span that
   // does — the same content-versus-presentation split `$unwrapCharNode` makes.
   //
-  // Only a span that closes EXPLICITLY can own a display run: the run is anchored to the closing
-  // glyph, and a `closed="false"` span renders neither (attributeDisplay.utils.ts). So inside one
-  // of those — note content, chiefly — `attribute`-tagged text is not a run and is ordinary
-  // content that must ride along with everything else after the caret.
-  const ownsDisplayRun = $charOwesClosingGlyph(char);
+  // Only a span that closes EXPLICITLY can own a display run ({@link $ownsDisplayRun}). So inside
+  // an implicitly-closed one — note content, chiefly — `attribute`-tagged text is not a run and is
+  // ordinary content that must ride along with everything else after the caret.
+  const ownsDisplayRun = $ownsDisplayRun(char);
   const after: LexicalNode[] = [];
   for (let sibling = node.getNextSibling(); sibling; ) {
     const next = sibling.getNextSibling();
@@ -172,6 +209,9 @@ export function $liftOutOfChar(node: LexicalNode, char: CharNode, renderGlyphs: 
   }
   const endsImplicitly = $endsImplicitly(node, char);
   char.insertAfter(node); // node leaves char, becomes its next sibling
+  // Where whatever came out of `char` ends, so a dropped span's attribute bytes land after its
+  // former content rather than in front of it.
+  let contentEnd: LexicalNode = node;
   if (after.length > 0) {
     if (endsImplicitly) {
       $absorbIntoCharSpan(node, after, renderGlyphs);
@@ -180,9 +220,10 @@ export function $liftOutOfChar(node: LexicalNode, char: CharNode, renderGlyphs: 
       $buildContinuationCharSpan(right, char, after, renderGlyphs);
       node.insertAfter(right);
       if ($isCharContentEmpty(right)) right.remove();
+      else contentEnd = right;
     }
   }
-  if ($isCharContentEmpty(char)) char.remove();
+  if ($isCharContentEmpty(char)) $removeCharKeepingAttributeBytes(char, contentEnd);
 }
 
 /**
@@ -205,5 +246,30 @@ export function $liftOutOfCharStack(node: LexicalNode, renderGlyphs: boolean): v
   while ($isCharNode(parent)) {
     $liftOutOfChar(node, parent, renderGlyphs);
     parent = node.getParent();
+  }
+}
+
+/**
+ * Put the caret at the START of `node`'s content — immediately after the structural separator the
+ * opening glyph owns, and descending through nested spans to the innermost one. This is where
+ * typing belongs after a close-and-reopen: the user interrupted the text at that point, so the
+ * next keystroke continues the reopened run rather than landing outside it. Offset 0 would sit
+ * BEFORE the separator, splicing typed text between the glyph and the space it owns.
+ *
+ * Mutating (moves the selection): call inside `editor.update()`.
+ */
+export function $selectCharContentStart(node: LexicalNode): void {
+  if ($isTextNode(node) && !$isMarkerNode(node)) {
+    const offset = node.getTextContent().startsWith(NBSP) ? 1 : 0;
+    node.select(offset, offset);
+    return;
+  }
+  if ($isElementNode(node)) {
+    const first = node.getChildren().find((child: LexicalNode) => !$isMarkerNode(child));
+    if (first) {
+      $selectCharContentStart(first);
+      return;
+    }
+    node.selectEnd(); // defensive: glyphs only, no content to sit in front of
   }
 }

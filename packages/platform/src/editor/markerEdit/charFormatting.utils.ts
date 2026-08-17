@@ -9,10 +9,12 @@ import { $unwrapCharNode } from "./markerEditDeletion.utils";
 import {
   $createTextNode,
   $getSelection,
+  $getState,
   $isElementNode,
   $isRangeSelection,
   $isTextNode,
   LexicalNode,
+  RangeSelection,
   TextNode,
 } from "lexical";
 import {
@@ -21,13 +23,14 @@ import {
   $continuationCharAttributes,
   $createCharNode,
   $innermostCharAncestor,
-  $isCharContentEmpty,
   $isCharNode,
   $isMarkerNode,
   $isSomeParaNode,
   $liftOutOfCharStack,
+  $selectCharContentStart,
   CharNode,
   NBSP,
+  textTypeState,
 } from "shared";
 
 /**
@@ -112,24 +115,6 @@ function $firstContentTextFrom(node: LexicalNode | null): TextNode | undefined {
 }
 
 /**
- * Drops any of `spans` a boundary split left holding no content — an empty `\nd \nd*` pair is
- * fabricated bytes in the file, not a cleared style. Reachable whenever the selection starts or
- * ends one character inside a span's edge, which is what selecting the WORD does: the structural
- * separator is not part of the word, so the range starts at offset 1 and the span splits instead
- * of being unwrapped whole.
- *
- * `$splitCharNodeAt` returns an unattached span when nothing moved into it, so attachment is
- * checked before the content test.
- *
- * Mutating: call inside `editor.update()`.
- */
-function $dropContentEmptySpans(...spans: CharNode[]): void {
-  spans.forEach((span) => {
-    if (span.isAttached() && $isCharContentEmpty(span)) span.remove();
-  });
-}
-
-/**
  * Strips character formatting from the current selection — the Ctrl+Space apply (PT9
  * `KeyPressEditHandler.HandleCtrlSpace`'s blank character style).
  *
@@ -193,57 +178,54 @@ export function $removeCharFormattingFromSelection(): boolean {
     return true;
   }
 
-  // Range: unwrap fully covered spans; split partially covered ones at the boundary.
-  const anchorPoint = selection.isBackward() ? selection.focus : selection.anchor;
-  const focusPoint = selection.isBackward() ? selection.anchor : selection.focus;
-  const selectedNodes = selection.getNodes();
-  const chars = new Set<CharNode>();
-  for (const node of selectedNodes) {
-    const parent = node.getParent();
-    if ($isCharNode(node)) chars.add(node);
-    else if ($isCharNode(parent)) chars.add(parent);
-  }
-  for (const char of chars) {
-    const startNode = anchorPoint.getNode();
-    const endNode = focusPoint.getNode();
-    const startsMidSpan =
-      $isTextNode(startNode) && startNode.getParent()?.is(char) && anchorPoint.offset > 0;
-    const endsMidSpan =
-      $isTextNode(endNode) &&
-      endNode.getParent()?.is(char) &&
-      endNode.getTextContentSize() > focusPoint.offset;
-    if (startsMidSpan && endsMidSpan) {
-      // selection starts and ends mid-span, both inside this same char: PT9
-      // (StyleApplicator blank-style on an interior range) yields three segments —
-      // left styled, middle plain, right (tail) styled. Split the END boundary
-      // first: that leaves the START boundary's (node, offset) — which may be the
-      // very same text node as the end's — still valid for the second split.
-      const tail = $splitCharNodeAt(char, endNode, focusPoint.offset);
-      const middle = $splitCharNodeAt(char, startNode, anchorPoint.offset);
-      $unwrapCharNode(middle);
-      $dropContentEmptySpans(char, tail); // the two segments that keep the style
-      continue;
-    }
-    if (startsMidSpan) {
-      // selection starts mid-span: keep the left part styled, unwrap the right
-      const right = $splitCharNodeAt(char, startNode, anchorPoint.offset);
-      $unwrapCharNode(right);
-      $dropContentEmptySpans(char);
-      continue;
-    }
-    if (endsMidSpan) {
-      // selection ends mid-span: unwrap the left part, keep the right styled
-      const right = $splitCharNodeAt(char, endNode, focusPoint.offset);
-      $unwrapCharNode(char);
-      $dropContentEmptySpans(right);
-      continue;
-    }
-    $unwrapCharNode(char);
+  // Range: unformat the covered text at EVERY level of the stack. Splitting the boundary text
+  // nodes at the selection edges first leaves the covered text as whole nodes; lifting each out of
+  // its entire enclosing stack then closes every level before it and reopens whatever of that
+  // level still has content after it. A level the run covered completely is left with nothing and
+  // is dropped, which is why clearing all of `\wj \+nd holy\+nd*\wj*` leaves a bare `holy` — both
+  // spans are nothing without it — while a level that extends past the selection keeps its text on
+  // both sides. An interior range still yields PT9's three segments (left styled, middle plain,
+  // right styled); that is this same shape at depth one.
+  for (const target of $coveredTextNodes(selection)) {
+    if (!$innermostCharAncestor(target)) continue;
+    $liftOutOfCharStack(target, true);
+    // Plain text now, so it sheds the structural separator it carried as a span's first content.
+    const text = target.getTextContent();
+    if (text.startsWith(NBSP)) target.setTextContent(text.slice(NBSP.length));
   }
   // Always handled, even with nothing to strip. PT9 inserts no space on a range, so declining is
   // not "nothing happened" — it hands the keystroke to the browser, which types a literal space
   // OVER the selection and destroys it.
   return true;
+}
+
+/**
+ * The text the selection covers, as whole nodes: each boundary node is split at the selection edge
+ * so nothing partly-covered survives. Marker glyphs and display runs are excluded — they are
+ * engine-owned presentation, not text the user selected.
+ *
+ * Mutating (splits the boundary text nodes): call inside `editor.update()`.
+ */
+function $coveredTextNodes(selection: RangeSelection): TextNode[] {
+  const [startOffset, endOffset] = selection.isBackward()
+    ? [selection.focus.offset, selection.anchor.offset]
+    : [selection.anchor.offset, selection.focus.offset];
+  const nodes = selection.getNodes();
+  const covered: TextNode[] = [];
+  nodes.forEach((node, index) => {
+    if (!$isTextNode(node) || $isMarkerNode(node)) return;
+    if ($getState(node, textTypeState) === "attribute") return;
+    const size = node.getTextContentSize();
+    const start = index === 0 ? startOffset : 0;
+    const end = index === nodes.length - 1 ? endOffset : size;
+    if (start >= end) return;
+    // splitText returns 1, 2, or 3 pieces depending on where the cuts land; the covered one is the
+    // middle of three, the last of two when the range runs to the node's end, else the first.
+    const parts = node.splitText(start, end);
+    const piece = parts.length === 3 ? parts[1] : end === size ? parts[parts.length - 1] : parts[0];
+    if (piece) covered.push(piece);
+  });
+  return covered;
 }
 
 /** Nearest `CharNode` ancestor (including `node` itself) whose implied endmarker (its own
@@ -368,9 +350,17 @@ export function $splitParagraphAtCharStack(): boolean {
   breakPoint.remove();
   const newPara = para.insertNewAfter(selection, false);
   newPara.append(...moving);
-  // An ELEMENT point at offset 0, the same shape `RangeSelection.insertParagraph` leaves behind:
-  // the new paragraph has no marker prefix yet, and `$injectMarkerPrefix` recognizes exactly this
-  // to move the caret to the content side once it splices one in.
-  newPara.select(0, 0);
+  const [firstMoved] = moving;
+  if ($isCharNode(firstMoved)) {
+    // Typing continues the reopened style: the caret goes to the start of its content, past the
+    // separator, exactly where the user interrupted the run. `$injectMarkerPrefix` leaves a caret
+    // that is not at the paragraph's start alone, so the prefix splices in around it.
+    $selectCharContentStart(firstMoved);
+  } else {
+    // Nothing reopened, so there is no run to continue. An ELEMENT point at offset 0 is the shape
+    // `RangeSelection.insertParagraph` leaves behind, and the shape `$injectMarkerPrefix`
+    // recognizes to move the caret to the content side once it splices the prefix in.
+    newPara.select(0, 0);
+  }
   return true;
 }

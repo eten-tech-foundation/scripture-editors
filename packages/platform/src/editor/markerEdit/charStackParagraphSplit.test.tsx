@@ -176,6 +176,30 @@ describe("Enter inside a character style", () => {
     });
   });
 
+  it("lands the caret inside the reopened style, so typing continues in it", async () => {
+    let content: TextNode;
+    const { editor } = await testEnvironmentWithDisplaySyncs(
+      () => (content = $appendNestedStackPara()),
+    );
+    await act(async () => editor.update(() => content.select(4, 4)));
+
+    await pressEnter(editor);
+    await act(async () =>
+      editor.update(() => {
+        const selection = $getSelection();
+        if ($isRangeSelection(selection)) selection.insertText("X");
+      }),
+    );
+
+    editor.getEditorState().read(() => {
+      const paras = $paras();
+      expect($usfmBytes(paras[0])).toBe("\\p \\wj \\+nd thi\\+nd*\\wj*");
+      // The typed character continues the innermost reopened style, immediately before the
+      // content the split carried over — not as plain text ahead of the whole stack.
+      expect($usfmBytes(paras[1])).toBe("\\p \\wj \\+nd Xng\\+nd*\\wj*");
+    });
+  });
+
   it("leaves the caret in the new paragraph, not the old one", async () => {
     let content: TextNode;
     const { editor } = await testEnvironmentWithDisplaySyncs(() => (content = $appendCharPara()));

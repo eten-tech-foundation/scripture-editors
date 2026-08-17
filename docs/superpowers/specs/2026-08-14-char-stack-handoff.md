@@ -171,19 +171,11 @@ covers the same files.
 
 ## 5. Deliberately not done
 
-- **Stack-aware range Ctrl+Space** (§3). Depth-1 is now fully correct; a nested range clears the
-  innermost level only. Needs a `$unwrapCharNode` decision that is not mine to make.
-- **Multi-line paste through a char stack.** `@lexical/clipboard`'s text/plain handling calls
-  `selection.insertParagraph()` directly per newline rather than dispatching
-  INSERT_PARAGRAPH_COMMAND — `MarkerEditPlugin`'s own PASTE handler already documents this and arms
-  `splitExpected` by hand for the same reason — so a pasted line break landing mid-span still takes
-  the generic split. Enter and the in-note paste break both go through the fixed paths. Not one of
-  the plan's five callers; the fix I would recommend is in §6.
-- **The caret half of bug 1.** Owned by the structural-deletion-and-caret track. The split now parks
-  an element point at the new paragraph's start, which is the shape `$injectMarkerPrefix` recognizes,
-  so the caret ends at the paragraph's content boundary — before the reopened span, per
-  `$placeCaretAtBoundary`'s existing element-content convention. Whether it should instead descend
-  INTO the reopened span is a caret-track question, not one I invented an answer to.
+- **Multi-line paste mid-span** — the only char-stack route still taking the generic split. §6b has
+  the measured damage and two candidate fixes with their blast radius.
+- **Bug 1's original caret symptom** — "caret landing at the end of the new paragraph" — is gone
+  without being fixed: it came from the unwrap's reinsertion loop, and the split no longer produces a
+  span for the unwrap to run on. Where the caret goes after a split is now settled (§6c).
 - **The shared test for bug 1's caret symptom.** The plan says structural-caret and I should agree on
   who writes it. I have not been able to reach that chat, so I wrote only the content assertions
   (`charStackParagraphSplit.test.tsx`) and left the caret assertion to them; the fixtures there are
@@ -193,34 +185,26 @@ covers the same files.
 
 ---
 
-## 6. Open items, with enough detail to settle without me
+## 6. Open items and settled ones, with enough detail to act on without me
 
-### 6a. Range Ctrl+Space is not stack-aware — needs a `$unwrapCharNode` decision
+### 6a — DONE. Range Ctrl+Space now clears every level
 
-**Repro.** Standard view. `\p \wj \+nd holy\+nd*\wj*`. Double-click `holy`, press Ctrl+Space.
+Owner decision: Ctrl+Space over a selection is an unformatter, so it strips the style at every
+level, and a span left with nothing goes. Attribute bytes survive as literal plain text, exactly as
+`$unwrapCharNode` writes them.
 
-**Now:** `\p \wj holy\wj*` — `\nd` cleared, no empty pair, but `\wj` still applies. At depth 1
-(`\p \nd holy\nd*`) the same gesture is fully correct: `\p holy`.
+```
+\p \wj \+nd holy\+nd*\wj*          select "holy"  ->  \p holy
+\p \wj A \+nd holy\+nd* B\wj*      select "holy"  ->  \p \wj A \wj*holy\wj  B\wj*
+\p \w holy|grace\w*                 select "holy"  ->  \p holy|grace
+\p \w holy|gloss="stuff"\w*         select "holy"  ->  \p holy|gloss="stuff"
+```
 
-**Why it stops at one level.** The range branch asks "does the selection start/end mid-span" by TEXT
-OFFSET inside the span's own direct text child (`charFormatting.utils.ts`, the `startsMidSpan` /
-`endsMidSpan` pair). For the innermost span the boundary IS a text offset, so it works. For `\wj`
-the boundary is a whole child — the `\nd` span — so both tests read false and control falls to
-`$unwrapCharNode(char)`, which would unwrap all of `\wj` including text the user never selected.
-Today that case cannot arise because `chars` only ever collects one level; making it collect the
-stack is what would expose it.
-
-**Proposed fix.** Two parts, and the second is the one that needs a decision:
-
-1. Detect the boundaries by CHILD INDEX as well as text offset, so an outer span can be split at the
-   child holding the selection edge. Self-contained, inside `charFormatting.utils.ts`.
-2. Decide what a FULLY covered attributed span does with its literal `|name="value"` bytes. Today
-   `$unwrapCharNode` reconstructs them as plain text after the content, which is PT9's behavior for
-   an unwrap. Clearing formatting over `\w holy|lemma="grace"\w*` should plausibly do the same —
-   but `$unwrapCharNode` belongs to the marker-resolution track in the invariants' contended-file
-   table (`markerEditDeletion.utils.ts`), so changing or generalizing it is a coordination, not a
-   free choice. If the answer is "keep the bytes exactly as `$unwrapCharNode` does today", part 1
-   alone is enough and no coordination is needed.
+Implemented by splitting the boundary text at the selection edges and lifting each covered node out
+of its whole stack, so the close/reopen at every level is the shared primitive rather than a second
+implementation. The primitive now also re-emits a dropped span's attribute bytes through
+`canonicalAttributeText` — the same serializer `$unwrapCharNode` uses, so the two paths cannot spell
+the same attributes differently.
 
 ### 6b. Multi-line paste mid-span still takes the generic split
 
@@ -236,43 +220,62 @@ newline instead of dispatching INSERT_PARAGRAPH_COMMAND, which is the hook the E
 `MarkerEditPlugin`'s PASTE handler already documents this and arms `splitExpected` by hand for the
 same reason.
 
-**Proposed fix**, which also subsumes the Enter fix rather than sitting beside it: teach
-`CharNode.insertNewAfter` to build a real continuation. Lexical's `$splitNodeAtPoint` hands it a
-`RangeSelection` whose anchor is an ELEMENT point on the span carrying the split index, so it can
-(a) insert the left half's closing glyph at that index, before the children about to move, and
-(b) return a continuation carrying the opening glyph with the right nesting and `closed` state.
-Lexical's own `newElement.append(firstToAppend, ...firstToAppend.getNextSiblings())` then completes
-the shape, and because `$splitNodeAtPoint` recurses up the inline ancestors it works at every nesting
-depth. The generic split becomes correct for EVERY caller — Enter, paste, programmatic — and
-`$splitParagraphAtCharStack` plus its INSERT_PARAGRAPH interception can be deleted.
+**Two ways to fix it, and they differ in blast radius.**
 
-Not done because it changes a `shared` node class used by all three apps and every marker mode
-(the glyph emission would have to be inferred from the span's existing children, the way
-`$buildContinuationCharSpan` infers it via `$charHasClosingGlyph`), and the plan specified the
-caller-side fix. It wants its own red-first pass, not a drive-by.
+*Narrow:* claim the paste path as well, the way Enter is claimed. Fixes only paste.
 
-### 6c. Caret placement after a paragraph split through a stack — structural-caret's
+*Wide, and what I would recommend:* teach `CharNode.insertNewAfter` to build a real continuation.
+Lexical's `$splitNodeAtPoint` hands it a `RangeSelection` whose anchor is an ELEMENT point on the
+span carrying the split index, so it can (a) insert the left half's closing glyph at that index,
+before the children about to move, and (b) return a continuation carrying the opening glyph with the
+right nesting and `closed` state. Lexical's own
+`newElement.append(firstToAppend, ...firstToAppend.getNextSiblings())` completes the shape, and
+because `$splitNodeAtPoint` recurses up the inline ancestors it works at every nesting depth. The
+generic split becomes correct for every caller, and `$splitParagraphAtCharStack` plus its
+INSERT_PARAGRAPH interception can be deleted.
 
-**Repro.** Standard view. `\p \wj \+nd thing\+nd*\wj*`. Caret between `thi` and `ng`. Enter.
+Everything that would change, i.e. every route into `CharNode.insertNewAfter`:
 
-**Now:** the content is correct (`\p \wj \+nd thi\+nd*\wj*` / `\p \wj \+nd ng\+nd*\wj*`) and
-the caret is an ELEMENT point on the new paragraph at child index 2 — the content boundary, just
-past the injected `[glyph, separator]` prefix and BEFORE the reopened `\wj`. Typing there inserts
-plain text ahead of the span rather than continuing inside it.
+| Route | Reached by | Today |
+| --- | --- | --- |
+| `insertParagraph()` via INSERT_PARAGRAPH_COMMAND | Enter | already fixed by the interception |
+| `insertParagraph()` called directly | multi-line plain-text paste | broken, measured above |
+| `insertNodes()` CASE 3 (`$wrapInlineNodes` → `insertParagraph()`) | pasting block/rich content mid-span | same generic split, unverified |
+| `insertNodes()` CASE 2 (all-inline nodes) | inserting an inline node at a caret inside a span — e.g. a verse marker | measured: `\p \nd thi\nd*` + verse mid-word ends as `\p \nd thi \v 5 ng\nd*`, i.e. the split happens, the continuation is unwrapped, and a Tier-2 rebuild re-tokenizes the damaged bytes and swallows the verse INTO the span |
 
-**Why it is that shape.** `$splitParagraphAtCharStack` leaves an element point at offset 0 on the new
-paragraph — the same shape `RangeSelection.insertParagraph` leaves — because that is what
-`$injectMarkerPrefix` recognizes in order to move the caret to the content side of the prefix it is
-about to splice in. `$placeCaretAtBoundary` then deliberately uses an element point for element
-content ("a leading red-letter `\wj` CharNode" is its own example).
+The last row is the reason to prefer the wide fix: the narrow one leaves it. I have not verified what
+the wide fix produces there — that needs its own red-first pass.
 
-**The question for that track:** should the caret descend INTO the reopened span's content (past its
-separator, like `$selectBreakPoint` does for the in-note break) when the new paragraph's first child
-is a char span? I did not change it because element-point caret placement at a paragraph boundary is
-a general convention, not a char-stack decision, and the plan assigns bug 1's caret symptom there.
-Note that the ORIGINAL symptom the plan describes — "caret landing at the end of the new paragraph",
-caused by the unwrap's reinsertion loop dragging an element point — is gone, because the split no
-longer produces a span for the unwrap to run on.
+**View modes.** `insertNewAfter` cannot see `ViewOptions`, so it must infer glyph emission from the
+span's own children ("does `this` have an opening `MarkerNode` child"), the same inference
+`$buildContinuationCharSpan` makes via `$charHasClosingGlyph`. That is correct for **editable**
+(MarkerNode children present → emit) and **hidden** (none → emit none). **"visible" mode is a gap**:
+its marker bytes are `ImmutableTypedTextNode`s, not `MarkerNode`s, so the inference says "no glyphs"
+and the continuation comes out with no visible marker bytes. Not a regression — today it emits
+nothing either — but the wide fix would leave visible mode unimproved unless it also materializes
+that shape.
+
+### 6c — DONE. The caret continues the reopened style
+
+Owner decision: after Enter inside a char stack, typing continues the reopened run.
+
+```
+\p \wj \+nd thi|ng\+nd*\wj*     Enter, then type X
+
+before:  ["\p \wj \+nd thi\+nd*\wj*", "\p X\wj \+nd ng\+nd*\wj*"]
+after:   ["\p \wj \+nd thi\+nd*\wj*", "\p \wj \+nd Xng\+nd*\wj*"]
+```
+
+The caret now goes to the start of the reopened span's content, past its structural separator,
+descending to the innermost span — the same `$selectCharContentStart` rule the in-note `\fp` break
+uses. It is only reached when the new paragraph actually starts with a reopened span; when nothing
+reopened, the caret stays an element point at offset 0, which is the shape `$injectMarkerPrefix`
+recognizes in order to move it to the content side of the prefix it splices in.
+
+"Element point" is the Lexical selection form that addresses (element, child index) rather than
+(text node, character offset). `$placeCaretAtBoundary` uses one deliberately for a paragraph whose
+content starts with an element such as a char span — that convention is unchanged for every other
+caller; only this split path now descends past it.
 
 ### 6d. Cross-track finding, for the whitespace track
 
