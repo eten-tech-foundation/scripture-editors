@@ -4,6 +4,7 @@ import {
   $charNodeDeletionTransform,
   $noteDeletionTransform,
   $paraMarkerDeletionTransform,
+  $prepareReplaceSelection,
 } from "./markerEditDeletion.utils";
 import {
   $adoptDomCaretInExpandedNote,
@@ -38,6 +39,8 @@ import {
   COMMAND_PRIORITY_CRITICAL,
   COMMAND_PRIORITY_HIGH,
   COMMAND_PRIORITY_LOW,
+  COMMAND_PRIORITY_NORMAL,
+  CONTROLLED_TEXT_INSERTION_COMMAND,
   COPY_COMMAND,
   createCommand,
   CUT_COMMAND,
@@ -512,6 +515,19 @@ export function MarkerEditPlugin({
           return false;
         },
         COMMAND_PRIORITY_CRITICAL,
+      ),
+      editor.registerCommand(
+        CONTROLLED_TEXT_INSERTION_COMMAND,
+        () => {
+          // Typing over a glyph-touching selection performs the delete half here (see
+          // $prepareReplaceSelection). NORMAL priority: below structure protection's HIGH block
+          // (a protected selection must be refused before anything deletes it), above the
+          // default insertion at EDITOR; never claims the command.
+          if (editor.isComposing()) return false;
+          $prepareReplaceSelection(context);
+          return false;
+        },
+        COMMAND_PRIORITY_NORMAL,
       ),
       editor.registerCommand(
         CLICK_COMMAND,

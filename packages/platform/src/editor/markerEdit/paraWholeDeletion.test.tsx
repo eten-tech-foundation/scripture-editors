@@ -33,7 +33,9 @@ import {
   $getRoot,
   $getSelection,
   $isRangeSelection,
+  $isTextNode,
   $setSelection,
+  CONTROLLED_TEXT_INSERTION_COMMAND,
   CUT_COMMAND,
   KEY_DOWN_COMMAND,
   LexicalEditor,
@@ -157,6 +159,18 @@ describe("user deletes a paragraph's entire visible representation", () => {
       expect(paras).toHaveLength(1);
       expect(paras[0].getKey()).toBe(first.getKey());
       expect(first.getTextContent()).toContain("one");
+      // The caret lands at the END of the previous line — the deleted line's whole
+      // representation is gone, so the nearest surviving position is where typing continues.
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) throw new Error("no range selection after delete");
+      expect(selection.isCollapsed()).toBe(true);
+      const { anchor } = selection;
+      const atParaEnd =
+        anchor.type === "element"
+          ? anchor.key === first.getKey() && anchor.offset === first.getChildrenSize()
+          : anchor.getNode().is(first.getLastChild()) &&
+            anchor.offset === (first.getLastChild()?.getTextContentSize() ?? -1);
+      expect(atParaEnd).toBe(true);
     });
     // The deleted paragraph's marker must not reappear in the file.
     expect(paraMarkersOf(usjOf(editor))).toEqual(["p"]);
@@ -362,11 +376,12 @@ describe("user deletes a paragraph's entire visible representation", () => {
     });
   });
 
-  it("does not reap when a typed character replaces the selection instead of a delete key", async () => {
-    // Typing over a whole-paragraph selection is a REPLACEMENT, not a whole-representation
-    // delete: Lexical lands the typed text in the selection's anchor node — the marker glyph —
-    // so the engine reads it as a marker rename in progress (Tier 1's territory), and the
-    // paragraph must survive. The remove-owner path is delete keys only.
+  it("typing over a whole selected line replaces it: the character becomes previous-line content", async () => {
+    // Typing over a selection IS delete-the-selection-then-type. Covering all of `\q1 two` and
+    // typing `x` therefore removes the line's marker with the rest, so `x` has no paragraph of
+    // its own — it lands as plain content at the end of the previous line (`\p onex`). Without
+    // this, Lexical re-used the emptied marker-glyph node for the typed text and the engine
+    // read the replacement as a marker rename in progress.
     let second!: ParaNode;
     const { editor } = await testEnvironment(() => {
       ({ second } = $appendTwoParas());
@@ -382,16 +397,76 @@ describe("user deletes a paragraph's entire visible representation", () => {
         selection.anchor.set(glyph.getKey(), 0, "text");
         selection.focus.set(last.getKey(), last.getTextContentSize(), "text");
         $setSelection(selection);
-        const live = $getSelection();
-        if (!$isRangeSelection(live)) throw new Error("no range selection");
-        live.insertText("x");
+        editor.dispatchCommand(CONTROLLED_TEXT_INSERTION_COMMAND, "x");
       }),
     );
 
     editor.getEditorState().read(() => {
-      expect(second.isAttached()).toBe(true); // a replacement is not a whole-representation delete
-      expect(second.getTextContent()).toContain("x");
-      expect($getRoot().getChildren().filter($isParaNode)).toHaveLength(2);
+      expect(second.isAttached()).toBe(false);
+      const paras = $getRoot().getChildren().filter($isParaNode);
+      expect(paras).toHaveLength(1);
+      const text = paras[0].getTextContent();
+      expect(text).toContain("one");
+      expect(text).toContain("x");
+      expect(text.indexOf("one")).toBeLessThan(text.indexOf("x"));
+      // No node still carries the deleted line's marker.
+      expect(
+        paras[0]
+          .getChildren()
+          .filter($isMarkerNode)
+          .map((glyphNode) => glyphNode.getMarker()),
+      ).toEqual(["p"]);
+      // The caret sits right after the typed character, ready to keep typing.
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) throw new Error("no range selection after typing");
+      expect(selection.isCollapsed()).toBe(true);
+      const anchorNode = selection.anchor.getNode();
+      expect(
+        $isTextNode(anchorNode)
+          ? anchorNode.getTextContent().charAt(selection.anchor.offset - 1)
+          : undefined,
+      ).toBe("x");
+    });
+    expect(paraMarkersOf(usjOf(editor))).toEqual(["p"]);
+  });
+
+  it("typing over a selection that spared the backslash joins the character to it", async () => {
+    // Selecting `q1 two` — everything but the marker's backslash — and typing `x` deletes the
+    // selection and adds the character: the surviving `\` and the typed `x` make the bytes
+    // `\p one` + `\x`, a mid-edit marker literal for the resolution machinery to settle later.
+    // This pins only the delete-then-type byte outcome and the caret, not the settle.
+    let second!: ParaNode;
+    const { editor } = await testEnvironment(() => {
+      ({ second } = $appendTwoParas());
+    });
+
+    await act(async () =>
+      editor.update(() => {
+        const glyph = second.getFirstChild();
+        if (!$isMarkerNode(glyph)) throw new Error("expected the paragraph's marker glyph");
+        const last = second.getLastChild();
+        if (last === null) throw new Error("expected paragraph content");
+        const selection = $createRangeSelection();
+        selection.anchor.set(glyph.getKey(), 1, "text"); // after the `\`
+        selection.focus.set(last.getKey(), last.getTextContentSize(), "text");
+        $setSelection(selection);
+        editor.dispatchCommand(CONTROLLED_TEXT_INSERTION_COMMAND, "x");
+      }),
+    );
+
+    editor.getEditorState().read(() => {
+      expect(second.isAttached()).toBe(true);
+      const glyph = second.getFirstChild();
+      expect($isMarkerNode(glyph) ? glyph.getTextContent() : undefined).toBe("\\x");
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) throw new Error("no range selection after typing");
+      expect(selection.isCollapsed()).toBe(true);
+      expect(
+        selection.anchor
+          .getNode()
+          .getTextContent()
+          .charAt(selection.anchor.offset - 1),
+      ).toBe("x");
     });
   });
 });

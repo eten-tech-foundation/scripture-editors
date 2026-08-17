@@ -221,6 +221,30 @@ export function $armWholeParaDeletion(context: MarkerEditContext): void {
   for (const para of $parasFullyCoveredBySelection(selection)) expected.add(para.getKey());
 }
 
+/**
+ * Deletion driver, replacement arm: typing over a non-collapsed selection IS
+ * delete-the-selection-then-type, so a replacement whose selection covers marker-glyph bytes
+ * performs the delete half HERE — the same arming as the delete keys, then `removeText()` —
+ * and leaves the insertion to the default handler at the collapsed caret. Without this,
+ * Lexical lands the typed text in the selection's anchor node: a fully-covered marker glyph is
+ * resurrected carrying the typed character as its "renamed" text, so typing over a whole
+ * `\q1 two` line produced a rename-in-progress paragraph instead of deleting it. A selection
+ * that touches no glyph is left to the stock replacement, which is already delete-then-insert
+ * for plain content; a PARTIALLY covered glyph keeps its surviving bytes and the typed text
+ * joins them (`\` + typed `x` → the pending literal `\x`), exactly as delete-then-type implies.
+ *
+ * Mutating (arms context state and removes the selected text): call from a
+ * CONTROLLED_TEXT_INSERTION_COMMAND handler registered above the default insertion and below
+ * structure protection's block, never claiming the command.
+ */
+export function $prepareReplaceSelection(context: MarkerEditContext): void {
+  const selection = $getSelection();
+  if (!$isRangeSelection(selection) || selection.isCollapsed()) return;
+  if (!selection.getNodes().some((node) => $isMarkerNode(node))) return;
+  $armWholeParaDeletion(context);
+  selection.removeText();
+}
+
 export function $paraMarkerDeletionTransform(para: ParaNode, context: MarkerEditContext): void {
   // Branch order is load-bearing. Heal-first is the termination anchor: injecting a prefix
   // (below) re-dirties the paragraph and re-enters this transform, and that re-entry must land
