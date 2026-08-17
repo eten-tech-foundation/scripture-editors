@@ -39,6 +39,7 @@ import {
 import {
   $caretHoldsRunSite,
   $charClosingGlyph,
+  $hasCaretHeldSeparatorGap,
   $isAttributeRunNode,
   $isBookNode,
   $isCanonicalMarkerNode,
@@ -133,7 +134,19 @@ export function $textNodeTier2Transform(node: TextNode, context: MarkerEditConte
     // every save warns (the third live bug). Own-key pend: the caret-node exception graces it
     // mid-typing, and departure's paragraph rebuild folds the bytes onto the verse (attrCapture).
     else if ($verseOfAttributeSourceText(node)) context.pendingKeys.add(node.getKey());
-    else context.pendingKeys.delete(node.getKey());
+    else {
+      // Deleting a char opener's NBSP separator OUT OF ITS PREFIX position is a leaf-only edit:
+      // the span's own element transform (the plugin's CharNode pend) does not run for it, so
+      // without reporting the gap from the text side here nothing ever pends the span — the
+      // deletion neither healed nor renamed, and the byte silently resurrected from node state
+      // on the next save. Pend the OWNING SPAN's key (the same key the element-side pend uses);
+      // departure settles it through the tokenize-identity routing. The standalone-spacer
+      // deletion shape structurally dirties the span and never needs this arm.
+      const parent = node.getParent();
+      if ($isCharNode(parent) && $hasCaretHeldSeparatorGap(parent))
+        context.pendingKeys.add(parent.getKey());
+      context.pendingKeys.delete(node.getKey());
+    }
     return;
   }
   // The para-prefix trailing-space node is NOT exempt: it only

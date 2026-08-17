@@ -38,12 +38,14 @@
  */
 
 import { $isMarkerNode, MarkerNode } from "../features/MarkerNode.js";
+import { textTypeState } from "../collab/delta.state.js";
 import { CharNode } from "./CharNode.js";
 import { $charGlyphNestedValue } from "./nestedGlyphs.utils.js";
 import { NBSP } from "./node-constants.js";
 import {
   $createTextNode,
   $getSelection,
+  $getState,
   $isRangeSelection,
   $isTextNode,
   LexicalNode,
@@ -71,12 +73,38 @@ function $openerSeparatorGap(opener: MarkerNode, char: CharNode): "prefix" | "sp
     // glyph (the span's own closer on a degenerate empty span) takes none.
     return $charGlyphNestedValue(next, char) === true ? "spacer" : undefined;
   }
-  // Plain text directly after the glyph carries the separator as its prefix. TextNode SUBCLASSES
-  // (VerseNode) render their own marker text and fall through to the spacer case.
-  if ($isTextNode(next) && next.getType() === TextNode.getType())
+  // Plain text directly after the glyph carries the separator as its prefix — except a char
+  // attribute display run's `|…` text (textType "attribute"), whose bytes are engine-owned
+  // canonical output: prefixing an NBSP INTO it would corrupt the run, so it takes a standalone
+  // spacer like element content. TextNode SUBCLASSES (VerseNode) render their own marker text
+  // and fall through to the spacer case.
+  if (
+    $isTextNode(next) &&
+    next.getType() === TextNode.getType() &&
+    $getState(next, textTypeState) !== "attribute"
+  )
     return next.getTextContent().startsWith(NBSP) ? undefined : "prefix";
-  // Element content (nested char span, note, milestone, verse): standalone NBSP spacer.
+  // Element content (nested char span, note, milestone, verse) and attribute-run text:
+  // standalone NBSP spacer.
   return "spacer";
+}
+
+/**
+ * The displayed bytes immediately after `char`'s first missing-separator site, or `undefined`
+ * when every opening glyph's separator is present (or none is owed). This is the input the
+ * tokenize-identity predicate (`separatorRemovalTokenizesIdentically`, the fragment tokenizer's
+ * sibling) needs to decide whether the missing byte may be healed in place or the bytes now mean
+ * something new and must re-tokenize. Read-only: call inside `editor.getEditorState().read(...)`
+ * or an update.
+ */
+export function $openerSeparatorGapFollowingBytes(char: CharNode): string | undefined {
+  if (!char.isAttached()) return undefined;
+  for (const child of char.getChildren()) {
+    if (!$isMarkerNode(child)) continue;
+    if ($openerSeparatorGap(child, char) === undefined) continue;
+    return child.getNextSibling()?.getTextContent() ?? "";
+  }
+  return undefined;
 }
 
 /**

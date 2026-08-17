@@ -128,6 +128,40 @@ function regularizeSpaces(text: string): string {
   return text.replace(WHITESPACE_RUN, (run) => (run.includes("\n") ? "\n" : " "));
 }
 
+/**
+ * The tokenize-identity predicate for an engine-owned separator: whether deleting the structural
+ * space that ends a marker's name leaves the surrounding bytes tokenizing IDENTICALLY, given the
+ * bytes that follow the separator. Defined here, beside {@link scanMarkerName}, because it IS that
+ * scan's rule read backwards — the two must never drift.
+ *
+ * | Following bytes | Without the separator | Same meaning? |
+ * | --- | --- | --- |
+ * | `\wj stuff` | `\nd\wj stuff` | yes — the name scan stops at `\` either way. Heal. |
+ * | `\|x="y"` | `\nd\|x="y"` | yes — the name scan stops at `\|` either way. Heal. |
+ * | `things` | `\ndthings` | no — the marker is now `ndthings`. Rename. |
+ * | `*stuff` | `\nd*stuff` | no — that is a CLOSING marker. Do not heal. |
+ *
+ * The `*` row is why this is defined by MEANING and not by a terminator character class: `*` is
+ * one of the scan's terminators, but it ends the token AND changes what the token is, so an
+ * allowlist built from terminators would wrongly heal it and silently prevent the user from
+ * typing a closer.
+ *
+ * The question is local — it depends only on the first following byte — so callers get an O(1)
+ * answer for the common shapes and fall back to a scoped re-tokenization only when this returns
+ * `false` (the bytes then genuinely mean something new).
+ *
+ * @param followingBytes - The displayed bytes immediately after the separator's site.
+ * @returns `true` when removing the separator cannot change the token stream.
+ */
+export function separatorRemovalTokenizesIdentically(followingBytes: string): boolean {
+  if (followingBytes.length === 0) return true;
+  const ch = followingBytes[0];
+  if (ch === "*") return false; // completes a closing marker
+  if (ch === "\\" || ch === "|") return true; // the name scan stops here either way
+  if (/[\s\u200B]/.test(ch)) return true; // more whitespace: the run still separates
+  return false; // a name character: the marker name grows through it
+}
+
 /** Marker name chars per PT9 scan: stop at `\`, `|`, whitespace; `*` ends and is included. */
 function scanMarkerName(fragment: string, start: number): { name: string; next: number } {
   let index = start;

@@ -21,6 +21,7 @@ import {
   $isMarkerNode,
   $isMarkerTrailingSeparator,
   $isSynthesizedMarkerNode,
+  $paraPrefixSeparatorCaretHeld,
   $isParaNode,
   $placeCaretAtBoundary,
   canonicalAttributeText,
@@ -110,15 +111,24 @@ export function $setParaMarkerWithPrefix(para: ParaNode, marker: string): void {
 
 /**
  * Re-asserts the marker-trailing NBSP separator between an intact paragraph prefix glyph and the
- * content. The separator is presentation scaffolding OWNED by the engine, so any edit that eats
- * it (a forward-delete at the glyph's end, a selection that swallowed it, …) heals on the next
- * transform pass instead of leaving a separator-less prefix — which broke the `[glyph, separator,
- * content]` layout every caret/retag computation assumes (live-observed: retag caret jumping to
- * the paragraph end, "the space after the marker keeps disappearing"). A user-typed plain
- * space/NBSP right after the glyph is intent for the same separator and is canonicalized in
- * place rather than doubled.
+ * content. The separator is presentation scaffolding OWNED by the engine, so machine drift that
+ * eats it (a selection edit that swallowed it alongside real content, a restructure that dropped
+ * it, …) heals on the next transform pass instead of leaving a separator-less prefix — which
+ * broke the `[glyph, separator, content]` layout every caret/retag computation assumes
+ * (live-observed: retag caret jumping to the paragraph end, "the space after the marker keeps
+ * disappearing"). A user-typed plain space/NBSP right after the glyph is intent for the same
+ * separator and is canonicalized in place rather than doubled — byte-identical either way, since
+ * the USFM writer emits this space structurally.
+ *
+ * A deletion whose site still holds the collapsed caret is a USER edit, not drift: it gets
+ * mid-edit grace (nothing healed) and the paragraph pends, so caret departure settles it by
+ * re-tokenizing the displayed bytes — `\q2` directly before `body` really does mean the marker
+ * `q2body`, while `\p` directly before `\nd` tokenizes identically and heals. The same
+ * tokenize-identity rule the char opener separator follows
+ * (`separatorRemovalTokenizesIdentically`, `shared`), reached here through the paragraph-scoped
+ * rebuild.
  */
-function $healMarkerTrailingSeparator(para: ParaNode): void {
+function $healMarkerTrailingSeparator(para: ParaNode, context: MarkerEditContext): void {
   const glyph = para.getFirstChild();
   if (!glyph) return;
   const second = glyph.getNextSibling();
@@ -134,6 +144,10 @@ function $healMarkerTrailingSeparator(para: ParaNode): void {
     second.setMode("token");
     return;
   }
+  if ($paraPrefixSeparatorCaretHeld(para)) {
+    context.pendingKeys.add(para.getKey());
+    return;
+  }
   glyph.insertAfter($createMarkerTrailingSeparator());
 }
 
@@ -143,7 +157,7 @@ export function $paraMarkerDeletionTransform(para: ParaNode, context: MarkerEdit
   // here and stop — with the injection branch checked first, every re-entry re-injected and the
   // transform looped endlessly.
   if ($isSynthesizedMarkerNode(para.getFirstChild())) {
-    $healMarkerTrailingSeparator(para);
+    $healMarkerTrailingSeparator(para, context);
     return;
   }
 
