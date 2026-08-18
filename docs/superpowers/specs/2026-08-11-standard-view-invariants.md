@@ -218,6 +218,7 @@ semantics below are unchanged from the original ratified table; only the PASSIVE
 | Marker chosen | whatever was literally typed (the palette query) | whatever is highlighted |
 | Unknown marker | settles as unknown (the materialized literal settles as typed) | cannot commit one not in the list |
 | `\f` specifically | commits like Enter (emergent from the tokenizer: `\f ` tokenizes to the full note) | commits |
+| Zero matches (typed filter matches nothing) | commits the typed text as the marker and closes (unknown settles as typed) | **no-op — the palette stays open** (Backspace widens the filter, Space commits typed, Escape closes) |
 | Escape | **closes the palette, document untouched** | **closes the palette, document untouched** |
 | Space over a non-collapsed selection | wraps the selection in the typed marker's closed span (exact match against the offered entries; a marker not offered refuses visibly — palette closed, selection intact) | n/a (Enter commits the highlighted item, wrapping the selection) |
 
@@ -225,6 +226,13 @@ semantics below are unchanged from the original ratified table; only the PASSIVE
 typed literal". That row described the passive palette, where the literal was already in the
 document before Escape; under the active palette nothing lands, so Escape leaves the document
 byte-identical. This is a deliberate ratified-table update, not a regression.
+
+**Zero-match row (2026-08-18, owner-directed, P9 parity — revises the earlier zero-candidate
+dismiss):** in Paratext 9, Enter over a palette with zero matches does nothing and the palette
+stays open — that was intentional; Space inserts the typed marker and closes; Escape closes
+without inserting. The earlier behavior (Enter dismissing the zero-match palette) was this
+project's invention and is retired. Applies to both the `\` palette and the Enter-triggered
+paragraph menu.
 
 The former defect row — "Space with a non-collapsed selection does nothing" — was fixed by the
 residual-backlog palette group (Space wraps like Enter, closed span) and holds under the active

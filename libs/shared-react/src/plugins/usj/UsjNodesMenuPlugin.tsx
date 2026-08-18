@@ -227,17 +227,18 @@ function EditableMarkerMenu({
         KEY_DOWN_COMMAND,
         (event) => {
           if (menuState) {
-            // A commit with nothing to commit closes the palette, the same teardown Escape
-            // gets. `useMenuCore`'s select() silently returns when the filtered list is empty —
-            // never reaching the onSelectOption call that carries the close — so without this
-            // the overlay stays mounted over an empty list and no further keystroke resolves it.
+            // P9 parity (owner-directed, revising the earlier zero-candidate dismiss): a commit
+            // with nothing to commit is a NO-OP and the palette stays open — the user can
+            // Backspace the filter wider, Space-commit the typed marker, or Escape out. The key
+            // is still claimed here because `useMenuCore`'s select() silently returns on an
+            // empty list — an unclaimed Enter would fall through and split the paragraph under
+            // the open palette.
             if (
               (event.key === "Enter" || event.key === "Tab") &&
               filterRef.current.options.length === 0
             ) {
               event.preventDefault();
               event.stopPropagation();
-              setMenuState(undefined);
               return true;
             }
             // Otherwise Space is the `\` palette's COMMIT key ("commit what was typed"); every
