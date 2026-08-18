@@ -198,6 +198,50 @@ describe("typed characters at verse boundaries", () => {
       "\\ Da",
     ]);
   });
+
+  it("fabricates no space anywhere when a backslash is typed right after the number", async () => {
+    // The reported repro: `\v 2 Da`, type `\` right after the `2` — a space was said to be
+    // fabricated next to the typed character. This mount carries the FULL transform trio
+    // (CharNodePlugin + MarkerEditPlugin + TextSpacingPlugin), so both historical fabrication
+    // sources ($addTrailingSpace and $verseNodeTransform's space-before-verse insertion) are
+    // live. Pinned byte-for-byte: the ONLY spaces anywhere — on screen and in the USJ — are the
+    // paragraph prefix's separator, the verse glyph's own structural bytes, and the former
+    // display space the extraction turns into content (`\ Da`). Green means the fabricated-space
+    // half of the verse-adjacent repro is MOOT under the rewritten transforms.
+    let verse: VerseNode;
+    const { editor } = await mount(() => {
+      verse = $createVerseNode("2", getVisibleOpenMarkerText("v", "2"));
+      $getRoot().append(
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createMarkerTrailingSeparator(),
+          verse,
+          $createTextNode("Da"),
+        ),
+      );
+    });
+    // `\v 2|` — right after the number, before the glyph's display space.
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    await typeTextAtSelection(editor, "\\", verse!, 4);
+
+    editor.getEditorState().read(() => {
+      // On-screen bytes of the whole paragraph, exactly: `\p ` prefix (NBSP separator),
+      // canonical verse glyph `\v 2 `, then the extracted `\ Da`. No other byte fabricated.
+      const para = $getRoot().getChildren().filter($isParaNode)[0];
+      expect(para.getTextContent()).toBe(`\\p${NBSP}${getVisibleOpenMarkerText("v", "2")}\\ Da`);
+    });
+    // Whole-document USJ, deep-equal: nothing beyond the one paragraph, and no space beyond
+    // the structural leading-attribute space the USFM writer emits regardless.
+    initializeDeserialize(undefined);
+    const usj = deserializeSerializedEditorState(editor.getEditorState().toJSON(), viewOptions);
+    expect(usj?.content).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [{ type: "verse", marker: "v", number: "2" }, "\\ Da"],
+      },
+    ]);
+  });
 });
 
 describe("typed space at the char opener separator", () => {
