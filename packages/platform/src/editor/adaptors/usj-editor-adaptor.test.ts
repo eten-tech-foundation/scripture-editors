@@ -64,6 +64,9 @@ import {
   isSerializedBookNode,
   isSerializedCharNode,
   isSerializedImmutableChapterNode,
+  isSerializedImmutableTableCellNode,
+  isSerializedImmutableTableNode,
+  isSerializedImmutableTableRowNode,
   isSerializedImmutableTypedTextNode,
   isSerializedMarkerNode,
   isSerializedMilestoneNode,
@@ -71,6 +74,7 @@ import {
   isSerializedParaNode,
   isSerializedTextNode,
   isSerializedUnknownNode,
+  MARKER_TRAILING_SPACE_TEXT_TYPE,
   MarkerNode,
   NBSP,
   NoteNode,
@@ -1962,5 +1966,82 @@ describe("unknown-node display (USFM byte runs, editable mode)", () => {
     });
     expect(hiddenChildren).toHaveLength(1);
     expect(hiddenChildren.some(isSerializedImmutableTypedTextNode)).toBe(false);
+  });
+});
+
+/**
+ * Twin pin for the three editable marker-prefix separators: a paragraph's, a table row's, and a
+ * table cell's. All three are the same thing — the structural NBSP after a block marker's glyph —
+ * so all three must serialize with the same node shape.
+ *
+ * The shape is load-bearing, not cosmetic. A separator that is not tagged
+ * `marker-trailing-space` is indistinguishable in `NodeState` from an ordinary content text node,
+ * and Lexical's first normalization pass merges adjacent simple text nodes with equal state: the
+ * separator fuses into the neighboring content, serialization's exact-NBSP drop can no longer see
+ * it, and a display byte leaks into USJ as a data space. That is how collapsed notes gained a
+ * spurious space. Token mode is the second half — it makes the separator atomic, so a caret steps
+ * over it and a delete removes it whole rather than editing inside a byte the user does not own.
+ */
+describe("editable marker-prefix separators are one shape", () => {
+  /** A paragraph plus a one-row, one-cell table, as the adaptor receives them. */
+  const tableUsj: Usj = {
+    ...EMPTY_USJ,
+    content: [
+      { type: "para", marker: "p", content: ["body"] },
+      {
+        type: "table",
+        content: [
+          {
+            type: "table:row",
+            marker: "tr",
+            content: [{ type: "table:cell", marker: "tc1", content: ["cell"] }],
+          },
+        ],
+      },
+    ] as MarkerObject[],
+  };
+
+  /** The separator directly after a block node's opening marker glyph (its second child). */
+  function separatorOf(children: SerializedLexicalNode[]): SerializedTextNode {
+    const separator = children[1];
+    if (!isSerializedTextNode(separator)) throw new Error("no separator text node found");
+    return separator;
+  }
+
+  it("gives the para, row, and cell separators the same tag and token mode", () => {
+    initialize(undefined, undefined);
+    reset();
+    const state = serializeEditorState(tableUsj, getViewOptions(STANDARD_VIEW_MODE));
+
+    const [para, table] = state.root.children;
+    if (!isSerializedParaNode(para)) throw new Error("no para node found");
+    if (!isSerializedImmutableTableNode(table)) throw new Error("no table node found");
+    const row = table.children[0];
+    if (!isSerializedImmutableTableRowNode(row)) throw new Error("no table row found");
+    const cell = row.children.find(isSerializedImmutableTableCellNode);
+    if (!cell) throw new Error("no table cell found");
+
+    // The para prefix is the reference shape the other two must match.
+    const paraSeparator = separatorOf(para.children);
+    expect(paraSeparator.text).toBe(NBSP);
+    expect(paraSeparator.mode).toBe("token");
+    expect(paraSeparator[NODE_STATE_KEY]).toEqual({ textType: MARKER_TRAILING_SPACE_TEXT_TYPE });
+
+    // Labelled so a failure names which of the two diverged.
+    const shapes = [
+      ["row", separatorOf(row.children)],
+      ["cell", separatorOf(cell.children)],
+    ] as const;
+    expect(
+      shapes.map(([name, separator]) => [
+        name,
+        separator.text,
+        separator.mode,
+        separator[NODE_STATE_KEY],
+      ]),
+    ).toEqual([
+      ["row", NBSP, "token", { textType: MARKER_TRAILING_SPACE_TEXT_TYPE }],
+      ["cell", NBSP, "token", { textType: MARKER_TRAILING_SPACE_TEXT_TYPE }],
+    ]);
   });
 });
