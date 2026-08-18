@@ -532,6 +532,56 @@ describe("$applyMarkerMenuSelection", () => {
       });
     });
 
+    it("wraps a whitespace-only selection: the space IS the span's content, no empty pair", async () => {
+      // Select the space in `\p one two`, apply `\nd`. The leading-space move exists to keep a
+      // WORD's leading space outside the span it starts; a space that is the node's entire
+      // content is not a leading space. Trimming it anyway emptied the wrapped node — the
+      // selected space walked out of the span and an empty `\nd \nd*` pair landed in the file
+      // while the screen showed nothing happened (the no-silent-no-op rule).
+      let text: TextNode;
+      const { editor } = await testEnvironment(() => {
+        const para = $createParaNode("p");
+        text = $createTextNode("one two");
+        $getRoot().append(para.append($createMarkerNode("p"), $createTrailingSpaceNode(), text));
+      });
+      await act(async () => editor.update(() => text.select(3, 4))); // the space between the words
+
+      const item: MarkerMenuItem = { marker: "nd", kind: "character", isBasic: true };
+      await act(async () =>
+        editor.update(() => {
+          $applyMarkerMenuSelection(
+            item,
+            { trigger: "backslash", literalPrefixLanded: false },
+            reference,
+            makeDeps(),
+          );
+        }),
+      );
+
+      editor.getEditorState().read(() => {
+        const para = requireDefined(
+          $getRoot().getChildren().filter($isParaNode)[0],
+          "para missing",
+        );
+        const chars = para.getChildren().filter($isCharNode);
+        expect(chars).toHaveLength(1);
+        const nd = chars[0];
+        expect(nd.getMarker()).toBe("nd");
+        // Closed span with both glyphs, whose content is exactly the selected space (behind the
+        // structural NBSP separator every editable span's first content carries).
+        expect(nd.getChildren().filter($isMarkerNode)).toHaveLength(2);
+        const content = nd
+          .getChildren()
+          .find((c): c is TextNode => $isTextNode(c) && !$isMarkerNode(c));
+        expect(content?.getTextContent()).toBe(`${NBSP} `);
+        // The space did not walk out of the span: the flanking words are unchanged, with no
+        // fabricated space before the span.
+        const [before, after] = [nd.getPreviousSibling(), nd.getNextSibling()];
+        expect($isTextNode(before) && before.getTextContent()).toBe("one");
+        expect($isTextNode(after) && after.getTextContent()).toBe("two");
+      });
+    });
+
     it("wraps a MULTI-node selection without deleting earlier content (reused-wrapper regression)", async () => {
       let first: TextNode;
       let last: TextNode;

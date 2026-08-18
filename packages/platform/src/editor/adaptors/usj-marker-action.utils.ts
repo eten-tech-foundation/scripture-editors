@@ -803,7 +803,11 @@ function $wrapNode(node: LexicalNode, wrapper: LexicalNode, isFreshWrapper: bool
 
 function $moveLeadingSpaceToPreviousNode(node: LexicalNode, wrapper: LexicalNode): string {
   let text = node.getTextContent();
-  if ($isTextNode(node) && wrapper.isInline() && text.startsWith(" ")) {
+  // Only a space that LEADS other content moves out; a space that IS the node's entire content is
+  // the content. Trimming it anyway emptied the wrapped node — wrapping a whitespace-only
+  // selection walked the selected space out of the span and left an empty `\nd \nd*` pair in the
+  // file while the screen showed nothing happened (a silent no-op, which Standard view forbids).
+  if ($isTextNode(node) && wrapper.isInline() && text.startsWith(" ") && text.trimStart() !== "") {
     text = text.trimStart();
     node.setTextContent(text);
     const previousNode = wrapper.getPreviousSibling();
