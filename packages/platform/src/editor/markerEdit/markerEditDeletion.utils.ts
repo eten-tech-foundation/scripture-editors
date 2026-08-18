@@ -298,6 +298,14 @@ export function $prepareReplaceSelection(context: MarkerEditContext): void {
 }
 
 export function $paraMarkerDeletionTransform(para: ParaNode, context: MarkerEditContext): void {
+  // Surfaces that opted out of paragraph marker prefixes (`showParaMarkerPrefixes: false`, e.g.
+  // a footnote-editor popover whose lone paragraph is scaffolding) render no glyph for this
+  // transform to police: a prefix-less paragraph is the CANONICAL shape there, not evidence the
+  // user deleted its marker. Every branch below either heals a prefix or reacts to a missing one
+  // (inject, merge into the previous paragraph, reset-with-prefix — each re-materializing the
+  // bytes the option promises are never built), so the whole transform stands down.
+  if (context.viewOptions.showParaMarkerPrefixes === false) return;
+
   // Branch order is load-bearing. Heal-first is the termination anchor: injecting a prefix
   // (below) re-dirties the paragraph and re-enters this transform, and that re-entry must land
   // here and stop — with the injection branch checked first, every re-entry re-injected and the

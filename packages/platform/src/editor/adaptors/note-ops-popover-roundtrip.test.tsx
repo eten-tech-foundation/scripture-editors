@@ -58,11 +58,15 @@ const hostOptions: EditorOptions = {
   hasExternalUI: true,
 };
 
-// Options exactly as FootnoteEditor's memo produces them (spread + noteMode override).
+// Options exactly as FootnoteEditor's memo produces them (spread + noteMode override + the
+// scaffold paragraph's marker prefix suppressed). Keeping `showParaMarkerPrefixes: false` here
+// also makes this suite the byte-identity proof for that option: the ops/USJ fixed points below
+// hold with no prefix rendered, so suppressing the display prefix changes nothing about what the
+// popover Save path writes.
 const popoverOptions: EditorOptions = {
   ...hostOptions,
   contextMenu: undefined,
-  view: { ...hostView, noteMode: "expanded" },
+  view: { ...hostView, noteMode: "expanded", showParaMarkerPrefixes: false },
 };
 
 /** The popover's default document (FootnoteEditor's `PARAGRAPH_USJ`). */

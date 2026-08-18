@@ -125,7 +125,7 @@ function $applyParagraphSelection(
     $retagParagraph(para, marker, viewOptions);
     return;
   }
-  $splitParagraphWithMarker(marker);
+  $splitParagraphWithMarker(marker, viewOptions);
 }
 
 /** Dependencies threaded through from `Editor.tsx`'s closure — the same values `insertMarker`
@@ -239,10 +239,16 @@ export function $applyMarkerMenuSelection(
  * reopened style), so the retag here must not re-park it: `$injectMarkerPrefix` alone only moves
  * a caret sitting at the paragraph's start, whereas `$setParaMarkerWithPrefix` would drag it
  * back to the content boundary ahead of the whole stack.
+ *
+ * When the view opted out of paragraph marker prefixes (`showParaMarkerPrefixes: false`), the
+ * new paragraph gets its marker state WITHOUT the visible prefix — the same stand-down as the
+ * deletion transform and `$applyParaMarker`, so no flow re-materializes bytes the option
+ * promises are never built.
  */
-export function $splitParagraphWithMarker(marker: string): void {
+export function $splitParagraphWithMarker(marker: string, viewOptions?: ViewOptions): void {
   const selection = $getSelection();
   if (!$isRangeSelection(selection)) return;
+  const showPrefix = viewOptions?.showParaMarkerPrefixes !== false;
 
   if ($splitParagraphAtCharStack()) {
     const after = $getSelection();
@@ -250,12 +256,13 @@ export function $splitParagraphWithMarker(marker: string): void {
     const newPara = $findNearestParaNode(after.anchor.getNode());
     if (!newPara) return;
     newPara.setMarker(marker);
-    $injectMarkerPrefix(newPara);
+    if (showPrefix) $injectMarkerPrefix(newPara);
     return;
   }
 
   const newPara = selection.insertParagraph();
   if (!$isParaNode(newPara)) return;
 
-  $setParaMarkerWithPrefix(newPara, marker);
+  if (showPrefix) $setParaMarkerWithPrefix(newPara, marker);
+  else newPara.setMarker(marker);
 }

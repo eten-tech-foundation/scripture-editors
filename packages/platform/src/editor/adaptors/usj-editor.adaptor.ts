@@ -467,21 +467,30 @@ function createPara(
   }
   marker = marker ?? PARA_MARKER_DEFAULT;
   const children: SerializedLexicalNode[] = [];
-  if (_viewOptions?.markerMode === "editable")
-    // The SERIALIZED twin of $createMarkerTrailingSeparator (node.utils.ts) — same tag, same
-    // token mode, and the doc there explains why. This is the only place the serialized form is
-    // built.
-    children.push(createMarker(marker), createText(NBSP, MARKER_TRAILING_SPACE_TEXT_TYPE, "token"));
-  else if (_viewOptions?.markerMode === "visible" || _viewOptions?.hasGutterParaMarkers)
-    // The gutter flag rides on the glyph, so whether this paragraph's marker is an aid in the
-    // gutter or inline text stays legible from the node alone, wherever it is read later.
-    children.push(
-      createImmutableTypedText(
-        "marker",
-        openingMarkerText(marker) + NBSP,
-        _viewOptions?.hasGutterParaMarkers,
-      ),
-    );
+  // Surfaces whose paragraph is scaffolding rather than content (the footnote editor wraps the
+  // note it edits in a marker-less para it never saves) opt out of the prefix entirely. Opting
+  // out here rather than hiding the glyph downstream is what keeps the caret out of it: bytes
+  // that are never built cannot be traversed.
+  if (_viewOptions?.showParaMarkerPrefixes !== false) {
+    if (_viewOptions?.markerMode === "editable")
+      // The SERIALIZED twin of $createMarkerTrailingSeparator (node.utils.ts) — same tag, same
+      // token mode, and the doc there explains why. This is the only place the serialized form is
+      // built.
+      children.push(
+        createMarker(marker),
+        createText(NBSP, MARKER_TRAILING_SPACE_TEXT_TYPE, "token"),
+      );
+    else if (_viewOptions?.markerMode === "visible" || _viewOptions?.hasGutterParaMarkers)
+      // The gutter flag rides on the glyph, so whether this paragraph's marker is an aid in the
+      // gutter or inline text stays legible from the node alone, wherever it is read later.
+      children.push(
+        createImmutableTypedText(
+          "marker",
+          openingMarkerText(marker) + NBSP,
+          _viewOptions?.hasGutterParaMarkers,
+        ),
+      );
+  }
   children.push(...childNodes);
   if (isStandardView()) {
     // Paragraph-leading spaces display as NBSP so they stay visible and typable at the start of

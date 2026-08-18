@@ -21,7 +21,10 @@ import { $syncParaMarkerGlyph, ViewOptions } from "shared-react";
  *   (a prefix-less one gets merged into the previous paragraph or reset to `\p` by the
  *   marker-deletion transform), so the prefix is injected together with the marker change; the
  *   caret moves to the content side of the new prefix, matching the split/menu flows this
- *   injection serves.
+ *   injection serves. EXCEPT when the view opted out of paragraph marker prefixes
+ *   (`showParaMarkerPrefixes: false`): prefix-less is the canonical editable-mode shape there
+ *   (the deletion transform stands down for the same reason), so the retag is a bare marker
+ *   state change like any other glyph-less tree.
  * - No glyph, any other mode: bare marker state change. Visible/gutter marker rendering is
  *   adaptor-serialized typed text, not an injectable glyph — injecting would corrupt those
  *   trees.
@@ -36,7 +39,11 @@ import { $syncParaMarkerGlyph, ViewOptions } from "shared-react";
  *   injected. Irrelevant when the paragraph already carries a glyph.
  */
 export function $applyParaMarker(para: ParaNode, marker: string, viewOptions?: ViewOptions): void {
-  if (!$isMarkerNode(para.getFirstChild()) && viewOptions?.markerMode === "editable") {
+  if (
+    !$isMarkerNode(para.getFirstChild()) &&
+    viewOptions?.markerMode === "editable" &&
+    viewOptions.showParaMarkerPrefixes !== false
+  ) {
     $setParaMarkerWithPrefix(para, marker);
     return;
   }
