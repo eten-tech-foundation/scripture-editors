@@ -5,12 +5,13 @@ import { NBSP } from "shared";
  * Fixtures are authored as USX and converted to USJ at test time via
  * `usxStringToUsj`, guaranteeing shape-valid USJ.
  *
- * Fixture USX must not contain newlines/indentation *within* running text
- * (i.e. inside a `<para>`'s inline content) because `usxStringToUsj`
- * preserves inter-element whitespace verbatim as text content; only
- * whitespace-only text between block-level siblings (e.g. between two
- * `<para>` elements) is safely discarded. Keep each `<para>`'s content on a
- * single line.
+ * Fixture whitespace rule: `usxStringToUsj` preserves whitespace-only text
+ * verbatim as document content unless it contains a line break, which marks
+ * it as XML formatting to drop. So newline+indent between block-level
+ * siblings (e.g. between two `<para>` elements) is safely discarded, but any
+ * spaces inside a `<para>`'s inline content are document bytes — keep each
+ * `<para>`'s content on a single line and author its inner spaces
+ * deliberately.
  */
 
 export interface CorpusFixture {
@@ -128,6 +129,17 @@ ${USX_FOOTER}`,
   <book code="FRT" style="id">Front matter</book>
   <periph id="title" alt="Title Page"><para style="mt1">The Title</para></periph>
 ${USX_FOOTER}`,
+  },
+  {
+    // Note-content spaces are CONTENT, not structure: only the caller's space is
+    // leading-attribute structure. A note authored WITHOUT spaces between its spans
+    // (`\f + \fr 2.0\fq stuff\ft text\f*`) must round-trip spaceless — the collapsed layout's
+    // NBSP spacers are view scaffolding, rebuilt at load and dropped at save, and must never
+    // surface as data spaces the file did not have.
+    name: "note without content spaces between spans",
+    usx: book(
+      `<para style="p"><verse number="1" style="v" />Text<note caller="+" style="f"><char style="fr" closed="false">2.0</char><char style="fq" closed="false">stuff</char><char style="ft" closed="false">text</char></note> after.</para>`,
+    ),
   },
   {
     name: "unclosed note (closed=false)",

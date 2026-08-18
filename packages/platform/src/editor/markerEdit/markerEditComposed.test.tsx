@@ -33,13 +33,17 @@ import {
   $isTextNode,
   $setState,
   KEY_DOWN_COMMAND,
+  LexicalEditor,
   SELECTION_CHANGE_COMMAND,
   TextNode,
 } from "lexical";
 import {
   $createCharNode,
   $createMarkerNode,
+  $createMarkerTrailingSeparator,
   $createParaNode,
+  $isImmutableUnmatchedNode,
+  $isMarkerTrailingSeparator,
   $isCharNode,
   $isMarkerNode,
   $isParaNode,
@@ -315,6 +319,223 @@ describe("MarkerEditPlugin + CharNodePlugin composed (separator deletion settles
       expect($isMarkerNode(children[0]) && children[0].getTextContent()).toBe("\\nd");
       expect($isTextNode(children[1]) && children[1].getTextContent()).toBe(NBSP);
       expect($isCharNode(children[2]) && children[2].getMarker()).toBe("wj");
+    });
+  });
+
+  /** One paragraph `\p x <char>` + a second `\p second` to depart into; returns key parts. */
+  function $charSeparatorFixture(charContentText: string): {
+    contentText: TextNode;
+    qText: TextNode;
+  } {
+    const contentText = $createTextNode(charContentText);
+    const qText = $createTextNode("second");
+    $getRoot().append(
+      $createParaNode("p").append(
+        $createMarkerNode("p"),
+        $createMarkerTrailingSeparator(),
+        $createTextNode("x "),
+        $createCharNode("nd").append(
+          $createMarkerNode("nd"),
+          contentText,
+          $createMarkerNode("nd", "closing"),
+        ),
+      ),
+      $createParaNode("p").append($createMarkerNode("p"), $createMarkerTrailingSeparator(), qText),
+    );
+    return { contentText, qText };
+  }
+
+  /** Delete `contentText`'s leading NBSP separator (caret at the deletion point), then depart
+   * to `qText` and drain the settle. */
+  async function deleteSeparatorAndDepart(
+    editor: LexicalEditor,
+    contentText: TextNode,
+    qText: TextNode,
+  ) {
+    await act(async () =>
+      editor.update(() => {
+        contentText.setTextContent(contentText.getTextContent().slice(1));
+        contentText.select(0, 0);
+      }),
+    );
+    await act(async () =>
+      editor.update(() => {
+        qText.select(0, 0);
+        editor.dispatchCommand(SELECTION_CHANGE_COMMAND, undefined);
+      }),
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+  }
+
+  it("deleting the separator before plain text renames the marker — the bytes say so", async () => {
+    // `\nd ⍽one\nd*` with the separator deleted reads `\ndone\nd*`: the tokenizer's name scan
+    // runs through `one` and the marker IS now `ndone` — restoring the byte would rewrite what
+    // the user wrote. `ndone` is unknown to the stylesheet, so it resolves positionally the way
+    // ParatextData resolves unknown tokens in body text: a real paragraph split.
+    let parts: ReturnType<typeof $charSeparatorFixture>;
+    const { editor } = await charComposedEnvironment(
+      () => (parts = $charSeparatorFixture(`${NBSP}one`)),
+    );
+
+    // `parts` defined by the test environment.
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    await deleteSeparatorAndDepart(editor, parts!.contentText, parts!.qText);
+
+    editor.getEditorState().read(() => {
+      expect($getRoot().getTextContent()).not.toContain(`\\nd${NBSP}`);
+      const paras = $getRoot().getChildren().filter($isParaNode);
+      expect(paras.some((para) => para.getMarker() === "ndone")).toBe(true);
+    });
+  });
+
+  it("deleting the separator before a `*` yields the closing marker, never a heal", async () => {
+    // `\nd ⍽*more\nd*` with the separator deleted reads `\nd*more\nd*` — and `\nd*` is a
+    // CLOSING marker (the name scan's `*` terminator ends the token AND changes its meaning).
+    // Healing the byte back would silently prevent the user from typing a closer, which is why
+    // the tokenize-identity rule is defined by meaning and not by a terminator character class.
+    let parts: ReturnType<typeof $charSeparatorFixture>;
+    const { editor } = await charComposedEnvironment(
+      () => (parts = $charSeparatorFixture(`${NBSP}*more`)),
+    );
+
+    // `parts` defined by the test environment.
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    await deleteSeparatorAndDepart(editor, parts!.contentText, parts!.qText);
+
+    editor.getEditorState().read(() => {
+      // No nd char span survives — both `\nd*` byte runs now mean closers, which settle to
+      // unmatched-closer elements around the freed text.
+      const paraChildren = $getRoot().getChildren().filter($isParaNode)[0].getChildren();
+      expect(paraChildren.filter($isCharNode)).toHaveLength(0);
+      const unmatched = paraChildren.filter($isImmutableUnmatchedNode);
+      expect(unmatched).toHaveLength(2);
+      expect(unmatched.every((node) => node.getMarker() === "nd*")).toBe(true);
+      expect(paraChildren.some((node) => node.getTextContent() === "more")).toBe(true);
+    });
+  });
+});
+
+describe("MarkerEditPlugin composed (para-prefix separator deletion)", () => {
+  /** `\q2 body text` + `\p second` to depart into. The prefix separator is the tagged token
+   * NBSP the adaptor builds. */
+  function $paraSeparatorFixture(): {
+    pPara: ParaNode;
+    pMarker: MarkerNode;
+    separator: TextNode;
+    qText: TextNode;
+  } {
+    const pPara = $createParaNode("q2");
+    const pMarker = $createMarkerNode("q2");
+    const separator = $createMarkerTrailingSeparator();
+    const qText = $createTextNode("second");
+    $getRoot().append(
+      pPara.append(pMarker, separator, $createTextNode("body text")),
+      $createParaNode("p").append($createMarkerNode("p"), $createMarkerTrailingSeparator(), qText),
+    );
+    return { pPara, pMarker, separator, qText };
+  }
+
+  it("deleting the prefix separator before text renames the paragraph marker on departure", async () => {
+    // `\q2⍽body text` with the separator deleted reads `\q2body text`: the name scan runs
+    // through `body` and stops at the space, so the marker IS now `q2body` with content `text`.
+    // Healing the byte back while the caret still holds the site would be healing against a
+    // user edit.
+    let parts: ReturnType<typeof $paraSeparatorFixture>;
+    const { editor } = await selectionComposedEnvironment(() => (parts = $paraSeparatorFixture()));
+
+    await act(async () =>
+      editor.update(() => {
+        parts.separator.remove();
+        parts.pMarker.select(
+          parts.pMarker.getTextContentSize(),
+          parts.pMarker.getTextContentSize(),
+        );
+      }),
+    );
+    // Mid-edit grace: the deletion sticks while the caret stays at the site.
+    editor.getEditorState().read(() => {
+      expect(parts.pPara.getTextContent()).toBe("\\q2body text");
+    });
+
+    await act(async () =>
+      editor.update(() => {
+        parts.qText.select(0, 0);
+        editor.dispatchCommand(SELECTION_CHANGE_COMMAND, undefined);
+      }),
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    editor.getEditorState().read(() => {
+      const paras = $getRoot().getChildren().filter($isParaNode);
+      expect(paras.some((para) => para.getMarker() === "q2body")).toBe(true);
+      expect(paras.some((para) => para.getMarker() === "q2")).toBe(false);
+    });
+  });
+
+  it("deleting the prefix separator before a char span heals back on departure", async () => {
+    // `\p⍽\nd …` with the separator deleted reads `\p\nd …` — the name scan stops at `\` either
+    // way, so the bytes tokenize identically and the engine-owned byte heals on departure.
+    let separator: TextNode;
+    let pPara: ParaNode;
+    let pMarker: MarkerNode;
+    let qText: TextNode;
+    const { editor } = await selectionComposedEnvironment(() => {
+      pPara = $createParaNode("p");
+      pMarker = $createMarkerNode("p");
+      separator = $createMarkerTrailingSeparator();
+      qText = $createTextNode("second");
+      $getRoot().append(
+        pPara.append(
+          pMarker,
+          separator,
+          $createCharNode("nd").append(
+            $createMarkerNode("nd"),
+            $createTextNode(`${NBSP}Lord`),
+            $createMarkerNode("nd", "closing"),
+          ),
+        ),
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createMarkerTrailingSeparator(),
+          qText,
+        ),
+      );
+    });
+
+    await act(async () =>
+      editor.update(() => {
+        separator.remove();
+        pMarker.select(pMarker.getTextContentSize(), pMarker.getTextContentSize());
+      }),
+    );
+    // Mid-edit grace: the deletion sticks while the caret stays at the site.
+    editor.getEditorState().read(() => {
+      expect(pPara.getChildren().some($isMarkerTrailingSeparator)).toBe(false);
+    });
+
+    await act(async () =>
+      editor.update(() => {
+        qText.select(0, 0);
+        editor.dispatchCommand(SELECTION_CHANGE_COMMAND, undefined);
+      }),
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    editor.getEditorState().read(() => {
+      const paras = $getRoot().getChildren().filter($isParaNode);
+      const para = paras.find((paraNode) => paraNode.getMarker() === "p");
+      if (!para) throw new Error("p para not found");
+      // Healed: glyph, separator, then the untouched char span.
+      const children = para.getChildren();
+      expect($isMarkerNode(children[0]) && children[0].getTextContent()).toBe("\\p");
+      expect($isMarkerTrailingSeparator(children[1])).toBe(true);
+      expect($isCharNode(children[2]) && children[2].getMarker()).toBe("nd");
     });
   });
 });

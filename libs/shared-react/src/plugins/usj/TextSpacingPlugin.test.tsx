@@ -334,7 +334,7 @@ describe("TextSpacingPlugin", () => {
     });
   });
 
-  it("should add a space if typing before a verse in a para starting with an UnknownNode", async () => {
+  it("should not add a space to typed text that lands before a block UnknownNode", async () => {
     let unknownTextNode: TextNode;
     const { editor } = await testEnvironment(() => {
       unknownTextNode = $createTextNode("wat-z");
@@ -357,7 +357,11 @@ describe("TextSpacingPlugin", () => {
       expect(para.getChildren()).toHaveLength(4);
       const textNode = para.getChildAtIndex(0);
       if (!$isTextNode(textNode)) throw new Error("Expected a TextNode");
-      expect(textNode.getTextContent()).toBe("d ");
+      // The typed text is moved out of the UnknownNode and sits before the unknown itself, not
+      // before the verse — and canonical USJ has NO engine space before a block unknown (the
+      // corpus figure fixture pins text loading unchanged next to one). An earlier revision
+      // expected "d " here, which was the fabrication defect itself.
+      expect(textNode.getTextContent()).toBe("d");
       $expectSelectionToBe(textNode, 1);
     });
   });
@@ -579,6 +583,52 @@ describe("TextSpacingPlugin", () => {
       if (!$isParaNode(para)) throw new Error("Expected a ParaNode");
       const space = para.getChildAtIndex(0);
       // The leading-space `//two` form must survive — not stripped to empty.
+      expect($isTextNode(space) && space.getTextContent() === " ").toBe(true);
+    });
+  });
+
+  it("should keep a lone space typed into an empty paragraph", async () => {
+    let para: ParaNode;
+    const { editor } = await testEnvironment(() => {
+      para = $createParaNode();
+      $getRoot().append(para);
+    });
+
+    // Type a space as the paragraph's first and only content. `para` defined by the test
+    // environment.
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    await typeTextAtSelection(editor, " ", para!, 0);
+
+    editor.getEditorState().read(() => {
+      const paraNow = $getRoot().getFirstChild();
+      if (!$isParaNode(paraNow)) throw new Error("Expected a ParaNode");
+      const space = paraNow.getChildAtIndex(0);
+      // The keystroke either changes the document or is refused — a typed space that vanishes on
+      // the next transform pass is the silent no-op Invariant I forbids. A paragraph-final space
+      // is also legal in the file: the USFM writer's newline consumes it.
+      expect($isTextNode(space) && space.getTextContent() === " ").toBe(true);
+    });
+  });
+
+  it("should keep a lone space-only TextNode at the end of a paragraph", async () => {
+    let spaceNode: TextNode;
+    const { editor } = await testEnvironment(() => {
+      spaceNode = $createTextNode(" ");
+      $getRoot().append(
+        $createParaNode().append($createCharNode("nd").append($createTextNode("Lord")), spaceNode),
+      );
+    });
+
+    // Force the transform to run on the space node. `spaceNode` defined by the test environment.
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    await act(async () => editor.update(() => spaceNode!.getWritable()));
+
+    editor.getEditorState().read(() => {
+      const para = $getRoot().getFirstChild();
+      if (!$isParaNode(para)) throw new Error("Expected a ParaNode");
+      const space = para.getChildAtIndex(1);
+      // A source file can carry `<char>Lord</char> ` — the USX parser preserves that space-only
+      // last child, so the transform deleting it on the first dirty pass would undo the load.
       expect($isTextNode(space) && space.getTextContent() === " ").toBe(true);
     });
   });

@@ -24,11 +24,14 @@ import {
   $isParaNode,
   $isVerseNode,
   $milestoneAttributeRunPieces,
+  $openerSeparatorGapFollowingBytes,
   $ownerOfRunPiece,
+  $paraPrefixSeparatorCaretHeld,
   $runDiverges,
   $runEntirelyAbsent,
   $runNeedsOnlyWrapMigration,
   $syncDisplayRun,
+  $syncOpenerSeparators,
   $verseAttributeRunPieces,
   AttributeRunNode,
   ChapterNode,
@@ -40,6 +43,7 @@ import {
   MarkerNode,
   MarkerType,
   NoteNode,
+  separatorRemovalTokenizesIdentically,
   VerseNode,
 } from "shared";
 
@@ -328,6 +332,15 @@ export function $settlePendedDisplayOwner(
   context: MarkerEditContext,
 ): { handled: boolean; mutated: boolean } {
   let mutated = false;
+  // Para-prefix separator grace, the same contract as the descriptor pre-pass below but for a
+  // pended PARAGRAPH (paras match no display-run descriptor): while the collapsed caret still
+  // holds the deleted separator's site, settling would re-tokenize the paragraph out from under
+  // the caret mid-gesture. Re-pend untouched; it settles once the caret has actually departed —
+  // the deletion transform's own grace ($healMarkerTrailingSeparator) is what pended it.
+  if ($isParaNode(node) && $paraPrefixSeparatorCaretHeld(node)) {
+    context.pendingKeys.add(node.getKey());
+    return { handled: true, mutated: false };
+  }
   // Grace PRE-PASS: every descriptor matching this node is checked for a caret-held run BEFORE any
   // settle action runs for ANY of them — a standing contract, not an artifact of iteration order. A
   // verse's `\va`/`\vp` are two INDEPENDENT runs sharing one pended owner identity; if `\va` rides
@@ -368,6 +381,22 @@ export function $settlePendedDisplayOwner(
   for (const wrapper of $emptyAttributeRunWrappers(node)) {
     wrapper.remove();
     mutated = true;
+  }
+  // Tokenize-identity routing for a deleted opener separator: restore the engine-owned byte iff
+  // the displayed bytes tokenize IDENTICALLY without it. When they do (`\nd` before `\`, `|`, or
+  // more whitespace), the deletion cannot mean anything and the O(1) in-place heal settles it —
+  // no paragraph rebuild. When they do not (`\ndthings` renames the marker; `\nd*` is a closing
+  // marker the user is entitled to), the gap is left for the re-tokenize fallback below, where
+  // the displayed bytes win. The predicate lives beside the tokenizer's own name scan
+  // (usfmFragmentToUsj.ts) so the two can never drift.
+  let separatorHealed = false;
+  if ($isCharNode(node)) {
+    const gapBytes = $openerSeparatorGapFollowingBytes(node);
+    if (gapBytes !== undefined && separatorRemovalTokenizesIdentically(gapBytes)) {
+      $syncOpenerSeparators(node);
+      separatorHealed = true;
+      mutated = true;
+    }
   }
   let handled = false;
   // A verse's `\va`/`\vp` pair and a milestone's single run both migrate loose-but-canonical bytes
@@ -422,7 +451,7 @@ export function $settlePendedDisplayOwner(
     if ($runDiverges(descriptor, descriptor.scanPieces(node), descriptor.expectedPieces(node)))
       hasGenuineDivergence = true;
   }
-  if (migrated && !hasGenuineDivergence) return { handled: true, mutated };
+  if ((migrated || separatorHealed) && !hasGenuineDivergence) return { handled: true, mutated };
   // `handled: false` here regardless of `mutated`: the caller no longer discards `mutated` on this
   // path (see `$resolvePendingMarkers`) — it still falls through to its own re-tokenize arm
   // ($requestTier2ForNode), the existing, already-safe default for an owner whose pend wasn't (or

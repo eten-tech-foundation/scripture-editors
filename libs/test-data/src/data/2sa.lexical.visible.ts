@@ -360,9 +360,12 @@ export const lexicalVisible2Sa: SerializedEditorState = {
                 text: " ",
                 detail: 0,
                 format: 0,
-                mode: "normal",
+                mode: "token",
                 style: "",
                 version: 1,
+                $: {
+                  textType: "marker-trailing-space",
+                },
               },
               {
                 type: "char",
@@ -397,9 +400,12 @@ export const lexicalVisible2Sa: SerializedEditorState = {
                 text: " ",
                 detail: 0,
                 format: 0,
-                mode: "normal",
+                mode: "token",
                 style: "",
                 version: 1,
+                $: {
+                  textType: "marker-trailing-space",
+                },
               },
               {
                 type: "char",
@@ -434,9 +440,12 @@ export const lexicalVisible2Sa: SerializedEditorState = {
                 text: " ",
                 detail: 0,
                 format: 0,
-                mode: "normal",
+                mode: "token",
                 style: "",
                 version: 1,
+                $: {
+                  textType: "marker-trailing-space",
+                },
               },
               {
                 type: "immutable-typed-text",
@@ -510,9 +519,12 @@ export const lexicalVisible2Sa: SerializedEditorState = {
                 text: " ",
                 detail: 0,
                 format: 0,
-                mode: "normal",
+                mode: "token",
                 style: "",
                 version: 1,
+                $: {
+                  textType: "marker-trailing-space",
+                },
               },
               {
                 type: "char",
@@ -547,9 +559,12 @@ export const lexicalVisible2Sa: SerializedEditorState = {
                 text: " ",
                 detail: 0,
                 format: 0,
-                mode: "normal",
+                mode: "token",
                 style: "",
                 version: 1,
+                $: {
+                  textType: "marker-trailing-space",
+                },
               },
               {
                 type: "char",
@@ -584,9 +599,12 @@ export const lexicalVisible2Sa: SerializedEditorState = {
                 text: " ",
                 detail: 0,
                 format: 0,
-                mode: "normal",
+                mode: "token",
                 style: "",
                 version: 1,
+                $: {
+                  textType: "marker-trailing-space",
+                },
               },
               {
                 type: "char",
@@ -661,9 +679,12 @@ export const lexicalVisible2Sa: SerializedEditorState = {
                 text: " ",
                 detail: 0,
                 format: 0,
-                mode: "normal",
+                mode: "token",
                 style: "",
                 version: 1,
+                $: {
+                  textType: "marker-trailing-space",
+                },
               },
               {
                 type: "immutable-typed-text",
@@ -736,9 +757,12 @@ export const lexicalVisible2Sa: SerializedEditorState = {
                 text: " ",
                 detail: 0,
                 format: 0,
-                mode: "normal",
+                mode: "token",
                 style: "",
                 version: 1,
+                $: {
+                  textType: "marker-trailing-space",
+                },
               },
               {
                 type: "char",
@@ -798,9 +822,12 @@ export const lexicalVisible2Sa: SerializedEditorState = {
                 text: " ",
                 detail: 0,
                 format: 0,
-                mode: "normal",
+                mode: "token",
                 style: "",
                 version: 1,
+                $: {
+                  textType: "marker-trailing-space",
+                },
               },
               {
                 type: "text",
@@ -816,9 +843,12 @@ export const lexicalVisible2Sa: SerializedEditorState = {
                 text: " ",
                 detail: 0,
                 format: 0,
-                mode: "normal",
+                mode: "token",
                 style: "",
                 version: 1,
+                $: {
+                  textType: "marker-trailing-space",
+                },
               },
               {
                 type: "char",
@@ -853,9 +883,12 @@ export const lexicalVisible2Sa: SerializedEditorState = {
                 text: " ",
                 detail: 0,
                 format: 0,
-                mode: "normal",
+                mode: "token",
                 style: "",
                 version: 1,
+                $: {
+                  textType: "marker-trailing-space",
+                },
               },
               {
                 type: "char",
@@ -890,9 +923,12 @@ export const lexicalVisible2Sa: SerializedEditorState = {
                 text: " ",
                 detail: 0,
                 format: 0,
-                mode: "normal",
+                mode: "token",
                 style: "",
                 version: 1,
+                $: {
+                  textType: "marker-trailing-space",
+                },
               },
               {
                 type: "immutable-typed-text",
@@ -965,9 +1001,12 @@ export const lexicalVisible2Sa: SerializedEditorState = {
                 text: " ",
                 detail: 0,
                 format: 0,
-                mode: "normal",
+                mode: "token",
                 style: "",
                 version: 1,
+                $: {
+                  textType: "marker-trailing-space",
+                },
               },
               {
                 type: "char",
@@ -1005,9 +1044,12 @@ export const lexicalVisible2Sa: SerializedEditorState = {
                 text: " ",
                 detail: 0,
                 format: 0,
-                mode: "normal",
+                mode: "token",
                 style: "",
                 version: 1,
+                $: {
+                  textType: "marker-trailing-space",
+                },
               },
               {
                 type: "text",
@@ -1023,9 +1065,12 @@ export const lexicalVisible2Sa: SerializedEditorState = {
                 text: " ",
                 detail: 0,
                 format: 0,
-                mode: "normal",
+                mode: "token",
                 style: "",
                 version: 1,
+                $: {
+                  textType: "marker-trailing-space",
+                },
               },
               {
                 type: "char",
@@ -1063,9 +1108,12 @@ export const lexicalVisible2Sa: SerializedEditorState = {
                 text: " ",
                 detail: 0,
                 format: 0,
-                mode: "normal",
+                mode: "token",
                 style: "",
                 version: 1,
+                $: {
+                  textType: "marker-trailing-space",
+                },
               },
               {
                 type: "immutable-typed-text",
@@ -2704,9 +2752,12 @@ export const lexicalVisible2Sa: SerializedEditorState = {
                     text: " ",
                     detail: 0,
                     format: 0,
-                    mode: "normal",
+                    mode: "token",
                     style: "",
                     version: 1,
+                    $: {
+                      textType: "marker-trailing-space",
+                    },
                   },
                   {
                     type: "char",
@@ -2741,9 +2792,12 @@ export const lexicalVisible2Sa: SerializedEditorState = {
                     text: " ",
                     detail: 0,
                     format: 0,
-                    mode: "normal",
+                    mode: "token",
                     style: "",
                     version: 1,
+                    $: {
+                      textType: "marker-trailing-space",
+                    },
                   },
                   {
                     type: "char",
@@ -2778,9 +2832,12 @@ export const lexicalVisible2Sa: SerializedEditorState = {
                     text: " ",
                     detail: 0,
                     format: 0,
-                    mode: "normal",
+                    mode: "token",
                     style: "",
                     version: 1,
+                    $: {
+                      textType: "marker-trailing-space",
+                    },
                   },
                   {
                     type: "char",
@@ -2818,9 +2875,12 @@ export const lexicalVisible2Sa: SerializedEditorState = {
                     text: " ",
                     detail: 0,
                     format: 0,
-                    mode: "normal",
+                    mode: "token",
                     style: "",
                     version: 1,
+                    $: {
+                      textType: "marker-trailing-space",
+                    },
                   },
                   {
                     type: "immutable-typed-text",
@@ -7657,9 +7717,12 @@ export const lexicalVisible2Sa: SerializedEditorState = {
                 text: " ",
                 detail: 0,
                 format: 0,
-                mode: "normal",
+                mode: "token",
                 style: "",
                 version: 1,
+                $: {
+                  textType: "marker-trailing-space",
+                },
               },
               {
                 type: "char",
@@ -7694,9 +7757,12 @@ export const lexicalVisible2Sa: SerializedEditorState = {
                 text: " ",
                 detail: 0,
                 format: 0,
-                mode: "normal",
+                mode: "token",
                 style: "",
                 version: 1,
+                $: {
+                  textType: "marker-trailing-space",
+                },
               },
               {
                 type: "char",
@@ -7731,9 +7797,12 @@ export const lexicalVisible2Sa: SerializedEditorState = {
                 text: " ",
                 detail: 0,
                 format: 0,
-                mode: "normal",
+                mode: "token",
                 style: "",
                 version: 1,
+                $: {
+                  textType: "marker-trailing-space",
+                },
               },
               {
                 type: "immutable-typed-text",

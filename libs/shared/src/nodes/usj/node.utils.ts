@@ -4,6 +4,7 @@ import { MARKER_OBJECT_PROPS, MarkerObject } from "@eten-tech-foundation/scriptu
 import {
   $createTextNode,
   $getCommonAncestor,
+  $getSelection,
   $getState,
   $isElementNode,
   $isLineBreakNode,
@@ -957,6 +958,29 @@ export function $withCharContentNbspPrefix(node: TextNode): void {
  */
 export function $isMarkerTrailingSeparator(node: LexicalNode | null | undefined): boolean {
   return $isTextNode(node) && $getState(node, textTypeState) === MARKER_TRAILING_SPACE_TEXT_TYPE;
+}
+
+/**
+ * Whether `element`'s para-prefix separator is MISSING while the collapsed caret sits at its
+ * site — on the prefix glyph, on the element itself (an element point), or at the very start of
+ * the node after the glyph. This is where the caret lands when the user deletes the separator,
+ * and it is the para-prefix twin of the char opener's caret-boundary rule
+ * (markerSeparators.utils.ts): while it holds, healing the byte back would be healing against a
+ * user edit, so the heal and the settle both defer to caret departure. One definition, used by
+ * both the deletion transform's grace and the departure settle's re-pend, so the two can never
+ * disagree about what "at the site" means. Read-only: call inside
+ * `editor.getEditorState().read(...)` or an update.
+ */
+export function $paraPrefixSeparatorCaretHeld(element: ElementNode): boolean {
+  const glyph = element.getFirstChild();
+  if (!$isSynthesizedMarkerNode(glyph) || glyph === null) return false;
+  if ($isMarkerTrailingSeparator(glyph.getNextSibling())) return false;
+  const selection = $getSelection();
+  if (!$isRangeSelection(selection) || !selection.isCollapsed()) return false;
+  const anchorNode = selection.anchor.getNode();
+  if (anchorNode.is(glyph) || anchorNode.is(element)) return true;
+  const next = glyph.getNextSibling();
+  return next !== null && anchorNode.is(next) && selection.anchor.offset === 0;
 }
 
 /**
