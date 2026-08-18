@@ -310,6 +310,35 @@ describe("typing a backslash inside the verse glyph", () => {
     });
   });
 
+  it("merges the extracted rest into the following content node as ONE node", async () => {
+    // Same gesture as the caret pin above, but asserting the TREE: the extracted rest
+    // (backslash + former display space) must MERGE into the existing following content node
+    // rather than landing as a fresh sibling. A fresh node fragments the literal the user is
+    // mid-typing across siblings — the exact shape that starved the resolve's caret shield
+    // (see $verseNodeTransform's merge comment) — so both extraction arms must share the one
+    // merge-into-following behavior.
+    let verse!: VerseNode;
+    const { editor } = await testEnvironment(() => {
+      ({ verse } = $appendVersePara());
+    });
+
+    // `\v 1| ` — between the number and the glyph's display space.
+    const caret = await typeInVerseGlyph(editor, verse, 4, "\\");
+
+    // The caret's own node IS the merged content node: `\` + former display space + original
+    // content, caret right after the typed character.
+    expect(caret.collapsed).toBe(true);
+    expect(caret.nodeText).toBe("\\ In the beginning");
+    expect(caret.offset).toBe(1);
+    editor.getEditorState().read(() => {
+      const afterVerse = verse.getNextSibling();
+      if (!$isTextNode(afterVerse) || $isMarkerNode(afterVerse))
+        throw new Error("expected plain text after the verse");
+      expect(afterVerse.getTextContent()).toBe("\\ In the beginning");
+      expect(afterVerse.getNextSibling()).toBeNull();
+    });
+  });
+
   it("still extends the number when a non-terminator character is typed there", async () => {
     // The leading-attribute rule: only `\`, `|`, whitespace, and `*` end the number's word
     // scan, so typing `a` between the number and the separator EXTENDS the number (PT9

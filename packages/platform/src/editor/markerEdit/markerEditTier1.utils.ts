@@ -332,6 +332,45 @@ const VERSE_TEXT_REGEX = /^\\v[ \u00A0]+([^ \u00A0\\]+)(?:[ \u00A0]([\s\S]*))?$/
 // (observed at the paragraph start, three words from the typed character).
 const VERSE_MARKER_REST_REGEX = /^(\\v[ \u00A0]+([^ \u00A0\\]+))(\\[\s\S]*)$/;
 
+/**
+ * Insert `rest` — bytes extracted out of a verse glyph — as plain content directly after the
+ * verse, merging into an existing following plain content node rather than always inserting a
+ * fresh one. A fresh node fragments a literal the user is mid-typing across siblings — the
+ * live failure: `\` typed at the verse's end split out alone, the next keystroke landed in
+ * yet another node, and the resolve's caret shield (which covers the caret's contiguous
+ * run) had nothing contiguous to cover, so `\vbut…` glued together in the rebuild fragment
+ * and settled as a terminated unknown marker mid-word. Only an ordinary content node
+ * qualifies: never a glyph (exact-type check), a token (the para-prefix separator), or an
+ * attribute-run value riding beside the verse. Shared by BOTH extraction arms of
+ * {@link $verseNodeTransform} so the merge behavior cannot drift between them.
+ *
+ * `caretOffsetInRest` places the collapsed caret at that offset within the inserted rest
+ * (clamped to the rest by the callers); `undefined` leaves the selection untouched (a
+ * programmatic edit with no caret in the glyph).
+ *
+ * Mutating: call inside `editor.update()` (runs from {@link $verseNodeTransform}).
+ */
+function $insertRestAfterVerse(
+  node: VerseNode,
+  rest: string,
+  caretOffsetInRest: number | undefined,
+): void {
+  const next = node.getNextSibling();
+  if (
+    $isTextNode(next) &&
+    next.getType() === TextNode.getType() &&
+    next.getMode() === "normal" &&
+    $getState(next, textTypeState) !== "attribute"
+  ) {
+    next.setTextContent(rest + next.getTextContent());
+    if (caretOffsetInRest !== undefined) next.select(caretOffsetInRest, caretOffsetInRest);
+    return;
+  }
+  const restNode = $createTextNode(rest);
+  node.insertAfter(restNode);
+  if (caretOffsetInRest !== undefined) restNode.select(caretOffsetInRest, caretOffsetInRest);
+}
+
 export function $verseNodeTransform(node: VerseNode, context: MarkerEditContext): void {
   const text = node.getTextContent();
   const expected = getVisibleOpenMarkerText("v", node.getNumber());
@@ -362,12 +401,13 @@ export function $verseNodeTransform(node: VerseNode, context: MarkerEditContext)
       context.pendingKeys.delete(node.getKey());
       node.setNumber(numberToken); // PT9 GetNextWord: whole word, valid or not
       node.setTextContent(getVisibleOpenMarkerText("v", numberToken));
-      const restNode = $createTextNode(rest);
-      node.insertAfter(restNode);
-      if (caretOffset !== undefined && caretOffset >= prefix.length) {
-        const target = Math.min(caretOffset - prefix.length, rest.length);
-        restNode.select(target, target);
-      }
+      // A caret inside the rest maps to its same character in the extracted bytes; a caret
+      // elsewhere (or none — a programmatic edit) is left untouched.
+      const target =
+        caretOffset !== undefined && caretOffset >= prefix.length
+          ? Math.min(caretOffset - prefix.length, rest.length)
+          : undefined;
+      $insertRestAfterVerse(node, rest, target);
       return;
     }
     // `\v` prefix broken: PT9 re-tokenizes and the token becomes plain text
@@ -383,30 +423,9 @@ export function $verseNodeTransform(node: VerseNode, context: MarkerEditContext)
   context.pendingKeys.delete(node.getKey());
   node.setNumber(numberToken); // PT9 GetNextWord: whole word, valid or not
   node.setTextContent(getVisibleOpenMarkerText("v", numberToken));
-  if (rest) {
-    // Merge the rest into an existing following plain text node rather than always inserting a
-    // fresh one. A fresh node fragments a literal the user is mid-typing across siblings — the
-    // live failure: `\` typed at the verse's end split out alone, the next keystroke landed in
-    // yet another node, and the resolve's caret shield (which covers the caret's contiguous
-    // run) had nothing contiguous to cover, so `\vbut…` glued together in the rebuild fragment
-    // and settled as a terminated unknown marker mid-word. Only an ordinary content node
-    // qualifies: never a glyph (exact-type check), a token (the para-prefix separator), or an
-    // attribute-run value riding beside the verse.
-    const next = node.getNextSibling();
-    if (
-      $isTextNode(next) &&
-      next.getType() === TextNode.getType() &&
-      next.getMode() === "normal" &&
-      $getState(next, textTypeState) !== "attribute"
-    ) {
-      next.setTextContent(rest + next.getTextContent());
-      next.select(rest.length, rest.length);
-    } else {
-      const restNode = $createTextNode(rest);
-      node.insertAfter(restNode);
-      restNode.select(rest.length, rest.length);
-    }
-  }
+  // The caret follows to the end of the extracted rest (see $insertRestAfterVerse for the
+  // merge-into-following behavior both arms share).
+  if (rest) $insertRestAfterVerse(node, rest, rest.length);
 }
 
 // Unlike its sibling node-transform functions, a chapter marker never enters the pending/deferred
