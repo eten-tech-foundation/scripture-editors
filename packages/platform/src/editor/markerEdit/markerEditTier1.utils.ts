@@ -72,6 +72,19 @@ export interface MarkerEditContext extends Tier2Context {
    */
   wholeParaDeleteExpected?: Set<NodeKey>;
   /**
+   * Paragraphs holding the COLLAPSED caret when a Backspace/Delete went down this commit —
+   * armed by the same delete-key command handlers (`$armCollapsedParaDeletion`), consumed by
+   * `$paraMarkerDeletionTransform`'s empty-paragraph branch alongside
+   * {@link wholeParaDeleteExpected}, and reset every commit by the plugin's update listener.
+   * A paragraph the user was backspacing inside that ends the commit EMPTY has had its last
+   * displayed byte deleted by that gesture — the byte-by-byte completion of the same
+   * whole-representation deletion the selection arm records up front, so it reaps the same
+   * way. Provenance, not geometry: emptiness plus caret proximity alone must never reap —
+   * only the delete-key gesture arms this, so transient rebuild emptiness (even under the
+   * caret) stays untouched. Optional with the same never-reap safe default as its sibling.
+   */
+  collapsedDeleteCaretParas?: Set<NodeKey>;
+  /**
    * Literal text already submitted to `$requestTier2ForNode` this commit.
    * `$rebuildParas` is deterministic (the degradation property): a paragraph
    * whose rebuild still contains a fragment the tokenizer cannot resolve into anything new

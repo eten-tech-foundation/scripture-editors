@@ -4,6 +4,7 @@ import {
   $splitParagraphAtCharStack,
 } from "./charFormatting.utils";
 import {
+  $armCollapsedParaDeletion,
   $armWholeParaDeletion,
   $charNodeDeletionTransform,
   $noteDeletionTransform,
@@ -234,6 +235,7 @@ export function MarkerEditPlugin({
       pendingKeys: new Set<NodeKey>(),
       splitExpected: { current: false },
       wholeParaDeleteExpected: new Set<NodeKey>(),
+      collapsedDeleteCaretParas: new Set<NodeKey>(),
       rebuildAttempted: new Set<string>(),
       logger,
     };
@@ -598,11 +600,15 @@ export function MarkerEditPlugin({
           // ahead of the Ctrl+Space handling below.
           appPlacedCaret = false;
           settleCascadeDepth = 0;
-          // Deletion driver, paragraph arm: record — from the still-intact selection, before
+          // Deletion driver, paragraph arms: record — from the still-intact selection, before
           // Lexical's own delete handling runs at lower priority — which paragraphs this delete
-          // gesture covers whole, so the paragraph transform can reap them by provenance.
-          // Never claims the key.
-          if (event.key === "Backspace" || event.key === "Delete") $armWholeParaDeletion(context);
+          // gesture covers whole (selection arm), or which paragraph the collapsed caret sits
+          // in (collapsed arm: a backspace chain that empties it dissolves it), so the
+          // paragraph transform can reap them by provenance. Never claims the key.
+          if (event.key === "Backspace" || event.key === "Delete") {
+            $armWholeParaDeletion(context);
+            $armCollapsedParaDeletion(context);
+          }
           if (!event.ctrlKey || event.altKey || event.shiftKey || event.metaKey) return false;
           if (event.key !== " " && event.code !== "Space") return false;
           // Only claim the keystroke (preventDefault + return true) when we actually acted;
@@ -867,6 +873,7 @@ export function MarkerEditPlugin({
       editor.registerUpdateListener(({ editorState, tags }) => {
         context.splitExpected.current = false;
         context.wholeParaDeleteExpected?.clear();
+        context.collapsedDeleteCaretParas?.clear();
         context.rebuildAttempted.clear();
         // Typing path: ScriptureReferencePlugin's async scrRef echo re-enters
         // `$moveCursorToVerseStart` and yanks the caret to the para/verse start via
