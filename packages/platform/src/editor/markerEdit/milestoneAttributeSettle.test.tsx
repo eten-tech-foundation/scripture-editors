@@ -30,6 +30,7 @@ import {
 import {
   initialize as initializeSerialize,
   reset as resetSerialize,
+  serializeEditorState,
 } from "../adaptors/usj-editor.adaptor";
 import {
   $appendMilestoneRun,
@@ -38,11 +39,20 @@ import {
   viewOptions,
 } from "./markerEdit.test-helpers";
 import { $createMarkerPrefix } from "./markerEditDeletion.utils";
-import { COMMIT_PENDING_MARKERS_COMMAND } from "./MarkerEditPlugin";
+import { COMMIT_PENDING_MARKERS_COMMAND, MarkerEditPlugin } from "./MarkerEditPlugin";
 import { $resolvePendingMarkers, MarkerEditContext } from "./markerEditTier1.utils";
 import { $rebuildParas, Tier2Context } from "./tier2Rebuild.utils";
 import { act } from "@testing-library/react";
-import { $createTextNode, $getRoot, $isTextNode, $setState, TextNode } from "lexical";
+import { Usj } from "@eten-tech-foundation/scripture-utilities";
+import {
+  $createTextNode,
+  $getRoot,
+  $isElementNode,
+  $isTextNode,
+  $setState,
+  LexicalNode,
+  TextNode,
+} from "lexical";
 import {
   $createMarkerNode,
   $createMilestoneNode,
@@ -64,7 +74,10 @@ import {
 // Reaching inside only for tests.
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import { createBasicTestEnvironment } from "../../../../../libs/shared/src/nodes/usj/test.utils";
-import { usjReactNodes } from "shared-react";
+// Reaching inside only for tests.
+// eslint-disable-next-line @nx/enforce-module-boundaries
+import { baseTestEnvironment } from "../../../../../libs/shared-react/src/plugins/usj/react-test.utils";
+import { CharNodePlugin, TextSpacingPlugin, usjReactNodes } from "shared-react";
 
 // jsdom doesn't implement `getBoundingClientRect` on `Range`; a commit that touches selection
 // (Tier 2's own restore-selection-at-offset) gives the editor root DOM focus, and Lexical's
@@ -618,5 +631,99 @@ describe("collab-materialized milestone settles into a re-tokenizable run", () =
     editor.getEditorState().read(() => {
       expect($firstPara().getChildren().some($isMilestoneNode)).toBe(false);
     });
+  });
+});
+
+/**
+ * Attribute ORDER is a byte question, not a shape question: the USJ-to-USFM writer emits a
+ * marker's attributes in object key order, so reordering them rewrites bytes in the file. The
+ * corpus cannot see this — its fixtures are authored in the canonical order, and its round trips
+ * compare with `toEqual`, which ignores key order — so the order needs its own fixture, authored
+ * NON-canonically (an unknown attribute ahead of `sid`) and compared order-sensitively.
+ *
+ * What the two pins below establish together: the milestone display fold and the settle do NOT
+ * rewrite the order — a whole-document dirty pass is a fixed point. The order a non-canonical
+ * document loses, it loses at LOAD, in the adaptor pair: `createMilestone` lifts `sid`/`eid` out
+ * of the marker object into dedicated `MilestoneNode` fields and puts the rest in
+ * `unknownAttributes`, and `createMilestoneMarker` re-emits them as `sid`, `eid`, then the
+ * unknowns. The node model holds no ordered attribute map, so there is no authored order left in
+ * the tree for the fold to preserve; restoring it would be a node-model change, not a fold change.
+ */
+describe("milestone attribute order", () => {
+  const nonCanonicalUsj = {
+    type: "USJ",
+    version: "3.1",
+    content: [
+      {
+        type: "para",
+        marker: "p",
+        content: ["before ", { type: "ms", marker: "qt-s", who: "Pilate", sid: "qt_1" }, " after"],
+      },
+    ],
+  } as Usj;
+
+  /** The canonical order the adaptor pair normalizes to: `sid`, `eid`, then unknown attributes. */
+  const canonicalOrderUsj = {
+    type: "USJ",
+    version: "3.1",
+    content: [
+      {
+        type: "para",
+        marker: "p",
+        content: ["before ", { type: "ms", marker: "qt-s", sid: "qt_1", who: "Pilate" }, " after"],
+      },
+    ],
+  } as Usj;
+
+  /** Marks `node` and every descendant dirty, so each one's registered transforms run. */
+  function $markSubtreeDirty(node: LexicalNode): void {
+    node.markDirty();
+    if ($isElementNode(node)) node.getChildren().forEach($markSubtreeDirty);
+  }
+
+  function loadedState() {
+    initializeSerialize(undefined, undefined);
+    resetSerialize();
+    initializeDeserialize(undefined);
+    return serializeEditorState(nonCanonicalUsj, viewOptions);
+  }
+
+  it("normalizes the authored order at LOAD, before any transform runs", async () => {
+    const state = loadedState();
+
+    const loaded = deserializeSerializedEditorState(
+      JSON.parse(JSON.stringify({ root: state.root })),
+      viewOptions,
+    );
+
+    // Compared as JSON text, not with `toEqual`: key order is the whole assertion here.
+    expect(JSON.stringify(loaded)).toBe(JSON.stringify(canonicalOrderUsj));
+  });
+
+  it("does not rewrite the order again on a whole-document dirty pass", async () => {
+    // The corpus fixed-point harness's shape (load, dirty every node so every transform fires,
+    // serialize back) over one hand-built document rather than its fixture list. Compared against
+    // the LOADED order, so this isolates the transforms from the load-leg normalization above.
+    const state = loadedState();
+    const { editor } = await baseTestEnvironment(
+      JSON.stringify({ root: state.root }),
+      <>
+        <CharNodePlugin />
+        <MarkerEditPlugin viewOptions={viewOptions} />
+        <TextSpacingPlugin />
+      </>,
+    );
+
+    await act(async () => {
+      editor.update(
+        () => {
+          $getRoot().getChildren().forEach($markSubtreeDirty);
+        },
+        { discrete: true },
+      );
+    });
+
+    const after = deserializeSerializedEditorState(editor.getEditorState().toJSON(), viewOptions);
+    expect(JSON.stringify(after)).toBe(JSON.stringify(canonicalOrderUsj));
   });
 });
