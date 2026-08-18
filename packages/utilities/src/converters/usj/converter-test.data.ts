@@ -430,7 +430,12 @@ export const editorStateGen1v1 = {
           {
             type: "unmatched",
             marker: "f*",
-            version: 1,
+            text: "\\f*",
+            detail: 0,
+            format: 0,
+            mode: "token",
+            style: "",
+            version: 2,
           },
           {
             type: "text",
@@ -1015,7 +1020,12 @@ export const editorStateGen1v1Editable = {
           {
             type: "unmatched",
             marker: "f*",
-            version: 1,
+            text: "\\f*",
+            detail: 0,
+            format: 0,
+            mode: "normal",
+            style: "",
+            version: 2,
           },
           {
             type: "text",
@@ -1633,7 +1643,12 @@ export const editorStateGen1v1Standard = {
           {
             type: "unmatched",
             marker: "f*",
-            version: 1,
+            text: "\\f*",
+            detail: 0,
+            format: 0,
+            mode: "normal",
+            style: "",
+            version: 2,
           },
           {
             type: "text",

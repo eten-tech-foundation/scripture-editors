@@ -234,6 +234,13 @@ function $handleTextNodes(
   // content stream (once as the embed's implicit 1 unit, once as the leaked glyph bytes) and
   // shift every offset that follows it.
   if ($isVerseNode(currentNode)) return;
+  // An ImmutableUnmatchedNode's bytes are its embed's presentation, the same shape as the
+  // editable VerseNode glyph above: the node extends TextNode so the flagged `\nd*` bytes stay
+  // caret-addressable and editable, but the construct is conveyed by its own embed op
+  // ($getImmutableUnmatchedOp, pushed by the caller once $isImmutableUnmatchedNode matches).
+  // Letting the bytes ALSO flow as a content text op would double-count the embed's OT length
+  // (once as the embed's 1 unit, once as the leaked bytes) and shift every offset after it.
+  if ($isImmutableUnmatchedNode(currentNode)) return;
   // Skip a note's first text child: in editable modes this is the note's opening marker glyph
   // (MarkerNode extends TextNode), which shouldn't flow into ops. Caller text, when present as a
   // plain text child (expanded editable mode), is never the first child and is not skipped here.

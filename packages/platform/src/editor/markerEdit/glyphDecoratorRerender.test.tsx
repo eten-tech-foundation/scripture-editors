@@ -29,8 +29,11 @@
  * The third widens the pin from the reported symptom to the actual defect class.
  * `ImmutableTypedTextNode` was not the only read-only glyph painting itself through a
  * stable-identity decorator payload — `ImmutableUnmatchedNode` (the flag on an unmatched closer)
- * did too, and it is preserved and re-parented by the very same `$replaceSentinels` pass, so its
- * `\marker` glyph blanked out identically. Confirmed red the same way before the fix.
+ * did too while it was a decorator, and it was preserved and re-parented by the very same
+ * `$replaceSentinels` pass, so its `\marker` glyph blanked out identically. It has since become
+ * editable TEXT (its bytes re-tokenize through the rebuild instead of riding as a sentinel), so
+ * the portal hazard no longer applies to it — the test stays as the coarser guarantee that the
+ * flagged glyph is still rendered after its paragraph rebuilds around it.
  */
 
 import { requireDefined, testEnvironmentWithCharSync } from "./markerEdit.test-helpers";
@@ -58,7 +61,6 @@ import {
   $isUnknownNode,
   NBSP,
   textTypeState,
-  ZWSP,
 } from "shared";
 
 // jsdom doesn't implement `getBoundingClientRect` on `Range`; moving the caret gives the editor
@@ -240,7 +242,7 @@ describe("preserved glyph decorators keep rendering across a rebuild (TJ live re
       });
       return editor.getElementByKey(key)?.textContent;
     };
-    const flagged = `\\wj*${ZWSP}`;
+    const flagged = "\\wj*";
     expect(glyph()).toBe(flagged);
 
     // Any literal the tokenizer resolves is enough to make the rebuild a non-fixed-point, which is

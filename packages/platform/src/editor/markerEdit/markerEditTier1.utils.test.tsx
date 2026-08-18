@@ -283,10 +283,12 @@ describe("Tier 1 char/note opener rename", () => {
     });
   });
 
-  it("routes a closer mismatch edit to Tier 2 (span rebuilt by the tokenizer)", async () => {
+  it("routes a closer mismatch edit to Tier 2 on caret departure (span rebuilt by the tokenizer)", async () => {
     let parts: ReturnType<typeof $appendCharPara>;
     const { editor } = await testEnvironment(() => (parts = $appendCharPara()));
     await act(async () => editor.update(() => parts.closer.setTextContent("\\wj*")));
+    // Closer edits pend (mid-edit grace); the caret moving elsewhere settles the glyph.
+    await act(async () => editor.update(() => parts.marker.select(0, 0)));
     // Tokenizer sees `\nd ␣Lord\wj*`: the span auto-closes, and the unmatched `\wj*`
     // closer resolves to an ImmutableUnmatchedNode (PT9 sink.Unmatched), not literal text.
     const json = JSON.stringify(editor.getEditorState().toJSON());
@@ -388,6 +390,59 @@ function $appendNestedCharPara(): {
   );
   return { outerChar, outerOpener, innerOpener, innerChar, innerCloser, outerCloser };
 }
+
+/**
+ * The NATURAL nested shape the USJ adaptor builds (`createChar`): the inner span's `+`-prefixed
+ * glyphs are its OWN children — `outer > [openOuter, …, inner > [open(+nd), content, close(+nd*)],
+ * …, closeOuter]` — unlike the collab-flattened shape below, where the inner glyphs ride directly
+ * under the outer span.
+ */
+function $appendNaturallyNestedCharPara(): {
+  outerChar: CharNode;
+  innerChar: CharNode;
+  innerOpener: MarkerNode;
+  innerCloser: MarkerNode;
+  outerCloser: MarkerNode;
+} {
+  const outerChar = $createCharNode("add");
+  const innerChar = $createCharNode("nd");
+  const innerOpener = $createMarkerNode("nd", "opening", true);
+  const innerCloser = $createMarkerNode("nd", "closing", true);
+  const outerCloser = $createMarkerNode("add", "closing");
+  $getRoot().append(
+    $createParaNode("p").append(
+      $createMarkerNode("p"),
+      $createTextNode(NBSP),
+      outerChar.append(
+        $createMarkerNode("add"),
+        $createTextNode(`${NBSP}say `),
+        innerChar.append(innerOpener, $createTextNode(`${NBSP}Lord`), innerCloser),
+        $createTextNode(" here"),
+        outerCloser,
+      ),
+    ),
+  );
+  return { outerChar, innerChar, innerOpener, innerCloser, outerCloser };
+}
+
+describe("Tier 1 nested char opener rename", () => {
+  it("renames the nested span in place and mirrors its nested closer", async () => {
+    let parts: ReturnType<typeof $appendNaturallyNestedCharPara>;
+    const { editor } = await testEnvironment(() => (parts = $appendNaturallyNestedCharPara()));
+    // Retyping the glyph keeps its own canonical `+` prefix: `\+nd` → `\+wj `. The `+` is the
+    // nested glyph's rest-state spelling, NOT a fresh nest instruction, so this is a Tier-1
+    // in-place rename — routing it to Tier 2 stranded the untouched `\+nd*` closer as unmatched.
+    await act(async () => editor.update(() => parts.innerOpener.setTextContent("\\+wj ")));
+    editor.getEditorState().read(() => {
+      expect(parts.innerChar.getMarker()).toBe("wj");
+      expect(parts.innerOpener.getTextContent()).toBe("\\+wj");
+      expect(parts.innerCloser.getTextContent()).toBe("\\+wj*");
+      expect(parts.outerChar.getMarker()).toBe("add");
+      expect(parts.outerCloser.getTextContent()).toBe("\\add*");
+    });
+    expect(JSON.stringify(editor.getEditorState().toJSON())).not.toContain('"type":"unmatched"');
+  });
+});
 
 describe("Tier 1 char opener rename on a collab-flattened nested span", () => {
   it("renames the OUTER closer on a collab-flattened nested span", async () => {

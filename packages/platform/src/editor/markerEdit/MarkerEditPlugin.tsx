@@ -20,6 +20,7 @@ import {
   $isSelectionInMarkerNode,
   $markerNodeTransform,
   $resolvePendingMarkers,
+  $unmatchedNodeTransform,
   $verseNodeTransform,
   MarkerEditContext,
 } from "./markerEditTier1.utils";
@@ -77,6 +78,7 @@ import {
   DisplayRunOwnerRef,
   getMarker as bundledGetMarker,
   ImmutableTypedTextNode,
+  ImmutableUnmatchedNode,
   LoggerBasic,
   MarkerLookup,
   MarkerNode,
@@ -396,6 +398,14 @@ export function MarkerEditPlugin({
       editor.registerNodeTransform(NoteNode, (node) => {
         if (editor.isComposing()) return;
         $noteDeletionTransform(node, context);
+      }),
+      // Unmatched-marker bytes are editable text in this mode; their edits pend and settle
+      // exactly like closer-glyph edits (see $unmatchedNodeTransform). Its own registration —
+      // Lexical dispatches transforms by exact node type, so neither the TextNode catch-all
+      // below nor the MarkerNode transform above ever fires for this subclass.
+      editor.registerNodeTransform(ImmutableUnmatchedNode, (node) => {
+        if (editor.isComposing()) return;
+        $unmatchedNodeTransform(node, context);
       }),
       // Plain-TextNode catch-all for typed/pasted literal backslash sequences (Tier 2).
       // Lexical dispatches transforms by exact node type, so this never fires for

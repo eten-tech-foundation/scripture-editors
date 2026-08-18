@@ -121,6 +121,7 @@ import {
   UnknownAttributes,
   unknownDisplayParts,
   UnknownNode,
+  unmatchedGlyphText,
   VERSE_MARKER,
   VERSE_MARKER_OBJECT_PROPS,
   VERSE_VERSION,
@@ -750,6 +751,14 @@ function createUnmatched(marker: string): SerializedImmutableUnmatchedNode {
   return {
     type: ImmutableUnmatchedNode.getType(),
     marker,
+    text: unmatchedGlyphText(marker),
+    detail: 0,
+    format: 0,
+    // Editable marker mode edits the flagged bytes in place (the marker-edit engine pends and
+    // settles them); every other mode has no engine to settle such an edit, so the node stays
+    // atomic "token" text there — steppable and deletable whole, but not editable inside.
+    mode: _viewOptions?.markerMode === "editable" ? "normal" : "token",
+    style: "",
     version: IMMUTABLE_UNMATCHED_VERSION,
   };
 }

@@ -43,8 +43,10 @@ import {
   $isAttributeRunNode,
   $isBookNode,
   $isCanonicalMarkerNode,
+  $isCanonicalUnmatchedNode,
   $isChapterNode,
   $isCharNode,
+  $isImmutableUnmatchedNode,
   $isMarkerNode,
   $isUnknownNode,
   $isVerseNode,
@@ -240,6 +242,13 @@ export function $rependPendShapedNodes(context: MarkerEditContext): void {
     if ($isMarkerNode(node)) {
       // Mid-edit glyph text (an undone rename settle) — $markerNodeTransform's pend shape.
       if (!$isCanonicalMarkerNode(node)) context.pendingKeys.add(node.getKey());
+      return;
+    }
+    if ($isImmutableUnmatchedNode(node)) {
+      // Mid-edit unmatched-marker bytes (an undone settle) — $unmatchedNodeTransform's pend
+      // shape. Checked before the TextNode arm below, whose exact-type mirror would silently
+      // skip this subclass.
+      if (!$isCanonicalUnmatchedNode(node)) context.pendingKeys.add(node.getKey());
       return;
     }
     // Every registered display kind's owner re-pends by the SAME rule: a caret-held divergence, or

@@ -314,6 +314,14 @@ function appendSerializedSignature(
       out.push(ATOMIC_SENTINEL);
       continue;
     }
+    if (type === "unmatched") {
+      // Tagged, mirroring `$appendSignature`'s unmatched branch — the bare-text fallback below
+      // would otherwise match this node's `.text` field and make the literal→flagged-element
+      // resolution signature-invisible on the JSON side.
+      out.push(SIGNATURE_OPEN, "unmatched", toFragmentText(serializedText(node) ?? ""));
+      out.push(SIGNATURE_CLOSE);
+      continue;
+    }
     const text = serializedText(node);
     if (text !== undefined) {
       out.push(toFragmentText(insideCharChildren ? charOwnChildSignatureText(text) : text));
