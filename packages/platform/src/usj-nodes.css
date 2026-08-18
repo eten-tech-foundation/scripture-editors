@@ -65,10 +65,17 @@
   margin-top: 8pt;
 }
 
+/* `\ca` renders identically in BOTH of its states — a first-class `char ca` span at root and the
+   chapter's attribute-run form (AttributeRunNode carries `usfm_ca` for runKind "ca", the same
+   wrapper-class mechanism `usfm_va`/`usfm_vp` use): non-bold green italic, never the chapter's own
+   bold. `font-weight: normal` is explicit — a no-op for the standalone span (nothing bold above
+   it) but load-bearing for the run, which sits INSIDE the chapter element and would otherwise
+   inherit `.usfm_c`'s bold. */
 .formatted-font .usfm_ca {
   color: #007306;
   font-size: 133%;
   font-style: italic;
+  font-weight: normal;
 }
 
 .formatted-font .usfm_cp {
@@ -79,6 +86,31 @@
 .text-spacing .usfm_cp {
   margin-bottom: 4pt;
   margin-top: 8pt;
+}
+
+/* The chapter's OWN `\ca`/`\cp` attribute runs, nested inside the chapter element. Font-size
+   percentages resolve against the PARENT's computed size, so the runs' 133%/150% would compound
+   with `.usfm_c`'s 150% (≈200%/225% of body text) and dwarf their standalone twins; dividing by
+   the same 1.5 lands each run at exactly the size its standalone form renders at (133%/150% of
+   body). If `.usfm_c`'s font-size changes, change the divisor with it. Glyph sizing needs no
+   `usfm_va`-style reset here: `.opening`/`.closing` render at 0.7em of the span in BOTH states,
+   so leaving them alone is what keeps the two states identical.
+
+   `display: block` puts the `\ca` run on the line AFTER `\c N` — matching PT9's Standard view,
+   which renders the `\ca` span outside the chapter's block div, and matching the standalone
+   `char ca`, which sits at root between two blocks and so occupies its own line already. Purely
+   presentational: the run's bytes, document positions, and caret order are untouched (display
+   bytes are excluded from positions by node state, not by layout). `\cp` deliberately stays
+   inline on the chapter's line (moving it to its own line is tracked separately); when both runs
+   display, the block `\ca` run pushes the `\cp` run onto the following line as a layout
+   consequence — which is PT9's own three-line layout for that shape. */
+.formatted-font .usfm_c .usfm_ca {
+  display: block;
+  font-size: calc(133% / 1.5);
+}
+
+.formatted-font .usfm_c .usfm_cp {
+  font-size: calc(150% / 1.5);
 }
 
 /* VerseNode, ImmutableVerseNode */
@@ -2202,13 +2234,14 @@
   color: rgba(25, 25, 25, 1);
 }
 
-/* AttributeRunNode: the ONE wrapper span holding a verse's \va/\vp display triplet or a
-   milestone's attribute run (AttributeRunNode.ts) — dim like a char span's `.attribute` run by
-   default, since `color` inherits down to the glyphs and value riding inside it. A verse's
-   wrapper additionally carries `usfm_va`/`usfm_vp` (added only for those two runKinds), whose
-   higher-specificity `.formatted-font .usfm_va`/`.usfm_vp` rules above override this dim color
-   with PT9's green/blue superscript — the same styling a standalone `char va`/`vp` span already
-   gets. A milestone's wrapper carries no such class, so it keeps the dim styling as its own. */
+/* AttributeRunNode: the ONE wrapper span holding a verse's \va/\vp display triplet, a chapter's
+   \ca/\cp triplet, or a milestone's attribute run (AttributeRunNode.ts) — dim like a char span's
+   `.attribute` run by default, since `color` inherits down to the glyphs and value riding inside
+   it. A verse's or chapter's wrapper additionally carries its `usfm_<runKind>` class (va/vp/ca/cp
+   only), whose higher-specificity `.formatted-font .usfm_*` rules above override this dim color
+   with the marker's own stylesheet look — the same styling the standalone `char` form of the same
+   marker already gets. A milestone's or note-\cat wrapper carries no such class, so it keeps the
+   dim styling as its own. */
 .attribute-run {
   color: rgba(170, 170, 170, 1);
 }

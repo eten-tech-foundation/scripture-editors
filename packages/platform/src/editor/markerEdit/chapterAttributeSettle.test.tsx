@@ -11,24 +11,31 @@ import { requireDefined, viewOptions } from "./markerEdit.test-helpers";
 import { MarkerEditPlugin } from "./MarkerEditPlugin";
 import { $rebuildChapter, Tier2Context } from "./tier2Rebuild.utils";
 import {
+  deserializeSerializedEditorState,
+  initialize as initializeDeserialize,
+} from "../adaptors/editor-usj.adaptor";
+import {
   initialize as initializeSerialize,
   reset,
   serializeEditorState,
 } from "../adaptors/usj-editor.adaptor";
 import { act } from "@testing-library/react";
-import { $createTextNode, $getRoot, TextNode } from "lexical";
+import { $createTextNode, $getRoot, $isTextNode, TextNode } from "lexical";
 import {
   $chapterAltnumberRunPieces,
   $chapterGlyphTextNode,
   $chapterPubnumberRunPieces,
   $isChapterNode,
+  $isCharNode,
+  $isMarkerNode,
   $isParaNode,
   ChapterNode,
+  CharNode,
   getMarker as bundledGetMarker,
   getVisibleOpenMarkerText,
   NBSP,
 } from "shared";
-import { Usj } from "@eten-tech-foundation/scripture-utilities";
+import { MarkerContent, Usj } from "@eten-tech-foundation/scripture-utilities";
 // Reaching inside only for tests.
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import { baseTestEnvironment } from "../../../../../libs/shared-react/src/plugins/usj/react-test.utils";
@@ -96,6 +103,7 @@ function $textOutsideChapter(): TextNode {
 describe("chapter \\ca alternate-number run", () => {
   it("loads with the run directly after the \\c glyph text, canonical bytes", async () => {
     const { editor } = await renderChapterEditor(chapterUsj({ altnumber: "2" }));
+    let wrapperKey: string | undefined;
     editor.getEditorState().read(() => {
       const chapter = $findChapter();
       expect(chapter.getAltnumber()).toBe("2");
@@ -106,7 +114,14 @@ describe("chapter \\ca alternate-number run", () => {
       expect(pieces.closer?.getTextContent()).toBe("\\ca*");
       const anchor = requireDefined($chapterGlyphTextNode(chapter), "chapter glyph not found");
       expect(anchor.getNextSibling()?.is(pieces.wrapper)).toBe(true);
+      wrapperKey = pieces.wrapper?.getKey();
     });
+    // The wrapper's DOM carries `usfm_ca` — the stylesheet hook that keys BOTH the
+    // standalone-char styling (non-bold green, identical in either state) and the
+    // own-line placement rule (`.usfm_c .usfm_ca` in usj-nodes.css).
+    const wrapperElement = editor.getElementByKey(requireDefined(wrapperKey, "wrapper key"));
+    expect(wrapperElement?.classList.contains("attribute-run")).toBe(true);
+    expect(wrapperElement?.classList.contains("usfm_ca")).toBe(true);
   });
 
   it("editing the value settles onto altnumber on caret departure", async () => {
@@ -327,6 +342,7 @@ describe("chapter \\ca alternate-number run", () => {
 describe("chapter \\cp published-number run", () => {
   it("loads closer-less after the \\ca run, canonical bytes", async () => {
     const { editor } = await renderChapterEditor(chapterUsj({ altnumber: "2", pubnumber: "A" }));
+    let wrapperKey: string | undefined;
     editor.getEditorState().read(() => {
       const chapter = $findChapter();
       expect(chapter.getPubnumber()).toBe("A");
@@ -343,7 +359,12 @@ describe("chapter \\cp published-number run", () => {
         "ca wrapper not found",
       );
       expect(caWrapper.getNextSibling()?.is(pieces.wrapper)).toBe(true);
+      wrapperKey = pieces.wrapper?.getKey();
     });
+    // The wrapper's DOM carries `usfm_cp` — the stylesheet hook keying the standalone-cp
+    // styling (bold blue, identical in either state).
+    const wrapperElement = editor.getElementByKey(requireDefined(wrapperKey, "wrapper key"));
+    expect(wrapperElement?.classList.contains("usfm_cp")).toBe(true);
   });
 
   it("editing the value settles onto pubnumber on caret departure", async () => {
@@ -541,6 +562,151 @@ describe("chapter \\cp published-number run", () => {
       const chapter = $findChapter();
       expect(chapter.getAltnumber()).toBe("3");
       expect(chapter.getPubnumber()).toBe("B");
+    });
+  });
+});
+
+describe("first-class \\ca char span adjacent to its chapter", () => {
+  /** A one-chapter doc with a FIRST-CLASS `char ca` at root directly after the chapter — the
+   * transient pre-fold shape ParatextData folds back onto the chapter on reload. `caContent`
+   * spreads the char's own fields (content, closed, ...). */
+  function adjacentCaCharUsj(caContent: MarkerContent[]): Usj {
+    return {
+      type: "USJ",
+      version: "3.1",
+      content: [
+        { type: "book", marker: "id", code: "GEN", content: ["GEN"] },
+        { type: "chapter", marker: "c", number: "1" },
+        { type: "char", marker: "ca", content: caContent },
+        { type: "para", marker: "p", content: ["body text"] },
+      ],
+    };
+  }
+
+  /** The single root-level CharNode (the first-class `\ca` span). */
+  function $findRootChar(): CharNode {
+    const char = $getRoot().getChildren().find($isCharNode);
+    return requireDefined(char, "root-level char not found");
+  }
+
+  /** The char's value TextNode — its one non-glyph text child. */
+  function $rootCharValue(): TextNode {
+    const value = $findRootChar()
+      .getChildren()
+      .find((child): child is TextNode => $isTextNode(child) && !$isMarkerNode(child));
+    return requireDefined(value, "char value text not found");
+  }
+
+  it("editing the value folds onto the chapter on caret departure, byte-identical with a reload", async () => {
+    const { editor } = await renderChapterEditor(adjacentCaCharUsj(["3"]));
+
+    await act(async () =>
+      editor.update(() => {
+        const value = $rootCharValue();
+        value.setTextContent(`${NBSP}34`);
+        value.select(value.getTextContentSize(), value.getTextContentSize());
+      }),
+    );
+    await act(async () =>
+      editor.update(() => {
+        $textOutsideChapter().select(0, 0);
+      }),
+    );
+
+    editor.getEditorState().read(() => {
+      const chapter = $findChapter();
+      expect(chapter.getAltnumber()).toBe("34");
+      expect(chapter.getNumber()).toBe("1");
+      // The first-class char is GONE — folded onto the chapter, not left beside the new run.
+      expect(
+        $getRoot()
+          .getChildren()
+          .map((child) => child.getType()),
+      ).toEqual(["book", "chapter", "para"]);
+      const pieces = $chapterAltnumberRunPieces(chapter);
+      expect(pieces.value?.getTextContent()).toBe(`${NBSP}34`);
+      expect(pieces.opener?.getTextContent()).toBe("\\ca");
+      expect(pieces.closer?.getTextContent()).toBe("\\ca*");
+    });
+
+    // Byte-identity with a reload of the same USFM (`\c 1 \ca 34\ca*`): the settled document
+    // must BE the folded USJ, not merely converge to it on the next load.
+    initializeDeserialize(undefined);
+    const settledUsj = deserializeSerializedEditorState(editor.getEditorState().toJSON());
+    expect(settledUsj?.content).toEqual([
+      { type: "book", marker: "id", code: "GEN", content: ["GEN"] },
+      { type: "chapter", marker: "c", number: "1", altnumber: "34" },
+      { type: "para", marker: "p", content: ["body text"] },
+    ]);
+  });
+
+  it("typing a value and closer literal into a settled unclosed \\ca char folds on settle", async () => {
+    // TJ's observed sequence: `\ca ` settled to a first-class UNCLOSED char (no closing glyph,
+    // closed="false" — the shape the palette's Space flow records); then `3\ca*` typed into
+    // that span must fold onto the chapter when it settles — not wait for a reload.
+    const { editor } = await renderChapterEditor({
+      type: "USJ",
+      version: "3.1",
+      content: [
+        { type: "book", marker: "id", code: "GEN", content: ["GEN"] },
+        { type: "chapter", marker: "c", number: "1" },
+        { type: "char", marker: "ca", closed: "false" },
+        { type: "para", marker: "p", content: ["body text"] },
+      ],
+    });
+
+    await act(async () =>
+      editor.update(() => {
+        const typed = $createTextNode(`${NBSP}3\\ca*`);
+        $findRootChar().append(typed);
+        typed.select(typed.getTextContentSize(), typed.getTextContentSize());
+      }),
+    );
+    await act(async () =>
+      editor.update(() => {
+        $textOutsideChapter().select(0, 0);
+      }),
+    );
+
+    editor.getEditorState().read(() => {
+      const chapter = $findChapter();
+      expect(chapter.getAltnumber()).toBe("3");
+      expect(
+        $getRoot()
+          .getChildren()
+          .map((child) => child.getType()),
+      ).toEqual(["book", "chapter", "para"]);
+    });
+  });
+
+  it("keeps a markup-bearing adjacent char first-class (fold refused, fixed point)", async () => {
+    // Markup inside the span aborts the fold (ParatextData keeps such a `\ca` first-class), so
+    // the chapter-scoped settle must land on a fixed point — no restructure, no altnumber.
+    const { editor } = await renderChapterEditor(
+      adjacentCaCharUsj(["3 ", { type: "char", marker: "nd", content: ["x"] }]),
+    );
+
+    await act(async () =>
+      editor.update(() => {
+        const value = $rootCharValue();
+        value.setTextContent(`${NBSP}4 `);
+        value.select(value.getTextContentSize(), value.getTextContentSize());
+      }),
+    );
+    await act(async () =>
+      editor.update(() => {
+        $textOutsideChapter().select(0, 0);
+      }),
+    );
+
+    editor.getEditorState().read(() => {
+      const chapter = $findChapter();
+      expect(chapter.getAltnumber()).toBeUndefined();
+      expect(
+        $getRoot()
+          .getChildren()
+          .map((child) => child.getType()),
+      ).toEqual(["book", "chapter", "char", "para"]);
     });
   });
 });

@@ -35,6 +35,7 @@ import {
   $buildChapterFragment,
   $buildNoteFragment,
   $buildParaFragment,
+  $chapterAdjacentAttributeChars,
   $isRebuildSentinel,
   $isReTokenizableMilestone,
   $settleScopeForNode,
@@ -1115,14 +1116,17 @@ function $settledChapter(
   // number/altnumber/pubnumber still lag it — the real settle reconciles the fields in place on
   // that fixed point; here the fresh serialized chapter already CARRIES the reconciled fields,
   // so returning it (the whole slot is replaced either way) is the read-only mirror of that.
+  // Compared over the whole REGION (`$buildChapterFragment` reads the chapter plus its adjacent
+  // first-class `\ca`/`\cp` chars), exactly as `$rebuildChapter`'s own fixed-point compare is.
+  const region: LexicalNode[] = [chapter, ...$chapterAdjacentAttributeChars(chapter)];
   const fieldsLag =
     chapter.getNumber() !== (freshChapter.number ?? "") ||
     chapter.getAltnumber() !== freshChapter.altnumber ||
     chapter.getPubnumber() !== freshChapter.pubnumber;
   if (
     !fieldsLag &&
-    serializedSignatureOf(rebuilt, getMarkerFn) === $signatureOf([chapter], getMarkerFn) &&
-    $structuralMarkersAgree([chapter], rebuilt, getMarkerFn)
+    serializedSignatureOf(rebuilt, getMarkerFn) === $signatureOf(region, getMarkerFn) &&
+    $structuralMarkersAgree(region, rebuilt, getMarkerFn)
   ) {
     logger?.debug("[MarkerEdit] Settled chapter USJ skipped: rebuild is a no-op (fixed point)");
     return undefined;
@@ -1242,16 +1246,19 @@ export function $settledUsj(
   }
 
   // Chapters are top-level and disjoint from both passes above — a chapter is never inside a
-  // paragraph or a note — so ordering against them is free. The whole chapter node's slot is
-  // replaced, mirroring `$rebuildChapter`'s whole-node splice.
+  // paragraph or a note — so ordering against them is free. The whole REGION's slots are
+  // replaced — the chapter plus any adjacent first-class `\ca`/`\cp` chars
+  // ($chapterAdjacentAttributeChars), mirroring `$rebuildChapter`'s whole-region splice: a
+  // folded span must vanish from the settled output, not linger beside the updated chapter.
   for (const chapter of chapterScopes.values()) {
     const site = sites.get(chapter.getKey());
     if (!site) continue;
+    const regionSize = 1 + $chapterAdjacentAttributeChars(chapter).length;
     const rebuilt = $settledChapter(chapter, context, transient);
     if (!rebuilt) continue;
     const index = site.siblings.indexOf(site.node);
     if (index < 0) continue;
-    site.siblings.splice(index, 1, ...rebuilt);
+    site.siblings.splice(index, regionSize, ...rebuilt);
   }
 
   // Husks LAST, deliberately AFTER the notes/para passes above, not before: a husk pended ALONE
