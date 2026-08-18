@@ -1,5 +1,11 @@
-import { $appendCharPara, testEnvironment } from "./markerEdit.test-helpers";
-import { $closeCharSpanAtCaret } from "./charFormatting.utils";
+import {
+  $appendCharPara,
+  requireDefined,
+  testEnvironment,
+  testEnvironmentWithCharSync,
+  testEnvironmentWithDisplaySyncs,
+} from "./markerEdit.test-helpers";
+import { $closeCharSpanAtCaret, $removeCharFormattingFromSelection } from "./charFormatting.utils";
 import { act } from "@testing-library/react";
 import {
   $createTextNode,
@@ -9,26 +15,28 @@ import {
   $isRangeSelection,
   $isTextNode,
   $setState,
+  ElementNode,
   KEY_DOWN_COMMAND,
+  LexicalEditor,
   LexicalNode,
   TextNode,
 } from "lexical";
 import {
   $createCharNode,
   $createMarkerNode,
+  $createNoteNode,
   $createParaNode,
   $isCharNode,
   $isMarkerNode,
+  $isNoteNode,
   $isParaNode,
+  CharNode,
+  getEditableCallerText,
   NBSP,
+  NoteNode,
+  ParaNode,
   textTypeState,
 } from "shared";
-
-/** Narrow away `T | undefined` without a banned non-null assertion. */
-function requireDefined<T>(value: T | undefined, message: string): T {
-  if (value === undefined) throw new Error(message);
-  return value;
-}
 
 /** The char span's plain content text node (its non-marker child). */
 function $charContent(char: ReturnType<typeof $createCharNode>): TextNode {
@@ -626,6 +634,418 @@ describe("Ctrl+Space", () => {
       );
     });
     editor.getEditorState().read(() => expect(text.getTextContent()).toBe("a b"));
+  });
+
+  it("claims a range with no character styles and inserts nothing", async () => {
+    // PT9 inserts no space at all on a range — the key clears formatting, and there is none here.
+    // Reporting "not handled" is what let the keystroke fall through to the browser, which types a
+    // literal space OVER the selection: a Ctrl+Space that silently deletes the selected words.
+    // Asserted on the return value rather than the dispatch, because that is what decides whether
+    // `MarkerEditPlugin` calls `preventDefault` on the DOM event.
+    let text: TextNode;
+    const { editor } = await testEnvironment(() => {
+      const para = $createParaNode("p");
+      text = $createTextNode("abcdef");
+      const markerTrailingSpace = $createTextNode(NBSP);
+      $setState(markerTrailingSpace, textTypeState, "marker-trailing-space");
+      $getRoot().append(para.append($createMarkerNode("p"), markerTrailingSpace, text));
+    });
+    let handled: boolean | undefined;
+    await act(async () =>
+      editor.update(() => {
+        text.select(0, 3);
+        handled = $removeCharFormattingFromSelection();
+      }),
+    );
+    expect(handled).toBe(true);
+    editor.getEditorState().read(() => expect($getRoot().getTextContent()).toContain("abcdef"));
+  });
+
+  it("leaves no empty marker pair when the range covers a span's whole word", async () => {
+    // A double-click selects the WORD, not the span's structural separator, so the range starts at
+    // offset 1 and the span splits rather than being unwrapped whole. The left half is then a
+    // marker pair around nothing — fabricated bytes in the file, not a cleared style.
+    let content: TextNode;
+    const { editor } = await testEnvironmentWithDisplaySyncs(() => {
+      const para = $createParaNode("p");
+      const nd = $createCharNode("nd");
+      content = $createTextNode(`${NBSP}holy`);
+      $getRoot().append(
+        para.append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          nd.append($createMarkerNode("nd"), content, $createMarkerNode("nd", "closing")),
+        ),
+      );
+    });
+    await act(async () => editor.update(() => content.select(1, 5)));
+    await act(async () => {
+      editor.dispatchCommand(
+        KEY_DOWN_COMMAND,
+        new KeyboardEvent("keydown", { key: " ", ctrlKey: true }),
+      );
+    });
+
+    editor.getEditorState().read(() => {
+      const para = requireDefined($getRoot().getChildren().filter($isParaNode)[0], "para missing");
+      expect(para.getChildren().filter($isCharNode)).toHaveLength(0);
+      expect(
+        para
+          .getAllTextNodes()
+          .map((textNode) => textNode.getTextContent())
+          .join("")
+          .replaceAll(NBSP, " "),
+      ).toBe("\\p holy");
+    });
+  });
+});
+
+describe("Ctrl+Space through a nested character-style stack", () => {
+  /**
+   * `\p \wj \+nd thing\+nd*\wj*` — a two-deep stack whose outer span's only content is the
+   * nested one, so the outer opener's separator is the standalone NBSP spacer
+   * `$syncOpenerSeparators` maintains for element-first content.
+   */
+  function $appendNestedStackPara(): { wj: CharNode; nd: CharNode; content: TextNode } {
+    const para = $createParaNode("p");
+    const wj = $createCharNode("wj");
+    const nd = $createCharNode("nd");
+    const content = $createTextNode(`${NBSP}thing`);
+    $getRoot().append(
+      para.append(
+        $createMarkerNode("p"),
+        $createTextNode(NBSP),
+        wj.append(
+          $createMarkerNode("wj"),
+          $createTextNode(NBSP),
+          nd.append(
+            $createMarkerNode("nd", "opening", true),
+            content,
+            $createMarkerNode("nd", "closing", true),
+          ),
+          $createMarkerNode("wj", "closing"),
+        ),
+      ),
+    );
+    return { wj, nd, content };
+  }
+
+  /**
+   * The USFM bytes `node`'s subtree stands for: every text node in document order (glyph nodes
+   * included — a `MarkerNode` is a `TextNode` whose text is its own glyph) with the structural
+   * NBSP separators rendered as the plain spaces they serialize to.
+   */
+  function $usfmBytes(node: ElementNode): string {
+    return node
+      .getAllTextNodes()
+      .map((textNode) => textNode.getTextContent())
+      .join("")
+      .replaceAll(NBSP, " ");
+  }
+
+  function $onlyPara(): ParaNode {
+    return requireDefined($getRoot().getChildren().filter($isParaNode)[0], "para missing");
+  }
+
+  async function pressCtrlSpace(editor: LexicalEditor) {
+    await act(async () => {
+      editor.dispatchCommand(
+        KEY_DOWN_COMMAND,
+        new KeyboardEvent("keydown", { key: " ", ctrlKey: true }),
+      );
+    });
+  }
+
+  it("closes innermost-out, emits an unstyled space, and reopens outermost-in", async () => {
+    let parts: ReturnType<typeof $appendNestedStackPara>;
+    const { editor } = await testEnvironmentWithDisplaySyncs(
+      () => (parts = $appendNestedStackPara()),
+    );
+    // caret between "thi" and "ng" (content text is NBSP + "thing")
+    await act(async () => editor.update(() => parts.content.select(4, 4)));
+    await pressCtrlSpace(editor);
+
+    editor.getEditorState().read(() => {
+      const para = $onlyPara();
+      // Closers innermost-then-outermost before the space; openers outermost-then-innermost
+      // after it, with the `+` on the nested one only.
+      expect($usfmBytes(para)).toBe("\\p \\wj \\+nd thi\\+nd*\\wj* \\wj \\+nd ng\\+nd*\\wj*");
+      // The space belongs to no span: its parent is the paragraph.
+      const space = requireDefined(
+        para.getChildren().find((child) => $isTextNode(child) && child.getTextContent() === " "),
+        "unstyled space missing from the paragraph",
+      );
+      expect($isParaNode(space.getParent())).toBe(true);
+    });
+  });
+
+  it("lands the caret immediately after the space", async () => {
+    let parts: ReturnType<typeof $appendNestedStackPara>;
+    const { editor } = await testEnvironmentWithDisplaySyncs(
+      () => (parts = $appendNestedStackPara()),
+    );
+    await act(async () => editor.update(() => parts.content.select(4, 4)));
+    await pressCtrlSpace(editor);
+
+    editor.getEditorState().read(() => {
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) throw new Error("expected a range selection");
+      const anchorNode = selection.anchor.getNode();
+      expect($isTextNode(anchorNode) && anchorNode.getTextContent()).toBe(" ");
+      expect(selection.anchor.offset).toBe(1);
+      expect($isParaNode(anchorNode.getParent())).toBe(true);
+    });
+  });
+
+  it("closes the stack without reopening it when nothing follows the caret", async () => {
+    let parts: ReturnType<typeof $appendNestedStackPara>;
+    // Char sync only. The emitted space ends the paragraph here, and `TextSpacingPlugin`'s
+    // trailing-space transform empties a lone space whose next sibling is not a verse — it would
+    // swallow the space before this test could see where the close-and-reopen put it.
+    const { editor } = await testEnvironmentWithCharSync(() => (parts = $appendNestedStackPara()));
+    // caret at the very end of the innermost span's content, which is also the outer span's end
+    await act(async () => editor.update(() => parts.content.select(6, 6)));
+    await pressCtrlSpace(editor);
+
+    editor
+      .getEditorState()
+      .read(() => expect($usfmBytes($onlyPara())).toBe("\\p \\wj \\+nd thing\\+nd*\\wj* "));
+  });
+
+  it("does not reopen the stack when the caret ends the run but text follows the span", async () => {
+    let content: TextNode;
+    const { editor } = await testEnvironmentWithDisplaySyncs(() => {
+      const para = $createParaNode("p");
+      const wj = $createCharNode("wj");
+      const nd = $createCharNode("nd");
+      content = $createTextNode(`${NBSP}thing`);
+      $getRoot().append(
+        para.append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          wj.append(
+            $createMarkerNode("wj"),
+            $createTextNode(NBSP),
+            nd.append(
+              $createMarkerNode("nd", "opening", true),
+              content,
+              $createMarkerNode("nd", "closing", true),
+            ),
+            $createMarkerNode("wj", "closing"),
+          ),
+          $createTextNode("tail"),
+        ),
+      );
+    });
+    await act(async () => editor.update(() => content.select(6, 6)));
+    await pressCtrlSpace(editor);
+
+    editor.getEditorState().read(() => {
+      expect($usfmBytes($onlyPara())).toBe("\\p \\wj \\+nd thing\\+nd*\\wj* tail");
+      // One span, not two: nothing inside the stack followed the caret, so nothing reopened.
+      expect($onlyPara().getChildren().filter($isCharNode)).toHaveLength(1);
+    });
+  });
+
+  it("drops the opened span rather than reopening an empty one at a run's start", async () => {
+    let parts: ReturnType<typeof $appendNestedStackPara>;
+    const { editor } = await testEnvironmentWithDisplaySyncs(
+      () => (parts = $appendNestedStackPara()),
+    );
+    // caret at the innermost run's content start — just past its structural NBSP separator
+    await act(async () => editor.update(() => parts.content.select(1, 1)));
+    await pressCtrlSpace(editor);
+
+    editor
+      .getEditorState()
+      .read(() => expect($usfmBytes($onlyPara())).toBe("\\p  \\wj \\+nd thing\\+nd*\\wj*"));
+  });
+
+  it("clears EVERY level of the stack over a range", async () => {
+    // Ctrl+Space over a selection is an unformatter, so a range covering all of a stack's content
+    // leaves the text bare — both spans are nothing without it.
+    let parts: ReturnType<typeof $appendNestedStackPara>;
+    const { editor } = await testEnvironmentWithDisplaySyncs(
+      () => (parts = $appendNestedStackPara()),
+    );
+    // the word, not the span's structural separator — the range starts at offset 1
+    await act(async () => editor.update(() => parts.content.select(1, 6)));
+    await pressCtrlSpace(editor);
+
+    editor.getEditorState().read(() => {
+      expect($usfmBytes($onlyPara())).toBe("\\p thing");
+      expect($onlyPara().getChildren().filter($isCharNode)).toHaveLength(0);
+    });
+  });
+
+  it("keeps a partially covered outer style around the unformatted run", async () => {
+    let content: TextNode;
+    const { editor } = await testEnvironmentWithDisplaySyncs(() => {
+      const para = $createParaNode("p");
+      const wj = $createCharNode("wj");
+      const nd = $createCharNode("nd");
+      content = $createTextNode(`${NBSP}holy`);
+      $getRoot().append(
+        para.append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          wj.append(
+            $createMarkerNode("wj"),
+            $createTextNode(`${NBSP}A `),
+            nd.append(
+              $createMarkerNode("nd", "opening", true),
+              content,
+              $createMarkerNode("nd", "closing", true),
+            ),
+            $createTextNode(" B"),
+            $createMarkerNode("wj", "closing"),
+          ),
+        ),
+      );
+    });
+    await act(async () => editor.update(() => content.select(1, 5))); // "holy"
+    await pressCtrlSpace(editor);
+
+    editor.getEditorState().read(() => {
+      // `\wj` extends past the selection on both sides, so it closes before the unformatted run
+      // and reopens after it; `\nd`, which the run covered entirely, is gone.
+      expect($usfmBytes($onlyPara())).toBe("\\p \\wj A \\wj*holy\\wj  B\\wj*");
+    });
+  });
+
+  describe("attribute bytes survive as plain text when the span goes", () => {
+    /** `\p \w holy<runText>\w*` with `attributes` as the span's state and `runText` as its run. */
+    async function unformatWord(attributes: { [name: string]: string }, runText: string) {
+      // The engine alone: the attribute-run sync re-dirties a freshly built attributed span and
+      // parks the caret at the paragraph start, which would clobber the selection under test.
+      let content: TextNode;
+      const { editor } = await testEnvironment(() => {
+        const para = $createParaNode("p");
+        const w = $createCharNode("w", attributes);
+        content = $createTextNode(`${NBSP}holy`);
+        const displayRun = $createTextNode(runText);
+        $setState(displayRun, textTypeState, "attribute");
+        $getRoot().append(
+          para.append(
+            $createMarkerNode("p"),
+            $createTextNode(NBSP),
+            w.append(
+              $createMarkerNode("w"),
+              content,
+              displayRun,
+              $createMarkerNode("w", "closing"),
+            ),
+          ),
+        );
+      });
+      await act(async () =>
+        editor.update(() => {
+          content.select(1, 5);
+          $removeCharFormattingFromSelection();
+        }),
+      );
+      let bytes = "";
+      editor.getEditorState().read(() => (bytes = $usfmBytes($onlyPara())));
+      return bytes;
+    }
+
+    it("collapses a lone default attribute to its bare value", async () => {
+      expect(await unformatWord({ lemma: "grace" }, "|grace")).toBe("\\p holy|grace");
+    });
+
+    it("keeps the name for a non-default attribute", async () => {
+      expect(await unformatWord({ gloss: "stuff" }, '|gloss="stuff"')).toBe(
+        '\\p holy|gloss="stuff"',
+      );
+    });
+
+    it("keeps every name when there is more than one attribute", async () => {
+      expect(
+        await unformatWord({ lemma: "things", gloss: "stuff" }, '|lemma="things" gloss="stuff"'),
+      ).toBe('\\p holy|lemma="things" gloss="stuff"');
+    });
+  });
+
+  it("reuses the space one character ahead instead of inserting a second one", async () => {
+    let content: TextNode;
+    const { editor } = await testEnvironmentWithDisplaySyncs(() => {
+      const para = $createParaNode("p");
+      const wj = $createCharNode("wj");
+      const nd = $createCharNode("nd");
+      content = $createTextNode(`${NBSP}Lord of hosts`);
+      $getRoot().append(
+        para.append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          wj.append(
+            $createMarkerNode("wj"),
+            $createTextNode(NBSP),
+            nd.append(
+              $createMarkerNode("nd", "opening", true),
+              content,
+              $createMarkerNode("nd", "closing", true),
+            ),
+            $createMarkerNode("wj", "closing"),
+          ),
+        ),
+      );
+    });
+    // caret right before the space between "Lord" and "of"
+    await act(async () => editor.update(() => content.select(5, 5)));
+    await pressCtrlSpace(editor);
+
+    editor
+      .getEditorState()
+      .read(() =>
+        expect($usfmBytes($onlyPara())).toBe(
+          "\\p \\wj \\+nd Lord\\+nd*\\wj* \\wj \\+nd of hosts\\+nd*\\wj*",
+        ),
+      );
+  });
+
+  it("closes and reopens note-content spans but not the enclosing note", async () => {
+    let content: TextNode;
+    let noteRef: NoteNode;
+    const { editor } = await testEnvironmentWithDisplaySyncs(() => {
+      const para = $createParaNode("p");
+      const note = $createNoteNode("f", "+", false);
+      const ft = $createCharNode("ft");
+      ft.setUnknownAttributes({ closed: "false" });
+      const nd = $createCharNode("nd");
+      content = $createTextNode(`${NBSP}holy`);
+      note.append(
+        $createMarkerNode("f"),
+        $createTextNode(getEditableCallerText("+")),
+        ft.append(
+          $createMarkerNode("ft"),
+          $createTextNode(`${NBSP}A `),
+          nd.append(
+            $createMarkerNode("nd", "opening", true),
+            content,
+            $createMarkerNode("nd", "closing", true),
+          ),
+          $createTextNode(" B"),
+        ),
+        $createMarkerNode("f", "closing"),
+      );
+      $getRoot().append(
+        para.append($createMarkerNode("p"), $createTextNode(NBSP), $createTextNode("text "), note),
+      );
+      noteRef = note;
+    });
+    // caret between "ho" and "ly" inside the nested \nd
+    await act(async () => editor.update(() => content.select(3, 3)));
+    await pressCtrlSpace(editor);
+
+    editor.getEditorState().read(() => {
+      // \nd and \ft both close and reopen; the space is a NOTE child, so \f is untouched.
+      expect($usfmBytes(noteRef)).toBe("\\f + \\ft A \\+nd ho\\+nd* \\ft \\+nd ly\\+nd* B\\f*");
+      const space = requireDefined(
+        noteRef.getChildren().find((child) => $isTextNode(child) && child.getTextContent() === " "),
+        "unstyled space missing from the note",
+      );
+      expect($isNoteNode(space.getParent())).toBe(true);
+    });
   });
 });
 

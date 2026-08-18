@@ -13,6 +13,7 @@ import {
   renderStandardEditorWithUnclosedNote,
   requireDefined,
   serializedState,
+  testEnvironmentWithCharSync,
   viewOptions,
 } from "./markerEdit.test-helpers";
 import { $handleEnterInNote, NoteEnterOutcome } from "./markerEditNote.utils";
@@ -34,12 +35,18 @@ import {
   TextNode,
 } from "lexical";
 import {
+  $createCharNode,
+  $createMarkerNode,
+  $createNoteNode,
+  $createParaNode,
   $isCharNode,
   $isMarkerNode,
   $isNoteNode,
   $isParaNode,
+  getEditableCallerText,
   MarkerNode,
   NBSP,
+  NoteNode,
   textTypeState,
 } from "shared";
 import { StructureKeyboardPlugin } from "shared-react";
@@ -604,6 +611,112 @@ describe("Enter inside note content", () => {
 
     editor.getEditorState().read(() => {
       expect(countParagraphs($getRoot())).toBe(parasBefore + 1);
+    });
+  });
+});
+
+describe("Enter inside a nested character style in note content", () => {
+  /** A footnote whose `\ft` content is `A \+nd holy\+nd* B` — a nested span with text either side. */
+  async function setUpNestedNd() {
+    let contentRef: TextNode | undefined;
+    let noteRef: NoteNode | undefined;
+    const environment = await testEnvironmentWithCharSync(() => {
+      const para = $createParaNode("p");
+      const note = $createNoteNode("f", "+", false);
+      const ft = $createCharNode("ft");
+      ft.setUnknownAttributes({ closed: "false" });
+      const nd = $createCharNode("nd");
+      const content = $createTextNode(`${NBSP}holy`);
+      note.append(
+        $createMarkerNode("f"),
+        $createTextNode(getEditableCallerText("+")),
+        ft.append(
+          $createMarkerNode("ft"),
+          $createTextNode(`${NBSP}A `),
+          nd.append(
+            $createMarkerNode("nd", "opening", true),
+            content,
+            $createMarkerNode("nd", "closing", true),
+          ),
+          $createTextNode(" B"),
+        ),
+        $createMarkerNode("f", "closing"),
+      );
+      $getRoot().append(
+        para.append($createMarkerNode("p"), $createTextNode(NBSP), $createTextNode("text "), note),
+      );
+      contentRef = content;
+      noteRef = note;
+    });
+    return {
+      ...environment,
+      content: requireDefined(contentRef, "nested content missing"),
+      note: requireDefined(noteRef, "note missing"),
+    };
+  }
+
+  /**
+   * The USFM bytes `node`'s subtree stands for: every text node in document order (glyph nodes
+   * included) with the structural NBSP separators rendered as the plain spaces they serialize to.
+   */
+  function $usfmBytes(node: ElementNode): string {
+    return node
+      .getAllTextNodes()
+      .map((textNode) => textNode.getTextContent())
+      .join("")
+      .replaceAll(NBSP, " ");
+  }
+
+  it("reopens the nested style inside the break and carries the outer span's tail with it", async () => {
+    const { editor, content, note } = await setUpNestedNd();
+
+    let handled: NoteEnterOutcome = "declined";
+    await act(async () => {
+      editor.update(() => {
+        content.select(3, 3); // between "ho" and "ly"
+        handled = $handleEnterInNote();
+      });
+    });
+
+    expect(handled).toBe("handled");
+    editor.getEditorState().read(() => {
+      // \nd closes before the break and reopens inside it; " B" — the OUTER span's content after
+      // the nested one — rides along instead of being stranded before the break.
+      expect($usfmBytes(note)).toBe("\\f + \\ft A \\+nd ho\\+nd*\\fp \\+nd ly\\+nd* B\\f*");
+      const chars = note.getChildren().filter($isCharNode);
+      expect(chars.map((c) => c.getMarker())).toEqual(["ft", "fp"]);
+    });
+  });
+
+  it("places the caret at the break point inside the reopened nested style", async () => {
+    const { editor, content, note } = await setUpNestedNd();
+
+    await act(async () => {
+      editor.update(() => {
+        content.select(3, 3);
+        $handleEnterInNote();
+      });
+    });
+
+    editor.getEditorState().read(() => {
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection) || !selection.isCollapsed())
+        throw new Error("Expected a collapsed selection after Enter");
+      const anchorNode = selection.anchor.getNode();
+      // Typing continues where the user split: at the start of the reopened \nd's content, just
+      // past its structural separator.
+      expect(anchorNode.getTextContent()).toBe(`${NBSP}ly`);
+      expect(selection.anchor.offset).toBe(1);
+      const reopenedNd = anchorNode.getParent();
+      expect($isCharNode(reopenedNd) && reopenedNd.getMarker()).toBe("nd");
+      const fp = requireDefined(
+        note
+          .getChildren()
+          .filter($isCharNode)
+          .find((c) => c.getMarker() === "fp"),
+        "\\fp char span not found",
+      );
+      expect(fp.isParentOf(anchorNode)).toBe(true);
     });
   });
 });

@@ -830,7 +830,7 @@ describe("$applyMarkerMenuSelection", () => {
       expect(noteJson).toContain("quoted");
     });
 
-    it("splits the \\ft at a mid-content caret and inserts the new \\fq between the halves, all inside the note", async () => {
+    it("ends the \\ft at a mid-content caret and gives its tail to the new \\fq, all inside the note", async () => {
       const { editor, note, ftChar, ftContent } = await setUpExpandedFootnote();
       let paraChildrenBefore = 0;
       await act(async () =>
@@ -857,20 +857,22 @@ describe("$applyMarkerMenuSelection", () => {
         expect($onlyPara().getChildrenSize()).toBe(paraChildrenBefore);
         expect($onlyPara().getChildren().filter($isCharNode)).toHaveLength(0);
 
-        // The \ft split at the caret with the new \fq between the halves.
+        // The \ft ENDS at the caret — a note-content marker closes implicitly, so writing `\fq`
+        // is itself how `\ft` terminates. No `\ft*` is emitted and no `\ft` reopens; the tail
+        // becomes the `\fq`'s content.
         const chars = note.getChildren().filter($isCharNode);
-        expect(chars.map((c) => c.getMarker())).toEqual(["ft", "fq", "ft"]);
+        expect(chars.map((c) => c.getMarker())).toEqual(["ft", "fq"]);
         expect(chars[0].is(ftChar)).toBe(true);
         expect(chars[0].getTextContent()).toContain("A ");
         expect(chars[0].getTextContent()).not.toContain("note");
-        expect(chars[2].getTextContent()).toContain("note");
-        // The right half is a valid editable span (fresh opening glyph), so the engine's
+        expect(chars[1].getTextContent()).toContain("note");
+        // The new span is a valid editable span (opening glyph first), so the engine's
         // char-deletion transform won't unwrap it back to plain text.
-        const rightFirst = chars[2].getFirstChild();
-        expect($isMarkerNode(rightFirst) && rightFirst.getMarkerSyntax() === "opening").toBe(true);
+        const newFirst = chars[1].getFirstChild();
+        expect($isMarkerNode(newFirst) && newFirst.getMarkerSyntax() === "opening").toBe(true);
       });
 
-      // Typing probe: the caret landed INSIDE the new \fq between the halves.
+      // Typing probe: the caret landed INSIDE the new \fq, ahead of the tail it took over.
       await act(async () =>
         editor.update(() => {
           const selection = $getSelection();
@@ -879,10 +881,9 @@ describe("$applyMarkerMenuSelection", () => {
       );
       editor.getEditorState().read(() => {
         const chars = note.getChildren().filter($isCharNode);
-        expect(chars.map((c) => c.getMarker())).toEqual(["ft", "fq", "ft"]);
+        expect(chars.map((c) => c.getMarker())).toEqual(["ft", "fq"]);
         expect(chars[1].getTextContent()).toContain("X");
         expect(chars[0].getTextContent()).not.toContain("X");
-        expect(chars[2].getTextContent()).not.toContain("X");
       });
     });
 
@@ -1187,8 +1188,9 @@ describe("$applyMarkerMenuSelection", () => {
         // \xt is the one NEST-able marker whose editor span carries the implicit-close
         // convention (closed="false", no closing glyph). Nesting such a span in place would
         // swallow the rest of the host span's content on serialization (`\+xt` with no `\+xt*`
-        // runs to the parent's closer), so it keeps the split-and-reopen shape — same rendered
-        // semantics as PT9's nesting, expressed with the implicit-close convention.
+        // runs to the parent's closer), so it keeps the split shape — same rendered semantics as
+        // PT9's nesting, expressed with the implicit-close convention. Sharing that convention
+        // with the host `\ft` is also why nothing reopens after it: the `\xt` IS the `\ft`'s end.
         const { editor, note, ftContent } = await setUpExpandedFootnote();
         await act(async () => editor.update(() => ftContent.select(3, 3)));
 
@@ -1204,7 +1206,7 @@ describe("$applyMarkerMenuSelection", () => {
         );
 
         editor.getEditorState().read(() => {
-          expect(childCharMarkers(note)).toEqual(["ft", "xt", "ft"]);
+          expect(childCharMarkers(note)).toEqual(["ft", "xt"]);
         });
       });
     });
@@ -1772,6 +1774,18 @@ describe("$applyMarkerMenuSelection", () => {
       function $nestedNd(note: NoteNode): CharNode {
         return childChars(noteChars(note)[0])[0];
       }
+      /**
+       * The USFM bytes the note stands for: every text node in document order (glyph nodes
+       * included) with the structural NBSP separators rendered as the plain spaces they
+       * serialize to.
+       */
+      function $noteUsfmBytes(note: NoteNode): string {
+        return note
+          .getAllTextNodes()
+          .map((textNode) => textNode.getTextContent())
+          .join("")
+          .replaceAll(NBSP, " ");
+      }
 
       it("(selection) closes \\nd and \\ft, puts \\fq at the note level, and reopens \\ft after it", async () => {
         const { editor, note } = await setUpNestedNd();
@@ -1810,7 +1824,7 @@ describe("$applyMarkerMenuSelection", () => {
         });
       });
 
-      it("(collapsed caret) closes and reopens around an empty \\fq, reopening \\nd for the tail", async () => {
+      it("(collapsed caret) ends \\ft at the caret and takes the rest of it into \\fq", async () => {
         const { editor, note } = await setUpNestedNd();
         // Caret between "ho" and "ly" inside the nested \nd (NBSP + "holy").
         await act(async () => editor.update(() => $spanText($nestedNd(note)).select(3, 3)));
@@ -1827,13 +1841,17 @@ describe("$applyMarkerMenuSelection", () => {
         );
 
         editor.getEditorState().read(() => {
+          // A note-content marker closes implicitly, so writing `\fq` IS how `\ft` ends: no `\ft*`
+          // is emitted and no `\ft` is reopened, and everything after the caret — the reopened
+          // `\+nd` and the outer span's own trailing text alike — becomes `\fq`'s content. The
+          // explicitly-closed `\+nd` still closes and reopens, now inside the `\fq`.
+          expect($noteUsfmBytes(note)).toBe("\\f + \\ft A \\+nd ho\\+nd*\\fq \\+nd ly\\+nd* B\\f*");
           const chars = noteChars(note);
-          expect(chars.map((c) => c.getMarker())).toEqual(["ft", "fq", "ft"]);
-          const [ftLeft, , ftRight] = chars;
-          // \nd["ho"] stays in the first \ft; \nd["ly"] REOPENS inside the second \ft.
+          expect(chars.map((c) => c.getMarker())).toEqual(["ft", "fq"]);
+          const [ftLeft, fq] = chars;
           expect(childChars(ftLeft)[0]?.getTextContent()).toContain("ho");
-          expect(childChars(ftRight)[0]?.getMarker()).toBe("nd");
-          expect(childChars(ftRight)[0]?.getTextContent()).toContain("ly");
+          expect(childChars(fq)[0]?.getMarker()).toBe("nd");
+          expect(childChars(fq)[0]?.getTextContent()).toContain("ly");
         });
       });
 
