@@ -586,6 +586,80 @@ describe("$applyMarkerMenuSelection", () => {
         expect(markerChildren).toHaveLength(2);
       });
     });
+
+    /**
+     * Wrapping a selection that is nothing but whitespace. Lives here rather than beside the
+     * trailing-space transform's own lone-space pins because what it exercises is the WRAP
+     * primitive's span shape; the transform half is already pinned in `TextSpacingPlugin.test.tsx`
+     * in both aftermath shapes. Driven on the full harness so the trailing-space transform is
+     * live — a selected space is real content, and neither the wrap nor the transform may delete
+     * it or add a byte beside it.
+     *
+     * SKIPPED: red against a defect in the WRAP primitive, which this test does not own.
+     * `$moveLeadingSpaceToPreviousNode` (`../adaptors/usj-marker-action.utils.ts`) moves a wrapped
+     * node's leading space out to the previous sibling unconditionally. When the selection IS
+     * that space, trimming empties the node and the wrapper keeps only its structural separator.
+     * Measured today: the space returns to the left text node and an EMPTY span serializes —
+     * `["one ", { type: "char", marker: "nd" }, "two"]`, a fabricated `\nd \nd*` pair in the
+     * file, with the user's apply silently doing nothing.
+     *
+     * The whitespace half is clean: neither trailing-space transform deletes or fabricates a
+     * byte here. Un-skip alongside a guard that declines to move a leading space when it is the
+     * node's entire content.
+     */
+    it.skip("wraps a whitespace-only selection into a span holding exactly that space", async () => {
+      let text: TextNode;
+      const { editor } = await fullHarnessEnvironment(() => {
+        text = $createTextNode("one two");
+        $getRoot().append(
+          $createParaNode("p").append($createMarkerNode("p"), $createTrailingSpaceNode(), text),
+        );
+      });
+      await act(async () => editor.update(() => text.select(3, 4))); // the space between the words
+
+      const item: MarkerMenuItem = { marker: "nd", kind: "character", isBasic: true };
+      await act(async () =>
+        editor.update(() => {
+          $applyMarkerMenuSelection(
+            item,
+            { trigger: "backslash", literalPrefixLanded: false },
+            reference,
+            makeDeps(),
+          );
+        }),
+      );
+
+      editor.getEditorState().read(() => {
+        const para = requireDefined(
+          $getRoot().getChildren().filter($isParaNode)[0],
+          "para missing",
+        );
+        const chars = para.getChildren().filter($isCharNode);
+        expect(chars).toHaveLength(1);
+        expect(chars[0].getMarker()).toBe("nd");
+        // A space IS content, so the span is not the empty shape the char-stack close/reopen
+        // drops: it keeps both glyphs and holds the selected space after its structural separator.
+        expect(chars[0].getChildren().filter($isMarkerNode)).toHaveLength(2);
+        const content = chars[0]
+          .getChildren()
+          .find((child): child is TextNode => $isTextNode(child) && !$isMarkerNode(child));
+        expect(content?.getTextContent()).toBe(`${NBSP} `);
+      });
+
+      // Nothing deleted, nothing fabricated: the space moved inside the span and the words on
+      // either side abut it exactly as before.
+      expect(deserializeEditorState(editor.getEditorState(), viewOptions)).toEqual({
+        type: "USJ",
+        version: "3.1",
+        content: [
+          {
+            type: "para",
+            marker: "p",
+            content: ["one", { type: "char", marker: "nd", content: [" "] }, "two"],
+          },
+        ],
+      });
+    });
   });
 
   describe("open kind — note insertion returns the created note's key", () => {
