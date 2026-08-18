@@ -3,9 +3,13 @@ import { mergeRegister } from "@lexical/utils";
 import {
   $getSelection,
   $isRangeSelection,
+  COMMAND_PRIORITY_CRITICAL,
   COMMAND_PRIORITY_HIGH,
   CONTROLLED_TEXT_INSERTION_COMMAND,
   CUT_COMMAND,
+  DELETE_CHARACTER_COMMAND,
+  DELETE_LINE_COMMAND,
+  DELETE_WORD_COMMAND,
   DROP_COMMAND,
   KEY_DOWN_COMMAND,
   LexicalNode,
@@ -26,16 +30,29 @@ import { $isImmutableTableNode, $isUnknownNode } from "shared";
  * accepting a keystroke and losing neighbouring content to it is the failure the no-silent-no-ops
  * rule exists to prevent; a refused keystroke, where the character simply never appears, is not.
  *
- * The rule is deliberately narrow: only a selection whose BOTH ends sit inside the SAME opaque
- * construct is refused. A selection that merely spans one from outside is asking to replace a region
- * of the document, which is the structural-deletion question and is answered elsewhere; annexing it
- * here would turn a targeted guard into a blanket one.
+ * The rule is deliberately narrow: an edit is refused when an END of the selection lands INSIDE an
+ * opaque construct. That covers a caret sitting in one, and a selection reaching in from the text
+ * outside and stopping partway through — the shape that guts the construct's engine-owned bytes (a
+ * row's `\tr ` glyph and its separator) while leaving the construct itself in the document. Nothing
+ * repairs that afterwards: `$settleScopeForNode` returns undefined inside an opaque construct, so no
+ * re-tokenization ever reconciles the screen with the file again.
+ *
+ * A selection that CONTAINS a construct whole — both ends outside it — is deliberately still not
+ * this guard's business. That is a request to replace a region of the document, which is the
+ * structural-deletion question and is answered elsewhere; annexing it here would turn a targeted
+ * guard into a blanket one.
  *
  * Navigation and copying stay untouched, because they are what a read-only block is FOR: the block's
  * bytes are selectable and copyable. Only keys that would insert or delete are refused, and
  * modifier chords (Ctrl+C, Ctrl+Z, the marker engine's Ctrl+Space) are never treated as text.
  * Dragging OUT of a block is likewise left alone so drag-to-copy keeps working; the destructive
  * clipboard directions (cut, and a drop landing inside) are refused by their own commands.
+ *
+ * The delete COMMANDS are guarded alongside `KEY_DOWN` rather than left to it, because a delete
+ * chord never reaches the key filter as typing: Lexical routes Ctrl/Alt+Backspace straight to
+ * `DELETE_WORD_COMMAND` and Cmd/Ctrl+Backspace to `DELETE_LINE_COMMAND`, and the filter must keep
+ * treating a modifier chord as a command so Ctrl+C and Ctrl+Space still work. Guarding the delete
+ * commands themselves closes that without reopening the chords.
  *
  * Mount alongside the other guards. Read-only is not a view mode — a construct the editor cannot
  * model is opaque in every marker mode — so this plugin takes no `viewOptions` and is never gated
@@ -53,7 +70,7 @@ export function OpaqueBlockGuardPlugin(): null {
      */
     const $refuseEditInsideOpaqueBlock = (payload: unknown): boolean => {
       if (payload instanceof KeyboardEvent && !isEditingKey(payload)) return false;
-      if (!$selectionIsWithinOneOpaqueBlock()) return false;
+      if (!$selectionReachesIntoOpaqueBlock()) return false;
       if (payload instanceof Event) payload.preventDefault();
       return true;
     };
@@ -65,9 +82,34 @@ export function OpaqueBlockGuardPlugin(): null {
         $refuseEditInsideOpaqueBlock,
         COMMAND_PRIORITY_HIGH,
       ),
-      editor.registerCommand(PASTE_COMMAND, $refuseEditInsideOpaqueBlock, COMMAND_PRIORITY_HIGH),
-      editor.registerCommand(CUT_COMMAND, $refuseEditInsideOpaqueBlock, COMMAND_PRIORITY_HIGH),
+      // CUT and PASTE run at CRITICAL because their standard-view handlers — the ones that
+      // actually copy and then remove — are themselves registered at HIGH, where the winner is
+      // decided by registration order rather than by intent. A refusal has to outrank the actor it
+      // refuses, not tie with it. The engine's own CRITICAL cut arm records what a cut would cover
+      // and claims nothing, so either order of the two is correct: with no removal, nothing it
+      // armed can be reaped.
+      editor.registerCommand(
+        PASTE_COMMAND,
+        $refuseEditInsideOpaqueBlock,
+        COMMAND_PRIORITY_CRITICAL,
+      ),
+      editor.registerCommand(CUT_COMMAND, $refuseEditInsideOpaqueBlock, COMMAND_PRIORITY_CRITICAL),
       editor.registerCommand(DROP_COMMAND, $refuseEditInsideOpaqueBlock, COMMAND_PRIORITY_HIGH),
+      editor.registerCommand(
+        DELETE_CHARACTER_COMMAND,
+        $refuseEditInsideOpaqueBlock,
+        COMMAND_PRIORITY_HIGH,
+      ),
+      editor.registerCommand(
+        DELETE_WORD_COMMAND,
+        $refuseEditInsideOpaqueBlock,
+        COMMAND_PRIORITY_HIGH,
+      ),
+      editor.registerCommand(
+        DELETE_LINE_COMMAND,
+        $refuseEditInsideOpaqueBlock,
+        COMMAND_PRIORITY_HIGH,
+      ),
     );
   }, [editor]);
 
@@ -101,14 +143,19 @@ function $opaqueBlockAncestor(node: LexicalNode): LexicalNode | undefined {
 /**
  * Mutating: read inside an `editor.update()` or a command handler.
  *
- * Whether the whole selection sits inside ONE opaque construct. Both ends are resolved separately
- * and required to land on the same construct, so a selection reaching in from outside — which is a
- * request to replace a span of the document, not to edit the block — is not this guard's business.
+ * Whether an END of the selection lands inside an opaque construct — a caret parked in one, or a
+ * range that reaches in from the outside and stops partway through. Both ends are resolved
+ * separately, and either one being inside is enough, because an edit that lands partway into a
+ * construct destroys engine-owned bytes the construct keeps in the file.
+ *
+ * A range whose ends are BOTH outside is not this guard's business even when it contains a
+ * construct whole: that is a region replacement, answered by the structural-deletion rules.
  */
-function $selectionIsWithinOneOpaqueBlock(): boolean {
+function $selectionReachesIntoOpaqueBlock(): boolean {
   const selection = $getSelection();
   if (!$isRangeSelection(selection)) return false;
-  const anchorBlock = $opaqueBlockAncestor(selection.anchor.getNode());
-  const focusBlock = $opaqueBlockAncestor(selection.focus.getNode());
-  return anchorBlock !== undefined && anchorBlock.is(focusBlock);
+  return (
+    $opaqueBlockAncestor(selection.anchor.getNode()) !== undefined ||
+    $opaqueBlockAncestor(selection.focus.getNode()) !== undefined
+  );
 }
