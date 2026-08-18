@@ -21,23 +21,50 @@ import Editor from "../Editor";
 import { IDLE_SETTLE_DELAY_MS } from "./MarkerEditPlugin";
 import {
   $appendCharPara,
+  $appendVerseAttributeRun,
   historyTestEnvironment,
   requireDefined,
   testEnvironment,
+  testEnvironmentWithCharSync,
+  testEnvironmentWithSpacing,
 } from "./markerEdit.test-helpers";
 import { spanUsj } from "../settledGetUsj.test-helpers";
 import { EditorRefPlugin } from "@lexical/react/LexicalEditorRefPlugin";
 import { act, render } from "@testing-library/react";
 import {
+  $createRangeSelection,
+  $createTextNode,
   $getRoot,
+  $getSelection,
   $isElementNode,
+  $isRangeSelection,
+  $isTextNode,
+  $setSelection,
   KEY_DOWN_COMMAND,
   LexicalEditor,
+  LexicalNode,
   TextNode,
   UNDO_COMMAND,
 } from "lexical";
 import { createRef } from "react";
-import { $isCharNode, $isMarkerNode, CURSOR_CHANGE_TAG } from "shared";
+import {
+  $createCharNode,
+  $createMarkerNode,
+  $createMarkerTrailingSeparator,
+  $createParaNode,
+  $createVerseNode,
+  $isAttributeRunNode,
+  $isCharNode,
+  $isMarkerNode,
+  $isParaNode,
+  $isVerseNode,
+  $verseAttributeRunPieces,
+  CURSOR_CHANGE_TAG,
+  getVisibleOpenMarkerText,
+  MarkerNode,
+  NBSP,
+  ParaNode,
+} from "shared";
 import { getViewOptions, STANDARD_VIEW_MODE } from "shared-react";
 
 // jsdom doesn't implement `getBoundingClientRect` on `Range`; moving the caret gives the editor
@@ -206,6 +233,252 @@ describe("idle debounce settle (the second settle clock)", () => {
   // with composition still active — pre-existing behavior, observed under jsdom), so a
   // timer-only guard would make the clocks diverge. If mid-composition settling needs
   // suppressing, that belongs in the SHARED settle computation, decided with a real-IME repro.
+});
+
+describe("idle expiry overrides caret-position grace", () => {
+  // PT9's debounced reformat settles GLOBALLY when its tick fires: once the user has genuinely
+  // idled, the caret's position grants no grace. The departure clock's caret-position grace arms
+  // — the para-prefix separator re-pend and the display-owner run-site grace, both of which
+  // re-pend based on where the caret SITS rather than on the settle's except-key — therefore
+  // yield to an idle expiry: the held sites settle per the tokenize-identity rules, without
+  // moving the caret.
+
+  /** `\p x \wj ⍽asdf\wj*` + a `\p second` paragraph after it; returns the span's content text
+   * (whose leading NBSP is the opener separator). */
+  function $wjSeparatorFixture(): { contentText: TextNode } {
+    const contentText = $createTextNode(`${NBSP}asdf`);
+    $getRoot().append(
+      $createParaNode("p").append(
+        $createMarkerNode("p"),
+        $createMarkerTrailingSeparator(),
+        $createTextNode("x "),
+        $createCharNode("wj").append(
+          $createMarkerNode("wj"),
+          contentText,
+          $createMarkerNode("wj", "closing"),
+        ),
+      ),
+      $createParaNode("p").append(
+        $createMarkerNode("p"),
+        $createMarkerTrailingSeparator(),
+        $createTextNode("second"),
+      ),
+    );
+    return { contentText };
+  }
+
+  /** Delete `contentText`'s leading NBSP separator, caret left AT the deletion point — the shape
+   * whose settle the run-site grace defers while the caret holds it. */
+  async function deleteSeparatorCaretHeld(editor: LexicalEditor, contentText: TextNode) {
+    await act(async () =>
+      editor.update(() => {
+        contentText.setTextContent(contentText.getTextContent().slice(1));
+        contentText.select(0, 0);
+      }),
+    );
+  }
+
+  it("settles a caret-held deleted opener separator on the idle tick — the marker renames", async () => {
+    let parts!: ReturnType<typeof $wjSeparatorFixture>;
+    const { editor } = await testEnvironmentWithCharSync(() => {
+      parts = $wjSeparatorFixture();
+    });
+    await deleteSeparatorCaretHeld(editor, parts.contentText);
+
+    // Caret-held: the deletion sticks (mid-edit grace), nothing settles synchronously.
+    editor.getEditorState().read(() => {
+      expect($getRoot().getTextContent()).toContain("\\wjasdf");
+    });
+
+    await advance(IDLE_SETTLE_DELAY_MS + 50);
+
+    editor.getEditorState().read(() => {
+      // `\wjasdf\wj*` re-tokenized: the name scan runs through `asdf`, so the marker IS
+      // `wjasdf` — unknown to the stylesheet, resolved positionally as a paragraph, exactly the
+      // end state the caret-DEPARTURE settle produces for this same edit.
+      const paras = $getRoot().getChildren().filter($isParaNode);
+      expect(paras.some((para) => para.getMarker() === "wjasdf")).toBe(true);
+      // The settle must not move the caret: it was between `\wj` and `asdf` (the deleted
+      // separator's site), and those bytes are now one glyph — the equivalent position is
+      // INSIDE `\wjasdf` after its third character, where a half-typed opener keeps the caret.
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) throw new Error("expected a range selection");
+      const anchorNode = selection.anchor.getNode();
+      expect($isMarkerNode(anchorNode) && anchorNode.getTextContent()).toBe("\\wjasdf");
+      expect(selection.anchor.offset).toBe(3);
+    });
+  });
+
+  it("typing during the idle period is a gesture: the held site does NOT settle mid-gesture", async () => {
+    let parts!: ReturnType<typeof $wjSeparatorFixture>;
+    const { editor } = await testEnvironmentWithCharSync(() => {
+      parts = $wjSeparatorFixture();
+    });
+    await deleteSeparatorCaretHeld(editor, parts.contentText);
+
+    // Not yet idle for the full delay; keep typing at the held site. The keystroke and its
+    // commit both push the clock back a full delay.
+    await advance(IDLE_SETTLE_DELAY_MS - 200);
+    await act(async () => {
+      editor.dispatchCommand(KEY_DOWN_COMMAND, new KeyboardEvent("keydown", { key: "z" }));
+      editor.update(() => {
+        const selection = $getSelection();
+        if ($isRangeSelection(selection)) selection.insertText("z");
+      });
+    });
+
+    // The ORIGINAL expiry (200ms out) passes — and then some — without settling: total elapsed
+    // time is now well past one full delay, so anything but a reset clock would have fired.
+    await advance(IDLE_SETTLE_DELAY_MS - 200);
+    editor.getEditorState().read(() => {
+      const paras = $getRoot().getChildren().filter($isParaNode);
+      // The literal (now `\wjzasdf` — the typed `z` landed at the caret) is still pending: the
+      // span still reports `wj` and no rename has happened.
+      expect($getRoot().getTextContent()).toContain("\\wjzasdf");
+      const spans = paras.flatMap((para) => para.getChildren()).filter($isCharNode);
+      expect(spans.some((span) => span.getMarker() === "wj")).toBe(true);
+      expect(paras.some((para) => para.getMarker().startsWith("wj"))).toBe(false);
+    });
+  });
+
+  it("keeps the emptied-husk grace even on the idle tick (the caret would not survive the settle)", async () => {
+    // TJ's live \vp repro shape, on the idle clock: select every piece of `\vp 11 vp\vp*` and
+    // delete. The caret collapses onto the emptied `AttributeRunNode` husk — an ELEMENT point on
+    // the caret's own node. This is the ONE caret-position grace that holds even on an idle
+    // expiry (see SettleReason's carve-out in markerEditTier1.utils.ts): settling would destroy
+    // the caret's node, and every caret-preservation strategy tried for that shape lost the
+    // caret to the paragraph start. The husk stays graced through idle and settles fully on
+    // genuine departure, exactly as the departure twins in verseAttributeSettle.test.tsx pin.
+    const { editor } = await testEnvironmentWithSpacing(() => {
+      const verse = $createVerseNode(
+        "11",
+        getVisibleOpenMarkerText("v", "11"),
+        undefined,
+        "11 va",
+        "11 vp",
+      );
+      $getRoot().append(
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          verse,
+          $createTextNode(" This verse."),
+        ),
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          $createTextNode("body"),
+        ),
+      );
+      $appendVerseAttributeRun(verse, "va", "11 va");
+      $appendVerseAttributeRun(verse, "vp", "11 vp");
+    });
+    const $firstPara = () => $getRoot().getChildren().filter($isParaNode)[0];
+    const $firstVerse = () =>
+      requireDefined($firstPara().getChildren().find($isVerseNode), "verse missing");
+
+    // Delete the whole `\vp` run by selection; the caret collapses onto the emptied husk.
+    await act(async () =>
+      editor.update(() => {
+        const vaWrapper = requireDefined(
+          $verseAttributeRunPieces($firstVerse(), "va").wrapper,
+          "\\va wrapper missing",
+        );
+        const { opener, closer } = $verseAttributeRunPieces(vaWrapper, "vp");
+        if (!opener || !closer) throw new Error("\\vp glyphs missing");
+        const selection = $createRangeSelection();
+        selection.anchor.set(opener.getKey(), 0, "text");
+        selection.focus.set(closer.getKey(), closer.getTextContentSize(), "text");
+        $setSelection(selection);
+        selection.removeText();
+      }),
+    );
+
+    await advance(IDLE_SETTLE_DELAY_MS * 2);
+
+    editor.getEditorState().read(() => {
+      // Still graced: the husk survives under the caret, the caret has not moved off it, and
+      // the deletion itself sticks (no resurrected `\vp` bytes).
+      const vpHusks = $firstPara()
+        .getChildren()
+        .filter($isAttributeRunNode)
+        .filter((wrapper) => wrapper.getRunKind() === "vp");
+      expect(vpHusks).toHaveLength(1);
+      expect($firstPara().getTextContent()).not.toContain("\\vp");
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) throw new Error("expected a range selection");
+      expect(selection.anchor.getNode().is(vpHusks[0])).toBe(true);
+    });
+
+    // Grace deferred the settle, it did not cancel it: genuine caret departure settles fully —
+    // husk gone, pubnumber cleared.
+    await act(async () =>
+      editor.update(() => {
+        const body = $getRoot().getChildren().filter($isParaNode)[1].getLastChild();
+        if (!$isTextNode(body)) throw new Error("body text node missing");
+        body.select(0, 0);
+      }),
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    editor.getEditorState().read(() => {
+      expect($firstVerse().getPubnumber()).toBeUndefined();
+      const vpWrappers = $firstPara()
+        .getChildren()
+        .filter($isAttributeRunNode)
+        .filter((wrapper) => wrapper.getRunKind() === "vp");
+      expect(vpWrappers).toHaveLength(0);
+    });
+  });
+
+  it("settles a caret-held deleted para-prefix separator on the idle tick — the paragraph renames", async () => {
+    let pPara!: ParaNode;
+    let pMarker!: MarkerNode;
+    let separator!: TextNode;
+    const { editor } = await testEnvironment(() => {
+      pPara = $createParaNode("q2");
+      pMarker = $createMarkerNode("q2");
+      separator = $createMarkerTrailingSeparator();
+      $getRoot().append(
+        pPara.append(pMarker, separator, $createTextNode("body text")),
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createMarkerTrailingSeparator(),
+          $createTextNode("second"),
+        ),
+      );
+    });
+
+    // Delete the prefix separator; backspace leaves the caret at the glyph end.
+    await act(async () =>
+      editor.update(() => {
+        separator.remove();
+        pMarker.select(pMarker.getTextContentSize(), pMarker.getTextContentSize());
+      }),
+    );
+    // Caret-held: the deletion sticks (the deletion transform's grace pends the para).
+    editor.getEditorState().read(() => {
+      expect(pPara.getTextContent()).toBe("\\q2body text");
+    });
+
+    await advance(IDLE_SETTLE_DELAY_MS + 50);
+
+    editor.getEditorState().read(() => {
+      // `\q2body text` re-tokenized: the marker IS `q2body` with content `text` — the same end
+      // state the departure settle produces for this edit.
+      const paras = $getRoot().getChildren().filter($isParaNode);
+      expect(paras.some((para) => para.getMarker() === "q2body")).toBe(true);
+      expect(paras.some((para) => para.getMarker() === "q2")).toBe(false);
+      // No caret move: it sat at the old glyph's end (after `\q2`), so the equivalent position
+      // is inside the rebuilt `\q2body` glyph after its third character.
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) throw new Error("expected a range selection");
+      const anchorNode = selection.anchor.getNode();
+      expect($isMarkerNode(anchorNode) && anchorNode.getTextContent()).toBe("\\q2body");
+      expect(selection.anchor.offset).toBe(3);
+    });
+  });
 });
 
 describe("configurable idle settle delay (markerSettleDelayMs)", () => {

@@ -326,12 +326,18 @@ export function MarkerEditPlugin({
     };
     /**
      * The ONE deferred-settle computation, shared by both clocks (they differ only in
-     * `exceptKey`): re-enter through a fresh top-level `editor.update()` and resolve.
-     * Only ever called from a fresh macrotask/microtask, never synchronously from a listener.
+     * `exceptKey` and `settleReason`): re-enter through a fresh top-level `editor.update()` and
+     * resolve. `settleReason` "idle" — the idle clock's expiry — additionally drops the
+     * caret-POSITION grace arms inside the resolve (see `SettleReason`), because a full idle
+     * period means no gesture is in progress at the held site. Only ever called from a fresh
+     * macrotask/microtask, never synchronously from a listener.
      */
-    const settlePendingNow = (exceptKey: NodeKey | undefined) => {
+    const settlePendingNow = (
+      exceptKey: NodeKey | undefined,
+      settleReason: "departure" | "idle" = "departure",
+    ) => {
       editor.update(() => {
-        const mutated = $resolvePendingMarkers(context, exceptKey);
+        const mutated = $resolvePendingMarkers(context, exceptKey, settleReason);
         settleCascadeDepth = mutated ? settleCascadeDepth + 1 : 0;
         // A resolve pass that only REFUSED (fixed-point rebuilds — e.g. a re-pended
         // degradation literal after an undo, or a canonical attribute run) changes nothing
@@ -379,7 +385,7 @@ export function MarkerEditPlugin({
         // mid-composition settling needs suppressing, it belongs in the SHARED computation,
         // decided with a real-IME repro.
         if (settleCascadeExceeded()) return;
-        settlePendingNow(undefined);
+        settlePendingNow(undefined, "idle");
       }, delay);
     };
     // Deletion driver, arming half: a locally-destroyed display-run piece pends its OWNER, read
