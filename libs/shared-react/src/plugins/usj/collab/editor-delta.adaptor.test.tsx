@@ -1257,9 +1257,6 @@ describe("getEditorDelta", () => {
     // `fig`) emit as structured per-item embeds, and unknown attributes ride along on note, char
     // and unknown embeds.
     //
-    // `opsWithUnknownItemsNoTable` is a MIXED oracle — its book/chapter/verse/milestone/para ops
-    // record the emit-side attribute gap specified by the skipped parity test below, and are
-    // marked inline in the fixture. Do not read a green run here as endorsing that shape.
     it("should roundtrip the editor state with unknown items, minus the table", async () => {
       const { editor } = await testEnvironment();
       const editorState = editor.parseEditorState(editorStateWithUnknownItemsNoTable);
@@ -1290,20 +1287,11 @@ describe("getEditorDelta", () => {
       expect(delta.ops).toEqual(opsWithUnknownItems);
     });
 
-    // Skipped: THE EMIT SIDE DROPS UNKNOWN ATTRIBUTES THAT THE APPLY SIDE ACCEPTS. Owned by the
-    // collab track.
-    //
-    // This is a send/receive asymmetry, not a design choice. `delta-apply-update.utils.ts` calls
-    // `getUnknownAttributes` for all seven kinds — book, para, chapter, verse, milestone, note and
-    // unknown — so a received op carrying `category` on a chapter is parsed and restored. But
-    // `editor-delta.adaptor.ts` only writes them back for note, unknown and char. A client that
-    // holds unknown attributes on a book, para, chapter, verse or milestone therefore drops them
-    // the moment it transmits: the receiver is built to accept what the sender never sends.
-    //
-    // The node state is intact and serialization to USJ is unaffected — the loss is confined to
-    // the collab wire, which is why it survives the round-trip suites. Asserted here against the
-    // CORRECT shape rather than the current one, so closing the gap turns this green.
-    it.skip("should carry unknown attributes on every embed kind the apply side accepts", async () => {
+    // The send and receive sides agree on unknown attributes for all seven kinds — book, para,
+    // chapter, verse, milestone, note and unknown. `delta-apply-update.utils.ts` calls
+    // `getUnknownAttributes` for each, and `editor-delta.adaptor.ts` writes each one back, so a
+    // client holding `category` on a chapter transmits it and the receiver restores it.
+    it("should carry unknown attributes on every embed kind the apply side accepts", async () => {
       const { editor } = await testEnvironment();
       const editorState = editor.parseEditorState(editorStateWithUnknownItemsNoTable);
 
