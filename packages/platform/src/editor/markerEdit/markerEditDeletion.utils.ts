@@ -142,6 +142,20 @@ function $healMarkerTrailingSeparator(para: ParaNode, context: MarkerEditContext
     !$isMarkerNode(second) &&
     /^[ \u00A0]$/.test(second.getTextContent())
   ) {
+    // A single space right after the glyph is normally the user TYPING the separator back —
+    // canonicalized in place below. But when this very commit carries a delete-key gesture with
+    // the collapsed caret in this paragraph ($armCollapsedParaDeletion), the space is a CONTENT
+    // byte that slid into the prefix gap as the separator before it was deleted — absorbing it
+    // would turn a document byte into engine scaffolding, and the marker-deleted merge below
+    // drops separators as orphaned display, so the byte would silently vanish from the file
+    // (the Enter-Enter-then-backspace repro's eaten space). Provenance, not geometry: only the
+    // delete gesture reroutes here; a typed space keeps the immediate canonicalize. Mid-edit
+    // grace instead — pend, and let genuine caret departure settle the paragraph by
+    // re-tokenizing the displayed bytes.
+    if (context.collapsedDeleteCaretParas?.has(para.getKey())) {
+      context.pendingKeys.add(para.getKey());
+      return;
+    }
     // Canonicalize the user's typed space into the separator instead of inserting a second one.
     second.setTextContent(NBSP);
     $setState(second, textTypeState, MARKER_TRAILING_SPACE_TEXT_TYPE);
@@ -347,8 +361,28 @@ export function $paraMarkerDeletionTransform(para: ParaNode, context: MarkerEdit
       if ($isMarkerTrailingSeparator(child)) return false; // drop the orphaned separator
       return true;
     });
+    // A caret in a MOVED child follows the move on its own (moved nodes keep their keys). A
+    // caret the merge would ORPHAN — an element point on the dissolving paragraph itself (where
+    // deleting the last prefix glyph byte leaves it), or a point in a dropped separator — must
+    // be placed explicitly, at the JUNCTION: the boundary before the first moved child, the
+    // position the deleted representation occupied. Without this, removing the paragraph let
+    // Lexical relocate the point arbitrarily (observed: flung to the merged paragraph's end).
+    const selection = $getSelection();
+    let caretOrphaned = false;
+    if ($isRangeSelection(selection) && selection.isCollapsed()) {
+      const anchorNode = selection.anchor.getNode();
+      if (anchorNode.is(para)) caretOrphaned = true;
+      else if ($paraOf(anchorNode)?.is(para))
+        caretOrphaned = !children.some(
+          (child) =>
+            anchorNode.is(child) ||
+            ($isElementNode(child) && anchorNode.getParents().some((parent) => parent.is(child))),
+        );
+    }
+    const junctionIndex = previous.getChildrenSize();
     previous.append(...children); // moved nodes keep their keys; selection follows
     para.remove();
+    if (caretOrphaned) $placeCaretAtBoundary(previous, junctionIndex);
     context.logger?.debug(`[MarkerEdit] merged marker-deleted para into previous`);
     return;
   }
