@@ -35,6 +35,7 @@ import {
   $isRangeSelection,
   $isTextNode,
   $setSelection,
+  COMMAND_PRIORITY_NORMAL,
   CONTROLLED_TEXT_INSERTION_COMMAND,
   CUT_COMMAND,
   KEY_DOWN_COMMAND,
@@ -140,6 +141,105 @@ describe("transient emptiness (the guard this work must not break)", () => {
       expect(second.isAttached()).toBe(true);
       expect(second.getMarker()).toBe("q1");
       expect(second.getTextContent()).toContain("rebuilt");
+    });
+  });
+});
+
+describe("backspacing a fresh paragraph's prefix away (collapsed-caret provenance)", () => {
+  /** `\p one` plus a fresh empty `\p ` line below it — the Enter-Enter landing shape. */
+  function $appendContentAndFreshParas(): { first: ParaNode; fresh: ParaNode } {
+    const first = $createParaNode("p");
+    const fresh = $createParaNode("p");
+    $getRoot().append(
+      first.append($createMarkerNode("p"), $createTextNode(NBSP), $createTextNode("one")),
+      fresh.append($createMarkerNode("p"), $createTextNode(NBSP)),
+    );
+    return { first, fresh };
+  }
+
+  it("reaps the paragraph the user backspaced empty, caret at the previous line's end", async () => {
+    // Enter Enter leaves a fresh `\p ` line; backspacing through separator and glyph until the
+    // line is EMPTY is the byte-by-byte completion of the same whole-representation deletion
+    // the selection arm records up front — the last displayed byte went with the last
+    // Backspace, so the paragraph goes with its bytes. jsdom cannot drive element-point
+    // backspaces through the native Selection.modify, so the gesture's deletions are simulated
+    // directly inside the commit, with the arming KEY_DOWN dispatched exactly as the real
+    // gesture would: a collapsed caret inside the paragraph when Backspace goes down.
+    let first!: ParaNode, fresh!: ParaNode;
+    const { editor } = await testEnvironment(() => {
+      ({ first, fresh } = $appendContentAndFreshParas());
+    });
+
+    // Lexical's own collapsed-backspace handling routes through the native Selection.modify,
+    // which jsdom does not implement — so claim KEY_DOWN below the engine's HIGH-priority
+    // arming handler and simulate the gesture's deletions directly instead (the same
+    // state-level convention the whole-selection tests use for the delete half).
+    const unblock = editor.registerCommand(KEY_DOWN_COMMAND, () => true, COMMAND_PRIORITY_NORMAL);
+    await act(async () =>
+      editor.update(() => {
+        const separator = fresh.getLastChild();
+        if (separator === null) throw new Error("expected the fresh paragraph's separator");
+        const selection = $createRangeSelection();
+        selection.anchor.set(separator.getKey(), 1, "text");
+        selection.focus.set(separator.getKey(), 1, "text");
+        $setSelection(selection);
+        editor.dispatchCommand(
+          KEY_DOWN_COMMAND,
+          new KeyboardEvent("keydown", { key: "Backspace", bubbles: true, cancelable: true }),
+        );
+        // The rest of the backspace chain, simulated: prefix nodes removed to empty.
+        fresh.getChildren().forEach((child) => child.remove());
+      }),
+    );
+    unblock();
+
+    editor.getEditorState().read(() => {
+      expect(fresh.isAttached()).toBe(false);
+      const paras = $getRoot().getChildren().filter($isParaNode);
+      expect(paras).toHaveLength(1);
+      expect(paras[0].getKey()).toBe(first.getKey());
+      // The caret returns to where it was before the Enters: the END of the previous line.
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) throw new Error("no range selection after dissolve");
+      expect(selection.isCollapsed()).toBe(true);
+      const { anchor } = selection;
+      const atParaEnd =
+        anchor.type === "element"
+          ? anchor.key === first.getKey() && anchor.offset === first.getChildrenSize()
+          : anchor.getNode().is(first.getLastChild()) &&
+            anchor.offset === (first.getLastChild()?.getTextContentSize() ?? -1);
+      expect(atParaEnd).toBe(true);
+    });
+    // The dissolved paragraph's marker must not survive to the file.
+    expect(paraMarkersOf(usjOf(editor))).toEqual(["p"]);
+  });
+
+  it("leaves the same emptying alone when no delete key armed it (caret merely inside)", async () => {
+    // The twin guard, born green and staying green: identical emptying with the collapsed
+    // caret in the paragraph but NO Backspace/Delete KEY_DOWN — the shape a rebuild pass
+    // transiently emptying the caret's paragraph produces. The transient-emptiness contract
+    // (the describe above) must keep winning: emptiness plus caret proximity is not
+    // provenance, only the delete-key gesture is.
+    let fresh!: ParaNode;
+    const { editor } = await testEnvironment(() => {
+      ({ fresh } = $appendContentAndFreshParas());
+    });
+
+    await act(async () =>
+      editor.update(() => {
+        const separator = fresh.getLastChild();
+        if (separator === null) throw new Error("expected the fresh paragraph's separator");
+        const selection = $createRangeSelection();
+        selection.anchor.set(separator.getKey(), 1, "text");
+        selection.focus.set(separator.getKey(), 1, "text");
+        $setSelection(selection);
+        fresh.getChildren().forEach((child) => child.remove());
+      }),
+    );
+
+    editor.getEditorState().read(() => {
+      expect(fresh.isAttached()).toBe(true);
+      expect($getRoot().getChildren().filter($isParaNode)).toHaveLength(2);
     });
   });
 });

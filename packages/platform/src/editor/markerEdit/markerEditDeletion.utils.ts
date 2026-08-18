@@ -236,6 +236,30 @@ export function $armWholeParaDeletion(context: MarkerEditContext): void {
 }
 
 /**
+ * Deletion driver, collapsed arm: records — BEFORE a collapsed-caret Backspace/Delete executes —
+ * the paragraph the caret sits in, into `context.collapsedDeleteCaretParas`.
+ * `$paraMarkerDeletionTransform`'s empty branch reads it exactly like the selection arm's set: a
+ * paragraph the user was backspacing inside that ends the commit EMPTY has had its last displayed
+ * byte deleted by that gesture (Enter-Enter then backspacing the fresh `\p ` prefix away), which
+ * is the byte-by-byte completion of the same whole-representation deletion — so the paragraph
+ * dissolves and the caret lands at the previous line's end. Keyed on the delete-key gesture, never
+ * on caret geometry: a rebuild transiently emptying the caret's paragraph arms nothing.
+ *
+ * Mutating context state only (reads the editor): call from the delete-key KEY_DOWN handler ahead
+ * of the handler that performs the deletion; never claims the event.
+ */
+export function $armCollapsedParaDeletion(context: MarkerEditContext): void {
+  const armed = context.collapsedDeleteCaretParas;
+  if (!armed) return;
+  const selection = $getSelection();
+  if (!$isRangeSelection(selection) || !selection.isCollapsed()) return;
+  // Focus, not anchor, by the repo's caret convention — collapsed selections make them equal,
+  // so this is future-proof rather than load-bearing.
+  const para = $paraOf(selection.focus.getNode());
+  if (para) armed.add(para.getKey());
+}
+
+/**
  * Deletion driver, replacement arm: typing over a non-collapsed selection IS
  * delete-the-selection-then-type, so a replacement whose selection covers marker-glyph bytes
  * performs the delete half HERE — the same arming as the delete keys, then `removeText()` —
@@ -287,13 +311,18 @@ export function $paraMarkerDeletionTransform(para: ParaNode, context: MarkerEdit
   if (para.isEmpty()) {
     // Emptiness alone is not evidence of anything: a rebuild legitimately empties a paragraph
     // before refilling it, so an unattributed empty paragraph is left for the pass that
-    // repopulates it. Only PROVENANCE reaps: a user delete gesture whose pre-delete selection
-    // covered this paragraph's entire visible representation ($armWholeParaDeletion) means the
-    // user deleted the whole construct, and displayed bytes are the document — the paragraph
-    // goes with its bytes instead of surviving as an invisible line that still serializes its
-    // marker.
-    if (!context.wholeParaDeleteExpected?.has(para.getKey())) return;
-    context.wholeParaDeleteExpected.delete(para.getKey());
+    // repopulates it. Only PROVENANCE reaps, in either of its two forms: a user delete gesture
+    // whose pre-delete selection covered this paragraph's entire visible representation
+    // ($armWholeParaDeletion), or a collapsed-caret Backspace/Delete in this paragraph whose
+    // commit ends with it empty ($armCollapsedParaDeletion — the last displayed byte went with
+    // the last backspace). Both mean the user deleted the whole construct, and displayed bytes
+    // are the document — the paragraph goes with its bytes instead of surviving as an invisible
+    // line that still serializes its marker.
+    const wholeSelectionArmed = context.wholeParaDeleteExpected?.has(para.getKey()) ?? false;
+    const collapsedArmed = context.collapsedDeleteCaretParas?.has(para.getKey()) ?? false;
+    if (!wholeSelectionArmed && !collapsedArmed) return;
+    context.wholeParaDeleteExpected?.delete(para.getKey());
+    context.collapsedDeleteCaretParas?.delete(para.getKey());
     const isLastPara = !para
       .getParent()
       ?.getChildren()

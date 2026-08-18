@@ -198,6 +198,50 @@ describe("typed characters at verse boundaries", () => {
       "\\ Da",
     ]);
   });
+
+  it("fabricates no space anywhere when a backslash is typed right after the number", async () => {
+    // The reported repro: `\v 2 Da`, type `\` right after the `2` — a space was said to be
+    // fabricated next to the typed character. This mount carries the FULL transform trio
+    // (CharNodePlugin + MarkerEditPlugin + TextSpacingPlugin), so both historical fabrication
+    // sources ($addTrailingSpace and $verseNodeTransform's space-before-verse insertion) are
+    // live. Pinned byte-for-byte: the ONLY spaces anywhere — on screen and in the USJ — are the
+    // paragraph prefix's separator, the verse glyph's own structural bytes, and the former
+    // display space the extraction turns into content (`\ Da`). Green means the fabricated-space
+    // half of the verse-adjacent repro is MOOT under the rewritten transforms.
+    let verse: VerseNode;
+    const { editor } = await mount(() => {
+      verse = $createVerseNode("2", getVisibleOpenMarkerText("v", "2"));
+      $getRoot().append(
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createMarkerTrailingSeparator(),
+          verse,
+          $createTextNode("Da"),
+        ),
+      );
+    });
+    // `\v 2|` — right after the number, before the glyph's display space.
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    await typeTextAtSelection(editor, "\\", verse!, 4);
+
+    editor.getEditorState().read(() => {
+      // On-screen bytes of the whole paragraph, exactly: `\p ` prefix (NBSP separator),
+      // canonical verse glyph `\v 2 `, then the extracted `\ Da`. No other byte fabricated.
+      const para = $getRoot().getChildren().filter($isParaNode)[0];
+      expect(para.getTextContent()).toBe(`\\p${NBSP}${getVisibleOpenMarkerText("v", "2")}\\ Da`);
+    });
+    // Whole-document USJ, deep-equal: nothing beyond the one paragraph, and no space beyond
+    // the structural leading-attribute space the USFM writer emits regardless.
+    initializeDeserialize(undefined);
+    const usj = deserializeSerializedEditorState(editor.getEditorState().toJSON(), viewOptions);
+    expect(usj?.content).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [{ type: "verse", marker: "v", number: "2" }, "\\ Da"],
+      },
+    ]);
+  });
 });
 
 describe("typed space at the char opener separator", () => {
@@ -307,6 +351,35 @@ describe("typing a backslash inside the verse glyph", () => {
         throw new Error("expected plain text after the verse");
       expect(afterVerse.getTextContent().startsWith("\\")).toBe(true);
       expect(para.getTextContent()).toContain("In the beginning");
+    });
+  });
+
+  it("merges the extracted rest into the following content node as ONE node", async () => {
+    // Same gesture as the caret pin above, but asserting the TREE: the extracted rest
+    // (backslash + former display space) must MERGE into the existing following content node
+    // rather than landing as a fresh sibling. A fresh node fragments the literal the user is
+    // mid-typing across siblings — the exact shape that starved the resolve's caret shield
+    // (see $verseNodeTransform's merge comment) — so both extraction arms must share the one
+    // merge-into-following behavior.
+    let verse!: VerseNode;
+    const { editor } = await testEnvironment(() => {
+      ({ verse } = $appendVersePara());
+    });
+
+    // `\v 1| ` — between the number and the glyph's display space.
+    const caret = await typeInVerseGlyph(editor, verse, 4, "\\");
+
+    // The caret's own node IS the merged content node: `\` + former display space + original
+    // content, caret right after the typed character.
+    expect(caret.collapsed).toBe(true);
+    expect(caret.nodeText).toBe("\\ In the beginning");
+    expect(caret.offset).toBe(1);
+    editor.getEditorState().read(() => {
+      const afterVerse = verse.getNextSibling();
+      if (!$isTextNode(afterVerse) || $isMarkerNode(afterVerse))
+        throw new Error("expected plain text after the verse");
+      expect(afterVerse.getTextContent()).toBe("\\ In the beginning");
+      expect(afterVerse.getNextSibling()).toBeNull();
     });
   });
 

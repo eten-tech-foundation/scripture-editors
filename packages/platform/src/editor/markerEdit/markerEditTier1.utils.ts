@@ -44,9 +44,11 @@ import {
   ChapterNode,
   closingMarkerText,
   displayRunDescriptors,
+  getEditableCallerText,
   getVisibleOpenMarkerText,
   ImmutableUnmatchedNode,
   isMilestoneHeuristicName,
+  leadingAttributeNames,
   MarkerLookup,
   MarkerNode,
   MarkerType,
@@ -71,6 +73,19 @@ export interface MarkerEditContext extends Tier2Context {
    * reap — the guard's safe default.
    */
   wholeParaDeleteExpected?: Set<NodeKey>;
+  /**
+   * Paragraphs holding the COLLAPSED caret when a Backspace/Delete went down this commit —
+   * armed by the same delete-key command handlers (`$armCollapsedParaDeletion`), consumed by
+   * `$paraMarkerDeletionTransform`'s empty-paragraph branch alongside
+   * {@link wholeParaDeleteExpected}, and reset every commit by the plugin's update listener.
+   * A paragraph the user was backspacing inside that ends the commit EMPTY has had its last
+   * displayed byte deleted by that gesture — the byte-by-byte completion of the same
+   * whole-representation deletion the selection arm records up front, so it reaps the same
+   * way. Provenance, not geometry: emptiness plus caret proximity alone must never reap —
+   * only the delete-key gesture arms this, so transient rebuild emptiness (even under the
+   * caret) stays untouched. Optional with the same never-reap safe default as its sibling.
+   */
+  collapsedDeleteCaretParas?: Set<NodeKey>;
   /**
    * Literal text already submitted to `$requestTier2ForNode` this commit.
    * `$rebuildParas` is deterministic (the degradation property): a paragraph
@@ -318,19 +333,86 @@ export function $unmatchedNodeTransform(
   context.pendingKeys.add(node.getKey());
 }
 
-// `\v`, separator, number token, then either nothing-yet (unterminated), or a
-// separator plus optional trailing text the user typed inside the node.
-const VERSE_TEXT_REGEX = /^\\v[ \u00A0]+([^ \u00A0\\]+)(?:[ \u00A0]([\s\S]*))?$/;
+/**
+ * Glyph-shape regexes for a marker the markers map declares a leading attribute for. The map
+ * (`leadingAttributeNames`, `shared`, vendored from paranext-core's markers map), not this file,
+ * decides WHICH markers get the leading-attribute treatment \u2014 whitespace between the marker and
+ * the value is structural and collapses, and the value retags to the typed word \u2014 so `\v`'s and
+ * `\c`'s number arms below carry no per-marker knowledge of their own. The regexes are only the
+ * TOKENIZATION of "word" beside that declaration, the same word scan the fragment tokenizer's
+ * `getNextWord` applies. Throws for a marker the map declares nothing for, so an arm can never
+ * be compiled by accident for a marker whose leading whitespace is NOT structural.
+ */
+function leadingAttributeGlyphRegexes(marker: string): {
+  valueAndRest: RegExp;
+  markerRest: RegExp;
+  midEdit: RegExp;
+  valueTerminated: RegExp;
+} {
+  if (!leadingAttributeNames(marker)?.length)
+    throw new Error(`marker "${marker}" declares no leading attributes in the markers map`);
+  return {
+    // `\m`, separator, value word, then either nothing-yet (unterminated), or a
+    // separator plus optional trailing text the user typed inside the node.
+    valueAndRest: new RegExp(`^\\\\${marker}[ \u00A0]+([^ \u00A0\\\\]+)(?:[ \u00A0]([\\s\\S]*))?$`),
+    // Value word followed DIRECTLY by a `\`-initiated rest, no separator between: `\` is one of
+    // the tokenizer's name-scan terminators, so it ends the value's word where an ordinary
+    // character would extend it (`\v 1a`). Typed between the value and the glyph's display space
+    // (`\v 1\ `), the rest \u2014 backslash plus whatever followed it in the glyph, including that
+    // space, which stops being value-adjacent display and becomes content \u2014 extracts to a plain
+    // sibling exactly like valueAndRest's separated rest. Without this arm the shape fell
+    // through to a whole-paragraph Tier-2 rebuild that produced the SAME tree but lost the caret
+    // (observed at the paragraph start, three words from the typed character).
+    markerRest: new RegExp(`^(\\\\${marker}[ \u00A0]+([^ \u00A0\\\\]+))(\\\\[\\s\\S]*)$`),
+    // The marker with its value not yet typed (mid-edit).
+    midEdit: new RegExp(`^\\\\${marker}[ \u00A0]*$`),
+    // Value word followed by a terminating separator (the chapter arm's shape: no rest capture,
+    // trailing bytes beyond the separator left to the caller).
+    valueTerminated: new RegExp(`^\\\\${marker}[ \u00A0]+([^ \u00A0\\\\]+)[ \u00A0]`),
+  };
+}
 
-// Number token followed DIRECTLY by a `\`-initiated rest, no separator between: `\` is one of
-// the tokenizer's name-scan terminators, so it ends the number's word where an ordinary
-// character would extend it (`\v 1a`). Typed between the number and the glyph's display space
-// (`\v 1\ `), the rest \u2014 backslash plus whatever followed it in the glyph, including that
-// space, which stops being number-adjacent display and becomes content \u2014 extracts to a plain
-// sibling exactly like VERSE_TEXT_REGEX's separated rest. Without this arm the shape fell
-// through to a whole-paragraph Tier-2 rebuild that produced the SAME tree but lost the caret
-// (observed at the paragraph start, three words from the typed character).
-const VERSE_MARKER_REST_REGEX = /^(\\v[ \u00A0]+([^ \u00A0\\]+))(\\[\s\S]*)$/;
+const VERSE_GLYPH_REGEXES = leadingAttributeGlyphRegexes("v");
+const CHAPTER_GLYPH_REGEXES = leadingAttributeGlyphRegexes("c");
+
+/**
+ * Insert `rest` — bytes extracted out of a verse glyph — as plain content directly after the
+ * verse, merging into an existing following plain content node rather than always inserting a
+ * fresh one. A fresh node fragments a literal the user is mid-typing across siblings — the
+ * live failure: `\` typed at the verse's end split out alone, the next keystroke landed in
+ * yet another node, and the resolve's caret shield (which covers the caret's contiguous
+ * run) had nothing contiguous to cover, so `\vbut…` glued together in the rebuild fragment
+ * and settled as a terminated unknown marker mid-word. Only an ordinary content node
+ * qualifies: never a glyph (exact-type check), a token (the para-prefix separator), or an
+ * attribute-run value riding beside the verse. Shared by BOTH extraction arms of
+ * {@link $verseNodeTransform} so the merge behavior cannot drift between them.
+ *
+ * `caretOffsetInRest` places the collapsed caret at that offset within the inserted rest
+ * (clamped to the rest by the callers); `undefined` leaves the selection untouched (a
+ * programmatic edit with no caret in the glyph).
+ *
+ * Mutating: call inside `editor.update()` (runs from {@link $verseNodeTransform}).
+ */
+function $insertRestAfterVerse(
+  node: VerseNode,
+  rest: string,
+  caretOffsetInRest: number | undefined,
+): void {
+  const next = node.getNextSibling();
+  if (
+    $isTextNode(next) &&
+    next.getType() === TextNode.getType() &&
+    next.getMode() === "normal" &&
+    $getState(next, textTypeState) !== "attribute"
+  ) {
+    next.setTextContent(rest + next.getTextContent());
+    if (caretOffsetInRest !== undefined) next.select(caretOffsetInRest, caretOffsetInRest);
+    return;
+  }
+  const restNode = $createTextNode(rest);
+  node.insertAfter(restNode);
+  if (caretOffsetInRest !== undefined) restNode.select(caretOffsetInRest, caretOffsetInRest);
+}
 
 export function $verseNodeTransform(node: VerseNode, context: MarkerEditContext): void {
   const text = node.getTextContent();
@@ -339,14 +421,14 @@ export function $verseNodeTransform(node: VerseNode, context: MarkerEditContext)
     context.pendingKeys.delete(node.getKey());
     return;
   }
-  if (/^\\v[ \u00A0]*$/.test(text)) {
+  if (VERSE_GLYPH_REGEXES.midEdit.test(text)) {
     // number mid-edit; keep the stored number as the serialization fallback
     context.pendingKeys.add(node.getKey());
     return;
   }
-  const match = VERSE_TEXT_REGEX.exec(text);
+  const match = VERSE_GLYPH_REGEXES.valueAndRest.exec(text);
   if (!match) {
-    const markerRest = VERSE_MARKER_REST_REGEX.exec(text);
+    const markerRest = VERSE_GLYPH_REGEXES.markerRest.exec(text);
     if (markerRest) {
       // Extract the `\`-initiated rest as content, keeping the caret on the character the user
       // just typed: a caret inside the rest maps to its same character in the extracted node;
@@ -362,12 +444,13 @@ export function $verseNodeTransform(node: VerseNode, context: MarkerEditContext)
       context.pendingKeys.delete(node.getKey());
       node.setNumber(numberToken); // PT9 GetNextWord: whole word, valid or not
       node.setTextContent(getVisibleOpenMarkerText("v", numberToken));
-      const restNode = $createTextNode(rest);
-      node.insertAfter(restNode);
-      if (caretOffset !== undefined && caretOffset >= prefix.length) {
-        const target = Math.min(caretOffset - prefix.length, rest.length);
-        restNode.select(target, target);
-      }
+      // A caret inside the rest maps to its same character in the extracted bytes; a caret
+      // elsewhere (or none — a programmatic edit) is left untouched.
+      const target =
+        caretOffset !== undefined && caretOffset >= prefix.length
+          ? Math.min(caretOffset - prefix.length, rest.length)
+          : undefined;
+      $insertRestAfterVerse(node, rest, target);
       return;
     }
     // `\v` prefix broken: PT9 re-tokenizes and the token becomes plain text
@@ -383,30 +466,66 @@ export function $verseNodeTransform(node: VerseNode, context: MarkerEditContext)
   context.pendingKeys.delete(node.getKey());
   node.setNumber(numberToken); // PT9 GetNextWord: whole word, valid or not
   node.setTextContent(getVisibleOpenMarkerText("v", numberToken));
-  if (rest) {
-    // Merge the rest into an existing following plain text node rather than always inserting a
-    // fresh one. A fresh node fragments a literal the user is mid-typing across siblings — the
-    // live failure: `\` typed at the verse's end split out alone, the next keystroke landed in
-    // yet another node, and the resolve's caret shield (which covers the caret's contiguous
-    // run) had nothing contiguous to cover, so `\vbut…` glued together in the rebuild fragment
-    // and settled as a terminated unknown marker mid-word. Only an ordinary content node
-    // qualifies: never a glyph (exact-type check), a token (the para-prefix separator), or an
-    // attribute-run value riding beside the verse.
-    const next = node.getNextSibling();
-    if (
-      $isTextNode(next) &&
-      next.getType() === TextNode.getType() &&
-      next.getMode() === "normal" &&
-      $getState(next, textTypeState) !== "attribute"
-    ) {
-      next.setTextContent(rest + next.getTextContent());
-      next.select(rest.length, rest.length);
-    } else {
-      const restNode = $createTextNode(rest);
-      node.insertAfter(restNode);
-      restNode.select(rest.length, rest.length);
-    }
+  // The caret follows to the end of the extracted rest (see $insertRestAfterVerse for the
+  // merge-into-following behavior both arms share).
+  if (rest) $insertRestAfterVerse(node, rest, rest.length);
+}
+
+// An expanded note's editable caller text: whitespace run, caller word, whitespace run
+// (canonical: one space, the caller, one NBSP — getEditableCallerText). The tokenization of
+// "word" beside the map's caller declaration, exactly as the verse regexes tokenize the number.
+const NOTE_CALLER_TEXT_REGEX = /^[ \u00A0]+([^ \u00A0\\]+)[ \u00A0]+$/;
+
+/**
+ * Tier-1 arm for an expanded note's editable caller text — the note-marker family's leading
+ * attribute (the markers map declares `caller` on `f`/`fe`/`ef`/`efe`/`x`/`ex`;
+ * `leadingAttributeNames`, `shared`) — giving the caller the same one-rule treatment as a
+ * verse's number: whitespace between the marker and the value is structural and collapses, so
+ * an extra typed space cannot demote the caller (`\f  +` is still caller `+`), and the caller
+ * RETAGS to the typed word (PT9 GetNextWord: whole word, valid or not) exactly as `\v 1a`
+ * retags the number. Without this arm the edited bytes were unreachable by any settle: nothing
+ * pended them, the note-scoped rebuild refuses a non-canonical caller shape outright
+ * (`$buildNoteFragment`), and serialization leaked the whole diverged caller text into note
+ * content (the reverse adaptor only drops a byte-exact caller).
+ *
+ * Scope-guarded to shapes with BOTH flanking whitespace runs still present: a deleted flanking
+ * separator is separator-deletion territory (the tokenize-identity rule), not whitespace
+ * collapse, and falls through to the existing machinery untouched. Collapsed notes never reach
+ * this arm — their caller is an atomic `ImmutableNoteCallerNode`, not editable text.
+ *
+ * Mutating: call inside `editor.update()` (runs from the TextNode catch-all transform,
+ * `$textNodeTier2Transform`).
+ *
+ * @returns Whether `node` is an expanded note's caller-slot text and this arm consumed the
+ *   edit (including the nothing-to-do canonical case).
+ */
+export function $noteCallerTextTransform(node: TextNode, context: MarkerEditContext): boolean {
+  const note = node.getParent();
+  if (!$isNoteNode(note) || note.getIsCollapsed() !== false) return false;
+  // The map, never a local list, decides which note markers carry a leading caller.
+  if (!leadingAttributeNames(note.getMarker())?.includes("caller")) return false;
+  // The caller slot: the first child after the opening glyph(s) — the same scan
+  // $buildNoteFragment uses to find it.
+  const children = note.getChildren();
+  let slot = 0;
+  while (slot < children.length) {
+    const child = children[slot];
+    if (!$isMarkerNode(child) || child.getMarkerSyntax() !== "opening") break;
+    slot++;
   }
+  if (!node.is(children[slot])) return false;
+  const text = node.getTextContent();
+  if (text === getEditableCallerText(note.getCaller())) {
+    context.pendingKeys.delete(node.getKey());
+    return true;
+  }
+  const match = NOTE_CALLER_TEXT_REGEX.exec(text);
+  if (!match) return false; // other damage keeps today's behavior (literal machinery)
+  const [, caller] = match;
+  context.pendingKeys.delete(node.getKey());
+  note.setCaller(caller); // PT9 GetNextWord: whole word, valid or not
+  node.setTextContent(getEditableCallerText(caller));
+  return true;
 }
 
 // Unlike its sibling node-transform functions, a chapter marker never enters the pending/deferred
@@ -422,7 +541,7 @@ export function $chapterNodeTransform(node: ChapterNode): void {
   const expected = getVisibleOpenMarkerText("c", node.getNumber());
   const text = textNode.getTextContent();
   if (text === expected) return;
-  const match = /^\\c[ \u00A0]+([^ \u00A0\\]+)[ \u00A0]/.exec(text);
+  const match = CHAPTER_GLYPH_REGEXES.valueTerminated.exec(text);
   if (!match) return; // leave literal; serialization falls back to the stored number
   node.setNumber(match[1]);
   textNode.setTextContent(getVisibleOpenMarkerText("c", match[1]));
