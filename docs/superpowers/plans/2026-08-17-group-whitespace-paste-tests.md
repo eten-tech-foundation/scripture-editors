@@ -147,3 +147,137 @@ NBSP-carrying paste at HIGH priority and today inserts the whole payload in one
 - [ ] **Step 1:** Full `nx run-many -t test` (zero new skips), `lint typecheck` clean.
 - [ ] **Step 2:** Append "Outcome" (which tests landed green-first vs red-first; any
   boundary-crossing finding recorded for the wrap-up chat). Commit with `git add -f`.
+
+---
+
+## Outcome
+
+Branch `sv/rb/whitespace-paste-tests`. Five commits, one per task. Two behavior fixes shipped,
+three test debts settled, two findings handed back across group boundaries.
+
+### Task-by-task
+
+| Task | Born | Result |
+| --- | --- | --- |
+| 1 — NBSP multi-line paste | RED | Fixed. Newlines now replay as paragraph splits. |
+| 2 — paragraph-end Ctrl+Space on the full harness | GREEN | Pin only; no regression. |
+| 3 — wrap a whitespace-only selection | RED | Cause outside this group. Parked skipped. |
+| 4 — milestone attribute order | GREEN at the settle, RED at load | Fold exonerated; load leg recorded. |
+| 5 — table-cell separator | RED | Fixed, and the ROW needed it too. |
+
+### Task 1 — the paste fix
+
+`$handlePasteForStandardView` lives in `packages/platform/src/editor/markerEdit/`, not
+`libs/shared-react/src/plugins/usj/` as the plan's Architecture section says. Both paste claims
+therefore sit in the same package, so the plan's "do not import from platform into shared-react —
+replicate the two-step loop locally" constraint was moot; the loop is still local to the handler,
+which is the shape the plan wanted anyway.
+
+The handler dispatches `INSERT_PARAGRAPH_COMMAND` through `$getEditor()` rather than taking a new
+`editor` parameter. That keeps `MarkerEditPlugin.tsx` untouched — a file several other groups are
+editing this round — and it is an established pattern here (`markerMenuApply.utils.ts`,
+`displayRunSync.utils.ts`). Single-line pastes keep the exact one-`insertText` path they had; line
+endings normalize (`\r\n?` → `\n`) first, matching both sibling claims.
+
+One pre-existing pin moved, deliberately: "separates blocks (and `<br>`) with newlines so a
+multi-paragraph html paste doesn't merge words" asserted the DEFECT — one paragraph holding
+`one~two\nthree\nfour`. It now asserts the three paragraphs that shape means.
+
+A trap worth recording: `$getRoot().getTextContent()` joins block children with newlines of its
+own, so it cannot distinguish a literal pasted `\n` from a paragraph boundary. The "no newline
+survived" assertion reads per TEXT NODE instead.
+
+### Task 3 — cross-group finding: the wrap primitive drops a whitespace-only selection
+
+Measured, not theorized. Document `\p one two`, select the space between the words, apply `\nd`
+through `$applyMarkerMenuSelection` on the full harness:
+
+```
+authored:  ["one two"]
+result:    ["one ", { type: "char", marker: "nd" }, "two"]     i.e. \p one \nd \nd*two
+```
+
+The user's apply silently does nothing AND an empty `\nd \nd*` pair is written to the file.
+
+Cause: `$moveLeadingSpaceToPreviousNode` (`packages/platform/src/editor/adaptors/
+usj-marker-action.utils.ts`) moves a wrapped node's leading space out to the previous sibling
+unconditionally. When the selection IS that space, the trim empties the node and the wrapper keeps
+only its structural separator. The guard is one predicate: decline to move a leading space when it
+is the node's entire content.
+
+**Whitespace's half is clean** — neither trailing-space transform deletes or fabricates a byte in
+this shape. This is the wrap primitive, so per the plan's boundary rule it goes to the wrap's
+owner. Both group 2 (palette-menus, item 2 puts a non-collapsed Space through this same wrap) and
+group 3 (split-and-stack) touch this path; whoever lands first should take it. The test is written
+and `it.skip`ped with the cause in its header — un-skip it as the red test for that fix.
+
+### Task 4 — the plan's prescribed fix does not apply
+
+The plan expected a red fold rewriting bytes on dirty, fixable by folding in node-state insertion
+order. Measured: the whole-document dirty pass is a FIXED POINT — the display fold and the settle
+rewrite nothing. A non-canonically ordered milestone (`who` before `sid`) loses its order at LOAD:
+`createMilestone` lifts `sid`/`eid` out of the marker object into dedicated `MilestoneNode` fields
+and `createMilestoneMarker` re-emits them ahead of the unknowns.
+
+So there is no authored order left in the tree for the fold to preserve — `$milestoneAttributeRunPieces`'
+bytes builder cannot fix this, and restoring fidelity means giving the node model an ordered
+attribute map (both adaptors plus `MilestoneNode`). Recorded, not attempted: it is a node-model
+change well outside this group, and no evidence yet that a real document authors milestones
+non-canonically.
+
+Both legs are pinned green — the load-leg pin records today's normalization so a future node-model
+change fails it deliberately rather than silently.
+
+### Task 5 — the row was wrong too
+
+The plan said the cell separator lacked token mode and to "mirror `createTableRow`'s shape
+exactly". `createTableRow` was missing token mode as well; the para-marker prefix (line ~473) is
+the only correct model. Both are fixed, and the cell's bare `"marker-trailing-space"` string
+literal now goes through `MARKER_TRAILING_SPACE_TEXT_TYPE`. The twin test covers all three
+separators so a future divergence names which one drifted.
+
+2SA fixtures regenerated via `pnpm run generate:test-data` + prettier. Only
+`2sa.lexical.editable.ts` changed, and only these separators' `mode` — the visible and hidden
+fixtures build no such separators.
+
+### Deviations from the plan
+
+1. Task 1's file lives in `packages/platform`, not `libs/shared-react` (plan Architecture).
+2. Task 1 reaches the editor via `$getEditor()` rather than a new parameter, to leave
+   `MarkerEditPlugin.tsx` unmodified for other groups.
+3. Task 3 is parked skipped rather than left red, per the handoff rule that the branch must be
+   green. The plan's "keep the red test" instruction predates that rule.
+4. Task 4 is TWO green pins rather than one, split so the load leg and the transform leg localize
+   separately; the plan's prescribed fold fix was measured inapplicable.
+5. Task 5 fixes the ROW as well as the cell.
+6. Task 3's test went to `markerMenuApply.utils.test.tsx` (the plan's first choice), on the
+   `fullHarnessEnvironment` mount so both trailing-space transforms are live.
+
+### Suite numbers
+
+Full `nx run-many -t test`: 9 projects green. Per project —
+
+| Project | Tests | Skips |
+| --- | --- | --- |
+| platform-editor | 1168 (66 files) | 1 — Task 3's parked test, the package's only skip |
+| shared-react | 1535 (26 files) | 2 — both pre-existing and named |
+| shared | 517 (35 files) | 0 |
+| utilities | 51 (6 files) | 0 |
+
+Corpus suites at full count with zero skips throughout: 22 transform fixed-point, 116 adaptor
+round-trip, 10 testUSFM round-trip. `KNOWN_FAILURES` in `corpus-transform-fixed-point.test.tsx`
+stays empty.
+
+One flake observed and dismissed: `markerMenuApply.utils.test.tsx`'s "parks the caret at the NEW
+paragraph's content start" failed once mid-session and passed on two consecutive cache-skipped
+re-runs and in the full gate — the known platform timing flake, not a regression.
+
+### For the orchestrator
+
+Two items leave this group unresolved, both deliberately:
+
+1. **The wrap primitive's whitespace-only selection** (Task 3 above) — a one-predicate fix in
+   `usj-marker-action.utils.ts`, with a written skipped test ready to un-skip. Route to whichever
+   of groups 2/3 lands on the wrap first.
+2. **Milestone authored attribute order** (Task 4 above) — needs an ordered attribute map on
+   `MilestoneNode`; no owner in this round's groups. Recorded for TJ rather than assigned.

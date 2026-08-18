@@ -2,7 +2,6 @@ import {
   $appendCharPara,
   requireDefined,
   testEnvironment,
-  testEnvironmentWithCharSync,
   testEnvironmentWithDisplaySyncs,
 } from "./markerEdit.test-helpers";
 import { $closeCharSpanAtCaret, $removeCharFormattingFromSelection } from "./charFormatting.utils";
@@ -801,17 +800,24 @@ describe("Ctrl+Space through a nested character-style stack", () => {
 
   it("closes the stack without reopening it when nothing follows the caret", async () => {
     let parts: ReturnType<typeof $appendNestedStackPara>;
-    // Char sync only. The emitted space ends the paragraph here, and `TextSpacingPlugin`'s
-    // trailing-space transform empties a lone space whose next sibling is not a verse — it would
-    // swallow the space before this test could see where the close-and-reopen put it.
-    const { editor } = await testEnvironmentWithCharSync(() => (parts = $appendNestedStackPara()));
+    // Full harness, like its siblings: `TextSpacingPlugin`'s trailing-space transform no longer
+    // deletes a paragraph-final lone space, so it can no longer swallow the emitted byte before
+    // this test sees it.
+    const { editor } = await testEnvironmentWithDisplaySyncs(
+      () => (parts = $appendNestedStackPara()),
+    );
     // caret at the very end of the innermost span's content, which is also the outer span's end
     await act(async () => editor.update(() => parts.content.select(6, 6)));
     await pressCtrlSpace(editor);
 
-    editor
-      .getEditorState()
-      .read(() => expect($usfmBytes($onlyPara())).toBe("\\p \\wj \\+nd thing\\+nd*\\wj* "));
+    editor.getEditorState().read(() => {
+      expect($usfmBytes($onlyPara())).toBe("\\p \\wj \\+nd thing\\+nd*\\wj* ");
+      // The emitted space survived the commit as a real one-space text node at the paragraph's
+      // end — the byte the trailing-space transform used to empty. Read as a node rather than
+      // through the joined bytes above, which cannot tell an emptied node from a missing one.
+      const last = $onlyPara().getLastChild();
+      expect($isTextNode(last) && last.getTextContent()).toBe(" ");
+    });
   });
 
   it("does not reopen the stack when the caret ends the run but text follows the span", async () => {

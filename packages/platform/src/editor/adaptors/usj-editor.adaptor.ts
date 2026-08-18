@@ -546,7 +546,10 @@ function createTableRow(
   // leaves a typed `\tr` with nothing on screen — the paragraph splits, the rest of the sentence
   // moves into the row, and there is no glyph to delete to undo any of it.
   if (_viewOptions?.markerMode === "editable")
-    children.push(createMarker(rowMarker), createText(NBSP, MARKER_TRAILING_SPACE_TEXT_TYPE));
+    children.push(
+      createMarker(rowMarker),
+      createText(NBSP, MARKER_TRAILING_SPACE_TEXT_TYPE, "token"),
+    );
   else if (_viewOptions?.markerMode === "visible" || _viewOptions?.hasGutterParaMarkers)
     children.push(
       createImmutableTypedText(
@@ -574,7 +577,10 @@ function createTableCell(
   const children: SerializedLexicalNode[] = [];
   const cellMarker = marker ?? TABLE_CELL_DEFAULT_MARKER;
   if (_viewOptions?.markerMode === "editable")
-    children.push(createMarker(cellMarker), createText(NBSP, "marker-trailing-space"));
+    children.push(
+      createMarker(cellMarker),
+      createText(NBSP, MARKER_TRAILING_SPACE_TEXT_TYPE, "token"),
+    );
   else if (_viewOptions?.markerMode === "visible" || _viewOptions?.hasGutterParaMarkers)
     children.push(
       createImmutableTypedText(

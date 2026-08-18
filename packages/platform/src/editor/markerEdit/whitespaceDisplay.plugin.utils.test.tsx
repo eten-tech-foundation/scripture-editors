@@ -1,5 +1,10 @@
 import { MarkerEditPlugin } from "./MarkerEditPlugin";
-import { serializedState, testEnvironment, viewOptions } from "./markerEdit.test-helpers";
+import {
+  serializedState,
+  testEnvironment,
+  testEnvironmentWithDisplaySyncs,
+  viewOptions,
+} from "./markerEdit.test-helpers";
 import {
   $getStandardViewClipboardData,
   $handleCopyForStandardView,
@@ -23,9 +28,18 @@ import {
   COPY_COMMAND,
   CUT_COMMAND,
   LexicalEditor,
+  PASTE_COMMAND,
   TextNode,
 } from "lexical";
-import { $createCharNode, $createMarkerNode, $createParaNode, NBSP, textTypeState } from "shared";
+import {
+  $createCharNode,
+  $createMarkerNode,
+  $createParaNode,
+  $isParaNode,
+  NBSP,
+  ParaNode,
+  textTypeState,
+} from "shared";
 
 /**
  * Null-event leg: ClipboardPlugin/ContextMenuPlugin/EditorRef dispatch COPY_COMMAND/
@@ -486,7 +500,7 @@ describe("paste normalization ($handlePasteForStandardView)", () => {
     });
   });
 
-  it("separates blocks (and `<br>`) with newlines so a multi-paragraph html paste doesn't merge words", async () => {
+  it("separates blocks (and `<br>`) into paragraphs so a multi-paragraph html paste doesn't merge words", async () => {
     let text: TextNode;
     const { editor } = await testEnvironment(() => {
       const para = $createParaNode("p");
@@ -509,9 +523,14 @@ describe("paste normalization ($handlePasteForStandardView)", () => {
 
     expect(handled).toBe(true);
     editor.getEditorState().read(() => {
-      // Block boundaries and <br> become newlines — the same newline-joined shape a multi-line
-      // text/plain paste hands to insertText — so "two"/"three" don't fuse into one word.
-      expect($getRoot().getTextContent()).toContain("one~two\nthree\nfour");
+      // Block boundaries and <br> become newlines, so "two"/"three" don't fuse into one word —
+      // and each newline is then replayed as a real paragraph split (see the line-replay
+      // describe at the bottom of this file), since no USFM line can carry a `\n` byte.
+      expect(
+        $getRoot()
+          .getChildren()
+          .map((child) => child.getTextContent().replaceAll(NBSP, " ")),
+      ).toEqual(["\\p before one~two", "\\p three", "\\p fourafter"]);
     });
   });
 
@@ -616,5 +635,120 @@ describe("paste normalization ($handlePasteForStandardView)", () => {
 
     expect(handled).toBe(false);
     expect(prevented()).toBe(false);
+  });
+});
+
+/**
+ * A newline is not a byte any USFM line can carry, so a pasted `\n` must become a paragraph
+ * split — never a literal character inside a text node (invariants Invariant I). The NBSP claim
+ * above runs at HIGH ahead of every other paste claim, so an NBSP-carrying multi-line paste
+ * reaches nothing else: the split has to happen inside that claim.
+ *
+ * Driven through the real `PASTE_COMMAND` ladder rather than by calling the handler directly (as
+ * the tests above do), because the split runs through `INSERT_PARAGRAPH_COMMAND` and only the
+ * mounted plugin chain answers it.
+ */
+describe("multi-line paste carrying an NBSP", () => {
+  const globalStubs: { DragEvent?: unknown; ClipboardEvent?: unknown } = globalThis;
+  if (typeof globalStubs.DragEvent === "undefined")
+    globalStubs.DragEvent = class DragEvent extends Event {};
+  if (typeof globalStubs.ClipboardEvent === "undefined")
+    globalStubs.ClipboardEvent = class ClipboardEvent extends Event {};
+
+  /**
+   * Duck-typed paste event carrying `types`/`files` as well, since dispatching through the whole
+   * ladder reaches `@lexical/clipboard`, which reads both (jsdom implements neither
+   * `ClipboardEvent` nor `DataTransfer`).
+   */
+  function pasteEventWith(flavors: { [mime: string]: string }): ClipboardEvent {
+    return {
+      clipboardData: {
+        types: Object.keys(flavors),
+        files: [],
+        getData: (type: string) => flavors[type] ?? "",
+      },
+      preventDefault: () => undefined,
+    } as unknown as ClipboardEvent;
+  }
+
+  function $paras(): ParaNode[] {
+    return $getRoot().getChildren().filter($isParaNode);
+  }
+
+  /**
+   * Asserted per TEXT NODE, not on the root's text content: `getTextContent()` on an element
+   * JOINS its block children with newlines of its own, so a root-level read can never tell a
+   * literal pasted `\n` from a genuine paragraph boundary.
+   */
+  function $noTextNodeHoldsANewline(): boolean {
+    return $getRoot()
+      .getAllTextNodes()
+      .every((textNode) => !textNode.getTextContent().includes("\n"));
+  }
+
+  /** The USFM bytes a subtree stands for, structural NBSP separators rendered as plain spaces. */
+  function $usfmBytes(para: ParaNode): string {
+    return para
+      .getAllTextNodes()
+      .map((textNode) => textNode.getTextContent())
+      .join("")
+      .replaceAll(NBSP, " ");
+  }
+
+  /** `\p \nd thing\nd*` — one paragraph holding a single character-styled run. */
+  function $appendCharPara(): TextNode {
+    const content = $createTextNode(`${NBSP}thing`);
+    $getRoot().append(
+      $createParaNode("p").append(
+        $createMarkerNode("p"),
+        $createTextNode(NBSP),
+        $createCharNode("nd").append(
+          $createMarkerNode("nd"),
+          content,
+          $createMarkerNode("nd", "closing"),
+        ),
+      ),
+    );
+    return content;
+  }
+
+  it("splits paragraphs inside a character stack, closing and reopening it per line", async () => {
+    let content: TextNode;
+    const { editor } = await testEnvironmentWithDisplaySyncs(() => (content = $appendCharPara()));
+    await act(async () => editor.update(() => content.select(4, 4))); // "thi|ng"
+
+    await act(async () => {
+      editor.dispatchCommand(PASTE_COMMAND, pasteEventWith({ "text/plain": `one${NBSP}x\ntwo` }));
+    });
+
+    editor.getEditorState().read(() => {
+      const paras = $paras();
+      expect(paras).toHaveLength(2);
+      // The pasted NBSP takes its `~` display form; serialization inverts it back to an NBSP.
+      expect($usfmBytes(paras[0])).toBe("\\p \\nd thione~x\\nd*");
+      expect($usfmBytes(paras[1])).toBe("\\p \\nd twong\\nd*");
+      expect($noTextNodeHoldsANewline()).toBe(true);
+    });
+  });
+
+  it("splits paragraphs in plain text too, keeping the NBSP's display form", async () => {
+    let text: TextNode;
+    const { editor } = await testEnvironmentWithDisplaySyncs(() => {
+      text = $createTextNode("plain");
+      $appendMarkerAndText(text);
+    });
+    await act(async () => editor.update(() => text.select(5, 5))); // "plain|"
+
+    await act(async () => {
+      editor.dispatchCommand(PASTE_COMMAND, pasteEventWith({ "text/plain": `a${NBSP}b\nc` }));
+    });
+
+    editor.getEditorState().read(() => {
+      const paras = $paras();
+      expect(paras).toHaveLength(2);
+      expect($usfmBytes(paras[0])).toBe("\\p plaina~b");
+      expect($usfmBytes(paras[1])).toBe("\\p c");
+      expect($noTextNodeHoldsANewline()).toBe(true);
+    });
   });
 });

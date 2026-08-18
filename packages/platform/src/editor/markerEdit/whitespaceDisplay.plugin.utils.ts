@@ -17,7 +17,15 @@ import {
   copyToClipboard,
   LexicalClipboardData,
 } from "@lexical/clipboard";
-import { $getSelection, $getState, $isRangeSelection, LexicalEditor, TextNode } from "lexical";
+import {
+  $getEditor,
+  $getSelection,
+  $getState,
+  $isRangeSelection,
+  INSERT_PARAGRAPH_COMMAND,
+  LexicalEditor,
+  TextNode,
+} from "lexical";
 import {
   $isBookNode,
   $isChapterNode,
@@ -94,6 +102,20 @@ export function htmlPasteText(html: string): string {
  * before it ever reaches this handler — so `text/html`, and the pasted text it decodes to
  * (`htmlPasteText` above), are checked too, falling back to that decoded text when it's the
  * only place the NBSP survives.
+ *
+ * A MULTI-LINE payload is replayed line by line with an `INSERT_PARAGRAPH_COMMAND` dispatch
+ * between lines, because no USFM line can carry a newline: inserting the whole payload at once
+ * left literal `\n` bytes sitting inside a text node, a byte on screen the file cannot represent.
+ * This claim runs at HIGH ahead of every other paste claim, so an NBSP-carrying paste never
+ * reaches the multi-line claims that would otherwise split it — the split has to happen here.
+ * Going through the COMMAND (rather than `selection.insertParagraph()`) is what makes a paste
+ * into a character-style stack close and reopen that stack per line, the same way Enter does.
+ * Line endings normalize first so `\r\n` and bare-`\r` clipboards break correctly and no `\r`
+ * ever lands in content. A single-line payload keeps the exact one-`insertText` behavior it
+ * always had.
+ *
+ * Mutating: call inside `editor.update()` — dispatched from `MarkerEditPlugin`'s
+ * `PASTE_COMMAND` registration.
  */
 export function $handlePasteForStandardView(event: ClipboardEvent | null | undefined): boolean {
   if (!event || !("clipboardData" in event) || !event.clipboardData) return false;
@@ -110,7 +132,24 @@ export function $handlePasteForStandardView(event: ClipboardEvent | null | undef
   const selection = $getSelection();
   if (!$isRangeSelection(selection)) return false;
   event.preventDefault();
-  selection.insertText(text.replaceAll(NBSP, "~"));
+  const displayText = text.replace(/\r\n?/g, "\n").replaceAll(NBSP, "~");
+  const lines = displayText.split("\n");
+  if (lines.length < 2) {
+    selection.insertText(displayText);
+    return true;
+  }
+  // Replayed as the two steps the user would have performed by hand: text, then the command.
+  // The selection is removed up front rather than relying on the first `insertText` to replace
+  // it, since a payload whose first line is empty (a leading newline) inserts no text at all
+  // and would otherwise split a still-selected range.
+  if (!selection.isCollapsed()) selection.removeText();
+  const editor = $getEditor();
+  lines.forEach((line, index) => {
+    if (index > 0) editor.dispatchCommand(INSERT_PARAGRAPH_COMMAND, undefined);
+    if (line === "") return;
+    const lineSelection = $getSelection();
+    if ($isRangeSelection(lineSelection)) lineSelection.insertText(line);
+  });
   return true;
 }
 
