@@ -11,17 +11,26 @@
 import { MarkerEditPlugin } from "./MarkerEditPlugin";
 import { testEnvironment, testEnvironmentWithSheet, viewOptions } from "./markerEdit.test-helpers";
 import { initialize as initializeSerialize, reset } from "../adaptors/usj-editor.adaptor";
-import { act } from "@testing-library/react";
 import {
+  deserializeSerializedEditorState,
+  initialize as initializeDeserialize,
+} from "../adaptors/editor-usj.adaptor";
+import { act } from "@testing-library/react";
+import { Usj } from "@eten-tech-foundation/scripture-utilities";
+import {
+  $createRangeSelection,
   $createTextNode,
   $getRoot,
   $getSelection,
   $isElementNode,
   $isRangeSelection,
   $isTextNode,
+  $setSelection,
   CONTROLLED_TEXT_INSERTION_COMMAND,
+  CUT_COMMAND,
   KEY_DOWN_COMMAND,
   LexicalEditor,
+  TextNode,
 } from "lexical";
 import {
   $createMarkerNode,
@@ -116,6 +125,25 @@ function $onlyPara() {
   return para;
 }
 
+/** `testEnvironment` plus the guard, which is what the app mounts. */
+async function guardedEnvironment($initialEditorState: () => void, sheet?: StyleInfo) {
+  initializeSerialize(undefined, undefined);
+  reset();
+  return baseTestEnvironment(
+    $initialEditorState,
+    <>
+      <MarkerEditPlugin viewOptions={viewOptions} getMarker={createMarkerLookup(sheet)} />
+      <OpaqueBlockGuardPlugin />
+    </>,
+  );
+}
+
+/** The editor's current USJ, through the production adaptor — what a save would write. */
+function usjOf(editor: LexicalEditor): Usj | undefined {
+  initializeDeserialize(undefined);
+  return deserializeSerializedEditorState(editor.getEditorState().toJSON(), viewOptions);
+}
+
 describe("typing on past a construct the caret cannot enter", () => {
   it("carries on AFTER a figure the typed closer just completed, not before it", async () => {
     const { editor } = await testEnvironmentWithSheet($seedTail, figureSheet);
@@ -200,22 +228,9 @@ describe("typing a marker that resolves to an opaque construct", () => {
  * "read-only" true rather than "destructive on contact".
  */
 describe("a keystroke inside a read-only block is refused", () => {
-  /** `testEnvironmentWithSheet` plus the guard, which is what the app mounts. */
-  async function guardedEnvironment($initialEditorState: () => void) {
-    initializeSerialize(undefined, undefined);
-    reset();
-    return baseTestEnvironment(
-      $initialEditorState,
-      <>
-        <MarkerEditPlugin viewOptions={viewOptions} getMarker={createMarkerLookup(figureSheet)} />
-        <OpaqueBlockGuardPlugin />
-      </>,
-    );
-  }
-
   /** Build `\p hello \fig My caption|src="x.jpg"\fig*` by typing, and return the editor. */
   async function editorWithFigure() {
-    const { editor } = await guardedEnvironment($seedTail);
+    const { editor } = await guardedEnvironment($seedTail, figureSheet);
     await act(async () => editor.update(() => $bodyText().selectEnd()));
     await typeAtCaret(editor, '\\fig My caption|src="x.jpg"\\fig*');
     return editor;
@@ -335,5 +350,222 @@ describe("the read-only affordance follows the node kind, not the marker", () =>
 
   it.each(cases)("$usfm resolves to $kind", async ({ usfm, caret, kind }) => {
     expect(await resolvedKind(usfm, caret)).toBe(kind);
+  });
+});
+
+/**
+ * A row's `\tr ` glyph is engine-owned display for a marker the FILE carries, and a table has no
+ * settle scope — `$settleScopeForNode` returns undefined inside one, so nothing re-tokenizes a
+ * table after an edit. A deletion that reaches those bytes therefore takes them off the screen and
+ * leaves the row in the document: a silent screen/file divergence that no later pass repairs, and
+ * exactly the accepted-then-discarded shape the no-silent-no-ops rule forbids. So the deletion is
+ * refused, the way typing into a cell already is.
+ *
+ * The gestures below are the ones that reach the glyph. A collapsed caret ON it was already
+ * refused; the two that were not are a selection reaching IN from the paragraph outside (the guard
+ * required BOTH ends inside one construct) and any delete chord, which Lexical routes past
+ * `KEY_DOWN` straight to `DELETE_WORD_COMMAND`/`DELETE_LINE_COMMAND` — the guard's key filter
+ * treats a modifier chord as a command rather than as typing, which is right for Ctrl+C and wrong
+ * for Ctrl+Backspace.
+ *
+ * Copy and navigation stay untouched, and so does the machine-drift HEAL: a refused user gesture
+ * never reaches the tree, so provenance (invariants §2 — machine drift heals, a user edit pends)
+ * is decided exactly as before.
+ */
+describe("a deletion aimed at a table row's \\tr glyph is refused", () => {
+  /** `\p hello ` followed by a table whose row absorbed `world`, with the guard mounted. */
+  async function editorWithRow() {
+    const { editor } = await guardedEnvironment($seedParagraph);
+    await typeInBody(editor, "hello \\tr world", "hello \\tr ".length);
+    return editor;
+  }
+
+  /** The row's opening `\tr` glyph. */
+  function $rowGlyph(): TextNode {
+    const table = $getRoot().getChildren().find($isImmutableTableNode);
+    const row = table?.getChildren().find($isImmutableTableRowNode);
+    const glyph = row?.getChildren()[0];
+    if (!$isTextNode(glyph)) throw new Error("the row has no glyph");
+    return glyph;
+  }
+
+  /** The NBSP separator between the row's glyph and its content. */
+  function $rowSeparator(): TextNode {
+    const separator = $rowGlyph().getNextSibling();
+    if (!$isTextNode(separator)) throw new Error("the row has no separator");
+    return separator;
+  }
+
+  /** What the row shows, which is what a refusal has to leave untouched. */
+  function rowBytes(editor: LexicalEditor): string {
+    return editor.getEditorState().read(() => {
+      const table = $getRoot().getChildren().find($isImmutableTableNode);
+      if (!table) throw new Error("no table");
+      return table.getTextContent();
+    });
+  }
+
+  /**
+   * Presses `key` the way the browser does: ONE `KEY_DOWN_COMMAND` dispatch. Lexical's own
+   * `KEY_DOWN` listener (registered by the editor core at `COMMAND_PRIORITY_EDITOR`) is what
+   * routes it onward — to `KEY_BACKSPACE_COMMAND` for a bare Backspace, and straight to
+   * `DELETE_WORD_COMMAND` for a modifier chord. A handler that claims `KEY_DOWN` at a higher
+   * priority therefore stops the routing before any delete is dispatched, which is how the
+   * refusal works and why nothing here dispatches a delete command itself.
+   */
+  async function pressKey(
+    editor: LexicalEditor,
+    key: string,
+    modifiers: { ctrlKey?: boolean; altKey?: boolean } = {},
+  ): Promise<void> {
+    await act(async () => {
+      editor.dispatchCommand(KEY_DOWN_COMMAND, new KeyboardEvent("keydown", { key, ...modifiers }));
+    });
+  }
+
+  /** Selects from `anchor`'s offset to `focus`'s, across block boundaries. */
+  async function selectAcross(
+    editor: LexicalEditor,
+    $anchor: () => [TextNode, number],
+    $focus: () => [TextNode, number],
+  ): Promise<void> {
+    await act(async () =>
+      editor.update(() => {
+        const [anchorNode, anchorOffset] = $anchor();
+        const [focusNode, focusOffset] = $focus();
+        const selection = $createRangeSelection();
+        selection.anchor.set(anchorNode.getKey(), anchorOffset, "text");
+        selection.focus.set(focusNode.getKey(), focusOffset, "text");
+        $setSelection(selection);
+      }),
+    );
+  }
+
+  it("leaves the glyph whole on a Backspace with the caret in it", async () => {
+    const editor = await editorWithRow();
+    const before = usjOf(editor);
+    await act(async () => editor.update(() => $rowGlyph().select(3, 3)));
+
+    await pressKey(editor, "Backspace");
+
+    expect(rowBytes(editor)).toContain("\\tr");
+    expect(usjOf(editor)).toEqual(before);
+  });
+
+  it("leaves the glyph whole when a selection reaches into it from the paragraph", async () => {
+    const editor = await editorWithRow();
+    const before = usjOf(editor);
+    await selectAcross(
+      editor,
+      () => [$bodyText(), $bodyText().getTextContentSize()],
+      () => [$rowGlyph(), 3],
+    );
+
+    await pressKey(editor, "Backspace");
+
+    expect(rowBytes(editor)).toContain("\\tr");
+    expect(usjOf(editor)).toEqual(before);
+  });
+
+  it("leaves the separator whole when a selection reaches into it", async () => {
+    const editor = await editorWithRow();
+    const before = usjOf(editor);
+    await selectAcross(
+      editor,
+      () => [$bodyText(), $bodyText().getTextContentSize()],
+      () => [$rowSeparator(), 1],
+    );
+
+    await pressKey(editor, "Backspace");
+
+    expect(rowBytes(editor)).toContain(`\\tr${NBSP}`);
+    expect(usjOf(editor)).toEqual(before);
+  });
+
+  it("leaves the glyph whole on a word-delete chord aimed at it", async () => {
+    // Pre-fix this reached Lexical's `deleteWord`, which in jsdom throws out of the unimplemented
+    // `domSelection.modify` rather than visibly wiping the glyph — the same harness artefact the
+    // figure's Backspace pin has. Either way the gesture must never get that far.
+    const editor = await editorWithRow();
+    const before = usjOf(editor);
+    await act(async () => editor.update(() => $rowGlyph().select(3, 3)));
+
+    await pressKey(editor, "Backspace", { ctrlKey: true });
+
+    expect(rowBytes(editor)).toContain("\\tr");
+    expect(usjOf(editor)).toEqual(before);
+  });
+
+  it("leaves the glyph whole when a selection reaching into it is typed over", async () => {
+    const editor = await editorWithRow();
+    const before = usjOf(editor);
+    await selectAcross(
+      editor,
+      () => [$bodyText(), $bodyText().getTextContentSize()],
+      () => [$rowGlyph(), 3],
+    );
+
+    await act(async () => {
+      editor.dispatchCommand(KEY_DOWN_COMMAND, new KeyboardEvent("keydown", { key: "Z" }));
+      editor.dispatchCommand(CONTROLLED_TEXT_INSERTION_COMMAND, "Z");
+    });
+
+    expect(rowBytes(editor)).toContain("\\tr");
+    expect(usjOf(editor)).toEqual(before);
+  });
+
+  it("refuses a cut whose selection reaches into the glyph", async () => {
+    const editor = await editorWithRow();
+    const before = usjOf(editor);
+    await selectAcross(
+      editor,
+      () => [$bodyText(), $bodyText().getTextContentSize()],
+      () => [$rowGlyph(), 3],
+    );
+
+    await act(async () => {
+      editor.dispatchCommand(CUT_COMMAND, new KeyboardEvent("keydown", { key: "x" }));
+    });
+
+    expect(rowBytes(editor)).toContain("\\tr");
+    expect(usjOf(editor)).toEqual(before);
+  });
+
+  it("still deletes a selection that stays outside the table", async () => {
+    // The control. Without it, "refuses every deletion" would pass every test above.
+    const editor = await editorWithRow();
+    await selectAcross(
+      editor,
+      () => [$bodyText(), 0],
+      () => [$bodyText(), "hello".length],
+    );
+
+    await pressKey(editor, "Backspace");
+
+    editor.getEditorState().read(() => {
+      expect($onlyPara().getTextContent()).toBe(`\\p${NBSP} `);
+    });
+    expect(rowBytes(editor)).toContain("\\tr");
+  });
+
+  it("heals machine drift on the row glyph, with no user gesture anywhere near it", async () => {
+    // The heal half of the lifecycle, on the row glyph specifically: the refusal above governs
+    // USER deletions only, so drift from a non-user code path must still be restored in place
+    // rather than settled into the document. `$markerNodeTransform`'s heal arm reaches the row's
+    // glyph because it is an ordinary `MarkerNode`; the guard, which only ever refuses commands,
+    // cannot and must not intercept a programmatic write.
+    const { editor } = await testEnvironment($seedParagraph);
+    await typeInBody(editor, "hello \\tr world", "hello \\tr ".length);
+    // The user is working elsewhere — the caret is parked back in the paragraph.
+    await act(async () => editor.update(() => $bodyText().select(0, 0)));
+
+    await act(async () => editor.update(() => $rowGlyph().setTextContent("\\t")));
+
+    editor.getEditorState().read(() => {
+      expect($rowGlyph().getTextContent()).toBe("\\tr");
+      const table = $getRoot().getChildren().find($isImmutableTableNode);
+      const row = table?.getChildren().find($isImmutableTableRowNode);
+      expect(row?.getMarker()).toBe("tr");
+    });
   });
 });

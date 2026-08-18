@@ -485,6 +485,38 @@ const pendingShapes: PendingShape[] = [
     },
   },
   {
+    // A REAL `\cp` PARAGRAPH directly after its chapter — the shape a `\cp` takes when its fold
+    // refused. An edit inside it settles through the CHAPTER scope, so both halves must fold the
+    // whole PARAGRAPH away onto `pubnumber`. This is the only shape whose chapter region spans a
+    // block, so it is also the one that pins the virtual splice removing more than the chapter's
+    // own slot.
+    name: "cp paragraph adjacent to its chapter, value edited",
+    usj: {
+      type: "USJ",
+      version: "3.1",
+      content: [
+        { type: "book", marker: "id", code: "GEN", content: ["GEN"] },
+        { type: "chapter", marker: "c", number: "1" },
+        { type: "para", marker: "cp", content: ["A"] },
+        { type: "para", marker: "p", content: ["body text"] },
+        { type: "para", marker: "p", content: ["depart here"] },
+      ],
+    },
+    $edit: () => {
+      const cpPara = $getRoot()
+        .getChildren()
+        .filter($isParaNode)
+        .find((para) => para.getMarker() === "cp");
+      if (!cpPara) throw new Error("expected the cp ParaNode");
+      const value = cpPara
+        .getChildren()
+        .find((child): child is TextNode => $isTextNode(child) && !$isMarkerNode(child));
+      if (!value) throw new Error("expected the cp paragraph's value text");
+      value.setTextContent(`${NBSP}B`);
+      value.select(value.getTextContentSize(), value.getTextContentSize());
+    },
+  },
+  {
     // Both halves must fold the edited `\cat` value back onto the note's `category` — the run's
     // displayed bytes win, and the serialized note field must follow them in the virtual output
     // exactly as the real settle's `setCategory` does.
