@@ -314,6 +314,18 @@ function createChapter(
   let showMarker: boolean | undefined;
   if (_viewOptions?.markerMode === "visible") showMarker = true;
 
+  // The chapter's attribute display runs ride directly after the `\c N` glyph text — the
+  // same-line byte position `\c 1 \ca 2\ca* \cp A` the chapter fragment re-tokenizes — inside
+  // the chapter's own children (an editable ChapterNode is an ElementNode, so like a note's
+  // `\cat` run and unlike a verse's sibling-riding runs), in the alt-before-pub document order
+  // ParatextData preserves on disk. Editable mode only, mirroring the other attribute-marker
+  // runs; the immutable chapter node types carry the values as state with no display bytes.
+  const editableChildren: SerializedLexicalNode[] = [
+    createText(getVisibleOpenMarkerText(marker, number) ?? ""),
+  ];
+  if (_viewOptions?.markerMode === "editable")
+    addChapterAttributeRuns(altnumber, pubnumber, editableChildren);
+
   return _viewOptions?.markerMode === "editable"
     ? removeUndefinedProperties({
         type: ChapterNode.getType(),
@@ -323,7 +335,7 @@ function createChapter(
         altnumber,
         pubnumber,
         unknownAttributes,
-        children: [createText(getVisibleOpenMarkerText(marker, number) ?? "")],
+        children: editableChildren,
         direction: null,
         format: "",
         indent: 0,
@@ -623,7 +635,14 @@ function createNote(
   // Expanded layout whenever the note is expanded (either noteMode expanded OR unclosed).
   if (_viewOptions?.markerMode === "editable" && !isCollapsed) {
     callerNode = createText(getEditableCallerText(caller));
-    children.push(callerNode, ...childNodes);
+    children.push(callerNode);
+    // The category's `\cat` display run rides directly after the caller — the position
+    // `\f + \cat People\cat*` puts the span in the file, and the position the note-scoped
+    // Tier-2 rebuild re-folds it from. Editable-expanded only: collapsed notes deliberately do
+    // not display the category, and visible/hidden modes build no editable note interior at all
+    // (mirroring how `\va`/`\vp` runs are editable-only).
+    addNoteCategoryRun(category, children);
+    children.push(...childNodes);
   } else {
     // The engine-owned NBSP separators of a collapsed note's layout, in the same tagged token
     // shape as the para-marker prefix separator above: a BARE `createText(NBSP)` here merged
@@ -964,6 +983,49 @@ function addVerseAttributes(markerObject: MarkerObject, nodes: SerializedLexical
   if (_viewOptions?.markerMode !== "editable") return;
   addVerseAttributeRun("va", markerObject.altnumber, nodes);
   addVerseAttributeRun("vp", markerObject.pubnumber, nodes);
+}
+
+/** Note category display: the same opener + NBSP-prefixed value + closer triplet shape as
+ * {@link addVerseAttributeRun}, wrapped in ONE `attribute-run` node (runKind "cat"). Unlike a
+ * verse's runs it rides INSIDE the note (a NoteNode holds children), so `createNote` pushes it
+ * among the note's own children directly after the caller. The NBSP is the file's real separator
+ * between `\cat` and its value, so Tier-2's NBSP→space flattening reproduces it exactly. */
+function addNoteCategoryRun(category: string | undefined, nodes: SerializedLexicalNode[]) {
+  if (category === undefined) return;
+  nodes.push(
+    createAttributeRun("cat", [
+      createMarker("cat", "opening"),
+      createText(NBSP + category, "attribute"),
+      createMarker("cat", "closing"),
+    ]),
+  );
+}
+
+/** Chapter attribute display: `\ca` (altnumber) then `\cp` (pubnumber), riding inside the
+ * editable chapter's children directly after its `\c N` glyph text — each the note-`\cat` shape
+ * ({@link addNoteCategoryRun}), except `\cp` builds NO closing glyph: its span closes implicitly
+ * at the next block boundary in the file, so its wrapper alone bounds the value, and the chapter
+ * fragment's end (or the following run/text) terminates it on re-tokenize. */
+function addChapterAttributeRuns(
+  altnumber: string | undefined,
+  pubnumber: string | undefined,
+  nodes: SerializedLexicalNode[],
+) {
+  if (altnumber !== undefined)
+    nodes.push(
+      createAttributeRun("ca", [
+        createMarker("ca", "opening"),
+        createText(NBSP + altnumber, "attribute"),
+        createMarker("ca", "closing"),
+      ]),
+    );
+  if (pubnumber !== undefined)
+    nodes.push(
+      createAttributeRun("cp", [
+        createMarker("cp", "opening"),
+        createText(NBSP + pubnumber, "attribute"),
+      ]),
+    );
 }
 
 function reIndex(indexes: number[], offset: number): number[] {

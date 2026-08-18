@@ -26,7 +26,11 @@ import {
   $isNoteNode,
   $isParaNode,
   $isVerseNode,
+  $chapterAltnumberRunPieces,
+  $chapterPubnumberRunPieces,
+  $isChapterNode,
   $milestoneAttributeRunPieces,
+  $noteCategoryRunPieces,
   $openerSeparatorGapFollowingBytes,
   $ownerOfRunPiece,
   $paraPrefixSeparatorCaretHeld,
@@ -426,14 +430,27 @@ export function $chapterNodeTransform(node: ChapterNode): void {
 
 /**
  * Every currently-attached but EMPTY `AttributeRunNode` wrapper riding on `node` (a verse's `\va`
- * and/or `\vp` wrapper, or a milestone's single wrapper) — every piece of that wrapper's run was
- * deleted, leaving a transient husk with nothing left to display (see {@link AttributeRunNode}'s
- * own doc comment). A verse can carry up to two independent husks; a milestone at most one.
+ * and/or `\vp` wrapper, a milestone's single wrapper, a note's `\cat` wrapper, or a chapter's
+ * `\ca`/`\cp` wrappers) — every piece of that wrapper's run was deleted, leaving a transient
+ * husk with nothing left to display (see {@link AttributeRunNode}'s own doc comment). A verse or
+ * a chapter can carry up to two independent husks; a milestone or note at most one.
  */
 function $emptyAttributeRunWrappers(node: LexicalNode): AttributeRunNode[] {
   if ($isMilestoneNode(node)) {
     const { wrapper } = $milestoneAttributeRunPieces(node);
     return wrapper && wrapper.getChildrenSize() === 0 ? [wrapper] : [];
+  }
+  if ($isNoteNode(node)) {
+    const { wrapper } = $noteCategoryRunPieces(node);
+    return wrapper && wrapper.getChildrenSize() === 0 ? [wrapper] : [];
+  }
+  if ($isChapterNode(node)) {
+    const husks: AttributeRunNode[] = [];
+    const ca = $chapterAltnumberRunPieces(node);
+    if (ca.wrapper && ca.wrapper.getChildrenSize() === 0) husks.push(ca.wrapper);
+    const cp = $chapterPubnumberRunPieces(node);
+    if (cp.wrapper && cp.wrapper.getChildrenSize() === 0) husks.push(cp.wrapper);
+    return husks;
   }
   if ($isVerseNode(node)) {
     const husks: AttributeRunNode[] = [];

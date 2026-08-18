@@ -3,11 +3,13 @@ import { textTypeState } from "../nodes/collab/delta.state.js";
 import { $createMarkerNode } from "../nodes/features/MarkerNode.js";
 import { $createAttributeRunNode } from "../nodes/usj/AttributeRunNode.js";
 import { $createCharNode } from "../nodes/usj/CharNode.js";
+import { $createChapterNode } from "../nodes/usj/ChapterNode.js";
 import { $createMilestoneNode } from "../nodes/usj/MilestoneNode.js";
+import { $createNoteNode } from "../nodes/usj/NoteNode.js";
 import { $createParaNode } from "../nodes/usj/ParaNode.js";
 import { $createVerseNode } from "../nodes/usj/VerseNode.js";
 import { $runDiverges } from "../nodes/usj/displayRunSync.utils.js";
-import { getVisibleOpenMarkerText } from "../nodes/usj/node.utils.js";
+import { getEditableCallerText, getVisibleOpenMarkerText } from "../nodes/usj/node.utils.js";
 import { NBSP } from "../nodes/usj/node-constants.js";
 import { createBasicTestEnvironment } from "../nodes/usj/test.utils.js";
 import { $createTextNode, $getRoot, $setState } from "lexical";
@@ -67,6 +69,68 @@ describe("displayRunRegistry expectedPieces", () => {
           valueText: `${NBSP}2`,
         });
         expect(displayRunDescriptor("vp").expectedPieces(verse)).toEqual({
+          wantsRun: false,
+          valueText: undefined,
+        });
+      },
+      { discrete: true },
+    );
+  });
+
+  it("derives a note's NBSP-prefixed \\cat value only when expanded, never when collapsed", () => {
+    const { editor } = createBasicTestEnvironment();
+    editor.update(
+      () => {
+        const expanded = $createNoteNode("f", "+", false, "People");
+        const collapsed = $createNoteNode("f", "+", true, "People");
+        const noCategory = $createNoteNode("f", "+", false);
+        $getRoot().append(
+          $createParaNode("p").append(expanded),
+          $createParaNode("p").append(collapsed),
+          $createParaNode("p").append(noCategory),
+        );
+        const descriptor = displayRunDescriptor("cat");
+        expect(descriptor.expectedPieces(expanded)).toEqual({
+          wantsRun: true,
+          valueText: `${NBSP}People`,
+        });
+        // A collapsed note deliberately shows no category run at all — its content is not inline
+        // display text — so the still-set category must not make the sync fabricate one.
+        expect(descriptor.expectedPieces(collapsed)).toEqual({
+          wantsRun: false,
+          valueText: undefined,
+        });
+        expect(descriptor.expectedPieces(noCategory)).toEqual({
+          wantsRun: false,
+          valueText: undefined,
+        });
+      },
+      { discrete: true },
+    );
+  });
+
+  it("derives a chapter's NBSP-prefixed \\ca and \\cp values independently", () => {
+    const { editor } = createBasicTestEnvironment();
+    editor.update(
+      () => {
+        const withBoth = $createChapterNode("1", undefined, "2", "A");
+        withBoth.append($createTextNode(getVisibleOpenMarkerText("c", "1") ?? ""));
+        const without = $createChapterNode("3");
+        without.append($createTextNode(getVisibleOpenMarkerText("c", "3") ?? ""));
+        $getRoot().append(withBoth, without);
+        expect(displayRunDescriptor("ca").expectedPieces(withBoth)).toEqual({
+          wantsRun: true,
+          valueText: `${NBSP}2`,
+        });
+        expect(displayRunDescriptor("cp").expectedPieces(withBoth)).toEqual({
+          wantsRun: true,
+          valueText: `${NBSP}A`,
+        });
+        expect(displayRunDescriptor("ca").expectedPieces(without)).toEqual({
+          wantsRun: false,
+          valueText: undefined,
+        });
+        expect(displayRunDescriptor("cp").expectedPieces(without)).toEqual({
           wantsRun: false,
           valueText: undefined,
         });
@@ -173,6 +237,128 @@ describe("displayRunRegistry scanPieces", () => {
           closer,
           wrapper: vpWrapper,
         });
+      },
+      { discrete: true },
+    );
+  });
+
+  it("reads a note's wrapped \\cat run from its children, anchored after the editable caller", () => {
+    // The run rides INSIDE the note (a NoteNode is an ElementNode), directly after the editable
+    // caller TextNode — the position `\f + \cat People\cat*` puts the span in the file. The same
+    // untranslated-shape trap as the milestone case below applies: every ScannedRun field is
+    // optional, so a scan that anchors wrongly (or returns another shape) type-checks clean and
+    // reads as permanently empty — this toEqual is the net.
+    const { editor } = createBasicTestEnvironment();
+    editor.update(
+      () => {
+        const note = $createNoteNode("f", "+", false, "People");
+        const wrapper = $createAttributeRunNode("cat");
+        const opener = $createMarkerNode("cat");
+        const value = $createTextNode(`${NBSP}People`);
+        $setState(value, textTypeState, "attribute");
+        const closer = $createMarkerNode("cat", "closing");
+        wrapper.append(opener, value, closer);
+        note.append(
+          $createMarkerNode("f"),
+          $createTextNode(getEditableCallerText("+")),
+          wrapper,
+          $createTextNode("note body"),
+          $createMarkerNode("f", "closing"),
+        );
+        $getRoot().append($createParaNode("p").append(note));
+        expect(displayRunDescriptor("cat").scanPieces(note)).toEqual({
+          opener,
+          value,
+          closer,
+          wrapper,
+        });
+      },
+      { discrete: true },
+    );
+  });
+
+  it("reads a chapter's wrapped \\ca run from its children, anchored after the \\c glyph text", () => {
+    // Same untranslated-shape trap as the note/milestone cases: an anchor mistake compiles clean
+    // and reads permanently empty. The run rides inside the editable ChapterNode (an ElementNode)
+    // directly after its `\c N` glyph TextNode — the same-line file position `\c 1 \ca 2\ca*`.
+    const { editor } = createBasicTestEnvironment();
+    editor.update(
+      () => {
+        const chapter = $createChapterNode("1", undefined, "2");
+        const wrapper = $createAttributeRunNode("ca");
+        const opener = $createMarkerNode("ca");
+        const value = $createTextNode(`${NBSP}2`);
+        $setState(value, textTypeState, "attribute");
+        const closer = $createMarkerNode("ca", "closing");
+        wrapper.append(opener, value, closer);
+        chapter.append($createTextNode(getVisibleOpenMarkerText("c", "1") ?? ""), wrapper);
+        $getRoot().append(chapter);
+        expect(displayRunDescriptor("ca").scanPieces(chapter)).toEqual({
+          opener,
+          value,
+          closer,
+          wrapper,
+        });
+      },
+      { discrete: true },
+    );
+  });
+
+  it("reads a chapter's closer-less \\cp run, anchored after \\ca's own wrapper", () => {
+    // \cp is the one kind with NO closing glyph (its span closes implicitly at the next block
+    // boundary in the file), so its scanned pieces are opener + value + wrapper with `closer`
+    // genuinely absent — and it rides after the \ca wrapper, the alt-before-pub document order.
+    const { editor } = createBasicTestEnvironment();
+    editor.update(
+      () => {
+        const chapter = $createChapterNode("1", undefined, "2", "A");
+        const caWrapper = $createAttributeRunNode("ca");
+        const caValue = $createTextNode(`${NBSP}2`);
+        $setState(caValue, textTypeState, "attribute");
+        caWrapper.append($createMarkerNode("ca"), caValue, $createMarkerNode("ca", "closing"));
+
+        const cpWrapper = $createAttributeRunNode("cp");
+        const opener = $createMarkerNode("cp");
+        const value = $createTextNode(`${NBSP}A`);
+        $setState(value, textTypeState, "attribute");
+        cpWrapper.append(opener, value);
+
+        chapter.append(
+          $createTextNode(getVisibleOpenMarkerText("c", "1") ?? ""),
+          caWrapper,
+          cpWrapper,
+        );
+        $getRoot().append(chapter);
+        expect(displayRunDescriptor("cp").scanPieces(chapter)).toEqual({
+          opener,
+          value,
+          wrapper: cpWrapper,
+          closer: undefined,
+        });
+        // A canonical closer-less run does NOT diverge: the divergence rule must not demand the
+        // closer this kind never has.
+        expect(
+          $runDiverges(
+            displayRunDescriptor("cp"),
+            displayRunDescriptor("cp").scanPieces(chapter),
+            displayRunDescriptor("cp").expectedPieces(chapter),
+          ),
+        ).toBe(false);
+      },
+      { discrete: true },
+    );
+  });
+
+  it("finds no \\cat pieces on a collapsed note, whose caller is not the editable anchor", () => {
+    const { editor } = createBasicTestEnvironment();
+    editor.update(
+      () => {
+        // A collapsed note's caller is a DecoratorNode the anchor scan does not recognize, so the
+        // scan reports no pieces — even if stray cat-shaped children were somehow present.
+        const note = $createNoteNode("f", "+", true, "People");
+        note.append($createTextNode("collapsed body"));
+        $getRoot().append($createParaNode("p").append(note));
+        expect(displayRunDescriptor("cat").scanPieces(note)).toEqual({});
       },
       { discrete: true },
     );

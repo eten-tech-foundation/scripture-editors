@@ -66,6 +66,8 @@ import {
   $caretHoldsRunSite,
   $isAttributeRunNode,
   $isMilestoneNode,
+  $isChapterNode,
+  $isNoteNode,
   $isVerseNode,
   $ownerOfRunPiece,
   $syncAndPendDisplayRun,
@@ -141,21 +143,34 @@ const MAX_SETTLE_CASCADE_DEPTH = 8;
  * independent runs (`\va`, `\vp`) that must be driven in that order — `\vp`'s scan and insertion
  * anchor both depend on `\va`'s wrapper already being in place — and a milestone owns one.
  *
- * Shared by the VerseNode/MilestoneNode transforms and the MarkerNode/AttributeRunNode re-drives
- * below — both of the latter re-drive this off shared's `$ownerOfRunPiece`
- * (displayRunOwner.utils.ts): a run rides as the owner's FOLLOWING SIBLINGS (a milestone is a
- * DecoratorNode and a verse is itself a TextNode, so neither can hold the run as children), so an
- * edit that touches only a piece INSIDE the run — or a wrapper, or a glyph riding LOOSE — dirties
- * that piece/wrapper, not the owner, whose own transform would then never fire. Running this off
- * the dirtied piece gives a run-only edit the pend path it needs.
+ * Shared by the VerseNode/MilestoneNode/NoteNode transforms and the MarkerNode/AttributeRunNode
+ * re-drives below — both of the latter re-drive this off shared's `$ownerOfRunPiece`
+ * (displayRunOwner.utils.ts): a verse's or milestone's run rides as the owner's FOLLOWING
+ * SIBLINGS (a milestone is a DecoratorNode and a verse is itself a TextNode, so neither can hold
+ * the run as children), and a note's `\cat` run rides as its CHILDREN after the caller — either
+ * way, an edit that touches only a piece INSIDE the run — or a wrapper, or a glyph riding LOOSE —
+ * dirties that piece/wrapper, not the owner, whose own transform would then never fire. Running
+ * this off the dirtied piece gives a run-only edit the pend path it needs.
  *
  * A complete but still-LOOSE run (byte-correct, just not yet migrated into its `AttributeRunNode`
  * wrapper) pends too: the shared driver's `$runDiverges` counts the pending wrap migration itself
  * as a divergence, so `$caretHoldsRunSite` reports it caret-held and this pends it for the
  * departure settle to finish.
  */
-function $syncAndPendOwner(node: VerseNode | MilestoneNode, context: MarkerEditContext): void {
-  const kinds = $isVerseNode(node) ? (["va", "vp"] as const) : (["milestone"] as const);
+function $syncAndPendOwner(
+  node: VerseNode | MilestoneNode | NoteNode | ChapterNode,
+  context: MarkerEditContext,
+): void {
+  const kinds = $isVerseNode(node)
+    ? (["va", "vp"] as const)
+    : $isMilestoneNode(node)
+      ? (["milestone"] as const)
+      : $isNoteNode(node)
+        ? (["cat"] as const)
+        : // A chapter's two runs must be driven in this order — `\cp`'s scan and insertion
+          // anchor both depend on `\ca`'s wrapper already being in place, the same dependency
+          // a verse's `\vp` has on `\va`.
+          (["ca", "cp"] as const);
   for (const kind of kinds)
     $syncAndPendDisplayRun(displayRunDescriptor(kind), node, context.pendingKeys);
 }
@@ -325,9 +340,12 @@ export function MarkerEditPlugin({
         // replaced, a dirtied loose `\va*`/`\vp*` CLOSER now also re-drives the owner here too —
         // harmless, since the sync's heal/pend decisions are caret- and divergence-gated and
         // idempotent, so the extra invocation is either a no-op or legitimate earlier healing,
-        // matching the destruction-listener path's own closer-inclusive classification.
+        // matching the destruction-listener path's own closer-inclusive classification. A note's
+        // loose `\cat` glyphs and a chapter's loose `\ca` glyphs re-drive their owners the same
+        // way.
         const ref = $ownerOfRunPiece(node);
-        if (ref && $isVerseNode(ref.owner)) $syncAndPendOwner(ref.owner, context);
+        if (ref && ($isVerseNode(ref.owner) || $isNoteNode(ref.owner) || $isChapterNode(ref.owner)))
+          $syncAndPendOwner(ref.owner, context);
       }),
       editor.registerNodeTransform(VerseNode, (node) => {
         if (editor.isComposing()) return;
@@ -345,6 +363,9 @@ export function MarkerEditPlugin({
       editor.registerNodeTransform(ChapterNode, (node) => {
         if (editor.isComposing()) return;
         $chapterNodeTransform(node);
+        // Self-healing `\ca` alternate-number run + the grace/pend pairing, the same shape the
+        // NoteNode transform below carries for `\cat`.
+        if (node.isAttached()) $syncAndPendOwner(node, context);
       }),
       editor.registerNodeTransform(ParaNode, (node) => {
         if (editor.isComposing()) return;
@@ -388,16 +409,29 @@ export function MarkerEditPlugin({
       editor.registerNodeTransform(AttributeRunNode, (node) => {
         if (editor.isComposing()) return;
         // A piece INSIDE the wrapper being edited or removed dirties the WRAPPER, not the leaf
-        // owner: a DecoratorNode-based MilestoneNode and a following-sibling-shaped verse run
-        // would otherwise never notice. Re-drive the owner's own sync/pend off the wrapper.
+        // owner: a DecoratorNode-based MilestoneNode, a following-sibling-shaped verse run, and a
+        // note's child-positioned `\cat` run would otherwise never notice. Re-drive the owner's
+        // own sync/pend off the wrapper.
         const ref = $ownerOfRunPiece(node);
         if (!ref) return;
-        if ($isMilestoneNode(ref.owner) || $isVerseNode(ref.owner))
+        if (
+          $isMilestoneNode(ref.owner) ||
+          $isVerseNode(ref.owner) ||
+          $isNoteNode(ref.owner) ||
+          $isChapterNode(ref.owner)
+        )
           $syncAndPendOwner(ref.owner, context);
       }),
       editor.registerNodeTransform(NoteNode, (node) => {
         if (editor.isComposing()) return;
         $noteDeletionTransform(node, context);
+        // Self-healing `\cat` category run + the grace/pend pairing, exactly the shape the
+        // MilestoneNode transform above uses: a NoteNode exists in every markerMode, so the cat
+        // sync is registered HERE, gated by this whole plugin's markerMode-"editable" check —
+        // collapsed notes and visible/hidden modes are never touched (the descriptor's
+        // expectedPieces additionally refuses collapsed notes, so even an editable collapsed note
+        // never grows a run).
+        $syncAndPendOwner(node, context);
       }),
       // Unmatched-marker bytes are editable text in this mode; their edits pend and settle
       // exactly like closer-glyph edits (see $unmatchedNodeTransform). Its own registration —

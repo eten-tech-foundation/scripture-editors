@@ -14,16 +14,24 @@
  */
 
 import {
+  $chapterAltnumberRunPieces,
+  $chapterCpAnchor,
+  $chapterGlyphTextNode,
+  $chapterPubnumberRunPieces,
   $charAttributeDisplayNode,
   $charClosingGlyph,
   $milestoneAttributeRunPieces,
+  $noteCategoryRunPieces,
+  $noteEditableCallerNode,
   $verseAttributeRunPieces,
   canonicalAttributeText,
   milestoneAttributes,
   VerseAttributeMarker,
 } from "../nodes/usj/attributeDisplay.utils.js";
 import { $isAttributeRunNode } from "../nodes/usj/AttributeRunNode.js";
+import { $isChapterNode } from "../nodes/usj/ChapterNode.js";
 import { $isCharNode } from "../nodes/usj/CharNode.js";
+import { $isNoteNode } from "../nodes/usj/NoteNode.js";
 import {
   DisplayRunDescriptor,
   DisplayRunKind,
@@ -42,7 +50,14 @@ import {
   defaultMarkerAttribute,
   milestoneDefaultAttribute,
 } from "../converters/usfm/usfmFragmentToUsj.js";
-import { $getSelection, $getState, $isRangeSelection, $isTextNode, LexicalNode } from "lexical";
+import {
+  $getSelection,
+  $getState,
+  $isElementNode,
+  $isRangeSelection,
+  $isTextNode,
+  LexicalNode,
+} from "lexical";
 
 /** No run wanted and no value — the answer for an owner whose state carries nothing to display,
  * and the safe answer when a descriptor is handed a node of the wrong type. */
@@ -60,14 +75,26 @@ function $verseRunAnchor(verse: LexicalNode, marker: VerseAttributeMarker): Lexi
   return va.wrapper ?? va.closer ?? verse;
 }
 
-/** The caret arm a verse run graces when NO piece survives: the run's insertion point is the end
- * of its anchor or the very start of the anchor's next sibling, where a range deletion collapses
- * the caret. The shared reporter already graces the wrapper's subtree and the live value node. */
+/** The caret arm a run graces when NO piece survives: the run's insertion point is the end of
+ * its anchor or the very start of the anchor's next sibling, where a range deletion collapses
+ * the caret. An ELEMENT anchor (a chapter `\cp` run's anchor is the `\ca` run's WRAPPER) has no
+ * text end of its own — the collapse point is the end of its last descendant text piece (the
+ * `\ca` closer glyph), so that arm is checked too. The shared reporter already graces the
+ * wrapper's subtree and the live value node. */
 function $verseFlankGrace(anchor: LexicalNode): boolean {
   const selection = $getSelection();
   if (!$isRangeSelection(selection) || !selection.isCollapsed()) return false;
   const anchorNode = selection.anchor.getNode();
   if (anchorNode.is(anchor) && selection.anchor.offset === anchor.getTextContentSize()) return true;
+  if ($isElementNode(anchor)) {
+    const last = anchor.getLastDescendant();
+    if (
+      last !== null &&
+      anchorNode.is(last) &&
+      selection.anchor.offset === last.getTextContentSize()
+    )
+      return true;
+  }
   const next = anchor.getNextSibling();
   return next !== null && anchorNode.is(next) && selection.anchor.offset === 0;
 }
@@ -234,6 +261,190 @@ const charDescriptor: DisplayRunDescriptor = {
     insertRunBefore: (owner) => ($isCharNode(owner) ? $charClosingGlyph(owner) : undefined),
   },
 };
+
+/** Whether `node` is a loose piece of a note's `\cat` run — a `cat` glyph, or an attribute-tagged
+ * value whose own opener (one step back, the run pieces' fixed order) is a `cat` glyph. The value
+ * arm requires the candidate to BE a run piece, mirroring `$loosePieceMarker`'s rule for verses:
+ * position alone must not claim ordinary note content that happens to follow a settled run. */
+function $isLooseCatPiece(node: LexicalNode): boolean {
+  if ($isMarkerNode(node)) return node.getMarker() === "cat";
+  if (!$isTextNode(node) || $getState(node, textTypeState) !== "attribute") return false;
+  const previous = node.getPreviousSibling();
+  return $isMarkerNode(previous) && previous.getMarker() === "cat";
+}
+
+/** Walk back from `start` over the cat run's own pieces to the editable caller anchor, and from
+ * there to the NoteNode the run rides in. A piece's parent must BE the note (loose pieces are the
+ * note's direct children); crossing anything that is not a cat piece ends the walk with no owner. */
+function $noteOfCatChain(start: LexicalNode): LexicalNode | undefined {
+  const parent = start.getParent();
+  if (!$isNoteNode(parent)) return undefined;
+  const anchor = $noteEditableCallerNode(parent);
+  if (!anchor) return undefined;
+  for (
+    let previous = start.getPreviousSibling();
+    previous;
+    previous = previous.getPreviousSibling()
+  ) {
+    if (previous.is(anchor)) return parent;
+    if (!$isLooseCatPiece(previous)) return undefined;
+  }
+  return undefined;
+}
+
+const catDescriptor: DisplayRunDescriptor = {
+  kind: "cat",
+  ownerPredicate: (node) => $isNoteNode(node),
+  ownerOf: (node) => {
+    // A note's run rides as its CHILDREN (a NoteNode is an ElementNode), so the wrapper's parent
+    // IS the owner — no sibling chain to walk for the wrapped shape. Loose pieces walk back to
+    // the caller anchor exactly like a verse's loose pieces walk back to their verse.
+    if ($isAttributeRunNode(node))
+      return node.getRunKind() === "cat" && $isNoteNode(node.getParent())
+        ? (node.getParent() ?? undefined)
+        : undefined;
+    const parent = node.getParent();
+    if ($isAttributeRunNode(parent))
+      return parent.getRunKind() === "cat" && $isNoteNode(parent.getParent())
+        ? (parent.getParent() ?? undefined)
+        : undefined;
+    return $isLooseCatPiece(node) ? $noteOfCatChain(node) : undefined;
+  },
+  expectedPieces: (owner) => {
+    if (!$isNoteNode(owner)) return NO_RUN;
+    // Collapsed notes deliberately do not display the category (their content is not inline
+    // display text at all), and only the expanded editable shape carries the caller anchor the
+    // run is positioned by.
+    if (owner.getIsCollapsed() !== false) return NO_RUN;
+    const category = owner.getCategory();
+    if (category === undefined) return NO_RUN;
+    return { wantsRun: true, valueText: NBSP + category };
+  },
+  scanPieces: (owner) => ($isNoteNode(owner) ? $noteCategoryRunPieces(owner) : NO_PIECES),
+  graceSite: (owner, pieces) => {
+    if (!$isNoteNode(owner)) return false;
+    if (!pieces.opener && !pieces.closer) {
+      const anchor = $noteEditableCallerNode(owner);
+      return anchor !== undefined && $verseFlankGrace(anchor);
+    }
+    return $glyphDebrisGrace(pieces);
+  },
+  settleScope: "owner",
+  deletionPolicy: "retokenize",
+  byteFormat: {
+    writer: "wrapper",
+    runKind: "cat",
+    glyphs: "with-value",
+    glyphMarker: () => "cat",
+    closerSyntax: "closing",
+    insertRunAfter: (owner) => ($isNoteNode(owner) ? $noteEditableCallerNode(owner) : undefined),
+  },
+};
+
+/** Whether `node` is a piece of a chapter's `\ca`/`\cp` runs — a whole wrapper of either kind
+ * (crossed in one step, so a loose `\cp` piece's walk passes the `\ca` wrapper), a `ca`/`cp`
+ * glyph riding loose, or a loose attribute-tagged value — the chapter twin of
+ * `$isVerseRunPiece`. */
+function $isChapterRunPiece(node: LexicalNode): boolean {
+  if ($isAttributeRunNode(node)) return node.getRunKind() === "ca" || node.getRunKind() === "cp";
+  if ($isMarkerNode(node)) return node.getMarker() === "ca" || node.getMarker() === "cp";
+  return $isTextNode(node) && $getState(node, textTypeState) === "attribute";
+}
+
+/** The `ca`/`cp` marker a loose chapter piece belongs to — the chapter twin of
+ * `$loosePieceMarker`, with the same value-arm rule (the candidate must BE a run piece whose own
+ * opener sits one step back; position alone must not claim unrelated content). */
+function $chapterLoosePieceMarker(node: LexicalNode): "ca" | "cp" | undefined {
+  if ($isMarkerNode(node)) {
+    const marker = node.getMarker();
+    return marker === "ca" || marker === "cp" ? marker : undefined;
+  }
+  if (!$isTextNode(node) || $getState(node, textTypeState) !== "attribute") return undefined;
+  const previous = node.getPreviousSibling();
+  if (!$isMarkerNode(previous)) return undefined;
+  const marker = previous.getMarker();
+  return marker === "ca" || marker === "cp" ? marker : undefined;
+}
+
+/** Walk back from `start` over the chapter runs' own pieces (of EITHER kind — a `\cp` piece's
+ * walk crosses the whole `\ca` wrapper in one step) to the chapter's `\c N` glyph anchor, and
+ * from there to the ChapterNode the runs ride in — the chapter twin of `$verseOfRunChain`. */
+function $chapterOfRunChain(start: LexicalNode): LexicalNode | undefined {
+  const parent = start.getParent();
+  if (!$isChapterNode(parent)) return undefined;
+  const anchor = $chapterGlyphTextNode(parent);
+  if (!anchor) return undefined;
+  for (
+    let previous = start.getPreviousSibling();
+    previous;
+    previous = previous.getPreviousSibling()
+  ) {
+    if (previous.is(anchor)) return parent;
+    if (!$isChapterRunPiece(previous)) return undefined;
+  }
+  return undefined;
+}
+
+/** One chapter attribute-marker descriptor — `"ca"` (altnumber; opener + value + closer) or
+ * `"cp"` (pubnumber; opener + value, NO closer: the span closes implicitly at the next block
+ * boundary in the file, so its wrapper alone bounds the value). The runs ride as the editable
+ * chapter's CHILDREN in document order — glyph text, then `\ca`'s wrapper, then `\cp`'s — the
+ * same-line byte position the chapter fragment re-tokenizes and ParatextData's own chapter-path
+ * folding accepts. */
+function chapterDescriptor(marker: "ca" | "cp"): DisplayRunDescriptor {
+  const $anchor = (chapter: LexicalNode) =>
+    !$isChapterNode(chapter)
+      ? undefined
+      : marker === "ca"
+        ? $chapterGlyphTextNode(chapter)
+        : $chapterCpAnchor(chapter);
+  return {
+    kind: marker,
+    ownerPredicate: (node) => $isChapterNode(node),
+    ownerOf: (node) => {
+      if ($isAttributeRunNode(node))
+        return node.getRunKind() === marker && $isChapterNode(node.getParent())
+          ? (node.getParent() ?? undefined)
+          : undefined;
+      const parent = node.getParent();
+      if ($isAttributeRunNode(parent))
+        return parent.getRunKind() === marker && $isChapterNode(parent.getParent())
+          ? (parent.getParent() ?? undefined)
+          : undefined;
+      return $chapterLoosePieceMarker(node) === marker ? $chapterOfRunChain(node) : undefined;
+    },
+    expectedPieces: (owner) => {
+      if (!$isChapterNode(owner)) return NO_RUN;
+      const value = marker === "ca" ? owner.getAltnumber() : owner.getPubnumber();
+      if (value === undefined) return NO_RUN;
+      return { wantsRun: true, valueText: NBSP + value };
+    },
+    scanPieces: (owner) =>
+      !$isChapterNode(owner)
+        ? NO_PIECES
+        : marker === "ca"
+          ? $chapterAltnumberRunPieces(owner)
+          : $chapterPubnumberRunPieces(owner),
+    graceSite: (owner, pieces) => {
+      if (!$isChapterNode(owner)) return false;
+      if (!pieces.opener && !pieces.closer) {
+        const anchor = $anchor(owner);
+        return anchor !== undefined && $verseFlankGrace(anchor);
+      }
+      return $glyphDebrisGrace(pieces);
+    },
+    settleScope: "owner",
+    deletionPolicy: "retokenize",
+    byteFormat: {
+      writer: "wrapper",
+      runKind: marker,
+      glyphs: "with-value",
+      glyphMarker: () => marker,
+      closerSyntax: marker === "ca" ? "closing" : "none",
+      insertRunAfter: $anchor,
+    },
+  };
+}
 
 /** Whether `node` is a loose piece of a milestone's run — an opening glyph, a self-closing glyph,
  * or an attribute-tagged value. A milestone's opening glyph carries the milestone's OWN marker,
@@ -407,15 +618,20 @@ const nestedGlyphDescriptor: DisplayRunDescriptor = {
  * declare `ownerPredicate: $isCharNode` — `separator` (the NBSP gap after an opening glyph), `char`
  * (the span's own `|…` attribute run), and `nestedGlyph` (the `+` on a nested span's glyphs) — so a
  * `CharNode` matches all three. `separator` is listed before `char`, so its grace is checked first,
- * preserving the order the per-kind arms ran in. `nestedGlyph` never acts in the settle loops at
- * all: its `settleScope` is `"none"`, so those loops skip it outright — its `+` is purely
- * tree-derived and rewritten in place by its own sync, with no state a user edit can leave
+ * preserving the order the per-kind arms ran in. `cat`, `ca`, and `cp` are listed before `milestone` so their
+ * loose glyphs are claimed by their own descriptors first — the milestone loose-piece test
+ * accepts ANY opening glyph and only rejects it deeper in its chain walk. `nestedGlyph` never acts in the
+ * settle loops at all: its `settleScope` is `"none"`, so those loops skip it outright — its `+` is
+ * purely tree-derived and rewritten in place by its own sync, with no state a user edit can leave
  * half-finished. */
 export const displayRunDescriptors: readonly DisplayRunDescriptor[] = [
   separatorDescriptor,
   charDescriptor,
   verseDescriptor("va"),
   verseDescriptor("vp"),
+  catDescriptor,
+  chapterDescriptor("ca"),
+  chapterDescriptor("cp"),
   milestoneDescriptor,
   optbreakDescriptor,
   opaqueUnknownDescriptor,

@@ -45,10 +45,16 @@ export const ATTRIBUTE_RUN_VERSION = 1;
 export const ATTRIBUTE_RUN_CLASS_NAME = "attribute-run";
 
 /**
- * Which leaf owner's display run an `AttributeRunNode` wraps: a verse's `\va` value triplet, its
- * `\vp` value triplet, or a milestone's attribute value.
+ * Which owner's display run an `AttributeRunNode` wraps: a verse's `\va` value triplet, its
+ * `\vp` value triplet, a milestone's attribute value, a note's `\cat` category triplet, or a
+ * chapter's `\ca` alternate-number triplet. The first three owners are leaves that cannot hold
+ * children; a note and an editable chapter CAN (both are ElementNodes), so their wrappers ride
+ * as CHILDREN — directly after the caller / the `\c N` glyph text (a chapter's `\cp` run after
+ * its `\ca` run), rather than as following siblings. `cp` is the one kind with NO closing
+ * glyph: its span closes implicitly at the next block boundary in the file, so its run is
+ * opener + value only (`closerSyntax: "none"`).
  */
-export type AttributeRunKind = "va" | "vp" | "milestone";
+export type AttributeRunKind = "va" | "vp" | "milestone" | "cat" | "ca" | "cp";
 
 export type SerializedAttributeRunNode = Spread<
   {

@@ -325,6 +325,10 @@ export function $createWholeNote(
   let callerNode: ImmutableNoteCallerNode | TextNode;
   if (openingMarkerNode) note.append(openingMarkerNode);
   // Expanded layout whenever the note is expanded (either noteMode expanded OR unclosed).
+  // Unlike the load path (`createNote`, usj-editor.adaptor), no `\cat` category run is built
+  // here: this constructs NEW notes, which never carry a category at insert time — there is no
+  // category input on the insert path. A category acquired later heals its run through the
+  // shared display-run sync.
   if (viewOptions?.markerMode === "editable" && !isCollapsed) {
     if (caller === "") note.append(...contentNodes);
     else {

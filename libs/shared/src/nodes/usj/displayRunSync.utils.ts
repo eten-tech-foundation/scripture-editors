@@ -53,7 +53,12 @@ export function $runDiverges(
 ): boolean {
   if (!expected.wantsRun) return runHasPieces(pieces);
   if (pieces.value?.getTextContent() !== expected.valueText) return true;
-  if (descriptor.byteFormat.glyphs !== "none" && (!pieces.opener || !pieces.closer)) return true;
+  // A closer-less kind (`closerSyntax: "none"` — a chapter's `\cp`) owes only its opener; every
+  // other glyph-bearing kind owes both glyphs.
+  if (descriptor.byteFormat.glyphs !== "none") {
+    if (!pieces.opener) return true;
+    if (descriptor.byteFormat.closerSyntax !== "none" && !pieces.closer) return true;
+  }
   return descriptor.byteFormat.writer === "wrapper" && pieces.wrapper === undefined;
 }
 
@@ -77,7 +82,10 @@ export function $runNeedsOnlyWrapMigration(
   if (!expected.wantsRun) return false;
   const pieces = descriptor.scanPieces(owner);
   if (pieces.value?.getTextContent() !== expected.valueText) return false;
-  if (descriptor.byteFormat.glyphs !== "none" && (!pieces.opener || !pieces.closer)) return false;
+  if (descriptor.byteFormat.glyphs !== "none") {
+    if (!pieces.opener) return false;
+    if (descriptor.byteFormat.closerSyntax !== "none" && !pieces.closer) return false;
+  }
   return pieces.wrapper === undefined;
 }
 
@@ -220,7 +228,8 @@ function $writeRun(
     value = $createValueNode(expected.valueText);
     opener.insertAfter(value);
   }
-  if (!pieces.closer)
+  // A closer-less kind never builds a trailing glyph; its wrapper bounds the value instead.
+  if (closerSyntax !== "none" && !pieces.closer)
     (value ?? opener).insertAfter(
       $createMarkerNode(closerSyntax === "selfClosing" ? "" : glyphMarker(owner), closerSyntax),
     );
