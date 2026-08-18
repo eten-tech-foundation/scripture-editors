@@ -12,10 +12,25 @@ interface NodeSelectionMenuProps {
   inverse?: boolean;
   query?: string;
   menuOpenKey?: string;
+  /**
+   * Reports the live filter state to the owner: the typed query and the options surviving it.
+   * Menus whose owner needs to act on what was TYPED (rather than on what is highlighted) read
+   * it from here instead of re-deriving it, so this component stays the single place the filter
+   * rule lives. Fires on mount and after every query change.
+   */
+  onFilterChange?: (query: string, filteredOptions: OptionItem[]) => void;
 }
 
 export function NodeSelectionMenu(props: NodeSelectionMenuProps) {
-  const { options, onSelectOption, onClose, inverse, query: controlledQuery, menuOpenKey } = props;
+  const {
+    options,
+    onSelectOption,
+    onClose,
+    inverse,
+    query: controlledQuery,
+    menuOpenKey,
+    onFilterChange,
+  } = props;
   const [editor] = useLexicalComposerContext();
   const isControlled = controlledQuery !== undefined;
   const [query, setQuery] = useState("");
@@ -28,6 +43,10 @@ export function NodeSelectionMenu(props: NodeSelectionMenuProps) {
     if (onSelectOption) onSelectOption(option);
     else option.action(editor);
   };
+
+  useEffect(() => {
+    onFilterChange?.(localQuery, filteredOptions);
+  }, [onFilterChange, localQuery, filteredOptions]);
 
   useEffect(() => {
     return editor.registerCommand(

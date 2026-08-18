@@ -9,7 +9,7 @@ import {
   INSERT_PARAGRAPH_COMMAND,
   KEY_DOWN_COMMAND,
 } from "lexical";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GetMarkerAction, ScriptureReference } from "shared";
 
 /**
@@ -127,8 +127,20 @@ interface MenuState {
   /** Whether a literal `\marker` trigger prefix landed before the caret (backslash trigger,
    * collapsed selection only) - passed straight through to `apply`. */
   literalPrefixLanded: boolean;
+  /** The `\` trigger fired over a NON-collapsed selection: committing wraps the selection, and
+   * because that trigger preventDefaulted, nothing the user typed reached the document — the
+   * palette's own filter query is the only record of the marker they typed. */
+  wrapsSelection: boolean;
   /** The entries the menu offers, from the harness's item source. */
   items: MarkerMenuItemLike[];
+}
+
+/** The palette's live filter state, mirrored from `NodeSelectionMenu` via `onFilterChange`. */
+interface FilterState {
+  /** Exactly what the user typed after the trigger character. */
+  query: string;
+  /** The options still offered under `query` — empty means there is nothing to commit. */
+  options: OptionItem[];
 }
 
 /** A menu {@link OptionItem} carrying its source item + apply options for `onSelectOption`. */
@@ -164,6 +176,15 @@ function toHarnessOptionItem(
  * a collapsed caret does NOT preventDefault (the literal `\` lands as text; the menu opens as
  * an overlay over it) while a non-collapsed selection DOES (wrap case, no literal text).
  * Escape always just closes (never mutates the document / never touches the selection).
+ *
+ * Space is the PASSIVE palette's key and always dismisses. Over a collapsed caret it is left
+ * un-prevented so the literal space lands after the typed `\marker` and marker completion
+ * resolves it from those bytes. Over a selection there are no such bytes — the trigger
+ * preventDefaulted — so the palette's own filter query is the record of what was typed, and an
+ * EXACT match against the offered entries commits the wrap (the same closed span the Enter
+ * commit produces). A marker that is not offered commits nothing: the palette closes and the
+ * selection is left untouched, rather than the space replacing the selected text or a
+ * near-miss entry being applied as a guess.
  * `INSERT_PARAGRAPH_COMMAND` is intercepted at `COMMAND_PRIORITY_CRITICAL` - above
  * `MarkerEditPlugin`'s own `COMMAND_PRIORITY_HIGH` handler - to offer the Enter/SmartEnter
  * paragraph menu instead of splitting; the caret being inside a note (the `\fp` path) or
@@ -183,22 +204,48 @@ function EditableMarkerMenu({
 }) {
   const [editor] = useLexicalComposerContext();
   const [menuState, setMenuState] = useState<MenuState | undefined>(undefined);
+  const filterRef = useRef<FilterState>({ query: "", options: [] });
 
   useEffect(() => {
     return mergeRegister(
       editor.registerCommand(
         KEY_DOWN_COMMAND,
         (event) => {
-          // Already open: leave every keystroke to `NodeSelectionMenu`'s own capture below.
-          if (menuState || event.key !== trigger) return false;
+          if (menuState) {
+            // Already open: Space is the PASSIVE palette's own key; every other keystroke goes
+            // to `NodeSelectionMenu`'s capture below (filters/Escape/Backspace) or to
+            // `LexicalMenuNavigation` (arrows/Enter/Tab).
+            if (event.key !== " ") return false;
+            setMenuState(undefined); // Space always dismisses the palette
+            // Collapsed caret: the literal `\marker` is IN the document, so the space is left
+            // un-prevented to land after it and let marker completion resolve the typed literal.
+            // `true` still claims the event so the capture below cannot swallow it as a filter
+            // character — a swallowed space is a keystroke accepted and discarded.
+            if (!menuState.wrapsSelection) return true;
+            // Wrap case: the trigger preventDefaulted, so no literal exists to resolve and the
+            // space must not be allowed to replace the selection either.
+            event.preventDefault();
+            event.stopPropagation();
+            // The marker is whatever was literally TYPED, not whatever is highlighted — an
+            // exact match against the offered entries. A marker that is not offered (unknown, or
+            // not valid here) has nothing to commit: the palette is dismissed and the selection
+            // left untouched rather than wrapped in a guess.
+            const typed = filterRef.current.query;
+            const item = menuState.items.find((candidate) => candidate.marker === typed);
+            if (item) harness.apply(item, { trigger: "backslash", literalPrefixLanded: false });
+            return true;
+          }
+          if (event.key !== trigger) return false;
           const context = harness.getContext();
           if (!context) return false;
 
           const collapsed = !context.hasTextSelection;
           if (!collapsed) event.preventDefault(); // wrap case: no literal trigger text
+          filterRef.current = { query: "", options: [] };
           setMenuState({
             trigger: "backslash",
             literalPrefixLanded: collapsed,
+            wrapsSelection: !collapsed,
             items: harness.getItems(context),
           });
           return true;
@@ -232,6 +279,10 @@ function EditableMarkerMenu({
 
   const handleClose = useCallback(() => setMenuState(undefined), []);
 
+  const handleFilterChange = useCallback((query: string, options: OptionItem[]) => {
+    filterRef.current = { query, options };
+  }, []);
+
   const handleSelectOption = useCallback(
     (option: OptionItem) => {
       const { markerMenuItem, applyOpts } = option as HarnessOptionItem;
@@ -259,6 +310,7 @@ function EditableMarkerMenu({
             options={options ?? []}
             onSelectOption={handleSelectOption}
             onClose={handleClose}
+            onFilterChange={handleFilterChange}
             inverse={placement === "top-start"}
             menuOpenKey={trigger}
           />

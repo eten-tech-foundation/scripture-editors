@@ -55,6 +55,7 @@ import {
   $createMarkerNode,
   $createParaNode,
   $isCharNode,
+  $isMarkerNode,
   $isParaNode,
   defaultStyleInfo,
   getVisibleOpenMarkerText,
@@ -207,6 +208,17 @@ function $buildBackslashMenuFixture(): { text: TextNode } {
   return { text };
 }
 
+/** A `\p` paragraph whose plain text holds a word to select (`say |holy| words`), so the `\`
+ * trigger arrives with a NON-collapsed selection - the wrap case, where nothing lands in the
+ * document and the palette's typed filter is the only record of what the user typed. */
+function $buildWrapMenuFixture(): { text: TextNode } {
+  const text = $createTextNode("say holy words");
+  $getRoot().append(
+    $createParaNode("p").append($createMarkerNode("p"), $createTrailingSpaceNode(), text),
+  );
+  return { text };
+}
+
 /** `[c, p]` then a second `\p` paragraph whose caret triggers Enter - `previousParaMarkers`
  * for the caret's own paragraph is `["c", "p"]`, the exact fixture `getEnterMenuItems`'s own
  * unit test (`markerItemSource.test.ts`) confirms picks `p` over `ip` as the SmartEnter choice. */
@@ -319,6 +331,95 @@ describe("editable-mode marker menu harness", () => {
       });
       const json = JSON.stringify(editor.getEditorState().toJSON());
       expect(json).toContain(`"marker":"${chosenMarker}"`);
+    });
+  });
+
+  describe("Space over a non-collapsed selection", () => {
+    it("wraps the selection in the typed marker's closed span and closes the menu", async () => {
+      let text: TextNode | undefined;
+      const { editor } = await harnessTestEnvironment(() => {
+        text = $buildWrapMenuFixture().text;
+      });
+      await act(async () => editor.update(() => requireDefined(text, "text").select(4, 8)));
+
+      await dispatchKeyDown(editor, "\\");
+      await waitForMenu();
+      await dispatchKeyDown(editor, "n");
+      await dispatchKeyDown(editor, "d");
+      const filtered = await waitForMenu();
+      expect(menuItemLabel(filtered[0])).toBe("nd");
+
+      await dispatchKeyDown(editor, " ");
+
+      // The CONTAINER, not just the menuitems: a Space swallowed into the filter query also
+      // renders zero menuitems while leaving the overlay itself mounted (the orphan shape).
+      expect(document.querySelector(".autocomplete-menu-container")).toBeNull();
+      editor.getEditorState().read(() => {
+        const para = requireDefined($getRoot().getChildren().filter($isParaNode)[0], "para");
+        const chars = para.getChildren().filter($isCharNode);
+        expect(chars).toHaveLength(1);
+        expect(chars[0].getMarker()).toBe("nd");
+        expect(chars[0].getTextContent()).toContain("holy");
+        // Closed span: opener AND closer glyphs, the same shape the Enter commit produces.
+        expect(chars[0].getChildren().filter($isMarkerNode)).toHaveLength(2);
+        // Nothing deleted around the wrapped word.
+        expect(para.getTextContent()).toContain("say");
+        expect(para.getTextContent()).toContain("words");
+      });
+    });
+
+    it("refuses visibly when the typed marker is not offered - selection intact, palette gone", async () => {
+      let text: TextNode | undefined;
+      const { editor } = await harnessTestEnvironment(() => {
+        text = $buildWrapMenuFixture().text;
+      });
+      await act(async () => editor.update(() => requireDefined(text, "text").select(4, 8)));
+
+      await dispatchKeyDown(editor, "\\");
+      await waitForMenu();
+      await dispatchKeyDown(editor, "z");
+      await dispatchKeyDown(editor, "z");
+
+      const event = await dispatchKeyDown(editor, " ");
+
+      // Prevented: with a selection live, an un-prevented space would REPLACE the selected word.
+      expect(event.defaultPrevented).toBe(true);
+      expect(document.querySelector(".autocomplete-menu-container")).toBeNull();
+      editor.getEditorState().read(() => {
+        const para = requireDefined($getRoot().getChildren().filter($isParaNode)[0], "para");
+        // Nothing wrapped, nothing typed into the document, selection's text untouched.
+        expect(para.getChildren().filter($isCharNode)).toHaveLength(0);
+        expect(para.getTextContent()).toContain("say holy words");
+        const selection = $getSelection();
+        if (!$isRangeSelection(selection)) throw new Error("no range selection after the refusal");
+        expect(selection.isCollapsed()).toBe(false);
+        expect(selection.getTextContent()).toBe("holy");
+      });
+    });
+  });
+
+  describe("Space over a collapsed caret", () => {
+    it("dismisses the palette and leaves the literal space to land (passive palette)", async () => {
+      let text: TextNode | undefined;
+      const { editor } = await harnessTestEnvironment(() => {
+        text = $buildBackslashMenuFixture().text;
+      });
+      await act(async () => editor.update(() => requireDefined(text, "text").select(5, 5)));
+
+      await dispatchKeyDown(editor, "\\");
+      await waitForMenu();
+      await simulateLiteralInsert(editor, "\\");
+
+      const event = await dispatchKeyDown(editor, " ");
+
+      // Not prevented: the space lands after the literal, where marker completion resolves it.
+      // (jsdom does not insert it on an un-prevented keydown, hence the event-level assertion —
+      // the same way the `\` collapsed-trigger test above pins its own literal.)
+      expect(event.defaultPrevented).toBe(false);
+      expect(document.querySelector(".autocomplete-menu-container")).toBeNull();
+      editor.getEditorState().read(() => {
+        expect($getRoot().getTextContent()).toContain("hello\\");
+      });
     });
   });
 
