@@ -141,6 +141,24 @@ describe("getMarkerMenuItems — character source (PT9 MarkerItemSource.GetChara
     expect(items.every((item) => item.kind === "paragraph")).toBe(true);
     expect(items.map((item) => item.marker)).toContain("p");
   });
+
+  it("offers the same list for the book region whichever source it is asked for", () => {
+    // The book region has no paraMarker, so the character source is empty and the fallback
+    // above already produced the paragraph list there. Naming the region paragraph source is
+    // therefore a correctness fix to the CONTEXT, not a change to what the user is offered —
+    // pinned here so the two paths cannot silently diverge.
+    const bookRegion = { previousParaMarkers: ["id"] };
+    const asCharacter = getMarkerMenuItems(
+      sheet,
+      makeContext({ ...bookRegion, source: "character" }),
+    );
+    const asParagraph = getMarkerMenuItems(
+      sheet,
+      makeContext({ ...bookRegion, source: "paragraph" }),
+    );
+    expect(asParagraph.length).toBeGreaterThan(0);
+    expect(asParagraph).toEqual(asCharacter);
+  });
 });
 
 describe("getMarkerMenuItems — ordering (PT9 MarkerItemSource.TagComparer)", () => {

@@ -158,8 +158,12 @@ export function $getMarkerMenuContext(): MarkerMenuContextSnapshot | undefined {
   const hasTextSelection = !selection.isCollapsed();
 
   const para = $findNearestAncestor(anchorNode, $isParaNode);
+  // A collapsed caret with NO paragraph around it at all is the book/header region — `\id` is a
+  // BookNode at document root, not a `ParaNode`. There is no paragraph there to take a character
+  // style, so the paragraph list is what the region can actually accept. A text selection stays
+  // character source wherever it sits: wrapping is a character action.
   const source: MarkerMenuContext["source"] =
-    !hasTextSelection && para && $isAtParagraphContentStart(para, anchorNode, offset)
+    !hasTextSelection && (!para || $isAtParagraphContentStart(para, anchorNode, offset))
       ? "paragraph"
       : "character";
 
