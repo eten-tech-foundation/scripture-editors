@@ -8,7 +8,12 @@
 
 import { initialize as initializeDeserialize } from "../adaptors/editor-usj.adaptor";
 import { deserializeSerializedEditorState } from "../adaptors/editor-usj.adaptor";
-import { $appendCharPara, requireDefined, testEnvironment } from "./markerEdit.test-helpers";
+import {
+  $appendCharPara,
+  $retypeGlyph,
+  requireDefined,
+  testEnvironment,
+} from "./markerEdit.test-helpers";
 import { act } from "@testing-library/react";
 import { $createTextNode, $getRoot, $isTextNode, $setState, TextNode } from "lexical";
 import {
@@ -75,7 +80,7 @@ describe("closer edits leave the editor and the file agreeing", () => {
     let parts: ReturnType<typeof $appendCharPara>;
     const { editor } = await testEnvironment(() => (parts = $appendCharPara()));
     // Damage the closer (pends), then supply a fresh `\nd*` as typed content before it.
-    await act(async () => editor.update(() => parts.closer.setTextContent("\\ndx*")));
+    await act(async () => editor.update(() => $retypeGlyph(parts.closer, "\\ndx*")));
     await act(async () =>
       editor.update(() => {
         // The span's CONTENT text — not its glyphs, which are MarkerNodes (TextNode subclasses).

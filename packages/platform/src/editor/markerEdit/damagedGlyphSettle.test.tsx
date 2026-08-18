@@ -25,11 +25,13 @@
 import {
   $appendMilestoneRun,
   $appendVerseAttributeRun,
+  COMMIT_BOUND,
   requireDefined,
   testEnvironmentWithDisplaySyncs,
+  withCommitBound,
 } from "./markerEdit.test-helpers";
 import { act } from "@testing-library/react";
-import { $createTextNode, $getRoot, $isElementNode, LexicalEditor, LexicalNode } from "lexical";
+import { $createTextNode, $getRoot, $isElementNode, LexicalNode } from "lexical";
 import {
   $createCharNode,
   $createMarkerNode,
@@ -43,7 +45,6 @@ import {
   $isVerseNode,
   CharNode,
   getVisibleOpenMarkerText,
-  LoggerBasic,
   MarkerNode,
   NBSP,
   VerseNode,
@@ -55,65 +56,9 @@ import {
 if (typeof Range.prototype.getBoundingClientRect !== "function")
   Range.prototype.getBoundingClientRect = () => new DOMRect();
 
-/**
- * Commits a damaged-glyph settle needs: the edit itself, the graced follow-up, the departure, and
- * the settle's own rebuild plus its fixed-point follow-up. Generous — the point is to separate
- * "terminates" from "does not", not to pin an exact number that churns with unrelated work.
- */
-const COMMIT_BOUND = 20;
-
-interface CommitBound {
-  /** Start counting `editor`'s commits. Call once, right after mounting. */
-  watch: (editor: LexicalEditor) => void;
-  /** Commits counted so far. */
-  commits: () => number;
-  /**
-   * Collects the engine's warnings. Pass it to the environment and assert the settle-cascade
-   * backstop stayed silent: the backstop's own ceiling is BELOW `COMMIT_BOUND`, so a regressed
-   * root fix that only the backstop catches would otherwise slip through the commit assertion
-   * looking healthy. The backstop is a backstop; these tests are about not needing it.
-   */
-  logger: LoggerBasic;
-  /** Warnings the engine logged so far. */
-  warnings: () => string[];
-}
-
-/**
- * Runs `body` with every watched commit counted and the engine's deferred settle hard-stopped once
- * the count passes `COMMIT_BOUND`.
- *
- * The stop is what makes a regression FAIL rather than HANG. The engine defers each settle with
- * `queueMicrotask`, and a cascade that re-queues on every commit never yields to the macrotask
- * queue, so no timer — including vitest's own timeout — ever runs again. Dropping deferrals once
- * the commit count has already proven the loop lets the assertion report it instead.
- */
-async function withCommitBound(body: (bound: CommitBound) => Promise<void>): Promise<void> {
-  let commits = 0;
-  const warnings: string[] = [];
-  const originalQueueMicrotask = globalThis.queueMicrotask;
-  globalThis.queueMicrotask = (callback: () => void) => {
-    if (commits > COMMIT_BOUND) return;
-    originalQueueMicrotask(callback);
-  };
-  try {
-    await body({
-      watch: (editor) =>
-        editor.registerUpdateListener(() => {
-          commits += 1;
-        }),
-      commits: () => commits,
-      logger: {
-        debug: () => undefined,
-        info: () => undefined,
-        warn: (message: string) => warnings.push(message),
-        error: () => undefined,
-      },
-      warnings: () => warnings,
-    });
-  } finally {
-    globalThis.queueMicrotask = originalQueueMicrotask;
-  }
-}
+// The commit-bound harness (`withCommitBound`, `COMMIT_BOUND`) lives in markerEdit.test-helpers —
+// shared with glyphDriftHeal.test.tsx, whose heal tests run through the same settle machinery and
+// must fail (not hang) on a regressed cascade.
 
 /** Every MarkerNode in the document, in document order. */
 function $allGlyphs(): MarkerNode[] {

@@ -1,6 +1,8 @@
 import { displayRunDescriptor, displayRunDescriptors } from "./displayRunRegistry.js";
 import { textTypeState } from "../nodes/collab/delta.state.js";
+import { $createImmutableTypedTextNode } from "../nodes/features/ImmutableTypedTextNode.js";
 import { $createMarkerNode } from "../nodes/features/MarkerNode.js";
+import { $createUnknownNode, UnknownNode } from "../nodes/features/UnknownNode.js";
 import { $createAttributeRunNode } from "../nodes/usj/AttributeRunNode.js";
 import { $createCharNode } from "../nodes/usj/CharNode.js";
 import { $createChapterNode } from "../nodes/usj/ChapterNode.js";
@@ -8,7 +10,7 @@ import { $createMilestoneNode } from "../nodes/usj/MilestoneNode.js";
 import { $createNoteNode } from "../nodes/usj/NoteNode.js";
 import { $createParaNode } from "../nodes/usj/ParaNode.js";
 import { $createVerseNode } from "../nodes/usj/VerseNode.js";
-import { $runDiverges } from "../nodes/usj/displayRunSync.utils.js";
+import { $runDiverges, $runEntirelyAbsent } from "../nodes/usj/displayRunSync.utils.js";
 import { getEditableCallerText, getVisibleOpenMarkerText } from "../nodes/usj/node.utils.js";
 import { NBSP } from "../nodes/usj/node-constants.js";
 import { createBasicTestEnvironment } from "../nodes/usj/test.utils.js";
@@ -479,6 +481,98 @@ describe("displayRunRegistry sees damaged glyph BYTES, not just node state", () 
         const pieces = descriptor.scanPieces(milestone);
         expect(pieces.closer).toBeUndefined();
         expect($runDiverges(descriptor, pieces, descriptor.expectedPieces(milestone))).toBe(true);
+      },
+      { discrete: true },
+    );
+  });
+
+  it("does not report a CANONICAL optbreak diverged, and reports a byte-damaged token absent", () => {
+    // The optbreak's `//` token is its entire byte representation, so the kind's divergence rule
+    // must classify the scanned first child by its RENDERED BYTES: a canonical token is at rest
+    // (no divergence for the settle paths to chew on), and a damaged or deleted token diverges.
+    // Before this row landed, `expectedPieces` said `valueText: undefined` while `scanPieces`
+    // returned the live token — so a CANONICAL optbreak reported diverged (its `//` text never
+    // equalled `undefined`) and a GUTTED one did not, exactly backwards on both sides.
+    const { editor } = createBasicTestEnvironment();
+    editor.update(
+      () => {
+        const canonical = $createUnknownNode("optbreak");
+        canonical.append($createImmutableTypedTextNode("marker", "//"));
+        const damaged = $createUnknownNode("optbreak");
+        damaged.append($createTextNode("/x")); // an edited token degrades to a plain TextNode
+        const gutted = $createUnknownNode("optbreak");
+        $getRoot().append(
+          $createParaNode("p").append($createTextNode("a"), canonical, $createTextNode("b")),
+          $createParaNode("p").append($createTextNode("c"), damaged, $createTextNode("d")),
+          $createParaNode("p").append($createTextNode("e"), gutted, $createTextNode("f")),
+        );
+
+        const descriptor = displayRunDescriptor("optbreak");
+        const divergesOf = (owner: UnknownNode) =>
+          $runDiverges(descriptor, descriptor.scanPieces(owner), descriptor.expectedPieces(owner));
+        expect(divergesOf(canonical)).toBe(false);
+        expect(divergesOf(damaged)).toBe(true);
+        expect(divergesOf(gutted)).toBe(true);
+        // The deletion policy's own trigger is unchanged: only the GUTTED shape is entirely
+        // absent (remove-owner); the damaged token is a partial mangle, not a deletion.
+        expect($runEntirelyAbsent(descriptor, canonical)).toBe(false);
+        expect($runEntirelyAbsent(descriptor, damaged)).toBe(false);
+        expect($runEntirelyAbsent(descriptor, gutted)).toBe(true);
+      },
+      { discrete: true },
+    );
+  });
+
+  it("reports a char run's value divergence by BYTES, and a canonical run at rest", () => {
+    // A char run's piece is a plain TextNode, so "classify by rendered bytes" is the value-byte
+    // comparison in `$runDiverges` itself — pinned here beside the glyph rows so the char kind's
+    // damage story is measured, not assumed.
+    const { editor } = createBasicTestEnvironment();
+    editor.update(
+      () => {
+        const span = $createCharNode("w", { lemma: "grace" });
+        const value = $createTextNode("|grace");
+        $setState(value, textTypeState, "attribute");
+        span.append(
+          $createMarkerNode("w"),
+          $createTextNode("stub"),
+          value,
+          $createMarkerNode("w", "closing"),
+        );
+        $getRoot().append($createParaNode("p").append(span));
+
+        const descriptor = displayRunDescriptor("char");
+        const $diverges = () =>
+          $runDiverges(descriptor, descriptor.scanPieces(span), descriptor.expectedPieces(span));
+        expect($diverges()).toBe(false); // canonical: at rest
+        value.setTextContent("|grac"); // byte damage to the run's own piece
+        expect($diverges()).toBe(true);
+      },
+      { discrete: true },
+    );
+  });
+
+  it("keeps a damaged char CLOSER as the run anchor: expectedPieces still wants the run", () => {
+    // Deliberate and load-bearing: `$charClosingGlyph` is not a run piece but the ANCHOR deciding
+    // whether a char span may carry a run at all. Gating IT on rendered bytes would flip a damaged
+    // `\nd*` span's expectedPieces to "no run wanted", whose sync arm is `$clearRun` — deleting
+    // the user's attribute bytes. The char closer's own damage terminates through the marker
+    // engine instead (pend, then departure settle), so the anchor stays state-classified.
+    const { editor } = createBasicTestEnvironment();
+    editor.update(
+      () => {
+        const span = $createCharNode("w", { lemma: "grace" });
+        const value = $createTextNode("|grace");
+        $setState(value, textTypeState, "attribute");
+        const closer = $createMarkerNode("w", "closing");
+        span.append($createMarkerNode("w"), $createTextNode("stub"), value, closer);
+        $getRoot().append($createParaNode("p").append(span));
+
+        closer.setTextContent("\\w"); // the `*` deleted — state intact, bytes damaged
+        expect(displayRunDescriptor("char").expectedPieces(span)).toEqual({
+          wantsRun: true,
+          valueText: "|grace",
+        });
       },
       { discrete: true },
     );

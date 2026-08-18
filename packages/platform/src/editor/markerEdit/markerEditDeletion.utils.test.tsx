@@ -398,6 +398,10 @@ describe("deletion semantics", () => {
           .getAllTextNodes()
           .find((n) => $isMarkerNode(n) && n.getMarkerSyntax() === "closing");
         closer?.spliceText(0, 1, "", true); // delete ONLY the backslash: `\nd*` → `nd*`
+        // The caret sits where the deleted byte was, as a real Backspace leaves it — spliceText
+        // only moves an EXISTING selection, and a caret-less glyph edit is machine drift the
+        // engine heals (glyphDriftHeal.test.tsx).
+        closer?.select(0, 0);
       }),
     );
     // The damaged closer pends while the caret sits in it; departure settles it through Tier 2.

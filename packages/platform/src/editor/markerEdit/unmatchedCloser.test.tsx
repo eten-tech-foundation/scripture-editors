@@ -7,7 +7,12 @@
  * decides what they close — re-matching falls out of re-tokenization instead of a bespoke rule.
  */
 
-import { $appendCharPara, requireDefined, testEnvironment } from "./markerEdit.test-helpers";
+import {
+  $appendCharPara,
+  $retypeGlyph,
+  requireDefined,
+  testEnvironment,
+} from "./markerEdit.test-helpers";
 import { $dfs } from "@lexical/utils";
 import { act } from "@testing-library/react";
 import { $createTextNode, $getRoot, $isTextNode, $setState } from "lexical";
@@ -40,7 +45,7 @@ describe("an unmatched closer is editable text", () => {
   it("resolves a mismatched closer edit into text bytes, not a decorator", async () => {
     let parts: ReturnType<typeof $appendCharPara>;
     const { editor } = await testEnvironment(() => (parts = $appendCharPara()));
-    await act(async () => editor.update(() => parts.closer.setTextContent("\\wj*")));
+    await act(async () => editor.update(() => $retypeGlyph(parts.closer, "\\wj*")));
     await act(async () => editor.update(() => parts.marker.select(0, 0)));
     editor.getEditorState().read(() => {
       const unmatched = requireDefined($allUnmatched()[0], "unmatched node missing");

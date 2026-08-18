@@ -27,6 +27,7 @@ import {
   $isVerseNode,
   $noteCategoryRunPieces,
   $noteEditableCallerNode,
+  $reportDestroyedDisplayOwner,
   ChapterNode,
   CharNode,
   getPendedDisplayOwners,
@@ -144,9 +145,18 @@ describe("settled getUsj — uniform settling", () => {
         const glyph = para.getFirstChild();
         if (!glyph || !$isTextNode(glyph)) throw new Error("expected a prefix glyph");
         glyph.setTextContent("\\q1");
+        // The caret sits where the user's rename left it — a caret-less glyph byte edit is
+        // machine drift and HEALS instead of pending (glyphDriftHeal.test.tsx).
+        glyph.select(3, 3);
       });
       await Promise.resolve();
     });
+    // Blur so the commit below has no live-caret exception to keep the glyph pending: an
+    // abandoned (blurred) edit settles fully, per COMMIT_PENDING_MARKERS_COMMAND's contract. The
+    // BLUR sweep itself excepts the caret's own node, so the pend survives the blur.
+    const rootElement = lexical.getRootElement();
+    if (!rootElement) throw new Error("editor root not found");
+    act(() => rootElement.blur());
 
     const before = ref.current?.getUsj();
     const beforeMarker = lexical.getEditorState().read($livePara1Marker);
@@ -276,6 +286,10 @@ const pendingShapes: PendingShape[] = [
       const glyph = para.getFirstChild();
       if (!glyph || !$isTextNode(glyph)) throw new Error("expected a prefix glyph");
       glyph.setTextContent("\\q1");
+      // The caret sits where the user's rename keystroke left it. A byte edit with NO caret at
+      // the glyph is machine drift, which the engine now HEALS instead of pending
+      // (glyphDriftHeal.test.tsx) — a pending user rename requires the user's caret.
+      glyph.select(3, 3);
     },
   },
   {
@@ -382,7 +396,13 @@ const pendingShapes: PendingShape[] = [
     name: "note's own opening glyph renamed to a valid marker",
     usj: noteUsj(["note body"]),
     expandedNotes: true,
-    $edit: () => $findNoteOpeningGlyph().setTextContent("\\fe"),
+    $edit: () => {
+      // Caret at the rename site — a caret-less byte edit is machine drift and heals
+      // (glyphDriftHeal.test.tsx).
+      const glyph = $findNoteOpeningGlyph();
+      glyph.setTextContent("\\fe");
+      glyph.select(3, 3);
+    },
   },
   {
     // Both halves must fold the edited `\ca` value back onto the chapter's `altnumber` — the
@@ -479,7 +499,13 @@ const pendingShapes: PendingShape[] = [
     name: "note's own opening glyph renamed to an invalid marker",
     usj: noteUsj(["note body"]),
     expandedNotes: true,
-    $edit: () => $findNoteOpeningGlyph().setTextContent("\\qq"),
+    $edit: () => {
+      // Caret at the rename site — a caret-less byte edit is machine drift and heals
+      // (glyphDriftHeal.test.tsx).
+      const glyph = $findNoteOpeningGlyph();
+      glyph.setTextContent("\\qq");
+      glyph.select(3, 3);
+    },
   },
   {
     // Edge pin: the note's own glyph rename co-resident with an unrelated, independently pending
@@ -495,12 +521,23 @@ const pendingShapes: PendingShape[] = [
     ]),
     expandedNotes: true,
     $edit: () => {
-      $findNoteOpeningGlyph().setTextContent("\\fe");
+      // TWO glyph literals pending at once is reachable in production only through a HISTORIC
+      // restore: live typing settles the first pend the moment the caret departs to make the
+      // second, but an undo re-derives every restored literal's pend at once, caret-less, via
+      // `$rependPendShapedNodes`'s read-only scan. Seed the ledger the same way here — through
+      // `$reportDestroyedDisplayOwner`, the sync's public write channel into the SAME Set — so
+      // the engine's heal (which fires on caret-less byte damage that is NOT in the ledger —
+      // glyphDriftHeal.test.tsx) recognizes both literals as recorded user edits and leaves
+      // them pending, exactly as it does after a real undo.
+      const noteGlyph = $findNoteOpeningGlyph();
+      noteGlyph.setTextContent("\\fe");
+      $reportDestroyedDisplayOwner(noteGlyph);
       const boldChar = $findNote().getChildren().find($isCharNode);
       if (!boldChar) throw new Error("expected a char span inside the note");
       const boldGlyph = boldChar.getFirstChild();
       if (!$isMarkerNode(boldGlyph)) throw new Error("expected the char span's opening glyph");
       boldGlyph.setTextContent("\\it");
+      $reportDestroyedDisplayOwner(boldGlyph);
     },
   },
 ];
