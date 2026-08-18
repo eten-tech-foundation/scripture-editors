@@ -197,6 +197,29 @@ export interface EditorRef {
 }
 
 // @public
+export interface FilterAndRankItems<T extends Item> {
+    // (undocumented)
+    filter?: (item: T, query: string) => boolean;
+    // (undocumented)
+    filterBy?: keyof Pick<T, string>;
+    // (undocumented)
+    items: T[];
+    // (undocumented)
+    query: string;
+    // (undocumented)
+    sortBy?: keyof Pick<T, string>;
+    // (undocumented)
+    sortingOptions?: SortingOptions;
+}
+
+// @public
+export function filterAndRankItems<T extends Item>(options: (Omit<FilterAndRankItems<T>, "filter"> & {
+    filterBy: keyof Pick<T, string>;
+}) | (Omit<FilterAndRankItems<T>, "filterBy"> & {
+    filter: (item: T, query: string) => boolean;
+}) | FilterAndRankItems<T>): T[];
+
+// @public
 export function generateUsjCss(styleInfo: StyleInfo, options?: UsjCssOptions): string;
 
 // @public
@@ -229,6 +252,12 @@ export function isInsertEmbedOpOfType<T extends keyof OTEmbedTypes>(embedType: T
         [K in T]: OTEmbedTypes[K] | null;
     };
 };
+
+// @public
+export interface Item {
+    // (undocumented)
+    [key: string]: unknown;
+}
 
 // @public
 export interface LoggerBasic {
@@ -458,6 +487,14 @@ export const PARAGRAPH_STRUCTURE_VIEW_MODE = "paragraph-structure";
 export interface SelectionRange {
     end?: UsjDocumentLocation;
     start: UsjDocumentLocation;
+}
+
+// @public
+export interface SortingOptions {
+    // (undocumented)
+    caseSensitive?: boolean;
+    // (undocumented)
+    priorityOrder?: ("exact" | "startsWith" | "contains")[];
 }
 
 // @public
