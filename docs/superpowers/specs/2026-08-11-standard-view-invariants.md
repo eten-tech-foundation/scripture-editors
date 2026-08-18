@@ -203,21 +203,37 @@ not by reasoning from the comment.
 
 Do not "fix" these. They were reviewed and ratified.
 
+**Revised 2026-08-18, owner-directed: the `\` palette is ACTIVE.** The owner retired the passive
+palette by direct instruction: the trigger `\` never lands in the document (preventDefaulted in
+every selection shape), and subsequent typing filters the palette — it does not reach the
+document in any context (collapsed caret, selection, note content alike). The Space/Enter APPLY
+semantics below are unchanged from the original ratified table; only the PASSIVE/ACTIVE axis
+(where typed characters go before commit) and the Escape row changed.
+
 | Behavior | `\marker` + Space | `\marker` + Enter |
 | --- | --- | --- |
-| Palette | Passive; dismisses, literal lands | Focused; commits the highlighted item |
-| Who completes the marker | Tier 2, from the typed literal | The apply path |
+| Palette | Active; typed query filters, commits on Space | Active; commits the highlighted item |
+| Who completes the marker | Tier 2 — the commit materializes the typed query as the passive literal bytes (`\` + query + space) in one update and Tier 2 resolves them | The apply path |
 | Closing marker | **none** — span records `closed="false"` | **inserted** |
-| Marker chosen | whatever was literally typed | whatever is highlighted |
-| Unknown marker | settles as unknown | cannot commit one not in the list |
-| `\f` specifically | special-cased to commit like Enter | commits |
-| Escape | leaves the typed literal | leaves the typed literal |
+| Marker chosen | whatever was literally typed (the palette query) | whatever is highlighted |
+| Unknown marker | settles as unknown (the materialized literal settles as typed) | cannot commit one not in the list |
+| `\f` specifically | commits like Enter (emergent from the tokenizer: `\f ` tokenizes to the full note) | commits |
+| Escape | **closes the palette, document untouched** | **closes the palette, document untouched** |
+| Space over a non-collapsed selection | wraps the selection in the typed marker's closed span (exact match against the offered entries; a marker not offered refuses visibly — palette closed, selection intact) | n/a (Enter commits the highlighted item, wrapping the selection) |
 
-The one row that is a DEFECT, not a decision: **Space with a non-collapsed selection currently does
-nothing.** It should wrap the selection the way Enter does.
+**Escape row change (2026-08-18, owner-directed):** the original ratified row was "leaves the
+typed literal". That row described the passive palette, where the literal was already in the
+document before Escape; under the active palette nothing lands, so Escape leaves the document
+byte-identical. This is a deliberate ratified-table update, not a regression.
+
+The former defect row — "Space with a non-collapsed selection does nothing" — was fixed by the
+residual-backlog palette group (Space wraps like Enter, closed span) and holds under the active
+palette.
 
 Also intentional and previously ratified: type-through-split versus palette-retag; multi-step undo
-for palette applies and settles. See `2026-07-07-standard-view-followups.md`.
+for palette applies and settles. See `2026-07-07-standard-view-followups.md`. (Under the active
+palette a Space commit is fewer history steps than passive per-keystroke typing was — the
+materialize-and-settle happens in one gesture — while item applies and settles remain multi-step.)
 
 ---
 
