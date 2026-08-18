@@ -63,6 +63,15 @@ export type SerializedAttributeRunNode = Spread<
   SerializedElementNode
 >;
 
+/** The `usfm_<marker>` DOM class a runKind's wrapper carries so the stylesheet styles the run
+ * exactly like the standalone `char <marker>` span it folds from/unfolds to — or `undefined` for
+ * the kinds with no such stylesheet hook (see `createDOM`'s comment). */
+function runKindMarkerClass(runKind: AttributeRunKind): string | undefined {
+  return runKind === "va" || runKind === "vp" || runKind === "ca" || runKind === "cp"
+    ? `usfm_${runKind}`
+    : undefined;
+}
+
 export class AttributeRunNode extends ElementNode {
   __runKind: AttributeRunKind;
 
@@ -113,24 +122,26 @@ export class AttributeRunNode extends ElementNode {
   override createDOM(): HTMLElement {
     const dom = document.createElement("span");
     dom.classList.add(ATTRIBUTE_RUN_CLASS_NAME);
-    // Only va/vp carry a marker-specific class (matching a standalone CharNode's `usfm_<marker>`
-    // class, per CharNode.test.ts's standalone-attribute-marker pin); "milestone" gets nothing
-    // extra — a milestone's marker varies per instance (ts-s, qt1-e, ...) and is not a fixed
-    // stylesheet hook the way `\va`/`\vp` are.
-    if (this.__runKind === "va" || this.__runKind === "vp")
-      dom.classList.add(`usfm_${this.__runKind}`);
+    // va/vp/ca/cp carry a marker-specific class (matching a standalone CharNode's
+    // `usfm_<marker>` class, per CharNode.test.ts's standalone-attribute-marker pin), so the
+    // stylesheet styles the run and the standalone span IDENTICALLY — the run must not look
+    // different just because the same bytes currently ride as an attribute. "milestone" gets
+    // nothing extra — a milestone's marker varies per instance (ts-s, qt1-e, ...) and is not a
+    // fixed stylesheet hook — and "cat" has no standalone stylesheet styling to match.
+    const markerClass = runKindMarkerClass(this.__runKind);
+    if (markerClass !== undefined) dom.classList.add(markerClass);
     return dom;
   }
 
   override updateDOM(prevNode: this, dom: HTMLElement): boolean {
-    // On a key-reused node whose runKind changed, sync the usfm_va/usfm_vp class in place so
+    // On a key-reused node whose runKind changed, sync the usfm_<runKind> class in place so
     // createDOM's discriminator doesn't go stale. `attribute-run` never changes (always present on
-    // every runKind), so only the va/vp toggle needs syncing here.
+    // every runKind), so only the marker-class toggle needs syncing here.
     if (prevNode.__runKind !== this.__runKind) {
-      if (prevNode.__runKind === "va" || prevNode.__runKind === "vp")
-        dom.classList.remove(`usfm_${prevNode.__runKind}`);
-      if (this.__runKind === "va" || this.__runKind === "vp")
-        dom.classList.add(`usfm_${this.__runKind}`);
+      const prevClass = runKindMarkerClass(prevNode.__runKind);
+      if (prevClass !== undefined) dom.classList.remove(prevClass);
+      const nextClass = runKindMarkerClass(this.__runKind);
+      if (nextClass !== undefined) dom.classList.add(nextClass);
     }
     // Returning false keeps the existing DOM element (updated in place, never recreated — the
     // run-piece children reconcile independently).
