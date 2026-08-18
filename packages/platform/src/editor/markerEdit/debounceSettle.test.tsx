@@ -17,6 +17,7 @@
  * carries no user intent over restored/yanked content.
  */
 
+import Editor from "../Editor";
 import { IDLE_SETTLE_DELAY_MS } from "./MarkerEditPlugin";
 import {
   $appendCharPara,
@@ -24,9 +25,20 @@ import {
   requireDefined,
   testEnvironment,
 } from "./markerEdit.test-helpers";
-import { act } from "@testing-library/react";
-import { $getRoot, KEY_DOWN_COMMAND, LexicalEditor, TextNode, UNDO_COMMAND } from "lexical";
-import { CURSOR_CHANGE_TAG } from "shared";
+import { spanUsj } from "../settledGetUsj.test-helpers";
+import { EditorRefPlugin } from "@lexical/react/LexicalEditorRefPlugin";
+import { act, render } from "@testing-library/react";
+import {
+  $getRoot,
+  $isElementNode,
+  KEY_DOWN_COMMAND,
+  LexicalEditor,
+  TextNode,
+  UNDO_COMMAND,
+} from "lexical";
+import { createRef } from "react";
+import { $isCharNode, $isMarkerNode, CURSOR_CHANGE_TAG } from "shared";
+import { getViewOptions, STANDARD_VIEW_MODE } from "shared-react";
 
 // jsdom doesn't implement `getBoundingClientRect` on `Range`; moving the caret gives the editor
 // root DOM focus, and Lexical's post-commit scroll-into-view reads a Range rect. Stub it (a zero
@@ -194,4 +206,113 @@ describe("idle debounce settle (the second settle clock)", () => {
   // with composition still active — pre-existing behavior, observed under jsdom), so a
   // timer-only guard would make the clocks diverge. If mid-composition settling needs
   // suppressing, that belongs in the SHARED settle computation, decided with a real-IME repro.
+});
+
+describe("configurable idle settle delay (markerSettleDelayMs)", () => {
+  it("a custom delay replaces the default: no settle before it, settle after it", async () => {
+    let parts!: ReturnType<typeof $appendCharPara>;
+    const { editor } = await testEnvironment(() => {
+      parts = $appendCharPara();
+    }, 250);
+    await $retypeOpenerBare(editor, parts);
+
+    // Just short of the custom delay: still pending.
+    await advance(200);
+    expectPendingLiteral(editor, parts);
+
+    // Past 250ms (but far short of the 1000ms default): the custom clock fires.
+    await advance(100);
+    expectSettled(editor, parts);
+  });
+
+  it("0 settles commit-adjacent: the very next timer tick, no idle wait", async () => {
+    let parts!: ReturnType<typeof $appendCharPara>;
+    const { editor } = await testEnvironment(() => {
+      parts = $appendCharPara();
+    }, 0);
+    await $retypeOpenerBare(editor, parts);
+
+    // Zero delay arms a zero-delay timer off the editing commit itself — the same
+    // commit-adjacent cadence as the departure settle's microtask, just on the timer clock.
+    // Advancing time by NOTHING runs it.
+    await advance(0);
+    expectSettled(editor, parts);
+  });
+
+  it("-1 disables the idle clock entirely; caret departure still settles", async () => {
+    let parts!: ReturnType<typeof $appendCharPara>;
+    const { editor } = await testEnvironment(() => {
+      parts = $appendCharPara();
+    }, -1);
+    await $retypeOpenerBare(editor, parts);
+
+    // Idle for many default periods: with the idle clock off, nothing settles.
+    await advance(IDLE_SETTLE_DELAY_MS * 3);
+    expectPendingLiteral(editor, parts);
+
+    // The FIRST clock (caret departure) is untouched: leaving the glyph settles as before the
+    // idle timer existed.
+    await act(async () =>
+      editor.update(() => {
+        const lord = requireDefined(
+          $getRoot()
+            .getAllTextNodes()
+            .find(
+              (node): node is TextNode =>
+                node.getType() === TextNode.getType() && node.getTextContent().includes("Lord"),
+            ),
+          "span content text not found",
+        );
+        lord.select(2, 2);
+      }),
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expectSettled(editor, parts);
+  });
+
+  it("Editor options plumb the delay through to the engine", async () => {
+    // Mount the real `<Editor>` (not the bare plugin) with `options.markerSettleDelayMs: -1`;
+    // if the option were dropped anywhere between `EditorOptions` and `MarkerEditPlugin`, the
+    // default 1000ms clock would settle the caret-held literal below and this test would fail.
+    const lexicalRef = createRef<LexicalEditor>();
+    const view = requireDefined(
+      getViewOptions(STANDARD_VIEW_MODE),
+      "Standard view options are required for this test.",
+    );
+    await act(async () => {
+      render(
+        <Editor defaultUsj={spanUsj} options={{ view, markerSettleDelayMs: -1 }}>
+          <EditorRefPlugin editorRef={lexicalRef} />
+        </Editor>,
+      );
+    });
+    const editor = requireDefined(lexicalRef.current ?? undefined, "lexical editor not captured");
+
+    // Retype the `\nd` opener to the bare literal `\wj`, caret left inside the glyph.
+    await act(async () =>
+      editor.update(() => {
+        const opener = requireDefined(
+          $getRoot()
+            .getAllTextNodes()
+            .find((node) => $isMarkerNode(node) && node.getTextContent() === "\\nd"),
+          "nd opener glyph not found",
+        );
+        opener.setTextContent("\\wj");
+        opener.select(3, 3);
+      }),
+    );
+
+    // Idle far past the default delay: the plumbed -1 keeps the idle clock off, so the span
+    // still reports `nd` under the retyped literal.
+    await advance(IDLE_SETTLE_DELAY_MS * 3);
+    editor.getEditorState().read(() => {
+      const span = $getRoot()
+        .getChildren()
+        .flatMap((child) => ($isElementNode(child) ? child.getChildren() : []))
+        .find($isCharNode);
+      expect(requireDefined(span, "char span not found").getMarker()).toBe("nd");
+    });
+  });
 });

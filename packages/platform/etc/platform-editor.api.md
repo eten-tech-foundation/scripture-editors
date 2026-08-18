@@ -123,6 +123,7 @@ export interface EditorOptions {
     hasSpellCheck?: boolean;
     isReadonly?: boolean;
     markerMenuTrigger?: string;
+    markerSettleDelayMs?: number;
     nodes?: UsjNodeOptions;
     structureProtectionMode?: StructureProtectionMode;
     styleInfo?: StyleInfo;

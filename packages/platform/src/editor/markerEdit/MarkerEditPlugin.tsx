@@ -141,7 +141,9 @@ const MAX_SETTLE_CASCADE_DEPTH = 8;
  * the engine settles pending marker edits in place, INCLUDING the node the caret is parked in.
  * This is the second settle clock (Paratext 9's debounced-reformat delay); the caret-departure
  * clock (the deferred microtask resolve below) is the first, and by design never settles the
- * caret's own node. Exported for tests.
+ * caret's own node. The DEFAULT only — hosts override it per instance via the
+ * `markerSettleDelayMs` prop below (`EditorOptions.markerSettleDelayMs` on the public surface).
+ * Exported for tests.
  */
 export const IDLE_SETTLE_DELAY_MS = 1000;
 
@@ -197,11 +199,20 @@ export function MarkerEditPlugin({
   viewOptions,
   getMarker,
   logger,
+  markerSettleDelayMs,
 }: {
   viewOptions: ViewOptions | undefined;
   /** Project StyleInfo-backed lookup; defaults to the bundled table. */
   getMarker?: MarkerLookup;
   logger?: LoggerBasic;
+  /**
+   * Idle-settle delay override in milliseconds. `undefined` uses the default
+   * ({@link IDLE_SETTLE_DELAY_MS}); `0` arms the idle clock with zero delay — the same
+   * commit-adjacent cadence as the caret-departure settle, on the timer clock; a negative value
+   * (canonically `-1`) disables the idle clock entirely, so pending edits settle only on caret
+   * departure, Enter, blur, or a forced commit — the behavior before the idle clock existed.
+   */
+  markerSettleDelayMs?: number;
 }): null {
   const [editor] = useLexicalComposerContext();
   const isEnabled = viewOptions?.markerMode === "editable";
@@ -225,16 +236,23 @@ export function MarkerEditPlugin({
   // The window must release only on a real in-editor gesture (KEY_DOWN/CLICK), never on a re-render.
   const contextRef = useRef<MarkerEditContext | undefined>(undefined);
 
+  // The idle-settle delay is wiring exactly like viewOptions/getMarker/logger: the registration
+  // effect must not depend on it (a changed delay must not tear the engine down or reset the
+  // suppression window), so `armIdleSettle` reads it through this ref at every arm — a change
+  // takes effect on the next arm, never re-arming an already-ticking timer.
+  const markerSettleDelayRef = useRef(markerSettleDelayMs);
+
   // Refresh the wiring on the live context every render, without tearing the engine down. The
   // registration effect below deliberately does NOT depend on these values, so an identity-only
   // prop change reaches the transforms through this mutation instead of through a re-registration.
   useEffect(() => {
+    markerSettleDelayRef.current = markerSettleDelayMs;
     const context = contextRef.current;
     if (!context) return;
     if (viewOptions) context.viewOptions = viewOptions;
     context.getMarker = getMarker ?? bundledGetMarker;
     context.logger = logger;
-  }, [viewOptions, getMarker, logger]);
+  }, [viewOptions, getMarker, logger, markerSettleDelayMs]);
 
   useEffect(() => {
     if (!isEnabled || !viewOptions) return;
@@ -338,6 +356,12 @@ export function MarkerEditPlugin({
       if (idleSettleTimer !== undefined) clearTimeout(idleSettleTimer);
       idleSettleTimer = undefined;
       if (disposed || context.pendingKeys.size === 0) return;
+      const delay = markerSettleDelayRef.current ?? IDLE_SETTLE_DELAY_MS;
+      // A negative delay (canonically -1) turns the idle clock OFF: the timer armed above was
+      // cleared and nothing re-arms, so only the departure/Enter/blur/forced-commit paths
+      // settle — the pre-idle-clock behavior. Zero is a real delay: the clock fires on the
+      // next timer tick after the arming commit, commit-adjacent like the departure microtask.
+      if (delay < 0) return;
       idleSettleTimer = setTimeout(() => {
         idleSettleTimer = undefined;
         if (disposed || context.pendingKeys.size === 0) return;
@@ -356,7 +380,7 @@ export function MarkerEditPlugin({
         // decided with a real-IME repro.
         if (settleCascadeExceeded()) return;
         settlePendingNow(undefined);
-      }, IDLE_SETTLE_DELAY_MS);
+      }, delay);
     };
     // Deletion driver, arming half: a locally-destroyed display-run piece pends its OWNER, read
     // from the previous state — deletion intent comes from the destruction itself, never from
