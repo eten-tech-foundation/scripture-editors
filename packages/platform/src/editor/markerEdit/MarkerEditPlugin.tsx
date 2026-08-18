@@ -136,6 +136,15 @@ export const COMMIT_PENDING_MARKERS_COMMAND: LexicalCommand<void> = createComman
 const MAX_SETTLE_CASCADE_DEPTH = 8;
 
 /**
+ * How long the user must be IDLE — no keystroke, click, or other non-suppressed commit — before
+ * the engine settles pending marker edits in place, INCLUDING the node the caret is parked in.
+ * This is the second settle clock (Paratext 9's debounced-reformat delay); the caret-departure
+ * clock (the deferred microtask resolve below) is the first, and by design never settles the
+ * caret's own node. Exported for tests.
+ */
+export const IDLE_SETTLE_DELAY_MS = 1000;
+
+/**
  * Sync and pend every run `node` owns (the shared `$syncAndPendDisplayRun` helper,
  * displayRunSync.utils.ts): the sync leaves a caret-held divergence alone, and the matching pend
  * lets caret departure settle it ($resolvePendingMarkers) — without it a run would silently
@@ -278,6 +287,74 @@ export function MarkerEditPlugin({
     // gesture rather than per session, and by any settle that changed nothing (the cascade
     // reached its fixed point and stopped on its own).
     let settleCascadeDepth = 0;
+    /**
+     * True — and warns — when the cascade backstop is tripped. Fail safe, loudly: the caller
+     * returns without mutating, which produces no commit, so nothing re-queues and the cascade
+     * ends here; the pending keys stay pending and settle on the user's next gesture, which
+     * resets the depth. The warning names the surviving pends because the scope that keeps
+     * rebuilding is always among them. Shared by both settle clocks so they cannot drift.
+     */
+    const settleCascadeExceeded = () => {
+      if (settleCascadeDepth < MAX_SETTLE_CASCADE_DEPTH) return false;
+      context.logger?.warn(
+        `[MarkerEdit] settle cascade exceeded ${MAX_SETTLE_CASCADE_DEPTH} consecutive ` +
+          `mutating passes; leaving ${context.pendingKeys.size} node(s) pending. This is a ` +
+          `rebuild that never reaches a fixed point — pending keys: ` +
+          `${[...context.pendingKeys].join(", ")}`,
+      );
+      return true;
+    };
+    /**
+     * The ONE deferred-settle computation, shared by both clocks (they differ only in
+     * `exceptKey`): re-enter through a fresh top-level `editor.update()` and resolve.
+     * Only ever called from a fresh macrotask/microtask, never synchronously from a listener.
+     */
+    const settlePendingNow = (exceptKey: NodeKey | undefined) => {
+      editor.update(() => {
+        const mutated = $resolvePendingMarkers(context, exceptKey);
+        settleCascadeDepth = mutated ? settleCascadeDepth + 1 : 0;
+        // A resolve pass that only REFUSED (fixed-point rebuilds — e.g. a re-pended
+        // degradation literal after an undo, or a canonical attribute run) changes nothing
+        // visible, but each refused $rebuildParas probe still created parse orphans that
+        // count as dirty leaves — without this tag that visually-no-op commit PUSHES a
+        // phantom undo entry (one dead Ctrl+Z press) and wipes the redo stack. Merge it
+        // into the current history entry instead; a resolve that actually settled anything
+        // keeps its own entry (undo must restore the pre-settle literal).
+        if (!mutated) $addUpdateTag(HISTORY_MERGE_TAG);
+      });
+    };
+    // The idle debounce — the SECOND settle clock. Re-armed (a full delay from now) by every
+    // non-suppressed commit via the update listener below, and by the same gestures that reset
+    // `settleCascadeDepth` (the KEY_DOWN and CLICK handlers). An expiry runs the SAME settle
+    // computation the caret-departure clock runs, but with NO except-key: after a full idle
+    // period even the node under the caret settles — PT9's debounced reformat, which the
+    // departure clock by design never performs. The callback runs on a fresh macrotask, so
+    // re-entering through a top-level `editor.update()` (inside `settlePendingNow`) follows the
+    // same discipline as the deferred microtask below — never `editor.update` from a listener.
+    let idleSettleTimer: ReturnType<typeof setTimeout> | undefined;
+    const armIdleSettle = () => {
+      if (idleSettleTimer !== undefined) clearTimeout(idleSettleTimer);
+      idleSettleTimer = undefined;
+      if (disposed || context.pendingKeys.size === 0) return;
+      idleSettleTimer = setTimeout(() => {
+        idleSettleTimer = undefined;
+        if (disposed || context.pendingKeys.size === 0) return;
+        // The app-placed-caret window binds this clock exactly as it binds the departure and
+        // forced-commit clocks: an idle expiry carries no user intent over restored/yanked
+        // content, and a timer armed BEFORE the window opened (typing, then an undo or a
+        // scrRef yank) would otherwise re-settle the very literal the window exists to
+        // protect. No re-arm here — the window releases only on a real gesture
+        // (KEY_DOWN/CLICK), and those gestures re-arm.
+        if (appPlacedCaret) return;
+        // Deliberately NO isComposing() guard: none of the other settle paths carry one (the
+        // departure clock settles non-anchor pends during a composition today), so a
+        // timer-only guard would make the clocks diverge — the defect shape Invariant IV
+        // names. If mid-composition settling needs suppressing, it belongs in the SHARED
+        // computation, decided with a real-IME repro.
+        if (settleCascadeExceeded()) return;
+        settlePendingNow(undefined);
+      }, IDLE_SETTLE_DELAY_MS);
+    };
     // Deletion driver, arming half: a locally-destroyed display-run piece pends its OWNER, read
     // from the previous state — deletion intent comes from the destruction itself, never from
     // caret geometry (the per-kind caret heuristics above only recognize specific in-progress
@@ -586,6 +663,9 @@ export function MarkerEditPlugin({
           // caret departure.
           appPlacedCaret = false;
           settleCascadeDepth = 0;
+          // A gesture is user activity: push the idle settle clock back a full delay (the
+          // same reset points as settleCascadeDepth).
+          armIdleSettle();
           return false;
         },
         COMMAND_PRIORITY_LOW,
@@ -598,6 +678,9 @@ export function MarkerEditPlugin({
           // ahead of the Ctrl+Space handling below.
           appPlacedCaret = false;
           settleCascadeDepth = 0;
+          // A gesture is user activity: push the idle settle clock back a full delay (the
+          // same reset points as settleCascadeDepth).
+          armIdleSettle();
           // Deletion driver, paragraph arm: record — from the still-intact selection, before
           // Lexical's own delete handling runs at lower priority — which paragraphs this delete
           // gesture covers whole, so the paragraph transform can reap them by provenance.
@@ -937,6 +1020,13 @@ export function MarkerEditPlugin({
         // must not clobber the anchor the BLUR handler falls back to. Only an observed move to a real
         // selection advances it.
         if (anchorKey !== undefined) lastAnchorKey = anchorKey;
+        // Every non-suppressed commit re-arms the idle settle clock: the pending set may have
+        // just changed, and a commit is evidence of activity, so the full delay restarts from
+        // here. (An empty pending set clears the timer instead — nothing to settle.) The
+        // suppressed paths above — historic restores, CURSOR_CHANGE yanks, and any commit
+        // inside the app-placed window — deliberately never arm: an idle settle needs a real
+        // user gesture somewhere behind it.
+        armIdleSettle();
         // PT9's debounced reformat completes a marker once the user moves on; our
         // deterministic equivalent resolves pendings the caret is no longer in, keyed off
         // every commit here rather than off SELECTION_CHANGE_COMMAND — Lexical's native
@@ -980,38 +1070,17 @@ export function MarkerEditPlugin({
         queueMicrotask(() => {
           resolveQueued = false;
           if (disposed) return;
-          if (settleCascadeDepth >= MAX_SETTLE_CASCADE_DEPTH) {
-            // Fail safe, loudly. Returning without mutating produces no commit, so nothing
-            // re-queues and the cascade ends here; the pending keys stay pending and settle on
-            // the user's next gesture, which resets the depth. The warning names the surviving
-            // pends because the scope that keeps rebuilding is always among them.
-            context.logger?.warn(
-              `[MarkerEdit] settle cascade exceeded ${MAX_SETTLE_CASCADE_DEPTH} consecutive ` +
-                `mutating passes; leaving ${context.pendingKeys.size} node(s) pending. This is a ` +
-                `rebuild that never reaches a fixed point — pending keys: ` +
-                `${[...context.pendingKeys].join(", ")}`,
-            );
-            return;
-          }
+          if (settleCascadeExceeded()) return;
           // lastAnchorKey is re-read here: if further commits landed before this microtask,
           // the freshest anchor wins (never except a node the caret has already left).
-          editor.update(() => {
-            const mutated = $resolvePendingMarkers(context, lastAnchorKey);
-            settleCascadeDepth = mutated ? settleCascadeDepth + 1 : 0;
-            // A resolve pass that only REFUSED (fixed-point rebuilds — e.g. a re-pended
-            // degradation literal after an undo, or a canonical attribute run) changes nothing
-            // visible, but each refused $rebuildParas probe still created parse orphans that
-            // count as dirty leaves — without this tag that visually-no-op commit PUSHES a
-            // phantom undo entry (one dead Ctrl+Z press) and wipes the redo stack. Merge it
-            // into the current history entry instead; a resolve that actually settled anything
-            // keeps its own entry (undo must restore the pre-settle literal).
-            if (!mutated) $addUpdateTag(HISTORY_MERGE_TAG);
-          });
+          settlePendingNow(lastAnchorKey);
         });
       }),
     );
     return () => {
       disposed = true;
+      if (idleSettleTimer !== undefined) clearTimeout(idleSettleTimer);
+      idleSettleTimer = undefined;
       unregisterPended();
       unregister();
       contextRef.current = undefined;

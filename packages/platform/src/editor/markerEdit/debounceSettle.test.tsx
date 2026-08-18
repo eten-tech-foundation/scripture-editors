@@ -25,14 +25,7 @@ import {
   testEnvironment,
 } from "./markerEdit.test-helpers";
 import { act } from "@testing-library/react";
-import {
-  $getRoot,
-  $setCompositionKey,
-  KEY_DOWN_COMMAND,
-  LexicalEditor,
-  TextNode,
-  UNDO_COMMAND,
-} from "lexical";
+import { $getRoot, KEY_DOWN_COMMAND, LexicalEditor, TextNode, UNDO_COMMAND } from "lexical";
 import { CURSOR_CHANGE_TAG } from "shared";
 
 // jsdom doesn't implement `getBoundingClientRect` on `Range`; moving the caret gives the editor
@@ -195,35 +188,10 @@ describe("idle debounce settle (the second settle clock)", () => {
     expectSettled(editor, parts);
   });
 
-  it("defers an expiry that lands mid-IME-composition until the composition ends", async () => {
-    let parts!: ReturnType<typeof $appendCharPara>;
-    const { editor } = await testEnvironment(() => {
-      parts = $appendCharPara();
-    });
-    await $retypeOpenerBare(editor, parts);
-
-    // Composition starts (IME session over the pending glyph). The caret is re-pinned inside the
-    // glyph in the same update because that is what a real IME session looks like — the caret
-    // rides the composed text (a bare `$setCompositionKey` in jsdom drifts the observed anchor,
-    // which would hand this pend to the caret-DEPARTURE clock and prove nothing about the timer).
-    // An idle expiry now must not re-tokenize the node out from under the IME.
-    await act(async () =>
-      editor.update(() => {
-        $setCompositionKey(parts.marker.getKey());
-        parts.marker.select(3, 3);
-      }),
-    );
-    await advance(IDLE_SETTLE_DELAY_MS * 3);
-    expectPendingLiteral(editor, parts);
-
-    // Composition ends; the next full idle period settles.
-    await act(async () =>
-      editor.update(() => {
-        $setCompositionKey(null);
-        parts.marker.select(3, 3);
-      }),
-    );
-    await advance(IDLE_SETTLE_DELAY_MS + 50);
-    expectSettled(editor, parts);
-  });
+  // Deliberately NO mid-IME-composition test, and no isComposing() guard in the timer: none of
+  // the existing settle paths carries one (Lexical's own post-composition selection reconcile
+  // commits an anchor move that hands the pend to the caret-DEPARTURE clock, which settles it
+  // with composition still active — pre-existing behavior, observed under jsdom), so a
+  // timer-only guard would make the clocks diverge. If mid-composition settling needs
+  // suppressing, that belongs in the SHARED settle computation, decided with a real-IME repro.
 });
