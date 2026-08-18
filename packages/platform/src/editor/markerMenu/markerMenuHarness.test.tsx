@@ -403,10 +403,11 @@ describe("editable-mode marker menu harness", () => {
   });
 
   describe("commit with zero candidates", () => {
-    it("dismisses the palette instead of orphaning it, leaving the document unchanged and the caret alive", async () => {
-      // Under the active palette the typed filter characters never landed, so the guard's
-      // contract tightens from "leaves the typed literal" to "document unchanged". The overlay
-      // teardown itself (Escape's contract) is what this pin exists for.
+    // P9 parity (owner-directed, revising the earlier zero-candidate dismiss): Enter over a
+    // zero-match palette does NOTHING - the palette stays open so the user can Backspace the
+    // filter wider, Space-commit the typed marker, or Escape out. Only Escape (or a real
+    // commit) tears the overlay down.
+    it("Enter is a no-op - the palette stays open, document unchanged, and Escape still closes it", async () => {
       let text: TextNode | undefined;
       const { editor } = await harnessTestEnvironment(() => {
         text = $buildBackslashMenuFixture().text;
@@ -420,18 +421,28 @@ describe("editable-mode marker menu harness", () => {
       expect(screen.queryAllByRole("menuitem")).toHaveLength(0);
       expect(document.querySelector(".autocomplete-menu-container")).not.toBeNull();
 
-      await dispatchKeyDown(editor, "Enter");
+      const enterEvent = await dispatchKeyDown(editor, "Enter");
 
-      expect(document.querySelector(".autocomplete-menu-container")).toBeNull();
+      // Stays open over the empty list; the claimed Enter must not fall through to the editor
+      // (an unclaimed Enter would split the paragraph under the open palette).
+      expect(enterEvent.defaultPrevented).toBe(true);
+      expect(document.querySelector(".autocomplete-menu-container")).not.toBeNull();
       editor.getEditorState().read(() => {
         expect(requireDefined(text, "text").getTextContent()).toBe("hello");
         const selection = $getSelection();
-        if (!$isRangeSelection(selection)) throw new Error("no range selection after the commit");
+        if (!$isRangeSelection(selection)) throw new Error("no range selection after the no-op");
         expect(selection.isCollapsed()).toBe(true);
+      });
+
+      // The way out is still there: Escape closes, document untouched.
+      await dispatchKeyDown(editor, "Escape");
+      expect(document.querySelector(".autocomplete-menu-container")).toBeNull();
+      editor.getEditorState().read(() => {
+        expect(requireDefined(text, "text").getTextContent()).toBe("hello");
       });
     });
 
-    it("still splits nothing and adds no paragraph when the Enter menu commits nothing", async () => {
+    it("Enter menu: zero-match Enter stays open and still splits nothing; Escape cancels outright", async () => {
       let caretText: TextNode | undefined;
       const { editor } = await harnessTestEnvironment(() => {
         caretText = $buildEnterMenuFixture().caretText;
@@ -449,10 +460,19 @@ describe("editable-mode marker menu harness", () => {
 
       await dispatchKeyDown(editor, "Enter");
 
+      // Same P9 no-op as the `\` palette: the menu stays open over the empty list and the
+      // suppressed split stays suppressed.
+      expect(document.querySelector(".autocomplete-menu-container")).not.toBeNull();
+      editor.getEditorState().read(() => {
+        expect(countParagraphs($getRoot())).toBe(parasBefore);
+      });
+
+      await dispatchKeyDown(editor, "Escape");
+
       expect(document.querySelector(".autocomplete-menu-container")).toBeNull();
       editor.getEditorState().read(() => {
-        // The Enter trigger suppressed the split when it opened the menu; committing nothing
-        // cancels outright, exactly as Escape does - it never happened.
+        // The Enter trigger suppressed the split when it opened the menu; Escape cancels
+        // outright - it never happened.
         expect(countParagraphs($getRoot())).toBe(parasBefore);
       });
     });

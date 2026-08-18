@@ -46,6 +46,7 @@ export { generateUsjCss } from "./editor/generateUsjCss";
 export { getEnterMenuItems, getMarkerMenuItems } from "./editor/markerMenu/markerItemSource";
 export {
   directionToNames,
+  filterAndRankItems,
   getDefaultViewMode,
   getDefaultViewOptions,
   getViewMode,
@@ -83,6 +84,8 @@ export type {
   DeltaOp,
   DeltaOpInsertNoteEmbed,
   DeltaSource,
+  FilterAndRankItems,
+  Item,
   MarkerMode,
   NoteCallerOnClick,
   NoteMode,
@@ -96,6 +99,7 @@ export type {
   OTUnmatchedEmbed,
   OTVerseEmbed,
   SelectionRange,
+  SortingOptions,
   StateChangeSnapshot,
   StructureProtectionMode,
   TextDirection,
