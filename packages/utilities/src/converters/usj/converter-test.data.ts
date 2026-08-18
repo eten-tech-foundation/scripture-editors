@@ -2852,20 +2852,34 @@ export const opsWithUnknownItems = [
  * Unknown node types emit as STRUCTURED per-item embeds carrying `tag`, `marker` and every unknown
  * attribute — contrast {@link opsWithUnknownItems}, whose single flat text run predates that shape.
  *
- * MIXED ORACLE — read before changing. Most of this records CORRECT behavior, but the `book`,
- * `chapter`, `verse`, `milestone` and `para` ops record a known emit-side gap: their unknown
- * attributes (`category`, `attr-unknown`) are dropped rather than carried. Those five are marked
- * inline. The correct shape is specified by the skipped parity test in
- * `editor-delta.adaptor.test.tsx`; when that gap is closed this fixture must gain the attributes,
- * and a green run here is NOT evidence the drop is intended.
+ * Every kind carries its unknown attributes (`category`, `attr-unknown`), matching what
+ * `delta-apply-update.utils.ts` reads back for each: this fixture used to be a mixed oracle whose
+ * book/chapter/verse/milestone/para ops recorded an emit-side drop, and the parity test in
+ * `editor-delta.adaptor.test.tsx` now asserts the same attributes independently of it.
  */
 export const opsWithUnknownItemsNoTable = [
-  // Drops `category` and `attr-unknown`.
-  { insert: "\n", attributes: { book: { style: "id", code: "GEN" } } },
-  // Carries `sid`; drops `category` and `attr-unknown`.
-  { insert: { chapter: { style: "c", number: "1", sid: "GEN 1" } } },
-  // Drops `category` and `attr-unknown`.
-  { insert: { verse: { style: "v", number: "1" } } },
+  {
+    insert: "\n",
+    attributes: {
+      book: { style: "id", code: "GEN", category: "watCat", "attr-unknown": "watAttr" },
+    },
+  },
+  {
+    insert: {
+      chapter: {
+        style: "c",
+        number: "1",
+        sid: "GEN 1",
+        category: "watCat",
+        "attr-unknown": "watAttr",
+      },
+    },
+  },
+  {
+    insert: {
+      verse: { style: "v", number: "1", category: "watCat", "attr-unknown": "watAttr" },
+    },
+  },
   { insert: "First part of the first verse " },
   {
     insert: {
@@ -2892,8 +2906,9 @@ export const opsWithUnknownItemsNoTable = [
       },
     },
   },
-  // Drops `category` and `attr-unknown`.
-  { insert: { milestone: { style: "ts" } } },
+  {
+    insert: { milestone: { style: "ts", category: "watCat", "attr-unknown": "watAttr" } },
+  },
   {
     insert: {
       unknown: {
@@ -2950,8 +2965,10 @@ export const opsWithUnknownItemsNoTable = [
       },
     },
   },
-  // Drops `category` and `attr-unknown`.
-  { insert: "\n", attributes: { para: { style: "p" } } },
+  {
+    insert: "\n",
+    attributes: { para: { style: "p", category: "watCat", "attr-unknown": "watAttr" } },
+  },
 ];
 
 /* Gen 1:1 whitespace */

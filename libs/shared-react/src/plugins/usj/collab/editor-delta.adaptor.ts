@@ -55,7 +55,6 @@ import {
   segmentState,
   SomeChapterNode,
   textTypeState,
-  UnknownAttributes,
   UnknownNode,
   VERSE_MARKER,
 } from "shared";
@@ -437,8 +436,37 @@ function $handleUnknownNodes(
   else ops.push(unknownOp);
 }
 
+/**
+ * The node kinds whose OT payload carries unknown attributes flat beside its known props. The list
+ * is the emit-side mirror of the `getUnknownAttributes(…, OT_*_PROPS)` calls in
+ * `delta-apply-update.utils.ts` — the receive side reads every key its kind's props list does not
+ * name, so every kind it reads must be a kind this side writes.
+ */
+type UnknownAttributeCarrier =
+  | BookNode
+  | CharNode
+  | MilestoneNode
+  | NoteNode
+  | ParaNode
+  | SomeChapterNode
+  | SomeVerseNode
+  | UnknownNode;
+
+/**
+ * Copies `node`'s unknown attributes onto `payload` — the embed or attribute object it is emitted
+ * in — so they reach the peer. The node holds them either way; dropping them here is invisible to
+ * every USJ round-trip and loses them only on the wire.
+ *
+ * Reads node state: call inside `editorState.read()`, as every op builder in this module is.
+ */
+function $assignUnknownAttributes(payload: object, node: UnknownAttributeCarrier): void {
+  const unknownAttributes = node.getUnknownAttributes();
+  if (unknownAttributes) Object.assign(payload, unknownAttributes);
+}
+
 function $getBookOp(currentNode: BookNode): DeltaOp & { attributes: { book: OTBookAttribute } } {
   const book: OTBookAttribute = { style: BOOK_MARKER, code: currentNode.__code };
+  $assignUnknownAttributes(book, currentNode);
   return { insert: LF, attributes: { book } };
 }
 
@@ -455,11 +483,13 @@ function $getChapterOp(
   if (currentNode.__pubnumber) {
     chapter.pubnumber = currentNode.__pubnumber;
   }
+  $assignUnknownAttributes(chapter, currentNode);
   return { insert: { chapter } };
 }
 
 export function $getParaOp(node: ParaNode): DeltaOp & { attributes: { para: OTParaAttribute } } {
   const para: OTParaAttribute = { style: node.__marker };
+  $assignUnknownAttributes(para, node);
   return { insert: LF, attributes: { para } };
 }
 
@@ -474,6 +504,7 @@ function $getVerseOp(currentNode: SomeVerseNode): DeltaOp & { insert: { verse: O
   if (currentNode.__pubnumber) {
     verse.pubnumber = currentNode.__pubnumber;
   }
+  $assignUnknownAttributes(verse, currentNode);
   return { insert: { verse } };
 }
 
@@ -487,6 +518,7 @@ function $getMilestoneOp(
   if (currentNode.__eid) {
     milestone.eid = currentNode.__eid;
   }
+  $assignUnknownAttributes(milestone, currentNode);
   return { insert: { milestone } };
 }
 
@@ -507,8 +539,7 @@ function $getNoteOp(currentNode: NoteNode): DeltaOpInsertNoteEmbed {
   // Carry unknown attributes (e.g. the unclosed-note `closed="false"`) so the round-trip is
   // lossless — `$applyUpdate`'s `$createNote` already reads them back via
   // `getUnknownAttributes(…, OT_NOTE_PROPS)`, matching how unknown-embed ops behave.
-  const unknownAttributes = currentNode.getUnknownAttributes();
-  if (unknownAttributes) Object.assign(note as unknown as UnknownAttributes, unknownAttributes);
+  $assignUnknownAttributes(note, currentNode);
   if (currentNode.getChildrenSize() > 1) {
     note.contents = { ops: [] };
   }
@@ -536,8 +567,7 @@ function $getUnknownOp(
   const marker = currentNode.getMarker();
   if (marker) unknown.marker = marker;
 
-  const unknownAttributes = currentNode.getUnknownAttributes();
-  if (unknownAttributes) Object.assign(unknown as unknown as UnknownAttributes, unknownAttributes);
+  $assignUnknownAttributes(unknown, currentNode);
 
   if (currentNode.getChildrenSize() > 0) unknown.contents = { ops: [] };
 
@@ -574,10 +604,7 @@ function $buildCharItem(charNode: CharNode): OTCharItem {
   const cid = $getState(charNode, charIdState);
   if (cid) charItem.cid = cid;
 
-  const unknownAttrs = charNode.getUnknownAttributes();
-  if (unknownAttrs && Object.keys(unknownAttrs).length > 0) {
-    Object.assign(charItem, unknownAttrs);
-  }
+  $assignUnknownAttributes(charItem, charNode);
 
   return charItem;
 }
