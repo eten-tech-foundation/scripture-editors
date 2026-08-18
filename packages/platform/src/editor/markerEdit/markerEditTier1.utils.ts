@@ -145,6 +145,45 @@ function isCharKindMarker(marker: string, getMarkerFn: MarkerLookup): boolean {
   return true;
 }
 
+/**
+ * Attempt the unknown-split artifact REJOIN for `glyph`'s paragraph: rebuild
+ * `[previous, paragraph]` as ONE Tier-2 scope so the tokenizer sees the joined bytes and can
+ * dissolve a paragraph split whose only reason to exist — a block-shaped leading marker — is
+ * gone. An unknown-marker paragraph exists ONLY because its leading marker was block-shaped (the
+ * tokenizer defaults an unknown token to a paragraph in body context, PT9
+ * DetermineUnknownTokenType), so its blockness is fabricated, never authored. Two edits remove
+ * that reason: correcting the marker to a CHAR-kind one (`$applyOpenerRename`'s gate — the
+ * caller adds that kind check), and deleting the marker interpretation entirely (the `\` deleted,
+ * degrading the glyph to plain text — `$resolvePendingMarkers`' departure arm). Re-tokenizing the
+ * artifact paragraph ALONE instead hands the tokenizer leading inline-or-plain content, which
+ * fabricates a default `\p` wrapper the user never typed.
+ *
+ * Deliberately narrow: the paragraph's OWN marker must be unknown (a user-authored `\p`/`\q1`
+ * has real blockness and keeps its own scope), the edited glyph must be the paragraph's LEADING
+ * glyph (a stray opener mid-paragraph says nothing about the split), and a previous sibling
+ * ParaNode must exist (with none, the degraded bytes re-tokenize alone and the tokenizer's
+ * body-context default applies). A LOADED unknown paragraph (authored in the file, not a split
+ * artifact) rejoins by the same rule — in the file a line without a leading marker continues the
+ * previous paragraph, so the joined bytes are exactly what ParatextData would parse.
+ *
+ * Mutating: call inside `editor.update()` (runs from {@link $applyOpenerRename} and
+ * {@link $resolvePendingMarkers}).
+ *
+ * @returns Whether the widened rebuild spliced. `false` — the shape is not the artifact, or the
+ *   widened rebuild was refused (guard rails on the previous paragraph) — falls back to the
+ *   caller's single-scope route.
+ */
+function $tryUnknownSplitRejoin(glyph: MarkerNode, context: MarkerEditContext): boolean {
+  const parent = glyph.getParent();
+  if (!$isParaNode(parent)) return false;
+  const paraKind = context.getMarker(parent.getMarker())?.type;
+  if (paraKind !== undefined && paraKind !== MarkerType.Unknown) return false;
+  if (parent.getFirstChild()?.is(glyph) !== true) return false;
+  const previous = parent.getPreviousSibling();
+  if (!$isParaNode(previous)) return false;
+  return $rebuildParas([previous, parent], context);
+}
+
 function $clampSelectionToLength(node: MarkerNode, newLength: number): void {
   const selection = $getSelection();
   if (!$isRangeSelection(selection)) return;
@@ -198,32 +237,17 @@ export function $applyOpenerRename(
   const parent = node.getParent();
   if ($isParaNode(parent)) {
     if (!isParaKindMarker(newMarker, context.getMarker)) {
-      // An unknown-marker paragraph exists ONLY because its leading marker was block-shaped —
-      // the tokenizer defaults an unknown token to a paragraph in body context (PT9
-      // DetermineUnknownTokenType) — so correcting that marker to a CHAR-kind one removes the
-      // split's only reason to exist: in the file, `\p some` + newline + `\w stuff` is ONE
-      // paragraph (a newline before an inline marker is ordinary whitespace). Re-tokenizing the
-      // artifact paragraph alone instead hands the tokenizer content with a leading inline
-      // marker, which fabricates a default `\p` wrapper the user never typed. Widen the settle
-      // scope to include the PREVIOUS paragraph so re-tokenization rejoins them. Guarded to the
-      // artifact shape: the paragraph's OWN marker must be unknown (a user-authored `\p`/`\q1`
-      // has real blockness and keeps its own scope), the edited glyph must be the paragraph's
-      // leading glyph (a stray opener mid-paragraph says nothing about the split), and a
-      // previous paragraph must exist. A refused widened rebuild (guard rails on the previous
-      // paragraph) falls through to today's single-scope route.
-      const paraKind = context.getMarker(parent.getMarker())?.type;
-      if (
-        (paraKind === undefined || paraKind === MarkerType.Unknown) &&
-        isCharKindMarker(newMarker, context.getMarker) &&
-        parent.getFirstChild()?.is(node) === true
-      ) {
-        const previous = parent.getPreviousSibling();
-        if ($isParaNode(previous) && $rebuildParas([previous, parent], context)) {
-          context.logger?.debug(
-            `[MarkerEdit] unknown-split paragraph rejoined its predecessor on rename to "${newMarker}"`,
-          );
-          return true;
-        }
+      // Correcting an unknown-split artifact's marker to a CHAR-kind one removes the split's
+      // only reason to exist: in the file, `\p some` + newline + `\w stuff` is ONE paragraph (a
+      // newline before an inline marker is ordinary whitespace). Widen the settle scope to
+      // include the PREVIOUS paragraph so re-tokenization rejoins them — the shape gate and the
+      // fabricated-`\p` failure mode live in {@link $tryUnknownSplitRejoin}'s doc comment; the
+      // CHAR-kind check here keeps notes/milestones on today's routing.
+      if (isCharKindMarker(newMarker, context.getMarker) && $tryUnknownSplitRejoin(node, context)) {
+        context.logger?.debug(
+          `[MarkerEdit] unknown-split paragraph rejoined its predecessor on rename to "${newMarker}"`,
+        );
+        return true;
       }
       return $requestTier2ForNode(node, context);
     }
@@ -960,6 +984,20 @@ export function $resolvePendingMarkers(
         // typed byte (accept-then-discard, and the caret's byte would not survive) — the same
         // family as the emptied-husk carve-out. Re-pend; genuine departure settles it.
         context.pendingKeys.add(key);
+      } else if (
+        node.getMarkerSyntax() === "opening" &&
+        !text.startsWith("\\") &&
+        $tryUnknownSplitRejoin(node, context)
+      ) {
+        // The glyph's leading `\` was deleted, so no marker interpretation remains — the
+        // unknown-split artifact's OTHER dissolution edit (see $tryUnknownSplitRejoin). The
+        // single-scope route below would re-tokenize the now-plain word alone and fabricate a
+        // default `\p` around it; the widened rejoin lets the tokenizer join it to the previous
+        // paragraph instead, exactly as the file bytes would parse.
+        mutated = true;
+        context.logger?.debug(
+          "[MarkerEdit] unknown-split paragraph rejoined its predecessor on marker degradation",
+        );
       } else mutated = $requestTier2ForNode(node, context) || mutated;
       continue;
     }
