@@ -16,7 +16,8 @@
  * nodes, no tags) can re-derive the selection from stale DOM and snap the caret to a paragraph
  * start. That commit is not the settle computation's doing (the restore is correct in every
  * MUTATING commit), so caret assertions for settles that splice use `trackMutatingCommits` and
- * assert the last MUTATING commit's caret; settles that hold (no splice) assert directly.
+ * assert the expected placement is AMONG the mutating commits' carets (a later mutating commit
+ * can inherit the echo's yank); settles that hold (no splice) assert directly.
  */
 
 import {
