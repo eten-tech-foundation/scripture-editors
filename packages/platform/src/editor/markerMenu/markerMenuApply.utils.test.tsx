@@ -1999,15 +1999,16 @@ describe("$splitParagraphWithMarker", () => {
   });
 });
 
-describe("$splitParagraphWithMarker — caret survival across the same-commit unwrap", () => {
-  it("parks the caret at the NEW paragraph's content start when the split lands mid-span", async () => {
-    // Enter-menu apply with the caret mid-span: `\p say \nd Lo|rd\nd* of hosts`. The split
-    // leaves the new paragraph opening with the span's glyph-less second half, which the
-    // deletion transform unwraps IN THE SAME COMMIT. The caret parked at the content boundary
-    // is an ELEMENT point (the boundary child is an element), and Lexical advances an element
-    // point past every node inserted at its offset without pulling it back when the emptied
-    // wrapper is then removed — so the caret used to normalize to the paragraph END. Assert
-    // the resulting point exactly: offset 0 of the paragraph's first content node.
+describe("$splitParagraphWithMarker — caret placement across the mid-span split", () => {
+  it("parks the caret INSIDE the reopened span's content start when the split lands mid-span", async () => {
+    // Enter-menu apply with the caret mid-span: `\p say \nd Lo|rd\nd* of hosts`. The split goes
+    // through the char-stack close-and-reopen, so the tail keeps its span (no glyph-less half is
+    // produced for the deletion transform to unwrap), and the ratified caret convention is
+    // INSIDE the reopened span at its content start — the user's caret was inside the styled
+    // run, and since the split deliberately preserves the style (a PT9 divergence), typing
+    // continues it. This test previously pinned the caret at the fresh paragraph's content
+    // boundary, the right point back when the unwrap ran on this path; it was agreed the pin
+    // moves alongside the reroute.
     let ndContent!: TextNode;
     const { editor } = await fullHarnessEnvironment(() => {
       const para = $createParaNode("p");
@@ -2040,16 +2041,19 @@ describe("$splitParagraphWithMarker — caret survival across the same-commit un
       expect(selection.isCollapsed()).toBe(true);
       const { anchor } = selection;
       const anchorNode = anchor.getNode();
-      // The point itself, not merely "a selection exists": the caret hosts at the fresh
-      // paragraph's content start — child index 2, right past [glyph, separator] — at offset 0.
-      expect(anchorNode.getParent()?.getKey()).toBe(fresh.getKey());
+      // The point itself, not merely "a selection exists": the caret hosts inside the REOPENED
+      // span — the fresh paragraph's first content child, at index 2 past [glyph, separator] —
+      // on its content text at offset 1, just past the structural NBSP separator.
+      const span = anchorNode.getParent();
+      expect($isCharNode(span) && span.getMarker()).toBe("nd");
+      expect(span?.getParent()?.getKey()).toBe(fresh.getKey());
+      expect(span?.getIndexWithinParent()).toBe(2);
       expect(anchor.type).toBe("text");
-      expect(anchor.offset).toBe(0);
-      expect(anchorNode.getIndexWithinParent()).toBe(2);
-      expect(anchorNode.getTextContent().startsWith("rd")).toBe(true);
+      expect(anchor.offset).toBe(1);
+      expect(anchorNode.getTextContent()).toBe(`${NBSP}rd`);
     });
 
-    // The observable form: typing lands at the content start, ahead of the moved tail.
+    // The observable form: typing continues the reopened style, ahead of the moved tail.
     await act(async () =>
       editor.update(() => {
         const selection = $getSelection();
@@ -2060,6 +2064,8 @@ describe("$splitParagraphWithMarker — caret survival across the same-commit un
       const fresh = $getRoot().getChildren().filter($isParaNode)[1];
       const text = fresh.getTextContent();
       expect(text.indexOf("X")).toBeLessThan(text.indexOf("rd"));
+      const span = fresh.getChildren().filter($isCharNode)[0];
+      expect(span?.getTextContent()).toContain("Xrd");
     });
   });
 });
