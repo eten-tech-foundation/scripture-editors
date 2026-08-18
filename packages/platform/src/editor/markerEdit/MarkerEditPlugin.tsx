@@ -24,6 +24,7 @@ import {
   $unmatchedNodeTransform,
   $verseNodeTransform,
   MarkerEditContext,
+  SettleReason,
 } from "./markerEditTier1.utils";
 import { $rependPendShapedNodes, $textNodeTier2Transform } from "./markerEditTier2Trigger.utils";
 import {
@@ -334,7 +335,7 @@ export function MarkerEditPlugin({
      */
     const settlePendingNow = (
       exceptKey: NodeKey | undefined,
-      settleReason: "departure" | "idle" = "departure",
+      settleReason: SettleReason = "departure",
     ) => {
       editor.update(() => {
         const mutated = $resolvePendingMarkers(context, exceptKey, settleReason);
