@@ -34,6 +34,7 @@ import {
   $openerSeparatorGapFollowingBytes,
   $ownerOfRunPiece,
   $paraPrefixSeparatorCaretHeld,
+  $restoreCanonicalMarkerText,
   $runDiverges,
   $runEntirelyAbsent,
   $runNeedsOnlyWrapMigration,
@@ -222,10 +223,66 @@ export function $applyOpenerRename(
   return $requestTier2ForNode(node, context);
 }
 
+/**
+ * Whether the live selection touches `glyph`'s own edit surface — the glyph's text, either of its
+ * flanking caret sites (the end of the previous sibling / the start of the next, where a
+ * boundary-crossing Backspace/Delete leaves the caret), an element point on its parent at or just
+ * past its own index (where a range deletion can collapse), or anywhere inside a non-collapsed
+ * range that covers the glyph. Generous on purpose: a false negative only defers a machine-drift
+ * heal to the pend/settle path (today's behavior), while a false positive would heal against a
+ * live user edit — the one outcome the invariants forbid.
+ *
+ * Read-only: call inside `editor.getEditorState().read(...)` or an update.
+ */
+function $markerGlyphCaretHeld(glyph: MarkerNode): boolean {
+  const selection = $getSelection();
+  if (!$isRangeSelection(selection)) return false;
+  const points = selection.isCollapsed() ? [selection.anchor] : [selection.anchor, selection.focus];
+  for (const point of points) {
+    const pointNode = point.getNode();
+    if (pointNode.is(glyph)) return true;
+    const previous = glyph.getPreviousSibling();
+    if (
+      previous !== null &&
+      pointNode.is(previous) &&
+      point.offset === previous.getTextContentSize()
+    )
+      return true;
+    const next = glyph.getNextSibling();
+    if (next !== null && pointNode.is(next) && point.offset === 0) return true;
+    const parent = glyph.getParent();
+    if (parent !== null && pointNode.is(parent)) {
+      const index = glyph.getIndexWithinParent();
+      if (point.offset === index || point.offset === index + 1) return true;
+    }
+  }
+  if (!selection.isCollapsed() && selection.getNodes().some((selected) => selected.is(glyph)))
+    return true;
+  return false;
+}
+
 export function $markerNodeTransform(node: MarkerNode, context: MarkerEditContext): void {
   const text = node.getTextContent();
   if ($isCanonicalMarkerNode(node)) {
     context.pendingKeys.delete(node.getKey());
+    return;
+  }
+  // Heal-by-provenance (invariants §2): a divergence that is NOT in the pend ledger and whose
+  // edit surface the caret does not touch cannot be a user typing gesture — glyph bytes are
+  // engine-rendered display, and every user path that edits them does so at the caret, inside the
+  // very update this transform runs in. Machine drift (a transform bug, a stray programmatic
+  // write, a pasted damaged glyph) heals in place; everything else keeps the pend/settle path
+  // below (never heal against a user edit). The ledger half is what carries provenance ACROSS
+  // commits: a user's mid-edit pend survives caret departure windows and undo restores
+  // (`$rependPendShapedNodes`), so a later machine re-dirtying of that same glyph must not
+  // resurrect the canonical bytes out from under the user's recorded edit. This is the
+  // caret-at-edit-time gate `$healMarkerTrailingSeparator` uses, not the forbidden
+  // heal-later-by-caret-proximity heuristic.
+  if (!context.pendingKeys.has(node.getKey()) && !$markerGlyphCaretHeld(node)) {
+    $restoreCanonicalMarkerText(node);
+    context.logger?.debug(
+      `[MarkerEdit] healed machine-drifted glyph bytes back to "${node.getTextContent()}"`,
+    );
     return;
   }
   if (node.getMarkerSyntax() === "opening") {

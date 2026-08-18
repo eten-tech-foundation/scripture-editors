@@ -197,6 +197,20 @@ export function $isCanonicalMarkerNode(node: MarkerNode): boolean {
 }
 
 /**
+ * Rewrite `node`'s rendered bytes to the canonical spelling of its own (marker, syntax, nested)
+ * state — the HEAL arm for machine drift on a glyph's displayed characters. The one writer of the
+ * canonical form lives in this module ({@link getMarkerText}); exposing the restore here keeps a
+ * healer from re-deriving the spelling and drifting from it. Callers own the provenance decision
+ * (invariants: machine drift heals, a user edit pends) — this function only writes the bytes.
+ *
+ * Mutating: call inside `editor.update()` (dispatched from the marker-edit engine's `MarkerNode`
+ * transform when a non-user divergence is detected).
+ */
+export function $restoreCanonicalMarkerText(node: MarkerNode): void {
+  node.setTextContent(getMarkerText(node.getMarker(), node.getMarkerSyntax(), node.getNested()));
+}
+
+/**
  * The single writer of a glyph's `__text` — the ONLY place the `+` becomes literal characters.
  * `marker` is always clean (`"w"`); `nested` contributes the `+` (`\+w`). Called from the
  * constructor and every setter, so `__text` always reflects (marker, syntax, nested) — keeping

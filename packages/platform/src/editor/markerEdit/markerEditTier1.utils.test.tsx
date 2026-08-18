@@ -6,6 +6,8 @@ import {
 import {
   $appendCharPara,
   $appendVersePara,
+  $pendGlyphEdit,
+  $retypeGlyph,
   testEnvironment,
   testEnvironmentWithSheet,
   viewOptions,
@@ -81,7 +83,7 @@ describe("stylesheet-first kind guards", () => {
       () => ({ char, marker, closer } = $appendCharPara()),
       customSheet,
     );
-    await act(async () => editor.update(() => marker.setTextContent("\\zln ")));
+    await act(async () => editor.update(() => $retypeGlyph(marker, "\\zln ")));
     editor.getEditorState().read(() => {
       expect(char.getMarker()).toBe("zln");
       expect(closer.getTextContent()).toBe("\\zln*");
@@ -94,7 +96,7 @@ describe("stylesheet-first kind guards", () => {
       () => ({ para, marker } = $appendHeadingPara()),
       customSheet,
     );
-    await act(async () => editor.update(() => marker.setTextContent("\\zln ")));
+    await act(async () => editor.update(() => $retypeGlyph(marker, "\\zln ")));
     editor.getEditorState().read(() => {
       // zln is CHARACTER kind in the sheet: the para must NOT become a "zln" para...
       expect(para.isAttached() ? para.getMarker() : "detached").not.toBe("zln");
@@ -116,7 +118,7 @@ describe("stylesheet-first kind guards", () => {
       () => ({ para, marker } = $appendHeadingPara()),
       customSheet,
     );
-    await act(async () => editor.update(() => marker.setTextContent("\\zzz ")));
+    await act(async () => editor.update(() => $retypeGlyph(marker, "\\zzz ")));
     editor.getEditorState().read(() => expect(para.getMarker()).toBe("zzz"));
   });
 });
@@ -125,7 +127,7 @@ describe("Tier 1 paragraph-marker rename", () => {
   it("renames the paragraph when marker text is retyped and space-terminated", async () => {
     let para: ParaNode, marker: MarkerNode;
     const { editor } = await testEnvironment(() => ({ para, marker } = $appendHeadingPara()));
-    await act(async () => editor.update(() => marker.setTextContent("\\s2 ")));
+    await act(async () => editor.update(() => $retypeGlyph(marker, "\\s2 ")));
     editor.getEditorState().read(() => {
       expect(para.getMarker()).toBe("s2");
       expect(marker.getMarker()).toBe("s2");
@@ -136,14 +138,14 @@ describe("Tier 1 paragraph-marker rename", () => {
   it("accepts a syntactically complete unknown marker as typed (PT9 behavior)", async () => {
     let para: ParaNode, marker: MarkerNode;
     const { editor } = await testEnvironment(() => ({ para, marker } = $appendHeadingPara()));
-    await act(async () => editor.update(() => marker.setTextContent("\\zed ")));
+    await act(async () => editor.update(() => $retypeGlyph(marker, "\\zed ")));
     editor.getEditorState().read(() => expect(para.getMarker()).toBe("zed"));
   });
 
   it("leaves unterminated mid-edit text alone", async () => {
     let para: ParaNode, marker: MarkerNode;
     const { editor } = await testEnvironment(() => ({ para, marker } = $appendHeadingPara()));
-    await act(async () => editor.update(() => marker.setTextContent("\\s2")));
+    await act(async () => editor.update(() => $retypeGlyph(marker, "\\s2")));
     editor.getEditorState().read(() => {
       expect(para.getMarker()).toBe("s1"); // untouched mid-edit
       expect(marker.getTextContent()).toBe("\\s2");
@@ -153,7 +155,7 @@ describe("Tier 1 paragraph-marker rename", () => {
   it("completes a pending marker on Enter", async () => {
     let para: ParaNode, marker: MarkerNode;
     const { editor } = await testEnvironment(() => ({ para, marker } = $appendHeadingPara()));
-    await act(async () => editor.update(() => marker.setTextContent("\\s2")));
+    await act(async () => editor.update(() => $retypeGlyph(marker, "\\s2")));
     await act(async () => {
       editor.dispatchCommand(KEY_ENTER_COMMAND, null);
     });
@@ -163,7 +165,10 @@ describe("Tier 1 paragraph-marker rename", () => {
   it("completes a pending marker on blur", async () => {
     let para: ParaNode, marker: MarkerNode;
     const { editor } = await testEnvironment(() => ({ para, marker } = $appendHeadingPara()));
-    await act(async () => editor.update(() => marker.setTextContent("\\s2")));
+    // The abandoned shape: the pend survives with no caret anywhere (an undo restore, a
+    // cross-frame blur that nulled the selection), so the blur sweep has no caret node to except
+    // and settles it fully.
+    await act(async () => editor.update(() => $pendGlyphEdit(marker, "\\s2")));
     await act(async () => {
       editor.dispatchCommand(BLUR_COMMAND, null as never);
     });
@@ -214,7 +219,7 @@ describe("Tier 1 paragraph-marker rename", () => {
   it("re-tokenizes when a char-kind marker is typed in para position", async () => {
     let marker: MarkerNode;
     const { editor } = await testEnvironment(() => ({ marker } = $appendHeadingPara()));
-    await act(async () => editor.update(() => marker.setTextContent("\\add ")));
+    await act(async () => editor.update(() => $retypeGlyph(marker, "\\add ")));
     editor.getEditorState().read(() => {
       // Tier 2 re-tokenized `\add` into a real CHAR SPAN that now owns the heading text...
       const paras = $getRoot().getChildren().filter($isParaNode);
@@ -257,7 +262,7 @@ describe("Tier 1 char/note opener rename", () => {
   it("renames the span and mirrors the closer", async () => {
     let parts: ReturnType<typeof $appendCharPara>;
     const { editor } = await testEnvironment(() => (parts = $appendCharPara()));
-    await act(async () => editor.update(() => parts.marker.setTextContent("\\wj ")));
+    await act(async () => editor.update(() => $retypeGlyph(parts.marker, "\\wj ")));
     editor.getEditorState().read(() => {
       expect(parts.char.getMarker()).toBe("wj");
       expect(parts.marker.getTextContent()).toBe("\\wj");
@@ -286,7 +291,7 @@ describe("Tier 1 char/note opener rename", () => {
   it("routes a closer mismatch edit to Tier 2 on caret departure (span rebuilt by the tokenizer)", async () => {
     let parts: ReturnType<typeof $appendCharPara>;
     const { editor } = await testEnvironment(() => (parts = $appendCharPara()));
-    await act(async () => editor.update(() => parts.closer.setTextContent("\\wj*")));
+    await act(async () => editor.update(() => $retypeGlyph(parts.closer, "\\wj*")));
     // Closer edits pend (mid-edit grace); the caret moving elsewhere settles the glyph.
     await act(async () => editor.update(() => parts.marker.select(0, 0)));
     // Tokenizer sees `\nd ␣Lord\wj*`: the span auto-closes, and the unmatched `\wj*`
@@ -312,7 +317,7 @@ describe("Tier 1 char/note opener rename", () => {
         ),
       );
     });
-    await act(async () => editor.update(() => opener.setTextContent("\\x ")));
+    await act(async () => editor.update(() => $retypeGlyph(opener, "\\x ")));
     editor.getEditorState().read(() => {
       expect(note.getMarker()).toBe("x");
       expect(closer.getTextContent()).toBe("\\x*");
@@ -328,7 +333,7 @@ describe("Tier 1 char/note opener rename", () => {
     // tokenizer opens "w" and the stranded `\nd*` becomes an unmatched element — proof the `+`
     // reached the tokenizer instead of being silently discarded by an in-place rename (which would
     // have produced a clean `\w Lord\w*` with no unmatched node).
-    await act(async () => editor.update(() => parts.marker.setTextContent("\\+w ")));
+    await act(async () => editor.update(() => $retypeGlyph(parts.marker, "\\+w ")));
     const json = JSON.stringify(editor.getEditorState().toJSON());
     expect(json).toContain('"type":"unmatched"');
     expect(json).toContain('"marker":"nd*"');
@@ -337,7 +342,7 @@ describe("Tier 1 char/note opener rename", () => {
   it("routes a para-kind marker typed in char position to Tier 2", async () => {
     let parts: ReturnType<typeof $appendCharPara>;
     const { editor } = await testEnvironment(() => (parts = $appendCharPara()));
-    await act(async () => editor.update(() => parts.marker.setTextContent("\\q1 ")));
+    await act(async () => editor.update(() => $retypeGlyph(parts.marker, "\\q1 ")));
     editor.getEditorState().read(() => {
       // Tier 2 re-tokenized `\q1` into a real PARAGRAPH that now owns the text...
       const paras = $getRoot().getChildren().filter($isParaNode);
@@ -432,7 +437,7 @@ describe("Tier 1 nested char opener rename", () => {
     // Retyping the glyph keeps its own canonical `+` prefix: `\+nd` → `\+wj `. The `+` is the
     // nested glyph's rest-state spelling, NOT a fresh nest instruction, so this is a Tier-1
     // in-place rename — routing it to Tier 2 stranded the untouched `\+nd*` closer as unmatched.
-    await act(async () => editor.update(() => parts.innerOpener.setTextContent("\\+wj ")));
+    await act(async () => editor.update(() => $retypeGlyph(parts.innerOpener, "\\+wj ")));
     editor.getEditorState().read(() => {
       expect(parts.innerChar.getMarker()).toBe("wj");
       expect(parts.innerOpener.getTextContent()).toBe("\\+wj");
@@ -448,7 +453,7 @@ describe("Tier 1 char opener rename on a collab-flattened nested span", () => {
   it("renames the OUTER closer on a collab-flattened nested span", async () => {
     let parts: ReturnType<typeof $appendNestedCharPara>;
     const { editor } = await testEnvironment(() => (parts = $appendNestedCharPara()));
-    await act(async () => editor.update(() => parts.outerOpener.setTextContent("\\bd ")));
+    await act(async () => editor.update(() => $retypeGlyph(parts.outerOpener, "\\bd ")));
     editor.getEditorState().read(() => {
       expect(parts.outerChar.getMarker()).toBe("bd");
       expect(parts.outerCloser.getTextContent()).toBe("\\bd*");
@@ -460,7 +465,7 @@ describe("Tier 1 char opener rename on a collab-flattened nested span", () => {
   it("routes an inner-opener rename on a flattened span to Tier 2", async () => {
     let parts: ReturnType<typeof $appendNestedCharPara>;
     const { editor } = await testEnvironment(() => (parts = $appendNestedCharPara()));
-    await act(async () => editor.update(() => parts.innerOpener.setTextContent("\\wj ")));
+    await act(async () => editor.update(() => $retypeGlyph(parts.innerOpener, "\\wj ")));
     // Load-bearing wrong-behavior-prevented assertion: pre-fix, the opener-owns-parent
     // assumption let this rename clobber the OUTER span's marker directly (add -> wj).
     // The guard refuses the in-place rename here, so Tier 2 rebuilds the paragraph from
@@ -743,10 +748,12 @@ describe("async scrRef caret-yank and cross-frame blur", () => {
       }),
     );
     // Second becomes pending in the SAME commit that nulls the selection, so the deferred resolution
-    // (gated on a known anchor) can't sweep it first — it survives to the blur.
+    // (gated on a known anchor) can't sweep it first — it survives to the blur. Ledger-recorded
+    // ($pendGlyphEdit): with the selection nulled there is no caret to carry the user provenance,
+    // and an unrecorded caret-less divergence is machine drift the engine heals.
     await act(async () =>
       editor.update(() => {
-        second.setTextContent("\\s2");
+        $pendGlyphEdit(second, "\\s2");
         $setSelection(null);
       }),
     );

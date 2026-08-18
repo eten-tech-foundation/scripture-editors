@@ -4,7 +4,12 @@
  * and then asserts the editor itself is unchanged — the two halves of the contract.
  */
 import { deserializeSerializedEditorState } from "../adaptors/editor-usj.adaptor";
-import { testEnvironment, testEnvironmentExpanded, viewOptions } from "./markerEdit.test-helpers";
+import {
+  $pendGlyphEdit,
+  testEnvironment,
+  testEnvironmentExpanded,
+  viewOptions,
+} from "./markerEdit.test-helpers";
 import { $settledUsj } from "./virtualSettle.utils";
 import { Tier2Context } from "./tier2Rebuild.utils";
 import { MarkerObject, Usj } from "@eten-tech-foundation/scripture-utilities";
@@ -83,7 +88,7 @@ describe("$settledUsj — paragraph scopes", () => {
         if (!para) throw new Error("expected a ParaNode");
         const glyph = para.getFirstChild();
         if (!$isMarkerNode(glyph)) throw new Error("expected a MarkerNode prefix glyph");
-        glyph.setTextContent("\\q1");
+        $pendGlyphEdit(glyph, "\\q1");
       });
       await Promise.resolve();
     });
@@ -116,7 +121,7 @@ describe("$settledUsj — paragraph scopes", () => {
         if (!para) throw new Error("expected a ParaNode");
         const glyph = para.getFirstChild();
         if (!$isMarkerNode(glyph)) throw new Error("expected a MarkerNode prefix glyph");
-        glyph.setTextContent("\\q1");
+        $pendGlyphEdit(glyph, "\\q1");
       });
       await Promise.resolve();
     });
@@ -159,8 +164,8 @@ describe("$settledUsj — paragraph scopes", () => {
         const secondGlyph = secondPara?.getFirstChild();
         if (!$isMarkerNode(firstGlyph) || !$isMarkerNode(secondGlyph))
           throw new Error("expected MarkerNode prefix glyphs on both paragraphs");
-        firstGlyph.setTextContent("\\q1");
-        secondGlyph.setTextContent("\\q2");
+        $pendGlyphEdit(firstGlyph, "\\q1");
+        $pendGlyphEdit(secondGlyph, "\\q2");
       });
       await Promise.resolve();
     });
@@ -208,7 +213,7 @@ describe("$settledUsj — paragraph scopes", () => {
         if (!para) throw new Error("expected a ParaNode");
         const glyph = para.getFirstChild();
         if (!$isMarkerNode(glyph)) throw new Error("expected a MarkerNode prefix glyph");
-        glyph.setTextContent("\\q1");
+        $pendGlyphEdit(glyph, "\\q1");
 
         const liveOptbreak = para.getChildren().find($isUnknownNode);
         if (!liveOptbreak) throw new Error("expected an UnknownNode");
@@ -265,7 +270,7 @@ describe("$settledUsj — paragraph scopes", () => {
         if (!boldChar) throw new Error("expected a char span");
         const boldGlyph = boldChar.getFirstChild();
         if (!$isMarkerNode(boldGlyph)) throw new Error("expected the char span's opening glyph");
-        boldGlyph.setTextContent("\\it");
+        $pendGlyphEdit(boldGlyph, "\\it");
       });
       await Promise.resolve();
     });
@@ -483,11 +488,11 @@ describe("$settledUsj — expanded note scopes", () => {
         if (!boldChar) throw new Error("expected a char span inside the note");
         const boldGlyph = boldChar.getFirstChild();
         if (!$isMarkerNode(boldGlyph)) throw new Error("expected the char span's opening glyph");
-        boldGlyph.setTextContent("\\it");
+        $pendGlyphEdit(boldGlyph, "\\it");
 
         const settlingGlyph = settlingPara?.getFirstChild();
         if (!$isMarkerNode(settlingGlyph)) throw new Error("expected settlingPara's prefix glyph");
-        settlingGlyph.setTextContent("\\q2");
+        $pendGlyphEdit(settlingGlyph, "\\q2");
       });
       await Promise.resolve();
     });
@@ -533,7 +538,7 @@ describe("$settledUsj — expanded note scopes", () => {
         if (!para) throw new Error("expected a ParaNode");
         const paraGlyph = para.getFirstChild();
         if (!$isMarkerNode(paraGlyph)) throw new Error("expected a ParaNode prefix glyph");
-        paraGlyph.setTextContent("\\q1");
+        $pendGlyphEdit(paraGlyph, "\\q1");
 
         const note = para.getChildren().find($isNoteNode);
         if (!note) throw new Error("expected a NoteNode");
@@ -541,7 +546,7 @@ describe("$settledUsj — expanded note scopes", () => {
         if (!boldChar) throw new Error("expected a char span inside the note");
         const boldGlyph = boldChar.getFirstChild();
         if (!$isMarkerNode(boldGlyph)) throw new Error("expected the char span's opening glyph");
-        boldGlyph.setTextContent("\\it");
+        $pendGlyphEdit(boldGlyph, "\\it");
       });
       await Promise.resolve();
     });
@@ -619,7 +624,7 @@ describe("$settledUsj — expanded note scopes", () => {
         if (!boldChar) throw new Error("expected a char span inside the note");
         const boldGlyph = boldChar.getFirstChild();
         if (!$isMarkerNode(boldGlyph)) throw new Error("expected the char span's opening glyph");
-        boldGlyph.setTextContent("\\it");
+        $pendGlyphEdit(boldGlyph, "\\it");
       });
       await Promise.resolve();
     });
@@ -683,7 +688,7 @@ describe("$settledUsj — expanded note scopes", () => {
         if (!boldChar) throw new Error("expected a char span inside the note");
         const boldGlyph = boldChar.getFirstChild();
         if (!$isMarkerNode(boldGlyph)) throw new Error("expected the char span's opening glyph");
-        boldGlyph.setTextContent("\\it");
+        $pendGlyphEdit(boldGlyph, "\\it");
       });
       await Promise.resolve();
     });
@@ -764,7 +769,7 @@ describe("$settledUsj — expanded note scopes", () => {
 
         const settlingGlyph = settlingPara?.getFirstChild();
         if (!$isMarkerNode(settlingGlyph)) throw new Error("expected settlingPara's prefix glyph");
-        settlingGlyph.setTextContent("\\q2");
+        $pendGlyphEdit(settlingGlyph, "\\q2");
       });
       await Promise.resolve();
     });

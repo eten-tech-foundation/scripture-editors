@@ -14,6 +14,7 @@ import {
   $isTextNode,
   $setState,
   ElementNode,
+  LexicalEditor,
   LexicalNode,
   TextNode,
 } from "lexical";
@@ -26,6 +27,7 @@ import {
   $isAttributeRunNode,
   $isCharNode,
   $isNoteNode,
+  $reportDestroyedDisplayOwner,
   AttributeRunNode,
   CharNode,
   createMarkerLookup,
@@ -53,6 +55,92 @@ import {
 export function requireDefined<T>(value: T | undefined, message: string): T {
   if (value === undefined) throw new Error(message);
   return value;
+}
+
+/**
+ * Simulates the user retyping `glyph`'s bytes LIVE: writes `text` and leaves the collapsed caret
+ * at its end, the way real typing does. A caret-less glyph byte write is MACHINE drift, which the
+ * engine heals in place (glyphDriftHeal.test.tsx) — a test simulating a user edit must carry
+ * either the caret (this helper) or a pend-ledger entry ({@link $pendGlyphEdit}).
+ */
+export function $retypeGlyph(glyph: TextNode, text: string): void {
+  glyph.setTextContent(text);
+  glyph.select(text.length, text.length);
+}
+
+/**
+ * Simulates a RESTORED or ABANDONED pending glyph edit — the undo shape, where
+ * `$rependPendShapedNodes` re-derives every damaged literal's pend caret-lessly from the restored
+ * bytes: writes `text` and records the glyph in the engine's live pend ledger through
+ * `$reportDestroyedDisplayOwner`, the sync's public write channel into the same Set. The recorded
+ * pend is what tells the engine's heal this divergence is a USER edit even with no caret at it.
+ * Use where a test needs SEVERAL pends at once (live typing can hold only one — the caret departs
+ * the first to make the second, settling it) or a pend with no caret anywhere (a blur sweep, a
+ * read-only settle).
+ */
+export function $pendGlyphEdit(glyph: TextNode, text: string): void {
+  glyph.setTextContent(text);
+  $reportDestroyedDisplayOwner(glyph);
+}
+
+/**
+ * Commits a damaged-glyph settle needs: the edit itself, the graced follow-up, the departure, and
+ * the settle's own rebuild plus its fixed-point follow-up. Generous — the point is to separate
+ * "terminates" from "does not", not to pin an exact number that churns with unrelated work.
+ */
+export const COMMIT_BOUND = 20;
+
+export interface CommitBound {
+  /** Start counting `editor`'s commits. Call once, right after mounting. */
+  watch: (editor: LexicalEditor) => void;
+  /** Commits counted so far. */
+  commits: () => number;
+  /**
+   * Collects the engine's warnings. Pass it to the environment and assert the settle-cascade
+   * backstop stayed silent: the backstop's own ceiling is BELOW `COMMIT_BOUND`, so a regressed
+   * root fix that only the backstop catches would otherwise slip through the commit assertion
+   * looking healthy. The backstop is a backstop; these tests are about not needing it.
+   */
+  logger: LoggerBasic;
+  /** Warnings the engine logged so far. */
+  warnings: () => string[];
+}
+
+/**
+ * Runs `body` with every watched commit counted and the engine's deferred settle hard-stopped once
+ * the count passes `COMMIT_BOUND`.
+ *
+ * The stop is what makes a regression FAIL rather than HANG. The engine defers each settle with
+ * `queueMicrotask`, and a cascade that re-queues on every commit never yields to the macrotask
+ * queue, so no timer — including vitest's own timeout — ever runs again. Dropping deferrals once
+ * the commit count has already proven the loop lets the assertion report it instead.
+ */
+export async function withCommitBound(body: (bound: CommitBound) => Promise<void>): Promise<void> {
+  let commits = 0;
+  const warnings: string[] = [];
+  const originalQueueMicrotask = globalThis.queueMicrotask;
+  globalThis.queueMicrotask = (callback: () => void) => {
+    if (commits > COMMIT_BOUND) return;
+    originalQueueMicrotask(callback);
+  };
+  try {
+    await body({
+      watch: (editor) =>
+        editor.registerUpdateListener(() => {
+          commits += 1;
+        }),
+      commits: () => commits,
+      logger: {
+        debug: () => undefined,
+        info: () => undefined,
+        warn: (message: string) => warnings.push(message),
+        error: () => undefined,
+      },
+      warnings: () => warnings,
+    });
+  } finally {
+    globalThis.queueMicrotask = originalQueueMicrotask;
+  }
 }
 
 /** Standard-view options shared by the note test helpers below. */

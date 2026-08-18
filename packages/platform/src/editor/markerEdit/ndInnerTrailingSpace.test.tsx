@@ -14,7 +14,7 @@
  * paragraph.
  */
 import { mountStandardViewEditor } from "../settledGetUsj.test-helpers";
-import { viewOptions } from "./markerEdit.test-helpers";
+import { $pendGlyphEdit, viewOptions } from "./markerEdit.test-helpers";
 import { MarkerEditPlugin } from "./MarkerEditPlugin";
 import {
   initialize as initializeSerialize,
@@ -150,7 +150,10 @@ describe("closed \\nd span with an inner trailing space", () => {
         if (!para) throw new Error("expected a ParaNode");
         const glyph = para.getFirstChild();
         if (!glyph || !$isTextNode(glyph)) throw new Error("expected a prefix glyph");
-        glyph.setTextContent("\\q1");
+        // Abandoned-pend shape ($pendGlyphEdit): the pend must survive with no caret so the
+        // commit below settles it fully — and a caret-less byte edit without the ledger entry
+        // would be machine drift the engine heals (glyphDriftHeal.test.tsx).
+        $pendGlyphEdit(glyph, "\\q1");
       });
       await Promise.resolve();
       await Promise.resolve();
