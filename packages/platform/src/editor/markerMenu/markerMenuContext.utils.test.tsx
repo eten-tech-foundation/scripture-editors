@@ -93,6 +93,39 @@ describe("$getMarkerMenuContext", () => {
     expect(context?.previousParaMarkers).toEqual(["id", "c"]);
   });
 
+  it("reports paragraph source for a caret in the book region, outside any paragraph", async () => {
+    // `\id` is a BookNode at document root, not a ParaNode - so there is no paragraph to take a
+    // character style. A character span is nearly always wrong there; the paragraph list is what
+    // the region can actually accept.
+    let idText: TextNode;
+    const { editor } = await testEnvironment(() => {
+      const book = $createBookNode("2SA");
+      idText = $createTextNode("2 Samuel");
+      $getRoot().append(book.append(idText));
+    });
+
+    await act(async () => editor.update(() => idText.select(3, 3)));
+
+    const context = editor.getEditorState().read(() => $getMarkerMenuContext());
+    expect(context?.source).toBe("paragraph");
+    expect(context?.paraMarker).toBeUndefined();
+  });
+
+  it("keeps character source for a text SELECTION in the book region (wrapping is a char action)", async () => {
+    let idText: TextNode;
+    const { editor } = await testEnvironment(() => {
+      const book = $createBookNode("2SA");
+      idText = $createTextNode("2 Samuel");
+      $getRoot().append(book.append(idText));
+    });
+
+    await act(async () => editor.update(() => idText.select(0, 8)));
+
+    const context = editor.getEditorState().read(() => $getMarkerMenuContext());
+    expect(context?.hasTextSelection).toBe(true);
+    expect(context?.source).toBe("character");
+  });
+
   it("reports character source for a mid-text caret", async () => {
     let qContent: TextNode;
     const { editor } = await testEnvironment(() => {
