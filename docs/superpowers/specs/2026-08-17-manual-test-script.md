@@ -168,3 +168,57 @@ stop.
     versa — is a bug (Invariant I), regardless of which section it came from.
 49. Undo depth spot-check: multi-step gestures (palette apply + settle) are DELIBERATELY
     multi-step in history; single-update gestures (the §3 items) are single-step.
+
+---
+
+## 10. Follow-up round (residual-backlog branch — `sv/residual-backlog`)
+
+These test the seven implementation groups; run them on the residual-backlog build.
+
+50. **The idle settle (debounce).** Retype `\nd` to `\wj` inside the opener glyph and then
+    just STOP — hands off, caret in place. After ~1 second the edit settles exactly as
+    clicking away would settle it. One Ctrl+Z restores the literal. Then: make the same
+    edit and keep typing within the second — nothing settles mid-typing (each keystroke
+    resets the clock).
+51. **Debounce + undo.** Make a settling edit, click away (settle), Ctrl+Z, then WAIT idle.
+    The undone literal must NOT re-settle by itself (~1s) — the undo window holds until
+    your next real keystroke or click.
+52. **Debounce + palette (the KNOWN exposure).** Type `\nd` so the palette opens, wait 2+
+    seconds without touching anything, then commit an item. Watch for a doubled/stranded
+    literal — this is the unresolved palette-signal question; observing it confirms the
+    priority of that decision, not a new bug.
+53. **Space wraps a selection.** Select a word, type `\nd`, press SPACE. The word is
+    wrapped in a closed `\nd …\nd*` span and the palette closes. With a COLLAPSED caret,
+    Space still lands the literal as before. With nonsense typed (`\qqqq`) and a
+    selection, Space/Enter dismisses visibly, selection intact.
+54. **Empty palette dismisses.** Type `\qqqq` (no candidates), press Enter — the overlay
+    closes, the literal stays, the caret is alive. No orphaned floating box.
+55. **Backslash in the book/id line.** Put the caret in the `\id` header region, type `\`
+    — the palette offers PARAGRAPH markers, not character markers.
+56. **Enter-menu split keeps the style, caret inside.** Caret mid-word in
+    `\wj \+nd thing\+nd*\wj*`, Enter, pick a paragraph marker from the menu. The tail
+    keeps its full nested style in the new paragraph and typing continues INSIDE the
+    reopened style immediately. (This is the ratified caret answer to old item 15.)
+57. **Outer-level range Ctrl+Space.** In `\wj one \+nd two\+nd* three\wj*` select
+    `two three` and Ctrl+Space: `one` KEEPS `\wj`; the selection is fully unstyled; save
+    and check no separator byte (`~`/NBSP) leaked into the file.
+58. **Whitespace-only wrap.** Select just the space between two words, apply `\nd` (Enter
+    or Space): the span holds exactly that space — no empty `\nd \nd*` pair in the file,
+    no silent no-op.
+59. **NBSP multi-line paste.** Copy two lines where line one contains a word with an NBSP
+    (paste from the editor itself is the easy source), paste mid-paragraph: two real
+    paragraphs result — no literal newline character inside a line. Into a char span:
+    both halves keep the style per line.
+60. **Machine-drift heal (hard to reach by hand — spot-check via collab if available).**
+    A remote/programmatic byte-damage to a marker glyph (not typed locally) heals back to
+    canonical rather than renaming the marker. Locally typed damage still pends and
+    settles on departure/idle as in §1-2.
+61. **Backspace-dissolve the fresh line.** Enter Enter (fresh `\p `), then Backspace
+    repeatedly until glyph and prefix are gone — the line dissolves and the caret returns
+    to the end of the previous line. (Old item 25's "expected today" is now the fix.)
+62. **`\f` caller edit.** In an expanded footnote, add a second space into `\f  +` — the
+    caller stays `+` (collapses on settle); retype the caller to a word — it retags on
+    departure. `\id`'s code line is deliberately still literal-only.
+63. **Collab spot-checks** (second client): a remote edit carrying `category` on a
+    chapter/verse/para survives the round trip (unknown-attribute passthrough); a remote
+    implicitly-closed `\ft` never grows a fabricated `\ft*`.
