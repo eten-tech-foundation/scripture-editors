@@ -134,3 +134,66 @@ attributed-span rule).
   (charStack exports may have grown). All green/clean.
 - [ ] **Step 2:** Append "Outcome" to this plan (shipped/deviations/deferred), commit with
   `git add -f`.
+
+---
+
+## Outcome (2026-08-17)
+
+**Shipped — all three implementation tasks, full gate green.**
+
+### Task 1 — Menu split rides the primitive (`d67d57d9`)
+
+As planned. `$splitParagraphWithMarker` now tries `$splitParagraphAtCharStack()` first and falls
+back to `selection.insertParagraph()` for non-stack carets. No entry-shape param was needed on the
+primitive — `charFormatting.utils.ts` was untouched by this task. The retag of the fresh paragraph
+uses `setMarker` + `$injectMarkerPrefix` rather than `$setParaMarkerWithPrefix`: the latter
+unconditionally re-parks the caret at the paragraph's content boundary, which would have overridden
+the primitive's ratified caret point (INSIDE the innermost reopened span at content start).
+`$injectMarkerPrefix` only follows a paragraph-start caret, so both caret shapes come out right.
+The caret-survival pin in `markerMenuApply.utils.test.tsx` moved to the new point alongside, per
+the structural-caret handoff's instruction. `markerEditNote.utils.ts` was never needed.
+
+### Task 2 — Unwrap guard (`55a9acb6`, test-only)
+
+Both remaining `$unwrapCharNode` callers ($charNodeDeletionTransform` opener-deletion;
+`$closeCharSpanAtCaret`) still had end-to-end coverage. What HAD lost its last pin was the unwrap's
+reinsert-AFTER ordering (the element-point caret fix), previously pinned only by the repurposed
+caret-survival test. One new pin reaches it through opener deletion with an element-point caret at
+the span's own child index. Mutation-verified: flipping the unwrap to `insertBefore` fails exactly
+this test.
+
+### Task 3 — Outer-level range Ctrl+Space (`e3924642`) — DEVIATION: different defect than planned
+
+The plan predicted the outer-boundary case would fail structurally ("whole outer span unwrapped,
+`one` loses its style") and prescribed child-index boundary detection. The code had moved past
+that: the char-stack handoff's §6a rewrite (split boundary text, lift each covered node out of its
+whole stack) already handles child-index boundaries correctly by construction, and the §6a pins
+were present verbatim and green. The ACTUAL red-test failure was one leaked byte:
+`\p \wj one \wj*two  three` — the reopened span's structural NBSP separator surviving on the tail.
+
+Root cause (confirmed by instrumentation): when iteration 1's reopen prefixes the separator onto a
+later covered node, it does so through a writable clone, leaving the loop's captured reference
+stale. Lexical 0.43's `TextNode.setTextContent` short-circuits on `this.__text === text` against
+the STALE instance's own field — so the shed (`" three"` == the pre-prefix text) silently no-ops.
+Fix: shed on `target.getLatest()`. Three lines, not a boundary-detection rewrite; the plan's step 2
+implementation was not needed. Both child-index boundary shapes (selection starting at an inner
+span's content start; ending at its content end) are now pinned.
+
+### Gate
+
+- Full `nx run-many -t test`: platform 66 files / 1168 passed / 0 skipped; shared 517 passed;
+  utilities 51 passed; shared-react 26 files / 1535 passed / 2 pre-existing skips. shared-react
+  timed out once under full-parallel load and passed unchanged in isolation (Nx marked the task
+  flaky) — the known full-suite concurrency flake.
+- Corpus: `tier2Rebuild.corpus` 141 paragraphs checked, 0 skip-listed; round-trip, testusfm, and
+  transform fixed-point suites green. Zero new skips anywhere.
+- `lint`/`typecheck`: 10 projects, 0 errors; the 13 warnings are the pre-existing
+  `no-console`/`jsx-a11y` ones in scribe/perf-vanilla. The six changed files are eslint-clean.
+- `extract-api`: zero report drift (no shared exports changed; `charStack.utils.ts` untouched).
+
+### Cross-track note
+
+The stale-reference `setTextContent` no-op is a general hazard: any transform or loop holding
+Lexical node references across mutations that clone those nodes can hit the same silent
+short-circuit when the "new" text equals the reference's pre-clone text. Worth knowing for the
+whitespace track's space-maintenance transforms.
