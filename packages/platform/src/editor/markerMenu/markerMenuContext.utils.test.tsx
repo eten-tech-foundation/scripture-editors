@@ -37,7 +37,7 @@ describe("$getMarkerMenuContext", () => {
     expect(context).toBeUndefined();
   });
 
-  it("reports paragraph source and previousParaMarkers for a caret at a paragraph's content start in a [id, c, p, q1] doc", async () => {
+  it("reports CHARACTER source (with previousParaMarkers) for a caret at a paragraph's content start in a [id, c, p, q1] doc", async () => {
     let qContent: TextNode;
     const { editor } = await testEnvironment(() => {
       const book = $createBookNode("RUT");
@@ -62,12 +62,56 @@ describe("$getMarkerMenuContext", () => {
 
     await act(async () => editor.update(() => qContent.select(0, 0)));
 
+    // Content start is where CONTENT goes: `\` there opens the inline (character) palette. The
+    // paragraph palette belongs to the marker glyph itself — the rows below pin that boundary.
     const context = editor.getEditorState().read(() => $getMarkerMenuContext());
-    expect(context?.source).toBe("paragraph");
+    expect(context?.source).toBe("character");
     expect(context?.paraMarker).toBe("q1");
     expect(context?.previousParaMarkers).toEqual(["id", "c", "p"]);
     // jsdom's Range has no getBoundingClientRect - the documented headless fallback.
     expect(context?.anchorRect).toBeUndefined();
+  });
+
+  it("reports paragraph source for a caret inside, at the edges of, or directly right of the marker glyph", async () => {
+    let prefix: MarkerNode;
+    let trailing: TextNode;
+    const { editor } = await testEnvironment(() => {
+      const qPara = $createParaNode("q1");
+      prefix = $createMarkerNode("q1");
+      trailing = $createTextNode(NBSP);
+      $setState(trailing, textTypeState, "marker-trailing-space");
+      $getRoot().append(qPara.append(prefix, trailing, $createTextNode("Blessed")));
+    });
+
+    // Inside the glyph text.
+    await act(async () => editor.update(() => prefix.select(1, 1)));
+    expect(editor.getEditorState().read(() => $getMarkerMenuContext())?.source).toBe("paragraph");
+    // The glyph's leading edge.
+    await act(async () => editor.update(() => prefix.select(0, 0)));
+    expect(editor.getEditorState().read(() => $getMarkerMenuContext())?.source).toBe("paragraph");
+    // The glyph's trailing edge.
+    await act(async () =>
+      editor.update(() => prefix.select(prefix.getTextContentSize(), prefix.getTextContentSize())),
+    );
+    expect(editor.getEditorState().read(() => $getMarkerMenuContext())?.source).toBe("paragraph");
+    // Directly right of the glyph, BEFORE the separator space.
+    await act(async () => editor.update(() => trailing.select(0, 0)));
+    expect(editor.getEditorState().read(() => $getMarkerMenuContext())?.source).toBe("paragraph");
+  });
+
+  it("reports character source for a caret directly after the separator space (content start)", async () => {
+    let trailing: TextNode;
+    const { editor } = await testEnvironment(() => {
+      const qPara = $createParaNode("q1");
+      const prefix = $createMarkerNode("q1");
+      trailing = $createTextNode(NBSP);
+      $setState(trailing, textTypeState, "marker-trailing-space");
+      $getRoot().append(qPara.append(prefix, trailing, $createTextNode("Blessed")));
+    });
+
+    // After the separator — where content starts. `\` here must open the INLINE palette.
+    await act(async () => editor.update(() => trailing.select(1, 1)));
+    expect(editor.getEditorState().read(() => $getMarkerMenuContext())?.source).toBe("character");
   });
 
   it("includes 'c' in previousParaMarkers when the preceding chapter is an ImmutableChapterNode", async () => {
@@ -166,7 +210,7 @@ describe("$getMarkerMenuContext", () => {
     expect(context?.source).toBe("character");
   });
 
-  it("reports paragraph source for a caret at the visible start of a leading \\wj span (red-letter shape)", async () => {
+  it("reports character source at the visible start of a leading \\wj span (red-letter shape)", async () => {
     let wjOpen: MarkerNode;
     const { editor } = await testEnvironment(() => {
       const para = $createParaNode("p");
@@ -185,11 +229,13 @@ describe("$getMarkerMenuContext", () => {
     });
 
     // The paragraph's visible content starts inside the char span: its first leaf is the
-    // opener MarkerNode glyph, and a caret at its offset 0 is the content start.
+    // opener MarkerNode glyph, and a caret at its offset 0 is the content start — AFTER the
+    // paragraph prefix's separator, so `\` there is a character action. The paragraph palette
+    // belongs to the `\p` glyph itself (the rows above), not to where content begins.
     await act(async () => editor.update(() => wjOpen.select(0, 0)));
 
     const context = editor.getEditorState().read(() => $getMarkerMenuContext());
-    expect(context?.source).toBe("paragraph");
+    expect(context?.source).toBe("character");
   });
 
   it("reports character source for a caret past the opener glyph of a leading \\wj span", async () => {
