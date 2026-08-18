@@ -347,10 +347,11 @@ export function MarkerEditPlugin({
         // (KEY_DOWN/CLICK), and those gestures re-arm.
         if (appPlacedCaret) return;
         // Deliberately NO isComposing() guard: none of the other settle paths carry one (the
-        // departure clock settles non-anchor pends during a composition today), so a
-        // timer-only guard would make the clocks diverge — the defect shape Invariant IV
-        // names. If mid-composition settling needs suppressing, it belongs in the SHARED
-        // computation, decided with a real-IME repro.
+        // departure clock settles non-anchor pends during a composition today), and every
+        // settle trigger must run the same computation under the same conditions — a guard only
+        // one clock applies is exactly the clock divergence that rule forbids. If
+        // mid-composition settling needs suppressing, it belongs in the SHARED computation,
+        // decided with a real-IME repro.
         if (settleCascadeExceeded()) return;
         settlePendingNow(undefined);
       }, IDLE_SETTLE_DELAY_MS);
