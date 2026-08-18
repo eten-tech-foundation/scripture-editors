@@ -213,6 +213,9 @@ const Marginal = forwardRef(function Marginal<TLogger extends LoggerBasic>(
     splitParagraphWithMarker(marker) {
       editorRef.current?.splitParagraphWithMarker(marker);
     },
+    commitTypedMarker(typedMarker) {
+      return editorRef.current?.commitTypedMarker(typedMarker) ?? false;
+    },
     insertNote(marker, caller, selection) {
       editorRef.current?.insertNote(marker, caller, selection);
     },

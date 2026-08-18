@@ -407,6 +407,37 @@ export interface EditorRef {
    */
   splitParagraphWithMarker(marker: string): void;
   /**
+   * Commits the marker the user literally TYPED into a host-rendered marker palette, with the
+   * palette's Space semantics: materializes the same literal bytes passive typing would have put
+   * in the document (`\` + `typedMarker` + space) at the collapsed caret in ONE update, and lets
+   * the marker-edit engine resolve them. The ratified Space end states therefore hold by
+   * construction, identical to the in-editor palette's own Space commit: an inline marker
+   * settles as an open span (`closed="false"`, no auto-closer), an unknown marker settles as
+   * typed, and a note marker tokenizes to the full note. An empty `typedMarker` materializes the
+   * bare trigger byte plus space, which stays literal — byte-identical to passive typing.
+   *
+   * Byte-fidelity is the whole contract, including its sharp edge: mid-text, a materialized note
+   * literal (`\f ` with content after the caret) absorbs the following word as the note's CALLER
+   * — the same end state passive typing produced, NOT the empty note an Enter commit inserts. A
+   * host that wants note markers to commit like Enter must route them through
+   * {@link EditorRef.applyMarkerMenuSelection} (the item commit) instead of this method.
+   *
+   * Collapsed caret only. With a non-collapsed selection the palette's Space commit must WRAP
+   * the selection in a specific offered item via {@link EditorRef.applyMarkerMenuSelection}
+   * (`trigger: "backslash"`) — materializing bytes here would replace the selected text — so
+   * this method refuses and returns `false`, leaving the document untouched. Also returns
+   * `false` when there is no range selection to materialize at.
+   *
+   * @param typedMarker - The palette query exactly as typed, without the leading `\` or the
+   *   terminating space (e.g. `"nd"`, `"zz"`, `"f"`).
+   * @returns `true` when the literal was materialized (and resolved by the engine in the same
+   *   update); `false` when the selection shape refused the commit.
+   * @throws Will throw an error if the editor is in readonly mode.
+   * @see {@link EditorRef.applyMarkerMenuSelection} for the highlighted-item (Enter) apply and
+   *   the selection-wrap commit.
+   */
+  commitTypedMarker(typedMarker: string): boolean;
+  /**
    * Insert a note at the specified selection, e.g. footnote, cross-reference, endnote.
    * @param marker - The marker type for the note.
    * @param caller - Optional note caller to override the default for the given marker.
