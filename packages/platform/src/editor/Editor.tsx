@@ -617,7 +617,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
       if (!editorRef.current) return;
 
       editorRef.current.update(() => {
-        $splitParagraphWithMarker(marker);
+        $splitParagraphWithMarker(marker, viewOptions);
       });
     },
     insertNote(marker, caller, selection) {

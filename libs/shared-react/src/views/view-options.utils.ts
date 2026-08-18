@@ -81,6 +81,24 @@ export interface ViewOptions {
    * the box relies on indent variables set by the gutter feature.
    */
   hasActiveTextFocusBox?: boolean;
+  /**
+   * When `false`, paragraphs render WITHOUT their marker prefix — no editable glyph and separator
+   * under `markerMode: "editable"`, and no immutable marker text under `markerMode: "visible"` or
+   * `hasGutterParaMarkers`. Default (undefined or true) renders the prefix each of those modes
+   * calls for.
+   *
+   * For surfaces whose paragraph is scaffolding rather than content: the footnote editor wraps the
+   * note it is editing in a marker-less paragraph purely so the editor has an element to host it,
+   * and that paragraph is never saved (the save path reads the note subtree alone). Defaulting the
+   * marker-less para to `\p` and displaying that glyph put a `\p ` prefix in front of the
+   * footnote's own text.
+   *
+   * This suppresses the prefix in the ADAPTOR, so the glyph bytes are never built. Hiding them in
+   * CSS instead would leave editable-but-invisible bytes in the document that the caret could
+   * traverse into, breaking the rule that displayed bytes are the document. Inline markers
+   * (char/verse/note) are unaffected — only the paragraph's own prefix is suppressed.
+   */
+  showParaMarkerPrefixes?: boolean;
 }
 
 let defaultViewMode: ViewMode;

@@ -568,6 +568,7 @@ export interface ViewOptions {
     markerMode: MarkerMode;
     noteMode?: NoteMode;
     showCharMarkerTitles?: boolean;
+    showParaMarkerPrefixes?: boolean;
 }
 
 ```
