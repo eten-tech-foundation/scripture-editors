@@ -46,6 +46,7 @@ import { textTypeState } from "../nodes/collab/delta.state.js";
 import { $isImmutableTypedTextNode } from "../nodes/features/ImmutableTypedTextNode.js";
 import { $isMarkerNode } from "../nodes/features/MarkerNode.js";
 import { $isUnknownNode } from "../nodes/features/UnknownNode.js";
+import { unknownDisplayParts } from "../nodes/features/unknownUsfm.utils.js";
 import {
   defaultMarkerAttribute,
   milestoneDefaultAttribute,
@@ -561,6 +562,10 @@ const milestoneDescriptor: DisplayRunDescriptor = {
   },
 };
 
+/** The optbreak's entire byte representation — the literal `//` token — derived from the ONE
+ * renderer of unknown-kind bytes so the registry can never drift from what is actually drawn. */
+const optbreakDisplayText = unknownDisplayParts("optbreak", undefined, undefined).opening;
+
 const optbreakDescriptor: DisplayRunDescriptor = {
   kind: "optbreak",
   ownerPredicate: (node) => $isUnknownNode(node) && node.getTag() === "optbreak",
@@ -571,7 +576,14 @@ const optbreakDescriptor: DisplayRunDescriptor = {
     if (!$isUnknownNode(parent) || parent.getTag() !== "optbreak") return undefined;
     return $isTextNode(node) || $isImmutableTypedTextNode(node) ? parent : undefined;
   },
-  expectedPieces: () => ({ wantsRun: true, valueText: undefined }),
+  // `valueText` is the RENDERED BYTES the kind owes — so `$runDiverges`'s value-byte comparison
+  // classifies the scanned token by what it actually spells: a canonical `//` is at rest, a
+  // byte-damaged or deleted token diverges. With `valueText: undefined` (the pre-audit shape)
+  // both answers were backwards: a canonical token's text never equalled `undefined`, so a
+  // CANONICAL optbreak read as diverged while a GUTTED one read as at rest. Nothing ever WRITES
+  // from this (the `"read-only"` writer returns before any sync write), so the value is purely
+  // classificatory.
+  expectedPieces: () => ({ wantsRun: true, valueText: optbreakDisplayText }),
   scanPieces: (owner) =>
     $isUnknownNode(owner) ? { value: owner.getFirstChild() ?? undefined } : NO_PIECES,
   graceSite: () => false,
