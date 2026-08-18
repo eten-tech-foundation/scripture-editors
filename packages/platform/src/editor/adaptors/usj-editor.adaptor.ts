@@ -67,6 +67,7 @@ import {
   MarkerNode,
   MarkerSyntax,
   MILESTONE_VERSION,
+  milestoneAttributeOrder,
   milestoneAttributes,
   milestoneDefaultAttribute,
   MilestoneNode,
@@ -716,6 +717,11 @@ function createMilestone(markerObject: MarkerObject): SerializedMilestoneNode {
   marker = marker ?? "";
   const { sid, eid } = markerObject;
   const unknownAttributes = getUnknownAttributes(markerObject, MS_MARKER_OBJECT_PROPS);
+  // `sid`/`eid` are lifted into dedicated node fields and the rest into `unknownAttributes`, which
+  // loses where `sid`/`eid` sat among them — the one thing the split cannot express. The authored
+  // order rides alongside as its own field, and only when it is not the canonical one, so a
+  // canonically ordered milestone serializes exactly as it always did.
+  const attributeOrder = milestoneAttributeOrder(markerObject);
 
   return removeUndefinedProperties({
     type: MilestoneNode.getType(),
@@ -723,6 +729,7 @@ function createMilestone(markerObject: MarkerObject): SerializedMilestoneNode {
     sid,
     eid,
     unknownAttributes,
+    attributeOrder,
     version: MILESTONE_VERSION,
   });
 }
@@ -939,7 +946,12 @@ function addAttributes(markerObject: MarkerObject, nodes: SerializedLexicalNode[
 
   const { marker, sid, eid } = markerObject;
   const unknownAttributes = getUnknownAttributes(markerObject, MS_MARKER_OBJECT_PROPS);
-  const attributes = milestoneAttributes(sid, eid, unknownAttributes);
+  const attributes = milestoneAttributes(
+    sid,
+    eid,
+    unknownAttributes,
+    milestoneAttributeOrder(markerObject),
+  );
   const text = canonicalAttributeText(attributes, milestoneDefaultAttribute(marker ?? ""));
   if (!text) return;
 

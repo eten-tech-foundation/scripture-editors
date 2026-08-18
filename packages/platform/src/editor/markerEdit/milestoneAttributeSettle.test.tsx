@@ -636,18 +636,19 @@ describe("collab-materialized milestone settles into a re-tokenizable run", () =
 
 /**
  * Attribute ORDER is a byte question, not a shape question: the USJ-to-USFM writer emits a
- * marker's attributes in object key order, so reordering them rewrites bytes in the file. The
- * corpus cannot see this — its fixtures are authored in the canonical order, and its round trips
- * compare with `toEqual`, which ignores key order — so the order needs its own fixture, authored
- * NON-canonically (an unknown attribute ahead of `sid`) and compared order-sensitively.
+ * marker's attributes in object key order, so reordering them rewrites bytes in the file. Paratext
+ * 9 preserves the order the author wrote, so this editor must too. The corpus cannot see this —
+ * its fixtures are authored in the canonical order, and its round trips compare with `toEqual`,
+ * which ignores key order — so the order needs its own fixture, authored NON-canonically (an
+ * unknown attribute ahead of `sid`) and compared order-sensitively.
  *
- * What the two pins below establish together: the milestone display fold and the settle do NOT
- * rewrite the order — a whole-document dirty pass is a fixed point. The order a non-canonical
- * document loses, it loses at LOAD, in the adaptor pair: `createMilestone` lifts `sid`/`eid` out
- * of the marker object into dedicated `MilestoneNode` fields and puts the rest in
- * `unknownAttributes`, and `createMilestoneMarker` re-emits them as `sid`, `eid`, then the
- * unknowns. The node model holds no ordered attribute map, so there is no authored order left in
- * the tree for the fold to preserve; restoring it would be a node-model change, not a fold change.
+ * "Order" here means the order among the attributes the milestone display fold actually renders:
+ * `sid` and `eid` are plain keys of the USJ marker object exactly like `who` is, and all three
+ * render into the same `|…` run, so they order against each other with no special case. Only
+ * `type`, `marker`, and `content` are excluded — they are never attribute bytes.
+ *
+ * The three pins below cover the whole path: LOAD round trip with no edit, the whole-document
+ * dirty pass (transforms + settle), and the DISPLAYED bytes the caret actually lands in.
  */
 describe("milestone attribute order", () => {
   const nonCanonicalUsj = {
@@ -658,19 +659,6 @@ describe("milestone attribute order", () => {
         type: "para",
         marker: "p",
         content: ["before ", { type: "ms", marker: "qt-s", who: "Pilate", sid: "qt_1" }, " after"],
-      },
-    ],
-  } as Usj;
-
-  /** The canonical order the adaptor pair normalizes to: `sid`, `eid`, then unknown attributes. */
-  const canonicalOrderUsj = {
-    type: "USJ",
-    version: "3.1",
-    content: [
-      {
-        type: "para",
-        marker: "p",
-        content: ["before ", { type: "ms", marker: "qt-s", sid: "qt_1", who: "Pilate" }, " after"],
       },
     ],
   } as Usj;
@@ -688,7 +676,7 @@ describe("milestone attribute order", () => {
     return serializeEditorState(nonCanonicalUsj, viewOptions);
   }
 
-  it("normalizes the authored order at LOAD, before any transform runs", async () => {
+  it("preserves the authored order at LOAD, with no edit", async () => {
     const state = loadedState();
 
     const loaded = deserializeSerializedEditorState(
@@ -697,13 +685,12 @@ describe("milestone attribute order", () => {
     );
 
     // Compared as JSON text, not with `toEqual`: key order is the whole assertion here.
-    expect(JSON.stringify(loaded)).toBe(JSON.stringify(canonicalOrderUsj));
+    expect(JSON.stringify(loaded)).toBe(JSON.stringify(nonCanonicalUsj));
   });
 
-  it("does not rewrite the order again on a whole-document dirty pass", async () => {
+  it("keeps the authored order through a whole-document dirty pass", async () => {
     // The corpus fixed-point harness's shape (load, dirty every node so every transform fires,
-    // serialize back) over one hand-built document rather than its fixture list. Compared against
-    // the LOADED order, so this isolates the transforms from the load-leg normalization above.
+    // serialize back) over one hand-built document rather than its fixture list.
     const state = loadedState();
     const { editor } = await baseTestEnvironment(
       JSON.stringify({ root: state.root }),
@@ -724,6 +711,38 @@ describe("milestone attribute order", () => {
     });
 
     const after = deserializeSerializedEditorState(editor.getEditorState().toJSON(), viewOptions);
-    expect(JSON.stringify(after)).toBe(JSON.stringify(canonicalOrderUsj));
+    expect(JSON.stringify(after)).toBe(JSON.stringify(nonCanonicalUsj));
+  });
+
+  it("displays the authored order in the run's bytes, at load and after healing", async () => {
+    const state = loadedState();
+    const { editor } = await baseTestEnvironment(
+      JSON.stringify({ root: state.root }),
+      <>
+        <CharNodePlugin />
+        <MarkerEditPlugin viewOptions={viewOptions} />
+        <TextSpacingPlugin />
+      </>,
+    );
+
+    editor.getEditorState().read(() => {
+      expect($attributeRun().getTextContent()).toBe(`${NBSP}|who="Pilate" sid="qt_1"`);
+    });
+
+    // Dirtying runs the display-run self-heal, which re-derives the expected bytes from NODE
+    // state rather than from the loaded marker object — the site that would silently rewrite the
+    // run back to sid-first if the node did not carry the order.
+    await act(async () => {
+      editor.update(
+        () => {
+          $getRoot().getChildren().forEach($markSubtreeDirty);
+        },
+        { discrete: true },
+      );
+    });
+
+    editor.getEditorState().read(() => {
+      expect($attributeRun().getTextContent()).toBe(`${NBSP}|who="Pilate" sid="qt_1"`);
+    });
   });
 });

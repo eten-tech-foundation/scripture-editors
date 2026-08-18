@@ -508,6 +508,7 @@ const milestoneDescriptor: DisplayRunDescriptor = {
       owner.getSid(),
       owner.getEid(),
       owner.getUnknownAttributes(),
+      owner.getAttributeOrder(),
     );
     const text = canonicalAttributeText(attributes, milestoneDefaultAttribute(owner.getMarker()));
     // The glyph pair is unconditional: a milestone always displays `\qt-s …\*`, so the run is

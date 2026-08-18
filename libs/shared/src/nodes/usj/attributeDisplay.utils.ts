@@ -55,11 +55,12 @@ import { textTypeState } from "../collab/delta.state.js";
 import { $isAttributeRunNode, AttributeRunNode } from "./AttributeRunNode.js";
 import { ChapterNode } from "./ChapterNode.js";
 import { $isCharNode, CharNode } from "./CharNode.js";
-import { MilestoneNode } from "./MilestoneNode.js";
+import { MilestoneNode, MS_NON_ATTRIBUTE_PROPS } from "./MilestoneNode.js";
 import { UnknownAttributes } from "./node-constants.js";
 import { getEditableCallerText } from "./node.utils.js";
 import { NoteNode } from "./NoteNode.js";
 import { $isVerseNode, VerseNode } from "./VerseNode.js";
+import { MarkerObject } from "@eten-tech-foundation/scripture-utilities";
 import { $getState, $isTextNode, LexicalNode, TextNode } from "lexical";
 
 /** USJ artifacts that are not USFM attribute bytes and must never display. */
@@ -84,6 +85,55 @@ export function canonicalAttributeText(
 }
 
 /**
+ * Re-keys `attributes` into `attributeOrder`, appending any name the order does not mention after
+ * the ones it does, in their existing order. Both kinds of mismatch are expected rather than
+ * exceptional, so neither is an error: the settle re-derives a milestone's attributes from its
+ * DISPLAYED BYTES, so an edit can drop a name the order still lists or add one it never knew
+ * about, and the surviving names must keep their authored positions either way.
+ *
+ * Membership is tested with `in`, not against `undefined`, so a genuinely empty value (`sid=""`)
+ * keeps its authored slot rather than being silently relocated to the end.
+ */
+export function orderedAttributes<T extends UnknownAttributes>(
+  attributes: T,
+  attributeOrder: readonly string[] | undefined,
+): T {
+  if (!attributeOrder || attributeOrder.length === 0) return attributes;
+  const ordered: UnknownAttributes = {};
+  attributeOrder.forEach((name) => {
+    if (name in attributes) ordered[name] = attributes[name];
+  });
+  Object.entries(attributes).forEach(([name, value]) => {
+    if (!(name in ordered)) ordered[name] = value;
+  });
+  return ordered as T;
+}
+
+/**
+ * The order `markerObject` authored its attributes in — or `undefined` when that is already the
+ * CANONICAL order, which is `sid`, then `eid`, then everything else in the order it appeared.
+ *
+ * Returning `undefined` for the canonical case is what keeps this change invisible to every
+ * document that does not need it: `MilestoneNode.attributeOrder` then stays absent, so canonically
+ * ordered milestones serialize byte-identically to before and no stored state has to be migrated.
+ *
+ * Which names take part is defined by {@link MS_NON_ATTRIBUTE_PROPS}: `type`, `marker`, and
+ * `content` are never attribute bytes; `sid` and `eid` are ordinary keys of the USJ marker object
+ * that render into the same `|…` run as `who`, so they order against the rest with no special case.
+ */
+export function milestoneAttributeOrder(markerObject: MarkerObject): string[] | undefined {
+  const authored = Object.keys(markerObject).filter(
+    (name) => !MS_NON_ATTRIBUTE_PROPS.includes(name as keyof MarkerObject),
+  );
+  const canonical = [
+    ...authored.filter((name) => name === "sid"),
+    ...authored.filter((name) => name === "eid"),
+    ...authored.filter((name) => name !== "sid" && name !== "eid"),
+  ];
+  return authored.every((name, index) => name === canonical[index]) ? undefined : authored;
+}
+
+/**
  * The attribute object a milestone's canonical display text is derived from: `sid`/`eid` folded
  * in first (their real USJ-object positions), then whatever else the marker carries (chiefly
  * `who`). Shared by usj-editor.adaptor's `addAttributes` (building the run from a `MarkerObject`)
@@ -91,13 +141,22 @@ export function canonicalAttributeText(
  * from a live `MilestoneNode`'s fields through the shared `$syncDisplayRun` driver) so the two
  * sites — one USJ-shaped, one node-shaped — can never drift on WHICH fields make up a milestone's
  * displayed attributes.
+ *
+ * `attributeOrder` overrides that sid-first default with the order the document actually authored
+ * ({@link milestoneAttributeOrder}), which Paratext 9 preserves and the USJ-to-USFM writer emits
+ * verbatim — so folding in a fixed order would rewrite bytes in the file. It is `undefined` for
+ * every milestone whose source was already canonical, which is the overwhelming majority.
  */
 export function milestoneAttributes(
   sid: string | undefined,
   eid: string | undefined,
   unknownAttributes: UnknownAttributes | undefined,
+  attributeOrder?: readonly string[],
 ): UnknownAttributes {
-  return { ...(sid && { sid }), ...(eid && { eid }), ...unknownAttributes };
+  return orderedAttributes(
+    { ...(sid && { sid }), ...(eid && { eid }), ...unknownAttributes },
+    attributeOrder,
+  );
 }
 
 /**

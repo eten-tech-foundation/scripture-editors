@@ -37,6 +37,7 @@ import {
   NBSP,
   NODE_ATTRIBUTE_PREFIX,
   NoteNode,
+  orderedAttributes,
   ParaNode,
   parseNumberFromMarkerText,
   removeUndefinedProperties,
@@ -283,15 +284,19 @@ function createNoteMarker(
   });
 }
 
+/**
+ * `type` and `marker` stay ahead of everything — they are not attribute bytes and have no place in
+ * the order. The attributes behind them are re-keyed into the milestone's authored order when it
+ * carries one, because the USJ-to-USFM writer emits a marker's attributes in object key order:
+ * re-emitting them sid-first would rewrite bytes in a file that never asked for it.
+ */
 function createMilestoneMarker(node: SerializedMilestoneNode): MarkerObject {
-  const { type, marker: nodeMarker, sid, eid, unknownAttributes } = node;
+  const { type, marker: nodeMarker, sid, eid, unknownAttributes, attributeOrder } = node;
   const marker = nodeMarker === "" ? undefined : nodeMarker;
   return removeUndefinedProperties({
     type,
     marker,
-    sid,
-    eid,
-    ...unknownAttributes,
+    ...orderedAttributes({ sid, eid, ...unknownAttributes }, attributeOrder),
   });
 }
 

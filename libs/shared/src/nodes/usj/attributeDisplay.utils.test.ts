@@ -55,17 +55,45 @@ describe("canonicalAttributeText", () => {
 
 describe("milestoneAttributes", () => {
   it("folds sid then eid then unknownAttributes, in that order", () => {
-    expect(milestoneAttributes("q1", "q1-end", { who: "TJ" })).toEqual({
-      sid: "q1",
-      eid: "q1-end",
-      who: "TJ",
-    });
+    const attributes = milestoneAttributes("q1", "q1-end", { who: "TJ" });
+    expect(attributes).toEqual({ sid: "q1", eid: "q1-end", who: "TJ" });
+    // Order-sensitive: `toEqual` above ignores key order, and key order is what the display bytes
+    // and the USJ-to-USFM writer both read.
+    expect(Object.keys(attributes)).toEqual(["sid", "eid", "who"]);
   });
   it("omits sid/eid when absent, keeping only unknownAttributes", () => {
     expect(milestoneAttributes(undefined, undefined, { who: "TJ" })).toEqual({ who: "TJ" });
   });
   it("returns an empty object when nothing is set", () => {
     expect(milestoneAttributes(undefined, undefined, undefined)).toEqual({});
+  });
+
+  // An authored order is the order the attributes appeared in the document. Paratext 9 preserves
+  // it, so the fold must too — the sid-first default above is only what an order-less milestone
+  // (one whose source already was canonical) gets.
+  it("folds in the authored order when one is given, rather than sid-first", () => {
+    const attributes = milestoneAttributes("qt_1", undefined, { who: "Pilate" }, ["who", "sid"]);
+    expect(Object.keys(attributes)).toEqual(["who", "sid"]);
+    expect(attributes).toEqual({ who: "Pilate", sid: "qt_1" });
+  });
+  it("renders the authored order into the display bytes", () => {
+    const attributes = milestoneAttributes("qt_1", undefined, { who: "Pilate" }, ["who", "sid"]);
+    expect(canonicalAttributeText(attributes, "who")).toBe('|who="Pilate" sid="qt_1"');
+  });
+  it("appends attributes the authored order does not name, in canonical order", () => {
+    // A stale order (a name the milestone no longer carries) and a new name the order never knew
+    // about both have to be tolerated: the settle re-derives attributes from the displayed bytes,
+    // so an edit can add or drop one without rewriting the order.
+    const attributes = milestoneAttributes("qt_1", "qt_1e", { who: "Pilate", x: "y" }, [
+      "who",
+      "gone",
+      "sid",
+    ]);
+    expect(Object.keys(attributes)).toEqual(["who", "sid", "eid", "x"]);
+  });
+  it("ignores an authored order that names nothing the milestone carries", () => {
+    const attributes = milestoneAttributes("qt_1", undefined, undefined, ["gone"]);
+    expect(Object.keys(attributes)).toEqual(["sid"]);
   });
 });
 
