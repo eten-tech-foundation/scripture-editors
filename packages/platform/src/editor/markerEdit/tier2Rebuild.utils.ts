@@ -718,37 +718,62 @@ export function countSentinels(content: MarkerContent[]): number {
   return count;
 }
 
-function $spansForNodes(nodes: LexicalNode[], getMarkerFn: MarkerLookup): FragmentSpan[] {
+function $spansForNodes(
+  nodes: LexicalNode[],
+  getMarkerFn: MarkerLookup,
+): { text: string; spans: FragmentSpan[] } {
   const out: FragmentAccumulator = { text: "", spans: [], sentinels: [] };
   for (const node of nodes) {
     if (out.text.length > 0) out.text += " ";
     if ($isElementNode(node)) $appendChildrenFragment(node, out, getMarkerFn);
   }
-  return out.spans;
+  return { text: out.text, spans: out.spans };
 }
 
+/** Whitespace for caret byte-anchoring: everything the fragment/display layer may add, move, or
+ * flatten across a rebuild (the NBSP separators arrive here already flattened to spaces by
+ * `toFragmentText`). The U+FFFC sentinel placeholder is deliberately NOT whitespace — it stands
+ * for a preserved node and anchors like a document byte. */
+const FRAGMENT_WS = /\s/;
+
 /**
- * The caret as a CUMULATIVE span-text offset: the summed length of the spans before the
- * anchor's span, plus the in-span offset (a sentinel span counts as its single placeholder
- * char). Cumulative — rather than raw `span.start` fragment-string — coordinates exclude
- * the non-span filler between spans (the inter-paragraph " " joiners), which a rebuild can
- * add or remove (e.g. a mid-paragraph marker splitting off its own paragraph). Span TEXT
- * itself is preserved by the tokenizer (the degradation property), so a cumulative offset
- * captured over the old spans lands on the same character over the new spans; a raw offset
- * would shift past every added joiner (leaving the caret restored INSIDE the new glyph,
- * scrambling subsequent keystrokes).
+ * The caret as a BYTE anchor over the span text: how many non-whitespace characters precede it
+ * (`nonWsBefore`), plus how many consecutive whitespace characters sit between the last of those
+ * and the caret (`wsRun`, usually 0). Anchoring on non-whitespace characters — rather than a raw
+ * cumulative character offset — keeps the caret attached to its BYTE across a rebuild that adds,
+ * removes, or moves display whitespace around it: the engine's NBSP separators are inserted by
+ * the canonical rebuild (a typed `|` that re-tokenizes from a glyph into span content gains a
+ * separator BEFORE it, which shifted a cumulative offset to the wrong side of the byte), and the
+ * inter-paragraph " " joiners come and go with paragraph splits. Span text is otherwise preserved
+ * by the tokenizer (the degradation property), so the N-th non-whitespace character over the old
+ * spans is the same byte over the new ones. A sentinel span counts as its single placeholder char.
  */
-function caretSpanTextOffset(
-  spans: FragmentSpan[],
+interface CaretByteAnchor {
+  nonWsBefore: number;
+  wsRun: number;
+}
+
+function caretSpanByteAnchor(
+  fragment: { text: string; spans: FragmentSpan[] },
   anchorKey: string,
   anchorOffset: number,
-): number | undefined {
-  let cumulative = 0;
-  for (const span of spans) {
-    const length = span.end - span.start;
-    if (span.key === anchorKey)
-      return cumulative + Math.min(span.isSentinel ? 1 : anchorOffset, length);
-    cumulative += length;
+): CaretByteAnchor | undefined {
+  let nonWsBefore = 0;
+  let wsRun = 0;
+  for (const span of fragment.spans) {
+    const spanLength = span.end - span.start;
+    const isAnchorSpan = span.key === anchorKey;
+    const limit = isAnchorSpan
+      ? Math.min(span.isSentinel ? 1 : anchorOffset, spanLength)
+      : spanLength;
+    for (let i = 0; i < limit; i++) {
+      if (FRAGMENT_WS.test(fragment.text[span.start + i])) wsRun++;
+      else {
+        nonWsBefore++;
+        wsRun = 0;
+      }
+    }
+    if (isAnchorSpan) return { nonWsBefore, wsRun };
   }
   return undefined;
 }
@@ -821,26 +846,55 @@ function $selectAfterSentinelRun(span: FragmentSpan): boolean {
   return true;
 }
 
-/** Place the collapsed caret at cumulative span-text `offset` (see `caretSpanTextOffset`)
- * within `spans`, falling back to the first element. */
-function $selectAtFragmentOffset(
-  spans: FragmentSpan[],
-  offset: number,
+/** Place the collapsed caret at the position `anchor` describes (see `caretSpanByteAnchor`)
+ * within the freshly-built spans, falling back to the first element. */
+function $selectAtFragmentByteAnchor(
+  fragment: { text: string; spans: FragmentSpan[] },
+  anchor: CaretByteAnchor,
   newNodes: LexicalNode[],
 ): void {
+  const { text, spans } = fragment;
   let best: { key: string; offset: number } | undefined;
-  let cumulative = 0;
-  for (const span of spans) {
-    const length = span.end - span.start;
-    // Skip sentinels (their inner text is not addressable) and closing marker glyphs (see
-    // $isClosingMarkerSpan); an offset that fell on either resolves to the start of the next
-    // addressable span. Both still advance `cumulative` so the offset stays aligned with the
-    // captured text offset.
-    if (!span.isSentinel && !$isClosingMarkerSpan(span) && offset <= cumulative + length) {
-      best = { key: span.key, offset: Math.max(offset - cumulative, 0) };
+  let remainingNonWs = anchor.nonWsBefore;
+  let remainingWs = anchor.wsRun;
+  // Whether the anchor position resolved INSIDE a span the caret cannot rest in — a sentinel
+  // (inner text not addressable) or a closing marker glyph (see $isClosingMarkerSpan) — in which
+  // case the caret belongs at the start of the NEXT addressable span, exactly as the previous
+  // cumulative-offset walk resolved it.
+  let needNextAddressable = false;
+  outer: for (const span of spans) {
+    const spanLength = span.end - span.start;
+    const addressable = !span.isSentinel && !$isClosingMarkerSpan(span);
+    if (needNextAddressable) {
+      if (!addressable) continue;
+      best = { key: span.key, offset: 0 };
       break;
     }
-    cumulative += length;
+    for (let i = 0; i < spanLength; i++) {
+      const ch = text[span.start + i];
+      if (remainingNonWs === 0 && (remainingWs === 0 || !FRAGMENT_WS.test(ch))) {
+        // The anchor's bytes are all behind us (any unconsumed ws run is clamped to the ws
+        // actually present here): the caret belongs immediately BEFORE this character.
+        if (addressable) {
+          best = { key: span.key, offset: i };
+          break outer;
+        }
+        needNextAddressable = true;
+        continue outer;
+      }
+      if (remainingNonWs > 0) {
+        if (!FRAGMENT_WS.test(ch)) remainingNonWs--;
+      } else remainingWs--;
+    }
+    if (remainingNonWs === 0 && remainingWs === 0) {
+      // Satisfied exactly at this span's end — prefer the end of the span the walk finished in
+      // over the start of the next, matching the previous walk's first-covering-span behavior.
+      if (addressable) {
+        best = { key: span.key, offset: spanLength };
+        break;
+      }
+      needNextAddressable = true;
+    }
   }
   if (!best) {
     // The offset ran past every addressable span. Both span kinds the forward scan skips can be
@@ -869,7 +923,7 @@ function $selectAtFragmentOffset(
 
 function $restoreSelectionAtOffset(
   newNodes: LexicalNode[],
-  offset: number | undefined,
+  anchor: CaretByteAnchor | undefined,
   anchorInParas: boolean,
   getMarkerFn: MarkerLookup,
 ): void {
@@ -878,11 +932,11 @@ function $restoreSelectionAtOffset(
   // what triggered this rebuild). The rebuilt paragraphs are not where the caret
   // lives, so leave the selection strictly untouched rather than yanking it back in.
   if (!anchorInParas) return;
-  if (offset === undefined) {
+  if (anchor === undefined) {
     newNodes.find($isElementNode)?.selectStart();
     return;
   }
-  $selectAtFragmentOffset($spansForNodes(newNodes, getMarkerFn), offset, newNodes);
+  $selectAtFragmentByteAnchor($spansForNodes(newNodes, getMarkerFn), anchor, newNodes);
 }
 
 /**
@@ -892,18 +946,18 @@ function $restoreSelectionAtOffset(
  */
 function $restoreSelectionInNoteContent(
   newNodes: LexicalNode[],
-  offset: number | undefined,
+  anchor: CaretByteAnchor | undefined,
   anchorInNote: boolean,
   getMarkerFn: MarkerLookup,
 ): void {
   if (!anchorInNote) return;
-  if (offset === undefined) {
+  if (anchor === undefined) {
     newNodes.find($isElementNode)?.selectStart();
     return;
   }
   const out: FragmentAccumulator = { text: "", spans: [], sentinels: [] };
   $appendNodesFragment(newNodes, out, getMarkerFn);
-  $selectAtFragmentOffset(out.spans, offset, newNodes);
+  $selectAtFragmentByteAnchor({ text: out.text, spans: out.spans }, anchor, newNodes);
 }
 
 export function $rebuildParas(paras: ParaNode[], context: Tier2Context): boolean {
@@ -926,9 +980,9 @@ export function $rebuildParas(paras: ParaNode[], context: Tier2Context): boolean
     combined.text += fragment.text;
   }
 
-  // Capture the caret as a fragment offset before mutating anything, and note whether
+  // Capture the caret as a fragment byte anchor before mutating anything, and note whether
   // the anchor was actually inside the paragraphs being rebuilt (vs. parked elsewhere).
-  let caretOffset: number | undefined;
+  let caretAnchor: CaretByteAnchor | undefined;
   let anchorInParas = false;
   const selection = $getSelection();
   if ($isRangeSelection(selection)) {
@@ -938,11 +992,7 @@ export function $rebuildParas(paras: ParaNode[], context: Tier2Context): boolean
         break;
       }
     if (selection.isCollapsed())
-      caretOffset = caretSpanTextOffset(
-        combined.spans,
-        selection.anchor.key,
-        selection.anchor.offset,
-      );
+      caretAnchor = caretSpanByteAnchor(combined, selection.anchor.key, selection.anchor.offset);
   }
 
   const content: MarkerContent[] = usfmFragmentToUsjContent(combined.text, {
@@ -1021,7 +1071,7 @@ export function $rebuildParas(paras: ParaNode[], context: Tier2Context): boolean
     if (newVerses[i].getNumber() === oldVerseSids[i].number)
       newVerses[i].setSid(oldVerseSids[i].sid);
   }
-  $restoreSelectionAtOffset(newNodes, caretOffset, anchorInParas, getMarkerFn);
+  $restoreSelectionAtOffset(newNodes, caretAnchor, anchorInParas, getMarkerFn);
   return true;
 }
 
@@ -1131,9 +1181,9 @@ export function $rebuildNoteContent(note: NoteNode, context: Tier2Context): bool
   }
   const { out, contentNodes } = built;
 
-  // Capture the caret as a fragment offset before mutating, noting whether the anchor
+  // Capture the caret as a fragment byte anchor before mutating, noting whether the anchor
   // was actually inside this note (vs. parked elsewhere) — mirror `$rebuildParas`.
-  let caretOffset: number | undefined;
+  let caretAnchor: CaretByteAnchor | undefined;
   let anchorInNote = false;
   const selection = $getSelection();
   if ($isRangeSelection(selection)) {
@@ -1143,7 +1193,7 @@ export function $rebuildNoteContent(note: NoteNode, context: Tier2Context): bool
         break;
       }
     if (selection.isCollapsed())
-      caretOffset = caretSpanTextOffset(out.spans, selection.anchor.key, selection.anchor.offset);
+      caretAnchor = caretSpanByteAnchor(out, selection.anchor.key, selection.anchor.offset);
   }
 
   const content: MarkerContent[] = usfmFragmentToUsjContent(out.text, {
@@ -1289,7 +1339,7 @@ export function $rebuildNoteContent(note: NoteNode, context: Tier2Context): bool
   contentNodes.forEach((node) => {
     if (!preservedKeys.has(node.getKey())) node.remove();
   });
-  $restoreSelectionInNoteContent(newNodes, caretOffset, anchorInNote, getMarkerFn);
+  $restoreSelectionInNoteContent(newNodes, caretAnchor, anchorInNote, getMarkerFn);
   return true;
 }
 
@@ -1373,11 +1423,11 @@ export function $rebuildChapter(chapter: ChapterNode, context: Tier2Context): bo
     return false;
   }
 
-  // Capture the caret as a fragment offset before mutating — mirror `$rebuildParas`. The anchor
-  // check spans the whole region: an edit inside an adjacent first-class char (the fold's
+  // Capture the caret as a fragment byte anchor before mutating — mirror `$rebuildParas`. The
+  // anchor check spans the whole region: an edit inside an adjacent first-class char (the fold's
   // primary trigger) holds its caret in the CHAR, not the chapter, and must be restored into
   // the rebuilt output the same way.
-  let caretOffset: number | undefined;
+  let caretAnchor: CaretByteAnchor | undefined;
   let anchorInRegion = false;
   const selection = $getSelection();
   if ($isRangeSelection(selection)) {
@@ -1387,7 +1437,7 @@ export function $rebuildChapter(chapter: ChapterNode, context: Tier2Context): bo
         break;
       }
     if (selection.isCollapsed())
-      caretOffset = caretSpanTextOffset(out.spans, selection.anchor.key, selection.anchor.offset);
+      caretAnchor = caretSpanByteAnchor(out, selection.anchor.key, selection.anchor.offset);
   }
 
   const content: MarkerContent[] = usfmFragmentToUsjContent(out.text, { getMarker: getMarkerFn });
@@ -1444,7 +1494,7 @@ export function $rebuildChapter(chapter: ChapterNode, context: Tier2Context): bo
 
   newNodes.forEach((node) => chapter.insertBefore(node));
   region.forEach((node) => node.remove());
-  $restoreSelectionAtOffset(newNodes, caretOffset, anchorInRegion, getMarkerFn);
+  $restoreSelectionAtOffset(newNodes, caretAnchor, anchorInRegion, getMarkerFn);
   return true;
 }
 
@@ -1514,4 +1564,141 @@ export function $requestTier2ForNode(node: LexicalNode, context: Tier2Context): 
   if ($isNoteNode(scope)) return $rebuildNoteContent(scope, context);
   if ($isChapterNode(scope)) return $rebuildChapter(scope, context);
   return $rebuildParas([scope], context);
+}
+
+/** USJ marker-object keys that are never attribute-list display bytes. `closed` is a USJ key but
+ * is excluded from rendered attribute text (ATTRIBUTE_EXCLUDED_KEYS in the display layer), so
+ * folding it would let its letters mask a genuine loss of the same characters. */
+const CONTENT_BYTE_BASE_KEYS = new Set(["type", "marker", "content", "closed"]);
+
+function appendAttributeListBytes(item: { [key: string]: unknown }, out: string[]): void {
+  const entries = Object.entries(item).filter(
+    ([key, value]) => typeof value === "string" && !CONTENT_BYTE_BASE_KEYS.has(key),
+  );
+  if (entries.length === 0) return;
+  out.push("|");
+  for (const [key, value] of entries) out.push(`${key}="${value as string}"`);
+}
+
+/**
+ * Fold tokenized content back into an approximation of its USFM display bytes, for the
+ * byte-preservation comparison in {@link $idleSettleWouldDiscardCaretHeldBytes}. Whitespace is
+ * irrelevant to the comparison (the counter ignores it), and ADDED bytes are harmless — only a
+ * byte the fold FAILS to re-emit can misreport a loss, which merely defers that settle to caret
+ * departure. So the fold favors emitting too much over too little (e.g. a default attribute the
+ * canonical display would render bare is folded as `name="value"`), and unknown shapes fall to a
+ * marker-plus-content default.
+ */
+function appendContentBytes(content: MarkerContent[] | undefined, out: string[]): void {
+  if (!content) return;
+  for (const item of content) {
+    if (typeof item === "string") {
+      out.push(item);
+      continue;
+    }
+    const marker = item.marker ?? "";
+    const closed = (item as { closed?: string }).closed;
+    switch (item.type) {
+      case "verse":
+        out.push(`\\${marker} ${item.number ?? ""}`);
+        if (item.altnumber !== undefined) out.push(`\\va ${item.altnumber}\\va*`);
+        if (item.pubnumber !== undefined) out.push(`\\vp ${item.pubnumber}\\vp*`);
+        break;
+      case "chapter":
+        out.push(`\\${marker} ${item.number ?? ""}`);
+        if (item.altnumber !== undefined) out.push(`\\ca ${item.altnumber}\\ca*`);
+        if (item.pubnumber !== undefined) out.push(`\\cp ${item.pubnumber}`);
+        break;
+      case "ms":
+        out.push(`\\${marker}`);
+        appendAttributeListBytes(item, out);
+        out.push("\\*");
+        break;
+      case "unmatched":
+        out.push(`\\${marker}`);
+        break;
+      case "char":
+        out.push(`\\${marker} `);
+        appendContentBytes(item.content, out);
+        appendAttributeListBytes(item, out);
+        if (closed !== "false") out.push(`\\${marker}*`);
+        break;
+      case "note": {
+        const caller = (item as { caller?: string }).caller;
+        const category = (item as { category?: string }).category;
+        out.push(`\\${marker} ${caller ?? ""}`);
+        if (category !== undefined) out.push(`\\cat ${category}\\cat*`);
+        appendContentBytes(item.content, out);
+        if (closed !== "false") out.push(`\\${marker}*`);
+        break;
+      }
+      default:
+        // Paragraphs and anything else block-shaped: the marker plus its content. Attribute-ish
+        // keys (a para's vid/sid) are not display bytes, so they are deliberately NOT folded —
+        // emitting them could mask a loss of the same characters.
+        out.push(`\\${marker} `);
+        appendContentBytes(item.content, out);
+    }
+  }
+}
+
+/**
+ * Whether settling `node`'s scope on the IDLE clock would DISCARD displayed non-whitespace bytes
+ * out from under the collapsed caret holding that scope. The one shape this is true for is a
+ * typed byte the re-tokenization legitimately drops — e.g. a lone `|` in a milestone run:
+ * `\qt-s|\*` tokenizes to a milestone with NO attributes, so the canonical rebuild has no `|`
+ * left for the caret to sit after. Settling that mid-composition is accept-then-discard (the
+ * no-silent-no-ops rule's exact forbidden shape) AND destroys the caret's byte position, so the
+ * idle caller re-pends instead and the site settles on genuine caret departure, where the
+ * tokenizer's meaning wins with no held caret to betray.
+ *
+ * The comparison is a non-whitespace character count: every non-whitespace character of the
+ * scope's displayed fragment must be re-emitted by folding the tokenized output back to bytes
+ * ({@link appendContentBytes}). Whitespace is excluded because the engine legitimately adds,
+ * moves, and flattens display whitespace (NBSP separators, joiners). A false positive (the fold
+ * under-emitting an exotic shape, a typographic quote the tokenizer regularizes) only defers
+ * that settle to caret departure — the pre-idle-clock behavior.
+ *
+ * Paragraph scopes only: the chapter and note scopes fold values byte-preservingly (an
+ * unparseable value lands in altnumber/category verbatim), so no byte-dropping shape is known
+ * there; their idle settles are not second-guessed.
+ *
+ * Read-only (reads the live selection and tree, never mutates): call inside `editor.update()`,
+ * where the settle passes already run.
+ */
+export function $idleSettleWouldDiscardCaretHeldBytes(
+  node: LexicalNode,
+  getMarkerFn: MarkerLookup,
+): boolean {
+  const scope = $settleScopeForNode(node);
+  if (!$isParaNode(scope)) return false;
+  const selection = $getSelection();
+  if (!$isRangeSelection(selection) || !selection.isCollapsed()) return false;
+  let caretInScope = false;
+  for (
+    let current: LexicalNode | null = selection.anchor.getNode();
+    current;
+    current = current.getParent()
+  )
+    if (scope.is(current)) {
+      caretInScope = true;
+      break;
+    }
+  if (!caretInScope) return false;
+  const fragment = $buildParaFragment(scope, getMarkerFn);
+  if (!fragment) return false;
+  const content = usfmFragmentToUsjContent(fragment.text, { getMarker: getMarkerFn });
+  if (content.length === 0) return false;
+  const counts = new Map<string, number>();
+  for (const ch of fragment.text)
+    if (!FRAGMENT_WS.test(ch)) counts.set(ch, (counts.get(ch) ?? 0) + 1);
+  const folded: string[] = [];
+  appendContentBytes(content, folded);
+  for (const ch of folded.join("")) {
+    if (FRAGMENT_WS.test(ch)) continue;
+    const remaining = counts.get(ch);
+    if (remaining !== undefined && remaining > 0) counts.set(ch, remaining - 1);
+  }
+  for (const remaining of counts.values()) if (remaining > 0) return true;
+  return false;
 }

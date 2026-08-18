@@ -4,7 +4,12 @@
  * Everything Tier 1 cannot express routes to Tier 2 ($requestTier2ForNode).
  */
 
-import { $rebuildParas, $requestTier2ForNode, Tier2Context } from "./tier2Rebuild.utils";
+import {
+  $idleSettleWouldDiscardCaretHeldBytes,
+  $rebuildParas,
+  $requestTier2ForNode,
+  Tier2Context,
+} from "./tier2Rebuild.utils";
 import {
   $createTextNode,
   $getNodeByKey,
@@ -947,7 +952,15 @@ export function $resolvePendingMarkers(
       const bare = BARE_OPENER_REGEX.exec(text);
       if (node.getMarkerSyntax() === "opening" && bare)
         mutated = $applyOpenerRename(node, bare[1], context) || mutated;
-      else mutated = $requestTier2ForNode(node, context) || mutated;
+      else if (
+        settleReason === "idle" &&
+        $idleSettleWouldDiscardCaretHeldBytes(node, context.getMarker)
+      ) {
+        // The idle tick may not settle a caret-held site whose re-tokenization would DROP the
+        // typed byte (accept-then-discard, and the caret's byte would not survive) — the same
+        // family as the emptied-husk carve-out. Re-pend; genuine departure settles it.
+        context.pendingKeys.add(key);
+      } else mutated = $requestTier2ForNode(node, context) || mutated;
       continue;
     }
     // A pended run PIECE settles at its OWNER. `$settlePendedDisplayOwner` recognizes only owners
@@ -1001,6 +1014,15 @@ export function $resolvePendingMarkers(
     // (the piece's owner where it has one) rather than the raw pended node: both resolve to the
     // same scope — a run rides as its owner's following siblings, or as its children for a char
     // span — so this is the same rebuild, reached only after the owner's grace has declined.
+    if (
+      settleReason === "idle" &&
+      $idleSettleWouldDiscardCaretHeldBytes(target, context.getMarker)
+    ) {
+      // Same idle carve-out as the marker-glyph arm above: a rebuild that would discard the
+      // caret-held typed byte re-pends and settles on genuine departure instead.
+      context.pendingKeys.add(targetKey);
+      continue;
+    }
     mutated = $requestTier2ForNode(target, context) || mutated;
   }
   return mutated;
