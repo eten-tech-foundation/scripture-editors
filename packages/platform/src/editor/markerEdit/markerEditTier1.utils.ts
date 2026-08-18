@@ -474,7 +474,7 @@ export function $verseNodeTransform(node: VerseNode, context: MarkerEditContext)
 // An expanded note's editable caller text: whitespace run, caller word, whitespace run
 // (canonical: one space, the caller, one NBSP — getEditableCallerText). The tokenization of
 // "word" beside the map's caller declaration, exactly as the verse regexes tokenize the number.
-const NOTE_CALLER_TEXT_REGEX = /^[  ]+([^  \\]+)[  ]+$/;
+const NOTE_CALLER_TEXT_REGEX = /^[ \u00A0]+([^ \u00A0\\]+)[ \u00A0]+$/;
 
 /**
  * Tier-1 arm for an expanded note's editable caller text — the note-marker family's leading
