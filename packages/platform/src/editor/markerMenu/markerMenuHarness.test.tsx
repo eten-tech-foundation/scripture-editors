@@ -237,20 +237,12 @@ function $buildEnterMenuFixture(): { caretText: TextNode } {
   return { caretText };
 }
 
-/** Simulates the browser's own (un-prevented) literal character insertion at the caret - jsdom
- * doesn't do this on an unprevented keydown the way a real browser would. */
-async function simulateLiteralInsert(editor: LexicalEditor, text: string): Promise<void> {
-  await act(async () =>
-    editor.update(() => {
-      const selection = $getSelection();
-      if ($isRangeSelection(selection)) selection.insertText(text);
-    }),
-  );
-}
-
 describe("editable-mode marker menu harness", () => {
   describe("`\\` trigger", () => {
-    it("does not preventDefault for a collapsed selection - the literal `\\` lands as text - and opens the menu", async () => {
+    it("preventDefaults for a collapsed selection too - the active palette's trigger never lands - and opens the menu", async () => {
+      // ACTIVE palette (owner-directed): the trigger byte must not reach the document in ANY
+      // selection shape. This inverts the old passive pin ("the literal `\` lands as text"),
+      // which described the retired passive palette.
       let text: TextNode | undefined;
       const { editor } = await harnessTestEnvironment(() => {
         text = $buildBackslashMenuFixture().text;
@@ -258,14 +250,16 @@ describe("editable-mode marker menu harness", () => {
       await act(async () => editor.update(() => requireDefined(text, "text").select(5, 5)));
 
       const event = await dispatchKeyDown(editor, "\\");
-      expect(event.defaultPrevented).toBe(false);
+      expect(event.defaultPrevented).toBe(true);
 
       const menuItems = await waitForMenu();
       expect(menuItems.length).toBeGreaterThan(0);
 
-      await simulateLiteralInsert(editor, "\\");
       editor.getEditorState().read(() => {
-        expect($getRoot().getTextContent()).toContain("hello\\");
+        // The caret's own text node is byte-identical - no trigger literal landed. (The
+        // paragraph's visible `\p` prefix glyph legitimately contains a backslash, so the
+        // assertion targets the content node, not the whole tree's text.)
+        expect(requireDefined(text, "text").getTextContent()).toBe("hello");
       });
     });
 
@@ -281,7 +275,10 @@ describe("editable-mode marker menu harness", () => {
       await waitForMenu();
     });
 
-    it("Escape closes the menu without altering the document (the literal `\\` stays)", async () => {
+    it("Escape closes the menu leaving the document unchanged - nothing typed ever landed", async () => {
+      // Owner-directed divergence from the OLD ratified row "Escape leaves the typed literal":
+      // under the active palette no literal lands in the first place, so Escape's contract is
+      // "document untouched", not "literal stays".
       let text: TextNode | undefined;
       const { editor } = await harnessTestEnvironment(() => {
         text = $buildBackslashMenuFixture().text;
@@ -290,17 +287,22 @@ describe("editable-mode marker menu harness", () => {
 
       await dispatchKeyDown(editor, "\\");
       await waitForMenu();
-      await simulateLiteralInsert(editor, "\\");
+      await dispatchKeyDown(editor, "n");
+      await dispatchKeyDown(editor, "d");
 
       await dispatchKeyDown(editor, "Escape");
 
       expect(screen.queryAllByRole("menuitem")).toHaveLength(0);
       editor.getEditorState().read(() => {
-        expect($getRoot().getTextContent()).toContain("hello\\");
+        expect(requireDefined(text, "text").getTextContent()).toBe("hello");
       });
     });
 
-    it("selecting a menu item inserts it structurally and removes the literal `\\`", async () => {
+    it("selecting a menu item inserts it structurally - no literal trigger prefix ever lands to clean up", async () => {
+      // Under the active palette the Enter commit is the SAME apply the passive palette made,
+      // minus the literal-prefix cleanup: nothing landed, so the apply arrives with
+      // `literalPrefixLanded: false` and the end state is byte-identical to the old
+      // "landed-then-removed" flow.
       let text: TextNode | undefined;
       const { editor } = await harnessTestEnvironment(() => {
         text = $buildBackslashMenuFixture().text;
@@ -309,7 +311,6 @@ describe("editable-mode marker menu harness", () => {
 
       await dispatchKeyDown(editor, "\\");
       const menuItems = await waitForMenu();
-      await simulateLiteralInsert(editor, "\\");
 
       const chosenMarker = requireDefined(menuItemLabel(menuItems[0]), "menu item label");
       const textKey = requireDefined(text, "text").getKey();
@@ -322,7 +323,7 @@ describe("editable-mode marker menu harness", () => {
         // concatenated text) - the chosen item may itself be a note whose OWN visible marker
         // glyphs (e.g. "\f ... \f*") legitimately contain backslashes immediately adjacent to
         // "hello" in the flattened text, which a blanket substring check can't tell apart from
-        // an unremoved literal trigger prefix.
+        // a stray literal trigger prefix.
         const helloNode = requireDefined(
           $getNodeByKey(textKey) ?? undefined,
           'original "hello" text node',
@@ -399,7 +400,10 @@ describe("editable-mode marker menu harness", () => {
   });
 
   describe("commit with zero candidates", () => {
-    it("dismisses the palette instead of orphaning it, leaving the typed literal and the caret", async () => {
+    it("dismisses the palette instead of orphaning it, leaving the document unchanged and the caret alive", async () => {
+      // Under the active palette the typed filter characters never landed, so the guard's
+      // contract tightens from "leaves the typed literal" to "document unchanged". The overlay
+      // teardown itself (Escape's contract) is what this pin exists for.
       let text: TextNode | undefined;
       const { editor } = await harnessTestEnvironment(() => {
         text = $buildBackslashMenuFixture().text;
@@ -408,7 +412,6 @@ describe("editable-mode marker menu harness", () => {
 
       await dispatchKeyDown(editor, "\\");
       await waitForMenu();
-      await simulateLiteralInsert(editor, "\\");
       // Filter down to nothing: no offered marker contains "qqqq".
       for (const key of "qqqq") await dispatchKeyDown(editor, key);
       expect(screen.queryAllByRole("menuitem")).toHaveLength(0);
@@ -416,12 +419,9 @@ describe("editable-mode marker menu harness", () => {
 
       await dispatchKeyDown(editor, "Enter");
 
-      // Escape's contract: the overlay goes, the document keeps the typed literal, and the
-      // caret is still live at its end. Committing nothing must not leave an overlay that no
-      // keystroke can resolve.
       expect(document.querySelector(".autocomplete-menu-container")).toBeNull();
       editor.getEditorState().read(() => {
-        expect($getRoot().getTextContent()).toContain("hello\\");
+        expect(requireDefined(text, "text").getTextContent()).toBe("hello");
         const selection = $getSelection();
         if (!$isRangeSelection(selection)) throw new Error("no range selection after the commit");
         expect(selection.isCollapsed()).toBe(true);
@@ -456,7 +456,12 @@ describe("editable-mode marker menu harness", () => {
   });
 
   describe("Space over a collapsed caret", () => {
-    it("dismisses the palette and leaves the literal space to land (passive palette)", async () => {
+    // The active palette's Space commit: the typed query is materialized as the SAME literal
+    // bytes the passive palette would have accumulated in the document (`\` + typed + space),
+    // in one update, and Tier 2 resolves them exactly as it resolved passive typing - so the
+    // ratified Space end states (closed="false" span, unknown-settles-as-typed, `\f` commits
+    // like Enter) hold byte-for-byte without the palette re-implementing any of them.
+    it('commits the typed marker as an open span (closed="false") and closes the palette', async () => {
       let text: TextNode | undefined;
       const { editor } = await harnessTestEnvironment(() => {
         text = $buildBackslashMenuFixture().text;
@@ -465,18 +470,148 @@ describe("editable-mode marker menu harness", () => {
 
       await dispatchKeyDown(editor, "\\");
       await waitForMenu();
-      await simulateLiteralInsert(editor, "\\");
+      await dispatchKeyDown(editor, "n");
+      await dispatchKeyDown(editor, "d");
 
       const event = await dispatchKeyDown(editor, " ");
 
-      // Not prevented: the space lands after the literal, where marker completion resolves it.
-      // (jsdom does not insert it on an un-prevented keydown, hence the event-level assertion —
-      // the same way the `\` collapsed-trigger test above pins its own literal.)
-      expect(event.defaultPrevented).toBe(false);
+      // Prevented: nothing may land beyond the materialized literal - an un-prevented space
+      // would ALSO insert a real browser space after it (a double space).
+      expect(event.defaultPrevented).toBe(true);
       expect(document.querySelector(".autocomplete-menu-container")).toBeNull();
       editor.getEditorState().read(() => {
-        expect($getRoot().getTextContent()).toContain("hello\\");
+        const para = requireDefined($getRoot().getChildren().filter($isParaNode)[0], "para");
+        const chars = para.getChildren().filter($isCharNode);
+        expect(chars).toHaveLength(1);
+        expect(chars[0].getMarker()).toBe("nd");
+        // Passive-Space semantics: NO closing marker - the span records closed="false" and
+        // carries only the opening glyph.
+        expect(chars[0].getUnknownAttributes()?.closed).toBe("false");
+        expect(chars[0].getChildren().filter($isMarkerNode)).toHaveLength(1);
+        // The pre-existing content stays put; no literal backslash text remains anywhere in
+        // the paragraph's PLAIN text nodes (glyphs legitimately carry them).
+        expect(para.getTextContent()).toContain("hello");
       });
+    });
+
+    it("`\\f` + Space commits like Enter - the tokenizer materializes the full note", async () => {
+      // Emergent from the fragment tokenizer, not a palette branch: a space-terminated `\f `
+      // tokenizes to a complete note with the default `+` caller - the same structure the
+      // Enter commit produces. Pinned through the ACTIVE flow so the emergence survives it.
+      let text: TextNode | undefined;
+      const { editor } = await harnessTestEnvironment(() => {
+        text = $buildBackslashMenuFixture().text;
+      });
+      await act(async () => editor.update(() => requireDefined(text, "text").select(5, 5)));
+
+      await dispatchKeyDown(editor, "\\");
+      await waitForMenu();
+      await dispatchKeyDown(editor, "f");
+
+      await dispatchKeyDown(editor, " ");
+
+      expect(document.querySelector(".autocomplete-menu-container")).toBeNull();
+      editor.getEditorState().read(() => {
+        const note = findOnlyNote($getRoot());
+        expect(note.getMarker()).toBe("f");
+      });
+    });
+
+    it("an unknown typed marker settles as typed (`\\zz` + Space)", async () => {
+      let text: TextNode | undefined;
+      const { editor } = await harnessTestEnvironment(() => {
+        text = $buildBackslashMenuFixture().text;
+      });
+      await act(async () => editor.update(() => requireDefined(text, "text").select(5, 5)));
+
+      await dispatchKeyDown(editor, "\\");
+      await waitForMenu();
+      await dispatchKeyDown(editor, "z");
+      await dispatchKeyDown(editor, "z");
+
+      await dispatchKeyDown(editor, " ");
+
+      expect(document.querySelector(".autocomplete-menu-container")).toBeNull();
+      // Tier 2 settles the unknown literal AS TYPED - the marker byte sequence survives into
+      // the settled state (as an unknown-marker structure, not silently dropped).
+      const json = JSON.stringify(editor.getEditorState().toJSON());
+      expect(json).toContain(`"marker":"zz"`);
+    });
+
+    it("`\\` + immediate Space materializes just the trigger byte - the passive end state, byte-identical", async () => {
+      // First-key ordering pin: the space is the FIRST key after the menu opened, the one spot
+      // where `NodeSelectionMenu`'s query capture registers ahead of the harness handler. The
+      // capture must decline the passive palette's commit key (passthrough), not swallow it as
+      // a filter character.
+      let text: TextNode | undefined;
+      const { editor } = await harnessTestEnvironment(() => {
+        text = $buildBackslashMenuFixture().text;
+      });
+      await act(async () => editor.update(() => requireDefined(text, "text").select(5, 5)));
+
+      await dispatchKeyDown(editor, "\\");
+      await waitForMenu();
+
+      const event = await dispatchKeyDown(editor, " ");
+
+      expect(event.defaultPrevented).toBe(true);
+      expect(document.querySelector(".autocomplete-menu-container")).toBeNull();
+      editor.getEditorState().read(() => {
+        // Byte-identical to passive: `\` + space landed and nothing terminated, so the literal
+        // stays (an unterminated bare backslash is not a marker).
+        expect(requireDefined(text, "text").getTextContent()).toBe("hello\\ ");
+      });
+    });
+  });
+
+  describe("filter ranking with a selection", () => {
+    // TJ's report: with a word selected the palette showed the UNFILTERED context list (typed
+    // characters never reached the query). Under the active palette the query capture is the
+    // palette's own in every context, so a selection filters exactly like a collapsed caret,
+    // exact match first (filterAndRankItems' exact > startsWith > contains ordering).
+    it("filters the typed query with a selection in the main editor - exact match first", async () => {
+      let text: TextNode | undefined;
+      const { editor } = await harnessTestEnvironment(() => {
+        text = $buildWrapMenuFixture().text;
+      });
+      await act(async () => editor.update(() => requireDefined(text, "text").select(4, 8)));
+
+      await dispatchKeyDown(editor, "\\");
+      await waitForMenu();
+      await dispatchKeyDown(editor, "w");
+
+      const filtered = await waitForMenu();
+      expect(menuItemLabel(filtered[0])).toBe("w");
+      // Still a filtered list, not the unfiltered context order: every offered marker matches.
+      filtered.forEach((item) => expect(menuItemLabel(item)).toContain("w"));
+    });
+
+    it("filters the typed query with a selection in note content - exact match first", async () => {
+      const { editor } = await harnessTestEnvironment(serializedState(noteUsx(`closed="false"`)));
+
+      let ftText: TextNode | undefined;
+      editor.getEditorState().read(() => {
+        ftText = $noteContentText(findOnlyNote($getRoot()));
+      });
+      // Select "note" inside "A note" - the footnote editor's wrap shape.
+      await act(async () =>
+        editor.update(() => {
+          const text = requireDefined(ftText, "\\ft content text not found");
+          const start = text.getTextContent().indexOf("note");
+          text.select(start, start + 4);
+        }),
+      );
+
+      await dispatchKeyDown(editor, "\\");
+      const unfiltered = await waitForMenu();
+      // Note-context list: the unfiltered offer includes note-internal markers like `fq`.
+      expect(unfiltered.map(menuItemLabel)).toContain("fq");
+
+      await dispatchKeyDown(editor, "w");
+
+      const filtered = await waitForMenu();
+      expect(menuItemLabel(filtered[0])).toBe("w");
+      filtered.forEach((item) => expect(menuItemLabel(item)).toContain("w"));
     });
   });
 

@@ -19,6 +19,15 @@ interface NodeSelectionMenuProps {
    * rule lives. Fires on mount and after every query change.
    */
   onFilterChange?: (query: string, filteredOptions: OptionItem[]) => void;
+  /**
+   * Keys the query capture must DECLINE (return `false`, no preventDefault) so the owner's own
+   * key handling can claim them, wherever it sits in the same command-priority chain. Needed
+   * because within one Lexical priority tier the handler order follows registration order,
+   * which React effect timing can put in either arrangement — an owner cannot otherwise
+   * guarantee it sees a key before this capture swallows it as a filter character (the active
+   * `\` palette's Space commit is the motivating case).
+   */
+  passthroughKeys?: readonly string[];
 }
 
 export function NodeSelectionMenu(props: NodeSelectionMenuProps) {
@@ -30,6 +39,7 @@ export function NodeSelectionMenu(props: NodeSelectionMenuProps) {
     query: controlledQuery,
     menuOpenKey,
     onFilterChange,
+    passthroughKeys,
   } = props;
   const [editor] = useLexicalComposerContext();
   const isControlled = controlledQuery !== undefined;
@@ -53,6 +63,7 @@ export function NodeSelectionMenu(props: NodeSelectionMenuProps) {
       KEY_DOWN_COMMAND,
       (event) => {
         if (isControlled) return false;
+        if (passthroughKeys?.includes(event.key)) return false;
         const actions: { [key: string]: () => void } = {
           Escape: () => onClose?.(),
           Backspace: () => {
@@ -79,7 +90,7 @@ export function NodeSelectionMenu(props: NodeSelectionMenuProps) {
       },
       COMMAND_PRIORITY_HIGH,
     );
-  }, [editor, isControlled, localQuery, menuOpenKey, onClose]);
+  }, [editor, isControlled, localQuery, menuOpenKey, onClose, passthroughKeys]);
 
   return (
     <Menu.Root
