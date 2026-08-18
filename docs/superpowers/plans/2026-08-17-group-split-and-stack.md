@@ -197,3 +197,24 @@ The stale-reference `setTextContent` no-op is a general hazard: any transform or
 Lexical node references across mutations that clone those nodes can hit the same silent
 short-circuit when the "new" text equals the reference's pre-clone text. Worth knowing for the
 whitespace track's space-maintenance transforms.
+
+### Coordinator additions (folded in after the gate)
+
+**Pre-existing flake in the caret-survival test.** Acknowledged: the pre-rewrite test flaked
+(~25-50%) on `anchor.offset` on the CLEAN tree, so any earlier failures there were not a group
+regression. The Task 1 rewrite already asserts on COMMITTED state after the update flushes (the
+same drive shape as `charStackParagraphSplit.test.tsx`), not inside the mutating update like the
+old pin — and the rewritten test passed 8/8 consecutive isolated runs. No further change needed.
+
+**Whitespace-only wrap fix (`23045a60`).** Red-then-green as directed. Select the space in
+`\p one two`, apply `\nd`: `$moveLeadingSpaceToPreviousNode`
+(`packages/platform/src/editor/adaptors/usj-marker-action.utils.ts`) trimmed the wrapped node's
+leading space unconditionally, emptying it — the selected space walked out of the span and an
+empty `\nd \nd*` pair landed in the file with no visible change (the no-silent-no-op class). The
+move now declines when the space is the node's ENTIRE content (`text.trimStart() !== ""`), for
+all callers of the function. Result: a closed `\nd` span whose content is exactly the selected
+space (behind the structural NBSP separator), flanking words untouched, no fabricated space
+outside the span — matching the expected shape for the pin group 4 parked. New pin:
+`markerMenuApply.utils.test.tsx` "wraps a whitespace-only selection: the space IS the span's
+content, no empty pair". Platform suite after the fix: 66 files / 1169 passed / 0 skipped;
+`usj-marker-action-utils.test.ts` 115 passed; typecheck 10 projects clean.
