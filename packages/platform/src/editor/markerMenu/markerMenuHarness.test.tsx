@@ -35,6 +35,7 @@ import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext
 import { InitialEditorStateType } from "@lexical/react/LexicalComposer";
 import { act, screen, waitFor } from "@testing-library/react";
 import {
+  $createRangeSelection,
   $createTextNode,
   $getNodeByKey,
   $getRoot,
@@ -52,6 +53,7 @@ import {
 import { useEffect } from "react";
 import {
   $createChapterNode,
+  $createCharNode,
   $createMarkerNode,
   $createParaNode,
   $isCharNode,
@@ -61,6 +63,7 @@ import {
   getVisibleOpenMarkerText,
   MarkerNode,
   NBSP,
+  ParaNode,
   textTypeState,
 } from "shared";
 import { EditableMarkerMenuHarness, UsjNodesMenuPlugin } from "shared-react";
@@ -669,6 +672,132 @@ describe("editable-mode marker menu harness", () => {
         const paras = $getRoot().getChildren().filter($isParaNode);
         expect(paras).toHaveLength(parasBefore + 1);
         expect(paras[paras.length - 1].getMarker()).toBe(chosenMarker);
+      });
+    });
+
+    /** `[c, p]`, then a `\p` paragraph whose LAST child is a closed `\nd` char span — the two
+     * caret shapes Enter-at-paragraph-end takes when the paragraph ends in an inline marker:
+     * a text point at the closer glyph's trailing edge (where arrows and clicks park the
+     * caret), and the paragraph-end element point. */
+    function $buildCharEndingEnterFixture(): { closer: TextNode; para: ParaNode } {
+      const chapter = $createChapterNode("1");
+      const closer = $createMarkerNode("nd", "closing");
+      const para = $createParaNode("p");
+      $getRoot().append(
+        chapter.append($createTextNode(getVisibleOpenMarkerText("c", "1"))),
+        para.append(
+          $createMarkerNode("p"),
+          $createTrailingSpaceNode(),
+          $createTextNode("text "),
+          $createCharNode("nd").append(
+            $createMarkerNode("nd"),
+            $createTextNode(`${NBSP}word`),
+            closer,
+          ),
+        ),
+      );
+      return { closer, para };
+    }
+
+    it("opens the paragraph menu at the trailing edge of a paragraph-final closer glyph", async () => {
+      let closer!: TextNode;
+      const { editor } = await harnessTestEnvironment(() => {
+        ({ closer } = $buildCharEndingEnterFixture());
+      });
+      // The caret AFTER `\nd*` — the position ArrowRight/click resolve to at the end of a
+      // paragraph whose last child is an inline char span.
+      await act(async () =>
+        editor.update(() =>
+          closer.select(closer.getTextContentSize(), closer.getTextContentSize()),
+        ),
+      );
+
+      let parasBefore = 0;
+      editor.getEditorState().read(() => (parasBefore = countParagraphs($getRoot())));
+
+      await pressEnterCommand(editor);
+
+      editor.getEditorState().read(() => {
+        expect(countParagraphs($getRoot())).toBe(parasBefore); // split suppressed
+      });
+      const menuItems = await waitForMenu();
+      expect(menuItemLabel(menuItems[0])).toBe("p");
+    });
+
+    it("opens the paragraph menu at the paragraph-end ELEMENT point after a char span", async () => {
+      let para!: ParaNode;
+      const { editor } = await harnessTestEnvironment(() => {
+        ({ para } = $buildCharEndingEnterFixture());
+      });
+      await act(async () =>
+        editor.update(() => {
+          const selection = $createRangeSelection();
+          selection.anchor.set(para.getKey(), para.getChildrenSize(), "element");
+          selection.focus.set(para.getKey(), para.getChildrenSize(), "element");
+          $setSelection(selection);
+        }),
+      );
+
+      let parasBefore = 0;
+      editor.getEditorState().read(() => (parasBefore = countParagraphs($getRoot())));
+
+      await pressEnterCommand(editor);
+
+      editor.getEditorState().read(() => {
+        expect(countParagraphs($getRoot())).toBe(parasBefore); // split suppressed
+      });
+      const menuItems = await waitForMenu();
+      expect(menuItemLabel(menuItems[0])).toBe("p");
+    });
+
+    it("commits the Enter-menu item from the closer's trailing edge: the split lands AFTER the intact span", async () => {
+      let closer!: TextNode;
+      let para!: ParaNode;
+      const { editor } = await harnessTestEnvironment(() => {
+        ({ closer, para } = $buildCharEndingEnterFixture());
+      });
+      await act(async () =>
+        editor.update(() =>
+          closer.select(closer.getTextContentSize(), closer.getTextContentSize()),
+        ),
+      );
+
+      let parasBefore = 0;
+      editor.getEditorState().read(() => (parasBefore = countParagraphs($getRoot())));
+
+      await pressEnterCommand(editor);
+      const menuItems = await waitForMenu();
+      const chosenMarker = requireDefined(menuItemLabel(menuItems[0]), "menu item label");
+
+      await dispatchKeyDown(editor, "Enter"); // selects the active (first, SmartEnter) item
+
+      expect(screen.queryAllByRole("menuitem")).toHaveLength(0);
+      editor.getEditorState().read(() => {
+        const paras = $getRoot().getChildren().filter($isParaNode);
+        expect(paras).toHaveLength(parasBefore + 1);
+        // The ORIGINAL paragraph keeps its span intact — closer glyph still the span's last
+        // child, nothing split inside the char.
+        expect(paras[0].getKey()).toBe(para.getKey());
+        const span = paras[0].getChildren().find($isCharNode);
+        expect(requireDefined(span, "span missing").getTextContent()).toBe(`\\nd${NBSP}word\\nd*`);
+        // The NEW paragraph carries the chosen marker and NO char-span husk.
+        const fresh = paras[1];
+        expect(fresh.getMarker()).toBe(chosenMarker);
+        expect(fresh.getChildren().filter($isCharNode)).toHaveLength(0);
+        // The caret continues in the new paragraph.
+        const selection = $getSelection();
+        if (!$isRangeSelection(selection)) throw new Error("expected a range selection");
+        let inFresh = false;
+        for (
+          let node = selection.anchor.getNode();
+          node;
+          node = node.getParent() as ReturnType<typeof selection.anchor.getNode>
+        )
+          if (node.is(fresh)) {
+            inFresh = true;
+            break;
+          }
+        expect(inFresh).toBe(true);
       });
     });
 

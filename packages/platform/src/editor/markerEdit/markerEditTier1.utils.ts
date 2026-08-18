@@ -4,7 +4,12 @@
  * Everything Tier 1 cannot express routes to Tier 2 ($requestTier2ForNode).
  */
 
-import { $rebuildParas, $requestTier2ForNode, Tier2Context } from "./tier2Rebuild.utils";
+import {
+  $idleSettleWouldDiscardCaretHeldBytes,
+  $rebuildParas,
+  $requestTier2ForNode,
+  Tier2Context,
+} from "./tier2Rebuild.utils";
 import {
   $createTextNode,
   $getNodeByKey,
@@ -947,7 +952,15 @@ export function $resolvePendingMarkers(
       const bare = BARE_OPENER_REGEX.exec(text);
       if (node.getMarkerSyntax() === "opening" && bare)
         mutated = $applyOpenerRename(node, bare[1], context) || mutated;
-      else mutated = $requestTier2ForNode(node, context) || mutated;
+      else if (
+        settleReason === "idle" &&
+        $idleSettleWouldDiscardCaretHeldBytes(node, context.getMarker)
+      ) {
+        // The idle tick may not settle a caret-held site whose re-tokenization would DROP the
+        // typed byte (accept-then-discard, and the caret's byte would not survive) — the same
+        // family as the emptied-husk carve-out. Re-pend; genuine departure settles it.
+        context.pendingKeys.add(key);
+      } else mutated = $requestTier2ForNode(node, context) || mutated;
       continue;
     }
     // A pended run PIECE settles at its OWNER. `$settlePendedDisplayOwner` recognizes only owners
@@ -1001,17 +1014,52 @@ export function $resolvePendingMarkers(
     // (the piece's owner where it has one) rather than the raw pended node: both resolve to the
     // same scope — a run rides as its owner's following siblings, or as its children for a char
     // span — so this is the same rebuild, reached only after the owner's grace has declined.
+    if (
+      settleReason === "idle" &&
+      $idleSettleWouldDiscardCaretHeldBytes(target, context.getMarker)
+    ) {
+      // Same idle carve-out as the marker-glyph arm above: a rebuild that would discard the
+      // caret-held typed byte re-pends and settles on genuine departure instead.
+      context.pendingKeys.add(targetKey);
+      continue;
+    }
     mutated = $requestTier2ForNode(target, context) || mutated;
   }
   return mutated;
 }
 
 /**
+ * Whether a caret point (`node`, `offset`) sits INSIDE marker glyph text — as opposed to at the
+ * TRAILING EDGE of a char span's canonical closing glyph, which is genuinely AFTER the span:
+ * arrow traversal and clicks park the caret there at the end of a paragraph whose last child is
+ * an inline span, and Enter there is a paragraph action (open the Enter menu), not a marker
+ * edit. A NON-canonical (pended, mid-edit) closer keeps its trailing edge "inside": the caret is
+ * there because the user is editing the glyph byte-by-byte, and Enter must keep settling that
+ * edit instead of splitting. An OPENING glyph's trailing edge stays "inside" too — it is the
+ * span's interior (the separator/content follows it). Deliberately scoped to CHAR-parented
+ * closers: a display-run wrapper's closer (`\va*`, `\cat*`, a milestone's `\*`) keeps today's
+ * swallow — a split at that caret would land inside the `AttributeRunNode`, a path with no
+ * close-and-reopen story yet.
+ * Read-only: call inside `editor.getEditorState().read(...)` or an update.
+ */
+export function $isPointInMarkerGlyphText(node: LexicalNode, offset: number): boolean {
+  if (!$isMarkerNode(node)) return false;
+  return !(
+    offset === node.getTextContentSize() &&
+    node.getMarkerSyntax() !== "opening" &&
+    $isCanonicalMarkerNode(node) &&
+    $isCharNode(node.getParent())
+  );
+}
+
+/**
  * Whether a collapsed-or-not range selection's anchor sits inside marker glyph text — the guard
- * `MarkerEditPlugin` and `UsjNodesMenuPlugin` use to swallow Enter presses inside a marker.
+ * `MarkerEditPlugin` and `UsjNodesMenuPlugin` use to swallow Enter presses inside a marker. The
+ * trailing edge of a canonical closer does NOT count (see {@link $isPointInMarkerGlyphText}).
  * Read-only: call inside `editor.getEditorState().read(...)` or an update.
  */
 export function $isSelectionInMarkerNode(): boolean {
   const selection = $getSelection();
-  return $isRangeSelection(selection) && $isMarkerNode(selection.anchor.getNode());
+  if (!$isRangeSelection(selection)) return false;
+  return $isPointInMarkerGlyphText(selection.anchor.getNode(), selection.anchor.offset);
 }

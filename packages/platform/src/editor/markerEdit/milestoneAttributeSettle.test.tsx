@@ -745,4 +745,65 @@ describe("milestone attribute order", () => {
       expect($attributeRun().getTextContent()).toBe(`${NBSP}|who="Pilate" sid="qt_1"`);
     });
   });
+
+  it("a USER EDIT reordering the run's attributes settles to the TYPED order end to end", async () => {
+    // The authored order is who-then-sid; the user retypes the displayed value sid-first. On
+    // settle the TYPED bytes are the authority: the serialized marker object's key order must
+    // follow them (the attributeOrder capture re-derives from the freshly tokenized object), and
+    // the displayed run must keep the typed order through the post-settle self-heal.
+    const state = loadedState();
+    const { editor } = await baseTestEnvironment(
+      JSON.stringify({ root: state.root }),
+      <>
+        <CharNodePlugin />
+        <MarkerEditPlugin viewOptions={viewOptions} />
+        <TextSpacingPlugin />
+      </>,
+    );
+
+    // Retype the value in the reordered form, caret held in the value (mid-edit shape).
+    await act(async () =>
+      editor.update(() => {
+        const value = $attributeRun();
+        value.setTextContent(`${NBSP}|sid="qt_1" who="Pilate"`);
+        value.select(value.getTextContentSize(), value.getTextContentSize());
+      }),
+    );
+
+    // Caret departs to the trailing content; the pended run settles by re-tokenizing the typed
+    // bytes.
+    await act(async () =>
+      editor.update(() => {
+        const trailing = $getRoot()
+          .getAllTextNodes()
+          .find((node) => node.getTextContent().includes("after"));
+        requireDefined(trailing, "trailing text not found").select(0, 0);
+      }),
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const settled = deserializeSerializedEditorState(editor.getEditorState().toJSON(), viewOptions);
+    const typedOrderUsj = {
+      type: "USJ",
+      version: "3.1",
+      content: [
+        {
+          type: "para",
+          marker: "p",
+          content: [
+            "before ",
+            { type: "ms", marker: "qt-s", sid: "qt_1", who: "Pilate" },
+            " after",
+          ],
+        },
+      ],
+    } as Usj;
+    // Compared as JSON text, not with `toEqual`: key order is the whole assertion here.
+    expect(JSON.stringify(settled)).toBe(JSON.stringify(typedOrderUsj));
+    editor.getEditorState().read(() => {
+      expect($attributeRun().getTextContent()).toBe(`${NBSP}|sid="qt_1" who="Pilate"`);
+    });
+  });
 });
