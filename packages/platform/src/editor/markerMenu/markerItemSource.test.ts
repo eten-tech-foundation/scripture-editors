@@ -130,7 +130,7 @@ describe("getMarkerMenuItems — character source (PT9 MarkerItemSource.GetChara
     },
   );
 
-  it("falls back to the paragraph list when the character source yields nothing (FB 21054)", () => {
+  it("falls back to the paragraph list when the character source yields nothing", () => {
     const context = makeContext({
       source: "character",
       previousParaMarkers: ["c", "p"],

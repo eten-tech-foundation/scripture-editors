@@ -70,7 +70,10 @@ codebase would endorse the direction — not the implementation effort.
     The closer/opener/para-prefix kinds have pend+settle via Tier-1 arms (marker-resolution,
     whitespace) — the un-audited quadrant is machine-drift HEAL. Verify per kind with tests,
     fix gaps found, switch `char`/`optbreak` scanners to `$isCanonicalMarkerNode`, and leave
-    the wholesale descriptor refactor as follow-on.
+    the wholesale descriptor refactor as follow-on. Count for the record: the registry has
+    ELEVEN kinds registered, not ten — this doc carried no count of its own but pointed at
+    backlog §7, which said "ten" until it was corrected on 2026-08-17. Invariants §8 and
+    `displayRunDescriptors` are the authority; both now agree at eleven.
 16. **Host: collab `closed="false"` e2e test and promoting the round-trip warn to a detector.**
     (medium-high) Both are additive test/diagnostic work with no serialization-behavior risk.
 17. **Unknown attributes on collab embeds: implement the passthrough and un-skip the pin.**
