@@ -406,14 +406,26 @@ closer, which Paratext treats as note text content.
 
 ### Two corrections that change what to do next
 
-- **ParatextData is NOT exonerated.** The save path is
+- **SETTLED (2026-08-17): the loss is on the LOAD leg.** The save path is
   `editor USJ -> usjToUsxString() -> setChapterUSX() -> ParatextData`, and it never calls
-  `usxStringToUsj`. Since the serializer preserves the space, the space IS present in the USX handed
-  to C#. So the user-visible loss is either on the LOAD leg
-  (`getChapterUSX() -> usxStringToUsj -> editor`) or inside ParatextData. **Re-derive which before
-  estimating the fix**, and do not skip the C# capture test on the strength of the earlier claim.
+  `usxStringToUsj`. The open question was whether the user-visible loss sat on the LOAD leg
+  (`getChapterUSX() -> usxStringToUsj -> editor`) or inside ParatextData; the C# capture test
+  `NoteLeadingSpaceRoundTripCaptureTests.cs` (paranext-core, `c-sharp-tests/Projects/`) exonerates
+  ParatextData, so the loss is `usx-to-usj.ts`'s dropped-whitespace branches — the load leg,
+  owned by the whitespace track per the matrix above.
 - **`UsjReaderWriter.toUsfm()` remains irrelevant** — byte-exact green on this fixture and not in the
   save path at all. That much still holds; do not use it to reason about save behavior.
+
+### Chapter/verse whitespace-skip asymmetry (ParatextData parse; upgrade tripwire)
+
+ParatextData's attribute-marker folds treat post-close whitespace ASYMMETRICALLY, pinned in
+`VerseAttributeFoldRoundTripCaptureTests.cs` (paranext-core, `c-sharp-tests/Projects/`, run
+against real ParatextData 9.5.0.22): the CHAPTER path consumes ONE whitespace-only token after a
+folded `\ca`, unconditionally (pinned both with and without a `\cp` following), while the VERSE
+path does not — a same-line space between `\va*` and `\vp` BLOCKS the `\vp` fold and survives as
+content. Post-9.5 ParatextData generalizes the chapter-side skip to the verse side, so the verse
+row of that capture test doubles as the upgrade tripwire: when a ParatextData upgrade flips it,
+re-derive the editor's fold rules rather than patching the one failing pin.
 
 The regression net is still a USJ-to-USX-to-USJ suite over the existing fixtures, and it will still
 go red — but it conflates both converters, so a failure there localizes nothing on its own. Pair it
@@ -440,11 +452,17 @@ One owner per file. If a track needs a file it does not own, coordinate rather t
 **Not a track — already landed.** The display-run registry (`libs/shared/src/displayRun/`,
 `displayRunSync.utils.ts`, the descriptor shape) shipped. Its descriptor carries NINE required
 members — `kind` plus eight duties — so omitting a duty for a new kind is a type error rather than a
-silently dead quadrant: Invariant III enforced by the compiler. Eight kinds are registered
-(`separator`, `char`, `va`, `vp`, `milestone`, `optbreak`, `opaqueUnknown`, `nestedGlyph`), and
-registration order is load-bearing. The remaining work is the **Glyph kinds** track above — the
-registry covers display runs, not the opener/closer/para-prefix glyphs. Do not re-plan the registry;
-extend its reach.
+silently dead quadrant: Invariant III enforced by the compiler. Eleven kinds are registered
+(`separator`, `char`, `va`, `vp`, `cat`, `ca`, `cp`, `milestone`, `optbreak`, `opaqueUnknown`,
+`nestedGlyph`), and registration order is load-bearing — `cat`/`ca`/`cp` are listed before
+`milestone` for the loose-glyph classification reason documented at the descriptor array
+(`displayRunRegistry.ts`, the comment on `displayRunDescriptors`). The remaining work is the
+**Glyph kinds** track above — the registry covers display runs, not the opener/closer/para-prefix
+glyphs. Do not re-plan the registry; extend its reach. (2026-08-17: the glyph-kinds HEAL quadrant
+landed as a Tier-1 engine arm — `$markerNodeTransform` heals un-pended, non-caret-held byte drift
+in place via `$restoreCanonicalMarkerText` — and the `char`/`optbreak` scanners classify by
+rendered bytes; the wholesale descriptor migration for opener/closer/para-prefix glyphs remains
+open, mechanical, and optional.)
 
 **Contended, needing explicit coordination:**
 
@@ -478,9 +496,11 @@ if either needs to, raise it with the other first.
 - The verse-adjacent typed-character repro — Whitespace owns the fabricated space, Structural
   deletion and caret owns the caret position. One shared test.
 
-**Off limits until the settled-`getUsj()` work lands:** `tier2Rebuild.utils.ts`,
-`virtualSettle.utils.ts`, `settledGetUsj*`. They are actively being edited on
-`standard-view-pt-4187`.
+**Fence removed (2026-08-17):** an earlier revision fenced `tier2Rebuild.utils.ts`,
+`virtualSettle.utils.ts`, and `settledGetUsj*` as off limits until the settled-`getUsj()` work
+landed. That work landed and merged; the premise was measured stale during the unknown-blocks
+track, and both files have since been edited with owner approval. No fence remains — coordinate
+through ordinary file ownership above.
 
 ---
 
