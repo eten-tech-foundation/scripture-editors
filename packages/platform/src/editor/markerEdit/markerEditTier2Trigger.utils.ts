@@ -25,7 +25,7 @@
  */
 
 import { $requestTier2ForNode } from "./tier2Rebuild.utils";
-import { MarkerEditContext } from "./markerEditTier1.utils";
+import { $noteCallerTextTransform, MarkerEditContext } from "./markerEditTier1.utils";
 import {
   $getRoot,
   $getSelection,
@@ -116,6 +116,12 @@ export function $textNodeTier2Transform(node: TextNode, context: MarkerEditConte
     else context.pendingKeys.add(node.getKey());
     return;
   }
+  // An expanded note's editable caller text — the note-marker family's leading attribute — has
+  // its own Tier-1 arm (whitespace collapse plus word retag, `$noteCallerTextTransform`), the
+  // same treatment a verse glyph's number gets from $verseNodeTransform. Handled shapes never
+  // reach the literal machinery below; unhandled ones (a deleted flanking separator, backslash
+  // bytes) fall through with today's behavior untouched.
+  if ($noteCallerTextTransform(node, context)) return;
   // Attribute runs (char and milestone alike) always pend and never re-tokenize from here:
   // their bytes legitimately contain arbitrary characters, so neither the backslash check below
   // nor the termination regex further down means anything for them — a `\`-free edit is just as

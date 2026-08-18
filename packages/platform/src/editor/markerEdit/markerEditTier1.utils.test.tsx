@@ -7,9 +7,14 @@ import {
   $appendCharPara,
   $appendVersePara,
   testEnvironment,
+  testEnvironmentExpanded,
   testEnvironmentWithSheet,
   viewOptions,
 } from "./markerEdit.test-helpers";
+import {
+  deserializeSerializedEditorState,
+  initialize as initializeDeserialize,
+} from "../adaptors/editor-usj.adaptor";
 import { act } from "@testing-library/react";
 import {
   $createTextNode,
@@ -42,6 +47,7 @@ import {
   ChapterNode,
   CharNode,
   CURSOR_CHANGE_TAG,
+  getEditableCallerText,
   getMarker as bundledGetMarker,
   getVisibleOpenMarkerText,
   MarkerNode,
@@ -1460,6 +1466,110 @@ describe("$resolvePendingMarkers routes a pended run PIECE through its owner's g
       // And the verse's own state was never re-derived from a rebuild.
       expect(verse.getAltnumber()).toBe("11 va");
       expect(verse.getPubnumber()).toBe("11 vp");
+    });
+  });
+});
+
+describe("Tier 1 note-caller leading attribute (map-derived)", () => {
+  // The markers map declares `caller` a leading attribute of the note-marker family
+  // (`leadingAttributeNames`, shared), so the caller gets the same one-rule treatment as a
+  // verse's number: whitespace between the marker and the value is structural and collapses,
+  // and the value retags to the typed word. These pins drive the expanded editable caller —
+  // collapsed notes render an atomic ImmutableNoteCallerNode this arm can never see.
+
+  /** `\p x` + an expanded (unclosed) `\f + \ft body` note; returns the caller TextNode. */
+  async function mountExpandedNote() {
+    let note!: NoteNodeClass;
+    let callerText!: TextNode;
+    const environment = await testEnvironmentExpanded(() => {
+      note = $createNoteNode("f", "+", false);
+      callerText = $createTextNode(getEditableCallerText("+"));
+      const ft = $createCharNode("ft");
+      ft.setUnknownAttributes({ closed: "false" });
+      $getRoot().append(
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          $createTextNode("x "),
+          note.append(
+            $createMarkerNode("f"),
+            callerText,
+            ft.append($createMarkerNode("ft"), $createTextNode(`${NBSP}body`)),
+          ),
+        ),
+      );
+    });
+    return { editor: environment.editor, note, callerText };
+  }
+
+  async function typeInCallerText(
+    editor: ReturnType<typeof createBasicTestEnvironment>["editor"],
+    callerText: TextNode,
+    offset: number,
+    text: string,
+  ) {
+    await act(async () =>
+      editor.update(() => {
+        callerText.select(offset, offset);
+        const selection = $getSelection();
+        if ($isRangeSelection(selection)) selection.insertText(text);
+      }),
+    );
+  }
+
+  it("an extra space typed next to the caller cannot demote it (whitespace collapses)", async () => {
+    const { editor, note, callerText } = await mountExpandedNote();
+
+    // ` |+⍽` → type a space: `\f  +` must still be caller `+` — the extra whitespace is
+    // structural and collapses, exactly as `\v  5` is still verse 5.
+    await typeInCallerText(editor, callerText, 1, " ");
+
+    editor.getEditorState().read(() => {
+      expect(note.getCaller()).toBe("+");
+      expect(callerText.getTextContent()).toBe(getEditableCallerText("+"));
+    });
+    // And nothing leaks into the note's content: the caller text serializes as the caller,
+    // never as note text (the pre-arm failure — the reverse adaptor only drops a byte-exact
+    // caller, so a diverged one leaked wholesale into content).
+    initializeDeserialize(undefined);
+    const usj = deserializeSerializedEditorState(editor.getEditorState().toJSON(), viewOptions);
+    const para = usj?.content?.[0];
+    const noteUsj = typeof para === "object" ? para.content?.[1] : undefined;
+    if (typeof noteUsj !== "object") throw new Error("expected the note in the serialized USJ");
+    expect(noteUsj.caller).toBe("+");
+    expect(noteUsj.content).toHaveLength(1);
+    expect(typeof noteUsj.content?.[0] === "object" ? noteUsj.content[0].marker : undefined).toBe(
+      "ft",
+    );
+  });
+
+  it("retags the caller to the typed word (PT9 GetNextWord: whole word, valid or not)", async () => {
+    const { editor, note, callerText } = await mountExpandedNote();
+
+    // ` +|⍽` → type `x`: the caller word becomes `+x`, mirroring `\v 1a` extending the number.
+    await typeInCallerText(editor, callerText, 2, "x");
+
+    editor.getEditorState().read(() => {
+      expect(note.getCaller()).toBe("+x");
+      expect(callerText.getTextContent()).toBe(getEditableCallerText("+x"));
+    });
+  });
+
+  it("leaves a caller with a deleted flanking separator alone (not whitespace collapse)", async () => {
+    // Deleting a flanking separator is separator-deletion territory (the tokenize-identity
+    // rule), not whitespace collapse — the arm is scope-guarded to shapes with BOTH flanking
+    // whitespace runs present, and everything else keeps today's behavior untouched.
+    const { editor, note, callerText } = await mountExpandedNote();
+
+    await act(async () =>
+      editor.update(() => {
+        callerText.setTextContent(`+${NBSP}`); // leading separator deleted
+      }),
+    );
+
+    editor.getEditorState().read(() => {
+      expect(note.getCaller()).toBe("+");
+      expect(callerText.getTextContent()).toBe(`+${NBSP}`);
     });
   });
 });
