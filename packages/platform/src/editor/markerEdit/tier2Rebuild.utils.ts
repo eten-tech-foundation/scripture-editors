@@ -11,7 +11,12 @@
  */
 
 import usjEditorAdaptor from "../adaptors/usj-editor.adaptor";
-import { MarkerContent, USJ_TYPE, USJ_VERSION } from "@eten-tech-foundation/scripture-utilities";
+import {
+  MarkerContent,
+  MarkerObject,
+  USJ_TYPE,
+  USJ_VERSION,
+} from "@eten-tech-foundation/scripture-utilities";
 import {
   $getNodeByKey,
   $getSelection,
@@ -1578,13 +1583,14 @@ export function $requestTier2ForNode(node: LexicalNode, context: Tier2Context): 
  * folding it would let its letters mask a genuine loss of the same characters. */
 const CONTENT_BYTE_BASE_KEYS = new Set(["type", "marker", "content", "closed"]);
 
-function appendAttributeListBytes(item: { [key: string]: unknown }, out: string[]): void {
+function appendAttributeListBytes(item: MarkerObject, out: string[]): void {
   const entries = Object.entries(item).filter(
-    ([key, value]) => typeof value === "string" && !CONTENT_BYTE_BASE_KEYS.has(key),
+    (entry): entry is [string, string] =>
+      typeof entry[1] === "string" && !CONTENT_BYTE_BASE_KEYS.has(entry[0]),
   );
   if (entries.length === 0) return;
   out.push("|");
-  for (const [key, value] of entries) out.push(`${key}="${value as string}"`);
+  for (const [key, value] of entries) out.push(`${key}="${value}"`);
 }
 
 /**
