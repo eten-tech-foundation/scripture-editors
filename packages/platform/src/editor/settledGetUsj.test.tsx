@@ -458,6 +458,33 @@ const pendingShapes: PendingShape[] = [
     },
   },
   {
+    // A FIRST-CLASS `char ca` at root directly after its chapter (the transient pre-fold shape) —
+    // an edit inside it settles through the CHAPTER scope, and both halves must fold the span
+    // back onto the chapter's `altnumber` rather than leaving it beside a stale chapter.
+    name: "first-class ca char adjacent to its chapter, value edited",
+    usj: {
+      type: "USJ",
+      version: "3.1",
+      content: [
+        { type: "book", marker: "id", code: "GEN", content: ["GEN"] },
+        { type: "chapter", marker: "c", number: "1" },
+        { type: "char", marker: "ca", content: ["3"] },
+        { type: "para", marker: "p", content: ["body text"] },
+        { type: "para", marker: "p", content: ["depart here"] },
+      ],
+    },
+    $edit: () => {
+      const char = $getRoot().getChildren().find($isCharNode);
+      if (!char) throw new Error("expected the root-level ca char");
+      const value = char
+        .getChildren()
+        .find((child): child is TextNode => $isTextNode(child) && !$isMarkerNode(child));
+      if (!value) throw new Error("expected the char's value text");
+      value.setTextContent(`${NBSP}4`);
+      value.select(value.getTextContentSize(), value.getTextContentSize());
+    },
+  },
+  {
     // Both halves must fold the edited `\cat` value back onto the note's `category` — the run's
     // displayed bytes win, and the serialized note field must follow them in the virtual output
     // exactly as the real settle's `setCategory` does.

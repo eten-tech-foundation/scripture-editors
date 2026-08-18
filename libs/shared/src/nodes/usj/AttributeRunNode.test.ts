@@ -145,6 +145,39 @@ describe("AttributeRunNode", () => {
         expect(element.classList.contains("usfm_va")).toBe(false);
       });
     });
+
+    it("adds the 'attribute-run' and 'usfm_ca' classes for a ca run", () => {
+      // The chapter's \ca run must render with the SAME stylesheet styling a standalone
+      // `char ca` span gets (non-bold green), not the generic dim attribute-run look — the
+      // same wrapper-carries-the-marker-class mechanism va/vp already use.
+      const { editor } = createBasicTestEnvironment([AttributeRunNode]);
+      editor.update(() => {
+        const element = $createAttributeRunNode("ca").createDOM();
+        expect(element.classList.contains("attribute-run")).toBe(true);
+        expect(element.classList.contains("usfm_ca")).toBe(true);
+        expect(element.classList.contains("usfm_cp")).toBe(false);
+      });
+    });
+
+    it("adds the 'attribute-run' and 'usfm_cp' classes for a cp run", () => {
+      const { editor } = createBasicTestEnvironment([AttributeRunNode]);
+      editor.update(() => {
+        const element = $createAttributeRunNode("cp").createDOM();
+        expect(element.classList.contains("attribute-run")).toBe(true);
+        expect(element.classList.contains("usfm_cp")).toBe(true);
+        expect(element.classList.contains("usfm_ca")).toBe(false);
+      });
+    });
+
+    it("adds no marker-specific class for a cat run", () => {
+      // `cat` keeps the generic dim attribute-run look: unlike ca/cp there is no standalone
+      // stylesheet styling it must visually match.
+      const { editor } = createBasicTestEnvironment([AttributeRunNode]);
+      editor.update(() => {
+        const element = $createAttributeRunNode("cat").createDOM();
+        expect(Array.from(element.classList)).toEqual(["attribute-run"]);
+      });
+    });
   });
 
   describe("updateDOM()", () => {
@@ -192,6 +225,38 @@ describe("AttributeRunNode", () => {
 
         expect(needsReplace).toBe(false);
         expect(dom.classList.contains("usfm_vp")).toBe(true);
+      });
+    });
+
+    it("syncs from 'ca' to 'cp' in place and returns false", () => {
+      const { editor } = createBasicTestEnvironment([AttributeRunNode]);
+      editor.update(() => {
+        const prev = $createAttributeRunNode("ca");
+        const dom = prev.createDOM();
+        expect(dom.classList.contains("usfm_ca")).toBe(true);
+
+        const next = $createAttributeRunNode("cp");
+        const needsReplace = next.updateDOM(prev, dom);
+
+        expect(needsReplace).toBe(false);
+        expect(dom.classList.contains("usfm_ca")).toBe(false);
+        expect(dom.classList.contains("usfm_cp")).toBe(true);
+        expect(dom.classList.contains("attribute-run")).toBe(true);
+      });
+    });
+
+    it("removes 'usfm_ca' with no replacement class when a ca run becomes a milestone run", () => {
+      const { editor } = createBasicTestEnvironment([AttributeRunNode]);
+      editor.update(() => {
+        const prev = $createAttributeRunNode("ca");
+        const dom = prev.createDOM();
+
+        const next = $createAttributeRunNode("milestone");
+        const needsReplace = next.updateDOM(prev, dom);
+
+        expect(needsReplace).toBe(false);
+        expect(dom.classList.contains("usfm_ca")).toBe(false);
+        expect(Array.from(dom.classList)).toEqual(["attribute-run"]);
       });
     });
 

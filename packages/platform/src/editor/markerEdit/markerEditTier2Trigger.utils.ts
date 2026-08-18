@@ -24,7 +24,7 @@
  * for the same caret-departure settle.
  */
 
-import { $requestTier2ForNode } from "./tier2Rebuild.utils";
+import { $requestTier2ForNode, $settleScopeForNode } from "./tier2Rebuild.utils";
 import { $noteCallerTextTransform, MarkerEditContext } from "./markerEditTier1.utils";
 import {
   $getRoot,
@@ -163,6 +163,15 @@ export function $textNodeTier2Transform(node: TextNode, context: MarkerEditConte
     // every save warns (the third live bug). Own-key pend: the caret-node exception graces it
     // mid-typing, and departure's paragraph rebuild folds the bytes onto the verse (attrCapture).
     else if ($verseOfAttributeSourceText(node)) context.pendingKeys.add(node.getKey());
+    // Text inside a first-class `\ca`/`\cp` char span at document root adjacent to its chapter
+    // is the chapter-side twin of the verse arm above: no backslash or pipe ever lands in a
+    // value edit, so without pending here the key is deleted and the fold onto the chapter's
+    // altnumber/pubnumber waited for a reload. `$settleScopeForNode` returns a CHAPTER here only
+    // through its adjacency arm — chapter-INTERIOR text already returned at the top of this
+    // transform — so this condition IS the adjacency test, not a re-derivation of it. Own-key
+    // pend; departure's chapter-scoped rebuild re-tokenizes `\c` and `\ca` together (attrCapture
+    // folds, or refuses at the fixed point for an unfoldable span).
+    else if ($isChapterNode($settleScopeForNode(node))) context.pendingKeys.add(node.getKey());
     else {
       // Deleting a char opener's NBSP separator OUT OF ITS PREFIX position is a leaf-only edit:
       // the span's own element transform (the plugin's CharNode pend) does not run for it, so

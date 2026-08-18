@@ -32,12 +32,15 @@ import {
 import {
   $charAttributeDisplayNode,
   $createAttributeRunNode,
+  $createChapterNode,
+  $createCharNode,
   $createMarkerNode,
   $createMilestoneNode,
   $createNoteNode,
   $createParaNode,
   $createUnknownNode,
   $createVerseNode,
+  $isChapterNode,
   $isAttributeRunNode,
   $isCharNode,
   $isMarkerNode,
@@ -1849,6 +1852,100 @@ describe("$settleScopeForNode", () => {
       const text = para.getLastChild();
       if (!text) throw new Error("expected paragraph text");
       expect($settleScopeForNode(text)).toBeUndefined();
+    });
+  });
+
+  // A first-class `\ca`/`\cp` char span at document root directly after its chapter is the
+  // transient pre-fold shape ParatextData folds back onto the chapter on reload. Its edits must
+  // settle through the CHAPTER scope — the char has no Note/Para/Chapter ancestor of its own, so
+  // without the adjacency arm a pend inside it could never settle and the fold waited for reload.
+  it("returns the adjacent chapter for text inside a first-class \\ca char at document root", async () => {
+    const { editor } = await testEnvironment(() => {
+      $getRoot().append(
+        $createChapterNode("1").append($createTextNode(getVisibleOpenMarkerText("c", "1"))),
+        $createCharNode("ca").append(
+          $createMarkerNode("ca"),
+          $createTextNode(`${NBSP}3`),
+          $createMarkerNode("ca", "closing"),
+        ),
+        $createParaNode("p").append($createMarkerNode("p"), $createTextNode(`${NBSP}body`)),
+      );
+    });
+    editor.getEditorState().read(() => {
+      const chapter = $getRoot().getChildren().find($isChapterNode);
+      if (!chapter) throw new Error("expected a ChapterNode");
+      const char = $getRoot().getChildren().find($isCharNode);
+      if (!char) throw new Error("expected a root-level CharNode");
+      const value = char.getChildren().find((child) => !$isMarkerNode(child));
+      if (!value) throw new Error("expected the char's value text");
+      expect($settleScopeForNode(value)).toBe(chapter);
+      // The char's own key routes the same way (the piece/owner distinction upstream collapses
+      // onto one scope).
+      expect($settleScopeForNode(char)).toBe(chapter);
+    });
+  });
+
+  it("returns the chapter for a root \\cp char reached through an intervening \\ca char", () => {
+    // A bare environment, deliberately without the MarkerEditPlugin: a first-class `cp` CHAR is
+    // not a shape the engine's transforms leave at rest (real first-class `cp` is a ParaNode),
+    // but the scope walk is pure tree geometry and its chain rule — adjacency THROUGH other
+    // `\ca`/`\cp` chars — is pinned here on the raw shape.
+    const { editor } = createBasicTestEnvironment([TypedMarkNode, ...usjReactNodes], () => {
+      $getRoot().append(
+        $createChapterNode("1").append($createTextNode(getVisibleOpenMarkerText("c", "1"))),
+        $createCharNode("ca").append(
+          $createMarkerNode("ca"),
+          $createTextNode(`${NBSP}3`),
+          $createMarkerNode("ca", "closing"),
+        ),
+        $createCharNode("cp").append($createMarkerNode("cp"), $createTextNode(`${NBSP}A`)),
+        $createParaNode("p").append($createMarkerNode("p"), $createTextNode(`${NBSP}body`)),
+      );
+    });
+    editor.getEditorState().read(() => {
+      const chapter = $getRoot().getChildren().find($isChapterNode);
+      if (!chapter) throw new Error("expected a ChapterNode");
+      const cpChar = $getRoot().getChildren().filter($isCharNode)[1];
+      if (!cpChar) throw new Error("expected the root-level cp CharNode");
+      expect($settleScopeForNode(cpChar)).toBe(chapter);
+    });
+  });
+
+  it("returns undefined for a root \\ca char separated from the chapter by a paragraph", async () => {
+    const { editor } = await testEnvironment(() => {
+      $getRoot().append(
+        $createChapterNode("1").append($createTextNode(getVisibleOpenMarkerText("c", "1"))),
+        $createParaNode("p").append($createMarkerNode("p"), $createTextNode(`${NBSP}body`)),
+        $createCharNode("ca").append(
+          $createMarkerNode("ca"),
+          $createTextNode(`${NBSP}3`),
+          $createMarkerNode("ca", "closing"),
+        ),
+      );
+    });
+    editor.getEditorState().read(() => {
+      const char = $getRoot().getChildren().find($isCharNode);
+      if (!char) throw new Error("expected a root-level CharNode");
+      expect($settleScopeForNode(char)).toBeUndefined();
+    });
+  });
+
+  it("returns undefined for a chapter-adjacent root char whose marker is not \\ca/\\cp", async () => {
+    const { editor } = await testEnvironment(() => {
+      $getRoot().append(
+        $createChapterNode("1").append($createTextNode(getVisibleOpenMarkerText("c", "1"))),
+        $createCharNode("nd").append(
+          $createMarkerNode("nd"),
+          $createTextNode(`${NBSP}name`),
+          $createMarkerNode("nd", "closing"),
+        ),
+        $createParaNode("p").append($createMarkerNode("p"), $createTextNode(`${NBSP}body`)),
+      );
+    });
+    editor.getEditorState().read(() => {
+      const char = $getRoot().getChildren().find($isCharNode);
+      if (!char) throw new Error("expected a root-level CharNode");
+      expect($settleScopeForNode(char)).toBeUndefined();
     });
   });
 });
