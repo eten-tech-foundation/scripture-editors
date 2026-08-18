@@ -138,3 +138,17 @@ pins the prior group left recording the defect, flipped to assert the fix, plus 
 - **No C# changes**, and no change to what ParatextData or the tokenizer accepts.
 - **No fixture regeneration.** The canonical-order omission made `generate:test-data` unnecessary;
   the 2SA lexical fixtures and the corpus milestones fixture are untouched and byte-identical.
+
+## 6. Verification
+
+- Targeted regression contract, run fresh: `attributeDisplay.utils.test.ts` +
+  `displayRunRegistry.test.ts` (66 tests), then `milestoneAttributeSettle` + `damagedGlyphSettle` +
+  `glyphDriftHeal` + the corpus trio (`corpus-round-trip`, `corpus-transform-fixed-point`,
+  `corpus-testusfm-round-trip`) — 6 files, 172 tests, all green, zero skips.
+- Full gate: `nx run-many -t test lint typecheck` — all 10 projects green; suite totals 3322
+  passed, 1 pre-existing skip (the branch diff adds no `.skip`/`.only`/`.todo`).
+- `extract-api` for `utilities` and the platform editor package: no report drift, working tree
+  clean afterward — the new shared exports have no extract-api target of their own, and nothing
+  the reports track moved.
+- Every committed file passes `prettier --check`, including this gitignored doc (lint-staged
+  cannot re-stage files prettier cannot see; checked explicitly because of that).
