@@ -1029,11 +1029,33 @@ export function $resolvePendingMarkers(
 }
 
 /**
+ * Whether a caret point (`node`, `offset`) sits INSIDE marker glyph text — as opposed to at the
+ * TRAILING EDGE of a canonical closing (or self-closing) glyph, which is genuinely AFTER the
+ * marker's construct: arrow traversal and clicks park the caret there at the end of a paragraph
+ * whose last child is an inline span, and Enter there is a paragraph action (open the Enter
+ * menu), not a marker edit. A NON-canonical (pended, mid-edit) closer keeps its trailing edge
+ * "inside": the caret is there because the user is editing the glyph byte-by-byte, and Enter
+ * must keep settling that edit instead of splitting. An OPENING glyph's trailing edge stays
+ * "inside" too — it is the span's interior (the separator/content follows it).
+ * Read-only: call inside `editor.getEditorState().read(...)` or an update.
+ */
+export function $isPointInMarkerGlyphText(node: LexicalNode, offset: number): boolean {
+  if (!$isMarkerNode(node)) return false;
+  return !(
+    offset === node.getTextContentSize() &&
+    node.getMarkerSyntax() !== "opening" &&
+    $isCanonicalMarkerNode(node)
+  );
+}
+
+/**
  * Whether a collapsed-or-not range selection's anchor sits inside marker glyph text — the guard
- * `MarkerEditPlugin` and `UsjNodesMenuPlugin` use to swallow Enter presses inside a marker.
+ * `MarkerEditPlugin` and `UsjNodesMenuPlugin` use to swallow Enter presses inside a marker. The
+ * trailing edge of a canonical closer does NOT count (see {@link $isPointInMarkerGlyphText}).
  * Read-only: call inside `editor.getEditorState().read(...)` or an update.
  */
 export function $isSelectionInMarkerNode(): boolean {
   const selection = $getSelection();
-  return $isRangeSelection(selection) && $isMarkerNode(selection.anchor.getNode());
+  if (!$isRangeSelection(selection)) return false;
+  return $isPointInMarkerGlyphText(selection.anchor.getNode(), selection.anchor.offset);
 }

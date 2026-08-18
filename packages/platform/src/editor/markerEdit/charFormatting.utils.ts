@@ -5,6 +5,7 @@
  * character-style stack (charStack.utils.ts in `shared`) with a different thing placed in the gap.
  */
 
+import { $isPointInMarkerGlyphText } from "./markerEditTier1.utils";
 import { $unwrapCharNode } from "./markerEditDeletion.utils";
 import {
   $createTextNode,
@@ -349,9 +350,27 @@ export function $isSelectionInParagraphCharStack(): boolean {
  * INSERT_PARAGRAPH command handler, ahead of the generic rich-text split).
  */
 export function $splitParagraphAtCharStack(): boolean {
-  const selection = $getSelection();
+  let selection = $getSelection();
   if (!$isRangeSelection(selection) || !selection.isCollapsed()) return false;
-  const anchorNode = selection.anchor.getNode();
+  let anchorNode = selection.anchor.getNode();
+  // A caret at the TRAILING EDGE of a canonical closing glyph is genuinely AFTER the span (see
+  // $isPointInMarkerGlyphText), so the split belongs past the WHOLE enclosing char — never inside
+  // the glyph or the span. Normalize the caret out of the span before deciding: after a top-level
+  // span the stack guard below then declines and the split runs at the span boundary; after a
+  // NESTED closer the caret lands in the outer span's content and the close-and-reopen split
+  // proceeds from there.
+  if (
+    $isMarkerNode(anchorNode) &&
+    !$isPointInMarkerGlyphText(anchorNode, selection.anchor.offset)
+  ) {
+    const enclosing = anchorNode.getParent();
+    if ($isCharNode(enclosing) && anchorNode.is(enclosing.getLastChild())) {
+      enclosing.selectNext(0, 0);
+      selection = $getSelection();
+      if (!$isRangeSelection(selection) || !selection.isCollapsed()) return false;
+      anchorNode = selection.anchor.getNode();
+    }
+  }
   if (!$isTextNode(anchorNode) || $isMarkerNode(anchorNode)) return false;
   if (!$innermostCharAncestor(anchorNode)) return false;
   // Only paragraph-contained stacks. Inside a note the enclosing container is the NoteNode, and a

@@ -11,12 +11,12 @@
  * `OnSelectionChangePlugin`.
  */
 import { MarkerMenuContext } from "./markerItemSource";
+import { $isPointInMarkerGlyphText } from "../markerEdit/markerEditTier1.utils";
 import { $getRoot, $getSelection, $isElementNode, $isRangeSelection, LexicalNode } from "lexical";
 import {
   $findFirstAncestorNoteNode,
   $isBookNode,
   $isCharNode,
-  $isMarkerNode,
   $isMarkerTrailingSeparator,
   $isSynthesizedMarkerNode,
   $isParaNode,
@@ -176,7 +176,10 @@ export function $getMarkerMenuContext(): MarkerMenuContextSnapshot | undefined {
     openCharMarkers: $collectOpenCharMarkers(anchorNode),
     noteMarker: note?.getMarker(),
     hasTextSelection,
-    inMarkerText: $isMarkerNode(anchorNode),
+    // The trailing edge of a canonical closing glyph counts as AFTER the marker, not inside it
+    // (see $isPointInMarkerGlyphText) — Enter there opens the paragraph menu exactly as at the
+    // end of a plain-text paragraph.
+    inMarkerText: $isPointInMarkerGlyphText(anchorNode, offset),
     anchorRect: getAnchorRect(),
   };
 }
