@@ -4,7 +4,7 @@
  * Everything Tier 1 cannot express routes to Tier 2 ($requestTier2ForNode).
  */
 
-import { $requestTier2ForNode, Tier2Context } from "./tier2Rebuild.utils";
+import { $rebuildParas, $requestTier2ForNode, Tier2Context } from "./tier2Rebuild.utils";
 import {
   $createTextNode,
   $getNodeByKey,
@@ -193,6 +193,33 @@ export function $applyOpenerRename(
   const parent = node.getParent();
   if ($isParaNode(parent)) {
     if (!isParaKindMarker(newMarker, context.getMarker)) {
+      // An unknown-marker paragraph exists ONLY because its leading marker was block-shaped —
+      // the tokenizer defaults an unknown token to a paragraph in body context (PT9
+      // DetermineUnknownTokenType) — so correcting that marker to a CHAR-kind one removes the
+      // split's only reason to exist: in the file, `\p some` + newline + `\w stuff` is ONE
+      // paragraph (a newline before an inline marker is ordinary whitespace). Re-tokenizing the
+      // artifact paragraph alone instead hands the tokenizer content with a leading inline
+      // marker, which fabricates a default `\p` wrapper the user never typed. Widen the settle
+      // scope to include the PREVIOUS paragraph so re-tokenization rejoins them. Guarded to the
+      // artifact shape: the paragraph's OWN marker must be unknown (a user-authored `\p`/`\q1`
+      // has real blockness and keeps its own scope), the edited glyph must be the paragraph's
+      // leading glyph (a stray opener mid-paragraph says nothing about the split), and a
+      // previous paragraph must exist. A refused widened rebuild (guard rails on the previous
+      // paragraph) falls through to today's single-scope route.
+      const paraKind = context.getMarker(parent.getMarker())?.type;
+      if (
+        (paraKind === undefined || paraKind === MarkerType.Unknown) &&
+        isCharKindMarker(newMarker, context.getMarker) &&
+        parent.getFirstChild()?.is(node) === true
+      ) {
+        const previous = parent.getPreviousSibling();
+        if ($isParaNode(previous) && $rebuildParas([previous, parent], context)) {
+          context.logger?.debug(
+            `[MarkerEdit] unknown-split paragraph rejoined its predecessor on rename to "${newMarker}"`,
+          );
+          return true;
+        }
+      }
       return $requestTier2ForNode(node, context);
     }
     parent.setMarker(newMarker);

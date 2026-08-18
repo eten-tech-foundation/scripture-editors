@@ -19,6 +19,7 @@ import {
   $appendVersePara,
   requireDefined,
   testEnvironment,
+  testEnvironmentWithDisplaySyncs,
   viewOptions,
 } from "./markerEdit.test-helpers";
 import {
@@ -32,6 +33,7 @@ import {
   $createTextNode,
   $getRoot,
   $getSelection,
+  $isElementNode,
   $isRangeSelection,
   $isTextNode,
   $setSelection,
@@ -39,10 +41,13 @@ import {
   CONTROLLED_TEXT_INSERTION_COMMAND,
   CUT_COMMAND,
   KEY_DOWN_COMMAND,
+  KEY_ENTER_COMMAND,
   LexicalEditor,
 } from "lexical";
 import {
+  $createCharNode,
   $createMarkerNode,
+  $createMarkerTrailingSeparator,
   $createParaNode,
   $isMarkerNode,
   $isParaNode,
@@ -240,6 +245,227 @@ describe("backspacing a fresh paragraph's prefix away (collapsed-caret provenanc
     editor.getEditorState().read(() => {
       expect(fresh.isAttached()).toBe(true);
       expect($getRoot().getChildren().filter($isParaNode)).toHaveLength(2);
+    });
+  });
+});
+
+describe("backspacing an Enter-Enter split back together (content bytes survive the merges)", () => {
+  /**
+   * One collapsed Backspace press: dispatch the arming KEY_DOWN, then mirror Lexical's own
+   * collapsed-backspace semantics for the shapes this gesture produces — jsdom cannot drive
+   * Lexical's native Selection.modify path, so the deletion half is simulated at state level,
+   * exactly like the other delete-half simulations in this file. Shapes covered: a token
+   * previous sibling deletes whole; a normal text previous sibling (or the caret's own node)
+   * loses one character, removing the node when it empties.
+   */
+  function $simulateCollapsedBackspaceDeletion(): void {
+    const selection = $getSelection();
+    if (!$isRangeSelection(selection) || !selection.isCollapsed())
+      throw new Error("expected a collapsed caret");
+    const { anchor } = selection;
+    const node = anchor.getNode();
+    const deleteLastCharOf = (target: import("lexical").TextNode): void => {
+      const text = target.getTextContent();
+      target.setTextContent(text.slice(0, -1));
+      if (target.getTextContent() === "") target.remove();
+      else target.select(text.length - 1, text.length - 1);
+    };
+    if (anchor.type === "text" && $isTextNode(node)) {
+      if (anchor.offset === 0) {
+        const previous = node.getPreviousSibling();
+        if (!$isTextNode(previous)) throw new Error("unsupported backspace shape (previous)");
+        if (previous.getMode() === "token") previous.remove();
+        else deleteLastCharOf(previous);
+        return;
+      }
+      if (anchor.offset === node.getTextContentSize() && node.getTextContentSize() === 1) {
+        deleteLastCharOf(node);
+        return;
+      }
+      const text = node.getTextContent();
+      node.setTextContent(text.slice(0, anchor.offset - 1) + text.slice(anchor.offset));
+      node.select(anchor.offset - 1, anchor.offset - 1);
+      return;
+    }
+    if (anchor.type === "element" && $isElementNode(node)) {
+      const child = node.getChildAtIndex(anchor.offset - 1);
+      if (!$isTextNode(child)) throw new Error("unsupported backspace shape (element point)");
+      if (child.getMode() === "token") child.remove();
+      else deleteLastCharOf(child);
+      return;
+    }
+    throw new Error("unsupported selection shape");
+  }
+
+  async function pressBackspace(editor: LexicalEditor): Promise<void> {
+    await act(async () =>
+      editor.update(() => {
+        editor.dispatchCommand(
+          KEY_DOWN_COMMAND,
+          new KeyboardEvent("keydown", { key: "Backspace", bubbles: true, cancelable: true }),
+        );
+        $simulateCollapsedBackspaceDeletion();
+      }),
+    );
+    // Flush the deferred caret-departure resolve between presses, as real typing cadence would.
+    await act(async () => Promise.resolve());
+  }
+
+  /**
+   * Asserts the collapsed caret sits right BEFORE the preserved space (the junction). The
+   * boundary can be hosted by either flanking text node — Lexical normalizes a text point at
+   * offset 0 onto the previous sibling's end — so both the byte after and the bytes before the
+   * caret are resolved across the node boundary.
+   */
+  function $expectCaretAtJunction(): void {
+    const selection = $getSelection();
+    if (!$isRangeSelection(selection)) throw new Error("no range selection");
+    expect(selection.isCollapsed()).toBe(true);
+    const { anchor } = selection;
+    const anchorNode = anchor.getNode();
+    if (!$isTextNode(anchorNode)) throw new Error("caret is not on text");
+    const text = anchorNode.getTextContent();
+    // The byte AFTER the caret is the preserved space...
+    const after =
+      anchor.offset < text.length
+        ? text.charAt(anchor.offset)
+        : (anchorNode.getNextSibling()?.getTextContent().charAt(0) ?? "");
+    expect(after).toBe(" ");
+    // ...and the bytes before it (in this node or the previous sibling) are the prose "asdf" or
+    // the prefix separator it merged against — never the marker glyph or the paragraph end.
+    const before =
+      anchor.offset > 0
+        ? text.slice(0, anchor.offset)
+        : (anchorNode.getPreviousSibling()?.getTextContent() ?? "");
+    expect(before.endsWith("asdf") || before.endsWith(NBSP)).toBe(true);
+  }
+
+  it("preserves the space and the junction caret through the whole backspace chain", async () => {
+    // TJ's repro: `\p asdf| \nd asdf\nd*` -> Enter, Enter (a fresh `\p ` line between the halves)
+    // -> backspace the injected representation away again. Expected: the document returns
+    // byte-exactly to its pre-Enter state — in particular the space BEFORE `\nd` (real content)
+    // survives — with the caret at the junction after "asdf". Today the first backspace's heal
+    // absorbs that space into the engine's prefix separator, the later merge drops it as
+    // "orphaned", and the caret is flung to the merged paragraph's end.
+    const { editor } = await testEnvironmentWithDisplaySyncs(() => {
+      $getRoot().append(
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createMarkerTrailingSeparator(),
+          $createTextNode("asdf "),
+          $createCharNode("nd").append(
+            $createMarkerNode("nd"),
+            $createTextNode(`${NBSP}asdf`),
+            $createMarkerNode("nd", "closing"),
+          ),
+        ),
+      );
+    });
+    const before = usjOf(editor);
+
+    // Enter twice with the caret after "asdf" (before the space), through the real pipeline.
+    await act(async () =>
+      editor.update(() => {
+        const body = $getRoot()
+          .getAllTextNodes()
+          .find((node) => node.getTextContent() === "asdf ");
+        if (!body) throw new Error("body text not found");
+        body.select(4, 4);
+        editor.dispatchCommand(KEY_ENTER_COMMAND, null);
+      }),
+    );
+    await act(async () => editor.update(() => editor.dispatchCommand(KEY_ENTER_COMMAND, null)));
+    editor.getEditorState().read(() => {
+      expect($getRoot().getChildren().filter($isParaNode)).toHaveLength(3);
+    });
+
+    const unblock = editor.registerCommand(KEY_DOWN_COMMAND, () => true, COMMAND_PRIORITY_NORMAL);
+    // Three presses delete the third paragraph's injected `\p ` representation byte by byte;
+    // its content then merges into the fresh middle paragraph.
+    for (let press = 0; press < 3; press++) await pressBackspace(editor);
+    editor.getEditorState().read(() => {
+      const paras = $getRoot().getChildren().filter($isParaNode);
+      expect(paras).toHaveLength(2);
+      // The space is CONTENT and survives the merge; the caret rests at the junction before it.
+      expect(paras[1].getTextContent()).toContain(" \\nd");
+      $expectCaretAtJunction();
+    });
+
+    // Three more presses delete the fresh paragraph's own `\p ` representation; everything
+    // merges back into the original paragraph.
+    for (let press = 0; press < 3; press++) await pressBackspace(editor);
+    unblock();
+
+    editor.getEditorState().read(() => {
+      expect($getRoot().getChildren().filter($isParaNode)).toHaveLength(1);
+      $expectCaretAtJunction();
+    });
+    // Byte-exact round trip: the serialized document equals its pre-Enter self, space included.
+    expect(usjOf(editor)).toEqual(before);
+  });
+
+  it("lands an ORPHANED caret at the junction, not past the moved content", async () => {
+    // A backspace chain can leave the collapsed caret as an ELEMENT point on the dissolving
+    // paragraph itself (deleting the last prefix glyph byte destroys the caret's node; real
+    // browsers relocate to the paragraph). The merge must place that caret at the JUNCTION —
+    // the boundary before the first moved child — not let removal fling it past the content.
+    // The moved content here is a char span with no leading text, so nothing hosts a text
+    // point and the orphan handling is what decides the outcome.
+    let first!: ParaNode, second!: ParaNode;
+    const { editor } = await testEnvironmentWithDisplaySyncs(() => {
+      first = $createParaNode("p");
+      second = $createParaNode("p");
+      $getRoot().append(
+        first.append(
+          $createMarkerNode("p"),
+          $createMarkerTrailingSeparator(),
+          $createTextNode("one"),
+        ),
+        second.append(
+          $createMarkerNode("p"),
+          $createMarkerTrailingSeparator(),
+          $createCharNode("nd").append(
+            $createMarkerNode("nd"),
+            $createTextNode(`${NBSP}asdf`),
+            $createMarkerNode("nd", "closing"),
+          ),
+        ),
+      );
+    });
+
+    const unblock = editor.registerCommand(KEY_DOWN_COMMAND, () => true, COMMAND_PRIORITY_NORMAL);
+    await act(async () =>
+      editor.update(() => {
+        editor.dispatchCommand(
+          KEY_DOWN_COMMAND,
+          new KeyboardEvent("keydown", { key: "Backspace", bubbles: true, cancelable: true }),
+        );
+        // The tail of the backspace chain, simulated: the prefix is gone and the caret was
+        // left as an element point on the paragraph (its text node hosts are destroyed).
+        second
+          .getChildren()
+          .slice(0, 2)
+          .forEach((child) => child.remove());
+        const selection = $createRangeSelection();
+        selection.anchor.set(second.getKey(), 0, "element");
+        selection.focus.set(second.getKey(), 0, "element");
+        $setSelection(selection);
+      }),
+    );
+    unblock();
+
+    editor.getEditorState().read(() => {
+      expect(second.isAttached()).toBe(false); // merged into the previous paragraph
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) throw new Error("no range selection after merge");
+      expect(selection.isCollapsed()).toBe(true);
+      const { anchor } = selection;
+      // The junction: the boundary BEFORE the moved char span — the caret must not end up
+      // past it (typing continues where the deleted representation was).
+      expect(anchor.type).toBe("element");
+      expect(anchor.key).toBe(first.getKey());
+      const char = first.getChildren().findIndex((child) => !$isTextNode(child));
+      expect(anchor.offset).toBe(char);
     });
   });
 });
