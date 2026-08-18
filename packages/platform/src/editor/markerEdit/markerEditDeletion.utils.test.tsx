@@ -307,6 +307,52 @@ describe("deletion semantics", () => {
     });
   });
 
+  it("keeps an element-point caret AT the span across a same-commit unwrap (no drag past the content)", async () => {
+    // The unwrap reinserts the span's children AFTER it (identical resulting tree) precisely so
+    // an element point addressing the span's own child index never moves: Lexical advances an
+    // element point past every node inserted at its offset without pulling it back when the
+    // emptied wrapper is then removed, so reinserting BEFORE the span dragged the caret past the
+    // reinserted content. Pinned through opener deletion — the canonical still-live path to the
+    // unwrap now that the paragraph split closes-and-reopens instead of producing an unwrappable
+    // glyph-less span.
+    let opener!: MarkerNode;
+    let para!: ParaNode;
+    const { editor } = await testEnvironment(() => {
+      para = $createParaNode("p");
+      const nd = $createCharNode("nd");
+      opener = $createMarkerNode("nd");
+      $getRoot().append(
+        para.append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          $createTextNode("say "),
+          nd.append(opener, $createTextNode(`${NBSP}Lord`), $createMarkerNode("nd", "closing")),
+          $createTextNode(" of hosts"),
+        ),
+      );
+    });
+    await act(async () =>
+      editor.update(() => {
+        // The caret as an ELEMENT point at the span's own child index — the shape a structural
+        // edit can leave at a span boundary — then the opener goes in the same update.
+        para.select(3, 3);
+        opener.remove();
+      }),
+    );
+    // The observable form: typing lands at the START of the formerly wrapped content, where the
+    // element point sat — not past it.
+    await act(async () =>
+      editor.update(() => {
+        const selection = $getSelection();
+        if ($isRangeSelection(selection)) selection.insertText("X");
+      }),
+    );
+    editor.getEditorState().read(() => {
+      const text = $getRoot().getTextContent().replaceAll(NBSP, " ");
+      expect(text).toContain("say XLord of hosts");
+    });
+  });
+
   it("preserves an unwrapped span's unknown attributes as canonical literal text", async () => {
     let char: ReturnType<typeof $createCharNode>, opener: MarkerNode;
     const { editor } = await testEnvironment(() => {
