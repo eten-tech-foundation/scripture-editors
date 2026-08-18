@@ -500,6 +500,14 @@ export interface EditorOptions {
    * Falls back to the bundled default stylesheet data when absent.
    */
   styleInfo?: StyleInfo;
+  /**
+   * EXPERIMENTAL: Delay in milliseconds before pending marker edits settle in place while the
+   * user is idle (Paratext 9's debounced-reformat cadence), in editable marker modes. Defaults
+   * to 1000 when undefined. `0` settles on the first tick after each edit; `-1` disables the
+   * idle clock entirely — pending edits then settle only on caret departure, Enter, blur, or
+   * `getUsj()`.
+   */
+  markerSettleDelayMs?: number;
   /** EXPERIMENTAL: Is the editor being debugged using the TreeView. */
   debug?: boolean;
 }

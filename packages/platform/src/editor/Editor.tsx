@@ -198,6 +198,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
     debug = false,
     contextMenu,
     styleInfo,
+    markerSettleDelayMs,
   } = options ?? defaultOptions;
 
   // Stabilize the destructured option objects so plugin props don't churn when the parent passes
@@ -784,7 +785,12 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
           <ContextMenuPlugin options={contextMenuOptions} />
           <EmptyVerseCaretGuardPlugin />
           <EscapeKeyPlugin />
-          <MarkerEditPlugin viewOptions={viewOptions} getMarker={markerLookup} logger={logger} />
+          <MarkerEditPlugin
+            viewOptions={viewOptions}
+            getMarker={markerLookup}
+            logger={logger}
+            markerSettleDelayMs={markerSettleDelayMs}
+          />
           <MarkerValidationPlugin styleInfo={styleInfo} viewOptions={viewOptions} logger={logger} />
           <NoteNodePlugin
             expandedNoteKeyRef={expandedNoteKeyRef}

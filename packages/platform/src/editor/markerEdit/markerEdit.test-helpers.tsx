@@ -152,13 +152,23 @@ export const viewOptions = requireDefined(
 /** Standard view but with expanded notes — the editable+expanded survivability combination. */
 export const expandedViewOptions = { ...viewOptions, noteMode: "expanded" as const };
 
-/** Mounts a headless editor with `MarkerEditPlugin` active in Standard view (markerMode "editable"). */
-export async function testEnvironment($initialEditorState: () => void) {
+/**
+ * Mounts a headless editor with `MarkerEditPlugin` active in Standard view (markerMode
+ * "editable"). `markerSettleDelayMs` is passed straight to the engine — the idle-settle delay
+ * override (default clock when omitted, `0` commit-adjacent, `-1` disabled).
+ */
+export async function testEnvironment(
+  $initialEditorState: () => void,
+  markerSettleDelayMs?: number,
+) {
   initializeSerialize(undefined, undefined);
   reset();
   return baseTestEnvironment(
     $initialEditorState,
-    <MarkerEditPlugin viewOptions={getViewOptions(STANDARD_VIEW_MODE)} />,
+    <MarkerEditPlugin
+      viewOptions={getViewOptions(STANDARD_VIEW_MODE)}
+      markerSettleDelayMs={markerSettleDelayMs}
+    />,
   );
 }
 

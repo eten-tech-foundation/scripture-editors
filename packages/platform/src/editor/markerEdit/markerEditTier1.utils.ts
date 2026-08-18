@@ -641,6 +641,37 @@ function $emptyAttributeRunWrappers(node: LexicalNode): AttributeRunNode[] {
 }
 
 /**
+ * Whether the collapsed caret sits ON one of `node`'s emptied `AttributeRunNode` husks — the
+ * element point Lexical collapses the caret to when the user deletes a run's every byte. This is
+ * the ONE caret shape whose settle cannot preserve the caret: the husk is the caret's own node,
+ * so settling destroys it, and no adjacent position survives the settle either — the Tier-2
+ * rebuild cannot map an element point onto a rebuilt text offset (the caret-dump-to-paragraph-
+ * start bug the grace pre-pass below documents), and pre-parking the caret on a neighboring
+ * text node was observed to lose it anyway to a follow-on selection re-resolution one commit
+ * later. Read-only: call inside a read or update.
+ */
+function $caretOnEmptyHuskOf(node: LexicalNode): boolean {
+  const selection = $getSelection();
+  if (!$isRangeSelection(selection) || !selection.isCollapsed()) return false;
+  const anchorNode = selection.anchor.getNode();
+  return $emptyAttributeRunWrappers(node).some((wrapper) => anchorNode.is(wrapper));
+}
+
+/**
+ * Which clock asked for a settle pass. `"departure"` — the caret-departure microtask, Enter,
+ * blur, and forced commits: the caret-POSITION grace arms hold, so a site the caret still sits
+ * in re-pends untouched and settles later. `"idle"` — the idle debounce expiry (PT9's
+ * debounced-reformat tick): the user has genuinely idled, so caret position grants no grace and
+ * even held sites settle in place. Distinct from the except-KEY shield, which protects the
+ * caret's own node by identity and is decided by the caller.
+ *
+ * One carve-out survives even an idle settle: a caret parked ON an emptied wrapper husk
+ * ({@link $caretOnEmptyHuskOf}) keeps its grace, because that settle would destroy the caret's
+ * own node and no caret-preservation strategy for it has held up — see the helper's doc comment.
+ */
+export type SettleReason = "departure" | "idle";
+
+/**
  * The uniform deletion/pend settle for display-run OWNERS — the one place every kind's
  * grace-or-settle decision and entirely-absent deletion policy lives, driven entirely by the
  * registry. Marker literals and plain pending text own no run and fall through (`handled: false`)
@@ -656,14 +687,20 @@ function $emptyAttributeRunWrappers(node: LexicalNode): AttributeRunNode[] {
 export function $settlePendedDisplayOwner(
   node: LexicalNode,
   context: MarkerEditContext,
+  settleReason: SettleReason = "departure",
 ): { handled: boolean; mutated: boolean } {
   let mutated = false;
+  // Every caret-position grace arm below holds only for a "departure" settle: an idle expiry
+  // (PT9's debounced-reformat tick) means the user has genuinely stopped, so the caret sitting
+  // at a held site is no longer evidence of a gesture in progress — the site settles in place,
+  // caret and all, exactly as PT9's reformat does (see SettleReason).
+  const graceHolds = settleReason === "departure";
   // Para-prefix separator grace, the same contract as the descriptor pre-pass below but for a
   // pended PARAGRAPH (paras match no display-run descriptor): while the collapsed caret still
   // holds the deleted separator's site, settling would re-tokenize the paragraph out from under
   // the caret mid-gesture. Re-pend untouched; it settles once the caret has actually departed —
   // the deletion transform's own grace ($healMarkerTrailingSeparator) is what pended it.
-  if ($isParaNode(node) && $paraPrefixSeparatorCaretHeld(node)) {
+  if (graceHolds && $isParaNode(node) && $paraPrefixSeparatorCaretHeld(node)) {
     context.pendingKeys.add(node.getKey());
     return { handled: true, mutated: false };
   }
@@ -691,7 +728,11 @@ export function $settlePendedDisplayOwner(
   for (const descriptor of displayRunDescriptors) {
     if (descriptor.settleScope === "none") continue;
     if (!descriptor.ownerPredicate(node)) continue;
-    if ($caretHoldsRunSite(descriptor, node)) {
+    if (!$caretHoldsRunSite(descriptor, node)) continue;
+    // On an idle settle only the husk shape keeps its grace — the one caret-held shape whose
+    // settle destroys the caret's own node (see SettleReason's carve-out and
+    // $caretOnEmptyHuskOf). Every other held site settles on the idle tick.
+    if (graceHolds || $caretOnEmptyHuskOf(node)) {
       // Mid-edit grace: settling now would rewrite or re-tokenize the run out from under the
       // caret. It settles once the caret has actually departed. `mutated: false` literally, not
       // `mutated`: nothing this function writes can have run yet at this point, and stating that
@@ -836,7 +877,11 @@ function $exceptKeysAround(exceptKey: NodeKey | undefined): Set<NodeKey> {
  * Completion trigger. PT9 completes mid-edit markers via its 1s debounced
  * reformat; our deterministic equivalents are Enter, blur, and the caret
  * leaving the node (`exceptKey` keeps the node still being edited pending — widened to the
- * caret's contiguous plain-text run, see {@link $exceptKeysAround}).
+ * caret's contiguous plain-text run, see {@link $exceptKeysAround}), plus the idle debounce
+ * clock itself. `settleReason` says which clock is asking: `"idle"` additionally drops the
+ * caret-POSITION grace arms in {@link $settlePendedDisplayOwner}, so a site the caret still
+ * holds settles in place on the idle tick — see {@link SettleReason}. Departure-style callers
+ * omit it and keep every grace exactly as before.
  *
  * Mutating (settles pending nodes via {@link $applyOpenerRename} / Tier 2 rebuilds): call inside
  * `editor.update()` — never synchronously from an update/mutation listener.
@@ -847,7 +892,11 @@ function $exceptKeysAround(exceptKey: NodeKey | undefined): Set<NodeKey> {
  *   the deferred-resolution caller uses this to merge the visually-no-op commit into the
  *   current history entry instead of letting it push a phantom undo step.
  */
-export function $resolvePendingMarkers(context: MarkerEditContext, exceptKey?: NodeKey): boolean {
+export function $resolvePendingMarkers(
+  context: MarkerEditContext,
+  exceptKey?: NodeKey,
+  settleReason: SettleReason = "departure",
+): boolean {
   let mutated = false;
   if (context.pendingKeys.size === 0) return mutated;
   const exceptKeys = $exceptKeysAround(exceptKey);
@@ -908,7 +957,7 @@ export function $resolvePendingMarkers(context: MarkerEditContext, exceptKey?: N
     // key of it is a dedup skip rather than a second settle.
     if (key !== targetKey) context.pendingKeys.delete(targetKey);
     settledOwners.add(targetKey);
-    const settled = $settlePendedDisplayOwner(target, context);
+    const settled = $settlePendedDisplayOwner(target, context, settleReason);
     // Folded regardless of `handled`: a husk removal or wrap migration is a real mutation even on
     // the `handled: false` path, where the settle still falls through to the re-tokenize arm below
     // — a refused (fixed-point) rebuild must not make that earlier mutation disappear from the
