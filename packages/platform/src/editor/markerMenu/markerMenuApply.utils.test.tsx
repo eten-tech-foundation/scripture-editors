@@ -532,6 +532,56 @@ describe("$applyMarkerMenuSelection", () => {
       });
     });
 
+    it("wraps a whitespace-only selection: the space IS the span's content, no empty pair", async () => {
+      // Select the space in `\p one two`, apply `\nd`. The leading-space move exists to keep a
+      // WORD's leading space outside the span it starts; a space that is the node's entire
+      // content is not a leading space. Trimming it anyway emptied the wrapped node — the
+      // selected space walked out of the span and an empty `\nd \nd*` pair landed in the file
+      // while the screen showed nothing happened (the no-silent-no-op rule).
+      let text: TextNode;
+      const { editor } = await testEnvironment(() => {
+        const para = $createParaNode("p");
+        text = $createTextNode("one two");
+        $getRoot().append(para.append($createMarkerNode("p"), $createTrailingSpaceNode(), text));
+      });
+      await act(async () => editor.update(() => text.select(3, 4))); // the space between the words
+
+      const item: MarkerMenuItem = { marker: "nd", kind: "character", isBasic: true };
+      await act(async () =>
+        editor.update(() => {
+          $applyMarkerMenuSelection(
+            item,
+            { trigger: "backslash", literalPrefixLanded: false },
+            reference,
+            makeDeps(),
+          );
+        }),
+      );
+
+      editor.getEditorState().read(() => {
+        const para = requireDefined(
+          $getRoot().getChildren().filter($isParaNode)[0],
+          "para missing",
+        );
+        const chars = para.getChildren().filter($isCharNode);
+        expect(chars).toHaveLength(1);
+        const nd = chars[0];
+        expect(nd.getMarker()).toBe("nd");
+        // Closed span with both glyphs, whose content is exactly the selected space (behind the
+        // structural NBSP separator every editable span's first content carries).
+        expect(nd.getChildren().filter($isMarkerNode)).toHaveLength(2);
+        const content = nd
+          .getChildren()
+          .find((c): c is TextNode => $isTextNode(c) && !$isMarkerNode(c));
+        expect(content?.getTextContent()).toBe(`${NBSP} `);
+        // The space did not walk out of the span: the flanking words are unchanged, with no
+        // fabricated space before the span.
+        const [before, after] = [nd.getPreviousSibling(), nd.getNextSibling()];
+        expect($isTextNode(before) && before.getTextContent()).toBe("one");
+        expect($isTextNode(after) && after.getTextContent()).toBe("two");
+      });
+    });
+
     it("wraps a MULTI-node selection without deleting earlier content (reused-wrapper regression)", async () => {
       let first: TextNode;
       let last: TextNode;
@@ -1999,15 +2049,16 @@ describe("$splitParagraphWithMarker", () => {
   });
 });
 
-describe("$splitParagraphWithMarker — caret survival across the same-commit unwrap", () => {
-  it("parks the caret at the NEW paragraph's content start when the split lands mid-span", async () => {
-    // Enter-menu apply with the caret mid-span: `\p say \nd Lo|rd\nd* of hosts`. The split
-    // leaves the new paragraph opening with the span's glyph-less second half, which the
-    // deletion transform unwraps IN THE SAME COMMIT. The caret parked at the content boundary
-    // is an ELEMENT point (the boundary child is an element), and Lexical advances an element
-    // point past every node inserted at its offset without pulling it back when the emptied
-    // wrapper is then removed — so the caret used to normalize to the paragraph END. Assert
-    // the resulting point exactly: offset 0 of the paragraph's first content node.
+describe("$splitParagraphWithMarker — caret placement across the mid-span split", () => {
+  it("parks the caret INSIDE the reopened span's content start when the split lands mid-span", async () => {
+    // Enter-menu apply with the caret mid-span: `\p say \nd Lo|rd\nd* of hosts`. The split goes
+    // through the char-stack close-and-reopen, so the tail keeps its span (no glyph-less half is
+    // produced for the deletion transform to unwrap), and the ratified caret convention is
+    // INSIDE the reopened span at its content start — the user's caret was inside the styled
+    // run, and since the split deliberately preserves the style (a PT9 divergence), typing
+    // continues it. This test previously pinned the caret at the fresh paragraph's content
+    // boundary, the right point back when the unwrap ran on this path; it was agreed the pin
+    // moves alongside the reroute.
     let ndContent!: TextNode;
     const { editor } = await fullHarnessEnvironment(() => {
       const para = $createParaNode("p");
@@ -2040,16 +2091,19 @@ describe("$splitParagraphWithMarker — caret survival across the same-commit un
       expect(selection.isCollapsed()).toBe(true);
       const { anchor } = selection;
       const anchorNode = anchor.getNode();
-      // The point itself, not merely "a selection exists": the caret hosts at the fresh
-      // paragraph's content start — child index 2, right past [glyph, separator] — at offset 0.
-      expect(anchorNode.getParent()?.getKey()).toBe(fresh.getKey());
+      // The point itself, not merely "a selection exists": the caret hosts inside the REOPENED
+      // span — the fresh paragraph's first content child, at index 2 past [glyph, separator] —
+      // on its content text at offset 1, just past the structural NBSP separator.
+      const span = anchorNode.getParent();
+      expect($isCharNode(span) && span.getMarker()).toBe("nd");
+      expect(span?.getParent()?.getKey()).toBe(fresh.getKey());
+      expect(span?.getIndexWithinParent()).toBe(2);
       expect(anchor.type).toBe("text");
-      expect(anchor.offset).toBe(0);
-      expect(anchorNode.getIndexWithinParent()).toBe(2);
-      expect(anchorNode.getTextContent().startsWith("rd")).toBe(true);
+      expect(anchor.offset).toBe(1);
+      expect(anchorNode.getTextContent()).toBe(`${NBSP}rd`);
     });
 
-    // The observable form: typing lands at the content start, ahead of the moved tail.
+    // The observable form: typing continues the reopened style, ahead of the moved tail.
     await act(async () =>
       editor.update(() => {
         const selection = $getSelection();
@@ -2060,6 +2114,8 @@ describe("$splitParagraphWithMarker — caret survival across the same-commit un
       const fresh = $getRoot().getChildren().filter($isParaNode)[1];
       const text = fresh.getTextContent();
       expect(text.indexOf("X")).toBeLessThan(text.indexOf("rd"));
+      const span = fresh.getChildren().filter($isCharNode)[0];
+      expect(span?.getTextContent()).toContain("Xrd");
     });
   });
 });

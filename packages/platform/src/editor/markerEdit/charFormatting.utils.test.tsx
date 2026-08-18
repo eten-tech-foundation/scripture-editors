@@ -8,12 +8,14 @@ import {
 import { $closeCharSpanAtCaret, $removeCharFormattingFromSelection } from "./charFormatting.utils";
 import { act } from "@testing-library/react";
 import {
+  $createRangeSelection,
   $createTextNode,
   $getRoot,
   $getSelection,
   $isElementNode,
   $isRangeSelection,
   $isTextNode,
+  $setSelection,
   $setState,
   ElementNode,
   KEY_DOWN_COMMAND,
@@ -910,6 +912,109 @@ describe("Ctrl+Space through a nested character-style stack", () => {
       // `\wj` extends past the selection on both sides, so it closes before the unformatted run
       // and reopens after it; `\nd`, which the run covered entirely, is gone.
       expect($usfmBytes($onlyPara())).toBe("\\p \\wj A \\wj*holy\\wj  B\\wj*");
+    });
+  });
+
+  it("clears each level over exactly the selected extent when the boundary is an outer CHILD INDEX", async () => {
+    // `\p \wj one \+nd two\+nd* three\wj*`, select "two three": the selection START sits at the
+    // inner span's content start — at the OUTER level that boundary is a child index (the nested
+    // span's position), not a text offset in the outer span's own text. The inner level is
+    // covered whole (cleared), the outer level is covered from that child boundary to its content
+    // end ("two three" cleared), and the outer text BEFORE the boundary keeps its style.
+    let innerContent!: TextNode;
+    let tail!: TextNode;
+    const { editor } = await testEnvironmentWithDisplaySyncs(() => {
+      const para = $createParaNode("p");
+      const wj = $createCharNode("wj");
+      const nd = $createCharNode("nd");
+      innerContent = $createTextNode(`${NBSP}two`);
+      tail = $createTextNode(" three");
+      $getRoot().append(
+        para.append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          wj.append(
+            $createMarkerNode("wj"),
+            $createTextNode(`${NBSP}one `),
+            nd.append(
+              $createMarkerNode("nd", "opening", true),
+              innerContent,
+              $createMarkerNode("nd", "closing", true),
+            ),
+            tail,
+            $createMarkerNode("wj", "closing"),
+          ),
+        ),
+      );
+    });
+    await act(async () =>
+      editor.update(() => {
+        // "two three" — from the inner span's content start (past its structural separator) to
+        // the end of the outer span's trailing text.
+        const selection = $createRangeSelection();
+        selection.anchor.set(innerContent.getKey(), 1, "text");
+        selection.focus.set(tail.getKey(), tail.getTextContentSize(), "text");
+        $setSelection(selection);
+      }),
+    );
+    await pressCtrlSpace(editor);
+
+    editor.getEditorState().read(() => {
+      // `\wj` keeps its unselected head "one "; both levels are cleared over "two three".
+      expect($usfmBytes($onlyPara())).toBe("\\p \\wj one \\wj*two three");
+      const spans = $onlyPara().getChildren().filter($isCharNode);
+      expect(spans).toHaveLength(1);
+      expect(spans[0]?.getMarker()).toBe("wj");
+    });
+  });
+
+  it("keeps the outer tail styled when the selection ENDS at the inner span's content end", async () => {
+    // The mirror image: `\p \wj one \+nd two\+nd* three\wj*`, select "one two". The selection END
+    // sits at the inner span's content end — a child-index boundary at the outer level. Both
+    // levels clear over "one two"; the outer text AFTER the boundary reopens with its style, the
+    // reopened glyph carrying its structural separator ahead of the text's own space.
+    let outerHead!: TextNode;
+    let innerContent!: TextNode;
+    const { editor } = await testEnvironmentWithDisplaySyncs(() => {
+      const para = $createParaNode("p");
+      const wj = $createCharNode("wj");
+      const nd = $createCharNode("nd");
+      outerHead = $createTextNode(`${NBSP}one `);
+      innerContent = $createTextNode(`${NBSP}two`);
+      $getRoot().append(
+        para.append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          wj.append(
+            $createMarkerNode("wj"),
+            outerHead,
+            nd.append(
+              $createMarkerNode("nd", "opening", true),
+              innerContent,
+              $createMarkerNode("nd", "closing", true),
+            ),
+            $createTextNode(" three"),
+            $createMarkerNode("wj", "closing"),
+          ),
+        ),
+      );
+    });
+    await act(async () =>
+      editor.update(() => {
+        // "one two" — from the outer text's content start to the inner span's content end.
+        const selection = $createRangeSelection();
+        selection.anchor.set(outerHead.getKey(), 1, "text");
+        selection.focus.set(innerContent.getKey(), innerContent.getTextContentSize(), "text");
+        $setSelection(selection);
+      }),
+    );
+    await pressCtrlSpace(editor);
+
+    editor.getEditorState().read(() => {
+      expect($usfmBytes($onlyPara())).toBe("\\p one two\\wj  three\\wj*");
+      const spans = $onlyPara().getChildren().filter($isCharNode);
+      expect(spans).toHaveLength(1);
+      expect(spans[0]?.getMarker()).toBe("wj");
     });
   });
 

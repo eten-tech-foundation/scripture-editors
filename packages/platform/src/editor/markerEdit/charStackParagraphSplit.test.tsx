@@ -13,6 +13,7 @@ import {
   testEnvironment,
   testEnvironmentWithDisplaySyncs,
 } from "./markerEdit.test-helpers";
+import { $splitParagraphWithMarker } from "../markerMenu/markerMenuApply.utils";
 import { act } from "@testing-library/react";
 import {
   $createTextNode,
@@ -306,6 +307,83 @@ describe("Enter inside a character style", () => {
       const paras = $paras();
       expect(paras).toHaveLength(2);
       expect(paras.every((para) => para.getChildren().filter($isCharNode).length === 0)).toBe(true);
+    });
+  });
+
+  describe("the Enter-menu apply ($splitParagraphWithMarker) takes the same split", () => {
+    // The production mid-span Enter opens the Enter menu, and committing an item calls
+    // `EditorRef.splitParagraphWithMarker` — NOT INSERT_PARAGRAPH_COMMAND — so without routing
+    // through the primitive it produced the glyph-less continuation the deletion transform
+    // unwraps, and the tail lost its character style on exactly the path users actually take.
+    it("keeps the tail nested-styled in the retagged new paragraph, with no glyph-less span", async () => {
+      let content: TextNode;
+      const { editor } = await testEnvironmentWithDisplaySyncs(
+        () => (content = $appendNestedStackPara()),
+      );
+      await act(async () =>
+        editor.update(() => {
+          // caret between "thi" and "ng" (content text is NBSP + "thing")
+          content.select(4, 4);
+          $splitParagraphWithMarker("q2");
+        }),
+      );
+
+      editor.getEditorState().read(() => {
+        const paras = $paras();
+        expect(paras).toHaveLength(2);
+        expect($usfmBytes(paras[0])).toBe("\\p \\wj \\+nd thi\\+nd*\\wj*");
+        expect($usfmBytes(paras[1])).toBe("\\q2 \\wj \\+nd ng\\+nd*\\wj*");
+        // The tail is still a real nested stack — no glyph-less span survived the commit for
+        // the deletion transform to unwrap, so every span still opens with its glyph.
+        const outer = requireDefined(
+          paras[1].getChildren().filter($isCharNode)[0],
+          "outer span missing from the new paragraph",
+        );
+        expect(outer.getMarker()).toBe("wj");
+        const inner = requireDefined(
+          outer.getChildren().filter($isCharNode)[0],
+          "nested span missing from the reopened stack",
+        );
+        expect(inner.getMarker()).toBe("nd");
+        expect(inner.getAllTextNodes().every((text) => text.getTextContent() !== "")).toBe(true);
+      });
+    });
+
+    it("parks the caret INSIDE the innermost reopened span, so typing continues the style", async () => {
+      let content: TextNode;
+      const { editor } = await testEnvironmentWithDisplaySyncs(
+        () => (content = $appendNestedStackPara()),
+      );
+      await act(async () =>
+        editor.update(() => {
+          content.select(4, 4);
+          $splitParagraphWithMarker("q2");
+        }),
+      );
+
+      editor.getEditorState().read(() => {
+        const selection = $getSelection();
+        if (!$isRangeSelection(selection) || !selection.isCollapsed())
+          throw new Error("expected a collapsed selection after the menu split");
+        // The exact point: the innermost reopened span's content start — its text node at
+        // offset 1, just past the structural NBSP separator the opener glyph owns.
+        const anchorNode = selection.anchor.getNode();
+        expect(selection.anchor.type).toBe("text");
+        expect(selection.anchor.offset).toBe(1);
+        expect(anchorNode.getTextContent()).toBe(`${NBSP}ng`);
+        const inner = anchorNode.getParent();
+        expect($isCharNode(inner) && inner.getMarker()).toBe("nd");
+      });
+
+      await act(async () =>
+        editor.update(() => {
+          const selection = $getSelection();
+          if ($isRangeSelection(selection)) selection.insertText("X");
+        }),
+      );
+      editor.getEditorState().read(() => {
+        expect($usfmBytes($paras()[1])).toBe("\\q2 \\wj \\+nd Xng\\+nd*\\wj*");
+      });
     });
   });
 

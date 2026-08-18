@@ -19,9 +19,13 @@
  */
 import { $insertNoteForMarker, getUsjMarkerAction } from "../adaptors/usj-marker-action.utils";
 import { $applyParaMarker } from "../markerEdit/applyParaMarker.utils";
-import { $closeCharSpanAtCaret } from "../markerEdit/charFormatting.utils";
+import {
+  $closeCharSpanAtCaret,
+  $splitParagraphAtCharStack,
+} from "../markerEdit/charFormatting.utils";
 import { $handleEnterInNote } from "../markerEdit/markerEditNote.utils";
 import {
+  $injectMarkerPrefix,
   $selectParaContentStart,
   $setParaMarkerWithPrefix,
 } from "../markerEdit/markerEditDeletion.utils";
@@ -221,16 +225,34 @@ export function $applyMarkerMenuSelection(
  * prefix injected in the SAME update — the `EditorRef.splitParagraphWithMarker` implementation
  * (standard-view Enter-triggered marker menu apply step). Call inside `editor.update()`.
  *
- * `selection.insertParagraph()` is called directly here rather than dispatching
- * `INSERT_PARAGRAPH_COMMAND`, so `MarkerEditPlugin`'s command handler never runs and
- * `context.splitExpected` stays untouched. Setting the marker and injecting the visible prefix
- * before this update commits keeps `$paraMarkerDeletionTransform`'s no-prefix branches (which
- * would otherwise merge the new paragraph into the previous one, or reset it to `\p`) from
- * firing when the transform runs against the freshly split paragraph.
+ * The split runs directly here rather than dispatching `INSERT_PARAGRAPH_COMMAND`, so
+ * `MarkerEditPlugin`'s command handler never runs and `context.splitExpected` stays untouched.
+ * Setting the marker and injecting the visible prefix before this update commits keeps
+ * `$paraMarkerDeletionTransform`'s no-prefix branches (which would otherwise merge the new
+ * paragraph into the previous one, or reset it to `\p`) from firing when the transform runs
+ * against the freshly split paragraph.
+ *
+ * A caret inside a character-style stack splits through `$splitParagraphAtCharStack` — the same
+ * close-and-reopen Enter's INSERT_PARAGRAPH claim uses — so the tail keeps its markers and
+ * nesting instead of degrading to the glyph-less continuation the deletion transform unwraps.
+ * The primitive parks the caret INSIDE the innermost reopened span (typing continues the
+ * reopened style), so the retag here must not re-park it: `$injectMarkerPrefix` alone only moves
+ * a caret sitting at the paragraph's start, whereas `$setParaMarkerWithPrefix` would drag it
+ * back to the content boundary ahead of the whole stack.
  */
 export function $splitParagraphWithMarker(marker: string): void {
   const selection = $getSelection();
   if (!$isRangeSelection(selection)) return;
+
+  if ($splitParagraphAtCharStack()) {
+    const after = $getSelection();
+    if (!$isRangeSelection(after)) return;
+    const newPara = $findNearestParaNode(after.anchor.getNode());
+    if (!newPara) return;
+    newPara.setMarker(marker);
+    $injectMarkerPrefix(newPara);
+    return;
+  }
 
   const newPara = selection.insertParagraph();
   if (!$isParaNode(newPara)) return;

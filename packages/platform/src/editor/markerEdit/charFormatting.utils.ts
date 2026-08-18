@@ -190,8 +190,14 @@ export function $removeCharFormattingFromSelection(): boolean {
     if (!$innermostCharAncestor(target)) continue;
     $liftOutOfCharStack(target, true);
     // Plain text now, so it sheds the structural separator it carried as a span's first content.
-    const text = target.getTextContent();
-    if (text.startsWith(NBSP)) target.setTextContent(text.slice(NBSP.length));
+    // Shed on the LATEST instance: an earlier iteration's reopen may have prefixed the separator
+    // onto this very node through a writable clone (a later covered node rides along in the
+    // reopened span until its own turn), leaving `target` stale — and `setTextContent` compares
+    // the new text against the STALE instance's own, so the shed would silently no-op exactly
+    // when the pre-prefix text equals the post-shed text, leaving the separator byte in the file.
+    const latest = target.getLatest();
+    const text = latest.getTextContent();
+    if (text.startsWith(NBSP)) latest.setTextContent(text.slice(NBSP.length));
   }
   // Always handled, even with nothing to strip. PT9 inserts no space on a range, so declining is
   // not "nothing happened" — it hands the keystroke to the browser, which types a literal space
