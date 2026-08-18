@@ -44,7 +44,6 @@ import {
   getEditableCallerText,
   isMilestoneHeuristicName,
   ChapterNode,
-  CharNode,
   LoggerBasic,
   MarkerLookup,
   MarkerType,
@@ -1299,40 +1298,79 @@ export function $rebuildNoteContent(note: NoteNode, context: Tier2Context): bool
  * fold refused, or a mid-edit literal), so its edits settle through the CHAPTER scope. */
 const CHAPTER_ATTRIBUTE_CHAR_MARKERS: ReadonlySet<string> = new Set(["ca", "cp"]);
 
+/** The one chapter attribute marker whose first-class form is a PARAGRAPH, not a char span: `cp`
+ * has no closing marker, so its span ends at the next block boundary and the tokenizer emits a
+ * real `\cp` para for it (`ATTRIBUTE_MARKERS`, shape `"para"`). It takes that form when the fold
+ * refuses — markup in the value, or an emptied one. */
+const CHAPTER_ATTRIBUTE_PARA_MARKER = "cp";
+
 /**
- * The contiguous run of first-class `\ca`/`\cp` char spans sitting at document root directly
- * after `chapter` — the chapter settle REGION beyond the chapter's own children. Their bytes
- * re-tokenize together with the chapter's (`\c 1 \ca 3\ca*` folds; the capture-pinned
- * post-`\ca` whitespace skip applies), so a foldable span folds onto the chapter on settle
- * instead of waiting for a reload, while an unfoldable one (empty, unclosed, markup-bearing)
- * re-tokenizes to the identical first-class shape — a fixed point, refused without churn. The
- * tokenizer stays the single fold authority either way.
+ * The chapter settle REGION beyond `chapter`'s own children: the contiguous run of first-class
+ * `\ca`/`\cp` char spans sitting at document root directly after it, plus — closing the run — a
+ * real `\cp` PARAGRAPH. Their bytes re-tokenize together with the chapter's (`\c 1 \ca 3\ca*`
+ * folds; the capture-pinned post-`\ca` whitespace skip applies), so a foldable span or paragraph
+ * folds onto the chapter on settle instead of waiting for a reload, while an unfoldable one
+ * (empty, unclosed, markup-bearing) re-tokenizes to the identical first-class shape — a fixed
+ * point, refused without churn. The tokenizer stays the single fold authority either way.
+ *
+ * A `\cp` paragraph CLOSES the region because that is what it does in the file: with no closing
+ * marker its span runs to the next block boundary, so nothing past it is still the chapter's.
  *
  * Exported for the read-only settle (virtualSettle.utils.ts), which must splice the SAME region
  * out of its serialized output that `$rebuildChapter` replaces in the live tree.
  *
  * Read-only: safe inside `editor.getEditorState().read(...)` or an update.
  */
-export function $chapterAdjacentAttributeChars(chapter: ChapterNode): CharNode[] {
-  const chars: CharNode[] = [];
+export function $chapterAdjacentAttributeNodes(chapter: ChapterNode): LexicalNode[] {
+  const region: LexicalNode[] = [];
+  for (let sibling = chapter.getNextSibling(); sibling; sibling = sibling.getNextSibling()) {
+    if ($isCharNode(sibling) && CHAPTER_ATTRIBUTE_CHAR_MARKERS.has(sibling.getMarker())) {
+      region.push(sibling);
+      continue;
+    }
+    if ($isParaNode(sibling) && sibling.getMarker() === CHAPTER_ATTRIBUTE_PARA_MARKER)
+      region.push(sibling);
+    break;
+  }
+  return region;
+}
+
+/**
+ * The chapter that `rootChild` — a node sitting directly under the document root — is an
+ * attribute marker of, reached through only other chapter attribute chars; `undefined` when it is
+ * not one, or when anything but a chapter precedes it. The inverse of
+ * {@link $chapterAdjacentAttributeNodes}: a root child is in a chapter's region exactly when that
+ * chapter is the one this returns.
+ *
+ * Read-only: safe inside `editor.getEditorState().read(...)` or an update.
+ */
+function $chapterOfAdjacentAttributeNode(rootChild: LexicalNode): ChapterNode | undefined {
+  const isAttributeNode =
+    ($isCharNode(rootChild) && CHAPTER_ATTRIBUTE_CHAR_MARKERS.has(rootChild.getMarker())) ||
+    ($isParaNode(rootChild) && rootChild.getMarker() === CHAPTER_ATTRIBUTE_PARA_MARKER);
+  if (!isAttributeNode) return undefined;
   for (
-    let sibling = chapter.getNextSibling();
-    $isCharNode(sibling) && CHAPTER_ATTRIBUTE_CHAR_MARKERS.has(sibling.getMarker());
-    sibling = sibling.getNextSibling()
-  )
-    chars.push(sibling);
-  return chars;
+    let sibling: LexicalNode | null = rootChild.getPreviousSibling();
+    sibling;
+    sibling = sibling.getPreviousSibling()
+  ) {
+    if ($isChapterNode(sibling)) return sibling;
+    if (!($isCharNode(sibling) && CHAPTER_ATTRIBUTE_CHAR_MARKERS.has(sibling.getMarker())))
+      return undefined;
+  }
+  return undefined;
 }
 
 /**
  * Build the re-tokenizable fragment for an editable chapter's OWN displayed bytes — its `\c N`
- * glyph text plus (when displayed) its `\ca` run's bytes — plus the bytes of any first-class
- * `\ca`/`\cp` char spans directly adjacent at root ({@link $chapterAdjacentAttributeChars}: the
- * settle region is the chapter AND those spans, so a foldable span re-tokenizes onto the
- * chapter). Preserve-or-refuse (returns undefined) when the chapter carries unknown attributes
- * (bytes cannot re-derive them) or when anything in the region degrades to a preserved-node
- * sentinel (nothing the adaptor builds in the chapter ever should; an adjacent span holding an
- * unrecoverable construct refuses the same way).
+ * glyph text plus (when displayed) its `\ca` run's bytes — plus the bytes of the adjacent
+ * first-class `\ca`/`\cp` spans and `\cp` paragraph ({@link $chapterAdjacentAttributeNodes}: the
+ * settle region is the chapter AND those nodes, so a foldable one re-tokenizes onto the chapter).
+ * Preserve-or-refuse (returns undefined) when the chapter carries unknown attributes (bytes
+ * cannot re-derive them), when an adjacent `\cp` paragraph carries them (the same rule
+ * `$buildParaFragment` applies to any paragraph), or when anything in the region degrades to a
+ * preserved-node sentinel (nothing the adaptor builds in the chapter ever should; an adjacent
+ * span or paragraph holding an unrecoverable construct refuses the same way).
  *
  * Exported for the read-only settle (virtualSettle.utils.ts), the same sharing contract
  * `$buildNoteFragment` has.
@@ -1342,9 +1380,11 @@ export function $buildChapterFragment(
   getMarkerFn: MarkerLookup,
 ): FragmentAccumulator | undefined {
   if (Object.keys(chapter.getUnknownAttributes() ?? {}).length > 0) return undefined;
+  const adjacent = $chapterAdjacentAttributeNodes(chapter);
+  if (adjacent.some((node) => $isParaNode(node) && node.getUnknownAttributes())) return undefined;
   const out: FragmentAccumulator = { text: "", spans: [], sentinels: [] };
   $appendNodesFragment(chapter.getChildren(), out, getMarkerFn);
-  $appendNodesFragment($chapterAdjacentAttributeChars(chapter), out, getMarkerFn);
+  $appendNodesFragment(adjacent, out, getMarkerFn);
   if (out.sentinels.length > 0) return undefined;
   return out;
 }
@@ -1363,10 +1403,10 @@ export function $buildChapterFragment(
  */
 export function $rebuildChapter(chapter: ChapterNode, context: Tier2Context): boolean {
   const { viewOptions, getMarker: getMarkerFn, logger } = context;
-  // The settle REGION: the chapter plus any first-class `\ca`/`\cp` chars directly adjacent at
-  // root — captured BEFORE the splice below detaches them, and the same region
+  // The settle REGION: the chapter plus the adjacent first-class `\ca`/`\cp` spans and `\cp`
+  // paragraph at root — captured BEFORE the splice below detaches them, and the same region
   // `$buildChapterFragment` reads its bytes from.
-  const region: LexicalNode[] = [chapter, ...$chapterAdjacentAttributeChars(chapter)];
+  const region: LexicalNode[] = [chapter, ...$chapterAdjacentAttributeNodes(chapter)];
   const out = $buildChapterFragment(chapter, getMarkerFn);
   if (!out) {
     logger?.debug("[MarkerEdit] Chapter Tier 2 skipped: chapter excluded by guard rails");
@@ -1466,12 +1506,19 @@ export function $rebuildChapter(chapter: ChapterNode, context: Tier2Context): bo
  * (`$inLiteralOnlyBlock`, markerEditTier2Trigger.utils.ts), which never pends a key whose divergence
  * could never settle in the first place.
  *
- * One scope is not an ancestor: a first-class `\ca`/`\cp` char span at DOCUMENT ROOT directly
- * adjacent to its chapter (through only other such spans) settles through that CHAPTER's scope —
- * the char has no Note/Para/Chapter ancestor of its own, and only a re-tokenize that sees the
- * `\c` and `\ca` bytes TOGETHER can fold the span back onto the chapter
- * ({@link $chapterAdjacentAttributeChars}, whose region `$rebuildChapter` rebuilds). Without this
- * arm a pend inside such a span could never settle, and the fold waited for a reload.
+ * One scope is not an ancestor: a chapter's attribute markers sitting at DOCUMENT ROOT directly
+ * adjacent to it (through only other such spans) settle through that CHAPTER's scope, because
+ * only a re-tokenize that sees the `\c` and the `\ca`/`\cp` bytes TOGETHER can fold them back
+ * onto it ({@link $chapterAdjacentAttributeNodes}, whose region `$rebuildChapter` rebuilds).
+ * Without this arm the fold waited for a reload. Two shapes reach it:
+ *
+ * - a first-class `\ca`/`\cp` CHAR, which has no Note/Para/Chapter ancestor at all;
+ * - a real `\cp` PARAGRAPH, which does have one — itself. Its own paragraph scope is what a
+ *   `\cp` paragraph must NOT settle through: re-tokenizing `\cp 1` alone can only ever produce a
+ *   `\cp` paragraph, so the chapter has to be in the fragment for the fold to be expressible at
+ *   all. The chapter therefore OVERRIDES a paragraph scope that is the root child itself, while
+ *   any scope found deeper in (a note inside that paragraph) still wins — it is the nearer
+ *   scope, and its own rebuild is the right one.
  *
  * The single definition of scope, shared by the mutating settle below and the read-only settle in
  * virtualSettle.utils.ts. Both must route a given pending key to the SAME scope, or the settled USJ
@@ -1489,19 +1536,10 @@ export function $settleScopeForNode(
       scope = current;
     if ($isRootNode(current.getParent())) rootChild = current;
   }
-  if (scope) return scope;
-  if (!$isCharNode(rootChild) || !CHAPTER_ATTRIBUTE_CHAR_MARKERS.has(rootChild.getMarker()))
-    return undefined;
-  for (
-    let sibling: LexicalNode | null = rootChild.getPreviousSibling();
-    sibling;
-    sibling = sibling.getPreviousSibling()
-  ) {
-    if ($isChapterNode(sibling)) return sibling;
-    if (!($isCharNode(sibling) && CHAPTER_ATTRIBUTE_CHAR_MARKERS.has(sibling.getMarker())))
-      return undefined;
-  }
-  return undefined;
+  // A scope found DEEPER than the root child is the nearer one and wins outright; only the root
+  // child itself can be a chapter's attribute marker.
+  if (scope && !scope.is(rootChild)) return scope;
+  return (rootChild ? $chapterOfAdjacentAttributeNode(rootChild) : undefined) ?? scope;
 }
 
 /** Route a Tier-1-unexpressible edit to Tier 2 via its scope ({@link $settleScopeForNode}).

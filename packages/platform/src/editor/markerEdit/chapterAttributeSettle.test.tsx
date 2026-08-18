@@ -20,7 +20,16 @@ import {
   serializeEditorState,
 } from "../adaptors/usj-editor.adaptor";
 import { act } from "@testing-library/react";
-import { $createTextNode, $getRoot, $isTextNode, TextNode } from "lexical";
+import { HistoryPlugin } from "@lexical/react/LexicalHistoryPlugin";
+import {
+  $createRangeSelection,
+  $createTextNode,
+  $getRoot,
+  $isTextNode,
+  $setSelection,
+  TextNode,
+  UNDO_COMMAND,
+} from "lexical";
 import {
   $chapterAltnumberRunPieces,
   $chapterGlyphTextNode,
@@ -83,6 +92,20 @@ async function renderChapterEditor(usj: Usj) {
   return baseTestEnvironment(
     JSON.stringify({ root: state.root }),
     <MarkerEditPlugin viewOptions={viewOptions} />,
+  );
+}
+
+/** `renderChapterEditor` plus `HistoryPlugin`, for the undo pins. */
+async function renderChapterEditorWithHistory(usj: Usj) {
+  initializeSerialize(undefined, undefined);
+  reset();
+  const state = serializeEditorState(usj, viewOptions);
+  return baseTestEnvironment(
+    JSON.stringify({ root: state.root }),
+    <>
+      <MarkerEditPlugin viewOptions={viewOptions} />
+      <HistoryPlugin />
+    </>,
   );
 }
 
@@ -707,6 +730,243 @@ describe("first-class \\ca char span adjacent to its chapter", () => {
           .getChildren()
           .map((child) => child.getType()),
       ).toEqual(["book", "chapter", "char", "para"]);
+    });
+  });
+});
+
+/**
+ * The other direction of the `\cp` unfold, and the piece the attribute-markers track left open.
+ *
+ * Typing markup into a chapter's `\cp` value correctly materializes a REAL `\cp` ParaNode below
+ * the chapter — Paratext keeps a marker-bearing `cp` first-class, and the two tests above pin
+ * that. Deleting the markup again has to put it back, and could not: a `\cp` paragraph is a
+ * root-level ParaNode, so its own scope is a PARAGRAPH, and re-tokenizing `\cp 1` alone can only
+ * ever produce a `\cp` paragraph. Only a re-tokenize that sees `\c 1` and `\cp 1` TOGETHER can
+ * fold, so the paragraph stayed on screen until a reload while the file had already converged.
+ *
+ * The chapter settle REGION is what carries the fix: it already spans the chapter plus any
+ * adjacent first-class `\ca`/`\cp` chars, and a directly-following `\cp` PARAGRAPH joins it on
+ * the same terms. The tokenizer stays the single fold authority — plain-text `cp` folds to
+ * pubnumber, a marker-bearing one re-tokenizes to the identical paragraph and refuses at the
+ * fixed point.
+ */
+describe("a real \\cp paragraph folds back onto its chapter", () => {
+  /** A doc whose chapter is followed by a REAL `\cp` paragraph carrying `cpContent`. */
+  function cpParaUsj(cpContent: MarkerContent[], between: MarkerContent[] = []): Usj {
+    return {
+      type: "USJ",
+      version: "3.1",
+      content: [
+        { type: "book", marker: "id", code: "GEN", content: ["GEN"] },
+        { type: "chapter", marker: "c", number: "1" },
+        ...between,
+        { type: "para", marker: "cp", content: cpContent },
+        { type: "para", marker: "p", content: ["body text"] },
+      ],
+    };
+  }
+
+  /** The `\cp` ParaNode, or undefined once it has folded away. */
+  function $findCpPara() {
+    return $getRoot()
+      .getChildren()
+      .filter($isParaNode)
+      .find((para) => para.getMarker() === "cp");
+  }
+
+  /** The `\cp` paragraph's value TextNode — its first non-glyph, non-separator text child. */
+  function $cpParaValue(): TextNode {
+    const para = requireDefined($findCpPara(), "cp paragraph not found");
+    const value = para
+      .getChildren()
+      .find(
+        (child): child is TextNode =>
+          $isTextNode(child) && !$isMarkerNode(child) && child.getTextContent().trim() !== "",
+      );
+    return requireDefined(value, "cp paragraph value text not found");
+  }
+
+  /**
+   * Deletes the `\nd x\nd*` span from the `\cp` paragraph the way a user does — a selection from
+   * the end of the plain value through the end of the span, removed — leaving the caret where
+   * the deletion ended.
+   */
+  function $deleteMarkupFromCpPara(): void {
+    const value = $cpParaValue();
+    const span = requireDefined(
+      requireDefined($findCpPara(), "cp paragraph not found").getChildren().find($isCharNode),
+      "cp paragraph markup span not found",
+    );
+    const spanEnd = requireDefined(
+      span.getAllTextNodes().at(-1),
+      "cp paragraph markup span has no text",
+    );
+    const selection = $createRangeSelection();
+    selection.anchor.set(value.getKey(), value.getTextContentSize(), "text");
+    selection.focus.set(spanEnd.getKey(), spanEnd.getTextContentSize(), "text");
+    $setSelection(selection);
+    selection.removeText();
+  }
+
+  it("deleting the markup folds it onto the chapter, byte-identical with a reload", async () => {
+    const { editor } = await renderChapterEditor(
+      cpParaUsj(["1 ", { type: "char", marker: "nd", content: ["x"] }]),
+    );
+
+    await act(async () => {
+      editor.update($deleteMarkupFromCpPara);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    // Deleting a whole span destroys its glyphs, which the deletion transform routes to Tier 2
+    // IMMEDIATELY rather than pending — so this fold lands on the keystroke, strictly earlier
+    // than a departure settle would. Departing below changes nothing and is asserted anyway:
+    // "settled by departure at the latest" is the contract, and a future re-routing of the
+    // deletion arm through the pend ledger must keep this test green.
+    editor.getEditorState().read(() => {
+      expect($findCpPara()).toBeUndefined();
+    });
+
+    await act(async () =>
+      editor.update(() => {
+        $textOutsideChapter().select(0, 0);
+      }),
+    );
+
+    editor.getEditorState().read(() => {
+      const chapter = $findChapter();
+      expect(chapter.getPubnumber()).toBe("1");
+      // The paragraph is GONE — folded onto the chapter, not left beside the new run.
+      expect($findCpPara()).toBeUndefined();
+      expect($chapterPubnumberRunPieces(chapter).value?.getTextContent()).toBe(`${NBSP}1`);
+    });
+
+    // Byte-identity with a reload of the same USFM (`\c 1 \cp 1`): the settled document must BE
+    // the folded USJ, not merely converge to it on the next load.
+    initializeDeserialize(undefined);
+    const settledUsj = deserializeSerializedEditorState(editor.getEditorState().toJSON());
+    expect(settledUsj?.content).toEqual([
+      { type: "book", marker: "id", code: "GEN", content: ["GEN"] },
+      { type: "chapter", marker: "c", number: "1", pubnumber: "1" },
+      { type: "para", marker: "p", content: ["body text"] },
+    ]);
+  });
+
+  it("typing a value into an EMPTY \\cp paragraph folds it onto the chapter", async () => {
+    // The other half of the round trip: an emptied `\cp` is a first-class empty paragraph
+    // (ParatextData never yields an empty pubnumber), and giving it a value again makes it
+    // foldable. Departure is asserted because that is the contract — settled by the time the
+    // caret leaves — not because the fold waits for it; measured, this one also lands at the
+    // gesture.
+    const { editor } = await renderChapterEditor(cpParaUsj([]));
+
+    await act(async () =>
+      editor.update(() => {
+        const para = requireDefined($findCpPara(), "cp paragraph not found");
+        const typed = $createTextNode("B");
+        para.append(typed);
+        typed.select(typed.getTextContentSize(), typed.getTextContentSize());
+      }),
+    );
+
+    await act(async () =>
+      editor.update(() => {
+        $textOutsideChapter().select(0, 0);
+      }),
+    );
+
+    editor.getEditorState().read(() => {
+      expect($findChapter().getPubnumber()).toBe("B");
+      expect($findCpPara()).toBeUndefined();
+    });
+  });
+
+  it("does not fold a \\cp paragraph a real paragraph separates from its chapter", async () => {
+    const { editor } = await renderChapterEditor(
+      cpParaUsj(
+        ["1 ", { type: "char", marker: "nd", content: ["x"] }],
+        [{ type: "para", marker: "p", content: ["intervening"] }],
+      ),
+    );
+
+    await act(async () => {
+      editor.update($deleteMarkupFromCpPara);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () =>
+      editor.update(() => {
+        $textOutsideChapter().select(0, 0);
+      }),
+    );
+
+    editor.getEditorState().read(() => {
+      // Adjacency is the whole rule: a `\cp` further down the document is an ordinary paragraph
+      // that happens to carry the marker, and in the file it is not the chapter's attribute.
+      expect($findChapter().getPubnumber()).toBeUndefined();
+      expect($findCpPara()).toBeDefined();
+    });
+  });
+
+  it("does not fold a \\cp paragraph that still carries markup", async () => {
+    const { editor } = await renderChapterEditor(
+      cpParaUsj(["1 ", { type: "char", marker: "nd", content: ["x"] }]),
+    );
+
+    // Edit the plain part of the value; the `\nd x\nd*` span stays.
+    await act(async () =>
+      editor.update(() => {
+        const value = $cpParaValue();
+        value.setTextContent("2 ");
+        value.select(value.getTextContentSize(), value.getTextContentSize());
+      }),
+    );
+    await act(async () =>
+      editor.update(() => {
+        $textOutsideChapter().select(0, 0);
+      }),
+    );
+
+    editor.getEditorState().read(() => {
+      // ParatextData keeps a marker-bearing `cp` first-class, and so does the tokenizer: the
+      // widened scope re-tokenizes to the identical paragraph and refuses at the fixed point.
+      const chapter = $findChapter();
+      expect(chapter.getPubnumber()).toBeUndefined();
+      const para = requireDefined($findCpPara(), "cp paragraph not found");
+      expect(para.getTextContent()).toContain("2 ");
+      expect(para.getChildren().filter($isCharNode)).toHaveLength(1);
+    });
+  });
+
+  it("undo restores the paragraph the fold removed", async () => {
+    const { editor } = await renderChapterEditorWithHistory(
+      cpParaUsj(["1 ", { type: "char", marker: "nd", content: ["x"] }]),
+    );
+
+    await act(async () => {
+      editor.update($deleteMarkupFromCpPara);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () =>
+      editor.update(() => {
+        $textOutsideChapter().select(0, 0);
+      }),
+    );
+    editor.getEditorState().read(() => {
+      expect($findCpPara()).toBeUndefined();
+    });
+
+    // The fold is a settle, so it is its own history step (the ratified multi-step-undo rule):
+    // one undo puts the paragraph back.
+    await act(async () => {
+      editor.dispatchCommand(UNDO_COMMAND, undefined);
+      await Promise.resolve();
+    });
+
+    editor.getEditorState().read(() => {
+      expect($findChapter().getPubnumber()).toBeUndefined();
+      expect($findCpPara()).toBeDefined();
     });
   });
 });

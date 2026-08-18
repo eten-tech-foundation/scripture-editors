@@ -1930,6 +1930,105 @@ describe("$settleScopeForNode", () => {
     });
   });
 
+  // A real `\cp` PARAGRAPH is the other adjacent shape, and the one whose OWN scope is wrong:
+  // re-tokenizing `\cp 1` alone can only ever produce a `\cp` paragraph, so the chapter has to
+  // be in the fragment for the fold back onto `pubnumber` to be expressible at all.
+  it("returns the adjacent chapter for text inside a real \\cp paragraph", async () => {
+    const { editor } = await testEnvironment(() => {
+      $getRoot().append(
+        $createChapterNode("1").append($createTextNode(getVisibleOpenMarkerText("c", "1"))),
+        $createParaNode("cp").append($createMarkerNode("cp"), $createTextNode(`${NBSP}1`)),
+        $createParaNode("p").append($createMarkerNode("p"), $createTextNode(`${NBSP}body`)),
+      );
+    });
+    editor.getEditorState().read(() => {
+      const chapter = $getRoot().getChildren().find($isChapterNode);
+      if (!chapter) throw new Error("expected a ChapterNode");
+      const cpPara = $getRoot()
+        .getChildren()
+        .filter($isParaNode)
+        .find((para) => para.getMarker() === "cp");
+      if (!cpPara) throw new Error("expected the cp ParaNode");
+      const value = cpPara.getChildren().find((child) => !$isMarkerNode(child));
+      if (!value) throw new Error("expected the cp paragraph's value text");
+      expect($settleScopeForNode(value)).toBe(chapter);
+      expect($settleScopeForNode(cpPara)).toBe(chapter);
+    });
+  });
+
+  it("returns the chapter for a \\cp paragraph reached through an intervening \\ca char", async () => {
+    const { editor } = await testEnvironment(() => {
+      $getRoot().append(
+        $createChapterNode("1").append($createTextNode(getVisibleOpenMarkerText("c", "1"))),
+        $createCharNode("ca").append(
+          $createMarkerNode("ca"),
+          $createTextNode(`${NBSP}3`),
+          $createMarkerNode("ca", "closing"),
+        ),
+        $createParaNode("cp").append($createMarkerNode("cp"), $createTextNode(`${NBSP}1`)),
+        $createParaNode("p").append($createMarkerNode("p"), $createTextNode(`${NBSP}body`)),
+      );
+    });
+    editor.getEditorState().read(() => {
+      const chapter = $getRoot().getChildren().find($isChapterNode);
+      if (!chapter) throw new Error("expected a ChapterNode");
+      const cpPara = $getRoot()
+        .getChildren()
+        .filter($isParaNode)
+        .find((para) => para.getMarker() === "cp");
+      if (!cpPara) throw new Error("expected the cp ParaNode");
+      expect($settleScopeForNode(cpPara)).toBe(chapter);
+    });
+  });
+
+  it("returns the paragraph itself for a \\cp paragraph a real paragraph separates from the chapter", async () => {
+    const { editor } = await testEnvironment(() => {
+      $getRoot().append(
+        $createChapterNode("1").append($createTextNode(getVisibleOpenMarkerText("c", "1"))),
+        $createParaNode("p").append($createMarkerNode("p"), $createTextNode(`${NBSP}body`)),
+        $createParaNode("cp").append($createMarkerNode("cp"), $createTextNode(`${NBSP}1`)),
+      );
+    });
+    editor.getEditorState().read(() => {
+      const cpPara = $getRoot()
+        .getChildren()
+        .filter($isParaNode)
+        .find((para) => para.getMarker() === "cp");
+      if (!cpPara) throw new Error("expected the cp ParaNode");
+      // Not the chapter's attribute at all — an ordinary paragraph that happens to carry the
+      // marker, and its own scope is the right one.
+      expect($settleScopeForNode(cpPara)).toBe(cpPara);
+    });
+  });
+
+  it("returns the NOTE for a note nested inside a chapter-adjacent \\cp paragraph", async () => {
+    // The nearer scope wins: only the ROOT CHILD itself is a chapter's attribute marker, so a
+    // scope found deeper than it keeps its own rebuild.
+    const { editor } = await testEnvironment(() => {
+      const note = $createNoteNode("f", "+");
+      $getRoot().append(
+        $createChapterNode("1").append($createTextNode(getVisibleOpenMarkerText("c", "1"))),
+        $createParaNode("cp").append(
+          $createMarkerNode("cp"),
+          $createTextNode(`${NBSP}1`),
+          note.append($createTextNode("note body")),
+        ),
+        $createParaNode("p").append($createMarkerNode("p"), $createTextNode(`${NBSP}body`)),
+      );
+    });
+    editor.getEditorState().read(() => {
+      const cpPara = $getRoot()
+        .getChildren()
+        .filter($isParaNode)
+        .find((para) => para.getMarker() === "cp");
+      if (!cpPara) throw new Error("expected the cp ParaNode");
+      const note = cpPara.getChildren().find($isNoteNode);
+      if (!note) throw new Error("expected the note");
+      const body = note.getAllTextNodes()[0];
+      expect($settleScopeForNode(body)).toBe(note);
+    });
+  });
+
   it("returns undefined for a chapter-adjacent root char whose marker is not \\ca/\\cp", async () => {
     const { editor } = await testEnvironment(() => {
       $getRoot().append(

@@ -35,7 +35,7 @@ import {
   $buildChapterFragment,
   $buildNoteFragment,
   $buildParaFragment,
-  $chapterAdjacentAttributeChars,
+  $chapterAdjacentAttributeNodes,
   $isRebuildSentinel,
   $isReTokenizableMilestone,
   $settleScopeForNode,
@@ -1117,8 +1117,9 @@ function $settledChapter(
   // that fixed point; here the fresh serialized chapter already CARRIES the reconciled fields,
   // so returning it (the whole slot is replaced either way) is the read-only mirror of that.
   // Compared over the whole REGION (`$buildChapterFragment` reads the chapter plus its adjacent
-  // first-class `\ca`/`\cp` chars), exactly as `$rebuildChapter`'s own fixed-point compare is.
-  const region: LexicalNode[] = [chapter, ...$chapterAdjacentAttributeChars(chapter)];
+  // first-class `\ca`/`\cp` spans and `\cp` paragraph), exactly as `$rebuildChapter`'s own
+  // fixed-point compare is.
+  const region: LexicalNode[] = [chapter, ...$chapterAdjacentAttributeNodes(chapter)];
   const fieldsLag =
     chapter.getNumber() !== (freshChapter.number ?? "") ||
     chapter.getAltnumber() !== freshChapter.altnumber ||
@@ -1247,13 +1248,14 @@ export function $settledUsj(
 
   // Chapters are top-level and disjoint from both passes above — a chapter is never inside a
   // paragraph or a note — so ordering against them is free. The whole REGION's slots are
-  // replaced — the chapter plus any adjacent first-class `\ca`/`\cp` chars
-  // ($chapterAdjacentAttributeChars), mirroring `$rebuildChapter`'s whole-region splice: a
-  // folded span must vanish from the settled output, not linger beside the updated chapter.
+  // replaced — the chapter plus the adjacent first-class `\ca`/`\cp` spans and `\cp` paragraph
+  // ($chapterAdjacentAttributeNodes), mirroring `$rebuildChapter`'s whole-region splice: a
+  // folded span or paragraph must vanish from the settled output, not linger beside the updated
+  // chapter.
   for (const chapter of chapterScopes.values()) {
     const site = sites.get(chapter.getKey());
     if (!site) continue;
-    const regionSize = 1 + $chapterAdjacentAttributeChars(chapter).length;
+    const regionSize = 1 + $chapterAdjacentAttributeNodes(chapter).length;
     const rebuilt = $settledChapter(chapter, context, transient);
     if (!rebuilt) continue;
     const index = site.siblings.indexOf(site.node);
