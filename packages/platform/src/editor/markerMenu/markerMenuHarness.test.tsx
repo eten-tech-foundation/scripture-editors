@@ -398,6 +398,63 @@ describe("editable-mode marker menu harness", () => {
     });
   });
 
+  describe("commit with zero candidates", () => {
+    it("dismisses the palette instead of orphaning it, leaving the typed literal and the caret", async () => {
+      let text: TextNode | undefined;
+      const { editor } = await harnessTestEnvironment(() => {
+        text = $buildBackslashMenuFixture().text;
+      });
+      await act(async () => editor.update(() => requireDefined(text, "text").select(5, 5)));
+
+      await dispatchKeyDown(editor, "\\");
+      await waitForMenu();
+      await simulateLiteralInsert(editor, "\\");
+      // Filter down to nothing: no offered marker contains "qqqq".
+      for (const key of "qqqq") await dispatchKeyDown(editor, key);
+      expect(screen.queryAllByRole("menuitem")).toHaveLength(0);
+      expect(document.querySelector(".autocomplete-menu-container")).not.toBeNull();
+
+      await dispatchKeyDown(editor, "Enter");
+
+      // Escape's contract: the overlay goes, the document keeps the typed literal, and the
+      // caret is still live at its end. Committing nothing must not leave an overlay that no
+      // keystroke can resolve.
+      expect(document.querySelector(".autocomplete-menu-container")).toBeNull();
+      editor.getEditorState().read(() => {
+        expect($getRoot().getTextContent()).toContain("hello\\");
+        const selection = $getSelection();
+        if (!$isRangeSelection(selection)) throw new Error("no range selection after the commit");
+        expect(selection.isCollapsed()).toBe(true);
+      });
+    });
+
+    it("still splits nothing and adds no paragraph when the Enter menu commits nothing", async () => {
+      let caretText: TextNode | undefined;
+      const { editor } = await harnessTestEnvironment(() => {
+        caretText = $buildEnterMenuFixture().caretText;
+      });
+      await act(async () =>
+        editor.update(() => requireDefined(caretText, "caretText").select(6, 6)),
+      );
+
+      let parasBefore = 0;
+      editor.getEditorState().read(() => (parasBefore = countParagraphs($getRoot())));
+
+      await pressEnterCommand(editor);
+      await waitForMenu();
+      for (const key of "qqqq") await dispatchKeyDown(editor, key);
+
+      await dispatchKeyDown(editor, "Enter");
+
+      expect(document.querySelector(".autocomplete-menu-container")).toBeNull();
+      editor.getEditorState().read(() => {
+        // The Enter trigger suppressed the split when it opened the menu; committing nothing
+        // cancels outright, exactly as Escape does - it never happened.
+        expect(countParagraphs($getRoot())).toBe(parasBefore);
+      });
+    });
+  });
+
   describe("Space over a collapsed caret", () => {
     it("dismisses the palette and leaves the literal space to land (passive palette)", async () => {
       let text: TextNode | undefined;

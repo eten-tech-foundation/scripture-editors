@@ -125,12 +125,11 @@ interface MenuState {
   /** Which key opened the menu — decides the apply semantics (retag-or-split vs split-only). */
   trigger: "backslash" | "enter";
   /** Whether a literal `\marker` trigger prefix landed before the caret (backslash trigger,
-   * collapsed selection only) - passed straight through to `apply`. */
+   * collapsed selection only) - passed straight through to `apply`. False on a backslash
+   * trigger therefore also identifies the WRAP case: the trigger preventDefaulted, so nothing
+   * the user typed reached the document and the palette's filter query is the only record of
+   * the marker they typed. */
   literalPrefixLanded: boolean;
-  /** The `\` trigger fired over a NON-collapsed selection: committing wraps the selection, and
-   * because that trigger preventDefaulted, nothing the user typed reached the document — the
-   * palette's own filter query is the only record of the marker they typed. */
-  wrapsSelection: boolean;
   /** The entries the menu offers, from the harness's item source. */
   items: MarkerMenuItemLike[];
 }
@@ -212,16 +211,32 @@ function EditableMarkerMenu({
         KEY_DOWN_COMMAND,
         (event) => {
           if (menuState) {
-            // Already open: Space is the PASSIVE palette's own key; every other keystroke goes
-            // to `NodeSelectionMenu`'s capture below (filters/Escape/Backspace) or to
+            // A commit with nothing to commit closes the palette, the same teardown Escape
+            // gets. `useMenuCore`'s select() silently returns when the filtered list is empty —
+            // never reaching the onSelectOption call that carries the close — so without this
+            // the overlay stays mounted over an empty list and no further keystroke resolves it.
+            if (
+              (event.key === "Enter" || event.key === "Tab") &&
+              filterRef.current.options.length === 0
+            ) {
+              event.preventDefault();
+              event.stopPropagation();
+              setMenuState(undefined);
+              return true;
+            }
+            // Otherwise Space is the PASSIVE `\` palette's own key; every other keystroke — and
+            // every key of the Enter-triggered menu, which has no passive semantics — goes to
+            // `NodeSelectionMenu`'s capture below (filters/Escape/Backspace) or to
             // `LexicalMenuNavigation` (arrows/Enter/Tab).
-            if (event.key !== " ") return false;
-            setMenuState(undefined); // Space always dismisses the palette
+            if (event.key !== " " || menuState.trigger !== "backslash") return false;
+            setMenuState(undefined); // Space always dismisses the passive palette
             // Collapsed caret: the literal `\marker` is IN the document, so the space is left
             // un-prevented to land after it and let marker completion resolve the typed literal.
             // `true` still claims the event so the capture below cannot swallow it as a filter
             // character — a swallowed space is a keystroke accepted and discarded.
-            if (!menuState.wrapsSelection) return true;
+            // (`literalPrefixLanded` records that collapsed-ness: the `\` trigger only lets a
+            // literal land when the selection was collapsed, and preventDefaults otherwise.)
+            if (menuState.literalPrefixLanded) return true;
             // Wrap case: the trigger preventDefaulted, so no literal exists to resolve and the
             // space must not be allowed to replace the selection either.
             event.preventDefault();
@@ -245,7 +260,7 @@ function EditableMarkerMenu({
           setMenuState({
             trigger: "backslash",
             literalPrefixLanded: collapsed,
-            wrapsSelection: !collapsed,
+
             items: harness.getItems(context),
           });
           return true;
