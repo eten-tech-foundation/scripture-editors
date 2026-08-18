@@ -237,7 +237,7 @@ function characterItems(styleInfo: StyleInfo, context: MarkerMenuContext): Marke
 
 /**
  * Builds the `\`-triggered marker menu (MarkerDropdownEditHandler.cs:96-139).
- * Character-empty to paragraph fallback (rule 4, PT9 FB 21054, `:118-127`):
+ * Character-empty to paragraph fallback (rule 4, PT9, `:118-127`):
  * if the character source (close tags + character/note items) yields
  * nothing, recompute as paragraph source.
  *
