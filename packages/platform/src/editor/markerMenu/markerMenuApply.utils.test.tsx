@@ -645,19 +645,13 @@ describe("$applyMarkerMenuSelection", () => {
      * live — a selected space is real content, and neither the wrap nor the transform may delete
      * it or add a byte beside it.
      *
-     * SKIPPED: red against a defect in the WRAP primitive, which this test does not own.
-     * `$moveLeadingSpaceToPreviousNode` (`../adaptors/usj-marker-action.utils.ts`) moves a wrapped
-     * node's leading space out to the previous sibling unconditionally. When the selection IS
-     * that space, trimming empties the node and the wrapper keeps only its structural separator.
-     * Measured today: the space returns to the left text node and an EMPTY span serializes —
-     * `["one ", { type: "char", marker: "nd" }, "two"]`, a fabricated `\nd \nd*` pair in the
-     * file, with the user's apply silently doing nothing.
-     *
-     * The whitespace half is clean: neither trailing-space transform deletes or fabricates a
-     * byte here. Un-skip alongside a guard that declines to move a leading space when it is the
-     * node's entire content.
+     * The wrap primitive once broke this shape: `$moveLeadingSpaceToPreviousNode`
+     * (`../adaptors/usj-marker-action.utils.ts`) moved a wrapped node's leading space out to the
+     * previous sibling unconditionally, so a selection that IS the space emptied the node and an
+     * empty `\nd \nd*` pair reached the file while the apply silently did nothing. The guard that
+     * declines the move when the space is the node's entire content is what keeps this green.
      */
-    it.skip("wraps a whitespace-only selection into a span holding exactly that space", async () => {
+    it("wraps a whitespace-only selection into a span holding exactly that space", async () => {
       let text: TextNode;
       const { editor } = await fullHarnessEnvironment(() => {
         text = $createTextNode("one two");
