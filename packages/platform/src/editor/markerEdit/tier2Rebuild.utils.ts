@@ -420,10 +420,17 @@ function $appendSignature(
         out.push(
           SIGNATURE_OPEN,
           "ms",
+          // `attributeOrder` is part of the state: the serialized key order follows it, so a
+          // USER EDIT that only REORDERS the run's attributes (values unchanged, displayed
+          // bytes identical to their own re-tokenization) is a real document change — without
+          // this fold both sides compare equal, the fixed-point refusal fires, and the stale
+          // order silently survives the settle. An unedited non-canonical load stays a fixed
+          // point: the fresh side re-derives the same authored order from the same bytes.
           JSON.stringify({
             sid: node.getSid() ?? null,
             eid: node.getEid() ?? null,
             unknownAttributes: node.getUnknownAttributes() ?? null,
+            attributeOrder: node.getAttributeOrder() ?? null,
           }),
         );
         $appendSignature($flattenAttributeRuns(run), out, getMarkerFn);

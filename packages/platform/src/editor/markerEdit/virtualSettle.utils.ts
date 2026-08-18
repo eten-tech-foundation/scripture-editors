@@ -224,16 +224,20 @@ function appendSerializedSignature(
         sid?: string;
         eid?: string;
         unknownAttributes?: unknown;
+        attributeOrder?: unknown;
       };
       const runChildren = serializedRunWrapperChildren(children, index + 1);
       if (runChildren && $isReTokenizableMilestone(milestone.marker ?? "", getMarkerFn)) {
         out.push(
           SIGNATURE_OPEN,
           "ms",
+          // `attributeOrder` mirrored from `$appendSignature`'s fold: an attribute REORDER
+          // (values unchanged) is a real document change — serialized key order follows it.
           JSON.stringify({
             sid: milestone.sid ?? null,
             eid: milestone.eid ?? null,
             unknownAttributes: milestone.unknownAttributes ?? null,
+            attributeOrder: milestone.attributeOrder ?? null,
           }),
         );
         appendSerializedSignature(runChildren, out, getMarkerFn);
