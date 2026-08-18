@@ -42,7 +42,6 @@ import {
   $setSelection,
   KEY_DOWN_COMMAND,
   LexicalEditor,
-  LexicalNode,
   TextNode,
   UNDO_COMMAND,
 } from "lexical";
