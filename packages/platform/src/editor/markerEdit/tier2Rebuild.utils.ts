@@ -789,6 +789,36 @@ function $selectAfterClosingSpan(span: FragmentSpan): boolean {
   return true;
 }
 
+/**
+ * Place the caret AFTER a preserved node run the caret cannot enter — the append position past the
+ * whole opaque construct — for an offset that ran off the end of a fragment whose last span is a
+ * sentinel. The sibling of {@link $selectAfterClosingSpan}, for the other span kind the forward
+ * scan skips: without it the caller's reverse-find walks BACKWARD past the construct and parks the
+ * caret at the end of the preceding text, so a figure completed at the end of a paragraph leaves
+ * everything typed next on the WRONG SIDE of it (`hello \fig …\fig*` + ` world` became
+ * `hello  world\fig …\fig*`, doubled space included).
+ *
+ * A sentinel span records only the run's FIRST node, and a verse or milestone rides in its
+ * sentinel together with its display run (`$appendNodesFragment`), so the append position is past
+ * that run's LAST node — `selectNext` off the first would land inside the run. Every other
+ * sentinel kind (unknown blocks, notes, unrecoverable char spans) is a one-node run and skips the
+ * lookup. Returns whether it placed the caret.
+ */
+function $selectAfterSentinelRun(span: FragmentSpan): boolean {
+  const first = $getNodeByKey(span.key);
+  const siblings = first?.getParent()?.getChildren();
+  if (!first || !siblings) return false;
+  const index = siblings.findIndex((sibling) => sibling.is(first));
+  if (index < 0) return false;
+  const run = $isVerseNode(first)
+    ? $verseAttributeRun(siblings, index)
+    : $isMilestoneNode(first)
+      ? $milestoneDisplayRun(siblings, index)
+      : [];
+  (run[run.length - 1] ?? first).selectNext(0, 0);
+  return true;
+}
+
 /** Place the collapsed caret at cumulative span-text `offset` (see `caretSpanTextOffset`)
  * within `spans`, falling back to the first element. */
 function $selectAtFragmentOffset(
@@ -811,12 +841,15 @@ function $selectAtFragmentOffset(
     cumulative += length;
   }
   if (!best) {
-    // The offset ran past every addressable span. When the LAST span is a completed closer glyph
-    // (a typed `\nd*` at paragraph end, nothing after), the caret belongs AFTER the whole span —
-    // an append position in the paragraph — so continued typing is unstyled. The reverse-find
-    // fallback below would instead park it at the end of the preceding text, i.e. INSIDE the span.
+    // The offset ran past every addressable span. Both span kinds the forward scan skips can be
+    // the last thing in the fragment, and for both the caret belongs AFTER them — an append
+    // position in the paragraph — rather than at the end of the preceding text, which is where the
+    // reverse-find fallback below would park it: a completed closer glyph (a typed `\nd*` at
+    // paragraph end, nothing after), so continued typing is unstyled; or a sentinel, so continued
+    // typing lands past the opaque construct instead of in front of it.
     const lastSpan = spans[spans.length - 1];
     if (lastSpan && $isClosingMarkerSpan(lastSpan) && $selectAfterClosingSpan(lastSpan)) return;
+    if (lastSpan?.isSentinel && $selectAfterSentinelRun(lastSpan)) return;
     const last = [...spans]
       .reverse()
       .find((span) => !span.isSentinel && !$isClosingMarkerSpan(span));

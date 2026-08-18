@@ -104,19 +104,26 @@ describe("corpus forward anchors (standard view)", () => {
     throw new Error("No unknown node found");
   }
 
+  /** Whether `node` is the NBSP separator an editable marker glyph is followed by. */
+  function isMarkerSeparator(node: SerializedLexicalNode): boolean {
+    const state = (node as { $?: { textType?: string } }).$;
+    return state?.textType === "marker-trailing-space";
+  }
+
   /**
    * The DATA children of a node — what round-trips back to USJ — with the engine-owned display
-   * decoration stripped: the opening/closing glyphs, attribute runs, and real-USFM token pieces
-   * that editable marker modes render for unknown kinds. Those display shapes are pinned
-   * byte-exactly in usj-editor-adaptor.test.ts; these anchors are about the DATA surviving the
-   * trip, so they read through the decoration rather than restating it.
+   * decoration stripped: the opening/closing glyphs, their NBSP separators, attribute runs, and
+   * real-USFM token pieces that editable marker modes render for unknown kinds. Those display
+   * shapes are pinned byte-exactly in usj-editor-adaptor.test.ts; these anchors are about the DATA
+   * surviving the trip, so they read through the decoration rather than restating it.
    */
   function dataChildren(children: SerializedLexicalNode[]): SerializedLexicalNode[] {
     return children.filter(
       (child) =>
         !isSerializedMarkerNode(child) &&
         !isSerializedAttributeRunNode(child) &&
-        !isSerializedImmutableTypedTextNode(child),
+        !isSerializedImmutableTypedTextNode(child) &&
+        !isMarkerSeparator(child),
     );
   }
 

@@ -56,6 +56,14 @@
  * - **ref** — a generated wrapper around cross-reference target text; USJ invented this
  *   container, USFM never carried it, so it contributes no bytes at all — only its child text
  *   renders, as-is.
+ *
+ * ## Unterminated constructs render no closer
+ *
+ * Cutting across every kind above: a construct the source never terminated (`closed="false"`) has
+ * no closing bytes in the file, so it displays none. Char spans already work this way — see
+ * `$charClosingGlyph` (attributeDisplay.utils.ts) — and the rule is the same one for the same
+ * reason: a closer shown for bytes the document does not contain is a byte the user can neither
+ * edit away nor save.
  */
 
 import { canonicalAttributeText } from "../usj/attributeDisplay.utils.js";
@@ -88,6 +96,23 @@ const SIDEBAR_CATEGORY_ATTRIBUTE = "category";
 
 /** The periph attribute that renders as literal marker content rather than a pipe pair. */
 const PERIPH_TEXT_CONTENT_ATTRIBUTE = "alt";
+
+/** The USJ metadata flagging a construct the source never terminated. */
+const IMPLICITLY_CLOSED_ATTRIBUTE = "closed";
+const IMPLICITLY_CLOSED_VALUE = "false";
+
+/**
+ * Whether the source terminated this construct with its own closing bytes. An implicitly closed
+ * one (`closed="false"` — the tokenizer's mark for a sidebar the fragment or chapter boundary
+ * auto-closed, and USX's same flag read back) has no closing bytes in the file, so it must display
+ * none: char spans already follow exactly this rule (`$charClosingGlyph`,
+ * attributeDisplay.utils.ts — `createChar` builds no closing glyph for such a span and the display
+ * sync must not fabricate one). A closer shown for bytes the document does not contain is one the
+ * user can neither edit away nor save.
+ */
+function isExplicitlyClosed(attributes: UnknownAttributes): boolean {
+  return attributes[IMPLICITLY_CLOSED_ATTRIBUTE] !== IMPLICITLY_CLOSED_VALUE;
+}
 
 /** `attributes` with `file` renamed to `src` in place — the USX/USJ naming reversed back to the
  * byte name a figure's file attribute is actually written with in USFM. Key order is preserved
@@ -141,6 +166,7 @@ export function unknownDisplayParts(
   unknownAttributes: UnknownAttributes | undefined,
 ): UnknownDisplayParts {
   const attributes = unknownAttributes ?? {};
+  const closed = isExplicitlyClosed(attributes);
 
   switch (tag) {
     case "optbreak":
@@ -177,7 +203,7 @@ export function unknownDisplayParts(
         opening: `\\${marker} `,
         attributes: "",
         closingAttributes: canonicalAttributeText(renameFigureFileToSrc(attributes), undefined),
-        closing: `\\${marker}*`,
+        closing: closed ? `\\${marker}*` : "",
       };
 
     case "sidebar": {
@@ -187,7 +213,7 @@ export function unknownDisplayParts(
         opening: "\\esb",
         attributes: categoryBytes + canonicalAttributeText(rest, undefined),
         closingAttributes: "",
-        closing: "\\esbe",
+        closing: closed ? "\\esbe" : "",
       };
     }
 
@@ -210,7 +236,7 @@ export function unknownDisplayParts(
         opening: `\\${marker} `,
         attributes: "",
         closingAttributes: canonicalAttributeText(attributes, undefined),
-        closing: `\\${marker}*`,
+        closing: closed ? `\\${marker}*` : "",
       };
   }
 }

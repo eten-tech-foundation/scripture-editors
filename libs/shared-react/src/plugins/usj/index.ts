@@ -13,6 +13,7 @@ export * from "./EmptyVerseCaretGuardPlugin";
 export * from "./LoadStatePlugin";
 export * from "./NoteNodePlugin";
 export * from "./OnSelectionChangePlugin";
+export * from "./OpaqueBlockGuardPlugin";
 export * from "./ParaMarkerPrefixCursorGuardPlugin";
 export * from "./ParaNodePlugin";
 export * from "./StateChangePlugin";

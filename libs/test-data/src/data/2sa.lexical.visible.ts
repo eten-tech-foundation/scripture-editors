@@ -6325,6 +6325,12 @@ export const lexicalVisible2Sa: SerializedEditorState = {
             marker: "tr",
             children: [
               {
+                type: "immutable-typed-text",
+                text: "\\tr ",
+                textType: "marker",
+                version: 1,
+              },
+              {
                 direction: null,
                 format: "",
                 indent: 0,
@@ -6439,6 +6445,12 @@ export const lexicalVisible2Sa: SerializedEditorState = {
             type: "immutable-table-row",
             marker: "tr",
             children: [
+              {
+                type: "immutable-typed-text",
+                text: "\\tr ",
+                textType: "marker",
+                version: 1,
+              },
               {
                 direction: null,
                 format: "",
@@ -6555,6 +6567,12 @@ export const lexicalVisible2Sa: SerializedEditorState = {
             marker: "tr",
             children: [
               {
+                type: "immutable-typed-text",
+                text: "\\tr ",
+                textType: "marker",
+                version: 1,
+              },
+              {
                 direction: null,
                 format: "",
                 indent: 0,
@@ -6653,6 +6671,12 @@ export const lexicalVisible2Sa: SerializedEditorState = {
             type: "immutable-table-row",
             marker: "tr",
             children: [
+              {
+                type: "immutable-typed-text",
+                text: "\\tr ",
+                textType: "marker",
+                version: 1,
+              },
               {
                 direction: null,
                 format: "",
@@ -6895,6 +6919,12 @@ export const lexicalVisible2Sa: SerializedEditorState = {
             type: "immutable-table-row",
             marker: "tr",
             children: [
+              {
+                type: "immutable-typed-text",
+                text: "\\tr ",
+                textType: "marker",
+                version: 1,
+              },
               {
                 direction: null,
                 format: "",

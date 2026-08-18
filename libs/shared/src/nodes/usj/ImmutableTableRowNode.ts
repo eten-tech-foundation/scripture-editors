@@ -89,6 +89,19 @@ export class ImmutableTableRowNode extends ElementNode {
     const dom = document.createElement("tr");
     dom.setAttribute("data-marker", this.__marker);
     dom.classList.add("table-row", `usfm_${this.__marker}`);
+    // A first-line indent is meaningful for a `\tr` rendered as a BLOCK of text and meaningless
+    // inside a real table, where it only drags content left. It reaches two places here: the cells
+    // (reset by `.table-cell` in usj-nodes.css) and the row's own marker glyph, which — being the
+    // only non-cell content of a <tr> — the browser wraps in an ANONYMOUS table cell. That box has
+    // no class to target, so a negative indent pulls the glyph clear outside the table.
+    //
+    // Inline rather than a stylesheet rule because a stylesheet rule cannot reliably win: a project
+    // StyleInfo that gives `tr` a firstLineIndent emits `.editor-input.usfm .usfm_tr { text-indent }`
+    // (generateUsjCss.ts), injected after the static sheet and at a specificity any reasonable
+    // static selector ties at best. Paratext 9 resolves it the same way, stamping
+    // `style="TEXT-INDENT: 0in"` on every `<tr>` it emits. Cells need nothing of their own: with the
+    // row at zero they inherit zero.
+    dom.style.textIndent = "0";
     return dom;
   }
 

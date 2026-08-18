@@ -133,6 +133,47 @@ const cases: Case[] = [
     unknownAttributes: undefined,
     expected: { opening: "\\esb", attributes: "", closingAttributes: "", closing: "\\esbe" },
   },
+  // An UNTERMINATED construct has no closing bytes in the file, so it must display none: the
+  // rule char spans already follow (`$charClosingGlyph`, attributeDisplay.utils.ts — a
+  // `closed="false"` span never renders a closer, and the sync must not fabricate one). A
+  // displayed `\esbe` the document does not contain is a byte the user can neither delete nor
+  // save, which is precisely what a displayed byte may never be.
+  {
+    name: "an unterminated sidebar renders no closing glyph",
+    tag: "sidebar",
+    marker: "esb",
+    unknownAttributes: { category: "History", closed: "false" },
+    expected: {
+      opening: "\\esb",
+      attributes: " \\cat History\\cat*",
+      closingAttributes: "",
+      closing: "",
+    },
+  },
+  {
+    name: "an unterminated generic unknown span renders its attributes but no closing glyph",
+    tag: "unknown-para",
+    marker: "zzz",
+    unknownAttributes: { foo: "bar", closed: "false" },
+    expected: {
+      opening: "\\zzz ",
+      attributes: "",
+      closingAttributes: '|foo="bar"',
+      closing: "",
+    },
+  },
+  {
+    name: "an unterminated figure renders its attributes but no closing glyph",
+    tag: "figure",
+    marker: "fig",
+    unknownAttributes: { file: "image.jpg", closed: "false" },
+    expected: {
+      opening: "\\fig ",
+      attributes: "",
+      closingAttributes: '|src="image.jpg"',
+      closing: "",
+    },
+  },
   {
     name: "periph renders 'alt' as text content after the marker, 'id' as a named pair",
     tag: "periph",

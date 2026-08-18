@@ -9496,6 +9496,29 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             marker: "tr",
             children: [
               {
+                type: "marker",
+                marker: "tr",
+                markerSyntax: "opening",
+                text: "",
+                detail: 0,
+                format: 0,
+                mode: "normal",
+                style: "",
+                version: 1,
+              },
+              {
+                type: "text",
+                text: " ",
+                detail: 0,
+                format: 0,
+                mode: "normal",
+                style: "",
+                version: 1,
+                $: {
+                  textType: "marker-trailing-space",
+                },
+              },
+              {
                 direction: null,
                 format: "",
                 indent: 0,
@@ -9678,6 +9701,29 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             type: "immutable-table-row",
             marker: "tr",
             children: [
+              {
+                type: "marker",
+                marker: "tr",
+                markerSyntax: "opening",
+                text: "",
+                detail: 0,
+                format: 0,
+                mode: "normal",
+                style: "",
+                version: 1,
+              },
+              {
+                type: "text",
+                text: " ",
+                detail: 0,
+                format: 0,
+                mode: "normal",
+                style: "",
+                version: 1,
+                $: {
+                  textType: "marker-trailing-space",
+                },
+              },
               {
                 direction: null,
                 format: "",
@@ -9862,6 +9908,29 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             marker: "tr",
             children: [
               {
+                type: "marker",
+                marker: "tr",
+                markerSyntax: "opening",
+                text: "",
+                detail: 0,
+                format: 0,
+                mode: "normal",
+                style: "",
+                version: 1,
+              },
+              {
+                type: "text",
+                text: " ",
+                detail: 0,
+                format: 0,
+                mode: "normal",
+                style: "",
+                version: 1,
+                $: {
+                  textType: "marker-trailing-space",
+                },
+              },
+              {
                 direction: null,
                 format: "",
                 indent: 0,
@@ -10011,6 +10080,29 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             type: "immutable-table-row",
             marker: "tr",
             children: [
+              {
+                type: "marker",
+                marker: "tr",
+                markerSyntax: "opening",
+                text: "",
+                detail: 0,
+                format: 0,
+                mode: "normal",
+                style: "",
+                version: 1,
+              },
+              {
+                type: "text",
+                text: " ",
+                detail: 0,
+                format: 0,
+                mode: "normal",
+                style: "",
+                version: 1,
+                $: {
+                  textType: "marker-trailing-space",
+                },
+              },
               {
                 direction: null,
                 format: "",
@@ -10382,6 +10474,29 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             type: "immutable-table-row",
             marker: "tr",
             children: [
+              {
+                type: "marker",
+                marker: "tr",
+                markerSyntax: "opening",
+                text: "",
+                detail: 0,
+                format: 0,
+                mode: "normal",
+                style: "",
+                version: 1,
+              },
+              {
+                type: "text",
+                text: " ",
+                detail: 0,
+                format: 0,
+                mode: "normal",
+                style: "",
+                version: 1,
+                $: {
+                  textType: "marker-trailing-space",
+                },
+              },
               {
                 direction: null,
                 format: "",
@@ -12548,12 +12663,6 @@ export const lexicalEditable2Sa: SerializedEditorState = {
             indent: 0,
             textFormat: 0,
             textStyle: "",
-            version: 1,
-          },
-          {
-            type: "immutable-typed-text",
-            text: "\\esbe",
-            textType: "marker",
             version: 1,
           },
         ],
