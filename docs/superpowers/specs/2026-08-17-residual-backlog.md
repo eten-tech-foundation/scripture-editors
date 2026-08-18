@@ -191,8 +191,13 @@ Grouped by mechanism, not by track; each cites its origin.
 
 - Invariants §8: drop/narrow the stale pt-4187 fence on `tier2Rebuild.utils.ts` /
   `virtualSettle.utils.ts` (premise measured stale by unknown-blocks; both files since edited
-  with owner approval). Update the registry note: ten kinds registered (add `cat`, `ca`/`cp`),
-  with `cat`/`ca` ordered before `milestone` for the loose-glyph classification reason.
+  with owner approval). Update the registry note: ELEVEN kinds registered (add `cat`, `ca`/`cp`
+  to the eight in §4 — this line long read "ten", which was an arithmetic slip, not a smaller
+  registry), with `cat`/`ca` ordered before `milestone` for the loose-glyph classification reason.
+  **LANDED 2026-08-17** — invariants §8 now names all eleven (`separator`, `char`, `va`, `vp`,
+  `cat`, `ca`, `cp`, `milestone`, `optbreak`, `opaqueUnknown`, `nestedGlyph`), matching
+  `displayRunDescriptors` in `libs/shared/src/displayRun/displayRunRegistry.ts` one-for-one. Do
+  not re-litigate the count against this bullet's original wording.
 - Invariants §7c: the "re-derive which leg" open question is ANSWERED (load leg;
   `NoteLeadingSpaceRoundTripCaptureTests.cs` exonerates ParatextData). Mark it settled.
 - Record the chapter/verse whitespace-skip ASYMMETRY (attribute-markers §5) and its post-9.5
