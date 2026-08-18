@@ -1030,13 +1030,16 @@ export function $resolvePendingMarkers(
 
 /**
  * Whether a caret point (`node`, `offset`) sits INSIDE marker glyph text — as opposed to at the
- * TRAILING EDGE of a canonical closing (or self-closing) glyph, which is genuinely AFTER the
- * marker's construct: arrow traversal and clicks park the caret there at the end of a paragraph
- * whose last child is an inline span, and Enter there is a paragraph action (open the Enter
- * menu), not a marker edit. A NON-canonical (pended, mid-edit) closer keeps its trailing edge
- * "inside": the caret is there because the user is editing the glyph byte-by-byte, and Enter
- * must keep settling that edit instead of splitting. An OPENING glyph's trailing edge stays
- * "inside" too — it is the span's interior (the separator/content follows it).
+ * TRAILING EDGE of a char span's canonical closing glyph, which is genuinely AFTER the span:
+ * arrow traversal and clicks park the caret there at the end of a paragraph whose last child is
+ * an inline span, and Enter there is a paragraph action (open the Enter menu), not a marker
+ * edit. A NON-canonical (pended, mid-edit) closer keeps its trailing edge "inside": the caret is
+ * there because the user is editing the glyph byte-by-byte, and Enter must keep settling that
+ * edit instead of splitting. An OPENING glyph's trailing edge stays "inside" too — it is the
+ * span's interior (the separator/content follows it). Deliberately scoped to CHAR-parented
+ * closers: a display-run wrapper's closer (`\va*`, `\cat*`, a milestone's `\*`) keeps today's
+ * swallow — a split at that caret would land inside the `AttributeRunNode`, a path with no
+ * close-and-reopen story yet.
  * Read-only: call inside `editor.getEditorState().read(...)` or an update.
  */
 export function $isPointInMarkerGlyphText(node: LexicalNode, offset: number): boolean {
@@ -1044,7 +1047,8 @@ export function $isPointInMarkerGlyphText(node: LexicalNode, offset: number): bo
   return !(
     offset === node.getTextContentSize() &&
     node.getMarkerSyntax() !== "opening" &&
-    $isCanonicalMarkerNode(node)
+    $isCanonicalMarkerNode(node) &&
+    $isCharNode(node.getParent())
   );
 }
 
