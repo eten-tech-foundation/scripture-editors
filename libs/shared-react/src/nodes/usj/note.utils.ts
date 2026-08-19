@@ -43,6 +43,7 @@ import {
   $isNoteNode,
   $isVerseNode,
   $moveSelectionToEnd,
+  $normalizeSelectionOutOfGlyphText,
   CharNode,
   closingMarkerText,
   EMPTY_CHAR_PLACEHOLDER_TEXT,
@@ -211,6 +212,13 @@ export function $insertNoteWithSelect(
   noteNode.setIsCollapsed(isCollapsed);
 
   if (!selection.isCollapsed()) $moveSelectionToEnd(selection);
+
+  // The caret may be parked between two of a glyph's display bytes — inside `\v 5 `, inside a
+  // closing `\add*`. Those bytes are a picture of the node's own state, so a note dropped between
+  // them would cut the picture in half and hand the right-hand half to the document as content
+  // (the reported verse number arriving in the file twice). One place decides where such a point
+  // really is; here it resolves to the glyph's trailing end, the ordinary position just past it.
+  $normalizeSelectionOutOfGlyphText(selection);
 
   // At a char span's content end, place the note explicitly rather than letting `insertNodes`
   // split the span there and strand its closing glyph (see `$closingGlyphAfterCaret`). The

@@ -15,16 +15,16 @@
  * `OnSelectionChangePlugin`.
  */
 import { MarkerMenuContext } from "./markerItemSource";
-import { $isPointInMarkerGlyphText } from "../markerEdit/markerEditTier1.utils";
 import { $getRoot, $getSelection, $isElementNode, $isRangeSelection, LexicalNode } from "lexical";
 import {
   $findFirstAncestorNoteNode,
   $isBookNode,
   $isCharNode,
   $isMarkerTrailingSeparator,
-  $isSynthesizedMarkerNode,
   $isParaNode,
+  $isPointInMarkerGlyphText,
   $isSomeChapterNode,
+  $isSynthesizedMarkerNode,
   ParaNode,
 } from "shared";
 

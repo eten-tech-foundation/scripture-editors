@@ -40,6 +40,13 @@ op offsets, and delta-doc positions all resolve through it.
 Today they do not, and the cost is visible in history: each new display-byte class had to be
 excluded separately, each after a bug.
 
+(2026-08-19: the CARET/SELECTION half of this landed —
+`libs/shared/src/nodes/usj/glyphPositions.utils.ts` decides which rendered bytes are display by the
+property that a node's text is a picture of its own state, and re-expresses a point so no glyph is
+an operand of the edit about to run. Three reported bugs were one cut reached from three gestures;
+see "The one exclusion point" in the reported-bug register. OT content-op offsets and delta-doc
+positions still resolve through their own exclusions and are the remaining work.)
+
 ### III. One lifecycle for engine-owned display things
 
 Every kind the engine owns — attribute runs, milestone runs, verse `\va`/`\vp` runs, opener

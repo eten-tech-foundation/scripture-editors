@@ -420,20 +420,20 @@ describe("footnote insertion on a verse marker keeps the verse number out of bod
 });
 
 /**
- * Characterization of the SAME gesture at the verse glyph's other caret positions.
+ * The SAME gesture at every caret position a verse glyph offers.
  *
  * The pin above drives it at one position — the very end of the glyph. In editable-marker mode a
  * verse marker is ordinary rendered text the caret walks a character at a time, so the glyph
- * `\v` + NBSP + `5` + space hosts six caret positions, and `$insertNote` splits whichever text
- * node it lands in. Only the two ends are safe: everywhere between, the split cuts the glyph and
- * the bytes to the right of the caret stop being display text and become body content — which is
- * the reported defect, the verse number arriving in the document as content.
+ * `\v` + NBSP + `5` + space hosts six caret positions. The glyph's bytes are display: the verse
+ * NUMBER lives in the node's state, and the rendered text is a picture of it. A note dropped
+ * between two of those bytes would split the picture and hand the right-hand half to the document
+ * as content — the reported defect, the verse number arriving in the file as text.
  *
- * These assertions record what happens TODAY, not what should. When insertion stops splitting a
- * verse glyph, the interior offsets will all serialize like offset 5 does: one verse numbered 5
- * and body text "In the beginning". Every expectation below then flips.
+ * So the glyph is atomic for insertion. Its two ENDS are ordinary document positions and mean what
+ * they say: before the verse, and after it. Every position between them resolves to the trailing
+ * end, which is where a caret that has already crossed the glyph's first byte is heading.
  */
-describe("footnote insertion INSIDE a verse glyph splits it (N4 characterization)", () => {
+describe("footnote insertion INSIDE a verse glyph keeps the glyph whole", () => {
   /** `\v` `5` and the separators — the six caret positions of `\v` + NBSP + `5` + space. */
   const verseGlyph = getVisibleOpenMarkerText("v", "5");
 
@@ -472,6 +472,13 @@ describe("footnote insertion INSIDE a verse glyph splits it (N4 characterization
     const usj = editorUsjAdaptor.deserializeEditorState(editor.getEditorState(), viewOptions);
     const content = (usj?.content?.[0] as MarkerObject).content ?? [];
     return {
+      // Ordered `type:marker` tags and literal text runs — where the note landed, not just what
+      // survived.
+      shape: content.map((item) =>
+        typeof item === "string"
+          ? item
+          : `${(item as MarkerObject).type}:${(item as MarkerObject).marker}`,
+      ),
       verseNumbers: content
         .filter(
           (item): item is MarkerObject =>
@@ -482,47 +489,36 @@ describe("footnote insertion INSIDE a verse glyph splits it (N4 characterization
     };
   }
 
-  it("keeps the verse whole only at the glyph's two ends", async () => {
+  it("puts the note BEFORE the verse at the glyph's leading end", async () => {
     expect(verseGlyph).toBe(`\\v${NBSP}5 `);
-    // Offset 0 puts the note before the marker; offset 5 is the pinned position above.
     expect(await insertFootnoteAtGlyphOffset(0)).toEqual({
+      shape: ["note:f", "verse:v", "In the beginning"],
       verseNumbers: ["5"],
       bodyText: "In the beginning",
     });
+  });
+
+  it("puts the note AFTER the verse at the glyph's trailing end", async () => {
     expect(await insertFootnoteAtGlyphOffset(verseGlyph.length)).toEqual({
+      shape: ["verse:v", "note:f", "In the beginning"],
       verseNumbers: ["5"],
       bodyText: "In the beginning",
     });
   });
 
-  it("DESTROYS the verse when the caret sits between the backslash and the marker name", async () => {
-    // `\|v 5 ` — the split leaves a lone `\` and hands `v 5 ` to the document as body text, so
-    // the file loses the verse entirely while the screen still shows a verse marker.
-    expect(await insertFootnoteAtGlyphOffset(1)).toEqual({
-      verseNumbers: [],
-      bodyText: "\\ v 5 In the beginning",
-    });
-  });
-
-  it("leaks the verse NUMBER into body text at the two positions around it", async () => {
-    // `\v| 5 ` and `\v |5 ` — the verse node keeps its number AND the digit arrives as content,
-    // so the same "5" is now in the file twice. This is the duplication the report describes.
-    expect(await insertFootnoteAtGlyphOffset(2)).toEqual({
-      verseNumbers: ["5"],
-      bodyText: " 5 In the beginning",
-    });
-    expect(await insertFootnoteAtGlyphOffset(3)).toEqual({
-      verseNumbers: ["5"],
-      bodyText: "5 In the beginning",
-    });
-  });
-
-  it("leaks the glyph's trailing separator at the position after the number", async () => {
-    // `\v 5| ` — only the structural space escapes here, so the damage is a fabricated leading
-    // space on the verse's body text rather than a duplicated digit.
-    expect(await insertFootnoteAtGlyphOffset(4)).toEqual({
-      verseNumbers: ["5"],
-      bodyText: " In the beginning",
-    });
-  });
+  it.each([1, 2, 3, 4])(
+    "resolves the interior caret at offset %i to the glyph's trailing end",
+    async (offset) => {
+      // Offset 1 (`\|v 5 `) used to destroy the verse outright, leaving a lone `\` and handing
+      // `v 5 ` to the document as body text. Offsets 2 and 3 (`\v| 5 `, `\v |5 `) left the verse
+      // numbered 5 AND leaked the digit into the file as content — the same 5 twice. Offset 4
+      // (`\v 5| `) leaked only the structural space, as a fabricated leading space on the body
+      // text. All four now land exactly where offset 5 does.
+      expect(await insertFootnoteAtGlyphOffset(offset)).toEqual({
+        shape: ["verse:v", "note:f", "In the beginning"],
+        verseNumbers: ["5"],
+        bodyText: "In the beginning",
+      });
+    },
+  );
 });

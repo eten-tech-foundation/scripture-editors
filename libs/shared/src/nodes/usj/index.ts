@@ -23,6 +23,7 @@ export * from "./charGlyphs.utils.js";
 export * from "./charStack.utils.js";
 export * from "./displayRunDescriptor.js";
 export * from "./displayRunSync.utils.js";
+export * from "./glyphPositions.utils.js";
 export * from "./pendedDisplayOwners.utils.js";
 export * from "./AttributeRunNode.js";
 export * from "./BookNode.js";

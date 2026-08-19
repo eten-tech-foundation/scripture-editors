@@ -32,6 +32,7 @@ import {
   $isTypedMarkNode,
   $isVisibleMarkerNode,
   $liftOutOfCharStack,
+  $normalizeSelectionOutOfGlyphText,
   $setCharNodeMarker,
   CharNode,
   createLexicalUsjNode,
@@ -274,7 +275,17 @@ export function getUsjMarkerAction(
   }) => {
     currentEditor.editor.update(() => {
       const selection = $getSelection();
-      if ($isRangeSelection(selection)) currentEditor.noteText = selection.getTextContent();
+      // A marker glyph's bytes are a picture of its node's own state, never operands. Re-express
+      // the selection so no glyph is one, BEFORE any branch below reads the anchor: a caret parked
+      // between two bytes of a closing `\add*` used to split it and strand the remainder in the
+      // paragraph as literal content, and a wrap whose end named an opening glyph took the whole
+      // glyph node with it, deleting the span the glyph identified while its bytes stayed on
+      // screen. One place decides where such a point really is; the branches below then see an
+      // ordinary position and need no glyph cases of their own.
+      if ($isRangeSelection(selection)) {
+        $normalizeSelectionOutOfGlyphText(selection);
+        currentEditor.noteText = selection.getTextContent();
+      }
       const { content, highlightInserted } = markerAction.action(currentEditor);
 
       const serializedLexicalNode = createLexicalUsjNode(content, usjEditorAdaptor, viewOptions);

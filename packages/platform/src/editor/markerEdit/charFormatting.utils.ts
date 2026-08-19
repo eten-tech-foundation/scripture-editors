@@ -12,7 +12,7 @@
  * engine re-tokenizes those bytes.
  */
 
-import { $isPointInMarkerGlyphText } from "./markerEditTier1.utils";
+import { $unwrapCharNode } from "./markerEditDeletion.utils";
 import {
   $createTextNode,
   $getSelection,
@@ -29,6 +29,7 @@ import {
   $innermostCharAncestor,
   $isCharNode,
   $isMarkerNode,
+  $isPointInMarkerGlyphText,
   $isSomeParaNode,
   $liftOutOfCharStack,
   $selectCharContentStart,

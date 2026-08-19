@@ -18,7 +18,6 @@ import {
 } from "./markerEditNote.utils";
 import {
   $chapterNodeTransform,
-  $isSelectionInMarkerNode,
   $markerNodeTransform,
   $resolvePendingMarkers,
   $unmatchedNodeTransform,
@@ -70,6 +69,7 @@ import {
   $isMilestoneNode,
   $isChapterNode,
   $isNoteNode,
+  $isSelectionInMarkerNode,
   $isVerseNode,
   $ownerOfRunPiece,
   $syncAndPendDisplayRun,

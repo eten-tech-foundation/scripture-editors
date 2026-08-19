@@ -83,6 +83,12 @@ tip it was rebased onto).
       `\nd` for the commit to clean up). Pinned: `markerMenu/markerMenuApply.utils.test.tsx`,
       "applying a char marker after another closer inserts exactly one glyph pair". Note an empty
       `\nd \nd*` pair IS the correct outcome of an Enter commit — the report is about a third glyph.
+      **Reopened and FIXED at the glyph's other caret positions.** The pin sits at the closer's very
+      end; one character to the left the apply SPLIT the closing glyph, healed its left half back to
+      a whole `\add*`, and stranded the right half in the paragraph as literal content nobody typed
+      (four bytes at offset 1, one at offset 4) — bytes that reached the file. Every interior offset
+      now resolves to the glyph's trailing end and lands the same clean pair. See "the one exclusion
+      point" below.
 
 ## Whitespace and separators
 
@@ -98,7 +104,12 @@ tip it was rebased onto).
       tokenize-identity rule `\ndone` now scans as a marker named `ndone`, so the new pin departs to
       force a settle and asserts the emitted USJ still says marker `nd` with content `one`:
       `markerMenu/markerMenuApply.utils.test.tsx`, "a wrapped selection still serializes as marker nd
-      with its own content".
+      with its own content". **A second defect found at the same gesture's other anchors, now
+      FIXED:** with the anchor on the enclosing span's OPENING glyph — either end of it, both the
+      same screen selection as an anchor at content offset 0 — the wrap took the whole glyph node as
+      its first target and DISSOLVED the span: the `add` marker vanished from the file while its
+      glyph stayed on screen, and the span's trailing content fell out of it. A mid-glyph anchor was
+      already faithful and still is. See "the one exclusion point" below.
 - [x] **W5** Wrapping a whitespace-only selection produces an empty pair beside an orphaned space.
 - [x] **W6** Space after `\v` just moves the cursor. **Caret half MEASURED, and it is correct now:**
       the typed space lands as a real byte at the head of the following text and the caret sits
@@ -294,7 +305,13 @@ tip it was rebased onto).
       **NOT-REPRODUCED** — green at both anchors. Pinned anyway because it rides the same insertion
       path N1 broke, at the other place that path meets engine-owned display bytes:
       `markerEdit/noteInsertion.test.tsx`, "footnote insertion on a verse marker keeps the verse
-      number out of body text".
+      number out of body text". **Reproduced and FIXED at the glyph's other caret positions.** The
+      pin sits at the very end of `\v` + NBSP + `5` + space; the glyph hosts six caret positions and
+      only the two ends were safe. At offset 1 the insertion destroyed the verse outright (the file
+      lost it entirely and `\ v 5 ` became body text); at offsets 2 and 3 the verse kept
+      `number: "5"` AND the digit arrived as content, which is the duplication the report describes;
+      at offset 4 the structural separator leaked as a fabricated leading space. All four now land
+      where offset 5 does. See "the one exclusion point" below.
 
 ## Ctrl+Space
 
@@ -386,12 +403,44 @@ now been resolved or answered:
 | **M2** milestone name edits never persist | Fixed in `sv/fb5/milestone-edit`; confirmed red here first. |
 | **N1** note insertion deletes a closer | **Fixed this round.** The one production defect the round found on its own. |
 | **A1** `\w*` destroys the default attribute | Never broken at either anchor; pinned. |
-| **W4** wrap emits no separator | Never broken at either anchor; pinned, and the pin now asserts the SEMANTIC consequence rather than the display. |
-| **K12** fabricates an empty pair | Never broken at either anchor; pinned under both palette eras. |
-| **N4** Ctrl+T duplicates the verse digit | Never broken at either anchor; pinned. |
+| **W4** wrap emits no separator | Never broken at either anchor; pinned, and the pin now asserts the SEMANTIC consequence rather than the display. A DIFFERENT defect at the same gesture's other anchors — the wrap dissolving the enclosing span — was found and fixed later; see the entry. |
+| **K12** fabricates an empty pair | Never broken at either anchor; pinned under both palette eras. The apply DID strand bytes at the glyph's interior offsets; fixed later — see the entry. |
+| **N4** Ctrl+T duplicates the verse digit | Not reproduced at the anchor tested, but REAL at the verse glyph's four interior caret positions; fixed later — see the entry. |
 | **A2** typed attribute text never settles | Still open — no headless repro; the recorded cause was wrong. |
 
 Two silent-data-loss defects the round found that were NOT on this list: **V3**'s half-typed verse
 bridge (dropped on save) and the delta plugin swallowing settled bytes, which surfaced while
 implementing the **S1** ruling and would have had the editor showing one document while the host
 saved another.
+
+## The one exclusion point
+
+**K12**, **W4** and **N4** are three faces of ONE defect, and they were all reached the same way:
+each entry above was measured at a single convenient caret position, and the gesture behaves
+differently at nearly every other position the same glyph offers. A marker glyph is rendered text
+in editable-marker mode, so the caret walks it a character at a time, and every generic Lexical
+operation that splits at a character offset will cut one in half.
+
+The fix is the exclusion Invariant II asks for, in ONE place:
+`libs/shared/src/nodes/usj/glyphPositions.utils.ts`.
+
+- `$isGlyphTextNode` decides which rendered bytes are display, by the PROPERTY that the node's text
+  is a picture of its own state — so it covers a `MarkerNode`, an editable `VerseNode`, an attribute
+  display run and the marker-trailing separator without any of them being wired in separately.
+- `$normalizeSelectionOutOfGlyphText` re-expresses a caret or a selection so no glyph is an operand
+  of the edit about to run. A collapsed caret in a glyph's INTERIOR resolves to the glyph's trailing
+  end; a range endpoint at a glyph's END steps inward onto the neighbouring node. Both name the same
+  screen location the user pointed at — the two arms differ only in which spelling excludes the
+  glyph, because a range endpoint drags its own node into the range and an insertion point does not.
+- `$isPointInMarkerGlyphText` moved here from `markerEdit/markerEditTier1.utils.ts` unchanged. It
+  answers the neighbouring question — is the caret in a marker the user may be EDITING, which is why
+  an opening glyph's trailing edge counts and a canonical closer's does not — and the two live
+  together so the difference stays visible.
+
+Routed through it: `$insertNoteWithSelect` (`libs/shared-react/src/nodes/usj/note.utils.ts`) and the
+marker action's update (`adaptors/usj-marker-action.utils.ts`), which is upstream of every branch of
+the char/note/paragraph apply.
+
+What deliberately did NOT change: a caret at either END of a glyph, which is an ordinary document
+position; and a range endpoint strictly INSIDE one, where the user can see exactly which bytes are
+highlighted and re-tokenizing them is Invariant I working as intended.
