@@ -225,43 +225,47 @@ describe("clipboard normalization", () => {
   });
 });
 
+/** A paragraph with a figure between two plain-text runs. */
+const FIGURE_USX =
+  `<usx version="3.0"><book code="RUT" style="id" /><chapter number="1" style="c" />` +
+  `<para style="p">Before <figure style="fig" file="cn01617.jpg" size="span" ref="1.18">caption</figure> after.</para></usx>`;
+
+/**
+ * Select from the start of the text BEFORE the figure to the end of the text AFTER it — the only
+ * selection a user can make that reaches the block at all, since the block itself is
+ * `contentEditable=false` and its glyph children are not keyboard-selectable.
+ *
+ * Mutating: call inside `editor.update()`.
+ */
+function $selectAcrossFigure(): void {
+  const textNodes = $dfs($getRoot())
+    .map(({ node }) => node)
+    .filter($isTextNode);
+  const before = textNodes.find((node) => node.getTextContent() === "Before ");
+  const after = textNodes.find((node) => node.getTextContent() === " after.");
+  if (!before || !after) throw new Error("Expected surrounding text nodes to exist");
+  const selection = $createRangeSelection();
+  selection.anchor = $createPoint(before.getKey(), 0, "text");
+  selection.focus = $createPoint(after.getKey(), after.getTextContentSize(), "text");
+  $setSelection(selection);
+}
+
+async function copyAcrossFigure() {
+  const { editor } = await baseTestEnvironment(
+    serializedState(usxStringToUsj(FIGURE_USX)),
+    <MarkerEditPlugin viewOptions={viewOptions} />,
+  );
+  await act(async () => editor.update(() => $selectAcrossFigure()));
+  const { event, getData } = copyEvent();
+  await act(async () => {
+    editor.dispatchCommand(COPY_COMMAND, event);
+  });
+  return getData;
+}
+
 describe("copy across an UnknownNode (figure) — full USFM byte display", () => {
   it("copies the figure's exact USFM: opening marker, caption, then attributes and closer", async () => {
-    const usj = usxStringToUsj(
-      `<usx version="3.0"><book code="RUT" style="id" /><chapter number="1" style="c" />` +
-        `<para style="p">Before <figure style="fig" file="cn01617.jpg" size="span" ref="1.18">caption</figure> after.</para></usx>`,
-    );
-    const { editor } = await baseTestEnvironment(
-      serializedState(usj),
-      <MarkerEditPlugin viewOptions={viewOptions} />,
-    );
-
-    let beforeText: TextNode | undefined;
-    let afterText: TextNode | undefined;
-    editor.getEditorState().read(() => {
-      const textNodes = $dfs($getRoot())
-        .map(({ node }) => node)
-        .filter($isTextNode);
-      beforeText = textNodes.find((node) => node.getTextContent() === "Before ");
-      afterText = textNodes.find((node) => node.getTextContent() === " after.");
-    });
-    if (!beforeText || !afterText) throw new Error("Expected surrounding text nodes to exist");
-    const before = beforeText;
-    const after = afterText;
-
-    await act(async () =>
-      editor.update(() => {
-        const selection = $createRangeSelection();
-        selection.anchor = $createPoint(before.getKey(), 0, "text");
-        selection.focus = $createPoint(after.getKey(), after.getTextContentSize(), "text");
-        $setSelection(selection);
-      }),
-    );
-
-    const { event, getData } = copyEvent();
-    await act(async () => {
-      editor.dispatchCommand(COPY_COMMAND, event);
-    });
+    const getData = await copyAcrossFigure();
 
     // The whole span, marker glyphs included: the figure's ImmutableTypedTextNode display
     // children (opening marker before the caption; attributes folded into the closing after it,
@@ -270,6 +274,28 @@ describe("copy across an UnknownNode (figure) — full USFM byte display", () =>
     expect(getData("text/plain")).toBe(
       'Before \\fig caption|src="cn01617.jpg" size="span" ref="1.18"\\fig* after.',
     );
+  });
+
+  it("keeps the block's bytes in the Lexical payload and drops them from text/html", async () => {
+    const getData = await copyAcrossFigure();
+
+    // The internal payload keeps the block whole, so a paste back into this editor is lossless.
+    // (JSON-escaped, hence the doubled backslash.)
+    expect(getData("application/x-lexical-editor")).toContain("\\\\fig ");
+
+    // text/html does not. `UnknownNode.exportDOM` returns a null element and Lexical's HTML
+    // exporter reads that as "drop this subtree", bailing BEFORE it recurses into children — so a
+    // rich-text paste target (a word processor, a browser, a chat client) receives neither the
+    // marker name nor the block's own content, here the figure's caption. That is the half of
+    // "read-only blocks are selectable and copyable" that does not hold.
+    //
+    // Pinned as today's answer rather than as the desired one: making the block export HTML also
+    // governs the paste leg, since `importDOM` reads a block back out of `data-tag`/`data-marker`.
+    const html = getData("text/html");
+    expect(html).toContain("Before ");
+    expect(html).toContain(" after.");
+    expect(html).not.toContain("fig");
+    expect(html).not.toContain("caption");
   });
 });
 
