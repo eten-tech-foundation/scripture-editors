@@ -79,7 +79,10 @@ HTMLElement.prototype.focus = function focus(options?: FocusOptions) {
 type OnUsjChange = EditorProps<LoggerBasic>["onUsjChange"];
 
 /** Optional wiring a mounted test editor may need; both default to absent. */
-type MountOptions = { onUsjChange?: OnUsjChange; scrRef?: SerializedVerseRef };
+interface MountOptions {
+  onUsjChange?: OnUsjChange;
+  scrRef?: SerializedVerseRef;
+}
 
 export function requireStandardViewOptions(): ViewOptions {
   const options = getViewOptions(STANDARD_VIEW_MODE);
