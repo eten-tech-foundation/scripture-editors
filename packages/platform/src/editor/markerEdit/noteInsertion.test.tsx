@@ -24,11 +24,13 @@ import {
   $createCharNode,
   $createMarkerNode,
   $createParaNode,
+  $createVerseNode,
   $isCharNode,
   $isMarkerNode,
   $isNoteNode,
   CharNode,
   getEditableCallerText,
+  getVisibleOpenMarkerText,
   NBSP,
   NoteNode,
 } from "shared";
@@ -354,5 +356,65 @@ describe("note insertion at a closed char span's content end (N1)", () => {
     expect((content?.[0] as MarkerObject).marker).toBe("nd");
     expect((content?.[0] as MarkerObject).closed).toBeUndefined();
     expect((content?.[1] as MarkerObject).type).toBe("note");
+  });
+});
+
+/**
+ * Forward pin for the report that inserting a footnote (Ctrl+T) with the caret on a verse-number
+ * marker duplicates the verse digit into body text.
+ *
+ * Checked at the Phase-3 branch point and at the standard-view tip before it: GREEN at both, so
+ * nothing here fixed it and it was never broken at either base. It is pinned anyway because it
+ * rides the insertion path the closing-glyph defect above DID break, and a verse marker is the
+ * other place that path meets engine-owned display bytes — the verse number is display text, so an
+ * insertion that split the glyph would copy the digit into the document as content.
+ */
+describe("footnote insertion on a verse marker keeps the verse number out of body text (N4)", () => {
+  it("leaves one verse, still numbered, and the body text untouched", async () => {
+    const { editor } = await testEnvironment(() => {
+      const verse = $createVerseNode("5", getVisibleOpenMarkerText("v", "5"));
+      $getRoot().append(
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          verse,
+          $createTextNode("In the beginning"),
+        ),
+      );
+    });
+
+    await act(async () =>
+      editor.update(() => {
+        const para = $getRoot().getChildren()[0];
+        if (!$isElementNode(para)) throw new Error("seed paragraph not found");
+        // The caret ON the verse glyph — where Ctrl+T was pressed in the report.
+        const verseGlyph = para
+          .getChildren()
+          .find((node) => $isTextNode(node) && node.getTextContent().includes("5"));
+        if (!$isTextNode(verseGlyph)) throw new Error("verse glyph not found");
+        verseGlyph.select(verseGlyph.getTextContentSize(), verseGlyph.getTextContentSize());
+        $insertNote(
+          "f",
+          undefined,
+          undefined,
+          { book: "RUT", chapterNum: 1, verseNum: 5 },
+          viewOptions,
+          {},
+          undefined,
+        );
+      }),
+    );
+
+    initializeDeserialize(undefined);
+    const usj = editorUsjAdaptor.deserializeEditorState(editor.getEditorState(), viewOptions);
+    const content = (usj?.content?.[0] as MarkerObject).content ?? [];
+    const verses = content.filter(
+      (item): item is MarkerObject =>
+        typeof item === "object" && (item as MarkerObject).type === "verse",
+    );
+    expect(verses).toHaveLength(1);
+    expect(verses[0].number).toBe("5");
+    // The digit did not leak into the document as content.
+    expect(content.filter((item) => typeof item === "string").join("")).toBe("In the beginning");
   });
 });

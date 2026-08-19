@@ -325,3 +325,52 @@ describe("undo then departure re-settles the attribute under the app's full plug
     expectSettlesLikeTokenizer(editor, `\\p \\nd text|stuff="thing"\\nd*`);
   });
 });
+
+/**
+ * Forward pin for the report that typing a closing marker destroys a span's default attribute.
+ *
+ * Checked at the Phase-3 branch point and at the standard-view tip before it: GREEN at both, so
+ * nothing here fixed it and it was never broken at either base. Recorded rather than dropped,
+ * because the shape is the one most likely to break silently — `\w`'s default attribute is spelled
+ * BARE (`|G5485`), so the attribute NAME appears nowhere in the bytes and a settle that lost it
+ * would leave a span that still looks right on screen.
+ */
+describe("typing a closing marker keeps the span's default attribute (A1)", () => {
+  it("turns |G5485 into lemma when the closer bytes are typed at an unclosed \\w span's end", async () => {
+    // Unclosed is the Space-palette commit's shape, and while unclosed the `|…` bytes are content
+    // (charAttributeTypedSettle's unclosed-span pin above). Typing the closer is exactly what
+    // promotes them to a real attribute, so this is the moment the value is most at risk.
+    let seed!: Seed;
+    const { editor } = await appStackEnvironment(() => {
+      const char = $createCharNode("w", { closed: "false" });
+      const content = $createTextNode(`${NBSP}grace|G5485`);
+      const other = $createTextNode("elsewhere");
+      seed = { content, other };
+      $getRoot().append(
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          char.append($createMarkerNode("w"), content),
+        ),
+        $createParaNode("p").append($createMarkerNode("p"), other),
+      );
+    });
+
+    // The typed closer arrives as literal bytes with the caret on them — the shape Tier 2
+    // re-tokenizes. (Typing `\` itself now opens the palette, so the keystroke path differs by
+    // revision; the BYTES the document ends up holding do not, which is what settle reads.)
+    await act(async () =>
+      editor.update(() => {
+        const typed = `${seed.content.getTextContent()}\\w*`;
+        seed.content.setTextContent(typed);
+        seed.content.select(typed.length, typed.length);
+      }),
+    );
+    await depart(editor, seed.other);
+
+    editor
+      .getEditorState()
+      .read(() => expect($onlySpan().getUnknownAttributes()).toEqual({ lemma: "G5485" }));
+    expectSettlesLikeTokenizer(editor, `\\p \\w grace|G5485\\w*`);
+  });
+});

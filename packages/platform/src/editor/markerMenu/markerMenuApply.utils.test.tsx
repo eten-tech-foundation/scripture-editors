@@ -5,6 +5,7 @@ import {
 } from "./markerMenuApply.utils";
 import { MarkerMenuItem } from "./markerItemSource";
 import { deserializeEditorState } from "../adaptors/editor-usj.adaptor";
+import { MarkerObject } from "@eten-tech-foundation/scripture-utilities";
 import { MarkerEditPlugin } from "../markerEdit/MarkerEditPlugin";
 import {
   historyTestEnvironment,
@@ -2239,5 +2240,171 @@ describe("$splitParagraphWithMarker — caret placement across the mid-span spli
       const span = fresh.getChildren().filter($isCharNode)[0];
       expect(span?.getTextContent()).toContain("Xrd");
     });
+  });
+});
+
+/**
+ * Two register closeout pins. Both were checked at the Phase-3 branch point and at the
+ * standard-view tip before it and were GREEN at both, so neither records a repair — they exist so
+ * the behavior cannot regress unnoticed, which is the whole risk the register documents.
+ */
+describe("register closeout pins", () => {
+  /**
+   * Reported as: applying `\nd` with the caret just after another span's closing marker fabricates
+   * `\nd \nd \nd*` — three glyphs — writing a bogus empty pair into the file. Both palette eras are
+   * covered: the active palette lands nothing before the commit, while the passive one (how the
+   * report was filed) left the typed `\nd` bytes in the document for the commit to clean up first,
+   * and that cleanup is the plausible source of a third glyph.
+   *
+   * An empty `\nd \nd*` pair is itself the CORRECT outcome here — an Enter commit inserts the
+   * closing marker, and the empty pair is what the user then types into.
+   */
+  describe("applying a char marker after another closer inserts exactly one glyph pair (K12)", () => {
+    /** Assert the paragraph's `\nd` span carries one opener and one closer, and nothing loose. */
+    function $expectSingleNdPair() {
+      const para = requireDefined($getRoot().getChildren().filter($isParaNode)[0], "para missing");
+      const nd = requireDefined(
+        para
+          .getChildren()
+          .filter($isCharNode)
+          .find((c) => c.getMarker() === "nd"),
+        "nd span missing",
+      );
+      expect(
+        nd
+          .getChildren()
+          .filter($isMarkerNode)
+          .map((g) => g.getMarkerSyntax()),
+      ).toEqual(["opening", "closing"]);
+      // No third glyph stranded beside the span at paragraph level.
+      expect(
+        para.getChildren().filter((c) => $isMarkerNode(c) && c.getMarker() === "nd"),
+      ).toHaveLength(0);
+    }
+
+    it("with the active palette (nothing landed before the commit)", async () => {
+      let closer: MarkerNode;
+      const { editor } = await testEnvironment(() => {
+        const add = $createCharNode("add");
+        closer = $createMarkerNode("add", "closing");
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createMarkerNode("p"),
+            $createTrailingSpaceNode(),
+            add.append($createMarkerNode("add"), $createTextNode(`${NBSP}word`), closer),
+          ),
+        );
+      });
+      await act(async () =>
+        editor.update(() =>
+          closer.select(closer.getTextContentSize(), closer.getTextContentSize()),
+        ),
+      );
+
+      const item: MarkerMenuItem = { marker: "nd", kind: "character", isBasic: true };
+      await act(async () =>
+        editor.update(() => {
+          $applyMarkerMenuSelection(
+            item,
+            { trigger: "backslash", literalPrefixLanded: false },
+            reference,
+            makeDeps(),
+          );
+        }),
+      );
+
+      editor.getEditorState().read($expectSingleNdPair);
+    });
+
+    it("with the typed literal already landed (the passive-palette path the report used)", async () => {
+      let literal: TextNode;
+      const { editor } = await testEnvironment(() => {
+        const add = $createCharNode("add");
+        literal = $createTextNode("\\nd");
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createMarkerNode("p"),
+            $createTrailingSpaceNode(),
+            add.append(
+              $createMarkerNode("add"),
+              $createTextNode(`${NBSP}word`),
+              $createMarkerNode("add", "closing"),
+            ),
+            literal,
+          ),
+        );
+      });
+      await act(async () =>
+        editor.update(() =>
+          literal.select(literal.getTextContentSize(), literal.getTextContentSize()),
+        ),
+      );
+
+      const item: MarkerMenuItem = { marker: "nd", kind: "character", isBasic: true };
+      await act(async () =>
+        editor.update(() => {
+          $applyMarkerMenuSelection(
+            item,
+            { trigger: "backslash", literalPrefixLanded: true },
+            reference,
+            makeDeps(),
+          );
+        }),
+      );
+
+      editor.getEditorState().read(() => {
+        $expectSingleNdPair();
+        // The typed literal was consumed, not left beside the span as a second opener.
+        expect($getRoot().getTextContent()).not.toContain("\\nd\\nd");
+      });
+    });
+  });
+
+  /**
+   * Reported as: wrapping a selection in `\nd` emits no separator after the opener. The sibling
+   * test above ("shows the display separator on a freshly wrapped span") pins that the NBSP is
+   * SHOWN; this pins what that byte now MEANS. Under the tokenize-identity rule a missing
+   * separator no longer looks merely cramped — `\ndone` scans as a marker named `ndone`, so the
+   * next settle would RENAME the marker. Departing here is the point: it makes the span settle,
+   * which is when that rename would happen.
+   */
+  it("a wrapped selection still serializes as marker nd with its own content (W4)", async () => {
+    let text: TextNode;
+    let other: TextNode;
+    const { editor } = await testEnvironment(() => {
+      text = $createTextNode("one two");
+      other = $createTextNode("elsewhere");
+      $getRoot().append(
+        $createParaNode("p").append($createMarkerNode("p"), $createTrailingSpaceNode(), text),
+        $createParaNode("p").append($createMarkerNode("p"), other),
+      );
+    });
+    await act(async () => editor.update(() => text.select(0, 3))); // "one"
+
+    const item: MarkerMenuItem = { marker: "nd", kind: "character", isBasic: true };
+    await act(async () =>
+      editor.update(() => {
+        $applyMarkerMenuSelection(
+          item,
+          { trigger: "backslash", literalPrefixLanded: false },
+          reference,
+          makeDeps(),
+        );
+      }),
+    );
+    // Depart so the span SETTLES — a separator-less opener renames the marker here or nowhere.
+    await act(async () => editor.update(() => other.select(0, 0)));
+
+    const usj = deserializeEditorState(editor.getEditorState(), viewOptions);
+    const para = usj?.content?.[0] as MarkerObject;
+    const span = requireDefined(
+      para.content?.find(
+        (item): item is MarkerObject =>
+          typeof item === "object" && (item as MarkerObject).type === "char",
+      ),
+      "wrapped span missing from USJ",
+    );
+    expect(span.marker).toBe("nd");
+    expect(span.content).toEqual(["one"]);
   });
 });
