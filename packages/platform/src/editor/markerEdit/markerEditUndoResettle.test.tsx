@@ -135,6 +135,49 @@ async function userDeparture(editor: EditorHandle, targetIncludes: string, offse
 }
 
 /**
+ * Moves the caret out of the restored literal WITHOUT settling it, for the two tests below whose
+ * settle must come from blur or from the forced pre-save commit rather than from the caret.
+ *
+ * An undo restores the caret the entry recorded — inside the literal, because that is where the
+ * user was typing when the entry closed. Both the blur handler and the forced commit deliberately
+ * except the node the caret sits in, so with the caret still there neither would settle anything
+ * and the test would prove nothing. The app-placed-caret window a historic restore arms is what
+ * makes this move safe: while it is up no commit settles, so the caret can leave without the
+ * departure clock beating blur to the punch.
+ */
+async function leaveLiteralDuringUndoWindow(editor: EditorHandle, destination: TextNode) {
+  await act(async () => editor.update(() => destination.select(0, 0)));
+  await flushResolution();
+}
+
+/**
+ * Departs the pending node by EDITING the paragraph the caret lands in — one commit that both
+ * moves the caret and types there.
+ *
+ * The edit is what puts the mid-edit literal on the undo stack at all. A settle is never its own
+ * history entry: it merges into the entry of the commit that provoked it. Depart with a bare caret
+ * move and that commit dirties nothing, so the settle merges into the entry holding the user's own
+ * typing — one Ctrl+Z takes the typing and its settle away together and lands on the pre-typing
+ * document, with the literal never a state undo can reach. An edit at the destination opens its
+ * own entry, so undo lands on the literal, which is the state every test below is about.
+ *
+ * Moving and typing in ONE commit is a test compression of "the user's next action was an edit
+ * elsewhere"; the app reaches the same history shape with the caret move and the edit separated by
+ * nothing that dirties a node.
+ */
+async function editDeparture(editor: EditorHandle, destination: TextNode) {
+  await act(async () =>
+    editor.update(() => {
+      const end = destination.getTextContentSize();
+      destination.select(end, end);
+      const selection = $getSelection();
+      if ($isRangeSelection(selection)) selection.insertText("!");
+    }),
+  );
+  await flushResolution();
+}
+
+/**
  * Mount a closed `\nd` span holding "text" plus a second paragraph to depart to, then type
  * `|stuff="thing"` into the span (caret at the end of "text") and settle it by departing.
  * Returns the editor with the settle assertions already verified (positive control).
@@ -163,11 +206,10 @@ async function settledPipeEnvironment() {
       }),
     );
   }
-  // Caret departure to the other paragraph settles the pipe literal into the attribute.
-  await act(async () => editor.update(() => other.select(0, 0)));
-  await flushResolution();
+  // An edit in the other paragraph departs the pipe literal and settles it into the attribute.
+  await editDeparture(editor, other);
   assertPipeSettled(editor);
-  return { editor };
+  return { editor, other };
 }
 
 /** The settled shape: closed `nd` span carrying the parsed attribute + canonical run. */
@@ -235,23 +277,20 @@ describe("undo → departure → re-settle (pipe attribute in a closed span)", (
     assertPipePreTyping(editor);
   });
 
-  it("keeps history sound across a re-settle: undo → depart → re-settle → undo ×2 reaches pre-typing", async () => {
+  it("keeps history sound across a re-settle: undo → depart → re-settle → undo reaches pre-typing", async () => {
     const { editor } = await settledPipeEnvironment();
     await act(async () => {
       editor.dispatchCommand(UNDO_COMMAND, undefined);
     });
     await flushResolution();
     assertPipeLiteral(editor);
-    // Departure re-settles (a NEW history entry, pushed like any user-driven settle).
+    // Departure re-settles. The re-settle adds NO history entry of its own — a settle never
+    // does — and the departure that provoked it dirtied nothing, so it merges into the entry
+    // holding the restored literal.
     await userDeparture(editor, "elsewhere", 4);
     assertPipeSettled(editor);
-    // Undo the re-settle: back to the literal…
-    await act(async () => {
-      editor.dispatchCommand(UNDO_COMMAND, undefined);
-    });
-    await flushResolution();
-    assertPipeLiteral(editor);
-    // …and one more undo reaches the pre-typing state — the re-settle did not swallow it.
+    // ONE undo therefore reaches the pre-typing state: the re-settle rode along with the
+    // literal's own entry instead of burying it under an extra press.
     await act(async () => {
       editor.dispatchCommand(UNDO_COMMAND, undefined);
     });
@@ -310,12 +349,14 @@ describe("blur vs the historic suppression window", () => {
   });
 
   it("an in-editor gesture releases the window; blur then settles normally", async () => {
-    const { editor } = await settledPipeEnvironment();
+    const { editor, other } = await settledPipeEnvironment();
     await act(async () => {
       editor.dispatchCommand(UNDO_COMMAND, undefined);
     });
     await flushResolution();
     assertPipeLiteral(editor);
+    await leaveLiteralDuringUndoWindow(editor, other);
+    assertPipeLiteral(editor); // still armed: the caret move alone settled nothing
     // The user interacts INSIDE the editor (a mouse click — same signal that ends the
     // scrRef-yank window), then focus leaves: blur-settles-pendings applies as always.
     await act(async () => {
@@ -353,12 +394,14 @@ describe("commitPendingMarkerEdits vs the historic suppression window", () => {
   });
 
   it("an in-editor gesture releases the window; the forced commit then settles normally", async () => {
-    const { editor } = await settledPipeEnvironment();
+    const { editor, other } = await settledPipeEnvironment();
     await act(async () => {
       editor.dispatchCommand(UNDO_COMMAND, undefined);
     });
     await flushResolution();
     assertPipeLiteral(editor);
+    await leaveLiteralDuringUndoWindow(editor, other);
+    assertPipeLiteral(editor); // still armed: the caret move alone settled nothing
     // A real in-editor click ends the window (same signal that releases the scrRef-yank window);
     // now the forced pre-save commit settles as always — an abandoned mid-edit still serializes
     // its on-screen form, so the guard is narrow, not a blanket suppression.
@@ -421,8 +464,7 @@ describe("commitPendingMarkerEdits vs the historic suppression window", () => {
         }),
       );
     }
-    await act(async () => editor.update(() => other.select(0, 0)));
-    await flushResolution();
+    await editDeparture(editor, other);
     assertPipeSettled(editor);
     // Undo: nd literal restored; the historic re-pend scan re-pends it and arms the window.
     await act(async () => {
@@ -495,8 +537,7 @@ describe("undo → departure → re-settle (typed `\\nd hello\\nd*` char span �
       // Pended, not yet settled.
       expect($findFirstChar($getRoot(), "nd")).toBeUndefined();
     });
-    await act(async () => editor.update(() => other.select(0, 0)));
-    await flushResolution();
+    await editDeparture(editor, other);
     const assertSettled = () =>
       editor.getEditorState().read(() => {
         const nd = requireDefinedInTest($findFirstChar($getRoot(), "nd"), "nd span not found");
@@ -542,8 +583,7 @@ describe("undo → departure → re-settle (typed `//` optbreak — the same div
     editor.getEditorState().read(() => {
       expect($unknownsWithTag($getRoot(), "optbreak")).toHaveLength(0);
     });
-    await act(async () => editor.update(() => other.select(0, 0)));
-    await flushResolution();
+    await editDeparture(editor, other);
     const assertOptbreakSettled = () =>
       editor.getEditorState().read(() => {
         // Exactly one optbreak display node — the `//` became the discretionary line break, and
@@ -613,8 +653,7 @@ describe("re-pend scan does not destabilize settle-refused literals", () => {
         }),
       );
     }
-    await act(async () => editor.update(() => other.select(0, 0)));
-    await flushResolution();
+    await editDeparture(editor, other);
     assertPipeSettled(editor);
     // Undo, then depart: the pipe literal re-settles; the milestone literal is re-pended
     // by the same scan but its resolve refuses at the fixed point — still literal, still
@@ -682,8 +721,7 @@ describe("undo of a settled run deletion (charAttributeDeletionSettle.test.tsx's
         char.select(index, index);
       }),
     );
-    await act(async () => editor.update(() => other.select(0, 0)));
-    await flushResolution();
+    await editDeparture(editor, other);
     editor.getEditorState().read(() => {
       expect($findChar().getUnknownAttributes()?.stuff).toBeUndefined();
     });
@@ -740,11 +778,11 @@ describe("undo → departure → re-settle (an emptied optbreak husk, reachable 
     // An optbreak's `//` token IS its entire USFM byte representation (unknownUsfm.utils.ts): once
     // it is destroyed the empty UnknownNode left behind is undead scaffolding with nothing left to
     // display — `$settlePendedDisplayOwner`'s optbreak arm removes it outright on the next settle
-    // pass. Deleting the token and settling the resulting husk are TWO SEPARATE history entries
-    // (the deletion pends the owner via the mutation listener; the husk removal happens only on
-    // the LATER deferred-resolve commit), so ONE undo from the settled (husk-removed) state lands
-    // on the intermediate husk shape — an ATTACHED, EMPTY optbreak UnknownNode — not the original
-    // pre-deletion content. Pre-fix, `$rependPendShapedNodes` returned early on ANY UnknownNode
+    // pass. The husk is an INTERMEDIATE state: the deletion pends the owner via the mutation
+    // listener, and the husk removal happens only on the LATER deferred-resolve commit. A settle
+    // carries no history entry of its own, so the husk is undo-reachable only when some other
+    // commit closed the entry first (below) — an ATTACHED, EMPTY optbreak UnknownNode rather than
+    // the original pre-deletion content. Pre-fix, `$rependPendShapedNodes` returned early on ANY UnknownNode
     // without checking for this shape, so nothing re-pended the restored husk and it serialized an
     // optbreak with no visible bytes forever.
     let optbreakToken: ImmutableTypedTextNode;
@@ -766,12 +804,31 @@ describe("undo → departure → re-settle (an emptied optbreak husk, reachable 
 
     // Delete the optbreak's own `//` token, caret parked right at the deletion site (mirrors
     // verseAttributeSettle.test.tsx's deletion pattern) — this is the FIRST history entry.
-    await act(async () =>
-      editor.update(() => {
-        optbreakToken.remove();
-        before.select(before.getTextContentSize(), before.getTextContentSize());
-      }),
-    );
+    await act(async () => {
+      // `discrete` so this lands as its own commit: Lexical otherwise batches both updates below
+      // into one, and the whole point here is that they are two.
+      editor.update(
+        () => {
+          optbreakToken.remove();
+          before.select(before.getTextContentSize(), before.getTextContentSize());
+        },
+        { discrete: true },
+      );
+      // A second commit lands in the same tick, BEFORE the deferred settle's microtask runs.
+      // That is what makes the husk a state Ctrl+Z can reach at all: with nothing between the
+      // deletion and the settle the two share one entry, and a single undo goes straight back to
+      // the intact `//`. In the app any other plugin committing in the same tick (a collab apply,
+      // an annotation sync) closes the entry the same way.
+      editor.update(
+        () => {
+          const end = other.getTextContentSize();
+          other.select(end, end);
+          const selection = $getSelection();
+          if ($isRangeSelection(selection)) selection.insertText("!");
+        },
+        { discrete: true },
+      );
+    });
     await flushResolution();
     // The optbreak arm has no caret-held grace to wait out (there is no partial-edit state for a
     // construct whose display IS its entire byte representation), so the husk is already removed
@@ -780,8 +837,9 @@ describe("undo → departure → re-settle (an emptied optbreak husk, reachable 
       expect($optbreaks()).toHaveLength(0);
     });
 
-    // Undo ONCE reverses the settle (the second entry), landing on the husk shape: an attached,
-    // EMPTY optbreak UnknownNode — not yet removed, not yet the original `//` content either.
+    // Undo ONCE lands on the husk shape: an attached, EMPTY optbreak UnknownNode — not yet
+    // removed, not yet the original `//` content either. The entry it reverses belongs to the
+    // second commit; the settle rode along inside that entry rather than owning one.
     await act(async () => {
       editor.dispatchCommand(UNDO_COMMAND, undefined);
     });
@@ -794,26 +852,17 @@ describe("undo → departure → re-settle (an emptied optbreak husk, reachable 
 
     // A subsequent user departure must re-settle it: the husk is statically re-derivable from its
     // own shape (tag "optbreak", zero children) regardless of caret state, so the fix pends it
-    // directly in the re-pend scan and this departure removes it again (a THIRD, separate entry —
-    // re-settling is a genuine edit, not a no-op merge, since it does mutate the tree).
+    // directly in the re-pend scan and this departure removes it again — merging into the entry
+    // holding the restored husk, since the departure itself dirtied nothing.
     await userDeparture(editor, "elsewhere", 4);
     editor.getEditorState().read(() => {
       expect($optbreaks()).toHaveLength(0);
     });
 
-    // History stays sound across the re-settle: undoing it lands back on the husk (reversing the
-    // third entry)...
-    await act(async () => {
-      editor.dispatchCommand(UNDO_COMMAND, undefined);
-    });
-    await flushResolution();
-    editor.getEditorState().read(() => {
-      const husks = $optbreaks();
-      expect(husks).toHaveLength(1);
-      expect(husks[0].getChildrenSize()).toBe(0);
-    });
-    // ...and one MORE undo (reversing the first entry, the deletion itself) reaches the true
-    // pre-deletion state: the optbreak with its `//` token restored, not a husk.
+    // History stays sound across the re-settle: it added no entry of its own, so the next undo
+    // reverses the DELETION and reaches the true pre-deletion state directly — the optbreak with
+    // its `//` token restored, not a husk. (Pre-ruling this took two presses, the first landing
+    // back on the husk.)
     await act(async () => {
       editor.dispatchCommand(UNDO_COMMAND, undefined);
     });

@@ -53,7 +53,9 @@ import { act } from "@testing-library/react";
 import {
   $createTextNode,
   $getRoot,
+  $getSelection,
   $isElementNode,
+  $isRangeSelection,
   $isTextNode,
   LexicalNode,
   UNDO_COMMAND,
@@ -328,8 +330,13 @@ describe("the heal respects the pend ledger across commits", () => {
       const { editor } = await historyTestEnvironment($charSpanDocument);
       watch(editor);
 
-      // User damages the para prefix (caret at the site), then departs — the settle renames the
-      // paragraph to `\q` (its own history entry).
+      // User damages the para prefix (caret at the site), then departs — and the departure EDITS
+      // the body text rather than merely parking the caret in it. That is what leaves the mid-edit
+      // literal on the undo stack: a settle is never its own history entry, so it merges into the
+      // entry of the commit that provoked it. A caret-only departure dirties nothing, so the
+      // settle would join the damage's own entry and one Ctrl+Z would restore the undamaged `\p`
+      // — never the literal this test needs. (Moving and typing in one commit compresses "the
+      // user's next action was an edit elsewhere".)
       await act(async () =>
         editor.update(() => {
           const prefix = $paraPrefix();
@@ -337,7 +344,15 @@ describe("the heal respects the pend ledger across commits", () => {
           prefix.select(2, 2);
         }),
       );
-      await act(async () => editor.update(() => $bodyText().select(0, 0)));
+      await act(async () =>
+        editor.update(() => {
+          const body = $bodyText();
+          const end = body.getTextContentSize();
+          body.select(end, end);
+          const selection = $getSelection();
+          if ($isRangeSelection(selection)) selection.insertText("!");
+        }),
+      );
       editor.getEditorState().read(() => {
         expect($getRoot().getChildren().filter($isParaNode)[0].getMarker()).toBe("q");
       });

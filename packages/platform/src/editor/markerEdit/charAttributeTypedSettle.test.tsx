@@ -179,6 +179,28 @@ async function depart(editor: EditorHandle, other: TextNode) {
   await flushResolution();
 }
 
+/**
+ * Departs by EDITING the second paragraph instead of merely parking the caret there — for the undo
+ * test below, which needs the pre-settle literal to be a state Ctrl+Z can land on.
+ *
+ * A settle is never its own history entry: it merges into the entry of the commit that provoked
+ * it. A caret-only departure dirties nothing, so the settle merges into the entry holding the
+ * user's typing and one Ctrl+Z takes both away, landing on the pre-typing document. An edit at the
+ * destination opens its own entry, so undo lands on the literal. (Moving and typing in one commit
+ * compresses "the user's next action was an edit elsewhere".)
+ */
+async function editDeparture(editor: EditorHandle, other: TextNode) {
+  await act(async () =>
+    editor.update(() => {
+      const end = other.getTextContentSize();
+      other.select(end, end);
+      const selection = $getSelection();
+      if ($isRangeSelection(selection)) selection.insertText("!");
+    }),
+  );
+  await flushResolution();
+}
+
 /** The first paragraph's USJ — the FILE side of the screen-vs-file comparison. */
 function paraUsj(editor: EditorHandle): MarkerObject {
   initializeDeserialize(undefined);
@@ -289,7 +311,7 @@ describe("undo then departure re-settles the attribute under the app's full plug
     const { editor } = await appStackEnvironment(() => (seed = $seedSpan("nd", "text")));
     await act(async () => editor.update(() => seed.content.select(5, 5)));
     await type(editor, `|stuff="thing"`);
-    await depart(editor, seed.other);
+    await editDeparture(editor, seed.other);
     editor
       .getEditorState()
       .read(() => expect($onlySpan().getUnknownAttributes()).toEqual({ stuff: "thing" }));

@@ -164,7 +164,17 @@ function assertPipeLiteral(editor: LexicalEditor) {
   });
 }
 
-/** Type the pipe literal into the span, then depart (a real keydown clears the window) to settle. */
+/**
+ * Type the pipe literal into the span, then depart (a real keydown clears the window) to settle.
+ *
+ * The departure EDITS the paragraph it moves into rather than merely parking the caret there, and
+ * that matters: a settle is never its own undo entry, so it merges into the entry of the commit
+ * that provoked it. A caret-only departure dirties nothing, leaving that entry the one holding the
+ * typing — a single Ctrl+Z would then take the typing and its settle away together and land on the
+ * pre-typing document, so the restored literal these tests are about would not exist. An edit at
+ * the destination opens its own entry, so undo lands on the literal. (Moving and typing in one
+ * commit compresses "the user's next action was an edit elsewhere".)
+ */
 async function settleThePipe(editor: LexicalEditor) {
   await act(async () => editor.update(() => $textNodeWith("text").select(5, 5)));
   for (const character of `|stuff="thing"`) {
@@ -178,7 +188,15 @@ async function settleThePipe(editor: LexicalEditor) {
   await act(async () =>
     editor.dispatchCommand(KEY_DOWN_COMMAND, new KeyboardEvent("keydown", { key: "ArrowUp" })),
   );
-  await act(async () => editor.update(() => $textNodeWith("elsewhere").select(0, 0)));
+  await act(async () =>
+    editor.update(() => {
+      const destination = $textNodeWith("elsewhere");
+      const end = destination.getTextContentSize();
+      destination.select(end, end);
+      const selection = $getSelection();
+      if ($isRangeSelection(selection)) selection.insertText("!");
+    }),
+  );
   await flushResolution();
 }
 

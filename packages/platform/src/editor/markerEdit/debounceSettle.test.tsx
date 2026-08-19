@@ -170,15 +170,27 @@ describe("idle debounce settle (the second settle clock)", () => {
 
   it("one undo restores the pre-settle literal, and the historic window holds it", async () => {
     let parts!: ReturnType<typeof $appendCharPara>;
+    let elsewhere!: TextNode;
     const { editor } = await historyTestEnvironment(() => {
       parts = $appendCharPara();
+      elsewhere = $createTextNode("elsewhere");
+      $getRoot().append($createParaNode("p").append($createMarkerNode("p"), elsewhere));
     });
     await $retypeOpenerBare(editor, parts);
+    // An unrelated edit lands while the caret stays inside the glyph — `spliceText` leaves the
+    // selection alone, so nothing departs and the caret-held pend survives for the idle clock.
+    // Its purpose is purely to close the history entry: a settle is never its own entry, so
+    // without a boundary here the idle settle would merge into the retype's entry and one undo
+    // would restore the CANONICAL `\nd`, never the mid-edit literal this test is about.
+    await act(async () =>
+      editor.update(() => elsewhere.spliceText(elsewhere.getTextContentSize(), 0, "!")),
+    );
     await advance(IDLE_SETTLE_DELAY_MS + 500);
     expectSettled(editor, parts);
 
-    // The idle settle keeps its own history entry (same undo contract as the departure settle):
-    // ONE undo restores the pre-settle literal, not the pre-edit canonical form.
+    // The idle settle adds no history entry of its own — it merges into the entry of the commit
+    // that provoked it — so ONE undo reverses that commit and the settle together, landing on
+    // the pre-settle literal.
     await act(async () => editor.dispatchCommand(UNDO_COMMAND, undefined));
     expectPendingLiteral(editor, parts);
 
