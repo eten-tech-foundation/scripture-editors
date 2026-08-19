@@ -66,9 +66,10 @@ export interface EditableMarkerMenuHarness {
     opts: { trigger: "backslash" | "enter"; literalPrefixLanded: boolean },
   ) => void;
   /**
-   * Commits `typedMarker` as a CLOSING marker (`\` + marker + `*`) at the collapsed caret — the
-   * palette's `*` commit. No opening glyph and no terminating space; the engine resolves the
-   * landed bytes against whatever span is open there.
+   * Commits `typedMarker` as a CLOSING marker (`\` + marker + `*`) — the palette's `*` commit. No
+   * opening glyph and no terminating space; the engine resolves the landed bytes against whatever
+   * span is open there. Over a non-collapsed selection the selected content is replaced by the
+   * closer.
    */
   commitTypedCloser: (typedMarker: string) => void;
 }
@@ -140,20 +141,22 @@ interface MenuState {
   hasTextSelection: boolean;
   /** The entries the menu offers, from the harness's item source. */
   items: MarkerMenuItemLike[];
+  /**
+   * Monotonic id of THIS session, used as the menu's React `key`. Without it, a `\` commit that
+   * reopens the palette leaves `NodeSelectionMenu` mounted, and the component keeps its internal
+   * query — so the new session starts pre-filtered by the marker the old one just committed.
+   */
+  session: number;
 }
 
 /** Keys `NodeSelectionMenu`'s query capture must decline for the `\` palette so the harness
- * handler receives them wherever it sits in the same priority chain: Space is the palette's
- * commit key, and the one keystroke whose capture-vs-harness registration order flips (the
- * capture registers ahead of the re-registered harness handler for the FIRST key after the
- * menu opens). Module-level so the prop is referentially stable across renders. */
-const BACKSLASH_MENU_PASSTHROUGH_KEYS: readonly string[] = [" "];
-
-/** Passthrough keys for a `\` palette opened at a COLLAPSED caret, where `*` is the palette's
- * second commit key (the CLOSING-marker commit) rather than a filter character. Over a
- * non-collapsed selection there is no caret to place a closing marker at, so `*` keeps filtering
- * there and that shape uses {@link BACKSLASH_MENU_PASSTHROUGH_KEYS} instead. */
-const BACKSLASH_MENU_CARET_PASSTHROUGH_KEYS: readonly string[] = [" ", "*"];
+ * handler receives them wherever it sits in the same priority chain: the palette's two COMMIT
+ * keys, Space (opening marker) and `*` (closing marker). Space is also the one keystroke whose
+ * capture-vs-harness registration order flips (the capture registers ahead of the re-registered
+ * harness handler for the FIRST key after the menu opens). Both keys commit in every selection
+ * shape, so this is one list rather than one per shape. Module-level so the prop is referentially
+ * stable across renders. */
+const BACKSLASH_MENU_PASSTHROUGH_KEYS: readonly string[] = [" ", "*"];
 
 /** The palette's live filter state, mirrored from `NodeSelectionMenu` via `onFilterChange`. */
 interface FilterState {
@@ -213,14 +216,15 @@ function toHarnessOptionItem(
  *   (A wrap has no literal for Tier 2 to settle, so the unknown-settles-as-typed row cannot
  *   apply here — the refusal is deliberate and visible.)
  *
- * `*` is the palette's second commit key, for CLOSING markers, at a collapsed caret only: it
+ * `*` is the palette's second commit key, for CLOSING markers, in EVERY selection shape: it
  * commits `\` + query + `*` and closes, with no terminating space and no opening glyph. The bytes
  * land and the engine resolves them — against a matching open span they become that span's real
- * closer, otherwise they settle as an unmatched closer, flagged as typed. Because `*` commits, it
- * is no longer a filter character in that shape, so a `closeTag` entry can no longer be narrowed
- * to by typing its trailing `*`; pressing `*` commits the end state that entry would have applied.
- * Over a non-collapsed selection there is no caret to place a closing marker at, so `*` keeps
- * filtering there.
+ * closer, otherwise they settle as an unmatched closer, flagged as typed. Over a NON-COLLAPSED
+ * selection the selected content is DELETED and the closer lands in its place, which is Paratext
+ * 9's behavior for typing `\nd*` with text selected — a different gesture from Space's WRAP, which
+ * is why the two keys are not interchangeable over a selection. Because `*` commits, it is never a
+ * filter character, so a `closeTag` entry can no longer be narrowed to by typing its trailing `*`;
+ * pressing `*` commits the end state that entry would have applied.
  *
  * `INSERT_PARAGRAPH_COMMAND` is intercepted at `COMMAND_PRIORITY_CRITICAL` - above
  * `MarkerEditPlugin`'s own `COMMAND_PRIORITY_HIGH` handler - to offer the Enter/SmartEnter
@@ -242,6 +246,46 @@ function EditableMarkerMenu({
   const [editor] = useLexicalComposerContext();
   const [menuState, setMenuState] = useState<MenuState | undefined>(undefined);
   const filterRef = useRef<FilterState>({ query: "", options: [] });
+  /** Monotonic session id — see {@link MenuState.session}. */
+  const sessionCounterRef = useRef(0);
+
+  /**
+   * The `\` palette's OPENING-marker commit, shared by its two commit keys so they cannot drift:
+   * Space (`trailingSpace: true`) and `\` (`trailingSpace: false`, which also reopens the palette
+   * at the call site). Resolves the marker from what was literally TYPED, never from what is
+   * highlighted.
+   *
+   * A NOTE marker commits through the item commit — the same one Enter uses — rather than through
+   * the literal. Materializing `\f ` hands the bytes to the tokenizer, which opens an unterminated
+   * note that runs to the end of the paragraph: the first word after the caret becomes the note's
+   * CALLER (a leading attribute) and the rest of the sentence becomes its content, so a note taken
+   * mid-sentence takes the sentence with it. At the END of a paragraph there is no tail, which is
+   * why the literal looks equivalent there and why the ratified "`\f` commits like Enter" row reads
+   * as true. Routing notes here makes that row true in every caret position instead of one.
+   *
+   * Everything else materializes the SAME literal bytes passive typing would have put in the
+   * document and lets the marker-edit engine resolve them — see the component doc comment for why
+   * this is the whole of the passive-Space semantics, byte-identical. Dropping the terminating
+   * space is safe because a marker-name scan terminates at the next `\` (measured: `\nd` and
+   * `\nd ` settle to the same open span at a caret).
+   */
+  const commitTypedQuery = useCallback(
+    (typed: string, items: MarkerMenuItemLike[], trailingSpace: boolean) => {
+      const noteItem = items.find(
+        (candidate) => candidate.kind === "note" && candidate.marker === typed,
+      );
+      if (noteItem) {
+        harness.apply(noteItem, { trigger: "backslash", literalPrefixLanded: false });
+        return;
+      }
+      editor.update(() => {
+        const selection = $getSelection();
+        if ($isRangeSelection(selection))
+          selection.insertText(`${trigger}${typed}${trailingSpace ? " " : ""}`);
+      });
+    },
+    [editor, harness, trigger],
+  );
 
   useEffect(() => {
     return mergeRegister(
@@ -263,21 +307,63 @@ function EditableMarkerMenu({
               event.stopPropagation();
               return true;
             }
-            // `*` is the `\` palette's CLOSING-marker commit key at a collapsed caret: commit
-            // `\typed*` there and close, with no terminating space and no opening glyph. Over a
-            // selection there is no caret to place a closing marker at, so `*` stays a filter
-            // character in that shape (and the passthrough list above matches).
-            if (
-              event.key === "*" &&
-              menuState.trigger === "backslash" &&
-              !menuState.hasTextSelection
-            ) {
+            // `*` is the `\` palette's CLOSING-marker commit key: commit `\typed*` and close,
+            // with no terminating space and no opening glyph. It commits in EVERY selection
+            // shape — over a non-collapsed selection the selected content is deleted and the
+            // closer lands in its place (Paratext 9's behavior for typing `\nd*` with text
+            // selected), which is a different gesture from Space's selection WRAP.
+            if (event.key === "*" && menuState.trigger === "backslash") {
               // Nothing may land: an un-prevented `*` would append a literal asterisk after the
               // committed closer.
               event.preventDefault();
               event.stopPropagation();
               setMenuState(undefined);
               harness.commitTypedCloser(filterRef.current.query);
+              return true;
+            }
+            // `\` is the palette's THIRD commit key (owner-directed): it commits what was typed
+            // exactly as Space does but emits NO terminating space byte, then opens a FRESH
+            // palette for the backslash just pressed — so `\qt-s\qt-e` is one continuous flow.
+            // The separator is unnecessary because a marker-name scan terminates at `\` anyway,
+            // and the next session's own commit supplies that backslash.
+            //
+            // Scoped to the collapsed-caret `\` palette: over a selection the commit is the WRAP,
+            // which consumes the selection and leaves nothing for a second marker to attach to.
+            if (
+              event.key === trigger &&
+              menuState.trigger === "backslash" &&
+              !menuState.hasTextSelection
+            ) {
+              event.preventDefault();
+              event.stopPropagation();
+              const typedBeforeTrigger = filterRef.current.query;
+              if (!typedBeforeTrigger) {
+                // Nothing typed, so there is nothing to commit and `\` is just a character:
+                // land it and close, WITHOUT opening a new palette (owner-directed — typing `\`
+                // twice types a backslash, and that is the behavior being preserved).
+                setMenuState(undefined);
+                editor.update(() => {
+                  const selection = $getSelection();
+                  if ($isRangeSelection(selection)) selection.insertText(trigger);
+                });
+                return true;
+              }
+              commitTypedQuery(typedBeforeTrigger, menuState.items, false);
+              // Reopen through the same path the `\` trigger itself uses, so the new session's
+              // ranking, search bar and zero-match rules are identical to any other session's.
+              const reopenContext = harness.getContext();
+              filterRef.current = { query: "", options: [] };
+              sessionCounterRef.current += 1;
+              setMenuState(
+                reopenContext
+                  ? {
+                      trigger: "backslash",
+                      hasTextSelection: reopenContext.hasTextSelection,
+                      items: harness.getItems(reopenContext),
+                      session: sessionCounterRef.current,
+                    }
+                  : undefined,
+              );
               return true;
             }
             // Otherwise Space is the `\` palette's COMMIT key ("commit what was typed"); every
@@ -300,33 +386,7 @@ function EditableMarkerMenu({
               if (item) harness.apply(item, { trigger: "backslash", literalPrefixLanded: false });
               return true;
             }
-            // A NOTE marker commits through the item commit — the same one Enter uses — rather
-            // than through the literal. Materializing `\f ` hands the bytes to the tokenizer,
-            // which opens an unterminated note that runs to the end of the paragraph: the first
-            // word after the caret becomes the note's CALLER (a leading attribute) and the rest of
-            // the sentence becomes its content, so a note taken mid-sentence takes the sentence
-            // with it. At the END of a paragraph there is no tail, which is why the literal looks
-            // equivalent there and why the ratified "`\f` commits like Enter" row reads as true.
-            // Routing notes here makes that row true in every caret position instead of one.
-            //
-            // Exact match on the typed query, against the offered entries, exactly as the wrap
-            // case above resolves its marker — never the highlighted item, which may be something
-            // the user never typed. Non-note markers are untouched and still take the literal.
-            const noteItem = menuState.items.find(
-              (candidate) => candidate.kind === "note" && candidate.marker === typed,
-            );
-            if (noteItem) {
-              harness.apply(noteItem, { trigger: "backslash", literalPrefixLanded: false });
-              return true;
-            }
-            // Collapsed caret: materialize the typed query as the SAME literal bytes passive
-            // typing would have put in the document (trigger + query + terminating space) and
-            // let the marker-edit engine resolve them — see the component doc comment for why
-            // this is the whole of the passive-Space semantics, byte-identical.
-            editor.update(() => {
-              const selection = $getSelection();
-              if ($isRangeSelection(selection)) selection.insertText(`${trigger}${typed} `);
-            });
+            commitTypedQuery(typed, menuState.items, true);
             return true;
           }
           if (event.key !== trigger) return false;
@@ -337,10 +397,12 @@ function EditableMarkerMenu({
           // filters the palette, not the document.
           event.preventDefault();
           filterRef.current = { query: "", options: [] };
+          sessionCounterRef.current += 1;
           setMenuState({
             trigger: "backslash",
             hasTextSelection: context.hasTextSelection,
             items: harness.getItems(context),
+            session: sessionCounterRef.current,
           });
           return true;
         },
@@ -359,17 +421,19 @@ function EditableMarkerMenu({
           // rich-text's KEY_ENTER fallback never dispatches INSERT_PARAGRAPH from typing there.
           if (!context || context.noteMarker || context.inMarkerText) return false;
 
+          sessionCounterRef.current += 1;
           setMenuState({
             trigger: "enter",
             hasTextSelection: false,
             items: harness.getEnterItems(context),
+            session: sessionCounterRef.current,
           });
           return true; // suppress the split - Escape below cancels outright (it never happened)
         },
         COMMAND_PRIORITY_CRITICAL,
       ),
     );
-  }, [editor, trigger, harness, menuState]);
+  }, [editor, trigger, harness, menuState, commitTypedQuery]);
 
   const handleClose = useCallback(() => setMenuState(undefined), []);
 
@@ -401,6 +465,8 @@ function EditableMarkerMenu({
       <FloatingBoxAtCursor isOpen>
         {({ placement }) => (
           <NodeSelectionMenu
+            // Remount per session so a reopened palette starts with an empty query.
+            key={menuState.session}
             options={options ?? []}
             onSelectOption={handleSelectOption}
             onClose={handleClose}
@@ -408,11 +474,7 @@ function EditableMarkerMenu({
             inverse={placement === "top-start"}
             menuOpenKey={trigger}
             passthroughKeys={
-              menuState.trigger === "backslash"
-                ? menuState.hasTextSelection
-                  ? BACKSLASH_MENU_PASSTHROUGH_KEYS
-                  : BACKSLASH_MENU_CARET_PASSTHROUGH_KEYS
-                : undefined
+              menuState.trigger === "backslash" ? BACKSLASH_MENU_PASSTHROUGH_KEYS : undefined
             }
           />
         )}

@@ -82,6 +82,11 @@ export interface CommentBase {
 export type Comments = (Thread | CommentBase)[];
 
 // @public
+export interface CommitTypedMarkerOptions {
+    trailingSpace?: boolean;
+}
+
+// @public
 export interface ContextMenuOptionConfig {
     isDisabled?: boolean;
     onSelect: () => void;
@@ -152,7 +157,7 @@ export interface EditorRef {
     applyUpdate(ops: DeltaOp[], source?: DeltaSource): void;
     commitPendingMarkerEdits(): void;
     commitTypedCloser(typedMarker: string): boolean;
-    commitTypedMarker(typedMarker: string): boolean;
+    commitTypedMarker(typedMarker: string, options?: CommitTypedMarkerOptions): boolean;
     copy(): void;
     cut(): void;
     extendCharacterMarker(marker: string, conflictingMarkers?: readonly string[]): boolean;

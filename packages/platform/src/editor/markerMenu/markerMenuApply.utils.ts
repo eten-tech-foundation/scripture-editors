@@ -140,9 +140,42 @@ export interface ApplyMarkerMenuSelectionDeps {
 }
 
 /**
- * Commits the CLOSING marker the user typed into a marker palette (`\` + query, then `*`) at the
- * collapsed caret — the `EditorRef.commitTypedCloser` implementation, and the shared primitive
- * behind the `*` commit in both the in-editor palette and host-rendered ones.
+ * Commits the OPENING marker the user typed into a marker palette — the `EditorRef.commitTypedMarker`
+ * implementation, shared by the palette's two opening-commit keys so they cannot drift.
+ *
+ * Materializes the SAME literal bytes passive typing would have accumulated (`\` + typedMarker,
+ * plus a terminating space) and lets the marker-edit engine resolve them within this update. The
+ * ratified Space end states therefore hold by construction rather than by re-implementation.
+ *
+ * `trailingSpace: false` is the `\` commit: the palette commits what was typed and immediately
+ * reopens for the backslash the user just pressed, so the separator is unnecessary — a marker-name
+ * scan terminates at the next `\` (and at end-of-text) exactly as it does at a space. Measured:
+ * `\nd` and `\nd ` settle to the same open span at a caret. The one place the two byte shapes
+ * differ is mid-text with marker-name characters immediately following, where the unseparated
+ * literal glues (`\nd` + `world` reads as marker `ndworld`); the reopened session's own commit
+ * supplies the terminating `\` and resolves it, and if the user escapes instead, what remains is
+ * exactly the bytes they typed — governing invariant I.
+ *
+ * Mutating: call inside `editor.update()`. Returns `false` without mutating when the selection is
+ * not a COLLAPSED range selection — over a selection the palette's opening commit is the item WRAP
+ * (`$applyMarkerMenuSelection`), and materializing bytes here would replace the selected text.
+ */
+export function $commitTypedMarker(
+  typedMarker: string,
+  options?: { trailingSpace?: boolean },
+): boolean {
+  const selection = $getSelection();
+  if (!$isRangeSelection(selection) || !selection.isCollapsed()) return false;
+
+  selection.insertText(`\\${typedMarker}${options?.trailingSpace === false ? "" : " "}`);
+  return true;
+}
+
+/**
+ * Commits the CLOSING marker the user typed into a marker palette (`\` + query, then `*`) — the
+ * `EditorRef.commitTypedCloser` implementation, and the shared primitive behind the `*` commit in
+ * both the in-editor palette and host-rendered ones, at a collapsed caret and over a selection
+ * alike.
  *
  * Unlike the Space commit (`EditorRef.commitTypedMarker`) this inserts NO opening glyph and NO
  * terminating space: `\` + typedMarker + `*` is the whole of what `*` commits. The bytes LAND and
@@ -153,22 +186,32 @@ export interface ApplyMarkerMenuSelectionDeps {
  * ratified end states for a typed closer, and they are byte-identical to what typing `\nd*` by
  * hand produced before palettes existed.
  *
- * NOT routed through {@link $closeCharSpanAtCaret}, which stays the apply for a PICKED `closeTag`
- * menu entry. The two genuinely diverge, and only at the place the user is most likely to press
- * `*`: with the caret at the span's CONTENT END, `$closeCharSpanAtCaret` takes its
- * "already effectively closed" branch — it performs no split, changes no text, and only moves the
- * caret past the span, leaving the span still `closed="false"` with no closing glyph on screen.
- * That is defensible for a structural command picked from a list, but as the response to a typed
- * `*` it looks like the keystroke did nothing. Landing the literal is what puts `\nd*` on screen.
+ * At a COLLAPSED CARET this is NOT routed through {@link $closeCharSpanAtCaret}, which stays the
+ * apply for a PICKED `closeTag` menu entry there. The two genuinely diverge, and only at the place
+ * the user is most likely to press `*`: with the caret at the span's CONTENT END,
+ * `$closeCharSpanAtCaret` takes its "already effectively closed" branch — it performs no split,
+ * changes no text, and only moves the caret past the span, leaving the span still `closed="false"`
+ * with no closing glyph on screen. That is defensible for a structural command picked from a list,
+ * but as the response to a typed `*` it looks like the keystroke did nothing. Landing the literal
+ * is what puts `\nd*` on screen.
  *
- * Mutating: call inside `editor.update()`. Returns `false` without mutating when the selection is
- * not a collapsed range selection — a closing marker is placed AT a caret, and there is none to
- * place it at over a selection.
+ * Over a NON-COLLAPSED selection there is no such divergence, and both routes land here: the
+ * selected content is DELETED and the closer takes its place — Paratext 9's behavior for typing
+ * `\nd*` with text selected, and (owner-directed) the behavior of a picked `closeTag` entry over a
+ * selection too, which previously reached `$closeCharSpanAtCaret`'s collapsed-only guard and was a
+ * silent no-op. Lexical's `insertText` already replaces a non-collapsed range, so the delete and
+ * the insert are the same call; the resulting closer is unmatched unless an open `\marker`
+ * precedes it, and the engine flags it as such.
+ *
+ * Mutating: call inside `editor.update()`. Returns `false` without mutating only when there is no
+ * range selection at all.
  */
-export function $commitTypedCloserAtCaret(typedMarker: string): boolean {
+export function $commitTypedCloser(typedMarker: string): boolean {
   const selection = $getSelection();
-  if (!$isRangeSelection(selection) || !selection.isCollapsed()) return false;
+  if (!$isRangeSelection(selection)) return false;
 
+  // Non-collapsed: `insertText` removes the selected content first, which is exactly the
+  // delete-then-insert this needs — one implementation serves both selection shapes.
   selection.insertText(`\\${typedMarker}*`);
   return true;
 }
@@ -201,6 +244,19 @@ export function $applyMarkerMenuSelection(
   if (opts.literalPrefixLanded) $removeLiteralTriggerPrefix();
 
   if (item.kind === "closeTag") {
+    const selection = $getSelection();
+    if ($isRangeSelection(selection) && !selection.isCollapsed()) {
+      // Over a selection, `$closeCharSpanAtCaret`'s collapsed-only guard used to refuse and the
+      // refusal was discarded here — a silent no-op on a key the user pressed. A picked closer now
+      // does what a TYPED one does over a selection: delete the selected content and land the
+      // closer in its place. `item.marker` is already the endmarker (`nd*`, `+wj*`), so the
+      // trailing `*` comes off before the primitive puts it back.
+      $commitTypedCloser(item.marker.replace(/\*$/, ""));
+      return;
+    }
+    // Collapsed caret: unchanged. The structural close is the ratified apply for a PICKED entry
+    // and deliberately diverges from a typed closer at a span's content end — see
+    // {@link $commitTypedCloser}.
     $closeCharSpanAtCaret(item.marker.replace(/^\+/, ""));
     return;
   }
