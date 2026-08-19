@@ -247,6 +247,17 @@ function $clampSelectionToLength(node: MarkerNode, newLength: number): void {
   });
 }
 
+/**
+ * Land the caret in the content after a rename that COMPLETED a marker name — `\s` retyped to
+ * `\s1` plus the space that terminates it. That terminator is the user saying the name is
+ * finished, so the caret belongs past the glyph and its separator, where the content starts.
+ *
+ * Only call this when the name actually changed. A space typed beside a marker that is ALREADY
+ * complete renames nothing, and moving the caret there would advance it two positions for one
+ * keystroke, past a separator the user did not type. See {@link $renamesTheMarkerName}.
+ *
+ * Mutating: call inside `editor.update()`.
+ */
 function $moveCaretPastMarker(node: MarkerNode): void {
   const selection = $getSelection();
   if (!$isRangeSelection(selection) || !selection.isCollapsed()) return;
@@ -256,6 +267,17 @@ function $moveCaretPastMarker(node: MarkerNode): void {
   // offset 1 of the following text node.
   if ($isTextNode(next)) next.select(1, 1);
   else node.select(node.getTextContentSize(), node.getTextContentSize());
+}
+
+/**
+ * Whether an opener rename changes the marker's NAME, as opposed to only absorbing whitespace the
+ * user typed beside an already-correct one. Both spellings of the same name compare equal, so a
+ * nested glyph's `+` never reads as a rename on its own.
+ *
+ * Read-only: safe inside `editor.update()` or either read form.
+ */
+function $renamesTheMarkerName(oldMarker: string, newMarker: string): boolean {
+  return oldMarker.replace(/^\+/, "") !== newMarker.replace(/^\+/, "");
 }
 
 /**
@@ -307,9 +329,10 @@ export function $applyOpenerRename(
       }
       return $requestTier2ForNode(node, context);
     }
+    const oldParaMarker = node.getMarker();
     parent.setMarker(newMarker);
     node.setMarker(newMarker); // rewrites __text to canonical, absorbing the typed terminator
-    $moveCaretPastMarker(node);
+    if ($renamesTheMarkerName(oldParaMarker, newMarker)) $moveCaretPastMarker(node);
     context.logger?.debug(`[MarkerEdit] para marker renamed to "${newMarker}"`);
     return true;
   }
@@ -343,7 +366,7 @@ export function $applyOpenerRename(
       closer.setMarker(clean); // same update: opener authority rewrites the closer
     }
     node.setMarker(clean);
-    $moveCaretPastMarker(node);
+    if ($renamesTheMarkerName(oldMarker, clean)) $moveCaretPastMarker(node);
     context.logger?.debug(`[MarkerEdit] ${parent.getType()} marker renamed to "${clean}"`);
     return true;
   }
@@ -633,6 +656,15 @@ export function $verseNodeTransform(node: VerseNode, context: MarkerEditContext)
     return;
   }
   context.pendingKeys.delete(node.getKey());
+  // An empty `rest` with the number unchanged means the glyph diverges from canonical ONLY by
+  // whitespace inside its separator runs — the user typed a space beside the marker or beside the
+  // number. Leave those bytes alone. Rewriting to canonical here deleted the typed space while the
+  // caret advanced over where it had been, so pressing space looked like it merely moved the
+  // cursor: a keystroke accepted and discarded, which "no silent no-ops" forbids. Nothing reaches
+  // the document either way — whitespace before a leading-attribute value is structural and the
+  // writer emits exactly one space — which is the same licence a trailing space at the end of a
+  // paragraph already has.
+  if (rest === "" && numberToken === node.getNumber()) return;
   node.setNumber(numberToken); // PT9 GetNextWord: whole word, valid or not
   node.setTextContent(getVisibleOpenMarkerText("v", numberToken));
   // The caret follows to the end of the extracted rest (see $insertRestAfterVerse for the
