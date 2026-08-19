@@ -84,6 +84,7 @@ import {
   ImmutableTypedTextNode,
   ImmutableUnmatchedNode,
   LoggerBasic,
+  MARKER_SETTLE_TAG,
   MarkerLookup,
   MarkerNode,
   MilestoneNode,
@@ -362,6 +363,11 @@ export function MarkerEditPlugin({
         //   the only way to edit some shapes as raw bytes. Accepting that cost is a deliberate
         //   trade for an undo stack holding only user actions, not an oversight.
         $addUpdateTag(HISTORY_MERGE_TAG);
+        // …and say so explicitly, because the merge tag alone reads as "nothing to report" to
+        // USJ-change consumers: `DeltaOnChangePlugin` skips merge-tagged commits, so without
+        // this the settled bytes would never refresh the cached USJ or reach the host as a
+        // delta — the document on screen and the document saved would diverge.
+        $addUpdateTag(MARKER_SETTLE_TAG);
       });
     };
     // The idle debounce — the SECOND settle clock. Re-armed (a full delay from now) by every

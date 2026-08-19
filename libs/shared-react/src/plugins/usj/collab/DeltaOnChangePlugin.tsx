@@ -9,7 +9,7 @@ import type { EditorState, LexicalEditor, UpdateListenerPayload } from "lexical"
 import { $getNodeByKey, $isTextNode, HISTORY_MERGE_TAG } from "lexical";
 import Delta from "quill-delta";
 import { useLayoutEffect } from "react";
-import { $findFirstAncestorNoteNode } from "shared";
+import { $findFirstAncestorNoteNode, MARKER_SETTLE_TAG } from "shared";
 
 /** Stable default for {@link DeltaOnChangePlugin}'s `ignoreTags` so the effect deps stay stable. */
 const EMPTY_TAGS: readonly string[] = [];
@@ -48,7 +48,13 @@ export function DeltaOnChangePlugin({
       const { editorState, dirtyElements, dirtyLeaves, prevEditorState, tags } = payload;
       if (
         (ignoreSelectionChange && dirtyElements.size === 0 && dirtyLeaves.size === 0) ||
-        (ignoreHistoryMergeTagChange && tags.has(HISTORY_MERGE_TAG)) ||
+        // A `MARKER_SETTLE_TAG` commit carries the merge tag only to stay out of the undo
+        // stack — its bytes really did change, so it must reach `onChange` like any edit.
+        // Without this exemption the cached USJ and the emitted delta both keep showing the
+        // pre-settle bytes, and the host saves a document the editor is no longer displaying.
+        (ignoreHistoryMergeTagChange &&
+          tags.has(HISTORY_MERGE_TAG) &&
+          !tags.has(MARKER_SETTLE_TAG)) ||
         ignoreTags.some((tag) => tags.has(tag)) ||
         prevEditorState.isEmpty()
       ) {
