@@ -20,6 +20,7 @@ import {
 import {
   $getNodeByKey,
   $getSelection,
+  $getState,
   $isElementNode,
   $isLineBreakNode,
   $isRangeSelection,
@@ -58,6 +59,7 @@ import {
   NBSP,
   NoteNode,
   ParaNode,
+  textTypeState,
   usfmFragmentToUsjContent,
   VerseNode,
 } from "shared";
@@ -463,6 +465,15 @@ function $appendSignature(
         out.push(
           SIGNATURE_OPEN,
           "ms",
+          // `marker` is part of the state for the same reason the attributes below are, and it is
+          // the one the SAVE leg reads: `createMilestoneMarker` (editor-usj.adaptor.ts) emits the
+          // milestone's own `marker` field, never the glyph bytes. Renaming the opening glyph
+          // (`\qt-s` → `\qt1-s`) leaves those bytes identical on both sides of this comparison —
+          // the OLD side shows the user's edit, and re-tokenizing that same text regenerates the
+          // identical glyph — so only the milestone's STALE `marker` reveals the rebuild is not a
+          // no-op. Without this fold the fixed-point refusal fires, the rename never reaches node
+          // state, and the file keeps the old name while the screen shows the new one.
+          //
           // `attributeOrder` is part of the state: the serialized key order follows it, so a
           // USER EDIT that only REORDERS the run's attributes (values unchanged, displayed
           // bytes identical to their own re-tokenization) is a real document change — without
@@ -470,6 +481,7 @@ function $appendSignature(
           // order silently survives the settle. An unedited non-canonical load stays a fixed
           // point: the fresh side re-derives the same authored order from the same bytes.
           JSON.stringify({
+            marker: node.getMarker(),
             sid: node.getSid() ?? null,
             eid: node.getEid() ?? null,
             unknownAttributes: node.getUnknownAttributes() ?? null,
@@ -801,18 +813,87 @@ const FRAGMENT_WS = /\s/;
 interface CaretByteAnchor {
   nonWsBefore: number;
   wsRun: number;
+  /**
+   * The same caret in DOCUMENT coordinates — attribute display runs stepped over rather than
+   * counted (see {@link $isAttributeRunSpan}). Undefined when the caret sits inside a display-run
+   * piece, where only full-byte coordinates can express the position at all.
+   *
+   * Used by the restore ONLY when the rebuild left the attribute-run population unchanged; see
+   * {@link CaretByteAnchor.attributeRunSpans}.
+   */
+  documentCoords?: { nonWsBefore: number; wsRun: number };
+  /**
+   * How many attribute-run spans the fragment this anchor was captured from held. The restore
+   * compares it against the REBUILT fragment's count, because the capture and the restore walk
+   * two different trees: stepping over attribute runs is only symmetric while the same runs exist
+   * on both sides. A rebuild that CREATES a run (bytes migrating out of typed literal text — a
+   * `\va 3\va*` typed as plain text becoming a real verse attribute run) or destroys one makes the
+   * two walks disagree, so the restore falls back to full-byte coordinates there.
+   */
+  attributeRunSpans: number;
 }
 
-function caretSpanByteAnchor(
+/** How many spans in `spans` are attribute display runs.
+ *
+ * Read-only: resolves node keys, so call inside `editor.update()` or an editor-state read — the
+ * Tier-2 rebuild's caret capture and restore, which are both already in one. */
+function $countAttributeRunSpans(spans: FragmentSpan[]): number {
+  return spans.filter($isAttributeRunSpan).length;
+}
+
+/**
+ * Whether a span is an engine-owned ATTRIBUTE display run (`|who="stuff"`, `|sid="q1"`) rather
+ * than ordinary document content.
+ *
+ * These bytes are the one part of the fragment the settle re-SPELLS without the user touching
+ * them: a lone default attribute renders bare (`|stuff`) while any other set renders explicit
+ * (`|who="stuff" sid="q1"`), so re-tokenizing an attribute run legitimately changes its LENGTH.
+ * A caret anchored by a raw byte count over the whole fragment therefore drifts by that length
+ * difference whenever it sits AFTER a run that re-spelled — which is the caret-jump this
+ * predicate exists to prevent (Invariant II: display bytes are excluded from document positions).
+ *
+ * Read-only: resolves the span's node key, so call inside `editor.update()` or an editor-state read.
+ */
+function $isAttributeRunSpan(span: FragmentSpan): boolean {
+  if (span.isSentinel) return false;
+  const node = $getNodeByKey(span.key);
+  return (
+    $isTextNode(node) && !$isMarkerNode(node) && $getState(node, textTypeState) === "attribute"
+  );
+}
+
+/**
+ * Whether the caret's own span is part of an engine-owned display run — a marker GLYPH or an
+ * attribute run's text. Such a caret is mid-edit INSIDE the construct being settled, and its byte
+ * legitimately migrates as the settle re-tokenizes (a `|x="y"` typed into a milestone's opening
+ * glyph moves out of the glyph and into a freshly built attribute run). Those carets must keep
+ * counting every byte, or the restore cannot follow the byte into its new home.
+ *
+ * A caret anywhere else is ordinary document content that the settle is not editing, so it gets
+ * the attribute-run-skipping coordinate system instead.
+ *
+ * Read-only: resolves the span's node key, so call inside `editor.update()` or an editor-state read.
+ */
+function $isDisplayRunPieceSpan(span: FragmentSpan): boolean {
+  if (span.isSentinel) return false;
+  const node = $getNodeByKey(span.key);
+  return $isMarkerNode(node) || $isAttributeRunSpan(span);
+}
+
+/** One walk over `fragment` up to the caret, either counting attribute-run bytes or stepping over
+ * them. Returns undefined when the anchor span is not in the fragment. */
+function $walkToCaret(
   fragment: { text: string; spans: FragmentSpan[] },
   anchorKey: string,
   anchorOffset: number,
-): CaretByteAnchor | undefined {
+  skipAttributeRuns: boolean,
+): { nonWsBefore: number; wsRun: number } | undefined {
   let nonWsBefore = 0;
   let wsRun = 0;
   for (const span of fragment.spans) {
     const spanLength = span.end - span.start;
     const isAnchorSpan = span.key === anchorKey;
+    if (!isAnchorSpan && skipAttributeRuns && $isAttributeRunSpan(span)) continue;
     const limit = isAnchorSpan
       ? Math.min(span.isSentinel ? 1 : anchorOffset, spanLength)
       : spanLength;
@@ -826,6 +907,25 @@ function caretSpanByteAnchor(
     if (isAnchorSpan) return { nonWsBefore, wsRun };
   }
   return undefined;
+}
+
+function $caretSpanByteAnchor(
+  fragment: { text: string; spans: FragmentSpan[] },
+  anchorKey: string,
+  anchorOffset: number,
+): CaretByteAnchor | undefined {
+  const full = $walkToCaret(fragment, anchorKey, anchorOffset, false);
+  if (!full) return undefined;
+  // A caret inside a display-run piece has to be anchored in every byte — that is the mid-edit
+  // case the byte anchor was built for (a typed `|x="y"` keeps the caret on the byte the user just
+  // typed, even as that byte migrates from the glyph into a new attribute run). Only a caret in
+  // ordinary document content gets a document-coordinate twin.
+  const anchorSpan = fragment.spans.find((span) => span.key === anchorKey);
+  const documentCoords =
+    anchorSpan && !$isDisplayRunPieceSpan(anchorSpan)
+      ? $walkToCaret(fragment, anchorKey, anchorOffset, true)
+      : undefined;
+  return { ...full, documentCoords, attributeRunSpans: $countAttributeRunSpans(fragment.spans) };
 }
 
 /**
@@ -896,7 +996,7 @@ function $selectAfterSentinelRun(span: FragmentSpan): boolean {
   return true;
 }
 
-/** Place the collapsed caret at the position `anchor` describes (see `caretSpanByteAnchor`)
+/** Place the collapsed caret at the position `anchor` describes (see `$caretSpanByteAnchor`)
  * within the freshly-built spans, falling back to the first element. */
 function $selectAtFragmentByteAnchor(
   fragment: { text: string; spans: FragmentSpan[] },
@@ -904,9 +1004,19 @@ function $selectAtFragmentByteAnchor(
   newNodes: LexicalNode[],
 ): void {
   const { text, spans } = fragment;
+  // Pick the coordinate system. Document coordinates (attribute runs stepped over) keep a caret in
+  // ordinary content from being dragged when a run RE-SPELLS beside it — `|who="stuff"` settling to
+  // its equivalent `|stuff` must not move the caret in the text after it. They are only valid when
+  // the rebuild left the attribute-run population unchanged, because capture and restore walk two
+  // different trees: a rebuild that CREATES or destroys a run makes the two walks disagree, so
+  // those fall back to full-byte coordinates — which is also exactly what the byte-migration cases
+  // need (typed literal bytes becoming a real run, with the caret following its byte into it).
+  const documentCoords =
+    $countAttributeRunSpans(spans) === anchor.attributeRunSpans ? anchor.documentCoords : undefined;
+  const skipAttributeRuns = documentCoords !== undefined;
   let best: { key: string; offset: number } | undefined;
-  let remainingNonWs = anchor.nonWsBefore;
-  let remainingWs = anchor.wsRun;
+  let remainingNonWs = (documentCoords ?? anchor).nonWsBefore;
+  let remainingWs = (documentCoords ?? anchor).wsRun;
   // Whether the anchor position resolved INSIDE a span the caret cannot rest in — a sentinel
   // (inner text not addressable) or a closing marker glyph (see $isClosingMarkerSpan) — in which
   // case the caret belongs at the start of the NEXT addressable span, exactly as the previous
@@ -915,6 +1025,10 @@ function $selectAtFragmentByteAnchor(
   outer: for (const span of spans) {
     const spanLength = span.end - span.start;
     const addressable = !span.isSentinel && !$isClosingMarkerSpan(span);
+    // Mirror the capture's coordinate system exactly: when the anchor was taken in document
+    // bytes, the restore must step over attribute runs too, or the two walks disagree and the
+    // caret lands off by the run's re-spelled length.
+    if (skipAttributeRuns && $isAttributeRunSpan(span)) continue;
     if (needNextAddressable) {
       if (!addressable) continue;
       best = { key: span.key, offset: 0 };
@@ -1042,7 +1156,7 @@ export function $rebuildParas(paras: ParaNode[], context: Tier2Context): boolean
         break;
       }
     if (selection.isCollapsed())
-      caretAnchor = caretSpanByteAnchor(combined, selection.anchor.key, selection.anchor.offset);
+      caretAnchor = $caretSpanByteAnchor(combined, selection.anchor.key, selection.anchor.offset);
   }
 
   const content: MarkerContent[] = usfmFragmentToUsjContent(combined.text, {
@@ -1243,7 +1357,7 @@ export function $rebuildNoteContent(note: NoteNode, context: Tier2Context): bool
         break;
       }
     if (selection.isCollapsed())
-      caretAnchor = caretSpanByteAnchor(out, selection.anchor.key, selection.anchor.offset);
+      caretAnchor = $caretSpanByteAnchor(out, selection.anchor.key, selection.anchor.offset);
   }
 
   const content: MarkerContent[] = usfmFragmentToUsjContent(out.text, {
@@ -1594,7 +1708,7 @@ export function $rebuildChapter(chapter: ChapterNode, context: Tier2Context): bo
         break;
       }
     if (selection.isCollapsed())
-      caretAnchor = caretSpanByteAnchor(out, selection.anchor.key, selection.anchor.offset);
+      caretAnchor = $caretSpanByteAnchor(out, selection.anchor.key, selection.anchor.offset);
   }
 
   const content: MarkerContent[] = usfmFragmentToUsjContent(out.text, { getMarker: getMarkerFn });
