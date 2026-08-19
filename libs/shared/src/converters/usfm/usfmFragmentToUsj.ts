@@ -412,6 +412,22 @@ export function defaultMarkerAttribute(marker: string): string | undefined {
  */
 const RESERVED_NODE_KEYS = new Set(["type", "marker", "content"]);
 
+/**
+ * Whether `pairs` consume all of `text` apart from whitespace — i.e. the attribute list parsed
+ * completely rather than partly. Each match must start where the previous one ended (whitespace
+ * aside), and the last must reach the end.
+ */
+function pairsCoverList(text: string, pairs: RegExpExecArray[] | RegExpMatchArray[]): boolean {
+  let cursor = 0;
+  for (const pair of pairs) {
+    const start = pair.index;
+    if (start === undefined) return false;
+    if (text.slice(cursor, start).trim() !== "") return false;
+    cursor = start + pair[0].length;
+  }
+  return text.slice(cursor).trim() === "";
+}
+
 function parseAttributeText(
   attributeText: string,
   marker: string,
@@ -421,6 +437,15 @@ function parseAttributeText(
   const attributes: { [attributeName: string]: string } = {};
   const pairs = [...regularizedText.matchAll(ATTRIBUTE_PAIR_REGEX)];
   if (pairs.length > 0) {
+    // The pairs must account for the WHOLE list, with nothing but whitespace between and after
+    // them. The regex is global, so without this it happily skips over anything it cannot match:
+    // `gloss="st"uff"` matched `gloss="st"` and the leftover `uff"` vanished, taking bytes the
+    // author wrote and could see. USFM has no way to escape a quote inside a value, so such a list
+    // is genuinely ambiguous and there is no reading of it to salvage — refusing the whole list
+    // hands it back to the caller, which keeps it as literal text (`extractAttributes`). That is
+    // Paratext 9's behavior, and the only lossless one: every byte stays on screen and in the file,
+    // where the author can see what is wrong and fix it.
+    if (!pairsCoverList(regularizedText, pairs)) return undefined;
     for (const [, name, value] of pairs) {
       if (!RESERVED_NODE_KEYS.has(name)) attributes[name] = value;
     }

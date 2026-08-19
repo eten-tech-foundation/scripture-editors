@@ -203,6 +203,26 @@ not by reasoning from the comment.
 
 Do not "fix" these. They were reviewed and ratified.
 
+**Space runs collapse on save, and the display is deliberately NOT collapsed to match
+(2026-08-19, owner-directed).** Type `a  b` and after a settle the screen keeps both spaces while
+the file gets one, indefinitely. That is a real, permanent screen-vs-file divergence, and it is
+ratified anyway: it models Paratext 9's `RegularizeSpaces`, and normalizing the display instead
+would delete a byte under the user's caret.
+
+**This is a one-off exception and must not be generalized.** It is the single place where the
+answer to "the screen and the file disagree" is "leave it". Every other divergence in this document
+is a defect — and the closeout round found several that had been quietly resting on the same
+reasoning without the same ratification. If a new case looks like this one, it is not; bring it to
+the owner rather than reasoning from this row.
+
+The related-but-opposite rule, also owner-directed and NOT an exception to anything: a space the
+user TYPES beside a marker is inserted, stays visible, and leaves the caret immediately after it —
+in a verse or chapter glyph's separator run, after a char opener, and inside any of the five display
+runs (`va`, `vp`, `ca`, `cp`, `cat`). The file is unaffected either way because the writer emits
+structural whitespace itself, and while the user is typing there really are two spaces on screen, so
+the position between them is a real one. Accepting that keystroke and discarding it is the
+no-silent-no-ops failure, not an instance of the collapse above.
+
 **Revised 2026-08-18, owner-directed: the `\` palette is ACTIVE.** The owner retired the passive
 palette by direct instruction: the trigger `\` never lands in the document (preventDefaulted in
 every selection shape), and subsequent typing filters the palette — it does not reach the
