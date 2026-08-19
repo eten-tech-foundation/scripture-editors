@@ -140,6 +140,40 @@ export interface ApplyMarkerMenuSelectionDeps {
 }
 
 /**
+ * Commits the CLOSING marker the user typed into a marker palette (`\` + query, then `*`) at the
+ * collapsed caret — the `EditorRef.commitTypedCloser` implementation, and the shared primitive
+ * behind the `*` commit in both the in-editor palette and host-rendered ones.
+ *
+ * Unlike the Space commit (`EditorRef.commitTypedMarker`) this inserts NO opening glyph and NO
+ * terminating space: `\` + typedMarker + `*` is the whole of what `*` commits. The bytes LAND and
+ * the marker-edit engine re-tokenizes them — governing invariant I, displayed bytes are the
+ * document. The engine, not this function, decides what they mean: against a matching open span
+ * they settle as that span's real closer (the span loses `closed="false"` and gains its closing
+ * glyph); with nothing matching they settle as an unmatched closer, flagged as typed. Both are the
+ * ratified end states for a typed closer, and they are byte-identical to what typing `\nd*` by
+ * hand produced before palettes existed.
+ *
+ * NOT routed through {@link $closeCharSpanAtCaret}, which stays the apply for a PICKED `closeTag`
+ * menu entry. The two genuinely diverge, and only at the place the user is most likely to press
+ * `*`: with the caret at the span's CONTENT END, `$closeCharSpanAtCaret` takes its
+ * "already effectively closed" branch — it performs no split, changes no text, and only moves the
+ * caret past the span, leaving the span still `closed="false"` with no closing glyph on screen.
+ * That is defensible for a structural command picked from a list, but as the response to a typed
+ * `*` it looks like the keystroke did nothing. Landing the literal is what puts `\nd*` on screen.
+ *
+ * Mutating: call inside `editor.update()`. Returns `false` without mutating when the selection is
+ * not a collapsed range selection — a closing marker is placed AT a caret, and there is none to
+ * place it at over a selection.
+ */
+export function $commitTypedCloserAtCaret(typedMarker: string): boolean {
+  const selection = $getSelection();
+  if (!$isRangeSelection(selection) || !selection.isCollapsed()) return false;
+
+  selection.insertText(`\\${typedMarker}*`);
+  return true;
+}
+
+/**
  * Applies a marker-menu selection at the current editor selection (standard-view `\`/Enter
  * marker menus) — the `EditorRef.applyMarkerMenuSelection` implementation. Call inside
  * `editor.update()`.

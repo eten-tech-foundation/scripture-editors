@@ -65,6 +65,12 @@ export interface EditableMarkerMenuHarness {
     item: MarkerMenuItemLike,
     opts: { trigger: "backslash" | "enter"; literalPrefixLanded: boolean },
   ) => void;
+  /**
+   * Commits `typedMarker` as a CLOSING marker (`\` + marker + `*`) at the collapsed caret — the
+   * palette's `*` commit. No opening glyph and no terminating space; the engine resolves the
+   * landed bytes against whatever span is open there.
+   */
+  commitTypedCloser: (typedMarker: string) => void;
 }
 
 /** Props for {@link UsjNodesMenuPlugin}. */
@@ -143,6 +149,12 @@ interface MenuState {
  * menu opens). Module-level so the prop is referentially stable across renders. */
 const BACKSLASH_MENU_PASSTHROUGH_KEYS: readonly string[] = [" "];
 
+/** Passthrough keys for a `\` palette opened at a COLLAPSED caret, where `*` is the palette's
+ * second commit key (the CLOSING-marker commit) rather than a filter character. Over a
+ * non-collapsed selection there is no caret to place a closing marker at, so `*` keeps filtering
+ * there and that shape uses {@link BACKSLASH_MENU_PASSTHROUGH_KEYS} instead. */
+const BACKSLASH_MENU_CARET_PASSTHROUGH_KEYS: readonly string[] = [" ", "*"];
+
 /** The palette's live filter state, mirrored from `NodeSelectionMenu` via `onFilterChange`. */
 interface FilterState {
   /** Exactly what the user typed after the trigger character. */
@@ -200,6 +212,16 @@ function toHarnessOptionItem(
  *   than the space replacing the selected text or a near-miss entry being applied as a guess.
  *   (A wrap has no literal for Tier 2 to settle, so the unknown-settles-as-typed row cannot
  *   apply here — the refusal is deliberate and visible.)
+ *
+ * `*` is the palette's second commit key, for CLOSING markers, at a collapsed caret only: it
+ * commits `\` + query + `*` and closes, with no terminating space and no opening glyph. The bytes
+ * land and the engine resolves them — against a matching open span they become that span's real
+ * closer, otherwise they settle as an unmatched closer, flagged as typed. Because `*` commits, it
+ * is no longer a filter character in that shape, so a `closeTag` entry can no longer be narrowed
+ * to by typing its trailing `*`; pressing `*` commits the end state that entry would have applied.
+ * Over a non-collapsed selection there is no caret to place a closing marker at, so `*` keeps
+ * filtering there.
+ *
  * `INSERT_PARAGRAPH_COMMAND` is intercepted at `COMMAND_PRIORITY_CRITICAL` - above
  * `MarkerEditPlugin`'s own `COMMAND_PRIORITY_HIGH` handler - to offer the Enter/SmartEnter
  * paragraph menu instead of splitting; the caret being inside a note (the `\fp` path) or
@@ -239,6 +261,23 @@ function EditableMarkerMenu({
             ) {
               event.preventDefault();
               event.stopPropagation();
+              return true;
+            }
+            // `*` is the `\` palette's CLOSING-marker commit key at a collapsed caret: commit
+            // `\typed*` there and close, with no terminating space and no opening glyph. Over a
+            // selection there is no caret to place a closing marker at, so `*` stays a filter
+            // character in that shape (and the passthrough list above matches).
+            if (
+              event.key === "*" &&
+              menuState.trigger === "backslash" &&
+              !menuState.hasTextSelection
+            ) {
+              // Nothing may land: an un-prevented `*` would append a literal asterisk after the
+              // committed closer.
+              event.preventDefault();
+              event.stopPropagation();
+              setMenuState(undefined);
+              harness.commitTypedCloser(filterRef.current.query);
               return true;
             }
             // Otherwise Space is the `\` palette's COMMIT key ("commit what was typed"); every
@@ -350,7 +389,11 @@ function EditableMarkerMenu({
             inverse={placement === "top-start"}
             menuOpenKey={trigger}
             passthroughKeys={
-              menuState.trigger === "backslash" ? BACKSLASH_MENU_PASSTHROUGH_KEYS : undefined
+              menuState.trigger === "backslash"
+                ? menuState.hasTextSelection
+                  ? BACKSLASH_MENU_PASSTHROUGH_KEYS
+                  : BACKSLASH_MENU_CARET_PASSTHROUGH_KEYS
+                : undefined
             }
           />
         )}

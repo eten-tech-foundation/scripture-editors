@@ -51,6 +51,28 @@ if (typeof Range.prototype.getBoundingClientRect !== "function") {
   };
 }
 
+// jsdom's `HTMLElement.focus()` unconditionally collapses the document Selection to the start of
+// the focused element; a real browser PRESERVES an existing in-element selection across `focus()`.
+// Lexical's `updateDOMSelection` calls `rootElement.focus({ preventScroll: true })` on its "the DOM
+// selection already matches the target" branch (a cursor-visibility ensure-focus) whenever the root
+// isn't `document.activeElement` — which, after a mutating update that leaves the caret unmoved
+// (the marker-edit engine's deferred settle pass), is exactly the branch taken. In a browser that
+// call is a no-op for the selection; in jsdom it wipes the caret the reconcile just confirmed, and
+// a later deferred native `selectionchange` reads the collapsed-to-start selection back into the
+// editor state — so a correctly restored caret silently becomes "start of the first block".
+// Restoring the pre-focus range models the browser and keeps the caret where Lexical put it.
+// (`ScriptureReferencePlugin.test.tsx` carries its own copy of this shim for the same reason.)
+const originalFocus = HTMLElement.prototype.focus;
+HTMLElement.prototype.focus = function focus(options?: FocusOptions) {
+  const selection = document.getSelection();
+  const savedRange = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : undefined;
+  originalFocus.call(this, options);
+  if (savedRange && selection) {
+    selection.removeAllRanges();
+    selection.addRange(savedRange);
+  }
+};
+
 export function requireStandardViewOptions(): ViewOptions {
   const options = getViewOptions(STANDARD_VIEW_MODE);
   if (!options) throw new Error("Standard view options are required for these tests.");

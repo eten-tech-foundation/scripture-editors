@@ -19,6 +19,7 @@ import {
 } from "./markerMenu/markerItemSource";
 import {
   $applyMarkerMenuSelection,
+  $commitTypedCloserAtCaret,
   $splitParagraphWithMarker,
 } from "./markerMenu/markerMenuApply.utils";
 import { $getMarkerMenuContext } from "./markerMenu/markerMenuContext.utils";
@@ -266,6 +267,9 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
         if (!editorApi) return;
         if (opts.trigger === "enter") editorApi.splitParagraphWithMarker(item.marker);
         else editorApi.applyMarkerMenuSelection(item as MarkerMenuItem, opts);
+      },
+      commitTypedCloser: (typedMarker) => {
+        editorApiRef.current?.commitTypedCloser(typedMarker);
       },
     };
   }, [viewOptions, styleInfo, ref]);
@@ -643,6 +647,24 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
         }
         selection.insertText(`\\${typedMarker} `);
         committed = true;
+      });
+      return committed;
+    },
+    commitTypedCloser(typedMarker) {
+      if (isReadonly) throw new Error("Cannot commit a typed closing marker in readonly mode");
+      if (!editorRef.current) return false;
+
+      // The palette's `*` commit. `$commitTypedCloserAtCaret` owns the routing (close the open
+      // span the typed marker names, else land the typed closer literally) and the caret; this
+      // handle only supplies the update and the refusal warning, matching `commitTypedMarker`.
+      let committed = false;
+      editorRef.current.update(() => {
+        committed = $commitTypedCloserAtCaret(typedMarker);
+        if (!committed)
+          logger?.warn(
+            "commitTypedCloser refused: requires a collapsed range selection " +
+              "(a closing marker is placed AT a caret)",
+          );
       });
       return committed;
     },
