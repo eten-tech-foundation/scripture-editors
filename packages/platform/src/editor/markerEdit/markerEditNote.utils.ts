@@ -294,7 +294,9 @@ function $startFpAtCaret(): boolean {
       const [, tail] = textAnchor.splitText(offset) as [TextNode, TextNode];
       tail.insertBefore(fp);
     }
-    $liftOutOfCharStack(fp, true);
+    // No `closeImplicitSpans`: the `\fp` is itself what ends an implicitly-closed note-content
+    // span, so no closing marker is emitted for it.
+    $liftOutOfCharStack(fp, { renderGlyphs: true });
   } else {
     // The caret is on the note's OWN text (a spacer) or not on text at all, so there is no stack
     // to lift out of: splice the break in at the note's own level and take the anchor's tail with

@@ -571,7 +571,9 @@ function $applyNonNestInsideChar(
     if (selected.getTextContentSize() > end - start) selected = selected.splitText(end - start)[0];
     liftTarget = selected;
   }
-  $liftOutOfCharStack(liftTarget, renderGlyphs);
+  // No `closeImplicitSpans`: the new span IS a marker, and a note-content one ends the span it
+  // is written inside just by being written — so nothing is emitted for it.
+  $liftOutOfCharStack(liftTarget, { renderGlyphs });
   if (liftTarget !== newSpan) {
     // Wrap the lifted selection text in the new span (now at container level), replacing its
     // empty-content placeholder and taking the structural NBSP as the span's first content.

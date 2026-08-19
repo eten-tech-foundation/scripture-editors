@@ -2,6 +2,7 @@ import {
   $appendVersePara,
   expandedViewOptions,
   findOnlyNote,
+  requireDefined,
   testEnvironment,
   testEnvironmentExpanded,
   viewOptions,

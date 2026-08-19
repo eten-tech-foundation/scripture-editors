@@ -94,7 +94,7 @@ export function $removeCharFormattingFromSelection(): boolean {
         const [left] = anchorNode.splitText(offset);
         left.insertAfter(space);
       }
-      $liftOutOfCharStack(space, true);
+      $liftOutOfCharStack(space, { renderGlyphs: true, closeImplicitSpans: true });
       // PT9 (HandleCtrlSpace) inserts-and-clears exactly ONE space: when a space already sits
       // one character ahead it is REUSED as the unformatted separator rather than supplemented.
       // Looking forward only — a space BEHIND the caret is the previous word's, not this one's.
@@ -130,7 +130,7 @@ export function $removeCharFormattingFromSelection(): boolean {
   // right styled); that is this same shape at depth one.
   for (const target of $coveredTextNodes(selection)) {
     if (!$innermostCharAncestor(target)) continue;
-    $liftOutOfCharStack(target, true);
+    $liftOutOfCharStack(target, { renderGlyphs: true, closeImplicitSpans: true });
     // Plain text now, so it sheds the structural separator it carried as a span's first content.
     // Shed on the LATEST instance: an earlier iteration's reopen may have prefixed the separator
     // onto this very node through a writable clone (a later covered node rides along in the
@@ -256,7 +256,7 @@ export function $splitParagraphAtCharStack(): boolean {
     const [, tail] = anchorNode.splitText(offset) as [TextNode, TextNode];
     tail.insertBefore(breakPoint);
   }
-  $liftOutOfCharStack(breakPoint, true);
+  $liftOutOfCharStack(breakPoint, { renderGlyphs: true });
 
   const moving = breakPoint.getNextSiblings();
   breakPoint.remove();

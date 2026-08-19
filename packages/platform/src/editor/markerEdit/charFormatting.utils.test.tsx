@@ -3,6 +3,8 @@ import {
   requireDefined,
   testEnvironment,
   testEnvironmentWithDisplaySyncs,
+  usjNoteFromUsfm,
+  usjNoteOf,
 } from "./markerEdit.test-helpers";
 import { $removeCharFormattingFromSelection } from "./charFormatting.utils";
 import { act } from "@testing-library/react";
@@ -1114,6 +1116,120 @@ describe("Ctrl+Space through a nested character-style stack", () => {
       );
   });
 
+  it("emits a real \\ft* so the unstyled space is not the \\ft's trailing content", async () => {
+    // `\ft` runs until the next note marker or `\f*`, so a space merely placed after its content
+    // re-reads as more of that content and the gesture is a no-op in the file. A footnote content
+    // marker IS a character format, so Ctrl+Space strips it the same way it strips `\nd`: the
+    // span is given a real closing marker, the space follows it unstyled, and a fresh `\ft`
+    // reopens after — matching Paratext 9.
+    //
+    // Inserting a note-content MARKER (`\fq`, `\fp`) still emits no closer: the marker itself is
+    // what terminates the span, so no unformatted character is needed and none is invented. Those
+    // two gestures share this close-and-reopen primitive and are pinned apart, in
+    // markerMenuApply.utils.test.tsx and noteEnterFp.test.tsx.
+    let content: TextNode;
+    let noteRef: NoteNode;
+    const { editor } = await testEnvironmentWithDisplaySyncs(() => {
+      const para = $createParaNode("p");
+      const note = $createNoteNode("f", "+", false);
+      const ft = $createCharNode("ft");
+      ft.setUnknownAttributes({ closed: "false" });
+      content = $createTextNode(`${NBSP}AB`);
+      note.append(
+        $createMarkerNode("f"),
+        $createTextNode(getEditableCallerText("+")),
+        ft.append($createMarkerNode("ft"), content),
+        $createMarkerNode("f", "closing"),
+      );
+      $getRoot().append(
+        para.append($createMarkerNode("p"), $createTextNode(NBSP), $createTextNode("text "), note),
+      );
+      noteRef = note;
+    });
+    // caret between "A" and "B"
+    await act(async () => editor.update(() => content.select(2, 2)));
+    await pressCtrlSpace(editor);
+
+    editor
+      .getEditorState()
+      .read(() => expect($usfmBytes(noteRef)).toBe("\\f + \\ft A\\ft* \\ft B\\f*"));
+    // What the FILE gets, checked against the tokenizer's own reading of those bytes: the left
+    // `\ft` is explicitly closed (no `closed="false"`) and the space is a note-level string.
+    expect(usjNoteOf(editor)).toEqual(usjNoteFromUsfm("\\p \\f + \\ft A\\ft* \\ft B\\f*"));
+  });
+
+  it("emits a real \\ft* at the \\ft's content END, where there is nothing to reopen", async () => {
+    // The branch with no continuation. Nothing follows the caret, so no `\ft` reopens — but the
+    // closing marker is needed all the same: the space sits between the span's content and the
+    // `\f*` that would otherwise end it, which is `\ft` content.
+    let content: TextNode;
+    let noteRef: NoteNode;
+    const { editor } = await testEnvironmentWithDisplaySyncs(() => {
+      const para = $createParaNode("p");
+      const note = $createNoteNode("f", "+", false);
+      const ft = $createCharNode("ft");
+      ft.setUnknownAttributes({ closed: "false" });
+      content = $createTextNode(`${NBSP}A note`);
+      note.append(
+        $createMarkerNode("f"),
+        $createTextNode(getEditableCallerText("+")),
+        ft.append($createMarkerNode("ft"), content),
+        $createMarkerNode("f", "closing"),
+      );
+      $getRoot().append(
+        para.append($createMarkerNode("p"), $createTextNode(NBSP), $createTextNode("text "), note),
+      );
+      noteRef = note;
+    });
+    await act(async () =>
+      editor.update(() =>
+        content.select(content.getTextContentSize(), content.getTextContentSize()),
+      ),
+    );
+    await pressCtrlSpace(editor);
+
+    editor
+      .getEditorState()
+      .read(() => expect($usfmBytes(noteRef)).toBe("\\f + \\ft A note\\ft* \\f*"));
+    expect(usjNoteOf(editor)).toEqual(usjNoteFromUsfm("\\p \\f + \\ft A note\\ft* \\f*"));
+  });
+
+  it("emits a real \\ft* around a RANGE too, so the stripped run is not \\ft content", async () => {
+    // Same reasoning as the collapsed caret, one gesture further: text merely moved out of the
+    // span still sits between its content and whatever ends it, so without a closing marker the
+    // file reads it back as `\ft` content and the unformat never happened.
+    let content: TextNode;
+    let noteRef: NoteNode;
+    const { editor } = await testEnvironmentWithDisplaySyncs(() => {
+      const para = $createParaNode("p");
+      const note = $createNoteNode("f", "+", false);
+      const ft = $createCharNode("ft");
+      ft.setUnknownAttributes({ closed: "false" });
+      // The tail starts with a non-space on purpose. A continuation span whose content begins
+      // with a space loses one on the way through the writer's own structural space — a
+      // whitespace-ownership question of its own, and not the one under test here.
+      content = $createTextNode(`${NBSP}A holy, B`);
+      note.append(
+        $createMarkerNode("f"),
+        $createTextNode(getEditableCallerText("+")),
+        ft.append($createMarkerNode("ft"), content),
+        $createMarkerNode("f", "closing"),
+      );
+      $getRoot().append(
+        para.append($createMarkerNode("p"), $createTextNode(NBSP), $createTextNode("text "), note),
+      );
+      noteRef = note;
+    });
+    // select "holy" (content text is NBSP + "A holy, B")
+    await act(async () => editor.update(() => content.select(3, 7)));
+    await pressCtrlSpace(editor);
+
+    editor
+      .getEditorState()
+      .read(() => expect($usfmBytes(noteRef)).toBe("\\f + \\ft A \\ft*holy\\ft , B\\f*"));
+    expect(usjNoteOf(editor)).toEqual(usjNoteFromUsfm("\\p \\f + \\ft A \\ft*holy\\ft , B\\f*"));
+  });
+
   it("closes and reopens note-content spans but not the enclosing note", async () => {
     let content: TextNode;
     let noteRef: NoteNode;
@@ -1149,13 +1265,20 @@ describe("Ctrl+Space through a nested character-style stack", () => {
     await pressCtrlSpace(editor);
 
     editor.getEditorState().read(() => {
-      // \nd and \ft both close and reopen; the space is a NOTE child, so \f is untouched.
-      expect($usfmBytes(noteRef)).toBe("\\f + \\ft A \\+nd ho\\+nd* \\ft \\+nd ly\\+nd* B\\f*");
+      // \nd and \ft both close and reopen; the space is a NOTE child, so \f is untouched. The
+      // implicitly-closed \ft is given a REAL \ft* on the way out — without one the space is its
+      // trailing content and the strip never reaches the file.
+      expect($usfmBytes(noteRef)).toBe(
+        "\\f + \\ft A \\+nd ho\\+nd*\\ft* \\ft \\+nd ly\\+nd* B\\f*",
+      );
       const space = requireDefined(
         noteRef.getChildren().find((child) => $isTextNode(child) && child.getTextContent() === " "),
         "unstyled space missing from the note",
       );
       expect($isNoteNode(space.getParent())).toBe(true);
     });
+    expect(usjNoteOf(editor)).toEqual(
+      usjNoteFromUsfm("\\p \\f + \\ft A \\+nd ho\\+nd*\\ft* \\ft \\+nd ly\\+nd* B\\f*"),
+    );
   });
 });

@@ -5,7 +5,7 @@ import {
 } from "./markerMenuApply.utils";
 import { MarkerMenuItem } from "./markerItemSource";
 import { deserializeEditorState } from "../adaptors/editor-usj.adaptor";
-import { MarkerContent, MarkerObject } from "@eten-tech-foundation/scripture-utilities";
+import { MarkerObject } from "@eten-tech-foundation/scripture-utilities";
 import { MarkerEditPlugin } from "../markerEdit/MarkerEditPlugin";
 import {
   historyTestEnvironment,
@@ -54,7 +54,6 @@ import {
   ParaNode,
   StyleInfo,
   textTypeState,
-  usfmFragmentToUsjContent,
 } from "shared";
 import { CharNodePlugin, TextSpacingPlugin } from "shared-react";
 // Reaching inside only for tests.

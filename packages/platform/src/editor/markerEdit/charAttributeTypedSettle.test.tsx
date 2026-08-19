@@ -45,6 +45,7 @@ import {
   CharNode,
   NBSP,
   textTypeState,
+  UnknownAttributes,
   usfmFragmentToUsjContent,
 } from "shared";
 // Reaching inside only for tests.
@@ -127,7 +128,7 @@ interface Seed {
 function $seedSpan(
   marker: string,
   text: string,
-  attributes?: { [name: string]: string },
+  attributes?: UnknownAttributes,
   runText?: string,
 ): Seed {
   const char = $createCharNode(marker, attributes);

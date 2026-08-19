@@ -4,7 +4,7 @@ import {
   $isCharContentEmpty,
   $liftOutOfCharStack,
 } from "./charStack.utils.js";
-import { $createCharNode, CharNode } from "./CharNode.js";
+import { $createCharNode, $isCharNode, CharNode } from "./CharNode.js";
 import { NBSP } from "./node-constants.js";
 import { $createParaNode } from "./ParaNode.js";
 import { createBasicTestEnvironment } from "./test.utils.js";
@@ -101,7 +101,7 @@ describe("$liftOutOfCharStack", () => {
         const [left] = content.splitText(4); // between "thi" and "ng"
         left.insertAfter(lifted);
 
-        $liftOutOfCharStack(lifted, true);
+        $liftOutOfCharStack(lifted, { renderGlyphs: true });
 
         // Closers innermost-then-outermost before the lifted node, openers outermost-then-innermost
         // after it, with the `+` on the nested one only. No ordering code produces this — it falls
@@ -144,7 +144,7 @@ describe("$liftOutOfCharStack", () => {
         const [left] = content.splitText(3); // between "ho" and "ly"
         left.insertAfter(fq);
 
-        $liftOutOfCharStack(fq, true);
+        $liftOutOfCharStack(fq, { renderGlyphs: true });
 
         // `\fq` shows no separator here for the same reason a reopened span does not: its content
         // is element-first, so the standalone NBSP spacer comes from the separator sync when the
@@ -167,9 +167,51 @@ describe("$liftOutOfCharStack", () => {
         const [left] = content.splitText(4);
         left.insertAfter(fq);
 
-        $liftOutOfCharStack(fq, true);
+        $liftOutOfCharStack(fq, { renderGlyphs: true });
 
         expect($usfmBytes($getRoot())).toBe("\\wj \\+nd thi\\+nd*\\wj*\\fq\\wj\\+nd ng\\+nd*\\wj*");
+      },
+      { discrete: true },
+    );
+  });
+
+  it("gives an implicitly-closed span a real closer when the gap cannot end it", () => {
+    // The mirror of the two cases above. A note-content MARKER ends `\ft` by being written, so
+    // nothing is emitted for it; anything else — an unformatted space, plain text pulled out of
+    // the style — does not, and `\ft` runs on to the next note marker or `\f*`, swallowing it.
+    // `closeImplicitSpans` is how a caller says the gap cannot terminate what it interrupts, so
+    // the span is left explicitly closed and the continuation reopens implicitly as before.
+    const { editor } = createBasicTestEnvironment();
+    editor.update(
+      () => {
+        const content = $createTextNode(`${NBSP}holy`);
+        const ft = $createCharNode("ft", { closed: "false" });
+        const gap = $createTextNode("|");
+        $getRoot().append(
+          $createParaNode("p").append(
+            ft.append(
+              $createMarkerNode("ft"),
+              $createTextNode(`${NBSP}A `),
+              $createCharNode("nd").append(
+                $createMarkerNode("nd", "opening", true),
+                content,
+                $createMarkerNode("nd", "closing", true),
+              ),
+              $createTextNode(" B"),
+            ),
+          ),
+        );
+        const [left] = content.splitText(3); // between "ho" and "ly"
+        left.insertAfter(gap);
+
+        $liftOutOfCharStack(gap, { renderGlyphs: true, closeImplicitSpans: true });
+
+        expect($usfmBytes($getRoot())).toBe("\\ft A \\+nd ho\\+nd*\\ft*|\\ft\\+nd ly\\+nd* B");
+        expect(ft.getUnknownAttributes()?.closed).toBeUndefined();
+        // The continuation still closes implicitly — it runs to the next note marker or `\f*`,
+        // exactly as the span it continues did.
+        const reopened = gap.getNextSibling();
+        expect($isCharNode(reopened) && reopened.getUnknownAttributes()?.closed).toBe("false");
       },
       { discrete: true },
     );
@@ -182,7 +224,7 @@ describe("$liftOutOfCharStack", () => {
         const lifted = $createTextNode("|");
         content.insertBefore(lifted); // at the innermost run's very start
 
-        $liftOutOfCharStack(lifted, true);
+        $liftOutOfCharStack(lifted, { renderGlyphs: true });
 
         // Both left halves would have held nothing but glyphs and separators, so neither survives.
         expect($usfmBytes($getRoot())).toBe("|\\wj\\+nd thing\\+nd*\\wj*");
@@ -198,7 +240,7 @@ describe("$liftOutOfCharStack", () => {
         const text = $createTextNode("plain");
         $getRoot().append($createParaNode("p").append(text));
 
-        $liftOutOfCharStack(text, true);
+        $liftOutOfCharStack(text, { renderGlyphs: true });
 
         expect($usfmBytes($getRoot())).toBe("plain");
       },

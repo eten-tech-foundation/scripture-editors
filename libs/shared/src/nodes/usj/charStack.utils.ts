@@ -27,18 +27,45 @@
  * markers swapped. That path has no PT9 test coverage. We port the intent, not the code.
  */
 
-import { $isMarkerNode } from "../features/MarkerNode.js";
+import { $createMarkerNode, $isMarkerNode } from "../features/MarkerNode.js";
 import {
   $buildContinuationCharSpan,
   $charOwesClosingGlyph,
   $continuationCharAttributes,
 } from "./charGlyphs.utils.js";
 import { $createCharNode, $isCharNode, CharNode } from "./CharNode.js";
+import { $isNestedCharNode } from "./nestedGlyphs.utils.js";
 import { canonicalAttributeText } from "./attributeDisplay.utils.js";
 import { textTypeState } from "../collab/delta.state.js";
 import { defaultMarkerAttribute } from "../../converters/usfm/usfmFragmentToUsj.js";
 import { NBSP } from "./node-constants.js";
 import { $createTextNode, $getState, $isElementNode, $isTextNode, LexicalNode } from "lexical";
+
+/** How a lift treats the gap it opens in a character-style stack. */
+export interface CharStackLiftOptions {
+  /**
+   * Whether this document displays char glyphs (markerMode "editable"). A `MarkerNode` is
+   * "editable" presentation, so fabricating one in "hidden"/"visible" mode would put literal
+   * `\ft ` text into the content. A span always reopens STRUCTURALLY; this decides only whether
+   * the reopened clone carries the VISIBLE `\marker` opener and its separator NBSP.
+   */
+  renderGlyphs: boolean;
+  /**
+   * Whether the thing being placed in the gap is unable to TERMINATE the span it interrupts, so
+   * an implicitly-closed span (`closed="false"`) must be left explicitly closed on the way out.
+   *
+   * The two answers are not a detail of nesting; they are two different gestures. A note-content
+   * marker (`\fq`, `\fp`, `\xt`) ends the span it is written inside just by being written, so
+   * inserting one emits nothing extra ({@link $endsImplicitly}). Anything else — Ctrl+Space's
+   * unformatted space, or text pulled out of a style — does not: `\ft` runs on to the next note
+   * marker or `\f*`, so bytes merely placed after its content re-read as MORE of that content and
+   * the gesture never reaches the file. Such a caller passes `true`, and the span gets a real
+   * closing marker; the continuation reopens implicitly as before.
+   *
+   * Defaults to false: a caller that puts a marker in the gap must not start emitting closers.
+   */
+  closeImplicitSpans?: boolean;
+}
 
 /**
  * The innermost char span a point sits in: the nearest `CharNode` at or above `node`, or
@@ -123,6 +150,29 @@ function $removeCharKeepingAttributeBytes(char: CharNode, contentEnd: LexicalNod
 }
 
 /**
+ * Leave `char` EXPLICITLY closed: drop the `closed="false"` convention it was carrying and, where
+ * this document renders glyphs, give it the closing glyph that state now owes. Already-explicit
+ * spans are untouched.
+ *
+ * The state is the load-bearing half — it is what serializes — and the glyph follows it, the same
+ * pairing `$charOwesClosingGlyph` reads everywhere else. Leaving one without the other makes the
+ * marker-edit engine read the mismatch as deletion damage.
+ *
+ * Mutating: call inside `editor.update()`.
+ */
+function $closeCharExplicitly(char: CharNode, renderGlyphs: boolean): void {
+  if ($charOwesClosingGlyph(char)) return;
+  const attributes = char.getUnknownAttributes();
+  if (attributes) {
+    const rest = { ...attributes };
+    delete rest.closed;
+    char.setUnknownAttributes(Object.keys(rest).length > 0 ? rest : undefined);
+  }
+  if (renderGlyphs)
+    char.append($createMarkerNode(char.getMarker(), "closing", $isNestedCharNode(char)));
+}
+
+/**
  * Whether writing `node`'s own opening marker is ITSELF how `char` ends, so there is nothing to
  * close and nothing to reopen.
  *
@@ -179,14 +229,17 @@ function $absorbIntoCharSpan(span: CharNode, content: LexicalNode[], renderGlyph
  * The one shape with no reopened clone is a `node` that ends `char` implicitly
  * ({@link $endsImplicitly}): there the content after `node` moves INTO it instead.
  *
- * `renderGlyphs` decides only whether the clone carries the VISIBLE `\marker` opener and its
- * separator NBSP — a `MarkerNode` is markerMode "editable" presentation, so fabricating one in
- * "hidden"/"visible" mode would put literal `\ft ` text into the content. The clone always reopens
- * STRUCTURALLY; that is the operation, and it happens in every marker mode.
+ * An implicitly-closed `char` is left EXPLICITLY closed when `options.closeImplicitSpans` says the
+ * gap cannot terminate it — see {@link CharStackLiftOptions}, which also documents `renderGlyphs`.
  *
  * Mutating: call inside `editor.update()`.
  */
-export function $liftOutOfChar(node: LexicalNode, char: CharNode, renderGlyphs: boolean): void {
+export function $liftOutOfChar(
+  node: LexicalNode,
+  char: CharNode,
+  options: CharStackLiftOptions,
+): void {
+  const { renderGlyphs, closeImplicitSpans = false } = options;
   // Content strictly after `node`. Two kinds of child stay behind rather than move: `char`'s own
   // closing glyph, which terminates the "before" half (the clone gets a fresh one of its own), and
   // its display run — the `|name="value"` bytes are a rendering of `char`'s OWN attribute state,
@@ -223,6 +276,12 @@ export function $liftOutOfChar(node: LexicalNode, char: CharNode, renderGlyphs: 
       else contentEnd = right;
     }
   }
+  // The gap cannot terminate `char` on its own, so an implicitly-closed one has to be closed for
+  // real: `\ft` runs to the next note marker or `\f*`, and anything merely placed after its
+  // content would re-read as more of that content. Done AFTER the continuation is built, which
+  // takes its own closing glyph from `char`'s children — the continuation reopens implicitly, as
+  // the span it continues did.
+  if (closeImplicitSpans && !endsImplicitly) $closeCharExplicitly(char, renderGlyphs);
   if ($isCharContentEmpty(char)) $removeCharKeepingAttributeBytes(char, contentEnd);
 }
 
@@ -237,14 +296,14 @@ export function $liftOutOfChar(node: LexicalNode, char: CharNode, renderGlyphs: 
  * afterwards differs per caller, so this function deliberately does not move the selection.
  *
  * @param node - The node to lift. Must already be attached at the point the gap belongs.
- * @param renderGlyphs - Whether this document displays char glyphs (markerMode "editable").
+ * @param options - How the gap is treated; see {@link CharStackLiftOptions}.
  *
  * Mutating: call inside `editor.update()`.
  */
-export function $liftOutOfCharStack(node: LexicalNode, renderGlyphs: boolean): void {
+export function $liftOutOfCharStack(node: LexicalNode, options: CharStackLiftOptions): void {
   let parent = node.getParent();
   while ($isCharNode(parent)) {
-    $liftOutOfChar(node, parent, renderGlyphs);
+    $liftOutOfChar(node, parent, options);
     parent = node.getParent();
   }
 }
