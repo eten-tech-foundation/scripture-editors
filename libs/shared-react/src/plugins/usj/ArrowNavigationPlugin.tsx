@@ -7,6 +7,7 @@ import {
   ImmutableVerseNode,
 } from "../../nodes/usj";
 import { $advancePastParaPrefixes } from "./ParaMarkerPrefixCursorGuardPlugin";
+import { $opaqueBlockAncestor } from "./OpaqueBlockGuardPlugin";
 import { ViewOptions } from "../../views/view-options.utils";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { $findMatchingParent } from "@lexical/utils";
@@ -511,9 +512,29 @@ function $blockOf(node: LexicalNode): ElementNode | undefined {
   return undefined;
 }
 
+/**
+ * A marker glyph belonging to a READ-ONLY construct — a table's `\tr` and `\tc1`, and whatever a
+ * future opaque kind renders the same way.
+ *
+ * Everywhere else in standard view a marker glyph is editable text, and walking through it IS the
+ * affordance: retyping `\q1` to `\q2` is how a paragraph gets retagged. Inside an opaque construct
+ * that affordance is a lie — every gesture that would edit those bytes is refused
+ * (`OpaqueBlockGuardPlugin`), and a table has no settle scope to reconcile a change with the file
+ * even if one landed. A caret resting between the `\` and the `t` of `\tr` is a position from which
+ * nothing is possible, so the glyph is treated as what it is: display, crossed whole.
+ */
+function $isOpaqueConstructGlyph(node: LexicalNode | null | undefined): boolean {
+  return !!node && $isMarkerNode(node) && $opaqueBlockAncestor(node) !== undefined;
+}
+
 /** Text the caret walks through one character at a time. */
 function $isTraversableText(node: LexicalNode | null | undefined): node is TextNode {
-  return $isTextNode(node) && !node.isToken() && node.getTextContentSize() > 0;
+  return (
+    $isTextNode(node) &&
+    !node.isToken() &&
+    !$isOpaqueConstructGlyph(node) &&
+    node.getTextContentSize() > 0
+  );
 }
 
 /**
@@ -533,8 +554,10 @@ function $isVisibleAtom(node: LexicalNode): boolean {
   // undefined until the note plugin settles it, and an unsettled note counts as expanded, matching
   // what is on screen before the collapse lands.
   if ($isNoteNode(node)) return node.getIsCollapsed() === true;
-  // Token-mode text is indivisible by Lexical's own rule.
-  if ($isTextNode(node)) return node.isToken() && node.getTextContentSize() > 0;
+  // Token-mode text is indivisible by Lexical's own rule, and a read-only construct's marker glyph
+  // is indivisible by ours — see `$isOpaqueConstructGlyph`.
+  if ($isTextNode(node))
+    return (node.isToken() || $isOpaqueConstructGlyph(node)) && node.getTextContentSize() > 0;
   // Every decorator renders SOMETHING — a note caller, an immutable glyph, a verse or chapter
   // number — except the zero-width anchors listed here, which render nothing at all. A new
   // zero-width decorator must join this list, or traversal will come to rest on it.

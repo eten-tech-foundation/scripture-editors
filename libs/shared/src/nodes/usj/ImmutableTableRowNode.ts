@@ -120,10 +120,18 @@ export class ImmutableTableRowNode extends ElementNode {
     };
   }
 
-  // Shadow root: isolate cell selection so content doesn't merge across rows.
-  override isShadowRoot(): boolean {
-    return true;
-  }
+  // NOT a shadow root, for the same reason the cell is not one (see `ImmutableTableCellNode`, which
+  // carries the long-form post-mortem). Lexical requires the children of a root or shadow root to be
+  // elements or decorators: `getTopLevelElement()` walks up until it finds a node whose parent is a
+  // root or shadow root, then asserts the node it stopped on is one of those. A row's children used
+  // to be cells alone — all elements — so claiming shadow-root status was harmless. The row then
+  // gained its own `\tr ` glyph and NBSP separator as DIRECT children, which are a `MarkerNode` and
+  // a `TextNode`, and the walk began stopping on them and throwing "Children of root nodes must be
+  // elements or decorators" for any caret placed on the row's marker.
+  //
+  // The table above still isolates selection at the table boundary, which is the boundary that
+  // matters; a row needs none of its own, and cross-row merging is not something a shadow root
+  // prevents in any case — nodes merge within a parent, and rows are separate parents regardless.
 }
 
 export function $createImmutableTableRowNode(

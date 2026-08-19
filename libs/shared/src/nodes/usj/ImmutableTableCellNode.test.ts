@@ -6,10 +6,7 @@ import {
   ImmutableTableCellNode,
 } from "./ImmutableTableCellNode.js";
 import { $createImmutableTableNode, ImmutableTableNode } from "./ImmutableTableNode.js";
-import {
-  $createImmutableTableRowNode,
-  ImmutableTableRowNode,
-} from "./ImmutableTableRowNode.js";
+import { $createImmutableTableRowNode, ImmutableTableRowNode } from "./ImmutableTableRowNode.js";
 import { createBasicTestEnvironment, withEditor } from "./test.utils.js";
 import { $createTextNode, $getNodeByKey, $getRoot } from "lexical";
 import { describe, expect, it } from "vitest";
@@ -25,8 +22,10 @@ describe("ImmutableTableCellNode", () => {
   // and threw "Children of root nodes must be elements or decorators". In the app that fired on
   // every click in a table (via ScriptureReferencePlugin's selection listener -> $resolvePosition
   // -> $findThisChapter) and blanked the whole editor when a chapter navigation ran the same walk
-  // inside editor.update(). The table and row above it are still shadow roots.
-  it("is not a shadow root: getTopLevelElement from text inside a cell returns the cell", () => {
+  // inside editor.update(). The row above it has since dropped its own shadow-root claim for the
+  // identical reason (it grew a `\tr ` glyph of its own), so the TABLE is now the only boundary
+  // inside the document and the walk resolves table content to the ROW.
+  it("is not a shadow root: getTopLevelElement from text inside a cell returns the row", () => {
     withEditor([ImmutableTableNode, ImmutableTableRowNode, ImmutableTableCellNode], () => {
       const cell = $createImmutableTableCellNode("tc1");
       const text = $createTextNode("cell text");
@@ -38,11 +37,11 @@ describe("ImmutableTableCellNode", () => {
       $getRoot().append(table);
 
       expect(cell.isShadowRoot()).toBe(false);
-      // The walk stops at the first node whose PARENT is a root or shadow root — the row is a
-      // shadow root, so it stops on the cell. It must never stop on the TextNode itself, which is
-      // what throws.
+      // The walk stops at the first node whose PARENT is a root or shadow root — the table is the
+      // only one of those here, so it stops on the row. The load-bearing half is that it must never
+      // stop on the TextNode itself, which is what throws; which ELEMENT it lands on is incidental.
       expect(() => text.getTopLevelElement()).not.toThrow();
-      expect(text.getTopLevelElement()?.getKey()).toBe(cell.getKey());
+      expect(text.getTopLevelElement()?.getKey()).toBe(row.getKey());
     });
   });
 

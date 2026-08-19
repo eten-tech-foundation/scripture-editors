@@ -29,6 +29,9 @@ import {
 import {
   $createAttributeRunNode,
   $createCharNode,
+  $createImmutableTableCellNode,
+  $createImmutableTableNode,
+  $createImmutableTableRowNode,
   $createImmutableTypedTextNode,
   $createImpliedParaNode,
   $createImmutableChapterNode,
@@ -1838,6 +1841,168 @@ describe("Visible-stop traversal (editable markers)", () => {
         });
       }
     });
+  });
+});
+
+/**
+ * A table's marker glyphs are engine-owned display for a READ-ONLY construct: every gesture that
+ * would edit them is refused (`OpaqueBlockGuardPlugin`), and a table has no settle scope, so a byte
+ * changed there could never reconcile with the file. A caret resting between the `\\` and the `t`
+ * of a `\\tr` therefore offers the user nothing — it is a position from which no edit is possible.
+ *
+ * Everywhere else in standard view a marker glyph IS editable text and the caret walks through it
+ * grapheme by grapheme (retyping `\\q1` to `\\q2` is how a paragraph is retagged). Inside a table
+ * that affordance is a lie, so the glyph and its separator are crossed whole, exactly as any other
+ * atom is.
+ */
+describe("a table's marker glyphs are crossed whole", () => {
+  const standardView = getViewOptions(STANDARD_VIEW_MODE);
+
+  /** `\p before` then a one-cell table, as standard view builds one with editable markers. */
+  async function tableEnvironment() {
+    let before: TextNode;
+    let rowGlyph: MarkerNode;
+    let rowSeparator: TextNode;
+    let cellGlyph: MarkerNode;
+    let cellText: TextNode;
+    const { editor } = await testEnvironment(
+      () => {
+        before = $createTextNode("before");
+        rowGlyph = $createMarkerNode("tr");
+        rowSeparator = $createMarkerTrailingSeparator();
+        cellGlyph = $createMarkerNode("tc1");
+        cellText = $createTextNode("cell");
+        $getRoot().append(
+          $createParaNode().append(before),
+          $createImmutableTableNode().append(
+            $createImmutableTableRowNode("tr").append(
+              rowGlyph,
+              rowSeparator,
+              $createImmutableTableCellNode("tc1").append(
+                cellGlyph,
+                $createMarkerTrailingSeparator(),
+                cellText,
+              ),
+            ),
+          ),
+        );
+      },
+      "ltr",
+      standardView,
+    );
+    return {
+      editor,
+      before: before!,
+      rowGlyph: rowGlyph!,
+      rowSeparator: rowSeparator!,
+      cellGlyph: cellGlyph!,
+      cellText: cellText!,
+    };
+  }
+
+  /** True while the caret rests strictly INSIDE `glyph`'s bytes — the position with no affordance. */
+  function caretIsInsideGlyph(editor: LexicalEditor, glyph: MarkerNode): boolean {
+    return editor.getEditorState().read(() => {
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) throw new Error("no range selection");
+      const { anchor } = selection;
+      if (anchor.type !== "text" || anchor.key !== glyph.getKey()) return false;
+      return anchor.offset > 0 && anchor.offset < glyph.getTextContentSize();
+    });
+  }
+
+  /** The caret's resting place, as a comparable string. */
+  function caretOf(editor: LexicalEditor): string {
+    return editor.getEditorState().read(() => {
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) throw new Error("no range selection");
+      const { anchor } = selection;
+      return `${anchor.type}:${anchor.key}@${anchor.offset}`;
+    });
+  }
+
+  it("crosses the ROW glyph whole in one press forward", async () => {
+    const { editor, rowGlyph } = await tableEnvironment();
+    updateSelection(editor, rowGlyph, 0);
+
+    await pressKey(editor, "ArrowRight");
+
+    // One press from the glyph's leading edge clears all three of its bytes. Pre-fix the press was
+    // declined as a move "inside traversable text", so the browser walked `\\`, `t`, `r` one at a
+    // time and the caret came to rest twice inside a marker it cannot edit.
+    expect(caretIsInsideGlyph(editor, rowGlyph)).toBe(false);
+    editor.getEditorState().read(() => {
+      $expectSelectionToBe(rowGlyph, rowGlyph.getTextContentSize());
+    });
+  });
+
+  it("crosses the CELL glyph whole in one press backward", async () => {
+    const { editor, cellGlyph } = await tableEnvironment();
+    // No offset: `updateSelection` defaults to the node's end, resolved inside its own update.
+    updateSelection(editor, cellGlyph);
+
+    await pressKey(editor, "ArrowLeft");
+
+    expect(caretIsInsideGlyph(editor, cellGlyph)).toBe(false);
+    editor.getEditorState().read(() => {
+      $expectSelectionToBe(cellGlyph, 0);
+    });
+  });
+
+  it("never rests inside a glyph while arrowing back out of a cell", async () => {
+    // A guard rather than a regression pin: it holds pre-fix too, because the walk it forbids is
+    // the BROWSER's own intra-text move, which the normalizer used to decline and jsdom does not
+    // perform. It earns its place by failing if a future change makes the normalizer itself come
+    // to rest mid-glyph.
+    const { editor, rowGlyph, cellGlyph, cellText } = await tableEnvironment();
+    updateSelection(editor, cellText, 0);
+
+    for (let press = 0; press < 5; press++) {
+      await pressKey(editor, "ArrowLeft");
+      expect(caretIsInsideGlyph(editor, cellGlyph)).toBe(false);
+      expect(caretIsInsideGlyph(editor, rowGlyph)).toBe(false);
+    }
+  });
+
+  it("moves a caret that is already stranded inside the glyph back out", async () => {
+    // A click, or the browser's own cross-block move into the table, can drop the caret inside the
+    // glyph without the normalizer ever being asked. The next press has to free it.
+    const { editor, rowGlyph } = await tableEnvironment();
+    updateSelection(editor, rowGlyph, 1);
+
+    await pressKey(editor, "ArrowRight");
+
+    expect(caretIsInsideGlyph(editor, rowGlyph)).toBe(false);
+  });
+
+  it("still walks through an ordinary paragraph's glyph, which IS editable", async () => {
+    // The control, and the reason this rule is keyed on the opaque construct rather than on
+    // `MarkerNode`: retyping `\\q1` to `\\q2` is how a paragraph is retagged, so outside a
+    // read-only construct the caret must keep its positions inside the glyph. Here the normalizer
+    // declines the press and leaves the move to the browser's own grapheme handling, which jsdom
+    // does not perform — so the caret stays put, still inside the glyph.
+    let paraGlyph: MarkerNode;
+    const { editor } = await testEnvironment(
+      () => {
+        paraGlyph = $createMarkerNode("q1");
+        $getRoot().append(
+          $createParaNode("q1").append(
+            paraGlyph,
+            $createMarkerTrailingSeparator(),
+            $createTextNode("poetry"),
+          ),
+        );
+      },
+      "ltr",
+      standardView,
+    );
+    updateSelection(editor, paraGlyph!, 1);
+    const before = caretOf(editor);
+
+    await pressKey(editor, "ArrowRight");
+
+    expect(caretOf(editor)).toBe(before);
+    expect(caretIsInsideGlyph(editor, paraGlyph!)).toBe(true);
   });
 });
 
