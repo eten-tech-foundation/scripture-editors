@@ -569,3 +569,65 @@ describe("a deletion aimed at a table row's \\tr glyph is refused", () => {
     });
   });
 });
+
+/**
+ * Placing the caret on the row's `\tr ` glyph must not throw.
+ *
+ * Deletion there is refused (above), but a caret can still ARRIVE there — a click lands one, and
+ * so does arrowing in from the paragraph before the table. Every plugin that reacts to a caret
+ * move starts the same way: take `selection.anchor.getNode()` and walk it up to its top-level
+ * element. `ScriptureReferencePlugin`'s selection listener does it through `$findThisChapter`,
+ * `ActiveTextPlugin`'s update listener through `$getActiveVerseKey` and `$getParaFromSelection`,
+ * `ArrowNavigationPlugin`'s vertical arrows through `$selectNextVerse`/`$selectPreviousVerse`, and
+ * the marker menu through `$collectPreviousParaMarkers`.
+ *
+ * That walk stops at the first node whose PARENT is a root or shadow root and asserts the node it
+ * stopped on is an element or a decorator. The row used to declare itself a shadow root — harmless
+ * while its children were all cells, fatal once it grew a `MarkerNode` glyph and an NBSP separator
+ * as direct children, because the walk then stopped on one of THOSE. Every caret move on the glyph
+ * threw "Children of root nodes must be elements or decorators" out of Lexical.
+ */
+describe("a caret on a table row's \\tr glyph survives the selection-derived walk", () => {
+  /** `\p hello ` followed by a table whose row absorbed `world`. */
+  async function editorWithRow() {
+    const { editor } = await guardedEnvironment($seedParagraph);
+    await typeInBody(editor, "hello \\tr world", "hello \\tr ".length);
+    return editor;
+  }
+
+  /** The row's `\tr` glyph and its NBSP separator, in the tree the adaptor actually built. */
+  function $rowDisplayBytes(): [TextNode, TextNode] {
+    const table = $getRoot().getChildren().find($isImmutableTableNode);
+    const row = table?.getChildren().find($isImmutableTableRowNode);
+    const [glyph, separator] = row?.getChildren() ?? [];
+    if (!$isTextNode(glyph) || !$isTextNode(separator))
+      throw new Error("the row has no glyph and separator");
+    return [glyph, separator];
+  }
+
+  it.each([
+    ["glyph", 0],
+    ["separator", 1],
+  ])("resolves a top-level ELEMENT for a caret in the row's %s", async (_which, index) => {
+    const editor = await editorWithRow();
+
+    // Placed and walked inside ONE update, the way the real listeners run: they are dispatched
+    // from within the selection change itself. Splitting it across two updates let the engine's
+    // idle-settle clock re-place the caret in between, which made the assertion measure a caret
+    // somewhere else entirely.
+    await act(async () =>
+      editor.update(() => {
+        $rowDisplayBytes()[index].select(1, 1);
+        const selection = $getSelection();
+        if (!$isRangeSelection(selection)) throw new Error("no caret");
+        const anchorNode = selection.anchor.getNode();
+        // The walk itself, as every listener above performs it.
+        expect(() => anchorNode.getTopLevelElement()).not.toThrow();
+        const top = anchorNode.getTopLevelElement();
+        expect($isElementNode(top)).toBe(true);
+        // And it lands on the row, the nearest element inside the table's boundary.
+        expect($isImmutableTableRowNode(top)).toBe(true);
+      }),
+    );
+  });
+});

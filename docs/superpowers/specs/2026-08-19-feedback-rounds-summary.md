@@ -49,17 +49,32 @@ repos. Per-group detail lives in `docs/superpowers/plans/2026-08-18-fb*.md`.
   region start. Deterministic repro and a test pattern immune to it are recorded in
   `2026-08-18-fb2-engine-three.md`.
 
+## Settled since
+
+**Mid-text `\f ` — reproduced end to end, and fixed** (was "Open, needing TJ" item 1; see
+`2026-08-19-fb4-glyph-caret.md`). The claim holds and the mechanism recorded here and in
+`2026-08-18-fb3-host-active.md` is confirmed, not revised. What was missing was a reproduction, the
+name of the surface it is reachable on, and a decision.
+
+- **Measured, through the palette, not by tracing.** `\p hello| world and more`, `\` `f` Space →
+  one note holding `\f world and more`: `\f`'s caller is a LEADING ATTRIBUTE so the first word
+  after the caret becomes `caller`, and because the note has no closer it stays the open container
+  for the rest of the paragraph-scoped fragment. Both halves now have tests.
+- **Why TJ could not reproduce it.** Stronger than "the host routes note markers differently": the
+  app never mounts the editor's palette at all — `Editor.tsx` gates `UsjNodesMenuPlugin` on
+  `!hasExternalUI`, which is this document's own cross-cutting finding above. The reachable
+  surface is `nx dev platform`, or any embedder that leaves `hasExternalUI` false.
+- **Why every existing test missed it.** All `\`-palette fixtures placed the caret at the end of
+  the document. With no tail to absorb, the literal produces the empty note the ratified table
+  calls "commits like Enter" — the hazard is invisible in exactly that position.
+- **Resolved** the way the owner leaned: the editor's palette now routes `kind === "note"` through
+  the item commit. The ratified caret-at-end `\f` end state and all non-note Space behavior are
+  unchanged, and both are pinned rather than assumed.
+
 ## Open, needing TJ
 
-1. **Mid-text `\f ` swallows the paragraph tail** (evidenced this round). Tier 2's termination test
-   reads only text before the caret, so `\f ` fires immediately and the paragraph-scoped rebuild
-   leaves the note as the open container for everything after it. The HOST palette routes note
-   markers to the item commit; the EDITOR palette does not, so the two now differ. Decide: ratify
-   the absorption and document it at the editor's Space branch, or give the editor palette the
-   host's note-marker routing. Either way it wants a mid-text Space pin (needs a fixture with text
-   after the caret).
-2. **Host focused-selection-wrap Space** still refuses in one host session shape rather than
+1. **Host focused-selection-wrap Space** still refuses in one host session shape rather than
    wrapping on an exact typed match — recorded in `2026-08-18-fb2-palette-host.md`.
-3. Everything in `2026-08-17-followup-residual-backlog.md` that was not superseded by these
+2. Everything in `2026-08-17-followup-residual-backlog.md` that was not superseded by these
    waves, notably the Coordinates/Invariant II cluster (which now also carries the milestone OT
    embed's missing attribute-order slot).

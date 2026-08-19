@@ -261,6 +261,25 @@ function EditableMarkerMenu({
               if (item) harness.apply(item, { trigger: "backslash", literalPrefixLanded: false });
               return true;
             }
+            // A NOTE marker commits through the item commit — the same one Enter uses — rather
+            // than through the literal. Materializing `\f ` hands the bytes to the tokenizer,
+            // which opens an unterminated note that runs to the end of the paragraph: the first
+            // word after the caret becomes the note's CALLER (a leading attribute) and the rest of
+            // the sentence becomes its content, so a note taken mid-sentence takes the sentence
+            // with it. At the END of a paragraph there is no tail, which is why the literal looks
+            // equivalent there and why the ratified "`\f` commits like Enter" row reads as true.
+            // Routing notes here makes that row true in every caret position instead of one.
+            //
+            // Exact match on the typed query, against the offered entries, exactly as the wrap
+            // case above resolves its marker — never the highlighted item, which may be something
+            // the user never typed. Non-note markers are untouched and still take the literal.
+            const noteItem = menuState.items.find(
+              (candidate) => candidate.kind === "note" && candidate.marker === typed,
+            );
+            if (noteItem) {
+              harness.apply(noteItem, { trigger: "backslash", literalPrefixLanded: false });
+              return true;
+            }
             // Collapsed caret: materialize the typed query as the SAME literal bytes passive
             // typing would have put in the document (trigger + query + terminating space) and
             // let the marker-edit engine resolve them — see the component doc comment for why

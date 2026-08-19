@@ -133,8 +133,18 @@ function isEditingKey(event: KeyboardEvent): boolean {
   );
 }
 
-/** The nearest opaque-construct ancestor of `node` (itself included), or `undefined`. */
-function $opaqueBlockAncestor(node: LexicalNode): LexicalNode | undefined {
+/**
+ * Read-only: safe inside `editor.getEditorState().read()`, an `editor.update()`, or a command
+ * handler — it only walks parents.
+ *
+ * The nearest opaque-construct ancestor of `node` (itself included), or `undefined`.
+ *
+ * Exported because it is the ONE place "this node belongs to a read-only construct" is decided, and
+ * more than the edit guard needs the answer: `ArrowNavigationPlugin` asks it to decide that a
+ * construct's marker glyphs are crossed whole rather than walked through. When table editability
+ * lands, this predicate is where it comes back out.
+ */
+export function $opaqueBlockAncestor(node: LexicalNode): LexicalNode | undefined {
   for (let current: LexicalNode | null = node; current; current = current.getParent())
     if ($isUnknownNode(current) || $isImmutableTableNode(current)) return current;
   return undefined;
