@@ -352,19 +352,46 @@ tip it was rebased onto).
 
 | | Count |
 | --- | --- |
-| Fixed | RECOUNT |
-| Open | RECOUNT |
+| Fixed or otherwise closed | 65 |
+| Open | 16 |
 
 Counted from the list above at the end of the closeout round. The figures this table carried before
 (44 fixed, 32 open, 21 of the open never scoped) did not match the list even then — recount before
 quoting them.
 
+"Fixed or otherwise closed" is not all repairs. It includes the NOT-REPRODUCED rows, which were never
+broken at either anchor and are pinned forward, and rows like V1 that were made moot rather than
+mended. What is left open, and why:
+
+| | Why it is still open |
+| --- | --- |
+| **A2** | No headless repro under any reading; needs a precise gesture from the owner. |
+| **W7**, **W8** | One defect. The behavior is deliberate and needs a ruling, not a patch. |
+| **C6** | The missing caret position after a trailing note — a design question, four options costed. |
+| **E3** | Half of it does not exist; whether to build the provisional line is a product decision. |
+| **P4** | Diagnosed here; the repair belongs to the host. |
+| **U5** | Two real halves survive, both needing a real browser to confirm. |
+| **C1**, **C3**, **M1**, **P2**, **W3** | Untriaged by this round — no owner reproduced them, and no test here covers the reported gesture. |
+| **N2**, **V2**, **V5**, **V6** | Out of scope by owner decision or handled elsewhere. |
+
 **Never scoped in any plan, handoff, backlog, or follow-up round:**
 C1, K12, W3, W4, E3, P4, A1, A2, A6, M2, U5, S4, S5, S6, S7, N1, N2, N4, V1-V6.
 (The closeout round has since triaged C5, C6, E3, P4, U5, V1, V3 and V4 — see their entries.)
 
-**Highest consequence among those** — all are silent data loss or fabricated bytes:
-**M2** (milestone name edits never persist), **A1** (`\w*` destroys the default attribute),
-**W4** (wrap emits no separator, so the marker renames on settle), **A2** (typed attribute text never
-settles), **K12** (fabricates an empty pair in the file), **N1** (note insertion deletes a closer),
-**N4** (Ctrl+T duplicates the verse digit).
+**Highest consequence among those** — all were silent data loss or fabricated bytes. Every one has
+now been resolved or answered:
+
+| | Outcome |
+| --- | --- |
+| **M2** milestone name edits never persist | Fixed in `sv/fb5/milestone-edit`; confirmed red here first. |
+| **N1** note insertion deletes a closer | **Fixed this round.** The one production defect the round found on its own. |
+| **A1** `\w*` destroys the default attribute | Never broken at either anchor; pinned. |
+| **W4** wrap emits no separator | Never broken at either anchor; pinned, and the pin now asserts the SEMANTIC consequence rather than the display. |
+| **K12** fabricates an empty pair | Never broken at either anchor; pinned under both palette eras. |
+| **N4** Ctrl+T duplicates the verse digit | Never broken at either anchor; pinned. |
+| **A2** typed attribute text never settles | Still open — no headless repro; the recorded cause was wrong. |
+
+Two silent-data-loss defects the round found that were NOT on this list: **V3**'s half-typed verse
+bridge (dropped on save) and the delta plugin swallowing settled bytes, which surfaced while
+implementing the **S1** ruling and would have had the editor showing one document while the host
+saved another.

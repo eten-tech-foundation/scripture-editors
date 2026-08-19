@@ -20,7 +20,10 @@ Scoreboard:
 
 - **Fixed:** **N1** (a footnote insert destroyed a char span's closer) — the one production defect
   the round found on its own.
-- **Implemented from your rulings:** **X2** (Ctrl+Space inside `\ft` emits `\ft*`).
+- **Implemented from your rulings:** **X2** (Ctrl+Space inside `\ft` emits `\ft*`) and **S1** (a
+  settle is never its own undo entry).
+- **Found by implementing S1, and dangerous:** the delta plugin was swallowing settled bytes, so
+  `getUsj()` returned the pre-settle document — editor showing one thing, save writing another.
 - **Found while pinning something else, not fixed:** **V3** — a half-typed verse bridge (`\v 5-`) is
   silently dropped on save. Pinned as a divergence; the fix is a decision about what a verse number
   may contain.
@@ -131,6 +134,51 @@ Also surfaced and deliberately left alone: a continuation span whose content BEG
 loses one on round-trip (the writer emits its own structural space and the tokenizer consumes both).
 It affects `\nd` identically and predates this work — whitespace-ownership territory, noted at the
 test fixture.
+
+### S1 — a settle is never its own undo entry (owner ruling, implemented)
+
+The condition is gone: every settle is tagged now, mutated or not. One Ctrl+Z undoes the user's edit
+together with whatever settle it caused, which is the ruling. The USJ-comparison gate was **not**
+reintroduced — the rationale for both halves is recorded at the code, including the
+"undo must restore the pre-settle literal" argument that is knowingly traded away.
+
+**The blast radius was not the undo tests. It was the delta plugin, and it was a real bug.**
+
+`DeltaOnChangePlugin` skips every commit carrying Lexical's `HISTORY_MERGE_TAG` — a guard aimed at
+Lexical's own bookkeeping commits, which really do change nothing. The moment a settle carried that
+tag to stay out of the undo stack, the two meanings the tag was doing double duty for came apart: the
+settle's bytes really did change. That plugin is what refreshes the cached USJ and emits collab
+deltas, so settled bytes stopped reaching the host — **`getUsj()` returned the pre-settle document,
+with the editor showing one thing and the save writing another.** Nineteen `settledGetUsj`
+equivalence cases and both `transientInput` reads caught it.
+
+Fixed with a `MARKER_SETTLE_TAG` the delta plugin exempts. Dropping `ignoreHistoryMergeTagChange`
+instead would have let Lexical's transform-registration sweep through — it dirties every node, so a
+full-document delta diff on every host re-render.
+
+This is worth remembering beyond S1: **`HISTORY_MERGE_TAG` is overloaded in this codebase**, meaning
+both "do not push a history entry" and "nothing to report". Anything else that reaches for it needs
+to say which.
+
+**Scope extension, in its own revertible commit.** The blur handler and the host's forced pre-save
+commit still pushed their own entries — the same defect shape (click away and back, and the first
+Ctrl+Z undoes the blur's settle; on the save path a background timer eats the press). Both now use
+the shared wrapper. The Enter handler deliberately does not: its update already carries the user's
+own keystroke.
+
+**Existing tests whose expectations changed**, all classified as encoding the old behavior rather
+than catching a problem: six in `markerEditUndoResettle`, one in `markerEditUndoRerenderResettle`,
+the A2 undo test, one in `debounceSettle`, one in `glyphDriftHeal`. Most are setup-only — the
+departure now edits the destination paragraph, because a caret-only departure dirties nothing and the
+settle correctly merges into the typing entry. Three are genuine step-count changes (a re-settle no
+longer adds an entry). **No test lost user content**, and nothing was blanket-updated to pass.
+
+Redo stayed coherent, and is slightly better: `HISTORY_MERGE` does not clear the redo stack, where
+the old push did.
+
+The invariants doc needed updating and was: §4's ratified line read *"multi-step undo for palette
+applies and settles"*. The apply half stands; the settle half is retired, with the new rule, the four
+settle paths, the retained counter-argument, and the explicit rejection of the USJ-comparison gate.
 
 ### P4 — the top dropdown failed silently
 
@@ -381,6 +429,31 @@ Ordered by how much I think it matters.
 8. **N1 in the real app.** The fix is pinned headlessly across five caret positions, but note
    insertion in Platform.Bible goes through the popover and the host's editing-session plumbing, and
    this class has burned us before precisely where the headless harness stopped.
+
+---
+
+## The gate
+
+Run on the final rebased branch, `sv/closeout` on top of `sv/residual-backlog`:
+
+```
+shared           37 files    538 passed
+shared-react     26 files  1,562 passed | 1 skipped   (pre-existing, the cp-with-markup divergence)
+platform-editor  78 files  1,369 passed
+corpus                     148 passed, zero skips
+lint + typecheck  10 projects, 0 errors (only pre-existing no-console warnings in scribe/perf-vanilla)
+```
+
+**Zero new skips**, no tests removed, no fixtures regenerated. **No C# was touched** — nothing this
+round found landed on the serialization side, so the approval gate was never reached.
+
+paranext-core has **no changes from this round**, so there is nothing to gate there. Its only role
+was as evidence: the log-storm bounding already lives in `use-editor-pdp-sync.hook.ts` and is already
+pinned by its own tests.
+
+One flake to know about: `markerMenuHarness.test.tsx` and occasionally
+`tier2Rebuild.corpus.test.tsx` hit a 5s timeout under full-suite load and pass in isolation. It
+predates this work — a baseline run before any of these changes showed the same failure.
 
 ---
 
