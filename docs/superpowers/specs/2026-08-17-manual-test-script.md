@@ -222,3 +222,41 @@ These test the seven implementation groups; run them on the residual-backlog bui
 63. **Collab spot-checks** (second client): a remote edit carrying `category` on a
     chapter/verse/para survives the round trip (unknown-attribute passthrough); a remote
     implicitly-closed `\ft` never grows a fabricated `\ft*`.
+
+---
+
+## 11. Bug-register closeout — the checks that need the real app
+
+These four are the wave-6 triage items whose repro genuinely needs a mounted popover, a real
+browser selection, or a host setting. Everything else in that wave is pinned by tests.
+
+64. **Enter's temporary line.** Caret mid-paragraph, press Enter. Expected TODAY: the paragraph
+    palette opens and NO new line appears — the split is suppressed until you pick a marker.
+    Press Escape: the palette closes and the document is byte-identical (nothing to undo).
+    Then pick a marker instead: the split happens with the chosen marker. The reported
+    Paratext 9 behaviour — a provisional line visible WHILE the palette is open, which
+    disappears on dismissal — does not exist. Confirm which of the two you want; the second
+    needs a provisional paragraph that stays out of history, out of the save path, and out of
+    the delta sync. **[TJ decision item]**
+65. **The top paragraph dropdown.** Click into a `\p` paragraph, open the toolbar's paragraph
+    dropdown, pick `\q1`. Expected: the paragraph retags and its visible prefix glyph changes.
+    If nothing happens, open the dev console and look for `formatPara refused: no range
+    selection` — that message means the popover took focus and the caret was lost before the
+    pick applied, which is the host-side selection restore the `\` and Enter palettes already
+    do and this dropdown does not. Report which of the two you see.
+66. **Copying an unknown block's marker name.** In Standard view, find a gray read-only block
+    (`\fig` with attributes, a `\tr` row, `\esb`). (a) Try to select the marker name alone —
+    drag across it, and double-click it. Expected TODAY: you cannot; the block refuses a caret,
+    so the smallest selection containing the marker name has to start in ordinary text before
+    the block and end after it. (b) Make that larger selection, Ctrl+C, and paste into a
+    PLAIN-text editor: the block's full USFM arrives, marker name included. (c) Paste the same
+    copy into a word processor or a browser text box: the whole block vanishes — marker name,
+    attributes, and the figure's caption. (b) and (c) are pinned by test; (a) is the part only
+    a real browser can answer. Say whether (a) is what you meant by "cannot copy the marker
+    name", because the fix differs: (a) is the read-only ruling, (c) is the HTML clipboard.
+    **[TJ decision item]**
+67. **Standard view in Simple mode.** With `platform.interfaceMode` = simple, use "Switch
+    Scripture view" repeatedly: the cycle must be formatted ↔ markers and must NEVER land on
+    Standard. Then switch to power mode, select Standard, switch back to simple: the editor
+    must fall back to Formatted rather than staying in Standard. (Both are gated and unit-tested
+    in the host; this is the in-app confirmation.)

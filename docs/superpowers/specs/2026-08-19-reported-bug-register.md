@@ -119,7 +119,13 @@ tip it was rebased onto).
 - [x] **E2** Enter at the end of a paragraph whose last element is an inline marker does not open the
       paragraph palette. — fb2 defect 2, same fix.
 - [ ] **E3** Enter should show a temporary new line that disappears if no marker is chosen (P9
-      parity). *No record anywhere.*
+      parity). **NEEDS YOUR RULING** — triaged in wave 6. The "disappears" half already holds and
+      is pinned: Enter claims the key and SUPPRESSES the split (the in-editor menu in
+      `UsjNodesMenuPlugin`, the host palette in its capture-phase Enter claim), so dismissing
+      leaves the document byte-identical — `markerMenuHarness.test.tsx`, "Escape cancels the split
+      (document unchanged)". The "temporary new line" half does not exist at all; adding it means a
+      provisional paragraph kept out of history, out of the save path, and out of the delta sync.
+      Manual script item 64.
 - [x] **E4** Enter ×2 mid-span with attributes: attributes and closer vanish from the left span, right
       span unwrapped, caret to end. **Two-stage** — the attributes half landed in char-stack, but for
       the whole integration round the production Enter path did not use the fixed code. Real from the
@@ -141,7 +147,13 @@ tip it was rebased onto).
 - [x] **P3** Use the active palette in Standard view. — decided and shipped in fb-palette-active; the
       trigger `\` no longer lands in the document.
 - [ ] **P4** Changing the paragraph marker with the top dropdown does not update the current editor.
-      *No record anywhere.*
+      **DIAGNOSED, HOST FIX PENDING** — wave 6. The chain is fully wired and `formatPara` retags
+      correctly whenever a selection exists (`Editor.test.tsx`). The dropdown is the only one of the
+      four marker-apply surfaces that does not restore the caret first, and opening its popover
+      takes focus off the editor, where Lexical's blur processing can null the selection.
+      `formatPara` now WARNS rather than returning quietly, so the failure is visible; the repair is
+      the host-side selection restore the `\` and Enter palettes already perform. Manual script
+      item 65.
 - [x] **P5** An empty-filter commit orphans the palette. — fixed, then **deliberately reversed**: P9
       leaves a zero-match palette open, and the dismissal was this project's invention. Do not re-file.
 - [x] **P6** Space with a non-collapsed selection should wrap like Enter.
@@ -201,10 +213,14 @@ tip it was rebased onto).
 - [x] **U4** Adding attributes to a typed `\fig` loses its text content. — a keystroke reaching an
       opaque block's token-mode text replaced all of it; blocks stay read-only and the keystroke is
       refused.
-- [ ] **U5** Unknown blocks do not let you copy the marker name. **MIS-SCOPED** — the handoff asserts
-      the opposite as a design property (*selectable and copyable by design*) without testing it, and
-      the manual script only checks copying from *inside* the block. The marker name is rendered by a
-      decorator the same doc calls *genuinely inert*.
+- [ ] **U5** Unknown blocks do not let you copy the marker name. **TESTED, SPLIT IN TWO** — wave 6.
+      The register's own guess was wrong: the marker name IS real DOM text (the decorator writes it
+      into its element), and a selection spanning the block carries the block's full USFM in both
+      `text/plain` and the internal Lexical payload — now pinned in
+      `whitespaceDisplay.plugin.utils.test.tsx`. Two halves of the report survive: `text/html` drops
+      the whole block, so a paste into a word processor loses the marker name AND the caption; and
+      the block cannot be selected on its own, because it is read-only by the U6 ruling. Manual
+      script item 66.
 - [x] **U6** Unknown content is not editable at all. **DEFERRED** — owner decision: read-only, with
       the keystroke now visibly refused rather than silently swallowed.
 
@@ -281,14 +297,33 @@ tip it was rebased onto).
 
 ## View modes and other
 
-- [ ] **V1** Standard view in Simple mode does not lock paragraph structure. *No record anywhere.*
-      Earlier in the effort the chosen answer was to make Standard unavailable in Simple; whether that
-      shipped is unverified here.
+- [x] **V1** Standard view in Simple mode does not lock paragraph structure. **SHIPPED — verified in
+      wave 6.** Standard is unreachable in Simple mode by three mechanisms in paranext-core
+      (`resolveViewTypeForInterfaceMode`): the default view, the view cycle, and coercion of a
+      `standard` persisted from a power-mode session — unit-tested there. Made MOOT rather than
+      fixed in place: structure protection is still derived independently of the view type, so the
+      answer was to make the combination unreachable. The decision itself was never written down —
+      the doc that posed it stops at "tell us which you want". Manual script item 67.
 - [ ] **V2** USFM project styles are not looking great. *No record* — owner said this was being handled
       elsewhere.
-- [ ] **V3** Verse bridging (`\v 5-6`) — owner reported it *seems fine*; never pinned by a test.
-- [ ] **V4** testUSFM **rendering** check. *No record* — the testUSFM corpus is used only as a data
-      round-trip net, never as a rendering check.
+- [x] **V3** Verse bridging (`\v 5-6`) — owner reported it *seems fine*, and it is; pinned by
+      `markerEdit/verseBridge.test.tsx`. A loaded bridge keeps its bytes in the glyph, the node, the
+      serialized USJ and the emitted USX, and typing `-6` onto `\v 5` retags the verse. The
+      note-reference leg was already pinned in shared-react's `node-react-utils.test.ts`.
+      **One divergence found and pinned:** with the bridge HALF typed (`\v 5-`) the screen and the
+      node both carry the trailing separator and the serializer does not —
+      `parseNumberFromMarkerText` truncates to the last complete token and then overrides the node's
+      faithful number, so a save mid-bridge silently drops a byte the screen is showing. The fix is
+      a decision about what a verse number may contain; the narrowest candidate is to let the token
+      end on a trailing `-`/`,`.
+- [x] **V4** testUSFM **rendering** check — landed in wave 6 as a rendering leg on the two corpus
+      suites that already mount the editor (`corpusRendering.test-helpers.ts`): a node that reports
+      text content must render it, at load and again after the dirty pass. Stated over
+      `TextNode`/`DecoratorNode` rather than a class list, so CSS-generated glyphs fall out of scope
+      by construction; verified discriminating by blanking a decorator's `createDOM`. Costs no extra
+      mounts. What it CANNOT check is anything the stylesheet paints — no stylesheet is loaded in
+      any test, and whole view modes are painted by `content: attr(...)` over `font-size: 0` text.
+      That needs the browser or visual-regression harness this repo does not have.
 - [ ] **V5** Indicate when something can only be deleted, not edited (atomicity affordance).
       *No record anywhere.* Explicitly routed away as separate product design.
 - [ ] **V6** Top toolbar has no inline markers. **DEFERRED** — owner deprioritized.
@@ -299,12 +334,15 @@ tip it was rebased onto).
 
 | | Count |
 | --- | --- |
-| Fixed | 44 |
-| Open | 32 |
-| Of the open, never scoped anywhere | 21 |
+| Fixed | 51 |
+| Open | 30 |
+
+Counted from the list above after wave 6. The figures this table carried before (44 fixed, 32 open,
+21 of the open never scoped) did not match the list even then — recount before quoting them.
 
 **Never scoped in any plan, handoff, backlog, or follow-up round:**
 C1, C5, C6, K12, W3, W4, E3, P4, A1, A2, A6, M2, U5, S4, S5, S6, S7, N1, N2, N4, V1–V6.
+(Wave 6 has since triaged E3, P4, U5, V1, V3 and V4 — see their entries.)
 
 **Highest consequence among those** — all are silent data loss or fabricated bytes:
 **M2** (milestone name edits never persist), **A1** (`\w*` destroys the default attribute),
