@@ -438,6 +438,31 @@ export interface EditorRef {
    */
   commitTypedMarker(typedMarker: string): boolean;
   /**
+   * Commits the CLOSING marker the user typed into a marker palette — the palette's `*` commit,
+   * the closing-marker counterpart to {@link EditorRef.commitTypedMarker}'s Space. Inserts NO
+   * opening glyph and NO terminating space: `\` + `typedMarker` + `*` at the collapsed caret is
+   * the whole of it, and the palette closes.
+   *
+   * Which of two arms runs is decided by the DOCUMENT, not the palette. When `typedMarker` names a
+   * character span that is genuinely open at the caret, the commit routes through the same
+   * engine-native close the palette's `closeTag` entry applies, so a typed `nd*` and a picked
+   * `nd*` cannot diverge; the caret lands after the closed span. When nothing matching is open,
+   * the typed closer lands LITERALLY and the engine settles it as an unmatched closer — the
+   * ratified behavior for typed closers, and what keeps this from silently swallowing the
+   * keystroke. Either way the caret ends up AFTER the closing marker.
+   *
+   * Collapsed caret only: a closing marker is placed AT a caret, and there is no caret to close at
+   * over a non-collapsed selection, so this refuses and returns `false` with the document
+   * untouched. Also returns `false` when there is no range selection.
+   *
+   * @param typedMarker - The palette query exactly as typed, without the leading `\` and without
+   *   the trailing `*` the user pressed to commit (e.g. `"nd"`, `"+wj"`).
+   * @returns `true` when a closing marker was committed; `false` when the selection shape refused.
+   * @throws Will throw an error if the editor is in readonly mode.
+   * @see {@link EditorRef.commitTypedMarker} for the Space (opening-marker) commit.
+   */
+  commitTypedCloser(typedMarker: string): boolean;
+  /**
    * Insert a note at the specified selection, e.g. footnote, cross-reference, endnote.
    * @param marker - The marker type for the note.
    * @param caller - Optional note caller to override the default for the given marker.

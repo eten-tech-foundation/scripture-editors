@@ -20,7 +20,11 @@ import {
   MarkerMenuContext,
   MarkerMenuItem,
 } from "./markerItemSource";
-import { $applyMarkerMenuSelection, $splitParagraphWithMarker } from "./markerMenuApply.utils";
+import {
+  $applyMarkerMenuSelection,
+  $commitTypedCloserAtCaret,
+  $splitParagraphWithMarker,
+} from "./markerMenuApply.utils";
 import { $getMarkerMenuContext } from "./markerMenuContext.utils";
 import {
   $noteContentText,
@@ -134,6 +138,11 @@ function buildHarness(getEditor: () => LexicalEditor | undefined): EditableMarke
             viewOptions,
             nodeOptions: {},
           });
+      });
+    },
+    commitTypedCloser: (typedMarker) => {
+      getEditor()?.update(() => {
+        $commitTypedCloserAtCaret(typedMarker);
       });
     },
   };
@@ -413,6 +422,67 @@ describe("editable-mode marker menu harness", () => {
         if (!$isRangeSelection(selection)) throw new Error("no range selection after the refusal");
         expect(selection.isCollapsed()).toBe(false);
         expect(selection.getTextContent()).toBe("holy");
+      });
+    });
+  });
+
+  describe("selection-wrap matrix - typed vs highlighted", () => {
+    it("refuses a NEAR-MISS prefix - `n` does not wrap in `nd`, the exact match is the full code", async () => {
+      // The other half of the refusal contract: not just unknown markers, but a typed prefix of
+      // a marker that IS offered. Space commits what was TYPED, and `n` was not offered, so
+      // wrapping in `nd` would be the palette guessing on the user's behalf.
+      let text: TextNode | undefined;
+      const { editor } = await harnessTestEnvironment(() => {
+        text = $buildWrapMenuFixture().text;
+      });
+      await act(async () => editor.update(() => requireDefined(text, "text").select(4, 8)));
+
+      await dispatchKeyDown(editor, "\\");
+      await waitForMenu();
+      await dispatchKeyDown(editor, "n");
+      // `nd` is offered and ranked first, so the highlighted item WOULD commit under Enter.
+      const filtered = await waitForMenu();
+      expect(menuItemLabel(filtered[0])).toBe("nd");
+
+      const event = await dispatchKeyDown(editor, " ");
+
+      expect(event.defaultPrevented).toBe(true);
+      expect(document.querySelector(".autocomplete-menu-container")).toBeNull();
+      editor.getEditorState().read(() => {
+        const para = requireDefined($getRoot().getChildren().filter($isParaNode)[0], "para");
+        expect(para.getChildren().filter($isCharNode)).toHaveLength(0);
+        expect(para.getTextContent()).toContain("say holy words");
+      });
+    });
+
+    it("Enter over a selection wraps in the HIGHLIGHTED item - the other half of the matrix", async () => {
+      // Space commits what was TYPED (exact only); Enter commits what is HIGHLIGHTED, and so
+      // still commits where Space refuses. Pinning both against one near-miss query is what
+      // makes the distinction unambiguous.
+      let text: TextNode | undefined;
+      const { editor } = await harnessTestEnvironment(() => {
+        text = $buildWrapMenuFixture().text;
+      });
+      await act(async () => editor.update(() => requireDefined(text, "text").select(4, 8)));
+
+      await dispatchKeyDown(editor, "\\");
+      await waitForMenu();
+      await dispatchKeyDown(editor, "n");
+      const filtered = await waitForMenu();
+      const highlighted = menuItemLabel(filtered[0]);
+      expect(highlighted).toBe("nd");
+
+      await dispatchKeyDown(editor, "Enter");
+
+      expect(document.querySelector(".autocomplete-menu-container")).toBeNull();
+      editor.getEditorState().read(() => {
+        const para = requireDefined($getRoot().getChildren().filter($isParaNode)[0], "para");
+        const chars = para.getChildren().filter($isCharNode);
+        expect(chars).toHaveLength(1);
+        expect(chars[0].getMarker()).toBe(highlighted);
+        expect(chars[0].getTextContent()).toContain("holy");
+        // Closed span, same shape the exact-match Space wrap produces.
+        expect(chars[0].getChildren().filter($isMarkerNode)).toHaveLength(2);
       });
     });
   });
@@ -729,6 +799,89 @@ describe("editable-mode marker menu harness", () => {
         // stays (an unterminated bare backslash is not a marker).
         expect(requireDefined(text, "text").getTextContent()).toBe("hello\\ ");
       });
+    });
+  });
+
+  describe("`*` over a collapsed caret", () => {
+    // The palette's CLOSING-marker commit, the counterpart to Space's opening one: `*` commits
+    // `\typed*` at the caret with no terminating space and no opening glyph, and closes the
+    // palette. `*` is therefore a commit key here, not a filter character — typing it can no
+    // longer narrow the list to a `closeTag` entry, because pressing it commits the same end
+    // state that entry would have applied.
+    it("commits the typed marker as a CLOSING marker and closes the palette", async () => {
+      let text: TextNode | undefined;
+      const { editor } = await harnessTestEnvironment(() => {
+        text = $buildBackslashMenuFixture().text;
+      });
+      await act(async () => editor.update(() => requireDefined(text, "text").select(5, 5)));
+
+      // Open an `nd` span first so there is something for the closer to close.
+      await dispatchKeyDown(editor, "\\");
+      await waitForMenu();
+      await dispatchKeyDown(editor, "n");
+      await dispatchKeyDown(editor, "d");
+      await dispatchKeyDown(editor, " ");
+
+      await dispatchKeyDown(editor, "\\");
+      await waitForMenu();
+      await dispatchKeyDown(editor, "n");
+      await dispatchKeyDown(editor, "d");
+      const event = await dispatchKeyDown(editor, "*");
+
+      // Claimed: an un-prevented `*` would land a literal asterisk on top of the commit.
+      expect(event.defaultPrevented).toBe(true);
+      expect(document.querySelector(".autocomplete-menu-container")).toBeNull();
+      editor.getEditorState().read(() => {
+        const para = requireDefined($getRoot().getChildren().filter($isParaNode)[0], "para");
+        const chars = para.getChildren().filter($isCharNode);
+        expect(chars).toHaveLength(1);
+        expect(chars[0].getMarker()).toBe("nd");
+        // The span is CLOSED now: both glyphs present, and the open-span flag gone.
+        expect(chars[0].getChildren().filter($isMarkerNode)).toHaveLength(2);
+        expect(chars[0].getUnknownAttributes()?.closed).toBeUndefined();
+        // No terminating space of its own — that is Space's job.
+        expect(para.getTextContent().endsWith("\\nd*")).toBe(true);
+      });
+    });
+
+    it("lands the typed closer literally when nothing matching is open", async () => {
+      let text: TextNode | undefined;
+      const { editor } = await harnessTestEnvironment(() => {
+        text = $buildBackslashMenuFixture().text;
+      });
+      await act(async () => editor.update(() => requireDefined(text, "text").select(5, 5)));
+
+      await dispatchKeyDown(editor, "\\");
+      await waitForMenu();
+      await dispatchKeyDown(editor, "n");
+      await dispatchKeyDown(editor, "d");
+      const event = await dispatchKeyDown(editor, "*");
+
+      expect(event.defaultPrevented).toBe(true);
+      expect(document.querySelector(".autocomplete-menu-container")).toBeNull();
+      // Not a silent no-op: the typed bytes land and the engine flags them unmatched.
+      editor.getEditorState().read(() => {
+        const para = requireDefined($getRoot().getChildren().filter($isParaNode)[0], "para");
+        expect(para.getTextContent()).toContain("\\nd*");
+      });
+    });
+
+    it("`*` still FILTERS over a non-collapsed selection - there is no caret to close at", async () => {
+      // A closing marker is placed AT a caret. Over a selection the palette's commit is the
+      // WRAP, so `*` keeps its old meaning there (a filter character) rather than becoming a
+      // commit key that could only refuse.
+      let text: TextNode | undefined;
+      const { editor } = await harnessTestEnvironment(() => {
+        text = $buildWrapMenuFixture().text;
+      });
+      await act(async () => editor.update(() => requireDefined(text, "text").select(4, 8)));
+
+      await dispatchKeyDown(editor, "\\");
+      await waitForMenu();
+      await dispatchKeyDown(editor, "*");
+
+      // The palette is still open — `*` narrowed the query instead of committing.
+      expect(document.querySelector(".autocomplete-menu-container")).not.toBeNull();
     });
   });
 
