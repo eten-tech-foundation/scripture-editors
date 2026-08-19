@@ -248,6 +248,20 @@ failure watched against the pre-fix source with its reason confirmed.
 | typed `\|who="stuff"` settles to `who="stuff"`, run re-spells to `\|stuff` | n/a (behavior record) | ✓ |
 | a departure settle does not move a caret the user placed | `expected 6 to be 3` | ✓ |
 
+Both clocks are covered: the table's rename pins settle by DEPARTURE, and `typedByteSettle`'s new
+pin (below) settles the same rename on the IDLE clock. Each fix was separately confirmed
+load-bearing by reverting it against the finished tree — the `marker` fold against the two rename
+pins and the idle pin, the caret coordinate system against the caret pin — and the two are
+independent (reverting either leaves the other's pins green).
+
+`typedByteSettle.test.tsx` (9 → 10) carries the rename on the OTHER settle clock, as the brief
+asked: type `1` mid-glyph so `\qt-s` becomes `\qt1-s` — a marker that is still a milestone, unlike
+the file's existing rename pin, which renames to an UNKNOWN marker and dissolves the milestone into
+a paragraph split. That existing pin is why the defect hid: its change is impossible to miss, while
+a known→known rename leaves the glyph bytes identical on both sides of the fixed-point comparison.
+Asserted on NODE STATE, since that is what the save leg serializes. **Red pre-fix:**
+`expected 'qt-s' to be 'qt1-s'`.
+
 `settledGetUsj.test.tsx`: +1 shape ("milestone marker renamed in its opening glyph") × 2 suites =
 46 → 48 tests. Vacuous pre-fix, as measured above and recorded in the shape's own comment.
 
@@ -284,9 +298,9 @@ reverting the fix against the corrected tests.
 
 ## Verification
 
-Targeted regression contract, run fresh on the finished tree — 12 files, **310 passed, zero skips**:
+Targeted regression contract, run fresh on the finished tree — 12 files, **311 passed, zero skips**:
 `milestoneMarkerEdit` 5, `milestoneAttributeSettle` 13, `damagedGlyphSettle`, `glyphDriftHeal`,
-`typedByteSettle` 9, `settledGetUsj` 48, `commitTypedCloser`, `corpus-round-trip` 116,
+`typedByteSettle` 10, `settledGetUsj` 48, `commitTypedCloser`, `corpus-round-trip` 116,
 `corpus-transform-fixed-point` 22, `corpus-testusfm-round-trip` 10, `tier2Rebuild.utils` +
 `tier2Rebuild.corpus`. `displayRunRegistry` + `attributeDisplay.utils` (shared): 66 passed.
 
@@ -294,8 +308,8 @@ Corpus stays at full strength — 141 paragraphs checked, 0 skip-listed.
 
 Full gate `nx run-many -t test lint typecheck`: **all 10 projects green.**
 
-- platform-editor: 74 files, **1325 passed, 0 skipped** (+7 from this branch: 5 milestoneMarkerEdit
-  pins, 1 settledGetUsj shape × the 2 `it.each` suites)
+- platform-editor: 74 files, **1326 passed, 0 skipped** (+8 from this branch: 5 milestoneMarkerEdit
+  pins, 1 typedByteSettle idle pin, 1 settledGetUsj shape × the 2 `it.each` suites)
 - shared-react: 26 files, 1541 passed + 1 skipped (the pre-existing table round-trip skip in
   `editor-delta.adaptor.test.tsx` — not this branch's)
 - shared: 37 files, 537 passed; utilities: 6 files, 51 passed; perf-react 3, scribe 2

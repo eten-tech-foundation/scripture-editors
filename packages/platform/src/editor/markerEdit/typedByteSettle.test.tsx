@@ -294,6 +294,45 @@ describe("milestone glyph typed bytes", () => {
     expect(commits.all()).not.toHaveLength(0);
     expect(commits.includes({ text: "\\qt-sa", offset: 6 })).toBe(true);
   });
+
+  it("renames the milestone to ANOTHER KNOWN milestone on the idle tick, reaching node state", async () => {
+    // The sibling above renames to an UNKNOWN marker, where the milestone dissolves and the
+    // paragraph split makes the change impossible to miss. This one renames to a marker that is
+    // still a milestone (`qt-s` → `qt1-s`, both in the stylesheet), which is the shape that was
+    // silently discarded: the glyph bytes are identical on both sides of the fixed-point
+    // comparison, so only the milestone's own `marker` field reveals the rebuild is not a no-op.
+    // Asserted on NODE STATE, because that — not the glyph — is what the save leg serializes.
+    let milestone!: MilestoneNode;
+    const { editor } = await testEnvironment(() => {
+      milestone = $milestoneFixture();
+    });
+    // Caret between `\qt` and `-s`, so the typed `1` lands mid-name.
+    await act(async () =>
+      editor.update(() => {
+        const { opening } = $milestoneAttributeRunPieces(milestone);
+        requireDefined(opening ?? undefined, "milestone opener glyph missing").select(3, 3);
+      }),
+    );
+    await typeText(editor, "1");
+
+    editor.getEditorState().read(() => {
+      expect($firstParaText()).toContain("\\qt1-s\\*");
+    });
+
+    await advance(IDLE_SETTLE_DELAY_MS * 2);
+
+    editor.getEditorState().read(() => {
+      const milestones = $getRoot()
+        .getChildren()
+        .filter($isParaNode)
+        .flatMap((para) => para.getChildren())
+        .filter($isMilestoneNode);
+      // Still exactly one milestone — and it is the RENAMED one, in node state.
+      expect(milestones).toHaveLength(1);
+      expect(milestones[0].getMarker()).toBe("qt1-s");
+      expect($firstParaText()).toContain("\\qt1-s\\*");
+    });
+  });
 });
 
 describe("char glyph typed bytes", () => {
