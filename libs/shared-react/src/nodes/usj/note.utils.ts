@@ -161,6 +161,37 @@ export function isCollapsedNoteMode(noteMode: NoteMode | undefined): boolean {
 }
 
 /**
+ * The closing marker glyph a collapsed caret sits immediately before, when that glyph closes the
+ * char span the caret is in — otherwise `undefined`.
+ *
+ * This is the one insertion point where Lexical's `selection.insertNodes()` SPLITS the enclosing
+ * char span rather than inserting into it, because the caret is at a child boundary with nothing
+ * but the closer beyond it. The split leaves a second span holding nothing but the orphaned
+ * closing glyph, which the standard-view marker-edit engine reads as a span whose opener was
+ * deleted and dissolves — taking the closer's bytes with it. A caret in the MIDDLE of the span's
+ * text, or outside the span entirely, does not split it and needs none of this.
+ *
+ * Both spellings of the same boundary are recognized: the caret at the end of the span's content
+ * text (a click at the end of the word) and the caret at offset 0 of the closing glyph itself
+ * (an arrow-left back off the closer).
+ *
+ * Read-only: safe inside `editor.update()` or either read form.
+ */
+function $closingGlyphAfterCaret(selection: RangeSelection): MarkerNode | undefined {
+  if (!selection.isCollapsed()) return undefined;
+  const { anchor } = selection;
+  if (anchor.type !== "text") return undefined;
+  const node = anchor.getNode();
+  if (!$isTextNode(node) || !$isCharNode(node.getParent())) return undefined;
+  // MarkerNode extends TextNode, so the caret may be parked in the closing glyph itself.
+  if ($isMarkerNode(node))
+    return anchor.offset === 0 && node.getMarkerSyntax() === "closing" ? node : undefined;
+  if (anchor.offset !== node.getTextContentSize()) return undefined;
+  const next = node.getNextSibling();
+  return $isMarkerNode(next) && next.getMarkerSyntax() === "closing" ? next : undefined;
+}
+
+/**
  * Insert note node at the given selection, and select the note content if expanded.
  *
  * Whether the note lands collapsed is `isCollapsedNoteMode` — the same predicate that governs
@@ -181,7 +212,17 @@ export function $insertNoteWithSelect(
 
   if (!selection.isCollapsed()) $moveSelectionToEnd(selection);
 
-  selection.insertNodes([noteNode]);
+  // At a char span's content end, place the note explicitly rather than letting `insertNodes`
+  // split the span there and strand its closing glyph (see `$closingGlyphAfterCaret`). The
+  // resulting shape — note inside the span, ahead of the closer — is what re-tokenizing the
+  // displayed bytes gives, and what a mid-content caret already produced.
+  const closingGlyph = $closingGlyphAfterCaret(selection);
+  if (closingGlyph) {
+    closingGlyph.insertBefore(noteNode);
+    noteNode.selectNext(0, 0); // caret past the note, where `insertNodes` leaves it
+  } else {
+    selection.insertNodes([noteNode]);
+  }
   if (!isCollapsed) {
     const lastCharChild = noteNode.getChildren().reverse().find($isCharNode);
     lastCharChild?.selectEnd();
