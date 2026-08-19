@@ -34,6 +34,7 @@ import {
   deserializeSerializedEditorState,
   initialize as initializeDeserialize,
 } from "../editor-usj.adaptor";
+import { expectEveryTextBearingNodeRendered } from "./corpusRendering.test-helpers";
 import { MarkerEditPlugin } from "../../markerEdit/MarkerEditPlugin";
 import { Usj } from "@eten-tech-foundation/scripture-utilities";
 import { act } from "@testing-library/react";
@@ -157,6 +158,7 @@ describe("testUSFM corpus transform fixed point (USJ -> editor state -> dirty ->
           <TextSpacingPlugin />
         </>,
       );
+      expectEveryTextBearingNodeRendered(editor, `${name} after load`);
 
       await act(async () => {
         editor.update(
@@ -166,6 +168,7 @@ describe("testUSFM corpus transform fixed point (USJ -> editor state -> dirty ->
           { discrete: true },
         );
       });
+      expectEveryTextBearingNodeRendered(editor, `${name} after the dirty pass`);
 
       const afterTransforms = deserializeSerializedEditorState(
         editor.getEditorState().toJSON(),

@@ -30,6 +30,7 @@
  */
 
 import { corpusFixtures } from "./corpus-data";
+import { expectEveryTextBearingNodeRendered } from "./corpusRendering.test-helpers";
 import {
   initialize as initializeSerialize,
   reset,
@@ -115,6 +116,7 @@ describe("corpus transform fixed point (USJ -> editor state -> dirty -> USJ)", (
 
       const state = serializeEditorState(usj, viewOptions);
       const editor = await mountWithTransforms(state, viewOptions);
+      expectEveryTextBearingNodeRendered(editor, `${fixture.name} after load`);
 
       await act(async () => {
         editor.update(
@@ -124,6 +126,8 @@ describe("corpus transform fixed point (USJ -> editor state -> dirty -> USJ)", (
           { discrete: true },
         );
       });
+
+      expectEveryTextBearingNodeRendered(editor, `${fixture.name} after the dirty pass`);
 
       const afterTransforms = deserializeSerializedEditorState(
         editor.getEditorState().toJSON(),
