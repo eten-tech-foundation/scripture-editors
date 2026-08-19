@@ -16,8 +16,9 @@ The premise held. Most of what was still open in the register was **not** broken
 of it was pinned, so nobody could have known that. The round converted the register into tests; the
 tests then did the triage.
 
-One real defect was found and fixed (**N1**), one more was found, measured, and left for an owner
-decision (**W7/W8**), and one report remains open with no headless repro (**A2**).
+One real defect was found and fixed (**N1**), a second owner-ruled behavior was implemented
+(**X2**), one report turned out to be deliberate design and now needs a ruling rather than a fix
+(**W7/W8**), and one report remains open with no headless repro (**A2**).
 
 ---
 
@@ -129,6 +130,50 @@ permits (capture tests that RECORD behavior are encouraged; only changing serial
 
 ---
 
+## W7/W8 — the caret is deliberate, and the reported "correct" position may not exist
+
+I set out to fix this and stopped, because the measurement says the behavior is designed rather than
+accidental. **No code changed. This is a decision for you.**
+
+**What happens.** Put the caret at the very end of an opening char glyph — `\nd|`, before its
+separator — and type one space. The space is absorbed into the glyph (`\nd `), and the caret lands at
+offset 1 of the NBSP-prefixed content: past both the typed space and the structural separator,
+immediately before the content. The emitted USJ is unchanged, correctly — the writer emits the
+structural space regardless. So this is purely a caret question.
+
+**Where it comes from.** `$moveCaretPastMarker` in `markerEdit/markerEditTier1.utils.ts`, called from
+both arms of Tier 1's in-place rename, with a comment saying exactly what it intends: *"Both para
+trailing-space and char NBSP-prefixed content put the caret after offset 1 of the following text
+node."* The engine reads a space typed at a complete marker's end as a **terminated opener edit** —
+the same gesture as finishing `\s1` and typing the space that ends the name — and lands the caret
+where you would type content next. For a real rename that is plainly right. Here the rename is a
+no-op (`nd` to `nd`), and the only visible effect is the caret moving two positions for one keystroke.
+
+**Why I am not just "fixing" it.** The position the report asks for — between the typed space and the
+NBSP separator — is *inside engine-owned display bytes*. Invariant II says display bytes are excluded
+from document positions, so that may not be a position the caret is allowed to hold at all. And both
+call sites are shared with the genuine rename path, so changing it changes that too.
+
+**The options:**
+
+| | Behavior | Cost |
+| --- | --- | --- |
+| **A — leave it** | Caret lands at content start | None. Consistent with the rename path. Requires deciding the report is a misreading of display bytes. |
+| **B — special-case the no-op rename** | When the marker name did not change, leave the caret at the glyph's end | Small and contained, but splits one gesture into two behaviors on a distinction the user cannot see. |
+| **C — refuse the keystroke** | A space at a complete marker's end changes nothing, so visibly refuse it | Most consistent with "no silent no-ops" — today the keystroke is accepted and discarded, which Invariant I explicitly forbids. Biggest behavior change. |
+
+I lean **C**, then **A**. C is the only option that squarely answers what the invariants say about
+this shape: the byte genuinely does not reach the file, and Invariant I's corollary is that a
+keystroke either changes the document or is visibly refused. What is happening now — accept, absorb,
+move the caret — is precisely the "accepting a keystroke and discarding it later" failure that rule
+exists to prevent. But C is a behavior change beyond what the report asked for, so it is yours to
+call.
+
+W7 and W8 are the same defect, confirmed by measurement: on a `\+nd` nested inside `\wj` the bytes
+and the caret are identical to the flat case. Whatever you choose applies to both.
+
+---
+
 ## How the log storms were diagnosed
 
 Worth recording because the answer is "somewhere else, already", and the next person to see those
@@ -163,18 +208,9 @@ Ordered by how much I think it matters.
 
 1. **A2.** Give me the precise gesture (see above). This is the one open report where I have no repro
    and you do.
-2. **W7/W8's caret.** Type a space at the very end of an opening char glyph — `\nd|` before its
-   separator. The typed space is absorbed into the glyph and the caret advances past the structural
-   separator as well, landing immediately before the content. Confirm that is what you originally
-   saw, and confirm the fix you want is "caret stays immediately after the typed byte". The bytes are
-   already right; this is purely the caret.
+2. **W7/W8's caret — this one needs a RULING from you, not a confirmation.** See the dedicated
+   section below; I did not change it.
 
-   Localized, so whoever picks it up does not repeat the search: with NO plugins mounted the caret
-   stays correctly at the glyph's end, and `MarkerEditPlugin` mounted ALONE is enough to move it —
-   neither display sync is involved. The move happens inside the typing commit itself (the caret is
-   still correct immediately after `insertText`, within the same update), so it is a node transform
-   the engine registers, not a post-commit correction. W7 and W8 are the same defect: measured on a
-   `\+nd` nested inside `\wj`, the bytes and the caret are identical to the flat case.
 3. **The ParatextData round-trip leg**, if the deferral logs ever come back. Everything on this side
    of it is clean.
 4. **M2** in a real project. It is fixed on `sv/fb5/milestone-edit` (merged to

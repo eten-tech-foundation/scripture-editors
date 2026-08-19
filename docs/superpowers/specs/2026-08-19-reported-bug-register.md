@@ -89,15 +89,20 @@ tip it was rebased onto).
       the typed space lands as a real byte at the head of the following text and the caret sits
       immediately after it. The reported "no byte inserted" is not what happens.
 - [ ] **W7** Space before the space on a nested `\+nd ` just moves the cursor.
-      **REPRODUCES — same defect as W8, not a separate one.** Measured on a `\+nd` nested inside
-      `\wj`: byte-for-byte and caret-for-caret identical to the flat case, so nesting changes nothing
-      here and the two should be fixed and pinned together.
+      **Same defect as W8, not a separate one** — measured on a `\+nd` nested inside `\wj`, the bytes
+      and the caret are identical to the flat case. Whatever is decided for W8 applies here.
 - [ ] **W8** Space on a normal `\nd ` inserts, but the cursor ends past both spaces.
-      **REPRODUCES.** Measured: the typed space is absorbed INTO the opening glyph (`\nd` becomes
-      `\nd `) and the caret advances past the structural NBSP separator as well, landing immediately
-      before the content. The emitted USJ is unchanged, which is right — the writer emits the
-      structural space regardless — so this is purely the caret. It should stay immediately after the
-      byte the user typed. Still owned by nobody; see the handoff.
+      **NEEDS AN OWNER RULING — the behavior is deliberate, not a slip.** Localized to
+      `$moveCaretPastMarker` (`markerEdit/markerEditTier1.utils.ts`), called from both arms of Tier
+      1's in-place rename and documented as intending exactly this: a space typed at a complete
+      marker's end reads as a TERMINATED OPENER EDIT — the same gesture as finishing `\s1` and typing
+      the space that ends the name — so the caret lands where content would be typed next. Here the
+      rename is a no-op, so the only visible effect is the caret moving two positions for one
+      keystroke. The position the report asks for sits INSIDE engine-owned display bytes, which
+      Invariant II excludes from document positions, so it may not be a legal caret position at all.
+      Note the current shape accepts a keystroke and discards it, which Invariant I's no-silent-no-ops
+      corollary forbids — visibly refusing the space is a third option. Three options with costs are
+      laid out in the handoff.
 - [x] **W9** `\p ` + space does nothing (lone space silently deleted).
 - [x] **W10** Typing next to a verse fabricates a leading space. **Re-diagnosed, not repaired** — the
       space is the verse's structural leading-attribute space the writer emits regardless; pinned
