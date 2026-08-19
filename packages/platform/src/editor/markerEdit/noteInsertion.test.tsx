@@ -263,7 +263,7 @@ describe("note insertion at a closed char span's content end (N1)", () => {
       expect(closers).toHaveLength(1);
       // The note is the span's own child, and the closer is still last.
       expect(nd.getChildren().some($isNoteNode)).toBe(true);
-      expect($isMarkerNode(nd.getLastChild()!)).toBe(true);
+      expect($isMarkerNode(nd.getLastChild())).toBe(true);
       // The neighbouring span is untouched.
       expect($spanAt(3).getTextContent()).toBe(`\\add${NBSP}word\\add*`);
     });

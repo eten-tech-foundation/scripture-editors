@@ -127,7 +127,7 @@ interface Seed {
 function $seedSpan(
   marker: string,
   text: string,
-  attributes?: Record<string, string>,
+  attributes?: { [name: string]: string },
   runText?: string,
 ): Seed {
   const char = $createCharNode(marker, attributes);
