@@ -10,7 +10,7 @@ import {
   serializeEditorState,
 } from "./adaptors/usj-editor.adaptor";
 import Editor from "./Editor";
-import { EditorRef } from "./editor.model";
+import { EditorProps, EditorRef } from "./editor.model";
 import { $rebuildNoteContent, $rebuildParas, Tier2Context } from "./markerEdit/tier2Rebuild.utils";
 import { Usj } from "@eten-tech-foundation/scripture-utilities";
 import { EditorRefPlugin } from "@lexical/react/LexicalEditorRefPlugin";
@@ -21,6 +21,7 @@ import {
   $isNoteNode,
   $isParaNode,
   getMarker as bundledGetMarker,
+  LoggerBasic,
   NoteNode,
   TypedMarkNode,
 } from "shared";
@@ -73,6 +74,9 @@ HTMLElement.prototype.focus = function focus(options?: FocusOptions) {
   }
 };
 
+/** The editor's host-facing change-notification callback type. */
+type OnUsjChange = EditorProps<LoggerBasic>["onUsjChange"];
+
 export function requireStandardViewOptions(): ViewOptions {
   const options = getViewOptions(STANDARD_VIEW_MODE);
   if (!options) throw new Error("Standard view options are required for these tests.");
@@ -108,13 +112,14 @@ export const spanUsj: Usj = {
 async function mountEditor(
   usj: Usj,
   view: ViewOptions,
+  onUsjChange?: OnUsjChange,
 ): Promise<{ ref: RefObject<EditorRef | null>; lexical: LexicalEditor }> {
   const ref = createRef<EditorRef>();
   const lexicalRef = createRef<LexicalEditor>();
   const capture: ReactElement = <EditorRefPlugin editorRef={lexicalRef} />;
   await act(async () => {
     render(
-      <Editor ref={ref} defaultUsj={usj} options={{ view }}>
+      <Editor ref={ref} defaultUsj={usj} options={{ view }} onUsjChange={onUsjChange}>
         {capture}
       </Editor>,
     );
@@ -123,11 +128,19 @@ async function mountEditor(
   return { ref, lexical: lexicalRef.current };
 }
 
-/** Mount `Editor` in Standard view and hand back its public ref plus the raw Lexical editor. */
+/**
+ * Mount `Editor` in Standard view and hand back its public ref plus the raw Lexical editor.
+ *
+ * `onUsjChange` is optional and wires the editor's host-facing change notification — the callback a
+ * host (paranext-core's Scripture editor web view) subscribes to in order to schedule a save. Pass
+ * it when a test needs to observe that a document change actually REACHED the host, as distinct
+ * from merely being true of the editor's own state.
+ */
 export async function mountStandardViewEditor(
   usj: Usj,
+  onUsjChange?: OnUsjChange,
 ): Promise<{ ref: RefObject<EditorRef | null>; lexical: LexicalEditor }> {
-  return mountEditor(usj, requireStandardViewOptions());
+  return mountEditor(usj, requireStandardViewOptions(), onUsjChange);
 }
 
 /**
