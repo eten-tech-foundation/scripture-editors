@@ -517,6 +517,34 @@ const pendingShapes: PendingShape[] = [
     },
   },
   {
+    // The typed-literal artifact after a chapter: `$rebuildChapter` strands non-chapter residue
+    // as a root-level STRING, which the adaptor wraps in an implied paragraph — no ParaNode, no
+    // marker byte. One whose content re-tokenizes to only `\ca`/`\cp` material settles through
+    // the CHAPTER scope (the region arm), so both halves must fold the literal onto `altnumber`
+    // and splice the implied paragraph's whole slot away — the second region shape (after the
+    // `\cp` paragraph) whose virtual splice removes more than the chapter's own slot.
+    name: "typed ca literal in a chapter-adjacent implied paragraph",
+    usj: {
+      type: "USJ",
+      version: "3.1",
+      content: [
+        { type: "book", marker: "id", code: "GEN", content: ["GEN"] },
+        { type: "chapter", marker: "c", number: "1" },
+        "seed literal",
+        { type: "para", marker: "p", content: ["body text"] },
+        { type: "para", marker: "p", content: ["depart here"] },
+      ],
+    },
+    $edit: () => {
+      // Caret anchored at offset 0 so the termination check sees no just-typed terminator and
+      // the literal stays PENDING (the same anchoring note as "marker literal typed
+      // mid-paragraph" above).
+      const text = $textContaining("seed literal");
+      text.setTextContent("\\ca 3 \\ca*");
+      text.select(0, 0);
+    },
+  },
+  {
     // Both halves must fold the edited `\cat` value back onto the note's `category` — the run's
     // displayed bytes win, and the serialized note field must follow them in the virtual output
     // exactly as the real settle's `setCategory` does.

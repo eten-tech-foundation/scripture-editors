@@ -34,6 +34,7 @@ import {
   $createAttributeRunNode,
   $createChapterNode,
   $createCharNode,
+  $createImpliedParaNode,
   $createMarkerNode,
   $createMilestoneNode,
   $createNoteNode,
@@ -43,6 +44,7 @@ import {
   $isChapterNode,
   $isAttributeRunNode,
   $isCharNode,
+  $isImpliedParaNode,
   $isMarkerNode,
   $isNoteNode,
   $isUnknownNode,
@@ -2045,6 +2047,74 @@ describe("$settleScopeForNode", () => {
       const char = $getRoot().getChildren().find($isCharNode);
       if (!char) throw new Error("expected a root-level CharNode");
       expect($settleScopeForNode(char)).toBeUndefined();
+    });
+  });
+
+  // The typed-literal settle artifact: `$rebuildChapter`'s output strands non-chapter residue as
+  // a root-level string, which the adaptor wraps in an IMPLIED paragraph — no `ParaNode`, no
+  // marker byte. One holding only `\ca`/`\cp` material joins the chapter region on the chars'
+  // terms; one holding real content stays outside it (and, being no scope itself, has none).
+  it("returns the adjacent chapter for text inside an implied paragraph of only \\ca material", () => {
+    // Bare environment, deliberately without the MarkerEditPlugin: with the plugin mounted the
+    // seeded terminated literal settles (folds) in the seeding commit itself — the very behavior
+    // chapterAttributeSettle.test.tsx drives end-to-end — leaving no implied paragraph to probe.
+    // The scope walk is pure tree geometry, pinned here on the raw shape.
+    const { editor } = createBasicTestEnvironment([TypedMarkNode, ...usjReactNodes], () => {
+      $getRoot().append(
+        $createChapterNode("1").append($createTextNode(getVisibleOpenMarkerText("c", "1"))),
+        $createImpliedParaNode().append($createTextNode("\\ca 3 \\ca*")),
+        $createParaNode("p").append($createMarkerNode("p"), $createTextNode(`${NBSP}body`)),
+      );
+    });
+    editor.getEditorState().read(() => {
+      const chapter = $getRoot().getChildren().find($isChapterNode);
+      if (!chapter) throw new Error("expected a ChapterNode");
+      const impliedPara = $getRoot().getChildren().find($isImpliedParaNode);
+      if (!impliedPara) throw new Error("expected an ImpliedParaNode");
+      const literal = impliedPara.getFirstChild();
+      if (!literal) throw new Error("expected the literal text");
+      expect($settleScopeForNode(literal)).toBe(chapter);
+      expect($settleScopeForNode(impliedPara)).toBe(chapter);
+    });
+  });
+
+  it("returns undefined for text inside a chapter-adjacent implied paragraph of real content", async () => {
+    const { editor } = await testEnvironment(() => {
+      $getRoot().append(
+        $createChapterNode("1").append($createTextNode(getVisibleOpenMarkerText("c", "1"))),
+        $createImpliedParaNode().append($createTextNode("plain words")),
+        $createParaNode("p").append($createMarkerNode("p"), $createTextNode(`${NBSP}body`)),
+      );
+    });
+    editor.getEditorState().read(() => {
+      const impliedPara = $getRoot().getChildren().find($isImpliedParaNode);
+      if (!impliedPara) throw new Error("expected an ImpliedParaNode");
+      const literal = impliedPara.getFirstChild();
+      if (!literal) throw new Error("expected the literal text");
+      expect($settleScopeForNode(literal)).toBeUndefined();
+    });
+  });
+
+  it("returns the chapter for an implied paragraph reached through an intervening \\ca char", () => {
+    // Bare environment for the same reason as the only-\ca pin above.
+    const { editor } = createBasicTestEnvironment([TypedMarkNode, ...usjReactNodes], () => {
+      $getRoot().append(
+        $createChapterNode("1").append($createTextNode(getVisibleOpenMarkerText("c", "1"))),
+        $createCharNode("ca").append(
+          $createMarkerNode("ca"),
+          $createTextNode(`${NBSP}3`),
+          $createMarkerNode("ca", "closing"),
+        ),
+        $createImpliedParaNode().append($createTextNode("\\cp 1")),
+        $createParaNode("p").append($createMarkerNode("p"), $createTextNode(`${NBSP}body`)),
+      );
+    });
+    editor.getEditorState().read(() => {
+      const chapter = $getRoot().getChildren().find($isChapterNode);
+      if (!chapter) throw new Error("expected a ChapterNode");
+      const impliedPara = $getRoot().getChildren().find($isImpliedParaNode);
+      if (!impliedPara) throw new Error("expected an ImpliedParaNode");
+      expect($settleScopeForNode(impliedPara)).toBe(chapter);
     });
   });
 });

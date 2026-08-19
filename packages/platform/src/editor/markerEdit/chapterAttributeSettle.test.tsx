@@ -25,8 +25,11 @@ import {
   $createRangeSelection,
   $createTextNode,
   $getRoot,
+  $getSelection,
+  $isRangeSelection,
   $isTextNode,
   $setSelection,
+  LexicalEditor,
   TextNode,
   UNDO_COMMAND,
 } from "lexical";
@@ -36,6 +39,7 @@ import {
   $chapterPubnumberRunPieces,
   $isChapterNode,
   $isCharNode,
+  $isImpliedParaNode,
   $isMarkerNode,
   $isParaNode,
   ChapterNode,
@@ -967,6 +971,178 @@ describe("a real \\cp paragraph folds back onto its chapter", () => {
     editor.getEditorState().read(() => {
       expect($findChapter().getPubnumber()).toBeUndefined();
       expect($findCpPara()).toBeDefined();
+    });
+  });
+});
+
+/**
+ * The typed-literal-after-the-chapter journey. A `\` typed at the chapter glyph's end settles
+ * through `$rebuildChapter`, whose tokenized output strands the non-chapter residue as a
+ * root-level STRING — the adaptor wraps it in an `implied-para`, a paragraph the settle
+ * fabricated (the user never typed `\p`, and the file carries no marker byte for it). That
+ * implied paragraph is neither a `ParaNode` nor a chapter-adjacent `\ca`/`\cp` node, so before
+ * the region arm it had NO settle scope at all: completing the literal to `\ca 3 \ca*` could
+ * never re-tokenize, never turned green, and never folded — it stayed pending forever.
+ *
+ * The fix: a chapter-adjacent implied paragraph whose content re-tokenizes to ONLY `\ca`/`\cp`
+ * material joins the chapter settle REGION on the same terms as the first-class chars — its
+ * bytes carry no paragraph marker, so `\c 1` and `\ca 3 \ca*` re-tokenize together and the
+ * tokenizer stays the single fold authority. A paragraph with real content keeps today's
+ * behavior: a REAL `\p`'s marker byte blocks the fold in the file, and non-attribute material
+ * in an implied paragraph stays outside the region.
+ */
+describe("typed \\ca literal in the chapter-adjacent implied paragraph", () => {
+  function $typeAtCaret(text: string): void {
+    const selection = $getSelection();
+    if (!$isRangeSelection(selection)) throw new Error("expected a range selection");
+    selection.insertText(text);
+  }
+
+  /** The single implied-para at root, or undefined. */
+  function $findImpliedPara() {
+    return $getRoot().getChildren().find($isImpliedParaNode);
+  }
+
+  /** Types `\` at the end of the chapter's `\c 1` glyph and departs, settling the literal into
+   * the fabricated implied paragraph after the chapter (the artifact this suite pins). */
+  async function typeBackslashIntoChapterAndDepart(editor: LexicalEditor): Promise<void> {
+    await act(async () =>
+      editor.update(() => {
+        const glyph = requireDefined($chapterGlyphTextNode($findChapter()), "glyph not found");
+        glyph.select(glyph.getTextContentSize(), glyph.getTextContentSize());
+      }),
+    );
+    await act(async () => editor.update(() => $typeAtCaret("\\")));
+    await act(async () =>
+      editor.update(() => {
+        $textOutsideChapter().select(0, 0);
+      }),
+    );
+    await act(async () => Promise.resolve());
+  }
+
+  /** Places the collapsed caret directly after the `\` of the implied paragraph's literal. */
+  function $selectAfterLiteralBackslash(): void {
+    const impliedPara = requireDefined($findImpliedPara(), "implied paragraph not found");
+    const literal = impliedPara
+      .getChildren()
+      .find((node): node is TextNode => $isTextNode(node) && node.getTextContent().includes("\\"));
+    const text = requireDefined(literal, "literal backslash text not found");
+    const at = text.getTextContent().indexOf("\\") + 1;
+    text.select(at, at);
+  }
+
+  it("completing the literal to \\ca 3 \\ca* becomes the ca char and folds, byte-identical with a reload", async () => {
+    const { editor } = await renderChapterEditor(chapterUsj());
+
+    await typeBackslashIntoChapterAndDepart(editor);
+
+    // The mid-journey artifact: the literal `\` sits in a fabricated implied paragraph after
+    // the chapter — the chapter's own glyph is canonical again.
+    editor.getEditorState().read(() => {
+      const impliedPara = requireDefined($findImpliedPara(), "implied paragraph not found");
+      expect(impliedPara.getTextContent()).toBe("\\");
+      const glyph = requireDefined($chapterGlyphTextNode($findChapter()), "glyph not found");
+      expect(glyph.getTextContent()).toBe(getVisibleOpenMarkerText("c", "1"));
+    });
+
+    // Return to the literal and finish typing TJ's sequence, character by character.
+    await act(async () => editor.update(() => $selectAfterLiteralBackslash()));
+    for (const ch of "ca 3 \\ca*") await act(async () => editor.update(() => $typeAtCaret(ch)));
+    await act(async () =>
+      editor.update(() => {
+        $textOutsideChapter().select(0, 0);
+      }),
+    );
+    await act(async () => Promise.resolve());
+
+    editor.getEditorState().read(() => {
+      const chapter = $findChapter();
+      expect(chapter.getAltnumber()).toBe("3");
+      expect(chapter.getNumber()).toBe("1");
+      // The artifact is gone — folded onto the chapter, nothing left beside it.
+      expect(
+        $getRoot()
+          .getChildren()
+          .map((child) => child.getType()),
+      ).toEqual(["book", "chapter", "para"]);
+      const pieces = $chapterAltnumberRunPieces(chapter);
+      expect(pieces.opener?.getTextContent()).toBe("\\ca");
+      expect(pieces.value?.getTextContent()).toBe(`${NBSP}3`);
+      expect(pieces.closer?.getTextContent()).toBe("\\ca*");
+    });
+
+    // Byte-identity with a reload of `\c 1 \ca 3 \ca*` — the settled document IS the folded
+    // USJ, not merely convergent on the next load.
+    initializeDeserialize(undefined);
+    const settledUsj = deserializeSerializedEditorState(editor.getEditorState().toJSON());
+    expect(settledUsj?.content).toEqual([
+      { type: "book", marker: "id", code: "GEN", content: ["GEN"] },
+      { type: "chapter", marker: "c", number: "1", altnumber: "3" },
+      { type: "para", marker: "p", content: ["body text"] },
+    ]);
+  });
+
+  it("never folds ca material out of a real \\p paragraph (real content keeps its paragraph)", async () => {
+    const { editor } = await renderChapterEditor(chapterUsj());
+
+    // Type the literal at the end of the real paragraph's content — the paragraph's own `\p`
+    // byte blocks the fold in the file, so the span settles INSIDE the paragraph.
+    await act(async () =>
+      editor.update(() => {
+        const body = $textOutsideChapter();
+        body.setTextContent("body text \\ca 3 \\ca*");
+        body.select(body.getTextContentSize(), body.getTextContentSize());
+      }),
+    );
+    await act(async () =>
+      editor.update(() => {
+        const glyph = requireDefined($chapterGlyphTextNode($findChapter()), "glyph not found");
+        glyph.select(0, 0);
+      }),
+    );
+    await act(async () => Promise.resolve());
+
+    editor.getEditorState().read(() => {
+      expect($findChapter().getAltnumber()).toBeUndefined();
+      expect(
+        $getRoot()
+          .getChildren()
+          .map((child) => child.getType()),
+      ).toEqual(["book", "chapter", "para"]);
+      const para = requireDefined($getRoot().getChildren().find($isParaNode), "para not found");
+      const char = para.getChildren().find($isCharNode);
+      expect(char?.getMarker()).toBe("ca");
+    });
+  });
+
+  it("keeps non-attribute material in the implied paragraph literal (outside the region)", async () => {
+    const { editor } = await renderChapterEditor(chapterUsj());
+
+    await typeBackslashIntoChapterAndDepart(editor);
+    await act(async () => editor.update(() => $selectAfterLiteralBackslash()));
+    for (const ch of "nd hi\\nd*") await act(async () => editor.update(() => $typeAtCaret(ch)));
+    await act(async () =>
+      editor.update(() => {
+        $textOutsideChapter().select(0, 0);
+      }),
+    );
+    await act(async () => Promise.resolve());
+
+    // `\nd` is not chapter-attribute material: the implied paragraph is NOT in the chapter
+    // region, so the literal keeps today's behavior (no settle scope) — no root char span is
+    // fabricated, no real paragraph materializes, and the chapter is untouched.
+    editor.getEditorState().read(() => {
+      const chapter = $findChapter();
+      expect(chapter.getAltnumber()).toBeUndefined();
+      expect(chapter.getNumber()).toBe("1");
+      const impliedPara = requireDefined($findImpliedPara(), "implied paragraph not found");
+      expect(impliedPara.getTextContent()).toBe("\\nd hi\\nd*");
+      expect(
+        $getRoot()
+          .getChildren()
+          .map((child) => child.getType()),
+      ).toEqual(["book", "chapter", "implied-para", "para"]);
     });
   });
 });

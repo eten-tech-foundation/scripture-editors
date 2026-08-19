@@ -37,6 +37,7 @@ import {
   $isChapterNode,
   $isCharNode,
   $isImmutableUnmatchedNode,
+  $isImpliedParaNode,
   $isMarkerNode,
   $isMilestoneNode,
   $isNoteNode,
@@ -47,8 +48,10 @@ import {
   $milestoneAttributeRunPieces,
   $verseAttributeRunPieces,
   getEditableCallerText,
+  getMarker as bundledGetMarker,
   isMilestoneHeuristicName,
   ChapterNode,
+  ImpliedParaNode,
   LoggerBasic,
   MarkerLookup,
   MarkerType,
@@ -1367,6 +1370,63 @@ const CHAPTER_ATTRIBUTE_CHAR_MARKERS: ReadonlySet<string> = new Set(["ca", "cp"]
 const CHAPTER_ATTRIBUTE_PARA_MARKER = "cp";
 
 /**
+ * Whether `node` is an IMPLIED paragraph whose content re-tokenizes to ONLY chapter-attribute
+ * (`\ca`/`\cp`) material — the settle-artifact shape a typed literal takes right after a
+ * chapter: `$rebuildChapter`'s tokenized output strands non-chapter residue as a root-level
+ * STRING, which the adaptor wraps in an `ImpliedParaNode`. That wrapper carries NO paragraph
+ * marker byte (the file has no `\p` there), so its bytes and the chapter's legitimately
+ * re-tokenize TOGETHER — which is exactly what the fold needs. It joins the chapter settle
+ * region on the same terms as a first-class `\ca`/`\cp` char.
+ *
+ * The membership test is the tokenizer itself — never a byte regex — so the region's meaning
+ * cannot drift from the fold authority: tokenize the implied paragraph's own fragment bytes,
+ * unwrap the tokenizer's fabricated default `\p` (body-context fragments wrap leading inline
+ * material in one; bytes that literally START with `\p` are NOT unwrapped — a typed `\p` is
+ * real paragraph material, not an artifact wrapper), and require every item to be a `\ca`/`\cp`
+ * char or para, or insignificant whitespace. Anything else — plain words, other markers, a
+ * preserved-node sentinel — keeps the implied paragraph OUTSIDE the region: real content never
+ * settles through the chapter, so a `\nd` literal cannot be restructured into a fabricated
+ * root char, and an implied paragraph of ordinary text keeps its (deliberate) no-scope rest.
+ *
+ * Classified with the BUNDLED marker table on both the fragment walk and the tokenize: region
+ * membership must be identical for every caller — the mutating settle, the read-only settle,
+ * and the scope resolver, some of which have no `MarkerLookup` in reach ($settleScopeForNode) —
+ * and `ca`/`cp` folding is ParatextData parse behavior, not a stylesheet-configurable property
+ * (the same reason CHAPTER_ATTRIBUTE_CHAR_MARKERS is a literal set).
+ *
+ * Cost: the tokenize runs only for an `ImpliedParaNode` sitting in a chapter-adjacency probe —
+ * a rare, transient shape whose content is a keystroke-sized literal. Every other node fails
+ * the instanceof check first.
+ *
+ * Read-only: safe inside `editor.getEditorState().read(...)` or an update.
+ */
+function $isChapterAttributeImpliedPara(node: LexicalNode): node is ImpliedParaNode {
+  if (!$isImpliedParaNode(node)) return false;
+  const out: FragmentAccumulator = { text: "", spans: [], sentinels: [] };
+  $appendChildrenFragment(node, out, bundledGetMarker);
+  if (out.sentinels.length > 0) return false;
+  const text = out.text;
+  if (text.trim() === "") return false;
+  const content = usfmFragmentToUsjContent(text, { getMarker: bundledGetMarker });
+  const [first] = content;
+  const items =
+    content.length === 1 &&
+    typeof first === "object" &&
+    first.type === "para" &&
+    first.marker === "p" &&
+    !/^\s*\\p\s/.test(text)
+      ? (first.content ?? [])
+      : content;
+  if (items.length === 0) return false;
+  return items.every((item) =>
+    typeof item === "string"
+      ? item.trim() === ""
+      : (item.type === "char" || item.type === "para") &&
+        (item.marker === "ca" || item.marker === CHAPTER_ATTRIBUTE_PARA_MARKER),
+  );
+}
+
+/**
  * The chapter settle REGION beyond `chapter`'s own children: the contiguous run of first-class
  * `\ca`/`\cp` char spans sitting at document root directly after it, plus — closing the run — a
  * real `\cp` PARAGRAPH. Their bytes re-tokenize together with the chapter's (`\c 1 \ca 3\ca*`
@@ -1378,6 +1438,10 @@ const CHAPTER_ATTRIBUTE_PARA_MARKER = "cp";
  * A `\cp` paragraph CLOSES the region because that is what it does in the file: with no closing
  * marker its span runs to the next block boundary, so nothing past it is still the chapter's.
  *
+ * An IMPLIED paragraph holding only `\ca`/`\cp` material ({@link $isChapterAttributeImpliedPara}
+ * — the typed-literal settle artifact) is a continuing member like the chars: its bytes carry no
+ * paragraph marker, so nothing about it bounds the chapter's span in the file.
+ *
  * Exported for the read-only settle (virtualSettle.utils.ts), which must splice the SAME region
  * out of its serialized output that `$rebuildChapter` replaces in the live tree.
  *
@@ -1386,7 +1450,10 @@ const CHAPTER_ATTRIBUTE_PARA_MARKER = "cp";
 export function $chapterAdjacentAttributeNodes(chapter: ChapterNode): LexicalNode[] {
   const region: LexicalNode[] = [];
   for (let sibling = chapter.getNextSibling(); sibling; sibling = sibling.getNextSibling()) {
-    if ($isCharNode(sibling) && CHAPTER_ATTRIBUTE_CHAR_MARKERS.has(sibling.getMarker())) {
+    if (
+      ($isCharNode(sibling) && CHAPTER_ATTRIBUTE_CHAR_MARKERS.has(sibling.getMarker())) ||
+      $isChapterAttributeImpliedPara(sibling)
+    ) {
       region.push(sibling);
       continue;
     }
@@ -1399,16 +1466,19 @@ export function $chapterAdjacentAttributeNodes(chapter: ChapterNode): LexicalNod
 
 /**
  * The chapter that `rootChild` — a node sitting directly under the document root — is an
- * attribute marker of, reached through only other chapter attribute chars; `undefined` when it is
- * not one, or when anything but a chapter precedes it. The inverse of
- * {@link $chapterAdjacentAttributeNodes}: a root child is in a chapter's region exactly when that
- * chapter is the one this returns.
+ * attribute marker of, reached through only other chapter attribute chars (or attribute-material
+ * implied paragraphs); `undefined` when it is not one, or when anything but a chapter precedes
+ * it. The inverse of {@link $chapterAdjacentAttributeNodes}: a root child is in a chapter's
+ * region exactly when that chapter is the one this returns.
  *
  * Read-only: safe inside `editor.getEditorState().read(...)` or an update.
  */
 function $chapterOfAdjacentAttributeNode(rootChild: LexicalNode): ChapterNode | undefined {
+  const isContinuingMember = (node: LexicalNode): boolean =>
+    ($isCharNode(node) && CHAPTER_ATTRIBUTE_CHAR_MARKERS.has(node.getMarker())) ||
+    $isChapterAttributeImpliedPara(node);
   const isAttributeNode =
-    ($isCharNode(rootChild) && CHAPTER_ATTRIBUTE_CHAR_MARKERS.has(rootChild.getMarker())) ||
+    isContinuingMember(rootChild) ||
     ($isParaNode(rootChild) && rootChild.getMarker() === CHAPTER_ATTRIBUTE_PARA_MARKER);
   if (!isAttributeNode) return undefined;
   for (
@@ -1417,8 +1487,7 @@ function $chapterOfAdjacentAttributeNode(rootChild: LexicalNode): ChapterNode | 
     sibling = sibling.getPreviousSibling()
   ) {
     if ($isChapterNode(sibling)) return sibling;
-    if (!($isCharNode(sibling) && CHAPTER_ATTRIBUTE_CHAR_MARKERS.has(sibling.getMarker())))
-      return undefined;
+    if (!isContinuingMember(sibling)) return undefined;
   }
   return undefined;
 }

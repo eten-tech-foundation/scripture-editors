@@ -2,8 +2,12 @@
  * Marker-menu context — builds a `MarkerMenuContext` snapshot from the live
  * Lexical selection. Port of PT9's `MarkerDropdownEditHandler.HandleBackslash` selection-shape
  * rule (`MarkerDropdownEditHandler.cs:96-139`): a non-collapsed selection is always character
- * source (`:130-137`); a collapsed caret is paragraph source only at the paragraph's content
- * start (immediately after the visible marker prefix), otherwise character source.
+ * source (`:130-137`); a collapsed caret is paragraph source only ON the paragraph's own marker
+ * prefix — inside the glyph, at its edges, or directly right of it before the separator space
+ * ({@link $isAtParagraphMarkerPrefix}) — otherwise character source. Directly AFTER the
+ * separator, where content starts, `\` is a character action (owner-directed boundary; the
+ * original port counted content start as paragraph source, which put the paragraph palette
+ * where the user is about to type content).
  *
  * Called from `EditorRef.getMarkerMenuContext` (`Editor.tsx`) via
  * `editorRef.current?.getEditorState().read(...)` rather than `editor.read(...)` - the latter
@@ -105,8 +109,12 @@ function $getFirstLeaf(node: LexicalNode): LexicalNode {
  * CharNode's first leaf is its opener MarkerNode glyph — a caret at offset 0 of that glyph
  * IS the visible content start.
  *
- * Exported for `markerMenuApply.utils.ts`'s paragraph-kind retag-vs-split routing — the same
- * PT9 probe decides both which menu SOURCE to offer and how a paragraph pick APPLIES.
+ * Exported for `markerMenuApply.utils.ts`'s paragraph-kind retag-vs-split routing, which is
+ * this probe's ONLY consumer now: a paragraph pick (from the Enter menu or any explicit flow)
+ * still RETAGS at content start rather than splitting. The `\` palette's SOURCE no longer uses
+ * it — the menu boundary is the deliberately narrower {@link $isAtParagraphMarkerPrefix}
+ * (after-the-separator caret offers characters), and the two probes are split so changing the
+ * menu boundary could not silently change how a pick applies.
  */
 export function $isAtParagraphContentStart(
   para: ParaNode,
@@ -127,6 +135,36 @@ export function $isAtParagraphContentStart(
   }
   if (!contentStart) return false;
   return anchorNode.is($getFirstLeaf(contentStart)) && offset === 0;
+}
+
+/**
+ * True when the collapsed caret sits ON `para`'s own marker prefix: inside the synthesized
+ * glyph's text (its edges included), or directly right of the glyph BEFORE the separator space
+ * (the separator node's offset 0). This is the `\` palette's SOURCE boundary: the paragraph
+ * palette — whose pick retags the paragraph — belongs to the marker glyph itself, while the
+ * caret directly AFTER the separator is where content starts, so `\` there offers the inline
+ * (character) palette like any other content position.
+ *
+ * Deliberately narrower than {@link $isAtParagraphContentStart}: that probe also counts the
+ * after-the-separator content start (and the first content leaf's offset 0), and it keeps that
+ * wider boundary for its one remaining job — routing a paragraph PICK to retag-vs-split in
+ * `markerMenuApply.utils.ts`. Menu SOURCE and apply ROUTING are separate probes on purpose.
+ */
+function $isAtParagraphMarkerPrefix(
+  para: ParaNode,
+  anchorNode: LexicalNode,
+  offset: number,
+): boolean {
+  const firstChild = para.getFirstChild();
+  if (!firstChild || !$isSynthesizedMarkerNode(firstChild)) return false;
+  if (anchorNode.is(firstChild)) return true;
+  const separator = firstChild.getNextSibling();
+  return (
+    separator !== null &&
+    $isMarkerTrailingSeparator(separator) &&
+    anchorNode.is(separator) &&
+    offset === 0
+  );
 }
 
 /** iframe-relative viewport coords of the live DOM selection, or `undefined` if unavailable. */
@@ -163,7 +201,7 @@ export function $getMarkerMenuContext(): MarkerMenuContextSnapshot | undefined {
   // style, so the paragraph list is what the region can actually accept. A text selection stays
   // character source wherever it sits: wrapping is a character action.
   const source: MarkerMenuContext["source"] =
-    !hasTextSelection && (!para || $isAtParagraphContentStart(para, anchorNode, offset))
+    !hasTextSelection && (!para || $isAtParagraphMarkerPrefix(para, anchorNode, offset))
       ? "paragraph"
       : "character";
 

@@ -14,6 +14,15 @@
  * The guard half: only the unknown-split artifact rejoins. A paragraph whose own marker is a
  * KNOWN paragraph marker (a user-authored `\p`/`\q1`) has real blockness — neither renaming its
  * glyph to a char marker nor any unrelated settle may merge it into its predecessor.
+ *
+ * The rename's sibling case: the marker stops being a marker AT ALL. Deleting the `\` of an
+ * unknown paragraph's glyph leaves plain text (`asdf`) with no marker interpretation — in the
+ * file, `\p stuff` + newline + `asdf` is ONE paragraph (a line without a leading marker continues
+ * the previous paragraph, PT9's token join). The same widened `[previous, para]` scope applies;
+ * re-tokenizing the artifact alone instead fabricates a default `\p` around the now-plain word.
+ * An unknown paragraph LOADED from file (not a split artifact) rejoins by the same rule — the
+ * joined bytes are what the tokenizer sees — and with no paragraph predecessor the degraded
+ * bytes take the tokenizer's body-context default (`\p`), pinned against the tokenizer directly.
  */
 import {
   $retypeGlyph,
@@ -61,6 +70,17 @@ function $seedParagraph(): void {
       $createMarkerNode("p"),
       $createMarkerTrailingSeparator(),
       $createTextNode("some stuff"),
+    ),
+  );
+}
+
+/** Seeds `\p stuff` with its editable `[glyph, separator]` prefix. */
+function $seedParagraph2(): void {
+  $getRoot().append(
+    $createParaNode("p").append(
+      $createMarkerNode("p"),
+      $createMarkerTrailingSeparator(),
+      $createTextNode("stuff"),
     ),
   );
 }
@@ -189,6 +209,209 @@ describe("correcting an unknown block marker to an inline marker", () => {
       expect(paras[0].getTextContent()).not.toContain("two");
       expect(paras[1].getMarker()).toBe("p");
     });
+  });
+
+  it("rejoins when the marker stops being a marker: deleting \\asdf's backslash settles to ONE \\p stuff asdf", async () => {
+    const { editor } = await testEnvironment($seedParagraph2);
+
+    // Type `\asdf ` at the end of "stuff", character by character.
+    await act(async () =>
+      editor.update(() => {
+        const body = $getRoot()
+          .getAllTextNodes()
+          .find((node) => !$isMarkerNode(node) && node.getTextContent().includes("stuff"));
+        if (!$isTextNode(body)) throw new Error("seed body text not found");
+        body.select(body.getTextContentSize(), body.getTextContentSize());
+      }),
+    );
+    for (const ch of "\\asdf ") await act(async () => editor.update(() => $typeAtCaret(ch)));
+
+    // Correct so far: the terminated unknown marker split off its own (empty) paragraph.
+    editor.getEditorState().read(() => {
+      const paras = $getRoot().getChildren().filter($isParaNode);
+      expect(paras).toHaveLength(2);
+      expect(paras[1].getMarker()).toBe("asdf");
+    });
+
+    // Delete the `\` of the `\asdf` glyph, live at the caret: the glyph's bytes are now the
+    // plain word `asdf` — no marker interpretation remains.
+    await act(async () =>
+      editor.update(() => {
+        const glyph = requireDefined(
+          $paraAt(1).getChildren().filter($isMarkerNode).at(0),
+          "unknown paragraph glyph missing",
+        );
+        $retypeGlyph(glyph, "asdf");
+      }),
+    );
+    await act(async () =>
+      editor.update(() => {
+        const body = $paraAt(0)
+          .getChildren()
+          .find(
+            (node) =>
+              $isTextNode(node) && !$isMarkerNode(node) && node.getTextContent().includes("stuff"),
+          );
+        if (!$isTextNode(body)) throw new Error("first paragraph body not found");
+        body.select(0, 0);
+      }),
+    );
+    await act(async () => Promise.resolve()); // flush the deferred caret-departure resolve
+
+    editor.getEditorState().read(() => {
+      const paras = $getRoot().getChildren().filter($isParaNode);
+      expect(paras).toHaveLength(1);
+      expect(paras[0].getMarker()).toBe("p");
+    });
+    // Byte-exactly what re-tokenizing the joined displayed bytes produces: `\p stuff` + the
+    // degraded word `asdf` + the split's separator space (paragraph-final, which the USFM
+    // writer's newline consumes on save — invariants §3).
+    expect(usjOf(editor)?.content).toEqual(usfmFragmentToUsjContent("\\p stuff asdf ", {}));
+  });
+
+  it("does not merge when a REAL \\p glyph's backslash is deleted (user-authored blockness)", async () => {
+    const { editor } = await testEnvironment(() => {
+      $getRoot().append(
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createMarkerTrailingSeparator(),
+          $createTextNode("one"),
+        ),
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createMarkerTrailingSeparator(),
+          $createTextNode("two"),
+        ),
+      );
+    });
+
+    await act(async () =>
+      editor.update(() => {
+        const glyph = requireDefined(
+          $paraAt(1).getChildren().filter($isMarkerNode).at(0),
+          "second paragraph glyph missing",
+        );
+        $retypeGlyph(glyph, "p");
+      }),
+    );
+    await act(async () =>
+      editor.update(() => {
+        const body = $paraAt(0)
+          .getChildren()
+          .find(
+            (node) => $isTextNode(node) && !$isMarkerNode(node) && node.getTextContent() === "one",
+          );
+        if (!$isTextNode(body)) throw new Error("first paragraph body not found");
+        body.select(0, 0);
+      }),
+    );
+    await act(async () => Promise.resolve());
+
+    editor.getEditorState().read(() => {
+      const paras = $getRoot().getChildren().filter($isParaNode);
+      expect(paras).toHaveLength(2);
+      expect(paras[0].getTextContent()).not.toContain("two");
+      expect(paras[1].getTextContent()).toContain("two");
+    });
+  });
+
+  it("rejoins a LOADED unknown paragraph the same way when its backslash is deleted", async () => {
+    // Not a split artifact — the unknown paragraph was authored in the file (`\p stuff` newline
+    // `\asdf more`). Deleting the `\` leaves `asdf more` with no marker: in the file that line
+    // continues the previous paragraph, so the same rejoin applies — the joined bytes are what
+    // the tokenizer sees.
+    const { editor } = await testEnvironment(() => {
+      $getRoot().append(
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createMarkerTrailingSeparator(),
+          $createTextNode("stuff"),
+        ),
+        $createParaNode("asdf").append(
+          $createMarkerNode("asdf"),
+          $createMarkerTrailingSeparator(),
+          $createTextNode("more"),
+        ),
+      );
+    });
+
+    await act(async () =>
+      editor.update(() => {
+        const glyph = requireDefined(
+          $paraAt(1).getChildren().filter($isMarkerNode).at(0),
+          "unknown paragraph glyph missing",
+        );
+        $retypeGlyph(glyph, "asdf");
+      }),
+    );
+    await act(async () =>
+      editor.update(() => {
+        const body = $paraAt(0)
+          .getChildren()
+          .find(
+            (node) =>
+              $isTextNode(node) && !$isMarkerNode(node) && node.getTextContent() === "stuff",
+          );
+        if (!$isTextNode(body)) throw new Error("first paragraph body not found");
+        body.select(0, 0);
+      }),
+    );
+    await act(async () => Promise.resolve());
+
+    editor.getEditorState().read(() => {
+      expect($getRoot().getChildren().filter($isParaNode)).toHaveLength(1);
+    });
+    expect(usjOf(editor)?.content).toEqual(usfmFragmentToUsjContent("\\p stuff asdf more", {}));
+  });
+
+  it("degrades to the tokenizer's default \\p when the unknown paragraph has no predecessor", async () => {
+    // No paragraph to rejoin: the degraded bytes re-tokenize alone, and the tokenizer's
+    // body-context default wraps them in `\p` — pinned against the tokenizer on the same bytes.
+    const { editor } = await testEnvironment(() => {
+      $getRoot().append(
+        $createParaNode("asdf").append(
+          $createMarkerNode("asdf"),
+          $createMarkerTrailingSeparator(),
+          $createTextNode("more"),
+        ),
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createMarkerTrailingSeparator(),
+          $createTextNode("park here"),
+        ),
+      );
+    });
+
+    await act(async () =>
+      editor.update(() => {
+        const glyph = requireDefined(
+          $paraAt(0).getChildren().filter($isMarkerNode).at(0),
+          "unknown paragraph glyph missing",
+        );
+        $retypeGlyph(glyph, "asdf");
+      }),
+    );
+    await act(async () =>
+      editor.update(() => {
+        const body = $paraAt(1)
+          .getChildren()
+          .find(
+            (node) =>
+              $isTextNode(node) && !$isMarkerNode(node) && node.getTextContent() === "park here",
+          );
+        if (!$isTextNode(body)) throw new Error("parking paragraph body not found");
+        body.select(0, 0);
+      }),
+    );
+    await act(async () => Promise.resolve());
+
+    editor.getEditorState().read(() => {
+      const paras = $getRoot().getChildren().filter($isParaNode);
+      expect(paras).toHaveLength(2);
+      expect(paras[0].getMarker()).toBe("p");
+      expect(paras[1].getTextContent()).toContain("park here");
+    });
+    expect(usjOf(editor)?.content?.slice(0, 1)).toEqual(usfmFragmentToUsjContent("asdf more", {}));
   });
 
   it("does not merge a genuine \\p whose first content child is a \\w span on an unrelated settle", async () => {
