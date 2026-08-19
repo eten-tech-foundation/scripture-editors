@@ -187,24 +187,25 @@ export async function pressKeyThroughDom(editor: LexicalEditor, key: string): Pr
  * @param domUpdateDelayMS - Optional delay in milliseconds to wait for DOM updates after the key
  *   press. Defaults to -1 (no wait). If set to 0 or a positive number, the function will wait for the
  *   specified time before resolving.
- * @returns A promise that resolves after the key press and optional delay.
+ * @returns The dispatched event, so a test can assert whether a handler CLAIMED the press
+ *   (`defaultPrevented`) and not only where the caret ended up — the two differ wherever jsdom would
+ *   perform no movement of its own, and "the caret did not move" alone passes for either reason.
  */
 export async function pressKey(
   editor: LexicalEditor,
   key: string,
   domUpdateDelayMS = -1,
-): Promise<void> {
+): Promise<KeyboardEvent> {
+  const event = new KeyboardEvent("keydown", { key: key, bubbles: true, cancelable: true });
   await act(async () => {
-    editor.dispatchCommand(
-      KEY_DOWN_COMMAND,
-      new KeyboardEvent("keydown", { key: key, bubbles: true, cancelable: true }),
-    );
+    editor.dispatchCommand(KEY_DOWN_COMMAND, event);
   });
 
   if (domUpdateDelayMS >= 0) {
     // Wait for DOM updates to complete
     await new Promise((resolve) => setTimeout(resolve, domUpdateDelayMS));
   }
+  return event;
 }
 
 /**
