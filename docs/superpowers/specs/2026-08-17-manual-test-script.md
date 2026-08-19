@@ -260,3 +260,24 @@ browser selection, or a host setting. Everything else in that wave is pinned by 
     Standard. Then switch to power mode, select Standard, switch back to simple: the editor
     must fall back to Formatted rather than staying in Standard. (Both are gated and unit-tested
     in the host; this is the in-app confirmation.)
+
+These four are the caret cluster; both of the click ones need a real browser, since jsdom has no
+hit testing and paints no caret.
+
+68. **Up/Down inside a verse marker.** Put the caret INSIDE a verse marker's glyph — between the
+    `\` and the `v` — in a verse whose text wraps onto several lines, and press Down. Expect one
+    visual line down within the same verse, NOT a jump to the next verse or the next paragraph.
+    Press Up from the second line and expect to arrive back. Repeat in a paragraph holding several
+    verses on one line (`\v 1 a \v 2 b \v 3 c`): Down and Up must not slide the caret sideways.
+69. **The verse jump still works where it always did.** In a view where the verse number is a badge
+    rather than glyph text (non-editable markers), put the caret at the boundary just after a verse
+    number and press Down: the caret moves to the next verse and the reference display follows.
+70. **Click after a footnote that ends a paragraph.** Click to the RIGHT of the caller. Report what
+    you see — whether a caret appears at all, where, and what Space then does. This is the one
+    measurement no headless test can make (jsdom has no hit testing), and it decides between the two
+    possible landings recorded in `2026-08-19-co-caret.md`.
+71. **Arrow across that footnote, then type.** From the end of the text before it press Right once
+    and type a character: it must land AFTER the footnote, in the paragraph, never inside the note.
+    Press Left and expect the end of the text before the note. Repeat with a footnote ending the
+    LAST paragraph of the chapter — pressing Right repeatedly must not put the caret, or a typed
+    character, inside the note body.

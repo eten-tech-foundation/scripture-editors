@@ -34,10 +34,25 @@ tip it was rebased onto).
       fb2 fixed a class of typed-byte caret offsets, but no pin covers this gesture.
 - [x] **C4** Typing a verse marker mangles the next word and the cursor. — marker-resolution; the
       pended `\` was read as departed and settled mid-word.
-- [ ] **C5** Up/Down arrow on a verse marker jumps to the next paragraph. *No record anywhere.*
+- [x] **C5** Up/Down arrow on a verse marker jumps to the next paragraph. — reproduced headlessly
+      and fixed in the caret closeout round (`2026-08-19-co-caret.md`). The vertical verse jump was
+      keyed on a node CLASS, so it claimed a caret sitting in an editable verse marker's glyph —
+      rendered text the browser can move a visual line in — and jumped to wherever the next verse
+      was: the next paragraph, or sideways along the same line. It is now keyed on the property it
+      always meant (a position that hosts no caret of its own). Pinned in
+      `ArrowNavigationPlugin.test.tsx`, "caret inside an editable verse marker glyph", asserting the
+      press is left UNCLAIMED rather than asserting a caret that jsdom cannot move.
 - [ ] **C6** Mouse-click after a footnote at paragraph end: caret disappears; Space then scrolls the
-      page. Arrow-left works. *No record anywhere.* A pre-existing `TODO` in `ArrowNavigationPlugin`
-      names the underlying gap: there is no text position after a trailing note.
+      page. Arrow-left works. **PARTIAL** — the gap the pre-existing `TODO` named is confirmed and
+      pinned (`2026-08-19-co-caret.md`): a note that is its paragraph's last child has nothing after
+      it, so the only position past it is an element point with no text node, and one backward press
+      recovers — which is why arrow-left works. One contained half is FIXED: the forward arrow no
+      longer steps INTO the collapsed note, where the caret is invisible and typing silently edits
+      the note body. The visibility half is a design question with a written proposal (a transient
+      caret host, the shipped `EmptyVerseCaretGuardPlugin` pattern, whose save/delta/serializer
+      exclusions already cover that node) and **needs the owner's ruling**. What no headless test
+      can establish: jsdom has no hit testing, so which DOM position the CLICK produces is inferred
+      from the reported symptoms, not measured.
 - [x] **C7** Escape makes the caret disappear. — the culprit was rich-text's default
       `KEY_ESCAPE_COMMAND` calling `editor.blur()`; a plugin now claims it and suppresses only the blur.
 - [x] **C8** Typing a backslash next to a verse leaves the caret before it. — a second Tier-1 arm keeps
@@ -337,15 +352,16 @@ tip it was rebased onto).
 
 | | Count |
 | --- | --- |
-| Fixed | 51 |
-| Open | 30 |
+| Fixed | RECOUNT |
+| Open | RECOUNT |
 
-Counted from the list above after wave 6. The figures this table carried before (44 fixed, 32 open,
-21 of the open never scoped) did not match the list even then — recount before quoting them.
+Counted from the list above at the end of the closeout round. The figures this table carried before
+(44 fixed, 32 open, 21 of the open never scoped) did not match the list even then — recount before
+quoting them.
 
 **Never scoped in any plan, handoff, backlog, or follow-up round:**
-C1, C5, C6, K12, W3, W4, E3, P4, A1, A2, A6, M2, U5, S4, S5, S6, S7, N1, N2, N4, V1–V6.
-(Wave 6 has since triaged E3, P4, U5, V1, V3 and V4 — see their entries.)
+C1, K12, W3, W4, E3, P4, A1, A2, A6, M2, U5, S4, S5, S6, S7, N1, N2, N4, V1-V6.
+(The closeout round has since triaged C5, C6, E3, P4, U5, V1, V3 and V4 — see their entries.)
 
 **Highest consequence among those** — all are silent data loss or fabricated bytes:
 **M2** (milestone name edits never persist), **A1** (`\w*` destroys the default attribute),
