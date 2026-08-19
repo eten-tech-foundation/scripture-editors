@@ -106,15 +106,40 @@ Probed while porting: `commitTypedMarker("f")` mid-text settles as
 `{"type":"note","marker":"f","caller":"world","closed":"false"}` — the tokenizer absorbs the
 word AFTER the caret as the note's CALLER. This is byte-identical to passive typing (the
 primitive's whole contract) but it is NOT "commits like Enter" (empty note, default caller,
-paragraph text untouched). **The editor package's own active palette has exactly this behavior
-for `\f` + Space at a mid-text caret** — its harness pin covers only the caret-at-end shape,
-where the two coincide. The invariants §4 row ("commits like Enter, emergent from the
+paragraph text untouched). The invariants §4 row ("commits like Enter, emergent from the
 tokenizer") is only accurate at end-of-text. The HOST is immune: fb2's `shouldSpaceCommit` route
 (note markers commit the palette item like Enter) was KEPT for precisely this reason, so in the
-app `\f` + Space inserts an empty footnote in every caret position. Recommended owner decision:
-either ratify the editor palette's mid-text absorption or give the editor palette the same
-note-marker Space routing the host has. `commitTypedMarker`'s TSDoc and test pin the absorption
-explicitly so the sharp edge is documented, not latent.
+app `\f` + Space inserts an empty footnote in every caret position. `commitTypedMarker`'s TSDoc
+and test pin the absorption explicitly so the sharp edge is documented, not latent.
+
+**Traced afterwards, and it is worse than "the caller" — plus the editor palette really does
+share it.** Three things confirmed by walking the engine:
+
+1. **The remainder of the paragraph becomes note CONTENT, not just the caller.** Tier 2's
+   termination test reads only the text BEFORE the caret, so `hello\f ` fires immediately — but
+   the rebuild it requests is PARAGRAPH-scoped, so the fragment handed to the USFM tokenizer is
+   the whole paragraph. `getNextWord` supplies `caller`, and the note then stays the open
+   container for everything after it. So a mid-text `\f ` swallows the paragraph tail into the
+   footnote, not merely one word.
+2. **The in-editor palette shares the behavior by construction, and applies NO note exemption.**
+   Its Space commit is a bare `selection.insertText(\`${trigger}${typed} \`)` in
+   `libs/shared-react/src/plugins/usj/UsjNodesMenuPlugin.tsx` — the same materialization
+   `commitTypedMarker` performs, with no `kind` check and no note special-case, for every marker
+   kind. The asymmetry is therefore real: the HOST routes note markers to the item commit, the
+   EDITOR palette does not. That asymmetry is undocumented at the editor call site, whose doc
+   comment presents `\f ` → full note as a desirable emergent property without noting the
+   absorption.
+3. **The editor palette has no mid-text regression test of its own.** All four Space-commit pins
+   in `packages/platform/src/editor/markerMenu/markerMenuHarness.test.tsx` place the caret with
+   `select(5, 5)` on a `"hello"` fixture — caret at END, where absorption and "empty note"
+   coincide, and the `\f` one asserts only the marker, never the caller. The fixture cannot
+   express a mid-text caret. The behavior IS pinned mid-text, but only for the host-facing twin
+   in `commitTypedMarker.test.tsx`.
+
+Recommended owner decision, unchanged in shape but better evidenced: either ratify the editor
+palette's mid-text absorption (and document it at `UsjNodesMenuPlugin`'s Space branch), or give
+the editor palette the same note-marker Space routing the host has. Either way the editor
+palette wants a mid-text Space pin, which needs a fixture with text after the caret.
 
 ## Test changes (per the regression contract, per test)
 
