@@ -231,9 +231,13 @@ function appendSerializedSignature(
         out.push(
           SIGNATURE_OPEN,
           "ms",
+          // `marker` mirrored from `$appendSignature`'s fold: a glyph RENAME leaves the displayed
+          // bytes identical on both sides, so only the milestone's own stale `marker` reveals the
+          // rebuild is not a no-op — and `marker` is exactly what the save leg serializes.
           // `attributeOrder` mirrored from `$appendSignature`'s fold: an attribute REORDER
           // (values unchanged) is a real document change — serialized key order follows it.
           JSON.stringify({
+            marker: milestone.marker ?? "",
             sid: milestone.sid ?? null,
             eid: milestone.eid ?? null,
             unknownAttributes: milestone.unknownAttributes ?? null,

@@ -691,6 +691,24 @@ const pendingShapes: PendingShape[] = [
       glyph.select(6, 6);
     },
   },
+  {
+    // A milestone's MARKER lives in node state, not in the glyph bytes the user edits, so a
+    // rename only reaches the document if the settle re-tokenizes it. Both legs must land the
+    // same new name — an equivalence that is NOT vacuous here, because the behavior half (the
+    // rename actually reaching `qt1-s` on both legs) is pinned in
+    // `markerEdit/milestoneMarkerEdit.test.tsx`; this shape adds that the two legs agree and
+    // that their output is a fixed point.
+    name: "milestone marker renamed in its opening glyph",
+    usj: twoParaUsj(["before ", { type: "ms", marker: "qt-s", sid: "q1" }, " after"]),
+    $edit: () => {
+      const glyph = $getRoot()
+        .getAllTextNodes()
+        .find((node) => $isMarkerNode(node) && node.getMarker() === "qt-s");
+      if (!glyph) throw new Error("expected the milestone's opening glyph");
+      glyph.setTextContent("\\qt1-s");
+      glyph.select(6, 6);
+    },
+  },
 ];
 
 describe("settled getUsj — virtual settle equals the real settle", () => {
