@@ -153,6 +153,33 @@ export async function pressEnterAtSelection(
 }
 
 /**
+ * Presses a key the way the browser does: a real `keydown` on the editor's root element, so
+ * Lexical's own `onKeyDown` routing runs — `KEY_DOWN_COMMAND` first, and then, only if nothing
+ * claimed it, the matching `KEY_ARROW_*` command that Lexical and `@lexical/rich-text` handle
+ * themselves.
+ *
+ * Prefer {@link pressKey} for a plugin that claims at `KEY_DOWN_COMMAND`: it is cheaper and says
+ * exactly what it drives. Use this one when the behavior under test involves what LEXICAL does with
+ * an UNCLAIMED press — its arrow handling moves the caret across block boundaries by itself, and a
+ * bare `KEY_DOWN_COMMAND` dispatch cannot see any of that.
+ *
+ * jsdom performs no native caret movement, so what this adds is Lexical's own handling of the key,
+ * not the browser's.
+ *
+ * @param editor - The Lexical editor instance.
+ * @param key - The key name (e.g. "ArrowRight", "ArrowLeft").
+ */
+export async function pressKeyThroughDom(editor: LexicalEditor, key: string): Promise<void> {
+  const rootElement = editor.getRootElement();
+  if (!rootElement) throw new Error("editor has no root element to press a key on");
+  await act(async () => {
+    rootElement.dispatchEvent(
+      new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }),
+    );
+  });
+}
+
+/**
  * Simulates pressing a key by dispatching the KEY_DOWN_COMMAND.
  *
  * @param editor - The Lexical editor instance.

@@ -8,8 +8,14 @@ import { $createImmutableNoteCallerNode, $createImmutableVerseNode } from "../..
 import { getDefaultViewOptions, getViewOptions } from "../../views/view-options.utils";
 import { STANDARD_VIEW_MODE, UNFORMATTED_VIEW_MODE } from "../../views/view-mode.model";
 import { ArrowNavigationPlugin, hasVisualLineBeyondCaret } from "./ArrowNavigationPlugin";
+import { $opaqueBlockAncestor } from "./OpaqueBlockGuardPlugin";
 import { TextDirectionPlugin } from "./TextDirectionPlugin";
-import { baseTestEnvironment, pressKey, updateSelection } from "./react-test.utils";
+import {
+  baseTestEnvironment,
+  pressKey,
+  pressKeyThroughDom,
+  updateSelection,
+} from "./react-test.utils";
 import { act } from "@testing-library/react";
 import {
   $createLineBreakNode,
@@ -2038,6 +2044,235 @@ describe("a table's marker glyphs are crossed whole", () => {
 
     expect(caretOf(editor)).toBe(before);
     expect(caretIsInsideGlyph(editor, paraGlyph!)).toBe(true);
+  });
+});
+
+/**
+ * A read-only construct is not a place a caret can BE. The whole block renders
+ * `contenteditable="false"`, so the browser draws no caret anywhere inside it and its own arrow
+ * handling will not move one out again — which is what made a caret that got in unrecoverable: not
+ * a visible position, and not reachable back out by pressing the opposite key.
+ *
+ * Getting in was never the browser's doing. Lexical's own `RangeSelection.modify` descends into the
+ * next BLOCK when a press leaves the caret's block, and `@lexical/rich-text` claims the arrow key to
+ * apply it — so the first press past the end of the text before a table lands INSIDE the table,
+ * `preventDefault`ed, before the browser is consulted at all.
+ *
+ * So the construct is crossed WHOLE from the outside: one press, landing on the far side. That is
+ * the same rule the construct's own marker glyphs already follow (above), applied one level up.
+ */
+describe("a read-only table is crossed whole from outside", () => {
+  const standardView = getViewOptions(STANDARD_VIEW_MODE);
+
+  /**
+   * `\p before`, a one-cell table, `\p after` — the shape TJ arrows across. `tables` builds that
+   * many consecutive tables between the paragraphs; 0 is the control document with none.
+   */
+  async function crossingEnvironment(tables = 1) {
+    let beforeText: TextNode;
+    let afterGlyph: MarkerNode;
+    let afterText: TextNode;
+    const { editor } = await testEnvironment(
+      () => {
+        beforeText = $createTextNode("before");
+        afterGlyph = $createMarkerNode("p");
+        afterText = $createTextNode("after");
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createMarkerNode("p"),
+            $createMarkerTrailingSeparator(),
+            beforeText,
+          ),
+          ...Array.from({ length: tables }, () =>
+            $createImmutableTableNode().append(
+              $createImmutableTableRowNode("tr").append(
+                $createMarkerNode("tr"),
+                $createMarkerTrailingSeparator(),
+                $createImmutableTableCellNode("tc1").append(
+                  $createMarkerNode("tc1"),
+                  $createMarkerTrailingSeparator(),
+                  $createTextNode("cell"),
+                ),
+              ),
+            ),
+          ),
+          $createParaNode("p").append(afterGlyph, $createMarkerTrailingSeparator(), afterText),
+        );
+      },
+      "ltr",
+      standardView,
+    );
+    return { editor, beforeText: beforeText!, afterGlyph: afterGlyph!, afterText: afterText! };
+  }
+
+  /**
+   * The caret's position canonicalized to the SEAM it sits in, since every landing here is a
+   * position BETWEEN nodes and Lexical spells those two ways depending on when its own selection
+   * reconciliation has run. Same reduction the glyph suite above uses, and for the same reason.
+   */
+  function seamOf(editor: LexicalEditor): string {
+    return editor.getEditorState().read(() => {
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) throw new Error("no range selection");
+      const { anchor } = selection;
+      const node = anchor.getNode();
+      if (anchor.type === "element") return `${anchor.key}@${anchor.offset}`;
+      const parent = node.getParentOrThrow();
+      if (anchor.offset === 0) return `${parent.getKey()}@${node.getIndexWithinParent()}`;
+      if (anchor.offset === node.getTextContentSize())
+        return `${parent.getKey()}@${node.getIndexWithinParent() + 1}`;
+      return `inside ${anchor.key}@${anchor.offset}`;
+    });
+  }
+
+  /** The seam immediately before `node`, in its parent's coordinates. */
+  function seamBefore(editor: LexicalEditor, node: LexicalNode): string {
+    return editor
+      .getEditorState()
+      .read(() => `${node.getParentOrThrow().getKey()}@${node.getIndexWithinParent()}`);
+  }
+
+  /** The seam immediately after `node`. */
+  function seamAfter(editor: LexicalEditor, node: LexicalNode): string {
+    return editor
+      .getEditorState()
+      .read(() => `${node.getParentOrThrow().getKey()}@${node.getIndexWithinParent() + 1}`);
+  }
+
+  /** Whether the caret has landed anywhere inside a read-only construct — the failure being pinned. */
+  function caretIsInsideOpaqueConstruct(editor: LexicalEditor): boolean {
+    return editor.getEditorState().read(() => {
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) throw new Error("no range selection");
+      return (
+        $opaqueBlockAncestor(selection.anchor.getNode()) !== undefined ||
+        $opaqueBlockAncestor(selection.focus.getNode()) !== undefined
+      );
+    });
+  }
+
+  it("lands past the table in ONE press forward, never inside it", async () => {
+    const { editor, beforeText, afterGlyph } = await crossingEnvironment();
+    updateSelection(editor, beforeText);
+
+    await pressKeyThroughDom(editor, "ArrowRight");
+
+    // Pre-fix Lexical's own block descent put the caret at offset 0 of the row's `\tr` glyph, a
+    // position the browser paints no caret at and its arrow handling cannot leave.
+    expect(caretIsInsideOpaqueConstruct(editor)).toBe(false);
+    expect(seamOf(editor)).toBe(seamBefore(editor, afterGlyph));
+  });
+
+  it("lands before the table in ONE press backward, never inside it", async () => {
+    const { editor, beforeText, afterGlyph } = await crossingEnvironment();
+    updateSelection(editor, afterGlyph, 0);
+
+    await pressKeyThroughDom(editor, "ArrowLeft");
+
+    expect(caretIsInsideOpaqueConstruct(editor)).toBe(false);
+    expect(seamOf(editor)).toBe(seamAfter(editor, beforeText));
+  });
+
+  it("never leaves the caret inside the table, however many times Right is pressed", async () => {
+    const { editor, beforeText } = await crossingEnvironment();
+    updateSelection(editor, beforeText);
+
+    for (let press = 0; press < 6; press++) {
+      await pressKeyThroughDom(editor, "ArrowRight");
+      expect(caretIsInsideOpaqueConstruct(editor)).toBe(false);
+    }
+  });
+
+  it("never leaves the caret inside the table, however many times Left is pressed", async () => {
+    const { editor, afterGlyph } = await crossingEnvironment();
+    updateSelection(editor, afterGlyph, 0);
+
+    for (let press = 0; press < 6; press++) {
+      await pressKeyThroughDom(editor, "ArrowLeft");
+      expect(caretIsInsideOpaqueConstruct(editor)).toBe(false);
+    }
+  });
+
+  // The two round trips below are closure GUARDS rather than regression pins: both hold pre-fix,
+  // because jsdom performs no native caret movement, so the caret that Lexical put inside the table
+  // came back out of it just as symmetrically. In a browser it would not — nothing there moves a
+  // caret out of a `contenteditable="false"` block. They earn their place by failing if the crossing
+  // is ever made asymmetric, which is the shape of every caret-trap this file has met so far.
+  it("returns to the identical position after N presses out and N back", async () => {
+    const { editor, beforeText } = await crossingEnvironment();
+    updateSelection(editor, beforeText);
+    const start = seamOf(editor);
+
+    for (let press = 0; press < 3; press++) await pressKeyThroughDom(editor, "ArrowRight");
+    for (let press = 0; press < 3; press++) await pressKeyThroughDom(editor, "ArrowLeft");
+
+    expect(seamOf(editor)).toBe(start);
+  });
+
+  it("returns to the identical position from the far side, Left then Right", async () => {
+    const { editor, afterGlyph } = await crossingEnvironment();
+    updateSelection(editor, afterGlyph, 0);
+    const start = seamOf(editor);
+
+    for (let press = 0; press < 3; press++) await pressKeyThroughDom(editor, "ArrowLeft");
+    for (let press = 0; press < 3; press++) await pressKeyThroughDom(editor, "ArrowRight");
+
+    expect(seamOf(editor)).toBe(start);
+  });
+
+  it("crosses two consecutive tables together, since neither offers a stop between them", async () => {
+    const { editor, beforeText, afterGlyph } = await crossingEnvironment(2);
+    updateSelection(editor, beforeText);
+
+    await pressKeyThroughDom(editor, "ArrowRight");
+
+    expect(caretIsInsideOpaqueConstruct(editor)).toBe(false);
+    expect(seamOf(editor)).toBe(seamBefore(editor, afterGlyph));
+  });
+
+  it("refuses the move when the table is the last thing in the document", async () => {
+    // Nothing beyond it can hold a caret, so the press is refused and the caret stays where the
+    // user can see it. Letting it through would strand the caret inside, which is the whole defect.
+    let beforeText: TextNode;
+    const { editor } = await testEnvironment(
+      () => {
+        beforeText = $createTextNode("before");
+        $getRoot().append(
+          $createParaNode("p").append(beforeText),
+          $createImmutableTableNode().append(
+            $createImmutableTableRowNode("tr").append(
+              $createMarkerNode("tr"),
+              $createMarkerTrailingSeparator(),
+              $createImmutableTableCellNode("tc1").append(
+                $createMarkerNode("tc1"),
+                $createMarkerTrailingSeparator(),
+                $createTextNode("cell"),
+              ),
+            ),
+          ),
+        );
+      },
+      "ltr",
+      standardView,
+    );
+    updateSelection(editor, beforeText!);
+    const start = seamOf(editor);
+
+    await pressKeyThroughDom(editor, "ArrowRight");
+
+    expect(caretIsInsideOpaqueConstruct(editor)).toBe(false);
+    expect(seamOf(editor)).toBe(start);
+  });
+
+  it("still crosses to an ordinary paragraph the same way when no table is between", async () => {
+    // The control: this rule must claim the press only when a read-only construct is what the press
+    // would enter. With none, the landing is Lexical's own and must not change.
+    const { editor, beforeText, afterGlyph } = await crossingEnvironment(0);
+    updateSelection(editor, beforeText);
+
+    await pressKeyThroughDom(editor, "ArrowRight");
+
+    expect(seamOf(editor)).toBe(seamBefore(editor, afterGlyph));
   });
 });
 

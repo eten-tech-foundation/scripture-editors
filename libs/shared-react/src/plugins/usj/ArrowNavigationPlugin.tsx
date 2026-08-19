@@ -12,6 +12,7 @@ import { ViewOptions } from "../../views/view-options.utils";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { $findMatchingParent } from "@lexical/utils";
 import {
+  $getRoot,
   $getSelection,
   $isDecoratorNode,
   $isElementNode,
@@ -261,11 +262,13 @@ function useArrowKeys(editor: LexicalEditor, viewOptions: ViewOptions | undefine
       let isHandled = false;
       if (isMovingForward(direction, event.key)) {
         isHandled =
+          (!hasModifier && $crossOpaqueConstruct(selection, "next")) ||
           (!hasModifier && $handleForwardFpNavigation(selection)) ||
           $handleForwardNavigation(selection) ||
           (!hasModifier && normalizesStops && $moveOneVisibleStop(selection, "next"));
       } else if (isMovingBackward(direction, event.key)) {
         isHandled =
+          (!hasModifier && $crossOpaqueConstruct(selection, "previous")) ||
           (!hasModifier && $handleBackwardFpNavigation(selection)) ||
           $handleBackwardNavigation(selection, viewOptions) ||
           (!hasModifier && normalizesStops && $moveOneVisibleStop(selection, "previous"));
@@ -734,6 +737,118 @@ function $moveOneVisibleStop(selection: RangeSelection, direction: TraversalDire
 /** Extends the selection's focus one visible stop, leaving its anchor where it is. */
 function $extendOneVisibleStop(selection: RangeSelection, direction: TraversalDirection): boolean {
   return $applyOneVisibleStop(selection, direction, "extend");
+}
+
+// --- Crossing a read-only construct whole ---
+//
+// A read-only construct is not a place a caret can BE. `ImmutableTableNode` (and `UnknownNode`)
+// render the whole block `contenteditable="false"`, so the browser draws no caret anywhere inside
+// one and its own arrow handling will not move a caret out of one either. A caret that gets in is
+// therefore invisible AND unrecoverable: neither key brings it back, and ArrowUp/ArrowDown scroll
+// the view rather than move anything.
+//
+// Getting in was never the browser's doing, which is what made this hard to place. Lexical's own
+// `RangeSelection.modify` descends into the next BLOCK whenever a press would leave the caret's
+// block (`$modifySelectionAroundDecoratorsAndBlocks`, core), and `@lexical/rich-text` claims the
+// arrow key at EDITOR priority to apply it and calls `preventDefault` — so the press never reaches
+// the browser, and the caret is placed inside a block Lexical is happy to address and the browser
+// cannot render a caret in.
+//
+// The rule below is therefore about the ONE press that would enter: it crosses the construct WHOLE
+// and lands on the far side, which is the same treatment the construct's own marker glyphs already
+// get one level down. Everything else about read-only constructs is unchanged — the caret still
+// traverses inside one it is already in, shift-extension still reaches in (a construct's bytes are
+// selectable and copyable, which is what read-only is FOR), and nothing is hidden.
+//
+// Scoped by the caret's BLOCK EDGE, so an inline read-only construct — an `\optbreak`, a `\ref`
+// sitting among the words of a paragraph — is never what this rule sees: it is inside the caret's
+// own block, never the block's sibling, and the visible-stop rules above continue to own it.
+//
+// NOT gated on marker mode. A construct the editor cannot model is read-only in every view, which
+// is the same reasoning `OpaqueBlockGuardPlugin` records for taking no `viewOptions` at all.
+
+/**
+ * Whether `point` has no rendered content left to cross within `bound` — the press leaves it.
+ *
+ * Asks the same two questions a visible-stop move asks, in the same vocabulary, so "the press
+ * leaves this block" cannot drift from "the normalizer found nothing more to cross in it".
+ */
+function $isAtEdgeOf(point: PointType, direction: TraversalDirection, bound: ElementNode): boolean {
+  const node = point.getNode();
+  // A move that stays inside one text node never reaches an edge, whichever way it goes.
+  if (point.type === "text" && $isTraversableText(node)) {
+    if (direction === "next" ? point.offset < node.getTextContentSize() : point.offset > 0)
+      return false;
+  }
+  const seed = $scanSeed(node, point.offset, point.type, direction, bound);
+  return $scanForRendered(seed, direction, bound) === undefined;
+}
+
+/**
+ * The first node rendering anything beyond `construct` in `direction`, stepping OVER any further
+ * read-only construct rather than coming to rest in it.
+ *
+ * Two tables back to back have no position between them — there is nothing there to put a caret on
+ * — so they are crossed together rather than one per press.
+ */
+function $renderedBeyondConstructs(
+  construct: LexicalNode,
+  direction: TraversalDirection,
+): LexicalNode | undefined {
+  const root = $getRoot();
+  for (let skipping: LexicalNode | undefined = construct; skipping; ) {
+    const seed = $stepOver(skipping, direction, root);
+    const rendered = seed && $scanForRendered(seed, direction, root);
+    if (!rendered) return undefined;
+    skipping = $opaqueBlockAncestor(rendered);
+    if (!skipping) return rendered;
+  }
+  return undefined;
+}
+
+/**
+ * Crosses a read-only construct WHOLE when this press would otherwise enter it.
+ *
+ * Runs FIRST in both arrow chains, ahead of the note, `\fp` and visible-stop handlers, because it
+ * decides whether the press leaves the caret's block at all — and because one of those handlers
+ * (the hop past a collapsed note at a paragraph's end) would otherwise place the caret inside the
+ * construct itself. Its predicate is narrow enough to take that position safely: it claims only
+ * when the caret is at its own block's edge AND the block's neighbour is a construct, which is a
+ * press no other handler here has an opinion about.
+ *
+ * @returns `true` when the press was claimed — including the refusal when nothing beyond the
+ *   construct can hold a caret, where leaving the caret put is the point.
+ */
+function $crossOpaqueConstruct(selection: RangeSelection, direction: TraversalDirection): boolean {
+  const point = selection.anchor;
+  const node = point.getNode();
+  // From INSIDE a construct this rule has nothing to say: the caret is already somewhere it exists
+  // to prevent, and the glyph-atom rules above own the traversal there.
+  if ($opaqueBlockAncestor(node)) return false;
+
+  const block = $blockOf(node);
+  if (!block || !$isAtEdgeOf(point, direction, block)) return false;
+
+  const neighbour = $stepOver(block, direction, $getRoot());
+  const construct = neighbour && $opaqueBlockAncestor(neighbour);
+  if (!construct) return false;
+
+  const rendered = $renderedBeyondConstructs(construct, direction);
+  // Nothing beyond it can hold a caret (a document ending in a table): refuse the move and leave
+  // the caret where the user can see it. Letting the press through is how it gets lost.
+  if (!rendered) return true;
+
+  if ($isTraversableText(rendered)) {
+    const offset = direction === "next" ? 0 : rendered.getTextContentSize();
+    rendered.select(offset, offset);
+    return true;
+  }
+  const parent = rendered.getParent();
+  // An unparented landing cannot be selected; refuse rather than enter the construct.
+  if (!parent) return true;
+  const index = rendered.getIndexWithinParent() + (direction === "next" ? 0 : 1);
+  parent.select(index, index);
+  return true;
 }
 
 /** Helper to handle forward arrow key navigation logic */
