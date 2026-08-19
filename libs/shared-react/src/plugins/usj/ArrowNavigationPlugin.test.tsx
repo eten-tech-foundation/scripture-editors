@@ -1921,6 +1921,45 @@ describe("a table's marker glyphs are crossed whole", () => {
     });
   }
 
+  /**
+   * The caret's position canonicalized to the SEAM it sits in.
+   *
+   * A caret between two nodes has two equally valid spellings — the element point between them, and
+   * an edge offset of the text node on either side — and Lexical settles on one or the other
+   * depending on when its own selection reconciliation has run. Comparing raw anchors makes a pin
+   * about a seam intermittently fail on a spelling difference, so both are reduced to the element
+   * point. A caret genuinely INSIDE a text node has only one spelling and is returned as itself.
+   */
+  function seamOf(editor: LexicalEditor): string {
+    return editor.getEditorState().read(() => {
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) throw new Error("no range selection");
+      const { anchor } = selection;
+      const node = anchor.getNode();
+      if (anchor.type === "element") return `${anchor.key}@${anchor.offset}`;
+      const parent = node.getParent();
+      if (!parent) throw new Error("caret in a parentless node");
+      if (anchor.offset === 0) return `${parent.getKey()}@${node.getIndexWithinParent()}`;
+      if (anchor.offset === node.getTextContentSize())
+        return `${parent.getKey()}@${node.getIndexWithinParent() + 1}`;
+      return `inside ${anchor.key}@${anchor.offset}`;
+    });
+  }
+
+  /** The seam immediately before `node`, in its parent's coordinates. */
+  function seamBefore(editor: LexicalEditor, node: LexicalNode): string {
+    return editor
+      .getEditorState()
+      .read(() => `${node.getParentOrThrow().getKey()}@${node.getIndexWithinParent()}`);
+  }
+
+  /** The seam immediately after `node`. */
+  function seamAfter(editor: LexicalEditor, node: LexicalNode): string {
+    return editor
+      .getEditorState()
+      .read(() => `${node.getParentOrThrow().getKey()}@${node.getIndexWithinParent() + 1}`);
+  }
+
   it("crosses the ROW glyph whole in one press forward", async () => {
     const { editor, rowGlyph } = await tableEnvironment();
     updateSelection(editor, rowGlyph, 0);
@@ -1931,9 +1970,7 @@ describe("a table's marker glyphs are crossed whole", () => {
     // declined as a move "inside traversable text", so the browser walked `\\`, `t`, `r` one at a
     // time and the caret came to rest twice inside a marker it cannot edit.
     expect(caretIsInsideGlyph(editor, rowGlyph)).toBe(false);
-    editor.getEditorState().read(() => {
-      $expectSelectionToBe(rowGlyph, rowGlyph.getTextContentSize());
-    });
+    expect(seamOf(editor)).toBe(seamAfter(editor, rowGlyph));
   });
 
   it("crosses the CELL glyph whole in one press backward", async () => {
@@ -1944,9 +1981,7 @@ describe("a table's marker glyphs are crossed whole", () => {
     await pressKey(editor, "ArrowLeft");
 
     expect(caretIsInsideGlyph(editor, cellGlyph)).toBe(false);
-    editor.getEditorState().read(() => {
-      $expectSelectionToBe(cellGlyph, 0);
-    });
+    expect(seamOf(editor)).toBe(seamBefore(editor, cellGlyph));
   });
 
   it("never rests inside a glyph while arrowing back out of a cell", async () => {
