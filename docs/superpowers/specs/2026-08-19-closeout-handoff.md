@@ -168,6 +168,13 @@ Ordered by how much I think it matters.
    separator as well, landing immediately before the content. Confirm that is what you originally
    saw, and confirm the fix you want is "caret stays immediately after the typed byte". The bytes are
    already right; this is purely the caret.
+
+   Localized, so whoever picks it up does not repeat the search: with NO plugins mounted the caret
+   stays correctly at the glyph's end, and `MarkerEditPlugin` mounted ALONE is enough to move it —
+   neither display sync is involved. The move happens inside the typing commit itself (the caret is
+   still correct immediately after `insertText`, within the same update), so it is a node transform
+   the engine registers, not a post-commit correction. W7 and W8 are the same defect: measured on a
+   `\+nd` nested inside `\wj`, the bytes and the caret are identical to the flat case.
 3. **The ParatextData round-trip leg**, if the deferral logs ever come back. Everything on this side
    of it is clean.
 4. **M2** in a real project. It is fixed on `sv/fb5/milestone-edit` (merged to
