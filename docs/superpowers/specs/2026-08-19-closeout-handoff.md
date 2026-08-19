@@ -16,9 +16,19 @@ The premise held. Most of what was still open in the register was **not** broken
 of it was pinned, so nobody could have known that. The round converted the register into tests; the
 tests then did the triage.
 
-One real defect was found and fixed (**N1**), a second owner-ruled behavior was implemented
-(**X2**), one report turned out to be deliberate design and now needs a ruling rather than a fix
-(**W7/W8**), and one report remains open with no headless repro (**A2**).
+Scoreboard:
+
+- **Fixed:** **N1** (a footnote insert destroyed a char span's closer) — the one production defect
+  the round found on its own.
+- **Implemented from your rulings:** **X2** (Ctrl+Space inside `\ft` emits `\ft*`).
+- **Found while pinning something else, not fixed:** **V3** — a half-typed verse bridge (`\v 5-`) is
+  silently dropped on save. Pinned as a divergence; the fix is a decision about what a verse number
+  may contain.
+- **Turned out to be deliberate design, so it needs a ruling rather than a patch:** **W7/W8**.
+- **Still open with no headless repro:** **A2**. I need your gesture.
+- **Diagnosed here, repair belongs to the host:** **P4**.
+- **Never broken at either anchor, pinned forward:** A1, K12, N4, W4, and the whole log-storm
+  cluster (S4-S7, A6, S8-log).
 
 ---
 
@@ -83,6 +93,94 @@ opener, and is pinned that way. The defect is the fragment, not the dissolve.
 **One caret position was left as-is deliberately.** With the caret PAST the closing glyph the note
 lands outside the span, and mid-content it nests with the closer intact. Both were already correct
 and are now pinned so the fix cannot drift into them.
+
+### X2 — Ctrl+Space inside `\ft` now emits `\ft*` (owner ruling, implemented)
+
+The two gestures **did** share the char-stack primitive, as the plan suspected. `$liftOutOfChar` /
+`$liftOutOfCharStack` already diverged inside themselves at `$endsImplicitly` — a `\fq` takes the
+absorb branch, Ctrl+Space's space takes close-and-reopen — but the close-and-reopen branch never gave
+the left half a real closer. That is the whole bug.
+
+They now take an options object with an explicit `closeImplicitSpans`, and **only the two Ctrl+Space
+call sites pass it**. The three marker-insertion callers do not, so inserting `\fq`/`\fp` inside
+`\ft` still emits nothing extra. Per the plan's instruction, the insertion behavior was pinned FIRST,
+in its own commit, before the primitive changed — in `markerMenuApply.utils.test.tsx` and
+`noteEnterFp.test.tsx`, both asserting serialized USJ against the tokenizer's reading of the expected
+bytes.
+
+**A derived rule was considered and rejected on evidence.** "Emit the closer whenever the node after
+the left half cannot terminate it" reads correctly, but the marker-menu RANGE apply lifts a *text*
+node and inserts the `\fq` afterwards — so a derived rule would have started emitting `\ft*` on
+marker insertion, which the constraint forbids. Per-caller is not a compromise here; it is the only
+shape that distinguishes the two gestures.
+
+The fix keys on the span's own `closed` state, never on a marker or node-class list, so an unclosed
+`\nd` in a paragraph gets the same treatment for the same reason. PT9's reopen-order divergence
+(close innermost-out, reopen outermost-in) is untouched.
+
+**One judgement call you should know about: the ruling was extended to the RANGE gesture.** The
+report only covered the collapsed caret, but range Ctrl+Space inside `\ft` had the identical silent
+no-op — the "unformatted" middle re-read as `\ft` content. Same gesture, same ruling, and leaving it
+would knowingly keep a silent no-op that Invariant I forbids. It is pinned. Say the word if you want
+it reverted to caret-only.
+
+Also surfaced and deliberately left alone: a continuation span whose content BEGINS with a space
+loses one on round-trip (the writer emits its own structural space and the tokenizer consumes both).
+It affects `\nd` identically and predates this work — whitespace-ownership territory, noted at the
+test fixture.
+
+### P4 — the top dropdown failed silently
+
+The chain is fully wired and works whenever a selection exists. The dropdown is the **only** one of
+the four marker-apply surfaces that does not call `restoreSelectionIfLost` first, and its Radix
+popover takes focus off `.editor-input`, where Lexical's blur processing can null the selection.
+`formatPara` then returned **silently** — which is exactly why this bug left no log evidence for
+anyone to find.
+
+`formatPara` now refuses out loud, matching `commitTypedMarker` and `replaceEmbedUpdate`. That is
+deliberately a diagnostic, not a cure: **the repair is host-side** (the dropdown should restore the
+selection like its three siblings do), and the host is a separate repo. The manual step names the
+console line that distinguishes the two hypotheses.
+
+---
+
+## New defect found while pinning something else
+
+### V3 — a half-typed verse bridge is silently dropped on save
+
+Verse bridging works and is now pinned. But with a bridge HALF typed — `\v 5-`, mid-keystroke — the
+glyph and `VerseNode.__number` both carry the trailing separator and **the serializer does not**:
+`parseNumberFromMarkerText` matches the last COMPLETE verse-number token and then overrides the
+node's faithful number with the truncated parse. A save at that moment silently drops a byte the
+screen is showing, which is Invariant I's core prohibition. It is also a round-trip loss, since our
+own tokenizer keeps `5-` (a verse number is the whole word, valid or not).
+
+Pinned as the divergence it is, **not** as desired behavior, with the test comment naming which
+assertion flips when a fix lands.
+
+**Not fixed, because it is a decision about what a verse number may contain.** The narrowest
+candidate is to let the token end on a trailing `-`/`,`:
+`/^(\d+[a-zA-Z]*(?:[-,]\d+[a-zA-Z]*)*[-,]?)/`. That leaves the shapes the sibling suites pin
+untouched — `\v 7 5` stays verse 7 plus body text `5`, and `\v 2\ Da` stays verse 2 plus the
+literal. Your call.
+
+---
+
+## Wave 6 triage, in brief
+
+| Report | Verdict |
+| --- | --- |
+| **E3** Enter's temporary line | **Half of it does not exist.** Enter never inserts anything — the in-editor menu claims `INSERT_PARAGRAPH_COMMAND` at CRITICAL, and in production the host claims Enter in the capture phase and only splits on commit. So "disappears if no marker is chosen" already holds and was already pinned; "shows a temporary new line" was never built. Needs your decision on whether you still want it. |
+| **P4** dropdown does not retag | Diagnosed; see above. Repair is host-side. |
+| **U5** cannot copy the marker name | **Reproduces, but not for the recorded reason.** The handoff that called the name "genuinely inert" was wrong — it IS real DOM text, and a selection spanning the block carries the block's full USFM in `text/plain`. Two real halves survive: `text/html` drops the whole block (so a paste into a word processor loses the marker name AND the figure's caption), and the block cannot be selected alone because it is read-only per the U6 ruling. All three payloads are now pinned. |
+| **V1** Simple mode | **Shipped — does not reproduce.** Standard is unreachable in Simple mode by three mechanisms in paranext-core, unit-tested there. Made MOOT rather than fixed: structure protection is still derived independently of view type. The decision was never written down anywhere. |
+| **V3** verse bridging | Works, pinned; one new defect found — see above. |
+| **V4** corpus rendering check | **Built, and it was genuinely cheap.** Both corpus suites already mount the editor and throw the DOM away; the new leg reads what they already produce. A node that reports text content must render it, at load and after the dirty pass — stated over `TextNode`/`DecoratorNode` rather than a class list, so CSS-generated glyphs fall out of scope by construction rather than by exemption. Verified discriminating by blanking a decorator's `createDOM`. |
+
+**What V4 cannot do, stated plainly:** it cannot check anything the stylesheet paints. No stylesheet
+is loaded in any test in this repo, and whole view modes are painted with `content: attr(...)` over
+`font-size: 0` text. A jsdom assertion there would pass on markup the user cannot see and fail on
+markup they can. That needs a browser or visual-regression harness this repo does not have.
 
 ---
 
@@ -211,12 +309,20 @@ Ordered by how much I think it matters.
 2. **W7/W8's caret — this one needs a RULING from you, not a confirmation.** See the dedicated
    section below; I did not change it.
 
-3. **The ParatextData round-trip leg**, if the deferral logs ever come back. Everything on this side
+3. **V3's half-typed bridge**, and rule on the token shape. Type `-` onto an existing `\v 5` and
+   save at that moment: the screen shows `\v 5-`, the file gets `\v 5`.
+4. **U5's browser half.** Whether a real browser lets you select an unknown block's marker name
+   alone — jsdom cannot answer it, and `contentEditable=false` on both the block and every glyph span
+   suggests no. Separately: copying across the block and pasting into a word processor loses the
+   marker name and the caption, because `text/html` drops the block entirely.
+5. **P4 in the app**, watching the console. `formatPara` now says out loud when it refuses; that line
+   distinguishes "the selection was lost" from "the retag ran and did nothing".
+6. **The ParatextData round-trip leg**, if the deferral logs ever come back. Everything on this side
    of it is clean.
-4. **M2** in a real project. It is fixed on `sv/fb5/milestone-edit` (merged to
+7. **M2** in a real project. It is fixed on `sv/fb5/milestone-edit` (merged to
    `sv/residual-backlog`) rather than by this round; I confirmed it RED at this branch's pre-rebase
    base by running that branch's own test here, so the register entry is now evidenced either way.
-5. **N1 in the real app.** The fix is pinned headlessly across five caret positions, but note
+8. **N1 in the real app.** The fix is pinned headlessly across five caret positions, but note
    insertion in Platform.Bible goes through the popover and the host's editing-session plumbing, and
    this class has burned us before precisely where the headless harness stopped.
 
