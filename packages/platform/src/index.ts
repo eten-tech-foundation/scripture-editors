@@ -57,7 +57,13 @@ export {
   viewModeToViewNames,
 } from "shared-react";
 
-export type { EditorOptions, EditorProps, EditorRef, TransientInput } from "./editor/editor.model";
+export type {
+  CommitTypedMarkerOptions,
+  EditorOptions,
+  EditorProps,
+  EditorRef,
+  TransientInput,
+} from "./editor/editor.model";
 export type { UsjCssOptions } from "./editor/generateUsjCss";
 export type { MarkerMenuContext, MarkerMenuItem } from "./editor/markerMenu/markerItemSource";
 export type { CommentBase, Comments, Thread } from "./marginal/comments/commenting";

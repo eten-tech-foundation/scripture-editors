@@ -234,6 +234,27 @@ without inserting. The earlier behavior (Enter dismissing the zero-match palette
 project's invention and is retired. Applies to both the `\` palette and the Enter-triggered
 paragraph menu.
 
+**Closing markers over a selection (2026-08-19, owner-directed, P9 parity).** Typing `\nd*` with
+text selected DELETES the selected content and lands the literal `\nd*` in its place — unmatched
+unless an open `\nd` precedes it. This is a different gesture from Space's WRAP, so the two keys
+are not interchangeable over a selection, and `*` is therefore a commit key in EVERY selection
+shape (it is no longer a filter character anywhere). The same end state now applies to a PICKED
+`closeTag` entry over a selection, which was previously a silent no-op: `$closeCharSpanAtCaret`
+required a collapsed selection and the apply discarded its `false`. **Collapsed-caret behavior of
+both paths is unchanged**, including their documented divergence — a typed closer lands literally,
+while a picked entry runs the structural close, which at a span's content end changes no text.
+
+**`\` as a third commit key (2026-08-19, owner-directed).** With a palette open and a NON-EMPTY
+filter, `\` commits what was typed exactly as Space does — same passive-Space end states — but with
+NO terminating space byte, and then opens a FRESH palette for the backslash just pressed. Typing
+`\qt-s\qt-e` is therefore one continuous flow instead of losing the first marker to a stray
+backslash. Dropping the separator is safe because a marker-name scan terminates at the next `\` (and
+at end-of-text): measured, `\nd` and `\nd ` settle to the same open span at a caret. With an EMPTY
+filter there is nothing to commit, so `\` stays an ordinary character — it lands in the document and
+no replacement palette opens. The trigger itself still never lands (the active-palette rule above):
+landing it was measured to be strictly worse, since `\nd\` makes the backslash the span's CONTENT
+and, mid-text, drops the following text entirely.
+
 The former defect row — "Space with a non-collapsed selection does nothing" — was fixed by the
 residual-backlog palette group (Space wraps like Enter, closed span) and holds under the active
 palette.

@@ -22,7 +22,7 @@ import {
 } from "./markerItemSource";
 import {
   $applyMarkerMenuSelection,
-  $commitTypedCloserAtCaret,
+  $commitTypedCloser,
   $splitParagraphWithMarker,
 } from "./markerMenuApply.utils";
 import { $getMarkerMenuContext } from "./markerMenuContext.utils";
@@ -142,7 +142,7 @@ function buildHarness(getEditor: () => LexicalEditor | undefined): EditableMarke
     },
     commitTypedCloser: (typedMarker) => {
       getEditor()?.update(() => {
-        $commitTypedCloserAtCaret(typedMarker);
+        $commitTypedCloser(typedMarker);
       });
     },
   };
@@ -563,6 +563,108 @@ describe("editable-mode marker menu harness", () => {
     });
   });
 
+  describe("`\\` commits the typed marker and reopens the palette", () => {
+    // Owner-directed. `\` is a THIRD commit key: it commits what was typed exactly as Space does,
+    // but emits no terminating space byte, and then opens a fresh palette for the backslash the
+    // user just pressed — so `\qt-s\qt-e` can be typed as one flow. With an EMPTY filter there is
+    // nothing to commit, so `\` keeps its old meaning: a literal backslash lands and no new
+    // palette opens.
+    it("commits the typed marker with NO trailing space and opens a fresh palette", async () => {
+      let text: TextNode | undefined;
+      const { editor } = await harnessTestEnvironment(() => {
+        text = $buildBackslashMenuFixture().text;
+      });
+      await act(async () => editor.update(() => requireDefined(text, "text").select(5, 5)));
+
+      await dispatchKeyDown(editor, "\\");
+      await waitForMenu();
+      await dispatchKeyDown(editor, "n");
+      await dispatchKeyDown(editor, "d");
+      const event = await dispatchKeyDown(editor, "\\");
+
+      // Claimed: the trigger never lands under the active palette, this one included.
+      expect(event.defaultPrevented).toBe(true);
+      // A FRESH palette is open for the backslash just pressed.
+      await waitForMenu();
+      expect(document.querySelector(".autocomplete-menu-container")).not.toBeNull();
+
+      // The bytes land immediately; with no terminating separator they settle on the engine's
+      // DEFERRED clock rather than inside the commit update (invariant IV — settle has two
+      // clocks), so the end state is awaited rather than read synchronously.
+      await waitFor(() =>
+        editor.getEditorState().read(() => {
+          const para = requireDefined($getRoot().getChildren().filter($isParaNode)[0], "para");
+          const chars = para.getChildren().filter($isCharNode);
+          expect(chars).toHaveLength(1);
+          expect(chars[0].getMarker()).toBe("nd");
+          // Same passive-Space end state: open span, one glyph, no auto-closer.
+          expect(chars[0].getUnknownAttributes()?.closed).toBe("false");
+          expect(chars[0].getChildren().filter($isMarkerNode)).toHaveLength(1);
+          // No terminating space byte — that is the whole difference from Space.
+          expect(para.getTextContent()).not.toContain("\\nd ");
+        }),
+      );
+    });
+
+    it("the reopened palette commits normally, giving two markers from one flow", async () => {
+      // The owner's `\qt-s\qt-e` gesture, run with markers this fixture's sheet actually offers:
+      // the second session must rank, filter and commit exactly like a first one.
+      let text: TextNode | undefined;
+      const { editor } = await harnessTestEnvironment(() => {
+        text = $buildBackslashMenuFixture().text;
+      });
+      await act(async () => editor.update(() => requireDefined(text, "text").select(5, 5)));
+
+      await dispatchKeyDown(editor, "\\");
+      await waitForMenu();
+      await dispatchKeyDown(editor, "n");
+      await dispatchKeyDown(editor, "d");
+      await dispatchKeyDown(editor, "\\");
+      await waitForMenu();
+      await dispatchKeyDown(editor, "w");
+      await dispatchKeyDown(editor, "j");
+      await dispatchKeyDown(editor, " ");
+
+      expect(document.querySelector(".autocomplete-menu-container")).toBeNull();
+      editor.getEditorState().read(() => {
+        const para = requireDefined($getRoot().getChildren().filter($isParaNode)[0], "para");
+        const markers = para
+          .getChildren()
+          .filter($isCharNode)
+          .map((char) => char.getMarker());
+        expect(markers).toContain("nd");
+        expect(markers).toContain("wj");
+      });
+    });
+
+    it("with an EMPTY filter, `\\` lands a literal backslash and does NOT reopen", async () => {
+      // Today's behavior, which the owner explicitly wants preserved: `\` then `\` types a
+      // backslash. There is nothing typed to commit, so the second one is just a character.
+      let text: TextNode | undefined;
+      const { editor } = await harnessTestEnvironment(() => {
+        text = $buildBackslashMenuFixture().text;
+      });
+      await act(async () => editor.update(() => requireDefined(text, "text").select(5, 5)));
+
+      await dispatchKeyDown(editor, "\\");
+      await waitForMenu();
+      await dispatchKeyDown(editor, "\\");
+
+      // No new palette, and the backslash reached the document as an ordinary character.
+      expect(document.querySelector(".autocomplete-menu-container")).toBeNull();
+      editor.getEditorState().read(() => {
+        const para = requireDefined($getRoot().getChildren().filter($isParaNode)[0], "para");
+        expect(para.getChildren().filter($isCharNode)).toHaveLength(0);
+        const plainText = para
+          .getAllTextNodes()
+          .filter((node) => !$isMarkerNode(node))
+          .map((node) => node.getTextContent())
+          .join("");
+        expect(plainText).toContain("\\");
+      });
+    });
+  });
+
   describe("Space over a collapsed caret", () => {
     // The active palette's Space commit: the typed query is materialized as the SAME literal
     // bytes the passive palette would have accumulated in the document (`\` + typed + space),
@@ -866,22 +968,35 @@ describe("editable-mode marker menu harness", () => {
       });
     });
 
-    it("`*` still FILTERS over a non-collapsed selection - there is no caret to close at", async () => {
-      // A closing marker is placed AT a caret. Over a selection the palette's commit is the
-      // WRAP, so `*` keeps its old meaning there (a filter character) rather than becoming a
-      // commit key that could only refuse.
+    it("`*` over a NON-COLLAPSED selection DELETES the selection and commits the closer", async () => {
+      // Owner-directed (Paratext 9 parity): typing `\nd*` with text selected replaces that text
+      // with the literal closer. It does NOT wrap the selection (that is Space's commit) and it
+      // no longer merely filters — `*` is a commit key in every selection shape.
       let text: TextNode | undefined;
       const { editor } = await harnessTestEnvironment(() => {
         text = $buildWrapMenuFixture().text;
       });
+      // "say holy words" — select "holy".
       await act(async () => editor.update(() => requireDefined(text, "text").select(4, 8)));
 
       await dispatchKeyDown(editor, "\\");
       await waitForMenu();
-      await dispatchKeyDown(editor, "*");
+      await dispatchKeyDown(editor, "n");
+      await dispatchKeyDown(editor, "d");
+      const event = await dispatchKeyDown(editor, "*");
 
-      // The palette is still open — `*` narrowed the query instead of committing.
-      expect(document.querySelector(".autocomplete-menu-container")).not.toBeNull();
+      // Claimed and committed: the palette closes, and nothing lands on top of the closer.
+      expect(event.defaultPrevented).toBe(true);
+      expect(document.querySelector(".autocomplete-menu-container")).toBeNull();
+      editor.getEditorState().read(() => {
+        const para = requireDefined($getRoot().getChildren().filter($isParaNode)[0], "para");
+        const paraText = para.getTextContent();
+        expect(paraText).not.toContain("holy");
+        expect(paraText).toContain("\\nd*");
+        // Only the selection was replaced — the text on either side survives.
+        expect(paraText).toContain("say ");
+        expect(paraText).toContain(" words");
+      });
     });
   });
 
@@ -1283,15 +1398,19 @@ describe("editable-mode marker menu harness", () => {
       const itemsBefore = await waitForMenu();
       const firstLabelBefore = menuItemLabel(itemsBefore[0]);
 
-      // Second `\` while open: the harness handler passes it through and the open menu's own
-      // query capture claims it instead (preventDefault). Had the harness re-handled the
-      // collapsed-caret trigger — which never preventDefaults — the event would NOT be
-      // prevented and the menu state would have been rebuilt mid-session.
-      const second = await dispatchKeyDown(editor, "\\");
-      expect(second.defaultPrevented).toBe(true);
-      const itemsAfter = screen.getAllByRole("menuitem");
-      expect(itemsAfter).toHaveLength(itemsBefore.length);
-      expect(menuItemLabel(itemsAfter[0])).toBe(firstLabelBefore);
+      // Second `\` while open with an EMPTY filter (owner-directed, revising the earlier
+      // "menu stays open" pin): there is nothing typed to commit, so the backslash is an
+      // ordinary character — it lands and the palette CLOSES without a replacement opening.
+      // The re-entrancy property this guards is unchanged: the trigger branch never rebuilds
+      // menu state mid-session.
+      await dispatchKeyDown(editor, "\\");
+      expect(screen.queryAllByRole("menuitem")).toHaveLength(0);
+      expect(itemsBefore.length).toBeGreaterThan(0);
+      expect(firstLabelBefore).toBeDefined();
+
+      // Reopen so the INSERT_PARAGRAPH half below still runs against an OPEN menu.
+      await dispatchKeyDown(editor, "\\");
+      await waitForMenu();
 
       // INSERT_PARAGRAPH while open is equally guarded: it passes through to the stock split
       // (paragraph count grows) instead of being swallowed into a replacement Enter menu —

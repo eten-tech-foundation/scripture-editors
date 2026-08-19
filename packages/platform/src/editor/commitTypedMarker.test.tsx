@@ -16,7 +16,7 @@ import { EditorRef } from "./editor.model";
 import { mountStandardViewEditor, requireStandardViewOptions } from "./settledGetUsj.test-helpers";
 import { Usj } from "@eten-tech-foundation/scripture-utilities";
 import { $dfs } from "@lexical/utils";
-import { act, render } from "@testing-library/react";
+import { act, render, waitFor } from "@testing-library/react";
 import { $getRoot, $isTextNode, LexicalEditor } from "lexical";
 import { createRef } from "react";
 import { $isCharNode, $isMarkerNode, $isNoteNode, $isParaNode } from "shared";
@@ -73,6 +73,54 @@ describe("EditorRef.commitTypedMarker", () => {
       // settle, not left behind as plain text.
       expect(para.getTextContent()).toContain("hello");
     });
+  });
+
+  it("omits the terminating space when `trailingSpace: false` — the `\\` commit", async () => {
+    // The palette's `\` commit ("commit what was typed, then open a new palette for the
+    // backslash just pressed") needs the same materialization WITHOUT the separator byte: the
+    // next session's own commit supplies the `\` that terminates this marker's name.
+    const { ref, lexical } = await mountStandardViewEditor(baseUsj);
+    await placeCaret(lexical, 11);
+
+    let committed: boolean | undefined;
+    await act(async () => {
+      committed = ref.current?.commitTypedMarker("nd", { trailingSpace: false });
+    });
+
+    expect(committed).toBe(true);
+    const paraText = lexical
+      .getEditorState()
+      .read(() => $getRoot().getChildren().filter($isParaNode)[0].getTextContent());
+    // The literal is the last thing in the paragraph — no separator space of its own.
+    expect(paraText.endsWith("\\nd")).toBe(true);
+  });
+
+  it("`trailingSpace: false` settles to the SAME open span the spaced commit produces", async () => {
+    // Measured equivalence, and the reason dropping the separator is safe: a marker-name scan
+    // terminates at end-of-text just as it does at a space, so both byte shapes settle
+    // identically. Anything else would make `\` and Space commit different documents.
+    const { ref, lexical } = await mountStandardViewEditor(baseUsj);
+    await placeCaret(lexical, 11);
+
+    await act(async () => {
+      ref.current?.commitTypedMarker("nd", { trailingSpace: false });
+    });
+
+    // No terminating separator means the settle runs on the engine's DEFERRED clock rather than
+    // inside the commit update (invariant IV), so the end state is awaited.
+    await waitFor(() =>
+      lexical.getEditorState().read(() => {
+        const chars = $getRoot()
+          .getChildren()
+          .filter($isParaNode)[0]
+          .getChildren()
+          .filter($isCharNode);
+        expect(chars).toHaveLength(1);
+        expect(chars[0].getMarker()).toBe("nd");
+        expect(chars[0].getUnknownAttributes()?.closed).toBe("false");
+        expect(chars[0].getChildren().filter($isMarkerNode)).toHaveLength(1);
+      }),
+    );
   });
 
   it("`f` materializes the full note — the tokenizer's emergent end state, byte-identical to passive", async () => {

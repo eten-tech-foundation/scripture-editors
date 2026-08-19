@@ -1779,6 +1779,52 @@ describe("$applyMarkerMenuSelection", () => {
       });
     });
 
+    it("over a NON-COLLAPSED selection, DELETES the selection and lands the closer literally", async () => {
+      // Owner-directed. A picked closer over a selection used to reach `$closeCharSpanAtCaret`'s
+      // collapsed-only guard, whose `false` return this apply discards — a SILENT NO-OP on a key
+      // the user pressed. It now does what a TYPED `\nd*` does over a selection: the selected
+      // content goes and the closer takes its place.
+      let content: TextNode;
+      const { editor } = await testEnvironment(() => {
+        const para = $createParaNode("p");
+        const char = $createCharNode("nd");
+        content = $createTextNode(`${NBSP}Lord God`);
+        $getRoot().append(
+          para.append(
+            $createMarkerNode("p"),
+            $createTextNode(NBSP),
+            char.append($createMarkerNode("nd"), content, $createMarkerNode("nd", "closing")),
+          ),
+        );
+      });
+      // Select "Lord" (content text is NBSP + "Lord God", so offsets 1..5).
+      await act(async () => editor.update(() => content.select(1, 5)));
+
+      const item: MarkerMenuItem = { marker: "nd*", kind: "closeTag", isBasic: false };
+      await act(async () =>
+        editor.update(() => {
+          $applyMarkerMenuSelection(
+            item,
+            { trigger: "backslash", literalPrefixLanded: false },
+            reference,
+            makeDeps(),
+          );
+        }),
+      );
+
+      editor.getEditorState().read(() => {
+        const para = requireDefined(
+          $getRoot().getChildren().filter($isParaNode)[0],
+          "para missing",
+        );
+        const paraText = para.getTextContent();
+        // Not a silent no-op: the selected word is gone and the closer bytes are on screen.
+        expect(paraText).not.toContain("Lord");
+        expect(paraText).toContain("\\nd*");
+        expect(paraText).toContain("God");
+      });
+    });
+
     it("deletes the typed `\\` trigger literal before closing (literalPrefixLanded: true)", async () => {
       // Closing via the ACTIVE `\` palette: the trigger backslash landed as literal text in the
       // span's content before the pick. The cleanup runs BEFORE the closeTag branch — a

@@ -36,6 +36,26 @@ export interface TransientInput {
 }
 
 /**
+ * Options for {@link EditorRef.commitTypedMarker}.
+ *
+ * @public
+ */
+export interface CommitTypedMarkerOptions {
+  /**
+   * Whether to emit the terminating space after the materialized marker. Defaults to `true`, the
+   * palette's Space commit, which is byte-identical to passive typing.
+   *
+   * `false` is the palette's `\` commit: it commits what was typed and immediately reopens the
+   * palette for the backslash the user just pressed, so the separator is unnecessary — a
+   * marker-name scan terminates at the next `\`, and the reopened session's own commit supplies
+   * it. The one shape where the two differ is mid-text with marker-name characters immediately
+   * following the caret, where the unseparated literal glues onto them until the next commit
+   * lands.
+   */
+  trailingSpace?: boolean;
+}
+
+/**
  * Forward reference for the editor.
  *
  * @public
@@ -430,34 +450,36 @@ export interface EditorRef {
    *
    * @param typedMarker - The palette query exactly as typed, without the leading `\` or the
    *   terminating space (e.g. `"nd"`, `"zz"`, `"f"`).
+   * @param options - See {@link CommitTypedMarkerOptions}.
    * @returns `true` when the literal was materialized (and resolved by the engine in the same
    *   update); `false` when the selection shape refused the commit.
    * @throws Will throw an error if the editor is in readonly mode.
    * @see {@link EditorRef.applyMarkerMenuSelection} for the highlighted-item (Enter) apply and
    *   the selection-wrap commit.
    */
-  commitTypedMarker(typedMarker: string): boolean;
+  commitTypedMarker(typedMarker: string, options?: CommitTypedMarkerOptions): boolean;
   /**
    * Commits the CLOSING marker the user typed into a marker palette — the palette's `*` commit,
    * the closing-marker counterpart to {@link EditorRef.commitTypedMarker}'s Space. Inserts NO
-   * opening glyph and NO terminating space: `\` + `typedMarker` + `*` at the collapsed caret is
-   * the whole of it, and the palette closes.
+   * opening glyph and NO terminating space: `\` + `typedMarker` + `*` is the whole of it, and the
+   * palette closes.
    *
-   * Which of two arms runs is decided by the DOCUMENT, not the palette. When `typedMarker` names a
-   * character span that is genuinely open at the caret, the commit routes through the same
-   * engine-native close the palette's `closeTag` entry applies, so a typed `nd*` and a picked
-   * `nd*` cannot diverge; the caret lands after the closed span. When nothing matching is open,
-   * the typed closer lands LITERALLY and the engine settles it as an unmatched closer — the
-   * ratified behavior for typed closers, and what keeps this from silently swallowing the
-   * keystroke. Either way the caret ends up AFTER the closing marker.
+   * What the closer MEANS is decided by the DOCUMENT, not the palette: the bytes LAND and the
+   * marker-edit engine re-tokenizes them (governing invariant I). Against a character span
+   * genuinely open there they settle as that span's real closer; with nothing matching open they
+   * settle as an unmatched closer, flagged as typed — the ratified behavior for typed closers, and
+   * what keeps this from silently swallowing the keystroke. Either way the caret ends up AFTER the
+   * closing marker.
    *
-   * Collapsed caret only: a closing marker is placed AT a caret, and there is no caret to close at
-   * over a non-collapsed selection, so this refuses and returns `false` with the document
-   * untouched. Also returns `false` when there is no range selection.
+   * Over a NON-COLLAPSED selection the selected content is DELETED and the closer lands in its
+   * place — Paratext 9's behavior for typing `\nd*` with text selected. This never WRAPS the
+   * selection; wrapping is the palette's Space commit, via
+   * {@link EditorRef.applyMarkerMenuSelection}. Returns `false` only when there is no range
+   * selection at all to commit against.
    *
    * @param typedMarker - The palette query exactly as typed, without the leading `\` and without
    *   the trailing `*` the user pressed to commit (e.g. `"nd"`, `"+wj"`).
-   * @returns `true` when a closing marker was committed; `false` when the selection shape refused.
+   * @returns `true` when a closing marker was committed; `false` when there was no range selection.
    * @throws Will throw an error if the editor is in readonly mode.
    * @see {@link EditorRef.commitTypedMarker} for the Space (opening-marker) commit.
    */

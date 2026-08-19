@@ -19,7 +19,8 @@ import {
 } from "./markerMenu/markerItemSource";
 import {
   $applyMarkerMenuSelection,
-  $commitTypedCloserAtCaret,
+  $commitTypedCloser,
+  $commitTypedMarker,
   $splitParagraphWithMarker,
 } from "./markerMenu/markerMenuApply.utils";
 import { $getMarkerMenuContext } from "./markerMenu/markerMenuContext.utils";
@@ -625,28 +626,20 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
         $splitParagraphWithMarker(marker, viewOptions);
       });
     },
-    commitTypedMarker(typedMarker) {
+    commitTypedMarker(typedMarker, options) {
       if (isReadonly) throw new Error("Cannot commit a typed marker in readonly mode");
       if (!editorRef.current) return false;
 
-      // Materialize the typed query as the SAME literal bytes passive typing would have
-      // accumulated (`\` + typed + space) in one update; the marker-edit engine's transforms
-      // resolve them within this update, exactly as they resolved passive typing. Collapsed
-      // caret only: over a non-collapsed selection `insertText` would REPLACE the selected
-      // text, and the palette's selection commit is the item WRAP via
-      // `applyMarkerMenuSelection`, so any other selection shape refuses here.
+      // `$commitTypedMarker` owns what lands (the passive literal bytes, with or without the
+      // terminating separator); this handle only supplies the update and the refusal warning.
       let committed = false;
       editorRef.current.update(() => {
-        const selection = $getSelection();
-        if (!$isRangeSelection(selection) || !selection.isCollapsed()) {
+        committed = $commitTypedMarker(typedMarker, options);
+        if (!committed)
           logger?.warn(
             "commitTypedMarker refused: requires a collapsed range selection " +
               "(wrap a selection via applyMarkerMenuSelection instead)",
           );
-          return;
-        }
-        selection.insertText(`\\${typedMarker} `);
-        committed = true;
       });
       return committed;
     },
@@ -654,16 +647,15 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
       if (isReadonly) throw new Error("Cannot commit a typed closing marker in readonly mode");
       if (!editorRef.current) return false;
 
-      // The palette's `*` commit. `$commitTypedCloserAtCaret` owns the routing (close the open
-      // span the typed marker names, else land the typed closer literally) and the caret; this
-      // handle only supplies the update and the refusal warning, matching `commitTypedMarker`.
+      // The palette's `*` commit. `$commitTypedCloser` owns what lands (the typed closer bytes,
+      // replacing any selected content) and the caret; this handle only supplies the update and
+      // the refusal warning, matching `commitTypedMarker`.
       let committed = false;
       editorRef.current.update(() => {
-        committed = $commitTypedCloserAtCaret(typedMarker);
+        committed = $commitTypedCloser(typedMarker);
         if (!committed)
           logger?.warn(
-            "commitTypedCloser refused: requires a collapsed range selection " +
-              "(a closing marker is placed AT a caret)",
+            "commitTypedCloser refused: requires a range selection to commit the closer at",
           );
       });
       return committed;

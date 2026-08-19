@@ -244,16 +244,19 @@ describe("EditorRef.commitTypedCloser", () => {
     });
   });
 
-  it("refuses a non-collapsed selection — returns false, document untouched", async () => {
+  it("over a non-collapsed selection, DELETES the selection and inserts the typed closer", async () => {
+    // Paratext 9 semantics for a typed closer over a selection: typing `\nd*` with text selected
+    // replaces that text with the literal `\nd*`, which is then unmatched unless an open `\nd`
+    // precedes it. The closer is NOT refused and the selection is NOT wrapped — a selection wrap
+    // is what Space commits, and `*` is a different key with a different job.
     const { ref, lexical } = await mountStandardViewEditor(baseUsj);
-    const before = JSON.stringify(lexical.getEditorState().toJSON());
     await act(async () =>
       lexical.update(() => {
         const text = $getRoot()
           .getAllTextNodes()
           .find((node) => node.getTextContent() === "hello world");
         if (!$isTextNode(text)) throw new Error("fixture text node not found");
-        text.select(0, 5);
+        text.select(0, 5); // "hello"
       }),
     );
 
@@ -262,8 +265,52 @@ describe("EditorRef.commitTypedCloser", () => {
       committed = ref.current?.commitTypedCloser("nd");
     });
 
-    expect(committed).toBe(false);
-    expect(JSON.stringify(lexical.getEditorState().toJSON())).toBe(before);
+    expect(committed).toBe(true);
+    const { paraText, offset, block } = readCaretOffsetInPara(lexical);
+    // The selected word is gone and the typed closer took its place.
+    expect(paraText).not.toContain("hello");
+    expect(paraText).toContain("\\nd*");
+    // Same caret contract as the collapsed case: after the asterisk, still in the paragraph.
+    expect(block).toBe("para");
+    expect(offset).toBe(paraText.indexOf("\\nd*") + "\\nd*".length);
+  });
+
+  it("over a selection INSIDE an open span, the closer closes that span", async () => {
+    // The delete-then-insert lands real bytes that the engine re-tokenizes, exactly as the
+    // collapsed commit does — so an `\nd` open before the selection is genuinely closed by the
+    // inserted closer rather than left dangling.
+    const { ref, lexical } = await mountStandardViewEditor(baseUsj);
+    await placeCaretIn(lexical, "hello world", 0);
+    await act(async () => {
+      ref.current?.commitTypedMarker("nd");
+    });
+
+    // Select the tail of the span's content, then close over it.
+    await act(async () =>
+      lexical.update(() => {
+        const para = $getRoot().getChildren().filter($isParaNode)[0];
+        const texts = para.getAllTextNodes().filter((node) => !$isMarkerNode(node));
+        const last = texts[texts.length - 1];
+        last.select(last.getTextContentSize() - 5, last.getTextContentSize());
+      }),
+    );
+
+    let committed: boolean | undefined;
+    await act(async () => {
+      committed = ref.current?.commitTypedCloser("nd");
+    });
+
+    expect(committed).toBe(true);
+    lexical.getEditorState().read(() => {
+      const chars = $getRoot()
+        .getChildren()
+        .filter($isParaNode)[0]
+        .getChildren()
+        .filter($isCharNode);
+      expect(chars).toHaveLength(1);
+      expect(chars[0].getMarker()).toBe("nd");
+      expect(chars[0].getUnknownAttributes()?.closed).toBeUndefined();
+    });
   });
 
   it("returns false when there is no range selection", async () => {
