@@ -251,6 +251,30 @@ function categoryNoteUsj(...noteContent: NonNullable<MarkerObject["content"]>): 
   return usj;
 }
 
+/** The n-th ParaNode's own leading glyph. */
+function $paraGlyph(index: number) {
+  const para = $getRoot().getChildren().filter($isParaNode)[index];
+  if (!para) throw new Error(`expected a ParaNode at ${index}`);
+  const glyph = para.getFirstChild();
+  if (!glyph || !$isTextNode(glyph)) throw new Error("expected a prefix glyph");
+  return glyph;
+}
+
+/** A three-paragraph doc: `\p stuff`, the unknown-marker split artifact `first`, and a paragraph
+ * to depart to. The artifact's blockness comes from the tokenizer's unknown-token default, never
+ * from the user — see `unknownSplitRejoin.test.tsx`. */
+const unknownSplitUsj = (artifact: MarkerObject): Usj => ({
+  type: "USJ",
+  version: "3.1",
+  content: [
+    { type: "book", marker: "id", code: "GEN", content: ["GEN"] },
+    { type: "chapter", marker: "c", number: "1" },
+    { type: "para", marker: "p", content: ["stuff"] },
+    artifact,
+    { type: "para", marker: "p", content: ["depart here"] },
+  ],
+});
+
 /** The first paragraph's text node whose content includes `needle`. */
 function $textContaining(needle: string) {
   const node = $getRoot()
@@ -625,6 +649,46 @@ const pendingShapes: PendingShape[] = [
       if (!$isMarkerNode(boldGlyph)) throw new Error("expected the char span's opening glyph");
       boldGlyph.setTextContent("\\it");
       $reportDestroyedDisplayOwner(boldGlyph);
+    },
+  },
+  {
+    // The unknown-split artifact's dissolution edits. Both widen the real settle's scope to
+    // `[previous, artifact]` so the tokenizer sees the joined bytes; the settled output a
+    // consumer saves has to widen with it, or the save path writes a `\p` the user never typed
+    // (and the screen, settling later, quietly takes it back out).
+    name: "unknown-split paragraph whose leading glyph loses its backslash",
+    usj: unknownSplitUsj({ type: "para", marker: "asdf", content: ["more"] }),
+    $edit: () => {
+      const glyph = $paraGlyph(1);
+      glyph.setTextContent("asdf");
+      glyph.select(4, 4);
+    },
+  },
+  {
+    name: "unknown-split paragraph whose leading glyph regains a non-block marker",
+    usj: unknownSplitUsj({
+      type: "para",
+      marker: "wjthings",
+      content: [{ type: "unmatched", marker: "wj*" }, "more"],
+    }),
+    $edit: () => {
+      const glyph = $paraGlyph(1);
+      glyph.setTextContent("\\wj things");
+      glyph.select(4, 4);
+    },
+  },
+  {
+    // A milestone's run is its only USFM representation; a pending byte in its opening glyph must
+    // not make the settle emit the preserved milestone AND a re-tokenized twin of its own bytes.
+    name: "byte typed into a milestone's opening glyph",
+    usj: twoParaUsj(["before ", { type: "ms", marker: "qt-s" }, " after"]),
+    $edit: () => {
+      const glyph = $getRoot()
+        .getAllTextNodes()
+        .find((node) => node.getTextContent() === "\\qt-s");
+      if (!glyph) throw new Error("expected the milestone's opening glyph");
+      glyph.setTextContent("\\qt-s|");
+      glyph.select(6, 6);
     },
   },
 ];
