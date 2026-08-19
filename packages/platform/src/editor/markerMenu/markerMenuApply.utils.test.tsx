@@ -32,6 +32,7 @@ import {
   $setSelection,
   $setState,
   BLUR_COMMAND,
+  LexicalEditor,
   LexicalNode,
   TextNode,
   UNDO_COMMAND,
@@ -2435,5 +2436,188 @@ describe("register closeout pins", () => {
     );
     expect(span.marker).toBe("nd");
     expect(span.content).toEqual(["one"]);
+  });
+});
+
+/**
+ * Characterization of the two closeout pins above driven at the OTHER caret positions their
+ * gesture can start from. Both pins place the caret at one convenient spot; a marker glyph is
+ * rendered text the caret walks a character at a time, and the apply behaves differently at every
+ * interior position of one.
+ *
+ * These assertions record what happens TODAY, not what should. Each `it` names the assertion that
+ * flips when the underlying split is fixed.
+ */
+describe("marker apply at a glyph's interior caret positions (characterization)", () => {
+  /** The paragraph's serialized content — the FILE, as opposed to what the screen shows. */
+  function paraContent(editor: LexicalEditor): MarkerObject["content"] {
+    const usj = deserializeEditorState(editor.getEditorState(), viewOptions);
+    return (usj?.content?.[0] as MarkerObject | undefined)?.content;
+  }
+
+  /** `\p \add word\add*`, with the closing glyph handed back for caret placement. */
+  async function closedAddSpan() {
+    let closer!: MarkerNode;
+    const { editor } = await testEnvironment(() => {
+      closer = $createMarkerNode("add", "closing");
+      $getRoot().append(
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTrailingSpaceNode(),
+          $createCharNode("add").append(
+            $createMarkerNode("add"),
+            $createTextNode(`${NBSP}word`),
+            closer,
+          ),
+        ),
+      );
+    });
+    return { editor, closer };
+  }
+
+  async function applyNd(editor: LexicalEditor) {
+    const item: MarkerMenuItem = { marker: "nd", kind: "character", isBasic: true };
+    await act(async () =>
+      editor.update(() => {
+        $applyMarkerMenuSelection(
+          item,
+          { trigger: "backslash", literalPrefixLanded: false },
+          reference,
+          makeDeps(),
+        );
+      }),
+    );
+  }
+
+  describe("applying \\nd with the caret INSIDE the preceding closing glyph (K12)", () => {
+    /**
+     * The pin above starts at the glyph's end, where the apply lands one clean pair. One character
+     * to the left — an arrow-left away, and where a click near the glyph can land — the glyph is
+     * split instead: its left half heals back to a whole `\add*` and its right half is stranded in
+     * the paragraph as literal content nobody typed. Those bytes reach the file.
+     *
+     * When the apply stops splitting a glyph, every `strandedTail` below becomes `undefined`.
+     */
+    it.each([
+      [1, "add*"],
+      [2, "dd*"],
+      [3, "d*"],
+      [4, "*"],
+    ])("caret at closer offset %i strands %o in the document", async (offset, strandedTail) => {
+      const { editor, closer } = await closedAddSpan();
+      await act(async () => editor.update(() => closer.select(offset, offset)));
+      await applyNd(editor);
+
+      const content = paraContent(editor);
+      // The original span and the requested new pair are both intact...
+      expect((content?.[0] as MarkerObject).marker).toBe("add");
+      expect((content?.[1] as MarkerObject).marker).toBe("nd");
+      // ...and beside them sit bytes the user never typed.
+      expect(content?.[2]).toBe(strandedTail);
+    });
+
+    it("strands nothing at the glyph's end, the position the pin above uses", async () => {
+      const { editor, closer } = await closedAddSpan();
+      await act(async () =>
+        editor.update(() =>
+          closer.select(closer.getTextContentSize(), closer.getTextContentSize()),
+        ),
+      );
+      await applyNd(editor);
+
+      expect(paraContent(editor)).toHaveLength(2);
+    });
+  });
+
+  describe("wrapping a selection whose anchor sits in the opening glyph (W4)", () => {
+    /** `\p \add one two\add*`, with the opening glyph and content handed back. */
+    async function openAddSpan() {
+      let opener!: MarkerNode;
+      let content!: TextNode;
+      const { editor } = await testEnvironment(() => {
+        opener = $createMarkerNode("add");
+        content = $createTextNode(`${NBSP}one two`);
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createMarkerNode("p"),
+            $createTrailingSpaceNode(),
+            $createCharNode("add").append(opener, content, $createMarkerNode("add", "closing")),
+          ),
+        );
+      });
+      return { editor, opener, content };
+    }
+
+    async function wrapFrom(
+      editor: LexicalEditor,
+      anchorNode: TextNode,
+      anchorOffset: number,
+      focusNode: TextNode,
+      focusOffset: number,
+    ) {
+      await act(async () =>
+        editor.update(() => {
+          const selection = $createRangeSelection();
+          selection.anchor.set(anchorNode.getKey(), anchorOffset, "text");
+          selection.focus.set(focusNode.getKey(), focusOffset, "text");
+          $setSelection(selection);
+        }),
+      );
+      await applyNd(editor);
+    }
+
+    it("nests correctly when the same screen range is anchored in the CONTENT node", async () => {
+      const { editor, content } = await openAddSpan();
+      await wrapFrom(editor, content, 0, content, 4);
+
+      const add = paraContent(editor)?.[0] as MarkerObject;
+      expect(add.marker).toBe("add");
+      expect((add.content?.[0] as MarkerObject).marker).toBe("nd");
+      expect((add.content?.[0] as MarkerObject).content).toEqual(["one"]);
+    });
+
+    /**
+     * The identical screen selection — the span's whole visible content up to "one" — anchored at
+     * the opening glyph's END instead. Lexical reports either point for that one screen position,
+     * so which one a drag or a Shift+Arrow produces is not the user's choice. Here the enclosing
+     * span is dissolved: its marker vanishes from the file while its opening glyph is still on
+     * screen, and its trailing content falls out of it. That is a screen-versus-file divergence.
+     *
+     * When this is fixed, both assertions below become the CONTENT-anchored expectations above.
+     */
+    it("DISSOLVES the span when anchored at the opening glyph's end", async () => {
+      const { editor, opener, content } = await openAddSpan();
+      let openerEnd = 0;
+      editor.getEditorState().read(() => (openerEnd = opener.getTextContentSize()));
+      await wrapFrom(editor, opener, openerEnd, content, 4);
+
+      // On screen the `\add` opener is still there...
+      editor.getEditorState().read(() => expect($getRoot().getTextContent()).toContain("\\add"));
+      // ...but the file has no `add` marker at all, and " two" has left the span.
+      const content0 = paraContent(editor);
+      expect((content0?.[0] as MarkerObject).marker).toBe("nd");
+      expect((content0?.[0] as MarkerObject).content).toEqual(["one"]);
+      expect(content0?.[1]).toBe(" two");
+    });
+
+    it("DISSOLVES the span the same way when the selection starts before the opening glyph", async () => {
+      const { editor, opener, content } = await openAddSpan();
+      await wrapFrom(editor, opener, 0, content, 4);
+
+      const content0 = paraContent(editor);
+      expect((content0?.[0] as MarkerObject).marker).toBe("nd");
+      expect(content0?.[1]).toBe(" two");
+    });
+
+    it("nests correctly when the anchor is MID-glyph rather than at either end", async () => {
+      // The mid-glyph anchor pulls the glyph's tail into the wrap as content, which is faithful
+      // re-tokenization of the bytes — so the divergence above is specific to the glyph's ends.
+      const { editor, opener, content } = await openAddSpan();
+      await wrapFrom(editor, opener, 2, content, 4);
+
+      const add = paraContent(editor)?.[0] as MarkerObject;
+      expect(add.marker).toBe("add");
+      expect((add.content?.[0] as MarkerObject).content).toEqual(["dd one"]);
+    });
   });
 });
