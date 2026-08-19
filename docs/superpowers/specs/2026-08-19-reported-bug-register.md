@@ -7,11 +7,18 @@ Every bug TJ reported across the effort, reconciled against what actually shippe
 
 Status tags: **PARTIAL** (some of it) · **MIS-SCOPED** (recorded, but aimed at a different bug) ·
 **WEAK** (claimed fixed, evidence does not clearly cover the report) · **DEFERRED** (deliberate) ·
-**UNVERIFIED** (plausibly fixed by a later round, never checked against this repro).
+**UNVERIFIED** (plausibly fixed by a later round, never checked against this repro) ·
+**NOT-REPRODUCED** (a test at the Phase-3 anchor and the one before it was GREEN at both, so nothing
+in this effort repaired it and it was never broken at either base — pinned forward regardless).
 
 Rounds referenced: the six tracks + integration (`2026-08-14`/`08-17` handoffs), then three
 follow-up rounds `fb`, `fb2`, `fb3` (`docs/superpowers/plans/2026-08-18-fb*.md`, merged to
-`sv/residual-backlog`).
+`sv/residual-backlog`), then the closeout round
+(`docs/superpowers/plans/2026-08-19-bug-register-closeout.md`, this branch).
+
+**Pin paths** are relative to `packages/platform/src/editor/` unless labelled otherwise. The
+closeout round's anchors are `f0800f35` (the Phase-3 branch point) and `85fec66d` (the standard-view
+tip it was rebased onto).
 
 ---
 
@@ -55,8 +62,12 @@ follow-up rounds `fb`, `fb2`, `fb3` (`docs/superpowers/plans/2026-08-18-fb*.md`,
 - [x] **K10** An unmatched closer inside an open span of the same marker should become that span's
       closer. — re-matching now falls out of re-tokenization; the paste repro is pinned.
 - [x] **K11** Typing `\va` after a verse resolves at `\v` two keystrokes early.
-- [ ] **K12** `\nd` + Enter with the caret after another closer fabricates `\nd \nd \nd*`.
-      *No record anywhere.* Writes a bogus empty pair into the file.
+- [x] **K12** `\nd` + Enter with the caret after another closer fabricates `\nd \nd \nd*`.
+      **NOT-REPRODUCED** — green at both anchors, under BOTH palette eras (the active palette lands
+      nothing before the commit; the passive one, which the report was filed against, left the typed
+      `\nd` for the commit to clean up). Pinned: `markerMenu/markerMenuApply.utils.test.tsx`,
+      "applying a char marker after another closer inserts exactly one glyph pair". Note an empty
+      `\nd \nd*` pair IS the correct outcome of an Enter commit — the report is about a third glyph.
 
 ## Whitespace and separators
 
@@ -65,16 +76,28 @@ follow-up rounds `fb`, `fb2`, `fb3` (`docs/superpowers/plans/2026-08-18-fb*.md`,
 - [ ] **W3** Forward-Delete of spaces between parts fails; Backspace works. **MIS-SCOPED** — the
       whitespace work is direction-agnostic and fixes a *deleted-then-resurrected* byte. The reported
       defect is a byte that is never deleted at all, in one direction only.
-- [ ] **W4** Wrapping a selection in `\nd` emits no separator after the opener. *No record anywhere.*
-      Under the new tokenize-identity rule these bytes now rename the marker on the next settle.
+- [x] **W4** Wrapping a selection in `\nd` emits no separator after the opener.
+      **NOT-REPRODUCED** — green at both anchors; a display pin already existed at the anchor. What
+      was missing is the SEMANTIC half: that pin asserts the NBSP is shown and says outright that the
+      saved bytes were already right, which was true when a missing separator was cosmetic. Under the
+      tokenize-identity rule `\ndone` now scans as a marker named `ndone`, so the new pin departs to
+      force a settle and asserts the emitted USJ still says marker `nd` with content `one`:
+      `markerMenu/markerMenuApply.utils.test.tsx`, "a wrapped selection still serializes as marker nd
+      with its own content".
 - [x] **W5** Wrapping a whitespace-only selection produces an empty pair beside an orphaned space.
-- [ ] **W6** Space after `\v` just moves the cursor. **PARTIAL** — bytes pinned; the byte pins
-      *deliberately assert bytes only*, and the caret is the reported symptom.
-- [ ] **W7** Space before the space on a nested `\+nd ` just moves the cursor. **PARTIAL**, as W6.
-      Nested separators are never distinguished from flat ones in any document.
-- [ ] **W8** Space on a normal `\nd ` inserts, but the cursor ends past both spaces. **PARTIAL** —
-      byte fixed; caret deferred, then dropped from the backlog entirely. fb2 narrowed it (now lands
-      one byte past) and records that *no track owns it*.
+- [x] **W6** Space after `\v` just moves the cursor. **Caret half MEASURED, and it is correct now:**
+      the typed space lands as a real byte at the head of the following text and the caret sits
+      immediately after it. The reported "no byte inserted" is not what happens.
+- [ ] **W7** Space before the space on a nested `\+nd ` just moves the cursor.
+      **REPRODUCES — same defect as W8, not a separate one.** Measured on a `\+nd` nested inside
+      `\wj`: byte-for-byte and caret-for-caret identical to the flat case, so nesting changes nothing
+      here and the two should be fixed and pinned together.
+- [ ] **W8** Space on a normal `\nd ` inserts, but the cursor ends past both spaces.
+      **REPRODUCES.** Measured: the typed space is absorbed INTO the opening glyph (`\nd` becomes
+      `\nd `) and the caret advances past the structural NBSP separator as well, landing immediately
+      before the content. The emitted USJ is unchanged, which is right — the writer emits the
+      structural space regardless — so this is purely the caret. It should stay immediately after the
+      byte the user typed. Still owned by nobody; see the handoff.
 - [x] **W9** `\p ` + space does nothing (lone space silently deleted).
 - [x] **W10** Typing next to a verse fabricates a leading space. **Re-diagnosed, not repaired** — the
       space is the verse's structural leading-attribute space the writer emits regardless; pinned
@@ -120,11 +143,21 @@ follow-up rounds `fb`, `fb2`, `fb3` (`docs/superpowers/plans/2026-08-18-fb*.md`,
 
 ## Attributes and attribute markers
 
-- [ ] **A1** Typing the closer `\w*` deletes the default attribute. *No record anywhere.*
-      Attribute data destroyed by a keystroke.
+- [x] **A1** Typing the closer `\w*` deletes the default attribute.
+      **NOT-REPRODUCED** — green at both anchors. Pinned on the shape most at risk, `\w`'s BARE
+      default attribute (`|G5485`), where the attribute name appears nowhere in the bytes:
+      `markerEdit/charAttributeTypedSettle.test.tsx`, "typing a closing marker keeps the span's
+      default attribute".
 - [ ] **A2** Undo and move off does not settle attribute text into real attribute state.
-      *No record anywhere.* All attribute-settle work was scoped to attribute *markers*, not char
-      attribute runs.
+      **STILL OPEN, but no headless repro.** The premise recorded here was wrong: char attribute runs
+      ARE covered — the display-run registry carries a `char` descriptor with all nine duties, and the
+      reported gesture was already pinned (`markerEdit/markerEditUndoResettle.test.tsx`). What that pin
+      lacked was the app's real plugin stack, since this run kind is jointly owned by `CharNodePlugin`'s
+      sync and its documented failure mode is the two interacting. Re-run with both syncs around the
+      engine: still green. Also green for a named attribute, `\w`'s bare default, a second attribute
+      appended to an existing run, and — correctly — NOT parsed on an unclosed span, where the
+      tokenizer agrees the `|` bytes are content. Pinned: `markerEdit/charAttributeTypedSettle.test.tsx`.
+      Needs a precise repro from the owner; see the handoff.
 - [x] **A3** `ca`/`cp` on a chapter do not display at all. — both display and edit; `cp` shipped in
       its inline form by owner choice, own-line layout ticketed separately.
 - [x] **A4** `cat` on notes and `esb` does not display. — notes now build the run
@@ -133,8 +166,9 @@ follow-up rounds `fb`, `fb2`, `fb3` (`docs/superpowers/plans/2026-08-18-fb*.md`,
       real project rather than a headless fixture, re-check.
 - [x] **A5** Milestone attributes reorder; authored order should survive. — fb-milestone-order. The
       original diagnosis was wrong: order was lost at **load**, not in the fold.
-- [ ] **A6** Typing `vp` after a verse marker makes crazy logs. *No record anywhere* — see the
-      log-storm cluster below.
+- [x] **A6** Typing `vp` after a verse marker makes crazy logs. Part of the log-storm class — see
+      **S4-S7** for the diagnosis. Editor-side pin: `markerEdit/logStormGestures.test.tsx`,
+      "`\vp` typed right after a verse marker".
 - [x] **A7** `closed="false"` on USJ↔editor state and on deltas. **WEAK** — the collab pin was
       *born green*; nothing was repaired. Worth saying what you originally saw.
 
@@ -143,8 +177,12 @@ follow-up rounds `fb`, `fb2`, `fb3` (`docs/superpowers/plans/2026-08-18-fb*.md`,
 - [ ] **M1** Typing `\qt-s ` then `\*` eats the space and jumps the caret forward one.
       **UNVERIFIED** — fb2's typed-byte matrix claims no kind discards a typed byte any more, but
       this repro is named nowhere.
-- [ ] **M2** The milestone marker name is editable on screen and silently never persists.
-      *No record anywhere.* This is the exact silent-data-loss shape Invariant I forbids.
+- [x] **M2** The milestone marker name is editable on screen and silently never persists.
+      Fixed in `sv/fb5/milestone-edit` (merged to `sv/residual-backlog`), not by this round —
+      the fixed-point signature folded a milestone's sid/eid/attributes but not its `marker`, so a
+      rename compared equal, the rebuild was refused as a no-op, and the stale marker survived into
+      the file. Confirmed RED at this branch's pre-rebase base by running that branch's own test here.
+      Pinned: `markerEdit/milestoneMarkerEdit.test.tsx`.
 
 ## Unknown and opaque blocks
 
@@ -175,22 +213,49 @@ follow-up rounds `fb`, `fb2`, `fb3` (`docs/superpowers/plans/2026-08-18-fb*.md`,
 - [x] **S3** Deleting the `*` on `\va*` then moving into `\v 2` freezes the app. — two defects: span
       combination across rendered glyphs, plus byte-based piece classification. Cascade-depth backstop
       added.
-- [ ] **S4** Backslash-bar endlessly logs "deferring an incoming PDP update". *No record anywhere.*
-- [ ] **S5** Double-slash optbreak endlessly logs the same. *No record anywhere.*
-- [ ] **S6** Newline + `\p` + typing endlessly logs the same. *No record anywhere.*
-- [ ] **S7** Typing unsupported grayed-out markers makes crazy logs. *No record anywhere.*
-- [ ] **S8** Inline marker, content after the closer, delete the closer: crazy logs. **PARTIAL** —
-      content half fixed; the settle-loop track states *did not touch logging volume*.
+- [x] **S4** Backslash-bar endlessly logs "deferring an incoming PDP update".
+- [x] **S5** Double-slash optbreak endlessly logs the same.
+- [x] **S6** Newline + `\p` + typing endlessly logs the same.
+- [x] **S7** Typing unsupported grayed-out markers makes crazy logs.
+- [x] **S8** Inline marker, content after the closer, delete the closer: crazy logs. Content half was
+      already fixed; the log half is resolved with S4-S7 below.
+
+      **S4-S7, A6 and S8's log half are ONE class, and it was fixed in the HOST before Phase 3 even
+      branched** — which is why no track here owns it and why the editor-side bisect is green at both
+      anchors. That host line fires once per PDP update that disagrees with the editor while the
+      editor is focused, so an endless run of them needs an endless run of PDP updates, which come
+      from the editor saving. Three candidate drivers were checked:
+      (1) a non-idempotent `usj -> usx -> usj` round-trip, which the host's own damping comment names
+      as the shape that sustains the loop — every reported pattern reaches a fixed point, the only
+      diffs being USJ key order, which the host compares structurally;
+      (2) the editor cycling commits — bounded for all six gestures, and equally bounded at the
+      anchor;
+      (3) the deferral path logging without a bound — this was the real one. paranext-core now logs a
+      single warn at the non-convergence threshold with debug otherwise (2026-07-15) and damps the
+      echo loop outright (2026-08-03), and already pins all three behaviors in
+      `use-editor-pdp-sync.hook.test.ts`.
+      Editor-side pins: `markerEdit/logStormGestures.test.tsx`, one commit bound per reported gesture.
+      **Not settled:** whether ParatextData's own USX -> USFM -> USX leg is idempotent for these
+      shapes. It sits between the two converter calls and is invisible from this repo — manual check.
 
 ## Notes and footnotes
 
-- [ ] **N1** Adding a footnote on a non-nested consecutive inline marker nests it and deletes the
-      closing marker. *No record anywhere.* No track covered note *insertion*.
+- [x] **N1** Adding a footnote on a non-nested consecutive inline marker nests it and deletes the
+      closing marker. **FIXED THIS ROUND.** Reachable by the most ordinary gesture there is — caret at
+      the end of the word, or the word selected, then add a footnote. Both land the insertion point on
+      the boundary before the span's closing glyph, where Lexical's `selection.insertNodes()` SPLITS
+      the span; the orphaned closer-only half is then read as "opener deleted" and `$unwrapCharNode`
+      drops every glyph on unwrap. `$insertNoteWithSelect` now places the note at that one boundary
+      itself (`libs/shared-react/src/nodes/usj/note.utils.ts`). Pinned:
+      `markerEdit/noteInsertion.test.tsx`, "note insertion at a closed char span's content end".
 - [ ] **N2** `\fp` does not render as a new line. *Not in this effort's record* — it is a known issue
       in a July document (popover inserts a plain line break) that dropped out of scope.
 - [x] **N3** `\p` is visible in the footnote editor. — fb-footnote-editor.
-- [ ] **N4** Ctrl+T with the caret on a verse-number marker duplicates the verse digit into body text.
-      *No record anywhere.*
+- [x] **N4** Ctrl+T with the caret on a verse-number marker duplicates the verse digit into body text.
+      **NOT-REPRODUCED** — green at both anchors. Pinned anyway because it rides the same insertion
+      path N1 broke, at the other place that path meets engine-owned display bytes:
+      `markerEdit/noteInsertion.test.tsx`, "footnote insertion on a verse marker keeps the verse
+      number out of body text".
 
 ## Ctrl+Space
 
