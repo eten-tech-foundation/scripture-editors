@@ -449,15 +449,18 @@ export function parseNumberFromMarkerText(
   if (text?.startsWith(openMarkerText)) {
     // Skip the NBSP/space separator inserted by `getVisibleOpenMarkerText`.
     const rest = text.slice(openMarkerText.length).replace(/^[\s ]+/, "");
-    // Verse-number token: digits + optional segment letter, optionally bridged (-) or listed (,)
-    // with more of the same. E.g. 12, 5a, 1-2, 1a-2b, 1,3. The token may also END on a bridge or
-    // list separator (`5-`, `1a,`): that is a bridge the user is still typing, and it is already
-    // on screen and in the node's own number, so a parse that stopped at the last COMPLETE token
-    // would drop a displayed byte from the saved file. A separator is only ever the number's own
-    // byte here — the leading-attribute rule means anything after a SPACE is body text, so the
-    // number still ends at the first character that is not part of it (`\v 7 5` is verse 7 plus
-    // text `5`; `\v 2\ Da` is verse 2 plus the literal).
-    const match = /^(\d+[a-zA-Z]*(?:[-,]\d+[a-zA-Z]*)*[-,]?)/.exec(rest);
+    // The number is the whole WORD, valid or not — the same scan Paratext 9's GetNextWord applies
+    // and the same one Tier 1 uses to keep the glyph and the node in step
+    // (`leadingAttributeGlyphRegexes`). Anything narrower drops displayed bytes on the way to the
+    // file: a bridge the user is still typing (`5-`), a typo (`5--`, `5*`), a half-typed segment
+    // (`5-Da`) are all on screen and in the node's own number, so a grammar that recognized only
+    // well-formed numbers would save something the editor is not showing.
+    //
+    // The word still ends where the leading-attribute rule says it does, which is what keeps this
+    // from swallowing content: whitespace ends it (`\v 7 5` is verse 7 plus body text `5`) and so
+    // does a backslash (`\v 2\ Da` is verse 2 plus the literal), because both are the tokenizer's
+    // own name-scan terminators.
+    const match = /^([^ \u00A0\\]+)/.exec(rest);
     if (match) number = match[1];
   }
   return number;

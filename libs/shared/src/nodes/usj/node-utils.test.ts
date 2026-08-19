@@ -267,9 +267,24 @@ describe("Editor Node Utilities", () => {
       expect(parseNumberFromMarkerText("c", "\\c 3- ", "9")).toBe("3-");
     });
 
+    it.each([
+      ["a doubled separator", "5--"],
+      ["a separator followed by letters", "5-Da"],
+      ["mixed separators", "5-,6"],
+      ["a stray asterisk", "5*"],
+      ["a bare separator", "-"],
+    ])("keeps what the user typed: %s", (_label, typed) => {
+      // The number is the whole word, valid or not. These are malformed, and every one of them is
+      // on screen and stored on the node — so a grammar that recognized only well-formed numbers
+      // would save a document the editor is not showing. Preserving them is what lets the user
+      // see and correct their own typo instead of watching a byte disappear at save time.
+      expect(parseNumberFromMarkerText("v", `\\v${NBSP}${typed} `, "9")).toBe(typed);
+    });
+
     it("still ends the number at the first character that is not part of it", () => {
-      // Only a NON-space character after the number demotes what follows to body text, and the
-      // separator run between them never joins the two.
+      // The word scan ends at the tokenizer's own name-scan terminators, which is what keeps it
+      // from swallowing content: whitespace demotes what follows to body text, and so does a
+      // backslash. The separator run between them never joins the two.
       expect(parseNumberFromMarkerText("v", `\\v${NBSP}7 5 `, "9")).toBe("7");
       expect(parseNumberFromMarkerText("v", `\\v${NBSP}2\\ Da`, "9")).toBe("2");
     });
