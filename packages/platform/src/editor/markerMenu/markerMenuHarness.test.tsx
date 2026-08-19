@@ -58,6 +58,7 @@ import {
   $createParaNode,
   $isCharNode,
   $isMarkerNode,
+  $isNoteNode,
   $isParaNode,
   defaultStyleInfo,
   getVisibleOpenMarkerText,
@@ -216,6 +217,20 @@ function $buildBackslashMenuFixture(): { text: TextNode } {
  * document and the palette's typed filter is the only record of what the user typed. */
 function $buildWrapMenuFixture(): { text: TextNode } {
   const text = $createTextNode("say holy words");
+  $getRoot().append(
+    $createParaNode("p").append($createMarkerNode("p"), $createTrailingSpaceNode(), text),
+  );
+  return { text };
+}
+
+/**
+ * A `\p` paragraph with text on BOTH sides of the caret. Every other `\`-palette fixture here
+ * places the caret at the very end of the document, where nothing follows it — which is exactly
+ * the position in which a materialized literal has no tail to absorb, and therefore the position
+ * in which the note-marker hazard cannot show itself.
+ */
+function $buildMidTextBackslashFixture(): { text: TextNode } {
+  const text = $createTextNode("hello world and more");
   $getRoot().append(
     $createParaNode("p").append($createMarkerNode("p"), $createTrailingSpaceNode(), text),
   );
@@ -537,6 +552,136 @@ describe("editable-mode marker menu harness", () => {
       editor.getEditorState().read(() => {
         const note = findOnlyNote($getRoot());
         expect(note.getMarker()).toBe("f");
+      });
+    });
+
+    /**
+     * Mid-text, where the materialized literal has a paragraph tail to eat.
+     *
+     * A note is a CONTAINER: `\f ` opens one and, being unterminated, it runs to the end of the
+     * paragraph. The tokenizer's leading-attribute rule then takes the first word after it as the
+     * note's CALLER and the rest becomes the note's content, so a `\f ` typed mid-sentence takes
+     * the whole rest of the sentence off the page and into a collapsed note. At the end of a
+     * paragraph — where every other fixture in this file puts the caret — there is no tail, so the
+     * literal produces the empty note the ratified table calls "commits like Enter", and the
+     * hazard is invisible.
+     *
+     * The literal path itself is the tokenizer's and stays exactly as it is (a fixed point); what
+     * changes is that the palette stops ROUTING note markers through it, which is what the host's
+     * own palette already does.
+     */
+    it("the raw `\\f ` literal mid-text pulls the paragraph tail into the note", async () => {
+      // Evidence, not a regression pin: this is the tokenizer behavior the palette rule exists to
+      // route around, and it must keep working exactly like this for anyone who types the bytes.
+      let text: TextNode | undefined;
+      const { editor } = await harnessTestEnvironment(() => {
+        text = $buildMidTextBackslashFixture().text;
+      });
+      await act(async () => editor.update(() => requireDefined(text, "text").select(6, 6)));
+
+      await act(async () =>
+        editor.update(() => {
+          const selection = $getSelection();
+          if ($isRangeSelection(selection)) selection.insertText("\\f ");
+        }),
+      );
+
+      editor.getEditorState().read(() => {
+        const note = findOnlyNote($getRoot());
+        expect(note.getMarker()).toBe("f");
+        // The word after the caret became the note's caller, and the rest of the sentence its
+        // content: nothing of the tail is left in the paragraph.
+        expect(note.getTextContent()).toContain("and more");
+        const para = requireDefined($getRoot().getChildren().filter($isParaNode)[0], "para");
+        const outsideTheNote = para
+          .getChildren()
+          .filter((child) => !$isNoteNode(child))
+          .map((child) => child.getTextContent())
+          .join("");
+        expect(outsideTheNote).not.toContain("and more");
+      });
+    });
+
+    it("`\\f` + Space mid-text leaves the paragraph tail alone", async () => {
+      // The palette routes a NOTE marker through the item commit — the same commit Enter uses —
+      // rather than materializing the literal, so the note arrives empty and the sentence the user
+      // was in the middle of writing stays where they wrote it.
+      let text: TextNode | undefined;
+      const { editor } = await harnessTestEnvironment(() => {
+        text = $buildMidTextBackslashFixture().text;
+      });
+      await act(async () => editor.update(() => requireDefined(text, "text").select(6, 6)));
+
+      await dispatchKeyDown(editor, "\\");
+      await waitForMenu();
+      await dispatchKeyDown(editor, "f");
+
+      const event = await dispatchKeyDown(editor, " ");
+
+      expect(event.defaultPrevented).toBe(true);
+      expect(document.querySelector(".autocomplete-menu-container")).toBeNull();
+      editor.getEditorState().read(() => {
+        const note = findOnlyNote($getRoot());
+        expect(note.getMarker()).toBe("f");
+        // The tail is still the paragraph's, outside the note.
+        expect(note.getTextContent()).not.toContain("and more");
+        const para = requireDefined($getRoot().getChildren().filter($isParaNode)[0], "para");
+        const outsideTheNote = para
+          .getChildren()
+          .filter((child) => !$isNoteNode(child))
+          .map((child) => child.getTextContent())
+          .join("");
+        expect(outsideTheNote).toContain("world and more");
+      });
+    });
+
+    it("at the end of a paragraph the reroute leaves the ratified end state unchanged", async () => {
+      // The reroute must not move the `\f` + Space row of the ratified table — it must make it
+      // true in more positions. At the end of a paragraph the literal and the item commit produced
+      // the same thing all along (an empty note with the default `+` caller), and they still do.
+      let text: TextNode | undefined;
+      const { editor } = await harnessTestEnvironment(() => {
+        text = $buildBackslashMenuFixture().text;
+      });
+      await act(async () => editor.update(() => requireDefined(text, "text").select(5, 5)));
+
+      await dispatchKeyDown(editor, "\\");
+      await waitForMenu();
+      await dispatchKeyDown(editor, "f");
+
+      await dispatchKeyDown(editor, " ");
+
+      editor.getEditorState().read(() => {
+        const note = findOnlyNote($getRoot());
+        expect(note.getMarker()).toBe("f");
+        expect(note.getCaller()).toBe("+");
+        const para = requireDefined($getRoot().getChildren().filter($isParaNode)[0], "para");
+        expect(para.getTextContent()).toContain("hello");
+      });
+    });
+
+    it("`\\nd` + Space mid-text still materializes the literal — only NOTES are rerouted", async () => {
+      // The control, and the ratified-table guarantee: a character marker's Space commit is
+      // unchanged, still an open span (closed="false") produced by the literal, tail and all.
+      let text: TextNode | undefined;
+      const { editor } = await harnessTestEnvironment(() => {
+        text = $buildMidTextBackslashFixture().text;
+      });
+      await act(async () => editor.update(() => requireDefined(text, "text").select(6, 6)));
+
+      await dispatchKeyDown(editor, "\\");
+      await waitForMenu();
+      await dispatchKeyDown(editor, "n");
+      await dispatchKeyDown(editor, "d");
+
+      await dispatchKeyDown(editor, " ");
+
+      editor.getEditorState().read(() => {
+        const para = requireDefined($getRoot().getChildren().filter($isParaNode)[0], "para");
+        const chars = para.getChildren().filter($isCharNode);
+        expect(chars).toHaveLength(1);
+        expect(chars[0].getMarker()).toBe("nd");
+        expect(chars[0].getUnknownAttributes()?.closed).toBe("false");
       });
     });
 
