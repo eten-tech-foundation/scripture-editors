@@ -2426,16 +2426,14 @@ describe("a read-only table is crossed whole from outside", () => {
   });
 });
 
-// CHARACTERIZATION, not a blessing: these record a structural GAP so it is machine-visible and so a
-// change to it is deliberate. A collapsed note that is its paragraph's last child has nothing after
-// it, so the only position past it is the paragraph's own end — an ELEMENT point with no text node
-// to host a caret. The caret comes to rest there, and a browser has no rendered text at that spot to
-// draw an insertion point in; a keypress with no insertion point is the page's, not the editor's,
-// which is what makes a Space there scroll instead of type. Backward movement is unaffected, which
-// is why one press of the leftward arrow recovers.
-//
-// Whichever way the gap is eventually closed — a caret host after the note, or a rule that refuses
-// the position — these go red and say so.
+// The ARROW half of a collapsed note that ends its paragraph, pinned in isolation: no caret guard is
+// mounted here, so these describe the tree exactly as the arrow rules leave it. The note is the
+// paragraph's last child, so the only position past it is the paragraph's own end — an ELEMENT point
+// with no text node. That is the correct LANDING and stays so; what the browser can PAINT there is a
+// separate concern, owned by `TrailingNoteCaretGuardPlugin`, which materializes a transient
+// zero-width caret host at this position when it is mounted (its own tests cover that). Keeping the
+// two apart is deliberate: the arrow rules must not start depending on a host existing, and the
+// guard must not start deciding where the caret goes.
 describe("a collapsed note at a paragraph's end offers no text position after it", () => {
   const standardView = getViewOptions(STANDARD_VIEW_MODE);
 

@@ -126,6 +126,7 @@ import {
   StructureKeyboardPlugin,
   TextDirectionPlugin,
   TextSpacingPlugin,
+  TrailingNoteCaretGuardPlugin,
   UsjNodeOptions,
   UsjNodesMenuPlugin,
   usjReactNodes,
@@ -920,6 +921,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
           <StructureKeyboardPlugin structureProtectionMode={structureProtectionMode} />
           <TextDirectionPlugin textDirection={textDirection} />
           <TextSpacingPlugin />
+          <TrailingNoteCaretGuardPlugin />
           {children}
         </div>
         {debug && <TreeViewPlugin />}

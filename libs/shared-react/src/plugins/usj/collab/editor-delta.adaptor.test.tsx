@@ -1362,6 +1362,33 @@ describe("getEditorDelta", () => {
       ]);
     });
 
+    // The same exclusion covers TrailingNoteCaretGuardPlugin's host, which sits after a note in an
+    // ordinary paragraph rather than inside a verse: the rule is keyed on the node's own bare
+    // placeholder text, not on what surrounds it. Asserted against the ops for the identical tree
+    // with no host, so this stays correct without restating the note embed's shape.
+    it("is transparent to the delta: a caret host past a trailing note emits no op", async () => {
+      const $buildNote = () =>
+        $createNoteNode("f", "+").append(
+          $createImmutableNoteCallerNode("+", "note preview"),
+          $createCharNode("ft").append($createTextNode("note body")),
+        );
+
+      const withHost = await getOpsFor(() => {
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createTextNode("before "),
+            $buildNote(),
+            $createCursorPlaceholderNode(), // caret host past the trailing note
+          ),
+        );
+      });
+      const withoutHost = await getOpsFor(() => {
+        $getRoot().append($createParaNode("p").append($createTextNode("before "), $buildNote()));
+      });
+
+      expect(withHost).toEqual(withoutHost);
+    });
+
     it("should roundtrip the editor state in standard view (editable markers, collapsed notes)", async () => {
       const { editor } = await testEnvironment();
       const editorState = editor.parseEditorState(editorStateGen1v1Standard);

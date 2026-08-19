@@ -854,16 +854,17 @@ function $crossOpaqueConstruct(selection: RangeSelection, direction: TraversalDi
 /**
  * Places the caret in the block just past a collapsed note that ends it.
  *
- * KNOWN GAP: a note that is its block's last child has nothing after it, so this position is an
- * element point with no text node — and a browser with no rendered text at a spot draws no insertion
- * point there, which is why a keypress can end up being the page's rather than the editor's. Closing
- * that gap means giving the position something to render in, which is a design question with more
- * than one defensible answer, so it is left open here.
+ * A note that is its block's last child has nothing after it, so the landing is an element point
+ * with no text node of its own — and a browser draws no insertion point where there is no rendered
+ * text. Giving that position something to render in is `TrailingNoteCaretGuardPlugin`'s job, not
+ * this one's: it materializes a transient zero-width caret host past the note once the caret comes
+ * to rest here, so the landing stays a plain element point in the tree and this rule stays about
+ * WHERE the caret goes rather than what renders it.
  *
- * What is NOT open is which side of the note the caret belongs on. A collapsed note's content is
- * hidden, so a caret inside one is invisible AND typing silently edits the note body instead of the
- * paragraph — the wrong bytes change. An unpainted caret outside the note changes nothing and one
- * backward press recovers it, so it is strictly the better failure.
+ * Which side of the note the caret belongs on is settled here and is not a rendering question. A
+ * collapsed note's content is hidden, so a caret inside one is invisible AND typing silently edits
+ * the note body instead of the paragraph — the wrong bytes change. Outside the note, nothing has
+ * changed and one backward press recovers, so it is strictly the better landing.
  *
  * Mutating: call inside `editor.update()`; dispatched from the arrow handling below.
  */

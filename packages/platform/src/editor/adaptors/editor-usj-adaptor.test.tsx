@@ -66,8 +66,10 @@ import {
 } from "shared-react";
 import {
   $createAttributeRunNode,
+  $createCharNode,
   $createMarkerNode,
   $createMilestoneNode,
+  $createNoteNode,
   $createParaNode,
   $createVerseNode,
   $isParaNode,
@@ -359,6 +361,34 @@ describe("Editor USJ Adaptor — caret-host placeholder", () => {
 
     expect(serialized.includes(CURSOR_PLACEHOLDER_CHAR)).toBe(false); // bare host never reaches USJ
     expect(serialized.includes("real text")).toBe(true); // verse 2's real text survives
+  });
+
+  it("drops a bare caret host past a trailing note and keeps the note", () => {
+    // TrailingNoteCaretGuardPlugin's host sits after a note in an ordinary paragraph rather than
+    // inside a verse; the serializer's rule is keyed on the node's own bare placeholder text, not
+    // on what surrounds it, so the same exclusion covers it.
+    editor.update(
+      () => {
+        $getRoot().clear();
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createTextNode("before "),
+            $createNoteNode("f", "+").append(
+              $createCharNode("ft").append($createTextNode("note body")),
+            ),
+            $createTextNode(CURSOR_PLACEHOLDER_CHAR), // caret host past the trailing note
+          ),
+        );
+      },
+      { discrete: true },
+    );
+
+    const usj = editorUsjAdaptor.deserializeEditorState(editor.getEditorState());
+    const serialized = JSON.stringify(usj);
+
+    expect(serialized.includes(CURSOR_PLACEHOLDER_CHAR)).toBe(false); // bare host never reaches USJ
+    expect(serialized.includes("note body")).toBe(true); // the note itself survives
+    expect(serialized.includes("before ")).toBe(true);
   });
 
   it("preserves a zero-width space embedded in real Scripture text", () => {

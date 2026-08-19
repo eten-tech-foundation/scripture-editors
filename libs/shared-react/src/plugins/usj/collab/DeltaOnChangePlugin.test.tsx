@@ -31,6 +31,7 @@ import {
   $isImpliedParaNode,
   blackListedChangeTags,
   charIdState,
+  CURSOR_CHANGE_TAG,
   EXTERNAL_USJ_MUTATION_TAG,
   ImmutableChapterNode,
   ImpliedParaNode,
@@ -395,6 +396,15 @@ describe("OnChangePlugin", () => {
     it("skips the delta when the update carries a blacklisted tag (e.g. chapter load)", async () => {
       const { editor, calls } = await setup();
       await sutUpdate(editor, $makeMultiNodeChange, { tag: EXTERNAL_USJ_MUTATION_TAG });
+      expect(calls).toHaveLength(0);
+    });
+
+    // The transient caret hosts (an emptied verse's, and a trailing note's) tag every mutation they
+    // make with CURSOR_CHANGE_TAG. That tag is what keeps a host out of save emission entirely: the
+    // commit never reaches this handler, so the host application is never told the document changed.
+    it("skips the delta for a CURSOR_CHANGE_TAG commit, so a caret host is never emitted", async () => {
+      const { editor, calls } = await setup();
+      await sutUpdate(editor, $makeMultiNodeChange, { tag: CURSOR_CHANGE_TAG });
       expect(calls).toHaveLength(0);
     });
   });

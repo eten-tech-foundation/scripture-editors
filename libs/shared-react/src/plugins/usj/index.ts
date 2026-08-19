@@ -22,4 +22,5 @@ export * from "./StructureKeyboardPlugin";
 export * from "./text-direction.model";
 export * from "./TextDirectionPlugin";
 export * from "./TextSpacingPlugin";
+export * from "./TrailingNoteCaretGuardPlugin";
 export * from "./UsjNodesMenuPlugin";
