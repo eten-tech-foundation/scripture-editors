@@ -248,6 +248,31 @@ describe("Editor Node Utilities", () => {
     it("preserves multi-letter segments instead of truncating", () => {
       expect(parseNumberFromMarkerText("v", `\\v${NBSP}5abc `, "9")).toBe("5abc");
     });
+
+    it("keeps the trailing separator of a half-typed bridge", () => {
+      // `\v 5-` is a byte the user typed and the node already stores. Dropping it here would
+      // save a file the screen never showed.
+      expect(parseNumberFromMarkerText("v", `\\v${NBSP}5- `, "9")).toBe("5-");
+    });
+
+    it("keeps the trailing separator of a half-typed verse list", () => {
+      expect(parseNumberFromMarkerText("v", `\\v${NBSP}5, `, "9")).toBe("5,");
+    });
+
+    it("keeps the trailing separator of a half-typed segmented bridge", () => {
+      expect(parseNumberFromMarkerText("v", `\\v${NBSP}1a- `, "9")).toBe("1a-");
+    });
+
+    it("keeps the trailing separator on a chapter number too", () => {
+      expect(parseNumberFromMarkerText("c", "\\c 3- ", "9")).toBe("3-");
+    });
+
+    it("still ends the number at the first character that is not part of it", () => {
+      // Only a NON-space character after the number demotes what follows to body text, and the
+      // separator run between them never joins the two.
+      expect(parseNumberFromMarkerText("v", `\\v${NBSP}7 5 `, "9")).toBe("7");
+      expect(parseNumberFromMarkerText("v", `\\v${NBSP}2\\ Da`, "9")).toBe("2");
+    });
   });
 
   describe("openingMarkerText() / closingMarkerText()", () => {

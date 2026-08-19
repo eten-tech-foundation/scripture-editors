@@ -9,7 +9,8 @@
  * asserted for both the default `-` and a custom separator in shared-react's
  * `node-react-utils.test.ts`.
  *
- * The third test pins a DIVERGENCE, not desired behavior — see its own comment.
+ * A HALF-typed bridge (`\v 5-`) is held to the same three legs as a complete one: the trailing
+ * separator is a displayed byte, so it survives a save rather than being truncated away.
  */
 
 import { MarkerEditPlugin } from "./MarkerEditPlugin";
@@ -123,7 +124,7 @@ describe("verse bridging", () => {
     });
   });
 
-  it("keeps a half-typed bridge on screen and in the node, but drops it from the emitted document", async () => {
+  it("keeps a half-typed bridge on screen, in the node, and in the emitted document", async () => {
     let verse: VerseNode;
     const { editor } = await mount(() => {
       verse = $createVerseNode("5", getVisibleOpenMarkerText("v", "5"));
@@ -149,22 +150,57 @@ describe("verse bridging", () => {
       expect(verse!.getNumber()).toBe("5-");
     });
 
-    // ...and the emitted document does NOT. `parseNumberFromMarkerText` (node.utils.ts) matches a
-    // COMPLETE verse-number token and stops, so the trailing bridge separator is truncated away —
-    // and the truncated parse then overrides the node's own faithful number. A document saved
-    // while a bridge is half typed silently loses the byte the screen is showing, which
-    // "displayed bytes are the document" forbids. Our own tokenizer keeps it (a verse number is
-    // the whole word, valid or not), so this is also a round-trip loss for authored `\v 5-`.
-    //
-    // Pinned as the divergence it is, NOT as desired behavior: fixing it means deciding what a
-    // verse number may contain. The narrowest candidate is to let the token end on a trailing
-    // `-`/`,` separator, which leaves the shapes the sibling suites pin untouched (`\v 7 5` is
-    // verse 7 plus body text `5`; `\v 2\ Da` is verse 2 plus the literal). When that lands, this
-    // assertion flips to `"5-"` on both sides.
-    expect(currentUsj(editor).content?.[0]).toEqual({
+    // ...and so does the emitted document. `parseNumberFromMarkerText` (node.utils.ts) lets the
+    // number token end on a bridge/list separator, so it no longer stops at the last COMPLETE
+    // token and overrides the node's own faithful number with a truncated parse. A save taken
+    // while a bridge is half typed keeps the byte the screen is showing, as "displayed bytes are
+    // the document" requires, and authored `\v 5-` round-trips — our tokenizer keeps it too (a
+    // verse number is the whole word, valid or not).
+    const usj = currentUsj(editor);
+    expect(usj.content?.[0]).toEqual({
       type: "para",
       marker: "p",
-      content: [{ type: "verse", marker: "v", number: "5" }, "body"],
+      content: [{ type: "verse", marker: "v", number: "5-" }, "body"],
     });
+    // The save leg, all the way to the bytes the host writes.
+    expect(usjToUsxString(usj)).toContain('<verse style="v" number="5-"/>');
+  });
+
+  it("lands the complete bridge when the half-typed one is finished afterwards", async () => {
+    // A half-typed bridge is transient by definition: keeping `5-` must not strand the verse
+    // there. Typing the second number — after a settle has already run over `5-` — completes it.
+    let verse: VerseNode;
+    const { editor } = await mount(() => {
+      verse = $createVerseNode("5", getVisibleOpenMarkerText("v", "5"));
+      $appendVerseParaWith(verse, "body");
+    });
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    await typeTextAtSelection(editor, "-", verse!, 4);
+    // Depart to the body and back, so the `5-` state settles before the bridge is finished.
+    await act(async () =>
+      editor.update(() => {
+        const body = $getRoot()
+          .getAllTextNodes()
+          .find((node) => node.getTextContent() === "body");
+        body?.select(2, 2);
+      }),
+    );
+    // `\v 5-|` — back at the end of the number.
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    await typeTextAtSelection(editor, "6", verse!, 5);
+
+    editor.getEditorState().read(() => {
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      expect(verse!.getTextContent()).toBe(`\\v${NBSP}5-6 `);
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      expect(verse!.getNumber()).toBe("5-6");
+    });
+    const usj = currentUsj(editor);
+    expect(usj.content?.[0]).toEqual({
+      type: "para",
+      marker: "p",
+      content: [{ type: "verse", marker: "v", number: "5-6" }, "body"],
+    });
+    expect(usjToUsxString(usj)).toContain('<verse style="v" number="5-6"/>');
   });
 });
