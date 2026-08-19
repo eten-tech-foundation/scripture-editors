@@ -14,6 +14,8 @@ import {
   requireDefined,
   serializedState,
   testEnvironmentWithCharSync,
+  usjNoteFromUsfm,
+  usjNoteOf,
   viewOptions,
 } from "./markerEdit.test-helpers";
 import { $handleEnterInNote, NoteEnterOutcome } from "./markerEditNote.utils";
@@ -686,6 +688,28 @@ describe("Enter inside a nested character style in note content", () => {
       const chars = note.getChildren().filter($isCharNode);
       expect(chars.map((c) => c.getMarker())).toEqual(["ft", "fp"]);
     });
+  });
+
+  it("emits NO \\ft* — the \\fp break is itself what ends the \\ft (file bytes)", async () => {
+    // The counterpart of the Ctrl+Space rule, and the reason that rule needs its own switch: an
+    // unstyled gap has nothing to terminate the span it interrupts, but a note-content MARKER
+    // does. The `\fp` therefore emits no closing marker and reopens no `\ft` — the `\ft` stays
+    // closed="false" and the `\fp` terminates it.
+    //
+    // Asserted on the SERIALIZED note against the tokenizer's reading of the expected bytes, so a
+    // stray `\ft*` fails here rather than being found by hand in a saved file.
+    const { editor, content } = await setUpNestedNd();
+
+    await act(async () => {
+      editor.update(() => {
+        content.select(3, 3);
+        $handleEnterInNote();
+      });
+    });
+
+    expect(usjNoteOf(editor)).toEqual(
+      usjNoteFromUsfm("\\p \\f + \\ft A \\+nd ho\\+nd*\\fp \\+nd ly\\+nd* B\\f*"),
+    );
   });
 
   it("places the caret at the break point inside the reopened nested style", async () => {

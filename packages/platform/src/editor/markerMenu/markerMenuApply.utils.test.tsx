@@ -5,11 +5,13 @@ import {
 } from "./markerMenuApply.utils";
 import { MarkerMenuItem } from "./markerItemSource";
 import { deserializeEditorState } from "../adaptors/editor-usj.adaptor";
-import { MarkerObject } from "@eten-tech-foundation/scripture-utilities";
+import { MarkerContent, MarkerObject } from "@eten-tech-foundation/scripture-utilities";
 import { MarkerEditPlugin } from "../markerEdit/MarkerEditPlugin";
 import {
   historyTestEnvironment,
   testEnvironment,
+  usjNoteFromUsfm,
+  usjNoteOf,
   viewOptions,
 } from "../markerEdit/markerEdit.test-helpers";
 import {
@@ -52,6 +54,7 @@ import {
   ParaNode,
   StyleInfo,
   textTypeState,
+  usfmFragmentToUsjContent,
 } from "shared";
 import { CharNodePlugin, TextSpacingPlugin } from "shared-react";
 // Reaching inside only for tests.
@@ -2026,6 +2029,33 @@ describe("$applyMarkerMenuSelection", () => {
           expect(childChars(fq)[0]?.getMarker()).toBe("nd");
           expect(childChars(fq)[0]?.getTextContent()).toContain("ly");
         });
+      });
+
+      it("emits NO \\ft* — the inserted \\fq is itself what ends the \\ft (file bytes)", async () => {
+        // The counterpart of the Ctrl+Space rule, and the reason that rule needs its own switch:
+        // an unstyled gap has nothing to terminate the span it interrupts, but a note-content
+        // MARKER does. Writing `\fq` inside `\ft` therefore emits no closing marker and reopens
+        // no `\ft` — the `\ft` stays closed="false" and the `\fq` terminates it.
+        //
+        // Asserted on the SERIALIZED note against the tokenizer's reading of the expected bytes,
+        // so a stray `\ft*` fails here rather than being found by hand in a saved file.
+        const { editor, note } = await setUpNestedNd();
+        await act(async () => editor.update(() => $spanText($nestedNd(note)).select(3, 3)));
+
+        await act(async () =>
+          editor.update(() =>
+            $applyMarkerMenuSelection(
+              nonNestItem,
+              { trigger: "backslash", literalPrefixLanded: false },
+              reference,
+              makeDeps(),
+            ),
+          ),
+        );
+
+        expect(usjNoteOf(editor)).toEqual(
+          usjNoteFromUsfm("\\p \\f + \\ft A \\+nd ho\\+nd*\\fq \\+nd ly\\+nd* B\\f*"),
+        );
       });
 
       it("(flat span) closes \\ft, puts \\fq at the note level, reopens \\ft", async () => {

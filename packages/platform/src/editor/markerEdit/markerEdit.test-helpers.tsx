@@ -4,9 +4,15 @@ import {
   reset,
   serializeEditorState,
 } from "../adaptors/usj-editor.adaptor";
-import { initialize as initializeDeserialize } from "../adaptors/editor-usj.adaptor";
+import editorUsjAdaptor, {
+  initialize as initializeDeserialize,
+} from "../adaptors/editor-usj.adaptor";
 import { HistoryPlugin } from "@lexical/react/LexicalHistoryPlugin";
-import { usxStringToUsj } from "@eten-tech-foundation/scripture-utilities";
+import {
+  MarkerContent,
+  MarkerObject,
+  usxStringToUsj,
+} from "@eten-tech-foundation/scripture-utilities";
 import {
   $createTextNode,
   $getRoot,
@@ -39,6 +45,7 @@ import {
   NoteNode,
   StyleInfo,
   textTypeState,
+  usfmFragmentToUsjContent,
   VerseNode,
 } from "shared";
 // Reaching inside only for tests.
@@ -452,4 +459,45 @@ export function $noteContentText(note: NoteNode): TextNode {
       (node): node is TextNode => $isTextNode(node) && node.getTextContent().includes("A note"),
     );
   return requireDefined(text, "note content text node not found");
+}
+
+/**
+ * The single note object inside `content`, at any depth. Comparing NOTES rather than whole
+ * documents lets a fixture keep whatever paragraph shape it likes while still being checked
+ * against real USFM bytes.
+ */
+export function findUsjNote(content: MarkerContent[] | undefined): MarkerObject {
+  const found: MarkerObject[] = [];
+  const walk = (items: MarkerContent[] | undefined) =>
+    items?.forEach((item) => {
+      if (typeof item !== "object") return;
+      if (item.type === "note") found.push(item);
+      walk(item.content);
+    });
+  walk(content);
+  if (found.length !== 1)
+    throw new Error(`expected exactly one note in USJ, found ${found.length}`);
+  return found[0];
+}
+
+/**
+ * The note the editor currently SERIALIZES to — what the file gets, as opposed to what the screen
+ * shows. Display bytes (marker glyphs, structural separators) are excluded by the adaptor, so a
+ * difference here is a difference in the document.
+ */
+export function usjNoteOf(editor: LexicalEditor): MarkerObject {
+  initializeDeserialize(undefined);
+  const usj = requireDefined(
+    editorUsjAdaptor.deserializeEditorState(editor.getEditorState(), viewOptions),
+    "editor state did not serialize to USJ",
+  );
+  return findUsjNote(usj.content);
+}
+
+/**
+ * The note `usfm` means, straight from the tokenizer — the oracle a serialized note is compared
+ * against, so an assertion states the BYTES it expects rather than a hand-built object graph.
+ */
+export function usjNoteFromUsfm(usfm: string): MarkerObject {
+  return findUsjNote(usfmFragmentToUsjContent(usfm));
 }
