@@ -851,6 +851,30 @@ function $crossOpaqueConstruct(selection: RangeSelection, direction: TraversalDi
   return true;
 }
 
+/**
+ * Places the caret in the block just past a collapsed note that ends it.
+ *
+ * KNOWN GAP: a note that is its block's last child has nothing after it, so this position is an
+ * element point with no text node — and a browser with no rendered text at a spot draws no insertion
+ * point there, which is why a keypress can end up being the page's rather than the editor's. Closing
+ * that gap means giving the position something to render in, which is a design question with more
+ * than one defensible answer, so it is left open here.
+ *
+ * What is NOT open is which side of the note the caret belongs on. A collapsed note's content is
+ * hidden, so a caret inside one is invisible AND typing silently edits the note body instead of the
+ * paragraph — the wrong bytes change. An unpainted caret outside the note changes nothing and one
+ * backward press recovers it, so it is strictly the better failure.
+ *
+ * Mutating: call inside `editor.update()`; dispatched from the arrow handling below.
+ */
+function $selectPastTrailingNote(note: NoteNode): void {
+  const parent = note.getParent();
+  // Detached from any block: leave the caret where the user can still see it.
+  if (!parent) return;
+  const indexPastNote = note.getIndexWithinParent() + 1;
+  parent.select(indexPastNote, indexPastNote);
+}
+
 /** Helper to handle forward arrow key navigation logic */
 function $handleForwardNavigation(selection: RangeSelection): boolean {
   const node = selection.anchor.getNode();
@@ -883,9 +907,7 @@ function $handleForwardNavigation(selection: RangeSelection): boolean {
     // caret between verse and collapsed note → move past note
     const nodeAfterNote = nextNode.getNextSibling();
     if (nodeAfterNote) nodeAfterNote.selectStart();
-    // TODO: we probably need a space character after a note at the end of a para to allow caret
-    // placement after the note. Currently typing will go into the note.
-    else nextNode.selectEnd();
+    else $selectPastTrailingNote(nextNode);
     return true;
   }
 
@@ -898,8 +920,8 @@ function $handleForwardNavigation(selection: RangeSelection): boolean {
     // caret before closing note marker → move past note
     const nodeAfterNote = nextNodeParent.getNextSibling();
     if (nodeAfterNote) nodeAfterNote.selectStart();
-    // TODO: we probably need a space character after a note at the end of a para to allow caret
-    // placement after the note. Currently typing will go into the note.
+    else if (nextNodeParent.getIsCollapsed()) $selectPastTrailingNote(nextNodeParent);
+    // An EXPANDED note's own end is rendered, so it stays a legitimate resting place.
     else nextNodeParent.selectEnd();
     return true;
   }
@@ -976,21 +998,23 @@ function $handleBackwardNavigation(
 /**
  * Returns whether custom ArrowUp/ArrowDown verse navigation should run.
  *
- * Intercepts when the anchor is an element point (cursor between block nodes, including
- * positions adjacent to `ImmutableVerseNode`) or when the anchor is inside an editable
- * `VerseNode` (a `TextNode` subclass). Regular `TextNode` positions are left to Lexical's
- * default visual-line navigation.
+ * The verse jump is a SUBSTITUTE for a position the browser cannot move a visual line from — an
+ * element point wedged between block nodes, or beside a verse number that is a childless decorator
+ * and so hosts no caret of its own. Wherever the caret sits in rendered text the browser's own line
+ * movement is the right answer and this declines. That includes inside an editable verse marker's
+ * glyph, which is rendered text the caret walks a character at a time exactly like the words beside
+ * it: intercepting there turned a line move into a jump to wherever the next verse happened to be —
+ * the next paragraph, or sideways along the same line when the next verse shared it.
  *
- * Lexical normalizes element points to text offset 0 when the next child is a `TextNode`;
- * the post-normalization position right after an `ImmutableVerseNode` marker is also
- * treated as a verse boundary.
+ * The remaining case is one screen location with two spellings. Lexical normalizes an element point
+ * to text offset 0 when the next child is a `TextNode`, so a caret at offset 0 of the text after a
+ * caret-less verse number IS that element point, and the jump still owns it. A verse marker
+ * rendered as glyph text hosts its own caret, so offset 0 after it is an ordinary text position and
+ * both spellings of that location decline alike.
  */
 function $shouldAttemptVerticalVerseNavigation(selection: RangeSelection): boolean {
   if (selection.anchor.type === "element") return true;
-  const anchorNode = selection.anchor.getNode();
-  if ($isSomeVerseNode(anchorNode)) return true;
-  if (selection.anchor.offset === 0 && $isSomeVerseNode(anchorNode.getPreviousSibling())) {
-    return true;
-  }
-  return false;
+  if (selection.anchor.offset !== 0) return false;
+  const previousNode = selection.anchor.getNode().getPreviousSibling();
+  return $isSomeVerseNode(previousNode) && $isDecoratorNode(previousNode);
 }

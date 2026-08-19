@@ -49,8 +49,10 @@ import {
   $createVerseNode,
   AttributeRunNode,
   CharNode,
+  getVisibleOpenMarkerText,
   ImpliedParaNode,
   MarkerNode,
+  NoteNode,
   ParaNode,
   textTypeState,
   VerseNode,
@@ -459,6 +461,154 @@ describe("Arrow up/down verse navigation", () => {
         // JSDOM has no layout, so Lexical's default visual-line move does not fire.
         // Cursor stays only if the custom guard correctly returned false.
         $expectSelectionToBe(v2Text!, 5);
+      });
+    });
+  });
+
+  // With editable markers a verse marker is ORDINARY RENDERED TEXT — the glyph `\v 1 ` the user
+  // walks through a character at a time — so the browser can move a visual line from inside it
+  // exactly as it can from the words beside it. The verse-jump exists for positions the browser
+  // CANNOT move from (an element point wedged between decorators); applying it to a rendered text
+  // position hijacks a line move into a jump to wherever the next verse happens to be — the next
+  // paragraph, or sideways along the same line when the next verse shares it.
+  //
+  // These pin the DECISION, not the landing: jsdom performs no visual-line move, so "the caret did
+  // not move" alone would pass for the wrong reason. Each asserts the press was left unclaimed
+  // (`defaultPrevented` false), which is the plugin handing it to the browser.
+  describe("caret inside an editable verse marker glyph", () => {
+    const standardView = getViewOptions(STANDARD_VIEW_MODE);
+
+    /** Two paragraphs, one verse each, with editable verse marker glyphs. */
+    async function twoVerseParaEnvironment() {
+      let v1: VerseNode;
+      let v1Text: TextNode;
+      let v2: VerseNode;
+      let v2Text: TextNode;
+      const { editor } = await testEnvironment(
+        () => {
+          v1 = $createVerseNode("1", getVisibleOpenMarkerText("v", "1"));
+          v1Text = $createTextNode("verse one text ");
+          v2 = $createVerseNode("2", getVisibleOpenMarkerText("v", "2"));
+          v2Text = $createTextNode("verse two text ");
+          $getRoot().append(
+            $createParaNode().append(v1, v1Text),
+            $createParaNode().append(v2, v2Text),
+          );
+        },
+        "ltr",
+        standardView,
+      );
+      return { editor, v1: v1!, v1Text: v1Text!, v2: v2!, v2Text: v2Text! };
+    }
+
+    it("leaves ArrowDown to the browser from inside the glyph", async () => {
+      const { editor, v1 } = await twoVerseParaEnvironment();
+      updateSelection(editor, v1, 2); // between the `v` and the number's separator
+
+      const event = await pressKey(editor, "ArrowDown");
+
+      expect(event.defaultPrevented).toBe(false);
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(v1, 2);
+      });
+    });
+
+    it("leaves ArrowUp to the browser from inside the glyph", async () => {
+      const { editor, v2 } = await twoVerseParaEnvironment();
+      updateSelection(editor, v2, 2);
+
+      const event = await pressKey(editor, "ArrowUp");
+
+      expect(event.defaultPrevented).toBe(false);
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(v2, 2);
+      });
+    });
+
+    it("leaves ArrowDown to the browser at the glyph's trailing edge", async () => {
+      const { editor, v1 } = await twoVerseParaEnvironment();
+      let glyphEnd = 0;
+      editor.getEditorState().read(() => {
+        glyphEnd = v1.getTextContentSize();
+      });
+      updateSelection(editor, v1, glyphEnd);
+
+      const event = await pressKey(editor, "ArrowDown");
+
+      expect(event.defaultPrevented).toBe(false);
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(v1, glyphEnd);
+      });
+    });
+
+    // Offset 0 of the text after the glyph is the same screen location as the glyph's trailing
+    // edge, and where the glyph is TEXT Lexical resolves that spelling onto the glyph's end itself
+    // (its convention for a text/text seam). So the retained boundary rule — offset 0 after a verse
+    // marker — cannot even be asked about an editable glyph, and one location cannot answer twice.
+    it("resolves offset 0 of the text after the glyph onto the glyph's own end", async () => {
+      const { editor, v1, v1Text } = await twoVerseParaEnvironment();
+      let glyphEnd = 0;
+      editor.getEditorState().read(() => {
+        glyphEnd = v1.getTextContentSize();
+      });
+      updateSelection(editor, v1Text, 0);
+
+      const event = await pressKey(editor, "ArrowDown");
+
+      expect(event.defaultPrevented).toBe(false);
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(v1, glyphEnd);
+      });
+    });
+
+    it("leaves ArrowDown to the browser when the next verse shares the paragraph", async () => {
+      let v1: VerseNode;
+      const { editor } = await testEnvironment(
+        () => {
+          v1 = $createVerseNode("1", getVisibleOpenMarkerText("v", "1"));
+          $getRoot().append(
+            $createParaNode().append(
+              v1,
+              $createTextNode("one "),
+              $createVerseNode("2", getVisibleOpenMarkerText("v", "2")),
+              $createTextNode("two "),
+            ),
+          );
+        },
+        "ltr",
+        standardView,
+      );
+      updateSelection(editor, v1!, 2);
+
+      const event = await pressKey(editor, "ArrowDown");
+
+      expect(event.defaultPrevented).toBe(false);
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(v1!, 2);
+      });
+    });
+
+    // The narrowing must not reach the position it was written for: a verse NUMBER that hosts no
+    // caret of its own leaves the caret at offset 0 of the following text, which is the same place
+    // as the element point between them, and the verse-jump still owns it.
+    it("still jumps verse to verse after a verse number that hosts no caret", async () => {
+      let v1Text: TextNode;
+      let v2Text: TextNode;
+      const { editor } = await testEnvironment(() => {
+        v1Text = $createTextNode("verse one text ");
+        v2Text = $createTextNode("verse two text ");
+        $getRoot().append(
+          $createParaNode().append($createImmutableVerseNode("1"), v1Text),
+          $createParaNode().append($createImmutableVerseNode("2"), v2Text),
+        );
+      });
+      updateSelection(editor, v1Text!, 0);
+
+      const event = await pressKey(editor, "ArrowDown");
+
+      expect(event.defaultPrevented).toBe(true);
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(v2Text!, 0);
       });
     });
   });
@@ -2273,6 +2423,160 @@ describe("a read-only table is crossed whole from outside", () => {
     await pressKeyThroughDom(editor, "ArrowRight");
 
     expect(seamOf(editor)).toBe(seamBefore(editor, afterGlyph));
+  });
+});
+
+// CHARACTERIZATION, not a blessing: these record a structural GAP so it is machine-visible and so a
+// change to it is deliberate. A collapsed note that is its paragraph's last child has nothing after
+// it, so the only position past it is the paragraph's own end — an ELEMENT point with no text node
+// to host a caret. The caret comes to rest there, and a browser has no rendered text at that spot to
+// draw an insertion point in; a keypress with no insertion point is the page's, not the editor's,
+// which is what makes a Space there scroll instead of type. Backward movement is unaffected, which
+// is why one press of the leftward arrow recovers.
+//
+// Whichever way the gap is eventually closed — a caret host after the note, or a rule that refuses
+// the position — these go red and say so.
+describe("a collapsed note at a paragraph's end offers no text position after it", () => {
+  const standardView = getViewOptions(STANDARD_VIEW_MODE);
+
+  /** `\p before |note|` — editable markers, so the note's first child is its opening glyph. */
+  async function trailingNoteEnvironment(hasFollowingPara: boolean) {
+    let para: ParaNode;
+    let before: TextNode;
+    let note: NoteNode;
+    let followingText: TextNode | undefined;
+    const { editor } = await testEnvironment(
+      () => {
+        before = $createTextNode("before ");
+        note = $createNoteNode("f", "+").append(
+          $createMarkerNode("f", "opening"),
+          $createImmutableNoteCallerNode("+", "note preview"),
+          $createMarkerTrailingSeparator(),
+          $createCharNode("ft").append(
+            $createMarkerNode("ft", "opening"),
+            $createTextNode("note body"),
+          ),
+          $createMarkerNode("f", "closing"),
+        );
+        para = $createParaNode();
+        $getRoot().append(para.append(before, note));
+        if (hasFollowingPara) {
+          followingText = $createTextNode("second para");
+          $getRoot().append($createParaNode().append(followingText));
+        }
+      },
+      "ltr",
+      standardView,
+    );
+    let beforeEnd = 0;
+    editor.getEditorState().read(() => {
+      beforeEnd = before!.getTextContentSize();
+    });
+    return { editor, para: para!, before: before!, beforeEnd, note: note!, followingText };
+  }
+
+  it("rests the caret on a paragraph end point that no text node hosts", async () => {
+    const { editor, para, before, beforeEnd, note } = await trailingNoteEnvironment(true);
+    updateSelection(editor, before, beforeEnd);
+
+    const event = await pressKey(editor, "ArrowRight");
+
+    expect(event.defaultPrevented).toBe(true);
+    editor.getEditorState().read(() => {
+      $expectSelectionToBe(para, para.getChildrenSize());
+      // The gap itself: the note is the last child, so nothing follows it to put a caret in.
+      expect(note.is(para.getLastChild())).toBe(true);
+      expect(para.getChildAtIndex(para.getChildrenSize())).toBe(null);
+    });
+  });
+
+  it("recovers to the end of the text before the note on one backward press", async () => {
+    const { editor, para, before } = await trailingNoteEnvironment(true);
+    let paraEnd = 0;
+    editor.getEditorState().read(() => {
+      paraEnd = para.getChildrenSize();
+    });
+    updateSelection(editor, para, paraEnd);
+
+    const event = await pressKey(editor, "ArrowLeft");
+
+    expect(event.defaultPrevented).toBe(true);
+    editor.getEditorState().read(() => {
+      $expectSelectionToBe(before, before.getTextContentSize());
+    });
+  });
+
+  it("moves on into the next paragraph on a second forward press", async () => {
+    const { editor, before, beforeEnd, followingText } = await trailingNoteEnvironment(true);
+    updateSelection(editor, before, beforeEnd);
+
+    await pressKey(editor, "ArrowRight");
+    await pressKey(editor, "ArrowRight");
+
+    editor.getEditorState().read(() => {
+      $expectSelectionToBe(followingText!, 0);
+    });
+  });
+
+  // Nothing follows the paragraph either, so the caret has nowhere forward to go and stays on the
+  // unhosted point.
+  it("declines the second forward press when the note ends the document", async () => {
+    const { editor, para, before, beforeEnd } = await trailingNoteEnvironment(false);
+    updateSelection(editor, before, beforeEnd);
+
+    await pressKey(editor, "ArrowRight");
+    const event = await pressKey(editor, "ArrowRight");
+
+    expect(event.defaultPrevented).toBe(false);
+    editor.getEditorState().read(() => {
+      $expectSelectionToBe(para, para.getChildrenSize());
+    });
+  });
+
+  // Crossing the note from the element point BEFORE it must land in the same place as crossing it
+  // from the text — outside the note. Landing inside is strictly worse than landing on an unhosted
+  // point: a collapsed note's content is hidden, so the caret is invisible there AND typing silently
+  // edits the note body instead of the paragraph.
+  it("does not step into the note when crossing it from the element point before it", async () => {
+    const { editor, para, note } = await trailingNoteEnvironment(false);
+    updateSelection(editor, para, 1); // between the text and the note
+
+    const event = await pressKey(editor, "ArrowRight");
+
+    expect(event.defaultPrevented).toBe(true);
+    editor.getEditorState().read(() => {
+      $expectSelectionToBe(para, para.getChildrenSize());
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) throw new Error("no range selection");
+      const focusNode = selection.focus.getNode();
+      expect(focusNode.is(note) || focusNode.getParents().some((parent) => parent.is(note))).toBe(
+        false,
+      );
+    });
+  });
+
+  // The model half is sound — only the rendered caret is missing — so a fix has a real position to
+  // aim at rather than needing new structure in the document.
+  it("puts typed text after the note, not inside it", async () => {
+    const { editor, para, note } = await trailingNoteEnvironment(true);
+    let paraEnd = 0;
+    editor.getEditorState().read(() => {
+      paraEnd = para.getChildrenSize();
+    });
+    updateSelection(editor, para, paraEnd);
+
+    await act(async () => {
+      editor.update(() => {
+        const selection = $getSelection();
+        if ($isRangeSelection(selection)) selection.insertText("X");
+      });
+    });
+
+    editor.getEditorState().read(() => {
+      const lastChild = para.getLastChild();
+      expect($isTextNode(lastChild) && lastChild.getTextContent()).toBe("X");
+      expect(note.getTextContent()).not.toContain("X");
+    });
   });
 });
 
