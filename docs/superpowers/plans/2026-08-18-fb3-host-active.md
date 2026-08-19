@@ -141,6 +141,14 @@ palette's mid-text absorption (and document it at `UsjNodesMenuPlugin`'s Space b
 the editor palette the same note-marker Space routing the host has. Either way the editor
 palette wants a mid-text Space pin, which needs a fixture with text after the caret.
 
+**Settled 2026-08-19 (`2026-08-19-fb4-glyph-caret.md`): the second option was taken.** All three
+findings above were reproduced through the palette rather than by tracing, and hold as written.
+The editor palette now routes `kind === "note"` through the item commit, and
+`markerMenuHarness.test.tsx` gained the mid-text fixture this section asked for. One correction
+worth carrying: the asymmetry was never user-visible, because the app does not mount the editor's
+palette in the first place (`Editor.tsx` gates `UsjNodesMenuPlugin` on `!hasExternalUI`) — the
+reachable surface is `nx dev platform` and any embedder that leaves that flag false.
+
 ## Test changes (per the regression contract, per test)
 
 scripture-editors — new file `commitTypedMarker.test.tsx` only; no existing pins touched.
