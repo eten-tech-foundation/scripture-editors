@@ -100,7 +100,63 @@ C6 (caret vanishes on mouse-click after a trailing footnote; Space then scrolls 
 pre-existing `TODO` in `ArrowNavigationPlugin` naming the structural gap: there is no text position
 after a trailing note. That is a design question, not just a caret fix.
 
-### Wave 5 — triage the remainder
+### Wave 5 — two owner-ruled behaviors
+
+**X2 — Ctrl+Space in `\ft` must emit `\ft*`.** RULED: a footnote character marker IS a character
+format, so Ctrl+Space strips it, matching Paratext 9. Both halves of the original report are
+in scope: `\ft` alone becomes `\ft* \ft `, and `\+nd` inside `\ft` closes and reopens BOTH levels.
+This supersedes the ratified convention recorded in the char-stack handoff.
+
+**The constraint that makes this delicate — read before touching anything.** Inserting a footnote
+character marker (`\fq`, `\fp`, …) must keep its CURRENT behavior: it does NOT close the previous
+footnote char. Footnote chars do not require closing markers, and inserting one demands no
+unformatted character. So:
+
+| Gesture | Emits `\ft*`? |
+| --- | --- |
+| Ctrl+Space inside `\ft` | **yes** — an unstyled gap is impossible otherwise |
+| Inserting `\fq` / `\fp` inside `\ft` | **no** — the new marker implicitly ends the previous span |
+
+The char-stack track deliberately unified these behind one close-and-reopen primitive with several
+callers. **Check whether these two gestures now share that code path**, and if they do, the primitive
+needs an explicit per-caller parameter — something like "note-content markers require an explicit
+close" — rather than a change that silently alters marker insertion. Pin the insertion behavior FIRST
+so a regression there fails loudly.
+
+Why the emitted closer is required at all: `\ft` runs until the next note marker or `\f*`, so any
+space inserted before a following marker is trailing content of the open `\ft`. Without `\ft*` there
+is no way to place an unstyled space inside a note, and the feature is a silent no-op there.
+
+**S1 — settles are never their own undo entry.** RULED: undo should undo what the USER did — typing a
+character, deleting something — never a settle.
+
+Corrected repro (the owner's, replacing an earlier wrong one): typing `\nd ` auto-creates the char
+marker and does not settle. The real path is — delete the backslash, wait for the settle back to
+normal text, retype the backslash, let it settle into a real char marker again. The first Ctrl+Z
+undoes that settle.
+
+Current behavior, in `settlePendingNow`: a settle that changed nothing already merges into the
+current history entry (`if (!mutated) $addUpdateTag(HISTORY_MERGE_TAG)`), with a comment explaining
+that a visually-no-op commit would otherwise push *"a phantom undo entry (one dead Ctrl+Z press)"*.
+A settle that DID mutate keeps its own entry, deliberately — *"undo must restore the pre-settle
+literal."*
+
+**The fix is to drop that condition: tag every settle, mutated or not.** The effect is that one
+Ctrl+Z undoes the user's edit together with whatever settle it caused, which is the ruling.
+
+Two notes for whoever implements it:
+
+- **Cost is zero.** An earlier proposal compared canonical USJ before and after each settle to detect
+  USFM-equivalence. The owner asked whether that would be performant; it would have meant two
+  full-document serializations per settle, on both a caret-departure and a 1-second idle clock. The
+  "never undoable" ruling removes the comparison entirely — it is one unconditional tag.
+- **The retired counter-argument.** *"Undo must restore the pre-settle literal"* was the reason for
+  the old condition. It is weaker now that marker resolution made openers and closers editable in
+  place: a mistyped marker can be fixed directly, without undoing to a literal. Weaker, not gone —
+  the literal form is still the only way to edit some shapes as raw bytes. If the owner later finds
+  they miss it, the narrower USJ-equivalence gate is the fallback.
+
+### Wave 6 — triage the remainder
 
 **E3** (Enter's temporary line, P9 parity), **P4** (top dropdown does not retag), **U5** (cannot copy
 an unknown block's marker name — recorded as impossible-by-design without ever being tested), **V1**
@@ -110,18 +166,17 @@ opposed to the data round-trip nets that already exist).
 
 For each: test if cheap, else record the cost and stop.
 
-### Not in scope — decisions, not defects
+## Not in scope — settled by owner decision
 
-- **X2** — Ctrl+Space in `\ft`. A convention was ratified under which the reported behavior is the
-  intended output. **Needs the owner's ruling before any code moves.**
-- **S1** — undo consuming a step for a settle that changed no USFM. The recorded answer addresses a
-  different question.
-- **U3**, **U6**, **V6**, **V2** — deferred or handled elsewhere by owner decision.
-- **P5** — fixed then deliberately reversed to match P9. Do not re-file.
+- **U3** (`\fig` with no attributes is not a figure yet), **U6** (opaque blocks stay read-only, with
+  the keystroke now visibly refused), **V6** (toolbar inline markers), **V2** (project styles,
+  handled elsewhere).
+- **P5** — the zero-match palette commit. Fixed, then deliberately reversed to match P9, which leaves
+  a zero-match palette open. **Do not re-file.**
 
 ## Acceptance
 
-- Every register item in waves 1-4 has a test, or a recorded reason it cannot practically have one.
+- Every register item in waves 1-5 has a test, or a recorded reason it cannot practically have one.
 - Every test that started red is green, or its bug is listed as an explicit deferral with a reason.
 - The register is updated in place: checkboxes corrected, and each item gains a pointer to its pin.
 - Full gate green in both repos; no new skips.
@@ -137,3 +192,6 @@ For each: test if cheap, else record the cost and stop.
   enumerated node classes; adding one more entry repeats the defect the register documents.
 - **C# serialization stays behind the approval gate.** If a repro lands there, bring the owner the
   problem and the proposed fix together, and wait.
+- **Wave 5's X2 can silently break marker insertion.** The two gestures may share the char-stack
+  primitive. Pin the insertion behavior before changing the primitive, so a regression there fails
+  loudly rather than being discovered by hand later.
