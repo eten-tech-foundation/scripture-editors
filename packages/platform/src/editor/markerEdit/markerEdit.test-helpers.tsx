@@ -208,7 +208,7 @@ export async function testEnvironmentWithSpacing($initialEditorState: () => void
  * itself only through `logger.warn`, so a test asserting the backstop fired needs one.
  */
 export async function testEnvironmentWithDisplaySyncs(
-  $initialEditorState: () => void,
+  $initialEditorState: Parameters<typeof baseTestEnvironment>[0],
   logger?: LoggerBasic,
 ) {
   initializeSerialize(undefined, undefined);

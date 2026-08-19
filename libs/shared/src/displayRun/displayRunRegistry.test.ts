@@ -552,6 +552,76 @@ describe("displayRunRegistry sees damaged glyph BYTES, not just node state", () 
     );
   });
 
+  it("excuses whitespace FLANKING a separator-bearing value, and nothing else", () => {
+    // Whitespace between an attribute marker and its value is structural — the writer emits
+    // exactly one separator space whatever the screen shows — so a space the user types beside
+    // the value never reaches the document and must not read as drift to heal away. Counting it
+    // as divergence is what made every such run canonicalize the byte back out on caret
+    // departure. The licence stops at the value's own bytes: deleting the separator outright, or
+    // typing whitespace INSIDE the value, still diverges and still settles.
+    const { editor } = createBasicTestEnvironment();
+    editor.update(
+      () => {
+        const verse = $createVerseNode("1", getVisibleOpenMarkerText("v", "1"), undefined, "12");
+        const wrapper = $createAttributeRunNode("va");
+        const value = $createTextNode(`${NBSP}12`);
+        $setState(value, textTypeState, "attribute");
+        $getRoot().append(
+          $createParaNode("p").append(
+            verse,
+            wrapper.append($createMarkerNode("va"), value, $createMarkerNode("va", "closing")),
+          ),
+        );
+
+        const descriptor = displayRunDescriptor("va");
+        const $diverges = () =>
+          $runDiverges(descriptor, descriptor.scanPieces(verse), descriptor.expectedPieces(verse));
+        expect($diverges()).toBe(false); // canonical: at rest
+        value.setTextContent(`${NBSP} 12`); // typed in the separator, before the value
+        expect($diverges()).toBe(false);
+        value.setTextContent(`${NBSP}12 `); // typed at the value's end
+        expect($diverges()).toBe(false);
+        value.setTextContent(`${NBSP}  12  `); // and any amount of it, on either side
+        expect($diverges()).toBe(false);
+        value.setTextContent("12"); // the separator itself deleted: a real edit
+        expect($diverges()).toBe(true);
+        value.setTextContent(`${NBSP}1 2`); // whitespace INSIDE the value respells it
+        expect($diverges()).toBe(true);
+        value.setTextContent(`${NBSP} `); // nothing left of the value
+        expect($diverges()).toBe(true);
+      },
+      { discrete: true },
+    );
+  });
+
+  it("grants no whitespace licence to a value with NO separator of its own", () => {
+    // A char span's `|…` attribute bytes butt straight against the content, so there is no
+    // structural separator for the writer to normalize and no whitespace to excuse: those bytes
+    // compare byte-for-byte, exactly as before.
+    const { editor } = createBasicTestEnvironment();
+    editor.update(
+      () => {
+        const span = $createCharNode("w", { lemma: "grace" });
+        const value = $createTextNode("|grace");
+        $setState(value, textTypeState, "attribute");
+        span.append(
+          $createMarkerNode("w"),
+          $createTextNode("stub"),
+          value,
+          $createMarkerNode("w", "closing"),
+        );
+        $getRoot().append($createParaNode("p").append(span));
+
+        const descriptor = displayRunDescriptor("char");
+        value.setTextContent("|grace ");
+        expect(
+          $runDiverges(descriptor, descriptor.scanPieces(span), descriptor.expectedPieces(span)),
+        ).toBe(true);
+      },
+      { discrete: true },
+    );
+  });
+
   it("keeps a damaged char CLOSER as the run anchor: expectedPieces still wants the run", () => {
     // Deliberate and load-bearing: `$charClosingGlyph` is not a run piece but the ANCHOR deciding
     // whether a char span may carry a run at all. Gating IT on rendered bytes would flip a damaged

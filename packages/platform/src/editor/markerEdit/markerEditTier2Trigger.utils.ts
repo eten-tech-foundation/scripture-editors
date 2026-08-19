@@ -7,9 +7,10 @@
  * fact. A backslash sequence completed by a space/NBSP separator or a `*`
  * closer re-tokenizes immediately; an unterminated one waits in
  * `pendingKeys` for Enter/blur/caret-departure via `$resolvePendingMarkers`.
- * Attribute-run text (textType "attribute") is a third case: it always
- * pends and never re-tokenizes from here, regardless of backslashes or
- * termination-looking content — see the attribute branch below. Plain `|…`
+ * Attribute-run text (textType "attribute") is a third case: it never
+ * re-tokenizes from here, regardless of backslashes or termination-looking
+ * content, and pends whenever its own run diverges from what the owner's
+ * state calls for — see the attribute branch below. Plain `|…`
  * content typed into an ALREADY-closed char span is a fourth case: it carries
  * no backslash, so the immediate path never fires, yet it is a pending
  * attribute edit (PT9 re-parses `|…` before an explicit closer), so it pends
@@ -51,9 +52,11 @@ import {
   $isUnknownNode,
   $isVerseNode,
   $ownerOfRunPiece,
+  $runDiverges,
   $runEntirelyAbsent,
   $verseOfAttributeSourceText,
   DisplayRunDescriptor,
+  displayRunDescriptor,
   displayRunDescriptors,
   getVisibleOpenMarkerText,
   textTypeState,
@@ -76,6 +79,26 @@ function $isInClosedCharSpan(node: LexicalNode): boolean {
   for (let parent = node.getParent(); parent; parent = parent.getParent())
     if ($isCharNode(parent)) return $charClosingGlyph(parent) !== undefined;
   return false;
+}
+
+/**
+ * Whether an attribute-run VALUE node's run is at rest — its own descriptor reports no divergence
+ * from what the owner's state calls for, so a settle would have nothing to do. Answered through
+ * the registry ({@link $ownerOfRunPiece} then that kind's `$runDiverges`), so every display kind
+ * gets one answer and none is special-cased. A node no descriptor claims as a run piece is not at
+ * rest: an unrecognized shape keeps the unconditional pend it has always had.
+ *
+ * Read-only: safe inside `editor.update()` or either read form.
+ */
+function $displayRunValueAtRest(node: TextNode): boolean {
+  const reference = $ownerOfRunPiece(node);
+  if (!reference) return false;
+  const descriptor = displayRunDescriptor(reference.kind);
+  return !$runDiverges(
+    descriptor,
+    descriptor.scanPieces(reference.owner),
+    descriptor.expectedPieces(reference.owner),
+  );
 }
 
 /**
@@ -122,15 +145,22 @@ export function $textNodeTier2Transform(node: TextNode, context: MarkerEditConte
   // reach the literal machinery below; unhandled ones (a deleted flanking separator, backslash
   // bytes) fall through with today's behavior untouched.
   if ($noteCallerTextTransform(node, context)) return;
-  // Attribute runs (char and milestone alike) always pend and never re-tokenize from here:
-  // their bytes legitimately contain arbitrary characters, so neither the backslash check below
-  // nor the termination regex further down means anything for them — a `\`-free edit is just as
-  // much a divergence from canonical as a "terminated"-looking one. The marker-edit engine
-  // settles the run back to canonical on caret departure via `context.pendingKeys` (see
-  // `$caretHoldsRunSite`, MarkerEditPlugin.tsx) instead of this trigger ever re-tokenizing it
-  // directly.
+  // Attribute runs (every registered kind alike) pend and never re-tokenize from here: their
+  // bytes legitimately contain arbitrary characters, so neither the backslash check below nor the
+  // termination regex further down means anything for them — a `\`-free edit is just as much a
+  // divergence from canonical as a "terminated"-looking one. The marker-edit engine settles the
+  // run back to canonical on caret departure via `context.pendingKeys` (see `$caretHoldsRunSite`,
+  // MarkerEditPlugin.tsx) instead of this trigger ever re-tokenizing it directly.
   if (textType === "attribute") {
-    context.pendingKeys.add(node.getKey());
+    // Except when the registry says the run is at REST. `$runDiverges` is the same rule the sync
+    // and the owner settle read, and it excuses whitespace flanking a separator-bearing value
+    // (displayRunSync.utils.ts): the writer emits exactly one structural separator space whatever
+    // the screen shows, so a space typed beside the value never reaches the document. Pending it
+    // anyway routed the run through a departure re-tokenize that rewrote it to canonical — the
+    // typed byte vanished on caret departure, a keystroke accepted and then discarded. A value
+    // with nothing to settle also clears any stale pend of its own.
+    if ($displayRunValueAtRest(node)) context.pendingKeys.delete(node.getKey());
+    else context.pendingKeys.add(node.getKey());
     return;
   }
   if (!text.includes("\\")) {
