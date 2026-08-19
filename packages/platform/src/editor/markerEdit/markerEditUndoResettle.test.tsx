@@ -184,7 +184,7 @@ async function editDeparture(editor: EditorHandle, destination: TextNode) {
  */
 async function settledPipeEnvironment() {
   let content: TextNode;
-  let other: TextNode;
+  let other!: TextNode;
   const { editor } = await historyTestEnvironment(() => {
     const para = $createParaNode("p");
     const char = $createCharNode("nd");
@@ -423,7 +423,7 @@ describe("commitPendingMarkerEdits vs the historic suppression window", () => {
     // the window is still armed (programmatic select+insertText dispatches no KEY_DOWN/CLICK,
     // so it does not release the window).
     let content: TextNode;
-    let other: TextNode;
+    let other!: TextNode;
     const { editor } = await historyTestEnvironment(() => {
       const para = $createParaNode("p");
       const char = $createCharNode("nd");
@@ -515,7 +515,7 @@ describe("commitPendingMarkerEdits vs the historic suppression window", () => {
 describe("undo → departure → re-settle (typed `\\nd hello\\nd*` char span — the class case)", () => {
   it("re-settles the span after settle → undo → caret departure", async () => {
     let content: TextNode;
-    let other: TextNode;
+    let other!: TextNode;
     const { editor } = await historyTestEnvironment(() => {
       const para = $createParaNode("p");
       content = $createTextNode(`${NBSP}body`);
@@ -570,7 +570,7 @@ describe("undo → departure → re-settle (typed `//` optbreak — the same div
     // re-pend it so the next user departure re-settles it. Pre-fix, undo's setEditorState path
     // ran no transforms, nothing re-pended the restored `//`, and the departure resolved nothing.
     let content: TextNode;
-    let other: TextNode;
+    let other!: TextNode;
     const { editor } = await historyTestEnvironment(() => {
       const para = $createParaNode("p");
       content = $createTextNode(`${NBSP}one // two`);
@@ -622,7 +622,7 @@ describe("re-pend scan does not destabilize settle-refused literals", () => {
     // through the undo path.
     let content: TextNode;
     let refused: TextNode;
-    let other: TextNode;
+    let other!: TextNode;
     const { editor } = await historyTestEnvironment(() => {
       const para = $createParaNode("p");
       const char = $createCharNode("nd");
@@ -683,7 +683,7 @@ describe("undo of a settled run deletion (charAttributeDeletionSettle.test.tsx's
     // resolve ever mistakenly treated the pend as "still needs settling" — could re-clear the
     // attributes the undo just restored.
     let content: TextNode;
-    let other: TextNode;
+    let other!: TextNode;
     const { editor } = await historyTestEnvironment(() => {
       const para = $createParaNode("p");
       const char = $createCharNode("nd");
@@ -788,7 +788,7 @@ describe("undo → departure → re-settle (an emptied optbreak husk, reachable 
     let optbreakToken: ImmutableTypedTextNode;
     let optbreak: UnknownNode;
     let before: TextNode;
-    let other: TextNode;
+    let other!: TextNode;
     const { editor } = await historyTestEnvironment(() => {
       const para = $createParaNode("p");
       before = $createTextNode(`${NBSP}First `);
