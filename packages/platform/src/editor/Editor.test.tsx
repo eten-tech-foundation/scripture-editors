@@ -1593,7 +1593,6 @@ describe("formatPara (standard view)", () => {
     const lexical = capture.get();
     act(() => {
       // Lexical's own "no selection" value is `null`.
-      // eslint-disable-next-line unicorn/no-null
       lexical.update(() => $setSelection(null));
     });
 
