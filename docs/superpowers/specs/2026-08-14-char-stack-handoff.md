@@ -116,6 +116,14 @@ so it discriminates correctly in the cases that must NOT change:
 A range SELECTION still reopens in every case: the new marker's extent ends where the selection
 does, so the text after it needs its style back.
 
+**Narrowed by owner ruling (2026-08-19).** The rule above governs marker INSERTION only. It was
+also being applied to Ctrl+Space, and there it is wrong: an unstyled space cannot terminate `\ft`
+the way a `\fq` can, so the space became trailing content of the still-open span and the strip
+never reached the file. Ctrl+Space now emits a real `\ft*` — a footnote character marker is a
+character format, and stripping it matches Paratext 9. The primitive tells the two gestures apart
+through `CharStackLiftOptions.closeImplicitSpans`, which only the Ctrl+Space callers pass; the
+insertion behavior described above is unchanged and pinned against the emitted USJ.
+
 **Range Ctrl+Space: one defect fixed, one deferred.** The plan names only the decline. Probing the
 range path turned up a second, worse defect that is not about nesting at all — selecting the WORD
 (what a double-click gives, so the range starts at offset 1, past the structural separator) split the

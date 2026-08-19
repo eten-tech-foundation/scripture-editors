@@ -262,10 +262,16 @@ tip it was rebased onto).
 - [x] **X1** Ctrl+Space in nested chars handles only the innermost. — closes innermost-out, emits an
       unstyled space, reopens outermost-in.
 - [x] **X2** Ctrl+Space in `ft` adds a space and another `\ft` instead of closing then opening.
-      **MIS-SCOPED / possibly wontfix** — a convention was ratified (*a footnote char marker ENDS the
-      span it is written inside; it does not close and reopen it*) under which the behavior you
-      reported as wrong is the intended output. No document cites your report or explains the
-      reclassification. **Needs your ruling.**
+      **RULED (owner): the report was right.** A footnote character marker IS a character format, so
+      Ctrl+Space strips it, matching Paratext 9 — `\ft` alone becomes `\ft* \ft `, and a `\+nd`
+      nested inside it closes and reopens both levels. Without the emitted closer the space is
+      trailing content of the still-open `\ft`, so the feature was a silent no-op inside a note.
+      The earlier convention is NOT retired, only narrowed: it governs marker INSERTION, where
+      writing `\fq`/`\fp` is itself how the `\ft` ends and no closer is emitted. The two gestures
+      share the close-and-reopen primitive and are now told apart by an explicit per-caller option.
+      Pins: `charFormatting.utils.test.tsx` (four Ctrl+Space cases — flat, nested, range, content
+      end), `charStack.utils.test.ts` (the primitive), and the insertion side in
+      `markerMenuApply.utils.test.tsx` and `noteEnterFp.test.tsx`.
 - [x] **X3** The Ctrl+Space space lands inside the surviving outer span.
 
 ## View modes and other
