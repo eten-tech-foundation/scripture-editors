@@ -340,14 +340,28 @@ export function MarkerEditPlugin({
       editor.update(() => {
         const mutated = $resolvePendingMarkers(context, exceptKey, settleReason);
         settleCascadeDepth = mutated ? settleCascadeDepth + 1 : 0;
-        // A resolve pass that only REFUSED (fixed-point rebuilds — e.g. a re-pended
-        // degradation literal after an undo, or a canonical attribute run) changes nothing
-        // visible, but each refused $rebuildParas probe still created parse orphans that
-        // count as dirty leaves — without this tag that visually-no-op commit PUSHES a
-        // phantom undo entry (one dead Ctrl+Z press) and wipes the redo stack. Merge it
-        // into the current history entry instead; a resolve that actually settled anything
-        // keeps its own entry (undo must restore the pre-settle literal).
-        if (!mutated) $addUpdateTag(HISTORY_MERGE_TAG);
+        // A SETTLE IS NEVER ITS OWN UNDO ENTRY. Undo undoes what the USER did — a typed
+        // character, a deletion — never a settle, so every settle merges into the history
+        // entry of the edit that provoked it, whether or not it changed anything. One Ctrl+Z
+        // then takes the user's edit and the settle it caused away together, landing on the
+        // content the user had before that edit.
+        //
+        // This replaces a narrower condition that merged only a settle which changed NOTHING,
+        // and both halves of that reasoning are worth keeping in view:
+        //
+        // - A resolve pass that only REFUSED (fixed-point rebuilds — a re-pended degradation
+        //   literal after an undo, a canonical attribute run) changes nothing visible, but
+        //   each refused $rebuildParas probe still creates parse orphans that count as dirty
+        //   leaves. Untagged, that visually-no-op commit pushes an undo entry restoring an
+        //   identical-looking document — one dead Ctrl+Z press — and wipes the redo stack.
+        //   Still true, and subsumed here.
+        // - A settle that DID change something used to keep its own entry so undo could
+        //   restore the pre-settle literal bytes. That argument is weaker now that openers
+        //   and closers are editable in place: a mistyped marker is corrected directly rather
+        //   than by undoing back to a literal. Weaker, not gone — the literal form is still
+        //   the only way to edit some shapes as raw bytes. Accepting that cost is a deliberate
+        //   trade for an undo stack holding only user actions, not an oversight.
+        $addUpdateTag(HISTORY_MERGE_TAG);
       });
     };
     // The idle debounce — the SECOND settle clock. Re-armed (a full delay from now) by every
