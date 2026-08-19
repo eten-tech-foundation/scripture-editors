@@ -1,12 +1,18 @@
 /**
  * Interrupting character-styled text at the caret: Ctrl+Space's unformatted space (PT9
- * `KeyPressEditHandler.HandleCtrlSpace` applies the blank character style), the marker menu's
- * close-tag entries, and the paragraph split. All three are the same close-and-reopen of the open
- * character-style stack (charStack.utils.ts in `shared`) with a different thing placed in the gap.
+ * `KeyPressEditHandler.HandleCtrlSpace` applies the blank character style) and the paragraph
+ * split. Both are the same close-and-reopen of the open character-style stack (charStack.utils.ts
+ * in `shared`) with a different thing placed in the gap.
+ *
+ * The marker menu's close-tag entries used to be a third: a structural split-and-unwrap at the
+ * caret (`$closeCharSpanAtCaret`, with `$splitCharNodeAt` under it). Both are gone, owner-directed
+ * — the structural close wrote no closing-marker bytes, so nothing it did reached the saved
+ * document. A picked close-tag entry now lands the literal `\marker*` through `$commitTypedCloser`
+ * (markerMenu/markerMenuApply.utils.ts), the same primitive the `*` key uses, and the marker-edit
+ * engine re-tokenizes those bytes.
  */
 
 import { $isPointInMarkerGlyphText } from "./markerEditTier1.utils";
-import { $unwrapCharNode } from "./markerEditDeletion.utils";
 import {
   $createTextNode,
   $getSelection,
@@ -19,81 +25,16 @@ import {
   TextNode,
 } from "lexical";
 import {
-  $buildContinuationCharSpan,
   $charStackContainer,
-  $continuationCharAttributes,
-  $createCharNode,
   $innermostCharAncestor,
   $isCharNode,
   $isMarkerNode,
   $isSomeParaNode,
   $liftOutOfCharStack,
   $selectCharContentStart,
-  CharNode,
   NBSP,
   textTypeState,
 } from "shared";
-
-/**
- * Split `char` before offset `offset` of its content text node `textNode`; returns the new
- * right-hand span (with fresh opener/closer glyphs). When nothing follows the offset — the
- * caret sits at the span's content end — nothing moves and the returned span is NOT attached
- * to the tree; check `isAttached()` before relying on it.
- *
- * Glyphs are emitted unconditionally, unlike `$liftOutOfChar`'s reopen: every path here is a
- * marker-EDIT operation (Ctrl+Space, the close-tag palette item), and those only run in
- * markerMode "editable" — `MarkerEditPlugin` gates on it and `Editor.tsx` builds the marker menu
- * only there. There is no non-editable caller to render glyph-free for.
- *
- * Mutating: call inside `editor.update()`.
- */
-export function $splitCharNodeAt(char: CharNode, textNode: TextNode, offset: number): CharNode {
-  // The right half is a CONTINUATION of `char`: it keeps `char`'s marker, its `closed` state (an
-  // implicitly-closed span splits into two implicitly-closed spans, or the marker-edit engine reads
-  // the right half's correct missing closer as deletion damage), and — since it stays in the same
-  // parent (`char.insertAfter(right)` below) — its nesting, so its fresh glyphs carry the `+` when
-  // `char`'s do. All of that shape is the shared continuation convention (charGlyphs.utils.ts in
-  // `shared`); DISPLAY attributes (`|name="value"` bytes) are deliberately not among it, staying on
-  // the left half so serialization can't double them.
-  const right = $createCharNode(char.getMarker(), $continuationCharAttributes(char));
-  const rightChildren: LexicalNode[] = [];
-
-  let splitPoint: LexicalNode | undefined;
-  if (offset > 0 && offset < textNode.getTextContentSize()) {
-    const [, after] = textNode.splitText(offset) as [TextNode, TextNode];
-    splitPoint = after;
-  } else if (offset === 0) {
-    splitPoint = textNode;
-  } else if (offset === textNode.getTextContentSize()) {
-    // Caret at this text node's END, but it isn't the span's last content node: the whole tail
-    // (any following content sibling — a later text run OR a nested element span) moves to the
-    // right span. When it IS the last content node, the next sibling is the closer glyph or
-    // nothing, so splitPoint stays undefined and nothing moves — the span is already
-    // effectively closed at the caret.
-    const next = textNode.getNextSibling();
-    if (next && !$isMarkerNode(next)) splitPoint = next;
-  }
-  // move splitPoint and everything after it (except the closer glyph) to the right span
-  const children = char.getChildren();
-  const startIndex = splitPoint ? children.findIndex((c) => c.is(splitPoint)) : -1;
-  if (startIndex >= 0) {
-    // Everything after the split point moves — nested element spans included. Collecting only
-    // text nodes stranded a nested char span in the LEFT half while the text around it moved
-    // right, scrambling the content's reading order. Only the span's own closer glyph stays
-    // (the right span gets a fresh one below).
-    for (const child of children.slice(startIndex)) {
-      if ($isMarkerNode(child) && child.getMarkerSyntax() === "closing") continue;
-      rightChildren.push(child);
-    }
-  }
-  if (rightChildren.length > 0) {
-    // `true`: glyphs (and their separator NBSP) unconditionally — see the note above about every
-    // caller here being a marker-EDIT operation, which only runs in markerMode "editable".
-    $buildContinuationCharSpan(right, char, rightChildren, true);
-    char.insertAfter(right);
-  }
-  return right;
-}
 
 /**
  * The first plain-text content node at or after `node` in document order, descending into element
@@ -233,79 +174,6 @@ function $coveredTextNodes(selection: RangeSelection): TextNode[] {
     if (piece) covered.push(piece);
   });
   return covered;
-}
-
-/** Nearest `CharNode` ancestor (including `node` itself) whose implied endmarker (its own
- * marker + `"*"`, the USFM convention — no `StyleInfo` is threaded through here) equals
- * `endMarker`, innermost first. */
-function $findCharNodeByEndMarker(node: LexicalNode, endMarker: string): CharNode | undefined {
-  let current: LexicalNode | null = node;
-  while (current) {
-    if ($isCharNode(current) && `${current.getMarker()}*` === endMarker) return current;
-    current = current.getParent();
-  }
-  return undefined;
-}
-
-/**
- * Whether `node` is the last content (non-marker) child of `char` — i.e. its content end.
- * Nested element spans count as content: with a trailing nested span after `node`, the span's
- * content does NOT end at `node`, so closing there must still split (the tokenizer would put
- * everything after the literal end marker — the nested span included — outside the style).
- */
-function $isLastContentChild(char: CharNode, node: TextNode): boolean {
-  const contentChildren = char.getChildren().filter((c) => !$isMarkerNode(c));
-  const last = contentChildren[contentChildren.length - 1];
-  return !!last && last.is(node);
-}
-
-/** Move the selection to just after `char` — into its next plain-text sibling when there is
- * one (the common case right after a split+unwrap), else an element-point selection. */
-function $selectAfterCharNode(char: CharNode): void {
-  const next = char.getNextSibling();
-  if ($isTextNode(next)) {
-    next.select(0, 0);
-    return;
-  }
-  const parent = char.getParent();
-  if (!parent) return;
-  const index = char.getIndexWithinParent();
-  parent.select(index + 1, index + 1);
-}
-
-/**
- * Closes the innermost open character span matching `endMarker` (e.g. `"nd*"`) at the caret —
- * the marker-menu `closeTag` apply (PT9 `MarkerDropdownControl`'s close-tag entries).
- *
- * Splits the span at the caret via `$splitCharNodeAt` and unwraps the right half (content after
- * the caret leaves the span, becoming plain text) — mirroring Ctrl+Space's split shape. When the
- * caret already sits at the span's content end, the span is already effectively closed: no split
- * is performed, the selection just moves past it. Returns `false` when there is no open span
- * matching `endMarker` at the caret, or the selection isn't a collapsed range selection.
- *
- * Mutating: call inside `editor.update()`.
- */
-export function $closeCharSpanAtCaret(endMarker: string): boolean {
-  const selection = $getSelection();
-  if (!$isRangeSelection(selection) || !selection.isCollapsed()) return false;
-
-  const anchorNode = selection.anchor.getNode();
-  const char = $findCharNodeByEndMarker(anchorNode, endMarker);
-  if (!char) return false;
-
-  const offset = selection.anchor.offset;
-  if ($isTextNode(anchorNode) && anchorNode.getParent()?.is(char)) {
-    const isContentEnd =
-      offset === anchorNode.getTextContentSize() && $isLastContentChild(char, anchorNode);
-    if (!isContentEnd) {
-      const right = $splitCharNodeAt(char, anchorNode, offset);
-      $unwrapCharNode(right);
-    }
-  }
-  // Else: the caret isn't directly inside the matched span's own text content (e.g. nested
-  // deeper than one level below it) — degrade to moving the caret past the span.
-  $selectAfterCharNode(char);
-  return true;
 }
 
 /**

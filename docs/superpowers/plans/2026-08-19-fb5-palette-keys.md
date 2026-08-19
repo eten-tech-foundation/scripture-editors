@@ -73,7 +73,7 @@ Now a prop, `spaceSelectsHighlightedItem`, **defaulting to false**.
 | --- | --- | --- |
 | `ProjectSelector` | **yes** | markers-checklist picker; list is the point, a leading space is meaningless |
 | `SelectBooksPicker` | **yes** | created by the same markers-checklist commit; same picker semantics |
-| `BookChapterControl` | no | owns Space itself via its `submitKeys` contract (`[' ', '-']`) plus its own `[cmdk-item][data-selected]` grid handler — a second, independent implementation |
+| `BookChapterControl` | no → **yes (fb6)** | reasoning below was wrong; neither of its own handlers covers the empty-input state |
 | `MarkerMenu` | no | marker-palette family; its owner claims Space |
 | `OverlayCommandPalette` | no | marker-palette family; Space is forwarded to the session (2b) |
 | `ComboBox` | no | generic combobox; Space-picks-highlighted here was collateral from the app-wide patch |
@@ -93,6 +93,16 @@ destructured out of `props`, so the spread cannot contain it, and the compositio
 patch whenever its own handler declined the key — which is exactly the empty-input case, since its
 handler only claims a submit key once the typed text resolves to a full reference. Leaving it out is
 a real behavior change there, and a deliberate one.
+
+> **REVERSED 2026-08-19 by fb6, owner-directed.** "A real behavior change, and a deliberate one" was
+> correct about the mechanism and wrong about the call: TJ reported BCC as broken and asked for the
+> Space prop. The row's stated reason — that BCC "owns Space itself via its `submitKeys` contract
+> plus its own `[cmdk-item][data-selected]` grid handler" — does not hold for the state the patch
+> served. `submitKeys` is `undefined` for every BCC embedding except the range picker's start
+> field, its handler additionally requires a FULLY-qualified top match (an empty input has none),
+> and the grid handler is gated on the chapters/verses views while the search input renders only in
+> the books view. Both of its own mechanisms are inert exactly where the patch fired. BCC now opts
+> in, with three regression tests in its own suite. See `2026-08-19-fb6-closer-pick.md`.
 
 ### 2b. Forwarded keys — how much plumbing this actually needed
 
@@ -161,6 +171,14 @@ dismissing locally; and an un-declared key still gets the palette's local handli
 
 Two paths that disagreed; they now agree, and **collapsed-caret behavior of both is untouched** —
 including the measured content-end divergence fb4 documented.
+
+> **SUPERSEDED 2026-08-19 by fb6, owner-directed.** Leaving the collapsed-caret halves different
+> was the wrong call. TJ reported the picked entry at a collapsed caret as inserting nothing ("it
+> closes the `\nd` in editor state without actually putting in an `\nd*`, so it doesn't save
+> anything to file") and ruled that the two must match at EVERY caret position. The `closeTag`
+> branch now delegates to `$commitTypedCloser` unconditionally, and the structural close is
+> deleted. The over-a-selection unification below is unchanged and still correct — fb6 only
+> extended it to the collapsed caret. See `2026-08-19-fb6-closer-pick.md`.
 
 **(a) TYPED `*` over a selection.** Was scoped to a collapsed caret and merely filtered. Now:
 delete the selection, insert the typed closer. Paratext 9 behavior — the closer is unmatched unless

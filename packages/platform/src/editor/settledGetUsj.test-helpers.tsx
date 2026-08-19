@@ -13,6 +13,7 @@ import Editor from "./Editor";
 import { EditorProps, EditorRef } from "./editor.model";
 import { $rebuildNoteContent, $rebuildParas, Tier2Context } from "./markerEdit/tier2Rebuild.utils";
 import { Usj } from "@eten-tech-foundation/scripture-utilities";
+import { SerializedVerseRef } from "@sillsdev/scripture";
 import { EditorRefPlugin } from "@lexical/react/LexicalEditorRefPlugin";
 import { act, render } from "@testing-library/react";
 import { $getRoot, $isElementNode, LexicalEditor, LexicalNode } from "lexical";
@@ -77,6 +78,9 @@ HTMLElement.prototype.focus = function focus(options?: FocusOptions) {
 /** The editor's host-facing change-notification callback type. */
 type OnUsjChange = EditorProps<LoggerBasic>["onUsjChange"];
 
+/** Optional wiring a mounted test editor may need; both default to absent. */
+type MountOptions = { onUsjChange?: OnUsjChange; scrRef?: SerializedVerseRef };
+
 export function requireStandardViewOptions(): ViewOptions {
   const options = getViewOptions(STANDARD_VIEW_MODE);
   if (!options) throw new Error("Standard view options are required for these tests.");
@@ -112,14 +116,20 @@ export const spanUsj: Usj = {
 async function mountEditor(
   usj: Usj,
   view: ViewOptions,
-  onUsjChange?: OnUsjChange,
+  { onUsjChange, scrRef }: MountOptions = {},
 ): Promise<{ ref: RefObject<EditorRef | null>; lexical: LexicalEditor }> {
   const ref = createRef<EditorRef>();
   const lexicalRef = createRef<LexicalEditor>();
   const capture: ReactElement = <EditorRefPlugin editorRef={lexicalRef} />;
   await act(async () => {
     render(
-      <Editor ref={ref} defaultUsj={usj} options={{ view }} onUsjChange={onUsjChange}>
+      <Editor
+        ref={ref}
+        defaultUsj={usj}
+        scrRef={scrRef}
+        options={{ view }}
+        onUsjChange={onUsjChange}
+      >
         {capture}
       </Editor>,
     );
@@ -131,16 +141,19 @@ async function mountEditor(
 /**
  * Mount `Editor` in Standard view and hand back its public ref plus the raw Lexical editor.
  *
- * `onUsjChange` is optional and wires the editor's host-facing change notification — the callback a
- * host (paranext-core's Scripture editor web view) subscribes to in order to schedule a save. Pass
- * it when a test needs to observe that a document change actually REACHED the host, as distinct
- * from merely being true of the editor's own state.
+ * `onUsjChange` wires the editor's host-facing change notification — the callback a host
+ * (paranext-core's Scripture editor web view) subscribes to in order to schedule a save. Pass it
+ * when a test needs to observe that a document change actually REACHED the host, as distinct from
+ * merely being true of the editor's own state.
+ *
+ * `scrRef` is only needed by the ref methods that guard on it (`applyMarkerMenuSelection`,
+ * `insertMarker`); the rest of the suite leaves it off, and those methods then throw by design.
  */
 export async function mountStandardViewEditor(
   usj: Usj,
-  onUsjChange?: OnUsjChange,
+  options: MountOptions = {},
 ): Promise<{ ref: RefObject<EditorRef | null>; lexical: LexicalEditor }> {
-  return mountEditor(usj, requireStandardViewOptions(), onUsjChange);
+  return mountEditor(usj, requireStandardViewOptions(), options);
 }
 
 /**

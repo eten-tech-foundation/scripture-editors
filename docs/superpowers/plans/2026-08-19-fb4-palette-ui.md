@@ -93,6 +93,11 @@ The distinction is principled: picking an entry is a structural command; typing 
 (That the two diverge at the content end is documented at the new primitive, in
 `markerMenuApply.utils.ts`.)
 
+> **SUPERSEDED 2026-08-19 by fb6, owner-directed.** The "principled distinction" did not survive
+> contact with the owner: a picked entry that changes no bytes reads as a dead key and saves
+> nothing. The measurement above understated the problem — it is not only the content end. Full
+> re-measurement and the unification are in `2026-08-19-fb6-closer-pick.md`.
+
 ### Shared primitive + both surfaces
 
 - `$commitTypedCloserAtCaret(typedMarker)` — `packages/platform/src/editor/markerMenu/markerMenuApply.utils.ts`.
@@ -306,6 +311,14 @@ worth hardening separately.
   would touch ratified selection rows) but it violates the "No silent no-ops" derived rule.
 - **`$closeCharSpanAtCaret` and a typed closer genuinely diverge** at a span's content end — the
   structural close changes no text there. Anyone assuming "picked `nd*` ≡ typed `nd*`" is wrong.
+  **SUPERSEDED 2026-08-19 (fb6, owner-directed).** The divergence itself was the bug. TJ reported
+  the picked entry as producing no `\nd*` and saving nothing to file, and ruled that a picked
+  close-tag entry must equal a typed one at EVERY caret position. Re-measurement widened the fault
+  beyond the content end recorded below: mid-content the structural close truncated the span in the
+  tree while still writing no closer bytes and KEEPING `closed="false"`, and past the span it
+  refused outright. `$closeCharSpanAtCaret` and `$splitCharNodeAt` are deleted; the `closeTag`
+  branch now delegates to `$commitTypedCloser` unconditionally. "Picked `nd*` ≡ typed `nd*`" is now
+  true by construction.
 - **jsdom's `focus()` selection-collapse is a repo-wide test-fidelity hazard**, not a one-off: the
   shim now exists in two places (`ScriptureReferencePlugin.test.tsx` and the shared harness).
   Promoting it to `packages/platform/test-setup.ts` would cover every platform suite and let the

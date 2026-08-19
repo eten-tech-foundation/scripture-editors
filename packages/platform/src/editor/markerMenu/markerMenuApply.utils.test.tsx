@@ -1660,70 +1660,145 @@ describe("$applyMarkerMenuSelection", () => {
   });
 
   describe("closeTag kind", () => {
-    it("closes an 'nd*' span with the caret mid-span: left half styled, right half plain", async () => {
-      let char: ReturnType<typeof $createCharNode>;
+    /**
+     * Apply the picked close-tag entry at whatever the selection currently is, and return the
+     * paragraph's text as it stands the instant the apply returns — INSIDE the same update, before
+     * the marker-edit engine re-tokenizes it. What this unit owns is which bytes it puts where; the
+     * engine's downstream verdict on them is `commitTypedCloser.test.tsx`'s end-to-end pin.
+     */
+    async function pickCloseTag(
+      editor: Awaited<ReturnType<typeof testEnvironment>>["editor"],
+      marker = "nd*",
+      literalPrefixLanded = false,
+    ): Promise<string> {
+      const item: MarkerMenuItem = { marker, kind: "closeTag", isBasic: false };
+      let insertedText = "";
+      await act(async () =>
+        editor.update(() => {
+          $applyMarkerMenuSelection(
+            item,
+            { trigger: "backslash", literalPrefixLanded },
+            reference,
+            makeDeps(),
+          );
+          insertedText = requireDefined(
+            $getRoot().getChildren().filter($isParaNode)[0],
+            "para missing",
+          ).getTextContent();
+        }),
+      );
+      return insertedText;
+    }
+
+    /** The `\nd` open-span fixture the owner reported from: `\p \nd stuff and things`, no closer.
+     * Nothing follows the span — an open span absorbs whatever does. */
+    async function openNdSpanEnvironment(): Promise<
+      Awaited<ReturnType<typeof testEnvironment>>["editor"]
+    > {
       const { editor } = await testEnvironment(() => {
         const para = $createParaNode("p");
-        char = $createCharNode("nd");
         $getRoot().append(
           para.append(
             $createMarkerNode("p"),
             $createTextNode(NBSP),
-            char.append(
+            $createCharNode("nd").append(
               $createMarkerNode("nd"),
-              $createTextNode(`${NBSP}Lord`),
+              $createTextNode(`${NBSP}stuff and things`),
+            ),
+          ),
+        );
+      });
+      return editor;
+    }
+
+    /** The span's LAST content (non-glyph) text node. An UNCLOSED span is a shape the marker-edit
+     * engine reworks on mount, so node references captured in the fixture go stale — this re-finds
+     * it from the root instead. */
+    function $spanContent(): TextNode {
+      const para = requireDefined($getRoot().getChildren().filter($isParaNode)[0], "para missing");
+      const char = requireDefined(para.getChildren().filter($isCharNode)[0], "span missing");
+      const contentTexts = char.getAllTextNodes().filter((node) => !$isMarkerNode(node));
+      return requireDefined(contentTexts[contentTexts.length - 1], "span content missing");
+    }
+
+    // Owner-directed (2026-08-19). A picked close-tag entry now lands the SAME literal `\marker*`
+    // bytes a typed closer does, at EVERY caret position. It previously ran a structural close
+    // (`$closeCharSpanAtCaret`), which produced no closer bytes at all: at the span's content end
+    // and outside the span it mutated nothing whatsoever, and mid-content it truncated the span in
+    // the tree while leaving `closed="false"` and writing no `\nd*` — so nothing the user could
+    // see, and nothing that reached the file. "No silent no-ops" (invariant I), reported as a bug.
+    it("lands the closer literally with the caret at the span's CONTENT END", async () => {
+      const editor = await openNdSpanEnvironment();
+      await act(async () =>
+        editor.update(() => {
+          const content = $spanContent();
+          content.select(content.getTextContentSize(), content.getTextContentSize());
+        }),
+      );
+
+      // The position the user actually reaches by typing `\nd `, the text, then the closer — and
+      // exactly where the structural close was invisible.
+      expect(await pickCloseTag(editor)).toContain("stuff and things\\nd*");
+    });
+
+    it("lands the closer literally with the caret MID-CONTENT", async () => {
+      const editor = await openNdSpanEnvironment();
+      await act(async () =>
+        editor.update(() => {
+          // caret between "stuff" and " and things" (content text is NBSP + "stuff and things")
+          $spanContent().select(6, 6);
+        }),
+      );
+
+      // The bytes go AT the caret, and that is what the re-tokenize then reads. The structural
+      // close moved the same boundary but wrote nothing for the file to carry.
+      expect(await pickCloseTag(editor)).toContain("stuff\\nd* and things");
+    });
+
+    it("lands the closer literally with the caret OUTSIDE any matching span", async () => {
+      // A CLOSED span with text after it: the caret is in that text, so there is no open `\nd` to
+      // close. The structural close could not find one and refused silently, discarding its own
+      // `false`. The literal always lands, and the engine decides what it attaches to.
+      const { editor } = await testEnvironment(() => {
+        const para = $createParaNode("p");
+        $getRoot().append(
+          para.append(
+            $createMarkerNode("p"),
+            $createTextNode(NBSP),
+            $createCharNode("nd").append(
+              $createMarkerNode("nd"),
+              $createTextNode(`${NBSP}stuff`),
               $createMarkerNode("nd", "closing"),
             ),
+            $createTextNode(" and things"),
           ),
         );
       });
       await act(async () =>
         editor.update(() => {
-          // caret between "Lo" and "rd" (content text is NBSP + "Lord")
-          const content = char.getChildren()[1];
-          if ($isTextNode(content)) content.select(3, 3);
-        }),
-      );
-
-      const item: MarkerMenuItem = { marker: "nd*", kind: "closeTag", isBasic: false };
-      await act(async () =>
-        editor.update(() => {
-          $applyMarkerMenuSelection(
-            item,
-            { trigger: "backslash", literalPrefixLanded: false },
-            reference,
-            makeDeps(),
+          const tail = requireDefined(
+            $getRoot()
+              .getAllTextNodes()
+              .find((node) => !$isMarkerNode(node) && node.getTextContent() === " and things"),
+            "tail text missing",
           );
+          tail.select(4, 4); // between " and" and " things"
         }),
       );
 
-      editor.getEditorState().read(() => {
-        const para = requireDefined(
-          $getRoot().getChildren().filter($isParaNode)[0],
-          "para missing",
-        );
-        const chars = para.getChildren().filter($isCharNode);
-        expect(chars).toHaveLength(1);
-        expect(chars[0].getTextContent()).toContain("Lo");
-        const after = chars[0].getNextSibling();
-        expect($isTextNode(after) && !$isMarkerNode(after)).toBe(true);
-        expect($isTextNode(after) ? after.getTextContent() : undefined).toBe("rd");
-      });
+      expect(await pickCloseTag(editor)).toContain(" and\\nd* things");
     });
 
-    it("closes the inner 'wj' of an nd>wj nesting with '+wj*'", async () => {
-      let innerChar: ReturnType<typeof $createCharNode>;
+    it("lands a NESTED closer as `\\+wj*`, keeping the plus the entry carries", async () => {
       const { editor } = await testEnvironment(() => {
         const para = $createParaNode("p");
-        const outerChar = $createCharNode("nd");
-        innerChar = $createCharNode("wj");
         $getRoot().append(
           para.append(
             $createMarkerNode("p"),
             $createTextNode(NBSP),
-            outerChar.append(
+            $createCharNode("nd").append(
               $createMarkerNode("nd"),
-              innerChar.append(
+              $createCharNode("wj").append(
                 $createMarkerNode("wj"),
                 $createTextNode(`${NBSP}Peace`),
                 $createMarkerNode("wj", "closing"),
@@ -1736,47 +1811,19 @@ describe("$applyMarkerMenuSelection", () => {
       await act(async () =>
         editor.update(() => {
           // caret between "Pea" and "ce" (content text is NBSP + "Peace")
-          const content = innerChar.getChildren()[1];
-          if ($isTextNode(content)) content.select(4, 4);
-        }),
-      );
-
-      const item: MarkerMenuItem = { marker: "+wj*", kind: "closeTag", isBasic: false };
-      await act(async () =>
-        editor.update(() => {
-          $applyMarkerMenuSelection(
-            item,
-            { trigger: "backslash", literalPrefixLanded: false },
-            reference,
-            makeDeps(),
+          const inner = requireDefined(
+            $getRoot()
+              .getAllTextNodes()
+              .find((node) => !$isMarkerNode(node) && node.getTextContent().includes("Peace")),
+            "inner wj content missing",
           );
+          inner.select(4, 4);
         }),
       );
 
-      editor.getEditorState().read(() => {
-        const para = requireDefined(
-          $getRoot().getChildren().filter($isParaNode)[0],
-          "para missing",
-        );
-        const outer = requireDefined(
-          para
-            .getChildren()
-            .filter($isCharNode)
-            .find((c) => c.getMarker() === "nd"),
-          "outer nd span missing",
-        );
-        const wjSpans = outer
-          .getChildren()
-          .filter($isCharNode)
-          .filter((c) => c.getMarker() === "wj");
-        expect(wjSpans).toHaveLength(1);
-        expect(wjSpans[0].getTextContent()).toContain("Pea");
-        const after = wjSpans[0].getNextSibling();
-        // The tail "ce" left the wj span and is still inside the outer nd span.
-        expect($isTextNode(after) && !$isMarkerNode(after)).toBe(true);
-        expect($isTextNode(after) ? after.getTextContent() : undefined).toBe("ce");
-        expect(outer.getMarker()).toBe("nd"); // outer span untouched by the inner close
-      });
+      // Only the trailing `*` comes off the entry's marker; the leading `+` is part of the USFM
+      // bytes for a nested closer and must survive into the document.
+      expect(await pickCloseTag(editor, "+wj*")).toContain("Pea\\+wj*ce");
     });
 
     it("over a NON-COLLAPSED selection, DELETES the selection and lands the closer literally", async () => {
@@ -1800,82 +1847,43 @@ describe("$applyMarkerMenuSelection", () => {
       // Select "Lord" (content text is NBSP + "Lord God", so offsets 1..5).
       await act(async () => editor.update(() => content.select(1, 5)));
 
-      const item: MarkerMenuItem = { marker: "nd*", kind: "closeTag", isBasic: false };
-      await act(async () =>
-        editor.update(() => {
-          $applyMarkerMenuSelection(
-            item,
-            { trigger: "backslash", literalPrefixLanded: false },
-            reference,
-            makeDeps(),
-          );
-        }),
-      );
-
-      editor.getEditorState().read(() => {
-        const para = requireDefined(
-          $getRoot().getChildren().filter($isParaNode)[0],
-          "para missing",
-        );
-        const paraText = para.getTextContent();
-        // Not a silent no-op: the selected word is gone and the closer bytes are on screen.
-        expect(paraText).not.toContain("Lord");
-        expect(paraText).toContain("\\nd*");
-        expect(paraText).toContain("God");
-      });
+      const paraText = await pickCloseTag(editor);
+      // Not a silent no-op: the selected word is gone and the closer bytes are on screen.
+      expect(paraText).not.toContain("Lord");
+      expect(paraText).toContain("\\nd*");
+      expect(paraText).toContain("God");
     });
 
     it("deletes the typed `\\` trigger literal before closing (literalPrefixLanded: true)", async () => {
       // Closing via the ACTIVE `\` palette: the trigger backslash landed as literal text in the
       // span's content before the pick. The cleanup runs BEFORE the closeTag branch — a
       // branch-order regression (closeTag returning before the cleanup) strands the `\` in the
-      // styled half and the close then splits at the wrong offset.
+      // document and the closer then lands one character late.
+      // A CLOSED span: an open one would let the engine re-tokenize the typed `\rd` into a real
+      // marker on mount, before the pick this is about ever runs.
       let content: TextNode;
       const { editor } = await testEnvironment(() => {
         const para = $createParaNode("p");
-        const char = $createCharNode("nd");
         content = $createTextNode(`${NBSP}Lo\\rd`);
         $getRoot().append(
           para.append(
             $createMarkerNode("p"),
             $createTextNode(NBSP),
-            char.append($createMarkerNode("nd"), content, $createMarkerNode("nd", "closing")),
+            $createCharNode("nd").append(
+              $createMarkerNode("nd"),
+              content,
+              $createMarkerNode("nd", "closing"),
+            ),
           ),
         );
       });
       // Caret right after the just-typed `\` (between "Lo\" and "rd").
       await act(async () => editor.update(() => content.select(4, 4)));
 
-      const item: MarkerMenuItem = { marker: "nd*", kind: "closeTag", isBasic: false };
-      await act(async () =>
-        editor.update(() => {
-          $applyMarkerMenuSelection(
-            item,
-            { trigger: "backslash", literalPrefixLanded: true },
-            reference,
-            makeDeps(),
-          );
-        }),
-      );
-
-      editor.getEditorState().read(() => {
-        const para = requireDefined(
-          $getRoot().getChildren().filter($isParaNode)[0],
-          "para missing",
-        );
-        // The literal trigger is gone from CONTENT text everywhere (glyph nodes legitimately
-        // carry backslashes, so plain text nodes are checked, not the flattened paragraph).
-        const plainTexts = para.getAllTextNodes().filter((node) => !$isMarkerNode(node));
-        expect(plainTexts.some((node) => node.getTextContent().includes("\\"))).toBe(false);
-        // The close then split at the CLEANED-UP caret: "Lo" stays styled, "rd" leaves.
-        const chars = para.getChildren().filter($isCharNode);
-        expect(chars).toHaveLength(1);
-        expect(chars[0].getTextContent()).toContain("Lo");
-        expect(chars[0].getTextContent()).not.toContain("rd");
-        const after = chars[0].getNextSibling();
-        expect($isTextNode(after) && !$isMarkerNode(after)).toBe(true);
-        expect($isTextNode(after) ? after.getTextContent() : undefined).toBe("rd");
-      });
+      // `Lo\nd*rd`, not `Lo\\nd*rd`: the trigger backslash was removed and the closer took its
+      // place at the cleaned-up caret. Asserting the joined shape pins the cleanup and the insert
+      // offset together — a stranded trigger shows up as the doubled backslash.
+      expect(await pickCloseTag(editor, "nd*", true)).toContain("Lo\\nd*rd");
     });
 
     describe("non-NEST apply from INSIDE a char span closes and reopens (PT9 StyleApplicator)", () => {

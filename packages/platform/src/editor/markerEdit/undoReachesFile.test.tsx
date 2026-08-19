@@ -224,7 +224,7 @@ describe("an undo reaches the file the same way typing does", () => {
     const notified: Usj[] = [];
     const { ref, lexical } = await mountStandardViewEditor(
       milestoneUsj({ type: "ms", marker: "qt-s", sid: "q1" }),
-      (usj) => notified.push(usj),
+      { onUsjChange: (usj) => notified.push(usj) },
     );
 
     // The document as loaded, taken from the editor so the pin cannot drift from a real load.
@@ -278,7 +278,7 @@ describe("an undo reaches the file the same way typing does", () => {
     const notified: Usj[] = [];
     const { ref, lexical } = await mountStandardViewEditor(
       milestoneUsj({ type: "ms", marker: "qt-s", sid: "q1" }),
-      (usj) => notified.push(usj),
+      { onUsjChange: (usj) => notified.push(usj) },
     );
 
     await act(async () => {
@@ -313,7 +313,9 @@ describe("an undo reaches the file the same way typing does", () => {
 
   it("undoing a paragraph marker retag reaches the file too — the class is not milestone-specific", async () => {
     const notified: Usj[] = [];
-    const { ref, lexical } = await mountStandardViewEditor(plainUsj, (usj) => notified.push(usj));
+    const { ref, lexical } = await mountStandardViewEditor(plainUsj, {
+      onUsjChange: (usj) => notified.push(usj),
+    });
 
     const preEditSaved = bytes(ref.current?.getUsj());
     const preEditTree = bytes(treeUsj(lexical));
@@ -358,7 +360,9 @@ describe("an undo reaches the file the same way typing does", () => {
     // notified. Kept as a control so a future change that fixes the display-byte class by
     // breaking the ordinary one fails here.
     const notified: Usj[] = [];
-    const { ref, lexical } = await mountStandardViewEditor(plainUsj, (usj) => notified.push(usj));
+    const { ref, lexical } = await mountStandardViewEditor(plainUsj, {
+      onUsjChange: (usj) => notified.push(usj),
+    });
 
     const preEditSaved = bytes(ref.current?.getUsj());
 

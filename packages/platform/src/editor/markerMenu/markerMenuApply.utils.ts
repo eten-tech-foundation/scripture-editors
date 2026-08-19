@@ -6,8 +6,8 @@
  *   structural-insert action (`getUsjMarkerAction`), first deleting a literal `\marker` trigger
  *   prefix typed before the caret when one landed (`MarkerDropdownControl.cs:216-219`);
  *   paragraph kinds retag the current paragraph at content start or split it mid-text (PT9
- *   reformat semantics — see `$applyParagraphSelection`); `closeTag` kind closes the matching
- *   open character span instead (`$closeCharSpanAtCaret`, `../markerEdit/charFormatting.utils`).
+ *   reformat semantics — see `$applyParagraphSelection`); `closeTag` kind lands the literal
+ *   `\marker*` bytes instead, through the same {@link $commitTypedCloser} the `*` key uses.
  *   One in-note special case: `fp` picked with the caret in expanded note content performs the
  *   footnote-paragraph BREAK (`$handleEnterInNote` — the same break Enter makes there), not a
  *   span insertion.
@@ -19,10 +19,7 @@
  */
 import { $insertNoteForMarker, getUsjMarkerAction } from "../adaptors/usj-marker-action.utils";
 import { $applyParaMarker } from "../markerEdit/applyParaMarker.utils";
-import {
-  $closeCharSpanAtCaret,
-  $splitParagraphAtCharStack,
-} from "../markerEdit/charFormatting.utils";
+import { $splitParagraphAtCharStack } from "../markerEdit/charFormatting.utils";
 import { $handleEnterInNote } from "../markerEdit/markerEditNote.utils";
 import {
   $injectMarkerPrefix,
@@ -172,36 +169,33 @@ export function $commitTypedMarker(
 }
 
 /**
- * Commits the CLOSING marker the user typed into a marker palette (`\` + query, then `*`) — the
- * `EditorRef.commitTypedCloser` implementation, and the shared primitive behind the `*` commit in
- * both the in-editor palette and host-rendered ones, at a collapsed caret and over a selection
- * alike.
+ * Commits a CLOSING marker — the `EditorRef.commitTypedCloser` implementation, and the ONE closer
+ * path in the editor. Every way a user can ask for a closing marker arrives here: the `*` key in
+ * the in-editor palette and in host-rendered ones, and a PICKED `closeTag` menu entry
+ * ({@link $applyMarkerMenuSelection}), at a collapsed caret and over a selection alike.
  *
  * Unlike the Space commit (`EditorRef.commitTypedMarker`) this inserts NO opening glyph and NO
- * terminating space: `\` + typedMarker + `*` is the whole of what `*` commits. The bytes LAND and
+ * terminating space: `\` + typedMarker + `*` is the whole of what it commits. The bytes LAND and
  * the marker-edit engine re-tokenizes them — governing invariant I, displayed bytes are the
  * document. The engine, not this function, decides what they mean: against a matching open span
  * they settle as that span's real closer (the span loses `closed="false"` and gains its closing
  * glyph); with nothing matching they settle as an unmatched closer, flagged as typed. Both are the
- * ratified end states for a typed closer, and they are byte-identical to what typing `\nd*` by
+ * ratified end states for a closing marker, and they are byte-identical to what typing `\nd*` by
  * hand produced before palettes existed.
  *
- * At a COLLAPSED CARET this is NOT routed through {@link $closeCharSpanAtCaret}, which stays the
- * apply for a PICKED `closeTag` menu entry there. The two genuinely diverge, and only at the place
- * the user is most likely to press `*`: with the caret at the span's CONTENT END,
- * `$closeCharSpanAtCaret` takes its "already effectively closed" branch — it performs no split,
- * changes no text, and only moves the caret past the span, leaving the span still `closed="false"`
- * with no closing glyph on screen. That is defensible for a structural command picked from a list,
- * but as the response to a typed `*` it looks like the keystroke did nothing. Landing the literal
- * is what puts `\nd*` on screen.
+ * Over a NON-COLLAPSED selection the selected content is DELETED and the closer takes its place —
+ * Paratext 9's behavior for typing `\nd*` with text selected. Lexical's `insertText` already
+ * replaces a non-collapsed range, so the delete and the insert are the same call; the resulting
+ * closer is unmatched unless an open `\marker` precedes it, and the engine flags it as such.
  *
- * Over a NON-COLLAPSED selection there is no such divergence, and both routes land here: the
- * selected content is DELETED and the closer takes its place — Paratext 9's behavior for typing
- * `\nd*` with text selected, and (owner-directed) the behavior of a picked `closeTag` entry over a
- * selection too, which previously reached `$closeCharSpanAtCaret`'s collapsed-only guard and was a
- * silent no-op. Lexical's `insertText` already replaces a non-collapsed range, so the delete and
- * the insert are the same call; the resulting closer is unmatched unless an open `\marker`
- * precedes it, and the engine flags it as such.
+ * A picked entry used to run a STRUCTURAL close instead (a split-and-unwrap at the caret) at a
+ * collapsed caret. That is gone, owner-directed: it produced no closer bytes at any caret
+ * position, so nothing reached the file. Measured on `\p \v 1 \nd stuff and things` with the span
+ * open — at the span's content end and past the span it mutated nothing at all (its "already
+ * effectively closed" and "no matching span" branches both return without touching the document,
+ * and the apply discarded the `false`), and mid-content it truncated the span in the tree while
+ * still writing no `\nd*` and leaving `closed="false"` in place. Landing the literal is the only
+ * arm that puts the closer on screen and in the saved document.
  *
  * Mutating: call inside `editor.update()`. Returns `false` without mutating only when there is no
  * range selection at all.
@@ -244,20 +238,12 @@ export function $applyMarkerMenuSelection(
   if (opts.literalPrefixLanded) $removeLiteralTriggerPrefix();
 
   if (item.kind === "closeTag") {
-    const selection = $getSelection();
-    if ($isRangeSelection(selection) && !selection.isCollapsed()) {
-      // Over a selection, `$closeCharSpanAtCaret`'s collapsed-only guard used to refuse and the
-      // refusal was discarded here — a silent no-op on a key the user pressed. A picked closer now
-      // does what a TYPED one does over a selection: delete the selected content and land the
-      // closer in its place. `item.marker` is already the endmarker (`nd*`, `+wj*`), so the
-      // trailing `*` comes off before the primitive puts it back.
-      $commitTypedCloser(item.marker.replace(/\*$/, ""));
-      return;
-    }
-    // Collapsed caret: unchanged. The structural close is the ratified apply for a PICKED entry
-    // and deliberately diverges from a typed closer at a span's content end — see
-    // {@link $commitTypedCloser}.
-    $closeCharSpanAtCaret(item.marker.replace(/^\+/, ""));
+    // ONE closer implementation, for every selection shape and every caret position: a picked
+    // close-tag entry lands the same literal `\marker*` bytes a typed closer does, and the
+    // marker-edit engine re-tokenizes them (governing invariant I). `item.marker` is already the
+    // endmarker (`nd*`, `+wj*`), so the trailing `*` comes off before the primitive puts it back;
+    // a leading `+` is part of a nested closer's bytes and stays.
+    $commitTypedCloser(item.marker.replace(/\*$/, ""));
     return;
   }
 
