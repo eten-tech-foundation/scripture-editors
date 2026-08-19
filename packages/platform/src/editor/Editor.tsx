@@ -621,6 +621,31 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
         $splitParagraphWithMarker(marker, viewOptions);
       });
     },
+    commitTypedMarker(typedMarker) {
+      if (isReadonly) throw new Error("Cannot commit a typed marker in readonly mode");
+      if (!editorRef.current) return false;
+
+      // Materialize the typed query as the SAME literal bytes passive typing would have
+      // accumulated (`\` + typed + space) in one update; the marker-edit engine's transforms
+      // resolve them within this update, exactly as they resolved passive typing. Collapsed
+      // caret only: over a non-collapsed selection `insertText` would REPLACE the selected
+      // text, and the palette's selection commit is the item WRAP via
+      // `applyMarkerMenuSelection`, so any other selection shape refuses here.
+      let committed = false;
+      editorRef.current.update(() => {
+        const selection = $getSelection();
+        if (!$isRangeSelection(selection) || !selection.isCollapsed()) {
+          logger?.warn(
+            "commitTypedMarker refused: requires a collapsed range selection " +
+              "(wrap a selection via applyMarkerMenuSelection instead)",
+          );
+          return;
+        }
+        selection.insertText(`\\${typedMarker} `);
+        committed = true;
+      });
+      return committed;
+    },
     insertNote(marker, caller, selection) {
       editorRef.current?.update(() => {
         const noteNode = $insertNote(

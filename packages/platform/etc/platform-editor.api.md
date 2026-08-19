@@ -151,6 +151,7 @@ export interface EditorRef {
     }): string | undefined;
     applyUpdate(ops: DeltaOp[], source?: DeltaSource): void;
     commitPendingMarkerEdits(): void;
+    commitTypedMarker(typedMarker: string): boolean;
     copy(): void;
     cut(): void;
     extendCharacterMarker(marker: string, conflictingMarkers?: readonly string[]): boolean;
