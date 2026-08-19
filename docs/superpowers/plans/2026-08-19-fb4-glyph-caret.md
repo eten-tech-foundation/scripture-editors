@@ -205,8 +205,18 @@ Foreground runs, no new skips, no fixture regeneration (no serialized shape chan
   `--skip-nx-cache` runs after the seam fix, green every time.
 - `nx test @eten-tech-foundation/platform-editor` — 72 files, 1295 passed, 0 skipped; two full
   `--skip-nx-cache` runs, green both times.
-- `nx test utilities` — 6 files, 51 passed. `nx test perf-react` — 3 passed.
-- Full gate `nx run-many -t test lint typecheck --skip-nx-cache` — **green, all 10 projects**.
+- `nx test utilities` — 6 files, 51 passed. `nx test perf-react` — 3 passed. `test-data` — 2 passed.
+- Corpus specifically — 149 passed across all four corpus suites, **zero skips**.
+- Full gate `nx run-many -t test lint typecheck --skip-nx-cache` — **green, all 10 projects**. Lint
+  reports 0 errors; the warnings are all pre-existing `no-console`, untouched here.
+
+One process note. An earlier attempt at this gate failed on
+`@eten-tech-foundation/platform-editor:typecheck` and `:build`, and Nx labelled both "flaky". They
+were not: a targeted `nx test` had been started in another shell WHILE the gate was running, and two
+concurrent `tsc --build` runs share the same `tsbuildinfo` and `dist` and corrupt each other. Both
+targets pass alone, and the gate passes with nothing else touching the workspace. Do not run
+anything else in the tree while a gate is in flight, and do not accept Nx's "flaky" label as a
+diagnosis.
 
 ## What I deliberately did not do
 
@@ -237,6 +247,11 @@ Foreground runs, no new skips, no fixture regeneration (no serialized shape chan
   a mid-text fixture.
 - **Two-update test choreography is a flake source with the settle clock running.** Place the caret
   and assert in the SAME update where the assertion is about the caret.
+- **A caret at a seam has two spellings, and which one you read is a race.** Pins about a caret
+  BETWEEN nodes must canonicalize before comparing; the visible-stop suite's `locationOf` already
+  existed for this and is worth copying rather than rediscovering.
+- **Nx's "flaky task" label is not a diagnosis.** Two concurrent `tsc --build` runs in one worktree
+  corrupt each other's `tsbuildinfo`; the gate must have the tree to itself.
 
 ## Please test by hand
 
