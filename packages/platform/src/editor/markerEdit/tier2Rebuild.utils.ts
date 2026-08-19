@@ -156,28 +156,61 @@ function $textNodeFragmentText(node: TextNode): string {
  * run.length` advances past the ONE sibling slot the wrapper occupies. `$appendNodesFragment`'s
  * generic ElementNode branch already flattens a transparent wrapper's children into the fragment
  * (the same branch TypedMarkNode relies on), so the fragment bytes come out byte-identical to the
- * loose shape without any special-casing there. An attached-but-EMPTY wrapper (no opening glyph
- * found inside it) still returns `[]`, exactly like a bare milestone with no run at all — the
- * `run.length > 0` re-tokenizable gate below must see "no run", not a 1-length run that
- * contributes zero bytes, or a bare-but-wrapped milestone would be silently spliced away.
+ * loose shape without any special-casing there.
+ *
+ * This is SLOT accounting, so it deliberately does NOT require the run's glyphs to still be
+ * canonical, even though `$milestoneAttributeRunPieces` reports a byte-damaged glyph as absent
+ * (correct for the self-healing sync, which needs the damage to read as divergence). Skipping the
+ * run because a byte is pending in its opening glyph leaves the run's bytes behind as an
+ * unconsumed sibling: the milestone degrades to a preserved sentinel AND its own bytes flow into
+ * the fragment as ordinary text, so the tokenizer re-derives a SECOND milestone from them while
+ * the sentinel restores the first — one milestone on screen, two in the file.
+ *
+ * An attached-but-EMPTY wrapper still occupies its slot and is still returned; what protects a
+ * bare-but-wrapped milestone from being silently spliced away is the callers' byte gate
+ * ({@link milestoneRunRendersBytes}), not a zero-length run.
  */
 function $milestoneDisplayRun(children: LexicalNode[], index: number): LexicalNode[] {
   const milestone = children[index];
   if (!$isMilestoneNode(milestone)) return [];
-  const { opening, attribute, closing, wrapper } = $milestoneAttributeRunPieces(milestone);
-  if (wrapper) return opening ? [wrapper] : [];
+  const { attribute, closing, wrapper } = $milestoneAttributeRunPieces(milestone);
+  if (wrapper) return [wrapper];
   // No wrapper found: the shared scanner above can still surface a genuinely LOOSE run (a
   // pre-flip editor state, an undo stack, or a collab-materialized bare milestone that hasn't
   // gone through heal-forward yet) — unpacked as individual pieces here, rather than one wrapper
   // node, since that is how they actually ride in the tree. Reporting nothing for a loose-but-
-  // present run would misclassify a re-tokenizable milestone as content-less (see the
-  // `run.length > 0` gate at both call sites below), stranding its bytes as ordinary text right
-  // next to the milestone's own now-empty sentinel instead of flowing them as its run.
-  if (!opening) return [];
-  const run: LexicalNode[] = [opening];
+  // present run would misclassify a re-tokenizable milestone as content-less (see the byte gate
+  // at both call sites below), stranding its bytes as ordinary text right next to the milestone's
+  // own now-empty sentinel instead of flowing them as its run. The opening SLOT is claimed from
+  // the sibling directly, for the same canonicality reason as the wrapper above; the trailing
+  // pieces come from the shared scanner, and a damaged opening simply leaves them to flow as the
+  // adjacent text they already are (the same bytes, in the same order).
+  const next = milestone.getNextSibling();
+  if (
+    !$isMarkerNode(next) ||
+    next.getMarkerSyntax() !== "opening" ||
+    next.getMarker() !== milestone.getMarker()
+  )
+    return [];
+  const run: LexicalNode[] = [next];
   if (attribute) run.push(attribute);
   if (closing) run.push(closing);
   return run;
+}
+
+/**
+ * Whether a milestone's display run actually RENDERS bytes — the gate deciding whether the
+ * milestone can re-tokenize from its run (it can only be re-derived from bytes that exist) or
+ * must ride through the rebuild as a preserved sentinel together with its run.
+ *
+ * Byte-valued rather than length-valued on purpose: a run's slot can be occupied by an empty
+ * `AttributeRunNode` wrapper, or by a bare milestone with no run at all (the collab materializer
+ * `$createMilestone` builds these), and both contribute ZERO bytes — so re-tokenizing would
+ * splice the milestone away entirely, a silent deletion. The spec's "state not recoverable from
+ * displayed bytes → atomic" self-protection.
+ */
+function milestoneRunRendersBytes(run: LexicalNode[]): boolean {
+  return run.some((node) => node.getTextContent().length > 0);
 }
 
 /**
@@ -418,12 +451,15 @@ function $appendSignature(
       // stands in for the whole run, so the pre-splice OLD side must collapse the run the
       // same way or the signatures never compare equal and the refusal never fires.
       const run = $milestoneDisplayRun(children, index);
-      // An empty run (the collab materializer builds bare MilestoneNodes with no display-run
-      // siblings) has NO displayable bytes to re-tokenize, so it must collapse to the same single
-      // sentinel `$appendNodesFragment` produces for it — else this side would fold in the
+      // A run with no displayable bytes (the collab materializer builds bare MilestoneNodes with
+      // no display-run siblings) has nothing to re-tokenize, so it must collapse to the same
+      // single sentinel `$appendNodesFragment` produces for it — else this side would fold in the
       // milestone's state while the fragment side dropped it, and the fixed-point check would
-      // spuriously diverge (mirror the fragment builder's `run.length > 0` gate below).
-      if ($isReTokenizableMilestone(node.getMarker(), getMarkerFn) && run.length > 0) {
+      // spuriously diverge (mirror the fragment builder's byte gate below).
+      if (
+        $isReTokenizableMilestone(node.getMarker(), getMarkerFn) &&
+        milestoneRunRendersBytes(run)
+      ) {
         out.push(
           SIGNATURE_OPEN,
           "ms",
@@ -569,12 +605,12 @@ function $appendNodesFragment(
       // milestone the tokenizer would not re-derive as one (`$isReTokenizableMilestone`) stays a
       // preserved sentinel, node and run together, exactly as before.
       const run = $milestoneDisplayRun(children, index);
-      // Require a non-empty run for the re-tokenizable path: a bare MilestoneNode (the collab
+      // Require a BYTE-BEARING run for the re-tokenizable path: a bare MilestoneNode (the collab
       // materializer `$createMilestone` builds these with no display-run siblings) would
       // contribute ZERO bytes here, so the rebuild would splice it away entirely — a silent
       // deletion. With no displayable bytes it degrades to an atomic sentinel and survives
       // (the spec's "state not recoverable from displayed bytes → atomic" self-protection).
-      if ($isReTokenizableMilestone(node.getMarker(), getMarkerFn) && run.length > 0)
+      if ($isReTokenizableMilestone(node.getMarker(), getMarkerFn) && milestoneRunRendersBytes(run))
         $appendNodesFragment(run, out, getMarkerFn);
       else pushSentinel(out, [node, ...run]);
       index += run.length;
