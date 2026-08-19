@@ -41,6 +41,17 @@ describe("an attribute list that does not fully parse stays literal", () => {
     expect(span.gloss).toBeUndefined();
   });
 
+  it("keeps a list containing an EMPTY value literal, matching Paratext 9", () => {
+    // `|who=""` is not a reading Paratext will ever agree with, so parsing it would leave the
+    // editor the only thing in the pipeline that believes the attribute is there. The bytes the
+    // author wrote are the literal text, and that is what survives — including when the empty value
+    // sits beside well-formed ones, where a partial parse would have kept those and dropped this.
+    expect(only(`\\p \\w holy|lemma=""\\w*`).content).toEqual([`holy|lemma=""`]);
+    const beside = only(`\\p \\w holy|lemma="things" gloss=""\\w*`);
+    expect(beside.content).toEqual([`holy|lemma="things" gloss=""`]);
+    expect(beside.lemma).toBeUndefined();
+  });
+
   it("keeps trailing junk after a well-formed pair literal", () => {
     const span = only(`\\p \\w holy|lemma="things" oops\\w*`);
     expect(span.content).toEqual([`holy|lemma="things" oops`]);
@@ -67,16 +78,6 @@ describe("an attribute list that does not fully parse stays literal", () => {
     it("a value containing spaces and an equals sign", () => {
       const span = only(`\\p \\w holy|lemma="a b = c"\\w*`);
       expect(span.lemma).toBe("a b = c");
-      expect(span.content).toEqual(["holy"]);
-    });
-
-    it("an EMPTY value, which is well formed and must keep parsing", () => {
-      // Deliberately divergent from Paratext 9, which leaves this literal. An empty value is
-      // unambiguous — the author wrote a present attribute with no value yet — so parsing it
-      // preserves the bytes on both sides, which the literal fallback exists to protect.
-      const span = only(`\\p \\w holy|lemma="things" gloss=""\\w*`);
-      expect(span.lemma).toBe("things");
-      expect(span.gloss).toBe("");
       expect(span.content).toEqual(["holy"]);
     });
 

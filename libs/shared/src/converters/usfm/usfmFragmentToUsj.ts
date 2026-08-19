@@ -446,6 +446,13 @@ function parseAttributeText(
     // Paratext 9's behavior, and the only lossless one: every byte stays on screen and in the file,
     // where the author can see what is wrong and fix it.
     if (!pairsCoverList(regularizedText, pairs)) return undefined;
+    // An EMPTY value refuses the whole list too, matching Paratext 9. `|who=""` is not a reading
+    // Paratext will ever agree with, so parsing it here would make the editor the only thing in the
+    // pipeline that believes the attribute exists — and the byte the author actually wrote is the
+    // literal text, which the refusal keeps. Note this is the opposite call from the USJ side, where
+    // an empty value arriving as real state is honoured and written out; there it is unambiguous
+    // data, here it is bytes Paratext reads as text.
+    if (pairs.some((pair) => pair[2] === "")) return undefined;
     for (const [, name, value] of pairs) {
       if (!RESERVED_NODE_KEYS.has(name)) attributes[name] = value;
     }
@@ -486,13 +493,22 @@ function scanMilestone(
   if (between.includes("\\")) return undefined;
   const pipeIndex = between.indexOf("|");
   let attributes: { [attributeName: string]: string } | undefined;
-  if (pipeIndex >= 0)
+  if (pipeIndex >= 0) {
     attributes = parseAttributeText(
       between.slice(pipeIndex + 1),
       name,
       milestoneDefaultAttribute(name),
     );
-  else if (between.trim() !== "") return undefined; // non-attribute content before \* — literal
+    // A list with CONTENT that will not parse must not be dropped. A milestone has no content
+    // array to hold literal text the way a char span does, so building the milestone anyway would
+    // delete the author's bytes outright. Refusing the whole token leaves them as literal text —
+    // the same answer the no-pipe branch below gives, and what a char span's list already does.
+    //
+    // A bare `|` with nothing after it is deliberately NOT that case: there are no bytes to lose,
+    // and dropping it is the ratified answer for a `|` typed into a milestone glyph (the settle
+    // holds it while the caret is there, then resolves to the tokenizer's reading).
+    if (!attributes && between.slice(pipeIndex + 1).trim() !== "") return undefined;
+  } else if (between.trim() !== "") return undefined; // non-attribute content before \* — literal
   return { token: { kind: "milestone", marker: name, attributes }, next: closeIndex + 2 };
 }
 
