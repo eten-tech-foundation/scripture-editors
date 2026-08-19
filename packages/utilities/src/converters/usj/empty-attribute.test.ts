@@ -21,7 +21,7 @@ describe("an empty attribute value survives the round trip", () => {
   // USJ carries marker-specific attributes that `MarkerObject` does not declare individually, so
   // the fixtures are built as plain objects and widened, the same way the sibling converter suites
   // build theirs.
-  const marker = (fields: Record<string, unknown>) => fields as unknown as MarkerObject;
+  const marker = (fields: { [key: string]: unknown }) => fields as unknown as MarkerObject;
   const cases: { name: string; content: MarkerObject[] }[] = [
     {
       name: "a lone empty attribute on a milestone",
