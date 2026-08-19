@@ -24,7 +24,10 @@ Scoreboard:
 - **Found while pinning something else, not fixed:** **V3** — a half-typed verse bridge (`\v 5-`) is
   silently dropped on save. Pinned as a divergence; the fix is a decision about what a verse number
   may contain.
+- **Also fixed:** **C5** (Up/Down on a verse marker jumped paragraphs) and the contained half of
+  **C6** (the forward arrow stepped into a collapsed note).
 - **Turned out to be deliberate design, so it needs a ruling rather than a patch:** **W7/W8**.
+- **Needs a design ruling:** **C6**'s missing caret position after a trailing note.
 - **Still open with no headless repro:** **A2**. I need your gesture.
 - **Diagnosed here, repair belongs to the host:** **P4**.
 - **Never broken at either anchor, pinned forward:** A1, K12, N4, W4, and the whole log-storm
@@ -141,6 +144,59 @@ anyone to find.
 deliberately a diagnostic, not a cure: **the repair is host-side** (the dropdown should restore the
 selection like its three siblings do), and the host is a separate repo. The manual step names the
 console line that distinguishes the two hypotheses.
+
+### C5 — Up/Down on a verse marker jumped to the next paragraph
+
+Reproduces deterministically, and it was a **node-class question standing in for a property** — the
+exact shape the plan warned this register is full of.
+
+`$shouldAttemptVerticalVerseNavigation` asked `$isSomeVerseNode(anchorNode)`. The verse jump exists
+to substitute for a position the browser genuinely *cannot* move a visual line from: an element point
+between blocks, or a spot beside a verse number that is a childless decorator hosting no caret of its
+own. With editable markers a verse marker is ordinary rendered text the caret walks a character at a
+time — the browser's own line movement is right there, and the substitute was overriding it. The
+branch could only ever fire in editable-marker mode, and it arrived with no test.
+
+Restated as the property it always meant: the position must host no caret of its own
+(`$isDecoratorNode`). The one text spelling still claimed — offset 0 after a caret-less verse number
+— is the same screen location as the element point Lexical normalizes to it, and where the marker is
+glyph text Lexical resolves that offset back onto the glyph's end, so the location cannot answer
+twice. Measured, not assumed.
+
+The six new tests assert the **decision** (whether the press was claimed), not the landing: jsdom
+performs no visual-line move, so "the caret did not move" would pass for the wrong reason.
+
+### C6 — the caret after a trailing footnote: half fixed, half needs a ruling
+
+**Fixed, contained:** the forward arrow used to step INTO a collapsed note that ends its paragraph,
+landing on the hidden closing `\f*` glyph. Inside a collapsed note the caret is invisible *and*
+typing silently edits the note body — the wrong bytes change. It now lands past the note, where
+nothing changes and one backward press recovers. The pre-existing `TODO` is replaced by a documented
+known-gap comment.
+
+**Still open, and it is a design question, not a caret fix.** The position past a trailing note is an
+element point with **no text node**, and a browser draws no insertion point where there is no
+rendered text — which is why the next keypress becomes the page's rather than the editor's ("Space
+scrolls the page"). Closing that means giving the position something to render in.
+
+What jsdom could and could not establish is worth stating precisely. Established: the position past
+the note is element-only; the forward arrow rests there and claims the press; one backward press
+recovers to the text before the note (matching your "arrow-left works"); and a caret placed *inside*
+the note is NOT recovered by one backward press — which is the discriminator saying the click lands
+on the element point rather than inside the note. Not established, and inferred from your symptoms
+rather than measured: which DOM position a real click actually produces, and whether a browser paints
+a caret at an element point. No layout, no hit testing, no `caretRangeFromPoint` in jsdom.
+
+**Options, with the recommendation:**
+
+| | Approach | Cost |
+| --- | --- | --- |
+| **A (recommended)** | A transient zero-width caret host after a trailing note | ~120 lines + tests. Decisively: every exclusion path already exists AND already covers that node — the save tag, the delta/OT offset exclusion, the USJ serializer. It is the `EmptyVerseCaretGuardPlugin` pattern, already shipped here for the identical reason. The only option that supplies the missing position, and it does not depend on which click landing turns out to be real. |
+| **B (stop-gap)** | Correct the click, as the para-prefix guard already does via `CLICK_COMMAND` | ~20 lines, no new node/serialization/delta surface. Fixes the symptom but makes "type after a footnote at paragraph end" permanently unreachable — which is the status quo, but ratifying it is a product decision. Compatible with A later. |
+| C | A DOM-only caret box | Rejected — fights the reconciler; the browser needs a real text node, which is A. |
+| D | A real trailing space (free in the *file* per the writer's newline rule) | Rejected — still a fabricated USJ byte, exactly the `$addTrailingSpace` fabrication this effort removed, and it would turn the fixed-point test red. |
+
+Full analysis in `../plans/2026-08-19-co-caret.md`.
 
 ---
 
@@ -332,7 +388,7 @@ Ordered by how much I think it matters.
 
 - `sv/closeout` was branched before `sv/fb5/milestone-edit` and `sv/fb5/table-caret` merged. Both are
   in `sv/residual-backlog` now.
-- `ArrowNavigationPlugin` was owned by `sv/fb5/table-caret` for the duration of this round, which is
-  why **C5** and **C6** were not attempted here. C6 additionally has a pre-existing `TODO` in that
-  plugin naming the structural gap — there is no text position after a trailing note — so it is a
-  design question, not only a caret fix.
+- `ArrowNavigationPlugin` was owned by `sv/fb5/table-caret` until it merged, so C5 and C6 were taken
+  last, on a branch based on `sv/residual-backlog` rather than on this one. Both are folded in.
+- The pre-existing `TODO` in that plugin naming C6's structural gap is gone, replaced by a documented
+  known-gap comment at the function that now lands the caret past a trailing note.
