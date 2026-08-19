@@ -147,6 +147,12 @@ describe("the caret host past a trailing note, with the production transforms mo
     const para = readNoteParagraph(editor);
     await restCaretPastNote(editor, para);
 
+    // The host is in the tree GOING IN — otherwise the pass below asserts nothing about it.
+    editor.getEditorState().read(() => {
+      const last = para.getLastChild();
+      expect($isTextNode(last) && last.getTextContent()).toBe(CURSOR_PLACEHOLDER_CHAR);
+    });
+
     await act(async () => {
       editor.update(
         () => {
@@ -157,11 +163,12 @@ describe("the caret host past a trailing note, with the production transforms mo
       );
     });
 
-    editor.getEditorState().read(() => {
-      const last = para.getLastChild();
-      // The host was in the tree FOR the pass — otherwise this asserts nothing.
-      expect($isTextNode(last) && last.getTextContent()).toBe(CURSOR_PLACEHOLDER_CHAR);
-    });
+    // Whether the host OUTLIVES the pass is deliberately not asserted, for the same reason the
+    // whole-document test below gives: dirtying wholesale can strand the selection at the root, and
+    // the guard then correctly removes a host no caret is resting in. Pinning its survival pins an
+    // artifact of the harness — and did, intermittently — rather than a property of the guard. What
+    // the transforms must not do is leave a mark, and the serialized document is where either
+    // failure would show: a fabricated trailing space, or a swallowed placeholder, changes it.
     const after = deserializeSerializedEditorState(editor.getEditorState().toJSON(), viewOptions);
     expect(after).toEqual(usj);
   });
