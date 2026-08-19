@@ -10,23 +10,30 @@
  * gains its closing glyph); with nothing matching they settle as an unmatched closer, flagged as
  * typed. Both are ratified end states for a typed closer, byte-identical to typing `\nd*` by hand.
  *
- * This deliberately does NOT route through `$closeCharSpanAtCaret`, which remains the apply for a
- * PICKED `closeTag` menu entry. The two diverge exactly where the user is most likely to press
- * `*` — with the caret at the span's CONTENT END, that helper takes its "already effectively
- * closed" branch, changing no text and only moving the caret, so the span stays `closed="false"`
- * with no closing glyph on screen. Landing the literal is what actually puts `\nd*` there.
+ * A PICKED `closeTag` menu entry is the SAME commit — see the second describe below, which also
+ * covers the file side. There is one closer path in the editor and this is it.
  *
  * Caret placement is part of the contract: after a closing-marker commit the caret belongs AFTER
  * the closer, never between the content and the closer's backslash.
  */
 import Editor from "./Editor";
 import { EditorRef } from "./editor.model";
+import { MarkerMenuItem } from "./markerMenu/markerItemSource";
 import { mountStandardViewEditor, requireStandardViewOptions } from "./settledGetUsj.test-helpers";
-import { Usj } from "@eten-tech-foundation/scripture-utilities";
+import { MarkerObject, Usj } from "@eten-tech-foundation/scripture-utilities";
+import { SerializedVerseRef } from "@sillsdev/scripture";
 import { act, render } from "@testing-library/react";
 import { $getRoot, $getSelection, $isRangeSelection, $isTextNode, LexicalEditor } from "lexical";
-import { createRef } from "react";
-import { $isCharNode, $isMarkerNode, $isParaNode } from "shared";
+import { createRef, RefObject } from "react";
+import {
+  $isCharNode,
+  $isMarkerNode,
+  $isParaNode,
+  getMarker,
+  getPendedDisplayOwners,
+  NBSP,
+  usfmFragmentToUsjContent,
+} from "shared";
 import { describe, expect, it } from "vitest";
 
 const baseUsj: Usj = {
@@ -340,4 +347,205 @@ describe("EditorRef.commitTypedCloser", () => {
 
     expect(() => ref.current?.commitTypedCloser("nd")).toThrow(/readonly/);
   });
+});
+
+/**
+ * A PICKED close-tag entry is the SAME commit as a typed `*`, at every caret position — owner-
+ * directed (2026-08-19), reported against the shape below.
+ *
+ * It used to run a structural close instead (`$closeCharSpanAtCaret`), and that produced no closer
+ * bytes anywhere. Measured, on `\p \v 1 \nd stuff and things` with the span still open:
+ *
+ * | caret | displayed bytes | USJ reaching the file |
+ * | --- | --- | --- |
+ * | content end | UNCHANGED | UNCHANGED — `closed="false"` intact |
+ * | mid-content | UNCHANGED | span truncated to `["st"]` + plain tail, `closed="false"` KEPT |
+ * | after the span | UNCHANGED | UNCHANGED |
+ *
+ * So at two of three positions the keystroke did nothing at all, and at the third it silently
+ * restructured the document while still writing no `\nd*` — the span stayed marked unclosed. That
+ * is the owner's report ("it closes the `\nd` in editor state without actually putting in an
+ * `\nd*`, so it doesn't save anything to file") and a "no silent no-ops" violation (invariant I).
+ *
+ * These pins therefore assert the FILE side, not just the tree: a tree-only assertion would have
+ * passed on the mid-content row above while the saved document was still wrong.
+ */
+describe("EditorRef.applyMarkerMenuSelection — a PICKED closeTag entry", () => {
+  const reference: SerializedVerseRef = { book: "GEN", chapterNum: 1, verseNum: 1 };
+
+  /** Two paragraphs: the reported one, plus a second to park an unrelated pending edit in. */
+  const twoParaUsj: Usj = {
+    type: "USJ",
+    version: "3.1",
+    content: [
+      { type: "book", marker: "id", code: "GEN", content: ["GEN"] },
+      { type: "chapter", marker: "c", number: "1" },
+      {
+        type: "para",
+        marker: "p",
+        content: [{ type: "verse", marker: "v", number: "1" }, "stuff and things"],
+      },
+      { type: "para", marker: "p", content: ["a second paragraph"] },
+    ],
+  };
+
+  const closeTagItem: MarkerMenuItem = { marker: "nd*", kind: "closeTag", isBasic: false };
+
+  /** Mount, then open an `\nd` span over "stuff and things" exactly as the palette's Space commit
+   * does — the state the owner was in when they reached for the close-tag entry. */
+  async function mountWithOpenNdSpan(): Promise<{
+    ref: RefObject<EditorRef | null>;
+    lexical: LexicalEditor;
+  }> {
+    const { ref, lexical } = await mountStandardViewEditor(twoParaUsj, reference);
+    await placeCaretIn(lexical, "stuff and things", 0);
+    await act(async () => {
+      ref.current?.commitTypedMarker("nd");
+    });
+    // Precondition: the span really is OPEN, which is what makes a closer meaningful.
+    expect(ndSpanOf(ref.current?.getUsj())?.closed).toBe("false");
+    return { ref, lexical };
+  }
+
+  /** The reported paragraph's own displayed bytes. */
+  function reportedParaText(lexical: LexicalEditor): string {
+    return lexical
+      .getEditorState()
+      .read(() => $getRoot().getChildren().filter($isParaNode)[0].getTextContent());
+  }
+
+  /** The `\nd` span's USJ entry in the FIRST paragraph, or undefined when there isn't one. */
+  function ndSpanOf(usj: Usj | undefined): (MarkerObject & { closed?: string }) | undefined {
+    const para = usj?.content[2];
+    if (!para || typeof para === "string") return undefined;
+    const span = para.content?.find((entry) => typeof entry !== "string" && entry.type === "char");
+    return span && typeof span !== "string" ? span : undefined;
+  }
+
+  /** Park the caret at one of the three positions the unification has to cover. */
+  async function placeCaret(
+    lexical: LexicalEditor,
+    where: "contentEnd" | "midContent" | "afterSpan",
+  ): Promise<void> {
+    await act(async () =>
+      lexical.update(() => {
+        const para = $getRoot().getChildren().filter($isParaNode)[0];
+        const char = para.getChildren().filter($isCharNode)[0];
+        const contentTexts = char.getAllTextNodes().filter((node) => !$isMarkerNode(node));
+        const last = contentTexts[contentTexts.length - 1];
+        if (where === "contentEnd") {
+          last.select(last.getTextContentSize(), last.getTextContentSize());
+        } else if (where === "midContent") {
+          // Between "stuff" and " and things" (the content text is NBSP + "stuff and things").
+          last.select(6, 6);
+        } else {
+          const index = char.getIndexWithinParent();
+          para.select(index + 1, index + 1);
+        }
+      }),
+    );
+  }
+
+  async function pickCloseTag(ref: RefObject<EditorRef | null>): Promise<void> {
+    await act(async () => {
+      ref.current?.applyMarkerMenuSelection(closeTagItem, {
+        trigger: "backslash",
+        literalPrefixLanded: false,
+      });
+    });
+  }
+
+  it("lands `\\nd*` at the caret and the closer REACHES THE FILE (the reported shape)", async () => {
+    const { ref, lexical } = await mountWithOpenNdSpan();
+    await placeCaret(lexical, "contentEnd");
+
+    await pickCloseTag(ref);
+
+    // On screen: the bytes the entry names, at the caret.
+    expect(reportedParaText(lexical)).toContain("stuff and things\\nd*");
+
+    // In the FILE: `getUsj()` is the host's save read. Nothing is pending here (the closer settles
+    // within the same update), so this is the cached editor -> USJ leg.
+    expect(getPendedDisplayOwners(lexical)?.size ?? 0).toBe(0);
+    const span = ndSpanOf(ref.current?.getUsj());
+    // The engine resolved the typed bytes against the open span: genuinely closed now.
+    expect(span?.closed).toBeUndefined();
+    expect(span?.content).toEqual(["stuff and things"]);
+  });
+
+  it("reaches the file on the read-only `$settledUsj` save leg too", async () => {
+    // `getUsj()` has two legs: the cached editor -> USJ above, and a `$settledUsj` recompute taken
+    // whenever anything is pending. A host that saves while an unrelated edit is still settling
+    // elsewhere in the chapter takes the second one, and the closer must be in that output too.
+    const { ref, lexical } = await mountWithOpenNdSpan();
+    await placeCaret(lexical, "contentEnd");
+    await pickCloseTag(ref);
+
+    // Pend an UNRELATED edit in the second paragraph: rename its prefix glyph with the caret left
+    // inside it (the same pend shape `settledGetUsj.test.tsx` uses).
+    await act(async () => {
+      lexical.update(() => {
+        const secondPara = $getRoot().getChildren().filter($isParaNode)[1];
+        const glyph = secondPara.getFirstChild();
+        if (!$isTextNode(glyph)) throw new Error("expected a prefix glyph");
+        glyph.setTextContent("\\q1");
+        glyph.select(3, 3);
+      });
+      await Promise.resolve();
+    });
+
+    // The read-only leg is now the one `getUsj()` takes.
+    expect(getPendedDisplayOwners(lexical)?.size ?? 0).toBeGreaterThan(0);
+    const span = ndSpanOf(ref.current?.getUsj());
+    expect(span?.closed).toBeUndefined();
+    expect(span?.content).toEqual(["stuff and things"]);
+  });
+
+  it("settles to exactly what re-tokenizing the DISPLAYED bytes produces", async () => {
+    // The engine is not asked to be clever about a picked entry: the bytes land and re-tokenize.
+    // Comparing against the standalone tokenizer is what proves that — if the apply had reached
+    // any structural shortcut, the two would disagree.
+    const { ref, lexical } = await mountWithOpenNdSpan();
+    await placeCaret(lexical, "contentEnd");
+    await pickCloseTag(ref);
+
+    // Editable marker mode separates glyphs from content with NBSP; the tokenizer reads USFM, in
+    // which those separators are ordinary spaces.
+    const displayedBytes = reportedParaText(lexical).replaceAll(NBSP, " ");
+    // Guard the comparison below against being trivially true: with no closer in the displayed
+    // bytes both sides would simply agree that the span is still open, which is what the broken
+    // structural close produced.
+    expect(displayedBytes).toContain("\\nd*");
+
+    const retokenized = usfmFragmentToUsjContent(displayedBytes, { getMarker });
+    const retokenizedPara = retokenized[0];
+    if (!retokenizedPara || typeof retokenizedPara === "string")
+      throw new Error("expected a para from the tokenizer");
+    const retokenizedSpan = retokenizedPara.content?.find(
+      (entry) => typeof entry !== "string" && entry.type === "char",
+    );
+    // The standalone tokenizer's own verdict on those bytes: a CLOSED span.
+    expect(retokenizedSpan).toBeDefined();
+    expect((retokenizedSpan as MarkerObject & { closed?: string }).closed).toBeUndefined();
+
+    expect(ndSpanOf(ref.current?.getUsj())).toEqual(retokenizedSpan);
+  });
+
+  it.each(["midContent", "afterSpan"] as const)(
+    "lands the closer and reaches the file with the caret %s too",
+    async (where) => {
+      // The unification is per-caret-position: mid-content used to restructure the tree while
+      // writing no closer bytes, and past the span the apply could not find a span at all and
+      // refused silently. Both now do what the content-end case does.
+      const { ref, lexical } = await mountWithOpenNdSpan();
+      await placeCaret(lexical, where);
+
+      await pickCloseTag(ref);
+
+      expect(reportedParaText(lexical)).toContain("\\nd*");
+      const span = ndSpanOf(ref.current?.getUsj());
+      expect(span?.closed).toBeUndefined();
+      expect(span?.content).toEqual(where === "midContent" ? ["stuff"] : ["stuff and things"]);
+    },
+  );
 });

@@ -13,6 +13,7 @@ import Editor from "./Editor";
 import { EditorRef } from "./editor.model";
 import { $rebuildNoteContent, $rebuildParas, Tier2Context } from "./markerEdit/tier2Rebuild.utils";
 import { Usj } from "@eten-tech-foundation/scripture-utilities";
+import { SerializedVerseRef } from "@sillsdev/scripture";
 import { EditorRefPlugin } from "@lexical/react/LexicalEditorRefPlugin";
 import { act, render } from "@testing-library/react";
 import { $getRoot, $isElementNode, LexicalEditor, LexicalNode } from "lexical";
@@ -108,13 +109,14 @@ export const spanUsj: Usj = {
 async function mountEditor(
   usj: Usj,
   view: ViewOptions,
+  scrRef?: SerializedVerseRef,
 ): Promise<{ ref: RefObject<EditorRef | null>; lexical: LexicalEditor }> {
   const ref = createRef<EditorRef>();
   const lexicalRef = createRef<LexicalEditor>();
   const capture: ReactElement = <EditorRefPlugin editorRef={lexicalRef} />;
   await act(async () => {
     render(
-      <Editor ref={ref} defaultUsj={usj} options={{ view }}>
+      <Editor ref={ref} defaultUsj={usj} scrRef={scrRef} options={{ view }}>
         {capture}
       </Editor>,
     );
@@ -123,11 +125,17 @@ async function mountEditor(
   return { ref, lexical: lexicalRef.current };
 }
 
-/** Mount `Editor` in Standard view and hand back its public ref plus the raw Lexical editor. */
+/**
+ * Mount `Editor` in Standard view and hand back its public ref plus the raw Lexical editor.
+ *
+ * `scrRef` is only needed by the ref methods that guard on it (`applyMarkerMenuSelection`,
+ * `insertMarker`); the rest of the suite leaves it off, and those methods then throw by design.
+ */
 export async function mountStandardViewEditor(
   usj: Usj,
+  scrRef?: SerializedVerseRef,
 ): Promise<{ ref: RefObject<EditorRef | null>; lexical: LexicalEditor }> {
-  return mountEditor(usj, requireStandardViewOptions());
+  return mountEditor(usj, requireStandardViewOptions(), scrRef);
 }
 
 /**
