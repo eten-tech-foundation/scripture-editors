@@ -125,6 +125,42 @@ export const COMMIT_PENDING_MARKERS_COMMAND: LexicalCommand<void> = createComman
 );
 
 /**
+ * Runs `settle` inside the surrounding commit and marks that commit as a settle: it merges into
+ * the current history entry, and it still reports itself to USJ-change consumers.
+ *
+ * A SETTLE IS NEVER ITS OWN UNDO ENTRY. Undo undoes what the USER did — a typed character, a
+ * deletion — never a settle, so every settle joins the history entry of the edit that provoked it
+ * and one Ctrl+Z takes the edit and its settle away together, landing on the content the user had
+ * before that edit.
+ *
+ * Two things this replaces, both worth keeping in view. Only a settle that changed NOTHING used to
+ * merge: a resolve pass that merely refused (a re-pended degradation literal after an undo, a
+ * canonical attribute run) changes nothing visible, yet each refused rebuild probe still creates
+ * parse orphans that count as dirty leaves — untagged, that commit pushes an undo entry restoring
+ * an identical-looking document (one dead Ctrl+Z press) and wipes the redo stack. Still true, and
+ * subsumed here. A settle that DID change something kept its own entry so undo could restore the
+ * pre-settle literal bytes; that argument is weaker now that openers and closers are editable in
+ * place, since a mistyped marker is corrected directly rather than by undoing back to a literal.
+ * Weaker, not gone — the literal form is still the only way to edit some shapes as raw bytes, and
+ * accepting that cost is a deliberate trade for an undo stack holding only user actions.
+ *
+ * The second tag is not decoration: the merge tag alone reads as "nothing to report" to
+ * USJ-change consumers, and `DeltaOnChangePlugin` skips merge-tagged commits. Without it the
+ * settled bytes would never refresh the cached USJ or reach the host as a delta, and the document
+ * on screen would diverge from the document saved.
+ *
+ * Mutating: call inside `editor.update()`, and ONLY where the update carries nothing but the
+ * settle — the tag merges the whole commit, so an update that also carries a user edit (the
+ * Enter path) must call the resolve directly instead.
+ */
+function $settleWithoutOwnUndoEntry<T>(settle: () => T): T {
+  const settled = settle();
+  $addUpdateTag(HISTORY_MERGE_TAG);
+  $addUpdateTag(MARKER_SETTLE_TAG);
+  return settled;
+}
+
+/**
  * How many deferred settles may MUTATE back-to-back, with no user gesture between them, before the
  * engine stops settling and leaves the document pending.
  *
@@ -339,35 +375,10 @@ export function MarkerEditPlugin({
       settleReason: SettleReason = "departure",
     ) => {
       editor.update(() => {
-        const mutated = $resolvePendingMarkers(context, exceptKey, settleReason);
+        const mutated = $settleWithoutOwnUndoEntry(() =>
+          $resolvePendingMarkers(context, exceptKey, settleReason),
+        );
         settleCascadeDepth = mutated ? settleCascadeDepth + 1 : 0;
-        // A SETTLE IS NEVER ITS OWN UNDO ENTRY. Undo undoes what the USER did — a typed
-        // character, a deletion — never a settle, so every settle merges into the history
-        // entry of the edit that provoked it, whether or not it changed anything. One Ctrl+Z
-        // then takes the user's edit and the settle it caused away together, landing on the
-        // content the user had before that edit.
-        //
-        // This replaces a narrower condition that merged only a settle which changed NOTHING,
-        // and both halves of that reasoning are worth keeping in view:
-        //
-        // - A resolve pass that only REFUSED (fixed-point rebuilds — a re-pended degradation
-        //   literal after an undo, a canonical attribute run) changes nothing visible, but
-        //   each refused $rebuildParas probe still creates parse orphans that count as dirty
-        //   leaves. Untagged, that visually-no-op commit pushes an undo entry restoring an
-        //   identical-looking document — one dead Ctrl+Z press — and wipes the redo stack.
-        //   Still true, and subsumed here.
-        // - A settle that DID change something used to keep its own entry so undo could
-        //   restore the pre-settle literal bytes. That argument is weaker now that openers
-        //   and closers are editable in place: a mistyped marker is corrected directly rather
-        //   than by undoing back to a literal. Weaker, not gone — the literal form is still
-        //   the only way to edit some shapes as raw bytes. Accepting that cost is a deliberate
-        //   trade for an undo stack holding only user actions, not an oversight.
-        $addUpdateTag(HISTORY_MERGE_TAG);
-        // …and say so explicitly, because the merge tag alone reads as "nothing to report" to
-        // USJ-change consumers: `DeltaOnChangePlugin` skips merge-tagged commits, so without
-        // this the settled bytes would never refresh the cached USJ or reach the host as a
-        // delta — the document on screen and the document saved would diverge.
-        $addUpdateTag(MARKER_SETTLE_TAG);
       });
     };
     // The idle debounce — the SECOND settle clock. Re-armed (a full delay from now) by every
@@ -783,6 +794,10 @@ export function MarkerEditPlugin({
             editor.dispatchCommand(INSERT_PARAGRAPH_COMMAND, undefined);
           const claimed = noteOutcome !== "declined" || $isSelectionInMarkerNode();
           if (claimed) event?.preventDefault();
+          // Deliberately NOT wrapped in `$settleWithoutOwnUndoEntry`: this update already carries
+          // the user's own Enter, so it IS the entry the settle belongs in. Merging here would
+          // fold the Enter itself into the previous entry and cost the user a separate undo for
+          // the keystroke they actually pressed.
           $resolvePendingMarkers(context);
           return claimed;
         },
@@ -968,7 +983,7 @@ export function MarkerEditPlugin({
             // the right node even when a range selection is extended backward.
             exceptKey = $isRangeSelection(selection) ? selection.focus.key : lastAnchorKey;
           }
-          $resolvePendingMarkers(context, exceptKey);
+          $settleWithoutOwnUndoEntry(() => $resolvePendingMarkers(context, exceptKey));
           return true;
         },
         COMMAND_PRIORITY_LOW,
@@ -1000,7 +1015,7 @@ export function MarkerEditPlugin({
           // which the update listener preserves through null-selection commits.
           const selection = $getSelection();
           const anchorKey = $isRangeSelection(selection) ? selection.focus.key : lastAnchorKey;
-          $resolvePendingMarkers(context, anchorKey);
+          $settleWithoutOwnUndoEntry(() => $resolvePendingMarkers(context, anchorKey));
           return false;
         },
         COMMAND_PRIORITY_LOW,

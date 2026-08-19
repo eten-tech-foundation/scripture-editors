@@ -19,6 +19,7 @@
  * the redo stack.
  */
 
+import { COMMIT_PENDING_MARKERS_COMMAND } from "./MarkerEditPlugin";
 import { historyTestEnvironment } from "./markerEdit.test-helpers";
 import { act } from "@testing-library/react";
 import {
@@ -246,6 +247,37 @@ describe("a settle is never its own undo entry", () => {
     // pre-ruling there were six.
     expect(waypoints.length).toBe(4);
     expect(waypoints[waypoints.length - 1]).toBe(pristine);
+  });
+
+  it("the host's forced pre-save settle is not an undo entry either", async () => {
+    // `commitPendingMarkerEdits()` fires on the host's debounced save timer, not on anything the
+    // user did. If it kept its own entry, a background timer would silently eat the user's next
+    // Ctrl+Z. It runs the same resolve through the same `$settleWithoutOwnUndoEntry` wrapper the
+    // two clocks and the blur handler use, so one press still lands on the pre-edit content.
+    const { editor } = await historyTestEnvironment(() => {
+      $getRoot().append(
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          $createTextNode("nd Lord"),
+        ),
+      );
+    });
+    const pristine = documentShape(editor);
+
+    // Offset 1 is just past the paragraph prefix's separator — content start.
+    await caretAt(editor, "nd Lord", 1);
+    await type(editor, "\\");
+    expectLiteralBackslashText(editor);
+
+    await act(async () => {
+      editor.dispatchCommand(COMMIT_PENDING_MARKERS_COMMAND, undefined);
+    });
+    await flushSettle();
+    expectSettledCharSpan(editor);
+
+    await undo(editor);
+    expect(documentShape(editor)).toBe(pristine);
   });
 
   it("redo stays coherent: it replays the user's edit and its settle together", async () => {
