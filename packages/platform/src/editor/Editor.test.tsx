@@ -1568,6 +1568,48 @@ describe("formatPara (standard view)", () => {
       expect(para.getTextContent()).toContain("first verse text");
     });
   });
+
+  // The host's paragraph dropdown is a popover: opening it takes focus off the editor, and
+  // Lexical's blur processing can NULL the editor-state selection. `formatPara` then has nothing
+  // to retag. It must still say so — a marker pick that changes nothing and logs nothing is
+  // indistinguishable from a broken dropdown, and every sibling ref method that can refuse either
+  // throws or warns.
+  it("warns instead of silently doing nothing when the selection is gone", async () => {
+    const warn = vi.fn();
+    const ref = createRef<EditorRef>();
+    const capture = lexicalCapture();
+    await act(async () => {
+      render(
+        <Editor
+          ref={ref}
+          defaultUsj={sampleUsj}
+          options={{ view: getViewOptions(STANDARD_VIEW_MODE) }}
+          logger={{ warn, error: vi.fn(), info: vi.fn(), debug: vi.fn() }}
+        >
+          {capture.plugin}
+        </Editor>,
+      );
+    });
+    const lexical = capture.get();
+    act(() => {
+      // Lexical's own "no selection" value is `null`.
+      // eslint-disable-next-line unicorn/no-null
+      lexical.update(() => $setSelection(null));
+    });
+
+    await act(async () => {
+      ref.current?.formatPara("m");
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("formatPara"));
+    lexical.getEditorState().read(() => {
+      const para = $getRoot().getChildren().find($isParaNode);
+      if (!para) throw new Error("expected a ParaNode");
+      expect(para.getMarker()).toBe("p"); // untouched
+    });
+  });
 });
 
 describe("commitPendingMarkerEdits (abandonment window)", () => {

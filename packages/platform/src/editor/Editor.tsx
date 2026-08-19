@@ -490,7 +490,17 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
     formatPara(blockMarker) {
       editorRef.current?.update(() => {
         const selection = $getSelection();
-        if (!$isRangeSelection(selection)) return;
+        // A caller with no live selection has nothing to retag. Say so rather than returning
+        // quietly: this is the toolbar's paragraph-marker path, and the popover that drives it
+        // takes focus off the editor — whose blur processing can null the editor-state selection
+        // — so an unheard refusal here looks exactly like a dropdown that does not work.
+        if (!$isRangeSelection(selection)) {
+          logger?.warn(
+            `formatPara refused: no range selection to retag with "${blockMarker}" ` +
+              "(restore the caret before applying, as the marker palettes do)",
+          );
+          return;
+        }
         $setBlocksType(selection, () => $createParaNode(blockMarker));
         // `$setBlocksType` MOVES each old block's children into its fresh ParaNode, so in
         // editable marker mode the old marker's prefix glyph migrates over still reading the
