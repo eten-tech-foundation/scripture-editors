@@ -34,6 +34,7 @@ import {
   deserializeSerializedEditorState,
   initialize as initializeDeserialize,
 } from "../adaptors/editor-usj.adaptor";
+import { mountStandardViewEditor } from "../settledGetUsj.test-helpers";
 import { act } from "@testing-library/react";
 import { Usj } from "@eten-tech-foundation/scripture-utilities";
 import {
@@ -52,6 +53,7 @@ import {
   $isCharNode,
   $isMarkerNode,
   $isParaNode,
+  getPendedDisplayOwners,
   NBSP,
   ParaNode,
   usfmFragmentToUsjContent,
@@ -458,6 +460,186 @@ describe("correcting an unknown block marker to an inline marker", () => {
       expect(paras[1].getMarker()).toBe("p");
       const chars = paras[1].getChildren().filter($isCharNode);
       expect(chars.map((char) => char.getMarker())).toEqual(["w", "nd"]);
+    });
+  });
+});
+
+/** `\p stuff` plus a paragraph to park the caret in, through the public `Editor`. */
+const rejoinUsj: Usj = {
+  type: "USJ",
+  version: "3.1",
+  content: [
+    { type: "book", marker: "id", code: "GEN", content: ["GEN"] },
+    { type: "chapter", marker: "c", number: "1" },
+    { type: "para", marker: "p", content: ["stuff"] },
+    { type: "para", marker: "p", content: ["park here"] },
+  ],
+};
+
+/** The n-th ParaNode's leading glyph. */
+function $glyphOfPara(index: number) {
+  return requireDefined(
+    $paraAt(index).getChildren().filter($isMarkerNode).at(0),
+    `paragraph ${index} glyph missing`,
+  );
+}
+
+describe("the rejoin reaches the SAVE path, in the SAME settle the screen rejoins in", () => {
+  it("never serializes the fabricated \\p — not even while the degraded glyph is still pending", async () => {
+    // The screen and the file must agree (invariants IV): `getUsj()` runs the SAME settle
+    // computation the caret-departure settle runs, so a host save landing anywhere in the pend
+    // window — between the user deleting the `\` and the settle — must already read the rejoined
+    // document. When it does not, the fabricated `\p` reaches the file and only a LATER settle
+    // takes it back out.
+    const { ref, lexical } = await mountStandardViewEditor(rejoinUsj);
+    const oracle = usfmFragmentToUsjContent("\\p stuff asdf ", {});
+
+    await act(async () => {
+      lexical.update(() => {
+        const body = $getRoot()
+          .getAllTextNodes()
+          .find((node) => !$isMarkerNode(node) && node.getTextContent().includes("stuff"));
+        if (!$isTextNode(body)) throw new Error("seed body text not found");
+        body.select(body.getTextContentSize(), body.getTextContentSize());
+      });
+      await Promise.resolve();
+    });
+    for (const ch of "\\asdf ") {
+      await act(async () => {
+        lexical.update(() => $typeAtCaret(ch));
+        await Promise.resolve();
+      });
+    }
+
+    // Delete the `\`, and read the save path INSIDE the same act() — the pend only survives up to
+    // this commit (see settledGetUsj.test.tsx's own note on reading the virtual settle early).
+    let pendedUsj: Usj | undefined;
+    await act(async () => {
+      lexical.update(() => $retypeGlyph($glyphOfPara(1), "asdf"));
+      await Promise.resolve();
+      // Vacuity guard: with nothing pending, `getUsj()` takes its cached fast path and the read
+      // below would prove nothing about the settle computation at all.
+      expect(getPendedDisplayOwners(lexical)?.size).toBeGreaterThan(0);
+      pendedUsj = ref.current?.getUsj();
+    });
+    expect(pendedUsj?.content.slice(2, 3)).toEqual(oracle);
+
+    // Depart: ONE settle, and the screen agrees with what the save path already reported.
+    await act(async () => {
+      lexical.update(() => {
+        const body = $getRoot()
+          .getAllTextNodes()
+          .find((node) => !$isMarkerNode(node) && node.getTextContent().includes("park here"));
+        if (!$isTextNode(body)) throw new Error("parking paragraph body not found");
+        body.select(0, 0);
+      });
+      await Promise.resolve();
+    });
+    await act(async () => Promise.resolve());
+
+    lexical.getEditorState().read(() => {
+      const paras = $getRoot().getChildren().filter($isParaNode);
+      expect(paras).toHaveLength(2); // the rejoined paragraph plus the parking paragraph
+      expect(paras[0].getMarker()).toBe("p");
+      expect(paras[0].getTextContent()).toContain("asdf");
+    });
+    expect(ref.current?.getUsj()?.content.slice(2, 3)).toEqual(oracle);
+  });
+});
+
+describe("an unknown split whose glyph regains a marker interpretation that is not block-shaped", () => {
+  // TJ's repro: `\wj things\wj*` mid-paragraph, then the separator space deleted so the bytes read
+  // `\wjthings` — which renames the marker to an unknown one and correctly splits off its own
+  // paragraph (the closer gains the separator, becoming an unmatched `\wj*`). Typing the space
+  // BACK makes the leading glyph name `wj` again — a CHAR marker, which is not block-shaped, so
+  // the split's only reason to exist is gone and the content must rejoin the previous paragraph.
+  /** The paragraph pair exactly as the first settle leaves it. */
+  const splitUsj: Usj = {
+    type: "USJ",
+    version: "3.1",
+    content: [
+      { type: "book", marker: "id", code: "GEN", content: ["GEN"] },
+      { type: "chapter", marker: "c", number: "1" },
+      { type: "para", marker: "p", content: ["some "] },
+      {
+        type: "para",
+        marker: "wjthings",
+        content: [{ type: "unmatched", marker: "wj*" }, "stuff"],
+      },
+      { type: "para", marker: "p", content: ["park here"] },
+    ],
+  };
+
+  it("rejoins the previous paragraph instead of fabricating a \\p around the char span", async () => {
+    const { ref, lexical } = await mountStandardViewEditor(splitUsj);
+
+    await act(async () => {
+      lexical.update(() => $retypeGlyph($glyphOfPara(1), "\\wj things"));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      lexical.update(() => {
+        const body = $getRoot()
+          .getAllTextNodes()
+          .find((node) => !$isMarkerNode(node) && node.getTextContent().includes("park here"));
+        if (!$isTextNode(body)) throw new Error("parking paragraph body not found");
+        body.select(0, 0);
+      });
+      await Promise.resolve();
+    });
+    await act(async () => Promise.resolve());
+
+    lexical.getEditorState().read(() => {
+      const paras = $getRoot().getChildren().filter($isParaNode);
+      // The artifact paragraph is gone: the rejoined paragraph plus the parking paragraph.
+      expect(paras).toHaveLength(2);
+      expect(paras[0].getMarker()).toBe("p");
+      const char = paras[0].getChildren().find($isCharNode);
+      expect(char?.getMarker()).toBe("wj");
+      expect(paras[0].getTextContent()).toContain("stuff");
+    });
+    // Byte-exactly the tokenizer over the joined displayed bytes.
+    expect(ref.current?.getUsj()?.content.slice(2, 3)).toEqual(
+      usfmFragmentToUsjContent("\\p some  \\wj things \\wj*stuff", {}),
+    );
+  });
+
+  it("does NOT rejoin when the glyph names a genuine BLOCK marker (the split is still authored)", async () => {
+    // Same artifact shape, but the glyph is retyped to a real paragraph marker. Its blockness is
+    // now the user's, not the unknown-token default's, so the paragraphs must stay apart.
+    const { editor } = await testEnvironment(() => {
+      $getRoot().append(
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createMarkerTrailingSeparator(),
+          $createTextNode("some"),
+        ),
+        $createParaNode("wjthings").append(
+          $createMarkerNode("wjthings"),
+          $createMarkerTrailingSeparator(),
+          $createTextNode("stuff"),
+        ),
+      );
+    });
+
+    await act(async () => editor.update(() => $retypeGlyph($glyphOfPara(1), "\\q1 things")));
+    await act(async () =>
+      editor.update(() => {
+        const body = $paraAt(0)
+          .getChildren()
+          .find(
+            (node) => $isTextNode(node) && !$isMarkerNode(node) && node.getTextContent() === "some",
+          );
+        if (!$isTextNode(body)) throw new Error("first paragraph body not found");
+        body.select(0, 0);
+      }),
+    );
+    await act(async () => Promise.resolve());
+
+    editor.getEditorState().read(() => {
+      const paras = $getRoot().getChildren().filter($isParaNode);
+      expect(paras).toHaveLength(2);
+      expect(paras[0].getTextContent()).not.toContain("stuff");
     });
   });
 });

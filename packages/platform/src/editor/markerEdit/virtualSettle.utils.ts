@@ -30,7 +30,7 @@
 import { deserializeSerializedEditorState } from "../adaptors/editor-usj.adaptor";
 import usjEditorAdaptor from "../adaptors/usj-editor.adaptor";
 import { TransientInput } from "../editor.model";
-import { BARE_OPENER_REGEX } from "./markerEditTier1.utils";
+import { $unknownSplitRejoinScope, BARE_OPENER_REGEX } from "./markerEditTier1.utils";
 import {
   $buildChapterFragment,
   $buildNoteFragment,
@@ -669,10 +669,16 @@ function $fragmentTextWithoutTransient(
 }
 
 /**
- * The serialized nodes a settled `para` becomes, or `undefined` when the settle refuses. Mirrors
- * `$rebuildParas`' guard sequence — guard rails, empty tokenizer output, sentinel symmetry, AND the
- * fixed-point signature check — so a paragraph the mutating rebuild would leave alone is left alone
- * here too.
+ * The serialized nodes a settled `paras` scope becomes, or `undefined` when the settle refuses.
+ * Mirrors `$rebuildParas`' guard sequence — guard rails, empty tokenizer output, sentinel
+ * symmetry, AND the fixed-point signature check — so a scope the mutating rebuild would leave
+ * alone is left alone here too.
+ *
+ * `paras` is normally the ONE containing paragraph. It is `[previous, artifact]` for the
+ * unknown-split rejoin, whose whole point is that the tokenizer must see the JOINED bytes: the
+ * artifact re-tokenized alone gains a fabricated `\p` wrapper the user never typed. Taking the
+ * same scope as the mutating settle is what keeps `getUsj()` — the host's save path — from
+ * writing a paragraph the screen never showed.
  *
  * The fixed-point check is NOT here for `$rebuildParas`'s own reason (loop prevention — nothing
  * here mutates the editor, so there is no transform to re-arm). It is here because "signature-
@@ -683,14 +689,14 @@ function $fragmentTextWithoutTransient(
  * looking rebuild the mutating settle would never have produced (it would have refused, leaving
  * the display untouched) — see `serializedSignatureOf`'s own doc comment for the full mechanics.
  *
- * `transient`, when it resolves to bytes inside THIS paragraph's own fragment
+ * `transient`, when it resolves to bytes inside THIS scope's own fragment
  * ({@link $fragmentTextWithoutTransient}), is cut out before tokenizing — the declared bytes never
  * reach the tokenizer, so they can never turn into a phantom structural marker in the output. A
  * `transient` naming some other scope leaves the fragment text untouched, same as no declaration at
  * all.
  *
  * A scope carrying a resolved `transient` necessarily forgoes the fixed-point refusal below while
- * the declaration is live: the comparison is always against `$signatureOf([para], ...)`, the
+ * the declaration is live: the comparison is always against `$signatureOf(paras, ...)`, the
  * UNMODIFIED live signature, which by construction differs from a rebuild of the reduced text
  * whenever the cut actually removed anything. That is inherent, not a gap — a subtraction and a
  * "refuse because nothing changed" check cannot both fire on the same bytes — and the direction is
@@ -698,15 +704,30 @@ function $fragmentTextWithoutTransient(
  * reintroducing an unrelated stale rebuild.
  */
 function $settledParaNodes(
-  para: ParaNode,
+  paras: ParaNode[],
   sites: Map<NodeKey, SerializedSite>,
   context: Tier2Context,
   huskKeys: ReadonlySet<NodeKey>,
   transient: TransientLiteral | undefined,
 ): SerializedLexicalNode[] | undefined {
   const { viewOptions, getMarker: getMarkerFn, logger } = context;
-  const fragment = $buildParaFragment(para, getMarkerFn);
-  if (!fragment) return undefined;
+  if (paras.length === 0) return undefined;
+  // Mirrors `$rebuildParas`'s own fragment join byte for byte, including the single space that
+  // stands in for the newline between two paragraphs — a scope of more than one paragraph is the
+  // unknown-split rejoin (see `$unknownSplitRejoinScope`), and the settled output a consumer
+  // reads must be what that same widened rebuild produces.
+  const fragment: FragmentAccumulator = { text: "", spans: [], sentinels: [] };
+  for (const para of paras) {
+    const built = $buildParaFragment(para, getMarkerFn);
+    if (!built) return undefined;
+    if (fragment.text.length > 0) fragment.text += " ";
+    const base = fragment.text.length;
+    built.spans.forEach((span) =>
+      fragment.spans.push({ ...span, start: span.start + base, end: span.end + base }),
+    );
+    fragment.sentinels.push(...built.sentinels);
+    fragment.text += built.text;
+  }
   const fragmentText = transient
     ? $fragmentTextWithoutTransient(fragment, transient)
     : fragment.text;
@@ -745,8 +766,8 @@ function $settledParaNodes(
   // which unifies both real paths into one rebuild. Short-circuited behind the signature check: a
   // genuine structural change (not just a marker) has already made the signature strings unequal.
   const isFixedPoint =
-    serializedSignatureOf(rebuilt, getMarkerFn) === $signatureOf([para], getMarkerFn) &&
-    $structuralMarkersAgree([para], rebuilt, getMarkerFn);
+    serializedSignatureOf(rebuilt, getMarkerFn) === $signatureOf(paras, getMarkerFn) &&
+    $structuralMarkersAgree(paras, rebuilt, getMarkerFn);
   if (isFixedPoint) {
     logger?.debug("[MarkerEdit] Settled USJ skipped: rebuild is a no-op (fixed point)");
     return undefined;
@@ -1165,7 +1186,10 @@ export function $settledUsj(
   const transient = $verifiedTransientLiteral(transientInput, lastKnownCaret);
   if (pendedKeys.size === 0 && !transient) return undefined;
 
-  const paraScopes = new Map<NodeKey, ParaNode>();
+  // Each entry is one settle scope, keyed by its FIRST paragraph: `[para]` normally, and
+  // `[previous, artifact]` for an unknown-split rejoin (see the widening pass below).
+  const paraScopes = new Map<NodeKey, ParaNode[]>();
+  const rejoinScopes: ParaNode[][] = [];
   const noteScopes = new Map<NodeKey, NoteNode>();
   const chapterScopes = new Map<NodeKey, ChapterNode>();
   const noteGlyphRenames = new Map<
@@ -1175,7 +1199,7 @@ export function $settledUsj(
   const addScope = (scope: ParaNode | NoteNode | ChapterNode) => {
     if ($isNoteNode(scope)) noteScopes.set(scope.getKey(), scope);
     else if ($isChapterNode(scope)) chapterScopes.set(scope.getKey(), scope);
-    else paraScopes.set(scope.getKey(), scope);
+    else paraScopes.set(scope.getKey(), [scope]);
   };
   for (const key of pendedKeys) {
     const node = $getNodeByKey(key);
@@ -1183,10 +1207,28 @@ export function $settledUsj(
     const scope = $settleScopeForNode(node);
     if (!scope) continue;
     addScope(scope);
+    // A pended glyph that dissolves an unknown-split artifact settles in the WIDENED scope on the
+    // mutating side; the shared gate decides it identically here, so the settled output and the
+    // screen cannot disagree about which paragraphs the tokenizer sees together.
+    if ($isMarkerNode(node)) {
+      const rejoin = $unknownSplitRejoinScope(node, context.getMarker);
+      if (rejoin) rejoinScopes.push(rejoin);
+    }
     if ($isNoteNode(scope)) {
       const rename = $noteGlyphRenameTarget(node);
       if (rename) noteGlyphRenames.set(scope.getKey(), rename);
     }
+  }
+  // Apply the widened scopes last, replacing the single-paragraph entries they subsume, so a
+  // paragraph is rebuilt by exactly ONE scope and no two splices can target overlapping slots.
+  const claimed = new Set<NodeKey>();
+  for (const rejoin of rejoinScopes) {
+    if (rejoin.some((para) => claimed.has(para.getKey()))) continue;
+    rejoin.forEach((para) => {
+      claimed.add(para.getKey());
+      paraScopes.delete(para.getKey());
+    });
+    paraScopes.set(rejoin[0].getKey(), rejoin);
   }
   if (transient) {
     // No note-glyph-rename lookup for this scope: a transient declaration is plain typed text, not
@@ -1240,14 +1282,16 @@ export function $settledUsj(
     noteChildren.splice(start, built.contentNodes.length, ...built.rebuilt);
   }
 
-  for (const para of paraScopes.values()) {
-    const site = sites.get(para.getKey());
+  for (const paras of paraScopes.values()) {
+    const site = sites.get(paras[0].getKey());
     if (!site) continue;
-    const rebuilt = $settledParaNodes(para, sites, context, huskKeys, transient);
+    const rebuilt = $settledParaNodes(paras, sites, context, huskKeys, transient);
     if (!rebuilt) continue;
     const index = site.siblings.indexOf(site.node);
     if (index < 0) continue;
-    site.siblings.splice(index, 1, ...rebuilt);
+    // The whole scope's slots are replaced — a rejoin's two adjacent paragraphs become whatever
+    // the joined bytes tokenize to, mirroring `$rebuildParas`'s own whole-scope splice.
+    site.siblings.splice(index, paras.length, ...rebuilt);
   }
 
   // Chapters are top-level and disjoint from both passes above — a chapter is never inside a

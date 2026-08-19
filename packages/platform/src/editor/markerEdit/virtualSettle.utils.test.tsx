@@ -5,6 +5,7 @@
  */
 import { deserializeSerializedEditorState } from "../adaptors/editor-usj.adaptor";
 import {
+  $appendMilestoneRun,
   $pendGlyphEdit,
   testEnvironment,
   testEnvironmentExpanded,
@@ -19,9 +20,11 @@ import {
   $createCharNode,
   $createImmutableTypedTextNode,
   $createMarkerNode,
+  $createMilestoneNode,
   $createNoteNode,
   $createParaNode,
   $createUnknownNode,
+  $isAttributeRunNode,
   $isCharNode,
   $isMarkerNode,
   $isNoteNode,
@@ -135,6 +138,52 @@ describe("$settledUsj — paragraph scopes", () => {
     );
     // The sentinel serialized IN PLACE: between the two text runs, not moved to an end.
     expect(optbreakIndex).toBe(1);
+  });
+
+  it("emits ONE milestone for a byte-damaged milestone glyph, never the preserved node AND its re-tokenized twin", async () => {
+    // A milestone's display run is its ONLY USFM representation, and the run rides in an
+    // `AttributeRunNode` wrapper occupying one sibling slot. While the user's typed byte is
+    // pending in the opening glyph the glyph is no longer canonical, so a run scan keyed on
+    // canonicality reports "no run" — and a milestone with no run degrades to a preserved
+    // sentinel. Its wrapper's bytes then flow into the fragment separately, as ordinary text, so
+    // the tokenizer builds a SECOND milestone out of them while the sentinel restores the first:
+    // one milestone on screen, two in the settled output a consumer saves.
+    const { editor } = await testEnvironment(() => {
+      const milestone = $createMilestoneNode("qt-s");
+      $getRoot().append(
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(`${NBSP}before `),
+          milestone,
+          $createTextNode(" after"),
+        ),
+      );
+      $appendMilestoneRun(milestone, "");
+    });
+
+    await act(async () => {
+      editor.update(() => {
+        const wrapper = $getRoot()
+          .getChildren()
+          .filter($isParaNode)[0]
+          ?.getChildren()
+          .find($isAttributeRunNode);
+        const opening = wrapper?.getFirstChild();
+        if (!$isMarkerNode(opening)) throw new Error("expected the milestone's opening glyph");
+        $pendGlyphEdit(opening, "\\qt-s|");
+      });
+      await Promise.resolve();
+    });
+
+    const settled = settledUsjOf(editor);
+    const para = settled?.content[0];
+    if (!para || typeof para === "string") throw new Error("expected a para marker object");
+    const content = (para as MarkerObject).content ?? [];
+    expect(
+      content.filter((entry) => typeof entry !== "string" && entry.type === "ms"),
+    ).toHaveLength(1);
+    // …and the glyph bytes never survive as literal text beside it.
+    expect(content.filter((entry) => typeof entry === "string").join("")).not.toContain("\\qt-s");
   });
 
   it("refuses a guard-railed scope AS-IS while an unrelated pended scope still settles (per-scope refusal, not whole-document)", async () => {
