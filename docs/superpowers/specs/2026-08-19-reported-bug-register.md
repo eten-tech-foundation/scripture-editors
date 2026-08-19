@@ -226,9 +226,12 @@ tip it was rebased onto).
 
 ## Settle, loops, logs
 
-- [x] **S1** Undo undoes USFM-equivalent settles. **DEFERRED** — multi-step gestures are deliberately
-      multi-step in history. Note this answers "why two steps", not your actual question: why a settle
-      that changed no USFM consumes an undo at all.
+- [x] **S1** Undo undoes USFM-equivalent settles. **FIXED** — owner ruling: a settle is never its own
+      undo entry, whether or not it changed anything, so one Ctrl+Z takes the user's edit and the
+      settle it caused away together. The earlier deferral answered "why two steps" rather than the
+      question actually asked (why a settle consumes an undo at all). Pinned by
+      `packages/platform/src/editor/markerEdit/settleUndoEntry.test.tsx`. A narrower USJ-equivalence
+      gate was rejected on cost — two full-document serializations per settle, on both clocks.
 - [x] **S2** Settle after debounce, P9-style. — shipped with a 1000 ms idle timer firing the *same*
       settle computation as caret departure, so the two clocks cannot drift. Configurable in fb.
 - [x] **S3** Deleting the `*` on `\va*` then moving into `\v 2` freezes the app. — two defects: span

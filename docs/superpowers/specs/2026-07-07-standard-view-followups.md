@@ -74,10 +74,12 @@ handoff reader's audit trail; no action.
   the palette Enter/click path RETAGS the current paragraph. Both are PT9-faithful for their flow
   (PT9's popup replaces the typed run and retags; a raw typed marker under reformat starts a new
   para, original kept — byte-faithful). Do NOT "fix". Recorded: ledger QA run 4 (2). PO-doc row added.
-- **Two-/three-step undo for palette applies and settle — DOCUMENTED-BEHAVIOR.** apply = 2 steps
-  (typed literal edit + the apply's cleanup/retag), settle = 3; inherently multiple user actions,
-  not an echo/debounce artifact. Product ruling if it bothers users. Recorded: fixwave round 3
-  "2-step undo" + QA run 4.
+- **Two-/three-step undo for palette applies and settle — DOCUMENTED-BEHAVIOR, settle half
+  SUPERSEDED 2026-08-19.** apply = 2 steps (typed literal edit + the apply's cleanup/retag),
+  settle = 3; inherently multiple user actions, not an echo/debounce artifact. Product ruling if it
+  bothers users. Recorded: fixwave round 3 "2-step undo" + QA run 4. **The owner made that ruling:
+  a settle is never its own undo entry, so the settle no longer adds a step. The apply half stands.
+  See `2026-08-11-standard-view-invariants.md` §4.**
 - **`"apply"` vs `"delta-doc"` OT coordinate split — BY-DESIGN (collab-incomplete).**
   `OTCoordinateSystem` in `delta-common.utils.ts` deliberately splits: `"apply"` treats every
   element embed (the editable `ChapterNode`) as opaque (host-local popover-Save correctness);

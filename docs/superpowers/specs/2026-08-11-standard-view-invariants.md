@@ -260,9 +260,30 @@ residual-backlog palette group (Space wraps like Enter, closed span) and holds u
 palette.
 
 Also intentional and previously ratified: type-through-split versus palette-retag; multi-step undo
-for palette applies and settles. See `2026-07-07-standard-view-followups.md`. (Under the active
-palette a Space commit is fewer history steps than passive per-keystroke typing was — the
-materialize-and-settle happens in one gesture — while item applies and settles remain multi-step.)
+for palette applies. See `2026-07-07-standard-view-followups.md`. (Under the active palette a Space
+commit is fewer history steps than passive per-keystroke typing was — the materialize-and-settle
+happens in one gesture — while item applies remain multi-step.)
+
+**Settles are no longer part of that row (2026-08-19, owner-directed).** The ratified entry read
+"multi-step undo for palette applies AND SETTLES"; the settle half is retired. **A settle is never
+its own undo entry.** Undo undoes what the USER did — a typed character, a deletion — so every
+settle merges into the history entry of the edit that provoked it, and one Ctrl+Z takes the edit
+and its settle away together. The reported gesture: delete a char marker's backslash, let the
+settle degrade the span to normal text, retype the backslash, let it settle back into a real
+marker — the first Ctrl+Z undid that settle and left the typed backslash on screen.
+
+All four settle paths merge (the caret-departure clock, the idle clock, blur, and the host's forced
+pre-save commit); Enter's settle already rode in the update carrying the user's own keystroke. The
+counter-argument the old behavior rested on — "undo must restore the pre-settle literal" — is
+weaker now that marker resolution made openers and closers editable in place, but not gone: the
+literal form is still the only way to edit some shapes as raw bytes. That cost is the accepted
+trade. A settle commit is still a real content change and must reach USJ-change consumers, so it
+carries `MARKER_SETTLE_TAG` alongside the merge tag — `DeltaOnChangePlugin` skips merge-tagged
+commits, and without the exemption `getUsj()` would return the pre-settle document.
+
+A narrower gate — merge only settles that are USFM-equivalent, by comparing canonical USJ before
+and after — was considered and REJECTED on cost: two full-document serializations per settle, on
+both the departure and the idle clock. Do not reintroduce it.
 
 ---
 
