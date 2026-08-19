@@ -111,24 +111,24 @@ tip it was rebased onto).
       glyph stayed on screen, and the span's trailing content fell out of it. A mid-glyph anchor was
       already faithful and still is. See "the one exclusion point" below.
 - [x] **W5** Wrapping a whitespace-only selection produces an empty pair beside an orphaned space.
-- [x] **W6** Space after `\v` just moves the cursor. **Caret half MEASURED, and it is correct now:**
-      the typed space lands as a real byte at the head of the following text and the caret sits
-      immediately after it. The reported "no byte inserted" is not what happens.
-- [ ] **W7** Space before the space on a nested `\+nd ` just moves the cursor.
-      **Same defect as W8, not a separate one** — measured on a `\+nd` nested inside `\wj`, the bytes
-      and the caret are identical to the flat case. Whatever is decided for W8 applies here.
-- [ ] **W8** Space on a normal `\nd ` inserts, but the cursor ends past both spaces.
-      **NEEDS AN OWNER RULING — the behavior is deliberate, not a slip.** Localized to
-      `$moveCaretPastMarker` (`markerEdit/markerEditTier1.utils.ts`), called from both arms of Tier
-      1's in-place rename and documented as intending exactly this: a space typed at a complete
-      marker's end reads as a TERMINATED OPENER EDIT — the same gesture as finishing `\s1` and typing
-      the space that ends the name — so the caret lands where content would be typed next. Here the
-      rename is a no-op, so the only visible effect is the caret moving two positions for one
-      keystroke. The position the report asks for sits INSIDE engine-owned display bytes, which
-      Invariant II excludes from document positions, so it may not be a legal caret position at all.
-      Note the current shape accepts a keystroke and discards it, which Invariant I's no-silent-no-ops
-      corollary forbids — visibly refusing the space is a third option. Three options with costs are
-      laid out in the handoff.
+- [x] **W6** Space after `\v` just moves the cursor. **FIXED.** The first verdict here was wrong: it
+      was measured at the caret position at the very END of the verse glyph, the one place the space
+      does land. INSIDE the glyph — `\v|` and `\v |6`, the reported positions — the byte was
+      discarded by `$verseNodeTransform`'s canonicalizing rewrite while the caret advanced over
+      where it had been. One report, two positions, opposite answers.
+- [x] **W7** Space before the space on a nested `\+nd ` just moves the cursor. **FIXED with W8** —
+      one defect, not two: measured on a `\+nd` nested inside `\wj`, the bytes and the caret are
+      identical to the flat case.
+- [x] **W8** Space on a normal `\nd ` inserts, but the cursor ends past both spaces. **FIXED**, owner-ruled.
+      The caret move was `$moveCaretPastMarker`, which exists so that COMPLETING a marker name (`\s`
+      retyped to `\s1` plus the space that terminates it) lands the caret in the content — it could
+      not tell that gesture from a space typed beside a name already finished, because both arrive
+      as a "terminated opener edit". Both call sites now ask whether the name actually changed.
+      The owner overruled the argument that the position between the two spaces is illegal under
+      Invariant II: while the user is typing there really are two spaces on screen, so it is a real
+      position. Pinned: `markerEdit/typedSeparatorSpace.test.tsx`. The same licence was extended to
+      all five display runs (`va`, `vp`, `ca`, `cp`, `cat`), which had the identical defect and were
+      never reported — `markerEdit/typedDisplayRunSpace.test.tsx`.
 - [x] **W9** `\p ` + space does nothing (lone space silently deleted).
 - [x] **W10** Typing next to a verse fabricates a leading space. **Re-diagnosed, not repaired** — the
       space is the verse's structural leading-attribute space the writer emits regardless; pinned
@@ -369,8 +369,8 @@ tip it was rebased onto).
 
 | | Count |
 | --- | --- |
-| Fixed or otherwise closed | 65 |
-| Open | 16 |
+| Fixed or otherwise closed | 67 |
+| Open | 14 |
 
 Counted from the list above at the end of the closeout round. The figures this table carried before
 (44 fixed, 32 open, 21 of the open never scoped) did not match the list even then — recount before
@@ -382,13 +382,14 @@ mended. What is left open, and why:
 
 | | Why it is still open |
 | --- | --- |
-| **A2** | No headless repro under any reading; needs a precise gesture from the owner. |
-| **W7**, **W8** | One defect. The behavior is deliberate and needs a ruling, not a patch. |
-| **C6** | The missing caret position after a trailing note — a design question, four options costed. |
+| **A2** | Owner confirms it no longer reproduces; closed as fixed at some earlier point, pinned forward. Left unticked only because no repro was ever captured. |
+| **C6** | The caret HOST landed; what stays open is whether a real browser paints a caret in it, which jsdom cannot answer. |
 | **E3** | Half of it does not exist; whether to build the provisional line is a product decision. |
 | **P4** | Diagnosed here; the repair belongs to the host. |
 | **U5** | Two real halves survive, both needing a real browser to confirm. |
-| **C1**, **C3**, **M1**, **P2**, **W3** | Untriaged by this round — no owner reproduced them, and no test here covers the reported gesture. |
+| **C1**, **M1**, **W3** | Triaged in the closeout round and do NOT reproduce; left open because the owner has not re-checked them by hand. |
+| **C3** | Does not reproduce as reported — measurement says it is inverted, and the defect that does exist is the same gap as C6. Worth merging into it. |
+| **P2** | Reproduces on one of two routes; which one fires is decided in the host. |
 | **N2**, **V2**, **V5**, **V6** | Out of scope by owner decision or handled elsewhere. |
 
 **Never scoped in any plan, handoff, backlog, or follow-up round:**

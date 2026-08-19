@@ -10,6 +10,37 @@ Branch: `sv/closeout`. Anchors used for the bisect: **`f0800f35`** (the Phase-3 
 
 ---
 
+## Second round: what the owner's review changed
+
+The first round's report was wrong in a way worth recording, because the mistake has a shape.
+
+The owner read the report and found **W6 still broken**. It had been declared green on a test that
+drove the gesture at ONE caret position — the very end of the verse glyph, the one place a typed
+space does land. Inside the glyph, where the report actually pointed, the byte was discarded. One
+report, two positions, opposite answers.
+
+That prompted a systematic re-audit of every verdict at every interior caret position, and **two
+more verdicts fell**:
+
+- **K12** — with the caret one character left of the tested spot, the closing glyph is SPLIT: the
+  left half heals back to a whole `\add*` and the right half is stranded as literal content, so
+  `\p \add word\add*` becomes `\p \add word\add*\nd \nd*add*`. Four bytes nobody typed, in the file.
+- **N4** — at verse-glyph offsets 2 and 3 the verse keeps its number AND the digit arrives again as
+  body text; at offset 1 the verse is destroyed outright.
+- **W4**'s separator claim survived, but the gesture did not: a selection anchored at the opening
+  glyph's start or end — visually identical to anchoring at content start — dissolves the span.
+
+**All three were one defect**: a marker glyph is a plain `TextNode`, so any generic Lexical
+operation that splits at an offset cuts one in half. Invariant II says display bytes are excluded
+from document positions in exactly ONE place, and says outright that they are not today. These were
+that bill. Fixed at the root — see below — rather than three times.
+
+**The lesson for anyone writing these tests:** a glyph has several interior positions and they do
+not behave alike. Driving the gesture at one of them, especially the convenient one, is how a bug
+survives a green suite. Where a report names a marker, enumerate the positions.
+
+---
+
 ## The short version
 
 The premise held. Most of what was still open in the register was **not** broken — but almost none
@@ -71,6 +102,65 @@ bisect is green at both anchors. See "How the log storms were diagnosed" below.
 ---
 
 ## What needed a fix
+
+### The one exclusion point — three reported bugs, one root
+
+`libs/shared/src/nodes/usj/glyphPositions.utils.ts` now decides which rendered bytes are display, by
+the PROPERTY that a node's text is a picture of its own state — covering `MarkerNode`, an editable
+`VerseNode`, the attribute display run and the marker-trailing separator, with nothing wired in
+per-type at any call site. `$normalizeSelectionOutOfGlyphText` re-expresses a point so no glyph is an
+operand of the edit about to run, and note insertion plus the marker-action apply both route through
+it.
+
+The landing differs by gesture, deliberately, because a range endpoint drags its own node into the
+range and an insertion point does not. A collapsed caret inside a glyph resolves to the glyph's
+trailing end — the spelling arrow traversal already prefers for that screen location. A range
+endpoint AT a glyph's end steps inward onto the neighbouring node, all-or-nothing; an endpoint
+strictly inside a glyph is left alone, because the highlight visibly covers those bytes and
+re-tokenizing them is Invariant I working as intended.
+
+Only the caret/selection half of Invariant II has landed. OT content-op offsets and delta-doc
+positions still resolve through their own exclusions; the invariants doc carries a dated note saying
+so.
+
+### The typed-space class — W6, W7, W8, and the five display runs
+
+One rule, owner-ruled: **a space typed beside a marker is inserted, stays visible, and leaves the
+caret immediately after it.** The file is unaffected either way because the writer emits structural
+whitespace itself.
+
+Two mechanisms had to change. In a verse glyph the byte was DISCARDED by a canonicalizing rewrite.
+After a char opener it survived but the caret advanced past the structural separator as well, from
+`$moveCaretPastMarker` — which exists so that COMPLETING a marker name lands the caret in the
+content, and could not tell that gesture from a space typed beside a name already finished.
+
+I argued this position was illegal under Invariant II, since the separator is a display byte. **The
+owner overruled that, correctly:** while the user is typing there really are two spaces on screen, so
+between them is a real position. The same licence then went to all five display runs (`va`, `vp`,
+`ca`, `cp`, `cat`), which had the identical defect and were never reported.
+
+Worth knowing for the next person: fixing the display-run divergence predicate alone left the bug
+fully intact. The byte was dying on a different route — the Tier-2 trigger pended every dirtied
+attribute-run value node's own key unconditionally, and a pended value node matches no descriptor,
+so the settle fell through to a paragraph rebuild that re-tokenized the run canonical.
+
+### Attribute values: two fixes with opposite answers
+
+**An empty value now survives the way out to USX.** `setAttributes` tested for TRUTHINESS, so `""`
+was indistinguishable from `undefined` and `\qt-s |who=""\*` lost its attribute before ParatextData
+ever saw it. The read leg never had the bug, which is what made it quiet: editor right, file wrong.
+Alone it looks like the marker lost its attribute list; beside a populated attribute it is worse to
+diagnose, because the document still looks structurally right with one field silently missing.
+
+**A value the parser cannot read now keeps the whole list literal.** USFM cannot escape a quote
+inside a value, so `gloss="st"uff"` is genuinely ambiguous — and the global pair regex matched
+`gloss="st"` and silently skipped the leftover. The literal path already existed in
+`extractAttributes`; what was missing was FAILING the parse rather than returning a partial one.
+
+These point opposite ways on purpose. An empty value is unambiguous — a present attribute not yet
+filled in — so parsing it loses nothing. An unparseable one has no correct reading, so the only
+lossless answer is to keep every byte visible where the author can fix it. Paratext 9 makes both
+literal; we diverge on the first, deliberately.
 
 ### N1 — a footnote inserted at a char span's content end destroyed the closer
 
@@ -406,56 +496,33 @@ hang.
 
 ## What you should verify by hand
 
-Ordered by how much I think it matters.
+Ordered by how much I think it matters. Everything below needs a real browser or a real project —
+each is something the headless suite provably cannot answer, not something I skipped.
 
-1. **A2.** Give me the precise gesture (see above). This is the one open report where I have no repro
-   and you do.
-2. **W7/W8's caret — this one needs a RULING from you, not a confirmation.** See the dedicated
-   section below; I did not change it.
-
-3. **V3's half-typed bridge**, and rule on the token shape. Type `-` onto an existing `\v 5` and
-   save at that moment: the screen shows `\v 5-`, the file gets `\v 5`.
-4. **U5's browser half.** Whether a real browser lets you select an unknown block's marker name
-   alone — jsdom cannot answer it, and `contentEditable=false` on both the block and every glyph span
-   suggests no. Separately: copying across the block and pasting into a word processor loses the
-   marker name and the caption, because `text/html` drops the block entirely.
-5. **P4 in the app**, watching the console. `formatPara` now says out loud when it refuses; that line
+1. **The typed-space class, in the app.** `\v| 6`, `\v |6`, `\nd| things`, a nested `\+nd`, and a
+   `\va`/`\cat` value's end. In each the space should appear and the caret should sit right after
+   it. This is the change with the widest reach and the one your report drove.
+2. **C6's caret, which is the whole point of the host.** Click to the right of a footnote caller that
+   ends a paragraph. Does a caret appear, and does Space type a space rather than scrolling the
+   page? jsdom has no layout, no hit testing and no `caretRangeFromPoint`, so whether a browser
+   PAINTS a caret in the host, and which DOM position a real click resolves to, are the two things
+   only you can establish.
+3. **Empty attributes end to end.** `\qt-s |who=""\*` and `\qt-s |sid="stuff" who=""\*` now reach
+   the USX as `who=""`. Whether ParatextData writes them back out is the C# side and invisible from
+   here.
+4. **The glyph-position fix at the reported gestures.** Insert a footnote with the caret inside a
+   verse marker; apply `\nd` with the caret inside a `\add*`; drag a selection that starts at an
+   opening glyph. None should fabricate or destroy bytes.
+5. **U5's browser half** — whether a real browser lets you select an unknown block's marker name
+   alone. Copying across the block and pasting into a word processor loses the marker name and the
+   caption, because `text/html` drops the block entirely.
+6. **P4 in the app**, watching the console. `formatPara` now says out loud when it refuses; that line
    distinguishes "the selection was lost" from "the retag ran and did nothing".
-6. **The ParatextData round-trip leg**, if the deferral logs ever come back. Everything on this side
-   of it is clean.
-7. **M2** in a real project. It is fixed on `sv/fb5/milestone-edit` (merged to
-   `sv/residual-backlog`) rather than by this round; I confirmed it RED at this branch's pre-rebase
-   base by running that branch's own test here, so the register entry is now evidenced either way.
-8. **N1 in the real app.** The fix is pinned headlessly across five caret positions, but note
-   insertion in Platform.Bible goes through the popover and the host's editing-session plumbing, and
-   this class has burned us before precisely where the headless harness stopped.
-
----
-
-## The gate
-
-Run on the final rebased branch, `sv/closeout` on top of `sv/residual-backlog`:
-
-```
-shared           37 files    538 passed
-shared-react     26 files  1,562 passed | 1 skipped   (pre-existing, the cp-with-markup divergence)
-platform-editor  78 files  1,369 passed
-corpus                     148 passed, zero skips
-lint + typecheck  10 projects, 0 errors (only pre-existing no-console warnings in scribe/perf-vanilla)
-```
-
-**Zero new skips**, no tests removed, no fixtures regenerated. **No C# was touched** — nothing this
-round found landed on the serialization side, so the approval gate was never reached.
-
-paranext-core has **no changes from this round**, so there is nothing to gate there. Its only role
-was as evidence: the log-storm bounding already lives in `use-editor-pdp-sync.hook.ts` and is already
-pinned by its own tests.
-
-One flake to know about: `markerMenuHarness.test.tsx` and occasionally
-`tier2Rebuild.corpus.test.tsx` hit a 5s timeout under full-suite load and pass in isolation. It
-predates this work — a baseline run before any of these changes showed the same failure.
-
----
+7. **C1, M1, W3** — all three were triaged this round and do not reproduce headlessly, but none was
+   on your spot-check list, so a hand pass would close them properly.
+8. **N1 and M2 in a real project.** Both are pinned headlessly; note insertion in Platform.Bible goes
+   through the popover and the host's editing-session plumbing, which is where this class has
+   surprised us before.
 
 ## Sequencing notes for whoever picks this up
 
