@@ -417,7 +417,7 @@ export function $markerNodeTransform(node: MarkerNode, context: MarkerEditContex
     context.pendingKeys.delete(node.getKey());
     return;
   }
-  // Heal-by-provenance (invariants §2): a divergence that is NOT in the pend ledger and whose
+  // Heal-by-provenance: a divergence that is NOT in the pend ledger and whose
   // edit surface the caret does not touch cannot be a user typing gesture — glyph bytes are
   // engine-rendered display, and every user path that edits them does so at the caret, inside the
   // very update this transform runs in. Machine drift (a transform bug, a stray programmatic

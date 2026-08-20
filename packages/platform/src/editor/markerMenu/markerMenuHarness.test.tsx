@@ -303,9 +303,9 @@ describe("editable-mode marker menu harness", () => {
     });
 
     it("Escape closes the menu leaving the document unchanged - nothing typed ever landed", async () => {
-      // Owner-directed divergence from the OLD ratified row "Escape leaves the typed literal":
-      // under the active palette no literal lands in the first place, so Escape's contract is
-      // "document untouched", not "literal stays".
+      // Under the ACTIVE palette no literal lands in the document in the first place, so
+      // Escape's contract here is "document untouched" — not the passive palette's "the typed
+      // literal stays".
       let text: TextNode | undefined;
       const { editor } = await harnessTestEnvironment(() => {
         text = $buildBackslashMenuFixture().text;
@@ -669,8 +669,8 @@ describe("editable-mode marker menu harness", () => {
     // The active palette's Space commit: the typed query is materialized as the SAME literal
     // bytes the passive palette would have accumulated in the document (`\` + typed + space),
     // in one update, and Tier 2 resolves them exactly as it resolved passive typing - so the
-    // ratified Space end states (closed="false" span, unknown-settles-as-typed, `\f` commits
-    // like Enter) hold byte-for-byte without the palette re-implementing any of them.
+    // Space end states (closed="false" span, unknown-settles-as-typed, `\f` commits like
+    // Enter) hold byte-for-byte without the palette re-implementing any of them.
     it('commits the typed marker as an open span (closed="false") and closes the palette', async () => {
       let text: TextNode | undefined;
       const { editor } = await harnessTestEnvironment(() => {
@@ -735,7 +735,7 @@ describe("editable-mode marker menu harness", () => {
      * note's CALLER and the rest becomes the note's content, so a `\f ` typed mid-sentence takes
      * the whole rest of the sentence off the page and into a collapsed note. At the end of a
      * paragraph — where every other fixture in this file puts the caret — there is no tail, so the
-     * literal produces the empty note the ratified table calls "commits like Enter", and the
+     * literal produces an empty note — the same thing the item commit produces — and the
      * hazard is invisible.
      *
      * The literal path itself is the tokenizer's and stays exactly as it is (a fixed point); what
@@ -807,9 +807,9 @@ describe("editable-mode marker menu harness", () => {
       });
     });
 
-    it("at the end of a paragraph the reroute leaves the ratified end state unchanged", async () => {
-      // The reroute must not move the `\f` + Space row of the ratified table — it must make it
-      // true in more positions. At the end of a paragraph the literal and the item commit produced
+    it("at the end of a paragraph the reroute leaves the end state unchanged", async () => {
+      // The reroute must not change what `\f` + Space produces — it must make that outcome true
+      // in more positions. At the end of a paragraph the literal and the item commit produced
       // the same thing all along (an empty note with the default `+` caller), and they still do.
       let text: TextNode | undefined;
       const { editor } = await harnessTestEnvironment(() => {
@@ -833,8 +833,8 @@ describe("editable-mode marker menu harness", () => {
     });
 
     it("`\\nd` + Space mid-text still materializes the literal — only NOTES are rerouted", async () => {
-      // The control, and the ratified-table guarantee: a character marker's Space commit is
-      // unchanged, still an open span (closed="false") produced by the literal, tail and all.
+      // The control: a character marker's Space commit is unchanged, still an open span
+      // (closed="false") produced by the literal, tail and all.
       let text: TextNode | undefined;
       const { editor } = await harnessTestEnvironment(() => {
         text = $buildMidTextBackslashFixture().text;

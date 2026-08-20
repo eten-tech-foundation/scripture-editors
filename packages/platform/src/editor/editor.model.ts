@@ -430,11 +430,11 @@ export interface EditorRef {
    * Commits the marker the user literally TYPED into a host-rendered marker palette, with the
    * palette's Space semantics: materializes the same literal bytes passive typing would have put
    * in the document (`\` + `typedMarker` + space) at the collapsed caret in ONE update, and lets
-   * the marker-edit engine resolve them. The ratified Space end states therefore hold by
-   * construction, identical to the in-editor palette's own Space commit: an inline marker
-   * settles as an open span (`closed="false"`, no auto-closer), an unknown marker settles as
-   * typed, and a note marker tokenizes to the full note. An empty `typedMarker` materializes the
-   * bare trigger byte plus space, which stays literal — byte-identical to passive typing.
+   * the marker-edit engine resolve them. The Space end states therefore hold by construction,
+   * identical to the in-editor palette's own Space commit: an inline marker settles as an open
+   * span (`closed="false"`, no auto-closer), an unknown marker settles as typed, and a note
+   * marker tokenizes to the full note. An empty `typedMarker` materializes the bare trigger byte
+   * plus space, which stays literal — byte-identical to passive typing.
    *
    * Byte-fidelity is the whole contract, including its sharp edge: mid-text, a materialized note
    * literal (`\f ` with content after the caret) absorbs the following word as the note's CALLER
@@ -467,8 +467,8 @@ export interface EditorRef {
    * What the closer MEANS is decided by the DOCUMENT, not the palette: the bytes LAND and the
    * marker-edit engine re-tokenizes them (governing invariant I). Against a character span
    * genuinely open there they settle as that span's real closer; with nothing matching open they
-   * settle as an unmatched closer, flagged as typed — the ratified behavior for typed closers, and
-   * what keeps this from silently swallowing the keystroke. Either way the caret ends up AFTER the
+   * settle as an unmatched closer, flagged as typed — the behavior of every typed closer, and what
+   * keeps this from silently swallowing the keystroke. Either way the caret ends up AFTER the
    * closing marker.
    *
    * Over a NON-COLLAPSED selection the selected content is DELETED and the closer lands in its

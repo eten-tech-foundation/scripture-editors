@@ -15,7 +15,11 @@
  *   `ip`-or-`p` SmartEnter choice moved to the front.
  */
 import { isUsjMarkerSupported } from "../adaptors/usj-marker-action.utils";
-import { isParagraphTagValid, ParaStackEntry } from "../markerEdit/markerValidation.utils";
+import {
+  isParagraphTagValid,
+  ParaStackEntry,
+  pushParaTagIfValid,
+} from "../markerEdit/markerValidation.utils";
 import { MarkerStyleInfo, StyleInfo } from "shared";
 
 /**
@@ -52,7 +56,10 @@ export interface MarkerMenuItem {
   marker: string;
   /** "closeTag" entries terminate an open character span rather than opening one. */
   kind: "paragraph" | "character" | "note" | "closeTag";
-  /** StyleInfo description, when available. */
+  /**
+   * StyleInfo description, when available — the user-visible title the host renders, with the
+   * stylesheet's `(basic)` metadata token removed (it lives on `isBasic` instead).
+   */
   description?: string;
   /** PT9 ScrTag.IsBasic — ordering + host greying (ScrTag.cs:425). */
   isBasic: boolean;
@@ -61,6 +68,20 @@ export interface MarkerMenuItem {
 /** PT9 ScrTag.IsBasic (ScrTag.cs:425): `Description.Contains("(basic)")`. */
 function markerIsBasic(description?: string): boolean {
   return !!description?.includes("(basic)");
+}
+
+/**
+ * A stylesheet `\Description`'s `(basic)` token is METADATA, not prose the user reads: it is the
+ * ONLY thing that marks a marker basic, which {@link markerIsBasic} lifts into the structured
+ * `isBasic` field exactly as PT9's `ScrTag.IsBasic` does. PT9 does not display it, and the host
+ * renders `description` directly as the marker palette entry's visible title, so it has to be
+ * stripped here or the palette reads "Introduction prose paragraph (basic)". The whitespace that
+ * separated it goes with it, so a description that was nothing but the token comes back as an
+ * empty string rather than a stray space.
+ */
+function withoutBasicToken(description?: string): string | undefined {
+  if (description === undefined) return undefined;
+  return description.replace(/\s*\(basic\)/g, "").trim();
 }
 
 /**
@@ -88,13 +109,14 @@ function toStackEntry(styleInfo: StyleInfo, marker: string): ParaStackEntry | un
  * Replays previousParaMarkers (forward order) into a validity stack — PT9
  * GetValidParagraphTags's build pass, which calls
  * `TagValidator.IsParagraphTagValid(stack, tag, addTag: true)` for each
- * previous tag (MarkerItemSource.cs:183-194).
+ * previous tag (MarkerItemSource.cs:183-194). Only the stack the replay leaves
+ * behind matters here, so each tag's verdict is discarded.
  */
 function buildParaStack(styleInfo: StyleInfo, previousParaMarkers: string[]): ParaStackEntry[] {
   const stack: ParaStackEntry[] = [];
   for (const marker of previousParaMarkers) {
     const tag = toStackEntry(styleInfo, marker);
-    if (tag) isParagraphTagValid(stack, tag);
+    if (tag) pushParaTagIfValid(stack, tag);
   }
   return stack;
 }
@@ -103,7 +125,8 @@ function toItem(entry: MarkerStyleInfo, kind: MarkerMenuItem["kind"]): MarkerMen
   return {
     marker: entry.marker,
     kind,
-    description: entry.description,
+    // `isBasic` reads the ORIGINAL description; the emitted one has the token removed.
+    description: withoutBasicToken(entry.description),
     isBasic: markerIsBasic(entry.description),
   };
 }
@@ -142,13 +165,9 @@ function compareItems(a: MarkerMenuItem, b: MarkerMenuItem): number {
 
 /**
  * Paragraph source (MarkerItemSource.cs:168-199): empty inside notes;
- * otherwise every `styleType === "paragraph"` sheet entry for which a
- * non-mutating validity probe passes against the replayed stack.
- *
- * `isParagraphTagValid` mutates its stack on success (PT9's `addTag: true`
- * replay behavior baked into the existing 2-arg port) — probe with a fresh
- * copy of the stack per candidate so one candidate's probe can't affect the
- * next (PT9's separate `addTag: false` call, TagValidator.cs:18-57).
+ * otherwise every `styleType === "paragraph"` sheet entry whose validity probe
+ * passes against the replayed stack — PT9's `addTag: false` call
+ * (TagValidator.cs:18-57), so one candidate's probe cannot affect the next.
  */
 function paragraphItems(styleInfo: StyleInfo, context: MarkerMenuContext): MarkerMenuItem[] {
   if (context.noteMarker) return [];
@@ -157,7 +176,7 @@ function paragraphItems(styleInfo: StyleInfo, context: MarkerMenuContext): Marke
     .filter((entry) => entry.styleType === "paragraph" && includeMarker(entry.marker))
     .filter((entry) => {
       const tag = toStackEntry(styleInfo, entry.marker);
-      return tag !== undefined && isParagraphTagValid([...stack], tag);
+      return tag !== undefined && isParagraphTagValid(stack, tag);
     })
     .map((entry) => toItem(entry, "paragraph"))
     .sort(compareItems);
@@ -276,8 +295,7 @@ export function getEnterMenuItems(
   // highlighted in GEN 1 where `\p` is expected). Gating on the actual introduction context — no
   // chapter marker collected before the caret — keeps the choice correct regardless of sheet ranks.
   const inIntroduction = !context.previousParaMarkers.includes("c");
-  const chosenMarker =
-    inIntroduction && ipTag && isParagraphTagValid([...stack], ipTag) ? "ip" : "p";
+  const chosenMarker = inIntroduction && ipTag && isParagraphTagValid(stack, ipTag) ? "ip" : "p";
   const chosenIndex = items.findIndex((item) => item.marker === chosenMarker);
   if (chosenIndex <= 0) return items;
   const [chosen] = items.splice(chosenIndex, 1);

@@ -369,8 +369,8 @@ describe("the read-only affordance follows the node kind, not the marker", () =>
  * for Ctrl+Backspace.
  *
  * Copy and navigation stay untouched, and so does the machine-drift HEAL: a refused user gesture
- * never reaches the tree, so provenance (invariants §2 — machine drift heals, a user edit pends)
- * is decided exactly as before.
+ * never reaches the tree, so provenance — machine drift heals, a user edit pends — is decided
+ * exactly as before.
  */
 describe("a deletion aimed at a table row's \\tr glyph is refused", () => {
   /** `\p hello ` followed by a table whose row absorbed `world`, with the guard mounted. */

@@ -267,7 +267,7 @@ describe("correcting an unknown block marker to an inline marker", () => {
     });
     // Byte-exactly what re-tokenizing the joined displayed bytes produces: `\p stuff` + the
     // degraded word `asdf` + the split's separator space (paragraph-final, which the USFM
-    // writer's newline consumes on save — invariants §3).
+    // writer's newline consumes on save).
     expect(usjOf(editor)?.content).toEqual(usfmFragmentToUsjContent("\\p stuff asdf ", {}));
   });
 

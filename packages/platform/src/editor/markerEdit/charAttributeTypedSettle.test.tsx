@@ -218,7 +218,7 @@ function expectSettlesLikeTokenizer(editor: EditorHandle, usfm: string) {
   expect(paraUsj(editor)).toEqual(expected);
 }
 
-describe("typed char attribute text settles into real attribute state (A2)", () => {
+describe("typed char attribute text settles into real attribute state", () => {
   it("settles a named attribute typed at a closed span's content end", async () => {
     let seed!: Seed;
     const { editor } = await appStackEnvironment(() => (seed = $seedSpan("nd", "text")));
@@ -299,7 +299,7 @@ describe("typed char attribute text settles into real attribute state (A2)", () 
   });
 });
 
-describe("undo then departure re-settles the attribute under the app's full plugin stack (A2)", () => {
+describe("undo then departure re-settles the attribute under the app's full plugin stack", () => {
   /**
    * The reported gesture. `markerEditUndoResettle.test.tsx` pins it with the engine mounted alone;
    * this runs it with both display syncs around the engine, because a historic restore re-derives
@@ -352,13 +352,13 @@ describe("undo then departure re-settles the attribute under the app's full plug
 /**
  * Forward pin for the report that typing a closing marker destroys a span's default attribute.
  *
- * Checked at the Phase-3 branch point and at the standard-view tip before it: GREEN at both, so
- * nothing here fixed it and it was never broken at either base. Recorded rather than dropped,
+ * Reproduced against this branch and its base: GREEN at both, so nothing here fixed it and it
+ * was never broken at either. Recorded rather than dropped,
  * because the shape is the one most likely to break silently — `\w`'s default attribute is spelled
  * BARE (`|G5485`), so the attribute NAME appears nowhere in the bytes and a settle that lost it
  * would leave a span that still looks right on screen.
  */
-describe("typing a closing marker keeps the span's default attribute (A1)", () => {
+describe("typing a closing marker keeps the span's default attribute", () => {
   it("turns |G5485 into lemma when the closer bytes are typed at an unclosed \\w span's end", async () => {
     // Unclosed is the Space-palette commit's shape, and while unclosed the `|…` bytes are content
     // (charAttributeTypedSettle's unclosed-span pin above). Typing the closer is exactly what

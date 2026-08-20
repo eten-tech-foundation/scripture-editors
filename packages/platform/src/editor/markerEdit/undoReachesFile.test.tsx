@@ -22,8 +22,8 @@
  * So the load-bearing property is not "the editor state is right after undo" (it already was) but
  * "every undo/redo step that changes the SETTLED document notifies the host". That is what
  * `assertEveryDocumentChangeWasNotified` asserts, and it is deliberately independent of how many
- * history steps a given edit happens to occupy — multi-step undo for applies and settles is
- * ratified behavior, so a pin that hard-codes a press count would be pinning the wrong thing.
+ * history steps a given edit happens to occupy — applies and settles deliberately occupy more
+ * than one, so a pin that hard-codes a press count would be pinning the wrong thing.
  *
  * Both legs are asserted byte-for-byte against the document as it stood BEFORE the edit, captured
  * from the editor itself rather than hand-written, so the pin cannot drift from what a load
@@ -255,7 +255,7 @@ describe("an undo reaches the file the same way typing does", () => {
     const renamed = { saved: bytes(ref.current?.getUsj()), tree: bytes(treeUsj(lexical)) };
 
     // Undo. A marker edit occupies more than one history step (settle, then typed bytes) and that
-    // granularity is ratified behavior, so press enough times to walk the whole edit out and let
+    // granularity is deliberate, so press enough times to walk the whole edit out and let
     // the assertions below say what must be true — rather than pinning a press count.
     const undos = await pressAndRecord(lexical, ref, notified, UNDO_COMMAND, 4);
 

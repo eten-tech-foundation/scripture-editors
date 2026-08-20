@@ -41,25 +41,69 @@ function getEntry(styleInfo: StyleInfo, marker: string): MarkerStyleInfo | undef
   return styleInfo.markers[marker.replace(/^\+/, "")];
 }
 
-/** Port of PT9 TagValidator.IsParagraphTagValid (TagValidator.cs:18-57). */
-export function isParagraphTagValid(stack: ParaStackEntry[], tag: ParaStackEntry): boolean {
-  if (stack.length === 0) {
-    stack.push(tag);
-    return true;
-  }
-  // PT9: empty occursUnder = valid anywhere, and it does NOT join the stack
-  // (TagValidator.cs:28-30 returns without Add).
-  if (tag.occursUnder.length === 0) return true;
+/** What opening `tag` would do to a validity stack, when it is valid there at all. */
+interface ParaTagPlacement {
+  /** How many of the stack's entries survive the tag; everything above them is popped. */
+  keep: number;
+  /**
+   * Whether the tag itself then joins the stack. An empty-occursUnder tag is valid anywhere and
+   * deliberately does NOT join (PT9 TagValidator.cs:28-30 returns without Add).
+   */
+  joins: boolean;
+}
+
+/**
+ * The decision half of PT9 TagValidator.IsParagraphTagValid (TagValidator.cs:18-57), with no
+ * mutation: `undefined` when `tag` cannot open at the context `stack` describes, otherwise how
+ * the stack would change if it did. Both public entry points below read this, so the predicate
+ * and the mutator can never disagree about validity.
+ */
+function placeParaTag(
+  stack: readonly ParaStackEntry[],
+  tag: ParaStackEntry,
+): ParaTagPlacement | undefined {
+  if (stack.length === 0) return { keep: 0, joins: true };
+  if (tag.occursUnder.length === 0) return { keep: stack.length, joins: false };
   for (let i = stack.length - 1; i >= 0; i--) {
     if (!tag.occursUnder.includes(stack[i].marker)) continue;
-    if (i === stack.length - 1 || tag.rank === 0 || stack[i + 1].rank <= tag.rank) {
-      stack.length = i + 1;
-      stack.push(tag);
-      return true;
-    }
+    if (i === stack.length - 1 || tag.rank === 0 || stack[i + 1].rank <= tag.rank)
+      return { keep: i + 1, joins: true };
     // Matched ancestor but rank forbids — keep scanning lower entries (PT9 continues).
   }
-  return false;
+  return undefined;
+}
+
+/**
+ * Whether `tag` may open at the context `stack` describes — PT9
+ * TagValidator.IsParagraphTagValid's `addTag: false` call (TagValidator.cs:18-57).
+ *
+ * Pure: `stack` is not modified. Use this to PROBE a candidate; use
+ * {@link pushParaTagIfValid} to advance the stack over a tag that is actually there.
+ */
+export function isParagraphTagValid(
+  stack: readonly ParaStackEntry[],
+  tag: ParaStackEntry,
+): boolean {
+  return placeParaTag(stack, tag) !== undefined;
+}
+
+/**
+ * Advance `stack` over `tag` — PT9 TagValidator.IsParagraphTagValid's `addTag: true` call
+ * (TagValidator.cs:18-57), the replay used to walk the paragraphs before a point.
+ *
+ * MUTATES `stack` when the tag is valid: entries the tag closes are popped, and the tag itself is
+ * pushed unless its occursUnder is empty (valid anywhere, never joins). An invalid tag leaves the
+ * stack untouched. Returns the same verdict as {@link isParagraphTagValid}, so a caller that also
+ * wants to flag the invalid case can read it.
+ */
+export function pushParaTagIfValid(stack: ParaStackEntry[], tag: ParaStackEntry): boolean {
+  const placement = placeParaTag(stack, tag);
+  if (!placement) return false;
+  if (placement.joins) {
+    stack.length = placement.keep;
+    stack.push(tag);
+  }
+  return true;
 }
 
 /** Flag a node's visible marker glyphs (opener and closer MarkerNodes). Decorator
@@ -143,7 +187,7 @@ export function $validateDocument(styleInfo: StyleInfo): Map<NodeKey, MarkerVali
       // PT9 auto-creates unknown tags with empty occursUnder (ScrStylesheet
       // .GetTagIndex:182-201) — valid anywhere, and like every empty-occursUnder
       // tag they do NOT join a non-empty stack (TagValidator.cs:28-30).
-      isParagraphTagValid(stack, { marker, rank: 0, occursUnder: [] });
+      pushParaTagIfValid(stack, { marker, rank: 0, occursUnder: [] });
       return;
     }
     const tag: ParaStackEntry = {
@@ -151,7 +195,7 @@ export function $validateDocument(styleInfo: StyleInfo): Map<NodeKey, MarkerVali
       rank: entry.rank ?? 0,
       occursUnder: entry.occursUnder ?? [],
     };
-    if (!isParagraphTagValid(stack, tag)) flagGlyphs(node, "invalid", out);
+    if (!pushParaTagIfValid(stack, tag)) flagGlyphs(node, "invalid", out);
   };
 
   for (const child of $getRoot().getChildren()) {

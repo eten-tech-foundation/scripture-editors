@@ -585,7 +585,7 @@ describe("Enter inside note content", () => {
     // preventDefault, the BROWSER's native contenteditable Enter still splits the DOM and
     // Lexical reconciles that into a real paragraph split (live-verified: the popover
     // wrapper split with the caret genuinely inside the note; invisible in jsdom, which has
-    // no native editing engine — hence the register's "jsdom-verified correct" mystery).
+    // no native editing engine, so a green jsdom run proves nothing about this one).
     const { editor } = await renderStandardEditorWithUnclosedNote();
     placeCaretAtEndOfNoteFt(editor);
 

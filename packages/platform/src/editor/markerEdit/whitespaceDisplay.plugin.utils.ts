@@ -24,6 +24,7 @@ import {
   $isRangeSelection,
   INSERT_PARAGRAPH_COMMAND,
   LexicalEditor,
+  PasteCommandType,
   TextNode,
 } from "lexical";
 import {
@@ -70,9 +71,9 @@ export function $displayWhitespaceTransform(node: TextNode): void {
  * content. So: script/style/template text is dropped (code, not content), and block boundaries
  * plus `<br>` become newlines — the same newline-joined shape a multi-line `text/plain` paste
  * hands to `insertText` in `$handlePasteForStandardView` below. Deliberately minimal — not a
- * general html-to-text conversion. Exported for the in-note paste claim
- * (`MarkerEditPlugin`), which falls back to this decoding when a clipboard carries `text/html`
- * without any `text/plain`.
+ * general html-to-text conversion. Exported because {@link getPastePayload} hands this decoding
+ * to every paste claim as its fallback for a clipboard that carries `text/html` without any
+ * `text/plain`.
  */
 export function htmlPasteText(html: string): string {
   const { body } = new DOMParser().parseFromString(html, "text/html");
@@ -84,6 +85,65 @@ export function htmlPasteText(html: string): string {
   // Collapse boundary-newline runs (nested blocks, source formatting) and trim the outermost
   // ones; only `\n` is touched — an NBSP at either end must survive (String.trim would eat it).
   return (body.textContent ?? "").replace(/\n+/g, "\n").replace(/^\n|\n$/g, "");
+}
+
+/** The text of a paste, read the one way every `PASTE_COMMAND` claim in this editor reads it. */
+export interface PastePayload {
+  /** `text/plain`, line endings normalized. */
+  plainText: string;
+  /** `text/html` as the clipboard carries it — markup, not text; an NBSP may be a `&nbsp;` here. */
+  html: string;
+  /** `text/html` decoded to text ({@link htmlPasteText}), line endings normalized. */
+  htmlText: string;
+  /**
+   * What a claim replays: `text/plain` when it carries anything, else the decoded `text/html`.
+   * Some sources (word processors, intermediaries) ship html alone, and those pastes otherwise
+   * reach the generic handling this editor's claims exist to pre-empt.
+   */
+  text: string;
+  /**
+   * Whether the clipboard carries this editor's own rich payload
+   * (`application/x-lexical-editor`), whose real nodes a line-by-line replay would flatten.
+   * Deliberately NOT acted on here: the claims disagree about it on purpose — the in-note `\fp`
+   * claim covers internal pastes (an internal multi-paragraph copy is exactly the split it
+   * prevents), while the char-stack and NBSP claims decline them — so each one applies its own
+   * rule, in view, at its own site.
+   */
+  isInternal: boolean;
+}
+
+/**
+ * Pull the pasted text out of a `PASTE_COMMAND` payload. `undefined` when the payload carries no
+ * clipboard at all (a KeyboardEvent-shaped dispatch, or an event whose data store is
+ * inaccessible), which every claim reads as "not mine".
+ *
+ * Three handlers race on `PASTE_COMMAND` — the in-note `\fp` claim at CRITICAL, the NBSP display
+ * normalization and the char-stack replay at HIGH — and they must agree byte-for-byte on what was
+ * pasted, or the same clipboard is one thing to one of them and another to the next. So the
+ * extraction lives here once: the jsdom-safe duck-check for the clipboard (jsdom implements no
+ * `ClipboardEvent`, so `instanceof` against the undefined global throws), the plain-then-decoded-
+ * html preference, and line-ending normalization BEFORE any caller tests for a line break — so
+ * `\r\n` and bare-`\r` clipboards break correctly and no `\r` ever reaches content on any path.
+ */
+export function getPastePayload(
+  event: PasteCommandType | null | undefined,
+): PastePayload | undefined {
+  const clipboardData =
+    event && typeof event === "object" && "clipboardData" in event
+      ? event.clipboardData
+      : undefined;
+  if (!clipboardData) return undefined;
+  const normalizeLineEndings = (text: string) => text.replace(/\r\n?/g, "\n");
+  const plainText = normalizeLineEndings(clipboardData.getData("text/plain"));
+  const html = clipboardData.getData("text/html");
+  const htmlText = html ? normalizeLineEndings(htmlPasteText(html)) : "";
+  return {
+    plainText,
+    html,
+    htmlText,
+    text: plainText || htmlText,
+    isInternal: !!clipboardData.getData("application/x-lexical-editor"),
+  };
 }
 
 /**
@@ -110,29 +170,30 @@ export function htmlPasteText(html: string): string {
  * reaches the multi-line claims that would otherwise split it — the split has to happen here.
  * Going through the COMMAND (rather than `selection.insertParagraph()`) is what makes a paste
  * into a character-style stack close and reopen that stack per line, the same way Enter does.
- * Line endings normalize first so `\r\n` and bare-`\r` clipboards break correctly and no `\r`
- * ever lands in content. A single-line payload keeps the exact one-`insertText` behavior it
- * always had.
+ * Line endings are already normalized by {@link getPastePayload}, so `\r\n` and bare-`\r`
+ * clipboards break correctly and no `\r` ever lands in content. A single-line payload keeps the
+ * exact one-`insertText` behavior it always had.
  *
  * Mutating: call inside `editor.update()` — dispatched from `MarkerEditPlugin`'s
  * `PASTE_COMMAND` registration.
  */
 export function $handlePasteForStandardView(event: ClipboardEvent | null | undefined): boolean {
-  if (!event || !("clipboardData" in event) || !event.clipboardData) return false;
-  if (event.clipboardData.getData("application/x-lexical-editor")) return false;
-  const plain = event.clipboardData.getData("text/plain");
-  const html = event.clipboardData.getData("text/html");
-  const htmlText = html ? htmlPasteText(html) : "";
-  const text = plain.includes(NBSP)
-    ? plain
+  const payload = getPastePayload(event);
+  if (!payload || payload.isInternal) return false;
+  const { plainText, html, htmlText } = payload;
+  // Which source to replay is decided by where the NBSP survived, not by the usual
+  // plain-then-html preference: a browser-generated `text/plain` may have collapsed the
+  // `&nbsp;` to a plain space, losing the very thing this claim exists to preserve.
+  const text = plainText.includes(NBSP)
+    ? plainText
     : html.includes(NBSP) || htmlText.includes(NBSP)
       ? htmlText
       : undefined;
   if (!text) return false;
   const selection = $getSelection();
   if (!$isRangeSelection(selection)) return false;
-  event.preventDefault();
-  const displayText = text.replace(/\r\n?/g, "\n").replaceAll(NBSP, "~");
+  event?.preventDefault();
+  const displayText = text.replaceAll(NBSP, "~");
   const lines = displayText.split("\n");
   if (lines.length < 2) {
     selection.insertText(displayText);

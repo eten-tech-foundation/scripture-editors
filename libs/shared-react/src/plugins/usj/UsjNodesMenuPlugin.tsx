@@ -44,9 +44,9 @@ export interface MarkerMenuContextLike {
 }
 
 /**
- * QA-ONLY editable-mode marker-menu harness, supplied by the platform (built from
- * `EditorRef` methods + the marker item source). See the doc comment on
- * {@link EditableMarkerMenu} for what this is and isn't.
+ * Editable-mode marker-menu harness, supplied by the host (the platform package builds it from
+ * `EditorRef` methods + the marker item source). Only hosts that let the editor render the marker
+ * menu supply one; see the doc comment on {@link EditableMarkerMenu}.
  */
 export interface EditableMarkerMenuHarness {
   /** Snapshot of the current caret/selection context, or `undefined` when there's nothing to
@@ -85,24 +85,27 @@ export interface UsjNodesMenuPluginProps {
   /** Resolves a chosen marker to the structural action that inserts it. */
   getMarkerAction: GetMarkerAction;
   /**
-   * QA-ONLY editable-mode branch (see the doc comment on {@link EditableMarkerMenu}). When
-   * provided, the plugin runs the document-first harness instead of the legacy typeahead
-   * below - non-editable views (which never pass this) are unaffected.
+   * Editable-mode branch (see the doc comment on {@link EditableMarkerMenu}). When provided, the
+   * plugin runs the document-first marker menu instead of the legacy typeahead below -
+   * non-editable views (which never pass this) are unaffected.
    */
   editableHarness?: EditableMarkerMenuHarness;
 }
 
 /**
- * Renders the in-editor marker menu. Two mutually exclusive branches:
+ * Renders the in-editor marker menu — the marker menu for hosts that do not bring their own UI.
+ * Two mutually exclusive branches:
  *
  * - Legacy typeahead (default): `UsfmNodesMenuPlugin`'s trigger-character menu, used by
  *   non-editable marker modes.
- * - QA-only editable-mode harness: when {@link UsjNodesMenuPluginProps.editableHarness} is
- *   provided, a document-first `\`/Enter marker menu driven entirely by the host-supplied
- *   harness (see {@link EditableMarkerMenu} — production hosts render marker menus via their
- *   own overlay UI instead and never pass a harness).
+ * - Editable mode: when {@link UsjNodesMenuPluginProps.editableHarness} is provided, a
+ *   document-first `\`/Enter marker menu driven entirely by the host-supplied harness (see
+ *   {@link EditableMarkerMenu}).
+ *
+ * A host that renders marker menus itself (`EditorOptions.hasExternalUI`, e.g. Platform.Bible,
+ * which drives them through its own overlay service) never mounts this plugin at all — `Editor`
+ * only renders it while `hasExternalUI` is false.
  */
-
 export function UsjNodesMenuPlugin({
   trigger,
   scrRef,
@@ -190,11 +193,12 @@ function toHarnessOptionItem(
 }
 
 /**
- * QA HARNESS ONLY - P10 renders marker menus via the host overlay service. Not
- * maintained for production; no polish or completeness guarantees beyond what demo QA needs.
- *
- * Document-first `\`/Enter marker menu for editable marker modes (standard view), mounted by
- * `UsjNodesMenuPlugin` in place of the legacy typeahead when `editableHarness` is supplied.
+ * The IN-EDITOR marker menu for editable marker modes (standard view): a document-first
+ * `\`/Enter menu mounted by `UsjNodesMenuPlugin` in place of the legacy typeahead when
+ * `editableHarness` is supplied. This is the real marker menu for every host that does not
+ * bring its own UI — the repo's demos and the scribe package. A host that does
+ * (`EditorOptions.hasExternalUI`, e.g. Platform.Bible, which renders marker menus through its
+ * own overlay service) never mounts the plugin, so none of this runs there.
  *
  * The `\` palette is ACTIVE (owner-directed, 2026-08-18, superseding the earlier passive
  * design): the trigger preventDefaults in EVERY selection shape, so neither the `\` nor any
@@ -202,7 +206,7 @@ function toHarnessOptionItem(
  * every context (collapsed caret, selection, note content alike). Escape always just closes,
  * leaving the document untouched (nothing landed that could need cleaning up).
  *
- * Space commits WHAT WAS TYPED, preserving the passive palette's ratified Space end states:
+ * Space commits WHAT WAS TYPED, preserving the end states passive typing settles to:
  * - Collapsed caret: the typed query is materialized at the caret as the SAME literal bytes
  *   passive typing would have accumulated (`\` + query + space) in one update, and Tier 2
  *   resolves them exactly as it resolved passive typing — open span `closed="false"` for an
@@ -233,8 +237,8 @@ function toHarnessOptionItem(
  * `getContext()` returning `undefined` (readonly / no selection).
  *
  * Reuses `NodeSelectionMenu`'s existing query-capture keydown handling (filters/Escape/
- * Backspace once open) rather than rebuilding it - acceptable for a QA harness, mirrors the
- * palette focus model already used by the legacy typeahead below.
+ * Backspace once open) rather than rebuilding it, mirroring the palette focus model the legacy
+ * typeahead below already uses.
  */
 function EditableMarkerMenu({
   trigger,
@@ -260,8 +264,8 @@ function EditableMarkerMenu({
    * note that runs to the end of the paragraph: the first word after the caret becomes the note's
    * CALLER (a leading attribute) and the rest of the sentence becomes its content, so a note taken
    * mid-sentence takes the sentence with it. At the END of a paragraph there is no tail, which is
-   * why the literal looks equivalent there and why the ratified "`\f` commits like Enter" row reads
-   * as true. Routing notes here makes that row true in every caret position instead of one.
+   * why the literal looks equivalent there and why `\f` looks like it commits the way Enter does.
+   * Routing notes here makes that true in every caret position instead of only that one.
    *
    * Everything else materializes the SAME literal bytes passive typing would have put in the
    * document and lets the marker-edit engine resolve them — see the component doc comment for why
@@ -293,7 +297,7 @@ function EditableMarkerMenu({
         KEY_DOWN_COMMAND,
         (event) => {
           if (menuState) {
-            // P9 parity (owner-directed, revising the earlier zero-candidate dismiss): a commit
+            // PT9 parity (owner-directed, revising the earlier zero-candidate dismiss): a commit
             // with nothing to commit is a NO-OP and the palette stays open — the user can
             // Backspace the filter wider, Space-commit the typed marker, or Escape out. The key
             // is still claimed here because `useMenuCore`'s select() silently returns on an

@@ -16,6 +16,7 @@ import {
   $isElementNode,
   $isRangeSelection,
   $isTextNode,
+  $setCompositionKey,
   $setSelection,
   $setState,
   ElementNode,
@@ -699,6 +700,34 @@ describe("Ctrl+Space", () => {
           .join("")
           .replaceAll(NBSP, " "),
       ).toBe("\\p holy");
+    });
+  });
+
+  it("declines mid-IME-composition, leaving the span intact", async () => {
+    // Ctrl+Space is an IME composition trigger on several input methods, so a keystroke that
+    // arrives while a composition is in flight belongs to the IME. The control is the fully
+    // selected span above, which this same gesture unwraps when no composition is running.
+    let parts: ReturnType<typeof $appendCharPara>;
+    const { editor } = await testEnvironment(() => (parts = $appendCharPara()));
+    await act(async () =>
+      editor.update(() => {
+        const content = $charContent(parts.char);
+        content.select(0, content.getTextContentSize());
+        $setCompositionKey(content.getKey());
+      }),
+    );
+    expect(editor.isComposing()).toBe(true);
+
+    const event = new KeyboardEvent("keydown", { key: " ", ctrlKey: true, cancelable: true });
+    await act(async () => {
+      editor.dispatchCommand(KEY_DOWN_COMMAND, event);
+    });
+
+    // Declining means the keystroke is left to the IME untouched, not just that nothing split.
+    expect(event.defaultPrevented).toBe(false);
+    editor.getEditorState().read(() => {
+      expect(parts.char.isAttached()).toBe(true);
+      expect(parts.char.getTextContent()).toContain("Lord");
     });
   });
 });

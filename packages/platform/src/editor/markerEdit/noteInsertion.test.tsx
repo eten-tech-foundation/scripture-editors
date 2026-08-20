@@ -185,7 +185,7 @@ describe("note insertion survives standard view with EXPANDED notes (MarkerEditP
  * `\nd Lord<note>\nd*` produces) is what a mid-content caret already did; this makes the span's
  * content end behave the same way instead of destroying bytes.
  */
-describe("note insertion at a closed char span's content end (N1)", () => {
+describe("note insertion at a closed char span's content end", () => {
   /** `\p \nd Lord\nd*\add word\add*` — two consecutive, non-nested inline markers. */
   function $seedConsecutiveSpans() {
     const para = $createParaNode("p");
@@ -363,13 +363,13 @@ describe("note insertion at a closed char span's content end (N1)", () => {
  * Forward pin for the report that inserting a footnote (Ctrl+T) with the caret on a verse-number
  * marker duplicates the verse digit into body text.
  *
- * Checked at the Phase-3 branch point and at the standard-view tip before it: GREEN at both, so
- * nothing here fixed it and it was never broken at either base. It is pinned anyway because it
+ * Reproduced against this branch and its base: GREEN at both, so nothing here fixed it and it
+ * was never broken at either. It is pinned anyway because it
  * rides the insertion path the closing-glyph defect above DID break, and a verse marker is the
  * other place that path meets engine-owned display bytes — the verse number is display text, so an
  * insertion that split the glyph would copy the digit into the document as content.
  */
-describe("footnote insertion on a verse marker keeps the verse number out of body text (N4)", () => {
+describe("footnote insertion on a verse marker keeps the verse number out of body text", () => {
   it("leaves one verse, still numbered, and the body text untouched", async () => {
     const { editor } = await testEnvironment(() => {
       const verse = $createVerseNode("5", getVisibleOpenMarkerText("v", "5"));

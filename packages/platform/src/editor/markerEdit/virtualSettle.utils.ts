@@ -12,7 +12,8 @@
  * the same `usjEditorAdaptor.serializeEditorState` output the mutating path parses, spliced as JSON
  * — and one `deserializeSerializedEditorState` (editor-usj.adaptor.ts) over the patched document produces
  * the result, so text coalescing, implied-para flattening, and every display-byte exclusion gate
- * behave exactly as they do for an unsettled read. That divergence is the wave's named risk: the
+ * behave exactly as they do for an unsettled read. That divergence is this module's standing
+ * risk: the
  * mutating and read-only halves must always agree on what a given scope settles to, which is why
  * every guard rail, sentinel-symmetry check, and splice order here is a direct mirror of
  * `$rebuildParas`/`$rebuildNoteContent` rather than an independent re-derivation — an equivalence
@@ -603,8 +604,8 @@ export interface LastKnownCaret {
  * (most commonly `null`) — a real cross-frame blur (clicking a renderer-overlay palette item, which
  * lives OUTSIDE this editor's iframe) can null Lexical's live selection before this read runs,
  * exactly the race MarkerEditPlugin's own BLUR_COMMAND handler documents and guards against with
- * its `lastAnchorKey` fallback (see that handler's comments, MarkerEditPlugin.tsx). Live-verified
- * before the WAVE-4 corruption case was reproduced live: a click that only blurs the window without
+ * its `lastAnchorKey` fallback (see that handler's comments, MarkerEditPlugin.tsx). Live-verified:
+ * a click that only blurs the window without
  * consuming the pending literal degrades this check to "no live selection" while `pendedKeys` still
  * carries the declared node, and a stale-selection read used to settle those bytes normally,
  * producing a saved phantom marker — this fallback is what closes that gap. It does NOT apply when
@@ -897,8 +898,9 @@ function $settledNoteContent(
     return undefined;
   }
   // Fixed-point refusal (preserve-or-refuse), mirroring `$rebuildNoteContent`'s own check exactly
-  // (tier2Rebuild.utils.ts, line ~1047: `$signatureOf(newNodes, ...) === $signatureOf(contentNodes,
-  // ...)`) — computed BEFORE `replaceSerializedSentinels` below, while `rebuilt` still carries the
+  // (tier2Rebuild.utils.ts, `$rebuildNoteContent`'s `$signatureOf(newNodes, ...) ===
+  // $signatureOf(contentNodes, ...)`) — computed BEFORE `replaceSerializedSentinels` below, while
+  // `rebuilt` still carries the
   // raw ATOMIC_SENTINEL characters the tokenizer produced, same reason as `$settledParaNodes`'s
   // check. Compares CONTENT nodes only, not `[note]` itself: the note's own marker/caller/closing
   // glyphs are preserved verbatim across this rebuild and never re-derived from content bytes, so

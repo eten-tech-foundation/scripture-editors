@@ -25,8 +25,8 @@
  * - Serialization derives from node STATE, so un-settled drift never reached the USJ directly.
  *   The defect was the LATER settle: pending records "user edit in progress", and resolving it
  *   re-tokenizes the displayed bytes ("displayed bytes win") — correct for a user edit, but for
- *   machine drift it silently turns the drift into a document change (invariants §2: heal by
- *   provenance — machine drift heals, a user edit pends).
+ *   machine drift it silently turns the drift into a document change (heal by provenance —
+ *   machine drift heals, a user edit pends).
  * - The fix is ONE site — a heal branch at the top of `$markerNodeTransform` — because all three
  *   kinds route their byte divergence through that transform. Run glyphs (`\va*`, a milestone's
  *   `\*`, `\cat`…) get the same in-place heal for free, which also stops the piece scanners'

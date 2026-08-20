@@ -739,8 +739,8 @@ function $replaceSentinels(roots: LexicalNode[], originals: LexicalNode[][]): vo
 
 /**
  * Every VerseNode under `nodes`, depth-first in document order (including a verse nested inside
- * a char span that crosses it, per USFM ≤3.0 — see the tier2Rebuild.utils.test.tsx D5 fixed-point
- * test). Backs sid carry-over in `$rebuildParas`: the OLD side is read into plain data before the
+ * a char span that crosses it, per USFM ≤3.0 — see the crossing-span fixed-point test in
+ * tier2Rebuild.utils.test.tsx). Backs sid carry-over in `$rebuildParas`: the OLD side is read into plain data before the
  * splice moves or destroys anything; the NEW side is read once the splice has settled.
  */
 function $collectVerseNodes(nodes: LexicalNode[], out: VerseNode[] = []): VerseNode[] {

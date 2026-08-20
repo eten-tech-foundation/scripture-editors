@@ -961,8 +961,7 @@ describe("a real \\cp paragraph folds back onto its chapter", () => {
       expect($findCpPara()).toBeUndefined();
     });
 
-    // The fold is a settle, so it is its own history step (the ratified multi-step-undo rule):
-    // one undo puts the paragraph back.
+    // The fold is a settle, so it is its own history step: one undo puts the paragraph back.
     await act(async () => {
       editor.dispatchCommand(UNDO_COMMAND, undefined);
       await Promise.resolve();

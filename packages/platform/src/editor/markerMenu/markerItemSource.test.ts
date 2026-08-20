@@ -225,3 +225,56 @@ describe("getEnterMenuItems (PT9 KeyPressEditHandler SmartEnter marker choice)",
     expect(markers[0]).toBe("p");
   });
 });
+
+describe("getMarkerMenuItems — descriptions (PT9 ScrTag.IsBasic)", () => {
+  it("strips the `(basic)` metadata token from the offered description but stays basic", () => {
+    // The token is the ONLY thing that makes a marker basic, and the host renders `description`
+    // as the palette entry's visible title — so it has to reach `isBasic` and NOT the screen.
+    const paragraphItem = getMarkerMenuItems(
+      sheet,
+      makeContext({ source: "paragraph", previousParaMarkers: ["c", "p"] }),
+    ).find((item) => item.marker === "p");
+    expect(paragraphItem).toMatchObject({
+      isBasic: true,
+      description: "Paragraph text, with first line indent",
+    });
+
+    const characterItem = getMarkerMenuItems(
+      sheet,
+      makeContext({ source: "character", paraMarker: "p" }),
+    ).find((item) => item.marker === "wj");
+    expect(characterItem).toMatchObject({ isBasic: true, description: "Words of Jesus" });
+  });
+
+  it("emits no `(basic)` in any description, from either trigger", () => {
+    const contexts = [
+      makeContext({ source: "paragraph", previousParaMarkers: ["c", "p"] }),
+      makeContext({ source: "character", paraMarker: "p", openCharMarkers: ["nd", "wj"] }),
+      makeContext({ source: "character", noteMarker: "f" }),
+    ];
+    const items = contexts.flatMap((context) => [
+      ...getMarkerMenuItems(sheet, context),
+      ...getEnterMenuItems(sheet, context),
+    ]);
+    expect(items.length).toBeGreaterThan(0);
+    expect(items.filter((item) => item.description?.includes("(basic)"))).toEqual([]);
+  });
+
+  it("leaves a description that carries no token unchanged, and a missing one undefined", () => {
+    const plainSheet: StyleInfo = {
+      markers: {
+        ...sheet.markers,
+        nd: { ...sheet.markers.nd, description: "For name of deity" },
+      },
+    };
+    const items = getMarkerMenuItems(
+      plainSheet,
+      makeContext({ source: "character", paraMarker: "p" }),
+    );
+    expect(items.find((item) => item.marker === "nd")).toMatchObject({
+      isBasic: false,
+      description: "For name of deity",
+    });
+    expect(items.find((item) => item.marker === "f")?.description).toBeUndefined();
+  });
+});

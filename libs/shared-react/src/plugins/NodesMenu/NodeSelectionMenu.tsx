@@ -5,6 +5,13 @@ import { COMMAND_PRIORITY_HIGH, KEY_DOWN_COMMAND } from "lexical";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import LexicalMenuNavigation from "./LexicalMenuNavigation";
 
+/**
+ * Keys that are a modifier's OWN keydown rather than input. A modifier fires its own keydown
+ * before the chord (or the shifted character) it is part of arrives, so the menu must sit still
+ * for it: closing here would end the menu mid-chord, e.g. on the Shift of a `\+w` nested marker.
+ */
+const MODIFIER_KEYS: readonly string[] = ["Shift", "Control", "Alt", "Meta"];
+
 interface NodeSelectionMenuProps {
   options: OptionItem[];
   onSelectOption?: (option: OptionItem) => void;
@@ -64,6 +71,17 @@ export function NodeSelectionMenu(props: NodeSelectionMenuProps) {
       (event) => {
         if (isControlled) return false;
         if (passthroughKeys?.includes(event.key)) return false;
+        if (MODIFIER_KEYS.includes(event.key)) return false;
+        if (event.ctrlKey || event.metaKey || event.altKey) {
+          // A real chord (Ctrl+Z, Ctrl+C, Cmd+V, Ctrl+A, …) is never query input: ingesting it
+          // would append its letter to the filter, and claiming it would leave undo, copy, paste
+          // and select-all dead for as long as the menu is open. Close the menu — the marker it
+          // was offering is not what the user is reaching for — and let the chord through
+          // unclaimed, to whatever handles it. Shift is deliberately absent from the check: a
+          // shifted character is still a character, and capitalized markers filter with it.
+          onClose?.();
+          return false;
+        }
         const actions: { [key: string]: () => void } = {
           Escape: () => onClose?.(),
           Backspace: () => {

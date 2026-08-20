@@ -30,7 +30,7 @@ import {
   $displayWhitespaceTransform,
   $handleCopyForStandardView,
   $handlePasteForStandardView,
-  htmlPasteText,
+  getPastePayload,
 } from "./whitespaceDisplay.plugin.utils";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { mergeRegister } from "@lexical/utils";
@@ -58,6 +58,7 @@ import {
   KEY_ENTER_COMMAND,
   PASTE_COMMAND,
   LexicalCommand,
+  LexicalEditor,
   NodeKey,
   NodeMutation,
   TextNode,
@@ -223,6 +224,218 @@ function $syncAndPendOwner(
           (["ca", "cp"] as const);
   for (const kind of kinds)
     $syncAndPendDisplayRun(displayRunDescriptor(kind), node, context.pendingKeys);
+}
+
+/**
+ * The engine's arming half for a display run whose piece was DESTROYED: the four mutation-listener
+ * registrations and the shared handler they all use. Composed into the plugin's `mergeRegister` in
+ * the position its registration order requires; the returned teardown unregisters all four.
+ */
+function registerDestroyedOwnerPend(editor: LexicalEditor, context: MarkerEditContext): () => void {
+  // Deletion driver, arming half: a locally-destroyed display-run piece pends its OWNER, read
+  // from the previous state — deletion intent comes from the destruction itself, never from
+  // caret geometry (the per-kind caret heuristics the transforms apply only recognize specific
+  // in-progress caret shapes; a caret left in a shape they don't recognize — e.g. an element-point
+  // selection after a run is removed — let the self-healing sync resurrect the "deleted" run
+  // from the owner's still-set state). Mutation listeners fire once a commit has already been
+  // fully reconciled, so this catches the CROSS-commit case (a deletion whose commit doesn't
+  // itself dirty the owner) and serves as the general, node-kind-agnostic sweep; a char span's
+  // run is additionally caught SAME-commit, order-independently of which plugin's transforms
+  // run first, directly inside the sync's own decision path ($syncDisplayRun with the char
+  // descriptor, displayRunSync.utils.ts) — this listener's char coverage is therefore mostly
+  // redundant with that (harmless: both write into the same Set) except where this listener
+  // sees a destroyed run piece the sync's own removal produced (see the still-wanted guard
+  // below).
+  // HISTORIC (undo/redo) commits re-pend by re-scanning the RESTORED state directly
+  // ($rependPendShapedNodes) — reacting to their destroyed-node diff here as well would just
+  // duplicate that work against a state the restore itself, not a user edit, produced. A
+  // DELTA_CHANGE_TAG commit applies a remote collab update, not a local deletion. An owner
+  // destroyed in the SAME commit (a whole-construct deletion, or a Tier-2 splice that replaces
+  // the owner outright) needs no pend — there is nothing left to settle.
+  const $pendOwnersOfDestroyed = (
+    mutations: Map<NodeKey, NodeMutation>,
+    payload: { updateTags: Set<string>; prevEditorState: EditorState },
+  ) => {
+    if (payload.updateTags.has(HISTORIC_TAG) || payload.updateTags.has(DELTA_CHANGE_TAG)) return;
+    const destroyedRuns: DisplayRunOwnerRef[] = [];
+    payload.prevEditorState.read(() => {
+      for (const [key, mutation] of mutations) {
+        if (mutation !== "destroyed") continue;
+        const destroyed = $getNodeByKey(key);
+        if (!destroyed) continue;
+        const ref = $ownerOfRunPiece(destroyed);
+        if (ref) destroyedRuns.push({ owner: ref.owner, kind: ref.kind });
+      }
+    });
+    if (destroyedRuns.length === 0) return;
+    editor.getEditorState().read(() => {
+      for (const { owner: previousOwner, kind } of destroyedRuns) {
+        const owner = $getNodeByKey(previousOwner.getKey());
+        if (!owner?.isAttached()) continue;
+        // A sync's OWN legitimate heal-removal (the owner's state no longer calls for a run) is
+        // also a "destroyed" mutation here. Only pend when the owner's CURRENT state still wants
+        // the run: a genuine clear must settle quietly rather than sit pended — and so exempted
+        // from healing — until an unrelated caret departure. Keyed on the DESTROYED run's own
+        // kind, so clearing a verse's `\va` never blocks its still-set `\vp` from healing, and a
+        // milestone (whose glyph pair is unconditional) is never exempted at all.
+        if (!displayRunDescriptor(kind).expectedPieces(owner).wantsRun) continue;
+        context.pendingKeys.add(owner.getKey());
+      }
+    });
+  };
+  return mergeRegister(
+    // Registered for the four node classes a display-run piece (or a whole run
+    // wrapper) can be — a plain TextNode (a char span's `|…` run, a verse's `\va`/`\vp` value, a
+    // milestone's attribute text), a MarkerNode (a run's opening/closing glyphs, which
+    // subclasses TextNode), an ImmutableTypedTextNode (a visible/hidden-mode milestone run's
+    // DecoratorNode form), or an AttributeRunNode (the wrapper itself, destroyed as a whole —
+    // $ownerOfRunPiece, displayRunOwner.utils.ts, recognizes this shape directly).
+    // Lexical dispatches mutation listeners by exact node type — MarkerNode being a TextNode
+    // subclass does not make the TextNode registration see it, mirroring the transform dispatch
+    // the TextNode catch-all transform's own comment documents — so each class needs its own
+    // registration.
+    editor.registerMutationListener(TextNode, $pendOwnersOfDestroyed),
+    editor.registerMutationListener(MarkerNode, $pendOwnersOfDestroyed),
+    editor.registerMutationListener(ImmutableTypedTextNode, $pendOwnersOfDestroyed),
+    editor.registerMutationListener(AttributeRunNode, $pendOwnersOfDestroyed),
+  );
+}
+
+/**
+ * The engine's three `PASTE_COMMAND` claims — the in-note `\fp` break at CRITICAL, the
+ * character-stack line replay at HIGH, and the paragraph-split arm at LOW. Kept together because
+ * they race on one command and their priorities are what keeps them apart; composed into the
+ * plugin's `mergeRegister` in the position that ordering requires (the standard-view NBSP
+ * normalization at HIGH is registered BEFORE this, and the char-stack claim relies on it). The
+ * returned teardown unregisters all three.
+ */
+function registerPasteNormalization(
+  editor: LexicalEditor,
+  context: MarkerEditContext,
+  isStandardView: boolean,
+): () => void {
+  return mergeRegister(
+    editor.registerCommand(
+      PASTE_COMMAND,
+      (event) => {
+        // Inside EXPANDED note content a pasted line break is an `\fp` (footnote-paragraph)
+        // break — the same break Enter makes there — never a paragraph split: the generic
+        // fall-through would let @lexical/clipboard's per-newline `insertParagraph()` (or its
+        // html branch's node insertion) split the paragraph THROUGH the (inline, non-block)
+        // note, threading `\p` paragraphs into the footnote. So multi-line pastes whose
+        // selection touches an expanded note are claimed and replayed with note semantics.
+        //
+        // Registered at COMMAND_PRIORITY_CRITICAL: with structure protection on (the
+        // Simple-mode default) StructureKeyboardPlugin handles PASTE at HIGH and
+        // sanitize-inserts any html-bearing payload before a lower-priority claim could run —
+        // but an `\fp` break edits NOTE CONTENT, not document structure, so the in-note claim
+        // must win. Outranking the standard-view NBSP normalization at HIGH is fine because
+        // the claim applies the same NBSP → `~` display mapping itself (below).
+        //
+        // The claim covers editor-internal rich pastes (application/x-lexical-editor) too:
+        // an internal copy of multi-paragraph text replays REAL paragraph nodes, which
+        // inside a note is the very split this claim prevents — its text/plain lines become
+        // `\fp` breaks like any other source's. Outside notes (and for single-line pastes)
+        // the note gate declines and internal pastes keep their rich node semantics.
+        // Hence no `payload.isInternal` guard here, unlike the two claims below.
+        const payload = getPastePayload(event);
+        if (!payload) return false;
+        const pastedText = payload.text;
+        if (pastedText.includes("\n")) {
+          // Standard view: a pasted data-NBSP takes its `~` display form here, exactly as
+          // `$handlePasteForStandardView` does for the pastes that reach it — inserted raw
+          // it is indistinguishable from a display-NBSP (a plain space in a run), so
+          // serialization would corrupt it into a plain space. A pasted literal `~` is
+          // already the display form and passes through in both paths.
+          const noteText = isStandardView ? pastedText.replaceAll(NBSP, "~") : pastedText;
+          const lines = noteText.split("\n");
+          let outcome = $handlePasteLinesInNote(lines, context.getMarker);
+          if (outcome === "declined" && $adoptDomCaretInExpandedNote(editor)) {
+            // The editor-state caret had strayed from the user-visible one (a live paste is
+            // dispatched async — ClipboardPlugin reads the clipboard first — and selection
+            // processing in that gap can park the state caret outside the note, observed on
+            // the popover wrapper's marker glyph). The DOM caret was inside expanded note
+            // content, so it was adopted; re-run the claim against it.
+            outcome = $handlePasteLinesInNote(lines, context.getMarker);
+          }
+          if (outcome === "handled") {
+            // Same contract as the Enter handler: claiming must also preventDefault the DOM
+            // event itself, or the browser's native paste still lands after Lexical's
+            // (preventDefault-issuing) RichText handler is bypassed.
+            event?.preventDefault();
+            return true;
+          }
+          // "needs-plain-split" falls through with the selection removal already applied:
+          // the caret's note did not survive, so the rest of the paste is the ordinary
+          // paragraph-splitting insertion below — exactly the outside-note behavior.
+        }
+        return false;
+      },
+      COMMAND_PRIORITY_CRITICAL,
+    ),
+    editor.registerCommand(
+      PASTE_COMMAND,
+      (event) => {
+        // A multi-line plain-text paste at a caret inside a character-style stack has to close
+        // and reopen that stack at every line break, exactly as Enter does. It cannot get there
+        // on its own: @lexical/clipboard inserts the lines with a bare `selection.insertParagraph()`
+        // between them, never INSERT_PARAGRAPH_COMMAND, so the INSERT_PARAGRAPH_COMMAND handler
+        // never sees it and the
+        // generic inline split tears the span — closing marker gone, and every line after the
+        // first landing OUTSIDE the reopened style because `insertParagraph` ends by selecting the
+        // new block's start.
+        //
+        // Claimed narrowly and replayed as the same two steps the user would have performed by
+        // hand: text, then the command. Only multi-line, since a single line never splits; only
+        // inside a stack, so every other paste is left exactly as it was; and never an INTERNAL
+        // rich paste, whose real nodes carry structure a line replay would flatten. text/plain is
+        // authoritative when present, falling back to the decoded text/html — some sources (word
+        // processors, browsers) ship html alone, and those pastes otherwise reach the generic
+        // split and tear the span. Inside a stack that trade is worth it, the same call the
+        // in-note claim above makes.
+        //
+        // At HIGH, and registered AFTER the standard-view NBSP normalization at the same
+        // priority, which claims any paste carrying an NBSP and so never reaches this.
+        const payload = getPastePayload(event);
+        if (!payload || payload.isInternal || !payload.text) return false;
+        const lines = payload.text.split("\n");
+        if (lines.length < 2) return false;
+        if (!$isSelectionInParagraphCharStack()) return false;
+        event?.preventDefault();
+        const selection = $getSelection();
+        if ($isRangeSelection(selection) && !selection.isCollapsed()) selection.removeText();
+        lines.forEach((line, index) => {
+          // The split goes through the command so it takes that handler's char-stack path and arms
+          // `splitExpected` for the paragraph transform, exactly as Enter does.
+          if (index > 0) editor.dispatchCommand(INSERT_PARAGRAPH_COMMAND, undefined);
+          if (line === "") return;
+          const lineSelection = $getSelection();
+          if ($isRangeSelection(lineSelection)) lineSelection.insertText(line);
+        });
+        return true;
+      },
+      COMMAND_PRIORITY_HIGH,
+    ),
+    editor.registerCommand(
+      PASTE_COMMAND,
+      () => {
+        // A multi-line paste splits paragraphs WITHOUT the Enter path: @lexical/clipboard's
+        // text/plain handling calls `selection.insertParagraph()` directly per newline (never
+        // INSERT_PARAGRAPH_COMMAND), so the INSERT_PARAGRAPH_COMMAND handler can't arm the flag
+        // for it. Arm it here instead — the whole paste (RichText's handler runs below this
+        // one, at COMMAND_PRIORITY_EDITOR) lands in the same update, so every fresh
+        // prefix-less paragraph it creates gets its marker prefix injected instead of being
+        // read as marker-deleted and merged straight back into the paragraph above (a paste
+        // of three lines collapsed into one). The plugin's update listener resets the flag after
+        // the commit, exactly as for Enter. Kept at LOW — BELOW the handlers at HIGH — so a
+        // paste consumed there never arms the flag, exactly as before the in-note claim moved
+        // up to CRITICAL.
+        context.splitExpected.current = true;
+        return false;
+      },
+      COMMAND_PRIORITY_LOW,
+    ),
+  );
 }
 
 /**
@@ -420,57 +633,6 @@ export function MarkerEditPlugin({
         settlePendingNow(undefined, "idle");
       }, delay);
     };
-    // Deletion driver, arming half: a locally-destroyed display-run piece pends its OWNER, read
-    // from the previous state — deletion intent comes from the destruction itself, never from
-    // caret geometry (the per-kind caret heuristics above only recognize specific in-progress
-    // caret shapes; a caret left in a shape they don't recognize — e.g. an element-point
-    // selection after a run is removed — let the self-healing sync resurrect the "deleted" run
-    // from the owner's still-set state). Mutation listeners fire once a commit has already been
-    // fully reconciled, so this catches the CROSS-commit case (a deletion whose commit doesn't
-    // itself dirty the owner) and serves as the general, node-kind-agnostic sweep; a char span's
-    // run is additionally caught SAME-commit, order-independently of which plugin's transforms
-    // run first, directly inside the sync's own decision path ($syncDisplayRun with the char
-    // descriptor, displayRunSync.utils.ts) — this listener's char coverage is therefore mostly
-    // redundant with that (harmless: both write into the same Set) except where this listener
-    // sees a destroyed run piece the sync's own removal produced (see the still-wanted guard
-    // below).
-    // HISTORIC (undo/redo) commits re-pend by re-scanning the RESTORED state directly
-    // ($rependPendShapedNodes) — reacting to their destroyed-node diff here as well would just
-    // duplicate that work against a state the restore itself, not a user edit, produced. A
-    // DELTA_CHANGE_TAG commit applies a remote collab update, not a local deletion. An owner
-    // destroyed in the SAME commit (a whole-construct deletion, or a Tier-2 splice that replaces
-    // the owner outright) needs no pend — there is nothing left to settle.
-    const $pendOwnersOfDestroyed = (
-      mutations: Map<NodeKey, NodeMutation>,
-      payload: { updateTags: Set<string>; prevEditorState: EditorState },
-    ) => {
-      if (payload.updateTags.has(HISTORIC_TAG) || payload.updateTags.has(DELTA_CHANGE_TAG)) return;
-      const destroyedRuns: DisplayRunOwnerRef[] = [];
-      payload.prevEditorState.read(() => {
-        for (const [key, mutation] of mutations) {
-          if (mutation !== "destroyed") continue;
-          const destroyed = $getNodeByKey(key);
-          if (!destroyed) continue;
-          const ref = $ownerOfRunPiece(destroyed);
-          if (ref) destroyedRuns.push({ owner: ref.owner, kind: ref.kind });
-        }
-      });
-      if (destroyedRuns.length === 0) return;
-      editor.getEditorState().read(() => {
-        for (const { owner: previousOwner, kind } of destroyedRuns) {
-          const owner = $getNodeByKey(previousOwner.getKey());
-          if (!owner?.isAttached()) continue;
-          // A sync's OWN legitimate heal-removal (the owner's state no longer calls for a run) is
-          // also a "destroyed" mutation here. Only pend when the owner's CURRENT state still wants
-          // the run: a genuine clear must settle quietly rather than sit pended — and so exempted
-          // from healing — until an unrelated caret departure. Keyed on the DESTROYED run's own
-          // kind, so clearing a verse's `\va` never blocks its still-set `\vp` from healing, and a
-          // milestone (whose glyph pair is unconditional) is never exempted at all.
-          if (!displayRunDescriptor(kind).expectedPieces(owner).wantsRun) continue;
-          context.pendingKeys.add(owner.getKey());
-        }
-      });
-    };
     const unregister = mergeRegister(
       editor.registerNodeTransform(MarkerNode, (node) => {
         if (editor.isComposing()) return;
@@ -634,19 +796,7 @@ export function MarkerEditPlugin({
         },
         { skipInitialization: false },
       ),
-      // Registered for the four node classes a display-run piece (or a whole run
-      // wrapper) can be — a plain TextNode (a char span's `|…` run, a verse's `\va`/`\vp` value, a
-      // milestone's attribute text), a MarkerNode (a run's opening/closing glyphs, which
-      // subclasses TextNode), an ImmutableTypedTextNode (a visible/hidden-mode milestone run's
-      // DecoratorNode form), or an AttributeRunNode (the wrapper itself, destroyed as a whole —
-      // $ownerOfRunPiece, displayRunOwner.utils.ts, recognizes this shape directly).
-      // Lexical dispatches mutation listeners by exact node type — MarkerNode being a TextNode
-      // subclass does not make the TextNode registration see it, mirroring the transform dispatch
-      // the TextNode catch-all comment above documents — so each class needs its own registration.
-      editor.registerMutationListener(TextNode, $pendOwnersOfDestroyed),
-      editor.registerMutationListener(MarkerNode, $pendOwnersOfDestroyed),
-      editor.registerMutationListener(ImmutableTypedTextNode, $pendOwnersOfDestroyed),
-      editor.registerMutationListener(AttributeRunNode, $pendOwnersOfDestroyed),
+      registerDestroyedOwnerPend(editor, context),
       // Standard-view-only whitespace display invariant and clipboard
       // normalization. Gated separately from the rest of this plugin (which is
       // markerMode-gated and also active in Unformatted view) — must not leak there.
@@ -755,6 +905,13 @@ export function MarkerEditPlugin({
             $armWholeParaDeletion(context);
             $armCollapsedParaDeletion(context);
           }
+          // Ctrl+Space collides with the composition trigger of several IMEs (Chinese/Japanese
+          // input methods bind it to switch or commit), so mid-composition the keystroke belongs
+          // to the IME, not to us: acting on it would restructure character spans under a
+          // selection the user is still assembling, and the composition would then commit into
+          // whatever the split left behind. Decline and let it through — the same guard every
+          // node transform in this plugin applies, for the same reason.
+          if (editor.isComposing()) return false;
           if (!event.ctrlKey || event.altKey || event.shiftKey || event.metaKey) return false;
           if (event.key !== " " && event.code !== "Space") return false;
           // Only claim the keystroke (preventDefault + return true) when we actually acted;
@@ -816,141 +973,7 @@ export function MarkerEditPlugin({
         },
         COMMAND_PRIORITY_HIGH,
       ),
-      editor.registerCommand(
-        PASTE_COMMAND,
-        (event) => {
-          // Inside EXPANDED note content a pasted line break is an `\fp` (footnote-paragraph)
-          // break — the same break Enter makes there — never a paragraph split: the generic
-          // fall-through would let @lexical/clipboard's per-newline `insertParagraph()` (or its
-          // html branch's node insertion) split the paragraph THROUGH the (inline, non-block)
-          // note, threading `\p` paragraphs into the footnote. So multi-line pastes whose
-          // selection touches an expanded note are claimed and replayed with note semantics.
-          //
-          // Registered at COMMAND_PRIORITY_CRITICAL: with structure protection on (the
-          // Simple-mode default) StructureKeyboardPlugin handles PASTE at HIGH and
-          // sanitize-inserts any html-bearing payload before a lower-priority claim could run —
-          // but an `\fp` break edits NOTE CONTENT, not document structure, so the in-note claim
-          // must win. Outranking the standard-view NBSP normalization at HIGH is fine because
-          // the claim applies the same NBSP → `~` display mapping itself (below).
-          //
-          // The claim covers editor-internal rich pastes (application/x-lexical-editor) too:
-          // an internal copy of multi-paragraph text replays REAL paragraph nodes, which
-          // inside a note is the very split this claim prevents — its text/plain lines become
-          // `\fp` breaks like any other source's. Outside notes (and for single-line pastes)
-          // the note gate declines and internal pastes keep their rich node semantics.
-          const clipboardData =
-            event && typeof event === "object" && "clipboardData" in event
-              ? (event as ClipboardEvent).clipboardData
-              : null;
-          if (!clipboardData) return false;
-          // text/plain is authoritative when present; some sources (word processors,
-          // intermediaries) ship text/html alone, so fall back to its decoded text — otherwise
-          // those pastes reach RichText's html branch and split paragraphs through the note.
-          // Line endings normalize BEFORE the multi-line check so `\r\n` (and bare-`\r`)
-          // clipboards break correctly and no `\r` ever reaches note content.
-          const plainText = clipboardData.getData("text/plain");
-          const rawText = plainText || htmlPasteText(clipboardData.getData("text/html"));
-          const pastedText = rawText.replace(/\r\n?/g, "\n");
-          if (pastedText.includes("\n")) {
-            // Standard view: a pasted data-NBSP takes its `~` display form here, exactly as
-            // `$handlePasteForStandardView` does for the pastes that reach it — inserted raw
-            // it is indistinguishable from a display-NBSP (a plain space in a run), so
-            // serialization would corrupt it into a plain space. A pasted literal `~` is
-            // already the display form and passes through in both paths.
-            const noteText = isStandardView ? pastedText.replaceAll(NBSP, "~") : pastedText;
-            const lines = noteText.split("\n");
-            let outcome = $handlePasteLinesInNote(lines, context.getMarker);
-            if (outcome === "declined" && $adoptDomCaretInExpandedNote(editor)) {
-              // The editor-state caret had strayed from the user-visible one (a live paste is
-              // dispatched async — ClipboardPlugin reads the clipboard first — and selection
-              // processing in that gap can park the state caret outside the note, observed on
-              // the popover wrapper's marker glyph). The DOM caret was inside expanded note
-              // content, so it was adopted; re-run the claim against it.
-              outcome = $handlePasteLinesInNote(lines, context.getMarker);
-            }
-            if (outcome === "handled") {
-              // Same contract as the Enter handler: claiming must also preventDefault the DOM
-              // event itself, or the browser's native paste still lands after Lexical's
-              // (preventDefault-issuing) RichText handler is bypassed.
-              event?.preventDefault();
-              return true;
-            }
-            // "needs-plain-split" falls through with the selection removal already applied:
-            // the caret's note did not survive, so the rest of the paste is the ordinary
-            // paragraph-splitting insertion below — exactly the outside-note behavior.
-          }
-          return false;
-        },
-        COMMAND_PRIORITY_CRITICAL,
-      ),
-      editor.registerCommand(
-        PASTE_COMMAND,
-        (event) => {
-          // A multi-line plain-text paste at a caret inside a character-style stack has to close
-          // and reopen that stack at every line break, exactly as Enter does. It cannot get there
-          // on its own: @lexical/clipboard inserts the lines with a bare `selection.insertParagraph()`
-          // between them, never INSERT_PARAGRAPH_COMMAND, so the handler above never sees it and the
-          // generic inline split tears the span — closing marker gone, and every line after the
-          // first landing OUTSIDE the reopened style because `insertParagraph` ends by selecting the
-          // new block's start.
-          //
-          // Claimed narrowly and replayed as the same two steps the user would have performed by
-          // hand: text, then the command. Only multi-line, since a single line never splits; only
-          // inside a stack, so every other paste is left exactly as it was; and never an INTERNAL
-          // rich paste, whose real nodes carry structure a line replay would flatten. text/plain is
-          // authoritative when present, falling back to the decoded text/html — some sources (word
-          // processors, browsers) ship html alone, and those pastes otherwise reach the generic
-          // split and tear the span. Inside a stack that trade is worth it, the same call the
-          // in-note claim above makes.
-          //
-          // At HIGH, and registered AFTER the standard-view NBSP normalization at the same
-          // priority, which claims any paste carrying an NBSP and so never reaches this.
-          const clipboardData =
-            event && typeof event === "object" && "clipboardData" in event
-              ? (event as ClipboardEvent).clipboardData
-              : null;
-          if (!clipboardData) return false;
-          if (clipboardData.getData("application/x-lexical-editor")) return false;
-          const plainText = clipboardData.getData("text/plain");
-          const pastedText = plainText || htmlPasteText(clipboardData.getData("text/html"));
-          if (!pastedText) return false;
-          const lines = pastedText.replace(/\r\n?/g, "\n").split("\n");
-          if (lines.length < 2) return false;
-          if (!$isSelectionInParagraphCharStack()) return false;
-          event?.preventDefault();
-          const selection = $getSelection();
-          if ($isRangeSelection(selection) && !selection.isCollapsed()) selection.removeText();
-          lines.forEach((line, index) => {
-            // The split goes through the command so it takes the char-stack path above and arms
-            // `splitExpected` for the paragraph transform, exactly as Enter does.
-            if (index > 0) editor.dispatchCommand(INSERT_PARAGRAPH_COMMAND, undefined);
-            if (line === "") return;
-            const lineSelection = $getSelection();
-            if ($isRangeSelection(lineSelection)) lineSelection.insertText(line);
-          });
-          return true;
-        },
-        COMMAND_PRIORITY_HIGH,
-      ),
-      editor.registerCommand(
-        PASTE_COMMAND,
-        () => {
-          // A multi-line paste splits paragraphs WITHOUT the Enter path: @lexical/clipboard's
-          // text/plain handling calls `selection.insertParagraph()` directly per newline (never
-          // INSERT_PARAGRAPH_COMMAND), so the INSERT_PARAGRAPH handler above can't arm the flag
-          // for it. Arm it here instead — the whole paste (RichText's handler runs below this
-          // one, at COMMAND_PRIORITY_EDITOR) lands in the same update, so every fresh
-          // prefix-less paragraph it creates gets its marker prefix injected instead of being
-          // read as marker-deleted and merged straight back into the paragraph above (a paste
-          // of three lines collapsed into one). The update listener below resets the flag after
-          // the commit, exactly as for Enter. Kept at LOW — BELOW the handlers at HIGH — so a
-          // paste consumed there never arms the flag, exactly as before the in-note claim moved
-          // up to CRITICAL.
-          context.splitExpected.current = true;
-          return false;
-        },
-        COMMAND_PRIORITY_LOW,
-      ),
+      registerPasteNormalization(editor, context, isStandardView),
       editor.registerCommand(
         COMMIT_PENDING_MARKERS_COMMAND,
         () => {

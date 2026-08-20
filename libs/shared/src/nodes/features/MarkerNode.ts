@@ -45,7 +45,11 @@ export class MarkerNode extends TextNode {
   __markerSyntax: MarkerSyntax;
   __nested: boolean;
 
-  constructor(marker = "", markerSyntax: MarkerSyntax = "opening", nested = false, key?: NodeKey) {
+  // `key` stays in Lexical's own third-parameter slot (`TextNode(text, key)`), with `nested`
+  // appended after it: a node's key is the last argument every Lexical node constructor takes, and
+  // slotting a new field ahead of it would silently reinterpret an existing 3-argument call's
+  // `NodeKey` as this flag.
+  constructor(marker = "", markerSyntax: MarkerSyntax = "opening", key?: NodeKey, nested = false) {
     super(getMarkerText(marker, markerSyntax, nested), key);
     this.__marker = marker;
     this.__markerSyntax = markerSyntax;
@@ -57,7 +61,7 @@ export class MarkerNode extends TextNode {
   }
 
   static override clone(node: MarkerNode): MarkerNode {
-    return new MarkerNode(node.__marker, node.__markerSyntax, node.__nested, node.__key);
+    return new MarkerNode(node.__marker, node.__markerSyntax, node.__key, node.__nested);
   }
 
   static override importJSON(serializedNode: SerializedMarkerNode): MarkerNode {
@@ -158,7 +162,7 @@ export function $createMarkerNode(
   markerSyntax?: MarkerSyntax,
   nested?: boolean,
 ): MarkerNode {
-  return $applyNodeReplacement(new MarkerNode(marker, markerSyntax, nested));
+  return $applyNodeReplacement(new MarkerNode(marker, markerSyntax, undefined, nested));
 }
 
 export function $isMarkerNode(node: LexicalNode | null | undefined): node is MarkerNode {

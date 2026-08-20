@@ -2206,12 +2206,11 @@ describe("$splitParagraphWithMarker — caret placement across the mid-span spli
   it("parks the caret INSIDE the reopened span's content start when the split lands mid-span", async () => {
     // Enter-menu apply with the caret mid-span: `\p say \nd Lo|rd\nd* of hosts`. The split goes
     // through the char-stack close-and-reopen, so the tail keeps its span (no glyph-less half is
-    // produced for the deletion transform to unwrap), and the ratified caret convention is
-    // INSIDE the reopened span at its content start — the user's caret was inside the styled
-    // run, and since the split deliberately preserves the style (a PT9 divergence), typing
-    // continues it. This test previously pinned the caret at the fresh paragraph's content
-    // boundary, the right point back when the unwrap ran on this path; it was agreed the pin
-    // moves alongside the reroute.
+    // produced for the deletion transform to unwrap), and the caret convention is INSIDE the
+    // reopened span at its content start — the user's caret was inside the styled run, and since
+    // the split deliberately preserves the style (a PT9 divergence), typing continues it. The
+    // caret used to land at the fresh paragraph's content boundary, which was the right point
+    // back when the unwrap ran on this path; the pin moves with the split it describes.
     let ndContent!: TextNode;
     const { editor } = await fullHarnessEnvironment(() => {
       const para = $createParaNode("p");
@@ -2274,11 +2273,11 @@ describe("$splitParagraphWithMarker — caret placement across the mid-span spli
 });
 
 /**
- * Two register closeout pins. Both were checked at the Phase-3 branch point and at the
- * standard-view tip before it and were GREEN at both, so neither records a repair — they exist so
- * the behavior cannot regress unnoticed, which is the whole risk the register documents.
+ * Two pins for reported defects that turned out never to have been broken here: both were
+ * reproduced against this branch and its base and were GREEN at both, so neither records a
+ * repair — they exist so the behavior cannot regress unnoticed.
  */
-describe("register closeout pins", () => {
+describe("reported-defect regression pins", () => {
   /**
    * Reported as: applying `\nd` with the caret just after another span's closing marker fabricates
    * `\nd \nd \nd*` — three glyphs — writing a bogus empty pair into the file. Both palette eras are
@@ -2289,7 +2288,7 @@ describe("register closeout pins", () => {
    * An empty `\nd \nd*` pair is itself the CORRECT outcome here — an Enter commit inserts the
    * closing marker, and the empty pair is what the user then types into.
    */
-  describe("applying a char marker after another closer inserts exactly one glyph pair (K12)", () => {
+  describe("applying a char marker after another closer inserts exactly one glyph pair", () => {
     /** Assert the paragraph's `\nd` span carries one opener and one closer, and nothing loose. */
     function $expectSingleNdPair() {
       const para = requireDefined($getRoot().getChildren().filter($isParaNode)[0], "para missing");
@@ -2398,7 +2397,7 @@ describe("register closeout pins", () => {
    * next settle would RENAME the marker. Departing here is the point: it makes the span settle,
    * which is when that rename would happen.
    */
-  it("a wrapped selection still serializes as marker nd with its own content (W4)", async () => {
+  it("a wrapped selection still serializes as marker nd with its own content", async () => {
     let text: TextNode;
     let other: TextNode;
     const { editor } = await testEnvironment(() => {

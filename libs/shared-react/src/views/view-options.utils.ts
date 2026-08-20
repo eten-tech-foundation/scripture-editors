@@ -217,15 +217,9 @@ export function getViewMode(viewOptions: ViewOptions | undefined): ViewMode | un
     hasActiveTextFocusBox
   )
     return PARAGRAPH_STRUCTURE_VIEW_MODE;
-  if (
-    markerMode === "editable" &&
-    noteMode === "collapsed" &&
-    hasSpacing &&
-    isFormattedFont &&
-    !hasGutterParaMarkers &&
-    !hasActiveTextFocusBox
-  )
-    return STANDARD_VIEW_MODE;
+  // STANDARD is exactly the whitespace fingerprint plus collapsed notes — expressed as the call so
+  // a sixth axis on `ViewOptions` cannot land in one of the two spellings and not the other.
+  if (hasStandardViewWhitespace(viewOptions) && noteMode === "collapsed") return STANDARD_VIEW_MODE;
   if (
     markerMode === "hidden" &&
     hasSpacing &&
@@ -262,7 +256,9 @@ export function getViewMode(viewOptions: ViewOptions | undefined): ViewMode | un
  * display-mapped text to invert (their named mode hides markers entirely, so the editable
  * engine's separators never combine with them). Deliberately NOT expressed via
  * {@link getViewMode}: expanded is not the named `standard` mode, and overloading `getViewMode`
- * would break its invertibility contract and the user-facing mode labels.
+ * would break its invertibility contract and the user-facing mode labels. The dependency runs the
+ * other way instead — `getViewMode` builds its STANDARD branch out of this predicate and the
+ * `noteMode` axis, so the fingerprint is written down exactly once.
  *
  * @param viewOptions - View options of the editor.
  * @returns `true` when standard-view whitespace normalization applies.

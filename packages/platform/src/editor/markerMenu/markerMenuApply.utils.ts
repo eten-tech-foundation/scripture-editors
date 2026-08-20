@@ -142,7 +142,7 @@ export interface ApplyMarkerMenuSelectionDeps {
  *
  * Materializes the SAME literal bytes passive typing would have accumulated (`\` + typedMarker,
  * plus a terminating space) and lets the marker-edit engine resolve them within this update. The
- * ratified Space end states therefore hold by construction rather than by re-implementation.
+ * Space end states therefore hold by construction rather than by re-implementation.
  *
  * `trailingSpace: false` is the `\` commit: the palette commits what was typed and immediately
  * reopens for the backslash the user just pressed, so the separator is unnecessary — a marker-name
@@ -180,7 +180,7 @@ export function $commitTypedMarker(
  * document. The engine, not this function, decides what they mean: against a matching open span
  * they settle as that span's real closer (the span loses `closed="false"` and gains its closing
  * glyph); with nothing matching they settle as an unmatched closer, flagged as typed. Both are the
- * ratified end states for a closing marker, and they are byte-identical to what typing `\nd*` by
+ * correct end states for a closing marker, and they are byte-identical to what typing `\nd*` by
  * hand produced before palettes existed.
  *
  * Over a NON-COLLAPSED selection the selected content is DELETED and the closer takes its place —

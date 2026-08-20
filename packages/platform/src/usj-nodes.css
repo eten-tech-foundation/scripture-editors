@@ -2230,8 +2230,11 @@
   color: rgba(170, 170, 170, 1);
 }
 
+/* Hovering an attribute run lifts it out of its dim resting color to the host's ordinary text
+   color. The literal is only the fallback for a host that defines no `--foreground`: a fixed
+   near-black would be all but invisible against a dark theme. */
 .attribute:hover {
-  color: rgba(25, 25, 25, 1);
+  color: var(--foreground, rgba(25, 25, 25, 1));
 }
 
 /* AttributeRunNode: the ONE wrapper span holding a verse's \va/\vp display triplet, a chapter's
@@ -2246,8 +2249,9 @@
   color: rgba(170, 170, 170, 1);
 }
 
+/* Same hover treatment as `.attribute` above, and for the same reason. */
 .attribute-run:hover {
-  color: rgba(25, 25, 25, 1);
+  color: var(--foreground, rgba(25, 25, 25, 1));
 }
 
 .invalid {

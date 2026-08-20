@@ -448,7 +448,7 @@ describe("verse \\va/\\vp deletion settles (does not resurrect)", () => {
   });
 
   it("emptying \\va's text beside a live \\vp keeps both markers in document order (no \\vp hoist)", async () => {
-    // The wave-3 gate's live check-3 repro, reproduced end to end. In Standard view the user
+    // A live repro, reproduced end to end. In Standard view the user
     // selected a `\va` run's whole visible value and pressed Backspace, then moved the caret away.
     // The verse also carried a `\vp` run, and the settle SWAPPED them on disk:
     //   `\v 11 \va 11 va\va*\vp 11 vp\vp* This verse…`

@@ -131,7 +131,7 @@ describe("reported log-storm gestures commit a bounded number of times", () => {
     );
   }
 
-  it("S4: a backslash followed by a bar", async () => {
+  it("a backslash followed by a bar", async () => {
     let bodyText!: TextNode;
     await expectBounded(
       () => ({ bodyText } = $twoParagraphs("body")),
@@ -142,7 +142,7 @@ describe("reported log-storm gestures commit a bounded number of times", () => {
     );
   });
 
-  it("S5: a double slash (optbreak)", async () => {
+  it("a double slash (optbreak)", async () => {
     let bodyText!: TextNode;
     await expectBounded(
       () => ({ bodyText } = $twoParagraphs("body")),
@@ -153,7 +153,7 @@ describe("reported log-storm gestures commit a bounded number of times", () => {
     );
   });
 
-  it("S6: Enter, then a \\p, then typing", async () => {
+  it("Enter, then a \\p, then typing", async () => {
     let bodyText!: TextNode;
     await expectBounded(
       () => ({ bodyText } = $twoParagraphs("body")),
@@ -167,7 +167,7 @@ describe("reported log-storm gestures commit a bounded number of times", () => {
     );
   });
 
-  it("S7: an unsupported (grayed-out) marker", async () => {
+  it("an unsupported (grayed-out) marker", async () => {
     // `asdf` is unknown to the stylesheet — the class the report calls "grayed out".
     let bodyText!: TextNode;
     await expectBounded(
@@ -179,7 +179,7 @@ describe("reported log-storm gestures commit a bounded number of times", () => {
     );
   });
 
-  it("A6: \\vp typed right after a verse marker", async () => {
+  it("\\vp typed right after a verse marker", async () => {
     let bodyText!: TextNode;
     await expectBounded(
       () => {
@@ -199,7 +199,7 @@ describe("reported log-storm gestures commit a bounded number of times", () => {
     );
   });
 
-  it("S8: deleting the closer of an inline marker that has content after it", async () => {
+  it("deleting the closer of an inline marker that has content after it", async () => {
     let closer!: TextNode;
     await expectBounded(
       () => {

@@ -1,5 +1,5 @@
 /**
- * Regression for the live QA repro (2026-08-12, task-14-report.md Stage C): after ANY Tier-2
+ * Regression for a live QA repro: after ANY Tier-2
  * paragraph rebuild, an `\optbreak`'s `//` token vanished FROM THE SCREEN while the Lexical node,
  * `getUsj()`, and the bytes on disk all stayed intact — a rendering defect, not data loss. QA's
  * seed was `\p QAC \w word|lemma\w* middle text // more text.`; deleting the `\w` span's `|lemma`
@@ -161,7 +161,7 @@ describe("preserved glyph decorators keep rendering across a rebuild (TJ live re
         const run = requireDefined($attributeRun(), "attribute run missing");
         const index = run.getIndexWithinParent();
         run.remove();
-        char.select(index, index); // caret at the deletion site, `\w*` untouched (QA's C1)
+        char.select(index, index); // caret at the deletion site, `\w*` untouched
       }),
     );
     await departCaret(editor);

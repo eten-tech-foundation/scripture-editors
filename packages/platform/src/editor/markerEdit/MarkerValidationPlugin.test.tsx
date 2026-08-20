@@ -233,6 +233,72 @@ describe("MarkerValidationPlugin", () => {
     });
   });
 
+  it("scenario 6 (non-visual signal): an unknown glyph is DESCRIBED as unknown, and clearing the flag removes the description", async () => {
+    let para: ParaNode;
+    let opener: MarkerNode;
+    const { editor } = await baseTestEnvironment(
+      () => {
+        ({ para, opener } = $appendPara("zfoo"));
+      },
+      <MarkerValidationPlugin viewOptions={editableViewOptions} styleInfo={sheet} />,
+    );
+    editor.getEditorState().read(() => {
+      const flagged = requireDefined(
+        editor.getElementByKey(opener.getKey()) ?? undefined,
+        "the unknown glyph should be rendered",
+      );
+      // Both channels, because neither alone reaches every reader: `title` is the hover
+      // explanation, `aria-description` the announced one.
+      expect(flagged.getAttribute("aria-description")).toBe(
+        "This marker is not in the stylesheet!",
+      );
+      expect(flagged.title).toBe("This marker is not in the stylesheet!");
+    });
+
+    await act(async () => {
+      editor.update(() => {
+        para.setMarker("p");
+      });
+    });
+
+    editor.getEditorState().read(() => {
+      const unflagged = requireDefined(
+        editor.getElementByKey(opener.getKey()) ?? undefined,
+        "the glyph should still be rendered after the rename",
+      );
+      expect(unflagged.classList.contains("status_unknown")).toBe(false);
+      expect(unflagged.getAttribute("aria-description")).toBeNull();
+      expect(unflagged.title).toBe("");
+    });
+  });
+
+  it("scenario 7 (non-visual signal): an invalid-here glyph is described as invalid, not as unknown", async () => {
+    let opener: MarkerNode;
+    const { editor } = await baseTestEnvironment(
+      () => {
+        const para = $createParaNode("p");
+        const ft = $createCharNode("ft");
+        opener = $createMarkerNode("ft");
+        $getRoot().append(
+          para.append(
+            $createMarkerNode("p"),
+            $createTextNode(NBSP),
+            ft.append(opener, $createTextNode(`${NBSP}text`), $createMarkerNode("ft", "closing")),
+          ),
+        );
+      },
+      <MarkerValidationPlugin viewOptions={editableViewOptions} styleInfo={sheet} />,
+    );
+    editor.getEditorState().read(() => {
+      const flagged = requireDefined(
+        editor.getElementByKey(opener.getKey()) ?? undefined,
+        "the invalid glyph should be rendered",
+      );
+      expect(flagged.getAttribute("aria-description")).toBe("This marker is not valid here!");
+      expect(flagged.title).toBe("This marker is not valid here!");
+    });
+  });
+
   it("scenario 5 (gating): non-editable markerMode never applies status classes", async () => {
     const nonEditableViewOptions = requireDefined(
       getViewOptions(FORMATTED_VIEW_MODE),

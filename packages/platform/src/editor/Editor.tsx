@@ -256,11 +256,13 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
   }
   const stableLogger = loggerRef.current;
 
-  // QA-ONLY editable-mode document-first marker-menu harness (drives shared-react's
-  // `UsjNodesMenuPlugin` "editableHarness" branch; see its doc comment). `undefined` outside
-  // markerMode "editable" so the plugin falls back to its legacy typeahead unaffected. Built
-  // from the same `EditorRef` methods a host would call, plus the module-level marker-item
-  // source - not a separate implementation.
+  // Editable-mode document-first marker-menu harness (drives shared-react's `UsjNodesMenuPlugin`
+  // "editableHarness" branch; see its doc comment). `undefined` outside markerMode "editable" so
+  // the plugin falls back to its legacy typeahead unaffected. Built from the same `EditorRef`
+  // methods a host would call, plus the module-level marker-item source - not a separate
+  // implementation. It only ever reaches the screen while `hasExternalUI` is false: the plugin
+  // this feeds is rendered under that condition, so a host with its own marker-menu UI
+  // (Platform.Bible, whose overlay service renders them) never mounts the in-editor menu.
   const editableMarkerMenuHarness = useMemo<EditableMarkerMenuHarness | undefined>(() => {
     if (viewOptions.markerMode !== "editable") return undefined;
 
