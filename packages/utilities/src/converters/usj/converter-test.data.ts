@@ -607,6 +607,10 @@ export const editorStateGen1v1Editable = {
             number: "1",
             sid: "GEN 1:1",
             text: `\\v${NBSP}1 `,
+            detail: 0,
+            format: 0,
+            mode: "normal",
+            style: "",
             version: 1,
           },
           {
@@ -625,6 +629,10 @@ export const editorStateGen1v1Editable = {
             number: "2",
             sid: "GEN 1:2",
             text: `\\v${NBSP}2 `,
+            detail: 0,
+            format: 0,
+            mode: "normal",
+            style: "",
             version: 1,
           },
           {
@@ -644,6 +652,10 @@ export const editorStateGen1v1Editable = {
             altnumber: "3",
             sid: "GEN 1:15",
             text: `\\v${NBSP}15 `,
+            detail: 0,
+            format: 0,
+            mode: "normal",
+            style: "",
             version: 1,
           },
           {
@@ -861,6 +873,10 @@ export const editorStateGen1v1Editable = {
             number: "16",
             sid: "GEN 1:16",
             text: `\\v${NBSP}16 `,
+            detail: 0,
+            format: 0,
+            mode: "normal",
+            style: "",
             version: 1,
           },
           {

@@ -74,6 +74,7 @@ import {
   isSerializedParaNode,
   isSerializedTextNode,
   isSerializedUnknownNode,
+  isSerializedVerseNode,
   MARKER_TRAILING_SPACE_TEXT_TYPE,
   MarkerNode,
   NBSP,
@@ -312,6 +313,29 @@ describe("USJ Editor Adaptor", () => {
     );
 
     expect(serializedEditorState).toEqual(editorStateGen1v1Editable);
+  });
+
+  it("gives the editable verse glyph the text properties every serialized text node carries", () => {
+    // Not cosmetic. Lexical refuses to splice a typed byte into a text node whose format or style
+    // differs from the selection's — and a selection built from the DOM carries `0` and `""` — so
+    // a glyph deserialized with those UNDEFINED made every keystroke beside a verse number split
+    // the glyph or spill into a new sibling node instead of landing in it. Whichever of the two it
+    // did, the byte then went missing: split, the leftover `\v 1` re-tokenized on the next settle;
+    // spilled, a lone space between a verse and its `\va`/`\vp` run was deleted as an empty
+    // verse's content. The behavioral pin is typedVerseRunSeamSpace.test.tsx; this one names the
+    // producer, so a regression fails here rather than three layers away.
+    const serializedEditorState = serializeEditorState(
+      usjGen1v1,
+      getViewOptions(UNFORMATTED_VIEW_MODE),
+    );
+
+    const pPara = serializedEditorState.root.children[VERSE_PARA_INDEX];
+    if (!isSerializedParaNode(pPara)) throw new Error("No para node found");
+    const verse = pPara.children.find(
+      (n: SerializedLexicalNode) => isSerializedVerseNode(n) && n.number === "1",
+    );
+    if (!isSerializedVerseNode(verse)) throw new Error("Verse 1 not found");
+    expect(verse).toMatchObject({ detail: 0, format: 0, mode: "normal", style: "" });
   });
 
   it("should render editable caller text and markers in editable mode", () => {

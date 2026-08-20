@@ -372,10 +372,23 @@ function createVerse(
   if (_viewOptions?.markerMode === "editable") text = getVisibleOpenMarkerText(marker, number);
   else if (_viewOptions?.markerMode === "visible") showMarker = true;
   const unknownAttributes = getUnknownAttributes(markerObject, VERSE_MARKER_OBJECT_PROPS);
+  // The editable verse glyph is a TextNode, so it is serialized with the same text properties
+  // every other text node here carries (`createText`). Leaving them out left `__format` and
+  // `__style` UNDEFINED on the node the editor loaded, and Lexical refuses to splice a typed
+  // byte into a text node whose format or style differs from the selection's (a selection built
+  // from the DOM carries `0`/`""`): it splits the node and inserts a fresh one instead. That is
+  // how a character typed at a verse glyph went missing — split mid-glyph it left `\v 1` behind
+  // for the settle to re-tokenize, and typed at the glyph's end it landed in a new sibling node
+  // between the verse and its `\va`/`\vp` run, where the empty-verse-content rule deleted it. The
+  // non-editable glyph is a decorator (`ImmutableVerseNode`) with no text of its own, so it takes
+  // none of these — the same condition that decides whether there are glyph bytes at all.
+  const textProperties =
+    text === undefined ? undefined : { detail: 0, format: 0, mode: "normal" as const, style: "" };
 
   return removeUndefinedProperties({
     type,
     text,
+    ...textProperties,
     marker: marker as VerseMarker,
     number: number ?? "",
     sid,

@@ -568,6 +568,13 @@ const VERSE_GLYPH_REGEXES = leadingAttributeGlyphRegexes("v");
 const CHAPTER_GLYPH_REGEXES = leadingAttributeGlyphRegexes("c");
 
 /**
+ * Bytes made of nothing but the whitespace a separator run is built from — the same alphabet the
+ * glyph regexes above spend on their separators. A glyph whose only divergence from canonical is
+ * bytes matching this is one the user typed a space into, not one whose value or content changed.
+ */
+const SEPARATOR_RUN_ONLY_REGEX = /^[ \u00A0]*$/;
+
+/**
  * Insert `rest` — bytes extracted out of a verse glyph — as plain content directly after the
  * verse, merging into an existing following plain content node rather than always inserting a
  * fresh one. A fresh node fragments a literal the user is mid-typing across siblings — the
@@ -656,15 +663,23 @@ export function $verseNodeTransform(node: VerseNode, context: MarkerEditContext)
     return;
   }
   context.pendingKeys.delete(node.getKey());
-  // An empty `rest` with the number unchanged means the glyph diverges from canonical ONLY by
-  // whitespace inside its separator runs — the user typed a space beside the marker or beside the
-  // number. Leave those bytes alone. Rewriting to canonical here deleted the typed space while the
-  // caret advanced over where it had been, so pressing space looked like it merely moved the
-  // cursor: a keystroke accepted and discarded, which "no silent no-ops" forbids. Nothing reaches
-  // the document either way — whitespace before a leading-attribute value is structural and the
-  // writer emits exactly one space — which is the same licence a trailing space at the end of a
-  // paragraph already has.
-  if (rest === "" && numberToken === node.getNumber()) return;
+  // A whitespace-only `rest` with the number unchanged means the glyph diverges from canonical
+  // ONLY by whitespace inside its separator runs — the user typed a space beside the marker,
+  // beside the number, or past the separator that follows it. Leave those bytes alone. Rewriting
+  // to canonical here deleted the typed space while the caret advanced over where it had been, so
+  // pressing space looked like it merely moved the cursor: a keystroke accepted and discarded,
+  // which "no silent no-ops" forbids. Nothing reaches the document either way — whitespace
+  // flanking a leading-attribute value is structural and the writer emits exactly one space —
+  // which is the same licence a trailing space at the end of a paragraph already has.
+  //
+  // The check is the whole separator RUN, not an empty `rest`, because the glyph's TRAILING
+  // separator is a run exactly as its leading one is: the regex spends one whitespace byte on
+  // that separator and hands the remainder over as `rest`, so a space typed anywhere past the
+  // number arrives here as whitespace-only `rest`. Extracting it re-homed it as document CONTENT
+  // after the verse, which beside a verse carrying a `\va`/`\vp` run is a place content cannot
+  // live, so the next rebuild dropped it. Only a NON-whitespace byte past the number is content,
+  // and that still extracts.
+  if (numberToken === node.getNumber() && SEPARATOR_RUN_ONLY_REGEX.test(rest ?? "")) return;
   node.setNumber(numberToken); // PT9 GetNextWord: whole word, valid or not
   node.setTextContent(getVisibleOpenMarkerText("v", numberToken));
   // The caret follows to the end of the extracted rest (see $insertRestAfterVerse for the
