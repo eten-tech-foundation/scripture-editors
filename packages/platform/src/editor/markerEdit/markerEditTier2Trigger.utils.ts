@@ -60,6 +60,7 @@ import {
   displayRunDescriptors,
   getVisibleOpenMarkerText,
   textTypeState,
+  milestoneEjectionPending,
 } from "shared";
 
 /** A backslash sequence completed by a space/NBSP separator or a `*` closer. */
@@ -245,6 +246,15 @@ export function $textNodeTier2Transform(node: TextNode, context: MarkerEditConte
       ? text.slice(0, selection.anchor.offset)
       : text;
   if (TERMINATED_MARKER_IN_TEXT_REGEX.test(terminationText)) {
+    // A milestone rebuild that EJECTS content waits for the settle. Every other terminated marker
+    // takes effect where it stands, which is why the immediate arm exists — but ejection MOVES
+    // bytes out of the milestone and past a closer, so applying it the instant the `\*` is typed
+    // rearranges the line under the caret while the user is still on it. Pending instead leaves
+    // what they typed alone until they depart, and the departure settle performs the same rebuild.
+    if (milestoneEjectionPending(text)) {
+      context.pendingKeys.add(node.getKey());
+      return;
+    }
     context.pendingKeys.delete(node.getKey());
     if (context.rebuildAttempted.has(text)) {
       // $rebuildParas already produced this exact literal text once this commit and, being

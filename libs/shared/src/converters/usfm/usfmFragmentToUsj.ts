@@ -295,6 +295,7 @@ function tokenize(fragment: string, getMarkerFn: MarkerLookup, isNoteContext: bo
       const milestone = scanMilestone(fragment, rawStart, name, index);
       if (milestone) {
         tokens.push(milestone.token);
+        if (milestone.ejectedText) pushText(milestone.ejectedText);
         index = milestone.next;
       } else {
         // Not `\*`-terminated: keep the raw text through the next `\` (PT9 behavior).
@@ -478,6 +479,30 @@ export function milestoneDefaultAttribute(name: string): string {
 }
 
 /**
+ * Whether re-tokenizing `text` would EJECT bytes out of a milestone — the shapes where a milestone
+ * ends early and content it cannot hold follows it as a sibling, leaving the author's `\*`
+ * unmatched.
+ *
+ * Answered by running the real tokenizer rather than re-deriving the conditions, so it cannot drift
+ * from {@link scanMilestone}: the ejected shape is a milestone whose next sibling is the unmatched
+ * closing marker left over from it. Callers use this to defer such a rebuild to the settle instead
+ * of applying it mid-keystroke, because ejection MOVES bytes and doing that under the caret
+ * rearranges the line the user is still typing on.
+ */
+export function milestoneEjectionPending(text: string): boolean {
+  const content = usfmFragmentToUsjContent(text)[0];
+  const items = typeof content === "object" && "content" in content ? content.content : undefined;
+  if (!items) return false;
+  return items.some((item, index) => {
+    if (typeof item !== "object" || item.type !== "ms") return false;
+    return items.slice(index + 1).some((later) => {
+      if (typeof later === "string") return true;
+      return later.type === "unmatched" && later.marker === "*";
+    });
+  });
+}
+
+/**
  * A milestone must be terminated by `\*` (PT9 `MilestoneEnded`); attributes may
  * follow a `|` between the marker and the `\*`.
  */
@@ -486,7 +511,7 @@ function scanMilestone(
   _rawStart: number,
   name: string,
   index: number,
-): { token: Token; next: number } | undefined {
+): { token: Token; next: number; ejectedText?: string } | undefined {
   const closeIndex = fragment.indexOf("\\", index);
   if (closeIndex === -1 || fragment.slice(closeIndex, closeIndex + 2) !== "\\*") return undefined;
   const between = fragment.slice(index, closeIndex);
@@ -513,6 +538,19 @@ function scanMilestone(
     // ratified answer for a `|` typed into a milestone glyph.
     if (!attributes && between.slice(pipeIndex + 1).trim() !== "")
       return { token: { kind: "milestone", marker: name }, next: index + pipeIndex };
+    // Content BEFORE the attribute list is the same story from the other side: a milestone cannot
+    // hold it, so the milestone ends — keeping the attributes, which are valid and its own — and
+    // the content follows as a sibling, with the author's `\*` left to scan as unmatched. Without
+    // this the bytes were simply dropped: `\qt1-s things|sid="asdf"\*` silently became a milestone
+    // with no trace of `things`. Resuming at `closeIndex` is what leaves the `\*` unmatched, and
+    // the leading separator space belongs to the marker rather than the content, so it goes.
+    const beforePipe = between.slice(0, pipeIndex);
+    if (attributes && beforePipe.trim() !== "")
+      return {
+        token: { kind: "milestone", marker: name, attributes },
+        next: closeIndex,
+        ejectedText: beforePipe.replace(/^[ \u00A0]/, ""),
+      };
   } else if (between.trim() !== "") return undefined; // non-attribute content before \* — literal
   return { token: { kind: "milestone", marker: name, attributes }, next: closeIndex + 2 };
 }

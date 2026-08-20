@@ -48,6 +48,24 @@ describe("a milestone with an unparseable attribute list ends before the bytes",
     expect(content(`\\p \\qt1-s\\*|who=""\\*text`)).toEqual(content(`\\p \\qt1-s |who=""\\*text`));
   });
 
+  it("ejects CONTENT typed into a milestone, keeping attributes that are valid", () => {
+    // The same rule reached from the other side. The attributes are correct and belong to the
+    // milestone, so they stay; only the content it cannot hold is ejected. Before this, the bytes
+    // before the pipe were simply dropped and `things` vanished without trace.
+    expect(content(`\\p \\qt1-s things|sid="asdf"\\*text`)).toEqual([
+      { type: "ms", marker: "qt1-s", sid: "asdf" },
+      "things",
+      { type: "unmatched", marker: "*" },
+      "text",
+    ]);
+  });
+
+  it("reads the settled spelling of an ejected content run identically", () => {
+    expect(content(`\\p \\qt1-s |sid="asdf"\\*things\\*text`)).toEqual(
+      content(`\\p \\qt1-s things|sid="asdf"\\*text`),
+    );
+  });
+
   it("still builds the milestone with its attributes when the list parses", () => {
     expect(content(`\\p \\qt-s |who="TJ"\\*text`)?.[0]).toEqual({
       type: "ms",

@@ -44,8 +44,17 @@ function $trailingSpace(): TextNode {
 }
 
 describe("a milestone ejects content it cannot hold", () => {
+  /** Type `bytes` at the end of the first paragraph and STOP — the caret stays in them. */
+  async function typeWithoutDeparting(bytes: string) {
+    return typeThen(bytes, false);
+  }
+
   /** Type `bytes` at the end of the first paragraph, then depart so it settles. */
   async function typeAndSettle(bytes: string) {
+    return typeThen(bytes, true);
+  }
+
+  async function typeThen(bytes: string, depart: boolean) {
     let body: TextNode;
     let other: TextNode;
     const { editor } = await testEnvironmentWithDisplaySyncs(() => {
@@ -68,12 +77,14 @@ describe("a milestone ejects content it cannot hold", () => {
         }),
       );
     }
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    await act(async () => editor.update(() => other!.select(0, 0)));
-    await act(async () => {
-      await new Promise((resolve) => queueMicrotask(() => resolve(undefined)));
-      await new Promise((resolve) => queueMicrotask(() => resolve(undefined)));
-    });
+    if (depart) {
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      await act(async () => editor.update(() => other!.select(0, 0)));
+      await act(async () => {
+        await new Promise((resolve) => queueMicrotask(() => resolve(undefined)));
+        await new Promise((resolve) => queueMicrotask(() => resolve(undefined)));
+      });
+    }
     return editor;
   }
 
@@ -83,6 +94,22 @@ describe("a milestone ejects content it cannot hold", () => {
     const usj = editorUsjAdaptor.deserializeEditorState(editor.getEditorState(), viewOptions);
     return (usj?.content?.[0] as MarkerObject)?.content;
   }
+
+  it("moves nothing while the user is still typing", async () => {
+    // The ejection is a SETTLE, not an instant apply. While the caret is still in the bytes they
+    // stay exactly as typed, so nothing rearranges under the user mid-keystroke; the rewrite
+    // happens when the caret departs. Pinned because "it settles correctly" and "it does not
+    // pounce" are different properties and only the first is obvious from the other tests.
+    const editor = await typeWithoutDeparting(`\\qt1-s things|sid="asdf"\\*`);
+    editor.getEditorState().read(() => {
+      expect($getRoot().getTextContent()).toContain(`before \\qt1-s things|sid="asdf"\\*`);
+      expect(
+        $getRoot()
+          .getAllTextNodes()
+          .some((node) => node.getTextContent() === "things"),
+      ).toBe(false);
+    });
+  });
 
   it("closes the milestone and puts the unparseable attribute bytes after it", async () => {
     const editor = await typeAndSettle(`\\qt1-s |who=""\\*`);
@@ -109,6 +136,16 @@ describe("a milestone ejects content it cannot hold", () => {
       "before ",
       { type: "ms", marker: "qt1-s" },
       `|who=""`,
+      { type: "unmatched", marker: "*" },
+    ]);
+  });
+
+  it("ejects content typed INTO a milestone, keeping its valid attributes", async () => {
+    const editor = await typeAndSettle(`\\qt1-s things|sid="asdf"\\*`);
+    expect(paraContent(editor)).toEqual([
+      "before ",
+      { type: "ms", marker: "qt1-s", sid: "asdf" },
+      "things",
       { type: "unmatched", marker: "*" },
     ]);
   });
