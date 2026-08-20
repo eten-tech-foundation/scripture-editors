@@ -499,15 +499,20 @@ function scanMilestone(
       name,
       milestoneDefaultAttribute(name),
     );
-    // A list with CONTENT that will not parse must not be dropped. A milestone has no content
-    // array to hold literal text the way a char span does, so building the milestone anyway would
-    // delete the author's bytes outright. Refusing the whole token leaves them as literal text —
-    // the same answer the no-pipe branch below gives, and what a char span's list already does.
+    // A list with CONTENT that will not parse becomes CONTENT, and a milestone cannot hold
+    // content — so the milestone ends immediately and the bytes follow it as siblings. Resuming
+    // the scan at the `|` is what produces that: the milestone token closes here, the unparsed
+    // bytes are read as ordinary text, and the author's `\*` is left to scan as an unmatched
+    // closing marker. `\qt1-s |who=""\*` therefore reads exactly as `\qt1-s\*|who=""\*` already
+    // does — a closed milestone, the literal text, and one unmatched `\*` — which is Paratext 9's
+    // reading and keeps every byte.
     //
-    // A bare `|` with nothing after it is deliberately NOT that case: there are no bytes to lose,
-    // and dropping it is the ratified answer for a `|` typed into a milestone glyph (the settle
-    // holds it while the caret is there, then resolves to the tokenizer's reading).
-    if (!attributes && between.slice(pipeIndex + 1).trim() !== "") return undefined;
+    // Refusing the whole token instead would lose the milestone the author did write, and building
+    // it while dropping the attribute bytes would lose those; this loses neither. A bare `|` with
+    // nothing after it is not this case — there are no bytes to keep, and dropping it is the
+    // ratified answer for a `|` typed into a milestone glyph.
+    if (!attributes && between.slice(pipeIndex + 1).trim() !== "")
+      return { token: { kind: "milestone", marker: name }, next: index + pipeIndex };
   } else if (between.trim() !== "") return undefined; // non-attribute content before \* — literal
   return { token: { kind: "milestone", marker: name, attributes }, next: closeIndex + 2 };
 }
