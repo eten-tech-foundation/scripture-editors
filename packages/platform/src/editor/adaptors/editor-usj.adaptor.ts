@@ -10,12 +10,14 @@ import {
 import {
   EditorState,
   LineBreakNode,
+  NODE_STATE_KEY,
   SerializedEditorState,
   SerializedLexicalNode,
   SerializedTextNode,
   TextNode,
 } from "lexical";
 import {
+  AttributeRunNode,
   BookNode,
   ChapterNode,
   CharNode,
@@ -35,6 +37,7 @@ import {
   NBSP,
   NODE_ATTRIBUTE_PREFIX,
   NoteNode,
+  orderedAttributes,
   ParaNode,
   parseNumberFromMarkerText,
   removeUndefinedProperties,
@@ -66,10 +69,13 @@ import {
   VerseNode,
 } from "shared";
 import {
+  hasStandardViewWhitespace,
   ImmutableNoteCallerNode,
   ImmutableVerseNode,
   SerializedImmutableVerseNode,
+  ViewOptions,
 } from "shared-react";
+import { displayTextToUsj, normalizeSpaceRuns } from "../markerEdit/whitespaceDisplay.utils";
 
 interface EditorUsjAdaptor {
   initialize: typeof initialize;
@@ -83,14 +89,34 @@ export function initialize(logger: LoggerBasic | undefined) {
   if (logger) _logger = logger;
 }
 
-export function deserializeEditorState(editorState: EditorState): Usj | undefined {
+/**
+ * Standard-view whitespace display rules; they must not leak into other modes. Gated on the
+ * standard-view whitespace fingerprint (editable + spaced + formatted, any `noteMode`) rather than
+ * the named `standard` mode, so serialization inverts the display whitespace even when notes are
+ * expanded — keeping it in lockstep with the editable marker engine. See
+ * {@link hasStandardViewWhitespace}.
+ *
+ * The forward adaptor carries its own two-line twin of this wrapper (reading its module-scoped
+ * view options instead of a parameter). Deliberately not merged: the substance is already the ONE
+ * shared {@link hasStandardViewWhitespace}; the wrappers differ only in where the view options
+ * come from.
+ */
+function isStandardView(viewOptions: ViewOptions | undefined): boolean {
+  return hasStandardViewWhitespace(viewOptions);
+}
+
+export function deserializeEditorState(
+  editorState: EditorState,
+  viewOptions?: ViewOptions,
+): Usj | undefined {
   if (editorState.isEmpty()) return EMPTY_USJ;
 
-  return deserializeSerializedEditorState(editorState.toJSON());
+  return deserializeSerializedEditorState(editorState.toJSON(), viewOptions);
 }
 
 export function deserializeSerializedEditorState(
   serializedEditorState: SerializedEditorState,
+  viewOptions?: ViewOptions,
 ): Usj | undefined {
   if (!serializedEditorState.root || !serializedEditorState.root.children) return;
 
@@ -104,7 +130,7 @@ export function deserializeSerializedEditorState(
     return EMPTY_USJ;
 
   const children = removeImpliedParasRecurse(rootChildren);
-  const content = recurseNodes(children);
+  const content = recurseNodes(children, viewOptions);
   if (!content) return;
 
   const usj: Usj = { type: USJ_TYPE, version: USJ_VERSION, content };
@@ -178,15 +204,19 @@ function createVerseMarker(node: SerializedImmutableVerseNode | SerializedVerseN
 function createCharMarker(
   node: SerializedCharNode,
   content: MarkerContent[] | undefined,
+  viewOptions: ViewOptions | undefined,
 ): MarkerObject {
   const { type, marker: nodeMarker, unknownAttributes } = node;
   const marker = nodeMarker === "" ? undefined : nodeMarker;
-  // Remove NBSP at the start of the child text nodes.
-  content?.forEach((c, i) => {
-    if (typeof c === "string" && c.startsWith(NBSP)) {
-      content[i] = c.slice(1);
-    }
-  });
+  // Remove NBSP at the start of the child text nodes. In standard view this separator is
+  // stripped earlier, before whitespace inversion, so a real leading NBSP in the data isn't
+  // misread as the separator here (see the `recurseNodes` TextNode branch).
+  if (!isStandardView(viewOptions))
+    content?.forEach((c, i) => {
+      if (typeof c === "string" && c.startsWith(NBSP)) {
+        content[i] = c.slice(1);
+      }
+    });
   return removeUndefinedProperties({
     type,
     marker,
@@ -254,15 +284,19 @@ function createNoteMarker(
   });
 }
 
+/**
+ * `type` and `marker` stay ahead of everything — they are not attribute bytes and have no place in
+ * the order. The attributes behind them are re-keyed into the milestone's authored order when it
+ * carries one, because the USJ-to-USFM writer emits a marker's attributes in object key order:
+ * re-emitting them sid-first would rewrite bytes in a file that never asked for it.
+ */
 function createMilestoneMarker(node: SerializedMilestoneNode): MarkerObject {
-  const { type, marker: nodeMarker, sid, eid, unknownAttributes } = node;
+  const { type, marker: nodeMarker, sid, eid, unknownAttributes, attributeOrder } = node;
   const marker = nodeMarker === "" ? undefined : nodeMarker;
   return removeUndefinedProperties({
     type,
     marker,
-    sid,
-    eid,
-    ...unknownAttributes,
+    ...orderedAttributes({ sid, eid, ...unknownAttributes }, attributeOrder),
   });
 }
 
@@ -380,7 +414,9 @@ function replaceMarkWithMilestones(
 // this export skips, splices (TypedMarkNodes), and coalesces into single text strings.
 function recurseNodes(
   nodes: SerializedLexicalNode[],
+  viewOptions: ViewOptions | undefined,
   noteCaller?: string,
+  isCharChild = false,
 ): MarkerContent[] | undefined {
   const markers: MarkerContent[] = [];
   let childMarkers: MarkerContent[] | undefined;
@@ -398,7 +434,10 @@ function recurseNodes(
     switch (node.type) {
       case BookNode.getType():
         markers.push(
-          createBookMarker(serializedBookNode, recurseNodes(serializedBookNode.children)),
+          createBookMarker(
+            serializedBookNode,
+            recurseNodes(serializedBookNode.children, viewOptions),
+          ),
         );
         break;
       case ImmutableChapterNode.getType():
@@ -406,7 +445,10 @@ function recurseNodes(
         break;
       case ChapterNode.getType():
         markers.push(
-          createChapterMarker(serializedChapterNode, recurseNodes(serializedChapterNode.children)),
+          createChapterMarker(
+            serializedChapterNode,
+            recurseNodes(serializedChapterNode.children, viewOptions),
+          ),
         );
         break;
       case ImmutableVerseNode.getType():
@@ -415,19 +457,26 @@ function recurseNodes(
         break;
       case CharNode.getType():
         markers.push(
-          createCharMarker(serializedCharNode, recurseNodes(serializedCharNode.children)),
+          createCharMarker(
+            serializedCharNode,
+            recurseNodes(serializedCharNode.children, viewOptions, undefined, true),
+            viewOptions,
+          ),
         );
         break;
       case ParaNode.getType():
         markers.push(
-          createParaMarker(serializedParaNode, recurseNodes(serializedParaNode.children)),
+          createParaMarker(
+            serializedParaNode,
+            recurseNodes(serializedParaNode.children, viewOptions),
+          ),
         );
         break;
       case ImmutableTableNode.getType():
         markers.push(
           createTableMarker(
             node as SerializedImmutableTableNode,
-            recurseNodes((node as SerializedImmutableTableNode).children),
+            recurseNodes((node as SerializedImmutableTableNode).children, viewOptions),
           ),
         );
         break;
@@ -435,7 +484,7 @@ function recurseNodes(
         markers.push(
           createTableRowMarker(
             node as SerializedImmutableTableRowNode,
-            recurseNodes((node as SerializedImmutableTableRowNode).children),
+            recurseNodes((node as SerializedImmutableTableRowNode).children, viewOptions),
           ),
         );
         break;
@@ -443,7 +492,7 @@ function recurseNodes(
         markers.push(
           createTableCellMarker(
             node as SerializedImmutableTableCellNode,
-            recurseNodes((node as SerializedImmutableTableCellNode).children),
+            recurseNodes((node as SerializedImmutableTableCellNode).children, viewOptions),
           ),
         );
         break;
@@ -451,18 +500,28 @@ function recurseNodes(
         markers.push(
           createNoteMarker(
             serializedNoteNode,
-            recurseNodes(serializedNoteNode.children, serializedNoteNode.caller),
+            recurseNodes(serializedNoteNode.children, viewOptions, serializedNoteNode.caller),
           ),
         );
         break;
+      case AttributeRunNode.getType():
       case ImmutableTypedTextNode.getType():
       case ImmutableNoteCallerNode.getType():
       case LineBreakNode.getType():
       case MarkerNode.getType():
-        // These nodes are for presentation only so they don't go into the USJ.
+        // These nodes are for presentation only so they don't go into the USJ. An
+        // AttributeRunNode subtree is skipped WHOLESALE (never recursed into) — its own children
+        // are exactly the same MarkerNode/attribute-tagged-TextNode pieces this switch already
+        // skips individually below (the MarkerNode.getType() case here, and the textType
+        // "attribute" check in the TextNode.getType() case), so skipping the wrapper as a unit is
+        // equivalent to how those pieces are handled when unwrapped. Not removable once loose
+        // pieces stop occurring: MarkerNode.getType() also covers every OTHER glyph kind (char
+        // open/closer, para prefix, note glyphs), and the TextNode "attribute" check also covers a
+        // char span's OWN `|…` run, which is never wrapped at all (see this module's top comment) —
+        // both stay load-bearing regardless of verse/milestone run shape.
         break;
       case TypedMarkNode.getType():
-        childMarkers = recurseNodes(serializedMarkNode.children);
+        childMarkers = recurseNodes(serializedMarkNode.children, viewOptions);
         if (childMarkers) {
           const commentIDs = serializedMarkNode.typedIDs[COMMENT_MARK_TYPE];
           if (commentIDs) {
@@ -490,14 +549,29 @@ function recurseNodes(
           !isCursorPlaceholderOnly(serializedTextNode.text) &&
           serializedTextNode.text !== NBSP &&
           !serializedTextNode.text.startsWith(NODE_ATTRIBUTE_PREFIX) &&
+          // Char-span attribute display runs (bare `|…`, no NBSP prefix — see
+          // usj-editor.adaptor's `addCharAttributes`) carry no NBSP prefix to strip against, so
+          // the prefix check above can't catch them; the textType state tag is the only signal.
+          serializedTextNode[NODE_STATE_KEY]?.textType !== "attribute" &&
           (!noteCaller || serializedTextNode.text !== getEditableCallerText(noteCaller))
         ) {
-          combineTextContentOrAdd(markers, createTextMarker(serializedTextNode));
+          let text = createTextMarker(serializedTextNode);
+          // Standard view stores display text; invert and normalize on serialization. A
+          // char marker's leading NBSP separator (added by the forward adaptor's `createChar`)
+          // must be stripped before inversion so it isn't misread as a collapsed space run.
+          if (isStandardView(viewOptions)) {
+            if (isCharChild && text.startsWith(NBSP)) text = text.slice(1);
+            text = normalizeSpaceRuns(displayTextToUsj(text));
+          }
+          combineTextContentOrAdd(markers, text);
         }
         break;
       case UnknownNode.getType():
         markers.push(
-          createUnknownMarker(serializedUnknownNode, recurseNodes(serializedUnknownNode.children)),
+          createUnknownMarker(
+            serializedUnknownNode,
+            recurseNodes(serializedUnknownNode.children, viewOptions),
+          ),
         );
         break;
       case ImmutableUnmatchedNode.getType():

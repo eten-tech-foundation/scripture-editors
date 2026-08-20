@@ -33,6 +33,9 @@
     "src/**/*.spec.js",
     "src/**/*.test.jsx",
     "src/**/*.spec.jsx",
+    "src/**/markerEdit.test-helpers.tsx",
+    "src/**/settledGetUsj.test-helpers.tsx",
+    "src/**/twin-pin.test-helpers.tsx",
     "eslint.config.js",
     "eslint.config.cjs",
     "eslint.config.mjs"

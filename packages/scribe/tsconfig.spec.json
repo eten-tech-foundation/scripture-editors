@@ -34,6 +34,9 @@
       "path": "../../libs/shared"
     },
     {
+      "path": "../../libs/shared-react"
+    },
+    {
       "path": "../utilities"
     },
     {

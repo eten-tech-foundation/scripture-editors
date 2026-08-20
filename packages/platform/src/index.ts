@@ -35,25 +35,48 @@ export { default as Editorial } from "./Editorial";
  * optional `yjs` peer dependency if you continue using margin comments during the transition.
  */
 export { default as Marginal } from "./marginal/Marginal";
-export { GENERATOR_NOTE_CALLER, HIDDEN_NOTE_CALLER } from "shared";
+export {
+  CategoryType,
+  defaultStyleInfo,
+  GENERATOR_NOTE_CALLER,
+  HIDDEN_NOTE_CALLER,
+  MarkerType,
+} from "shared";
+export { generateUsjCss } from "./editor/generateUsjCss";
+export { getEnterMenuItems, getMarkerMenuItems } from "./editor/markerMenu/markerItemSource";
 export {
   directionToNames,
+  filterAndRankItems,
   getDefaultViewMode,
   getDefaultViewOptions,
   getViewMode,
   getViewOptions,
   isInsertEmbedOpOfType,
   PARAGRAPH_STRUCTURE_VIEW_MODE,
+  STANDARD_VIEW_MODE,
   viewModeToViewNames,
 } from "shared-react";
 
-export type { EditorOptions, EditorProps, EditorRef } from "./editor/editor.model";
+export type {
+  CommitTypedMarkerOptions,
+  EditorOptions,
+  EditorProps,
+  EditorRef,
+  TransientInput,
+} from "./editor/editor.model";
+export type { UsjCssOptions } from "./editor/generateUsjCss";
+export type { MarkerMenuContext, MarkerMenuItem } from "./editor/markerMenu/markerItemSource";
 export type { CommentBase, Comments, Thread } from "./marginal/comments/commenting";
 export type { MarginalRef, MarginalProps } from "./marginal/Marginal";
 export type {
   DomMouseEvent,
   LoggerBasic,
+  Marker,
+  MarkerLookup,
+  MarkerStyleInfo,
   NodeOptions,
+  StyleInfo,
+  StyleType,
   TypedMarkOnClick,
   TypedMarkOnMouseEnter,
   TypedMarkOnMouseLeave,
@@ -67,6 +90,8 @@ export type {
   DeltaOp,
   DeltaOpInsertNoteEmbed,
   DeltaSource,
+  FilterAndRankItems,
+  Item,
   MarkerMode,
   NoteCallerOnClick,
   NoteMode,
@@ -80,6 +105,7 @@ export type {
   OTUnmatchedEmbed,
   OTVerseEmbed,
   SelectionRange,
+  SortingOptions,
   StateChangeSnapshot,
   StructureProtectionMode,
   TextDirection,

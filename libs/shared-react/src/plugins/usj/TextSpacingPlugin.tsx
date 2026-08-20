@@ -7,17 +7,26 @@ import {
 } from "../../nodes/usj/node-react.utils";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { mergeRegister } from "@lexical/utils";
-import { $createTextNode, $isTextNode, LexicalEditor, LexicalNode, TextNode } from "lexical";
+import {
+  $createTextNode,
+  $getState,
+  $isTextNode,
+  LexicalEditor,
+  LexicalNode,
+  TextNode,
+} from "lexical";
 import { useEffect } from "react";
 import {
+  $isAttributeRunNode,
   $isCharNode,
   $isNoteNode,
-  $isParaLikeNode,
-  $isSynthesizedMarkerNode,
   $isTypedMarkNode,
   $isUnknownNode,
+  $syncDisplayRun,
   CharNode,
+  displayRunDescriptor,
   NoteNode,
+  textTypeState,
   VerseNode,
 } from "shared";
 
@@ -46,23 +55,39 @@ function useTextSpacing(editor: LexicalEditor) {
       editor.registerNodeTransform(TextNode, (node) => $textNodeInUnknownTransform(node, editor)),
       editor.registerNodeTransform(VerseNode, $verseNodeTransform),
       editor.registerNodeTransform(ImmutableVerseNode, $verseNodeTransform),
+      // Self-healing \va/\vp display runs: re-derive them from altnumber/pubnumber whenever
+      // a verse is dirtied — heals remote collab updates (delta-apply only calls setAltnumber/
+      // setPubnumber) and structure surgery. Registered here (not a dedicated VerseNodePlugin,
+      // which doesn't exist) because this is already the shared-react home that registers
+      // VerseNode transforms (the spacing transform above) — same one-node-type-owns-its-syncs
+      // shape CharNodePlugin uses for chars. $syncDisplayRun (displayRunSync.utils.ts, `shared`),
+      // driven `\va` first so `\vp`'s scan and insertion anchor find the healed `\va` wrapper
+      // already in place.
+      editor.registerNodeTransform(VerseNode, (node) => {
+        $syncDisplayRun(displayRunDescriptor("va"), node);
+        $syncDisplayRun(displayRunDescriptor("vp"), node);
+      }),
     );
   }, [editor]);
 }
 
 /**
- * Ensures a TextNode has trailing spacing when needed for inline scripture content.
+ * Maintains the ONE engine-owned structural space in running text: a text run directly before a
+ * verse ends with a space, matching the canonical USJ shape ParatextData itself produces on a
+ * round trip to disk. Every other space is document content the user owns, so the transform adds
+ * nothing anywhere else — spaces it once fabricated before milestones, block unknowns (figures),
+ * table-cell ends, and unmatched closers were bytes the file never had, and under the writer's
+ * no-separators rule each one changed the saved file.
  *
- * The transform does nothing when the node is not editable, already has meaningful trailing
- * whitespace, precedes a note, or is inside or adjacent to CharNode, TypedMarkNode, or UnknownNode
- * content.
+ * It also deletes almost nothing. The one deletion kept is an empty verse's space-only content
+ * (a verse marker immediately precedes the node) — see the comment on `isEmptyVerseContent` for
+ * why that space cannot round-trip and what limits the check. A lone space anywhere else — an
+ * empty paragraph, before a milestone, at the end of a paragraph — is a byte the user or the
+ * source put there and survives.
  *
- * If the node contains only a single space and is not followed by a verse node, that placeholder
- * space is removed instead of preserved. It is also removed when the node is an empty verse's
- * entire content (a verse marker immediately precedes it) — see the comment on
- * `isEmptyVerseContent` for why, and for the limits of that check.
- *
- * Trailing space is not added if the node is the last child of a para-like node.
+ * The exemption early-returns keep the transform away from contexts that own their own spacing:
+ * non-editable nodes, already-spaced text, note/char/typed-mark adjacency, unknown-node content,
+ * adjacent same-run text nodes, inline unknowns (optbreak, ref), and attribute display runs.
  *
  * @param node - TextNode that might need updating.
  */
@@ -86,7 +111,28 @@ function $textNodeTrailingSpaceTransform(node: TextNode): void {
     // won't merge). No structural space belongs inside a run — inserting one corrupts the
     // word itself (#513, complex scripts worst). This also protects a space-only node from
     // the placeholder cleanup below: between two text nodes it is real content.
-    $isTextNode(nextSibling)
+    $isTextNode(nextSibling) ||
+    // An optbreak (`//`) — like a ref — is an inline UnknownNode carrying SIGNIFICANT surrounding
+    // whitespace (Paratext 9 preserves the spaces around `//` byte-for-byte). Forcing a trailing
+    // space onto the text before one — or removing a lone space there — corrupts the authored form
+    // and makes the space impossible to delete (the transform re-adds it every keystroke). Text
+    // adjacent to an inline unknown is left exactly as authored, the same next-sibling exemption
+    // already applied to notes, chars, and typed marks. Block-level unknowns (figures, sidebars)
+    // keep the existing spacing behavior.
+    ($isUnknownNode(nextSibling) && nextSibling.isInlineTag()) ||
+    // An attribute display run (char/milestone/verse — attributeDisplay.utils.ts) is engine-owned
+    // presentation, not paragraph prose: it must never gain a trailing space of its own, even
+    // when it sits directly in a paragraph (a verse's \va/\vp value has no CharNode parent to
+    // exempt it the way a char span's own run is already protected).
+    $getState(node, textTypeState) === "attribute" ||
+    // When a verse's/milestone's run rides inside an AttributeRunNode wrapper (AttributeRunNode.ts,
+    // the shape the adaptor always builds now), its glyph children (MarkerNode, never textType
+    // "attribute") need the same exemption the state-tagged value already gets above — a glyph is
+    // a plain TextNode here, invisible to the state check, but is exactly as much engine-owned
+    // presentation. The transform still exempts whichever shape — loose attribute text or a
+    // wrapper's children — is actually in the tree, so a pre-flip loose editor state stays exempt
+    // too.
+    $isAttributeRunNode(parent)
   )
     return;
 
@@ -108,9 +154,8 @@ function $textNodeTrailingSpaceTransform(node: TextNode): void {
   const isEmptyVerseContent =
     $isSomeVerseNode(node.getPreviousSibling()) && (text === "" || text === " ");
 
-  // Remove space-only placeholders that don't precede a verse, or that are an empty verse's
-  // entire content.
-  if ((text === " " && !$isSomeVerseNode(nextSibling)) || isEmptyVerseContent) {
+  // Remove a space that is an empty verse's entire content.
+  if (isEmptyVerseContent) {
     // Two separate loop protections, BOTH load-bearing — dropping either reintroduces an infinite
     // transform cycle, which Lexical escalates into a crash:
     //   - this `text !== ""` guard stops a self-loop, because `setTextContent` goes through
@@ -123,10 +168,11 @@ function $textNodeTrailingSpaceTransform(node: TextNode): void {
     return;
   }
 
-  // Don't add trailing space if it's the last node in a paragraph-like node.
-  if ($isParaLikeNode(parent) && node.is(parent.getLastChild())) return;
-
-  $addTrailingSpace(node);
+  // The one canonical add. Anything else the next sibling might be — nothing, a milestone, a
+  // block unknown, a table-cell end — canonically has NO engine space before it, so adding one
+  // fabricates a byte. (A node with no next sibling is also how this covers "last child of a
+  // paragraph": there is no verse to space against.)
+  if ($isSomeVerseNode(nextSibling)) $addTrailingSpace(node);
 }
 
 /**
@@ -154,19 +200,22 @@ function $verseNodeTransform(node: SomeVerseNode): void {
   let previousSibling: LexicalNode | null = node.getPreviousSibling();
   while ($isTypedMarkNode(previousSibling)) previousSibling = previousSibling.getLastChild();
 
+  // Insert the structural space ONLY before the predecessors whose canonical disk shape carries
+  // one — an allowlist, not an exclusion list, because every predecessor class outside it
+  // (milestones, block unknowns, notes, attribute runs, marker prefixes) canonically abuts the
+  // verse with NO space, and inserting one there fabricates a byte the file never had. The
+  // exclusion-list form this replaced fabricated exactly that way each time a new node class
+  // appeared (most recently MilestoneNode).
+  //
+  // - A char span before a verse: canonical USJ that ParatextData re-inserts on its own round
+  //   trip — the one predecessor where the space is engine-owned.
+  // - Text inside an annotation wrapper: bare text gets its structural space from
+  //   $textNodeTrailingSpaceTransform, but wrapped text can't (that transform skips
+  //   TypedMarkNode parents), so the space is inserted here instead and coalesces onto the same
+  //   USJ text run.
   if (
-    previousSibling &&
-    !$isSomeVerseNode(previousSibling) &&
-    !$isUnknownNode(previousSibling) &&
-    // Para marker prefixes are presentation scaffolding, not USJ content, so no structural
-    // space belongs after them — and an inserted plain " " would be exporter-visible USJ
-    // content that shifts every content index in the paragraph (see PT-3835). Their visual
-    // separation comes from the prefix nodes' own text.
-    !$isSynthesizedMarkerNode(previousSibling) &&
-    // Bare text before a verse gets its structural space from $textNodeTrailingSpaceTransform;
-    // text inside an annotation wrapper can't (that transform skips TypedMarkNode parents), so
-    // the space is inserted here instead and coalesces onto the same USJ text run.
-    (!$isTextNode(previousSibling) || $isTypedMarkNode(previousSibling.getParent()))
+    $isCharNode(previousSibling) ||
+    ($isTextNode(previousSibling) && $isTypedMarkNode(previousSibling.getParent()))
   )
     node.insertBefore($createTextNode(" "));
 }

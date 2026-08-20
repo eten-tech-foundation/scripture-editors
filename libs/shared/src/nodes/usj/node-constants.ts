@@ -38,6 +38,14 @@ export const SELECTION_CHANGE_TAG = "selection-change";
 export const CURSOR_CHANGE_TAG = "cursor-change";
 export const ANNOTATION_CHANGE_TAG = "annotation-change";
 export const DELTA_CHANGE_TAG = "delta-change";
+/**
+ * Marks a commit that carries Lexical's `HISTORY_MERGE_TAG` yet still CHANGES the document — a
+ * marker-edit settle, which must never become its own undo entry but is a real content change the
+ * host has to see. The merge tag carries two meanings that normally coincide ("do not push a
+ * history entry" and "nothing to report"); this tag is how such a commit says it means only the
+ * first, so USJ-change consumers do not skip it.
+ */
+export const MARKER_SETTLE_TAG = "marker-settle";
 /** Tags that should not be present when handling a USJ change. */
 export const blackListedChangeTags = [
   EXTERNAL_USJ_MUTATION_TAG,

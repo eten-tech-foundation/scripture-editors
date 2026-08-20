@@ -1,0 +1,7 @@
+/** Generated file using `nx generate markers-data` with '<%- usfmStyleUrl %>' */
+
+import { CategoryType, MarkerType, Marker } from './usfmTypes.js';
+
+export const usfmMarkers: { [marker: string]: Marker } = {
+<%- simplifiedDictionaryString %>
+};

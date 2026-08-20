@@ -21,6 +21,7 @@ import {
   $getRoot,
   $getSelection,
   $isElementNode,
+  $isRangeSelection,
   $setSelection,
   BaseSelection,
   LexicalEditor,
@@ -30,12 +31,18 @@ import {
 import { useEffect, useState } from "react";
 import {
   $createBookNode,
+  $createCharNode,
   $createImmutableChapterNode,
+  $createMilestoneNode,
+  $createNoteNode,
   $createParaNode,
+  $createVerseNode,
   $isBookNode,
   getSelectionStartNode,
+  getVisibleOpenMarkerText,
+  ParaNode,
 } from "shared";
-import { $createImmutableVerseNode, usjReactNodes } from "shared-react";
+import { $createImmutableVerseNode, SomeVerseNode, usjReactNodes } from "shared-react";
 
 beforeAll(() => {
   // jsdom has no layout engine, so it never implemented `Range.getBoundingClientRect` (unlike
@@ -78,6 +85,35 @@ let sectionTextNode: TextNode;
 let firstVerseTextNode: TextNode;
 let secondVerseTextNode: TextNode;
 let thirdVerseTextNode: TextNode;
+let chapter1Verse2Text: TextNode;
+let chapter2Verse2Text: TextNode;
+let charVerseFirstTextNode: TextNode;
+let plainVerseTextNode: TextNode;
+let noteVerseMarker: SomeVerseNode;
+let milestoneVerseMarker: SomeVerseNode;
+let charVerseMarker: SomeVerseNode;
+let emptyVerseMarker: SomeVerseNode;
+let noteVersePara: ParaNode;
+let emptyVersePara: ParaNode;
+
+beforeAll(() => {
+  // jsdom's Range lacks getBoundingClientRect; Lexical's post-commit scroll-into-view calls it
+  // when a caret repositioning (the chapter-navigation test below) focuses the editor root.
+  if (!Range.prototype.getBoundingClientRect) {
+    Range.prototype.getBoundingClientRect = () =>
+      ({
+        x: 0,
+        y: 0,
+        width: 0,
+        height: 0,
+        top: 0,
+        right: 0,
+        bottom: 0,
+        left: 0,
+        toJSON: () => ({}),
+      }) as DOMRect;
+  }
+});
 
 describe("ScriptureReferencePlugin", () => {
   const scrRef = { book: "GEN", chapterNum: 1, verseNum: 1 };
@@ -188,6 +224,64 @@ describe("ScriptureReferencePlugin", () => {
       expect(mockOnScrRefChange).toHaveBeenCalled();
     });
 
+    it("should not eject a caret already in the target single verse (non-echo)", async () => {
+      // The live typed-attribute repro: the caret sits mid-content in verse 2 while the user
+      // types; the scrRef echo of that same edit returns targeting verse 2, but arrives too late
+      // to be recognized as an echo (no report was queued here, so it reaches the placement path
+      // directly). Moving the caret to the verse start would eject it out of a freshly typed
+      // marker span, so the trailing bytes land outside the span and never re-tokenize. Already
+      // being in the target verse means "already here" — leave the caret untouched.
+      const { editor, setScrRef } = await testEnvironment(scrRef, mockOnScrRefChange);
+      updateSelection(editor, secondVerseTextNode, 2);
+
+      await setScrRef({ ...scrRef, verseNum: 2 });
+
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(secondVerseTextNode, 2);
+      });
+      expect(mockOnScrRefChange).not.toHaveBeenCalled();
+    });
+
+    it("moves the caret across chapters to the same verse number (chapter-aware no-eject)", async () => {
+      // The no-eject guard must check the CHAPTER, not just the verse number. In a multi-chapter
+      // document, navigating chapter 1 verse 2 -> chapter 2 verse 2 keeps the verse NUMBER but is a
+      // genuine cross-chapter move: a chapter-blind "already in verse 2" guard would wrongly no-op
+      // and strand the caret in chapter 1.
+      const { editor, setScrRef } = await testEnvironment(
+        { book: "GEN", chapterNum: 1, verseNum: 1 },
+        mockOnScrRefChange,
+        $twoChapterState,
+      );
+      updateSelection(editor, chapter1Verse2Text, 2); // caret in chapter 1, verse 2
+
+      await setScrRef({ book: "GEN", chapterNum: 2, verseNum: 2 });
+
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(chapter2Verse2Text, 0); // moved to chapter 2, verse 2 start
+      });
+      expect(mockOnScrRefChange).not.toHaveBeenCalled();
+    });
+
+    it("does not reset the caret when navigating to the SAME chapter and verse (deliberate no-op)", async () => {
+      // The counterpart UX decision (Minor 6): navigating to the verse the caret is already in —
+      // SAME chapter AND verse — must NOT snap the caret to the verse start. Clicking the current
+      // verse leaves a mid-content caret where it is; only a genuine cross-verse or cross-chapter
+      // move repositions it.
+      const { editor, setScrRef } = await testEnvironment(
+        { book: "GEN", chapterNum: 1, verseNum: 1 },
+        mockOnScrRefChange,
+        $twoChapterState,
+      );
+      updateSelection(editor, chapter2Verse2Text, 5); // caret mid-content in chapter 2, verse 2
+
+      await setScrRef({ book: "GEN", chapterNum: 2, verseNum: 2 });
+
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(chapter2Verse2Text, 5); // stayed put — not reset to verse start
+      });
+      expect(mockOnScrRefChange).not.toHaveBeenCalled();
+    });
+
     it("should move the cursor into the start of range", async () => {
       const { editor, setScrRef } = await testEnvironment(scrRef, mockOnScrRefChange);
       updateSelection(editor, firstVerseTextNode, 2);
@@ -222,6 +316,208 @@ describe("ScriptureReferencePlugin", () => {
         $expectSelectionToBe(thirdVerseTextNode, 2);
       });
       expect(mockOnScrRefChange).not.toHaveBeenCalled();
+    });
+
+    // A verse's content does not always begin with text, and verse navigation must land on the
+    // SAME SIDE of whatever it does begin with every time: immediately after the space that follows
+    // the verse number, before a note caller, a char span, or a milestone. Reported from Standard
+    // view in the app — `\v 8 *Layta`, Ctrl+Up onto verse 8, and the caret came to rest to the
+    // RIGHT of the footnote caller because placement walked forward looking for something that
+    // could draw a caret. In Standard view it never has to: the verse marker is itself editable
+    // text (`\v 8 `), so its end is a real text point at exactly that screen location — measured in
+    // the app at x=84.59 with the caller starting at x=87.61, and it is where an ArrowLeft out of
+    // the verse's content already rests.
+    it("rests at the end of the editable verse marker when a collapsed note opens the verse", async () => {
+      const { editor, setScrRef } = await testEnvironment(
+        scrRef,
+        mockOnScrRefChange,
+        $editableVerseContentStartingWithNonTextState,
+      );
+      updateSelection(editor, firstVerseTextNode, 2);
+
+      await setScrRef({ ...scrRef, verseNum: 2 });
+
+      editor.getEditorState().read(() => {
+        // LEFT of the caller. Not inside the note, and not the text past it.
+        $expectSelectionToBe(noteVerseMarker, noteVerseMarker.getTextContentSize());
+      });
+      expect(mockOnScrRefChange).not.toHaveBeenCalled();
+    });
+
+    it("rests at the end of the editable verse marker when a milestone decorator opens the verse", async () => {
+      const { editor, setScrRef } = await testEnvironment(
+        scrRef,
+        mockOnScrRefChange,
+        $editableVerseContentStartingWithNonTextState,
+      );
+      updateSelection(editor, firstVerseTextNode, 2);
+
+      await setScrRef({ ...scrRef, verseNum: 3 });
+
+      editor.getEditorState().read(() => {
+        // Not the element point beside the decorator, which renders no caret, and not the text
+        // beyond it.
+        $expectSelectionToBe(milestoneVerseMarker, milestoneVerseMarker.getTextContentSize());
+      });
+      expect(mockOnScrRefChange).not.toHaveBeenCalled();
+    });
+
+    it("rests at the end of the editable verse marker when a char span opens the verse", async () => {
+      const { editor, setScrRef } = await testEnvironment(
+        scrRef,
+        mockOnScrRefChange,
+        $editableVerseContentStartingWithNonTextState,
+      );
+      updateSelection(editor, firstVerseTextNode, 2);
+
+      await setScrRef({ ...scrRef, verseNum: 4 });
+
+      editor.getEditorState().read(() => {
+        // Before the span's own `\nd` glyph, not inside it — the same screen location, and the one
+        // position that means "the very start of this verse" whatever the verse opens with.
+        $expectSelectionToBe(charVerseMarker, charVerseMarker.getTextContentSize());
+      });
+      expect(mockOnScrRefChange).not.toHaveBeenCalled();
+    });
+
+    it("stops at the next verse marker for an empty verse with an editable marker", async () => {
+      const { editor, setScrRef } = await testEnvironment(
+        scrRef,
+        mockOnScrRefChange,
+        $editableVerseContentStartingWithNonTextState,
+      );
+      updateSelection(editor, firstVerseTextNode, 2);
+
+      await setScrRef({ ...scrRef, verseNum: 5 });
+
+      editor.getEditorState().read(() => {
+        // Nothing but the NEXT verse marker follows, so placement leaves the boundary element point
+        // — and in editable-marker mode Lexical's own selection normalization then resolves that to
+        // the end of this verse's marker, which draws a caret in the right place. Either way the
+        // caret must NOT run on into verse 6's text.
+        $expectSelectionToBe(emptyVerseMarker, emptyVerseMarker.getTextContentSize());
+      });
+      expect(mockOnScrRefChange).not.toHaveBeenCalled();
+    });
+
+    // Every view but Standard/Unformatted renders a verse as a childless `ImmutableVerseNode`
+    // decorator, which cannot host a caret, so the marker's end is not available as a position
+    // there. The rule is the same — never step past what the verse opens with — and it is only the
+    // expression of it that changes.
+    it("places the caret on the verse text when the verse opens with text", async () => {
+      const { editor, setScrRef } = await testEnvironment(
+        scrRef,
+        mockOnScrRefChange,
+        $immutableVerseContentStartingWithNonTextState,
+      );
+      updateSelection(editor, firstVerseTextNode, 2);
+
+      await setScrRef({ ...scrRef, verseNum: 6 });
+
+      editor.getEditorState().read(() => {
+        // The common case, unchanged: offset 0 of the text node that follows the marker.
+        $expectSelectionToBe(plainVerseTextNode, 0);
+      });
+      expect(mockOnScrRefChange).not.toHaveBeenCalled();
+    });
+
+    it("leaves an element point for an empty verse, where the empty-verse caret guard repairs it", async () => {
+      const { editor, setScrRef } = await testEnvironment(
+        scrRef,
+        mockOnScrRefChange,
+        $immutableVerseContentStartingWithNonTextState,
+      );
+      updateSelection(editor, firstVerseTextNode, 2);
+
+      await setScrRef({ ...scrRef, verseNum: 5 });
+
+      editor.getEditorState().read(() => {
+        // Nothing follows the marker, so no node can host the caret; the boundary element point is
+        // exactly the state `EmptyVerseCaretGuardPlugin` detects and repairs with a caret host.
+        // The caret must NOT run on into the next verse looking for text.
+        $expectSelectionToBe(emptyVersePara, 1);
+      });
+      expect(mockOnScrRefChange).not.toHaveBeenCalled();
+    });
+
+    it("descends into a char span that opens the verse when the marker is an immutable decorator", async () => {
+      const { editor, setScrRef } = await testEnvironment(
+        scrRef,
+        mockOnScrRefChange,
+        $immutableVerseContentStartingWithNonTextState,
+      );
+      updateSelection(editor, firstVerseTextNode, 2);
+
+      await setScrRef({ ...scrRef, verseNum: 4 });
+
+      editor.getEditorState().read(() => {
+        // The span's first text is its own start, so this is still the boundary, not past it.
+        $expectSelectionToBe(charVerseFirstTextNode, 0);
+      });
+      expect(mockOnScrRefChange).not.toHaveBeenCalled();
+    });
+
+    it("leaves the boundary element point when a note opens a verse with an immutable marker", async () => {
+      const { editor, setScrRef } = await testEnvironment(
+        scrRef,
+        mockOnScrRefChange,
+        $immutableVerseContentStartingWithNonTextState,
+      );
+      updateSelection(editor, firstVerseTextNode, 2);
+
+      await setScrRef({ ...scrRef, verseNum: 2 });
+
+      editor.getEditorState().read(() => {
+        // A caller is an annotation, never descended into, and nothing before it can carry a text
+        // point once the marker is a decorator — measured in the app, the element point here draws
+        // no caret. Correct side with no caret beats visible caret on the wrong side.
+        $expectSelectionToBe(noteVersePara, 1);
+      });
+      expect(mockOnScrRefChange).not.toHaveBeenCalled();
+    });
+
+    // The host echoes back refs this editor itself reported, but the round trip is slow
+    // (~100-900ms), and the old single-boolean suppression (`hasSelectionChangedRef`) was
+    // OVERWRITTEN by every SELECTION_CHANGE in between — a keystroke that recomputes the same verse
+    // as the (not-yet-echoed) prop clobbered the pending `true` back to `false`, so the late echo
+    // then yanked the caret to the verse/para start mid-typing (observed as the caret ejecting to
+    // the `\s1` glyph ~190ms after typing `\`). The suppression must key on the VALUES this editor
+    // emitted, not on a clobber-prone boolean.
+    it("does not yank the caret when a late self-echo arrives after an intervening selection change", async () => {
+      const { editor, setScrRef } = await testEnvironment(scrRef, mockOnScrRefChange);
+      // Consume the initial move-to-verse-start flag so dispatches below run the BCV logic.
+      await act(async () => {
+        editor.dispatchCommand(SELECTION_CHANGE_COMMAND, undefined);
+      });
+      mockOnScrRefChange.mockClear();
+
+      // 1. Caret into the heading (verse 0 position): the editor reports {GEN 1:0} to the host.
+      updateSelection(editor, sectionTextNode, 2);
+      await act(async () => {
+        editor.dispatchCommand(SELECTION_CHANGE_COMMAND, undefined);
+      });
+      expect(mockOnScrRefChange).toHaveBeenCalledWith(
+        expect.objectContaining({ book: "GEN", chapterNum: 1, verseNum: 0 }),
+      );
+
+      // 2. Before the echo returns, the user types/moves: a SELECTION_CHANGE that computes the
+      // same verse as the still-old prop (verse 1) — this clobbered the old boolean to false.
+      updateSelection(editor, firstVerseTextNode, 2);
+      await act(async () => {
+        editor.dispatchCommand(SELECTION_CHANGE_COMMAND, undefined);
+      });
+
+      // 3. The step-1 echo finally arrives. It is OUR OWN report — the caret must stay put.
+      await setScrRef({ book: "GEN", chapterNum: 1, verseNum: 0 });
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(firstVerseTextNode, 2); // NOT yanked to the heading start
+      });
+
+      // 4. Control: a genuinely external navigation still moves the caret.
+      await setScrRef({ book: "GEN", chapterNum: 1, verseNum: 2 });
+      editor.getEditorState().read(() => {
+        $expectSelectionToBe(secondVerseTextNode, 0);
+      });
     });
 
     it("should report verse 0 when cursor is on verse 1 number (before verse content)", async () => {
@@ -371,6 +667,40 @@ describe("ScriptureReferencePlugin", () => {
       editor.getEditorState().read(() => {
         const selection = $getSelection();
         const startNode = getSelectionStartNodeForTest(selection);
+        expect(startNode?.getTextContent()).toBe("verse nine ");
+      });
+    });
+
+    // Platform.Bible loads ONE CHAPTER at a time, and only chapter 1's USJ carries the book's
+    // opening `\id` line - every other chapter arrives as a document with no BookNode at all. Such
+    // an arrival is still the document the navigation was waiting for, so it must place the caret
+    // exactly like a book-bearing one; otherwise the swap's null selection is what the user is
+    // left with, and the caret simply vanishes on every chapter change.
+    it("places the caret when the arriving chapter document carries no book node", async () => {
+      const { editor, setScrRef } = await testEnvironment(scrRef, mockOnScrRefChange);
+
+      await setScrRef({ book: "GEN", chapterNum: 2, verseNum: 9 });
+      await swapDocument(editor, $bookLessChapter2State);
+      await flushQueuedEvents();
+
+      editor.getEditorState().read(() => {
+        const startNode = getSelectionStartNodeForTest($getSelection());
+        expect(startNode?.getTextContent()).toBe("verse nine ");
+      });
+    });
+
+    // The same document shape on MOUNT: opening the editor directly on any chapter but the first
+    // must still put the caret at the reference, not leave the editor with no selection.
+    it("places the caret on mounting a chapter document that carries no book node", async () => {
+      const { editor } = await testEnvironment(
+        { book: "GEN", chapterNum: 2, verseNum: 9 },
+        mockOnScrRefChange,
+        $bookLessChapter2State,
+      );
+      await flushQueuedEvents();
+
+      editor.getEditorState().read(() => {
+        const startNode = getSelectionStartNodeForTest($getSelection());
         expect(startNode?.getTextContent()).toBe("verse nine ");
       });
     });
@@ -819,6 +1149,70 @@ describe("ScriptureReferencePlugin", () => {
   });
 });
 
+// The caret yank fires from the BookNode "created" mutation listener, not (only) the
+// incoming-scrRef effect — a whole-state external replace (LoadStatePlugin applying the PDP echo
+// of this editor's own edit ~150-250ms after a keystroke) recreates every node, so "created" fires
+// on EVERY echo and repositioned the caret to the verse start mid-typing (and dragged DOM focus out
+// of the footnote popover).
+// Positioning belongs to genuine document changes only: initial load (sanity test above) and
+// book/chapter navigation (control below) — not a same-book+chapter reload.
+describe("BookNode-created cursor positioning vs same-document reloads", () => {
+  const scrRef = { book: "GEN", chapterNum: 1, verseNum: 1 };
+  const mockOnScrRefChange = vi.fn();
+
+  it("does not reposition the caret when an external replace reloads the same book+chapter", async () => {
+    const { editor } = await testEnvironment(scrRef, mockOnScrRefChange);
+    updateSelection(editor, thirdVerseTextNode, 2); // user caret parked mid-verse
+
+    // The PDP echo: replace the whole state with identical content (every node recreated).
+    const sameState = editor.parseEditorState(JSON.stringify(editor.getEditorState().toJSON()));
+    await act(async () => {
+      editor.update(() => editor.setEditorState(sameState), { tag: "external-usj-mutation" });
+    });
+
+    editor.getEditorState().read(() => {
+      // The replace itself parses to a null selection; the mover must NOT re-add one at the
+      // verse start (pre-fix it yanked to "first verse text "@0 here).
+      expect($getSelection()).toBeNull();
+    });
+  });
+
+  it("still positions the caret when the reload is a different chapter (navigation)", async () => {
+    const { editor, setScrRef } = await testEnvironment(scrRef, mockOnScrRefChange);
+    updateSelection(editor, firstVerseTextNode, 2);
+
+    // Navigate: prop moves to chapter 2 first (no-op in the old doc), then the new chapter loads.
+    await setScrRef({ ...scrRef, chapterNum: 2 });
+    // Load chapter-2 content: fresh nodes (BookNode recreated) with a different chapter number.
+    await act(async () => {
+      editor.update(
+        () => {
+          const root = $getRoot();
+          root.clear();
+          root.append(
+            $createBookNode("GEN").append($createTextNode("Test Book")),
+            $createImmutableChapterNode("2"),
+            $createParaNode().append(
+              $createImmutableVerseNode("1"),
+              $createTextNode("chapter two verse "),
+            ),
+          );
+        },
+        { tag: "external-usj-mutation" },
+      );
+    });
+
+    editor.getEditorState().read(() => {
+      const selection = $getSelection();
+      expect(selection).not.toBeNull();
+      expect($isRangeSelection(selection)).toBe(true);
+      if (!$isRangeSelection(selection)) throw new Error("expected a range selection");
+      expect(selection.anchor.getNode().getTextContent()).toBe("chapter two verse ");
+      expect(selection.anchor.offset).toBe(0);
+    });
+  });
+});
+
 function $defaultInitialEditorState() {
   sectionTextNode = $createTextNode("Section Text");
   firstVerseTextNode = $createTextNode("first verse text ");
@@ -833,6 +1227,58 @@ function $defaultInitialEditorState() {
     $createParaNode().append($createImmutableVerseNode("2"), secondVerseTextNode),
     $createParaNode().append($createImmutableVerseNode("3-4"), thirdVerseTextNode),
   );
+}
+
+/**
+ * A GEN chapter whose verses open with something other than text: a collapsed note (verse 2), a
+ * milestone decorator (verse 3), a char span (verse 4), nothing at all (verse 5, an empty verse
+ * whose para continues with verse 6), and plain text (verse 6). Verse-start placement has to answer
+ * each of those.
+ *
+ * `$createVerse` chooses the marker shape, which is what decides where a caret can be drawn at all:
+ * Standard and Unformatted views render a verse as an editable `VerseNode` whose text is literally
+ * `\v 2 `, every other view as a childless `ImmutableVerseNode` decorator.
+ */
+function $appendVerseContentStartingWithNonText($createVerse: (number: string) => SomeVerseNode) {
+  firstVerseTextNode = $createTextNode("first verse text ");
+  charVerseFirstTextNode = $createTextNode("char verse text ");
+  plainVerseTextNode = $createTextNode("plain verse text ");
+  noteVerseMarker = $createVerse("2");
+  milestoneVerseMarker = $createVerse("3");
+  charVerseMarker = $createVerse("4");
+  noteVersePara = $createParaNode().append(
+    noteVerseMarker,
+    $createNoteNode("f", "+", true).append($createTextNode("note body ")),
+    $createTextNode("note verse text "),
+  );
+  emptyVerseMarker = $createVerse("5");
+  emptyVersePara = $createParaNode().append(emptyVerseMarker, $createVerse("6"), plainVerseTextNode);
+
+  $getRoot().append(
+    $createBookNode("GEN").append($createTextNode("Test Book")),
+    $createImmutableChapterNode("1"),
+    $createParaNode().append($createVerse("1"), firstVerseTextNode),
+    noteVersePara,
+    $createParaNode().append(
+      milestoneVerseMarker,
+      $createMilestoneNode("ts-s"),
+      $createTextNode("milestone verse text "),
+    ),
+    $createParaNode().append(charVerseMarker, $createCharNode("nd").append(charVerseFirstTextNode)),
+    emptyVersePara,
+  );
+}
+
+/** The above with Standard view's editable verse markers, whose text is literally `\v N `. */
+function $editableVerseContentStartingWithNonTextState() {
+  $appendVerseContentStartingWithNonText((number) =>
+    $createVerseNode(number, getVisibleOpenMarkerText("v", number)),
+  );
+}
+
+/** The above with the immutable verse decorator every non-editable-marker view renders. */
+function $immutableVerseContentStartingWithNonTextState() {
+  $appendVerseContentStartingWithNonText($createImmutableVerseNode);
 }
 
 /** Same outline as `$defaultInitialEditorState` but with a parameterized book code (for book-sync tests). */
@@ -850,10 +1296,46 @@ function $appendScrRefPluginFixture(bookCode: BookCode | "") {
   );
 }
 
+/** A GEN document holding TWO chapters, each with a verse numbered "2" — so a chapter N verse 2 ->
+ * chapter M verse 2 navigation exercises the chapter dimension of the no-eject guard. */
+function $twoChapterState() {
+  chapter1Verse2Text = $createTextNode("chapter one verse two ");
+  chapter2Verse2Text = $createTextNode("chapter two verse two ");
+  $getRoot().append(
+    $createBookNode("GEN").append($createTextNode("Test Book")),
+    $createImmutableChapterNode("1"),
+    $createParaNode().append(
+      $createImmutableVerseNode("1"),
+      $createTextNode("chapter one verse one "),
+    ),
+    $createParaNode().append($createImmutableVerseNode("2"), chapter1Verse2Text),
+    $createImmutableChapterNode("2"),
+    $createParaNode().append(
+      $createImmutableVerseNode("1"),
+      $createTextNode("chapter two verse one "),
+    ),
+    $createParaNode().append($createImmutableVerseNode("2"), chapter2Verse2Text),
+  );
+}
+
 /** A GEN document holding only chapter 2 (verses 8-10), as a chapter-level load would produce. */
 function $chapter2State() {
   $getRoot().append(
     $createBookNode("GEN").append($createTextNode("Test Book")),
+    $createImmutableChapterNode("2"),
+    $createParaNode().append($createImmutableVerseNode("8"), $createTextNode("verse eight ")),
+    $createParaNode().append($createImmutableVerseNode("9"), $createTextNode("verse nine ")),
+    $createParaNode().append($createImmutableVerseNode("10"), $createTextNode("verse ten ")),
+  );
+}
+
+/**
+ * The same chapter 2, as Platform.Bible actually serves it: a chapter-only document with NO book
+ * node. Only chapter 1's USJ carries the book's opening `\id` line, so every other chapter arrives
+ * unable to name its own book.
+ */
+function $bookLessChapter2State() {
+  $getRoot().append(
     $createImmutableChapterNode("2"),
     $createParaNode().append($createImmutableVerseNode("8"), $createTextNode("verse eight ")),
     $createParaNode().append($createImmutableVerseNode("9"), $createTextNode("verse nine ")),

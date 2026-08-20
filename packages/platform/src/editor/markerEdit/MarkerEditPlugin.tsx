@@ -1,0 +1,1195 @@
+import {
+  $isSelectionInParagraphCharStack,
+  $removeCharFormattingFromSelection,
+  $splitParagraphAtCharStack,
+} from "./charFormatting.utils";
+import {
+  $armCollapsedParaDeletion,
+  $armWholeParaDeletion,
+  $charNodeDeletionTransform,
+  $noteDeletionTransform,
+  $paraMarkerDeletionTransform,
+  $prepareReplaceSelection,
+} from "./markerEditDeletion.utils";
+import {
+  $adoptDomCaretInExpandedNote,
+  $handleEnterInNote,
+  $handlePasteLinesInNote,
+} from "./markerEditNote.utils";
+import {
+  $chapterNodeTransform,
+  $markerNodeTransform,
+  $resolvePendingMarkers,
+  $unmatchedNodeTransform,
+  $verseNodeTransform,
+  MarkerEditContext,
+  SettleReason,
+} from "./markerEditTier1.utils";
+import { $rependPendShapedNodes, $textNodeTier2Transform } from "./markerEditTier2Trigger.utils";
+import {
+  $displayWhitespaceTransform,
+  $handleCopyForStandardView,
+  $handlePasteForStandardView,
+  getPastePayload,
+} from "./whitespaceDisplay.plugin.utils";
+import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
+import { mergeRegister } from "@lexical/utils";
+import {
+  $addUpdateTag,
+  $getNodeByKey,
+  $getSelection,
+  $getState,
+  $isRangeSelection,
+  BLUR_COMMAND,
+  CLICK_COMMAND,
+  COMMAND_PRIORITY_CRITICAL,
+  COMMAND_PRIORITY_HIGH,
+  COMMAND_PRIORITY_LOW,
+  COMMAND_PRIORITY_NORMAL,
+  CONTROLLED_TEXT_INSERTION_COMMAND,
+  COPY_COMMAND,
+  createCommand,
+  CUT_COMMAND,
+  EditorState,
+  HISTORIC_TAG,
+  HISTORY_MERGE_TAG,
+  INSERT_PARAGRAPH_COMMAND,
+  KEY_DOWN_COMMAND,
+  KEY_ENTER_COMMAND,
+  PASTE_COMMAND,
+  LexicalCommand,
+  LexicalEditor,
+  NodeKey,
+  NodeMutation,
+  TextNode,
+} from "lexical";
+import { useEffect, useRef } from "react";
+import {
+  $caretHoldsRunSite,
+  $isAttributeRunNode,
+  $isMilestoneNode,
+  $isChapterNode,
+  $isNoteNode,
+  $isSelectionInMarkerNode,
+  $isVerseNode,
+  $ownerOfRunPiece,
+  $syncAndPendDisplayRun,
+  AttributeRunNode,
+  ChapterNode,
+  CharNode,
+  CURSOR_CHANGE_TAG,
+  DELTA_CHANGE_TAG,
+  displayRunDescriptor,
+  DisplayRunOwnerRef,
+  getMarker as bundledGetMarker,
+  ImmutableTypedTextNode,
+  ImmutableUnmatchedNode,
+  LoggerBasic,
+  MARKER_SETTLE_TAG,
+  MarkerLookup,
+  MarkerNode,
+  MilestoneNode,
+  NBSP,
+  NoteNode,
+  ParaNode,
+  registerPendedDisplayOwners,
+  textTypeState,
+  VerseNode,
+} from "shared";
+import { hasStandardViewWhitespace, ViewOptions } from "shared-react";
+
+/**
+ * The command behind the public `EditorRef.commitPendingMarkerEdits()` method — `Editor.tsx`
+ * dispatches it when a host calls that method. Resolving a pending marker re-tokenizes its
+ * edited text into finished structure; this command resolves every pending marker so the
+ * serialized USJ matches what is on screen. Without it, a marker the user renamed but walked
+ * away from mid-edit stays pending forever and serializes its OLD text.
+ *
+ * The resolve-everything rule has two carve-outs:
+ *
+ * - While the app-placed-caret suppression window is armed (a programmatic scrRef caret move —
+ *   the "yank" — or an undo/redo restore), the ENTIRE pending set stays pending: nothing
+ *   resolves. A forced commit during the window carries no user intent over the restored
+ *   content — the host's debounced pre-save commit fires ~700ms after an undo, and resolving
+ *   then would re-settle the explicitly-undone literal with no user input. Pending literals
+ *   serialize as literal bytes, which ParatextData parses, so the save stays correct; the
+ *   user's next in-editor gesture (click/keystroke) releases the window and settling resumes.
+ * - Outside the window, the one exception is the node under the live caret — kept pending only
+ *   while the editor holds DOM focus (a mid-typing pause must not settle under the user); an
+ *   abandoned (blurred) edit settles fully.
+ *
+ * The caller's own obligations (e.g. do not call while a marker palette is open) are documented
+ * on `EditorRef.commitPendingMarkerEdits`.
+ */
+export const COMMIT_PENDING_MARKERS_COMMAND: LexicalCommand<void> = createCommand(
+  "COMMIT_PENDING_MARKERS_COMMAND",
+);
+
+/**
+ * Runs `settle` inside the surrounding commit and marks that commit as a settle: it merges into
+ * the current history entry, and it still reports itself to USJ-change consumers.
+ *
+ * A SETTLE IS NEVER ITS OWN UNDO ENTRY. Undo undoes what the USER did — a typed character, a
+ * deletion — never a settle, so every settle joins the history entry of the edit that provoked it
+ * and one Ctrl+Z takes the edit and its settle away together, landing on the content the user had
+ * before that edit.
+ *
+ * Two things this replaces, both worth keeping in view. Only a settle that changed NOTHING used to
+ * merge: a resolve pass that merely refused (a re-pended degradation literal after an undo, a
+ * canonical attribute run) changes nothing visible, yet each refused rebuild probe still creates
+ * parse orphans that count as dirty leaves — untagged, that commit pushes an undo entry restoring
+ * an identical-looking document (one dead Ctrl+Z press) and wipes the redo stack. Still true, and
+ * subsumed here. A settle that DID change something kept its own entry so undo could restore the
+ * pre-settle literal bytes; that argument is weaker now that openers and closers are editable in
+ * place, since a mistyped marker is corrected directly rather than by undoing back to a literal.
+ * Weaker, not gone — the literal form is still the only way to edit some shapes as raw bytes, and
+ * accepting that cost is a deliberate trade for an undo stack holding only user actions.
+ *
+ * The second tag is not decoration: the merge tag alone reads as "nothing to report" to
+ * USJ-change consumers, and `DeltaOnChangePlugin` skips merge-tagged commits. Without it the
+ * settled bytes would never refresh the cached USJ or reach the host as a delta, and the document
+ * on screen would diverge from the document saved.
+ *
+ * Mutating: call inside `editor.update()`, and ONLY where the update carries nothing but the
+ * settle — the tag merges the whole commit, so an update that also carries a user edit (the
+ * Enter path) must call the resolve directly instead.
+ */
+function $settleWithoutOwnUndoEntry<T>(settle: () => T): T {
+  const settled = settle();
+  $addUpdateTag(HISTORY_MERGE_TAG);
+  $addUpdateTag(MARKER_SETTLE_TAG);
+  return settled;
+}
+
+/**
+ * How many deferred settles may MUTATE back-to-back, with no user gesture between them, before the
+ * engine stops settling and leaves the document pending.
+ *
+ * A healthy settle mutates once — the rebuild splices, the freshly built nodes re-arm the
+ * transforms, and the follow-up resolve refuses at the fixed point. Chained scopes can legitimately
+ * take a few more. Nothing legitimate approaches this bound, and reaching it means a scope is
+ * rebuilding to a genuinely different structure every pass, which the fixed-point refusal cannot
+ * stop by construction. This is the BACKSTOP, not a fix: it converts a frozen application into a
+ * logged warning and an unsettled document, whose pending literals still serialize as bytes
+ * ParatextData parses. Anything that trips it is a defect to find and remove.
+ */
+const MAX_SETTLE_CASCADE_DEPTH = 8;
+
+/**
+ * How long the user must be IDLE — no keystroke, click, or other non-suppressed commit — before
+ * the engine settles pending marker edits in place, INCLUDING the node the caret is parked in.
+ * This is the second settle clock (Paratext 9's debounced-reformat delay); the caret-departure
+ * clock (the deferred microtask resolve below) is the first, and by design never settles the
+ * caret's own node. The DEFAULT only — hosts override it per instance via the
+ * `markerSettleDelayMs` prop below (`EditorOptions.markerSettleDelayMs` on the public surface).
+ * Exported for tests.
+ */
+export const IDLE_SETTLE_DELAY_MS = 1000;
+
+/**
+ * Sync and pend every run `node` owns (the shared `$syncAndPendDisplayRun` helper,
+ * displayRunSync.utils.ts): the sync leaves a caret-held divergence alone, and the matching pend
+ * lets caret departure settle it ($resolvePendingMarkers) — without it a run would silently
+ * resurrect from the owner's still-set state on the next unrelated dirtying. A verse owns two
+ * independent runs (`\va`, `\vp`) that must be driven in that order — `\vp`'s scan and insertion
+ * anchor both depend on `\va`'s wrapper already being in place — and a milestone owns one.
+ *
+ * Shared by the VerseNode/MilestoneNode/NoteNode transforms and the MarkerNode/AttributeRunNode
+ * re-drives below — both of the latter re-drive this off shared's `$ownerOfRunPiece`
+ * (displayRunOwner.utils.ts): a verse's or milestone's run rides as the owner's FOLLOWING
+ * SIBLINGS (a milestone is a DecoratorNode and a verse is itself a TextNode, so neither can hold
+ * the run as children), and a note's `\cat` run rides as its CHILDREN after the caller — either
+ * way, an edit that touches only a piece INSIDE the run — or a wrapper, or a glyph riding LOOSE —
+ * dirties that piece/wrapper, not the owner, whose own transform would then never fire. Running
+ * this off the dirtied piece gives a run-only edit the pend path it needs.
+ *
+ * A complete but still-LOOSE run (byte-correct, just not yet migrated into its `AttributeRunNode`
+ * wrapper) pends too: the shared driver's `$runDiverges` counts the pending wrap migration itself
+ * as a divergence, so `$caretHoldsRunSite` reports it caret-held and this pends it for the
+ * departure settle to finish.
+ */
+function $syncAndPendOwner(
+  node: VerseNode | MilestoneNode | NoteNode | ChapterNode,
+  context: MarkerEditContext,
+): void {
+  const kinds = $isVerseNode(node)
+    ? (["va", "vp"] as const)
+    : $isMilestoneNode(node)
+      ? (["milestone"] as const)
+      : $isNoteNode(node)
+        ? (["cat"] as const)
+        : // A chapter's two runs must be driven in this order — `\cp`'s scan and insertion
+          // anchor both depend on `\ca`'s wrapper already being in place, the same dependency
+          // a verse's `\vp` has on `\va`.
+          (["ca", "cp"] as const);
+  for (const kind of kinds)
+    $syncAndPendDisplayRun(displayRunDescriptor(kind), node, context.pendingKeys);
+}
+
+/**
+ * The engine's arming half for a display run whose piece was DESTROYED: the four mutation-listener
+ * registrations and the shared handler they all use. Composed into the plugin's `mergeRegister` in
+ * the position its registration order requires; the returned teardown unregisters all four.
+ */
+function registerDestroyedOwnerPend(editor: LexicalEditor, context: MarkerEditContext): () => void {
+  // Deletion driver, arming half: a locally-destroyed display-run piece pends its OWNER, read
+  // from the previous state — deletion intent comes from the destruction itself, never from
+  // caret geometry (the per-kind caret heuristics the transforms apply only recognize specific
+  // in-progress caret shapes; a caret left in a shape they don't recognize — e.g. an element-point
+  // selection after a run is removed — let the self-healing sync resurrect the "deleted" run
+  // from the owner's still-set state). Mutation listeners fire once a commit has already been
+  // fully reconciled, so this catches the CROSS-commit case (a deletion whose commit doesn't
+  // itself dirty the owner) and serves as the general, node-kind-agnostic sweep; a char span's
+  // run is additionally caught SAME-commit, order-independently of which plugin's transforms
+  // run first, directly inside the sync's own decision path ($syncDisplayRun with the char
+  // descriptor, displayRunSync.utils.ts) — this listener's char coverage is therefore mostly
+  // redundant with that (harmless: both write into the same Set) except where this listener
+  // sees a destroyed run piece the sync's own removal produced (see the still-wanted guard
+  // below).
+  // HISTORIC (undo/redo) commits re-pend by re-scanning the RESTORED state directly
+  // ($rependPendShapedNodes) — reacting to their destroyed-node diff here as well would just
+  // duplicate that work against a state the restore itself, not a user edit, produced. A
+  // DELTA_CHANGE_TAG commit applies a remote collab update, not a local deletion. An owner
+  // destroyed in the SAME commit (a whole-construct deletion, or a Tier-2 splice that replaces
+  // the owner outright) needs no pend — there is nothing left to settle.
+  const $pendOwnersOfDestroyed = (
+    mutations: Map<NodeKey, NodeMutation>,
+    payload: { updateTags: Set<string>; prevEditorState: EditorState },
+  ) => {
+    if (payload.updateTags.has(HISTORIC_TAG) || payload.updateTags.has(DELTA_CHANGE_TAG)) return;
+    const destroyedRuns: DisplayRunOwnerRef[] = [];
+    payload.prevEditorState.read(() => {
+      for (const [key, mutation] of mutations) {
+        if (mutation !== "destroyed") continue;
+        const destroyed = $getNodeByKey(key);
+        if (!destroyed) continue;
+        const ref = $ownerOfRunPiece(destroyed);
+        if (ref) destroyedRuns.push({ owner: ref.owner, kind: ref.kind });
+      }
+    });
+    if (destroyedRuns.length === 0) return;
+    editor.getEditorState().read(() => {
+      for (const { owner: previousOwner, kind } of destroyedRuns) {
+        const owner = $getNodeByKey(previousOwner.getKey());
+        if (!owner?.isAttached()) continue;
+        // A sync's OWN legitimate heal-removal (the owner's state no longer calls for a run) is
+        // also a "destroyed" mutation here. Only pend when the owner's CURRENT state still wants
+        // the run: a genuine clear must settle quietly rather than sit pended — and so exempted
+        // from healing — until an unrelated caret departure. Keyed on the DESTROYED run's own
+        // kind, so clearing a verse's `\va` never blocks its still-set `\vp` from healing, and a
+        // milestone (whose glyph pair is unconditional) is never exempted at all.
+        if (!displayRunDescriptor(kind).expectedPieces(owner).wantsRun) continue;
+        context.pendingKeys.add(owner.getKey());
+      }
+    });
+  };
+  return mergeRegister(
+    // Registered for the four node classes a display-run piece (or a whole run
+    // wrapper) can be — a plain TextNode (a char span's `|…` run, a verse's `\va`/`\vp` value, a
+    // milestone's attribute text), a MarkerNode (a run's opening/closing glyphs, which
+    // subclasses TextNode), an ImmutableTypedTextNode (a visible/hidden-mode milestone run's
+    // DecoratorNode form), or an AttributeRunNode (the wrapper itself, destroyed as a whole —
+    // $ownerOfRunPiece, displayRunOwner.utils.ts, recognizes this shape directly).
+    // Lexical dispatches mutation listeners by exact node type — MarkerNode being a TextNode
+    // subclass does not make the TextNode registration see it, mirroring the transform dispatch
+    // the TextNode catch-all transform's own comment documents — so each class needs its own
+    // registration.
+    editor.registerMutationListener(TextNode, $pendOwnersOfDestroyed),
+    editor.registerMutationListener(MarkerNode, $pendOwnersOfDestroyed),
+    editor.registerMutationListener(ImmutableTypedTextNode, $pendOwnersOfDestroyed),
+    editor.registerMutationListener(AttributeRunNode, $pendOwnersOfDestroyed),
+  );
+}
+
+/**
+ * The engine's three `PASTE_COMMAND` claims — the in-note `\fp` break at CRITICAL, the
+ * character-stack line replay at HIGH, and the paragraph-split arm at LOW. Kept together because
+ * they race on one command and their priorities are what keeps them apart; composed into the
+ * plugin's `mergeRegister` in the position that ordering requires (the standard-view NBSP
+ * normalization at HIGH is registered BEFORE this, and the char-stack claim relies on it). The
+ * returned teardown unregisters all three.
+ */
+function registerPasteNormalization(
+  editor: LexicalEditor,
+  context: MarkerEditContext,
+  isStandardView: boolean,
+): () => void {
+  return mergeRegister(
+    editor.registerCommand(
+      PASTE_COMMAND,
+      (event) => {
+        // Inside EXPANDED note content a pasted line break is an `\fp` (footnote-paragraph)
+        // break — the same break Enter makes there — never a paragraph split: the generic
+        // fall-through would let @lexical/clipboard's per-newline `insertParagraph()` (or its
+        // html branch's node insertion) split the paragraph THROUGH the (inline, non-block)
+        // note, threading `\p` paragraphs into the footnote. So multi-line pastes whose
+        // selection touches an expanded note are claimed and replayed with note semantics.
+        //
+        // Registered at COMMAND_PRIORITY_CRITICAL: with structure protection on (the
+        // Simple-mode default) StructureKeyboardPlugin handles PASTE at HIGH and
+        // sanitize-inserts any html-bearing payload before a lower-priority claim could run —
+        // but an `\fp` break edits NOTE CONTENT, not document structure, so the in-note claim
+        // must win. Outranking the standard-view NBSP normalization at HIGH is fine because
+        // the claim applies the same NBSP → `~` display mapping itself (below).
+        //
+        // The claim covers editor-internal rich pastes (application/x-lexical-editor) too:
+        // an internal copy of multi-paragraph text replays REAL paragraph nodes, which
+        // inside a note is the very split this claim prevents — its text/plain lines become
+        // `\fp` breaks like any other source's. Outside notes (and for single-line pastes)
+        // the note gate declines and internal pastes keep their rich node semantics.
+        // Hence no `payload.isInternal` guard here, unlike the two claims below.
+        const payload = getPastePayload(event);
+        if (!payload) return false;
+        const pastedText = payload.text;
+        if (pastedText.includes("\n")) {
+          // Standard view: a pasted data-NBSP takes its `~` display form here, exactly as
+          // `$handlePasteForStandardView` does for the pastes that reach it — inserted raw
+          // it is indistinguishable from a display-NBSP (a plain space in a run), so
+          // serialization would corrupt it into a plain space. A pasted literal `~` is
+          // already the display form and passes through in both paths.
+          const noteText = isStandardView ? pastedText.replaceAll(NBSP, "~") : pastedText;
+          const lines = noteText.split("\n");
+          let outcome = $handlePasteLinesInNote(lines, context.getMarker);
+          if (outcome === "declined" && $adoptDomCaretInExpandedNote(editor)) {
+            // The editor-state caret had strayed from the user-visible one (a live paste is
+            // dispatched async — ClipboardPlugin reads the clipboard first — and selection
+            // processing in that gap can park the state caret outside the note, observed on
+            // the popover wrapper's marker glyph). The DOM caret was inside expanded note
+            // content, so it was adopted; re-run the claim against it.
+            outcome = $handlePasteLinesInNote(lines, context.getMarker);
+          }
+          if (outcome === "handled") {
+            // Same contract as the Enter handler: claiming must also preventDefault the DOM
+            // event itself, or the browser's native paste still lands after Lexical's
+            // (preventDefault-issuing) RichText handler is bypassed.
+            event?.preventDefault();
+            return true;
+          }
+          // "needs-plain-split" falls through with the selection removal already applied:
+          // the caret's note did not survive, so the rest of the paste is the ordinary
+          // paragraph-splitting insertion below — exactly the outside-note behavior.
+        }
+        return false;
+      },
+      COMMAND_PRIORITY_CRITICAL,
+    ),
+    editor.registerCommand(
+      PASTE_COMMAND,
+      (event) => {
+        // A multi-line plain-text paste at a caret inside a character-style stack has to close
+        // and reopen that stack at every line break, exactly as Enter does. It cannot get there
+        // on its own: @lexical/clipboard inserts the lines with a bare `selection.insertParagraph()`
+        // between them, never INSERT_PARAGRAPH_COMMAND, so the INSERT_PARAGRAPH_COMMAND handler
+        // never sees it and the
+        // generic inline split tears the span — closing marker gone, and every line after the
+        // first landing OUTSIDE the reopened style because `insertParagraph` ends by selecting the
+        // new block's start.
+        //
+        // Claimed narrowly and replayed as the same two steps the user would have performed by
+        // hand: text, then the command. Only multi-line, since a single line never splits; only
+        // inside a stack, so every other paste is left exactly as it was; and never an INTERNAL
+        // rich paste, whose real nodes carry structure a line replay would flatten. text/plain is
+        // authoritative when present, falling back to the decoded text/html — some sources (word
+        // processors, browsers) ship html alone, and those pastes otherwise reach the generic
+        // split and tear the span. Inside a stack that trade is worth it, the same call the
+        // in-note claim above makes.
+        //
+        // At HIGH, and registered AFTER the standard-view NBSP normalization at the same
+        // priority, which claims any paste carrying an NBSP and so never reaches this.
+        const payload = getPastePayload(event);
+        if (!payload || payload.isInternal || !payload.text) return false;
+        const lines = payload.text.split("\n");
+        if (lines.length < 2) return false;
+        if (!$isSelectionInParagraphCharStack()) return false;
+        event?.preventDefault();
+        const selection = $getSelection();
+        if ($isRangeSelection(selection) && !selection.isCollapsed()) selection.removeText();
+        lines.forEach((line, index) => {
+          // The split goes through the command so it takes that handler's char-stack path and arms
+          // `splitExpected` for the paragraph transform, exactly as Enter does.
+          if (index > 0) editor.dispatchCommand(INSERT_PARAGRAPH_COMMAND, undefined);
+          if (line === "") return;
+          const lineSelection = $getSelection();
+          if ($isRangeSelection(lineSelection)) lineSelection.insertText(line);
+        });
+        return true;
+      },
+      COMMAND_PRIORITY_HIGH,
+    ),
+    editor.registerCommand(
+      PASTE_COMMAND,
+      () => {
+        // A multi-line paste splits paragraphs WITHOUT the Enter path: @lexical/clipboard's
+        // text/plain handling calls `selection.insertParagraph()` directly per newline (never
+        // INSERT_PARAGRAPH_COMMAND), so the INSERT_PARAGRAPH_COMMAND handler can't arm the flag
+        // for it. Arm it here instead — the whole paste (RichText's handler runs below this
+        // one, at COMMAND_PRIORITY_EDITOR) lands in the same update, so every fresh
+        // prefix-less paragraph it creates gets its marker prefix injected instead of being
+        // read as marker-deleted and merged straight back into the paragraph above (a paste
+        // of three lines collapsed into one). The plugin's update listener resets the flag after
+        // the commit, exactly as for Enter. Kept at LOW — BELOW the handlers at HIGH — so a
+        // paste consumed there never arms the flag, exactly as before the in-note claim moved
+        // up to CRITICAL.
+        context.splitExpected.current = true;
+        return false;
+      },
+      COMMAND_PRIORITY_LOW,
+    ),
+  );
+}
+
+/**
+ * The Standard-view marker-editing engine. Tier 1 node
+ * transforms keep structural state in sync with edited marker text; completion
+ * commands (Enter/blur) resolve mid-edit markers; deletion transforms
+ * handle marker-prefix removal (para merge, char unwrap); Ctrl+Space
+ * strips character formatting at the caret/selection; Tier 2 re-tokenization
+ * handles everything else. Active only when markers are editable text.
+ */
+export function MarkerEditPlugin({
+  viewOptions,
+  getMarker,
+  logger,
+  markerSettleDelayMs,
+}: {
+  viewOptions: ViewOptions | undefined;
+  /** Project StyleInfo-backed lookup; defaults to the bundled table. */
+  getMarker?: MarkerLookup;
+  logger?: LoggerBasic;
+  /**
+   * Idle-settle delay override in milliseconds. `undefined` uses the default
+   * ({@link IDLE_SETTLE_DELAY_MS}); `0` arms the idle clock with zero delay — the same
+   * commit-adjacent cadence as the caret-departure settle, on the timer clock; a negative value
+   * (canonically `-1`) disables the idle clock entirely, so pending edits settle only on caret
+   * departure, Enter, blur, or a forced commit — the behavior before the idle clock existed.
+   */
+  markerSettleDelayMs?: number;
+}): null {
+  const [editor] = useLexicalComposerContext();
+  const isEnabled = viewOptions?.markerMode === "editable";
+  // The standard-view whitespace transform + clipboard normalization travel with the editable
+  // marker engine, so they must be active whenever editable markers are on in a spaced+formatted
+  // view — for expanded notes too, not only the named `standard` (collapsed) mode. Still gated
+  // separately from the rest of this plugin so they do not leak into Unformatted view. Derived in
+  // render scope (not inside the registration effect) so it can key that effect: a boolean, so a
+  // re-render carrying a NEW viewOptions object with the SAME whitespace-ness never re-registers.
+  const isStandardView = !!viewOptions && hasStandardViewWhitespace(viewOptions);
+
+  // The marker-edit engine's live state — its pending set and (critically) the app-placed-caret
+  // suppression window — lives on ONE persistent context that outlives re-renders. It is created
+  // once per registration (below) and only its WIRING (viewOptions/getMarker/logger) is refreshed
+  // per render. Recreating it on every render — which the old single effect did by listing the
+  // prop IDENTITIES in its deps — reset the suppression window and, because re-registering the node
+  // transforms marks every existing node dirty, re-fired the transforms over the whole document.
+  // After an undo that left a literal pending, a host re-render with a fresh viewOptions/getMarker/
+  // logger identity (e.g. the re-render a scrRef echo triggers ~100-200ms later) therefore
+  // re-settled the just-undone literal with NO user gesture — the "undo re-settles ~1s later" bug.
+  // The window must release only on a real in-editor gesture (KEY_DOWN/CLICK), never on a re-render.
+  const contextRef = useRef<MarkerEditContext | undefined>(undefined);
+
+  // The idle-settle delay is wiring exactly like viewOptions/getMarker/logger: the registration
+  // effect must not depend on it (a changed delay must not tear the engine down or reset the
+  // suppression window), so `armIdleSettle` reads it through this ref at every arm — a change
+  // takes effect on the next arm, never re-arming an already-ticking timer.
+  const markerSettleDelayRef = useRef(markerSettleDelayMs);
+
+  // Refresh the wiring on the live context every render, without tearing the engine down. The
+  // registration effect below deliberately does NOT depend on these values, so an identity-only
+  // prop change reaches the transforms through this mutation instead of through a re-registration.
+  useEffect(() => {
+    markerSettleDelayRef.current = markerSettleDelayMs;
+    const context = contextRef.current;
+    if (!context) return;
+    if (viewOptions) context.viewOptions = viewOptions;
+    context.getMarker = getMarker ?? bundledGetMarker;
+    context.logger = logger;
+  }, [viewOptions, getMarker, logger, markerSettleDelayMs]);
+
+  useEffect(() => {
+    if (!isEnabled || !viewOptions) return;
+    const context: MarkerEditContext = {
+      viewOptions,
+      getMarker: getMarker ?? bundledGetMarker,
+      pendingKeys: new Set<NodeKey>(),
+      splitExpected: { current: false },
+      wholeParaDeleteExpected: new Set<NodeKey>(),
+      collapsedDeleteCaretParas: new Set<NodeKey>(),
+      rebuildAttempted: new Set<string>(),
+      logger,
+    };
+    contextRef.current = context;
+    // Publishes the live pending set to the self-healing display syncs through a side channel.
+    // Every attribute-run kind now runs through the ONE shared driver, `$syncDisplayRun`
+    // (displayRunSync.utils.ts, `shared`), parameterized by its own descriptor; only the
+    // REGISTRATION differs by kind — `char` from CharNodePlugin and `va`/`vp` from
+    // TextSpacingPlugin (both `shared-react`), `milestone` and `va`/`vp` again from this plugin's
+    // own transforms below. The driver lives below the engine in the module graph and cannot
+    // import it directly, but must still leave a pended owner's run alone instead of resurrecting
+    // a deletion the engine has not settled yet.
+    const unregisterPended = registerPendedDisplayOwners(editor, context.pendingKeys);
+    // Tracks the caret's node key as of the most recent commit — keyed off the selection FOCUS
+    // (the live cursor end, so it stays correct even for a backward range selection), updated
+    // synchronously by the update listener below (which never lags, unlike command handlers
+    // re-entered from Lexical's async native-DOM selectionchange handling). Read again at
+    // resolution time so the deferred resolution below always excepts the node the caret is
+    // CURRENTLY in. (Named `*AnchorKey` for historical reasons; the value is the focus/caret node.)
+    let lastAnchorKey: NodeKey | undefined;
+    // True while the live caret was placed by a programmatic scrRef sync — the CURSOR_CHANGE
+    // caret move ScriptureReferencePlugin makes to follow the active scripture reference, which
+    // the comments below call a "yank" — and NOT yet re-established by user input. The runtime
+    // smoke proved the CURSOR_CHANGE tag-skip alone is insufficient — the yank ejects
+    // the caret to the para's marker glyph, then a FOLLOW-ON untagged commit (Lexical's own
+    // selectionchange reconcile) sees the caret off the pending node and resolves it → paragraph
+    // split. Suppressing resolution across that whole app-placed window (until real user input)
+    // keeps the just-typed literal alive. Cleared by the KEY_DOWN and CLICK handlers below
+    // (a mouse click is user intent just like a keystroke — a keydown-only clear would leave the
+    // window open across mouse-only interaction).
+    let appPlacedCaret = false;
+    // Anchor of the most recent commit (tagged or not) — the tagged-branch "did this commit move
+    // the caret" comparison. Distinct from lastAnchorKey, which deliberately ignores tagged/
+    // app-placed moves (it feeds the BLUR except-the-user's-node fallback).
+    let lastCommitAnchorKey: NodeKey | undefined;
+    // One pending-marker resolution queued at a time; disposed on effect cleanup.
+    let resolveQueued = false;
+    let disposed = false;
+    // Deferred settles that MUTATED back-to-back with no user gesture between them — the
+    // termination backstop for the deferred resolve/rebuild cascade (see
+    // MAX_SETTLE_CASCADE_DEPTH). Reset by any real in-editor gesture, so the bound is per
+    // gesture rather than per session, and by any settle that changed nothing (the cascade
+    // reached its fixed point and stopped on its own).
+    let settleCascadeDepth = 0;
+    /**
+     * True — and warns — when the cascade backstop is tripped. Fail safe, loudly: the caller
+     * returns without mutating, which produces no commit, so nothing re-queues and the cascade
+     * ends here; the pending keys stay pending and settle on the user's next gesture, which
+     * resets the depth. The warning names the surviving pends because the scope that keeps
+     * rebuilding is always among them. Shared by both settle clocks so they cannot drift.
+     */
+    const settleCascadeExceeded = () => {
+      if (settleCascadeDepth < MAX_SETTLE_CASCADE_DEPTH) return false;
+      context.logger?.warn(
+        `[MarkerEdit] settle cascade exceeded ${MAX_SETTLE_CASCADE_DEPTH} consecutive ` +
+          `mutating passes; leaving ${context.pendingKeys.size} node(s) pending. This is a ` +
+          `rebuild that never reaches a fixed point — pending keys: ` +
+          `${[...context.pendingKeys].join(", ")}`,
+      );
+      return true;
+    };
+    /**
+     * The ONE deferred-settle computation, shared by both clocks (they differ only in
+     * `exceptKey` and `settleReason`): re-enter through a fresh top-level `editor.update()` and
+     * resolve. `settleReason` "idle" — the idle clock's expiry — additionally drops the
+     * caret-POSITION grace arms inside the resolve (see `SettleReason`), because a full idle
+     * period means no gesture is in progress at the held site. Only ever called from a fresh
+     * macrotask/microtask, never synchronously from a listener.
+     */
+    const settlePendingNow = (
+      exceptKey: NodeKey | undefined,
+      settleReason: SettleReason = "departure",
+    ) => {
+      editor.update(() => {
+        const mutated = $settleWithoutOwnUndoEntry(() =>
+          $resolvePendingMarkers(context, exceptKey, settleReason),
+        );
+        settleCascadeDepth = mutated ? settleCascadeDepth + 1 : 0;
+      });
+    };
+    // The idle debounce — the SECOND settle clock. Re-armed (a full delay from now) by every
+    // non-suppressed commit via the update listener below, and by the same gestures that reset
+    // `settleCascadeDepth` (the KEY_DOWN and CLICK handlers). An expiry runs the SAME settle
+    // computation the caret-departure clock runs, but with NO except-key: after a full idle
+    // period even the node under the caret settles — PT9's debounced reformat, which the
+    // departure clock by design never performs. The callback runs on a fresh macrotask, so
+    // re-entering through a top-level `editor.update()` (inside `settlePendingNow`) follows the
+    // same discipline as the deferred microtask below — never `editor.update` from a listener.
+    let idleSettleTimer: ReturnType<typeof setTimeout> | undefined;
+    const armIdleSettle = () => {
+      if (idleSettleTimer !== undefined) clearTimeout(idleSettleTimer);
+      idleSettleTimer = undefined;
+      if (disposed || context.pendingKeys.size === 0) return;
+      const delay = markerSettleDelayRef.current ?? IDLE_SETTLE_DELAY_MS;
+      // A negative delay (canonically -1) turns the idle clock OFF: the timer armed above was
+      // cleared and nothing re-arms, so only the departure/Enter/blur/forced-commit paths
+      // settle — the pre-idle-clock behavior. Zero is a real delay: the clock fires on the
+      // next timer tick after the arming commit, commit-adjacent like the departure microtask.
+      if (delay < 0) return;
+      idleSettleTimer = setTimeout(() => {
+        idleSettleTimer = undefined;
+        if (disposed || context.pendingKeys.size === 0) return;
+        // The app-placed-caret window binds this clock exactly as it binds the departure and
+        // forced-commit clocks: an idle expiry carries no user intent over restored/yanked
+        // content, and a timer armed BEFORE the window opened (typing, then an undo or a
+        // scrRef yank) would otherwise re-settle the very literal the window exists to
+        // protect. No re-arm here — the window releases only on a real gesture
+        // (KEY_DOWN/CLICK), and those gestures re-arm.
+        if (appPlacedCaret) return;
+        // Deliberately NO isComposing() guard: none of the other settle paths carry one (the
+        // departure clock settles non-anchor pends during a composition today), and every
+        // settle trigger must run the same computation under the same conditions — a guard only
+        // one clock applies is exactly the clock divergence that rule forbids. If
+        // mid-composition settling needs suppressing, it belongs in the SHARED computation,
+        // decided with a real-IME repro.
+        if (settleCascadeExceeded()) return;
+        settlePendingNow(undefined, "idle");
+      }, delay);
+    };
+    const unregister = mergeRegister(
+      editor.registerNodeTransform(MarkerNode, (node) => {
+        if (editor.isComposing()) return;
+        $markerNodeTransform(node, context);
+        // A run can ride loose for one transient commit — heal-forward wraps `\va` and `\vp`
+        // independently, so mid-edit caret-grace on one marker can leave the other unwrapped. A
+        // dirtied loose glyph is the only signal its owner's run changed: the verse itself stays
+        // clean, and there is no wrapper to dirty. Unlike the retired opener-only walk this
+        // replaced, a dirtied loose `\va*`/`\vp*` CLOSER now also re-drives the owner here too —
+        // harmless, since the sync's heal/pend decisions are caret- and divergence-gated and
+        // idempotent, so the extra invocation is either a no-op or legitimate earlier healing,
+        // matching the destruction-listener path's own closer-inclusive classification. A note's
+        // loose `\cat` glyphs and a chapter's loose `\ca` glyphs re-drive their owners the same
+        // way.
+        const ref = $ownerOfRunPiece(node);
+        if (ref && ($isVerseNode(ref.owner) || $isNoteNode(ref.owner) || $isChapterNode(ref.owner)))
+          $syncAndPendOwner(ref.owner, context);
+      }),
+      editor.registerNodeTransform(VerseNode, (node) => {
+        if (editor.isComposing()) return;
+        $verseNodeTransform(node, context);
+        // Same grace/pend pairing for a deleted or diverged \va/\vp attribute run
+        // (displayRunSync.utils.ts): while the caret holds a run's site, the sync leaves it alone,
+        // so pend the verse here for the caret-departure settle — otherwise a full-run deletion
+        // never re-tokenizes and the sync just re-derives the run from the still-set
+        // altnumber/pubnumber (the deletion silently undoes itself). $syncAndPendOwner also
+        // re-runs the sync itself here — redundant with TextSpacingPlugin's own VerseNode
+        // transform in the same pass, but idempotent, so the verse's grace/pend pairing lives in
+        // exactly one place regardless of which transform a given commit happens to dirty.
+        $syncAndPendOwner(node, context);
+      }),
+      editor.registerNodeTransform(ChapterNode, (node) => {
+        if (editor.isComposing()) return;
+        $chapterNodeTransform(node);
+        // Self-healing `\ca` alternate-number run + the grace/pend pairing, the same shape the
+        // NoteNode transform below carries for `\cat`.
+        if (node.isAttached()) $syncAndPendOwner(node, context);
+      }),
+      editor.registerNodeTransform(ParaNode, (node) => {
+        if (editor.isComposing()) return;
+        $paraMarkerDeletionTransform(node, context);
+      }),
+      editor.registerNodeTransform(CharNode, (node) => {
+        if (editor.isComposing()) return;
+        $charNodeDeletionTransform(node, context);
+        // Pend only — do NOT sync here. The char kind's sync has exactly one registration home,
+        // CharNodePlugin.tsx (shared-react); this engine owns only the pend half for chars —
+        // unlike VerseNode/MilestoneNode, which have no other unconditional registration home
+        // and so are synced AND pended here. That is not just a style choice: several test
+        // hosts mount this engine WITHOUT CharNodePlugin (e.g. markerEdit.test-helpers.tsx's
+        // `testEnvironment`), so calling $syncDisplayRun here too would derive/clear runs on
+        // those hosts that today never get one — a real behavior change, not a free convergent
+        // no-op. Whatever the char span owns and CharNodePlugin's own sync left alone under
+        // caret-grace — its opener separator, its attribute display run — still pends here for
+        // the caret-departure settle.
+        for (const kind of ["separator", "char"] as const) {
+          if (node.isAttached() && $caretHoldsRunSite(displayRunDescriptor(kind), node))
+            context.pendingKeys.add(node.getKey());
+        }
+      }),
+      // Self-healing milestone display run (the shared $syncDisplayRun driver,
+      // displayRunSync.utils.ts, parameterized by the milestone descriptor): a `MilestoneNode`
+      // exists in every markerMode, so — unlike CharNode/VerseNode, whose editable-only node types
+      // make an ungated shared-react plugin registration safe — this sync is registered HERE, gated by
+      // this whole plugin's markerMode-"editable" check, so visible/hidden mode's
+      // ImmutableTypedTextNode-based milestone runs (built by the adaptor, never edited) are never
+      // touched. Same grace/pend pairing as the char/verse cases: while the caret holds the run's
+      // site — inside the attribute text (reachable when a remote collab update changes
+      // sid/eid/unknownAttributes while the local caret is mid-editing that same run), or at a
+      // just-deleted run's insertion point (the run is the milestone's entire byte
+      // representation, so deleting all of it must delete the milestone, not resurrect the run)
+      // — the sync leaves it alone and the milestone is pended for the caret-departure settle
+      // ($resolvePendingMarkers).
+      editor.registerNodeTransform(MilestoneNode, (node) => {
+        if (editor.isComposing()) return;
+        $syncAndPendOwner(node, context);
+      }),
+      editor.registerNodeTransform(AttributeRunNode, (node) => {
+        if (editor.isComposing()) return;
+        // A piece INSIDE the wrapper being edited or removed dirties the WRAPPER, not the leaf
+        // owner: a DecoratorNode-based MilestoneNode, a following-sibling-shaped verse run, and a
+        // note's child-positioned `\cat` run would otherwise never notice. Re-drive the owner's
+        // own sync/pend off the wrapper.
+        const ref = $ownerOfRunPiece(node);
+        if (!ref) return;
+        if (
+          $isMilestoneNode(ref.owner) ||
+          $isVerseNode(ref.owner) ||
+          $isNoteNode(ref.owner) ||
+          $isChapterNode(ref.owner)
+        )
+          $syncAndPendOwner(ref.owner, context);
+      }),
+      editor.registerNodeTransform(NoteNode, (node) => {
+        if (editor.isComposing()) return;
+        $noteDeletionTransform(node, context);
+        // Self-healing `\cat` category run + the grace/pend pairing, exactly the shape the
+        // MilestoneNode transform above uses: a NoteNode exists in every markerMode, so the cat
+        // sync is registered HERE, gated by this whole plugin's markerMode-"editable" check —
+        // collapsed notes and visible/hidden modes are never touched (the descriptor's
+        // expectedPieces additionally refuses collapsed notes, so even an editable collapsed note
+        // never grows a run).
+        $syncAndPendOwner(node, context);
+      }),
+      // Unmatched-marker bytes are editable text in this mode; their edits pend and settle
+      // exactly like closer-glyph edits (see $unmatchedNodeTransform). Its own registration —
+      // Lexical dispatches transforms by exact node type, so neither the TextNode catch-all
+      // below nor the MarkerNode transform above ever fires for this subclass.
+      editor.registerNodeTransform(ImmutableUnmatchedNode, (node) => {
+        if (editor.isComposing()) return;
+        $unmatchedNodeTransform(node, context);
+      }),
+      // Plain-TextNode catch-all for typed/pasted literal backslash sequences (Tier 2).
+      // Lexical dispatches transforms by exact node type, so this never fires for
+      // MarkerNode/VerseNode subclasses — TextSpacingPlugin relies on the same fact.
+      editor.registerNodeTransform(TextNode, (node) => {
+        if (editor.isComposing()) return;
+        $textNodeTier2Transform(node, context);
+      }),
+      // Plain TextNodes can't emit a DOM class from node state the way
+      // ImmutableTypedTextNode does in createDOM(), so a char span's own `|…` attribute run
+      // (textType "attribute") renders without the `.attribute` dim-until-hover styling that PT9
+      // applies. DOM-only decoration from OUTSIDE the update cycle reconciles it post-render — no
+      // editor.update here, since mutating state from inside a mutation listener risks a cascading
+      // update loop. skipInitialization: false so nodes already in the initial editor state (not
+      // just later edits) get the class too.
+      //
+      // A value riding INSIDE an AttributeRunNode wrapper (a verse's \va/\vp value, or a
+      // milestone's attribute text) is styled entirely by the WRAPPER's own DOM class
+      // (AttributeRunNode.createDOM: "attribute-run" always — dim, matching plain `.attribute` —
+      // plus "usfm_va"/"usfm_vp" for those two runKinds, PT9's green/blue superscript). `color`
+      // and `font-size` are both inherited properties, so they cascade from the wrapper down to
+      // its children for free; adding a class DIRECTLY to the value here would fight that
+      // inheritance rather than add to it — a rule that targets an element directly always wins
+      // over an inherited value, no matter how much lower its own specificity is than the
+      // ancestor's rule, so a wrapped value that ALSO carried its own `.attribute`/`usfm_va` class
+      // silently reverted a verse's green/blue value back to plain dim gray, and doubled the
+      // wrapper's own font-size/vertical-align on top of an identical direct copy of the same
+      // rule (this is the shape the mutation listener used to build BEFORE wrapping landed, kept
+      // unintentionally after — the wrapper's own class was always meant to be the run's ONLY
+      // styling source). Skip any value whose parent is a wrapper entirely; only a genuinely
+      // UNWRAPPED value still needs its own class here — a char span's own run, which never gets
+      // a wrapper at all (a leaf CharNode's attribute run lives inside it as ordinary children,
+      // per AttributeRunNode.ts). A verse/milestone value the heal-forward sync has not yet
+      // wrapped (mid-edit grace defers the wrap the same way it defers a content fix —
+      // attributeDisplay.utils.ts) gets only the generic dim `.attribute` class below, not the
+      // marker-specific `usfm_va`/`usfm_vp` superscript coloring, until the wrap lands — a brief,
+      // imperceptible gap in a transient shape nothing at rest builds anymore.
+      editor.registerMutationListener(
+        TextNode,
+        (mutations) => {
+          editor.getEditorState().read(() => {
+            for (const [key, mutation] of mutations) {
+              if (mutation === "destroyed") continue;
+              const node = $getNodeByKey<TextNode>(key);
+              if (!node || $getState(node, textTypeState) !== "attribute") continue;
+              if ($isAttributeRunNode(node.getParent())) continue;
+              editor.getElementByKey(key)?.classList.add("attribute");
+            }
+          });
+        },
+        { skipInitialization: false },
+      ),
+      registerDestroyedOwnerPend(editor, context),
+      // Standard-view-only whitespace display invariant and clipboard
+      // normalization. Gated separately from the rest of this plugin (which is
+      // markerMode-gated and also active in Unformatted view) — must not leak there.
+      ...(isStandardView
+        ? [
+            editor.registerNodeTransform(TextNode, (node) => {
+              if (editor.isComposing()) return;
+              $displayWhitespaceTransform(node);
+            }),
+            editor.registerCommand(
+              COPY_COMMAND,
+              (event) =>
+                $handleCopyForStandardView(
+                  // COPY_COMMAND's payload is `ClipboardEvent | KeyboardEvent | null`. A plain
+                  // `event instanceof ClipboardEvent` narrows this correctly in real browsers,
+                  // but jsdom (our test environment) doesn't implement `ClipboardEvent` at all —
+                  // `instanceof` against the undefined global throws — so this duck-checks the
+                  // one property `$handleCopyForStandardView` actually needs instead.
+                  event && typeof event === "object" && "clipboardData" in event ? event : null,
+                  editor,
+                  false,
+                ),
+              COMMAND_PRIORITY_HIGH,
+            ),
+            editor.registerCommand(
+              CUT_COMMAND,
+              (event) =>
+                $handleCopyForStandardView(
+                  event && typeof event === "object" && "clipboardData" in event ? event : null,
+                  editor,
+                  true,
+                ),
+              COMMAND_PRIORITY_HIGH,
+            ),
+            editor.registerCommand(
+              PASTE_COMMAND,
+              (event) =>
+                $handlePasteForStandardView(
+                  // Same jsdom-safe duck-check as COPY above.
+                  event && typeof event === "object" && "clipboardData" in event
+                    ? (event as ClipboardEvent)
+                    : null,
+                ),
+              COMMAND_PRIORITY_HIGH,
+            ),
+          ]
+        : []),
+      editor.registerCommand(
+        CUT_COMMAND,
+        () => {
+          // Cutting a whole paragraph is the same whole-representation deletion as the delete
+          // keys — arm the paragraph reap from the pre-cut selection. CRITICAL so it runs ahead
+          // of whichever handler performs the removal (the standard-view CUT claim at HIGH, or
+          // Lexical's own at EDITOR); never claims the event.
+          $armWholeParaDeletion(context);
+          return false;
+        },
+        COMMAND_PRIORITY_CRITICAL,
+      ),
+      editor.registerCommand(
+        CONTROLLED_TEXT_INSERTION_COMMAND,
+        () => {
+          // Typing over a glyph-touching selection performs the delete half here (see
+          // $prepareReplaceSelection). NORMAL priority: below structure protection's HIGH block
+          // (a protected selection must be refused before anything deletes it), above the
+          // default insertion at EDITOR; never claims the command.
+          if (editor.isComposing()) return false;
+          $prepareReplaceSelection(context);
+          return false;
+        },
+        COMMAND_PRIORITY_NORMAL,
+      ),
+      editor.registerCommand(
+        CLICK_COMMAND,
+        () => {
+          // A mouse click re-establishes user intent over the caret, ending the app-placed
+          // suppression window opened by a scrRef-sync yank — same contract as KEY_DOWN below.
+          // Without this, literals typed before a yank could never settle via a mouse-only
+          // caret departure.
+          appPlacedCaret = false;
+          settleCascadeDepth = 0;
+          // A gesture is user activity: push the idle settle clock back a full delay (the
+          // same reset points as settleCascadeDepth).
+          armIdleSettle();
+          return false;
+        },
+        COMMAND_PRIORITY_LOW,
+      ),
+      editor.registerCommand(
+        KEY_DOWN_COMMAND,
+        (event: KeyboardEvent) => {
+          // Any real keystroke re-establishes user intent over the caret, ending the app-placed
+          // suppression window opened by a scrRef-sync yank. Runs for every keydown,
+          // ahead of the Ctrl+Space handling below.
+          appPlacedCaret = false;
+          settleCascadeDepth = 0;
+          // A gesture is user activity: push the idle settle clock back a full delay (the
+          // same reset points as settleCascadeDepth).
+          armIdleSettle();
+          // Deletion driver, paragraph arms: record — from the still-intact selection, before
+          // Lexical's own delete handling runs at lower priority — which paragraphs this delete
+          // gesture covers whole (selection arm), or which paragraph the collapsed caret sits
+          // in (collapsed arm: a backspace chain that empties it dissolves it), so the
+          // paragraph transform can reap them by provenance. Never claims the key.
+          if (event.key === "Backspace" || event.key === "Delete") {
+            $armWholeParaDeletion(context);
+            $armCollapsedParaDeletion(context);
+          }
+          // Ctrl+Space collides with the composition trigger of several IMEs (Chinese/Japanese
+          // input methods bind it to switch or commit), so mid-composition the keystroke belongs
+          // to the IME, not to us: acting on it would restructure character spans under a
+          // selection the user is still assembling, and the composition would then commit into
+          // whatever the split left behind. Decline and let it through — the same guard every
+          // node transform in this plugin applies, for the same reason.
+          if (editor.isComposing()) return false;
+          if (!event.ctrlKey || event.altKey || event.shiftKey || event.metaKey) return false;
+          if (event.key !== " " && event.code !== "Space") return false;
+          // Only claim the keystroke (preventDefault + return true) when we actually acted;
+          // otherwise let it fall through untouched (e.g. no range selection).
+          if (!$removeCharFormattingFromSelection()) return false;
+          event.preventDefault();
+          return true;
+        },
+        COMMAND_PRIORITY_HIGH,
+      ),
+      editor.registerCommand(
+        KEY_ENTER_COMMAND,
+        (event) => {
+          // PT9 SmartEnter: Enter inside expanded note content starts an `\fp`
+          // footnote-paragraph span instead of splitting the (inline, non-block) note; Enter
+          // inside marker glyph text is swallowed (complete the marker, don't split).
+          //
+          // Whenever this handler CLAIMS the key (returns true), it must also preventDefault the
+          // DOM event itself: returning true suppresses Lexical's RichText
+          // KEY_ENTER handler — including the preventDefault RichText would have issued — so
+          // without this the BROWSER's native contenteditable Enter still splits the DOM and
+          // Lexical reconciles that into a real paragraph split. Invisible in jsdom (no native
+          // editing engine); live it split the footnote popover's wrapper paragraph with the
+          // caret genuinely inside the note. Deriving `claimed` once keeps the preventDefault and
+          // the return value from drifting apart as claim paths are added. `||` preserves the
+          // ordering: `$handleEnterInNote` runs (and may edit the note) first; the in-marker
+          // check only runs when the note path declined.
+          const noteOutcome = $handleEnterInNote();
+          // The note path removed a selection but left the caret with no intact note at it
+          // (a boundary-crossing range, or the removal destroyed the note's opening glyph):
+          // Enter finishes as a NORMAL paragraph split. Claiming the key bypasses RichText's
+          // KEY_ENTER — which would have dispatched exactly this — so dispatch it here: the
+          // INSERT_PARAGRAPH handler below sets `splitExpected` and RichText's own handler
+          // performs the split, giving the new paragraph its marker prefix instead of letting
+          // the paragraph transform merge it straight back.
+          if (noteOutcome === "needs-plain-split")
+            editor.dispatchCommand(INSERT_PARAGRAPH_COMMAND, undefined);
+          const claimed = noteOutcome !== "declined" || $isSelectionInMarkerNode();
+          if (claimed) event?.preventDefault();
+          // Deliberately NOT wrapped in `$settleWithoutOwnUndoEntry`: this update already carries
+          // the user's own Enter, so it IS the entry the settle belongs in. Merging here would
+          // fold the Enter itself into the previous entry and cost the user a separate undo for
+          // the keystroke they actually pressed.
+          $resolvePendingMarkers(context);
+          return claimed;
+        },
+        COMMAND_PRIORITY_HIGH,
+      ),
+      editor.registerCommand(
+        INSERT_PARAGRAPH_COMMAND,
+        () => {
+          context.splitExpected.current = true; // consumed by $paraMarkerDeletionTransform below
+          // A caret inside character-styled text needs the style stack closed on the left and
+          // reopened in the new paragraph. The generic rich-text split builds a glyph-less
+          // continuation span instead, which the deletion transform then unwraps — the tail comes
+          // out unformatted with its closing markers gone. Claiming the command performs the whole
+          // split here so the generic one never runs on this shape.
+          return $splitParagraphAtCharStack();
+        },
+        COMMAND_PRIORITY_HIGH,
+      ),
+      registerPasteNormalization(editor, context, isStandardView),
+      editor.registerCommand(
+        COMMIT_PENDING_MARKERS_COMMAND,
+        () => {
+          // While the app-placed-caret window is armed (a scrRef-sync yank or an undo/redo
+          // restore), a forced pre-save commit carries no user intent over the restored content —
+          // the same guard the BLUR handler below applies. The host's debounced PDP save dispatches
+          // this ~700ms after an undo; resolving here would re-tokenize the explicitly-undone
+          // literal behind the user's back (the caret has departed the literal — e.g. an ArrowUp
+          // before the undo — so the caret-node exception below cannot protect it), re-settling it
+          // with no user input. Leave the re-pended literal pending: it serializes as literal bytes
+          // ParatextData parses, and the user's next in-editor gesture (click/keystroke) releases
+          // the window so a genuine departure settles it.
+          if (appPlacedCaret) return true;
+          // See the command's doc comment. The rule is "resolve every pending marker"; the one
+          // exception is the node the caret is in — kept pending so we never settle a marker the
+          // user is still editing. Compute that exception only while the editor holds DOM focus:
+          // a live mid-typing pause must not settle under the user, but an abandoned (blurred)
+          // edit has no such node and settles fully. The window guard above already returned for
+          // every app-placed caret, so a caret here is one the user placed: read it from the live
+          // selection, falling back to `lastAnchorKey` when a cross-frame blur nulled the
+          // selection (same fallback the BLUR handler uses).
+          const rootElement = editor.getRootElement();
+          const doc = rootElement?.ownerDocument;
+          const hasFocus =
+            !!rootElement && !!doc && doc.hasFocus() && rootElement.contains(doc.activeElement);
+          let exceptKey: NodeKey | undefined;
+          if (hasFocus) {
+            const selection = $getSelection();
+            // Focus, not anchor: the focus point is the caret's live end, so the exception is
+            // the right node even when a range selection is extended backward.
+            exceptKey = $isRangeSelection(selection) ? selection.focus.key : lastAnchorKey;
+          }
+          $settleWithoutOwnUndoEntry(() => $resolvePendingMarkers(context, exceptKey));
+          return true;
+        },
+        COMMAND_PRIORITY_LOW,
+      ),
+      editor.registerCommand(
+        BLUR_COMMAND,
+        () => {
+          // While the app-placed-caret window is armed (a scrRef-sync yank or an undo/redo
+          // restore), focus loss carries no user intent over the restored content: clicking
+          // ANOTHER PANEL right after an undo would otherwise re-settle the explicitly-undone
+          // literal behind the user's back. The literal stays pending — it serializes as
+          // literal bytes, which ParatextData parses — and the user's next in-editor gesture
+          // (click or keystroke) releases the window so departure/blur settle normally again.
+          if (appPlacedCaret) return false;
+          // Focus loss resolves pending markers, with the same exception as the command above:
+          // the node the caret is still parked in stays pending. Clicking a marker-menu item (or
+          // any host overlay taking focus) blurs the editor while the caret still sits in the
+          // menu's own literal `\...` trigger text; resolving THAT node here would re-tokenize
+          // the literal into structure before the menu's apply can consume it (observed
+          // corruption: `the wic\ked,` became an unknown-marker paragraph whose prefix glyph then
+          // absorbed the "ked," remainder as phantom marker text). The caret's own node still
+          // finishes later — via Enter or the caret moving away.
+          //
+          // A real cross-frame blur — clicking a renderer-overlay palette item outside the editor
+          // iframe — can null Lexical's live selection before this handler runs, leaving no
+          // selection to read the exception from. Falling back to `undefined` would resolve EVERY
+          // pending, including the literal the palette is about to replace (the exact corruption
+          // this guard prevents), so fall back to `lastAnchorKey` — the last committed caret node,
+          // which the update listener preserves through null-selection commits.
+          const selection = $getSelection();
+          const anchorKey = $isRangeSelection(selection) ? selection.focus.key : lastAnchorKey;
+          $settleWithoutOwnUndoEntry(() => $resolvePendingMarkers(context, anchorKey));
+          return false;
+        },
+        COMMAND_PRIORITY_LOW,
+      ),
+      editor.registerUpdateListener(({ editorState, tags }) => {
+        context.splitExpected.current = false;
+        context.wholeParaDeleteExpected?.clear();
+        context.collapsedDeleteCaretParas?.clear();
+        context.rebuildAttempted.clear();
+        // Typing path: ScriptureReferencePlugin's async scrRef echo re-enters
+        // `$moveCursorToVerseStart` and yanks the caret to the para/verse start via
+        // `editor.update(..., { tag: CURSOR_CHANGE_TAG })` ~90-190ms after a keystroke (timeline:
+        // `\` lands, caret sits in the pending literal, then the caret is pulled
+        // to the `\s1` glyph start). That is a PROGRAMMATIC cursor move, NOT a user caret departure,
+        // so it must not update the tracked anchor nor queue resolution — otherwise the just-typed
+        // literal is force-settled and the paragraph splits (`\p \` autosaved to disk). The popover
+        // footnote editor has no ScriptureReferencePlugin, which is why it never raced in QA. This
+        // FALSIFIES the "blur nulls the selection" hypothesis for the typing path: QA confirmed focus
+        // never leaves the editor there; the cross-frame-blur null path is a separate, click-only
+        // actor handled by the BLUR handler's lastAnchorKey fallback above.
+        //
+        // The tag only rides on the yank commit itself; the runtime smoke proved a FOLLOW-ON untagged
+        // commit then resolves the pending. So mark the caret app-placed here and keep suppressing
+        // resolution (below) until the user's next keystroke or mouse click clears the flag — not
+        // just for this one commit.
+        const anchorKey = editorState.read(() => {
+          const selection = $getSelection();
+          return $isRangeSelection(selection) ? selection.focus.key : undefined;
+        });
+        // "Did THIS commit move the caret to a different node" — tracked per commit (tagged or
+        // not) so the tagged-branch comparison below is never stale. NOT read from
+        // prevEditorState inside this listener: entering another state's read() here taints
+        // Lexical's active-state bookkeeping mid-commit and stalls the deferred resolution's
+        // microtask (observed as departure settles never firing in jsdom — same frozen-state
+        // hazard family as the frozen-state bugs documented below).
+        const prevCommitAnchorKey = lastCommitAnchorKey;
+        lastCommitAnchorKey = anchorKey;
+        if (tags.has(HISTORIC_TAG)) {
+          // Undo/redo: Lexical restores this state via setEditorState, which never runs node
+          // transforms — so a restored literal (an undone settle's `\nd …\nd*` bytes, a closed
+          // span's `|attrs` text, a diverged glyph or attribute run) would never re-pend itself,
+          // and caret departure would settle NOTHING, leaving it literal forever (reviving only
+          // when typed inside). Re-derive the pend set from the restored bytes with a strictly
+          // READ-ONLY scan: keys land in the plain pendingKeys Set, no node is mutated, so this
+          // commit produces no history entry and the undo/redo stacks stay intact. Stale keys
+          // are cleared first — they describe the pre-restore document, and a leftover key
+          // pointing at a now-canonical node would drive a pointless refused rebuild later.
+          context.pendingKeys.clear();
+          editorState.read(() => $rependPendShapedNodes(context));
+          // The restored caret is app-placed (history put it there, not a fresh user gesture),
+          // and a historic restore is NOT a departure: resolving now — or on any follow-on
+          // bookkeeping commit — would re-settle the just-undone literal immediately, making
+          // the undo look dead and burying the user's next undo under the re-settle (the undo
+          // trap). Arm the same suppression window the scrRef yank uses; the user's next
+          // keystroke or mouse click clears it, and the normal departure settle takes over.
+          appPlacedCaret = true;
+          // Keep the anchor fresh so the BLUR/Enter except-the-user's-node fallbacks and the
+          // next departure comparison read the restored caret, not a pre-undo one.
+          if (anchorKey !== undefined) lastAnchorKey = anchorKey;
+          return;
+        }
+        if (tags.has(CURSOR_CHANGE_TAG)) {
+          // Narrowing: arm the suppression window only when the tagged commit
+          // actually MOVED the caret to a different node — an app-placed yank. Tagged commits
+          // that leave the anchor where it was (or carry no selection) are bookkeeping, not
+          // yanks; arming on them re-opened the window after every echo cycle and, combined with
+          // the mouse-only-clear residual, could freeze departure settling indefinitely.
+          if (anchorKey !== undefined && anchorKey !== prevCommitAnchorKey) appPlacedCaret = true;
+          return;
+        }
+        // Caret still sits where the scrRef sync parked it (no user input since): a follow-on move is
+        // not a user departure, so don't advance the anchor or resolve anything.
+        if (appPlacedCaret) return;
+        // Keep the last REAL anchor when the selection goes null (a cross-frame blur clears the DOM
+        // selection): a null selection is "don't know where the caret is", not a departure, so it
+        // must not clobber the anchor the BLUR handler falls back to. Only an observed move to a real
+        // selection advances it.
+        if (anchorKey !== undefined) lastAnchorKey = anchorKey;
+        // Every non-suppressed commit re-arms the idle settle clock: the pending set may have
+        // just changed, and a commit is evidence of activity, so the full delay restarts from
+        // here. (An empty pending set clears the timer instead — nothing to settle.) The
+        // suppressed paths above — historic restores, CURSOR_CHANGE yanks, and any commit
+        // inside the app-placed window — deliberately never arm: an idle settle needs a real
+        // user gesture somewhere behind it.
+        armIdleSettle();
+        // PT9's debounced reformat completes a marker once the user moves on; our
+        // deterministic equivalent resolves pendings the caret is no longer in, keyed off
+        // every commit here rather than off SELECTION_CHANGE_COMMAND — Lexical's native
+        // selectionchange dispatch is async (a browser/DOM event) and, in headless/test
+        // environments especially, isn't guaranteed to fire promptly (or at all), while a
+        // caret move IS a commit, so this listener never misses a departure. An absent
+        // selection (no RangeSelection at all, e.g. before the editor has ever been
+        // focused) is not evidence the caret left a pending node — only an *observed* move
+        // to somewhere else counts, so pendings stay untouched until it's known where the
+        // caret actually is.
+        //
+        // The resolution is deferred to a microtask and re-entered through a fresh
+        // top-level editor.update(): this listener runs INSIDE $commitPendingUpdates,
+        // after the just-committed state (and, in dev builds, its selection and node map)
+        // is frozen. Mutating synchronously from here can execute against that frozen
+        // state and throw — reachable in production because a commit can be force-flushed
+        // MID-dispatch by any SELECTION_CHANGE handler calling editor.read() (e.g.
+        // OnSelectionChangePlugin), leaving this listener's dispatch to short-circuit into
+        // the committed state (the frozen-state bugs documented above). The microtask runs before any further
+        // input event, so completion stays deterministic. (Not editor.update() directly in
+        // the listener — that nests a queued update mid-commit; see the repo rule.)
+        //
+        // Termination guarantee: resolving a pending key ALWAYS deletes it from
+        // `pendingKeys` first, then requests a Tier 2 rebuild. The rebuild either (a)
+        // makes real progress — producing a structurally different paragraph, whose new
+        // nodes may re-add a key, but that is genuine forward motion, not a cycle — or (b)
+        // is a fixed point, in which case `$rebuildParas` refuses and mutates nothing, so
+        // the deferred update commits nothing, this listener doesn't fire again, and
+        // nothing re-queues. Either way `pendingKeys` cannot grow without a corresponding
+        // structural change, so the resolve/rebuild cascade terminates. (An earlier
+        // version claimed the set shrinks monotonically; that was false — the fixed-point
+        // refusal is the real guarantee.)
+        //
+        // Gate on THIS commit's real anchor (`anchorKey`), not the preserved `lastAnchorKey`: a
+        // null-selection commit (anchorKey === undefined) is not an observed departure, so it queues
+        // nothing even though lastAnchorKey still points at the user's node. The BLUR handler, not
+        // this deferred path, does the final sweep when focus is genuinely lost.
+        if (resolveQueued || anchorKey === undefined) return;
+        if (![...context.pendingKeys].some((key) => key !== anchorKey)) return;
+        resolveQueued = true;
+        queueMicrotask(() => {
+          resolveQueued = false;
+          if (disposed) return;
+          if (settleCascadeExceeded()) return;
+          // lastAnchorKey is re-read here: if further commits landed before this microtask,
+          // the freshest anchor wins (never except a node the caret has already left).
+          settlePendingNow(lastAnchorKey);
+        });
+      }),
+    );
+    return () => {
+      disposed = true;
+      if (idleSettleTimer !== undefined) clearTimeout(idleSettleTimer);
+      idleSettleTimer = undefined;
+      unregisterPended();
+      unregister();
+      contextRef.current = undefined;
+    };
+    // Keyed on STABLE values only: `editor`, and the two booleans that decide which listeners are
+    // registered. viewOptions/getMarker/logger are deliberately excluded — they are wiring,
+    // refreshed onto the persistent context by the effect above, and listing them here would tear
+    // the engine down and reset the app-placed-caret window on every identity-only re-render (the
+    // undo re-settle bug documented on `contextRef`). A genuine mode change (editable⇄non-editable,
+    // or whitespace on/off) flips one of the booleans and re-registers as before.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor, isEnabled, isStandardView]);
+
+  return null;
+}

@@ -1,5 +1,6 @@
-/** Generated file using `nx generate markers-data` with 'https://raw.githubusercontent.com/ubsicap/usfm/refs/heads/master/sty/usfm.sty' */
+/** Generated file using `nx generate markers-data` with 'tools/usfm-markers/src/generators/markers-data/data/usfm.sty' */
 
+/** @public */
 export enum CategoryType {
   FileIdentification = "FileIdentification",
   Headers = "Headers",
@@ -24,13 +25,16 @@ export enum CategoryType {
   Uncategorized = "Uncategorized",
 }
 
+/** @public */
 export enum MarkerType {
   Paragraph = "Paragraph",
   Character = "Character",
   Note = "Note",
+  Milestone = "Milestone",
   Unknown = "Unknown",
 }
 
+/** @public */
 export interface Marker {
   category: CategoryType;
   type: MarkerType;

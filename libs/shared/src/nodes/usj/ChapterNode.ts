@@ -173,9 +173,9 @@ export class ChapterNode extends ElementNode {
     return dom;
   }
 
-  override updateDOM(): boolean {
-    // Returning false tells Lexical that this node does not need its
-    // DOM element replacing with a new copy from createDOM.
+  override updateDOM(prevNode: this, dom: HTMLElement): boolean {
+    if (prevNode.__number !== this.__number) dom.setAttribute("data-number", this.__number);
+    // Returning false keeps the existing DOM element (children reconcile independently).
     return false;
   }
 

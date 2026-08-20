@@ -1,5 +1,6 @@
 import {
   $createImmutableNoteCallerNode,
+  defaultCrossRefCallers,
   defaultNoteCallers,
   ImmutableNoteCallerNode,
 } from "../../nodes/usj/ImmutableNoteCallerNode";
@@ -20,6 +21,7 @@ import {
 import {
   $createCharNode,
   $createImmutableChapterNode,
+  $createMarkerNode,
   $createNoteNode,
   $createParaNode,
   $isCharNode,
@@ -27,6 +29,7 @@ import {
   $isParaNode,
   EMPTY_CHAR_PLACEHOLDER_TEXT,
   GENERATOR_NOTE_CALLER,
+  getEditableCallerText,
   NBSP,
   NoteNode,
 } from "shared";
@@ -37,6 +40,12 @@ let firstVerseTextNode: TextNode;
 let firstNoteNode: NoteNode;
 let secondNoteNode: NoteNode;
 let thirdNoteNode: NoteNode;
+let noteCallersRule: CounterStyleRuleLike;
+let crossRefCallersRule: CounterStyleRuleLike;
+
+const DEFAULT_NOTE_CALLERS_SYMBOLS =
+  '"a" "b" "c" "d" "e" "f" "g" "h" "i" "j" "k" "l" "m" "n" "o" "p" "q" "r" "s" "t" "u" "v" "w" "x" "y" "z"';
+const DEFAULT_CROSS_REF_CALLERS_SYMBOLS = '"†"';
 
 function $createFootnoteNode(caller: string, reference: string, text: string) {
   const footnoteNode = $createNoteNode("f", GENERATOR_NOTE_CALLER);
@@ -69,15 +78,19 @@ function $defaultInitialEditorState() {
 }
 
 beforeAll(() => {
-  const fakeRule: CounterStyleRuleLike = {
+  noteCallersRule = {
     name: "note-callers",
-    symbols:
-      '"a" "b" "c" "d" "e" "f" "g" "h" "i" "j" "k" "l" "m" "n" "o" "p" "q" "r" "s" "t" "u" "v" "w" "x" "y" "z"',
+    symbols: DEFAULT_NOTE_CALLERS_SYMBOLS,
+    type: 11, // CSSRule.COUNTER_STYLE_RULE
+  };
+  crossRefCallersRule = {
+    name: "cross-ref-callers",
+    symbols: DEFAULT_CROSS_REF_CALLERS_SYMBOLS,
     type: 11, // CSSRule.COUNTER_STYLE_RULE
   };
   const fakeStyleSheet = {
-    cssRules: [fakeRule],
-    rules: [fakeRule],
+    cssRules: [noteCallersRule, crossRefCallersRule],
+    rules: [noteCallersRule, crossRefCallersRule],
   };
   styleSheetsSpy = vi
     .spyOn(document, "styleSheets", "get")
@@ -90,6 +103,12 @@ afterAll(() => {
   if (styleSheetsSpy) {
     styleSheetsSpy.mockRestore();
   }
+});
+
+beforeEach(() => {
+  // Reset symbols between tests since `updateCounterStyleSymbols` mutates the rule in place.
+  noteCallersRule.symbols = DEFAULT_NOTE_CALLERS_SYMBOLS;
+  crossRefCallersRule.symbols = DEFAULT_CROSS_REF_CALLERS_SYMBOLS;
 });
 
 describe("NoteNodePlugin", () => {
@@ -105,6 +124,31 @@ describe("NoteNodePlugin", () => {
       expect(getNoteCaller(firstNoteNode)).toBe("a");
       expect(getNoteCaller(secondNoteNode)).toBe("b");
       expect(getNoteCaller(thirdNoteNode)).toBe("c");
+    });
+  });
+
+  describe("Counter style rewriting", () => {
+    it("should rewrite note-callers counter-style symbols from nodeOptions.noteCallers", async () => {
+      await testEnvironment({ noteCallers: ["one", "two", "three"] });
+
+      expect(noteCallersRule.symbols).toBe('"one" "two" "three"');
+    });
+
+    it("should rewrite cross-ref-callers counter-style symbols from nodeOptions.crossRefCallers", async () => {
+      await testEnvironment({ crossRefCallers: ["‡"] });
+
+      expect(crossRefCallersRule.symbols).toBe('"‡"');
+    });
+
+    it("should default cross-ref-callers counter-style symbols to '†' when crossRefCallers is not set", async () => {
+      // Seed a non-default value so a pass requires the plugin to actively write the default —
+      // the beforeEach seeds the default itself, which would also satisfy a no-op plugin.
+      crossRefCallersRule.symbols = '"sentinel"';
+
+      await testEnvironment({ noteCallers: defaultNoteCallers });
+
+      expect(defaultCrossRefCallers).toEqual(["†"]);
+      expect(crossRefCallersRule.symbols).toBe(DEFAULT_CROSS_REF_CALLERS_SYMBOLS);
     });
   });
 
@@ -271,6 +315,82 @@ describe("NoteNodePlugin", () => {
         // Node should not be removed
         expect(noteNode).not.toBeNull();
         expect(noteNode?.isAttached()).toBe(true);
+      });
+    });
+  });
+
+  describe("Expanded editable caller retention", () => {
+    it("does not eject the editable caller text out of an expanded note", async () => {
+      // Editable+expanded: once the opening `\f` glyph is deleted, the caller TextNode
+      // (` caller<NBSP>`, see getEditableCallerText) becomes the note's FIRST child. The
+      // leading-text salvage must not eject it into the paragraph — doing so plants the caller
+      // word in body text (live-observed as a repeated `word~` spray), and MarkerEditPlugin's
+      // note-deletion transform needs the caller in place to recognize the damaged note.
+      let noteKey: string;
+      const callerText = getEditableCallerText("+");
+      const { editor } = await testEnvironment(
+        undefined,
+        { markerMode: "editable", noteMode: "expanded", hasSpacing: false, isFormattedFont: false },
+        () => {
+          const note = $createNoteNode("f", "+", false);
+          note.append(
+            $createTextNode(callerText), // opener glyph already deleted — caller is first
+            $createCharNode("ft").append($createMarkerNode("ft"), $createTextNode(`${NBSP}text`)),
+          );
+          noteKey = note.getKey();
+          $getRoot().append(
+            $createParaNode().append($createTextNode("before "), note, $createTextNode(" after")),
+          );
+        },
+      );
+
+      editor.getEditorState().read(() => {
+        const note = $getNodeByKey<NoteNode>(noteKey);
+        expect(note?.isAttached()).toBe(true);
+        // The caller text stays INSIDE the note...
+        const noteTexts = note
+          ?.getChildren()
+          .filter((child): child is TextNode => $isTextNode(child))
+          .map((child) => child.getTextContent());
+        expect(noteTexts).toContain(callerText);
+        // ...and never appears as a direct child of the paragraph.
+        const para = $getRoot().getChildren().filter($isParaNode)[0];
+        const paraTexts = para
+          .getChildren()
+          .filter((child): child is TextNode => $isTextNode(child) && !$isNoteNode(child))
+          .map((child) => child.getTextContent());
+        expect(paraTexts).not.toContain(callerText);
+      });
+    });
+
+    it("still ejects stray typed text at the start of a note (salvage preserved)", async () => {
+      let noteKey: string;
+      const { editor } = await testEnvironment(
+        undefined,
+        { markerMode: "editable", noteMode: "expanded", hasSpacing: false, isFormattedFont: false },
+        () => {
+          const note = $createNoteNode("f", "+", false);
+          note.append(
+            $createTextNode("zz"), // user-typed stray text, NOT the caller shape
+            $createMarkerNode("f"),
+            $createTextNode(getEditableCallerText("+")),
+            $createCharNode("ft").append($createMarkerNode("ft"), $createTextNode(`${NBSP}text`)),
+          );
+          noteKey = note.getKey();
+          $getRoot().append($createParaNode().append($createTextNode("before "), note));
+        },
+      );
+
+      editor.getEditorState().read(() => {
+        const note = $getNodeByKey<NoteNode>(noteKey);
+        expect(note?.isAttached()).toBe(true);
+        // The stray text was moved out to the paragraph, ahead of the note.
+        const para = $getRoot().getChildren().filter($isParaNode)[0];
+        const paraTexts = para
+          .getChildren()
+          .filter((child): child is TextNode => $isTextNode(child) && !$isNoteNode(child))
+          .map((child) => child.getTextContent());
+        expect(paraTexts.some((text) => text.includes("zz"))).toBe(true);
       });
     });
   });

@@ -10,6 +10,7 @@ import {
   FORMATTED_VIEW_MODE,
   UNFORMATTED_VIEW_MODE,
   PARAGRAPH_STRUCTURE_VIEW_MODE,
+  STANDARD_VIEW_MODE,
 } from "./view-mode.model";
 
 /**
@@ -80,6 +81,24 @@ export interface ViewOptions {
    * the box relies on indent variables set by the gutter feature.
    */
   hasActiveTextFocusBox?: boolean;
+  /**
+   * When `false`, paragraphs render WITHOUT their marker prefix — no editable glyph and separator
+   * under `markerMode: "editable"`, and no immutable marker text under `markerMode: "visible"` or
+   * `hasGutterParaMarkers`. Default (undefined or true) renders the prefix each of those modes
+   * calls for.
+   *
+   * For surfaces whose paragraph is scaffolding rather than content: the footnote editor wraps the
+   * note it is editing in a marker-less paragraph purely so the editor has an element to host it,
+   * and that paragraph is never saved (the save path reads the note subtree alone). Defaulting the
+   * marker-less para to `\p` and displaying that glyph put a `\p ` prefix in front of the
+   * footnote's own text.
+   *
+   * This suppresses the prefix in the ADAPTOR, so the glyph bytes are never built. Hiding them in
+   * CSS instead would leave editable-but-invisible bytes in the document that the caret could
+   * traverse into, breaking the rule that displayed bytes are the document. Inline markers
+   * (char/verse/note) are unaffected — only the paragraph's own prefix is suppressed.
+   */
+  showParaMarkerPrefixes?: boolean;
 }
 
 let defaultViewMode: ViewMode;
@@ -157,6 +176,14 @@ export function getViewOptions(viewMode?: string | undefined): ViewOptions | und
         hasActiveTextFocusBox: true,
       };
       break;
+    case STANDARD_VIEW_MODE:
+      viewOptions = {
+        markerMode: "editable",
+        noteMode: "collapsed",
+        hasSpacing: true,
+        isFormattedFont: true,
+      };
+      break;
     default:
       break;
   }
@@ -174,8 +201,14 @@ export function getViewOptions(viewMode?: string | undefined): ViewOptions | und
 export function getViewMode(viewOptions: ViewOptions | undefined): ViewMode | undefined {
   if (!viewOptions) return undefined;
 
-  const { markerMode, hasSpacing, isFormattedFont, hasGutterParaMarkers, hasActiveTextFocusBox } =
-    viewOptions;
+  const {
+    markerMode,
+    noteMode,
+    hasSpacing,
+    isFormattedFont,
+    hasGutterParaMarkers,
+    hasActiveTextFocusBox,
+  } = viewOptions;
   if (
     markerMode === "hidden" &&
     hasSpacing &&
@@ -184,6 +217,9 @@ export function getViewMode(viewOptions: ViewOptions | undefined): ViewMode | un
     hasActiveTextFocusBox
   )
     return PARAGRAPH_STRUCTURE_VIEW_MODE;
+  // STANDARD is exactly the whitespace fingerprint plus collapsed notes — expressed as the call so
+  // a sixth axis on `ViewOptions` cannot land in one of the two spellings and not the other.
+  if (hasStandardViewWhitespace(viewOptions) && noteMode === "collapsed") return STANDARD_VIEW_MODE;
   if (
     markerMode === "hidden" &&
     hasSpacing &&
@@ -201,6 +237,46 @@ export function getViewMode(viewOptions: ViewOptions | undefined): ViewMode | un
   )
     return UNFORMATTED_VIEW_MODE;
   return undefined;
+}
+
+/**
+ * Whether the standard-view whitespace/display normalization rules apply to these view options.
+ *
+ * These rules — the display NBSP/`~` mapping at load time, the live display-whitespace transform
+ * and clipboard normalization, and the inverse normalization on serialization — are all gated on
+ * this ONE predicate, so a document always serializes under the same whitespace regime it was
+ * loaded with; no combination of options can apply the display mapping without its inversion.
+ *
+ * The invariant is the STANDARD view fingerprint with the `noteMode` axis dropped: editable
+ * markers in a spacing+formatted view with NEITHER `hasGutterParaMarkers` NOR
+ * `hasActiveTextFocusBox`. It is `true` for both collapsed (the named `standard` mode) and
+ * expanded notes. It is `false` for the Unformatted view (editable but neither spaced nor
+ * formatted, where whitespace is shown literally) and for gutter/focus-box views: those render
+ * paragraph markers as immutable typed text — a different whitespace regime with no
+ * display-mapped text to invert (their named mode hides markers entirely, so the editable
+ * engine's separators never combine with them). Deliberately NOT expressed via
+ * {@link getViewMode}: expanded is not the named `standard` mode, and overloading `getViewMode`
+ * would break its invertibility contract and the user-facing mode labels. The dependency runs the
+ * other way instead — `getViewMode` builds its STANDARD branch out of this predicate and the
+ * `noteMode` axis, so the fingerprint is written down exactly once.
+ *
+ * @param viewOptions - View options of the editor.
+ * @returns `true` when standard-view whitespace normalization applies.
+ *
+ * @public
+ */
+export function hasStandardViewWhitespace(viewOptions: ViewOptions | undefined): boolean {
+  if (!viewOptions) return false;
+
+  const { markerMode, hasSpacing, isFormattedFont, hasGutterParaMarkers, hasActiveTextFocusBox } =
+    viewOptions;
+  return (
+    markerMode === "editable" &&
+    hasSpacing &&
+    isFormattedFont &&
+    !hasGutterParaMarkers &&
+    !hasActiveTextFocusBox
+  );
 }
 
 /**
