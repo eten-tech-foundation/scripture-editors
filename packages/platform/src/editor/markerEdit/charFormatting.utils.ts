@@ -12,7 +12,6 @@
  * engine re-tokenizes those bytes.
  */
 
-import { $unwrapCharNode } from "./markerEditDeletion.utils";
 import {
   $createTextNode,
   $getSelection,
