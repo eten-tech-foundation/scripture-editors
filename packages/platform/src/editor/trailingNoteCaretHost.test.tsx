@@ -9,8 +9,11 @@
  * serialized USJ before and after the caret arrives is the sharpest form of that question: any
  * fabricated byte, from the host itself or from a transform the host woke, shows up as a diff.
  *
- * jsdom performs no layout and no hit testing, so whether a browser PAINTS a caret in the host — the
- * reason the host exists — cannot be asserted anywhere headless. That stays a manual check.
+ * jsdom performs no layout and no hit testing, so whether a browser PAINTS a caret in the host, and
+ * which DOM position a click at given coordinates produces, cannot be asserted anywhere headless.
+ * Those stay manual checks. What a DOM position resolves to once the browser has produced one IS
+ * measurable, so the caret arrives here both ways: named in the tree, as an arrow press leaves it,
+ * and resolved from a DOM position, as a click's does.
  */
 
 import editorUsjAdaptor, {
@@ -26,11 +29,13 @@ import { MarkerEditPlugin } from "./markerEdit/MarkerEditPlugin";
 import { Usj, usxStringToUsj } from "@eten-tech-foundation/scripture-utilities";
 import { act } from "@testing-library/react";
 import {
+  $createRangeSelectionFromDom,
   $getRoot,
   $getSelection,
   $isElementNode,
   $isRangeSelection,
   $isTextNode,
+  $setSelection,
   LexicalEditor,
   LexicalNode,
   SELECTION_CHANGE_COMMAND,
@@ -96,6 +101,45 @@ function readNoteParagraph(editor: LexicalEditor): ParaNode {
 function $markSubtreeDirty(node: LexicalNode): void {
   node.markDirty();
   if ($isElementNode(node)) node.getChildren().forEach($markSubtreeDirty);
+}
+
+/**
+ * Bring the caret from a DOM position the way a click does, rather than by naming tree nodes: the
+ * paragraph's own end, which is what a hit test past the note has to work with. Lexical resolves it
+ * into the note's hidden content; the guard is what takes it back out. Which DOM position a real
+ * click produces is not measurable here — `TrailingNoteCaretGuardPlugin`'s own tests enumerate the
+ * candidates; this one only needs the production stack to see the arrival.
+ */
+async function clickCaretPastNote(editor: LexicalEditor, para: ParaNode): Promise<void> {
+  const paraDom = editor.getElementByKey(para.getKey());
+  if (!paraDom) throw new Error("the note paragraph did not render");
+  const putDomCaret = () => {
+    const domSelection = document.getSelection();
+    if (!domSelection) throw new Error("no DOM selection");
+    const range = document.createRange();
+    range.setStart(paraDom, paraDom.childNodes.length);
+    range.collapse(true);
+    domSelection.removeAllRanges();
+    domSelection.addRange(range);
+    return domSelection;
+  };
+  await act(async () => {
+    const domSelection = putDomCaret();
+    editor.update(() => {
+      $setSelection($createRangeSelectionFromDom(domSelection, editor));
+    });
+  });
+  await act(async () => {
+    editor.dispatchCommand(SELECTION_CHANGE_COMMAND, undefined);
+  });
+  await act(async () => {
+    putDomCaret();
+    paraDom.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  // A browser writes the repaired selection back out to the DOM once the update commits; jsdom does
+  // not, so the fed-in position would otherwise be read back over the repair. Dropping the DOM range
+  // leaves the editor state authoritative, exactly as reconciliation would.
+  document.getSelection()?.removeAllRanges();
 }
 
 /** Rest the caret on the paragraph's own end — the position past the trailing note. */
@@ -224,6 +268,60 @@ describe("the caret host past a trailing note, with the production transforms mo
 
     const usjAfter = editorUsjAdaptor.deserializeEditorState(editor.getEditorState(), viewOptions);
     const serialized = JSON.stringify(usjAfter);
+    expect(serialized).not.toContain(CURSOR_PLACEHOLDER_CHAR);
+    expect(serialized).toContain("X");
+  });
+
+  it("hosts a caret that arrived from a DOM position, without changing the document", async () => {
+    const { editor, viewOptions } = await mountLoaded();
+    const para = readNoteParagraph(editor);
+    const before = deserializeSerializedEditorState(editor.getEditorState().toJSON(), viewOptions);
+
+    await clickCaretPastNote(editor, para);
+
+    editor.getEditorState().read(() => {
+      const last = para.getLastChild();
+      if (!$isTextNode(last)) throw new Error("expected a text host as the paragraph's last child");
+      expect(last.getTextContent()).toBe(CURSOR_PLACEHOLDER_CHAR);
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) throw new Error("expected a range selection");
+      expect(selection.anchor.key).toBe(last.getKey());
+      // The note itself is untouched: nothing was inserted into its hidden body on the way past.
+      const note = para.getChildAtIndex(para.getChildrenSize() - 2);
+      expect(note?.getTextContent()).not.toContain(CURSOR_PLACEHOLDER_CHAR);
+    });
+
+    const after = deserializeSerializedEditorState(editor.getEditorState().toJSON(), viewOptions);
+    expect(after).toEqual(before);
+    expect(JSON.stringify(after)).not.toContain(CURSOR_PLACEHOLDER_CHAR);
+  });
+
+  it("lands text typed after a DOM-position arrival after the note, in the saved USJ", async () => {
+    const { editor, viewOptions } = await mountLoaded();
+    const para = readNoteParagraph(editor);
+
+    await clickCaretPastNote(editor, para);
+    await act(async () => {
+      editor.update(
+        () => {
+          const selection = $getSelection();
+          if ($isRangeSelection(selection)) selection.insertText("X");
+        },
+        { discrete: true },
+      );
+    });
+
+    editor.getEditorState().read(() => {
+      const last = para.getLastChild();
+      expect($isTextNode(last) && last.getTextContent()).toBe("X");
+      const note = para.getChildAtIndex(para.getChildrenSize() - 2);
+      expect($isNoteNode(note)).toBe(true);
+      expect(note?.getTextContent()).not.toContain("X");
+    });
+
+    const serialized = JSON.stringify(
+      editorUsjAdaptor.deserializeEditorState(editor.getEditorState(), viewOptions),
+    );
     expect(serialized).not.toContain(CURSOR_PLACEHOLDER_CHAR);
     expect(serialized).toContain("X");
   });
